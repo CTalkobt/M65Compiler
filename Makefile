@@ -20,7 +20,7 @@ CA_OBJECTS = $(OBJ_DIR)/ca45_main.o $(OBJ_DIR)/AssemblerLexer.o $(OBJ_DIR)/Assem
 
 MAN_DIR = man
 
-.PHONY: all clean test man
+.PHONY: all clean test man test-mmemu
 
 all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET)
 
@@ -54,10 +54,15 @@ test: all
 	@bash src/test/test_compiler.sh
 	@echo "Running assembler feature tests..."
 	@bash src/test/test_assembler.sh
+	@echo "Validating mmemu-cli integration..."
+	@bash src/test/test_mmemu.sh
 	@$(MAKE) test-opcodes
 
 test-assembler: all
 	@bash src/test/test_assembler.sh
+
+test-mmemu: all
+	@bash src/test/test_mmemu.sh
 
 test-opcodes: all
 	@echo "Validating opcodes and addressing modes..."

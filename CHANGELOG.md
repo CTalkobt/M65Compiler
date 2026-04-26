@@ -2,6 +2,13 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
+## [Unreleased] - 2026-04-26
+
+### Added
+- **Testing**:
+    - Added an initial test program and integration script to validate the `mmemu-cli` utility with `ca45` output.
+    - Added `src/test/test_mmemu.sh` and `src/test-resources/test_mmemu_hello.s` for automated validation of binary loading and execution on the `rawMega65` machine.
+
 ## [Unreleased] - 2026-04-23
 
 ### Added
