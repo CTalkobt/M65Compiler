@@ -486,12 +486,21 @@ void CodeGenerator::visit(Assignment& node) {
             if (structs.count(sName) && structs[sName]->totalSize > 1) is16 = true;
         }
 
+        // Evaluate RHS first to avoid ZP clobber by function calls
+        bool oldNeeded = resultNeeded;
+        resultNeeded = true;
+        node.expression->accept(*this);
+        resultNeeded = oldNeeded;
+        emitter->push_ax(); // save RHS on stack
+
+        // Now compute destination address (ZP only used transiently)
         emitAddress(node.target.get());
         int zpAddr = allocateZP(2);
         std::stringstream ssAddr;
         ssAddr << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpAddr);
         emit("stax $" + ssAddr.str());
 
+        // Load current value at destination
         if (is16) {
             emit("ptrderef $" + ssAddr.str());
         } else {
@@ -504,10 +513,8 @@ void CodeGenerator::visit(Assignment& node) {
         ssLeft << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpLeft);
         emit("stax $" + ssLeft.str());
 
-        bool oldNeeded = resultNeeded;
-        resultNeeded = true;
-        node.expression->accept(*this);
-        resultNeeded = oldNeeded;
+        // Restore RHS value from stack
+        emitter->pop_ax();
 
         emitOperation(actualOp, zpLeft, targetType, getExprType(node.expression.get()));
 
@@ -517,7 +524,7 @@ void CodeGenerator::visit(Assignment& node) {
             emitter->ldy_imm(1);
             emit("sta ($" + ssAddr.str() + "),y");
         }
-        
+
         freeZP(zpLeft, 2);
         freeZP(zpAddr, 2);
         invalidateRegs();
@@ -666,15 +673,23 @@ void CodeGenerator::visit(Assignment& node) {
         }
     }
 
+    // Evaluate RHS first to avoid ZP clobber by function calls
+    bool oldNeeded = resultNeeded;
+    resultNeeded = true;
+    node.expression->accept(*this);
+    resultNeeded = oldNeeded;
+    emitter->push_ax(); // save RHS on stack
+
+    // Now compute destination address (ZP only used transiently)
     emitAddress(node.target.get());
     int zpIdx = allocateZP(2);
     std::stringstream ss;
     ss << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpIdx);
     emit("stax $" + ss.str());
-    bool oldNeeded = resultNeeded;
-    resultNeeded = true;
-    node.expression->accept(*this);
-    resultNeeded = oldNeeded;
+
+    // Restore RHS value from stack
+    emitter->pop_ax();
+
     emitter->sta_ind_z(emitter->getZP(zpIdx), false);
     updateRegY(0);
     ExpressionType targetType = getExprType(node.target.get());
