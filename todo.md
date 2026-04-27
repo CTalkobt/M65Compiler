@@ -8,28 +8,7 @@ Legend:
 
 ## Known Bugs
 
-- [X] **mmemu MCP: `create_machine` / `reset_machine` do not clear CPU state** —
-  After `create_machine` or `reset_machine`, registers retain values from the
-  previous run (A, X, Y, Z, SP, PC, cycle counter all stale). The CLI creates a
-  fresh machine correctly on each invocation, so this only affects the MCP server's
-  persistent machine instance. Workaround: use CLI for validation testing.
-  Fix: `create_machine` now erases the cached machine instance before re-creating.
-  `reset_machine` now falls back to directly calling `cpu->reset()`, `bus->reset()`,
-  and `ioRegistry->resetAll()` for raw machines that lack an `onReset` callback.
-
-- [X] **Assembler: Remove debug logging for TOKEN: emission during parsing** —
-  Token dumps and AST printing moved to `-vv` (verbose level 2). Phase status
-  messages (preprocessing, lexing, parsing, codegen) remain at `-v` (level 1).
-  No output when neither flag is used.
-
-- [ ] **Assembler: C function names collide with simulated opcode keywords** —
-  The assembler lexer tokenizes identifiers like `mul` and `div` as INSTRUCTION
-  tokens rather than IDENTIFIER tokens, because they match simulated opcode
-  mnemonics. This causes `jsr mul` to fail with "Expected expression" since the
-  parser tries to parse `mul` as an instruction. Workaround: avoid naming C
-  functions with assembler reserved words. Fix: the assembler should treat
-  instruction keywords as labels when used as operands of `jsr`/`jmp`, or the
-  compiler should mangle function names to avoid collisions.
+(none)
 
 ---
 
@@ -201,6 +180,29 @@ Steps required to bring the C compiler closer to C11 standards.
 ---
 
 ## Fixed Bugs
+
+- [X] **mmemu MCP: `create_machine` / `reset_machine` do not clear CPU state** —
+  After `create_machine` or `reset_machine`, registers retain values from the
+  previous run (A, X, Y, Z, SP, PC, cycle counter all stale). The CLI creates a
+  fresh machine correctly on each invocation, so this only affects the MCP server's
+  persistent machine instance. Workaround: use CLI for validation testing.
+  Fix: `create_machine` now erases the cached machine instance before re-creating.
+  `reset_machine` now falls back to directly calling `cpu->reset()`, `bus->reset()`,
+  and `ioRegistry->resetAll()` for raw machines that lack an `onReset` callback.
+
+- [X] **Assembler: Remove debug logging for TOKEN: emission during parsing** —
+  Token dumps and AST printing moved to `-vv` (verbose level 2). Phase status
+  messages (preprocessing, lexing, parsing, codegen) remain at `-v` (level 1).
+  No output when neither flag is used.
+
+- [X] **Assembler: C function names collide with simulated opcode keywords** —
+  The assembler lexer tokenizes identifiers like `mul` and `div` as INSTRUCTION
+  tokens rather than IDENTIFIER tokens, because they match simulated opcode
+  mnemonics. This caused `jsr mul` to fail because the parser's label check
+  (IDENTIFIER + COLON) rejected INSTRUCTION tokens as labels. Fix: the parser's
+  label recognition now accepts both IDENTIFIER and INSTRUCTION tokens followed
+  by `:`. The expression evaluator already handled INSTRUCTION tokens as symbol
+  references, so no other changes were needed.
 
 - [X] **ConstantFolder / CodeGenerator: Loop results eliminated** —
   The ConstantFolder propagates constants through sequential assignments, replacing

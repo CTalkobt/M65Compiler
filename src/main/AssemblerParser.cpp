@@ -310,7 +310,7 @@ void AssemblerParser::pass1() {
         stmt->scopePrefix = currentScopePrefix();
         stmt->segmentName = currentSegment->name;
 
-        if (peek().type == AssemblerTokenType::IDENTIFIER && pos + 1 < tokens.size() && tokens[pos+1].type == AssemblerTokenType::COLON) {
+        if ((peek().type == AssemblerTokenType::IDENTIFIER || peek().type == AssemblerTokenType::INSTRUCTION) && pos + 1 < tokens.size() && tokens[pos+1].type == AssemblerTokenType::COLON) {
             stmt->label = stmt->scopePrefix + advance().value;
             advance();
             symbolTable[stmt->label] = {pc, true, 2, false, 0, false, 0};
