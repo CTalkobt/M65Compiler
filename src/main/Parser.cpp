@@ -280,7 +280,10 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     }
     expect(TokenType::CLOSE_PAREN, "Expected ')'");
     
+    std::string savedFunctionName = currentFunctionName;
+    currentFunctionName = name;
     auto body = parseCompoundStatement();
+    currentFunctionName = savedFunctionName;
     auto func = setPos(std::make_unique<FunctionDeclaration>(name, returnType), startToken);
     func->isSigned = isSigned;
     func->parameters = std::move(params);
@@ -990,10 +993,16 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         return setPos(std::make_unique<AlignofExpression>(typeName, aPtrLevel), tokens[pos-1]);
     }
 
-    if (peek().type == TokenType::IDENTIFIER) {
+    if (peek().type == TokenType::IDENTIFIER && (peek().value == "__func__" || peek().value == "__FUNCTION__")) {
+        const Token& funcToken = advance();
+        if (currentFunctionName.empty()) {
+            throw std::runtime_error("Error at " + std::to_string(funcToken.line) + ":" + std::to_string(funcToken.column) + ": __func__ used outside of a function");
+        }
+        expr = setPos(std::make_unique<StringLiteral>(currentFunctionName), funcToken);
+    } else if (peek().type == TokenType::IDENTIFIER) {
         const Token& nameToken = advance();
         std::string name = nameToken.value;
-        
+
         auto enumIt = enumConstants.find(name);
         if (enumIt != enumConstants.end()) {
             return setPos(std::make_unique<IntegerLiteral>(enumIt->second), nameToken);

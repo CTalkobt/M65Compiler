@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -std=c++17 -Wall -Wextra -Iinclude
+CXXFLAGS = -std=c++17 -Wall -Wextra -Iinclude -MMD -MP
 SRC_DIR = src/main
 OBJ_DIR = obj
 BIN_DIR = bin
@@ -45,6 +45,8 @@ $(CA_TARGET): $(CA_OBJECTS)
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
 	@mkdir -p $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+-include $(OBJ_DIR)/*.d
 
 clean:
 	rm -rf $(OBJ_DIR) $(BIN_DIR) build

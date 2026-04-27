@@ -174,6 +174,7 @@ VALIDATION_TESTS=(
     "test_type_promotion"
     "test_string_literal"
     "test_operator_precedence"
+    "test_func_identifier"
 )
 
 for name in "${VALIDATION_TESTS[@]}"; do

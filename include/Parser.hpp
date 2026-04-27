@@ -62,6 +62,7 @@ private:
     bool isTypedef(const std::string& name) const;
 
     int anonymousAggregateCount = 0;
+    std::string currentFunctionName;
     std::vector<std::unique_ptr<StructDefinition>> pendingDefinitions;
     void flushPending(TranslationUnit& unit);
 };

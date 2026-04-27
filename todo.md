@@ -63,7 +63,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **Mixed Declarations and Code**: Allow variable declarations to appear anywhere within a block, not just at the start (C99).
 - [X] **Explicit Cast Expressions**: Support C-style cast syntax `(type)expr` for explicit type conversions (narrowing, widening, pointer casts).
 - [X] **Implicit Narrowing Warnings**: Emit compile-time warnings when implicit conversions lose data (e.g., `int` to `char`, pointer to `char`).
-- [ ] **`__func__` Identifier**: Support the predefined `__func__` string literal containing the enclosing function name (C99).
+- [X] **`__func__` Identifier**: Support the predefined `__func__` string literal containing the enclosing function name (C99).
 
 ## Roadmap - Linker & Libraries (ln45)
 - [ ] **Object Format**: Define the `.o45` relocatable object format as an extension of the `.o65` specification.
