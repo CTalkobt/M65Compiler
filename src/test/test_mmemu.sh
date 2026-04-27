@@ -170,6 +170,10 @@ VALIDATION_TESTS=(
     "test_ternary"
     "test_volatile_dse"
     "test_zp_clobber"
+    "test_short_circuit"
+    "test_type_promotion"
+    "test_string_literal"
+    "test_operator_precedence"
 )
 
 for name in "${VALIDATION_TESTS[@]}"; do

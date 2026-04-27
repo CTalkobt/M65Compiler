@@ -57,6 +57,10 @@ TEST_FILES=(
     "src/test-resources/test_volatile_dse.c"
     "src/test-resources/test_struct_param.c"
     "src/test-resources/test_inline_asm.c"
+    "src/test-resources/test_short_circuit.c"
+    "src/test-resources/test_type_promotion.c"
+    "src/test-resources/test_string_literal.c"
+    "src/test-resources/test_operator_precedence.c"
 )
 
 mkdir -p build/test

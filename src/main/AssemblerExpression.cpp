@@ -317,11 +317,11 @@ std::unique_ptr<ExprAST> parseExprAST(const std::vector<AssemblerToken>& tokens,
         if (t.type == AssemblerTokenType::BINARY_LITERAL) return std::make_unique<ConstantNode>(std::stoul(t.value.substr(1), nullptr, 2));
         if (t.type == AssemblerTokenType::REGISTER) return std::make_unique<RegisterNode>("." + t.value);
         if (t.type == AssemblerTokenType::FLAG) return std::make_unique<FlagNode>(t.value[0]);
-        if (t.type == AssemblerTokenType::IDENTIFIER) {
+        if (t.type == AssemblerTokenType::IDENTIFIER || t.type == AssemblerTokenType::INSTRUCTION) {
             std::string name = t.value;
             std::string lowerName = name;
             std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
-            if ((lowerName == "lo" || lowerName == "hi" || lowerName == "bank") && idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::OPEN_PAREN) {
+            if (t.type == AssemblerTokenType::IDENTIFIER && (lowerName == "lo" || lowerName == "hi" || lowerName == "bank") && idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::OPEN_PAREN) {
                 idx++; // consume (
                 auto expr = parseExprAST(tokens, idx, symbolTable, scopePrefix);
                 if (idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::CLOSE_PAREN) idx++; // consume )
