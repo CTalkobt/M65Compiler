@@ -175,6 +175,16 @@ void AssemblerParser::emitSTWCode(std::vector<uint8_t>& binary, const std::strin
     AssemblerSimulatedOps::emitSTWCode(this, e, src, tokenIndex, scopePrefix, forceStack);
 }
 
+void AssemblerParser::emitLDA_StackCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart());
+    AssemblerSimulatedOps::emitLDA_StackCode(this, e, tokenIndex, scopePrefix);
+}
+
+void AssemblerParser::emitSTA_StackCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart());
+    AssemblerSimulatedOps::emitSTA_StackCode(this, e, tokenIndex, scopePrefix);
+}
+
 void AssemblerParser::emitLDX_StackCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
     M65Emitter e(binary, getZPStart());
     AssemblerSimulatedOps::emitLDX_StackCode(this, e, tokenIndex, scopePrefix);
@@ -480,6 +490,9 @@ void AssemblerParser::pass1() {
             else if (fullMnemonic == "select") stmt->type = Statement::SELECT;
             else if (fullMnemonic == "ptrstack") stmt->type = Statement::PTRSTACK;
             else if (fullMnemonic == "ptrderef") stmt->type = Statement::PTRDEREF;
+            else if (fullMnemonic == "phw.sp") stmt->type = Statement::PHW_STACK;
+            else if (fullMnemonic == "lda.sp") stmt->type = Statement::LDA_STACK;
+            else if (fullMnemonic == "sta.sp") stmt->type = Statement::STA_STACK;
             else if (fullMnemonic == "ldw.f") stmt->type = Statement::LDWF;
             else if (fullMnemonic == "stw.f") stmt->type = Statement::STWF;
             else if (fullMnemonic == "inc.f") stmt->type = Statement::INCF;
@@ -602,6 +615,8 @@ void AssemblerParser::pass1() {
                 else if (stmt->type == Statement::BRANCH16) emitBranch16Code(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 else if (stmt->type == Statement::SELECT) emitSelectCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 else if (stmt->type == Statement::PHW_STACK) emitPHWStackCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::LDA_STACK) emitLDA_StackCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::STA_STACK) emitSTA_StackCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 else if (stmt->type == Statement::LDX_STACK) emitLDX_StackCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 else if (stmt->type == Statement::LDY_STACK) emitLDY_StackCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 else if (stmt->type == Statement::LDZ_STACK) emitLDZ_StackCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
@@ -1036,6 +1051,8 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                     else if (s->type == Statement::BRANCH16) emitBranch16Code(d, s->instr.operandTokenIndex, s->scopePrefix);
                     else if (s->type == Statement::SELECT) emitSelectCode(d, s->instr.operandTokenIndex, s->scopePrefix);
                     else if (s->type == Statement::PHW_STACK) emitPHWStackCode(d, s->instr.operandTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::LDA_STACK) emitLDA_StackCode(d, s->instr.operandTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::STA_STACK) emitSTA_StackCode(d, s->instr.operandTokenIndex, s->scopePrefix);
                     else if (s->type == Statement::LDX_STACK) emitLDX_StackCode(d, s->instr.operandTokenIndex, s->scopePrefix);
                     else if (s->type == Statement::LDY_STACK) emitLDY_StackCode(d, s->instr.operandTokenIndex, s->scopePrefix);
                     else if (s->type == Statement::LDZ_STACK) emitLDZ_StackCode(d, s->instr.operandTokenIndex, s->scopePrefix);

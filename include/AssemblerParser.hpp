@@ -81,6 +81,7 @@ private:
                     NEG16, NOT16, CHKZERO8, CHKZERO16, CHKNONZERO8, CHKNONZERO16, BRANCH16, SELECT,
                     PTRSTACK, PTRDEREF, LDWF, STWF, INCF, DECF, PHW_STACK, ASW, ROW, ASR16, LSL16, LSR16, ROL16, ROR16, ABS16,
                     ADDS16, SUBS16, CMP_S16, NEG_S16, ABS_S16, ASR_S16, LSL_S16, LSR_S16, ROL_S16, ROR_S16, SXT8,
+                    LDA_STACK, STA_STACK,
                     LDX_STACK, LDY_STACK, LDZ_STACK,
                     STX_STACK, STY_STACK, STZ_STACK,
                     LDAX, LDAY, LDAZ, STAX, STAY, STAZ, FILL, COPY, PUSH, POP } type = NONE;
@@ -115,6 +116,7 @@ private:
                 case ABS16: case CHKZERO8: case CHKZERO16:
                 case ADDS16: case SUBS16: case CMP_S16: case NEG_S16: case ABS_S16:
                 case ASR_S16: case LSL_S16: case LSR_S16: case ROL_S16: case ROR_S16: case SXT8:
+                case LDA_STACK: case STA_STACK:
                 case LDX_STACK: case LDY_STACK: case LDZ_STACK:
                 case STX_STACK: case STY_STACK: case STZ_STACK:
                 case CHKNONZERO8: case CHKNONZERO16: case BRANCH16: case SELECT:
@@ -168,6 +170,8 @@ private:
     void emitCMP_S16Code(std::vector<uint8_t>& binary, const std::string& src1, int tokenIndex, const std::string& scopePrefix = "");
     void emitLDWCode(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "", bool forceStack = false);
     void emitSTWCode(std::vector<uint8_t>& binary, const std::string& src, int tokenIndex, const std::string& scopePrefix = "", bool forceStack = false);
+    void emitLDA_StackCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");
+    void emitSTA_StackCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");
     void emitLDX_StackCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");
     void emitLDY_StackCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");
     void emitLDZ_StackCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");

@@ -8,14 +8,17 @@ Legend:
 
 ## Known Bugs
 
-- [ ] **ConstantFolder / CodeGenerator: Loop results eliminated** —
-  The ConstantFolder propagates constants through loop bodies sequentially, computing
-  final values for variables like `sum` and `i`. After folding, assignments like
-  `results[3] = sum` get folded to `results[3] = 10` (a constant). However, the
-  CodeGenerator then fails to emit code for these assignments — the source comment
-  appears in the .s output but no instructions are generated. Likely related to
-  `resultNeeded` flag or `isVariableUsed` optimization incorrectly eliminating the
-  store. Workaround: use `-O0` flag to skip constant folding.
+- [X] **ConstantFolder / CodeGenerator: Loop results eliminated** —
+  The ConstantFolder propagates constants through sequential assignments, replacing
+  all reads with literal values. The CodeGenerator's `isVariableUsed` check then
+  incorrectly classifies the variable as unused (only dead writes remain, which
+  were explicitly excluded), eliminating the variable declaration while leaving
+  the dead stores referencing an unallocated stack variable. Fix: (1) Fixed
+  `VariableUseChecker::visit(Assignment&)` to count assignment targets as uses,
+  ensuring the variable is always allocated when written to. (2) Added dead store
+  elimination to `ConstantFolder::visit(CompoundStatement&)` — consecutive constant
+  stores to the same non-volatile variable are detected and only the last surviving
+  store is kept. Conservatively clears tracking on any non-assignment statement.
 
 - [X] **CodeGenerator: ZP temp registers clobbered by function calls** —
   When generating `results[N] = func(arg)`, the CodeGenerator computes the
@@ -25,6 +28,23 @@ Legend:
   simple and compound assignment paths to evaluate the RHS first, push the
   result to the hardware stack, then compute the destination address into ZP.
   ZP is now only live during the final store sequence with no intervening calls.
+
+- [X] **Assembler: `sta`/`lda` stack-relative addressing mode rejected** —
+  The 45GS02 has no native `sta offset,s` or `lda offset,s` instructions.
+  Fix: added `sta.sp` and `lda.sp` simulated opcodes that expand to
+  `TSX; STA/LDA $0101+offset,X`. Updated CodeGenerator to emit these for
+  8-bit local variable access. Also fixed MemberAccess visitor which hardcoded
+  `, s` suffix on global struct member access.
+
+- [X] **Assembler: `mul.16` and `div.16` simulated opcodes not registered** —
+  The assembler lexer recognized `MUL` and `DIV` but not the width-suffixed
+  variants `MUL.16`, `DIV.16` etc. Fix: added `MUL.8`/`.16`/`.24`/`.32` and
+  `DIV.8`/`.16`/`.24`/`.32` to the lexer instruction set.
+
+- [X] **Assembler: `phw.sp` simulated opcode not registered** —
+  Fix: added `PHW.SP` to the lexer instruction set, added parser dispatch to
+  `PHW_STACK` statement type, and updated CodeGenerator to emit `phw.sp`
+  (consistent with `stw.sp`/`ldw.sp` naming convention).
 
 ---
 

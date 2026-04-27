@@ -585,7 +585,8 @@ void CodeGenerator::visit(Assignment& node) {
                 if (!regA.known || (regA.isVariable && regA.varName != rName) || (!regA.isVariable && regA.value != val)) {
                     emitter->lda_imm(val);
                 }
-                emit("sta " + rName + suffix);
+                if (isGlobal) emit("sta " + rName);
+                else emit("sta.sp " + rName);
                 updateRegAVar(rName, 0); regA.value = val;
             }
             return;
@@ -628,7 +629,8 @@ void CodeGenerator::visit(Assignment& node) {
             emit("stax " + rName + suffix);
             updateRegAVar(rName, 0); updateRegXVar(rName, 1);
         } else {
-            emit("sta " + rName + suffix);
+            if (isGlobal) emit("sta " + rName);
+            else emit("sta.sp " + rName);
             updateRegAVar(rName, 0);
         }
         return;
@@ -662,7 +664,8 @@ void CodeGenerator::visit(Assignment& node) {
                             emit("stax " + rName + "+" + std::to_string(mInfo.offset) + suffix);
                             updateRegAVar(rName, mInfo.offset); updateRegXVar(rName, mInfo.offset + 1);
                         } else {
-                            emit("sta " + rName + "+" + std::to_string(mInfo.offset) + suffix);
+                            if (isGlobal) emit("sta " + rName + "+" + std::to_string(mInfo.offset));
+                            else emit("sta.sp " + rName + "+" + std::to_string(mInfo.offset));
                             updateRegAVar(rName, mInfo.offset);
                         }
                         invalidateRegs();
@@ -1525,12 +1528,15 @@ void CodeGenerator::visit(MemberAccess& node) {
                 std::string nestedSName = getAggregateName(mInfo.type);
                 if (structs.count(nestedSName) && structs[nestedSName]->totalSize > 1) is16 = true;
             }
+            bool isGlobal = (rName.length() >= 3 && rName.substr(0, 3) == "_g_");
+            std::string suffix = isGlobal ? "" : ", s";
             if (is16) {
-                emit("ldax " + rName + "+" + std::to_string(mInfo.offset) + ", s");
+                emit("ldax " + rName + "+" + std::to_string(mInfo.offset) + suffix);
                 updateRegAVar(rName, mInfo.offset); updateRegXVar(rName, mInfo.offset + 1);
                 updateZNFlags(FlagSource::A);
             } else {
-                emit("lda " + rName + "+" + std::to_string(mInfo.offset) + ", s");
+                if (isGlobal) emit("lda " + rName + "+" + std::to_string(mInfo.offset));
+                else emit("lda.sp " + rName + "+" + std::to_string(mInfo.offset));
                 updateRegAVar(rName, mInfo.offset);
                 emitter->ldx_imm(0); updateRegX(0);
             }
@@ -1614,7 +1620,7 @@ void CodeGenerator::visit(VariableReference& node) {
         bool highCorrect = (regX.known && regX.isVariable && regX.varName == rName && regX.varOffset == 1);
         if (lowCorrect && highCorrect) {}
         else if (lowCorrect) { emit("ldx " + rName + "+1" + suffix); updateRegXVar(rName, 1); }
-        else if (highCorrect) { emit("lda " + rName + suffix); updateRegAVar(rName, 0); }
+        else if (highCorrect) { emit(isGlobal ? ("lda " + rName) : ("lda.sp " + rName)); updateRegAVar(rName, 0); }
         else {
             emit("ldax " + rName + suffix); updateRegAVar(rName, 0); updateRegXVar(rName, 1); updateZNFlags(FlagSource::A);
         }
@@ -1627,7 +1633,7 @@ void CodeGenerator::visit(VariableReference& node) {
         } else if (regZ.known && regZ.isVariable && regZ.varName == rName && regZ.varOffset == 0) {
             emit("tza"); transferRegs(FlagSource::A, FlagSource::Z);
         } else {
-            emit("lda " + rName + suffix); updateRegAVar(rName, 0);
+            emit(isGlobal ? ("lda " + rName) : ("lda.sp " + rName)); updateRegAVar(rName, 0);
         }
         if (!regX.known || regX.isVariable || regX.value != 0) { emitter->ldx_imm(0); updateRegX(0); }
     }
@@ -1682,7 +1688,7 @@ void CodeGenerator::visit(FunctionCall& node) {
                 std::string sName = getAggregateName(vi.type);
                 if (structs.count(sName) && structs[sName]->totalSize > 1) is16Bit = true;
             }
-            if (is16Bit) emit("phw.s " + rName + ", s");
+            if (is16Bit) emit("phw.sp " + rName + ", s");
             else { arg->accept(*this); emitter->push("a"); }
         } else { arg->accept(*this); emitter->push_ax(); }
     }
@@ -1889,7 +1895,7 @@ public:
     void visit(IntegerLiteral&) override {}
     void visit(StringLiteral&) override {}
     void visit(VariableReference& node) override { if (node.name == targetVarName) used = true; }
-    void visit(Assignment& node) override { if (auto* ref = dynamic_cast<VariableReference*>(node.target.get())) if (ref->name == targetVarName && ref->name != currentDeclVarName) used = true; node.expression->accept(*this); }
+    void visit(Assignment& node) override { if (auto* ref = dynamic_cast<VariableReference*>(node.target.get())) if (ref->name == targetVarName) used = true; node.expression->accept(*this); if (node.target) node.target->accept(*this); }
     void visit(BinaryOperation& node) override { node.left->accept(*this); node.right->accept(*this); }
     void visit(UnaryOperation& node) override { node.operand->accept(*this); }
     void visit(FunctionCall& node) override { for (auto& arg : node.arguments) arg->accept(*this); }

@@ -337,18 +337,52 @@ public:
     void visit(CompoundStatement& node) override {
         auto oldConstants = knownConstants;
         auto oldVolatile = volatileVars;
-        // Create a new vector to hold the folded statements
+        // Track last dead-store-candidate index per variable for elimination.
+        // A store is "dead" if a subsequent constant store overwrites it with no
+        // intervening read. We conservatively clear all candidates whenever we
+        // encounter any statement that isn't a simple constant assignment, since
+        // it could read any variable (function calls, control flow, etc.).
+        std::map<std::string, int> lastConstStore;
         std::vector<std::unique_ptr<Statement>> newStatements;
         for (auto& stmt : node.statements) {
             auto folded = fold(std::move(stmt));
             if (folded) {
+                bool isConstAssign = false;
+                if (auto* es = dynamic_cast<ExpressionStatement*>(folded.get())) {
+                    if (auto* asgn = dynamic_cast<Assignment*>(es->expression.get())) {
+                        if (asgn->op == "=") {
+                            if (auto* ref = dynamic_cast<VariableReference*>(asgn->target.get())) {
+                                if (dynamic_cast<IntegerLiteral*>(asgn->expression.get()) &&
+                                    volatileVars.find(ref->name) == volatileVars.end()) {
+                                    isConstAssign = true;
+                                    auto it = lastConstStore.find(ref->name);
+                                    if (it != lastConstStore.end() && it->second >= 0) {
+                                        newStatements[it->second] = nullptr;
+                                    }
+                                    lastConstStore[ref->name] = (int)newStatements.size();
+                                } else {
+                                    // Non-constant assignment — variable value now unknown
+                                    lastConstStore.erase(ref->name);
+                                }
+                            }
+                        }
+                    }
+                }
+                if (!isConstAssign) {
+                    // Any other statement could read any variable — clear all candidates
+                    lastConstStore.clear();
+                }
                 newStatements.push_back(std::move(folded));
             }
         }
-        node.statements = std::move(newStatements);
+        // Remove nulled-out dead stores
+        std::vector<std::unique_ptr<Statement>> filtered;
+        for (auto& s : newStatements) {
+            if (s) filtered.push_back(std::move(s));
+        }
+        node.statements = std::move(filtered);
         knownConstants = std::move(oldConstants);
         volatileVars = std::move(oldVolatile);
-        // We don't set lastStmt here, as CompoundStatement is modified in place
     }
 
     void visit(FunctionDeclaration& node) override {

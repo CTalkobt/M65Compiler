@@ -10,12 +10,16 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
     - Added startup code generation: `jsr main; _halt: bra _halt` when a `main` function is present.
     - Added callee local variable cleanup before function return.
     - Added caller argument cleanup after function calls.
+    - Added dead store elimination to ConstantFolder — consecutive constant stores to the same variable are collapsed to the final value.
 - **Assembler (ca45)**:
     - Added `RTN` to the instruction lexer (previously silently skipped).
     - Added error reporting for unknown instructions during assembly, with output suppression on errors.
     - Added try/catch around instruction parsing to convert parse failures into error messages.
     - Added `*` (current PC) support in expressions (e.g., `bra *+4`, `lda *-2`).
     - Added `TSY` and `TYS` methods to M65Emitter.
+    - Added `lda.sp` / `sta.sp` simulated opcodes for 8-bit stack-relative access (expands to `TSX; LDA/STA $0101+offset,X`).
+    - Added `phw.sp` simulated opcode for pushing a 16-bit stack-relative variable onto the stack.
+    - Added width-suffixed `mul.8`/`.16`/`.24`/`.32` and `div.8`/`.16`/`.24`/`.32` to the instruction lexer.
 - **Testing**:
     - Added comprehensive control flow test (`test_mmemu_control.c`) covering if/else, while, do-while, for with break/continue, switch with fallthrough, and ternary operators.
     - Added simple compiler test (`mmemu_compiler_simple.c`).

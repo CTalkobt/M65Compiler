@@ -412,6 +412,16 @@ void AssemblerSimulatedOps::emitSTWCode(AssemblerParser* parser, M65Emitter& e, 
     } else throw std::runtime_error("Simulated STW only supports .AX, .AY, .AZ");
 }
 
+void AssemblerSimulatedOps::emitLDA_StackCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
+    uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    e.lda_stack(offset);
+}
+
+void AssemblerSimulatedOps::emitSTA_StackCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
+    uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    e.sta_stack(offset);
+}
+
 void AssemblerSimulatedOps::emitLDX_StackCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
     uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     e.lda_stack(offset); e.tax();

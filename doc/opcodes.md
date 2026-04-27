@@ -38,9 +38,15 @@ This reference summarizes the instructions available in the `ca45` assembler for
 
 * **`LDA`**
   * *Description*: Loads an 8-bit value into the Accumulator.
-  * *Modes*: `imm`, `bp`, `abs`, `bp,X/Y`, `abs,X/Y`, `(bp),Y/Z`, `[bp],Z`, `(bp,SP),Y`, `offset, s` (simulated via TSX)
+  * *Modes*: `imm`, `bp`, `abs`, `bp,X/Y`, `abs,X/Y`, `(bp),Y/Z`, `[bp],Z`, `(bp,SP),Y`
   * *Flags*: `N`, `Z`
-  * *Note*: `offset, s` is synthesized as `TSX; LDA $0101+offset,X`. The native `($nn,SP),Y` mode ($E2) is indirect (dereferences a pointer at SP+offset).
+  * *Note*: The native `($nn,SP),Y` mode ($E2) is indirect (dereferences a pointer at SP+offset). For direct stack-relative loads, use `lda.sp` (see Simulated Opcodes).
+
+* **`LDA.SP`** *(Simulated)*
+  * *Description*: Loads an 8-bit value from a stack-relative offset into the Accumulator.
+  * *Modes*: `offset` (stack variable name or numeric offset)
+  * *Generated Code*: `TSX; LDA $0101+offset,X`
+  * *Flags*: `N`, `Z`
 
 * **`LDX`, `LDY`, `LDZ`**
   * *Description*: Loads an 8-bit value into the specified register.
@@ -49,9 +55,15 @@ This reference summarizes the instructions available in the `ca45` assembler for
 
 * **`STA`**
   * *Description*: Stores an 8-bit value from the Accumulator into memory.
-  * *Modes*: `bp`, `abs`, `bp,X/Y`, `abs,X/Y`, `(bp),Y/Z`, `[bp],Z`, `(bp,SP),Y`, `offset, s` (simulated via TSX)
+  * *Modes*: `bp`, `abs`, `bp,X/Y`, `abs,X/Y`, `(bp),Y/Z`, `[bp],Z`, `(bp,SP),Y`
   * *Flags*: None
-  * *Note*: `offset, s` is synthesized as `TSX; STA $0101+offset,X`. The native `($nn,SP),Y` mode ($82) is indirect.
+  * *Note*: The native `($nn,SP),Y` mode ($82) is indirect. For direct stack-relative stores, use `sta.sp` (see Simulated Opcodes).
+
+* **`STA.SP`** *(Simulated)*
+  * *Description*: Stores an 8-bit value from the Accumulator into a stack-relative offset.
+  * *Modes*: `offset` (stack variable name or numeric offset)
+  * *Generated Code*: `TSX; STA $0101+offset,X`
+  * *Flags*: None
 
 * **`STX`, `STY`, `STZ`**
   * *Description*: Stores an 8-bit value from the specified register into memory.
