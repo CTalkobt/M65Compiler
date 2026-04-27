@@ -12,7 +12,7 @@
 int main(int argc, char** argv) {
     std::string input_file;
     std::string output_file = "out.bin";
-    bool verbose = false;
+    int verboseLevel = 0;
     int listingLevel = 1;
     std::map<std::string, uint32_t> predefinedSymbols;
     std::map<std::string, std::string> initialSymbols;
@@ -26,7 +26,8 @@ int main(int argc, char** argv) {
             std::cout << "  -o <filename>  Specify output filename (default: out.bin)" << std::endl;
             std::cout << "                 If filename ends in .prg, a 2-byte load address header is added." << std::endl;
             std::cout << "  -l <level>     Listing level: 1=Binary (default), 2=Expanded Assembly" << std::endl;
-            std::cout << "  -v             Enable verbose output" << std::endl;
+            std::cout << "  -v             Enable verbose output (phase info)" << std::endl;
+            std::cout << "  -vv            Extra verbose output (token dumps)" << std::endl;
             std::cout << "  -Dname=val     Define a symbol (e.g., -Dcc45.zeroPageStart=$10)" << std::endl;
             std::cout << "  -I<path>       Add include search path" << std::endl;
             std::cout << "  -?             Display this help message" << std::endl;
@@ -35,8 +36,10 @@ int main(int argc, char** argv) {
             output_file = argv[++i];
         } else if (arg == "-l" && i + 1 < argc) {
             listingLevel = std::stoi(argv[++i]);
+        } else if (arg == "-vv") {
+            verboseLevel = 2;
         } else if (arg == "-v") {
-            verbose = true;
+            verboseLevel = 1;
         } else if (arg.substr(0, 2) == "-I") {
             includePaths.push_back(arg.substr(2));
         } else if (arg.substr(0, 2) == "-D") {
@@ -80,7 +83,7 @@ int main(int argc, char** argv) {
     buffer << file.rdbuf();
     std::string sourceRaw = buffer.str();
 
-    if (verbose) {
+    if (verboseLevel >= 1) {
         std::cout << "Preprocessing " << input_file << "..." << std::endl;
     }
 
@@ -93,14 +96,14 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    if (verbose) {
+    if (verboseLevel >= 1) {
         std::cout << "Lexing " << input_file << "..." << std::endl;
     }
 
     AssemblerLexer lexer(source);
     std::vector<AssemblerToken> tokens = lexer.tokenize();
 
-    if (verbose) {
+    if (verboseLevel >= 2) {
         for (const auto& token : tokens) {
             std::cout << "Token: " << token.typeToString() << " (" << token.value << ") at " << token.line << ":" << token.column << std::endl;
         }

@@ -8,11 +8,19 @@ Legend:
 
 ## Known Bugs
 
-- [ ] **mmemu MCP: `create_machine` / `reset_machine` do not clear CPU state** —
+- [X] **mmemu MCP: `create_machine` / `reset_machine` do not clear CPU state** —
   After `create_machine` or `reset_machine`, registers retain values from the
   previous run (A, X, Y, Z, SP, PC, cycle counter all stale). The CLI creates a
   fresh machine correctly on each invocation, so this only affects the MCP server's
   persistent machine instance. Workaround: use CLI for validation testing.
+  Fix: `create_machine` now erases the cached machine instance before re-creating.
+  `reset_machine` now falls back to directly calling `cpu->reset()`, `bus->reset()`,
+  and `ioRegistry->resetAll()` for raw machines that lack an `onReset` callback.
+
+- [X] **Assembler: Remove debug logging for TOKEN: emission during parsing** —
+  Token dumps and AST printing moved to `-vv` (verbose level 2). Phase status
+  messages (preprocessing, lexing, parsing, codegen) remain at `-v` (level 1).
+  No output when neither flag is used.
 
 - [ ] **Assembler: C function names collide with simulated opcode keywords** —
   The assembler lexer tokenizes identifiers like `mul` and `div` as INSTRUCTION

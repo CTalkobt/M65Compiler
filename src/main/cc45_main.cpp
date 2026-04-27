@@ -342,7 +342,7 @@ int main(int argc, char** argv) {
     std::string output_file = "";
     bool outputFileSet = false;
     bool assemble = false;
-    bool verbose = false;
+    int verboseLevel = 0;
     bool optimize = true;
     int listingLevel = 1;
     uint32_t zeroPageStart = 0x02;
@@ -360,7 +360,8 @@ int main(int argc, char** argv) {
             std::cout << "  -c             Assemble the output with ca45" << std::endl;
             std::cout << "  -o <filename>  Specify output assembly filename (default: out.s)" << std::endl;
             std::cout << "  -l <level>     Listing level: 1=Standard (default), 2=Expanded" << std::endl;
-            std::cout << "  -v             Enable verbose output" << std::endl;
+            std::cout << "  -v             Enable verbose output (phase info)" << std::endl;
+            std::cout << "  -vv            Extra verbose output (token dumps, AST)" << std::endl;
             std::cout << "  -Dname=val     Define a symbol (e.g., -Dcc45.zeroPageStart=$10)" << std::endl;
             std::cout << "  -I<path>       Add include search path" << std::endl;
             std::cout << "  -?             Display this help message" << std::endl;
@@ -376,8 +377,10 @@ int main(int argc, char** argv) {
             listingLevel = std::stoi(argv[++i]);
         } else if (arg == "-O0") {
             optimize = false;
+        } else if (arg == "-vv") {
+            verboseLevel = 2;
         } else if (arg == "-v") {
-            verbose = true;
+            verboseLevel = 1;
         } else if (arg.substr(0, 2) == "-I") {
             includePaths.push_back(arg.substr(2));
         } else if (arg.substr(0, 2) == "-D") {
@@ -422,7 +425,7 @@ int main(int argc, char** argv) {
     buffer << file.rdbuf();
     std::string sourceRaw = buffer.str();
 
-    if (verbose) {
+    if (verboseLevel >= 1) {
         std::cout << "Preprocessing " << input_file << "..." << std::endl;
     }
 
@@ -461,37 +464,37 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (verbose) {
+    if (verboseLevel >= 1) {
         std::cout << "Lexing " << input_file << "..." << std::endl;
     }
 
     Lexer lexer(source);
     std::vector<Token> tokens = lexer.tokenize();
 
-    if (verbose) {
+    if (verboseLevel >= 2) {
         for (const auto& token : tokens) {
             std::cout << "Token: " << token.typeToString() << " (" << token.value << ") at " << token.line << ":" << token.column << std::endl;
         }
     }
 
-    if (verbose) {
+    if (verboseLevel >= 1) {
         std::cout << "Parsing " << input_file << "..." << std::endl;
     }
 
     Parser parser(tokens);
     try {
-        if (verbose) std::cout << "Parsing " << input_file << "..." << std::endl;
+        if (verboseLevel >= 1) std::cout << "Parsing " << input_file << "..." << std::endl;
         auto ast = parser.parse();
-        if (verbose) std::cout << "Parsing complete." << std::endl;
+        if (verboseLevel >= 1) std::cout << "Parsing complete." << std::endl;
 
         if (optimize) {
-            if (verbose) std::cout << "Constant folding..." << std::endl;
+            if (verboseLevel >= 1) std::cout << "Constant folding..." << std::endl;
             ConstantFolder folder;
             ast = folder.foldTranslationUnit(std::move(ast));
-            if (verbose) std::cout << "Constant folding complete." << std::endl;
+            if (verboseLevel >= 1) std::cout << "Constant folding complete." << std::endl;
         }
 
-        if (verbose && listingLevel >= 1) {
+        if (verboseLevel >= 2 && listingLevel >= 1) {
             ASTPrinter printer;
             ast->accept(printer);
         }
@@ -502,20 +505,20 @@ int main(int argc, char** argv) {
             return 1;
         }
 
-        if (verbose) std::cout << "Code generation..." << std::endl;
+        if (verboseLevel >= 1) std::cout << "Code generation..." << std::endl;
         CodeGenerator codegen(asmOut);
         codegen.zeroPageStart = zeroPageStart;
         codegen.zeroPageAvail = zeroPageAvail;
         codegen.setSourceInfo(input_file, sourceLines);
         codegen.generate(*ast);
-        if (verbose) {
+        if (verboseLevel >= 1) {
             std::cout << "Generated assembly in " << output_file << std::endl;
         }
         asmOut.close();
-        if (verbose) std::cout << "Code generation complete." << std::endl;
+        if (verboseLevel >= 1) std::cout << "Code generation complete." << std::endl;
 
         if (listingLevel == 2) {
-            if (verbose) std::cout << "Generating expanded listing..." << std::endl;
+            if (verboseLevel >= 1) std::cout << "Generating expanded listing..." << std::endl;
             
             std::ifstream asmIn(output_file);
             std::stringstream asmBuf;
