@@ -46,6 +46,15 @@ TEST_FILES=(
     "src/test-resources/test_modulo.c"
     "src/test-resources/test_typedef.c"
     "src/test-resources/test_enum.c"
+    "src/test-resources/test_zp_clobber.c"
+    "src/test-resources/test_dead_store.c"
+    "src/test-resources/test_char_local.c"
+    "src/test-resources/test_func_args.c"
+    "src/test-resources/test_global_struct.c"
+    "src/test-resources/test_multi_call.c"
+    "src/test-resources/test_mixed_types.c"
+    "src/test-resources/test_nested_struct.c"
+    "src/test-resources/test_volatile_dse.c"
 )
 
 mkdir -p build/test

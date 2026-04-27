@@ -740,16 +740,16 @@ static std::vector<std::string> getRegistersFromMnemonic(std::string reg) {
 void AssemblerSimulatedOps::emitPushPopCode(AssemblerParser*, M65Emitter& e, bool isPush, const std::string& reg, int, const std::string&) {
     std::vector<std::string> regs = getRegistersFromMnemonic(reg);
     if (isPush) {
-        // Push in order
-        for (const auto& r : regs) {
+        // Push in reverse order so low byte (A) ends up at lower address (little-endian)
+        for (int i = (int)regs.size() - 1; i >= 0; --i) {
+            const auto& r = regs[i];
             if (r == "A") e.pha();
             else if (r == "X") e.phx();
             else if (r == "Y") e.phy();
             else if (r == "Z") e.phz();
         }
     } else {
-        // Pop in reverse order
-        std::reverse(regs.begin(), regs.end());
+        // Pop in forward order (inverse of reversed push)
         for (const auto& r : regs) {
             if (r == "A") e.pla();
             else if (r == "X") e.plx();

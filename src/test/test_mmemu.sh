@@ -105,6 +105,71 @@ else
     fi
 fi
 
+echo ""
+echo "Running compiler validation tests on mmemu (return value A=\$00 = pass)..."
+
+# Tests that return 0 on success, nonzero on failure
+VALIDATION_TESTS=(
+    "test_arrays"
+    "test_break_continue"
+    "test_char"
+    "test_char_local"
+    "test_compound"
+    "test_constant_folding"
+    "test_dead_store"
+    "test_enum"
+    "test_for_decl"
+    "test_func_args"
+    "test_global_struct"
+    "test_inc_dec"
+    "test_mixed_types"
+    "test_modulo"
+    "test_multi_call"
+    "test_nested_struct"
+    "test_ops"
+    "test_recursion"
+    "test_switch"
+    "test_ternary"
+    "test_volatile_dse"
+    "test_zp_clobber"
+)
+
+for name in "${VALIDATION_TESTS[@]}"; do
+    src="src/test-resources/${name}.c"
+    s_file="build/test/${name}.s"
+    prg_file="build/test/${name}.prg"
+
+    if [ ! -f "$src" ]; then
+        echo "Skip: $name (source not found)"
+        continue
+    fi
+
+    # Compile + assemble
+    $CC "$src" -o "$s_file" 2>/dev/null
+    if [ $? -ne 0 ]; then
+        echo "FAIL: $name (compilation error)"
+        failed=$((failed + 1))
+        continue
+    fi
+    $AS "$s_file" -o "$prg_file" 2>/dev/null
+    if [ $? -ne 0 ]; then
+        echo "FAIL: $name (assembly error)"
+        failed=$((failed + 1))
+        continue
+    fi
+
+    # Run on mmemu and check A register
+    OUTPUT=$(echo -e "load $prg_file\nsetpc \$2000\nrun 500000\nregs\nq" | $MMEMU -m rawMega65 2>/dev/null)
+    A_VAL=$(echo "$OUTPUT" | grep -oP 'A:\s*\$\K[0-9A-Fa-f]+' | tail -1)
+
+    if [ "$A_VAL" = "00" ]; then
+        echo "PASS: $name (A=\$00)"
+    else
+        echo "FAIL: $name (A=\$$A_VAL)"
+        failed=$((failed + 1))
+    fi
+done
+
 if [ $failed -eq 0 ]; then
     echo "All mmemu tests passed!"
     exit 0

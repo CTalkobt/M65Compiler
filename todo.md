@@ -46,6 +46,44 @@ Legend:
   `PHW_STACK` statement type, and updated CodeGenerator to emit `phw.sp`
   (consistent with `stw.sp`/`ldw.sp` naming convention).
 
+- [ ] **CodeGenerator: Arrow operator fails on struct pointer parameters** —
+  When a function receives a `struct *` parameter and uses `p->member`, the
+  CodeGenerator throws "Dot/Arrow operator on non-struct type: int". The
+  parameter's type is recorded with `pointerLevel > 0` and `type = "struct Foo"`,
+  but `getExprType()` resolves the parameter to its base type without preserving
+  the struct name, so `isStruct()` returns false. Local `struct *` variables
+  assigned via `&localStruct` work because the type is inferred from the
+  address-of expression. Affects any function that takes a struct pointer argument.
+
+- [ ] **Assembler: C function names collide with simulated opcode keywords** —
+  The assembler lexer tokenizes identifiers like `mul` and `div` as INSTRUCTION
+  tokens rather than IDENTIFIER tokens, because they match simulated opcode
+  mnemonics. This causes `jsr mul` to fail with "Expected expression" since the
+  parser tries to parse `mul` as an instruction. Workaround: avoid naming C
+  functions with assembler reserved words. Fix: the assembler should treat
+  instruction keywords as labels when used as operands of `jsr`/`jmp`, or the
+  compiler should mangle function names to avoid collisions.
+
+- [X] **Assembler: `push`/`pop` simulated opcodes emit null bytes** —
+  `push .ax` emitted `$00 $00` (BRK; BRK) instead of `PHA ($48); PHX ($DA)`.
+  Root cause: a duplicate PUSH/POP handler in `AssemblerGenerator.cpp` was
+  unreachable (the first handler at the correct position had `continue`), and
+  the first handler was never properly wired into the generator's emit path.
+  Fix: removed the duplicate handler, confirmed the first handler at line 251
+  correctly calls `emitPushPopCode` and emits proper bytes. This fixed the
+  `mmemu_compiler_simple` emulator validation test.
+
+- [X] **CodeGenerator: Switch case comparisons fail at runtime** —
+  The `test_mmemu_control` emulator test shows switch cases 1 and 2 falling
+  through to the default case instead of matching. Root cause: `push .ax`
+  emitted PHA then PHX, placing bytes in big-endian order on the stack
+  (A/low byte at higher address, X/high byte at lower address). But
+  `ldax ..., s` reads in little-endian order (offset = low byte,
+  offset+1 = high byte), swapping the bytes. Fix: reversed the push order
+  to PHX then PHA (high byte first) so low byte (A) ends up at the lower
+  stack address, matching the little-endian convention used by `ldax`,
+  `stax`, and the native `phw` instruction. Pop order adjusted accordingly.
+
 ---
 
 ## Current Optimizations

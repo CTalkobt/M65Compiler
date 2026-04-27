@@ -88,7 +88,7 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
         bool isDeadCode = false;
         for (auto& stmt : parser->statements) {
             if (stmt->segmentName != segName) continue;
-            
+
             if (stmt->address > e.getAddress()) {
                 e.setAddress(stmt->address);
             }
@@ -290,11 +290,6 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
             }
             if (stmt->type == AssemblerParser::Statement::STAX || stmt->type == AssemblerParser::Statement::STAY || stmt->type == AssemblerParser::Statement::STAZ) {
                 if (!isDeadCode) AssemblerSimulatedOps::emitSTWCode(parser, e, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix, false);
-                continue;
-            }
-
-            if (stmt->type == AssemblerParser::Statement::PUSH || stmt->type == AssemblerParser::Statement::POP) {
-                if (!isDeadCode) AssemblerSimulatedOps::emitPushPopCode(parser, e, stmt->type == AssemblerParser::Statement::PUSH, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 continue;
             }
 
