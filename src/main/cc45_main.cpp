@@ -109,6 +109,14 @@ public:
         indent--;
         indent--;
     }
+    void visit(CastExpression& node) override {
+        printIndent(); std::cout << "CastExpression: (" << node.targetType;
+        for (int i = 0; i < node.pointerLevel; i++) std::cout << "*";
+        std::cout << ")" << std::endl;
+        indent++;
+        node.expression->accept(*this);
+        indent--;
+    }
     void visit(AlignofExpression& node) override {
         printIndent(); std::cout << "Alignof: " << node.typeName;
         for (int i = 0; i < node.pointerLevel; i++) std::cout << "*";

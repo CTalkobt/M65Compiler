@@ -118,6 +118,17 @@ public:
     void accept(ASTVisitor& visitor) override;
 };
 
+class CastExpression : public Expression {
+public:
+    std::string targetType;
+    int pointerLevel;
+    bool isSigned = false;
+    std::unique_ptr<Expression> expression;
+    CastExpression(const std::string& t, int p, bool s, std::unique_ptr<Expression> e)
+        : targetType(t), pointerLevel(p), isSigned(s), expression(std::move(e)) {}
+    void accept(ASTVisitor& visitor) override;
+};
+
 class AlignofExpression : public Expression {
 public:
     std::string typeName;
@@ -356,6 +367,7 @@ public:
     virtual void visit(ArrayAccess& node) = 0;
     virtual void visit(FunctionCall& node) = 0;
     virtual void visit(MemberAccess& node) = 0;
+    virtual void visit(CastExpression& node) = 0;
     virtual void visit(AlignofExpression& node) = 0;
     virtual void visit(SizeofExpression& node) = 0;
     virtual void visit(VariableDeclaration& node) = 0;

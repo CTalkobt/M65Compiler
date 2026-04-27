@@ -60,6 +60,7 @@ public:
     void visit(ArrayAccess& node) override;
     void visit(FunctionCall& node) override;
     void visit(MemberAccess& node) override;
+    void visit(CastExpression& node) override;
     void visit(AlignofExpression& node) override;
     void visit(SizeofExpression& node) override;
     void visit(VariableDeclaration& node) override;
@@ -88,6 +89,8 @@ public:
     void emitOperation(const std::string& op, int zpLeft, ExpressionType lhsType, ExpressionType rhsType);
     void embedSource(ASTNode& node);
     ExpressionType getExprType(Expression* expr);
+    void emitNarrowingWarning(ASTNode& node, const std::string& fromType, int fromPtr, const std::string& toType, int toPtr);
+    std::vector<std::string> warnings;
     bool isStruct(const std::string& type);
     bool isEnum(const std::string& type);
     std::string resolveVarName(const std::string& name);

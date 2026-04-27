@@ -907,6 +907,59 @@ std::unique_ptr<Expression> Parser::parseUnary() {
         }
     }
 
+    // Explicit cast: (type)expr
+    if (peek().type == TokenType::OPEN_PAREN) {
+        size_t savedPos = pos;
+        const Token& startToken = tokens[pos];
+        advance(); // consume '('
+        bool isCast = false;
+        std::string castType;
+        bool castSigned = false;
+        int castPtrLevel = 0;
+
+        if (peek().type == TokenType::INT || peek().type == TokenType::CHAR || peek().type == TokenType::VOID ||
+            peek().type == TokenType::STRUCT || peek().type == TokenType::UNION || peek().type == TokenType::ENUM ||
+            peek().type == TokenType::SIGNED || peek().type == TokenType::UNSIGNED ||
+            (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value))) {
+
+            if (match(TokenType::SIGNED) || match(TokenType::UNSIGNED)) {
+                castSigned = (tokens[pos-1].type == TokenType::SIGNED);
+                if (match(TokenType::INT)) castType = "int";
+                else if (match(TokenType::CHAR)) castType = "char";
+                else castType = "int";
+            }
+            else if (match(TokenType::INT)) castType = "int";
+            else if (match(TokenType::CHAR)) castType = "char";
+            else if (match(TokenType::VOID)) castType = "void";
+            else if (match(TokenType::STRUCT) || match(TokenType::UNION) || match(TokenType::ENUM)) {
+                bool isU = tokens[pos-1].type == TokenType::UNION;
+                bool isE = tokens[pos-1].type == TokenType::ENUM;
+                if (isE) castType = "enum " + expect(TokenType::IDENTIFIER, "Expected enum name").value;
+                else castType = (isU ? "union " : "struct ") + expect(TokenType::IDENTIFIER, "Expected struct/union name").value;
+            }
+            else if (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value)) {
+                std::string alias = advance().value;
+                castType = typedefs[alias].baseType;
+                castSigned = typedefs[alias].isSigned;
+                castPtrLevel = typedefs[alias].pointerLevel;
+            }
+
+            while (match(TokenType::STAR)) castPtrLevel++;
+
+            if (peek().type == TokenType::CLOSE_PAREN) {
+                advance(); // consume ')'
+                isCast = true;
+            }
+        }
+
+        if (isCast) {
+            auto operand = parseUnary();
+            return setPos(std::make_unique<CastExpression>(castType, castPtrLevel, castSigned, std::move(operand)), startToken);
+        } else {
+            pos = savedPos; // backtrack, let parsePrimary handle it as parenthesized expr
+        }
+    }
+
     if (match(TokenType::BANG) || match(TokenType::TILDE) || match(TokenType::MINUS) || match(TokenType::STAR) || match(TokenType::AMPERSAND) ||
         match(TokenType::PLUS_PLUS) || match(TokenType::MINUS_MINUS)) {
         const Token& opToken = tokens[pos-1];

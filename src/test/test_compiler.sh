@@ -61,6 +61,8 @@ TEST_FILES=(
     "src/test-resources/test_type_promotion.c"
     "src/test-resources/test_string_literal.c"
     "src/test-resources/test_operator_precedence.c"
+    "src/test-resources/test_cast.c"
+    "src/test-resources/test_narrowing_warn.c"
 )
 
 mkdir -p build/test

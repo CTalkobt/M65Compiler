@@ -18,6 +18,20 @@ void CodeGenerator::embedSource(ASTNode& node) {
     out << "; [" << sourceFilename << ":" << node.line << "] " << sourceLines[node.line - 1] << std::endl;
 }
 
+void CodeGenerator::emitNarrowingWarning(ASTNode& node, const std::string& fromType, int fromPtr, const std::string& toType, int toPtr) {
+    int fromSize = (fromPtr > 0 || fromType == "int") ? 2 : 1;
+    int toSize = (toPtr > 0 || toType == "int") ? 2 : 1;
+    if (fromSize > toSize) {
+        std::string loc = sourceFilename.empty() ? "" : sourceFilename + ":";
+        if (node.line > 0) loc += std::to_string(node.line) + ":" + std::to_string(node.column) + ": ";
+        std::string msg = loc + "warning: implicit conversion loses data from '" +
+            fromType + (fromPtr > 0 ? std::string(fromPtr, '*') : "") + "' to '" +
+            toType + (toPtr > 0 ? std::string(toPtr, '*') : "") + "'";
+        warnings.push_back(msg);
+        std::cerr << msg << std::endl;
+    }
+}
+
 void CodeGenerator::generate(TranslationUnit& unit) {
     emitter = std::make_unique<M65Emitter>(out, zeroPageStart);
     zpRegs.clear();
@@ -96,6 +110,9 @@ int CodeGenerator::getTypeSize(const std::string& type, int ptrLevel, int arrayS
 
 CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
     if (!expr) return {"int", 0, false};
+    if (auto* cast = dynamic_cast<CastExpression*>(expr)) {
+        return {cast->targetType, cast->pointerLevel, cast->isSigned};
+    }
     if (auto* gs = dynamic_cast<GenericSelection*>(expr)) {
         // Resolve based on control type
         ExpressionType controlType = getExprType(gs->control.get());
@@ -348,6 +365,23 @@ void CodeGenerator::visit(VariableDeclaration& node) {
 
     std::string lName = "_l_" + node.name;
     variableTypes[lName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.arraySize};
+
+    if (node.initializer && !dynamic_cast<CastExpression*>(node.initializer.get())) {
+        if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
+            int dstSize = (node.pointerLevel > 0 || node.type == "int") ? 2 : 1;
+            if (dstSize == 1 && (lit->value < 0 || lit->value > 255)) {
+                std::string loc = sourceFilename.empty() ? "" : sourceFilename + ":";
+                if (node.line > 0) loc += std::to_string(node.line) + ":" + std::to_string(node.column) + ": ";
+                std::string msg = loc + "warning: implicit conversion from constant " + std::to_string(lit->value) + " loses data (truncated to 'char')";
+                warnings.push_back(msg);
+                std::cerr << msg << std::endl;
+            }
+        } else {
+            ExpressionType initType = getExprType(node.initializer.get());
+            emitNarrowingWarning(node, initType.type, initType.pointerLevel, node.type, node.pointerLevel);
+        }
+    }
+
     int size = 0;
     if (node.pointerLevel > 0) size = 2;
     else if (node.type == "char") size = 1;
@@ -480,6 +514,24 @@ void CodeGenerator::emitOperation(const std::string& op, int zpLeft, ExpressionT
 
 void CodeGenerator::visit(Assignment& node) {
     embedSource(node);
+
+    if (node.op == "=" && !dynamic_cast<CastExpression*>(node.expression.get())) {
+        if (auto* lit = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
+            ExpressionType dstType = getExprType(node.target.get());
+            int dstSize = (dstType.pointerLevel > 0 || dstType.type == "int") ? 2 : 1;
+            if (dstSize == 1 && (lit->value < 0 || lit->value > 255)) {
+                std::string loc = sourceFilename.empty() ? "" : sourceFilename + ":";
+                if (node.line > 0) loc += std::to_string(node.line) + ":" + std::to_string(node.column) + ": ";
+                std::string msg = loc + "warning: implicit conversion from constant " + std::to_string(lit->value) + " loses data (truncated to 'char')";
+                warnings.push_back(msg);
+                std::cerr << msg << std::endl;
+            }
+        } else {
+            ExpressionType srcType = getExprType(node.expression.get());
+            ExpressionType dstType = getExprType(node.target.get());
+            emitNarrowingWarning(node, srcType.type, srcType.pointerLevel, dstType.type, dstType.pointerLevel);
+        }
+    }
 
     if (node.op != "=") {
         std::string actualOp = node.op.substr(0, node.op.length() - 1);
@@ -1376,6 +1428,7 @@ void CodeGenerator::visit(SwitchStatement& node) {
             }
         }
         void visit(ArrayAccess& node) override { node.arrayExpr->accept(*this); node.indexExpr->accept(*this); }
+        void visit(CastExpression& node) override { node.expression->accept(*this); }
         void visit(AlignofExpression&) override {}
         void visit(SizeofExpression& node) override { if (!node.isType) node.expression->accept(*this); }
         void visit(VariableDeclaration& node) override { if (node.initializer) node.initializer->accept(*this); }
@@ -1389,11 +1442,11 @@ void CodeGenerator::visit(SwitchStatement& node) {
         void visit(IfStatement& node) override { node.condition->accept(*this); node.thenBranch->accept(*this); if(node.elseBranch) node.elseBranch->accept(*this); }
         void visit(WhileStatement& node) override { node.condition->accept(*this); node.body->accept(*this); }
         void visit(DoWhileStatement& node) override { node.body->accept(*this); node.condition->accept(*this); }
-        void visit(ForStatement& node) override { 
-        if (node.initializer) node.initializer->accept(*this); 
-        if (node.condition) node.condition->accept(*this); 
-        if (node.increment) node.increment->accept(*this); 
-        node.body->accept(*this); 
+        void visit(ForStatement& node) override {
+        if (node.initializer) node.initializer->accept(*this);
+        if (node.condition) node.condition->accept(*this);
+        if (node.increment) node.increment->accept(*this);
+        node.body->accept(*this);
     }
         void visit(SwitchStatement&) override {}
         void visit(CaseStatement& node) override {
@@ -1759,6 +1812,31 @@ void CodeGenerator::emitJumpIfFalse(Expression* cond, const std::string& labelEl
     else { if (flags.znSource != FlagSource::A) emit("cmp #$00"); emit("branch.16 beq, " + labelElse); }
 }
 
+void CodeGenerator::visit(CastExpression& node) {
+    embedSource(node);
+    bool oldNeeded = resultNeeded;
+    resultNeeded = true;
+    node.expression->accept(*this);
+    resultNeeded = oldNeeded;
+
+    if (!resultNeeded) return;
+
+    ExpressionType srcType = getExprType(node.expression.get());
+    int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
+    int dstSize = (node.pointerLevel > 0 || node.targetType == "int" || node.targetType == "void") ? 2 : 1;
+
+    if (srcSize == 2 && dstSize == 1) {
+        // Narrowing: int/pointer -> char, just keep A (low byte), ignore X
+        emitter->ldx_imm(0);
+        updateRegX(0);
+    } else if (srcSize == 1 && dstSize == 2) {
+        // Widening: char -> int/pointer, zero-extend X
+        emitter->ldx_imm(0);
+        updateRegX(0);
+    }
+    // Same size: no-op (the value is already in A or A:X)
+}
+
 void CodeGenerator::visit(AlignofExpression& node) {
     int alignment = 1;
     if (node.pointerLevel > 0 || node.typeName == "int") alignment = 2;
@@ -1917,6 +1995,7 @@ public:
         }
     }
     void visit(ArrayAccess& node) override { node.arrayExpr->accept(*this); node.indexExpr->accept(*this); }
+    void visit(CastExpression& node) override { node.expression->accept(*this); }
     void visit(AlignofExpression&) override {}
     void visit(SizeofExpression& node) override { if (!node.isType) node.expression->accept(*this); }
     void visit(VariableDeclaration& node) override { if (node.initializer) node.initializer->accept(*this); }
@@ -1930,11 +2009,11 @@ public:
     void visit(IfStatement& node) override { node.condition->accept(*this); node.thenBranch->accept(*this); if(node.elseBranch) node.elseBranch->accept(*this); }
     void visit(WhileStatement& node) override { node.condition->accept(*this); node.body->accept(*this); }
     void visit(DoWhileStatement& node) override { node.body->accept(*this); node.condition->accept(*this); }
-    void visit(ForStatement& node) override { 
-        if (node.initializer) node.initializer->accept(*this); 
-        if (node.condition) node.condition->accept(*this); 
-        if (node.increment) node.increment->accept(*this); 
-        node.body->accept(*this); 
+    void visit(ForStatement& node) override {
+        if (node.initializer) node.initializer->accept(*this);
+        if (node.condition) node.condition->accept(*this);
+        if (node.increment) node.increment->accept(*this);
+        node.body->accept(*this);
     }
     void visit(SwitchStatement& node) override { node.expression->accept(*this); node.body->accept(*this); }
     void visit(CaseStatement& node) override { node.value->accept(*this); }

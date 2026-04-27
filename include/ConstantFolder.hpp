@@ -170,6 +170,19 @@ public:
         lastExpr = copyPos(std::make_unique<MemberAccess>(fold(std::move(node.structExpr)), node.memberName, node.isArrow), node);
     }
 
+    void visit(CastExpression& node) override {
+        auto operand = fold(std::move(node.expression));
+        if (auto* lit = dynamic_cast<IntegerLiteral*>(operand.get())) {
+            int val = lit->value;
+            if (node.pointerLevel == 0 && node.targetType == "char") {
+                val = val & 0xFF;
+            }
+            lastExpr = copyPos(std::make_unique<IntegerLiteral>(val), node);
+        } else {
+            lastExpr = copyPos(std::make_unique<CastExpression>(node.targetType, node.pointerLevel, node.isSigned, std::move(operand)), node);
+        }
+    }
+
     void visit(AlignofExpression& node) override;
     void visit(SizeofExpression& node) override;
 
