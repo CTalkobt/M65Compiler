@@ -256,6 +256,14 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
                 if (!isDeadCode) AssemblerSimulatedOps::emitPHWStackCode(parser, e, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 continue;
             }
+            if (stmt->type == AssemblerParser::Statement::LDA_STACK) {
+                if (!isDeadCode) AssemblerSimulatedOps::emitLDA_StackCode(parser, e, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                continue;
+            }
+            if (stmt->type == AssemblerParser::Statement::STA_STACK) {
+                if (!isDeadCode) AssemblerSimulatedOps::emitSTA_StackCode(parser, e, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                continue;
+            }
             if (stmt->type == AssemblerParser::Statement::LDX_STACK) {
                 if (!isDeadCode) AssemblerSimulatedOps::emitLDX_StackCode(parser, e, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 continue;
@@ -407,7 +415,7 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
                 }
             } else if (stmt->type == AssemblerParser::Statement::DIRECTIVE) {
                 if (!isDeadCode || stmt->dir.name == "org") {
-                    if (stmt->dir.name == "var") { if (stmt->dir.varType == Directive::ASSIGN) parser->symbolTable[stmt->dir.varName].value = parser->evaluateExpressionAt(stmt->dir.tokenIndex, stmt->scopePrefix); else if (stmt->dir.varType == Directive::INC) parser->symbolTable[stmt->dir.varName].value++; else if (stmt->dir.varType == Directive::DEC) parser->symbolTable[stmt->dir.varName].value--; }
+                    if (stmt->dir.name == "var") { if (stmt->dir.varType == Directive::INC) parser->symbolTable[stmt->dir.varName].value++; else if (stmt->dir.varType == Directive::DEC) parser->symbolTable[stmt->dir.varName].value--; }
                     else if (stmt->dir.name == "cleanup") { if (currentPass2Proc) currentPass2Proc->totalParamSize += parser->evaluateExpressionAt(stmt->dir.tokenIndex, stmt->scopePrefix); }
                     else if (stmt->dir.name == "byte") for (const auto& a : stmt->dir.arguments) e.emitByte((uint8_t)parseNumericLiteral(a));
                     else if (stmt->dir.name == "word") for (const auto& a : stmt->dir.arguments) e.emitWord((uint16_t)parseNumericLiteral(a));

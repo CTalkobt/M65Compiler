@@ -110,6 +110,11 @@ CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
         throw std::runtime_error("No matching association in _Generic selection");
     }
     if (auto* ref = dynamic_cast<VariableReference*>(expr)) {
+        std::string pName = "_p_" + ref->name;
+        if (variableTypes.count(pName)) {
+            VarInfo& vi = variableTypes.at(pName);
+            return {vi.type, vi.pointerLevel, vi.isSigned};
+        }
         std::string rName = "_l_" + ref->name;
         if (variableTypes.count(rName)) {
             VarInfo& vi = variableTypes.at(rName);
@@ -276,10 +281,9 @@ void CodeGenerator::visit(TranslationUnit& node) {
 
 void CodeGenerator::visit(FunctionDeclaration& node) {
     out << ".code" << std::endl;
-    out << "proc " << node.name << std::endl;
     variableTypes.clear();
     currentVars.clear();
-    std::string procLine = "    .proc " + node.name;
+    std::string procLine = "proc " + node.name;
 
     currentFunction = &node;
     currentParamByteSize = 0;

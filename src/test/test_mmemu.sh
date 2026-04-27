@@ -105,6 +105,44 @@ else
     fi
 fi
 
+echo "Testing mmemu-cli with test_inline_asm.c (inline assembly variable access)..."
+
+# 1. Compile
+$CC src/test-resources/test_inline_asm.c -o build/test/test_inline_asm.s
+if [ $? -ne 0 ]; then
+    echo "FAIL: Compilation failed for test_inline_asm.c"
+    failed=$((failed + 1))
+else
+    # 2. Assemble to .prg
+    $AS build/test/test_inline_asm.s -o build/test/test_inline_asm.prg
+    if [ $? -ne 0 ]; then
+        echo "FAIL: Assembly failed for test_inline_asm.s"
+        failed=$((failed + 1))
+    else
+        # 3. Run in mmemu-cli
+        # Expected bytes at $4000:
+        # 4000: 01 (global int param via ldax/stax inline asm)
+        # 4001: 01 (global char param via lda.sp/sta inline asm)
+        # 4002: 01 (global overwrite to zero)
+        # 4003: 01 (local variable via ldax/stax inline asm)
+        # 4004: AA (success marker)
+
+        EXPECTED_INLINE="01 01 01 01 AA"
+
+        OUTPUT=$(echo -e "load build/test/test_inline_asm.prg\nsetpc \$2000\nstep 500000\nm \$4000 5\nq" | $MMEMU -m rawMega65 2>/dev/null)
+
+        if echo "$OUTPUT" | grep -q "$EXPECTED_INLINE"; then
+            echo "SUCCESS: test_inline_asm.c executed correctly."
+        else
+            echo "FAIL: test_inline_asm.c validation failed."
+            echo "Expected at \$4000: $EXPECTED_INLINE"
+            echo "Actual output:"
+            echo "$OUTPUT"
+            failed=$((failed + 1))
+        fi
+    fi
+fi
+
 echo ""
 echo "Running compiler validation tests on mmemu (return value A=\$00 = pass)..."
 

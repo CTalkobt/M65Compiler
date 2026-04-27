@@ -8,52 +8,11 @@ Legend:
 
 ## Known Bugs
 
-- [X] **ConstantFolder / CodeGenerator: Loop results eliminated** —
-  The ConstantFolder propagates constants through sequential assignments, replacing
-  all reads with literal values. The CodeGenerator's `isVariableUsed` check then
-  incorrectly classifies the variable as unused (only dead writes remain, which
-  were explicitly excluded), eliminating the variable declaration while leaving
-  the dead stores referencing an unallocated stack variable. Fix: (1) Fixed
-  `VariableUseChecker::visit(Assignment&)` to count assignment targets as uses,
-  ensuring the variable is always allocated when written to. (2) Added dead store
-  elimination to `ConstantFolder::visit(CompoundStatement&)` — consecutive constant
-  stores to the same non-volatile variable are detected and only the last surviving
-  store is kept. Conservatively clears tracking on any non-assignment statement.
-
-- [X] **CodeGenerator: ZP temp registers clobbered by function calls** —
-  When generating `results[N] = func(arg)`, the CodeGenerator computes the
-  destination address and stores it in ZP $02/$03, then calls the function. The
-  callee clobbers ZP $02/$03 with its own temporaries. After return, the store
-  via `sta ($02),y` uses the wrong address. Fix: reordered evaluation in both
-  simple and compound assignment paths to evaluate the RHS first, push the
-  result to the hardware stack, then compute the destination address into ZP.
-  ZP is now only live during the final store sequence with no intervening calls.
-
-- [X] **Assembler: `sta`/`lda` stack-relative addressing mode rejected** —
-  The 45GS02 has no native `sta offset,s` or `lda offset,s` instructions.
-  Fix: added `sta.sp` and `lda.sp` simulated opcodes that expand to
-  `TSX; STA/LDA $0101+offset,X`. Updated CodeGenerator to emit these for
-  8-bit local variable access. Also fixed MemberAccess visitor which hardcoded
-  `, s` suffix on global struct member access.
-
-- [X] **Assembler: `mul.16` and `div.16` simulated opcodes not registered** —
-  The assembler lexer recognized `MUL` and `DIV` but not the width-suffixed
-  variants `MUL.16`, `DIV.16` etc. Fix: added `MUL.8`/`.16`/`.24`/`.32` and
-  `DIV.8`/`.16`/`.24`/`.32` to the lexer instruction set.
-
-- [X] **Assembler: `phw.sp` simulated opcode not registered** —
-  Fix: added `PHW.SP` to the lexer instruction set, added parser dispatch to
-  `PHW_STACK` statement type, and updated CodeGenerator to emit `phw.sp`
-  (consistent with `stw.sp`/`ldw.sp` naming convention).
-
-- [ ] **CodeGenerator: Arrow operator fails on struct pointer parameters** —
-  When a function receives a `struct *` parameter and uses `p->member`, the
-  CodeGenerator throws "Dot/Arrow operator on non-struct type: int". The
-  parameter's type is recorded with `pointerLevel > 0` and `type = "struct Foo"`,
-  but `getExprType()` resolves the parameter to its base type without preserving
-  the struct name, so `isStruct()` returns false. Local `struct *` variables
-  assigned via `&localStruct` work because the type is inferred from the
-  address-of expression. Affects any function that takes a struct pointer argument.
+- [ ] **mmemu MCP: `create_machine` / `reset_machine` do not clear CPU state** —
+  After `create_machine` or `reset_machine`, registers retain values from the
+  previous run (A, X, Y, Z, SP, PC, cycle counter all stale). The CLI creates a
+  fresh machine correctly on each invocation, so this only affects the MCP server's
+  persistent machine instance. Workaround: use CLI for validation testing.
 
 - [ ] **Assembler: C function names collide with simulated opcode keywords** —
   The assembler lexer tokenizes identifiers like `mul` and `div` as INSTRUCTION
@@ -63,26 +22,6 @@ Legend:
   functions with assembler reserved words. Fix: the assembler should treat
   instruction keywords as labels when used as operands of `jsr`/`jmp`, or the
   compiler should mangle function names to avoid collisions.
-
-- [X] **Assembler: `push`/`pop` simulated opcodes emit null bytes** —
-  `push .ax` emitted `$00 $00` (BRK; BRK) instead of `PHA ($48); PHX ($DA)`.
-  Root cause: a duplicate PUSH/POP handler in `AssemblerGenerator.cpp` was
-  unreachable (the first handler at the correct position had `continue`), and
-  the first handler was never properly wired into the generator's emit path.
-  Fix: removed the duplicate handler, confirmed the first handler at line 251
-  correctly calls `emitPushPopCode` and emits proper bytes. This fixed the
-  `mmemu_compiler_simple` emulator validation test.
-
-- [X] **CodeGenerator: Switch case comparisons fail at runtime** —
-  The `test_mmemu_control` emulator test shows switch cases 1 and 2 falling
-  through to the default case instead of matching. Root cause: `push .ax`
-  emitted PHA then PHX, placing bytes in big-endian order on the stack
-  (A/low byte at higher address, X/high byte at lower address). But
-  `ldax ..., s` reads in little-endian order (offset = low byte,
-  offset+1 = high byte), swapping the bytes. Fix: reversed the push order
-  to PHX then PHA (high byte first) so low byte (A) ends up at the lower
-  stack address, matching the little-endian convention used by `ldax`,
-  `stax`, and the native `phw` instruction. Pop order adjusted accordingly.
 
 ---
 
@@ -248,3 +187,103 @@ Steps required to bring the C compiler closer to C11 standards.
 ### Required Deliverable (not a standalone tool)
 
 - [ ] **`crt45.s` — C Runtime Startup**: Assembly source linked into every C program. Responsibilities: copy initialized `.data` from ROM to RAM, zero `.bss`, set up the zero-page register pool (the `B` register for Direct Page), then `JSR main` and handle return.
+
+---
+
+## Fixed Bugs
+
+- [X] **ConstantFolder / CodeGenerator: Loop results eliminated** —
+  The ConstantFolder propagates constants through sequential assignments, replacing
+  all reads with literal values. The CodeGenerator's `isVariableUsed` check then
+  incorrectly classifies the variable as unused (only dead writes remain, which
+  were explicitly excluded), eliminating the variable declaration while leaving
+  the dead stores referencing an unallocated stack variable. Fix: (1) Fixed
+  `VariableUseChecker::visit(Assignment&)` to count assignment targets as uses,
+  ensuring the variable is always allocated when written to. (2) Added dead store
+  elimination to `ConstantFolder::visit(CompoundStatement&)` — consecutive constant
+  stores to the same non-volatile variable are detected and only the last surviving
+  store is kept. Conservatively clears tracking on any non-assignment statement.
+
+- [X] **CodeGenerator: ZP temp registers clobbered by function calls** —
+  When generating `results[N] = func(arg)`, the CodeGenerator computes the
+  destination address and stores it in ZP $02/$03, then calls the function. The
+  callee clobbers ZP $02/$03 with its own temporaries. After return, the store
+  via `sta ($02),y` uses the wrong address. Fix: reordered evaluation in both
+  simple and compound assignment paths to evaluate the RHS first, push the
+  result to the hardware stack, then compute the destination address into ZP.
+  ZP is now only live during the final store sequence with no intervening calls.
+
+- [X] **Assembler: `sta`/`lda` stack-relative addressing mode rejected** —
+  The 45GS02 has no native `sta offset,s` or `lda offset,s` instructions.
+  Fix: added `sta.sp` and `lda.sp` simulated opcodes that expand to
+  `TSX; STA/LDA $0101+offset,X`. Updated CodeGenerator to emit these for
+  8-bit local variable access. Also fixed MemberAccess visitor which hardcoded
+  `, s` suffix on global struct member access.
+
+- [X] **Assembler: `mul.16` and `div.16` simulated opcodes not registered** —
+  The assembler lexer recognized `MUL` and `DIV` but not the width-suffixed
+  variants `MUL.16`, `DIV.16` etc. Fix: added `MUL.8`/`.16`/`.24`/`.32` and
+  `DIV.8`/`.16`/`.24`/`.32` to the lexer instruction set.
+
+- [X] **Assembler: `phw.sp` simulated opcode not registered** —
+  Fix: added `PHW.SP` to the lexer instruction set, added parser dispatch to
+  `PHW_STACK` statement type, and updated CodeGenerator to emit `phw.sp`
+  (consistent with `stw.sp`/`ldw.sp` naming convention).
+
+- [X] **Assembler: `push`/`pop` simulated opcodes emit null bytes** —
+  `push .ax` emitted `$00 $00` (BRK; BRK) instead of `PHA ($48); PHX ($DA)`.
+  Root cause: a duplicate PUSH/POP handler in `AssemblerGenerator.cpp` was
+  unreachable (the first handler at the correct position had `continue`), and
+  the first handler was never properly wired into the generator's emit path.
+  Fix: removed the duplicate handler, confirmed the first handler at line 251
+  correctly calls `emitPushPopCode` and emits proper bytes. This fixed the
+  `mmemu_compiler_simple` emulator validation test.
+
+- [X] **CodeGenerator: Switch case comparisons fail at runtime** —
+  The `test_mmemu_control` emulator test shows switch cases 1 and 2 falling
+  through to the default case instead of matching. Root cause: `push .ax`
+  emitted PHA then PHX, placing bytes in big-endian order on the stack
+  (A/low byte at higher address, X/high byte at lower address). But
+  `ldax ..., s` reads in little-endian order (offset = low byte,
+  offset+1 = high byte), swapping the bytes. Fix: reversed the push order
+  to PHX then PHA (high byte first) so low byte (A) ends up at the lower
+  stack address, matching the little-endian convention used by `ldax`,
+  `stax`, and the native `phw` instruction. Pop order adjusted accordingly.
+
+- [X] **CodeGenerator: Arrow operator fails on struct pointer parameters** —
+  When a function receives a `struct *` parameter and uses `p->member`, the
+  CodeGenerator throws "Dot/Arrow operator on non-struct type: int". The
+  parameter's type is recorded with `pointerLevel > 0` and `type = "struct Foo"`,
+  but `getExprType()` resolves the parameter to its base type without preserving
+  the struct name, so `isStruct()` returns false. Fix: `getExprType()` now checks
+  the `_p_` (parameter) prefix in `variableTypes` before checking `_l_` (local),
+  matching the lookup order used by `resolveVarName()`. Parameters with struct
+  types are now correctly resolved.
+
+- [X] **CodeGenerator: `proc` instruction emitted without parameter declarations** —
+  The CodeGenerator emitted `proc funcname` (no params) on one line and
+  `.proc funcname, W#_p_val` (with params) on the next. Only the `proc`
+  instruction creates assembler scope and parameter symbols; the `.proc`
+  directive is a no-op. Functions without local variables had undefined
+  parameter symbols (offset 0), causing stack-relative reads to access the
+  return address instead of the parameter. Functions with locals appeared to
+  work because `.var _p_x = _p_x + 2` happened to create the symbol with a
+  usable (but accidentally correct) value via double-evaluation. Fix: merged
+  parameter declarations onto the `proc` instruction line and removed the
+  redundant `.proc` directive.
+
+- [X] **Assembler: `lda.sp` / `sta.sp` missing from pass-2 code generator** —
+  The `LDA_STACK` and `STA_STACK` statement types were handled during pass-1
+  size calculation but had no corresponding emit handlers in the pass-2
+  generator (`AssemblerGenerator.cpp`). The generator fell through to the
+  default case and emitted zero bytes, producing BRK instructions in place
+  of stack-relative loads/stores. Fix: added `LDA_STACK` and `STA_STACK`
+  dispatch entries alongside the existing `LDX_STACK`/`STX_STACK` handlers.
+
+- [X] **Assembler: `.var` assignment re-evaluated during pass-2 generation** —
+  The `.var` directive was evaluated both during initial parsing (pass 1) and
+  again during code generation (pass 2) in `AssemblerGenerator.cpp`. For
+  self-referencing expressions like `.var _p_val = _p_val + 2`, this caused
+  the adjustment to be applied twice (e.g., 2→4 in pass 1, then 4→6 in
+  pass 2). Fix: removed the ASSIGN re-evaluation from the generator; the
+  value set during parsing is now final. INC/DEC variants are unaffected.

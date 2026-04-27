@@ -55,6 +55,8 @@ TEST_FILES=(
     "src/test-resources/test_mixed_types.c"
     "src/test-resources/test_nested_struct.c"
     "src/test-resources/test_volatile_dse.c"
+    "src/test-resources/test_struct_param.c"
+    "src/test-resources/test_inline_asm.c"
 )
 
 mkdir -p build/test
