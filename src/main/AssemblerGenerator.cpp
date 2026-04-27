@@ -394,8 +394,7 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
                                 }
                                 e.emitInstruction(stmt->instr.mnemonic, resolvedMode, val, hasValue);
                             } else { // Branch instructions
-                                Symbol* sym = parser->resolveSymbol(stmt->instr.operand, stmt->scopePrefix);
-                                uint32_t t = sym ? sym->value : 0;
+                                uint32_t t = parser->evaluateExpressionAt(stmt->instr.operandTokenIndex, stmt->scopePrefix);
                                 if (stmt->instr.mnemonic == "bsr") {
                                     int32_t off = (int32_t)t - (int32_t)(stmt->address + 3);
                                     e.emitInstruction("bsr", AddressingMode::RELATIVE16, (uint32_t)(uint16_t)(int16_t)off, true);

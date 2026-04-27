@@ -447,6 +447,7 @@ void AssemblerParser::pass1() {
             stmt->size = 0;
         }
         else if (match(AssemblerTokenType::INSTRUCTION)) {
+          try {
             stmt->type = Statement::INSTRUCTION;
             std::string fullMnemonic = tokens[pos-1].value;
             std::transform(fullMnemonic.begin(), fullMnemonic.end(), fullMnemonic.begin(), ::tolower);
@@ -801,8 +802,20 @@ void AssemblerParser::pass1() {
                     }
                 }
             }
+          } catch (const std::exception& ex) {
+            int errLine = stmt->line;
+            errors.push_back("line " + std::to_string(errLine) + ": Error parsing instruction '" + stmt->instr.mnemonic + "': " + ex.what());
+            while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
+            continue;
+          }
         }
-        else if (stmt->label.empty()) { advance(); continue; }
+        else if (stmt->label.empty()) {
+            std::string badToken = peek().value;
+            int badLine = peek().line;
+            errors.push_back("line " + std::to_string(badLine) + ": Unknown instruction '" + badToken + "'");
+            while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
+            continue;
+        }
         pc += stmt->size;
         statements.push_back(std::move(stmt));
     }
@@ -898,12 +911,11 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
     if (resolvedMode == AddressingMode::FLAT_INDIRECT_Z) size += 1;
 
     if (instr.mnemonic == "beq" || instr.mnemonic == "bne" || instr.mnemonic == "bra" || instr.mnemonic == "bcc" || instr.mnemonic == "bcs" || instr.mnemonic == "bpl" || instr.mnemonic == "bmi" || instr.mnemonic == "bvc" || instr.mnemonic == "bvs") {
-        Symbol* sym = resolveSymbol(instr.operand, scopePrefix);
-        if (sym) {
-            uint32_t target = sym->value;
+        try {
+            uint32_t target = evaluateExpressionAt(instr.operandTokenIndex, scopePrefix);
             int32_t diff = (int32_t)target - (int32_t)(currentAddr + 2);
             if (diff >= -128 && diff <= 127) return 2;
-        }
+        } catch (...) {}
         return 3;
     }
 
@@ -971,11 +983,15 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
         statements = std::move(newStatements);
         bool addressRecalculationMadeChanges = false;
         std::map<std::string, uint32_t> pass2PCs;
-        for (auto const& [name, seg] : segments) pass2PCs[name] = 0;
+        for (auto const& [name, seg] : segments) pass2PCs[name] = 0xFFFFFFFF; // sentinel = never visited
         std::string activeSegment = "default"; uint32_t cP = 0; bool isDeadCode = false;
+        pass2PCs["default"] = 0; // default segment starts at 0
         for (auto& s : statements) {
             if (s->type == Statement::DIRECTIVE && (s->dir.name == "segment" || s->dir.name == "code" || s->dir.name == "text" || s->dir.name == "data" || s->dir.name == "bss")) {
-                pass2PCs[activeSegment] = cP; activeSegment = s->segmentName; cP = pass2PCs[activeSegment];
+                pass2PCs[activeSegment] = cP; activeSegment = s->segmentName;
+                uint32_t savedPC = pass2PCs[activeSegment];
+                if (savedPC != 0xFFFFFFFF) cP = savedPC; // restore saved PC for revisited segments
+                // else: first visit to this segment — carry cP forward (no .org means it follows previous segment)
             }
             if (s->type == Statement::DIRECTIVE && s->dir.name == "org") {
                 if (!s->dir.arguments.empty()) {

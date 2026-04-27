@@ -169,17 +169,20 @@ void AssemblerSimulatedOps::emitStackIncDec8Code(AssemblerParser* parser, M65Emi
 
 void AssemblerSimulatedOps::emitAddSub16Code(AssemblerParser* parser, M65Emitter& e, bool isAdd, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
     int idx = tokenIndex;
+    bool isImmediate = (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) ||
+                       (idx > 0 && parser->tokens[idx - 1].type == AssemblerTokenType::HASH);
+    if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) idx++;
     auto srcAst = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
     if (!srcAst) return;
     std::string DEST = dest;
     if (!DEST.empty() && DEST[0] != '.' && DEST[0] != '$' && !isdigit(DEST[0]) && DEST[0] != '#') DEST = "." + DEST;
     std::transform(DEST.begin(), DEST.end(), DEST.begin(), ::toupper);
-    
+
     auto emitWithTarget = [&](const std::string& target) {
         if (target == ".AX" || target == ".AY" || target == ".AZ") {
             char reg2 = target[2];
             if (isAdd) e.clc(); else e.sec();
-            if (srcAst->isConstant(parser)) {
+            if (isImmediate && srcAst->isConstant(parser)) {
                 uint32_t val = srcAst->getValue(parser);
                 if (isAdd) e.adc_imm(val & 0xFF); else e.sbc_imm(val & 0xFF);
                 e.pha(); if (reg2 == 'X') e.txa(); else if (reg2 == 'Y') e.tya(); else e.tza();
@@ -206,7 +209,7 @@ void AssemblerSimulatedOps::emitAddSub16Code(AssemblerParser* parser, M65Emitter
             Symbol* sym = parser->resolveSymbol(dest, scopePrefix);
             uint32_t dAddr = 0; if (sym) dAddr = sym->value; else { try { dAddr = parseNumericLiteral(dest); } catch(...) { dAddr = 0; } }
             if (isAdd) e.clc(); else e.sec();
-            if (srcAst->isConstant(parser)) {
+            if (isImmediate && srcAst->isConstant(parser)) {
                 uint32_t val = srcAst->getValue(parser);
                 e.lda_abs(dAddr); if (isAdd) e.adc_imm(val & 0xFF); else e.sbc_imm(val & 0xFF); e.sta_abs(dAddr);
                 e.lda_abs(dAddr+1); if (isAdd) e.adc_imm((val >> 8) & 0xFF); else e.sbc_imm((val >> 8) & 0xFF); e.sta_abs(dAddr+1);
@@ -229,6 +232,9 @@ void AssemblerSimulatedOps::emitAddSub16Code(AssemblerParser* parser, M65Emitter
 
 void AssemblerSimulatedOps::emitBitwise16Code(AssemblerParser* parser, M65Emitter& e, const std::string& mnemonic, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
     int idx = tokenIndex;
+    bool isImmediate = (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) ||
+                       (idx > 0 && parser->tokens[idx - 1].type == AssemblerTokenType::HASH);
+    if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) idx++;
     auto srcAst = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
     if (!srcAst) return;
     std::string DEST = dest;
@@ -236,7 +242,7 @@ void AssemblerSimulatedOps::emitBitwise16Code(AssemblerParser* parser, M65Emitte
     std::transform(DEST.begin(), DEST.end(), DEST.begin(), ::toupper);
     std::string M = mnemonic; std::transform(M.begin(), M.end(), M.begin(), ::toupper);
     if (DEST == ".AX") {
-        if (srcAst->isConstant(parser)) {
+        if (isImmediate && srcAst->isConstant(parser)) {
             uint32_t val = srcAst->getValue(parser);
             if (M == "AND.16") e.and_imm(val & 0xFF); else if (M == "ORA.16") e.ora_imm(val & 0xFF); else if (M == "EOR.16") e.eor_imm(val & 0xFF);
             e.pha(); e.txa();
@@ -258,13 +264,16 @@ void AssemblerSimulatedOps::emitBitwise16Code(AssemblerParser* parser, M65Emitte
 
 void AssemblerSimulatedOps::emitCMP16Code(AssemblerParser* parser, M65Emitter& e, const std::string& src1, int tokenIndex, const std::string& scopePrefix) {
     int idx = tokenIndex;
+    bool isImmediate = (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) ||
+                       (idx > 0 && parser->tokens[idx - 1].type == AssemblerTokenType::HASH);
+    if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) idx++;
     auto src2Ast = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
     if (!src2Ast) return;
     std::string SRC1 = src1;
     if (!SRC1.empty() && SRC1[0] != '.') SRC1 = "." + SRC1;
     std::transform(SRC1.begin(), SRC1.end(), SRC1.begin(), ::toupper);
     if (SRC1 == ".AX") {
-        if (src2Ast->isConstant(parser)) {
+        if (isImmediate && src2Ast->isConstant(parser)) {
             uint32_t val = src2Ast->getValue(parser);
             e.cmp_imm(val & 0xFF); e.bne(0x03); e.txa(); e.cmp_imm((val >> 8) & 0xFF);
         } else {
@@ -280,13 +289,16 @@ void AssemblerSimulatedOps::emitCMP16Code(AssemblerParser* parser, M65Emitter& e
 
 void AssemblerSimulatedOps::emitCMP_S16Code(AssemblerParser* parser, M65Emitter& e, const std::string& src1, int tokenIndex, const std::string& scopePrefix) {
     int idx = tokenIndex;
+    bool isImmediate = (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) ||
+                       (idx > 0 && parser->tokens[idx - 1].type == AssemblerTokenType::HASH);
+    if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) idx++;
     auto src2Ast = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
     if (!src2Ast) return;
     std::string SRC1 = src1;
     if (!SRC1.empty() && SRC1[0] != '.') SRC1 = "." + SRC1;
     std::transform(SRC1.begin(), SRC1.end(), SRC1.begin(), ::toupper);
     if (SRC1 == ".AX") {
-        if (src2Ast->isConstant(parser)) {
+        if (isImmediate && src2Ast->isConstant(parser)) {
             uint32_t val = src2Ast->getValue(parser);
             e.cmp_imm(val & 0xFF); e.bne(0x06); e.txa(); e.eor_imm(0x80); e.cmp_imm(((val >> 8) & 0xFF) ^ 0x80);
         } else {
@@ -314,12 +326,23 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
     std::transform(DEST.begin(), DEST.end(), DEST.begin(), ::toupper);
     if (DEST == ".AX" || DEST == ".AY" || DEST == ".AZ") {
         char reg2 = DEST[2];
-        if (isStack) { e.lda_stack(offset); e.pha(); e.lda_stack(offset + 1); if (reg2 == 'X') e.tax(); else if (reg2 == 'Y') e.tya(); else if (reg2 == 'Z') e.tza(); e.pla(); }
+        if (isStack) {
+            if (reg2 == 'Z') {
+                // Load hi first into Z, then lo into A
+                e.lda_stack(offset + 1); e.taz(); e.lda_stack(offset);
+            } else {
+                // Load hi into temp (ZP $00), then load lo into A, then move to reg2
+                e.lda_stack(offset + 1); e.sta_abs(0); // save hi to ZP $00
+                e.lda_stack(offset); // A = lo byte
+                if (reg2 == 'X') e.ldx_abs(0);
+                else if (reg2 == 'Y') e.ldy_abs(0);
+            }
+        }
         else {
             bool isImm = false; if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) { isImm = true; idx++; }
             auto srcAst = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
             if (!srcAst) return;
-            if (isImm || srcAst->isConstant(parser)) {
+            if (isImm) {
                 uint32_t val = srcAst->getValue(parser); e.lda_imm(val & 0xFF); uint8_t val2 = (val >> 8) & 0xFF;
                 if (reg2 == 'X') e.ldx_imm(val2); else if (reg2 == 'Y') e.ldy_imm(val2); else if (reg2 == 'Z') e.ldz_imm(val2);
             } else {
@@ -374,7 +397,12 @@ void AssemblerSimulatedOps::emitSTWCode(AssemblerParser* parser, M65Emitter& e, 
     }
     if (SRC == ".AX" || SRC == ".AY" || SRC == ".AZ") {
         char reg2 = SRC[2];
-        if (isStack) { e.sta_stack(offset); e.pha(); if (reg2 == 'X') e.txa(); else if (reg2 == 'Y') e.tya(); else if (reg2 == 'Z') e.tza(); e.sta_stack(offset + 1); e.pla(); }
+        if (isStack) {
+            // Save hi byte register to Z without using stack (PHA would shift SP)
+            if (reg2 == 'X') { e.stx_abs(0); e.sta_stack(offset); e.lda_abs(0); e.sta_stack(offset + 1); }
+            else if (reg2 == 'Y') { e.sty_abs(0); e.sta_stack(offset); e.lda_abs(0); e.sta_stack(offset + 1); }
+            else if (reg2 == 'Z') { e.sta_stack(offset); e.tza(); e.sta_stack(offset + 1); }
+        }
         else {
             std::string dest = parser->tokens[tokenIndex].value; if (parser->tokens[tokenIndex].type == AssemblerTokenType::REGISTER) dest = "." + dest;
             else if (!dest.empty() && dest[0] != '.' && (dest=="A"||dest=="X"||dest=="Y"||dest=="Z"||dest=="a"||dest=="x"||dest=="y"||dest=="z")) dest = "." + dest;
@@ -401,17 +429,17 @@ void AssemblerSimulatedOps::emitLDZ_StackCode(AssemblerParser* parser, M65Emitte
 
 void AssemblerSimulatedOps::emitSTX_StackCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
     uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    e.pha(); e.txa(); e.sta_stack(offset); e.pla();
+    e.txa(); e.sta_stack(offset);
 }
 
 void AssemblerSimulatedOps::emitSTY_StackCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
     uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    e.pha(); e.tya(); e.sta_stack(offset); e.pla();
+    e.tya(); e.sta_stack(offset);
 }
 
 void AssemblerSimulatedOps::emitSTZ_StackCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
     uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    e.pha(); e.tza(); e.sta_stack(offset); e.pla();
+    e.stz_stack(offset);
 }
 
 void AssemblerSimulatedOps::emitSwapCode(AssemblerParser* parser, M65Emitter& e, const std::string& r1, int tokenIndex, const std::string&) {

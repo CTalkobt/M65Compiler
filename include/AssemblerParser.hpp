@@ -42,11 +42,14 @@ public:
     uint32_t getPC() const { return pc; }
     uint32_t getFirstOrgAddress() const { return firstOrgAddress; }
     Symbol* resolveSymbol(const std::string& name, const std::string& scopePrefix = "");
+    bool hasErrors() const { return !errors.empty(); }
+    const std::vector<std::string>& getErrors() const { return errors; }
 
 private:
     std::vector<AssemblerToken> tokens;
     size_t pos;
     uint32_t pc;
+    std::vector<std::string> errors;
     uint32_t firstOrgAddress = 0xFFFFFFFF;
     std::map<std::string, Symbol> symbolTable;
     std::vector<std::string> scopeStack;

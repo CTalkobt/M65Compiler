@@ -329,7 +329,20 @@ std::unique_ptr<ExprAST> parseExprAST(const std::vector<AssemblerToken>& tokens,
             }
             return std::make_unique<VariableNode>(t.value, scopePrefix);
         }
-        if (t.type == AssemblerTokenType::STAR) return std::make_unique<DereferenceNode>(parseExprAST(tokens, idx, symbolTable, scopePrefix));
+        if (t.type == AssemblerTokenType::STAR) {
+            // * as current PC when followed by +, -, or end of expression
+            if (idx >= (int)tokens.size() ||
+                tokens[idx].type == AssemblerTokenType::PLUS ||
+                tokens[idx].type == AssemblerTokenType::MINUS ||
+                tokens[idx].type == AssemblerTokenType::NEWLINE ||
+                tokens[idx].type == AssemblerTokenType::END_OF_FILE ||
+                tokens[idx].type == AssemblerTokenType::COMMA ||
+                tokens[idx].type == AssemblerTokenType::CLOSE_PAREN ||
+                tokens[idx].type == AssemblerTokenType::CLOSE_BRACKET) {
+                return std::make_unique<RegisterNode>(".PC");
+            }
+            return std::make_unique<DereferenceNode>(parseExprAST(tokens, idx, symbolTable, scopePrefix));
+        }
         if (t.type == AssemblerTokenType::OPEN_BRACKET) {
             auto addr = parseExprAST(tokens, idx, symbolTable, scopePrefix);
             if (idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::CLOSE_BRACKET) idx++;

@@ -95,13 +95,13 @@ void M65Emitter::emitInstruction(const std::string& mnemonic, AddressingMode amo
                 case AddressingMode::STACK_RELATIVE: operand = std::to_string((int)value) + ",s"; break;
                 case AddressingMode::FLAT_INDIRECT_Z: operand = "[" + hex8((uint8_t)value) + "],z"; break;
                 case AddressingMode::RELATIVE: {
-                    int8_t v = (int8_t)value;
-                    operand = "*" + (v >= 0 ? std::string("+") : "") + std::to_string((int)v);
+                    int v = (int)(int8_t)value + 2; // +2 for BRA instruction size: offset → target
+                    operand = "*" + (v >= 0 ? std::string("+") : "") + std::to_string(v);
                     break;
                 }
                 case AddressingMode::RELATIVE16: {
-                    int16_t v = (int16_t)value;
-                    operand = "*" + (v >= 0 ? std::string("+") : "") + std::to_string((int)v);
+                    int v = (int)(int16_t)value + 3; // +3 for BRA word instruction size
+                    operand = "*" + (v >= 0 ? std::string("+") : "") + std::to_string(v);
                     break;
                 }
                 default: operand = hex16((uint16_t)value); break;
@@ -204,29 +204,28 @@ void M65Emitter::inc_abs_x(uint16_t addr) { emitInstruction("inc", AddressingMod
 void M65Emitter::dec_abs_x(uint16_t addr) { emitInstruction("dec", AddressingMode::ABSOLUTE_X, addr, true); }
 
 // --- Other Addressing Modes ---
-void M65Emitter::lda_stack(uint8_t offset) { emitInstruction("lda", AddressingMode::STACK_RELATIVE, offset, true); }
-void M65Emitter::sta_stack(uint8_t offset) { emitInstruction("sta", AddressingMode::STACK_RELATIVE, offset, true); }
-void M65Emitter::stx_stack(uint8_t offset) { 
-    if (mode == Mode::TEXT) emitText("stx", std::to_string((int)offset) + ", s"); 
-    else { 
-        txa();
-        sta_stack(offset);
-    } 
+void M65Emitter::lda_stack(uint8_t offset) {
+    // Synthesize direct stack access: TSX; LDA $0101+offset,X
+    // TSX gets SPL (low byte of SP). SP page is $01.
+    tsx();
+    emitInstruction("lda", AddressingMode::ABSOLUTE_X, 0x0101 + offset, true);
 }
-void M65Emitter::sty_stack(uint8_t offset) { 
-    if (mode == Mode::TEXT) emitText("sty", std::to_string((int)offset) + ", s"); 
-    else { 
-        tya();
-        sta_stack(offset);
-    } 
+void M65Emitter::sta_stack(uint8_t offset) {
+    // Synthesize direct stack access: TSX; STA $0101+offset,X
+    tsx();
+    emitInstruction("sta", AddressingMode::ABSOLUTE_X, 0x0101 + offset, true);
 }
-void M65Emitter::stz_stack(uint8_t offset) { 
-    if (mode == Mode::TEXT) emitText("stz", std::to_string((int)offset) + ", s"); 
-    else { 
-        tsx();
-        emitByte(0x9E);
-        emitWord(0x0101 + offset);
-    } 
+void M65Emitter::stx_stack(uint8_t offset) {
+    txa();
+    sta_stack(offset);
+}
+void M65Emitter::sty_stack(uint8_t offset) {
+    tya();
+    sta_stack(offset);
+}
+void M65Emitter::stz_stack(uint8_t offset) {
+    lda_imm(0);
+    sta_stack(offset);
 }
 
 void M65Emitter::lda_ind_z(uint8_t addr, bool flat) {
@@ -259,6 +258,8 @@ void M65Emitter::taz() { emitInstruction("taz", AddressingMode::IMPLIED); }
 void M65Emitter::tza() { emitInstruction("tza", AddressingMode::IMPLIED); }
 void M65Emitter::tsx() { emitInstruction("tsx", AddressingMode::IMPLIED); }
 void M65Emitter::txs() { emitInstruction("txs", AddressingMode::IMPLIED); }
+void M65Emitter::tsy() { emitInstruction("tsy", AddressingMode::IMPLIED); }
+void M65Emitter::tys() { emitInstruction("tys", AddressingMode::IMPLIED); }
 void M65Emitter::inx() { emitInstruction("inx", AddressingMode::IMPLIED); }
 void M65Emitter::dex() { emitInstruction("dex", AddressingMode::IMPLIED); }
 void M65Emitter::iny() { emitInstruction("iny", AddressingMode::IMPLIED); }

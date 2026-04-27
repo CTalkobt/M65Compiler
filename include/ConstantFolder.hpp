@@ -257,10 +257,16 @@ public:
     void visit(SwitchStatement& node) override {
         auto expression = fold(std::move(node.expression));
         auto body = fold(std::move(node.body));
+        // After a switch, we don't know which case ran, so variable values are unknown.
+        // Clear all tracked constants to avoid incorrect propagation after the switch.
+        knownConstants.clear();
         lastStmt = copyPos(std::make_unique<SwitchStatement>(std::move(expression), std::move(body)), node);
     }
 
     void visit(CaseStatement& node) override {
+        // Each case label is a new control flow entry point — don't carry constants
+        // from a previous case (they're mutually exclusive paths).
+        knownConstants.clear();
         auto value = fold(std::move(node.value));
         auto newNode = std::make_unique<CaseStatement>(std::move(value));
         newNode->label = node.label;
@@ -268,6 +274,7 @@ public:
     }
 
     void visit(DefaultStatement& node) override {
+        knownConstants.clear();
         auto newNode = std::make_unique<DefaultStatement>();
         newNode->label = node.label;
         lastStmt = copyPos(std::move(newNode), node);

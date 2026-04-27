@@ -335,6 +335,7 @@ int main(int argc, char** argv) {
     bool outputFileSet = false;
     bool assemble = false;
     bool verbose = false;
+    bool optimize = true;
     int listingLevel = 1;
     uint32_t zeroPageStart = 0x02;
     uint32_t zeroPageAvail = 9;
@@ -365,6 +366,8 @@ int main(int argc, char** argv) {
             outputFileSet = true;
         } else if (arg == "-l" && i + 1 < argc) {
             listingLevel = std::stoi(argv[++i]);
+        } else if (arg == "-O0") {
+            optimize = false;
         } else if (arg == "-v") {
             verbose = true;
         } else if (arg.substr(0, 2) == "-I") {
@@ -473,10 +476,12 @@ int main(int argc, char** argv) {
         auto ast = parser.parse();
         if (verbose) std::cout << "Parsing complete." << std::endl;
 
-        if (verbose) std::cout << "Constant folding..." << std::endl;
-        ConstantFolder folder;
-        ast = folder.foldTranslationUnit(std::move(ast));
-        if (verbose) std::cout << "Constant folding complete." << std::endl;
+        if (optimize) {
+            if (verbose) std::cout << "Constant folding..." << std::endl;
+            ConstantFolder folder;
+            ast = folder.foldTranslationUnit(std::move(ast));
+            if (verbose) std::cout << "Constant folding complete." << std::endl;
+        }
 
         if (verbose && listingLevel >= 1) {
             ASTPrinter printer;
@@ -516,6 +521,12 @@ int main(int argc, char** argv) {
             auto tokens = lex.tokenize();
             AssemblerParser parser(tokens, predefinedSymbols);
             parser.pass1();
+            if (parser.hasErrors()) {
+                for (const auto& err : parser.getErrors()) {
+                    std::cerr << output_file << ":" << err << std::endl;
+                }
+                return 1;
+            }
             parser.pass2(); // Run optimizer and resolve addresses
 
             std::ofstream expandedOut(output_file);

@@ -5,9 +5,38 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 ## [Unreleased] - 2026-04-26
 
 ### Added
+- **Compiler (cc45)**:
+    - Added `-O0` flag to disable all optimizations (constant folding, propagation, dead variable elimination).
+    - Added startup code generation: `jsr main; _halt: bra _halt` when a `main` function is present.
+    - Added callee local variable cleanup before function return.
+    - Added caller argument cleanup after function calls.
+- **Assembler (ca45)**:
+    - Added `RTN` to the instruction lexer (previously silently skipped).
+    - Added error reporting for unknown instructions during assembly, with output suppression on errors.
+    - Added try/catch around instruction parsing to convert parse failures into error messages.
+    - Added `*` (current PC) support in expressions (e.g., `bra *+4`, `lda *-2`).
+    - Added `TSY` and `TYS` methods to M65Emitter.
 - **Testing**:
-    - Added an initial test program and integration script to validate the `mmemu-cli` utility with `ca45` output.
-    - Added `src/test/test_mmemu.sh` and `src/test-resources/test_mmemu_hello.s` for automated validation of binary loading and execution on the `rawMega65` machine.
+    - Added comprehensive control flow test (`test_mmemu_control.c`) covering if/else, while, do-while, for with break/continue, switch with fallthrough, and ternary operators.
+    - Added simple compiler test (`mmemu_compiler_simple.c`).
+    - Added `src/test/test_mmemu.sh` and `src/test-resources/test_mmemu_hello.s` for automated validation using `mmemu-cli`.
+
+### Fixed
+- **Assembler (ca45)**:
+    - **Opcode database**: Corrected `STA` ($82) and `LDA` ($E2) stack-relative entries from `STACK_RELATIVE` (direct) to `BASE_PAGE_INDIRECT_SP_Y` (indirect, matching actual 45GS02 hardware). Removed duplicate `STACK_RELATIVE` entries that shadowed `BASE_PAGE_INDIRECT_Z` opcodes.
+    - **Stack access synthesis**: Rewrote `lda_stack`/`sta_stack`/`stz_stack` to use `TSX` + absolute,X indexed addressing (e.g., `TSX; STA $0103,X`) since the 45GS02 has no native direct stack-relative mode. Previous opcodes ($82/$E2) are indirect and were treated as NOPs by the emulator.
+    - **Simulated op immediate detection**: Fixed `add.16`, `cmp.16`, `cmp.s16`, `and.16`/`ora.16`/`eor.16`, and `ldw` to correctly distinguish `#immediate` operands from memory address operands. Previously, bare numeric operands like `$02` were incorrectly treated as immediates via `isConstant()`.
+    - **CMP16/CMP_S16 expression parsing**: Fixed `#` token not being skipped before expression parsing, causing null AST and zero-length instruction emission.
+    - **BRA text output**: Fixed relative branch offset in TEXT mode — the emitter now correctly converts branch offsets to target addresses (adding instruction size) for `*+N` syntax.
+    - **Branch target evaluation**: Changed branch target resolution in the generator from `resolveSymbol` (string lookup) to `evaluateExpressionAt` (full expression evaluation), enabling `*+N` and computed targets.
+    - **Segment PC tracking**: Fixed pass2 segment PC initialization to use sentinel values, preventing data segment labels from resolving to address $0000.
+    - **STAX/LDAX stack simulated ops**: Replaced `PHA`/`PLA` sequences (which shift SP and corrupt TSX-based offsets) with ZP $00 temp storage for preserving register values during multi-byte stack access.
+- **Compiler (cc45)**:
+    - **ConstantFolder switch cases**: Clear `knownConstants` at each `case`/`default` label to prevent cross-case constant propagation (e.g., `result=20` from case 2 leaking into case 3's `result+5`).
+    - **ConstantFolder switch exit**: Clear `knownConstants` after switch body to prevent stale pre-switch values from propagating.
+    - **Register cache after stw**: Invalidate register cache after `stw` to global variables (the simulated op clobbers A with the high byte).
+    - **emitAddress resultNeeded**: Set `resultNeeded=true` before visiting array base expression in `emitAddress`, preventing stale register values from being used for pointer-indexed accesses.
+    - **Local variable stack offset**: Changed `.var` offset for new local variables from `size` to `0` (correct for `$0101+offset` convention where SP+1 = top of stack).
 
 ## [Unreleased] - 2026-04-23
 

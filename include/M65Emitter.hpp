@@ -112,6 +112,8 @@ public:
     void tza();
     void tsx();
     void txs();
+    void tsy();
+    void tys();
     void inx();
     void dex();
     void iny();

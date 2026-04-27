@@ -175,5 +175,7 @@ public:
     std::vector<ZPReg> zpRegs;
     std::vector<VariableDeclaration*> globalVars;
     FunctionDeclaration* currentFunction = nullptr;
+    int currentParamByteSize = 0;
+    int currentLocalByteSize = 0;
     bool isVariableUsed(const std::string& varName, FunctionDeclaration& func);
 };

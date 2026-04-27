@@ -110,6 +110,13 @@ int main(int argc, char** argv) {
     try {
         parser.pass1();
 
+        if (parser.hasErrors()) {
+            for (const auto& err : parser.getErrors()) {
+                std::cerr << input_file << ":" << err << std::endl;
+            }
+            return 1;
+        }
+
         if (listingLevel == 2) {
             parser.pass2(false); // Run optimizer and resolve addresses
             std::ofstream out(output_file);
@@ -130,7 +137,6 @@ int main(int argc, char** argv) {
         }
     } catch (const std::exception& e) {
         std::cerr << "Assembly Error: " << e.what() << std::endl;
-        // Optionally print more context if we can find it in the exception message
         return 1;
     }
 
