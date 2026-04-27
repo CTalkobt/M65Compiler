@@ -739,7 +739,7 @@ void AssemblerParser::pass1() {
                                 }
                             } else if (r == "SP" || r == "sp") {
                                 expect(AssemblerTokenType::CLOSE_PAREN, "Expected )"); expect(AssemblerTokenType::COMMA, "Expected ,"); advance();
-                                if (!stmt->instr.forceMode) stmt->instr.mode = AddressingMode::STACK_RELATIVE;
+                                if (!stmt->instr.forceMode) stmt->instr.mode = AddressingMode::BASE_PAGE_INDIRECT_SP_Y;
                             }
                         } else {
                             expect(AssemblerTokenType::CLOSE_PAREN, "Expected )");
@@ -798,7 +798,9 @@ void AssemblerParser::pass1() {
                         stmt->type = (stmt->instr.mnemonic == "inc") ? Statement::STACK_INC8 : Statement::STACK_DEC8;
                         stmt->size = 5;
                     } else if (stmt->instr.mode == AddressingMode::STACK_RELATIVE) {
-                        if (stmt->instr.mnemonic == "ldx") stmt->type = Statement::LDX_STACK;
+                        if (stmt->instr.mnemonic == "lda") stmt->type = Statement::LDA_STACK;
+                        else if (stmt->instr.mnemonic == "sta") stmt->type = Statement::STA_STACK;
+                        else if (stmt->instr.mnemonic == "ldx") stmt->type = Statement::LDX_STACK;
                         else if (stmt->instr.mnemonic == "ldy") stmt->type = Statement::LDY_STACK;
                         else if (stmt->instr.mnemonic == "ldz") stmt->type = Statement::LDZ_STACK;
                         else if (stmt->instr.mnemonic == "stx") stmt->type = Statement::STX_STACK;

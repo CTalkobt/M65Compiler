@@ -386,5 +386,59 @@ std::unique_ptr<ExprAST> parseExprAST(const std::vector<AssemblerToken>& tokens,
         }
         return left;
     };
-    return parseShift();
+    auto parseBitwiseAnd = [&]() -> std::unique_ptr<ExprAST> {
+        auto left = parseShift();
+        while (idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::AMPERSAND) {
+            std::string op = tokens[idx++].value;
+            auto right = parseShift();
+            left = std::make_unique<BinaryExpr>(op, std::move(left), std::move(right));
+        }
+        return left;
+    };
+    auto parseBitwiseXor = [&]() -> std::unique_ptr<ExprAST> {
+        auto left = parseBitwiseAnd();
+        while (idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::CARET) {
+            std::string op = tokens[idx++].value;
+            auto right = parseBitwiseAnd();
+            left = std::make_unique<BinaryExpr>(op, std::move(left), std::move(right));
+        }
+        return left;
+    };
+    auto parseBitwiseOr = [&]() -> std::unique_ptr<ExprAST> {
+        auto left = parseBitwiseXor();
+        while (idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::PIPE) {
+            std::string op = tokens[idx++].value;
+            auto right = parseBitwiseXor();
+            left = std::make_unique<BinaryExpr>(op, std::move(left), std::move(right));
+        }
+        return left;
+    };
+    auto parseRelational = [&]() -> std::unique_ptr<ExprAST> {
+        auto left = parseBitwiseOr();
+        while (idx < (int)tokens.size() && (tokens[idx].type == AssemblerTokenType::EQUALS_EQUALS || tokens[idx].type == AssemblerTokenType::NOT_EQUALS || tokens[idx].type == AssemblerTokenType::LESS_THAN || tokens[idx].type == AssemblerTokenType::GREATER_THAN || tokens[idx].type == AssemblerTokenType::LESS_EQUAL || tokens[idx].type == AssemblerTokenType::GREATER_EQUAL)) {
+            std::string op = tokens[idx++].value;
+            auto right = parseBitwiseOr();
+            left = std::make_unique<BinaryExpr>(op, std::move(left), std::move(right));
+        }
+        return left;
+    };
+    auto parseLogicalAnd = [&]() -> std::unique_ptr<ExprAST> {
+        auto left = parseRelational();
+        while (idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::AND) {
+            std::string op = tokens[idx++].value;
+            auto right = parseRelational();
+            left = std::make_unique<BinaryExpr>(op, std::move(left), std::move(right));
+        }
+        return left;
+    };
+    auto parseLogicalOr = [&]() -> std::unique_ptr<ExprAST> {
+        auto left = parseLogicalAnd();
+        while (idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::OR) {
+            std::string op = tokens[idx++].value;
+            auto right = parseLogicalAnd();
+            left = std::make_unique<BinaryExpr>(op, std::move(left), std::move(right));
+        }
+        return left;
+    };
+    return parseLogicalOr();
 }
