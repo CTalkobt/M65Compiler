@@ -90,6 +90,7 @@ void M65Emitter::emitInstruction(const std::string& mnemonic, AddressingMode amo
                 case AddressingMode::BASE_PAGE_X_INDIRECT: operand = "(" + hex8((uint8_t)value) + ",x)"; break;
                 case AddressingMode::BASE_PAGE_INDIRECT_Y: operand = "(" + hex8((uint8_t)value) + "),y"; break;
                 case AddressingMode::BASE_PAGE_INDIRECT_Z: operand = "(" + hex8((uint8_t)value) + "),z"; break;
+                case AddressingMode::BASE_PAGE_INDIRECT_SP_Y: operand = "(" + hex8((uint8_t)value) + ",sp),y"; break;
                 case AddressingMode::ABSOLUTE_INDIRECT: operand = "(" + hex16((uint16_t)value) + ")"; break;
                 case AddressingMode::ABSOLUTE_X_INDIRECT: operand = "(" + hex16((uint16_t)value) + ",x)"; break;
                 case AddressingMode::STACK_RELATIVE: operand = std::to_string((int)value) + ",s"; break;
@@ -126,6 +127,7 @@ void M65Emitter::emitInstruction(const std::string& mnemonic, AddressingMode amo
                 case AddressingMode::BASE_PAGE_X_INDIRECT:
                 case AddressingMode::BASE_PAGE_INDIRECT_Y:
                 case AddressingMode::BASE_PAGE_INDIRECT_Z:
+                case AddressingMode::BASE_PAGE_INDIRECT_SP_Y:
                 case AddressingMode::STACK_RELATIVE:
                 case AddressingMode::FLAT_INDIRECT_Z:
                 case AddressingMode::RELATIVE:
@@ -226,6 +228,15 @@ void M65Emitter::sty_stack(uint8_t offset) {
 void M65Emitter::stz_stack(uint8_t offset) {
     lda_imm(0);
     sta_stack(offset);
+}
+
+void M65Emitter::lda_frame(uint8_t fpOff, uint8_t yOff) {
+    ldy_imm(yOff);
+    emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fpOff, true);
+}
+void M65Emitter::sta_frame(uint8_t fpOff, uint8_t yOff) {
+    ldy_imm(yOff);
+    emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fpOff, true);
 }
 
 void M65Emitter::lda_ind_z(uint8_t addr, bool flat) {

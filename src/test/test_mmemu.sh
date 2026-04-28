@@ -31,6 +31,23 @@ else
     failed=$((failed + 1))
 fi
 
+echo "Testing 16-bit stack pointer (TYS/TSY, stack on page \$40)..."
+
+$AS src/test-resources/test_16bit_stack.s -o build/test/test_16bit_stack.bin
+OUTPUT=$(echo -e "load build/test/test_16bit_stack.bin \$2000\nsetpc \$2000\nstep 200\nm \$4000 6\nq" | $MMEMU -m rawMega65 2>/dev/null)
+
+EXPECTED="DD CC BB AA 40 FF"
+
+if echo "$OUTPUT" | grep -q "$EXPECTED"; then
+    echo "SUCCESS: 16-bit stack (TYS/TSY) works correctly — pushes landed on page \$40."
+else
+    echo "FAIL: 16-bit stack test failed."
+    echo "Expected at \$4000: $EXPECTED"
+    echo "Actual output:"
+    echo "$OUTPUT"
+    failed=$((failed + 1))
+fi
+
 echo "Testing mmemu-cli with mmemu_compiler_simple.c..."
 
 # 1. Compile
@@ -175,6 +192,7 @@ VALIDATION_TESTS=(
     "test_string_literal"
     "test_operator_precedence"
     "test_func_identifier"
+    "test_many_params_locals"
 )
 
 for name in "${VALIDATION_TESTS[@]}"; do

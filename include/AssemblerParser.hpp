@@ -201,4 +201,11 @@ private:
     void emitSXT8Code(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");
     void emitPushPopCode(std::vector<uint8_t>& binary, bool isPush, int tokenIndex, const std::string& scopePrefix = "");
     bool isStackRelativeOperand(int tokenIndex, uint32_t& offset, const std::string& scopePrefix);
+
+    struct FrameAccessInfo {
+        bool isFrame = false;
+        uint8_t fpOff = 0;
+        uint8_t yOff = 0;
+    };
+    FrameAccessInfo resolveFrameAccess(int tokenIndex, const std::string& scopePrefix);
 };

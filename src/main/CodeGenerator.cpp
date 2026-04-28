@@ -319,9 +319,12 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
             procLine += ", W#" + pName;
             currentParamByteSize += 2;
         }
-        currentVars.push_back(pName);
+        // Params are NOT added to currentVars — they have fixed frame-relative offsets
     }
     out << procLine << std::endl;
+    // FP offset starts at 1 (FP is at SP+1 after proc saves it)
+    emit(".var _fp = 1");
+    currentVars.push_back("_fp");
     node.body->accept(*this);
     if (!node.isNoreturn) {
         // Check if the last statement in the body was a return statement.
@@ -333,9 +336,10 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
             }
         }
         if (!lastWasReturn) {
-            if (currentLocalByteSize > 0) {
+            int cleanupSize = currentLocalByteSize + 2; // +2 for saved frame pointer
+            if (cleanupSize > 0) {
                 emitter->taz();
-                for (int i = 0; i < currentLocalByteSize; ++i) emitter->pla();
+                for (int i = 0; i < cleanupSize; ++i) emitter->pla();
                 emitter->tza();
             }
             emit("rtn #0");
@@ -1180,11 +1184,12 @@ void CodeGenerator::visit(ReturnStatement& node) {
         node.expression->accept(*this);
         resultNeeded = oldNeeded;
     }
-    // Clean up local variables from stack before returning.
+    // Clean up local variables + saved frame pointer from stack before returning.
     // AX holds the return value, so use Z register to preserve A.
-    if (currentLocalByteSize > 0) {
+    int cleanupSize = currentLocalByteSize + 2; // +2 for saved frame pointer
+    if (cleanupSize > 0) {
         emitter->taz();
-        for (int i = 0; i < currentLocalByteSize; ++i) emitter->pla();
+        for (int i = 0; i < cleanupSize; ++i) emitter->pla();
         emitter->tza();
     }
     emit("rtn #0");

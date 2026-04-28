@@ -155,16 +155,35 @@ void AssemblerSimulatedOps::emitDivCode(AssemblerParser* parser, M65Emitter& e, 
 }
 
 void AssemblerSimulatedOps::emitStackIncDecCode(AssemblerParser* parser, M65Emitter& e, bool isInc, int tokenIndex, const std::string& scopePrefix) {
-    uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    e.tsx();
-    if (isInc) { e.inc_abs_x(0x0101 + offset); e.bne(0x03); e.inc_abs_x(0x0101 + offset + 1); }
-    else { e.lda_abs_x(0x0101 + offset); e.bne(0x03); e.dec_abs_x(0x0101 + offset + 1); e.dec_abs_x(0x0101 + offset); }
+    auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
+    if (fa.isFrame) {
+        // Frame-relative 16-bit inc/dec: load, modify, store back
+        if (isInc) {
+            e.lda_frame(fa.fpOff, fa.yOff); e.clc(); e.adc_imm(1); e.sta_frame(fa.fpOff, fa.yOff);
+            e.lda_frame(fa.fpOff, fa.yOff + 1); e.adc_imm(0); e.sta_frame(fa.fpOff, fa.yOff + 1);
+        } else {
+            e.lda_frame(fa.fpOff, fa.yOff); e.sec(); e.sbc_imm(1); e.sta_frame(fa.fpOff, fa.yOff);
+            e.lda_frame(fa.fpOff, fa.yOff + 1); e.sbc_imm(0); e.sta_frame(fa.fpOff, fa.yOff + 1);
+        }
+    } else {
+        uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+        e.tsx();
+        if (isInc) { e.inc_abs_x(0x0101 + offset); e.bne(0x03); e.inc_abs_x(0x0101 + offset + 1); }
+        else { e.lda_abs_x(0x0101 + offset); e.bne(0x03); e.dec_abs_x(0x0101 + offset + 1); e.dec_abs_x(0x0101 + offset); }
+    }
 }
 
 void AssemblerSimulatedOps::emitStackIncDec8Code(AssemblerParser* parser, M65Emitter& e, bool isInc, int tokenIndex, const std::string& scopePrefix) {
-    uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    e.tsx();
-    if (isInc) e.inc_abs_x(0x0101 + offset); else e.dec_abs_x(0x0101 + offset);
+    auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
+    if (fa.isFrame) {
+        e.lda_frame(fa.fpOff, fa.yOff);
+        if (isInc) e.inc_a(); else e.dec_a();
+        e.sta_frame(fa.fpOff, fa.yOff);
+    } else {
+        uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+        e.tsx();
+        if (isInc) e.inc_abs_x(0x0101 + offset); else e.dec_abs_x(0x0101 + offset);
+    }
 }
 
 void AssemblerSimulatedOps::emitAddSub16Code(AssemblerParser* parser, M65Emitter& e, bool isAdd, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
@@ -327,7 +346,30 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
     if (DEST == ".AX" || DEST == ".AY" || DEST == ".AZ") {
         char reg2 = DEST[2];
         if (isStack) {
-            if (reg2 == 'Z') {
+            auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
+            if (fa.isFrame) {
+                // Frame-relative: LDY #hi; LDA (fp,SP),Y; TAX/etc; DEY; LDA (fp,SP),Y
+                if (reg2 == 'X') {
+                    e.ldy_imm(fa.yOff + 1);
+                    e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fa.fpOff, true);
+                    e.tax();
+                    e.dey();
+                    e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fa.fpOff, true);
+                } else if (reg2 == 'Y') {
+                    e.ldy_imm(fa.yOff + 1);
+                    e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fa.fpOff, true);
+                    e.sta_abs(0);
+                    e.dey();
+                    e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fa.fpOff, true);
+                    e.ldy_abs(0);
+                } else { // Z
+                    e.ldy_imm(fa.yOff + 1);
+                    e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fa.fpOff, true);
+                    e.taz();
+                    e.dey();
+                    e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fa.fpOff, true);
+                }
+            } else if (reg2 == 'Z') {
                 // Load hi first into Z, then lo into A
                 e.lda_stack(offset + 1); e.taz(); e.lda_stack(offset);
             } else {
@@ -376,7 +418,15 @@ void AssemblerSimulatedOps::emitSTWCode(AssemblerParser* parser, M65Emitter& e, 
         if (valIdx >= 0) valIdx++; else valIdx = tokenIndex - 2;
         uint32_t val = parser->evaluateExpressionAt(valIdx, scopePrefix);
         uint8_t low = val & 0xFF, high = (val >> 8) & 0xFF;
-        if (isStack) { e.lda_imm(low); e.sta_stack(offset); if (high == 0) e.stz_stack(offset + 1); else { e.lda_imm(high); e.sta_stack(offset + 1); } }
+        if (isStack) {
+            auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
+            if (fa.isFrame) {
+                e.lda_imm(low); e.sta_frame(fa.fpOff, fa.yOff);
+                e.lda_imm(high); e.sta_frame(fa.fpOff, fa.yOff + 1);
+            } else {
+                e.lda_imm(low); e.sta_stack(offset); if (high == 0) e.stz_stack(offset + 1); else { e.lda_imm(high); e.sta_stack(offset + 1); }
+            }
+        }
         else {
             uint32_t addr = 0;
             try {
@@ -398,10 +448,19 @@ void AssemblerSimulatedOps::emitSTWCode(AssemblerParser* parser, M65Emitter& e, 
     if (SRC == ".AX" || SRC == ".AY" || SRC == ".AZ") {
         char reg2 = SRC[2];
         if (isStack) {
-            // Save hi byte register to Z without using stack (PHA would shift SP)
-            if (reg2 == 'X') { e.stx_abs(0); e.sta_stack(offset); e.lda_abs(0); e.sta_stack(offset + 1); }
-            else if (reg2 == 'Y') { e.sty_abs(0); e.sta_stack(offset); e.lda_abs(0); e.sta_stack(offset + 1); }
-            else if (reg2 == 'Z') { e.sta_stack(offset); e.tza(); e.sta_stack(offset + 1); }
+            auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
+            if (fa.isFrame) {
+                // Frame-relative store: save A (lo), then hi byte
+                e.sta_frame(fa.fpOff, fa.yOff);
+                if (reg2 == 'X') { e.txa(); e.sta_frame(fa.fpOff, fa.yOff + 1); }
+                else if (reg2 == 'Y') { e.tya(); e.sta_frame(fa.fpOff, fa.yOff + 1); }
+                else if (reg2 == 'Z') { e.tza(); e.sta_frame(fa.fpOff, fa.yOff + 1); }
+            } else {
+                // Save hi byte register to Z without using stack (PHA would shift SP)
+                if (reg2 == 'X') { e.stx_abs(0); e.sta_stack(offset); e.lda_abs(0); e.sta_stack(offset + 1); }
+                else if (reg2 == 'Y') { e.sty_abs(0); e.sta_stack(offset); e.lda_abs(0); e.sta_stack(offset + 1); }
+                else if (reg2 == 'Z') { e.sta_stack(offset); e.tza(); e.sta_stack(offset + 1); }
+            }
         }
         else {
             std::string dest = parser->tokens[tokenIndex].value; if (parser->tokens[tokenIndex].type == AssemblerTokenType::REGISTER) dest = "." + dest;
@@ -413,43 +472,83 @@ void AssemblerSimulatedOps::emitSTWCode(AssemblerParser* parser, M65Emitter& e, 
 }
 
 void AssemblerSimulatedOps::emitLDA_StackCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    e.lda_stack(offset);
+    auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
+    if (fa.isFrame) {
+        e.lda_frame(fa.fpOff, fa.yOff);
+    } else {
+        uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+        e.lda_stack(offset);
+    }
 }
 
 void AssemblerSimulatedOps::emitSTA_StackCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    e.sta_stack(offset);
+    auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
+    if (fa.isFrame) {
+        e.sta_frame(fa.fpOff, fa.yOff);
+    } else {
+        uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+        e.sta_stack(offset);
+    }
 }
 
 void AssemblerSimulatedOps::emitLDX_StackCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    e.lda_stack(offset); e.tax();
+    auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
+    if (fa.isFrame) {
+        e.lda_frame(fa.fpOff, fa.yOff); e.tax();
+    } else {
+        uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+        e.lda_stack(offset); e.tax();
+    }
 }
 
 void AssemblerSimulatedOps::emitLDY_StackCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    e.lda_stack(offset); e.tay();
+    auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
+    if (fa.isFrame) {
+        e.lda_frame(fa.fpOff, fa.yOff); e.tay();
+    } else {
+        uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+        e.lda_stack(offset); e.tay();
+    }
 }
 
 void AssemblerSimulatedOps::emitLDZ_StackCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    e.lda_stack(offset); e.taz();
+    auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
+    if (fa.isFrame) {
+        e.lda_frame(fa.fpOff, fa.yOff); e.taz();
+    } else {
+        uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+        e.lda_stack(offset); e.taz();
+    }
 }
 
 void AssemblerSimulatedOps::emitSTX_StackCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    e.txa(); e.sta_stack(offset);
+    auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
+    if (fa.isFrame) {
+        e.txa(); e.sta_frame(fa.fpOff, fa.yOff);
+    } else {
+        uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+        e.txa(); e.sta_stack(offset);
+    }
 }
 
 void AssemblerSimulatedOps::emitSTY_StackCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    e.tya(); e.sta_stack(offset);
+    auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
+    if (fa.isFrame) {
+        e.tya(); e.sta_frame(fa.fpOff, fa.yOff);
+    } else {
+        uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+        e.tya(); e.sta_stack(offset);
+    }
 }
 
 void AssemblerSimulatedOps::emitSTZ_StackCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    e.stz_stack(offset);
+    auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
+    if (fa.isFrame) {
+        e.lda_imm(0); e.sta_frame(fa.fpOff, fa.yOff);
+    } else {
+        uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+        e.stz_stack(offset);
+    }
 }
 
 void AssemblerSimulatedOps::emitSwapCode(AssemblerParser* parser, M65Emitter& e, const std::string& r1, int tokenIndex, const std::string&) {
@@ -485,9 +584,20 @@ void AssemblerSimulatedOps::emitNegNot16Code(AssemblerParser* parser, M65Emitter
     if (OP == ".AX" || OP == "") { if (isNeg) e.neg_16(); else e.not_16(); return; }
     uint32_t offset = 0;
     if (parser->isStackRelativeOperand(tokenIndex, offset, scopePrefix)) {
-        e.tsx();
-        if (isNeg) { e.lda_abs_x(0x0101 + offset); e.eor_imm(0xFF); e.sec(); e.adc_imm(1); e.sta_abs_x(0x0101 + offset); e.lda_abs_x(0x0102 + offset); e.eor_imm(0xFF); e.adc_imm(0); e.sta_abs_x(0x0102 + offset); }
-        else { e.lda_abs_x(0x0101 + offset); e.eor_imm(0xFF); e.sta_abs_x(0x0101 + offset); e.lda_abs_x(0x0102 + offset); e.eor_imm(0xFF); e.sta_abs_x(0x0102 + offset); }
+        auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
+        if (fa.isFrame) {
+            if (isNeg) {
+                e.lda_frame(fa.fpOff, fa.yOff); e.eor_imm(0xFF); e.sec(); e.adc_imm(1); e.sta_frame(fa.fpOff, fa.yOff);
+                e.lda_frame(fa.fpOff, fa.yOff + 1); e.eor_imm(0xFF); e.adc_imm(0); e.sta_frame(fa.fpOff, fa.yOff + 1);
+            } else {
+                e.lda_frame(fa.fpOff, fa.yOff); e.eor_imm(0xFF); e.sta_frame(fa.fpOff, fa.yOff);
+                e.lda_frame(fa.fpOff, fa.yOff + 1); e.eor_imm(0xFF); e.sta_frame(fa.fpOff, fa.yOff + 1);
+            }
+        } else {
+            e.tsx();
+            if (isNeg) { e.lda_abs_x(0x0101 + offset); e.eor_imm(0xFF); e.sec(); e.adc_imm(1); e.sta_abs_x(0x0101 + offset); e.lda_abs_x(0x0102 + offset); e.eor_imm(0xFF); e.adc_imm(0); e.sta_abs_x(0x0102 + offset); }
+            else { e.lda_abs_x(0x0101 + offset); e.eor_imm(0xFF); e.sta_abs_x(0x0101 + offset); e.lda_abs_x(0x0102 + offset); e.eor_imm(0xFF); e.sta_abs_x(0x0102 + offset); }
+        }
     } else {
         uint32_t addr = 0;
         try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
@@ -503,9 +613,16 @@ void AssemblerSimulatedOps::emitABS16Code(AssemblerParser* parser, M65Emitter& e
     if (DEST == ".AX" || DEST == "") { e.txa(); e.bpl(0x02); e.neg_16(); return; }
     uint32_t offset = 0;
     if (parser->isStackRelativeOperand(tokenIndex, offset, scopePrefix)) {
-        e.tsx(); e.lda_abs_x(0x0102 + offset); e.bpl(0x0D);
-        e.lda_abs_x(0x0101 + offset); e.eor_imm(0xFF); e.sec(); e.adc_imm(1); e.sta_abs_x(0x0101 + offset);
-        e.lda_abs_x(0x0102 + offset); e.eor_imm(0xFF); e.adc_imm(0); e.sta_abs_x(0x0102 + offset);
+        auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
+        if (fa.isFrame) {
+            e.lda_frame(fa.fpOff, fa.yOff + 1); e.bpl(0x0D);
+            e.lda_frame(fa.fpOff, fa.yOff); e.eor_imm(0xFF); e.sec(); e.adc_imm(1); e.sta_frame(fa.fpOff, fa.yOff);
+            e.lda_frame(fa.fpOff, fa.yOff + 1); e.eor_imm(0xFF); e.adc_imm(0); e.sta_frame(fa.fpOff, fa.yOff + 1);
+        } else {
+            e.tsx(); e.lda_abs_x(0x0102 + offset); e.bpl(0x0D);
+            e.lda_abs_x(0x0101 + offset); e.eor_imm(0xFF); e.sec(); e.adc_imm(1); e.sta_abs_x(0x0101 + offset);
+            e.lda_abs_x(0x0102 + offset); e.eor_imm(0xFF); e.adc_imm(0); e.sta_abs_x(0x0102 + offset);
+        }
     } else {
         uint32_t addr = 0;
         try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
@@ -539,8 +656,23 @@ void AssemblerSimulatedOps::emitSelectCode(AssemblerParser* parser, M65Emitter& 
 }
 
 void AssemblerSimulatedOps::emitPtrStackCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    e.tsx(); e.txa(); e.clc(); e.adc_imm(0x0101 + offset); e.pha(); e.lda_imm(0); e.adc_imm(0); e.tax(); e.pla();
+    auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
+    if (fa.isFrame) {
+        // Compute absolute address: FP_value + yOff
+        // Read FP hi byte, save to ZP temp, then read FP lo, add yOff
+        e.lda_stack(fa.fpOff);       // FP hi byte
+        e.sta_abs(0);
+        e.lda_stack(fa.fpOff - 1);   // FP lo byte
+        e.clc(); e.adc_imm(fa.yOff);
+        e.pha();
+        e.lda_abs(0);
+        e.adc_imm(0);
+        e.tax();
+        e.pla();
+    } else {
+        uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+        e.tsx(); e.txa(); e.clc(); e.adc_imm(0x0101 + offset); e.pha(); e.lda_imm(0); e.adc_imm(0); e.tax(); e.pla();
+    }
 }
 
 void AssemblerSimulatedOps::emitPtrDerefCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
@@ -616,8 +748,19 @@ void AssemblerSimulatedOps::emitFlatMemoryCode(AssemblerParser* parser, M65Emitt
 }
 
 void AssemblerSimulatedOps::emitPHWStackCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    e.tsx(); e.lda_abs_x(0x0102 + offset); e.pha(); e.lda_abs_x(0x0101 + offset); e.pha();
+    auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
+    if (fa.isFrame) {
+        // Push 16-bit frame-relative value: hi byte first, then lo
+        e.ldy_imm(fa.yOff + 1);
+        e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fa.fpOff, true);
+        e.pha();
+        e.dey();
+        e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fa.fpOff, true);
+        e.pha();
+    } else {
+        uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+        e.tsx(); e.lda_abs_x(0x0102 + offset); e.pha(); e.lda_abs_x(0x0101 + offset); e.pha();
+    }
 }
 
 void AssemblerSimulatedOps::emitASWCode(AssemblerParser* parser, M65Emitter& e, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {

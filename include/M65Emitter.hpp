@@ -99,6 +99,10 @@ public:
     void stx_stack(uint8_t offset);
     void sty_stack(uint8_t offset);
     void stz_stack(uint8_t offset);
+
+    // Frame-pointer-relative access via ($nn,SP),Y addressing
+    void lda_frame(uint8_t fpOff, uint8_t yOff);
+    void sta_frame(uint8_t fpOff, uint8_t yOff);
     void lda_ind_z(uint8_t addr, bool flat = false);
     void sta_ind_z(uint8_t addr, bool flat = false);
     void bit_abs(uint16_t addr);

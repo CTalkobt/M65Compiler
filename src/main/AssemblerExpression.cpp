@@ -97,7 +97,20 @@ void VariableNode::emit(M65Emitter& e, AssemblerParser* parser, int width, const
         e.lda_imm(sym->value & 0xFF);
         if (width >= 16) e.ldx_imm((sym->value >> 8) & 0xFF);
     } else {
-        if (sym->isStackRelative) {
+        if (sym->isFrameRelative) {
+            Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+            uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 1;
+            uint8_t yOff = (uint8_t)sym->frameOffset;
+            if (width >= 16) {
+                e.ldy_imm(yOff + 1);
+                e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fpOff, true);
+                e.tax();
+                e.dey();
+                e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fpOff, true);
+            } else {
+                e.lda_frame(fpOff, yOff);
+            }
+        } else if (sym->isStackRelative) {
             e.lda_stack((uint8_t)sym->stackOffset);
             if (width >= 16) {
                 e.lda_stack((uint8_t)(sym->stackOffset + 1));

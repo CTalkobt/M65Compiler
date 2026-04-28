@@ -40,12 +40,12 @@ This reference summarizes the instructions available in the `ca45` assembler for
   * *Description*: Loads an 8-bit value into the Accumulator.
   * *Modes*: `imm`, `bp`, `abs`, `bp,X/Y`, `abs,X/Y`, `(bp),Y/Z`, `[bp],Z`, `(bp,SP),Y`
   * *Flags*: `N`, `Z`
-  * *Note*: The native `($nn,SP),Y` mode ($E2) is indirect (dereferences a pointer at SP+offset). For direct stack-relative loads, use `lda.sp` (see Simulated Opcodes).
+  * *Note*: The native `($nn,SP),Y` mode ($E2) is indirect — it reads a 16-bit pointer from SP+nn, adds Y, and loads from the result. This mode is used automatically for frame-pointer-relative parameter access (see `proc`). For direct SP-relative local variable loads, use `lda.sp`.
 
 * **`LDA.SP`** *(Simulated)*
-  * *Description*: Loads an 8-bit value from a stack-relative offset into the Accumulator.
+  * *Description*: Loads an 8-bit value from a stack-relative offset into the Accumulator. For frame-relative parameters (`_p_` symbols), automatically uses `LDY #offset; LDA ($fp,SP),Y` instead.
   * *Modes*: `offset` (stack variable name or numeric offset)
-  * *Generated Code*: `TSX; LDA $0101+offset,X`
+  * *Generated Code*: `TSX; LDA $0101+offset,X` (locals) or `LDY #offset; LDA ($fp,SP),Y` (parameters)
   * *Flags*: `N`, `Z`
 
 * **`LDX`, `LDY`, `LDZ`**
@@ -57,12 +57,12 @@ This reference summarizes the instructions available in the `ca45` assembler for
   * *Description*: Stores an 8-bit value from the Accumulator into memory.
   * *Modes*: `bp`, `abs`, `bp,X/Y`, `abs,X/Y`, `(bp),Y/Z`, `[bp],Z`, `(bp,SP),Y`
   * *Flags*: None
-  * *Note*: The native `($nn,SP),Y` mode ($82) is indirect. For direct stack-relative stores, use `sta.sp` (see Simulated Opcodes).
+  * *Note*: The native `($nn,SP),Y` mode ($82) is indirect. This mode is used automatically for frame-pointer-relative parameter stores. For direct SP-relative local variable stores, use `sta.sp`.
 
 * **`STA.SP`** *(Simulated)*
-  * *Description*: Stores an 8-bit value from the Accumulator into a stack-relative offset.
+  * *Description*: Stores an 8-bit value from the Accumulator into a stack-relative offset. For frame-relative parameters (`_p_` symbols), automatically uses `LDY #offset; STA ($fp,SP),Y` instead.
   * *Modes*: `offset` (stack variable name or numeric offset)
-  * *Generated Code*: `TSX; STA $0101+offset,X`
+  * *Generated Code*: `TSX; STA $0101+offset,X` (locals) or `LDY #offset; STA ($fp,SP),Y` (parameters)
   * *Flags*: None
 
 * **`STX`, `STY`, `STZ`**

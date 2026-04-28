@@ -42,4 +42,6 @@ struct Symbol {
     uint32_t initialValue = 0;
     bool isStackRelative = false;
     int stackOffset = 0;
+    bool isFrameRelative = false;
+    int frameOffset = 0;
 };

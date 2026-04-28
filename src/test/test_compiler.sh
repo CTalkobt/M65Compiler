@@ -64,6 +64,7 @@ TEST_FILES=(
     "src/test-resources/test_cast.c"
     "src/test-resources/test_narrowing_warn.c"
     "src/test-resources/test_func_identifier.c"
+    "src/test-resources/test_many_params_locals.c"
 )
 
 mkdir -p build/test
