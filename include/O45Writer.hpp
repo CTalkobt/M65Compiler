@@ -54,7 +54,7 @@ public:
     void setDataRelocations(const std::vector<uint8_t>& relocs);
 
     void addImport(const std::string& name);
-    void addExport(const std::string& name, O45Segment seg, uint32_t offset);
+    void addExport(const std::string& name, O45Segment seg, uint32_t offset, bool weak = false);
 
     // Add a string option (NUL-terminated in output). For OPT_FNAME, OPT_ASM, OPT_AUTHOR, OPT_CREATED.
     void addOption(uint8_t type, const std::string& value);
@@ -94,6 +94,7 @@ private:
         std::string name;
         O45Segment segment;
         uint32_t offset;
+        bool weak = false;
     };
     std::vector<ExportEntry> exports_;
 
@@ -133,6 +134,7 @@ struct O45Export {
     std::string name;
     O45Segment segment;
     uint32_t offset;
+    bool weak = false;
 };
 
 class O45SymbolTable {
@@ -143,7 +145,7 @@ public:
 
     // Add an export (global definition). Returns true on success,
     // false if the name was already exported (duplicate).
-    bool addExport(const std::string& name, O45Segment segment, uint32_t offset);
+    bool addExport(const std::string& name, O45Segment segment, uint32_t offset, bool weak = false);
 
     // Look up an import index by name. Returns (uint32_t)-1 if not found.
     uint32_t getImportIndex(const std::string& name) const;

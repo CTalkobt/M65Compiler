@@ -36,8 +36,10 @@ struct O45File {
     };
     struct Export {
         std::string name;
-        uint8_t segment;
+        uint8_t segment;    // low 7 bits = segment ID, high bit = weak flag
         uint32_t offset;
+        bool isWeak() const { return (segment & O45_EXPORT_WEAK) != 0; }
+        uint8_t segmentId() const { return segment & O45_EXPORT_SEG_MASK; }
     };
     std::vector<Import> imports;
     std::vector<Export> exports;

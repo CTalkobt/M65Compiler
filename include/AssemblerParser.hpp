@@ -49,6 +49,8 @@ public:
 
     // .global / .extern symbol tracking (for .o45 output)
     const std::set<std::string>& getGlobalSymbols() const { return globalSymbols; }
+    const std::set<std::string>& getWeakSymbols() const { return weakSymbols; }
+    bool isWeakSymbol(const std::string& name) const { return weakSymbols.count(name) > 0; }
     const std::vector<std::string>& getExternSymbols() const { return externSymbols; }
     bool isGlobalSymbol(const std::string& name) const { return globalSymbols.count(name) > 0; }
     bool isExternSymbol(const std::string& name) const { return externIndex.count(name) > 0; }
@@ -94,8 +96,9 @@ private:
     std::vector<std::string> segmentStack;
     std::vector<std::string> requestedSegmentOrder;
 
-    // .global / .extern tracking
+    // .global / .extern / .weak tracking
     std::set<std::string> globalSymbols;         // symbols declared with .global
+    std::set<std::string> weakSymbols;           // symbols declared with .weak
     std::vector<std::string> externSymbols;      // symbols declared with .extern (ordered)
     std::map<std::string, uint32_t> externIndex; // name -> index in externSymbols
 

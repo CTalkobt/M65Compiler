@@ -49,6 +49,10 @@ enum O45Segment : uint8_t {
     SEG_ZP        = 5,   // .zp   (zero/direct page)
 };
 
+// Export flag: high bit of the segment byte in the export table
+constexpr uint8_t  O45_EXPORT_WEAK    = 0x80;
+constexpr uint8_t  O45_EXPORT_SEG_MASK = 0x7F; // mask to extract segment from flagged byte
+
 // --- Relocation types (bits 7-5 of relocation type/seg byte) ---
 enum O45RelocType : uint8_t {
     R_LOW         = 0x20, // low byte of 16-bit address

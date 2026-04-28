@@ -424,6 +424,16 @@ void AssemblerParser::pass1() {
                 }
                 stmt->size = 0;
             }
+            else if (stmt->dir.name == "weak") {
+                // .weak sym1, sym2, ... — mark symbols as weak exports
+                while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
+                    if (peek().type == AssemblerTokenType::COMMA) { advance(); continue; }
+                    std::string sym = expect(AssemblerTokenType::IDENTIFIER, "Expected symbol name after .weak").value;
+                    globalSymbols.insert(sym); // weak symbols are also global (exported)
+                    weakSymbols.insert(sym);
+                }
+                stmt->size = 0;
+            }
             else if (stmt->dir.name == "extern") {
                 // .extern sym1, sym2, ... — declare external (imported) symbols
                 while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {

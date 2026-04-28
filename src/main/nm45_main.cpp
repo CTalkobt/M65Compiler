@@ -99,7 +99,7 @@ int main(int argc, char** argv) {
 
         if (!onlyUndefined) {
             for (const auto& exp : obj.exports) {
-                char letter = segmentLetter(exp.segment);
+                char letter = exp.isWeak() ? 'W' : segmentLetter(exp.segmentId());
                 syms.push_back({exp.name, letter, exp.offset, false});
             }
         }

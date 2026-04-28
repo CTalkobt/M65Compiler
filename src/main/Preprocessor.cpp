@@ -752,7 +752,13 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                 }
                 output << "\n";
             } else if (cmd == "#pragma") {
-                output << "\n";
+                std::string pragmaArg;
+                ss >> pragmaArg;
+                if (isCompiler && pragmaArg == "weak") {
+                    output << "__asm__(\".weak_next\");\n";
+                } else {
+                    output << "\n";
+                }
             } else {
                 output << "\n";
             }

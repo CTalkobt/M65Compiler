@@ -85,6 +85,8 @@ private:
     std::map<std::string, uint32_t> globalSymbols_;
     // Track which file defined each symbol (for error messages)
     std::map<std::string, std::string> symbolSource_;
+    // Track weak flag per symbol
+    std::map<std::string, bool> symbolWeak_;
 
     bool resolveLibraries(std::string& errorMsg);
     bool layoutSegments(std::string& errorMsg);

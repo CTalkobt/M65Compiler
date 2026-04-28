@@ -75,7 +75,7 @@ Steps required to bring the C compiler closer to C11 standards.
     - [X] **Symbol Table**: `O45SymbolTable` managing imports/exports with deduplication and validation.
     - [X] **Option Headers**: String and raw-byte options, `addDefaultOptions()` for OPT_OS (MEGA65) + OPT_ASM.
 - [X] **Sections**: Update `ca45` to support named segments (`.text`, `.data`, `.bss`) and user defined segments (.segment "name" { ... }).
-- [X] **External Symbols**: Implement `.global` and `.extern` in the assembler.
+- [X] **External Symbols**: Implement `.global`, `.extern`, and `.weak` in the assembler. Weak exports use high bit of segment byte (`O45_EXPORT_WEAK`). Linker resolves strong-over-weak. C compiler supports `#pragma weak`.
 - [X] **Relocatable Mode (`-c`)**: `ca45 -c` produces `.o45` object files. Extracts per-segment bodies, generates relocation tables for external and cross-segment references, builds import/export symbol tables.
 - [X] **Relocations**: Support standard (`WORD`, `LOW`, `HIGH`) and linear (`LINEAR24`, `LINEAR32`) relocations in the format. `WORD` relocations emitted by `-c` mode for absolute address operands.
 - [X] **Linker Tool**: `ln45` links multiple `.o45` objects: segment merging, symbol resolution, relocation patching, PRG/binary output. Supports `-t`/`-d`/`-b`/`-z` for memory layout, `-prg` for PRG output, `-m` for symbol map.

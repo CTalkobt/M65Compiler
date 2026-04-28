@@ -112,8 +112,8 @@ void O45Writer::addImport(const std::string& name) {
     imports_.push_back(name);
 }
 
-void O45Writer::addExport(const std::string& name, O45Segment seg, uint32_t offset) {
-    exports_.push_back({name, seg, offset});
+void O45Writer::addExport(const std::string& name, O45Segment seg, uint32_t offset, bool weak) {
+    exports_.push_back({name, seg, offset, weak});
 }
 
 // --- Options ---
@@ -251,7 +251,9 @@ void O45Writer::emitExports(std::vector<uint8_t>& out) const {
     writeU32(out, (uint32_t)exports_.size());
     for (const auto& exp : exports_) {
         writeString(out, exp.name);
-        out.push_back((uint8_t)exp.segment);
+        uint8_t segByte = (uint8_t)exp.segment;
+        if (exp.weak) segByte |= O45_EXPORT_WEAK;
+        out.push_back(segByte);
         writeU32(out, exp.offset);
     }
 }
@@ -288,10 +290,10 @@ uint32_t O45SymbolTable::addImport(const std::string& name) {
     return idx;
 }
 
-bool O45SymbolTable::addExport(const std::string& name, O45Segment segment, uint32_t offset) {
+bool O45SymbolTable::addExport(const std::string& name, O45Segment segment, uint32_t offset, bool weak) {
     if (exportIndex_.count(name)) return false;
     uint32_t idx = (uint32_t)exports_.size();
-    exports_.push_back({name, segment, offset});
+    exports_.push_back({name, segment, offset, weak});
     exportIndex_[name] = idx;
     return true;
 }
@@ -315,7 +317,7 @@ void O45SymbolTable::applyTo(O45Writer& writer) const {
         writer.addImport(name);
     }
     for (const auto& exp : exports_) {
-        writer.addExport(exp.name, exp.segment, exp.offset);
+        writer.addExport(exp.name, exp.segment, exp.offset, exp.weak);
     }
 }
 

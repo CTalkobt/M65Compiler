@@ -328,12 +328,19 @@ void CodeGenerator::visit(TranslationUnit& node) {
     out << ".code" << std::endl;
 
     if (relocMode) {
-        // Collect defined functions and called functions
+        // Collect defined functions, weak functions, and called functions
         std::set<std::string> definedFunctions;
+        std::set<std::string> weakFunctions;
+        bool nextIsWeak = false;
         for (auto& decl : node.topLevelDecls) {
+            if (auto* asmStmt = dynamic_cast<AsmStatement*>(decl.get())) {
+                if (asmStmt->code == ".weak_next") { nextIsWeak = true; continue; }
+            }
             if (auto* fn = dynamic_cast<FunctionDeclaration*>(decl.get())) {
                 definedFunctions.insert(fn->name);
+                if (nextIsWeak) { weakFunctions.insert(fn->name); }
             }
+            nextIsWeak = false;
         }
 
         CallCollector cc;
@@ -346,9 +353,13 @@ void CodeGenerator::visit(TranslationUnit& node) {
             }
         }
 
-        // Emit .global for all defined functions
+        // Emit .global/.weak for defined functions
         for (const auto& name : definedFunctions) {
-            out << ".global _" << name << std::endl;
+            if (weakFunctions.count(name)) {
+                out << ".weak _" << name << std::endl;
+            } else {
+                out << ".global _" << name << std::endl;
+            }
         }
 
         // .global for global variables will be emitted by emitData()
@@ -441,6 +452,7 @@ void CodeGenerator::visit(VariableDeclaration& node) {
         globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.arraySize};
         if (node.isGlobal) {
             globalVars.push_back(&node);
+            if (weakNext) { weakGlobals.insert(node.name); weakNext = false; }
             return;
         }
     }
@@ -1247,6 +1259,10 @@ void CodeGenerator::visit(UnaryOperation& node) {
 }
 
 void CodeGenerator::visit(AsmStatement& node) {
+    if (node.code == ".weak_next") {
+        weakNext = true;
+        return; // Don't emit — it's a compiler internal directive
+    }
     embedSource(node);
     emit(node.code);
     invalidateRegs();
@@ -1929,10 +1945,14 @@ void CodeGenerator::visit(AlignofExpression& node) {
 }
 
 void CodeGenerator::emitData() {
-    // Emit .global for all global variables in relocatable mode
+    // Emit .global/.weak for all global variables in relocatable mode
     if (relocMode) {
         for (auto* gVar : globalVars) {
-            out << ".global _" << gVar->name << std::endl;
+            if (weakGlobals.count(gVar->name)) {
+                out << ".weak _" << gVar->name << std::endl;
+            } else {
+                out << ".global _" << gVar->name << std::endl;
+            }
         }
     }
 

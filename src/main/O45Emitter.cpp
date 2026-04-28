@@ -198,7 +198,8 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             offset = sym->value - segBase;
         }
 
-        syms.addExport(name, segId, offset);
+        bool isWeak = parser.isWeakSymbol(name);
+        syms.addExport(name, segId, offset, isWeak);
     }
 
     // --- Step 3: Scan statements for relocations ---

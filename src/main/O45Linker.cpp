@@ -185,14 +185,18 @@ bool O45Linker::layoutSegments(std::string& errorMsg) {
 bool O45Linker::resolveSymbols(std::string& errorMsg) {
     globalSymbols_.clear();
     symbolSource_.clear();
+    symbolWeak_.clear();
 
-    // Collect all exports
+    // Collect all exports, handling weak-vs-strong resolution
     for (const auto& input : objects_) {
         for (const auto& exp : input.obj.exports) {
+            bool isWeak = exp.isWeak();
+            uint8_t segId = exp.segmentId();
+
             // Compute final absolute address
             uint32_t base = 0;
             uint32_t objOffset = 0;
-            switch ((O45Segment)exp.segment) {
+            switch ((O45Segment)segId) {
                 case SEG_TEXT: base = textBase_; objOffset = input.textOffset; break;
                 case SEG_DATA: base = dataBase_; objOffset = input.dataOffset; break;
                 case SEG_BSS:  base = bssBase_;  objOffset = input.bssOffset;  break;
@@ -201,15 +205,27 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
             }
             uint32_t finalAddr = base + objOffset + exp.offset;
 
-            // Check for duplicates
             if (globalSymbols_.count(exp.name)) {
-                errorMsg = "duplicate symbol '" + exp.name + "' (defined in " +
-                           symbolSource_[exp.name] + " and " + input.filename + ")";
-                return false;
+                bool existingWeak = symbolWeak_[exp.name];
+                if (!existingWeak && !isWeak) {
+                    // Two strong definitions = error
+                    errorMsg = "duplicate symbol '" + exp.name + "' (defined in " +
+                               symbolSource_[exp.name] + " and " + input.filename + ")";
+                    return false;
+                }
+                if (existingWeak && !isWeak) {
+                    // Strong overrides weak
+                    globalSymbols_[exp.name] = finalAddr;
+                    symbolSource_[exp.name] = input.filename;
+                    symbolWeak_[exp.name] = false;
+                }
+                // else: existing is strong, or both weak — keep existing
+                continue;
             }
 
             globalSymbols_[exp.name] = finalAddr;
             symbolSource_[exp.name] = input.filename;
+            symbolWeak_[exp.name] = isWeak;
         }
     }
 
