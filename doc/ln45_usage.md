@@ -14,6 +14,7 @@ ln45 [options] <file1.o45> [file2.o45 ...]
 |------|-------------|
 | `-o <file>` | Output filename (default: `a.out`, or `a.prg` if `-prg`) |
 | `-prg` | Output as PRG with 2-byte load address header (auto-detected from `.prg` extension) |
+| `-basic` | Output as PRG with BASIC `SYS` stub at `$0801` (code starts at `$080D`; auto-run on MEGA65/C64) |
 | `-t <addr>` | Set text segment base address (hex, default: `2000`) |
 | `-d <addr>` | Set data segment base address (hex, default: after text) |
 | `-b <addr>` | Set BSS segment base address (hex, default: after data) |
@@ -67,6 +68,17 @@ cc45 -c math.c -o math.o45
 # Link into a PRG
 ln45 -prg -o program.prg main.o45 math.o45
 ```
+
+### Auto-running BASIC PRG (recommended for MEGA65/C64)
+
+```bash
+cc45 -c main.c -o main.o45
+
+# Link with BASIC SYS stub — auto-runs on load
+ln45 -basic -o program.prg crt0.o45 main.o45 stdlib.lib
+```
+
+This produces a PRG that loads at `$0801` with a `10 SYS 2061` BASIC stub. Code starts at `$080D`. The program auto-runs when loaded via `LOAD"PROGRAM",8,1` then `RUN` (or auto-start).
 
 ### Assembly object linking
 

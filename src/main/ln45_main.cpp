@@ -11,6 +11,7 @@ static void printUsage(const char* progName) {
     std::cout << "Options:" << std::endl;
     std::cout << "  -o <file>      Output filename (default: a.out, or a.prg if -prg)" << std::endl;
     std::cout << "  -prg           Output as PRG with 2-byte load address header" << std::endl;
+    std::cout << "  -basic         Output as PRG with BASIC SYS stub (loads at $2001, code at $200D)" << std::endl;
     std::cout << "  -t <addr>      Set text segment base address (hex, e.g., -t 2000)" << std::endl;
     std::cout << "  -d <addr>      Set data segment base address (hex; default: after text)" << std::endl;
     std::cout << "  -b <addr>      Set BSS segment base address (hex; default: after data)" << std::endl;
@@ -28,6 +29,7 @@ int main(int argc, char** argv) {
     std::string outputFile;
     bool outputSet = false;
     bool isPrg = false;
+    bool isBasic = false;
     bool printMap = false;
     uint32_t textBase = 0x2000; // sensible MEGA65 default
     bool textBaseSet = false;
@@ -42,6 +44,7 @@ int main(int argc, char** argv) {
         if (arg == "-?" || arg == "--help") { printUsage(argv[0]); return 0; }
         else if (arg == "-o" && i + 1 < argc) { outputFile = argv[++i]; outputSet = true; }
         else if (arg == "-prg") { isPrg = true; }
+        else if (arg == "-basic") { isBasic = true; isPrg = true; }
         else if (arg == "-m") { printMap = true; }
         else if (arg == "-l" && i + 1 < argc) { libFiles.push_back(argv[++i]); }
         else if (arg == "-t" && i + 1 < argc) { textBase = parseAddr(argv[++i]); textBaseSet = true; }
@@ -68,8 +71,10 @@ int main(int argc, char** argv) {
         outputFile = isPrg ? "a.prg" : "a.out";
     }
 
-    // If -prg but no explicit text base, use $2000
-    if (isPrg && !textBaseSet) {
+    // If -basic, code starts at $200D (after 12-byte BASIC stub at $2001 on MEGA65)
+    if (isBasic && !textBaseSet) {
+        textBase = 0x200D;
+    } else if (isPrg && !textBaseSet) {
         textBase = 0x2000;
     }
 
@@ -121,12 +126,44 @@ int main(int argc, char** argv) {
         linker.addLibrary(libname, lib);
     }
 
-    // Link
+    // Link (for -basic, we add the header ourselves)
     std::string linkErr;
-    auto binary = linker.link(linkErr, isPrg);
+    auto binary = linker.link(linkErr, isPrg && !isBasic);
     if (binary.empty()) {
         std::cerr << "ln45: link error: " << linkErr << std::endl;
         return 1;
+    }
+
+    // Prepend BASIC SYS stub if requested
+    if (isBasic) {
+        // MEGA65 BASIC starts at $2001 (C64 uses $0801)
+        uint16_t basicBase = 0x2001;
+
+        // Build: load address + BASIC stub (12 bytes) + binary
+        std::vector<uint8_t> basicPrg;
+
+        // 2-byte PRG load address
+        basicPrg.push_back((uint8_t)(basicBase & 0xFF));
+        basicPrg.push_back((uint8_t)(basicBase >> 8));
+
+        // BASIC stub: 10 SYS <textBase>
+        std::string addrStr = std::to_string(textBase);
+        // No padding — real BASIC SYS tokens don't pad
+
+        uint16_t nextLine = basicBase + 2 + 2 + 1 + (uint16_t)addrStr.length() + 1;
+        basicPrg.push_back((uint8_t)(nextLine & 0xFF));
+        basicPrg.push_back((uint8_t)(nextLine >> 8));
+        basicPrg.push_back(0x0A); basicPrg.push_back(0x00); // line number 10
+        basicPrg.push_back(0x9E); // SYS token
+        for (char c : addrStr) {
+            basicPrg.push_back((uint8_t)c);
+        }
+        basicPrg.push_back(0x00); // end of BASIC line
+        basicPrg.push_back(0x00); basicPrg.push_back(0x00); // end of BASIC program
+
+        // Append the linked binary
+        basicPrg.insert(basicPrg.end(), binary.begin(), binary.end());
+        binary = std::move(basicPrg);
     }
 
     // Write output

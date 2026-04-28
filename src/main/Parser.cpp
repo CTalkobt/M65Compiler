@@ -231,7 +231,11 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     
     expect(TokenType::OPEN_PAREN, "Expected '('");
     std::vector<Parameter> params;
-    if (peek().type != TokenType::CLOSE_PAREN) {
+    // Handle (void) as empty parameter list
+    if (peek().type == TokenType::VOID && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::CLOSE_PAREN) {
+        advance(); // consume 'void'
+    }
+    else if (peek().type != TokenType::CLOSE_PAREN) {
         do {
             bool pIsVolatile = false;
             if (match(TokenType::VOLATILE)) {
@@ -279,7 +283,19 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         } while (match(TokenType::COMMA));
     }
     expect(TokenType::CLOSE_PAREN, "Expected ')'");
-    
+
+    // Forward declaration (prototype): ends with ';' instead of '{'
+    if (match(TokenType::SEMICOLON)) {
+        // Create a function declaration with an empty body
+        auto func = setPos(std::make_unique<FunctionDeclaration>(name, returnType), startToken);
+        func->isSigned = isSigned;
+        func->parameters = std::move(params);
+        func->body = std::make_unique<CompoundStatement>();
+        func->isNoreturn = isNR;
+        func->isPrototype = true;
+        return func;
+    }
+
     std::string savedFunctionName = currentFunctionName;
     currentFunctionName = name;
     auto body = parseCompoundStatement();

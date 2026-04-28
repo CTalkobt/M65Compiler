@@ -1006,7 +1006,16 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
         return s + 3;
     }
 
-    if (instr.mnemonic == "rtn") return 2;
+    if (instr.mnemonic == "rtn") {
+        // rtn #0 optimizes to just RTS (1 byte); rtn #N is RTS + immediate (2 bytes)
+        if (!instr.operand.empty()) {
+            Symbol* sym = resolveSymbol(instr.operand, scopePrefix);
+            uint32_t v = sym ? sym->value : 0;
+            if (!sym) { try { v = std::stoul(instr.operand); } catch(...) { v = 0; } }
+            if (v == 0) return 1;
+        }
+        return 2;
+    }
 
     switch (resolvedMode) {
         case AddressingMode::IMPLIED: case AddressingMode::ACCUMULATOR: return size;

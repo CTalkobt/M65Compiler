@@ -567,7 +567,14 @@ int main(int argc, char** argv) {
     
     if (assemble) {
         if (verboseLevel >= 1) std::cout << "Assembling to " << output_file << "..." << std::endl;
-        std::string command = "./bin/ca45 -c " + defineFlag + " -o " + output_file + " " + asmFile;
+        // Find ca45 relative to cc45's own location
+        std::string cc45Path = argv[0];
+        std::string ca45Path = "ca45";
+        size_t lastSep = cc45Path.find_last_of("/\\");
+        if (lastSep != std::string::npos) {
+            ca45Path = cc45Path.substr(0, lastSep + 1) + "ca45";
+        }
+        std::string command = ca45Path + " -c " + defineFlag + " -o " + output_file + " " + asmFile;
         int ret = std::system(command.c_str());
         if (ret != 0) {
             std::cerr << "Assembler failed with return code " << ret << std::endl;

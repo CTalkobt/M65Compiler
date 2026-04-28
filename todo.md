@@ -169,12 +169,12 @@ Steps required to bring the C compiler closer to C11 standards.
 ### High Priority (directly support the linker workflow)
 
 - [ ] **`dis45` — Disassembler**: Disassemble `.bin`/`.prg` output or `.o45` sections back to 45GS02 assembly. Critical for verifying compiler and linker output; no existing disassembler fully covers the 45GS02 instruction set (quad-mode, linear addressing, etc.).
-- [X] **`nm45` — Symbol Lister**: Lists exported/imported symbols in `.o45` object files. Shows symbol name, segment, offset, and type (U=undefined, T=text, D=data, B=bss, Z=zp). Supports `-u` (undefined only), `-g` (exported only), `-n` (sort by address), `-r` (reverse sort), `-p` (no sort), `-A` (prepend filename), and multi-file listing.
-- [ ] **`readobj45` — Object File Inspector**: Human-readable dump of `.o45` file internals: header fields, segment sizes, relocation tables, symbol table. Analogous to `readelf`; primary debugging tool during `ln45` development.
+- [X] **`nm45` — Symbol Lister & Object Inspector**: Lists symbols and inspects `.o45`/`.o65` object files. Symbol flags: `-u`, `-g`, `-n`, `-R`, `-p`, `-A`. Inspection flags: `-h` (header/mode/CPU/options), `-r` (decoded relocation tables), `-s` (segment sizes), `-a` (all). Replaces the need for separate `readobj45` and `size45` utilities.
+- [X] **`readobj45`**: Covered by `nm45 -h` (header) and `nm45 -r` (relocations).
+- [X] **`size45`**: Covered by `nm45 -s` (segment size summary).
 
 ### Medium Priority
 
-- [ ] **`size45` — Segment Size Reporter**: Reports `.text`, `.data`, `.bss`, `.zp` sizes for one or more `.o45` files or the final binary. Critical on the MEGA65's constrained memory map.
 - [ ] **`strip45` — Symbol Stripper**: Removes symbol/debug information from a final linked binary to reduce size. Particularly relevant since `.zp` space is precious.
 - [ ] **`prg45` — PRG File Utility**: Inspect, split, or re-header `.prg` files (2-byte load-address format). Could also handle multi-part PRG loads or inject a BASIC stub.
 - [ ] **Linker Map File**: `-M` flag on `ln45` to emit a map file showing final address assignment for every symbol and segment.

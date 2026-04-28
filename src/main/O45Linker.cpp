@@ -293,14 +293,35 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
                 default: break;
             }
 
-            // Read the existing value at the patch site
+            // Read the existing value at the patch site and compute target address.
+            // The existing value is the assembly-time absolute address of the target.
+            // We subtract the object's original segment base to get the segment-relative
+            // offset, then add the final segment base + object's offset in merged segment.
             uint32_t existingVal = 0;
-            int patchSize = o45RelocPatchSize((uint8_t)r.type);
-            for (int i = 0; i < patchSize && (patchPos + i) < body.size(); i++) {
-                existingVal |= ((uint32_t)body[patchPos + i]) << (i * 8);
+            if (r.type == R_HIGH) {
+                // extra = original low byte, patch site = high byte
+                uint8_t hi = body[patchPos];
+                uint8_t lo = r.extra;
+                existingVal = (hi << 8) | lo;
+            } else {
+                int patchSize = o45RelocPatchSize((uint8_t)r.type);
+                for (int i = 0; i < patchSize && (patchPos + i) < body.size(); i++) {
+                    existingVal |= ((uint32_t)body[patchPos + i]) << (i * 8);
+                }
             }
 
-            targetAddr = segBase + segObjOff + existingVal;
+            // Subtract the object's original base for the target segment to get
+            // the segment-relative offset
+            uint32_t origBase = 0;
+            switch (r.segment) {
+                case SEG_TEXT: origBase = input.obj.tbase; break;
+                case SEG_DATA: origBase = input.obj.dbase; break;
+                case SEG_BSS:  origBase = input.obj.bbase; break;
+                case SEG_ZP:   origBase = input.obj.zbase; break;
+                default: break;
+            }
+
+            targetAddr = segBase + segObjOff + (existingVal - origBase);
         }
 
         // Patch the bytes at the relocation site

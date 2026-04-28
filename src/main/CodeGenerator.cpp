@@ -337,8 +337,10 @@ void CodeGenerator::visit(TranslationUnit& node) {
                 if (asmStmt->code == ".weak_next") { nextIsWeak = true; continue; }
             }
             if (auto* fn = dynamic_cast<FunctionDeclaration*>(decl.get())) {
-                definedFunctions.insert(fn->name);
-                if (nextIsWeak) { weakFunctions.insert(fn->name); }
+                if (!fn->isPrototype) {
+                    definedFunctions.insert(fn->name);
+                    if (nextIsWeak) { weakFunctions.insert(fn->name); }
+                }
             }
             nextIsWeak = false;
         }
@@ -375,9 +377,16 @@ void CodeGenerator::visit(TranslationUnit& node) {
             }
         }
         if (hasMain) {
-            out << "    jsr _main" << std::endl;
+            // Inline crt0: __init calls _init_features (weak stub), then _main
+            // Returns to caller with .AX = main's return value
+            out << "    jsr __init" << std::endl;
             out << "_halt:" << std::endl;
             out << "    bra _halt" << std::endl;
+            out << "__init:" << std::endl;
+            out << "    jsr _init_features" << std::endl;
+            out << "    jmp _main" << std::endl;  // tail-call: main's RTS returns to our caller with .AX intact
+            out << "_init_features:" << std::endl;
+            out << "    rts" << std::endl;
         }
         out << std::endl;
     }
@@ -386,6 +395,7 @@ void CodeGenerator::visit(TranslationUnit& node) {
 }
 
 void CodeGenerator::visit(FunctionDeclaration& node) {
+    if (node.isPrototype) return; // Forward declaration — no code emitted
     out << ".code" << std::endl;
     variableTypes.clear();
     currentVars.clear();

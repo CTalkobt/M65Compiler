@@ -4,6 +4,7 @@
 #include "AssemblerParser.hpp"
 #include "AssemblerGenerator.hpp"
 #include "M65Emitter.hpp"
+#include <iostream>
 #include <algorithm>
 
 // Map ca45 segment names to O45 segment IDs.
@@ -149,16 +150,8 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             sb.bytes.clear(); // BSS has no body
         } else {
             uint32_t segStart = sb.base;
-            // Compute actual segment size from statements (more reliable than seg->pc
-            // which can be polluted by segment switching in pass2)
-            uint32_t segEnd = segStart;
-            for (const auto& stmt : parser.statements) {
-                if (stmt->segmentName == segName && !stmt->deleted && stmt->size > 0) {
-                    uint32_t end = stmt->address + stmt->size;
-                    if (end > segEnd) segEnd = end;
-                }
-            }
-            uint32_t segLen = segEnd - segStart;
+            uint32_t segEnd = seg->pc;
+            uint32_t segLen = (segEnd > segStart) ? (segEnd - segStart) : 0;
 
             // Offset in the flat binary
             uint32_t binOffset = segStart - globalBase;
@@ -212,12 +205,24 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         // Only care about instructions with absolute addressing (16-bit address operands)
         if (!isAbsoluteMode(stmt->instr.mode)) continue;
 
+        // Skip branch instructions — they use relative offsets, not absolute addresses
+        static const std::set<std::string> branches = {
+            "beq", "bne", "bra", "bcc", "bcs", "bpl", "bmi", "bvc", "bvs", "bsr",
+            "bbr0","bbr1","bbr2","bbr3","bbr4","bbr5","bbr6","bbr7",
+            "bbs0","bbs1","bbs2","bbs3","bbs4","bbs5","bbs6","bbs7"
+        };
+        if (branches.count(stmt->instr.mnemonic)) continue;
+
         // Resolve the operand to see if it references a relocatable symbol
         std::string operand = stmt->instr.operand;
         if (operand.empty()) continue;
 
+        // Skip numeric literals — they're absolute addresses, not relocatable
+        if (operand[0] == '$' || operand[0] == '%' || (operand[0] >= '0' && operand[0] <= '9')) continue;
+
         Symbol* sym = parser.resolveSymbol(operand, stmt->scopePrefix);
         if (!sym) continue;
+
 
         // Is it an extern symbol?
         bool isExtern = parser.isExternSymbol(operand);
@@ -252,6 +257,64 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         }
 
         segRelocs[srcSeg].push_back(reloc);
+    }
+
+    // Scan simulated LDW (ldax #<label) for immediate address loads
+    // These emit LDA #lo; LDX #hi (4 bytes) — need R_LOW at +1, R_HIGH at +3
+    for (const auto& stmt : parser.statements) {
+        if (stmt->deleted || stmt->size == 0) continue;
+        if (stmt->type != AssemblerParser::Statement::LDW) continue;
+
+        // Check if operand is immediate (#) by looking at the token stream
+        int idx = stmt->exprTokenIndex;
+        if (idx < 0 || idx >= (int)parser.tokens.size()) continue;
+        if (parser.tokens[idx].type != AssemblerTokenType::HASH) continue;
+        idx++; // skip #
+
+        // Check for < prefix (address-of operator from compiler)
+        bool hasLowPrefix = false;
+        if (idx < (int)parser.tokens.size() && parser.tokens[idx].value == "<") {
+            hasLowPrefix = true;
+            idx++;
+        }
+
+        if (idx >= (int)parser.tokens.size()) continue;
+        std::string symName = parser.tokens[idx].value;
+
+        // Try to resolve as a symbol
+        Symbol* sym = parser.resolveSymbol(symName, stmt->scopePrefix);
+        if (!sym || !sym->isAddress) continue;
+
+        bool isExtern = parser.isExternSymbol(symName);
+        std::string targetSeg;
+        if (!isExtern) {
+            targetSeg = findSegmentForAddress(sym->value);
+            if (targetSeg.empty()) continue;
+        }
+
+        std::string srcSeg = stmt->segmentName;
+        uint32_t srcBase = globalBase;
+        if (parser.segments.count(srcSeg)) {
+            srcBase = parser.segments.at(srcSeg)->startAddress;
+            if (srcBase == 0xFFFFFFFF) srcBase = 0;
+        }
+
+        // LDA #lo is at stmt->address + 0, operand byte at +1
+        // LDX #hi is at stmt->address + 2, operand byte at +3
+        uint32_t baseOff = stmt->address - srcBase;
+
+        // The R_HIGH extra byte carries the low byte for carry correction
+        uint8_t lowByte = (uint8_t)(sym->value & 0xFF);
+
+        if (isExtern) {
+            uint32_t symIdx = syms.getImportIndex(symName);
+            segRelocs[srcSeg].push_back({baseOff + 1, R_LOW, SEG_EXTERNAL, symIdx, 0});
+            segRelocs[srcSeg].push_back({baseOff + 3, R_HIGH, SEG_EXTERNAL, symIdx, lowByte});
+        } else {
+            O45Segment segId = segIdFromName(targetSeg);
+            segRelocs[srcSeg].push_back({baseOff + 1, R_LOW, segId, 0, 0});
+            segRelocs[srcSeg].push_back({baseOff + 3, R_HIGH, segId, 0, lowByte});
+        }
     }
 
     // Also check .word directives that reference symbols
