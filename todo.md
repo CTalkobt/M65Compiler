@@ -87,7 +87,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **`unsigned` Keyword**: Support the explicit `unsigned` type specifier for variables and return types.
 - [d] **`short` Type**: Support 16-bit `short` integer type.
 - [d] **`long` Type**: Support 32-bit `long` integer type.
-- [ ] **`long long` Type**: Support 64-bit `long long` integer type (C99).
+- [d] **`long long` Type**: Support 64-bit `long long` integer type (C99).
 - [ ] **`_Bool` Type**: Support C99 `_Bool` boolean type and `<stdbool.h>` header.
 - [ ] **`float` / `double` Types**: Support floating-point types (may leverage Commodore 40-bit float format via assembler).
 - [X] **`enum` Types**: Implement `enum` for defining named integer constant sets.

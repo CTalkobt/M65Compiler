@@ -1,5 +1,5 @@
 // Test: Inline assembly accessing local, parameter, and global variables.
-// Validates __asm__() can read/write _p_ (params), _l_ (locals), _g_ (globals).
+// Validates __asm__() can read/write _p_ (params), _l_ (locals), _ (globals).
 // Uses memory-write pattern for mmemu validation.
 // Expected: 4000: 01 01 01 01 AA
 
@@ -11,13 +11,13 @@ volatile char g_flag = 0;
 void store_to_global(int val) {
     // Read int parameter via inline asm and store to global
     __asm__("ldax _p_val, s");
-    __asm__("stax _g_g_value");
+    __asm__("stax _g_value");
 }
 
 void set_flag(char f) {
     // Read char parameter via inline asm and store to global
     __asm__("lda.sp _p_f");
-    __asm__("sta _g_g_flag");
+    __asm__("sta _g_flag");
 }
 
 int copy_via_asm(int val) {

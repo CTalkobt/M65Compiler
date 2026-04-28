@@ -74,7 +74,7 @@ std::string CodeGenerator::getAggregateName(const std::string& type) {
 std::string CodeGenerator::resolveVarName(const std::string& name) {
     if (name.length() >= 3) {
         std::string prefix = name.substr(0, 3);
-        if (prefix == "_p_" || prefix == "_l_" || prefix == "_g_") {
+        if (prefix == "_p_" || prefix == "_l_") {
             return name;
         }
     }
@@ -82,7 +82,7 @@ std::string CodeGenerator::resolveVarName(const std::string& name) {
     if (variableTypes.count(pName)) return pName;
     std::string lName = "_l_" + name;
     if (variableTypes.count(lName)) return lName;
-    std::string gName = "_g_" + name;
+    std::string gName = "_" + name;
     if (globalVariableTypes.count(gName)) return gName;
     return name;
 }
@@ -137,8 +137,8 @@ CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
             VarInfo& vi = variableTypes.at(rName);
             return {vi.type, vi.pointerLevel, vi.isSigned};
         }
-        if (globalVariableTypes.count("_g_" + ref->name)) {
-            VarInfo& vi = globalVariableTypes.at("_g_" + ref->name);
+        if (globalVariableTypes.count("_" + ref->name)) {
+            VarInfo& vi = globalVariableTypes.at("_" + ref->name);
             return {vi.type, vi.pointerLevel, vi.isSigned};
         }
     }
@@ -170,8 +170,8 @@ CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
         ExpressionType baseType = getExprType(ma->structExpr.get());
         if (!isStruct(baseType.type)) {
              if (auto* ref = dynamic_cast<VariableReference*>(ma->structExpr.get())) {
-                 if (globalVariableTypes.count("_g_" + ref->name)) {
-                     VarInfo& gv = globalVariableTypes.at("_g_" + ref->name);
+                 if (globalVariableTypes.count("_" + ref->name)) {
+                     VarInfo& gv = globalVariableTypes.at("_" + ref->name);
                      baseType = {gv.type, gv.pointerLevel, gv.isSigned};
                  }
              }
@@ -206,8 +206,8 @@ void CodeGenerator::emitAddress(Expression* expr) {
         ExpressionType baseType = getExprType(ma->structExpr.get());
         if (!isStruct(baseType.type)) {
              if (auto* ref = dynamic_cast<VariableReference*>(ma->structExpr.get())) {
-                 if (globalVariableTypes.count("_g_" + ref->name)) {
-                     baseType = {globalVariableTypes.at("_g_" + ref->name).type, globalVariableTypes.at("_g_" + ref->name).pointerLevel};
+                 if (globalVariableTypes.count("_" + ref->name)) {
+                     baseType = {globalVariableTypes.at("_" + ref->name).type, globalVariableTypes.at("_" + ref->name).pointerLevel};
                  }
              }
         }
@@ -287,7 +287,7 @@ void CodeGenerator::visit(TranslationUnit& node) {
         }
     }
     if (hasMain) {
-        out << "    jsr main" << std::endl;
+        out << "    jsr _main" << std::endl;
         out << "_halt:" << std::endl;
         out << "    bra _halt" << std::endl;
     }
@@ -300,7 +300,7 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     out << ".code" << std::endl;
     variableTypes.clear();
     currentVars.clear();
-    std::string procLine = "proc " + node.name;
+    std::string procLine = "proc _" + node.name;
 
     currentFunction = &node;
     currentParamByteSize = 0;
@@ -359,7 +359,7 @@ void CodeGenerator::visit(VariableDeclaration& node) {
     embedSource(node);
 
     if (node.isGlobal || currentFunction == nullptr) {
-        std::string gName = "_g_" + node.name;
+        std::string gName = "_" + node.name;
         globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.arraySize};
         if (node.isGlobal) {
             globalVars.push_back(&node);
@@ -593,7 +593,7 @@ void CodeGenerator::visit(Assignment& node) {
 
     if (auto* ref = dynamic_cast<VariableReference*>(node.target.get())) {
         std::string rName = resolveVarName(ref->name);
-        bool isGlobal = (rName.length() >= 3 && rName.substr(0, 3) == "_g_");
+        bool isGlobal = globalVariableTypes.count(rName);
         std::string suffix = isGlobal ? "" : ", s";
 
         if (auto* bin = dynamic_cast<BinaryOperation*>(node.expression.get())) {
@@ -660,7 +660,7 @@ void CodeGenerator::visit(Assignment& node) {
                 if (structSize >= 9) {
                     if (auto* sourceRef = dynamic_cast<VariableReference*>(node.expression.get())) {
                         std::string srcName = resolveVarName(sourceRef->name);
-                        bool sourceGlobal = (srcName.length() >= 3 && srcName.substr(0, 3) == "_g_");
+                        bool sourceGlobal = globalVariableTypes.count(srcName);
                         
                         std::stringstream ssX, ssY;
                         ssX << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (structSize & 0xFF);
@@ -698,13 +698,13 @@ void CodeGenerator::visit(Assignment& node) {
         if (!ma->isArrow) {
             if (auto* ref = dynamic_cast<VariableReference*>(ma->structExpr.get())) {
                 std::string rName = resolveVarName(ref->name);
-                bool isGlobal = (rName.length() >= 3 && rName.substr(0, 3) == "_g_");
+                bool isGlobal = globalVariableTypes.count(rName);
                 std::string suffix = isGlobal ? "" : ", s";
 
                 ExpressionType baseType = getExprType(ref);
                 if (!isStruct(baseType.type)) {
-                    if (globalVariableTypes.count("_g_" + ref->name)) {
-                        baseType = {globalVariableTypes.at("_g_" + ref->name).type, globalVariableTypes.at("_g_" + ref->name).pointerLevel};
+                    if (globalVariableTypes.count("_" + ref->name)) {
+                        baseType = {globalVariableTypes.at("_" + ref->name).type, globalVariableTypes.at("_" + ref->name).pointerLevel};
                     }
                 }
                 if (isStruct(baseType.type)) {
@@ -1219,7 +1219,7 @@ void CodeGenerator::visit(SizeofExpression& node) {
         if (auto* ref = dynamic_cast<VariableReference*>(node.expression.get())) {
             std::string rName = resolveVarName(ref->name);
             if (variableTypes.count(rName)) arraySize = variableTypes.at(rName).arraySize;
-            else if (globalVariableTypes.count("_g_" + ref->name)) arraySize = globalVariableTypes.at("_g_" + ref->name).arraySize;
+            else if (globalVariableTypes.count("_" + ref->name)) arraySize = globalVariableTypes.at("_" + ref->name).arraySize;
         }
         size = getTypeSize(et.type, et.pointerLevel, arraySize, structs);
     }
@@ -1568,8 +1568,8 @@ void CodeGenerator::visit(MemberAccess& node) {
     ExpressionType baseType = getExprType(node.structExpr.get());
     if (!isStruct(baseType.type)) {
          if (auto* ref = dynamic_cast<VariableReference*>(node.structExpr.get())) {
-             if (globalVariableTypes.count("_g_" + ref->name)) {
-                 baseType = {globalVariableTypes.at("_g_" + ref->name).type, globalVariableTypes.at("_g_" + ref->name).pointerLevel};
+             if (globalVariableTypes.count("_" + ref->name)) {
+                 baseType = {globalVariableTypes.at("_" + ref->name).type, globalVariableTypes.at("_" + ref->name).pointerLevel};
              }
          }
     }
@@ -1590,7 +1590,7 @@ void CodeGenerator::visit(MemberAccess& node) {
                 std::string nestedSName = getAggregateName(mInfo.type);
                 if (structs.count(nestedSName) && structs[nestedSName]->totalSize > 1) is16 = true;
             }
-            bool isGlobal = (rName.length() >= 3 && rName.substr(0, 3) == "_g_");
+            bool isGlobal = globalVariableTypes.count(rName);
             std::string suffix = isGlobal ? "" : ", s";
             if (is16) {
                 emit("ldax " + rName + "+" + std::to_string(mInfo.offset) + suffix);
@@ -1663,7 +1663,7 @@ void CodeGenerator::visit(StringLiteral& node) {
 void CodeGenerator::visit(VariableReference& node) {
     if (!resultNeeded) return;
     std::string rName = resolveVarName(node.name);
-    bool isGlobal = (rName.length() >= 3 && rName.substr(0, 3) == "_g_");
+    bool isGlobal = globalVariableTypes.count(rName);
     std::string suffix = isGlobal ? "" : ", s";
     VarInfo vi = variableTypes.count(rName) ? variableTypes.at(rName) : globalVariableTypes.at(rName);
 
@@ -1755,7 +1755,7 @@ void CodeGenerator::visit(FunctionCall& node) {
         } else { arg->accept(*this); emitter->push_ax(); }
     }
     int argBytes = (int)node.arguments.size() * 2;
-    resultNeeded = oldNeeded; emit("jsr " + node.name);
+    resultNeeded = oldNeeded; emit("jsr _" + node.name);
     // Caller cleans up pushed arguments using PLA (A saved in Z)
     if (argBytes > 0) {
         emitter->taz();
@@ -1863,7 +1863,7 @@ void CodeGenerator::emitData() {
         }
 
         if (gVar->alignment > 1) out << "    .align " << std::to_string(gVar->alignment) << std::endl;
-        out << "_g_" << gVar->name << ":" << std::endl;
+        out << "_" << gVar->name << ":" << std::endl;
         int size = 0;
         if (gVar->pointerLevel > 0) size = 2;
         else if (gVar->type == "char") size = 1;
@@ -1886,7 +1886,7 @@ void CodeGenerator::emitData() {
         out << "; BSS Section" << std::endl;
         for (auto* gVar : uninitializedVars) {
             if (gVar->alignment > 1) out << "    .align " << std::to_string(gVar->alignment) << std::endl;
-            out << "_g_" << gVar->name << ":" << std::endl;
+            out << "_" << gVar->name << ":" << std::endl;
             int size = 0;
             if (gVar->pointerLevel > 0) size = 2;
             else if (gVar->type == "char") size = 1;
