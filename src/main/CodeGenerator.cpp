@@ -48,7 +48,7 @@ void CodeGenerator::emit(const std::string& line) {
 }
 
 std::string CodeGenerator::newLabel() {
-    return "L" + std::to_string(labelCount++);
+    return "@L" + std::to_string(labelCount++);
 }
 
 std::string CodeGenerator::newDontCareLabel() {
