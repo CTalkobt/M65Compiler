@@ -7,6 +7,7 @@ BIN_DIR = bin
 CC_TARGET = $(BIN_DIR)/cc45
 CA_TARGET = $(BIN_DIR)/ca45
 CP_TARGET = $(BIN_DIR)/cp45
+NM_TARGET = $(BIN_DIR)/nm45
 
 CC_SOURCES = $(SRC_DIR)/cc45_main.cpp
 CA_SOURCES = $(SRC_DIR)/ca45_main.cpp
@@ -22,7 +23,9 @@ MAN_DIR = man
 
 .PHONY: all clean test man test-mmemu
 
-all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET)
+NM_OBJECTS = $(OBJ_DIR)/nm45_main.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o
+
+all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET) $(NM_TARGET)
 
 man: $(MAN_DIR)/cc45.1 $(MAN_DIR)/ca45.1
 
@@ -39,6 +42,10 @@ $(CP_TARGET): $(CC_TARGET)
 	ln -sf cc45 $(CP_TARGET)
 
 $(CA_TARGET): $(CA_OBJECTS)
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $^
+
+$(NM_TARGET): $(NM_OBJECTS)
 	@mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ $^
 

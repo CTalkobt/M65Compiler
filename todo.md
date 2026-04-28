@@ -169,7 +169,7 @@ Steps required to bring the C compiler closer to C11 standards.
 ### High Priority (directly support the linker workflow)
 
 - [ ] **`dis45` — Disassembler**: Disassemble `.bin`/`.prg` output or `.o45` sections back to 45GS02 assembly. Critical for verifying compiler and linker output; no existing disassembler fully covers the 45GS02 instruction set (quad-mode, linear addressing, etc.).
-- [ ] **`nm45` — Symbol Lister**: Lists exported/imported symbols in `.o45` object files and `.lib` archives. Shows symbol name, segment, offset, and type (export/import/undefined). Essential for diagnosing linker errors before invoking `ln45`.
+- [X] **`nm45` — Symbol Lister**: Lists exported/imported symbols in `.o45` object files. Shows symbol name, segment, offset, and type (U=undefined, T=text, D=data, B=bss, Z=zp). Supports `-u` (undefined only), `-g` (exported only), `-n` (sort by address), `-r` (reverse sort), `-p` (no sort), `-A` (prepend filename), and multi-file listing.
 - [ ] **`readobj45` — Object File Inspector**: Human-readable dump of `.o45` file internals: header fields, segment sizes, relocation tables, symbol table. Analogous to `readelf`; primary debugging tool during `ln45` development.
 
 ### Medium Priority

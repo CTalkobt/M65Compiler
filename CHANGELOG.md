@@ -6,6 +6,7 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### Added
 - **Compiler (cc45)**:
+    - **Relocatable object mode (`-c`)**: `cc45 -c input.c -o output.o45` compiles C to a `.o45` relocatable object file. The CodeGenerator auto-emits `.global` for defined functions and global variables, `.extern` for called-but-not-defined functions. Skips the `.org $2000` and startup stub in reloc mode. The `-o` flag controls the final `.o45` name; intermediate `.s` file is generated automatically.
     - **Frame-pointer-relative parameter access**: Function parameters are now accessed via a saved frame pointer using the 45GS02's native `($nn,SP),Y` addressing mode (opcodes $E2/$82). The `proc` prologue saves SP as a 16-bit LE pointer on the stack (`TSX; LDA #$01; PHA; PHX`). Parameters get fixed Y offsets that never change as locals are pushed, eliminating the need for `.var` offset bumping on parameters.
     - Added `_fp` assembler variable that tracks the frame pointer's stack position, automatically adjusted by `.var` as locals are declared.
     - Added `test_many_params_locals.c` — validates functions with >2 parameters (up to 5) and >2 local variables (up to 6), including mixed char/int params, nested multi-param calls, and computed expression arguments (10 test cases).
@@ -23,6 +24,9 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
     - `O45RelocEncoder` — encodes high-level relocation entries into `.o65`/`.o45` delta-offset byte streams.
     - `O45SymbolTable` — manages imports/exports with deduplication, validation, and `applyTo(writer)`.
     - `O45Emitter` — bridge between the assembler and `.o45` format: extracts segments, scans for relocations, packages output.
+    - `O45Reader` — parses `.o45` files back into structured data (header, options, segments, relocations, symbol tables).
+- **Utilities**:
+    - **`nm45` — Symbol Lister**: Lists exported/imported symbols in `.o45` object files. Traditional `nm` output format: `offset type name` (U=undefined, T=text, D=data, B=bss, Z=zp). Flags: `-u` (undefined only), `-g` (exported only), `-n` (sort by address), `-r` (reverse sort), `-p` (no sort), `-A`/`-o` (prepend filename for grep-friendly output). Multi-file listing.
 - **Testing**:
     - Added `test_many_params_locals` to both `test_compiler.sh` and `test_mmemu.sh` validation suites.
     - Added 16-bit stack pointer test to `test_mmemu.sh` — verifies TYS/TSY and push/pull on a relocated stack page.
