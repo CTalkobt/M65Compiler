@@ -9,6 +9,7 @@
 #include "AssemblerGenerator.hpp"
 #include "M65Emitter.hpp"
 #include "O45Emitter.hpp"
+#include "Version.hpp"
 
 int main(int argc, char** argv) {
     std::string input_file;
@@ -23,7 +24,10 @@ int main(int argc, char** argv) {
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "-?" || arg == "--help") {
+        if (arg == "-V" || arg == "--version") {
+            std::cout << suiteVersionString("ca45") << std::endl;
+            return 0;
+        } else if (arg == "-?" || arg == "--help") {
             std::cout << "Usage: ca45 [options] <input_file.s>" << std::endl;
             std::cout << "Options:" << std::endl;
             std::cout << "  -c             Produce relocatable .o45 object file instead of binary" << std::endl;

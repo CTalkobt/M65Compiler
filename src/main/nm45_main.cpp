@@ -7,6 +7,7 @@
 #include <cstdio>
 #include "O45Reader.hpp"
 #include "O45Linker.hpp"
+#include "Version.hpp"
 
 static char segmentLetter(uint8_t seg) {
     switch (seg) {
@@ -193,7 +194,8 @@ int main(int argc, char** argv) {
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
-        if (arg == "-?" || arg == "--help") { printUsage(argv[0]); return 0; }
+        if (arg == "-V" || arg == "--version") { std::cout << suiteVersionString("nm45") << std::endl; return 0; }
+        else if (arg == "-?" || arg == "--help") { printUsage(argv[0]); return 0; }
         else if (arg == "-u") onlyUndefined = true;
         else if (arg == "-g") onlyGlobal = true;
         else if (arg == "-n") sortByAddress = true;

@@ -14,6 +14,7 @@
 #include "AssemblerParser.hpp"
 #include "AssemblerGenerator.hpp"
 #include "M65Emitter.hpp"
+#include "Version.hpp"
 
 class ASTPrinter : public ASTVisitor {
 public:
@@ -353,7 +354,10 @@ int main(int argc, char** argv) {
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "-?" || arg == "--help") {
+        if (arg == "-V" || arg == "--version") {
+            std::cout << suiteVersionString("cc45") << std::endl;
+            return 0;
+        } else if (arg == "-?" || arg == "--help") {
             std::cout << "Usage: cc45 [options] <input_file.c>" << std::endl;
             std::cout << "Options:" << std::endl;
             std::cout << "  -E             Run only the preprocessor (output to stdout or -o file)" << std::endl;

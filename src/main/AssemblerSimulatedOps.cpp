@@ -905,3 +905,124 @@ void AssemblerSimulatedOps::emitPushPopCode(AssemblerParser*, M65Emitter& e, boo
 int AssemblerSimulatedOps::getPushPopSize(AssemblerParser*, bool, const std::string& reg, int, const std::string&) {
     return (int)getRegistersFromMnemonic(reg).size();
 }
+
+uint32_t AssemblerSimulatedOps::resolveAbsAddr(AssemblerParser* parser, int tokenIndex, const std::string& scopePrefix) {
+    std::string srcName = parser->tokens[tokenIndex].value;
+    Symbol* sym = parser->resolveSymbol(srcName, scopePrefix);
+    if (sym) return sym->value;
+    try { return parseNumericLiteral(srcName); } catch(...) { return 0; }
+}
+
+// Emit signed 16-bit multiply/divide/mod.
+// op: 0=mul, 1=div, 2=mod
+// Left in .AX, right from tokenIndex (constant or memory address).
+// Hardware: mul=$D770/$D774→$D778, div=$D760/$D764→$D768, remainder=$D770.
+// $D76E used as sign scratch byte.
+void AssemblerSimulatedOps::emitSignedMathOp(AssemblerParser* parser, M65Emitter& e, int op,
+                             const std::string& /*dest*/, int tokenIndex, const std::string& scopePrefix) {
+    int idx = tokenIndex;
+    auto srcAst = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
+    if (!srcAst) return;
+
+    const uint16_t SIGN = 0xD76E;
+    uint16_t leftBase  = (op == 0) ? 0xD770 : 0xD760;
+    uint16_t rightBase = (op == 0) ? 0xD774 : 0xD764;
+
+    // --- Step 1: Save sign info ---
+    // For mul/div: need XOR of both signs. For mod: need left sign only.
+    e.txa();                         // A = left high byte (has sign in bit 7)
+    e.sta_abs(SIGN);                 // save left_high to SIGN
+
+    if (op != 2 && !srcAst->isConstant(parser)) {
+        uint32_t srcAddr = resolveAbsAddr(parser, tokenIndex, scopePrefix);
+        e.lda_abs(srcAddr + 1);      // right high byte
+        e.eor_abs(SIGN);             // XOR signs
+        e.sta_abs(SIGN);             // SIGN = left_high ^ right_high
+    } else if (op != 2 && srcAst->isConstant(parser)) {
+        int32_t val = (int32_t)(int16_t)srcAst->getValue(parser);
+        if (val < 0) {
+            e.lda_abs(SIGN);
+            e.eor_imm(0x80);
+            e.sta_abs(SIGN);
+        }
+    }
+
+    // --- Step 2: abs(left) into .AX ---
+    // txa(1) bpl(2) neg_16(13) → bpl skips 13 bytes
+    e.txa(); e.bpl(13); e.neg_16();
+
+    // --- Step 3: Store abs(left) in hardware regs ---
+    e.sta_abs(leftBase);
+    e.txa();
+    e.sta_abs(leftBase + 1);
+
+    // --- Step 4: Store abs(right) in hardware regs ---
+    if (srcAst->isConstant(parser)) {
+        int32_t val = (int32_t)(int16_t)srcAst->getValue(parser);
+        if (val < 0) val = -val;
+        e.lda_imm(val & 0xFF);        e.sta_abs(rightBase);
+        e.lda_imm((val >> 8) & 0xFF); e.sta_abs(rightBase + 1);
+    } else {
+        uint32_t srcAddr = resolveAbsAddr(parser, tokenIndex, scopePrefix);
+        // Load source low/high into hw regs
+        e.lda_abs(srcAddr);       e.sta_abs(rightBase);       // 3+3=6
+        e.lda_abs(srcAddr + 1);   e.sta_abs(rightBase + 1);   // 3+3=6
+        // If source negative, negate the stored 16-bit value in hw regs
+        // Check sign: lda_abs already loaded high byte and set N flag
+        // Negation block: lda(3)+eor(2)+sec(1)+adc(2)+sta(3)+lda(3)+eor(2)+adc(2)+sta(3) = 21 bytes
+        e.bpl(21);                                             // 2
+        e.lda_abs(rightBase);     e.eor_imm(0xFF); e.sec(); e.adc_imm(1); e.sta_abs(rightBase);      // 11
+        e.lda_abs(rightBase + 1); e.eor_imm(0xFF);            e.adc_imm(0); e.sta_abs(rightBase + 1); // 10
+    }
+
+    // --- Step 5: Wait for hardware (div/mod only) ---
+    if (op != 0) {
+        e.bit_abs(0xD70F); e.bne(-5);
+    }
+
+    // --- Step 6: Read result ---
+    if (op == 0) {
+        e.lda_abs(0xD778); e.ldx_abs(0xD779);
+    } else if (op == 1) {
+        e.lda_abs(0xD768); e.ldx_abs(0xD769);
+    } else {
+        e.lda_abs(0xD770); e.ldx_abs(0xD771);
+    }
+
+    // --- Step 7: Sign correction ---
+    // If SIGN bit 7 set, negate .AX.
+    // Sequence: pha(1) lda_abs(3) bpl(2) pla(1) neg_16(13) bra(2) pla(1) = 23 total
+    // bpl skips: pla(1)+neg_16(13)+bra(2) = 16 bytes
+    e.pha();
+    e.lda_abs(SIGN);
+    e.bpl(16);
+    e.pla();
+    e.neg_16();
+    e.bra(1);
+    e.pla();
+}
+
+// mul.s16 .ax, src — Signed 16-bit multiply
+void AssemblerSimulatedOps::emitMulS16Code(AssemblerParser* parser, M65Emitter& e, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    emitSignedMathOp(parser, e, 0, dest, tokenIndex, scopePrefix);
+}
+
+// div.s16 .ax, src — Signed 16-bit divide
+void AssemblerSimulatedOps::emitDivS16Code(AssemblerParser* parser, M65Emitter& e, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    emitSignedMathOp(parser, e, 1, dest, tokenIndex, scopePrefix);
+}
+
+// mod.16 .ax, src — Unsigned 16-bit modulo (div then read remainder)
+// mod.s16 .ax, src — Signed 16-bit modulo
+void AssemblerSimulatedOps::emitMod16Code(AssemblerParser* parser, M65Emitter& e, bool isSigned, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    if (isSigned) {
+        emitSignedMathOp(parser, e, 2, dest, tokenIndex, scopePrefix);
+    } else {
+        // Unsigned mod: perform div.16, then read remainder from $D770/$D771
+        // (The div hardware leaves the remainder there after any division.)
+        emitDivCode(parser, e, 16, dest, tokenIndex, scopePrefix);
+        // divCode loaded quotient into .AX from $D768. Override with remainder:
+        e.lda_abs(0xD770);
+        e.ldx_abs(0xD771);
+    }
+}

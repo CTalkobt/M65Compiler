@@ -20,6 +20,7 @@ ln45 [options] <file1.o45> [file2.o45 ...]
 | `-b <addr>` | Set BSS segment base address (hex, default: after data) |
 | `-z <addr>` | Set zero page base address (hex, default: `02`) |
 | `-m` | Print linker map (symbol addresses) after linking |
+| `-V` / `--version` | Display version and exit |
 | `-?` | Display help |
 
 ## Linking Process

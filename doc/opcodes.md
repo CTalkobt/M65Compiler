@@ -148,10 +148,23 @@ This reference summarizes the instructions available in the `ca45` assembler for
   * *Flags*: `N`, `Z`, `C`, `V`
 
 * **`MUL.<width>`, `DIV.<width>` (Simulated)**
-  * *Description*: Hardware-accelerated math.
+  * *Description*: Hardware-accelerated unsigned math.
   * *Widths*: `.8`, `.16`, `.24`, `.32`
   * *Modes*: `<dest>, <src>` (Registers or `abs` memory)
   * *Registers Affected*: `.A` (transfer), `dest` registers
+  * *Flags*: `N`, `Z`
+
+* **`MUL.S16`, `DIV.S16` (Simulated)**
+  * *Description*: Signed 16-bit multiply/divide. Takes absolute values, performs unsigned hardware operation, corrects sign of result.
+  * *Modes*: `.AX, <src>` (`#imm`, `abs`)
+  * *Registers Affected*: `.AX`, `.A` (temp)
+  * *Flags*: `N`, `Z`
+  * *Note*: Uses `$D76E` as a scratch byte for sign tracking.
+
+* **`MOD.16`, `MOD.S16` (Simulated)**
+  * *Description*: 16-bit unsigned/signed modulo (remainder). Performs division via hardware, then reads remainder from `$D770`/`$D771`. Signed variant follows C99 semantics (result sign matches dividend).
+  * *Modes*: `.AX, <src>` (`#imm`, `abs`)
+  * *Registers Affected*: `.AX`, `.A` (temp)
   * *Flags*: `N`, `Z`
 
 * **`INC`, `DEC`**

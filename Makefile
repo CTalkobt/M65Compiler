@@ -1,5 +1,6 @@
 CX = g++
-CXXFLAGS = -std=c++17 -Wall -Wextra -Iinclude -MMD -MP
+GIT_HASH := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+CXXFLAGS = -std=c++17 -Wall -Wextra -Iinclude -MMD -MP -DGIT_HASH='"$(GIT_HASH)"'
 SRC_DIR = src/main
 OBJ_DIR = obj
 BIN_DIR = bin

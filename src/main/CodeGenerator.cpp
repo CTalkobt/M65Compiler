@@ -48,7 +48,7 @@ void CodeGenerator::emit(const std::string& line) {
 }
 
 std::string CodeGenerator::newLabel() {
-    return "@L" + std::to_string(labelCount++);
+    return "L" + std::to_string(labelCount++);
 }
 
 std::string CodeGenerator::newDontCareLabel() {
@@ -600,11 +600,14 @@ void CodeGenerator::emitOperation(const std::string& op, int zpLeft, ExpressionT
         emit("stax $" + ssRight.str());
         emit("ldax $" + ssLeft.str());
 
+        bool isSigned = (lhsType.isSigned || rhsType.isSigned) && lhsType.pointerLevel == 0;
         if (op == "-") emit("sub.16 .ax, $" + ssRight.str());
-        else if (op == "*") emit("mul.16 .ax, $" + ssRight.str());
+        else if (op == "*") emit((isSigned ? "mul.s16" : "mul.16") + std::string(" .ax, $") + ssRight.str());
         else if (op == "/" || op == "%") {
-            emit("div.16 .ax, $" + ssRight.str());
-            if (op == "%") { emit("lda $D770"); emit("ldx $D771"); }
+            std::string divOp = isSigned ? "div.s16" : "div.16";
+            std::string modOp = isSigned ? "mod.s16" : "mod.16";
+            if (op == "/") emit(divOp + " .ax, $" + ssRight.str());
+            else emit(modOp + " .ax, $" + ssRight.str());
         } else if (op == "<<") {
             std::string labelStart = newDontCareLabel(); std::string labelEnd = newDontCareLabel();
             int shiftZp = allocateZP(1); std::stringstream ssSh; ssSh << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(shiftZp);
@@ -615,12 +618,14 @@ void CodeGenerator::emitOperation(const std::string& op, int zpLeft, ExpressionT
             emit("bra " + labelStart); out << labelEnd << ":" << std::endl;
             freeZP(shiftZp, 1);
         } else if (op == ">>") {
+            bool isSigned = lhsType.isSigned && lhsType.pointerLevel == 0;
+            std::string shiftOp = isSigned ? "asr.16 .ax" : "lsr.16 .ax";
             std::string labelStart = newDontCareLabel(); std::string labelEnd = newDontCareLabel();
             int shiftZp = allocateZP(1); std::stringstream ssSh; ssSh << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(shiftZp);
             emit("lda $" + ssRight.str()); emit("sta $" + ssSh.str());
             out << labelStart << ":" << std::endl;
             emit("lda $" + ssSh.str()); emit("beq " + labelEnd); emit("dec $" + ssSh.str());
-            emit("lsr.16 .ax");
+            emit(shiftOp);
             emit("bra " + labelStart); out << labelEnd << ":" << std::endl;
             freeZP(shiftZp, 1);
         }
@@ -1014,12 +1019,14 @@ void CodeGenerator::visit(BinaryOperation& node) {
                 emit("stax $" + ss.str());
                 std::stringstream ssVal; ssVal << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << val;
                 emit("ldax #$" + ssVal.str());
-                emit("mul.16 .ax, $" + ss.str());
+                bool isSigned = lhsType.isSigned && lhsType.pointerLevel == 0;
+                emit((isSigned ? "mul.s16" : "mul.16") + std::string(" .ax, $") + ss.str());
                 freeZP(zpIdx, 2);
             }
             invalidateFlags(); resultNeeded = oldNeeded; return;
         } else if (node.op == "/" || node.op == "%") {
-            if (val > 0 && (val & (val - 1)) == 0) {
+            bool isSigned = lhsType.isSigned && lhsType.pointerLevel == 0;
+            if (!isSigned && val > 0 && (val & (val - 1)) == 0) {
                 if (node.op == "/") {
                     int shifts = 0; while (val > 1) { val >>= 1; shifts++; }
                     for (int i = 0; i < shifts; i++) {
@@ -1033,18 +1040,21 @@ void CodeGenerator::visit(BinaryOperation& node) {
                 int zpIdx = allocateZP(2);
                 std::stringstream ss; ss << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpIdx);
                 emit("stax $" + ss.str());
-                std::stringstream ss2; 
+                std::stringstream ss2;
                 ss2 << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << val;
                 emit("ldax #$" + ss2.str());
-                if (node.op == "/") emit("div.16 .ax, $" + ss.str());
-                else { emit("div.16 .ax, $" + ss.str()); emit("lda $D770"); emit("ldx $D771"); }
+                std::string divOp = isSigned ? "div.s16" : "div.16";
+                std::string modOp = isSigned ? "mod.s16" : "mod.16";
+                if (node.op == "/") emit(divOp + " .ax, $" + ss.str());
+                else emit(modOp + " .ax, $" + ss.str());
                 freeZP(zpIdx, 2);
             }
             invalidateFlags(); resultNeeded = oldNeeded; return;
         } else if (node.op == "<<" || node.op == ">>") {
+            bool isSigned = lhsType.isSigned && lhsType.pointerLevel == 0;
             for (int i = 0; i < val; i++) {
                 if (node.op == "<<") { emit("lsl.16 .ax"); }
-                else { emit("lsr.16 .ax"); }
+                else { emit(isSigned ? "asr.16 .ax" : "lsr.16 .ax"); }
             }
             invalidateFlags(); resultNeeded = oldNeeded; return;
         }
@@ -1073,13 +1083,16 @@ void CodeGenerator::visit(BinaryOperation& node) {
         emit("stax $" + ssRight.str());
         emit("ldax $" + ss.str()); // Load left back into AX
 
+        bool isSigned = (lhsType.isSigned || rhsType.isSigned) && lhsType.pointerLevel == 0;
         if (node.op == "-") {
             emit("sub.16 .ax, $" + ssRight.str());
         } else if (node.op == "*") {
-            emit("mul.16 .ax, $" + ssRight.str());
+            emit((isSigned ? "mul.s16" : "mul.16") + std::string(" .ax, $") + ssRight.str());
         } else if (node.op == "/" || node.op == "%") {
-            emit("div.16 .ax, $" + ssRight.str());
-            if (node.op == "%") { emit("lda $D770"); emit("ldx $D771"); }
+            std::string divOp = isSigned ? "div.s16" : "div.16";
+            std::string modOp = isSigned ? "mod.s16" : "mod.16";
+            if (node.op == "/") emit(divOp + " .ax, $" + ssRight.str());
+            else emit(modOp + " .ax, $" + ssRight.str());
         } else if (node.op == "<<") {
             std::string labelStart = newDontCareLabel(); std::string labelEnd = newDontCareLabel();
             int shiftZp = allocateZP(1); std::stringstream ssSh; ssSh << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(shiftZp);
@@ -1090,12 +1103,14 @@ void CodeGenerator::visit(BinaryOperation& node) {
             emit("bra " + labelStart); out << labelEnd << ":" << std::endl;
             freeZP(shiftZp, 1);
         } else if (node.op == ">>") {
+            bool isSigned = lhsType.isSigned && lhsType.pointerLevel == 0;
+            std::string shiftOp = isSigned ? "asr.16 .ax" : "lsr.16 .ax";
             std::string labelStart = newDontCareLabel(); std::string labelEnd = newDontCareLabel();
             int shiftZp = allocateZP(1); std::stringstream ssSh; ssSh << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(shiftZp);
             emit("lda $" + ssRight.str()); emit("sta $" + ssSh.str());
             out << labelStart << ":" << std::endl;
             emit("lda $" + ssSh.str()); emit("beq " + labelEnd); emit("dec $" + ssSh.str());
-            emit("lsr.16 .ax");
+            emit(shiftOp);
             emit("bra " + labelStart); out << labelEnd << ":" << std::endl;
             freeZP(shiftZp, 1);
         } else {

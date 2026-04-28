@@ -111,7 +111,8 @@ private:
                     LDA_STACK, STA_STACK,
                     LDX_STACK, LDY_STACK, LDZ_STACK,
                     STX_STACK, STY_STACK, STZ_STACK,
-                    LDAX, LDAY, LDAZ, STAX, STAY, STAZ, FILL, COPY, PUSH, POP } type = NONE;
+                    LDAX, LDAY, LDAZ, STAX, STAY, STAZ, FILL, COPY, PUSH, POP,
+                    MUL_S16, DIV_S16, MOD16, MOD_S16 } type = NONE;
         Instruction instr;
         Directive dir;
         std::string label;
@@ -152,6 +153,7 @@ private:
                 case LSL16: case LSR16: case ROL16: case ROR16:
                 case LDAX: case LDAY: case LDAZ: case STAX: case STAY: case STAZ:
                 case FILL: case COPY: case PUSH: case POP:
+                case MUL_S16: case DIV_S16: case MOD16: case MOD_S16:
                     return true;
                 default:
                     return false;
@@ -227,6 +229,9 @@ private:
     void emitASR16Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
     void emitSXT8Code(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");
     void emitPushPopCode(std::vector<uint8_t>& binary, bool isPush, int tokenIndex, const std::string& scopePrefix = "");
+    void emitMulS16Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
+    void emitDivS16Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
+    void emitMod16Code(std::vector<uint8_t>& binary, bool isSigned, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
     bool isStackRelativeOperand(int tokenIndex, uint32_t& offset, const std::string& scopePrefix);
 
     struct FrameAccessInfo {

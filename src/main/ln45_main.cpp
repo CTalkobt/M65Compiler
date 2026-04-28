@@ -5,6 +5,7 @@
 #include "O45Reader.hpp"
 #include "O45Linker.hpp"
 #include "O45Archive.hpp"
+#include "Version.hpp"
 
 static void printUsage(const char* progName) {
     std::cout << "Usage: " << progName << " [options] <file1.o45> [file2.o45 ...] [-l lib.lib ...]" << std::endl;
@@ -41,7 +42,8 @@ int main(int argc, char** argv) {
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
-        if (arg == "-?" || arg == "--help") { printUsage(argv[0]); return 0; }
+        if (arg == "-V" || arg == "--version") { std::cout << suiteVersionString("ln45") << std::endl; return 0; }
+        else if (arg == "-?" || arg == "--help") { printUsage(argv[0]); return 0; }
         else if (arg == "-o" && i + 1 < argc) { outputFile = argv[++i]; outputSet = true; }
         else if (arg == "-prg") { isPrg = true; }
         else if (arg == "-basic") { isBasic = true; isPrg = true; }

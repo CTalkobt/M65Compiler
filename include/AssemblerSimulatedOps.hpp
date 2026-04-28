@@ -51,4 +51,10 @@ public:
     static void emitSXT8Code(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
     static void emitPushPopCode(AssemblerParser* parser, M65Emitter& e, bool isPush, const std::string& reg, int tokenIndex, const std::string& scopePrefix);
     static int getPushPopSize(AssemblerParser* parser, bool isPush, const std::string& reg, int tokenIndex, const std::string& scopePrefix);
+    static void emitMulS16Code(AssemblerParser* parser, M65Emitter& e, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
+    static void emitDivS16Code(AssemblerParser* parser, M65Emitter& e, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
+    static void emitMod16Code(AssemblerParser* parser, M65Emitter& e, bool isSigned, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
+private:
+    static uint32_t resolveAbsAddr(AssemblerParser* parser, int tokenIndex, const std::string& scopePrefix);
+    static void emitSignedMathOp(AssemblerParser* parser, M65Emitter& e, int op, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
 };

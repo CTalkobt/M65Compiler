@@ -5,6 +5,7 @@
 #include <algorithm>
 #include "O45Archive.hpp"
 #include "O45Reader.hpp"
+#include "Version.hpp"
 
 static std::vector<uint8_t> readFile(const std::string& path) {
     std::ifstream in(path, std::ios::binary);
@@ -55,6 +56,10 @@ int main(int argc, char** argv) {
     if (argc < 2 || std::string(argv[1]) == "-?" || std::string(argv[1]) == "--help") {
         printUsage(argv[0]);
         return (argc < 2) ? 1 : 0;
+    }
+    if (std::string(argv[1]) == "-V" || std::string(argv[1]) == "--version") {
+        std::cout << suiteVersionString("ar45") << std::endl;
+        return 0;
     }
 
     std::string command = argv[1];

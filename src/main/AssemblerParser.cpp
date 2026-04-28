@@ -579,6 +579,24 @@ void AssemblerParser::pass1() {
                 emitExpressionCode(d, stmt->exprTarget, stmt->exprTokenIndex, stmt->scopePrefix);
                 stmt->size = d.size();
             }
+            else if (stmt->instr.mnemonic == "mul.s16" || stmt->instr.mnemonic == "div.s16" ||
+                     stmt->instr.mnemonic == "mod.16" || stmt->instr.mnemonic == "mod.s16") {
+                std::string m = stmt->instr.mnemonic;
+                if (m == "mul.s16") stmt->type = Statement::MUL_S16;
+                else if (m == "div.s16") stmt->type = Statement::DIV_S16;
+                else if (m == "mod.16") stmt->type = Statement::MOD16;
+                else stmt->type = Statement::MOD_S16;
+                const auto& dst = advance();
+                stmt->instr.operand = (dst.type == AssemblerTokenType::REGISTER ? "." : "") + dst.value;
+                expect(AssemblerTokenType::COMMA, "Expected , after destination");
+                stmt->exprTokenIndex = (int)pos;
+                while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
+                std::vector<uint8_t> d;
+                if (stmt->type == Statement::MUL_S16) emitMulS16Code(d, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::DIV_S16) emitDivS16Code(d, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
+                else emitMod16Code(d, stmt->type == Statement::MOD_S16, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
+                stmt->size = d.size();
+            }
             else if (stmt->instr.mnemonic.substr(0, 3) == "mul" || stmt->instr.mnemonic.substr(0, 3) == "div") {
                 stmt->type = (stmt->instr.mnemonic.substr(0, 3) == "mul") ? Statement::MUL : Statement::DIV;
                 std::string m = stmt->instr.mnemonic;
@@ -940,6 +958,21 @@ void AssemblerParser::emitPushPopCode(std::vector<uint8_t>& binary, bool isPush,
     AssemblerSimulatedOps::emitPushPopCode(this, e, isPush, reg, tokenIndex, scopePrefix);
 }
 
+void AssemblerParser::emitMulS16Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart());
+    AssemblerSimulatedOps::emitMulS16Code(this, e, dest, tokenIndex, scopePrefix);
+}
+
+void AssemblerParser::emitDivS16Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart());
+    AssemblerSimulatedOps::emitDivS16Code(this, e, dest, tokenIndex, scopePrefix);
+}
+
+void AssemblerParser::emitMod16Code(std::vector<uint8_t>& binary, bool isSigned, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart());
+    AssemblerSimulatedOps::emitMod16Code(this, e, isSigned, dest, tokenIndex, scopePrefix);
+}
+
 int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t currentAddr, const std::string& scopePrefix) {
     if (instr.mnemonic == "proc") return 5;
     if (instr.mnemonic == "endproc") return ((instr.procParamSize == 0) ? 1 : 2) + 2;
@@ -1140,6 +1173,10 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                         if (s->type == Statement::MUL) emitMulCode(d, s->mulWidth, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
                         else emitDivCode(d, s->mulWidth, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
                     }
+                    else if (s->type == Statement::MUL_S16) emitMulS16Code(d, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::DIV_S16) emitDivS16Code(d, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::MOD16) emitMod16Code(d, false, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::MOD_S16) emitMod16Code(d, true, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
                     else if (s->type == Statement::STACK_INC || s->type == Statement::STACK_DEC) emitStackIncDecCode(d, s->type == Statement::STACK_INC, s->instr.operandTokenIndex, s->scopePrefix);
                     else if (s->type == Statement::STACK_INC8 || s->type == Statement::STACK_DEC8) emitStackIncDec8Code(d, s->type == Statement::STACK_INC8, s->instr.operandTokenIndex, s->scopePrefix);
                     else if (s->type == Statement::ZERO) emitZeroCode(d, s->instr.operandTokenIndex, s->scopePrefix);

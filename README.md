@@ -1,8 +1,6 @@
-# Mega65 C Compiler Suite (cc45, ca45, nm45)
-*CONSIDER YOURSELF WARNED:* This project is currently undergoing heavy development
+# Mega65 C Compiler Suite v0.99
 
-
-This project provides a modern, object-oriented development toolchain for the MEGA65 (45GS02) home computer. It consists of:
+A modern development toolchain for the MEGA65 (45GS02) home computer. It consists of:
 
 - **cc45** — C compiler (C source to assembly or `.o45` relocatable objects)
 - **ca45** — 45GS02 assembler (assembly to binary or `.o45` relocatable objects)
@@ -84,7 +82,9 @@ The suite includes a set of automated tests to verify the compiler and assembler
 ```bash
 make test
 ```
-This script compiles C source files from `src/test-resources/` and assembles them to ensure stability and correctness. Outputs are stored in the `build/test/` directory.
+This compiles C source files from `src/test-resources/`, assembles them, and execution-validates them on a 45GS02 emulator. Outputs are stored in the `build/test/` directory.
+
+**Prerequisite:** The emulator-based tests (`make test-mmemu`) require [mmemu-cli](https://github.com/CTalkobt/mmsim) to be installed and available on your `PATH`.
 
 For detailed information on each tool, refer to:
 - [doc/cc45.md](doc/cc45.md) — Compiler Usage and Features
