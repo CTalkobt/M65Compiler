@@ -43,7 +43,8 @@ struct O45File {
     std::vector<Export> exports;
 };
 
-// Reads and parses a .o45 file from a byte vector.
+// Reads and parses a .o45 or .o65 file from a byte vector.
+// Supports both 16-bit (.o65, SIZE32 clear) and 32-bit (.o45, SIZE32 set) formats.
 // Returns true on success, false on parse error (with errorMsg set).
 class O45Reader {
 public:
