@@ -415,6 +415,30 @@ void AssemblerParser::pass1() {
                 }
                 stmt->size = 0;
             }
+            else if (stmt->dir.name == "global") {
+                // .global sym1, sym2, ... — mark symbols for export
+                while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
+                    if (peek().type == AssemblerTokenType::COMMA) { advance(); continue; }
+                    std::string sym = expect(AssemblerTokenType::IDENTIFIER, "Expected symbol name after .global").value;
+                    globalSymbols.insert(sym);
+                }
+                stmt->size = 0;
+            }
+            else if (stmt->dir.name == "extern") {
+                // .extern sym1, sym2, ... — declare external (imported) symbols
+                while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
+                    if (peek().type == AssemblerTokenType::COMMA) { advance(); continue; }
+                    std::string sym = expect(AssemblerTokenType::IDENTIFIER, "Expected symbol name after .extern").value;
+                    if (!externIndex.count(sym)) {
+                        uint32_t idx = (uint32_t)externSymbols.size();
+                        externSymbols.push_back(sym);
+                        externIndex[sym] = idx;
+                        // Add extern as a placeholder symbol (value 0, will be resolved by linker)
+                        symbolTable[sym] = {0, true, 2, false, 0};
+                    }
+                }
+                stmt->size = 0;
+            }
             else if (stmt->dir.name == "cleanup") {
                 stmt->dir.tokenIndex = (int)pos;
                 uint32_t val = evaluateExpressionAt((int)pos, stmt->scopePrefix);
@@ -1116,4 +1140,21 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
     return AssemblerGenerator::generate(this, isPrg);
 }
 
+uint32_t AssemblerParser::getExternIndex(const std::string& name) const {
+    auto it = externIndex.find(name);
+    if (it != externIndex.end()) return it->second;
+    return (uint32_t)-1;
+}
 
+std::vector<AssemblerParser::SegmentView> AssemblerParser::getSegmentViews() const {
+    std::vector<SegmentView> views;
+    for (const auto& seg : segmentOrder) {
+        SegmentView sv;
+        sv.name = seg->name;
+        sv.startAddress = seg->startAddress;
+        sv.endAddress = seg->pc;
+        sv.size = (seg->startAddress != 0xFFFFFFFF) ? (seg->pc - seg->startAddress) : 0;
+        views.push_back(sv);
+    }
+    return views;
+}

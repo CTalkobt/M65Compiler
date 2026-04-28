@@ -665,6 +665,45 @@ void test_opt_body_offset() {
     CHECK(blob[expectedBodyOff] == 0xEA, "body after options: NOP");
 }
 
+// =============================================================================
+// Segment Mapping Tests
+// =============================================================================
+
+// Test 30: o45SegmentFromName and o45SegmentName roundtrip
+void test_segment_mapping() {
+    // Name -> ID
+    CHECK(o45SegmentFromName("text") == SEG_TEXT, "text -> SEG_TEXT");
+    CHECK(o45SegmentFromName("code") == SEG_TEXT, "code -> SEG_TEXT (alias)");
+    CHECK(o45SegmentFromName("data") == SEG_DATA, "data -> SEG_DATA");
+    CHECK(o45SegmentFromName("bss") == SEG_BSS, "bss -> SEG_BSS");
+    CHECK(o45SegmentFromName("zp") == SEG_ZP, "zp -> SEG_ZP");
+
+    // ID -> Name
+    CHECK(strcmp(o45SegmentName(SEG_TEXT), "text") == 0, "SEG_TEXT -> text");
+    CHECK(strcmp(o45SegmentName(SEG_DATA), "data") == 0, "SEG_DATA -> data");
+    CHECK(strcmp(o45SegmentName(SEG_BSS), "bss") == 0, "SEG_BSS -> bss");
+    CHECK(strcmp(o45SegmentName(SEG_ZP), "zp") == 0, "SEG_ZP -> zp");
+
+    // Verify type/seg byte composition with segment IDs
+    CHECK((R_WORD | SEG_TEXT) == 0x82, "WORD|TEXT");
+    CHECK((R_WORD | SEG_DATA) == 0x83, "WORD|DATA");
+    CHECK((R_LOW | SEG_ZP) == 0x25, "LOW|ZP");
+    CHECK((R_LINEAR24 | SEG_DATA) == 0x63, "LINEAR24|DATA");
+    CHECK((R_LINEAR32 | SEG_TEXT) == 0xA2, "LINEAR32|TEXT");
+    CHECK((R_WORD | SEG_EXTERNAL) == 0x80, "WORD|EXTERNAL");
+
+    // Verify full pipeline: symtab with segment IDs from name mapping
+    O45SymbolTable syms;
+    syms.addExport("_main", o45SegmentFromName("code"), 0x0000);
+    syms.addExport("_data", o45SegmentFromName("data"), 0x0010);
+    syms.addExport("_zpvar", o45SegmentFromName("zp"), 0x02);
+
+    const auto& exports = syms.getExports();
+    CHECK(exports[0].segment == SEG_TEXT, "export via code name -> SEG_TEXT");
+    CHECK(exports[1].segment == SEG_DATA, "export via data name -> SEG_DATA");
+    CHECK(exports[2].segment == SEG_ZP, "export via zp name -> SEG_ZP");
+}
+
 int main() {
     test_empty_object();
     test_segment_fields();
@@ -701,6 +740,9 @@ int main() {
     test_opt_defaults_no_arg();
     test_opt_multiple();
     test_opt_body_offset();
+
+    // Segment mapping tests
+    test_segment_mapping();
 
     printf("\nO45 Format Tests: %d passed, %d failed\n", tests_passed, tests_failed);
     return tests_failed > 0 ? 1 : 0;

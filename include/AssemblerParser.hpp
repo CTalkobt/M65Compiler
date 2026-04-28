@@ -1,6 +1,7 @@
 #pragma once
 #include <vector>
 #include <string>
+#include <set>
 #include <map>
 #include <deque>
 #include <memory>
@@ -45,6 +46,23 @@ public:
     bool hasErrors() const { return !errors.empty(); }
     const std::vector<std::string>& getErrors() const { return errors; }
 
+    // .global / .extern symbol tracking (for .o45 output)
+    const std::set<std::string>& getGlobalSymbols() const { return globalSymbols; }
+    const std::vector<std::string>& getExternSymbols() const { return externSymbols; }
+    bool isGlobalSymbol(const std::string& name) const { return globalSymbols.count(name) > 0; }
+    bool isExternSymbol(const std::string& name) const { return externIndex.count(name) > 0; }
+    uint32_t getExternIndex(const std::string& name) const;
+
+    // Segment info accessors (for .o45 output)
+    struct SegmentView {
+        std::string name;
+        uint32_t startAddress;
+        uint32_t endAddress; // startAddress + size
+        uint32_t size;
+    };
+    std::vector<SegmentView> getSegmentViews() const;
+    const std::map<std::string, Symbol>& getSymbolTable() const { return symbolTable; }
+
 private:
     std::vector<AssemblerToken> tokens;
     size_t pos;
@@ -74,6 +92,11 @@ private:
     std::vector<std::shared_ptr<Segment>> segmentOrder;
     std::vector<std::string> segmentStack;
     std::vector<std::string> requestedSegmentOrder;
+
+    // .global / .extern tracking
+    std::set<std::string> globalSymbols;         // symbols declared with .global
+    std::vector<std::string> externSymbols;      // symbols declared with .extern (ordered)
+    std::map<std::string, uint32_t> externIndex; // name -> index in externSymbols
 
     struct Statement {
         enum Type { NONE, INSTRUCTION, DIRECTIVE, EXPR, BASIC_UPSTART, MUL, DIV, STACK_INC, STACK_DEC, STACK_INC8, STACK_DEC8,
