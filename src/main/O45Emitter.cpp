@@ -33,8 +33,9 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
     // Find which segment a symbol's value falls into (lambda to access private Segment).
     auto findSegmentForAddress = [&](uint32_t addr) -> std::string {
         for (const auto& seg : parser.segmentOrder) {
-            if (seg->startAddress == 0xFFFFFFFF) continue;
-            if (addr >= seg->startAddress && addr < seg->pc) {
+            uint32_t base = (seg->startAddress != 0xFFFFFFFF) ? seg->startAddress : 0;
+            if (seg->pc <= base) continue; // empty segment
+            if (addr >= base && addr < seg->pc) {
                 return seg->name;
             }
         }
@@ -63,7 +64,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         if (!found && seg->name != "default") allSegNames.push_back(seg->name);
     }
     // Include default if it has content
-    if (parser.segments.count("default") && parser.segments.at("default")->startAddress != 0xFFFFFFFF) {
+    if (parser.segments.count("default") && (parser.segments.at("default")->startAddress != 0xFFFFFFFF || parser.segments.at("default")->pc > 0)) {
         bool found = false;
         for (const auto& s : allSegNames) if (s == "default") { found = true; break; }
         if (!found) allSegNames.insert(allSegNames.begin(), "default");
@@ -125,24 +126,48 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
     segBodies.clear();
     for (const auto& segName : allSegNames) {
         auto seg = parser.segments[segName];
-        if (seg->startAddress == 0xFFFFFFFF) continue;
+        // Skip segments that have no content (no statements were placed in them).
+        // A segment has content if its startAddress was set (via .org or by emitting
+        // code into it) OR if it has a nonzero size in the original object.
+        bool hasContent = (seg->startAddress != 0xFFFFFFFF);
+        if (!hasContent) {
+            // Check if any statements were emitted into this segment
+            for (const auto& stmt : parser.statements) {
+                if (stmt->segmentName == segName && !stmt->deleted && stmt->size > 0) {
+                    hasContent = true;
+                    break;
+                }
+            }
+        }
+        if (!hasContent) continue;
 
         SegBody sb;
         sb.name = segName;
-        sb.base = seg->startAddress;
+        sb.base = (seg->startAddress != 0xFFFFFFFF) ? seg->startAddress : 0;
 
         if (segName == "bss") {
             sb.bytes.clear(); // BSS has no body
         } else {
-            uint32_t segStart = seg->startAddress;
-            uint32_t segEnd = seg->pc;
+            uint32_t segStart = sb.base;
+            // Compute actual segment size from statements (more reliable than seg->pc
+            // which can be polluted by segment switching in pass2)
+            uint32_t segEnd = segStart;
+            for (const auto& stmt : parser.statements) {
+                if (stmt->segmentName == segName && !stmt->deleted && stmt->size > 0) {
+                    uint32_t end = stmt->address + stmt->size;
+                    if (end > segEnd) segEnd = end;
+                }
+            }
             uint32_t segLen = segEnd - segStart;
 
             // Offset in the flat binary
             uint32_t binOffset = segStart - globalBase;
-            if (binOffset + segLen <= fullBinary.size()) {
+            // Clamp to actual binary size (PC may overshoot due to dead code)
+            if (binOffset < fullBinary.size()) {
+                uint32_t avail = (uint32_t)fullBinary.size() - binOffset;
+                uint32_t copyLen = (segLen <= avail) ? segLen : avail;
                 sb.bytes.assign(fullBinary.begin() + binOffset,
-                                fullBinary.begin() + binOffset + segLen);
+                                fullBinary.begin() + binOffset + copyLen);
             }
         }
         segBodies[segName] = sb;
@@ -168,7 +193,9 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
 
         if (!symSeg.empty()) {
             segId = segIdFromName(symSeg);
-            offset = sym->value - parser.segments.at(symSeg)->startAddress;
+            uint32_t segBase = parser.segments.at(symSeg)->startAddress;
+            if (segBase == 0xFFFFFFFF) segBase = 0;
+            offset = sym->value - segBase;
         }
 
         syms.addExport(name, segId, offset);
@@ -205,7 +232,11 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         // The operand address is at stmt->address + 1 (after the opcode byte)
         // relative to the segment base
         std::string srcSeg = stmt->segmentName;
-        uint32_t srcBase = parser.segments.count(srcSeg) ? parser.segments.at(srcSeg)->startAddress : globalBase;
+        uint32_t srcBase = globalBase;
+        if (parser.segments.count(srcSeg)) {
+            srcBase = parser.segments.at(srcSeg)->startAddress;
+            if (srcBase == 0xFFFFFFFF) srcBase = 0;
+        }
         uint32_t patchOffset = (stmt->address + 1) - srcBase;
 
         O45Reloc reloc;
@@ -229,7 +260,11 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         if (stmt->dir.name != "word") continue;
 
         std::string srcSeg = stmt->segmentName;
-        uint32_t srcBase = parser.segments.count(srcSeg) ? parser.segments.at(srcSeg)->startAddress : globalBase;
+        uint32_t srcBase = globalBase;
+        if (parser.segments.count(srcSeg)) {
+            srcBase = parser.segments.at(srcSeg)->startAddress;
+            if (srcBase == 0xFFFFFFFF) srcBase = 0;
+        }
         uint32_t patchAddr = stmt->address;
 
         for (size_t ai = 0; ai < stmt->dir.arguments.size(); ai++) {

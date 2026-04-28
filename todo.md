@@ -78,8 +78,8 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **External Symbols**: Implement `.global` and `.extern` in the assembler.
 - [X] **Relocatable Mode (`-c`)**: `ca45 -c` produces `.o45` object files. Extracts per-segment bodies, generates relocation tables for external and cross-segment references, builds import/export symbol tables.
 - [X] **Relocations**: Support standard (`WORD`, `LOW`, `HIGH`) and linear (`LINEAR24`, `LINEAR32`) relocations in the format. `WORD` relocations emitted by `-c` mode for absolute address operands.
-- [ ] **Linker Tool**: Build the `ln45` binary to aggregate objects and resolve symbols.
-- [ ] **Archiver**: Build `ar45` to create static `.lib` archives.
+- [X] **Linker Tool**: `ln45` links multiple `.o45` objects: segment merging, symbol resolution, relocation patching, PRG/binary output. Supports `-t`/`-d`/`-b`/`-z` for memory layout, `-prg` for PRG output, `-m` for symbol map.
+- [X] **Archiver**: `ar45` creates and manages `.lib` archives. Commands: `c` (create), `t` (list), `x` (extract), `s` (symbol index), `a` (add), `d` (delete). Global symbol index built by scanning member .o45 exports. `ln45` supports `-l` for selective linking from archives (iterative resolution handles dependency chains).
 
 ### 2. Type System Enhancements
 - [X] **Structures**: Support `struct` definitions, members, and dot/arrow operators.

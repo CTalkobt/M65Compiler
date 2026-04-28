@@ -11,13 +11,22 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
         return false;
     }
 
-    // Validate markers and magic
+    // Detect cc65 object format (magic: "uz\0\0") — incompatible with .o65/.o45
+    if (data.size() >= 4 && data[0] == 0x75 && data[1] == 0x7A && data[2] == 0x00 && data[3] == 0x00) {
+        errorMsg = "incompatible format: cc65 object file (ca65/ld65). "
+                   "Supported formats: Andre Fachat .o65 (xa65) and .o45 (ca45/cc45)";
+        return false;
+    }
+
+    // Validate Andre Fachat .o65/.o45 markers and magic
     if (data[0] != O45_MARKER1 || data[1] != O45_MARKER2) {
-        errorMsg = "invalid marker bytes";
+        errorMsg = "unrecognized file format (expected .o65 or .o45). "
+                   "Supported formats: Andre Fachat .o65 (xa65) and .o45 (ca45/cc45)";
         return false;
     }
     if (data[2] != O45_MAGIC[0] || data[3] != O45_MAGIC[1] || data[4] != O45_MAGIC[2]) {
-        errorMsg = "invalid magic (expected 'o65')";
+        errorMsg = "invalid magic (expected 'o65'). "
+                   "Supported formats: Andre Fachat .o65 (xa65) and .o45 (ca45/cc45)";
         return false;
     }
     if (data[5] != O45_VERSION) {

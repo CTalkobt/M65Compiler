@@ -6,7 +6,9 @@ This project provides a modern, object-oriented development toolchain for the ME
 
 - **cc45** — C compiler (C source to assembly or `.o45` relocatable objects)
 - **ca45** — 45GS02 assembler (assembly to binary or `.o45` relocatable objects)
-- **nm45** — Symbol lister for `.o45` object files
+- **ln45** — Linker (links `.o45` objects and `.lib` archives into flat binaries or PRG executables)
+- **ar45** — Archiver (creates `.lib` static library archives from `.o45` objects)
+- **nm45** — Symbol lister for `.o45` / `.o65` object files
 - **cp45** — C preprocessor (standalone)
 
 
@@ -47,7 +49,11 @@ Compile C files to `.o45` relocatable objects for separate compilation and linki
 ./bin/cc45 -c main.c -o main.o45        # Compile to object
 ./bin/cc45 -c math.c -o math.o45        # Compile to object
 ./bin/nm45 main.o45                     # Inspect symbols
-# ./bin/ln45 main.o45 math.o45 -o app.prg  # Link (future)
+./bin/ln45 -prg main.o45 math.o45 -o app.prg  # Link into PRG
+
+# Or create a library and link against it:
+./bin/ar45 c math.lib math.o45               # Create library
+./bin/ln45 -prg main.o45 math.lib -o app.prg # Link with selective pulling
 ```
 
 Assembly files can also produce `.o45` objects directly:
@@ -87,4 +93,6 @@ For detailed information on each tool, refer to:
 - [doc/cp45.md](doc/cp45.md) — Preprocessor Features and Usage
 - [doc/opcodes.md](doc/opcodes.md) — 45GS02 Instruction Reference
 - [lib.md](lib.md) — `.o45` Relocatable Object Format Specification
-- [doc/ln45.md](doc/ln45.md) — Linker Design
+- [doc/ln45_usage.md](doc/ln45_usage.md) — Linker Usage and Reference
+- [doc/ar45.md](doc/ar45.md) — Archiver Usage and Reference
+- [doc/ln45.md](doc/ln45.md) — Linker Design Notes
