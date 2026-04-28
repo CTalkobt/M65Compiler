@@ -554,6 +554,117 @@ void test_symtab_full_integration() {
     CHECK(foundMain, "full: _main in output");
 }
 
+// =============================================================================
+// Option Header Tests
+// =============================================================================
+
+// Test 25: OPT_OS with raw byte payload
+void test_opt_os_raw() {
+    O45Writer w;
+    w.addOptionRaw(OPT_OS, {OPT_OS_MEGA65});
+    auto blob = w.emit();
+
+    // Option at offset 41: len=3 (len+type+1byte), type=$02, data=$05
+    CHECK(blob[41] == 3, "OPT_OS length = 3");
+    CHECK(blob[42] == OPT_OS, "OPT_OS type");
+    CHECK(blob[43] == OPT_OS_MEGA65, "OPT_OS payload = $05");
+    CHECK(blob[44] == OPT_END, "option list end");
+}
+
+// Test 26: addDefaultOptions produces OPT_OS + OPT_ASM
+void test_opt_defaults() {
+    O45Writer w;
+    w.addDefaultOptions("ca45 1.0");
+    auto blob = w.emit();
+
+    size_t off = 41;
+
+    // First option: OPT_OS (raw byte)
+    uint8_t osLen = blob[off++];
+    CHECK(osLen == 3, "default OPT_OS len = 3");
+    CHECK(blob[off++] == OPT_OS, "default OPT_OS type");
+    CHECK(blob[off++] == OPT_OS_MEGA65, "default OPT_OS = MEGA65");
+
+    // Second option: OPT_ASM (string "ca45 1.0\0")
+    uint8_t asmLen = blob[off++];
+    CHECK(asmLen == 2 + 8 + 1, "default OPT_ASM len"); // len+type + "ca45 1.0" + NUL
+    CHECK(blob[off++] == OPT_ASM, "default OPT_ASM type");
+    CHECK(memcmp(&blob[off], "ca45 1.0", 8) == 0, "default OPT_ASM value");
+    off += 8;
+    CHECK(blob[off++] == 0x00, "default OPT_ASM NUL");
+
+    // End of options
+    CHECK(blob[off] == OPT_END, "default options end");
+}
+
+// Test 27: addDefaultOptions with default version string
+void test_opt_defaults_no_arg() {
+    O45Writer w;
+    w.addDefaultOptions();
+    auto blob = w.emit();
+
+    size_t off = 41;
+
+    // OPT_OS
+    CHECK(blob[off] == 3, "noarg OPT_OS len");
+    off += 3;
+
+    // OPT_ASM: "ca45\0"
+    uint8_t asmLen = blob[off++];
+    CHECK(asmLen == 2 + 4 + 1, "noarg OPT_ASM len"); // len+type + "ca45" + NUL
+    CHECK(blob[off++] == OPT_ASM, "noarg OPT_ASM type");
+    CHECK(memcmp(&blob[off], "ca45", 4) == 0, "noarg OPT_ASM value");
+    off += 4;
+    CHECK(blob[off++] == 0x00, "noarg OPT_ASM NUL");
+    CHECK(blob[off] == OPT_END, "noarg options end");
+}
+
+// Test 28: Multiple options in order
+void test_opt_multiple() {
+    O45Writer w;
+    w.addOption(OPT_FNAME, "hello.o45");
+    w.addOptionRaw(OPT_OS, {OPT_OS_MEGA65});
+    w.addOption(OPT_ASM, "ca45");
+    w.addOption(OPT_AUTHOR, "duck");
+    auto blob = w.emit();
+
+    size_t off = 41;
+
+    // OPT_FNAME: "hello.o45\0"
+    uint8_t fnLen = blob[off++];
+    CHECK(fnLen == 2 + 9 + 1, "fname opt len");
+    CHECK(blob[off] == OPT_FNAME, "fname type");
+    off += fnLen - 1; // skip rest of this option
+
+    // OPT_OS
+    CHECK(blob[off + 1] == OPT_OS, "os type in sequence");
+    off += blob[off]; // skip by length
+
+    // OPT_ASM
+    CHECK(blob[off + 1] == OPT_ASM, "asm type in sequence");
+    off += blob[off];
+
+    // OPT_AUTHOR
+    CHECK(blob[off + 1] == OPT_AUTHOR, "author type in sequence");
+    off += blob[off];
+
+    // End
+    CHECK(blob[off] == OPT_END, "multi options end");
+}
+
+// Test 29: Option offsets don't break segment body positions
+void test_opt_body_offset() {
+    O45Writer w;
+    w.addDefaultOptions("ca45");
+    std::vector<uint8_t> code = {0xEA}; // NOP
+    w.setTextSegment(0x2000, code);
+    auto blob = w.emit();
+
+    // Calculate expected offset: header(41) + OPT_OS(3) + OPT_ASM(2+4+1=7) + OPT_END(1) = 52
+    size_t expectedBodyOff = 41 + 3 + 7 + 1;
+    CHECK(blob[expectedBodyOff] == 0xEA, "body after options: NOP");
+}
+
 int main() {
     test_empty_object();
     test_segment_fields();
@@ -583,6 +694,13 @@ int main() {
     test_symtab_validate();
     test_symtab_apply_to_writer();
     test_symtab_full_integration();
+
+    // Option header tests
+    test_opt_os_raw();
+    test_opt_defaults();
+    test_opt_defaults_no_arg();
+    test_opt_multiple();
+    test_opt_body_offset();
 
     printf("\nO45 Format Tests: %d passed, %d failed\n", tests_passed, tests_failed);
     return tests_failed > 0 ? 1 : 0;

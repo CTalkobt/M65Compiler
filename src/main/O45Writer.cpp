@@ -119,7 +119,19 @@ void O45Writer::addExport(const std::string& name, O45Segment seg, uint32_t offs
 // --- Options ---
 
 void O45Writer::addOption(uint8_t type, const std::string& value) {
-    options_.push_back({type, value});
+    std::vector<uint8_t> data;
+    for (char c : value) data.push_back((uint8_t)c);
+    data.push_back(0x00); // NUL terminator for string options
+    options_.push_back({type, data});
+}
+
+void O45Writer::addOptionRaw(uint8_t type, const std::vector<uint8_t>& data) {
+    options_.push_back({type, data});
+}
+
+void O45Writer::addDefaultOptions(const std::string& asmVersion) {
+    addOptionRaw(OPT_OS, {OPT_OS_MEGA65});
+    addOption(OPT_ASM, asmVersion);
 }
 
 // --- Emit complete .o45 file ---
@@ -206,11 +218,10 @@ void O45Writer::emitHeader(std::vector<uint8_t>& out) const {
 
 void O45Writer::emitOptions(std::vector<uint8_t>& out) const {
     for (const auto& opt : options_) {
-        uint8_t len = (uint8_t)(2 + opt.value.size() + 1); // length + type + data + NUL
+        uint8_t len = (uint8_t)(2 + opt.data.size()); // length byte + type byte + payload
         out.push_back(len);
         out.push_back(opt.type);
-        for (char c : opt.value) out.push_back((uint8_t)c);
-        out.push_back(0x00); // NUL terminator
+        out.insert(out.end(), opt.data.begin(), opt.data.end());
     }
     out.push_back(OPT_END); // end of options
 }

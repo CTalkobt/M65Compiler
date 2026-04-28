@@ -56,7 +56,14 @@ public:
     void addImport(const std::string& name);
     void addExport(const std::string& name, O45Segment seg, uint32_t offset);
 
+    // Add a string option (NUL-terminated in output). For OPT_FNAME, OPT_ASM, OPT_AUTHOR, OPT_CREATED.
     void addOption(uint8_t type, const std::string& value);
+
+    // Add a raw-byte option. For OPT_OS and other binary payloads.
+    void addOptionRaw(uint8_t type, const std::vector<uint8_t>& data);
+
+    // Add the recommended default .o45 options (OPT_OS=MEGA65, OPT_ASM=ca45).
+    void addDefaultOptions(const std::string& asmVersion = "ca45");
 
     // Emit the complete .o45 file as a byte vector.
     std::vector<uint8_t> emit() const;
@@ -92,7 +99,7 @@ private:
 
     struct OptionEntry {
         uint8_t type;
-        std::string value;
+        std::vector<uint8_t> data; // raw payload bytes (no implicit NUL)
     };
     std::vector<OptionEntry> options_;
 
