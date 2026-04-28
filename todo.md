@@ -64,6 +64,10 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **Explicit Cast Expressions**: Support C-style cast syntax `(type)expr` for explicit type conversions (narrowing, widening, pointer casts).
 - [X] **Implicit Narrowing Warnings**: Emit compile-time warnings when implicit conversions lose data (e.g., `int` to `char`, pointer to `char`).
 - [X] **`__func__` Identifier**: Support the predefined `__func__` string literal containing the enclosing function name (C99).
+- [ ] **Nested switch**: Support switch statements nested inside other switch statements.
+- [ ] **Deeply nested if/else**: Support 10+ levels of conditional nesting.
+- [ ] **Empty loop bodies**: Support `while(--n);` and similar constructs.
+- [ ] **Operator precedence (extended)**: Support complex pointer precedence like `*p++` vs `(*p)++`.
 
 ## Roadmap - Linker & Libraries (ln45)
 - [X] **Object Format**: Define the `.o45` relocatable object format as an extension of the `.o65` specification. See [lib.md](lib.md).
@@ -104,28 +108,39 @@ Steps required to bring the C compiler closer to C11 standards.
 - [d] **Modern Type Inference**: Implement `auto` as C23/C++ style type inference for declarations with initializers.
 - [ ] **Storage Classes (remaining)**: Implement `static` (local persistence and file-scope linkage), `extern` (external linkage), `register` (hint).
 - [X] **Arrays**: Implement native array declarations (`type name[size]`), subscript indexing (`a[i]`), and pointer decay.
+- [ ] **Multi-dimensional arrays**: Support `int a[3][4]` row-major layout.
 - [ ] **Array Initializers**: Support initialized array declarations including partial initialization and `= {0}` zero-fill.
+- [ ] **Struct arrays**: Support `struct point pts[10];`.
 - [ ] **Designated Initializers**: Support C99 designated initializers for structs (`{.x=1}`) and arrays (`{[2]=3}`).
 - [ ] **Compound Literals**: Support C99 compound literals for creating unnamed temporary objects inline (e.g., `(struct Point){.x=1, .y=2}`).
 - [ ] **Flexible Array Members**: Support C99 flexible array members as the last member of a struct (`int data[]`).
+- [ ] **Return struct**: Support returning structs from functions.
 - [ ] **Function Pointers**: Support declaration, assignment, and call-through of function pointer types.
 - [d] **Lambda Functions**: Support anonymous functions and closures (capturing local scope) leveraging stack-relative context.
 - [d] **Generator Functions**: Support stateful functions that can yield values (iterators).
 - [d] **Generator Loop Syntax**: Implement `for (var : generator)` syntax for idiomatic iteration over generators.
 - [ ] **Variadic Functions**: Support defining variadic functions and the `va_list`, `va_start`, `va_arg`, `va_end` macros.
 - [ ] **Local `_Alignas`**: Extend `_Alignas` support to local (stack-allocated) variables.
+- [ ] **32-bit flat addressing**: Support pointer access above $FFFF (requires flat memory codegen).
 
 ---
 
 ## Roadmap - Assembler (ca45)
 
-### 1. Registers
+### 1. Registers & Simulated Opcodes
 - [X] **Mega65 Multiplication**: Simulated `mul.<width> <dest>, <src>` opcode leveraging hardware multiplier.
 - [X] **Mega65 Division**: Simulated `div.<width> <dest>, <src>` opcode leveraging hardware divider.
 - [X] **Stack-Relative Word Ops**: Simulated `INW/DEW offset, s` leveraging `TSX`.
 - [X] **Other 16 bit registers**: Full support for `.AX`, `.AY`, `.AZ`, `.XY` in simulated high-level opcodes.
 - [X] **Mega65 Memory**: High-speed memory FILL and MOVE (copy) leveraging the Mega65 DMA controller.
-- [X] **PC Register**: Treat current program counter as a register named .PC similar to how .A, .X etc are defined. 
+- [X] **PC Register**: Treat current program counter as a register named .PC similar to how .A, .X etc are defined.
+- [ ] **16-bit Loads/Stores**: Support `ldax`, `stax`, `ldaz`, `staz` simulated opcodes.
+- [ ] **16-bit Math**: Support `add.16`, `sub.16`, `neg.16` simulated opcodes.
+- [ ] **Stack Operations**: Support `phw`, `ptrstack` simulated opcodes.
+- [ ] **Control Flow**: Support `branch.16` (16-bit relative jumps).
+- [ ] **Indirect Call**: Support `call (.ax)` — Indirect call through a 16-bit pointer held in `.AX`.
+- [ ] **Dynamic Shifts**: Support `shl.16 .ax, src` / `shr.16 .ax, src` — Dynamic 16-bit shift with count from memory/ZP.
+- [ ] **AX Increment/Decrement**: Support `inax` / `deax` — Increment/decrement `.AX` as a 16-bit pair.
 
 ### 2. Segments
 - [X] **Local Optimization Windows**: Implemented `@` labels to define boundaries for register/flag tracking.
@@ -138,12 +153,13 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **Stack-relative Simulation**: Extended `STX/STY/STZ offset, s` with `TSX` sequences for thread-safety.
 - [X] **Alignment Directive**: Implement `.align <n>` or `.balign <n>` to support C11 `_Alignas`.
 - [X] **Segment Management**: Implement `.section` or `.segment` to support `_Thread_local` storage and separate data/text areas.
+- [ ] **Struct Layout Helper**: Implement `.struct` / `.endstruct` to define named field offsets as equates.
 
-
-### 4. Expanded Literals
+### 4. Expanded Literals & Data
 - [X] **Dword/Long**: Support `.dword` and `.long` for 32-bit unsigned data.
 - [X] **Float Support**: Implement `.float` for Commodore 40-bit floating point format.
 - [W] **Unicode Support**: Support UTF-8/UTF-16 character and string constants if emitted by the compiler.
+- [ ] **Null-terminated Strings**: Implement `.asciiz "<str>"` — Automatically appends $00.
 
 ### 5. Atomic Primitives
 - [ ] **Synchronization Macros**: Provide built-in macros for atomic exchange or compare-and-swap if targeting multi-core or interrupt-safe code.
@@ -155,10 +171,17 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **BasicUpstart**: Implement `.basicUpstart <addr>` for C64 BASIC stubs.
 - [ ] **Binary Import**: Implement `.import binary "file.bin"`.
 
-### 7. Missing Syntax & Instructions
+### 7. Expressions & Logic
+- [ ] **Symbol Existence**: Implement `defined(<symbol>)` — Test existence at assembler level (post-pass-1).
+- [ ] **Extended Operators**: Support bitwise shift (`<<`, `>>`) and modulo (`%`) in constant expressions.
+- [ ] **Conditional Assembly**: Implement `.if <expr>` / `.else` / `.endif` (distinct from preprocessor `#if`).
+
+### 8. Missing Syntax & Instructions
 - [W] **Addressing Modes**: Support Absolute Indirect Indexed `($1234),y` (Not supported by 45GS02 hardware).
 - [ ] **Native Quad Mode**: Add full native support for `adcq`, `sbcq` etc. (currently prefixed).
-- [ ] **Macros**: Implement `.macro` system.
+- [ ] **Macros**: Implement `.macro` system. Support local labels (`\@`), arg count checking, and `.exitm`.
+- [ ] **Repeat Block**: Implement `.repeat <n>` / `.endrep` for repeated code/data generation.
+- [ ] **User Warning**: Implement `.warn "<msg>"` — User-defined assembly-time warning.
 - [X] **Preprocessor**: Implement `#include`, `#define`, `#undef`, `#if`, `#ifdef`, `#ifndef`, `#elif`, `#else`, `#endif`, `#line`, `#error`, `#warning`, `#pragma`. Support function-like macros and operators.
 - [ ] **Standard Library**: Add built-in functions like `sin()`, `cos()`, `round()`.
 
@@ -304,3 +327,12 @@ Steps required to bring the C compiler closer to C11 standards.
   the adjustment to be applied twice (e.g., 2→4 in pass 1, then 4→6 in
   pass 2). Fix: removed the ASSIGN re-evaluation from the generator; the
   value set during parsing is now final. INC/DEC variants are unaffected.
+
+---
+
+## Validation & Stress Testing
+- [ ] **Duff's device**: Switch interleaved with loop (stress test).
+- [ ] **Stack depth stress**: Deeply nested calls exhausting 8-bit stack.
+- [ ] **Optimizer differential**: Same test at -O0 vs -O1, compare results.
+- [ ] **Register allocation conflicts**: Expressions using A, X, Y, Z simultaneously.
+- [ ] **Constant propagation safety**: Volatile prevents folding across branches.

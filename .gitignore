@@ -11,3 +11,5 @@ bin/
 man/
 *.swp
 .gemini/*
+
+.mcp.json
