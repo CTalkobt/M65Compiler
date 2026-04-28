@@ -1,6 +1,7 @@
 #pragma once
 #include <vector>
 #include <string>
+#include <map>
 #include <cstdint>
 #include "O45Types.hpp"
 
@@ -105,4 +106,63 @@ private:
     static void writeU16(std::vector<uint8_t>& out, uint16_t val);
     static void writeU32(std::vector<uint8_t>& out, uint32_t val);
     static void writeString(std::vector<uint8_t>& out, const std::string& str);
+};
+
+// =============================================================================
+// O45SymbolTable — manages imports (.extern) and exports (.global) for an
+// object file being assembled. Assigns stable zero-based indices to imports
+// (used by relocation entries) and tracks exports with their segment + offset.
+//
+// Usage:
+//   O45SymbolTable syms;
+//   uint32_t idx = syms.addImport("_printf");   // returns 0
+//   uint32_t idx2 = syms.addImport("_puts");    // returns 1
+//   uint32_t idx3 = syms.addImport("_printf");  // returns 0 (dedup)
+//   syms.addExport("_main", SEG_TEXT, 0x0010);
+//   syms.applyTo(writer);  // populates O45Writer's import/export tables
+// =============================================================================
+
+struct O45Export {
+    std::string name;
+    O45Segment segment;
+    uint32_t offset;
+};
+
+class O45SymbolTable {
+public:
+    // Add an import (external reference). Returns its zero-based index.
+    // Duplicate names return the existing index.
+    uint32_t addImport(const std::string& name);
+
+    // Add an export (global definition). Returns true on success,
+    // false if the name was already exported (duplicate).
+    bool addExport(const std::string& name, O45Segment segment, uint32_t offset);
+
+    // Look up an import index by name. Returns (uint32_t)-1 if not found.
+    uint32_t getImportIndex(const std::string& name) const;
+
+    // Check if a symbol is imported.
+    bool isImported(const std::string& name) const;
+
+    // Check if a symbol is exported.
+    bool isExported(const std::string& name) const;
+
+    // Apply all imports and exports to an O45Writer.
+    void applyTo(O45Writer& writer) const;
+
+    // Accessors
+    const std::vector<std::string>& getImports() const { return imports_; }
+    const std::vector<O45Export>& getExports() const { return exports_; }
+    uint32_t importCount() const { return (uint32_t)imports_.size(); }
+    uint32_t exportCount() const { return (uint32_t)exports_.size(); }
+
+    // Validation: returns list of error messages (empty = ok).
+    // Checks for imports that are also exported (self-referencing object).
+    std::vector<std::string> validate() const;
+
+private:
+    std::vector<std::string> imports_;
+    std::map<std::string, uint32_t> importIndex_; // name -> index
+    std::vector<O45Export> exports_;
+    std::map<std::string, uint32_t> exportIndex_; // name -> index in exports_
 };

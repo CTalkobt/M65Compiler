@@ -263,3 +263,57 @@ void O45Writer::writeString(std::vector<uint8_t>& out, const std::string& str) {
     for (char c : str) out.push_back((uint8_t)c);
     out.push_back(0x00);
 }
+
+// =============================================================================
+// O45SymbolTable
+// =============================================================================
+
+uint32_t O45SymbolTable::addImport(const std::string& name) {
+    auto it = importIndex_.find(name);
+    if (it != importIndex_.end()) return it->second;
+    uint32_t idx = (uint32_t)imports_.size();
+    imports_.push_back(name);
+    importIndex_[name] = idx;
+    return idx;
+}
+
+bool O45SymbolTable::addExport(const std::string& name, O45Segment segment, uint32_t offset) {
+    if (exportIndex_.count(name)) return false;
+    uint32_t idx = (uint32_t)exports_.size();
+    exports_.push_back({name, segment, offset});
+    exportIndex_[name] = idx;
+    return true;
+}
+
+uint32_t O45SymbolTable::getImportIndex(const std::string& name) const {
+    auto it = importIndex_.find(name);
+    if (it != importIndex_.end()) return it->second;
+    return (uint32_t)-1;
+}
+
+bool O45SymbolTable::isImported(const std::string& name) const {
+    return importIndex_.count(name) > 0;
+}
+
+bool O45SymbolTable::isExported(const std::string& name) const {
+    return exportIndex_.count(name) > 0;
+}
+
+void O45SymbolTable::applyTo(O45Writer& writer) const {
+    for (const auto& name : imports_) {
+        writer.addImport(name);
+    }
+    for (const auto& exp : exports_) {
+        writer.addExport(exp.name, exp.segment, exp.offset);
+    }
+}
+
+std::vector<std::string> O45SymbolTable::validate() const {
+    std::vector<std::string> errors;
+    for (const auto& name : imports_) {
+        if (exportIndex_.count(name)) {
+            errors.push_back("symbol '" + name + "' is both imported and exported");
+        }
+    }
+    return errors;
+}

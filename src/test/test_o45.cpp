@@ -383,6 +383,177 @@ void test_reloc_integration() {
     CHECK(strcmp((const char*)&blob[importOff + 4], "_printf") == 0, "integ: import name");
 }
 
+// =============================================================================
+// Symbol Table Tests
+// =============================================================================
+
+// Test 18: Import management and index assignment
+void test_symtab_imports() {
+    O45SymbolTable syms;
+    uint32_t i0 = syms.addImport("_printf");
+    uint32_t i1 = syms.addImport("_puts");
+    uint32_t i2 = syms.addImport("_malloc");
+
+    CHECK(i0 == 0, "import 0 index");
+    CHECK(i1 == 1, "import 1 index");
+    CHECK(i2 == 2, "import 2 index");
+    CHECK(syms.importCount() == 3, "import count 3");
+    CHECK(syms.isImported("_printf"), "printf is imported");
+    CHECK(!syms.isImported("_exit"), "exit not imported");
+    CHECK(syms.getImportIndex("_puts") == 1, "lookup puts index");
+    CHECK(syms.getImportIndex("_unknown") == (uint32_t)-1, "unknown returns -1");
+}
+
+// Test 19: Export management
+void test_symtab_exports() {
+    O45SymbolTable syms;
+    bool ok1 = syms.addExport("_main", SEG_TEXT, 0x0000);
+    bool ok2 = syms.addExport("_count", SEG_DATA, 0x0010);
+    bool ok3 = syms.addExport("_bss_buf", SEG_BSS, 0x0000);
+
+    CHECK(ok1, "export _main ok");
+    CHECK(ok2, "export _count ok");
+    CHECK(ok3, "export _bss_buf ok");
+    CHECK(syms.exportCount() == 3, "export count 3");
+    CHECK(syms.isExported("_main"), "main is exported");
+    CHECK(!syms.isExported("_unknown"), "unknown not exported");
+
+    const auto& exports = syms.getExports();
+    CHECK(exports[0].name == "_main", "export 0 name");
+    CHECK(exports[0].segment == SEG_TEXT, "export 0 seg");
+    CHECK(exports[0].offset == 0x0000, "export 0 offset");
+    CHECK(exports[1].name == "_count", "export 1 name");
+    CHECK(exports[1].segment == SEG_DATA, "export 1 seg");
+    CHECK(exports[1].offset == 0x0010, "export 1 offset");
+}
+
+// Test 20: Duplicate import returns existing index
+void test_symtab_dedup_import() {
+    O45SymbolTable syms;
+    uint32_t i0 = syms.addImport("_printf");
+    uint32_t i1 = syms.addImport("_puts");
+    uint32_t i2 = syms.addImport("_printf"); // duplicate
+
+    CHECK(i0 == 0, "first printf = 0");
+    CHECK(i1 == 1, "puts = 1");
+    CHECK(i2 == 0, "second printf = 0 (dedup)");
+    CHECK(syms.importCount() == 2, "only 2 unique imports");
+}
+
+// Test 21: Duplicate export is rejected
+void test_symtab_dup_export() {
+    O45SymbolTable syms;
+    bool ok1 = syms.addExport("_main", SEG_TEXT, 0x0000);
+    bool ok2 = syms.addExport("_main", SEG_TEXT, 0x0010); // duplicate
+
+    CHECK(ok1, "first export ok");
+    CHECK(!ok2, "duplicate export rejected");
+    CHECK(syms.exportCount() == 1, "still 1 export");
+}
+
+// Test 22: Validate catches import+export conflict
+void test_symtab_validate() {
+    O45SymbolTable syms;
+    syms.addImport("_printf");
+    syms.addExport("_main", SEG_TEXT, 0);
+
+    auto errors = syms.validate();
+    CHECK(errors.empty(), "no errors for clean table");
+
+    // Now create a conflict
+    O45SymbolTable syms2;
+    syms2.addImport("_main");
+    syms2.addExport("_main", SEG_TEXT, 0);
+
+    auto errors2 = syms2.validate();
+    CHECK(errors2.size() == 1, "one conflict error");
+    CHECK(errors2[0].find("_main") != std::string::npos, "error mentions _main");
+}
+
+// Test 23: applyTo populates O45Writer correctly
+void test_symtab_apply_to_writer() {
+    O45SymbolTable syms;
+    syms.addImport("_printf");
+    syms.addImport("_puts");
+    syms.addExport("_main", SEG_TEXT, 0x0000);
+    syms.addExport("_count", SEG_DATA, 0x0020);
+
+    O45Writer w;
+    syms.applyTo(w);
+    auto blob = w.emit();
+
+    // Find import table: header(41) + opt_end(1) + text_reloc(1) + data_reloc(1) = 44
+    size_t off = 44;
+    uint32_t ic = readU32(&blob[off]); off += 4;
+    CHECK(ic == 2, "apply: 2 imports");
+
+    CHECK(strcmp((const char*)&blob[off], "_printf") == 0, "apply: import 0");
+    off += 8;
+    CHECK(strcmp((const char*)&blob[off], "_puts") == 0, "apply: import 1");
+    off += 6;
+
+    uint32_t ec = readU32(&blob[off]); off += 4;
+    CHECK(ec == 2, "apply: 2 exports");
+
+    CHECK(strcmp((const char*)&blob[off], "_main") == 0, "apply: export 0 name");
+    off += 6;
+    CHECK(blob[off] == SEG_TEXT, "apply: export 0 seg");
+    off += 1;
+    CHECK(readU32(&blob[off]) == 0x0000, "apply: export 0 offset");
+    off += 4;
+
+    CHECK(strcmp((const char*)&blob[off], "_count") == 0, "apply: export 1 name");
+    off += 7;
+    CHECK(blob[off] == SEG_DATA, "apply: export 1 seg");
+    off += 1;
+    CHECK(readU32(&blob[off]) == 0x0020, "apply: export 1 offset");
+}
+
+// Test 24: Full pipeline — symtab + reloc encoder + writer
+void test_symtab_full_integration() {
+    // Simulate: text segment calls _printf (external) and exports _main
+    std::vector<uint8_t> code = {
+        0x20, 0x00, 0x00,  // JSR $0000 (to be relocated)
+        0x60                // RTS
+    };
+
+    O45SymbolTable syms;
+    uint32_t printfIdx = syms.addImport("_printf");
+    syms.addExport("_main", SEG_TEXT, 0x0000);
+
+    // Relocation: patch JSR operand at offset 1
+    std::vector<O45Reloc> relocs = {
+        {0x0001, R_WORD, SEG_EXTERNAL, printfIdx, 0}
+    };
+
+    O45Writer w;
+    w.setTextSegment(0x2000, code);
+    w.setTextRelocations(O45RelocEncoder::encode(relocs));
+    w.addOption(OPT_ASM, "ca45");
+    syms.applyTo(w);
+
+    auto blob = w.emit();
+
+    // Verify header
+    CHECK(readU32(&blob[8]) == 0x2000, "full: tbase");
+    CHECK(readU32(&blob[12]) == 4, "full: tlen");
+
+    // Verify text body present
+    size_t bodyOff = 41 + 7 + 1; // header + option("ca45" = len7) + opt_end
+    CHECK(blob[bodyOff] == 0x20, "full: JSR opcode");
+
+    // Verify the file is well-formed by checking import/export at the end
+    // Find imports by scanning for "_printf"
+    bool foundPrintf = false;
+    bool foundMain = false;
+    for (size_t i = 0; i + 7 < blob.size(); i++) {
+        if (memcmp(&blob[i], "_printf", 7) == 0) foundPrintf = true;
+        if (memcmp(&blob[i], "_main", 5) == 0) foundMain = true;
+    }
+    CHECK(foundPrintf, "full: _printf in output");
+    CHECK(foundMain, "full: _main in output");
+}
+
 int main() {
     test_empty_object();
     test_segment_fields();
@@ -404,6 +575,15 @@ int main() {
     test_reloc_empty();
     test_reloc_integration();
 
-    printf("\nO45 Writer + RelocEncoder: %d passed, %d failed\n", tests_passed, tests_failed);
+    // Symbol table tests
+    test_symtab_imports();
+    test_symtab_exports();
+    test_symtab_dedup_import();
+    test_symtab_dup_export();
+    test_symtab_validate();
+    test_symtab_apply_to_writer();
+    test_symtab_full_integration();
+
+    printf("\nO45 Format Tests: %d passed, %d failed\n", tests_passed, tests_failed);
     return tests_failed > 0 ? 1 : 0;
 }
