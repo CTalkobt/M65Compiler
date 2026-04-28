@@ -210,6 +210,179 @@ void test_linear_address() {
     CHECK(readU32(&blob[12]) == 1, "tlen 1 byte");
 }
 
+// =============================================================================
+// Relocation Encoder Tests
+// =============================================================================
+
+// Test 8: Single WORD relocation to text segment
+void test_reloc_single_word() {
+    std::vector<O45Reloc> relocs = {
+        {0x0012, R_WORD, SEG_TEXT, 0, 0}
+    };
+    auto enc = O45RelocEncoder::encode(relocs);
+
+    CHECK(enc.size() == 2, "reloc single word size");
+    CHECK(enc[0] == 0x12, "delta = $12");
+    CHECK(enc[1] == (R_WORD | SEG_TEXT), "type/seg = $82");
+}
+
+// Test 9: Spec example 1 — JSR external_func at offset $0012
+void test_reloc_external_word() {
+    std::vector<O45Reloc> relocs = {
+        {0x0012, R_WORD, SEG_EXTERNAL, 3, 0}
+    };
+    auto enc = O45RelocEncoder::encode(relocs);
+
+    // delta($12) + type/seg($80) + sym_index(03 00 00 00) = 6 bytes
+    CHECK(enc.size() == 6, "reloc external word size");
+    CHECK(enc[0] == 0x12, "delta");
+    CHECK(enc[1] == (R_WORD | SEG_EXTERNAL), "type/seg = $80");
+    CHECK(readU32(&enc[2]) == 3, "symbol index 3");
+}
+
+// Test 10: Spec example 2 — two relocations with correct deltas
+void test_reloc_two_entries() {
+    std::vector<O45Reloc> relocs = {
+        {0x0012, R_WORD, SEG_EXTERNAL, 3, 0},
+        {0x0030, R_LINEAR24, SEG_DATA, 0, 0}
+    };
+    auto enc = O45RelocEncoder::encode(relocs);
+
+    // Entry 1: delta($12) + type/seg($80) + sym(4 bytes) = 6
+    CHECK(enc[0] == 0x12, "entry1 delta");
+    CHECK(enc[1] == (R_WORD | SEG_EXTERNAL), "entry1 type/seg");
+    CHECK(readU32(&enc[2]) == 3, "entry1 sym index");
+
+    // Entry 2: delta($1E = 0x30-0x12) + type/seg($63)
+    CHECK(enc[6] == 0x1E, "entry2 delta");
+    CHECK(enc[7] == (R_LINEAR24 | SEG_DATA), "entry2 type/seg = $63");
+    CHECK(enc.size() == 8, "two entries total size");
+}
+
+// Test 11: R_HIGH with extra byte
+void test_reloc_high_extra() {
+    std::vector<O45Reloc> relocs = {
+        {0x05, R_HIGH, SEG_TEXT, 0, 0xAB}
+    };
+    auto enc = O45RelocEncoder::encode(relocs);
+
+    CHECK(enc.size() == 3, "reloc HIGH size");
+    CHECK(enc[0] == 0x05, "delta");
+    CHECK(enc[1] == (R_HIGH | SEG_TEXT), "type/seg = $42");
+    CHECK(enc[2] == 0xAB, "extra byte");
+}
+
+// Test 12: Large gap requiring $FF escape bytes
+void test_reloc_large_gap() {
+    // Offset 600 requires: 600 / 254 = 2 escapes (2*254=508), remainder = 92
+    std::vector<O45Reloc> relocs = {
+        {600, R_WORD, SEG_DATA, 0, 0}
+    };
+    auto enc = O45RelocEncoder::encode(relocs);
+
+    CHECK(enc[0] == 0xFF, "escape 1");
+    CHECK(enc[1] == 0xFF, "escape 2");
+    CHECK(enc[2] == (600 - 508), "remaining delta = 92");
+    CHECK(enc[3] == (R_WORD | SEG_DATA), "type/seg");
+    CHECK(enc.size() == 4, "large gap size");
+}
+
+// Test 13: Exactly 254-byte gap (single delta, no escape)
+void test_reloc_exact_254() {
+    std::vector<O45Reloc> relocs = {
+        {254, R_LOW, SEG_TEXT, 0, 0}
+    };
+    auto enc = O45RelocEncoder::encode(relocs);
+
+    CHECK(enc.size() == 2, "exact 254 size");
+    CHECK(enc[0] == 0xFE, "delta = $FE (254)");
+    CHECK(enc[1] == (R_LOW | SEG_TEXT), "type/seg");
+}
+
+// Test 14: 255-byte gap (needs one $FF escape + delta 1)
+void test_reloc_255_gap() {
+    std::vector<O45Reloc> relocs = {
+        {255, R_LOW, SEG_TEXT, 0, 0}
+    };
+    auto enc = O45RelocEncoder::encode(relocs);
+
+    CHECK(enc.size() == 3, "255 gap size");
+    CHECK(enc[0] == 0xFF, "escape");
+    CHECK(enc[1] == 1, "remaining delta = 1");
+    CHECK(enc[2] == (R_LOW | SEG_TEXT), "type/seg");
+}
+
+// Test 15: Multiple entries across large code
+void test_reloc_multiple_mixed() {
+    std::vector<O45Reloc> relocs = {
+        {0x0001, R_WORD, SEG_TEXT, 0, 0},     // JSR at +1
+        {0x0004, R_LOW, SEG_DATA, 0, 0},      // LDA #<data at +4
+        {0x0006, R_HIGH, SEG_DATA, 0, 0x20},  // LDA #>data at +6
+        {0x0100, R_LINEAR32, SEG_TEXT, 0, 0},  // 32-bit ptr at +256
+    };
+    auto enc = O45RelocEncoder::encode(relocs);
+
+    size_t off = 0;
+
+    // Entry 1: delta=1, R_WORD|SEG_TEXT
+    CHECK(enc[off++] == 0x01, "e1 delta");
+    CHECK(enc[off++] == (R_WORD | SEG_TEXT), "e1 type/seg");
+
+    // Entry 2: delta=3, R_LOW|SEG_DATA
+    CHECK(enc[off++] == 0x03, "e2 delta");
+    CHECK(enc[off++] == (R_LOW | SEG_DATA), "e2 type/seg");
+
+    // Entry 3: delta=2, R_HIGH|SEG_DATA + extra
+    CHECK(enc[off++] == 0x02, "e3 delta");
+    CHECK(enc[off++] == (R_HIGH | SEG_DATA), "e3 type/seg");
+    CHECK(enc[off++] == 0x20, "e3 extra byte");
+
+    // Entry 4: delta=0x100-0x06=250, R_LINEAR32|SEG_TEXT
+    CHECK(enc[off++] == 250, "e4 delta = 250");
+    CHECK(enc[off++] == (R_LINEAR32 | SEG_TEXT), "e4 type/seg");
+
+    CHECK(off == enc.size(), "total encoded size");
+}
+
+// Test 16: Empty relocation list
+void test_reloc_empty() {
+    std::vector<O45Reloc> relocs;
+    auto enc = O45RelocEncoder::encode(relocs);
+    CHECK(enc.empty(), "empty relocs produce empty stream");
+}
+
+// Test 17: Encoder output integrates with O45Writer
+void test_reloc_integration() {
+    // Build a simple object: text segment with one external JSR
+    std::vector<uint8_t> code = {0x20, 0x00, 0x00, 0x60}; // JSR $0000; RTS
+    std::vector<O45Reloc> relocs = {
+        {0x0001, R_WORD, SEG_EXTERNAL, 0, 0} // patch JSR operand
+    };
+
+    O45Writer w;
+    w.setTextSegment(0x2000, code);
+    w.setTextRelocations(O45RelocEncoder::encode(relocs));
+    w.addImport("_printf");
+    w.addExport("_main", SEG_TEXT, 0x0000);
+
+    auto blob = w.emit();
+
+    // Verify the text relocation table is in the file
+    // Header(41) + opt end(1) + text body(4) = offset 46
+    size_t relocStart = 46;
+    CHECK(blob[relocStart] == 0x01, "integ: delta=1");
+    CHECK(blob[relocStart + 1] == (R_WORD | SEG_EXTERNAL), "integ: type/seg");
+    CHECK(readU32(&blob[relocStart + 2]) == 0, "integ: sym index 0");
+    CHECK(blob[relocStart + 6] == 0x00, "integ: reloc table end");
+
+    // Verify import table has _printf
+    // After text reloc end: data body(0) + data reloc end(1) = +2 from reloc end
+    size_t importOff = relocStart + 8; // +6 reloc data + 1 text reloc end + 1 data reloc end
+    uint32_t ic = readU32(&blob[importOff]);
+    CHECK(ic == 1, "integ: import count");
+    CHECK(strcmp((const char*)&blob[importOff + 4], "_printf") == 0, "integ: import name");
+}
+
 int main() {
     test_empty_object();
     test_segment_fields();
@@ -219,6 +392,18 @@ int main() {
     test_symbol_tables();
     test_linear_address();
 
-    printf("\nO45 Writer: %d passed, %d failed\n", tests_passed, tests_failed);
+    // Relocation encoder tests
+    test_reloc_single_word();
+    test_reloc_external_word();
+    test_reloc_two_entries();
+    test_reloc_high_extra();
+    test_reloc_large_gap();
+    test_reloc_exact_254();
+    test_reloc_255_gap();
+    test_reloc_multiple_mixed();
+    test_reloc_empty();
+    test_reloc_integration();
+
+    printf("\nO45 Writer + RelocEncoder: %d passed, %d failed\n", tests_passed, tests_failed);
     return tests_failed > 0 ? 1 : 0;
 }

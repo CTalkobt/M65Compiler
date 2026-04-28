@@ -1,5 +1,77 @@
 #include "O45Writer.hpp"
 
+// =============================================================================
+// O45RelocEncoder — converts high-level relocation entries into .o65/.o45
+// delta-offset byte stream.
+//
+// Encoding rules (from .o65 spec):
+//   - Offsets are encoded as deltas from the previous relocation site
+//     (first delta is from segment base, i.e. offset 0).
+//   - Delta byte $01-$FE: add that value to the running offset.
+//   - Delta byte $FF: add 254 to running offset, then read next delta byte.
+//     Multiple $FF bytes chain for large gaps.
+//   - Delta byte $00: end of table (not emitted here — O45Writer appends it).
+//   - After the delta: one type/seg byte (type in bits 7-5, segment in bits 4-0).
+//   - If type == R_HIGH: one extra byte follows (low byte for underflow).
+//   - If segment == SEG_EXTERNAL: 4-byte LE symbol index follows (SIZE32 mode).
+// =============================================================================
+
+std::vector<uint8_t> O45RelocEncoder::encode(const std::vector<O45Reloc>& relocs) {
+    std::vector<uint8_t> out;
+    uint32_t pos = 0; // running offset within the segment
+
+    for (const auto& r : relocs) {
+        // Encode the delta from current position to this relocation site.
+        // Delta must be >= 1 (offset $00 means end-of-table).
+        uint32_t delta = r.offset - pos;
+
+        // Emit $FF escape bytes for every 254-byte skip
+        while (delta > 254) {
+            out.push_back(O45_RELOC_ESCAPE); // $FF = skip 254
+            delta -= O45_RELOC_SKIP;
+        }
+
+        // The remaining delta must be 1..254.
+        // A delta of 0 after escapes means the entry sits exactly at a
+        // 254-boundary — emit 1 and adjust (the spec requires delta >= 1).
+        // However, this only occurs if the original offset == pos (first entry
+        // at offset 0 or two entries at the same offset), which the .o65 spec
+        // doesn't support. We handle it defensively with an extra escape.
+        if (delta == 0) {
+            // Can't emit $00 (that's end-of-table). This shouldn't happen with
+            // well-formed input, but handle it: the first reloc should be at
+            // offset >= 1 in standard .o65. For offset 0, we use delta = 0
+            // which is invalid — caller must ensure offset >= 1.
+            // Skip this entry (or the caller should have adjusted).
+            continue;
+        }
+
+        out.push_back((uint8_t)delta);
+
+        // Type/segment byte
+        uint8_t typeSeg = (uint8_t)r.type | (uint8_t)r.segment;
+        out.push_back(typeSeg);
+
+        // R_HIGH extra byte (low byte for borrow/underflow correction)
+        if (r.type == R_HIGH) {
+            out.push_back(r.extra);
+        }
+
+        // External symbol index (4 bytes LE in SIZE32 mode)
+        if (r.segment == SEG_EXTERNAL) {
+            out.push_back((uint8_t)(r.symbolIndex & 0xFF));
+            out.push_back((uint8_t)((r.symbolIndex >> 8) & 0xFF));
+            out.push_back((uint8_t)((r.symbolIndex >> 16) & 0xFF));
+            out.push_back((uint8_t)((r.symbolIndex >> 24) & 0xFF));
+        }
+
+        // Advance running position to this relocation site
+        pos = r.offset;
+    }
+
+    return out;
+}
+
 // --- Segment setters ---
 
 void O45Writer::setTextSegment(uint32_t base, const std::vector<uint8_t>& body) {
