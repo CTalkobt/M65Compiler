@@ -1,8 +1,13 @@
-# Mega65 C Compiler Suite (ca45, cc45)
+# Mega65 C Compiler Suite (cc45, ca45, nm45)
 *CONSIDER YOURSELF WARNED:* This project is currently undergoing heavy development
 
 
-This project provides a modern, object-oriented development toolchain for the MEGA65 (45GS02) home computer. It consists of two primary tools: **cc45** (a C compiler) and **ca45** (a 45GS02-optimized assembler).
+This project provides a modern, object-oriented development toolchain for the MEGA65 (45GS02) home computer. It consists of:
+
+- **cc45** — C compiler (C source to assembly or `.o45` relocatable objects)
+- **ca45** — 45GS02 assembler (assembly to binary or `.o45` relocatable objects)
+- **nm45** — Symbol lister for `.o45` object files
+- **cp45** — C preprocessor (standalone)
 
 
 ## Project Intent
@@ -28,16 +33,33 @@ The compilation process follows a multi-pass pipeline:
 - **Extensibility**: The toolchain uses a visitor-based architecture in C++, making it easy to add new optimizations, language features, or hardware targets.
 
 ## General Usage
-The tools are designed to work together seamlessly. A typical workflow involves compiling a C file directly to a binary:
+
+### Direct to Binary
+Compile C to assembly, then assemble to a PRG:
 ```bash
-./bin/cc45 -c -o output.s input.c
+./bin/cc45 input.c -o output.s          # Compile to assembly
+./bin/ca45 output.s -o output.prg       # Assemble to PRG binary
 ```
-This command invokes `cc45` to generate `output.s`, and then automatically calls `ca45` to produce `output.s.bin`.
+
+### Relocatable Objects (multi-file workflow)
+Compile C files to `.o45` relocatable objects for separate compilation and linking:
+```bash
+./bin/cc45 -c main.c -o main.o45        # Compile to object
+./bin/cc45 -c math.c -o math.o45        # Compile to object
+./bin/nm45 main.o45                     # Inspect symbols
+# ./bin/ln45 main.o45 math.o45 -o app.prg  # Link (future)
+```
+
+Assembly files can also produce `.o45` objects directly:
+```bash
+./bin/ca45 -c module.s -o module.o45    # Assemble to object
+```
 
 For a full list of command-line options, use the `-?` flag:
 ```bash
 ./bin/cc45 -?
 ./bin/ca45 -?
+./bin/nm45 -?
 ```
 
 ## Documentation
@@ -61,5 +83,8 @@ This script compiles C source files from `src/test-resources/` and assembles the
 For detailed information on each tool, refer to:
 - [doc/cc45.md](doc/cc45.md) — Compiler Usage and Features
 - [doc/ca45.md](doc/ca45.md) — Assembler Syntax and Reference
+- [doc/nm45.md](doc/nm45.md) — Symbol Lister for `.o45` Object Files
 - [doc/cp45.md](doc/cp45.md) — Preprocessor Features and Usage
 - [doc/opcodes.md](doc/opcodes.md) — 45GS02 Instruction Reference
+- [lib.md](lib.md) — `.o45` Relocatable Object Format Specification
+- [doc/ln45.md](doc/ln45.md) — Linker Design
