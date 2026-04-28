@@ -8,10 +8,13 @@
 #include "Preprocessor.hpp"
 #include "AssemblerGenerator.hpp"
 #include "M65Emitter.hpp"
+#include "O45Emitter.hpp"
 
 int main(int argc, char** argv) {
     std::string input_file;
-    std::string output_file = "out.bin";
+    std::string output_file;
+    bool outputSet = false;
+    bool relocMode = false;
     int verboseLevel = 0;
     int listingLevel = 1;
     std::map<std::string, uint32_t> predefinedSymbols;
@@ -23,7 +26,8 @@ int main(int argc, char** argv) {
         if (arg == "-?" || arg == "--help") {
             std::cout << "Usage: ca45 [options] <input_file.s>" << std::endl;
             std::cout << "Options:" << std::endl;
-            std::cout << "  -o <filename>  Specify output filename (default: out.bin)" << std::endl;
+            std::cout << "  -c             Produce relocatable .o45 object file instead of binary" << std::endl;
+            std::cout << "  -o <filename>  Specify output filename (default: out.bin, or out.o45 with -c)" << std::endl;
             std::cout << "                 If filename ends in .prg, a 2-byte load address header is added." << std::endl;
             std::cout << "  -l <level>     Listing level: 1=Binary (default), 2=Expanded Assembly" << std::endl;
             std::cout << "  -v             Enable verbose output (phase info)" << std::endl;
@@ -32,8 +36,11 @@ int main(int argc, char** argv) {
             std::cout << "  -I<path>       Add include search path" << std::endl;
             std::cout << "  -?             Display this help message" << std::endl;
             return 0;
+        } else if (arg == "-c") {
+            relocMode = true;
         } else if (arg == "-o" && i + 1 < argc) {
             output_file = argv[++i];
+            outputSet = true;
         } else if (arg == "-l" && i + 1 < argc) {
             listingLevel = std::stoi(argv[++i]);
         } else if (arg == "-vv") {
@@ -61,6 +68,10 @@ int main(int argc, char** argv) {
         } else {
             input_file = arg;
         }
+    }
+
+    if (!outputSet) {
+        output_file = relocMode ? "out.o45" : "out.bin";
     }
 
     if (predefinedSymbols.find("cc45.zeroPageStart") == predefinedSymbols.end()) {
@@ -120,7 +131,16 @@ int main(int argc, char** argv) {
             return 1;
         }
 
-        if (listingLevel == 2) {
+        if (relocMode) {
+            // Relocatable object mode: produce .o45 file
+            parser.pass2(false);
+            auto o45 = emitO45(parser);
+            if (!o45.empty()) {
+                std::ofstream out(output_file, std::ios::binary);
+                out.write(reinterpret_cast<const char*>(o45.data()), o45.size());
+                std::cout << "Object file: " << output_file << " (" << o45.size() << " bytes)" << std::endl;
+            }
+        } else if (listingLevel == 2) {
             parser.pass2(false); // Run optimizer and resolve addresses
             std::ofstream out(output_file);
             M65Emitter e(out, predefinedSymbols["cc45.zeroPageStart"]);

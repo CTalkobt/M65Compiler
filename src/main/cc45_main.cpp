@@ -357,7 +357,7 @@ int main(int argc, char** argv) {
             std::cout << "Usage: cc45 [options] <input_file.c>" << std::endl;
             std::cout << "Options:" << std::endl;
             std::cout << "  -E             Run only the preprocessor (output to stdout or -o file)" << std::endl;
-            std::cout << "  -c             Assemble the output with ca45" << std::endl;
+            std::cout << "  -c             Compile and assemble to a .o45 relocatable object file" << std::endl;
             std::cout << "  -o <filename>  Specify output assembly filename (default: out.s)" << std::endl;
             std::cout << "  -l <level>     Listing level: 1=Standard (default), 2=Expanded" << std::endl;
             std::cout << "  -v             Enable verbose output (phase info)" << std::endl;
@@ -453,7 +453,17 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    if (!outputFileSet) output_file = "out.s";
+    if (!outputFileSet) {
+        if (assemble) {
+            // -c mode: default output is input.o45
+            std::string base = input_file;
+            size_t dot = base.rfind('.');
+            if (dot != std::string::npos) base = base.substr(0, dot);
+            output_file = base + ".o45";
+        } else {
+            output_file = "out.s";
+        }
+    }
 
     std::vector<std::string> sourceLines;
     {
@@ -481,6 +491,9 @@ int main(int argc, char** argv) {
         std::cout << "Parsing " << input_file << "..." << std::endl;
     }
 
+    // In -c mode, the .s file is intermediate; output_file is the .o45
+    std::string asmFile = assemble ? (output_file + ".s") : output_file;
+
     Parser parser(tokens);
     try {
         if (verboseLevel >= 1) std::cout << "Parsing " << input_file << "..." << std::endl;
@@ -499,9 +512,9 @@ int main(int argc, char** argv) {
             ast->accept(printer);
         }
 
-        std::ofstream asmOut(output_file);
+        std::ofstream asmOut(asmFile);
         if (!asmOut.is_open()) {
-            std::cerr << "Failed to open output file for assembly: " << output_file << std::endl;
+            std::cerr << "Failed to open output file for assembly: " << asmFile << std::endl;
             return 1;
         }
 
@@ -509,10 +522,11 @@ int main(int argc, char** argv) {
         CodeGenerator codegen(asmOut);
         codegen.zeroPageStart = zeroPageStart;
         codegen.zeroPageAvail = zeroPageAvail;
+        codegen.relocMode = assemble; // -c enables relocatable object mode
         codegen.setSourceInfo(input_file, sourceLines);
         codegen.generate(*ast);
         if (verboseLevel >= 1) {
-            std::cout << "Generated assembly in " << output_file << std::endl;
+            std::cout << "Generated assembly in " << asmFile << std::endl;
         }
         asmOut.close();
         if (verboseLevel >= 1) std::cout << "Code generation complete." << std::endl;
@@ -520,7 +534,7 @@ int main(int argc, char** argv) {
         if (listingLevel == 2) {
             if (verboseLevel >= 1) std::cout << "Generating expanded listing..." << std::endl;
             
-            std::ifstream asmIn(output_file);
+            std::ifstream asmIn(asmFile);
             std::stringstream asmBuf;
             asmBuf << asmIn.rdbuf();
             asmIn.close();
@@ -534,13 +548,13 @@ int main(int argc, char** argv) {
             parser.pass1();
             if (parser.hasErrors()) {
                 for (const auto& err : parser.getErrors()) {
-                    std::cerr << output_file << ":" << err << std::endl;
+                    std::cerr << asmFile << ":" << err << std::endl;
                 }
                 return 1;
             }
             parser.pass2(); // Run optimizer and resolve addresses
 
-            std::ofstream expandedOut(output_file);
+            std::ofstream expandedOut(asmFile);
             M65Emitter e(expandedOut, zeroPageStart);
             AssemblerGenerator::generate(&parser, e);
             expandedOut.close();
@@ -552,9 +566,8 @@ int main(int argc, char** argv) {
     }
     
     if (assemble) {
-        std::cout << "Calling assembler (ca45)..." << std::endl;
-        std::string bin_out = output_file + ".bin";
-        std::string command = "./bin/ca45 " + defineFlag + " -o " + bin_out + " " + output_file;
+        if (verboseLevel >= 1) std::cout << "Assembling to " << output_file << "..." << std::endl;
+        std::string command = "./bin/ca45 -c " + defineFlag + " -o " + output_file + " " + asmFile;
         int ret = std::system(command.c_str());
         if (ret != 0) {
             std::cerr << "Assembler failed with return code " << ret << std::endl;

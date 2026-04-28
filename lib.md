@@ -6,7 +6,7 @@ References: [Andre Fachat o65 file format](http://www.6502.org/users/andre/o65/f
 
 ---
 
-## 1. Header
+## 1. Header [IMPLEMENTED]
 
 The header is a direct extension of the `.o65` header. When mode bit 15 (`SIZE32`) is set, all address and length fields widen from 16-bit to 32-bit.
 
@@ -112,7 +112,7 @@ Recommended `.o45` options:
 
 ---
 
-## 2. Segment Bodies
+## 2. Segment Bodies [IMPLEMENTED]
 
 After the option list, the segment bodies appear in fixed order:
 
@@ -125,7 +125,7 @@ BSS and ZP segments have no body (they are uninitialized); only their base and l
 
 ---
 
-## 3. Relocation Tables
+## 3. Relocation Tables [IMPLEMENTED]
 
 Each relocation table (text, data) is a stream of relocation entries terminated by a `$00` byte. The encoding reuses the `.o65` relocation byte format exactly.
 
@@ -226,7 +226,7 @@ Linker patches 4 bytes at data+offset with (text_base + stored value).
 
 ---
 
-## 4. Symbol Tables
+## 4. Symbol Tables [IMPLEMENTED]
 
 Two symbol tables appear after the last relocation table, in order:
 
@@ -298,9 +298,9 @@ The export table corresponds to `.global` directives in `ca45`.
 
 ---
 
-## 6. C++ Constants
+## 6. C++ Constants [IMPLEMENTED]
 
-These constants and enums should be added to the toolchain (e.g., `include/O45Types.hpp`). They reuse `.o65` values directly.
+These constants and enums are defined in `include/O45Types.hpp`. They reuse `.o65` values directly.
 
 ```cpp
 #pragma once
@@ -388,7 +388,7 @@ inline int o45RelocPatchSize(uint8_t rtype) {
 
 ---
 
-## 7. Mapping to Existing Assembler Structures
+## 7. Mapping to Existing Assembler Structures [IMPLEMENTED]
 
 The `.o45` segments map directly to the `ca45` segment infrastructure already in `AssemblerParser`:
 

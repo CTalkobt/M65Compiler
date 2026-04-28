@@ -14,9 +14,20 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
     - Added `BASE_PAGE_INDIRECT_SP_Y` to `emitInstruction` (text and binary modes) and `calculateInstructionSize` — the `($nn,SP),Y` addressing mode was previously missing from the instruction encoder.
     - Added `lda_frame`/`sta_frame` methods to `M65Emitter` for frame-pointer-relative memory access.
     - Added `FrameAccessInfo` / `resolveFrameAccess()` helper to `AssemblerParser` for detecting frame-relative symbols.
+    - **Relocatable object mode (`-c`)**: New `-c` flag produces `.o45` relocatable object files instead of flat binaries. Extracts per-segment bodies, generates `R_WORD` relocation entries for external and cross-segment references, builds import/export symbol tables from `.global`/`.extern` directives. Default output filename is `out.o45`.
+    - **`.global` directive**: Marks symbols for export in `.o45` output.
+    - **`.extern` directive**: Declares imported symbols (resolved by linker). Creates placeholder symbols with value 0 and assigns zero-based import indices for relocation entries.
+- **Linker infrastructure (`.o45` format)**:
+    - `O45Types.hpp` — format constants, enums (`O45Segment`, `O45RelocType`), mode bits, CPU IDs, and helper functions.
+    - `O45Writer` — produces complete `.o45` files (header, options, segment bodies, relocation tables, symbol tables).
+    - `O45RelocEncoder` — encodes high-level relocation entries into `.o65`/`.o45` delta-offset byte streams.
+    - `O45SymbolTable` — manages imports/exports with deduplication, validation, and `applyTo(writer)`.
+    - `O45Emitter` — bridge between the assembler and `.o45` format: extracts segments, scans for relocations, packages output.
 - **Testing**:
     - Added `test_many_params_locals` to both `test_compiler.sh` and `test_mmemu.sh` validation suites.
     - Added 16-bit stack pointer test to `test_mmemu.sh` — verifies TYS/TSY and push/pull on a relocated stack page.
+    - Added `test_global_extern.s` to assembler test suite — validates `.global`/`.extern` directive parsing.
+    - Added `test_o45` unit test binary (217 assertions) — validates `.o45` header, segment bodies, relocation encoding, symbol tables, option headers, and segment mapping.
 
 ### Changed
 - **Compiler (cc45)**:
@@ -29,6 +40,7 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
     - Size adjustment pass updated to use new `proc` (5 bytes) and `endproc` (3-4 bytes) sizes.
     - All simulated stack-access opcodes (`lda.sp`, `sta.sp`, `ldax`, `stax`, `phw.sp`, `ptrstack`, stack inc/dec, `neg.16`/`not.16`/`abs.16` on stack) now check for frame-relative symbols and use `($nn,SP),Y` addressing when appropriate.
     - `VariableNode::emit` in expression evaluator updated for frame-relative variables.
+    - `pass2()` now updates segment `pc` fields at the end of each iteration, making segment sizes available to the `.o45` emitter after assembly.
 
 ### Fixed
 - **Compiler (cc45)**:

@@ -48,6 +48,7 @@ public:
     static int getTypeSize(const std::string& type, int ptrLevel, int arraySize, const std::map<std::string, std::shared_ptr<CodeGenerator::StructInfo>>& structs);
     uint32_t zeroPageStart = 0x02;
     uint32_t zeroPageAvail = 9;
+    bool relocMode = false; // When true, emit .global/.extern and skip .org/$2000 stub
 
     void visit(IntegerLiteral& node) override;
     void visit(StringLiteral& node) override;

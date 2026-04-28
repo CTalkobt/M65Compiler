@@ -1135,6 +1135,14 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                 if (s->instr.mnemonic == "rts" || s->instr.mnemonic == "rtn" || s->instr.mnemonic == "rti") isDeadCode = true;
             }
         }
+        // Update segment end addresses from this pass
+        pass2PCs[activeSegment] = cP;
+        for (auto& [name, seg] : segments) {
+            if (pass2PCs.count(name) && pass2PCs[name] != 0xFFFFFFFF) {
+                seg->pc = pass2PCs[name];
+            }
+        }
+
         if (addressRecalculationMadeChanges) overallChanged = true;
     } while (overallChanged);
     return AssemblerGenerator::generate(this, isPrg);

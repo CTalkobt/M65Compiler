@@ -66,12 +66,18 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **`__func__` Identifier**: Support the predefined `__func__` string literal containing the enclosing function name (C99).
 
 ## Roadmap - Linker & Libraries (ln45)
-- [ ] **Object Format**: Define the `.o45` relocatable object format as an extension of the `.o65` specification.
-    - [ ] **Extended Header**: Support 45GS02 architecture bits and 32-bit width flags.
-    - [ ] **Linear Relocations**: Support for patching linear 28-bit addresses and 32-bit data types.
+- [X] **Object Format**: Define the `.o45` relocatable object format as an extension of the `.o65` specification. See [lib.md](lib.md).
+    - [X] **Extended Header**: 41-byte header with 32-bit segment fields, mode word ($8800), CPU ID ($45).
+    - [X] **Linear Relocations**: `R_LINEAR24` ($60) and `R_LINEAR32` ($A0) relocation types defined.
+    - [X] **C++ Constants**: `O45Types.hpp` with all format enums, constants, and helpers.
+    - [X] **Object Writer**: `O45Writer` class producing complete `.o45` files (header, options, segments, relocations, symbols).
+    - [X] **Relocation Encoder**: `O45RelocEncoder` producing delta-offset byte streams from high-level reloc entries.
+    - [X] **Symbol Table**: `O45SymbolTable` managing imports/exports with deduplication and validation.
+    - [X] **Option Headers**: String and raw-byte options, `addDefaultOptions()` for OPT_OS (MEGA65) + OPT_ASM.
 - [X] **Sections**: Update `ca45` to support named segments (`.text`, `.data`, `.bss`) and user defined segments (.segment "name" { ... }).
 - [X] **External Symbols**: Implement `.global` and `.extern` in the assembler.
-- [ ] **Relocations**: Support standard (`WORD`, `LOW`, `HIGH`) and linear (`LINEAR24`, `LINEAR32`) relocations.
+- [X] **Relocatable Mode (`-c`)**: `ca45 -c` produces `.o45` object files. Extracts per-segment bodies, generates relocation tables for external and cross-segment references, builds import/export symbol tables.
+- [X] **Relocations**: Support standard (`WORD`, `LOW`, `HIGH`) and linear (`LINEAR24`, `LINEAR32`) relocations in the format. `WORD` relocations emitted by `-c` mode for absolute address operands.
 - [ ] **Linker Tool**: Build the `ln45` binary to aggregate objects and resolve symbols.
 - [ ] **Archiver**: Build `ar45` to create static `.lib` archives.
 
