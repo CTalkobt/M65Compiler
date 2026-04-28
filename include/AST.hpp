@@ -146,6 +146,7 @@ public:
     std::string name;
     bool isVolatile = false;
     bool isGlobal = false;
+    bool isExtern = false;
     int alignment = 0;
     std::unique_ptr<Expression> alignmentExpr;
     std::unique_ptr<Expression> initializer;

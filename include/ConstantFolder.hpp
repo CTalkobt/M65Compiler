@@ -213,6 +213,7 @@ public:
         decl->alignment = node.alignment;
         decl->isVolatile = node.isVolatile;
         decl->isGlobal = node.isGlobal;
+        decl->isExtern = node.isExtern;
         decl->arraySize = node.arraySize;
         lastStmt = std::move(decl);
     }

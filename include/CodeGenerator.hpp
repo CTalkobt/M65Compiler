@@ -181,6 +181,7 @@ public:
     std::vector<ZPReg> zpRegs;
     std::vector<VariableDeclaration*> globalVars;
     std::set<std::string> weakGlobals; // global vars marked with #pragma weak
+    std::set<std::string> knownFunctions; // defined + prototyped function names
     FunctionDeclaration* currentFunction = nullptr;
     int currentParamByteSize = 0;
     int currentLocalByteSize = 0;

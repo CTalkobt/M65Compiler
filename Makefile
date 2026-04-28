@@ -1,4 +1,4 @@
-CXX = g++
+CX = g++
 CXXFLAGS = -std=c++17 -Wall -Wextra -Iinclude -MMD -MP
 SRC_DIR = src/main
 OBJ_DIR = obj

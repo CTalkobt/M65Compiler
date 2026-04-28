@@ -327,6 +327,14 @@ void CodeGenerator::visit(TranslationUnit& node) {
     out << ".segmentOrder code, data, bss" << std::endl;
     out << ".code" << std::endl;
 
+    // Collect all known function names (definitions + prototypes) for call validation
+    knownFunctions.clear();
+    for (auto& decl : node.topLevelDecls) {
+        if (auto* fn = dynamic_cast<FunctionDeclaration*>(decl.get())) {
+            knownFunctions.insert(fn->name);
+        }
+    }
+
     if (relocMode) {
         // Collect defined functions, weak functions, and called functions
         std::set<std::string> definedFunctions;
@@ -460,6 +468,10 @@ void CodeGenerator::visit(VariableDeclaration& node) {
     if (node.isGlobal || currentFunction == nullptr) {
         std::string gName = "_" + node.name;
         globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.arraySize};
+        if (node.isExtern) {
+            // extern declaration — type is known but no storage emitted
+            return;
+        }
         if (node.isGlobal) {
             globalVars.push_back(&node);
             if (weakNext) { weakGlobals.insert(node.name); weakNext = false; }
@@ -1844,6 +1856,13 @@ void CodeGenerator::visit(FunctionCall& node) {
         emit("MOVE ($" + ssSrc.str() + "), ($" + ssDest.str() + ")");
         freeZP(zpSrc, 2); freeZP(zpDest, 2); resultNeeded = oldNeeded; invalidateRegs(); return;
     }
+    // Check that the function is declared (definition or prototype)
+    if (!knownFunctions.count(node.name)) {
+        std::string loc = sourceFilename.empty() ? "" : sourceFilename + ":";
+        if (node.line > 0) loc += std::to_string(node.line) + ":" + std::to_string(node.column) + ": ";
+        throw std::runtime_error(loc + "error: implicit declaration of function '" + node.name + "' (missing #include or prototype)");
+    }
+
     bool oldNeeded = resultNeeded; resultNeeded = true;
     for (auto& arg : node.arguments) {
         if (auto* ref = dynamic_cast<VariableReference*>(arg.get())) {

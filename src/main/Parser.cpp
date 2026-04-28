@@ -80,6 +80,12 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
         size_t look = pos;
         bool isVol = false;
         bool isNR = false;
+        bool isExtern = false;
+
+        if (tokens[look].type == TokenType::EXTERN) {
+            isExtern = true;
+            look++;
+        }
 
         if (tokens[look].type == TokenType::_Noreturn) {
             isNR = true;
@@ -149,19 +155,24 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             if (look < tokens.size() && tokens[look].type == TokenType::IDENTIFIER) {
                 look++;
                 if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
+                    if (isExtern) match(TokenType::EXTERN);
                     if (isNR) match(TokenType::_Noreturn);
                     while (match(TokenType::VOLATILE) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
                     auto decl = parseFunctionDeclaration();
                     decl->isNoreturn = isNR;
+                    // extern functions are always prototypes (no body)
+                    if (isExtern) decl->isPrototype = true;
                     flushPending(*unit);
                     unit->topLevelDecls.push_back(std::move(decl));
                 } else {
+                    if (isExtern) match(TokenType::EXTERN);
                     if (isNR) match(TokenType::_Noreturn);
                     while (match(TokenType::VOLATILE) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
                     auto decl = parseVariableDeclaration(isVol);
                     if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                         vd->isGlobal = true;
                         vd->isSigned = isSig;
+                        vd->isExtern = isExtern;
                     }
                     flushPending(*unit);
                     unit->topLevelDecls.push_back(std::move(decl));
