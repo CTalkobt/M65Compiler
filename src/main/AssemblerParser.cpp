@@ -98,6 +98,13 @@ uint32_t AssemblerParser::getZPStart() const {
     return 0x02;
 }
 
+uint16_t AssemblerParser::getSpBase() const {
+    if (symbolTable.count("__sp_base")) {
+        return (uint16_t)symbolTable.at("__sp_base").value;
+    }
+    return 0x0101;
+}
+
 const AssemblerToken& AssemblerParser::expect(AssemblerTokenType type, const std::string& message) {
     if (peek().type == type) return advance();
     throw std::runtime_error(message + " at " + std::to_string(peek().line) + ":" + std::to_string(peek().column));
@@ -136,162 +143,162 @@ AssemblerParser::FrameAccessInfo AssemblerParser::resolveFrameAccess(int tokenIn
 bool AssemblerParser::optimize() { return AssemblerOptimizer::optimize(this); }
 
 void AssemblerParser::emitExpressionCode(std::vector<uint8_t>& binary, const std::string& target, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitExpressionCode(this, e, target, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitMulCode(std::vector<uint8_t>& binary, int width, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitMulCode(this, e, width, dest, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitDivCode(std::vector<uint8_t>& binary, int width, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitDivCode(this, e, width, dest, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitStackIncDecCode(std::vector<uint8_t>& binary, bool isInc, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitStackIncDecCode(this, e, isInc, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitStackIncDec8Code(std::vector<uint8_t>& binary, bool isInc, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitStackIncDec8Code(this, e, isInc, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitAddSub16Code(std::vector<uint8_t>& binary, bool isAdd, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitAddSub16Code(this, e, isAdd, dest, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitBitwise16Code(std::vector<uint8_t>& binary, const std::string& mnemonic, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitBitwise16Code(this, e, mnemonic, dest, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitCMP16Code(std::vector<uint8_t>& binary, const std::string& src1, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitCMP16Code(this, e, src1, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitCMP_S16Code(std::vector<uint8_t>& binary, const std::string& src1, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitCMP_S16Code(this, e, src1, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitLDWCode(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix, bool forceStack) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitLDWCode(this, e, dest, tokenIndex, scopePrefix, forceStack);
 }
 
 void AssemblerParser::emitSTWCode(std::vector<uint8_t>& binary, const std::string& src, int tokenIndex, const std::string& scopePrefix, bool forceStack) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitSTWCode(this, e, src, tokenIndex, scopePrefix, forceStack);
 }
 
 void AssemblerParser::emitLDA_StackCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitLDA_StackCode(this, e, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitSTA_StackCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitSTA_StackCode(this, e, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitLDX_StackCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitLDX_StackCode(this, e, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitLDY_StackCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitLDY_StackCode(this, e, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitLDZ_StackCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitLDZ_StackCode(this, e, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitSTX_StackCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitSTX_StackCode(this, e, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitSTY_StackCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitSTY_StackCode(this, e, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitSTZ_StackCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitSTZ_StackCode(this, e, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitSwapCode(std::vector<uint8_t>& binary, const std::string& r1, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitSwapCode(this, e, r1, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitZeroCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitZeroCode(this, e, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitNegNot16Code(std::vector<uint8_t>& binary, bool isNeg, const std::string& operand, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitNegNot16Code(this, e, isNeg, operand, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitABS16Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitABS16Code(this, e, dest, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitChkZeroCode(std::vector<uint8_t>& binary, bool is16, bool isInverse, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitChkZeroCode(this, e, is16, isInverse, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitBranch16Code(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitBranch16Code(this, e, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitSelectCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitSelectCode(this, e, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitPtrStackCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitPtrStackCode(this, e, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitPtrDerefCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitPtrDerefCode(this, e, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitFillCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix, bool forceStack) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitFillCode(this, e, tokenIndex, scopePrefix, forceStack);
 }
 
 void AssemblerParser::emitMoveCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix, bool forceStack) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitMoveCode(this, e, tokenIndex, scopePrefix, forceStack);
 }
 
 void AssemblerParser::emitFlatMemoryCode(std::vector<uint8_t>& binary, const std::string& mnemonic, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitFlatMemoryCode(this, e, mnemonic, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitPHWStackCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitPHWStackCode(this, e, tokenIndex, scopePrefix);
 }
 
@@ -912,64 +919,64 @@ void AssemblerParser::pass1() {
 
 
 void AssemblerParser::emitASWCode(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitASWCode(this, e, dest, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitROWCode(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitROWCode(this, e, dest, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitLSL16Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitLSL16Code(this, e, dest, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitLSR16Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitLSR16Code(this, e, dest, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitROL16Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitROL16Code(this, e, dest, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitROR16Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitROR16Code(this, e, dest, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitASR16Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitASR16Code(this, e, dest, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitSXT8Code(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitSXT8Code(this, e, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitPushPopCode(std::vector<uint8_t>& binary, bool isPush, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary);
+    M65Emitter e(binary); e.setSpBase(getSpBase());
     std::string reg = tokens[tokenIndex].value;
     if (tokens[tokenIndex].type == AssemblerTokenType::REGISTER) reg = "." + reg;
     AssemblerSimulatedOps::emitPushPopCode(this, e, isPush, reg, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitMulS16Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitMulS16Code(this, e, dest, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitDivS16Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitDivS16Code(this, e, dest, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitMod16Code(std::vector<uint8_t>& binary, bool isSigned, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitMod16Code(this, e, isSigned, dest, tokenIndex, scopePrefix);
 }
 

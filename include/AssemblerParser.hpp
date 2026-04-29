@@ -41,6 +41,7 @@ public:
     bool optimize();
     std::vector<uint8_t> pass2(bool isPrg = false);
     uint32_t getZPStart() const;
+    uint16_t getSpBase() const;
     uint32_t getPC() const { return pc; }
     uint32_t getFirstOrgAddress() const { return firstOrgAddress; }
     Symbol* resolveSymbol(const std::string& name, const std::string& scopePrefix = "");

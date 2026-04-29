@@ -15,6 +15,9 @@ public:
     uint8_t getZP(int offset) const { return (uint8_t)(zeroPageStart + offset); }
     Mode getMode() const { return mode; }
 
+    void setSpBase(uint16_t base) { spBase_ = base; }
+    uint16_t spBase() const { return spBase_; }
+
     void emitInstruction(const std::string& mnemonic, AddressingMode mode, uint32_t value = 0, bool hasValue = false);
     void emitLabel(const std::string& label);
     void emitComment(const std::string& comment);
@@ -186,11 +189,23 @@ public:
     void setAddress(uint32_t addr);
     uint32_t getAddress() const { return currentAddress; }
 
+    // Stack-base relocation tracking for O45 emission.
+    // Each entry records the address of a 16-bit operand that references __sp_base+addend.
+    struct SpBaseReloc {
+        uint32_t address;   // address of the 16-bit operand in the binary
+        uint16_t addend;    // offset from __sp_base (e.g. 3 for __sp_base+3)
+    };
+    const std::vector<SpBaseReloc>& spBaseRelocs() const { return spBaseRelocs_; }
+    void clearSpBaseRelocs() { spBaseRelocs_.clear(); }
+    void recordSpBaseReloc(uint16_t addend);
+
 private:
+    std::vector<SpBaseReloc> spBaseRelocs_;
     std::ostream* out = nullptr;
     std::vector<uint8_t>* binary = nullptr;
     Mode mode;
     uint32_t zeroPageStart;
+    uint16_t spBase_ = 0x0101;
     uint32_t currentAddress = 0;
     bool addressSet = false;
     void emitText(const std::string& mnemonic, const std::string& operand = "");

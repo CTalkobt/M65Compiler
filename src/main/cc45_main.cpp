@@ -553,6 +553,7 @@ int main(int argc, char** argv) {
 
             std::map<std::string, uint32_t> predefinedSymbols;
             predefinedSymbols["cc45.zeroPageStart"] = zeroPageStart;
+            predefinedSymbols["__sp_base"] = 0x0101;
 
             AssemblerLexer lex(asmBuf.str());
             auto tokens = lex.tokenize();

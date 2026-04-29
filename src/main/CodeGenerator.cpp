@@ -447,6 +447,7 @@ void CodeGenerator::visit(TranslationUnit& node) {
         for (auto& decl : node.topLevelDecls) {
             if (auto* asmStmt = dynamic_cast<AsmStatement*>(decl.get())) {
                 if (asmStmt->code == ".weak_next") { nextIsWeak = true; continue; }
+                if (asmStmt->code == ".crt_no_0100_stack") { crtNoPageOneStack = true; continue; }
             }
             if (auto* fn = dynamic_cast<FunctionDeclaration*>(decl.get())) {
                 if (!fn->isPrototype) {
@@ -477,6 +478,12 @@ void CodeGenerator::visit(TranslationUnit& node) {
         }
 
         // .global for global variables will be emitted by emitData()
+
+        // Emit .extern __sp_base when stack relocation is requested
+        if (crtNoPageOneStack) {
+            out << ".extern __sp_base" << std::endl;
+        }
+
         out << std::endl;
     } else {
         out << ".org $2000" << std::endl;
@@ -1427,6 +1434,10 @@ void CodeGenerator::visit(UnaryOperation& node) {
 void CodeGenerator::visit(AsmStatement& node) {
     if (node.code == ".weak_next") {
         weakNext = true;
+        return; // Don't emit — it's a compiler internal directive
+    }
+    if (node.code == ".crt_no_0100_stack") {
+        crtNoPageOneStack = true;
         return; // Don't emit — it's a compiler internal directive
     }
     embedSource(node);

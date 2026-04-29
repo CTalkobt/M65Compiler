@@ -186,6 +186,7 @@ public:
     std::vector<ZPReg> zpRegs;
     std::vector<VariableDeclaration*> globalVars;
     std::set<std::string> weakGlobals; // global vars marked with #pragma weak
+    bool crtNoPageOneStack = false; // #pragma crt no_0100_stack
     std::set<std::string> knownFunctions; // defined + prototyped function names
     FunctionDeclaration* currentFunction = nullptr;
     int currentParamByteSize = 0;

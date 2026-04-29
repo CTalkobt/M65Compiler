@@ -208,16 +208,25 @@ void M65Emitter::inc_abs_x(uint16_t addr) { emitInstruction("inc", AddressingMod
 void M65Emitter::dec_abs_x(uint16_t addr) { emitInstruction("dec", AddressingMode::ABSOLUTE_X, addr, true); }
 
 // --- Other Addressing Modes ---
+void M65Emitter::recordSpBaseReloc(uint16_t addend) {
+    // In BINARY mode, record the address of the upcoming 16-bit operand
+    // (currentAddress + 1 for the opcode byte) as an __sp_base relocation site.
+    if (mode == Mode::BINARY) {
+        spBaseRelocs_.push_back({currentAddress + 1, addend});
+    }
+}
+
 void M65Emitter::lda_stack(uint8_t offset) {
-    // Synthesize direct stack access: TSX; LDA $0101+offset,X
-    // TSX gets SPL (low byte of SP). SP page is $01.
+    // Synthesize direct stack access: TSX; LDA __sp_base+offset,X
     tsx();
-    emitInstruction("lda", AddressingMode::ABSOLUTE_X, 0x0101 + offset, true);
+    recordSpBaseReloc(offset);
+    emitInstruction("lda", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
 }
 void M65Emitter::sta_stack(uint8_t offset) {
-    // Synthesize direct stack access: TSX; STA $0101+offset,X
+    // Synthesize direct stack access: TSX; STA __sp_base+offset,X
     tsx();
-    emitInstruction("sta", AddressingMode::ABSOLUTE_X, 0x0101 + offset, true);
+    recordSpBaseReloc(offset);
+    emitInstruction("sta", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
 }
 void M65Emitter::stx_stack(uint8_t offset) {
     txa();

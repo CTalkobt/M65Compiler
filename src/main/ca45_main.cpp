@@ -81,6 +81,9 @@ int main(int argc, char** argv) {
     if (predefinedSymbols.find("cc45.zeroPageStart") == predefinedSymbols.end()) {
         predefinedSymbols["cc45.zeroPageStart"] = 0x02;
     }
+    if (predefinedSymbols.find("__sp_base") == predefinedSymbols.end()) {
+        predefinedSymbols["__sp_base"] = 0x0101;
+    }
 
     if (input_file.empty()) {
         std::cerr << "Usage: ca45 [options] <input_file.s>" << std::endl;

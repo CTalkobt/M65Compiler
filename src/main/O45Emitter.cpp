@@ -82,7 +82,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         }
 
         std::vector<uint8_t> body;
-        M65Emitter e(body, parser.getZPStart());
+        M65Emitter e(body, parser.getZPStart()); e.setSpBase(parser.getSpBase());
         e.setAddress(seg->startAddress);
 
         bool isDeadCode = false;
@@ -118,7 +118,11 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
     // AssemblerGenerator::generate() processes all segments in order into one binary.
     // The simplest correct approach: generate the full binary, then split by segment ranges.
 
-    auto fullBinary = AssemblerGenerator::generate(&parser, false);
+    std::vector<uint8_t> fullBinary;
+    M65Emitter genEmitter(fullBinary, parser.getZPStart()); genEmitter.setSpBase(parser.getSpBase());
+    uint32_t genStart = parser.getFirstOrgAddress();
+    if (genStart != 0xFFFFFFFF) genEmitter.setAddress(genStart);
+    AssemblerGenerator::generate(&parser, genEmitter);
 
     uint32_t globalBase = parser.getFirstOrgAddress();
     if (globalBase == 0xFFFFFFFF) globalBase = 0;
@@ -356,6 +360,28 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
 
             segRelocs[srcSeg].push_back(reloc);
             patchAddr += 2;
+        }
+    }
+
+    // Scan __sp_base relocation sites from simulated stack ops.
+    // If __sp_base is declared .extern, each site needs an R_WORD reloc.
+    if (parser.isExternSymbol("__sp_base")) {
+        uint32_t spBaseIdx = syms.getImportIndex("__sp_base");
+        for (const auto& sr : genEmitter.spBaseRelocs()) {
+            // Determine which segment this address falls into
+            for (const auto& segName : allSegNames) {
+                auto seg = parser.segments[segName];
+                uint32_t segStart = (seg->startAddress != 0xFFFFFFFF) ? seg->startAddress : 0;
+                if (sr.address >= segStart && sr.address < seg->pc) {
+                    O45Reloc reloc;
+                    reloc.offset = sr.address - segStart;
+                    reloc.type = R_WORD;
+                    reloc.segment = SEG_EXTERNAL;
+                    reloc.symbolIndex = spBaseIdx;
+                    segRelocs[segName].push_back(reloc);
+                    break;
+                }
+            }
         }
     }
 

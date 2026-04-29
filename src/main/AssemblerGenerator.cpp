@@ -49,7 +49,7 @@ std::vector<uint8_t> AssemblerGenerator::generate(AssemblerParser* parser, bool 
         binary.push_back((uint8_t)(start & 0xFF));
         binary.push_back((uint8_t)(start >> 8));
     }
-    M65Emitter e(binary, parser->getZPStart());
+    M65Emitter e(binary, parser->getZPStart()); e.setSpBase(parser->getSpBase());
     if (start != 0xFFFFFFFF) {
         e.setAddress(start);
     }
@@ -321,9 +321,9 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
                     pass2ProcStack.push_back(currentPass2Proc);
                     currentPass2Proc = stmt->procCtx;
                     // Emit frame pointer save: push SP as 16-bit LE pointer
-                    // Push hi byte ($01 = stack page) first, then lo byte (SPL)
+                    // Push hi byte (stack page from __sp_base) first, then lo byte (SPL)
                     if (!isDeadCode) {
-                        e.tsx(); e.lda_imm(0x01); e.pha(); e.phx();
+                        e.tsx(); e.lda_imm(e.spBase() >> 8); e.pha(); e.phx();
                     }
                     continue;
                 } else if (stmt->instr.mnemonic == "endproc") {

@@ -167,9 +167,18 @@ void AssemblerSimulatedOps::emitStackIncDecCode(AssemblerParser* parser, M65Emit
         }
     } else {
         uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+        uint16_t sb = e.spBase();
         e.tsx();
-        if (isInc) { e.inc_abs_x(0x0101 + offset); e.bne(0x03); e.inc_abs_x(0x0101 + offset + 1); }
-        else { e.lda_abs_x(0x0101 + offset); e.bne(0x03); e.dec_abs_x(0x0101 + offset + 1); e.dec_abs_x(0x0101 + offset); }
+        if (isInc) {
+            e.recordSpBaseReloc(offset); e.inc_abs_x(sb + offset);
+            e.bne(0x03);
+            e.recordSpBaseReloc(offset + 1); e.inc_abs_x(sb + offset + 1);
+        } else {
+            e.recordSpBaseReloc(offset); e.lda_abs_x(sb + offset);
+            e.bne(0x03);
+            e.recordSpBaseReloc(offset + 1); e.dec_abs_x(sb + offset + 1);
+            e.recordSpBaseReloc(offset); e.dec_abs_x(sb + offset);
+        }
     }
 }
 
@@ -181,8 +190,10 @@ void AssemblerSimulatedOps::emitStackIncDec8Code(AssemblerParser* parser, M65Emi
         e.sta_frame(fa.fpOff, fa.yOff);
     } else {
         uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+        uint16_t sb = e.spBase();
         e.tsx();
-        if (isInc) e.inc_abs_x(0x0101 + offset); else e.dec_abs_x(0x0101 + offset);
+        e.recordSpBaseReloc(offset);
+        if (isInc) e.inc_abs_x(sb + offset); else e.dec_abs_x(sb + offset);
     }
 }
 
@@ -594,9 +605,19 @@ void AssemblerSimulatedOps::emitNegNot16Code(AssemblerParser* parser, M65Emitter
                 e.lda_frame(fa.fpOff, fa.yOff + 1); e.eor_imm(0xFF); e.sta_frame(fa.fpOff, fa.yOff + 1);
             }
         } else {
+            uint16_t sb = e.spBase();
             e.tsx();
-            if (isNeg) { e.lda_abs_x(0x0101 + offset); e.eor_imm(0xFF); e.sec(); e.adc_imm(1); e.sta_abs_x(0x0101 + offset); e.lda_abs_x(0x0102 + offset); e.eor_imm(0xFF); e.adc_imm(0); e.sta_abs_x(0x0102 + offset); }
-            else { e.lda_abs_x(0x0101 + offset); e.eor_imm(0xFF); e.sta_abs_x(0x0101 + offset); e.lda_abs_x(0x0102 + offset); e.eor_imm(0xFF); e.sta_abs_x(0x0102 + offset); }
+            if (isNeg) {
+                e.recordSpBaseReloc(offset); e.lda_abs_x(sb + offset); e.eor_imm(0xFF); e.sec(); e.adc_imm(1);
+                e.recordSpBaseReloc(offset); e.sta_abs_x(sb + offset);
+                e.recordSpBaseReloc(offset + 1); e.lda_abs_x(sb + offset + 1); e.eor_imm(0xFF); e.adc_imm(0);
+                e.recordSpBaseReloc(offset + 1); e.sta_abs_x(sb + offset + 1);
+            } else {
+                e.recordSpBaseReloc(offset); e.lda_abs_x(sb + offset); e.eor_imm(0xFF);
+                e.recordSpBaseReloc(offset); e.sta_abs_x(sb + offset);
+                e.recordSpBaseReloc(offset + 1); e.lda_abs_x(sb + offset + 1); e.eor_imm(0xFF);
+                e.recordSpBaseReloc(offset + 1); e.sta_abs_x(sb + offset + 1);
+            }
         }
     } else {
         uint32_t addr = 0;
@@ -619,9 +640,13 @@ void AssemblerSimulatedOps::emitABS16Code(AssemblerParser* parser, M65Emitter& e
             e.lda_frame(fa.fpOff, fa.yOff); e.eor_imm(0xFF); e.sec(); e.adc_imm(1); e.sta_frame(fa.fpOff, fa.yOff);
             e.lda_frame(fa.fpOff, fa.yOff + 1); e.eor_imm(0xFF); e.adc_imm(0); e.sta_frame(fa.fpOff, fa.yOff + 1);
         } else {
-            e.tsx(); e.lda_abs_x(0x0102 + offset); e.bpl(0x0D);
-            e.lda_abs_x(0x0101 + offset); e.eor_imm(0xFF); e.sec(); e.adc_imm(1); e.sta_abs_x(0x0101 + offset);
-            e.lda_abs_x(0x0102 + offset); e.eor_imm(0xFF); e.adc_imm(0); e.sta_abs_x(0x0102 + offset);
+            uint16_t sb = e.spBase();
+            e.tsx();
+            e.recordSpBaseReloc(offset + 1); e.lda_abs_x(sb + offset + 1); e.bpl(0x0D);
+            e.recordSpBaseReloc(offset); e.lda_abs_x(sb + offset); e.eor_imm(0xFF); e.sec(); e.adc_imm(1);
+            e.recordSpBaseReloc(offset); e.sta_abs_x(sb + offset);
+            e.recordSpBaseReloc(offset + 1); e.lda_abs_x(sb + offset + 1); e.eor_imm(0xFF); e.adc_imm(0);
+            e.recordSpBaseReloc(offset + 1); e.sta_abs_x(sb + offset + 1);
         }
     } else {
         uint32_t addr = 0;
@@ -671,7 +696,8 @@ void AssemblerSimulatedOps::emitPtrStackCode(AssemblerParser* parser, M65Emitter
         e.pla();
     } else {
         uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-        e.tsx(); e.txa(); e.clc(); e.adc_imm(0x0101 + offset); e.pha(); e.lda_imm(0); e.adc_imm(0); e.tax(); e.pla();
+        uint16_t addr = e.spBase() + offset;
+        e.tsx(); e.txa(); e.clc(); e.adc_imm(addr & 0xFF); e.pha(); e.lda_imm(addr >> 8); e.adc_imm(0); e.tax(); e.pla();
     }
 }
 
@@ -705,15 +731,16 @@ void AssemblerSimulatedOps::emitFillCode(AssemblerParser* parser, M65Emitter& e,
         else { auto ast = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix); if (ast) lenVal = ast->getValue(parser); }
     }
     e.pha(); e.phw_imm(0); e.lda_imm(0); e.pha();
-    if (destIsStack) { e.tsx(); e.txa(); e.clc(); if (destIsRegister) { if (destReg == ".X") {} else if (destReg == ".Y") { e.tya(); e.tax(); } else if (destReg == ".Z") { e.tza(); e.tax(); } e.txa(); } else e.adc_imm(destVal); e.pha(); e.lda_imm(1); e.adc_imm(0); e.pha(); }
+    { uint16_t sb = e.spBase();
+    if (destIsStack) { e.tsx(); e.txa(); e.clc(); if (destIsRegister) { if (destReg == ".X") {} else if (destReg == ".Y") { e.tya(); e.tax(); } else if (destReg == ".Z") { e.tza(); e.tax(); } e.txa(); } else e.adc_imm((sb + destVal) & 0xFF); e.pha(); e.lda_imm((sb + destVal) >> 8); e.adc_imm(0); e.pha(); }
     else if (destIsRegister) { if (destReg == ".AX") { e.phx(); e.pha(); } else if (destReg == ".AY") { e.phy(); e.pha(); } else if (destReg == ".AZ") { e.phz(); e.pha(); } else if (destReg == ".XY") { e.phy(); e.phx(); } }
     else if (destIsIndirect) { Symbol* sym = parser->resolveSymbol(destReg, scopePrefix); uint32_t addr = 0; if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(destReg); } catch(...) { addr = 0; } } e.lda_zp(addr + 1); e.pha(); e.lda_zp(addr); e.pha(); }
     else { e.lda_imm(destVal >> 8); e.pha(); e.lda_imm(destVal & 0xFF); e.pha(); }
-    e.lda_imm(0); e.pha(); e.lda_imm(1); e.pha(); e.tsx(); e.txa(); e.clc(); e.adc_imm(8); e.pha();
-    if (lenIsRegister) { if (lenReg == ".XY") { e.phy(); e.phx(); } else { e.lda_imm(0); e.pha(); if (lenReg == ".X") e.phx(); else if (lenReg == ".Y") e.phy(); else if (lenReg == ".Z") e.phz(); else { e.tsx(); e.txa(); e.clc(); e.adc_imm(11); e.tax(); e.lda_abs_x(0x0100); e.pha(); } } }
+    e.lda_imm(0); e.pha(); e.lda_imm(sb >> 8); e.pha(); e.tsx(); e.txa(); e.clc(); e.adc_imm(8); e.pha();
+    if (lenIsRegister) { if (lenReg == ".XY") { e.phy(); e.phx(); } else { e.lda_imm(0); e.pha(); if (lenReg == ".X") e.phx(); else if (lenReg == ".Y") e.phy(); else if (lenReg == ".Z") e.phz(); else { e.tsx(); e.txa(); e.clc(); e.adc_imm(11); e.tax(); e.lda_abs_x(sb - 1); e.pha(); } } }
     else { e.lda_imm(lenVal >> 8); e.pha(); e.lda_imm(lenVal & 0xFF); e.pha(); }
-    e.lda_imm(0x03); e.pha(); e.tsx(); e.txa(); e.clc(); e.adc_imm(1); e.sta_abs(0xD701); e.lda_imm(1); e.sta_abs(0xD702); e.stz_abs(0xD703); e.stz_abs(0xD700);
-    e.tsx(); e.txa(); e.clc(); e.adc_imm(12); e.tax(); e.txs(); e.pla();
+    e.lda_imm(0x03); e.pha(); e.tsx(); e.txa(); e.clc(); e.adc_imm(sb & 0xFF); e.sta_abs(0xD701); e.lda_imm(sb >> 8); e.sta_abs(0xD702); e.stz_abs(0xD703); e.stz_abs(0xD700);
+    e.tsx(); e.txa(); e.clc(); e.adc_imm(12); e.tax(); e.txs(); e.pla(); }
 }
 
 void AssemblerSimulatedOps::emitMoveCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix, bool forceStack) {
@@ -727,15 +754,16 @@ void AssemblerSimulatedOps::emitMoveCode(AssemblerParser* parser, M65Emitter& e,
     Operand src = parseMoveOp(idx); if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::COMMA) idx++;
     Operand dest = parseMoveOp(idx);
     if (forceStack && !src.isStack && !dest.isStack) { if (src.isAbsolute && !dest.isAbsolute && !dest.isAZ) src.isStack = true; else dest.isStack = true; }
+    { uint16_t sb = e.spBase();
     e.pha(); e.phw_imm(0); e.lda_imm(0); e.pha();
-    if (dest.isAZ) { e.phz(); e.pha(); } else if (dest.isStack) { e.tsx(); e.txa(); e.clc(); e.adc_imm(dest.value); e.pha(); e.lda_imm(1); e.adc_imm(0); e.pha(); }
+    if (dest.isAZ) { e.phz(); e.pha(); } else if (dest.isStack) { e.tsx(); e.txa(); e.clc(); e.adc_imm((sb + dest.value) & 0xFF); e.pha(); e.lda_imm((sb + dest.value) >> 8); e.adc_imm(0); e.pha(); }
     else { e.lda_imm(dest.value >> 8); e.pha(); e.lda_imm(dest.value & 0xFF); e.pha(); }
     e.lda_imm(0); e.pha();
-    if (src.isAZ) { e.phz(); e.pha(); } else if (src.isStack) { e.tsx(); e.txa(); e.clc(); e.adc_imm(src.value); e.pha(); e.lda_imm(1); e.adc_imm(0); e.pha(); }
+    if (src.isAZ) { e.phz(); e.pha(); } else if (src.isStack) { e.tsx(); e.txa(); e.clc(); e.adc_imm((sb + src.value) & 0xFF); e.pha(); e.lda_imm((sb + src.value) >> 8); e.adc_imm(0); e.pha(); }
     else { e.lda_imm(src.value >> 8); e.pha(); e.lda_imm(src.value & 0xFF); e.pha(); }
     e.phy(); e.phx(); e.lda_imm(0x00); e.pha();
-    e.tsx(); e.txa(); e.clc(); e.adc_imm(1); e.sta_abs(0xD701); e.lda_imm(1); e.sta_abs(0xD702); e.stz_abs(0xD703); e.stz_abs(0xD700);
-    e.tsx(); e.txa(); e.clc(); e.adc_imm(12); e.tax(); e.txs(); e.pla();
+    e.tsx(); e.txa(); e.clc(); e.adc_imm(sb & 0xFF); e.sta_abs(0xD701); e.lda_imm(sb >> 8); e.sta_abs(0xD702); e.stz_abs(0xD703); e.stz_abs(0xD700);
+    e.tsx(); e.txa(); e.clc(); e.adc_imm(12); e.tax(); e.txs(); e.pla(); }
 }
 
 void AssemblerSimulatedOps::emitFlatMemoryCode(AssemblerParser* parser, M65Emitter& e, const std::string& mnemonic, int tokenIndex, const std::string& scopePrefix) {
@@ -759,7 +787,10 @@ void AssemblerSimulatedOps::emitPHWStackCode(AssemblerParser* parser, M65Emitter
         e.pha();
     } else {
         uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-        e.tsx(); e.lda_abs_x(0x0102 + offset); e.pha(); e.lda_abs_x(0x0101 + offset); e.pha();
+        uint16_t sb = e.spBase();
+        e.tsx();
+        e.recordSpBaseReloc(offset + 1); e.lda_abs_x(sb + offset + 1); e.pha();
+        e.recordSpBaseReloc(offset); e.lda_abs_x(sb + offset); e.pha();
     }
 }
 

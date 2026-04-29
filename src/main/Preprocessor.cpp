@@ -756,6 +756,14 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                 ss >> pragmaArg;
                 if (isCompiler && pragmaArg == "weak") {
                     output << "__asm__(\".weak_next\");\n";
+                } else if (isCompiler && pragmaArg == "crt") {
+                    std::string crtArg;
+                    ss >> crtArg;
+                    if (crtArg == "no_0100_stack") {
+                        output << "__asm__(\".crt_no_0100_stack\");\n";
+                    } else {
+                        output << "\n";
+                    }
                 } else {
                     output << "\n";
                 }
