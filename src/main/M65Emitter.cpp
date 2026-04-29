@@ -160,6 +160,8 @@ void M65Emitter::and_imm(uint8_t val) { emitInstruction("and", AddressingMode::I
 void M65Emitter::ora_imm(uint8_t val) { emitInstruction("ora", AddressingMode::IMMEDIATE, val, true); }
 void M65Emitter::eor_imm(uint8_t val) { emitInstruction("eor", AddressingMode::IMMEDIATE, val, true); }
 void M65Emitter::cmp_imm(uint8_t val) { emitInstruction("cmp", AddressingMode::IMMEDIATE, val, true); }
+void M65Emitter::cpx_imm(uint8_t val) { emitInstruction("cpx", AddressingMode::IMMEDIATE, val, true); }
+void M65Emitter::cpy_imm(uint8_t val) { emitInstruction("cpy", AddressingMode::IMMEDIATE, val, true); }
 
 // --- Absolute Mode ---
 void M65Emitter::lda_abs(uint16_t addr) { emitInstruction("lda", AddressingMode::ABSOLUTE, addr, true); }
@@ -343,6 +345,14 @@ void M65Emitter::bcc(int8_t offset) { emitInstruction("bcc", AddressingMode::REL
 void M65Emitter::bcs(int8_t offset) { emitInstruction("bcs", AddressingMode::RELATIVE, (uint32_t)offset, true); }
 void M65Emitter::bmi(int8_t offset) { emitInstruction("bmi", AddressingMode::RELATIVE, (uint32_t)offset, true); }
 void M65Emitter::bpl(int8_t offset) { emitInstruction("bpl", AddressingMode::RELATIVE, (uint32_t)offset, true); }
+
+void M65Emitter::bra_label(const std::string& label) { emitText("bra", label); }
+void M65Emitter::bne_label(const std::string& label) { emitText("bne", label); }
+void M65Emitter::beq_label(const std::string& label) { emitText("beq", label); }
+void M65Emitter::bcc_label(const std::string& label) { emitText("bcc", label); }
+void M65Emitter::bcs_label(const std::string& label) { emitText("bcs", label); }
+void M65Emitter::bmi_label(const std::string& label) { emitText("bmi", label); }
+void M65Emitter::bpl_label(const std::string& label) { emitText("bpl", label); }
 
 void M65Emitter::add_16_imm(uint16_t val) {
     if (mode == Mode::TEXT) {

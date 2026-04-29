@@ -196,6 +196,7 @@ Token Lexer::lexIdentifierOrKeyword() {
         {"typedef", TokenType::TYPEDEF},
         {"enum", TokenType::ENUM},
         {"extern", TokenType::EXTERN},
+        {"_Bool", TokenType::BOOL},
         };
 
     auto it = keywords.find(value);

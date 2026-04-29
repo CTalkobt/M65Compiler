@@ -8,7 +8,7 @@ These files define the fundamental types and constants required for C compliance
 
 - **`<stdint.h>`**: Fixed-width integer types (`uint8_t`, `int8_t`, `uint16_t`, `int16_t`). Maps directly to `cc45`'s `char` (8-bit) and `int` (16-bit) types. Note: `cc45` does not yet support `long`/32-bit types.
 - **`<stddef.h>`**: Common definitions: `size_t` (typedef to `unsigned int`, 16-bit), `ptrdiff_t`, and `NULL` (`((void *)0)`).
-- **`<stdbool.h>`**: Boolean type definitions (`bool`, `true`, `false`). Implementable as preprocessor macros.
+- **`<stdbool.h>`**: Boolean type support. Defines `bool` as `_Bool` (a native 1-byte type that normalizes any non-zero value to `1`), `true` as `1`, `false` as `0`, and `__bool_true_false_are_defined` as `1`.
 - **`<limits.h>`**: Implementation-defined limits (`CHAR_BIT=8`, `INT_MAX=65535`, `INT_MIN=0` for unsigned; `SCHAR_MIN=-128`, `SCHAR_MAX=127` for signed char).
 
 ### Implementation Notes for Core Headers
@@ -178,13 +178,12 @@ lib: all
 
 ### Include Path Convention
 
-`cc45` already supports `-I<path>` for include search paths. The convention for stdlib usage:
+`cc45` automatically searches `lib/include` relative to the compiler binary for standard headers. Additional search paths can be added with `-I<path>`:
 
 ```bash
-cc45 -Ilib/include myprogram.c -o myprogram.s
+cc45 myprogram.c -o myprogram.s              # finds <stdbool.h> etc. automatically
+cc45 -Imy/headers myprogram.c -o myprogram.s  # adds custom search path
 ```
-
-A future enhancement could make `lib/include` a default search path compiled into `cc45`.
 
 ## 9. Test Framework & Suggested Tests
 

@@ -13,6 +13,7 @@ public:
     std::unique_ptr<Statement> lastStmt;
     std::map<std::string, int> knownConstants;
     std::set<std::string> volatileVars;
+    std::set<std::string> boolVars;
     std::map<std::string, std::shared_ptr<CodeGenerator::StructInfo>> structs;
 
     std::unique_ptr<Expression> fold(std::unique_ptr<Expression> expr) {
@@ -60,7 +61,9 @@ public:
                 // Only propagate simple assignments that aren't inside potentially complex control flow.
                 // For now, we clear constants in loops anyway, but this is a safeguard.
                 if (node.op == "=") {
-                    knownConstants[ref->name] = lit->value;
+                    int val = lit->value;
+                    if (boolVars.count(ref->name)) { val = (val != 0) ? 1 : 0; lit->value = val; }
+                    knownConstants[ref->name] = val;
                 } else {
                     knownConstants.erase(ref->name);
                 }
@@ -174,7 +177,9 @@ public:
         auto operand = fold(std::move(node.expression));
         if (auto* lit = dynamic_cast<IntegerLiteral*>(operand.get())) {
             int val = lit->value;
-            if (node.pointerLevel == 0 && node.targetType == "char") {
+            if (node.pointerLevel == 0 && node.targetType == "_Bool") {
+                val = (val != 0) ? 1 : 0;
+            } else if (node.pointerLevel == 0 && node.targetType == "char") {
                 val = val & 0xFF;
             }
             lastExpr = copyPos(std::make_unique<IntegerLiteral>(val), node);
@@ -198,8 +203,11 @@ public:
             volatileVars.insert(node.name);
             knownConstants.erase(node.name);
         } else if (initializer) {
+            if (node.type == "_Bool") boolVars.insert(node.name);
             if (auto* lit = dynamic_cast<IntegerLiteral*>(initializer.get())) {
-                knownConstants[node.name] = lit->value;
+                int val = lit->value;
+                if (node.type == "_Bool") { val = (val != 0) ? 1 : 0; lit->value = val; }
+                knownConstants[node.name] = val;
             } else {
                 knownConstants.erase(node.name);
             }
@@ -401,6 +409,7 @@ public:
 
     void visit(FunctionDeclaration& node) override {
         knownConstants.clear(); // Fresh state for new function
+        boolVars.clear();
         // The body is a CompoundStatement, which is modified in-place by its visit method.
         // We just need to call accept on it directly, not fold it via the helper.
         node.body->accept(*this);

@@ -114,8 +114,9 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             look++;
         }
 
-        if (look < tokens.size() && (tokens[look].type == TokenType::INT || 
-                                     tokens[look].type == TokenType::CHAR || 
+        if (look < tokens.size() && (tokens[look].type == TokenType::INT ||
+                                     tokens[look].type == TokenType::CHAR ||
+                                     tokens[look].type == TokenType::BOOL ||
                                      tokens[look].type == TokenType::UNSIGNED ||
                                      tokens[look].type == TokenType::SIGNED ||
                                      tokens[look].type == TokenType::VOID ||
@@ -217,6 +218,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     }
     else if (match(TokenType::INT)) returnType = "int";
     else if (match(TokenType::CHAR)) returnType = "char";
+    else if (match(TokenType::BOOL)) returnType = "_Bool";
     else if (match(TokenType::VOID)) returnType = "void";
     else if (match(TokenType::STRUCT) || match(TokenType::UNION) || match(TokenType::ENUM)) {
         bool isU = tokens[pos-1].type == TokenType::UNION;
@@ -269,6 +271,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             }
             else if (match(TokenType::INT)) pType = "int";
             else if (match(TokenType::CHAR)) pType = "char";
+            else if (match(TokenType::BOOL)) pType = "_Bool";
             else if (match(TokenType::STRUCT) || match(TokenType::UNION) || match(TokenType::ENUM)) {
                 bool isU = tokens[pos-1].type == TokenType::UNION;
                 bool isE = tokens[pos-1].type == TokenType::ENUM;
@@ -410,7 +413,8 @@ std::unique_ptr<Statement> Parser::parseStatement() {
         return parseVariableDeclaration(isVolatile);
     }
 
-    if (peek().type == TokenType::INT || peek().type == TokenType::CHAR || peek().type == TokenType::UNSIGNED || peek().type == TokenType::SIGNED ||
+    if (peek().type == TokenType::INT || peek().type == TokenType::CHAR || peek().type == TokenType::BOOL ||
+        peek().type == TokenType::UNSIGNED || peek().type == TokenType::SIGNED ||
         (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value))) {
         return parseVariableDeclaration(isVolatile);
     }
@@ -488,7 +492,8 @@ std::unique_ptr<Statement> Parser::parseStatement() {
         if (!match(TokenType::SEMICOLON)) {
             // Check if it's a declaration
             bool isDecl = false;
-            if (peek().type == TokenType::INT || peek().type == TokenType::CHAR || 
+            if (peek().type == TokenType::INT || peek().type == TokenType::CHAR ||
+                peek().type == TokenType::BOOL ||
                 peek().type == TokenType::UNSIGNED || peek().type == TokenType::SIGNED ||
                 peek().type == TokenType::STRUCT || peek().type == TokenType::UNION ||
                 peek().type == TokenType::VOLATILE || peek().type == TokenType::AUTO) {
@@ -570,7 +575,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile) {
     std::unique_ptr<Expression> alignmentExpr = nullptr;
     if (match(TokenType::_Alignas)) {
         expect(TokenType::OPEN_PAREN, "Expected '(' after '_Alignas'");
-        if (peek().type == TokenType::INT || peek().type == TokenType::CHAR || peek().type == TokenType::STRUCT || peek().type == TokenType::VOID) {
+        if (peek().type == TokenType::INT || peek().type == TokenType::CHAR || peek().type == TokenType::BOOL || peek().type == TokenType::STRUCT || peek().type == TokenType::VOID) {
             std::string aType;
             if (match(TokenType::INT)) aType = "int";
             else if (match(TokenType::CHAR)) aType = "char";
@@ -602,6 +607,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile) {
     }
     else if (match(TokenType::INT)) type = "int";
     else if (match(TokenType::CHAR)) type = "char";
+    else if (match(TokenType::BOOL)) type = "_Bool";
     else if (match(TokenType::STRUCT) || match(TokenType::UNION) || match(TokenType::ENUM)) {
         bool isU = tokens[pos-1].type == TokenType::UNION;
         bool isE = tokens[pos-1].type == TokenType::ENUM;
@@ -721,6 +727,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         }
         else if (match(TokenType::INT)) type = "int";
         else if (match(TokenType::CHAR)) type = "char";
+        else if (match(TokenType::BOOL)) type = "_Bool";
         else if (match(TokenType::STRUCT) || match(TokenType::UNION)) {
             bool isU = tokens[pos-1].type == TokenType::UNION;
             if (peek().type == TokenType::OPEN_BRACE) {
@@ -891,7 +898,8 @@ std::unique_ptr<Expression> Parser::parseUnary() {
         const Token& startToken = tokens[pos-1];
         if (match(TokenType::OPEN_PAREN)) {
             // Check if it's a type or an expression
-            if (peek().type == TokenType::INT || peek().type == TokenType::CHAR || 
+            if (peek().type == TokenType::INT || peek().type == TokenType::CHAR ||
+                peek().type == TokenType::BOOL ||
                 peek().type == TokenType::STRUCT || peek().type == TokenType::UNION || peek().type == TokenType::ENUM ||
                 peek().type == TokenType::SIGNED || peek().type == TokenType::UNSIGNED ||
                 (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value))) {
@@ -907,6 +915,7 @@ std::unique_ptr<Expression> Parser::parseUnary() {
                 }
                 else if (match(TokenType::INT)) type = "int";
                 else if (match(TokenType::CHAR)) type = "char";
+                else if (match(TokenType::BOOL)) type = "_Bool";
                 else if (match(TokenType::STRUCT) || match(TokenType::UNION) || match(TokenType::ENUM)) {
                     bool isU = tokens[pos-1].type == TokenType::UNION;
                     bool isE = tokens[pos-1].type == TokenType::ENUM;
@@ -951,7 +960,8 @@ std::unique_ptr<Expression> Parser::parseUnary() {
         bool castSigned = false;
         int castPtrLevel = 0;
 
-        if (peek().type == TokenType::INT || peek().type == TokenType::CHAR || peek().type == TokenType::VOID ||
+        if (peek().type == TokenType::INT || peek().type == TokenType::CHAR || peek().type == TokenType::BOOL ||
+            peek().type == TokenType::VOID ||
             peek().type == TokenType::STRUCT || peek().type == TokenType::UNION || peek().type == TokenType::ENUM ||
             peek().type == TokenType::SIGNED || peek().type == TokenType::UNSIGNED ||
             (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value))) {
@@ -964,6 +974,7 @@ std::unique_ptr<Expression> Parser::parseUnary() {
             }
             else if (match(TokenType::INT)) castType = "int";
             else if (match(TokenType::CHAR)) castType = "char";
+            else if (match(TokenType::BOOL)) castType = "_Bool";
             else if (match(TokenType::VOID)) castType = "void";
             else if (match(TokenType::STRUCT) || match(TokenType::UNION) || match(TokenType::ENUM)) {
                 bool isU = tokens[pos-1].type == TokenType::UNION;
@@ -1141,6 +1152,7 @@ void Parser::parseTypedef() {
     }
     else if (match(TokenType::INT)) baseType = "int";
     else if (match(TokenType::CHAR)) baseType = "char";
+    else if (match(TokenType::BOOL)) baseType = "_Bool";
     else if (match(TokenType::VOID)) baseType = "void";
     else if (match(TokenType::STRUCT) || match(TokenType::UNION)) {
         bool isU = tokens[pos-1].type == TokenType::UNION;

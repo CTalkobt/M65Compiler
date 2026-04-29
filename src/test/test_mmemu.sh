@@ -213,6 +213,7 @@ VALIDATION_TESTS=(
     "test_strength_reduction"
     "test_volatile"
     "test_ptr_precedence"
+    "test_bool"
 )
 
 for name in "${VALIDATION_TESTS[@]}"; do

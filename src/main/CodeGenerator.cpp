@@ -20,6 +20,7 @@ void CodeGenerator::embedSource(ASTNode& node) {
 }
 
 void CodeGenerator::emitNarrowingWarning(ASTNode& node, const std::string& fromType, int fromPtr, const std::string& toType, int toPtr) {
+    if (toType == "_Bool") return; // conversion to _Bool is always valid (C99)
     int fromSize = (fromPtr > 0 || fromType == "int") ? 2 : 1;
     int toSize = (toPtr > 0 || toType == "int") ? 2 : 1;
     if (fromSize > toSize) {
@@ -31,6 +32,24 @@ void CodeGenerator::emitNarrowingWarning(ASTNode& node, const std::string& fromT
         warnings.push_back(msg);
         std::cerr << msg << std::endl;
     }
+}
+
+void CodeGenerator::emitBoolNormalize(int srcSize) {
+    // Normalize value in A (8-bit) or A:X (16-bit) to 0 or 1
+    std::string labelOne = newDontCareLabel();
+    std::string labelDone = newDontCareLabel();
+    if (srcSize == 2) {
+        emitter->cpx_imm(0);
+        emitter->bne_label(labelOne);
+    }
+    emitter->cmp_imm(0);
+    emitter->bne_label(labelOne);
+    emitter->lda_imm(0);
+    emitter->bra_label(labelDone);
+    emitter->emitLabel(labelOne);
+    emitter->lda_imm(1);
+    emitter->emitLabel(labelDone);
+    invalidateRegs();
 }
 
 void CodeGenerator::generate(TranslationUnit& unit) {
@@ -114,6 +133,7 @@ int CodeGenerator::getTypeSize(const std::string& type, int ptrLevel, int arrayS
     int size = 0;
     if (ptrLevel > 0) size = 2;
     else if (type == "char") size = 1;
+    else if (type == "_Bool") size = 1;
     else if (type == "int") size = 2;
     else if (type.length() >= 5 && type.substr(0, 5) == "enum ") size = 2;
     else if (type.substr(0, 7) == "struct " || type.substr(0, 6) == "union ") {
@@ -503,7 +523,7 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
         if (param.pointerLevel > 0) {
             procLine += ", W#" + pName;
             currentParamByteSize += 2;
-        } else if (param.type == "char") {
+        } else if (is8BitType(param.type)) {
             procLine += ", B#" + pName;
             currentParamByteSize += 1;
         } else {
@@ -585,6 +605,7 @@ void CodeGenerator::visit(VariableDeclaration& node) {
     int size = 0;
     if (node.pointerLevel > 0) size = 2;
     else if (node.type == "char") size = 1;
+    else if (node.type == "_Bool") size = 1;
     else if (node.type == "int") size = 2;
     else if (isStruct(node.type)) {
         std::string sName = getAggregateName(node.type);
@@ -599,7 +620,9 @@ void CodeGenerator::visit(VariableDeclaration& node) {
                  if (size == 2) {
                     emitter->phw_imm((uint16_t)(int16_t)lit->value);
                 } else {
-                    emitter->lda_imm(lit->value & 0xFF);
+                    uint8_t val = lit->value & 0xFF;
+                    if (node.type == "_Bool") val = (val != 0) ? 1 : 0;
+                    emitter->lda_imm(val);
                     emitter->pha();
                 }
             } else {
@@ -607,6 +630,11 @@ void CodeGenerator::visit(VariableDeclaration& node) {
                 resultNeeded = true;
                 node.initializer->accept(*this);
                 resultNeeded = oldNeeded;
+                if (node.type == "_Bool" && node.pointerLevel == 0) {
+                    ExpressionType srcType = getExprType(node.initializer.get());
+                    int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
+                    emitBoolNormalize(srcSize);
+                }
                 if (size == 2) emitter->push_ax();
                 else emitter->pha();
             }
@@ -627,7 +655,9 @@ void CodeGenerator::visit(VariableDeclaration& node) {
                 if (size == 2) {
                     emitter->phw_imm((uint16_t)(int16_t)lit->value);
                 } else {
-                    emitter->lda_imm(lit->value & 0xFF);
+                    uint8_t val = lit->value & 0xFF;
+                    if (node.type == "_Bool") val = (val != 0) ? 1 : 0;
+                    emitter->lda_imm(val);
                     emitter->pha();
                 }
             } else {
@@ -635,6 +665,11 @@ void CodeGenerator::visit(VariableDeclaration& node) {
                 resultNeeded = true;
                 node.initializer->accept(*this);
                 resultNeeded = oldNeeded;
+                if (node.type == "_Bool" && node.pointerLevel == 0) {
+                    ExpressionType srcType = getExprType(node.initializer.get());
+                    int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
+                    emitBoolNormalize(srcSize);
+                }
                 if (size == 2) emitter->push_ax();
                 else emitter->pha();
             }
@@ -663,7 +698,7 @@ void CodeGenerator::visit(VariableDeclaration& node) {
 void CodeGenerator::emitOperation(const std::string& op, int zpLeft, ExpressionType lhsType, ExpressionType rhsType) {
     int scale = 1;
     if (lhsType.pointerLevel > 0 && rhsType.pointerLevel == 0 && (op == "+" || op == "-")) {
-        scale = (lhsType.type == "char" && lhsType.pointerLevel == 1) ? 1 : 2;
+        scale = (is8BitType(lhsType.type) && lhsType.pointerLevel == 1) ? 1 : 2;
     }
     if (scale > 1) {
         emitter->asl_a(); emitter->pha(); emitter->txa(); emitter->rol_a(); emitter->tax(); emitter->pla();
@@ -843,6 +878,7 @@ void CodeGenerator::visit(Assignment& node) {
                 }
             } else {
                 uint8_t val = lit->value & 0xFF;
+                if (vi.type == "_Bool") val = (val != 0) ? 1 : 0;
                 if (!regA.known || (regA.isVariable && regA.varName != rName) || (!regA.isVariable && regA.value != val)) {
                     emitter->lda_imm(val);
                 }
@@ -880,6 +916,13 @@ void CodeGenerator::visit(Assignment& node) {
         resultNeeded = true;
         node.expression->accept(*this);
         resultNeeded = oldNeeded;
+
+        // _Bool normalization: any non-zero value becomes 1
+        if (vi.type == "_Bool" && vi.pointerLevel == 0) {
+            ExpressionType srcType = getExprType(node.expression.get());
+            int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
+            emitBoolNormalize(srcSize);
+        }
 
         bool is16 = (vi.pointerLevel > 0 || vi.type == "int");
         if (isStruct(vi.type)) {
@@ -978,7 +1021,7 @@ void CodeGenerator::visit(BinaryOperation& node) {
     ExpressionType rhsType = getExprType(node.right.get());
     int scale = 1;
     if (lhsType.pointerLevel > 0 && rhsType.pointerLevel == 0 && (node.op == "+" || node.op == "-")) {
-        scale = (lhsType.type == "char" && lhsType.pointerLevel == 1) ? 1 : 2;
+        scale = (is8BitType(lhsType.type) && lhsType.pointerLevel == 1) ? 1 : 2;
     }
     bool isLiteralOne = false;
     if (scale == 1) {
@@ -1010,7 +1053,7 @@ void CodeGenerator::visit(BinaryOperation& node) {
         resultNeeded = true;
         node.left->accept(*this);
         resultNeeded = oldNeeded;
-        if (getExprType(node.left.get()).type == "char" && getExprType(node.left.get()).pointerLevel == 0) {
+        if (is8BitType(getExprType(node.left.get()).type) && getExprType(node.left.get()).pointerLevel == 0) {
             if (flags.znSource != FlagSource::A) emit("cmp #$00");
             emit("bne " + labelTrue);
         } else {
@@ -1020,7 +1063,7 @@ void CodeGenerator::visit(BinaryOperation& node) {
         resultNeeded = true;
         node.right->accept(*this);
         resultNeeded = oldNeeded;
-        if (getExprType(node.right.get()).type == "char" && getExprType(node.right.get()).pointerLevel == 0) {
+        if (is8BitType(getExprType(node.right.get()).type) && getExprType(node.right.get()).pointerLevel == 0) {
             if (flags.znSource != FlagSource::A) emit("cmp #$00");
             emit("bne " + labelTrue);
         } else {
@@ -1043,7 +1086,7 @@ void CodeGenerator::visit(BinaryOperation& node) {
         resultNeeded = true;
         node.left->accept(*this);
         resultNeeded = oldNeeded;
-        if (getExprType(node.left.get()).type == "char" && getExprType(node.left.get()).pointerLevel == 0) {
+        if (is8BitType(getExprType(node.left.get()).type) && getExprType(node.left.get()).pointerLevel == 0) {
             if (flags.znSource != FlagSource::A) emit("cmp #$00");
             emit("beq " + labelFalse);
         } else {
@@ -1053,7 +1096,7 @@ void CodeGenerator::visit(BinaryOperation& node) {
         resultNeeded = true;
         node.right->accept(*this);
         resultNeeded = oldNeeded;
-        if (getExprType(node.right.get()).type == "char" && getExprType(node.right.get()).pointerLevel == 0) {
+        if (is8BitType(getExprType(node.right.get()).type) && getExprType(node.right.get()).pointerLevel == 0) {
             if (flags.znSource != FlagSource::A) emit("cmp #$00");
             emit("beq " + labelFalse);
         } else {
@@ -1301,7 +1344,7 @@ void CodeGenerator::visit(UnaryOperation& node) {
         ss << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpIdx);
         emit("stax $" + ss.str());
         ExpressionType subType = getExprType(node.operand.get());
-        if (subType.type == "char" && subType.pointerLevel == 1) {
+        if (is8BitType(subType.type) && subType.pointerLevel == 1) {
             emitter->lda_ind_z(emitter->getZP(zpIdx), false);
             updateRegY(0); emitter->ldx_imm(0); updateRegX(0);
         } else {
@@ -1372,7 +1415,7 @@ void CodeGenerator::visit(UnaryOperation& node) {
         bool oldNeeded = resultNeeded; resultNeeded = true; node.operand->accept(*this); resultNeeded = oldNeeded;
         if (node.op == "!") {
             ExpressionType subType = getExprType(node.operand.get());
-            bool is8Bit = (subType.type == "char" && subType.pointerLevel == 0);
+            bool is8Bit = (is8BitType(subType.type) && subType.pointerLevel == 0);
             if (is8Bit) emit("chkzero.8"); else emit("chkzero.16");
             invalidateRegs(); updateZNFlags(FlagSource::A); emitter->ldx_imm(0); updateRegX(0);
         } else if (node.op == "~") { emitter->not_16(); }
@@ -1728,7 +1771,7 @@ void CodeGenerator::visit(StructDefinition& node) {
         if (member.pointerLevel > 0 || member.type == "int") {
             mAlign = 2;
             mSize = 2;
-        } else if (member.type == "char") {
+        } else if (is8BitType(member.type)) {
             mAlign = 1;
             mSize = 1;
         } else if (isStruct(member.type)) {
@@ -2009,7 +2052,7 @@ void CodeGenerator::emitJumpIfTrue(Expression* cond, const std::string& labelTru
         }
     }
     if (auto* un = dynamic_cast<UnaryOperation*>(cond)) if (un->op == "!") { emitJumpIfFalse(un->operand.get(), labelTrue); return; }
-    ExpressionType condType = getExprType(cond); bool is8Bit = (condType.type == "char" && condType.pointerLevel == 0);
+    ExpressionType condType = getExprType(cond); bool is8Bit = (is8BitType(condType.type) && condType.pointerLevel == 0);
     bool oldNeeded = resultNeeded; resultNeeded = true; cond->accept(*this); resultNeeded = oldNeeded;
     if (is8Bit) { if (flags.znSource != FlagSource::A) emit("cmp #$00"); emit("bne " + labelTrue); }
     else { if (flags.znSource != FlagSource::A) emit("cmp #$00"); emitBranch16Bne(labelTrue); }
@@ -2035,7 +2078,7 @@ void CodeGenerator::emitJumpIfFalse(Expression* cond, const std::string& labelEl
         }
     }
     if (auto* un = dynamic_cast<UnaryOperation*>(cond)) if (un->op == "!") { emitJumpIfTrue(un->operand.get(), labelElse); return; }
-    ExpressionType condType = getExprType(cond); bool is8Bit = (condType.type == "char" && condType.pointerLevel == 0);
+    ExpressionType condType = getExprType(cond); bool is8Bit = (is8BitType(condType.type) && condType.pointerLevel == 0);
     bool oldNeeded = resultNeeded; resultNeeded = true; cond->accept(*this); resultNeeded = oldNeeded;
     if (is8Bit) { if (flags.znSource != FlagSource::A) emit("cmp #$00"); emit("beq " + labelElse); }
     else { if (flags.znSource != FlagSource::A) emit("cmp #$00"); emitBranch16Beq(labelElse); }
@@ -2054,7 +2097,11 @@ void CodeGenerator::visit(CastExpression& node) {
     int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
     int dstSize = (node.pointerLevel > 0 || node.targetType == "int" || node.targetType == "void") ? 2 : 1;
 
-    if (srcSize == 2 && dstSize == 1) {
+    if (node.targetType == "_Bool") {
+        emitBoolNormalize(srcSize);
+        emitter->ldx_imm(0);
+        updateRegX(0);
+    } else if (srcSize == 2 && dstSize == 1) {
         // Narrowing: int/pointer -> char, just keep A (low byte), ignore X
         emitter->ldx_imm(0);
         updateRegX(0);
@@ -2069,7 +2116,7 @@ void CodeGenerator::visit(CastExpression& node) {
 void CodeGenerator::visit(AlignofExpression& node) {
     int alignment = 1;
     if (node.pointerLevel > 0 || node.typeName == "int") alignment = 2;
-    else if (node.typeName == "char") alignment = 1;
+    else if (is8BitType(node.typeName)) alignment = 1;
     else { std::string sName = getAggregateName(node.typeName); if (structs.count(sName)) alignment = structs[sName]->alignment; }
     emitter->lda_imm(alignment & 0xFF); updateRegA(alignment & 0xFF); invalidateFlags();
 }
@@ -2101,7 +2148,7 @@ void CodeGenerator::emitData() {
         out << "_" << gVar->name << ":" << std::endl;
         int size = 0;
         if (gVar->pointerLevel > 0) size = 2;
-        else if (gVar->type == "char") size = 1;
+        else if (is8BitType(gVar->type)) size = 1;
         else if (gVar->type == "int") size = 2;
         else if (isStruct(gVar->type)) { std::string sName = getAggregateName(gVar->type); if (structs.count(sName)) size = structs[sName]->totalSize; }
         
@@ -2124,7 +2171,7 @@ void CodeGenerator::emitData() {
             out << "_" << gVar->name << ":" << std::endl;
             int size = 0;
             if (gVar->pointerLevel > 0) size = 2;
-            else if (gVar->type == "char") size = 1;
+            else if (is8BitType(gVar->type)) size = 1;
             else if (gVar->type == "int") size = 2;
             else if (isStruct(gVar->type)) { std::string sName = getAggregateName(gVar->type); if (structs.count(sName)) size = structs[sName]->totalSize; }
             if (gVar->arraySize >= 0) size *= gVar->arraySize;

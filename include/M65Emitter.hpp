@@ -31,6 +31,8 @@ public:
     void ora_imm(uint8_t val);
     void eor_imm(uint8_t val);
     void cmp_imm(uint8_t val);
+    void cpx_imm(uint8_t val);
+    void cpy_imm(uint8_t val);
 
     // --- Absolute Mode ---
     void lda_abs(uint16_t addr);
@@ -162,6 +164,15 @@ public:
     void bcs(int8_t offset);
     void bmi(int8_t offset);
     void bpl(int8_t offset);
+
+    // Label-based branches (TEXT mode only)
+    void bra_label(const std::string& label);
+    void bne_label(const std::string& label);
+    void beq_label(const std::string& label);
+    void bcc_label(const std::string& label);
+    void bcs_label(const std::string& label);
+    void bmi_label(const std::string& label);
+    void bpl_label(const std::string& label);
 
     // --- High-level Helpers ---
     void add_16_imm(uint16_t val);

@@ -47,6 +47,7 @@ public:
     std::map<std::string, VarInfo> globalVariableTypes;
     std::map<std::string, std::shared_ptr<StructInfo>> structs;
     static int getTypeSize(const std::string& type, int ptrLevel, int arraySize, const std::map<std::string, std::shared_ptr<CodeGenerator::StructInfo>>& structs);
+    static bool is8BitType(const std::string& type) { return type == "char" || type == "_Bool"; }
     uint32_t zeroPageStart = 0x02;
     uint32_t zeroPageAvail = 9;
     bool relocMode = false; // When true, emit .global/.extern and skip .org/$2000 stub
@@ -94,6 +95,7 @@ public:
     void embedSource(ASTNode& node);
     ExpressionType getExprType(Expression* expr);
     void emitNarrowingWarning(ASTNode& node, const std::string& fromType, int fromPtr, const std::string& toType, int toPtr);
+    void emitBoolNormalize(int srcSize);
     std::vector<std::string> warnings;
     bool isStruct(const std::string& type);
     bool isEnum(const std::string& type);
