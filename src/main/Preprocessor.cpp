@@ -767,6 +767,8 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         output << "__asm__(\".crt_exit_rts\");\n";
                     } else if (crtArg == "exit_brk") {
                         output << "__asm__(\".crt_exit_brk\");\n";
+                    } else if (crtArg == "no_bssinit") {
+                        output << "__asm__(\".crt_no_bssinit\");\n";
                     } else {
                         output << "\n";
                     }

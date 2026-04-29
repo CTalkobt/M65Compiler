@@ -188,6 +188,7 @@ public:
     std::set<std::string> weakGlobals; // global vars marked with #pragma weak
     bool crtNoPageOneStack = false; // #pragma crt no_0100_stack
     enum class CrtExit { HALT, RTS, BRK } crtExit = CrtExit::RTS;
+    bool crtNoBssInit = false; // #pragma crt no_bssinit
     std::set<std::string> knownFunctions; // defined + prototyped function names
     FunctionDeclaration* currentFunction = nullptr;
     int currentParamByteSize = 0;

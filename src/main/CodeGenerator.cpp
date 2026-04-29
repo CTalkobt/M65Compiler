@@ -451,6 +451,7 @@ void CodeGenerator::visit(TranslationUnit& node) {
                 if (asmStmt->code == ".crt_exit_halt") { crtExit = CrtExit::HALT; continue; }
                 if (asmStmt->code == ".crt_exit_rts") { crtExit = CrtExit::RTS; continue; }
                 if (asmStmt->code == ".crt_exit_brk") { crtExit = CrtExit::BRK; continue; }
+                if (asmStmt->code == ".crt_no_bssinit") { crtNoBssInit = true; continue; }
             }
             if (auto* fn = dynamic_cast<FunctionDeclaration*>(decl.get())) {
                 if (!fn->isPrototype) {
@@ -530,6 +531,7 @@ void CodeGenerator::visit(TranslationUnit& node) {
                     break;
             }
             out << "__init:" << std::endl;
+            out << "    jsr _init_bss" << std::endl;
             out << "    jsr _init_features" << std::endl;
             out << "    jmp _main" << std::endl;
             out << "_init_features:" << std::endl;
@@ -1489,6 +1491,10 @@ void CodeGenerator::visit(AsmStatement& node) {
         else crtExit = CrtExit::BRK;
         return; // Don't emit — it's a compiler internal directive
     }
+    if (node.code == ".crt_no_bssinit") {
+        crtNoBssInit = true;
+        return; // Don't emit — it's a compiler internal directive
+    }
     embedSource(node);
     emit(node.code);
     invalidateRegs();
@@ -2182,6 +2188,7 @@ void CodeGenerator::visit(AlignofExpression& node) {
 }
 
 void CodeGenerator::emitData() {
+    bool hasBss = false;
     // Emit .global/.weak for all global variables in relocatable mode
     if (relocMode) {
         for (auto* gVar : globalVars) {
@@ -2193,17 +2200,51 @@ void CodeGenerator::emitData() {
         }
     }
 
+    // Partition globals into initialized (data) and uninitialized (bss)
+    std::vector<VariableDeclaration*> uninitializedVars;
+    std::vector<VariableDeclaration*> initializedVars;
+    for (auto* gVar : globalVars) {
+        if (!gVar->initializer) uninitializedVars.push_back(gVar);
+        else initializedVars.push_back(gVar);
+    }
+
+    // Emit _init_bss routine in code segment (before data/bss)
+    out << std::endl << ".code" << std::endl;
+    out << "_init_bss:" << std::endl;
+    if (!uninitializedVars.empty() && !crtNoBssInit && !relocMode) {
+        // BSS zeroing routine using a 16-bit pointer loop
+        out << "    lda #<__bss_start" << std::endl;
+        out << "    sta $02" << std::endl;
+        out << "    lda #>__bss_start" << std::endl;
+        out << "    sta $03" << std::endl;
+        out << "    lda #<__bss_end" << std::endl;
+        out << "    sta $04" << std::endl;
+        out << "    lda #>__bss_end" << std::endl;
+        out << "    sta $05" << std::endl;
+        out << "    lda #0" << std::endl;
+        out << "    ldy #0" << std::endl;
+        out << "@__bss_loop:" << std::endl;
+        out << "    ldx $02" << std::endl;
+        out << "    cpx $04" << std::endl;
+        out << "    bne @__bss_store" << std::endl;
+        out << "    ldx $03" << std::endl;
+        out << "    cpx $05" << std::endl;
+        out << "    beq @__bss_done" << std::endl;
+        out << "@__bss_store:" << std::endl;
+        out << "    sta ($02),y" << std::endl;
+        out << "    inc $02" << std::endl;
+        out << "    bne @__bss_loop" << std::endl;
+        out << "    inc $03" << std::endl;
+        out << "    bra @__bss_loop" << std::endl;
+        out << "@__bss_done:" << std::endl;
+    }
+    out << "    rts" << std::endl;
+
+    // Data section — initialized globals
     out << std::endl << ".data" << std::endl;
     out << "; Data Section" << std::endl;
 
-    std::vector<VariableDeclaration*> uninitializedVars;
-
-    for (auto* gVar : globalVars) {
-        if (!gVar->initializer) {
-            uninitializedVars.push_back(gVar);
-            continue;
-        }
-
+    for (auto* gVar : initializedVars) {
         if (gVar->alignment > 1) out << "    .align " << std::to_string(gVar->alignment) << std::endl;
         out << "_" << gVar->name << ":" << std::endl;
         int size = 0;
@@ -2211,9 +2252,9 @@ void CodeGenerator::emitData() {
         else if (is8BitType(gVar->type)) size = 1;
         else if (gVar->type == "int") size = 2;
         else if (isStruct(gVar->type)) { std::string sName = getAggregateName(gVar->type); if (structs.count(sName)) size = structs[sName]->totalSize; }
-        
+
         if (gVar->arraySize >= 0) size *= gVar->arraySize;
-        
+
         if (auto* lit = dynamic_cast<IntegerLiteral*>(gVar->initializer.get())) {
             if (size == 1) out << "    .byte $" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (lit->value & 0xFF) << std::dec << std::endl;
             else if (size == 2) out << "    .word $" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (lit->value & 0xFFFF) << std::dec << std::endl;
@@ -2223,9 +2264,11 @@ void CodeGenerator::emitData() {
         }
     }
 
+    // BSS section — uninitialized globals
     if (!uninitializedVars.empty()) {
         out << std::endl << ".bss" << std::endl;
         out << "; BSS Section" << std::endl;
+        out << "__bss_start:" << std::endl;
         for (auto* gVar : uninitializedVars) {
             if (gVar->alignment > 1) out << "    .align " << std::to_string(gVar->alignment) << std::endl;
             out << "_" << gVar->name << ":" << std::endl;
@@ -2237,6 +2280,7 @@ void CodeGenerator::emitData() {
             if (gVar->arraySize >= 0) size *= gVar->arraySize;
             out << "    .res " << std::to_string(size) << std::endl;
         }
+        out << "__bss_end:" << std::endl;
     }
 
     out << std::endl << ".data" << std::endl;

@@ -252,6 +252,34 @@ for name in "${VALIDATION_TESTS[@]}"; do
     fi
 done
 
+# --- BSS init test ---
+echo "Testing mmemu-cli with test_bssinit.c (BSS zeroing)..."
+
+$CC src/test-resources/test_bssinit.c -o build/test/test_bssinit.s
+if [ $? -ne 0 ]; then
+    echo "FAIL: Compilation failed for test_bssinit.c"
+    failed=$((failed + 1))
+else
+    $AS build/test/test_bssinit.s -o build/test/test_bssinit.prg
+    if [ $? -ne 0 ]; then
+        echo "FAIL: Assembly failed for test_bssinit.s"
+        failed=$((failed + 1))
+    else
+        # Fill RAM with $DE pattern first so BSS init can be verified (not just fresh zeros)
+        OUTPUT=$(echo -e "fill \$2000 \$3000 \$DE\nload build/test/test_bssinit.prg\nsetpc \$2000\nrun\nm \$4000 2\nq" | $MMEMU -m rawMega65 2>/dev/null)
+
+        if echo "$OUTPUT" | grep -qi "4000: 00 2a"; then
+            echo "SUCCESS: test_bssinit.c — BSS zeroed, globals correct."
+        else
+            echo "FAIL: test_bssinit.c — BSS init validation failed."
+            echo "Expected 4000: 00 2A"
+            echo "Actual output:"
+            echo "$OUTPUT" | grep "4000:"
+            failed=$((failed + 1))
+        fi
+    fi
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All mmemu tests passed!"
     exit 0
