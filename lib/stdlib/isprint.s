@@ -7,6 +7,7 @@
 ;   Returns 0 otherwise (control codes $00-$1F, $7F-$9F).
 
 .global _isprint
+.extern __sp_base
 
 .segment "code"
 

@@ -15,10 +15,13 @@
 ;   The compiler automatically emits "jsr __init" and includes an inline crt0.
 
 .global __init
+.global __sp_base
 .weak _init_features
 .extern _main
 
 .segment "code"
+
+__sp_base = $0101
 
 __init:
     jsr _init_features

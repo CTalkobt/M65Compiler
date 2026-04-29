@@ -4,6 +4,7 @@
 ;   Appends src to the end of dest. Returns dest.
 
 .global _strcat
+.extern __sp_base
 
 .segment "code"
 

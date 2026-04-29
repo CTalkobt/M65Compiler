@@ -4,6 +4,7 @@
 ;   Copies src including NUL terminator to dest. Returns dest.
 
 .global _strcpy
+.extern __sp_base
 
 .segment "code"
 

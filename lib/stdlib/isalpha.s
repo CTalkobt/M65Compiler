@@ -7,6 +7,7 @@
 ;   Returns 0 otherwise.
 
 .global _isalpha
+.extern __sp_base
 
 .segment "code"
 

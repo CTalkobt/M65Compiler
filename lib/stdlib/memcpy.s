@@ -5,6 +5,7 @@
 ;   Returns dest.
 
 .global _memcpy
+.extern __sp_base
 
 .segment "code"
 

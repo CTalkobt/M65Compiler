@@ -7,6 +7,7 @@
 
 .global _exit
 .extern __exit
+.extern __sp_base
 
 .segment "code"
 

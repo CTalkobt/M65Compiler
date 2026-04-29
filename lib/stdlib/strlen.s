@@ -5,6 +5,7 @@
 ;   Limited to 255 (single-byte Y counter).
 
 .global _strlen
+.extern __sp_base
 
 .segment "code"
 

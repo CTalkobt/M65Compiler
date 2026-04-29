@@ -5,6 +5,7 @@
 ;   remaining bytes are filled with NUL. Returns dest.
 
 .global _strncpy
+.extern __sp_base
 
 .segment "code"
 

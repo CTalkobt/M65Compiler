@@ -7,6 +7,7 @@
 ;   PETSCII: lowercase + $80 = uppercase
 
 .global _toupper
+.extern __sp_base
 
 .segment "code"
 

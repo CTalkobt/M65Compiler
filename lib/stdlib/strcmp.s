@@ -5,6 +5,7 @@
 ;   Unsigned byte comparison.
 
 .global _strcmp
+.extern __sp_base
 
 .segment "code"
 

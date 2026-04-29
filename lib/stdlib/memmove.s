@@ -5,6 +5,7 @@
 ;   by copying backwards when dest > src.
 
 .global _memmove
+.extern __sp_base
 
 .segment "code"
 

@@ -6,6 +6,7 @@
 ;   part of the string.
 
 .global _strchr
+.extern __sp_base
 
 .segment "code"
 

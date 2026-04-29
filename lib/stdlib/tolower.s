@@ -7,6 +7,7 @@
 ;   PETSCII: uppercase - $80 = lowercase (clear bit 7)
 
 .global _tolower
+.extern __sp_base
 
 .segment "code"
 

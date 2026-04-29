@@ -4,6 +4,7 @@
 ;   Returns 0 if equal, <0 if s1 < s2, >0 if s1 > s2.
 
 .global _memcmp
+.extern __sp_base
 
 .segment "code"
 

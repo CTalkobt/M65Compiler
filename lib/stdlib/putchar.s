@@ -5,6 +5,7 @@
 ;   Returns c.
 
 .global _putchar
+.extern __sp_base
 
 .segment "code"
 

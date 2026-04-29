@@ -5,6 +5,7 @@
 ;   Returns 0 on success.
 
 .global _puts
+.extern __sp_base
 
 .segment "code"
 

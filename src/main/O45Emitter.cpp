@@ -5,6 +5,7 @@
 #include "AssemblerGenerator.hpp"
 #include "M65Emitter.hpp"
 #include <iostream>
+#include <iomanip>
 #include <algorithm>
 
 // Map ca45 segment names to O45 segment IDs.
@@ -383,6 +384,11 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                 }
             }
         }
+    } else if (!genEmitter.spBaseRelocs().empty()) {
+        std::cerr << "warning: stack-relative access uses built-in __sp_base ($"
+                  << std::hex << std::uppercase << std::setfill('0') << std::setw(4)
+                  << genEmitter.spBase()
+                  << "); add '.extern __sp_base' for relocatable code" << std::endl;
     }
 
     // Sort relocations by offset

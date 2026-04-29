@@ -4,6 +4,7 @@
 ;   Compares at most n bytes. Returns 0 if equal, <0 or >0 otherwise.
 
 .global _strncmp
+.extern __sp_base
 
 .segment "code"
 

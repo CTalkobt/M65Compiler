@@ -5,6 +5,7 @@
 ;   ($41-$5A lowercase, $C1-$DA uppercase). Returns 0 otherwise.
 
 .global _isalnum
+.extern __sp_base
 
 .segment "code"
 

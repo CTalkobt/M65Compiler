@@ -5,6 +5,7 @@
 ;   Returns s.
 
 .global _memset
+.extern __sp_base
 
 .segment "code"
 

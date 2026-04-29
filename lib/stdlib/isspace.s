@@ -11,6 +11,7 @@
 ;   for compatibility.
 
 .global _isspace
+.extern __sp_base
 
 .segment "code"
 

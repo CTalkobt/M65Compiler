@@ -5,6 +5,7 @@
 ;   or NULL (0) if not found.
 
 .global _strrchr
+.extern __sp_base
 
 .segment "code"
 
