@@ -212,6 +212,16 @@ Steps required to bring the C compiler closer to C11 standards.
     - [ ] **`#pragma crt heap`**: Pull in heap initialization and malloc/free support. Opt-in flag forces `crt_heap.o45` from the CRT archive.
     - [ ] **`#pragma crt stdio`**: Pull in stdio initialization (screen, I/O). Opt-in flag forces `crt_stdio.o45` from the CRT archive.
 
+## Roadmap - Standard Library (stdlib45.lib)
+All modules are hand-written 45GS02 assembly in `lib/stdlib/`, archived into `stdlib45.lib` by `lib/Makefile`.
+
+- [X] **`string.h`**: `strlen`, `strcpy`, `strncpy`, `strcmp`, `strncmp`, `strcat`, `strchr`, `strrchr`, `memcpy`, `memmove`, `memset`, `memcmp` (12 functions). Validated via mmemu emulator tests (`test_strlen`, `test_strcmp`, `test_strcpy`, `test_memcpy`, `test_strchr`).
+- [X] **`stdio.h`**: `putchar`, `puts` (KERNAL CHROUT wrappers).
+- [X] **`stdlib.h`**: `exit` (jumps to CRT `__exit` label with status in `.AX`).
+- [ ] **`ctype.h`**: `isdigit`, `isalpha`, `isalnum`, `isspace`, `isprint`, `toupper`, `tolower` (PETSCII-aware).
+- [ ] **`stdlib.h` (remaining)**: `abs`, `atoi`, `itoa`, `rand`, `srand`.
+- [ ] **Heap**: `malloc`, `free`, `calloc`, `realloc` (requires `#pragma crt heap`).
+
 ---
 
 ## Fixed Bugs

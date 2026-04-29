@@ -214,6 +214,11 @@ VALIDATION_TESTS=(
     "test_volatile"
     "test_ptr_precedence"
     "test_bool"
+    "test_strlen"
+    "test_strcmp"
+    "test_strcpy"
+    "test_memcpy"
+    "test_strchr"
 )
 
 for name in "${VALIDATION_TESTS[@]}"; do

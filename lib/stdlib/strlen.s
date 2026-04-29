@@ -9,7 +9,7 @@
 .segment "code"
 
 proc _strlen, W#_p_s
-    .var _fp = 1
+    .var _fp = 0
     ldax _p_s, s
     stax $02
     ldy #0
@@ -21,9 +21,5 @@ proc _strlen, W#_p_s
 @done:
     tya
     ldx #0
-    taz
-    pla
-    pla
-    tza
     rtn #0
     endproc

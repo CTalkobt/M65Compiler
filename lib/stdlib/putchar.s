@@ -9,13 +9,9 @@
 .segment "code"
 
 proc _putchar, W#_p_c
-    .var _fp = 1
+    .var _fp = 0
     lda.sp _p_c
     jsr $FFD2
     ldax _p_c, s
-    taz
-    pla
-    pla
-    tza
     rtn #0
     endproc

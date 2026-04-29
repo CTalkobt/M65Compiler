@@ -39,21 +39,23 @@ A simple free-list allocator with 4-byte headers (2-byte size + 2-byte next-free
 
 ## 3. String & Memory Operations (`string.h`)
 
-Essential for data manipulation. Performance-critical functions should be implemented in 45GS02 assembly using optimized addressing modes.
+All string and memory functions are implemented in hand-written 45GS02 assembly (`lib/stdlib/*.s`) and archived in `stdlib45.lib`. Validated via mmemu emulator tests.
 
-- **`memcpy(void *dest, const void *src, size_t n)`**: Copy memory area.
-- **`memset(void *s, int c, size_t n)`**: Fill memory with a constant byte.
-- **`memmove(void *dest, const void *src, size_t n)`**: Copy memory area (handling overlaps).
-- **`memcmp(const void *s1, const void *s2, size_t n)`**: Compare memory areas.
-- **`strlen(const char *s)`**: Calculate string length.
-- **`strcpy(char *dest, const char *src)`**: Copy string.
-- **`strcmp(const char *s1, const char *s2)`**: Compare strings.
+**String functions:**
+- **`strlen(char *s)`**: Calculate string length. **Implemented.**
+- **`strcpy(char *dest, char *src)`**: Copy string including NUL. **Implemented.**
+- **`strncpy(char *dest, char *src, int n)`**: Copy with length limit, NUL-pad remainder. **Implemented.**
+- **`strcmp(char *s1, char *s2)`**: Compare strings, returns -1/0/1. **Implemented.**
+- **`strncmp(char *s1, char *s2, int n)`**: Compare with length limit. **Implemented.**
+- **`strcat(char *dest, char *src)`**: Append src to end of dest. **Implemented.**
+- **`strchr(char *s, int c)`**: Find first occurrence of char. **Implemented.**
+- **`strrchr(char *s, int c)`**: Find last occurrence of char. **Implemented.**
 
-### Implementation Strategy
-
-`memcpy` and `memset` are strong candidates for optimized assembly using the 45GS02's `INW` (increment word) for pointer advancement and `STZ` for zeroing. For larger blocks, the MEGA65 DMA controller could be leveraged via `__asm__` in a future advanced implementation.
-
-Simple C implementations are sufficient initially since `cc45` supports pointer dereferencing, `while` loops, and pointer arithmetic.
+**Memory functions:**
+- **`memcpy(void *dest, void *src, int n)`**: Copy memory area (no overlap). **Implemented.**
+- **`memmove(void *dest, void *src, int n)`**: Copy memory area (overlap-safe, copies backwards when dest > src). **Implemented.**
+- **`memset(void *s, int c, int n)`**: Fill memory with a constant byte. **Implemented.**
+- **`memcmp(void *s1, void *s2, int n)`**: Compare memory areas, returns -1/0/1. **Implemented.**
 
 ## 4. Character Utilities (`ctype.h`)
 
@@ -80,7 +82,7 @@ int isalpha(int c) {
 - **`atoi(const char *nptr)`**: Convert string to integer.
 - **`itoa(int value, char *str, int base)`**: Convert integer to string (essential for embedded display output).
 - **`rand()` / `srand(unsigned int seed)`**: Pseudo-random number generation (16-bit LFSR or xorshift).
-- **`exit(int status)`**: Terminate program execution (jump to KERNAL warm-start or halt via `STP` instruction).
+- **`exit(int status)`**: Terminate program execution. Loads the status code into `.AX` and jumps to the `__exit` label emitted by the CRT startup. The exit behavior depends on the `#pragma crt exit_*` mode: `exit_rts` (default) restores the caller's SP and returns, `exit_halt` enters an infinite loop, `exit_brk` triggers a BRK. **Implemented.**
 
 ## 6. Minimal I/O (`stdio.h`)
 
@@ -277,9 +279,9 @@ Add `test-stdlib` to the `test` target's dependency list once the stdlib is impl
 
 Recommended order based on utility and dependency:
 
-1. **Phase 1 — Headers only** (no linkage needed): `stdint.h`, `stddef.h`, `stdbool.h`, `limits.h`
-2. **Phase 2 — Core runtime**: `crt0.s`, `putchar`/`puts` (enables visible output for debugging)
-3. **Phase 3 — String/memory**: `string.h` functions (needed by almost everything else)
+1. **Phase 1 — Headers only** (no linkage needed): `stdint.h`, `stddef.h`, `stdbool.h`, `limits.h` — **Done.**
+2. **Phase 2 — Core runtime**: `crt0.s`, `putchar`/`puts`, `exit` (enables visible output and clean termination) — **Done.** CRT pragmas (`exit_rts`/`exit_halt`/`exit_brk`, `no_bssinit`, `no_0100_stack`) implemented.
+3. **Phase 3 — String/memory**: `string.h` functions (12 functions, all hand-written 45GS02 assembly, mmemu-validated) — **Done.**
 4. **Phase 4 — Utilities**: `ctype.h`, `atoi`/`itoa`, `abs`, `rand`
 5. **Phase 5 — Heap**: `malloc`/`free`/`calloc`/`realloc` (complex, defer until needed)
 

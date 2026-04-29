@@ -9,7 +9,7 @@
 .segment "code"
 
 proc _puts, W#_p_s
-    .var _fp = 1
+    .var _fp = 0
     ; Load pointer into ZP for indirect access
     ldax _p_s, s
     stax $02
@@ -24,9 +24,5 @@ proc _puts, W#_p_s
     lda #$0D
     jsr $FFD2
     ldax #$0000         ; return 0
-    taz                 ; save return value
-    pla                 ; pop FP low
-    pla                 ; pop FP high
-    tza                 ; restore return value
     rtn #0
     endproc

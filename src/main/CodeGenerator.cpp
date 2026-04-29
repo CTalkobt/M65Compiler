@@ -510,10 +510,10 @@ void CodeGenerator::visit(TranslationUnit& node) {
                 out << "    sty __saved_sph + 1" << std::endl;
             }
             out << "    jsr __init" << std::endl;
+            out << "__exit:" << std::endl;
             switch (crtExit) {
                 case CrtExit::RTS:
                     // Restore caller's SP (self-modified immediates) and return
-                    out << "__exit:" << std::endl;
                     out << "__saved_spl:" << std::endl;
                     out << "    ldx #$ff" << std::endl;
                     out << "    txs" << std::endl;

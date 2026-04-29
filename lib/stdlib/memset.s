@@ -9,7 +9,7 @@
 .segment "code"
 
 proc _memset, W#_p_s, W#_p_c, W#_p_n
-    .var _fp = 1
+    .var _fp = 0
     ; Load destination pointer into ZP
     ldax _p_s, s
     stax $02            ; $02/$03 = dest pointer
@@ -43,9 +43,5 @@ proc _memset, W#_p_s, W#_p_c, W#_p_n
 @done:
     ; return s
     ldax _p_s, s
-    taz
-    pla
-    pla
-    tza
     rtn #0
     endproc
