@@ -47,6 +47,22 @@ void CodeGenerator::emit(const std::string& line) {
     out << "    " << line << std::endl;
 }
 
+void CodeGenerator::emitBranch16Beq(const std::string& target) {
+    // Branch to target if 16-bit A:X == 0 (assumes cmp #$00 already set flags for A)
+    std::string skip = newDontCareLabel();
+    emit("bne " + skip);     // low byte != 0 → not zero, skip
+    emit("cpx #$00");        // check high byte
+    emit("beq " + target);   // both zero → branch
+    out << skip << ":" << std::endl;
+}
+
+void CodeGenerator::emitBranch16Bne(const std::string& target) {
+    // Branch to target if 16-bit A:X != 0 (assumes cmp #$00 already set flags for A)
+    emit("bne " + target);   // low byte != 0 → non-zero, branch
+    emit("cpx #$00");        // check high byte
+    emit("bne " + target);   // high byte != 0 → non-zero, branch
+}
+
 std::string CodeGenerator::newLabel() {
     return "L" + std::to_string(labelCount++);
 }
@@ -271,6 +287,74 @@ void CodeGenerator::emitAddress(Expression* expr) {
             resultNeeded = oldNeeded;
         }
     }
+    invalidateRegs();
+}
+
+void CodeGenerator::emitIndirectIncDec(UnaryOperation& node, bool isInc, bool isPost) {
+    // Handle ++/-- on indirect lvalues: (*p)++, arr[i]--, p->field++, etc.
+    // Strategy: compute lvalue address → ZP, load value, inc/dec, store back.
+    ExpressionType valType = getExprType(node.operand.get());
+    bool is16 = (valType.pointerLevel > 0 || valType.type == "int");
+    if (isStruct(valType.type)) {
+        std::string sName = getAggregateName(valType.type);
+        if (structs.count(sName) && structs[sName]->totalSize > 1) is16 = true;
+    }
+
+    // Compute the address of the lvalue into AX
+    bool oldNeeded = resultNeeded;
+    resultNeeded = true;
+    emitAddress(node.operand.get());
+    resultNeeded = oldNeeded;
+
+    int zpAddr = allocateZP(2);
+    std::stringstream ssAddr;
+    ssAddr << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpAddr);
+    emit("stax $" + ssAddr.str());
+
+    // Load current value through pointer
+    if (is16) {
+        emit("ptrderef $" + ssAddr.str());
+    } else {
+        emitter->lda_ind_z(emitter->getZP(zpAddr), false);
+        updateRegY(0); emitter->ldx_imm(0); updateRegX(0);
+    }
+
+    if (isPost && resultNeeded) {
+        // Save old value for postfix return
+        emitter->push_ax();
+    }
+
+    // Increment or decrement the value in AX
+    if (is16) {
+        if (isInc) { emitter->add_16_imm(1); }
+        else { emitter->sub_16_imm(1); }
+    } else {
+        if (isInc) { emitter->clc(); emitter->adc_imm(1); }
+        else { emitter->sec(); emitter->sbc_imm(1); }
+    }
+
+    // Store updated value back through the pointer
+    emitter->sta_ind_z(emitter->getZP(zpAddr), false);
+    if (is16) {
+        emitter->txa();
+        emitter->ldy_imm(1);
+        emit("sta ($" + ssAddr.str() + "),y");
+    }
+
+    if (isPost && resultNeeded) {
+        // Restore old value as the expression result
+        emitter->pop_ax();
+    } else if (!isPost && resultNeeded) {
+        // Prefix: reload the updated value (already in AX for 8-bit, need reload for 16-bit)
+        if (is16) {
+            emit("ptrderef $" + ssAddr.str());
+        } else {
+            emitter->lda_ind_z(emitter->getZP(zpAddr), false);
+            updateRegY(0); emitter->ldx_imm(0); updateRegX(0);
+        }
+    }
+
+    freeZP(zpAddr, 2);
     invalidateRegs();
 }
 
@@ -931,7 +1015,7 @@ void CodeGenerator::visit(BinaryOperation& node) {
             emit("bne " + labelTrue);
         } else {
             if (flags.znSource != FlagSource::A) emit("cmp #$00");
-            emit("branch.16 bne, " + labelTrue);
+            emitBranch16Bne(labelTrue);
         }
         resultNeeded = true;
         node.right->accept(*this);
@@ -941,7 +1025,7 @@ void CodeGenerator::visit(BinaryOperation& node) {
             emit("bne " + labelTrue);
         } else {
             if (flags.znSource != FlagSource::A) emit("cmp #$00");
-            emit("branch.16 bne, " + labelTrue);
+            emitBranch16Bne(labelTrue);
         }
         emit("zero a, x");
         emit("bra " + labelEnd);
@@ -964,7 +1048,7 @@ void CodeGenerator::visit(BinaryOperation& node) {
             emit("beq " + labelFalse);
         } else {
             if (flags.znSource != FlagSource::A) emit("cmp #$00");
-            emit("branch.16 beq, " + labelFalse);
+            emitBranch16Beq(labelFalse);
         }
         resultNeeded = true;
         node.right->accept(*this);
@@ -974,7 +1058,7 @@ void CodeGenerator::visit(BinaryOperation& node) {
             emit("beq " + labelFalse);
         } else {
             if (flags.znSource != FlagSource::A) emit("cmp #$00");
-            emit("branch.16 beq, " + labelFalse);
+            emitBranch16Beq(labelFalse);
         }
         emit("lda #$01");
         emit("ldx #$00");
@@ -1277,10 +1361,12 @@ void CodeGenerator::visit(UnaryOperation& node) {
                     }
                 }
             } else {
-                bool oldNeeded = resultNeeded; resultNeeded = true; node.operand->accept(*this); resultNeeded = oldNeeded; invalidateRegs();
+                // Arrow member: p->field++ — compute address, load, inc/dec, store back
+                emitIndirectIncDec(node, isInc, isPost);
             }
         } else {
-            bool oldNeeded = resultNeeded; resultNeeded = true; node.operand->accept(*this); resultNeeded = oldNeeded; invalidateRegs();
+            // Generic lvalue: (*p)++, arr[i]++, etc. — compute address, load, inc/dec, store back
+            emitIndirectIncDec(node, isInc, isPost);
         }
     } else {
         bool oldNeeded = resultNeeded; resultNeeded = true; node.operand->accept(*this); resultNeeded = oldNeeded;
@@ -1926,7 +2012,7 @@ void CodeGenerator::emitJumpIfTrue(Expression* cond, const std::string& labelTru
     ExpressionType condType = getExprType(cond); bool is8Bit = (condType.type == "char" && condType.pointerLevel == 0);
     bool oldNeeded = resultNeeded; resultNeeded = true; cond->accept(*this); resultNeeded = oldNeeded;
     if (is8Bit) { if (flags.znSource != FlagSource::A) emit("cmp #$00"); emit("bne " + labelTrue); }
-    else { if (flags.znSource != FlagSource::A) emit("cmp #$00"); emit("branch.16 bne, " + labelTrue); }
+    else { if (flags.znSource != FlagSource::A) emit("cmp #$00"); emitBranch16Bne(labelTrue); }
 }
 
 void CodeGenerator::emitJumpIfFalse(Expression* cond, const std::string& labelElse) {
@@ -1952,7 +2038,7 @@ void CodeGenerator::emitJumpIfFalse(Expression* cond, const std::string& labelEl
     ExpressionType condType = getExprType(cond); bool is8Bit = (condType.type == "char" && condType.pointerLevel == 0);
     bool oldNeeded = resultNeeded; resultNeeded = true; cond->accept(*this); resultNeeded = oldNeeded;
     if (is8Bit) { if (flags.znSource != FlagSource::A) emit("cmp #$00"); emit("beq " + labelElse); }
-    else { if (flags.znSource != FlagSource::A) emit("cmp #$00"); emit("branch.16 beq, " + labelElse); }
+    else { if (flags.znSource != FlagSource::A) emit("cmp #$00"); emitBranch16Beq(labelElse); }
 }
 
 void CodeGenerator::visit(CastExpression& node) {

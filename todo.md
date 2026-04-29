@@ -64,10 +64,10 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **Explicit Cast Expressions**: Support C-style cast syntax `(type)expr` for explicit type conversions (narrowing, widening, pointer casts).
 - [X] **Implicit Narrowing Warnings**: Emit compile-time warnings when implicit conversions lose data (e.g., `int` to `char`, pointer to `char`).
 - [X] **`__func__` Identifier**: Support the predefined `__func__` string literal containing the enclosing function name (C99).
-- [ ] **Nested switch**: Support switch statements nested inside other switch statements.
-- [ ] **Deeply nested if/else**: Support 10+ levels of conditional nesting.
-- [ ] **Empty loop bodies**: Support `while(--n);` and similar constructs.
-- [ ] **Operator precedence (extended)**: Support complex pointer precedence like `*p++` vs `(*p)++`.
+- [X] **Nested switch**: Support switch statements nested inside other switch statements.
+- [X] **Deeply nested if/else**: Support 10+ levels of conditional nesting.
+- [X] **Empty loop bodies**: Support `while(--n);` and similar constructs.
+- [X] **Operator precedence (extended)**: Support complex pointer precedence like `*p++` vs `(*p)++`.
 
 ## Roadmap - Linker & Libraries (ln45)
 - [X] **Object Format**: Define the `.o45` relocatable object format as an extension of the `.o65` specification. See [lib.md](lib.md).

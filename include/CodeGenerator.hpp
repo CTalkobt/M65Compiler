@@ -89,6 +89,7 @@ public:
     void visit(FunctionDeclaration& node) override;
     void visit(TranslationUnit& node) override;
     void emitAddress(Expression* expr);
+    void emitIndirectIncDec(UnaryOperation& node, bool isInc, bool isPost);
     void emitOperation(const std::string& op, int zpLeft, ExpressionType lhsType, ExpressionType rhsType);
     void embedSource(ASTNode& node);
     ExpressionType getExprType(Expression* expr);
@@ -167,6 +168,8 @@ public:
 
     void emit(const std::string& line);
     void emitData();
+    void emitBranch16Beq(const std::string& target);
+    void emitBranch16Bne(const std::string& target);
     void emitJumpIfTrue(Expression* cond, const std::string& labelTrue);
     void emitJumpIfFalse(Expression* cond, const std::string& labelElse);
     std::string newLabel();

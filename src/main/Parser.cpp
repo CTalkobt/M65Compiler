@@ -330,6 +330,10 @@ std::unique_ptr<CompoundStatement> Parser::parseCompoundStatement() {
 }
 
 std::unique_ptr<Statement> Parser::parseStatement() {
+    if (match(TokenType::SEMICOLON)) {
+        return setPos(std::make_unique<CompoundStatement>(), tokens[pos-1]); // Null statement
+    }
+
     if (peek().type == TokenType::IDENTIFIER && pos + 1 < tokens.size() && tokens[pos+1].type == TokenType::COLON) {
         std::string label = advance().value;
         advance(); // :
