@@ -747,21 +747,19 @@ void AssemblerParser::pass1() {
                         ctx->totalParamSize += args.back().second;
                     }
                     scopeStack.push_back(pN); stmt->scopePrefix = currentScopePrefix();
-                    // Frame-relative Y offsets: past 2-byte return addr + 1 for SP convention
-                    int yOff = 3;
+                    // Stack-relative offsets: past 2-byte return addr
+                    int sOff = 2;
                     for (int i = (int)args.size() - 1; i >= 0; --i) {
                         std::string scA = stmt->scopePrefix + args[i].first;
                         std::string scAN = stmt->scopePrefix + "ARG" + std::to_string(i + 1);
-                        ctx->localArgs[args[i].first] = yOff; ctx->localArgs["ARG" + std::to_string(i + 1)] = yOff;
-                        Symbol pSym = {(uint32_t)yOff, false, args[i].second, true, (uint32_t)yOff, false, yOff};
-                        pSym.isFrameRelative = true;
-                        pSym.frameOffset = yOff;
+                        ctx->localArgs[args[i].first] = sOff; ctx->localArgs["ARG" + std::to_string(i + 1)] = sOff;
+                        Symbol pSym = {(uint32_t)sOff, false, args[i].second, true, (uint32_t)sOff, false, sOff};
                         symbolTable[scA] = pSym;
                         symbolTable[scAN] = pSym;
-                        yOff += args[i].second;
+                        sOff += args[i].second;
                     }
                     procedures[pc] = ctx; pass1ProcStack.push_back(currentProc);
-                    currentProc = ctx; stmt->procCtx = ctx; stmt->size = 5;
+                    currentProc = ctx; stmt->procCtx = ctx; stmt->size = 0;
                 }
                 else if (stmt->instr.mnemonic == "endproc") {
                     if (currentProc) {
@@ -770,8 +768,8 @@ void AssemblerParser::pass1() {
                         if (!pass1ProcStack.empty()) pass1ProcStack.pop_back();
                     }
                     if (!scopeStack.empty()) scopeStack.pop_back();
-                    // 2 PLAs for FP cleanup + RTS (1 byte) or RTS #n (2 bytes)
-                    stmt->size = ((stmt->instr.procParamSize == 0) ? 1 : 2) + 2;
+                    // RTS (1 byte) or RTS #n (2 bytes)
+                    stmt->size = (stmt->instr.procParamSize == 0) ? 1 : 2;
                 }
                 else if (stmt->instr.mnemonic == "call") {
                     stmt->instr.operand = advance().value;
@@ -981,8 +979,8 @@ void AssemblerParser::emitMod16Code(std::vector<uint8_t>& binary, bool isSigned,
 }
 
 int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t currentAddr, const std::string& scopePrefix) {
-    if (instr.mnemonic == "proc") return 5;
-    if (instr.mnemonic == "endproc") return ((instr.procParamSize == 0) ? 1 : 2) + 2;
+    if (instr.mnemonic == "proc") return 0;
+    if (instr.mnemonic == "endproc") return (instr.procParamSize == 0) ? 1 : 2;
     if (instr.mnemonic == "push" || instr.mnemonic == "pop") {
         return AssemblerSimulatedOps::getPushPopSize(this, instr.mnemonic == "push", instr.operand, instr.operandTokenIndex, scopePrefix);
     }
@@ -1130,9 +1128,9 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                 s->address = cP;
             }
             int oS = s->size;
-            if (s->type == Statement::INSTRUCTION && s->instr.mnemonic == "proc") s->size = 5;
+            if (s->type == Statement::INSTRUCTION && s->instr.mnemonic == "proc") s->size = 0;
             else if (s->type == Statement::INSTRUCTION && s->instr.mnemonic == "endproc") {
-                if (isDeadCode) s->size = 0; else s->size = ((s->instr.procParamSize == 0) ? 1 : 2) + 2;
+                if (isDeadCode) s->size = 0; else s->size = (s->instr.procParamSize == 0) ? 1 : 2;
                 isDeadCode = false;
             } else if (isDeadCode && s->type != Statement::DIRECTIVE && s->type != Statement::BASIC_UPSTART) s->size = 0;
             else {

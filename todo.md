@@ -27,6 +27,8 @@ Legend:
 - [X] **Extended Register Tracking**: Track register contents more closely (e.g. variable affinity beyond just value).
 - [X] **Constant Propagation**: Substitute variables with known constant values into expressions.
 - [X] **Volatile Keyword Support**: Correctly parse 'volatile' and prevent dead store elimination for volatile variables.
+- [X] **Frame Pointer Removal**: Eliminated 5-byte `proc` prologue and 2-byte `endproc` epilogue. Parameters now use direct stack-relative addressing (same as locals) instead of indirect `($nn,SP),Y` via a saved frame pointer. Saves 7 bytes + 2 stack bytes per function call.
+- [X] **Relocatable Stack Base (`__sp_base`)**: Replaced hardcoded `$0101` with the linker-resolvable `__sp_base` symbol. Enables stack relocation to any page via `#pragma crt no_0100_stack` or `-D__sp_base=$NNNN`.
 
 ---
 
@@ -201,7 +203,7 @@ Steps required to bring the C compiler closer to C11 standards.
 
 ### Required Deliverable (not a standalone tool)
 
-- [ ] **`crt45.s` — C Runtime Startup**: Assembly source linked into every C program. Responsibilities: copy initialized `.data` from ROM to RAM, zero `.bss`, set up the zero-page register pool (the `B` register for Direct Page), then `JSR main` and handle return.
+- [ ] **`crt45.s` — C Runtime Startup**: Assembly source linked into every C program. Responsibilities: copy initialized `.data` from ROM to RAM, zero `.bss`, set up the zero-page register pool (the `B` register for Direct Page), then `JSR main` and handle return. Infrastructure for `#pragma crt` feature flags is implemented (`no_0100_stack` emits `.extern __sp_base` for linker-resolved stack relocation). Additional pragmas (`no_bssinit`, `no_datainit`, etc.) can follow the same pattern.
 
 ---
 

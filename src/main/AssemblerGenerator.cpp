@@ -320,16 +320,10 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
                 if (stmt->instr.mnemonic == "proc") {
                     pass2ProcStack.push_back(currentPass2Proc);
                     currentPass2Proc = stmt->procCtx;
-                    // Emit frame pointer save: push SP as 16-bit LE pointer
-                    // Push hi byte (stack page from __sp_base) first, then lo byte (SPL)
-                    if (!isDeadCode) {
-                        e.tsx(); e.lda_imm(e.spBase() >> 8); e.pha(); e.phx();
-                    }
+                    // No prologue — frame pointer removed
                     continue;
                 } else if (stmt->instr.mnemonic == "endproc") {
                     if (!isDeadCode) {
-                        // Pop saved frame pointer (2 bytes)
-                        e.pla(); e.pla();
                         if (stmt->instr.procParamSize == 0) e.emitInstruction("rts", AddressingMode::IMPLIED);
                         else e.emitInstruction("rts", AddressingMode::IMMEDIATE, stmt->instr.procParamSize, true);
                     }

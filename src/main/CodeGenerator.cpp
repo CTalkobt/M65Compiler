@@ -524,25 +524,40 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     currentParamByteSize = 0;
     currentLocalByteSize = 0;
 
+    // Collect param info and build proc line
+    struct ParamInfo { std::string pName; int size; };
+    std::vector<ParamInfo> paramInfos;
     for (auto& param : node.parameters) {
         std::string pName = "_p_" + param.name;
         variableTypes[pName] = {param.type, param.pointerLevel, param.isVolatile};
+        int pSize;
         if (param.pointerLevel > 0) {
             procLine += ", W#" + pName;
-            currentParamByteSize += 2;
+            pSize = 2;
         } else if (is8BitType(param.type)) {
             procLine += ", B#" + pName;
-            currentParamByteSize += 1;
+            pSize = 1;
         } else {
             procLine += ", W#" + pName;
-            currentParamByteSize += 2;
+            pSize = 2;
         }
-        // Params are NOT added to currentVars — they have fixed frame-relative offsets
+        currentParamByteSize += pSize;
+        paramInfos.push_back({pName, pSize});
     }
     out << procLine << std::endl;
-    // FP offset starts at 1 (FP is at SP+1 after proc saves it)
-    emit(".var _fp = 1");
+    // _fp tracks current local frame size (no saved frame pointer)
+    emit(".var _fp = 0");
     currentVars.push_back("_fp");
+    // Params are stack-relative: past return addr (2 bytes) + cumulative offset.
+    // They get bumped alongside _fp when locals are declared.
+    {
+        int pOff = 2; // past 2-byte return address
+        for (int i = (int)paramInfos.size() - 1; i >= 0; --i) {
+            emit(".var " + paramInfos[i].pName + " = " + std::to_string(pOff));
+            currentVars.push_back(paramInfos[i].pName);
+            pOff += paramInfos[i].size;
+        }
+    }
     node.body->accept(*this);
     if (!node.isNoreturn) {
         // Check if the last statement in the body was a return statement.
@@ -554,7 +569,7 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
             }
         }
         if (!lastWasReturn) {
-            int cleanupSize = currentLocalByteSize + 2; // +2 for saved frame pointer
+            int cleanupSize = currentLocalByteSize;
             if (cleanupSize > 0) {
                 emitter->taz();
                 for (int i = 0; i < cleanupSize; ++i) emitter->pla();
@@ -1455,9 +1470,9 @@ void CodeGenerator::visit(ReturnStatement& node) {
         node.expression->accept(*this);
         resultNeeded = oldNeeded;
     }
-    // Clean up local variables + saved frame pointer from stack before returning.
+    // Clean up local variables from stack before returning.
     // AX holds the return value, so use Z register to preserve A.
-    int cleanupSize = currentLocalByteSize + 2; // +2 for saved frame pointer
+    int cleanupSize = currentLocalByteSize;
     if (cleanupSize > 0) {
         emitter->taz();
         for (int i = 0; i < cleanupSize; ++i) emitter->pla();
