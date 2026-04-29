@@ -19,10 +19,10 @@ enum class TokenType {
     STRUCT,
     UNION,
     VOLATILE,
-    _Static_assert,
-    _Alignas,
-    _Alignof,
-    _Noreturn,
+    STATIC_ASSERT,
+    ALIGNAS,
+    ALIGNOF,
+    NORETURN,
     BREAK,
     CONTINUE,
     SWITCH,
@@ -30,7 +30,7 @@ enum class TokenType {
     DEFAULT,
     GOTO,
     SIZEOF,
-    _GENERIC,
+    GENERIC,
     TYPEDEF,
     ENUM,
     EXTERN,
@@ -117,10 +117,10 @@ struct Token {
             case TokenType::STRUCT: return "STRUCT";
             case TokenType::UNION: return "UNION";
             case TokenType::VOLATILE: return "VOLATILE";
-            case TokenType::_Static_assert: return "_Static_assert";
-            case TokenType::_Alignas: return "_Alignas";
-            case TokenType::_Alignof: return "_Alignof";
-            case TokenType::_Noreturn: return "_Noreturn";
+            case TokenType::STATIC_ASSERT: return "STATIC_ASSERT";
+            case TokenType::ALIGNAS: return "ALIGNAS";
+            case TokenType::ALIGNOF: return "ALIGNOF";
+            case TokenType::NORETURN: return "NORETURN";
             case TokenType::BREAK: return "BREAK";
             case TokenType::CONTINUE: return "CONTINUE";
             case TokenType::SWITCH: return "SWITCH";
@@ -128,7 +128,7 @@ struct Token {
             case TokenType::DEFAULT: return "DEFAULT";
             case TokenType::GOTO: return "GOTO";
             case TokenType::SIZEOF: return "SIZEOF";
-            case TokenType::_GENERIC: return "_GENERIC";
+            case TokenType::GENERIC: return "GENERIC";
             case TokenType::TYPEDEF: return "TYPEDEF";
             case TokenType::ENUM: return "ENUM";
             case TokenType::EXTERN: return "EXTERN";

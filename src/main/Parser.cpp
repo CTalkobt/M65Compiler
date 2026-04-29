@@ -47,7 +47,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             unit->topLevelDecls.push_back(setPos(std::make_unique<AsmStatement>(code), tokens[pos-5]));
             continue;
         }
-        if (peek().type == TokenType::_Static_assert) {
+        if (peek().type == TokenType::STATIC_ASSERT) {
             auto decl = parseStaticAssert();
             flushPending(*unit);
             unit->topLevelDecls.push_back(std::unique_ptr<Statement>(std::move(decl)));
@@ -87,12 +87,12 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             look++;
         }
 
-        if (tokens[look].type == TokenType::_Noreturn) {
+        if (tokens[look].type == TokenType::NORETURN) {
             isNR = true;
             look++;
         }
 
-        if (tokens[look].type == TokenType::_Alignas) {
+        if (tokens[look].type == TokenType::ALIGNAS) {
             look++;
             if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
                 look++;
@@ -157,7 +157,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 look++;
                 if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
                     if (isExtern) match(TokenType::EXTERN);
-                    if (isNR) match(TokenType::_Noreturn);
+                    if (isNR) match(TokenType::NORETURN);
                     while (match(TokenType::VOLATILE) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
                     auto decl = parseFunctionDeclaration();
                     decl->isNoreturn = isNR;
@@ -167,7 +167,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     unit->topLevelDecls.push_back(std::move(decl));
                 } else {
                     if (isExtern) match(TokenType::EXTERN);
-                    if (isNR) match(TokenType::_Noreturn);
+                    if (isNR) match(TokenType::NORETURN);
                     while (match(TokenType::VOLATILE) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
                     auto decl = parseVariableDeclaration(isVol);
                     if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
@@ -179,7 +179,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     unit->topLevelDecls.push_back(std::move(decl));
                 }
             } else {
-                if (isNR) match(TokenType::_Noreturn);
+                if (isNR) match(TokenType::NORETURN);
                 while (match(TokenType::VOLATILE) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
                 auto decl = parseFunctionDeclaration();
                 decl->isNoreturn = isNR;
@@ -187,7 +187,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 unit->topLevelDecls.push_back(std::move(decl));
             }
         } else {
-            if (isNR) match(TokenType::_Noreturn);
+            if (isNR) match(TokenType::NORETURN);
             while (match(TokenType::VOLATILE) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
             auto decl = parseFunctionDeclaration();
             decl->isNoreturn = isNR;
@@ -200,7 +200,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
 
 std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     const Token& startToken = peek();
-    bool isNR = match(TokenType::_Noreturn);
+    bool isNR = match(TokenType::NORETURN);
     std::string returnType;
     bool isSigned = false;
     int basePtrLevel = 0;
@@ -557,7 +557,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
         return setPos(std::make_unique<AsmStatement>(code), startToken);
     }
 
-    if (peek().type == TokenType::_Static_assert) {
+    if (peek().type == TokenType::STATIC_ASSERT) {
         return parseStaticAssert();
     }
 
@@ -573,7 +573,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
 
 std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile) {
     std::unique_ptr<Expression> alignmentExpr = nullptr;
-    if (match(TokenType::_Alignas)) {
+    if (match(TokenType::ALIGNAS)) {
         expect(TokenType::OPEN_PAREN, "Expected '(' after '_Alignas'");
         if (peek().type == TokenType::INT || peek().type == TokenType::CHAR || peek().type == TokenType::BOOL || peek().type == TokenType::STRUCT || peek().type == TokenType::VOID) {
             std::string aType;
@@ -655,7 +655,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile) {
 }
 
 std::unique_ptr<StaticAssert> Parser::parseStaticAssert() {
-    const Token& startToken = expect(TokenType::_Static_assert, "Expected '_Static_assert'");
+    const Token& startToken = expect(TokenType::STATIC_ASSERT, "Expected '_Static_assert'");
     expect(TokenType::OPEN_PAREN, "Expected '(' after '_Static_assert'");
     auto condition = parseExpression();
     expect(TokenType::COMMA, "Expected ',' after condition in '_Static_assert'");
@@ -678,7 +678,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
     auto def = setPos(std::make_unique<StructDefinition>(name, isUnion), startToken);
     while (peek().type != TokenType::CLOSE_BRACE && peek().type != TokenType::END_OF_FILE) {
         std::unique_ptr<Expression> mAlignmentExpr = nullptr;
-        if (match(TokenType::_Alignas)) {
+        if (match(TokenType::ALIGNAS)) {
             expect(TokenType::OPEN_PAREN, "Expected '(' after '_Alignas'");
             if (peek().type == TokenType::INT || peek().type == TokenType::CHAR || peek().type == TokenType::STRUCT || peek().type == TokenType::UNION || peek().type == TokenType::VOID) {
                 std::string aType;
@@ -1016,10 +1016,10 @@ std::unique_ptr<Expression> Parser::parseUnary() {
 
 std::unique_ptr<Expression> Parser::parsePrimary() {
     std::unique_ptr<Expression> expr;
-    if (match(TokenType::_GENERIC)) {
+    if (match(TokenType::GENERIC)) {
         return parseGenericSelection();
     }
-    if (match(TokenType::_Alignof)) {
+    if (match(TokenType::ALIGNOF)) {
         expect(TokenType::OPEN_PAREN, "Expected '(' after '_Alignof'");
         std::string typeName;
         if (match(TokenType::INT)) typeName = "int";
