@@ -20,6 +20,7 @@ ln45 [options] <file1.o45> [file2.o45 ...]
 | `-b <addr>` | Set BSS segment base address (hex, default: after data) |
 | `-z <addr>` | Set zero page base address (hex, default: `02`) |
 | `-m` | Print linker map (symbol addresses) after linking |
+| `-M <file>` | Write detailed linker map file (segment layout, per-object contributions, symbols) |
 | `-V` / `--version` | Display version and exit |
 | `-?` | Display help |
 
@@ -109,6 +110,40 @@ Symbol map:
   0000203c _add
   00002068 _mul2
   0000208b _result
+```
+
+### Detailed linker map file
+
+```bash
+ln45 -prg -M program.map -o program.prg main.o45 crt0.o45 puts.o45
+```
+
+Example map file (`program.map`):
+```
+Linker Map
+==========
+
+Memory Layout
+-------------
+  TEXT   $2000 - $203B  (60 bytes)
+  DATA   $203C - $2041  (6 bytes)
+
+Object Files
+------------
+  main.o45
+    TEXT  $2000 - $2007  (8 bytes)
+    DATA  $203C - $2041  (6 bytes)
+  crt0.o45
+    TEXT  $2008 - $200E  (7 bytes)
+  puts.o45
+    TEXT  $200F - $203B  (45 bytes)
+
+Symbols (by address)
+--------------------
+  $2000  _main                          main.o45
+  $2008  __init                         crt0.o45
+  $200E  _init_features                 crt0.o45 [weak]
+  $200F  _puts                          puts.o45
 ```
 
 ### Custom memory layout

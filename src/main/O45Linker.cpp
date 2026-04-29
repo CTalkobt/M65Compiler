@@ -1,5 +1,6 @@
 #include "O45Linker.hpp"
 #include <algorithm>
+#include <iomanip>
 
 // =============================================================================
 // O45RelocDecoder — inverse of O45RelocEncoder
@@ -425,4 +426,86 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     }
 
     return binary;
+}
+
+// =============================================================================
+// Map file output
+// =============================================================================
+
+void O45Linker::writeMap(std::ostream& out) const {
+    // --- Memory layout ---
+    out << "Linker Map\n";
+    out << "==========\n\n";
+
+    out << "Memory Layout\n";
+    out << "-------------\n";
+    auto printSeg = [&](const char* name, uint32_t base, uint32_t len) {
+        if (len == 0) return;
+        char buf[80];
+        snprintf(buf, sizeof(buf), "  %-6s $%04X - $%04X  (%u bytes)\n",
+                 name, base, base + len - 1, len);
+        out << buf;
+    };
+    printSeg("TEXT", textBase_, (uint32_t)mergedText_.size());
+    printSeg("DATA", dataBase_, (uint32_t)mergedData_.size());
+    printSeg("BSS", bssBase_, mergedBssLen_);
+    printSeg("ZP", zpBase_, mergedZpLen_);
+    out << "\n";
+
+    // --- Per-object contributions ---
+    out << "Object Files\n";
+    out << "------------\n";
+    for (const auto& input : objects_) {
+        out << "  " << input.filename << "\n";
+        char buf[80];
+        if (input.obj.tlen > 0) {
+            uint32_t start = textBase_ + input.textOffset;
+            snprintf(buf, sizeof(buf), "    TEXT  $%04X - $%04X  (%u bytes)\n",
+                     start, start + input.obj.tlen - 1, input.obj.tlen);
+            out << buf;
+        }
+        if (input.obj.dlen > 0) {
+            uint32_t start = dataBase_ + input.dataOffset;
+            snprintf(buf, sizeof(buf), "    DATA  $%04X - $%04X  (%u bytes)\n",
+                     start, start + input.obj.dlen - 1, input.obj.dlen);
+            out << buf;
+        }
+        if (input.obj.blen > 0) {
+            uint32_t start = bssBase_ + input.bssOffset;
+            snprintf(buf, sizeof(buf), "    BSS   $%04X - $%04X  (%u bytes)\n",
+                     start, start + input.obj.blen - 1, input.obj.blen);
+            out << buf;
+        }
+        if (input.obj.zlen > 0) {
+            uint32_t start = zpBase_ + input.zpOffset;
+            snprintf(buf, sizeof(buf), "    ZP    $%04X - $%04X  (%u bytes)\n",
+                     start, start + input.obj.zlen - 1, input.obj.zlen);
+            out << buf;
+        }
+    }
+    out << "\n";
+
+    // --- Symbols sorted by address ---
+    out << "Symbols (by address)\n";
+    out << "--------------------\n";
+
+    // Build address-sorted list
+    std::vector<std::pair<uint32_t, std::string>> sorted;
+    sorted.reserve(globalSymbols_.size());
+    for (const auto& [name, addr] : globalSymbols_) {
+        sorted.push_back({addr, name});
+    }
+    std::sort(sorted.begin(), sorted.end());
+
+    for (const auto& [addr, name] : sorted) {
+        char buf[120];
+        auto srcIt = symbolSource_.find(name);
+        auto weakIt = symbolWeak_.find(name);
+        const char* weakTag = (weakIt != symbolWeak_.end() && weakIt->second) ? " [weak]" : "";
+        snprintf(buf, sizeof(buf), "  $%04X  %-30s %s%s\n",
+                 addr, name.c_str(),
+                 srcIt != symbolSource_.end() ? srcIt->second.c_str() : "",
+                 weakTag);
+        out << buf;
+    }
 }

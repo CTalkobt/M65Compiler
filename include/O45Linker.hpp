@@ -51,6 +51,9 @@ public:
     // After a successful link, retrieve the global symbol map (name -> final address).
     const std::map<std::string, uint32_t>& getSymbolMap() const { return globalSymbols_; }
 
+    // Write a detailed linker map to a stream. Call after link().
+    void writeMap(std::ostream& out) const;
+
 private:
     struct InputObject {
         std::string filename;

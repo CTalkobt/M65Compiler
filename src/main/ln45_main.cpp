@@ -19,6 +19,7 @@ static void printUsage(const char* progName) {
     std::cout << "  -z <addr>      Set zero page base address (hex; default: 02)" << std::endl;
     std::cout << "  -l <lib.lib>   Link against a library archive (selective linking)" << std::endl;
     std::cout << "  -m             Print linker map (symbol addresses) after linking" << std::endl;
+    std::cout << "  -M <file>      Write detailed linker map file (segments, objects, symbols)" << std::endl;
     std::cout << "  -?             Display this help message" << std::endl;
 }
 
@@ -32,6 +33,7 @@ int main(int argc, char** argv) {
     bool isPrg = false;
     bool isBasic = false;
     bool printMap = false;
+    std::string mapFile;
     uint32_t textBase = 0x2000; // sensible MEGA65 default
     bool textBaseSet = false;
     uint32_t dataBase = 0; bool dataBaseSet = false;
@@ -48,6 +50,7 @@ int main(int argc, char** argv) {
         else if (arg == "-prg") { isPrg = true; }
         else if (arg == "-basic") { isBasic = true; isPrg = true; }
         else if (arg == "-m") { printMap = true; }
+        else if (arg == "-M" && i + 1 < argc) { mapFile = argv[++i]; }
         else if (arg == "-l" && i + 1 < argc) { libFiles.push_back(argv[++i]); }
         else if (arg == "-t" && i + 1 < argc) { textBase = parseAddr(argv[++i]); textBaseSet = true; }
         else if (arg == "-d" && i + 1 < argc) { dataBase = parseAddr(argv[++i]); dataBaseSet = true; }
@@ -187,6 +190,18 @@ int main(int argc, char** argv) {
         for (const auto& [name, addr] : linker.getSymbolMap()) {
             printf("  %08x %s\n", addr, name.c_str());
         }
+    }
+
+    // Write detailed map file if requested
+    if (!mapFile.empty()) {
+        std::ofstream mf(mapFile);
+        if (!mf.is_open()) {
+            std::cerr << "ln45: cannot write map file " << mapFile << std::endl;
+            return 1;
+        }
+        linker.writeMap(mf);
+        mf.close();
+        std::cout << "Map file: " << mapFile << std::endl;
     }
 
     return 0;

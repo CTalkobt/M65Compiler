@@ -197,9 +197,7 @@ Steps required to bring the C compiler closer to C11 standards.
 
 ### Medium Priority
 
-- [ ] **`strip45` — Symbol Stripper**: Removes symbol/debug information from a final linked binary to reduce size. Particularly relevant since `.zp` space is precious.
-- [ ] **`prg45` — PRG File Utility**: Inspect, split, or re-header `.prg` files (2-byte load-address format). Could also handle multi-part PRG loads or inject a BASIC stub.
-- [ ] **Linker Map File**: `-M` flag on `ln45` to emit a map file showing final address assignment for every symbol and segment.
+- [X] **Linker Map File**: `-M <file>` flag on `ln45` emits a detailed map file showing merged segment layout (address ranges, sizes), per-object contributions (which file contributes which address range to each segment), and all resolved symbols sorted by address with source file and weak annotations.
 
 ### Required Deliverable (not a standalone tool)
 
