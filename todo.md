@@ -90,6 +90,7 @@ Steps required to bring the C compiler closer to C11 standards.
 ### 2. Type System Enhancements
 - [X] **Structures**: Support `struct` definitions, members, and dot/arrow operators.
 - [X] **Pointers**: Multi-level indirection, dereferencing (`*`), and address-of (`&`).
+- [X] **`void *` Type**: Support `void` as a type specifier in parameters, return types, locals, and casts. `void *` is a generic 16-bit pointer.
 - [X] **Anonymous Structures & Unions**: Support nested structs/unions without names.
 - [d] **Atomic Types**: Support `_Atomic` type qualifier (requires assembler primitives for locking/atomic ops).
 - [d] **Variable Length Arrays**: Support C99/C11 VLAs (requires dynamic stack allocation logic).
@@ -218,7 +219,7 @@ All modules are hand-written 45GS02 assembly in `lib/stdlib/`, archived into `st
 - [X] **`string.h`**: `strlen`, `strcpy`, `strncpy`, `strcmp`, `strncmp`, `strcat`, `strchr`, `strrchr`, `memcpy`, `memmove`, `memset`, `memcmp` (12 functions). Validated via mmemu emulator tests (`test_strlen`, `test_strcmp`, `test_strcpy`, `test_memcpy`, `test_strchr`).
 - [X] **`stdio.h`**: `putchar`, `puts` (KERNAL CHROUT wrappers).
 - [X] **`stdlib.h`**: `exit` (jumps to CRT `__exit` label with status in `.AX`).
-- [ ] **`ctype.h`**: `isdigit`, `isalpha`, `isalnum`, `isspace`, `isprint`, `toupper`, `tolower` (PETSCII-aware).
+- [X] **`ctype.h`**: `isdigit`, `isalpha`, `isalnum`, `isspace`, `isprint`, `toupper`, `tolower` (PETSCII-aware). Validated via build + link.
 - [ ] **`stdlib.h` (remaining)**: `abs`, `atoi`, `itoa`, `rand`, `srand`.
 - [ ] **Heap**: `malloc`, `free`, `calloc`, `realloc` (requires `#pragma crt heap`).
 

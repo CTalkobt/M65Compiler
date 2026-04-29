@@ -59,22 +59,25 @@ All string and memory functions are implemented in hand-written 45GS02 assembly 
 
 ## 4. Character Utilities (`ctype.h`)
 
-Simple logic-based character classification. A lookup table approach saves code size but costs 256 bytes of data; inline logic is more appropriate for this target.
+All character classification and conversion functions are implemented in hand-written 45GS02 assembly (`lib/stdlib/*.s`) and archived in `stdlib45.lib`. They operate on **PETSCII** character codes (the MEGA65's native character set).
 
-- **`isdigit(int c)`**, **`isalpha(int c)`**, **`isalnum(int c)`**
-- **`isspace(int c)`**, **`isprint(int c)`**
-- **`toupper(int c)`**, **`tolower(int c)`**
+**PETSCII character ranges:**
+- Digits `'0'`–`'9'` = `$30`–`$39`
+- Lowercase `'a'`–`'z'` = `$41`–`$5A` (PETSCII unshifted / default)
+- Uppercase `'A'`–`'Z'` = `$C1`–`$DA` (PETSCII shifted)
+- Space = `$20`, CR = `$0D`, Tab = `$09`
+- Printable: `$20`–`$7E` and `$A0`–`$FF`
 
-### Implementation Strategy
+**Classification functions:**
+- **`isdigit(int c)`**: Returns 1 if `$30`–`$39`. **Implemented.**
+- **`isalpha(int c)`**: Returns 1 if `$41`–`$5A` or `$C1`–`$DA`. **Implemented.**
+- **`isalnum(int c)`**: Returns 1 if digit or letter. **Implemented.**
+- **`isspace(int c)`**: Returns 1 if `$20` (space) or `$09`–`$0D` (tab, LF, VT, FF, CR). **Implemented.**
+- **`isprint(int c)`**: Returns 1 if `$20`–`$7E` or `$A0`–`$FF`. **Implemented.**
 
-These can be implemented as simple range checks. Note that PETSCII character ranges differ from ASCII — the library should document whether it operates on PETSCII or screen codes. Recommendation: operate on PETSCII (the native character set), with conversion helpers in `stdcbm`.
-
-```c
-// PETSCII-aware: uppercase A-Z = $C1-$DA, lowercase a-z = $41-$5A
-int isalpha(int c) {
-    return (c >= 0x41 && c <= 0x5A) || (c >= 0xC1 && c <= 0xDA);
-}
-```
+**Conversion functions:**
+- **`toupper(int c)`**: If lowercase (`$41`–`$5A`), returns uppercase (`$C1`–`$DA`) via `ORA #$80`. Otherwise returns `c` unchanged. **Implemented.**
+- **`tolower(int c)`**: If uppercase (`$C1`–`$DA`), returns lowercase (`$41`–`$5A`) via `AND #$7F`. Otherwise returns `c` unchanged. **Implemented.**
 
 ## 5. General Utilities (`stdlib.h`)
 
@@ -282,7 +285,7 @@ Recommended order based on utility and dependency:
 1. **Phase 1 — Headers only** (no linkage needed): `stdint.h`, `stddef.h`, `stdbool.h`, `limits.h` — **Done.**
 2. **Phase 2 — Core runtime**: `crt0.s`, `putchar`/`puts`, `exit` (enables visible output and clean termination) — **Done.** CRT pragmas (`exit_rts`/`exit_halt`/`exit_brk`, `no_bssinit`, `no_0100_stack`) implemented.
 3. **Phase 3 — String/memory**: `string.h` functions (12 functions, all hand-written 45GS02 assembly, mmemu-validated) — **Done.**
-4. **Phase 4 — Utilities**: `ctype.h`, `atoi`/`itoa`, `abs`, `rand`
+4. **Phase 4 — Utilities**: `ctype.h` (7 functions, all hand-written 45GS02 assembly) — **Done.** Remaining: `atoi`/`itoa`, `abs`, `rand`
 5. **Phase 5 — Heap**: `malloc`/`free`/`calloc`/`realloc` (complex, defer until needed)
 
 ## 11. Compiler Prerequisites

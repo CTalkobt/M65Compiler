@@ -272,6 +272,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             else if (match(TokenType::INT)) pType = "int";
             else if (match(TokenType::CHAR)) pType = "char";
             else if (match(TokenType::BOOL)) pType = "_Bool";
+            else if (match(TokenType::VOID)) pType = "void";
             else if (match(TokenType::STRUCT) || match(TokenType::UNION) || match(TokenType::ENUM)) {
                 bool isU = tokens[pos-1].type == TokenType::UNION;
                 bool isE = tokens[pos-1].type == TokenType::ENUM;
