@@ -6,7 +6,7 @@
 //
 // The .o45 format is a 32-bit extension of Andre Fachat's .o65 relocatable
 // object format. All values below reuse .o65 definitions unless marked [ext].
-// See lib.md for the full specification.
+// See doc/lib45.md for the full specification.
 // =============================================================================
 
 // --- File markers ---

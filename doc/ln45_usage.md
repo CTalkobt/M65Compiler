@@ -139,4 +139,4 @@ BSS is not included in the output — it must be zeroed at runtime (by `crt0` or
 - [ca45](ca45.md) — Assembler (produces `.o45` with `-c`)
 - [cc45](cc45.md) — C Compiler (produces `.o45` with `-c`)
 - [nm45](nm45.md) — Symbol lister for `.o45` files
-- [lib.md](../lib.md) — `.o45` format specification
+- [lib45.md](lib45.md) — `.o45` format specification

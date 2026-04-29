@@ -70,7 +70,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **Operator precedence (extended)**: Support complex pointer precedence like `*p++` vs `(*p)++`.
 
 ## Roadmap - Linker & Libraries (ln45)
-- [X] **Object Format**: Define the `.o45` relocatable object format as an extension of the `.o65` specification. See [lib.md](lib.md).
+- [X] **Object Format**: Define the `.o45` relocatable object format as an extension of the `.o65` specification. See [doc/lib45.md](doc/lib45.md).
     - [X] **Extended Header**: 41-byte header with 32-bit segment fields, mode word ($8800), CPU ID ($45).
     - [X] **Linear Relocations**: `R_LINEAR24` ($60) and `R_LINEAR32` ($A0) relocation types defined.
     - [X] **C++ Constants**: `O45Types.hpp` with all format enums, constants, and helpers.
@@ -191,7 +191,7 @@ Steps required to bring the C compiler closer to C11 standards.
 
 ### High Priority (directly support the linker workflow)
 
-- [ ] **`dis45` — Disassembler**: Disassemble `.bin`/`.prg` output or `.o45` sections back to 45GS02 assembly. Critical for verifying compiler and linker output; no existing disassembler fully covers the 45GS02 instruction set (quad-mode, linear addressing, etc.).
+- [X] **`objdump45` — Object File Inspector & Disassembler**: Disassembles `.o45`/`.o65` sections back to 45GS02 assembly with symbolic labels and branch annotations. Also displays file headers, section headers, symbol tables, relocation entries, and hex dumps. Covers all 45GS02 addressing modes. 85-assertion test suite (`make test-objdump45`).
 - [X] **`nm45` — Symbol Lister & Object Inspector**: Lists symbols and inspects `.o45`/`.o65` object files. Symbol flags: `-u`, `-g`, `-n`, `-R`, `-p`, `-A`. Inspection flags: `-h` (header/mode/CPU/options), `-r` (decoded relocation tables), `-s` (segment sizes), `-a` (all). Replaces the need for separate `readobj45` and `size45` utilities.
 - [X] **`readobj45`**: Covered by `nm45 -h` (header) and `nm45 -r` (relocations).
 

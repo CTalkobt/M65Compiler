@@ -7,6 +7,7 @@ A modern development toolchain for the MEGA65 (45GS02) home computer. It consist
 - **ln45** — Linker (links `.o45` objects and `.lib` archives into flat binaries or PRG executables)
 - **ar45** — Archiver (creates `.lib` static library archives from `.o45` objects)
 - **nm45** — Symbol lister for `.o45` / `.o65` object files
+- **objdump45** — Object file inspector and 45GS02 disassembler
 - **cp45** — C preprocessor (standalone)
 
 
@@ -47,6 +48,7 @@ Compile C files to `.o45` relocatable objects for separate compilation and linki
 ./bin/cc45 -c main.c -o main.o45        # Compile to object
 ./bin/cc45 -c math.c -o math.o45        # Compile to object
 ./bin/nm45 main.o45                     # Inspect symbols
+./bin/objdump45 -d main.o45             # Disassemble
 ./bin/ln45 -prg main.o45 math.o45 -o app.prg  # Link into PRG
 
 # Or create a library and link against it:
@@ -90,9 +92,10 @@ For detailed information on each tool, refer to:
 - [doc/cc45.md](doc/cc45.md) — Compiler Usage and Features
 - [doc/ca45.md](doc/ca45.md) — Assembler Syntax and Reference
 - [doc/nm45.md](doc/nm45.md) — Symbol Lister for `.o45` Object Files
+- [doc/objdump45.md](doc/objdump45.md) — Object File Inspector and Disassembler
 - [doc/cp45.md](doc/cp45.md) — Preprocessor Features and Usage
 - [doc/opcodes.md](doc/opcodes.md) — 45GS02 Instruction Reference
-- [lib.md](lib.md) — `.o45` Relocatable Object Format Specification
+- [doc/lib45.md](doc/lib45.md) — `.o45` Relocatable Object Format Specification
 - [doc/ln45_usage.md](doc/ln45_usage.md) — Linker Usage and Reference
 - [doc/ar45.md](doc/ar45.md) — Archiver Usage and Reference
 - [doc/ln45.md](doc/ln45.md) — Linker Design Notes
