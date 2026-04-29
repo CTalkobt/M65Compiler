@@ -761,6 +761,12 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                     ss >> crtArg;
                     if (crtArg == "no_0100_stack") {
                         output << "__asm__(\".crt_no_0100_stack\");\n";
+                    } else if (crtArg == "exit_halt") {
+                        output << "__asm__(\".crt_exit_halt\");\n";
+                    } else if (crtArg == "exit_rts") {
+                        output << "__asm__(\".crt_exit_rts\");\n";
+                    } else if (crtArg == "exit_brk") {
+                        output << "__asm__(\".crt_exit_brk\");\n";
                     } else {
                         output << "\n";
                     }

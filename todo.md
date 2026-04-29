@@ -203,7 +203,14 @@ Steps required to bring the C compiler closer to C11 standards.
 
 ### Required Deliverable (not a standalone tool)
 
-- [ ] **`crt45.s` — C Runtime Startup**: Assembly source linked into every C program. Responsibilities: copy initialized `.data` from ROM to RAM, zero `.bss`, set up the zero-page register pool (the `B` register for Direct Page), then `JSR main` and handle return. Infrastructure for `#pragma crt` feature flags is implemented (`no_0100_stack` emits `.extern __sp_base` for linker-resolved stack relocation). Additional pragmas (`no_bssinit`, `no_datainit`, etc.) can follow the same pattern.
+- [ ] **`crt45.s` — C Runtime Startup**: Modular CRT archive (`crt45.lib`) linked into every C program. Infrastructure for `#pragma crt` feature flags is implemented. Individual CRT modules:
+    - [X] **`#pragma crt no_0100_stack`**: Relocate stack to a non-$01 page. Emits `.extern __sp_base` for linker resolution; all stack-relative ops use the relocatable `__sp_base` symbol.
+    - [ ] **`#pragma crt no_bssinit`**: Skip BSS zeroing at startup. Opt-out flag tells linker to exclude `crt_bssinit.o45` from the CRT archive.
+    - [ ] **`#pragma crt no_datainit`**: Skip `.data` ROM→RAM copy at startup. Opt-out flag excludes `crt_datainit.o45`.
+    - [ ] **`#pragma crt no_dpsetup`**: Skip Direct Page / B register setup. Opt-out flag excludes `crt_dpsetup.o45`.
+    - [X] **`#pragma crt exit_halt|exit_rts|exit_brk`**: Select program exit behavior after `main` returns. `exit_rts` (default): saves/restores caller's full 16-bit SP, provides `__exit` label for future `exit()` support. `exit_halt`: infinite `bra` loop. `exit_brk`: break to debugger. Setting one unsets the others.
+    - [ ] **`#pragma crt heap`**: Pull in heap initialization and malloc/free support. Opt-in flag forces `crt_heap.o45` from the CRT archive.
+    - [ ] **`#pragma crt stdio`**: Pull in stdio initialization (screen, I/O). Opt-in flag forces `crt_stdio.o45` from the CRT archive.
 
 ---
 

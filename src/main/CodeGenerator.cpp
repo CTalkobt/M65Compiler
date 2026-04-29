@@ -448,6 +448,9 @@ void CodeGenerator::visit(TranslationUnit& node) {
             if (auto* asmStmt = dynamic_cast<AsmStatement*>(decl.get())) {
                 if (asmStmt->code == ".weak_next") { nextIsWeak = true; continue; }
                 if (asmStmt->code == ".crt_no_0100_stack") { crtNoPageOneStack = true; continue; }
+                if (asmStmt->code == ".crt_exit_halt") { crtExit = CrtExit::HALT; continue; }
+                if (asmStmt->code == ".crt_exit_rts") { crtExit = CrtExit::RTS; continue; }
+                if (asmStmt->code == ".crt_exit_brk") { crtExit = CrtExit::BRK; continue; }
             }
             if (auto* fn = dynamic_cast<FunctionDeclaration*>(decl.get())) {
                 if (!fn->isPrototype) {
@@ -498,12 +501,37 @@ void CodeGenerator::visit(TranslationUnit& node) {
         if (hasMain) {
             // Inline crt0: __init calls _init_features (weak stub), then _main
             // Returns to caller with .AX = main's return value
+            if (crtExit == CrtExit::RTS) {
+                // Save caller's SP into the immediate operands of the restore instructions
+                out << "    tsx" << std::endl;
+                out << "    stx __saved_spl + 1" << std::endl;
+                out << "    tsy" << std::endl;
+                out << "    sty __saved_sph + 1" << std::endl;
+            }
             out << "    jsr __init" << std::endl;
-            out << "_halt:" << std::endl;
-            out << "    bra _halt" << std::endl;
+            switch (crtExit) {
+                case CrtExit::RTS:
+                    // Restore caller's SP (self-modified immediates) and return
+                    out << "__exit:" << std::endl;
+                    out << "__saved_spl:" << std::endl;
+                    out << "    ldx #$ff" << std::endl;
+                    out << "    txs" << std::endl;
+                    out << "__saved_sph:" << std::endl;
+                    out << "    ldy #$01" << std::endl;
+                    out << "    tys" << std::endl;
+                    out << "    rts" << std::endl;
+                    break;
+                case CrtExit::BRK:
+                    out << "    brk" << std::endl;
+                    break;
+                default: // HALT
+                    out << "_halt:" << std::endl;
+                    out << "    bra _halt" << std::endl;
+                    break;
+            }
             out << "__init:" << std::endl;
             out << "    jsr _init_features" << std::endl;
-            out << "    jmp _main" << std::endl;  // tail-call: main's RTS returns to our caller with .AX intact
+            out << "    jmp _main" << std::endl;
             out << "_init_features:" << std::endl;
             out << "    rts" << std::endl;
         }
@@ -1453,6 +1481,12 @@ void CodeGenerator::visit(AsmStatement& node) {
     }
     if (node.code == ".crt_no_0100_stack") {
         crtNoPageOneStack = true;
+        return; // Don't emit — it's a compiler internal directive
+    }
+    if (node.code == ".crt_exit_halt" || node.code == ".crt_exit_rts" || node.code == ".crt_exit_brk") {
+        if (node.code == ".crt_exit_halt") crtExit = CrtExit::HALT;
+        else if (node.code == ".crt_exit_rts") crtExit = CrtExit::RTS;
+        else crtExit = CrtExit::BRK;
         return; // Don't emit — it's a compiler internal directive
     }
     embedSource(node);
