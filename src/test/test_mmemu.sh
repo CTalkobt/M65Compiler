@@ -345,6 +345,35 @@ else
     fi
 fi
 
+# --- Struct array test ---
+echo "Testing mmemu-cli with test_struct_array.c (struct arrays with loop)..."
+
+$CC src/test-resources/test_struct_array.c -o build/test/test_struct_array.s
+if [ $? -ne 0 ]; then
+    echo "FAIL: Compilation failed for test_struct_array.c"
+    failed=$((failed + 1))
+else
+    $AS build/test/test_struct_array.s -o build/test/test_struct_array.prg
+    if [ $? -ne 0 ]; then
+        echo "FAIL: Assembly failed for test_struct_array.s"
+        failed=$((failed + 1))
+    else
+        # Expected: 00 0A 15 1F 10 AA
+        # pts[0].x=0, pts[1].x=10, pts[2].y=21, pts[3].y=31, sizeof=16, marker
+        OUTPUT=$(echo -e "load build/test/test_struct_array.prg\nsetpc \$2000\nstep 50000000\nm \$4000 6\nq" | $MMEMU -m rawMega65 2>/dev/null)
+
+        if echo "$OUTPUT" | grep -qi "4000: 00 0a 15 1f 10 aa"; then
+            echo "SUCCESS: test_struct_array.c — struct arrays correct."
+        else
+            echo "FAIL: test_struct_array.c — struct array validation failed."
+            echo "Expected 4000: 00 0A 15 1F 10 AA"
+            echo "Actual output:"
+            echo "$OUTPUT" | grep "4000:"
+            failed=$((failed + 1))
+        fi
+    fi
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All mmemu tests passed!"
     exit 0

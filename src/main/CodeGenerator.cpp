@@ -1689,14 +1689,21 @@ void CodeGenerator::visit(SizeofExpression& node) {
         size = getTypeSize(node.typeName, node.pointerLevel, -1, structs);
     } else {
         ExpressionType et = getExprType(node.expression.get());
-        // We need the array size if it's a variable
+        // For sizeof on a variable, use the raw type (without array decay)
+        // so struct arrays compute element_size * count, not pointer_size * count
         int arrSize = -1;
+        int ptrLevel = et.pointerLevel;
         if (auto* ref = dynamic_cast<VariableReference*>(node.expression.get())) {
             std::string rName = resolveVarName(ref->name);
-            if (variableTypes.count(rName)) arrSize = variableTypes.at(rName).arraySize();
-            else if (globalVariableTypes.count("_" + ref->name)) arrSize = globalVariableTypes.at("_" + ref->name).arraySize();
+            VarInfo* vi = nullptr;
+            if (variableTypes.count(rName)) vi = &variableTypes.at(rName);
+            else if (globalVariableTypes.count("_" + ref->name)) vi = &globalVariableTypes.at("_" + ref->name);
+            if (vi) {
+                arrSize = vi->arraySize();
+                ptrLevel = vi->pointerLevel; // raw, without arrayDims adjustment
+            }
         }
-        size = getTypeSize(et.type, et.pointerLevel, arrSize, structs);
+        size = getTypeSize(et.type, ptrLevel, arrSize, structs);
     }
     std::stringstream ss; ss << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << size;
     emit("ldax #$" + ss.str());

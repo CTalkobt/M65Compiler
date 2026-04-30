@@ -119,7 +119,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **Arrays**: Implement native array declarations (`type name[size]`), subscript indexing (`a[i]`), and pointer decay.
 - [X] **Multi-dimensional arrays**: Support `int a[3][4]` row-major layout. Parser, type system, stride computation, constant-index and runtime-index codegen implemented. Validated via mmemu with loop-based stores and reads.
 - [ ] **Array Initializers**: Support initialized array declarations including partial initialization and `= {0}` zero-fill.
-- [ ] **Struct arrays**: Support `struct point pts[10];`.
+- [X] **Struct arrays**: Support `struct point pts[10];`. Constant and runtime-indexed access with member access (`pts[i].x`), loop-based stores, and `sizeof` all work. Validated via mmemu.
 - [ ] **Designated Initializers**: Support C99 designated initializers for structs (`{.x=1}`) and arrays (`{[2]=3}`).
 - [ ] **Compound Literals**: Support C99 compound literals for creating unnamed temporary objects inline (e.g., `(struct Point){.x=1, .y=2}`).
 - [ ] **Flexible Array Members**: Support C99 flexible array members as the last member of a struct (`int data[]`).
@@ -393,6 +393,12 @@ All modules are hand-written 45GS02 assembly in `lib/stdlib/`, archived into `st
   for immediate mode without verifying the `#` prefix. Fix: added `isImmediate`
   check (looks for `HASH` token) to `emitMulCode`, `emitDivCode`, and
   `emitSignedMathOp`. Only uses the immediate path when `#` is present.
+
+- [X] **Compiler: `sizeof` wrong for struct/pointer arrays** —
+  `sizeof(pts)` on `struct Point pts[4]` returned 8 instead of 16. The
+  `getExprType` array decay added `arrayDims.size()` to `pointerLevel`, making
+  `getTypeSize` treat the element as a 2-byte pointer instead of a 4-byte struct.
+  Fix: `sizeof` now uses the raw `vi->pointerLevel` from VarInfo, bypassing decay.
 
 - [X] **Compiler: global integer initializers emitted with wrong hex padding** —
   `int a = 3` emitted `.word $3000` instead of `.word $0003`. The `std::setw(4)`
