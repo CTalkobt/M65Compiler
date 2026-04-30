@@ -744,7 +744,6 @@ void CodeGenerator::visit(VariableDeclaration& node) {
     currentLocalByteSize += size;
     emit(".var " + lName + " = 0");
     currentVars.push_back(lName);
-    invalidateRegs();
 }
 
 void CodeGenerator::emitOperation(const std::string& op, int zpLeft, ExpressionType lhsType, ExpressionType rhsType) {
@@ -884,6 +883,17 @@ void CodeGenerator::visit(Assignment& node) {
         bool isGlobal = globalVariableTypes.count(rName);
         std::string suffix = isGlobal ? "" : ", s";
 
+        // Optimization: x = x;
+        if (auto* rhsRef = dynamic_cast<VariableReference*>(node.expression.get())) {
+            if (resolveVarName(rhsRef->name) == rName) {
+                VarInfo vi = variableTypes.count(rName) ? variableTypes.at(rName) : globalVariableTypes.at(rName);
+                if (!vi.isVolatile) {
+                    if (resultNeeded) node.target->accept(*this);
+                    return;
+                }
+            }
+        }
+
         if (auto* bin = dynamic_cast<BinaryOperation*>(node.expression.get())) {
             if (bin->op == "+" || bin->op == "-") {
                 if (auto* leftRef = dynamic_cast<VariableReference*>(bin->left.get())) {
@@ -982,12 +992,35 @@ void CodeGenerator::visit(Assignment& node) {
             if (structs.count(sName) && structs[sName]->totalSize > 1) is16 = true;
         }
         if (is16) {
-            emit("stax " + rName + suffix);
-            updateRegAVar(rName, 0); updateRegXVar(rName, 1);
+            bool lowCorrect = (regA.known && regA.isVariable && regA.varName == rName && regA.varOffset == 0);
+            bool highCorrect = (regX.known && regX.isVariable && regX.varName == rName && regX.varOffset == 1);
+            if (vi.isVolatile) { lowCorrect = false; highCorrect = false; }
+
+            if (lowCorrect && highCorrect) {
+                // Redundant store
+            } else if (lowCorrect) {
+                if (isGlobal) emit("stx " + rName + "+1");
+                else emit("stx.sp " + rName + "+1");
+            } else if (highCorrect) {
+                if (isGlobal) emit("sta " + rName);
+                else emit("sta.sp " + rName);
+            } else {
+                emit("stax " + rName + suffix);
+            }
+            if (vi.isVolatile) invalidateRegs();
+            else { updateRegAVar(rName, 0); updateRegXVar(rName, 1); }
         } else {
-            if (isGlobal) emit("sta " + rName);
-            else emit("sta.sp " + rName);
-            updateRegAVar(rName, 0);
+            bool lowCorrect = (regA.known && regA.isVariable && regA.varName == rName && regA.varOffset == 0);
+            if (vi.isVolatile) lowCorrect = false;
+
+            if (lowCorrect) {
+                // Redundant store
+            } else {
+                if (isGlobal) emit("sta " + rName);
+                else emit("sta.sp " + rName);
+            }
+            if (vi.isVolatile) invalidateRegs();
+            else updateRegAVar(rName, 0);
         }
         return;
     } else if (auto* ma = dynamic_cast<MemberAccess*>(node.target.get())) {
@@ -2006,6 +2039,8 @@ void CodeGenerator::visit(VariableReference& node) {
     if (is16Bit) {
         bool lowCorrect = (regA.known && regA.isVariable && regA.varName == rName && regA.varOffset == 0);
         bool highCorrect = (regX.known && regX.isVariable && regX.varName == rName && regX.varOffset == 1);
+        if (vi.isVolatile) { lowCorrect = false; highCorrect = false; }
+
         if (lowCorrect && highCorrect) {}
         else if (lowCorrect) { emit("ldx " + rName + "+1" + suffix); updateRegXVar(rName, 1); }
         else if (highCorrect) { emit(isGlobal ? ("lda " + rName) : ("lda.sp " + rName)); updateRegAVar(rName, 0); }
@@ -2013,12 +2048,19 @@ void CodeGenerator::visit(VariableReference& node) {
             emit("ldax " + rName + suffix); updateRegAVar(rName, 0); updateRegXVar(rName, 1); updateZNFlags(FlagSource::A);
         }
     } else {
-        if (regA.known && regA.isVariable && regA.varName == rName && regA.varOffset == 0) {}
-        else if (regX.known && regX.isVariable && regX.varName == rName && regX.varOffset == 0) {
+        bool lowCorrectA = (regA.known && regA.isVariable && regA.varName == rName && regA.varOffset == 0);
+        bool lowCorrectX = (regX.known && regX.isVariable && regX.varName == rName && regX.varOffset == 0);
+        bool lowCorrectY = (regY.known && regY.isVariable && regY.varName == rName && regY.varOffset == 0);
+        bool lowCorrectZ = (regZ.known && regZ.isVariable && regZ.varName == rName && regZ.varOffset == 0);
+
+        if (vi.isVolatile) { lowCorrectA = false; lowCorrectX = false; lowCorrectY = false; lowCorrectZ = false; }
+
+        if (lowCorrectA) {}
+        else if (lowCorrectX) {
             emit("txa"); transferRegs(FlagSource::A, FlagSource::X);
-        } else if (regY.known && regY.isVariable && regY.varName == rName && regY.varOffset == 0) {
+        } else if (lowCorrectY) {
             emit("tya"); transferRegs(FlagSource::A, FlagSource::Y);
-        } else if (regZ.known && regZ.isVariable && regZ.varName == rName && regZ.varOffset == 0) {
+        } else if (lowCorrectZ) {
             emit("tza"); transferRegs(FlagSource::A, FlagSource::Z);
         } else {
             emit(isGlobal ? ("lda " + rName) : ("lda.sp " + rName)); updateRegAVar(rName, 0);

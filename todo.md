@@ -18,6 +18,8 @@ Legend:
 - [X] **Constant Folding**: Evaluate `1 + 2` at compile time.
 - [X] **Strength Reduction**: Convert `x * 2` to `x << 1`, etc.
 - [X] **Register Allocation**: Better usage of A, X, Y, Z to reduce stack traffic. (Tracking implemented).
+- [X] **Granular Load/Store**: Individually track low and high bytes of 16-bit variables in AX registers to eliminate redundant half-word memory operations.
+- [X] **Self-Assignment Elimination**: Completely optimize out standalone `x = x` for non-volatile variables.
 - [X] **Increment Optimization**: Use `INC A`, `INX`, `INW`, etc. for `+ 1`.
 - [X] **Tiered Branching**: Automatic selection of short/long branches.
 - [X] **Logical Short-circuiting**: Implement `&&` and `||` short-circuiting in control flow and expressions.

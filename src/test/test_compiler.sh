@@ -67,6 +67,7 @@ TEST_FILES=(
     "src/test-resources/test_many_params_locals.c"
     "src/test-resources/test_ptr_precedence.c"
     "src/test-resources/test_bool.c"
+    "src/test-resources/test_opt_load_store.c"
 )
 
 mkdir -p build/test

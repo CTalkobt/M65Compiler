@@ -24,6 +24,17 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
     - Added `test_memcpy.c` — validates `memset`, `memcpy`, `memcmp` with 6 cases.
     - Added `test_strchr.c` — validates `strchr`/`strrchr` with 5 cases (first, last, not-found).
 
+### Optimized
+- **Compiler (cc45)**:
+    - **Granular Store Optimization**: The compiler now individually tracks the `A` and `X` registers during 16-bit assignments. If either register already contains the correct byte for the target variable, the corresponding `sta` or `stx` instruction is omitted. Standalone 8-bit stores are similarly optimized.
+    - **Self-Assignment Elimination**: Standalone `x = x;` statements for non-volatile variables are now completely optimized out.
+    - **Improved Register Reuse**: Removed aggressive register tracker invalidation after local variable declarations, allowing registers initialized during variable setup to be reused by subsequent statements.
+
+### Fixed
+- **Compiler (cc45)**:
+    - **Volatile Correctness**: Fixed a bug where `volatile` variable loads were being optimized away by the register tracker. Volatile variables now strictly result in explicit memory reads and writes as required by the C standard.
+    - **Stack-relative LDX/LDA suffix**: Ensured that granular 16-bit loads for local variables correctly use the `, s` stack-relative suffix.
+
 ### Changed
 - **Assembler (ca45)**:
     - `proc` now emits 0 bytes (was 5). No prologue — it only establishes scope and creates parameter symbols.
