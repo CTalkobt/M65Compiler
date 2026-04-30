@@ -9,8 +9,10 @@ Legend:
 ## Known Bugs
 
 - [ ] **BinaryExpr reentrancy**: `BinaryExpr::emit()` for `+`, `-`, `*`, `/` stores the left operand into MEGA65 hardware multiplier registers ($D770+), then evaluates `right->emit()`. If the right sub-expression itself contains `+`/`-`/`*`/`/`, it clobbers $D770 before the outer operation reads it. Example: `(a*b) * (c*d)` — inner `c*d` overwrites $D770 used by outer `*`. Bitwise/shift ops are safe (they use push_ax/pop_ax via the stack). Fix: switch arithmetic ops to the same push/pop pattern, or save/restore $D770-$D77F around right-side evaluation.
-- [ ] **Global array store SP offset**: When assigning to a global array element with a runtime index (`arr[i] = expr`), the compiler evaluates the RHS first and pushes it (`push .ax`), shifting SP by 2. The subsequent LHS `emitAddress` evaluates the index sub-expression (`ldax _l_i, s`) at the wrong SP offset. This causes the store to target the wrong address and the loop comparison to misread `i`, resulting in single-iteration loops. The `.var` system cannot support temporary offset bumps because `.var` assignments are only evaluated during pass 1 (not positionally during pass 2). Fix: either (a) track a "push depth" counter and adjust stack-relative operands in the emitter, or (b) reorder evaluation when the RHS has no function calls, or (c) implement positional `.var` evaluation in the assembler.
+- [ ] **Global array store SP offset**: When assigning to a global array element with a runtime index (`arr[i] = expr`), the compiler evaluates the RHS first and pushes it (`push .ax`), shifting SP by 2. The subsequent LHS `emitAddress` evaluates the index sub-expression (`ldax _l_i, s`) at the wrong SP offset. Constant-index stores work correctly. Root cause: `emitAddress` uses hardcoded ZP $02/$04 for intermediates, which conflicts with any ZP-based RHS save; and `push/pop` shifts SP. Fix requires either (a) making `emitAddress` use `allocateZP` instead of hardcoded addresses, or (b) restructuring evaluation order.
 - [ ] **Assembler simulated op size drift**: Some simulated opcodes may produce different sizes in pass 1 vs pass 2 when operand symbols are forward-referenced. Accumulates over large code bodies causing label address drift. `ptrstack` was fixed (was missing from pass 1 and pass 2 size chains). Other ops may have similar issues with large programs containing many function calls.
+- [ ] **Compiler `emitAddress` hardcoded ZP**: `emitAddress` uses hardcoded ZP $02/$04 for intermediate values without going through `allocateZP`. This prevents other codegen paths from safely using ZP for temporaries (e.g., saving RHS during assignment) since the allocator doesn't know $02/$04 are in use. Fix: migrate `emitAddress` to use `allocateZP`/`freeZP`.
+- [ ] **Assembler `.var` non-positional evaluation**: `.var` assignments are evaluated during pass 1 parsing and the FINAL value is used for ALL references in pass 2. Temporary bumps (`.var x = x + 2` then `.var x = x - 2`) don't work positionally — all references see the last-set value. This prevents SP offset compensation via `.var` bumps around `push`/`pop` sequences.
 
 ---
 
@@ -376,6 +378,21 @@ All modules are hand-written 45GS02 assembly in `lib/stdlib/`, archived into `st
   not as a memory reference to ZP $04. All stride multiplications produced
   `index * 4` instead of `index * stride`. Fix: emit `mul.16 .ax, #$stride`
   using an immediate operand, keeping the index in AX.
+
+- [X] **Assembler: `mul.16`/`div.16` result clobbered low byte** —
+  The result-reading loop for register destinations (`.AX`, `.AXY`, `.Q`) loaded
+  bytes sequentially: `LDA $D778` (low into A), then `LDA $D779` (high into A,
+  clobbering low), then `TAX` (high into X). Result: A=high, X=high, low byte
+  lost. For any multiply/divide producing a result > 255, the low byte was
+  always 0. Fix: read high bytes first into their target registers (X/Y/Z),
+  then load the low byte into A last. Same fix applied to `emitDivCode`.
+
+- [X] **Assembler: `mul.16`/`div.16` treated bare address as immediate** —
+  `mul.16 .ax, $04` parsed `$04` as constant value 4 (immediate) instead of
+  reading from memory address $04. The `isConstant()` check was used as a proxy
+  for immediate mode without verifying the `#` prefix. Fix: added `isImmediate`
+  check (looks for `HASH` token) to `emitMulCode`, `emitDivCode`, and
+  `emitSignedMathOp`. Only uses the immediate path when `#` is present.
 
 - [X] **Compiler: `_init_bss` placed after function code** —
   The BSS init routine was emitted in `emitData()` after all function bodies,
