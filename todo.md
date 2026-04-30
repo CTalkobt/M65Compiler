@@ -228,7 +228,7 @@ All modules are hand-written 45GS02 assembly in `lib/stdlib/`, archived into `st
 - [X] **`stdio.h`**: `putchar`, `puts` (KERNAL CHROUT wrappers).
 - [X] **`stdlib.h`**: `exit` (jumps to CRT `__exit` label with status in `.AX`).
 - [X] **`ctype.h`**: `isdigit`, `isalpha`, `isalnum`, `isspace`, `isprint`, `toupper`, `tolower` (PETSCII-aware). Validated via build + link.
-- [ ] **`stdlib.h` (remaining)**: `abs`, `atoi`, `itoa`, `rand`, `srand`.
+- [X] **`stdlib.h` (remaining)**: `abs`, `atoi`, `itoa`, `rand`, `srand`. `rand` uses MEGA65 hardware RNG at `$D7EF` with busy-wait on `$D7FE` bit 7. `srand` is a no-op (hardware RNG).
 - [ ] **Heap**: `malloc`, `free`, `calloc`, `realloc` (requires `#pragma crt heap`).
 
 ---

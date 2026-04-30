@@ -81,10 +81,11 @@ All character classification and conversion functions are implemented in hand-wr
 
 ## 5. General Utilities (`stdlib.h`)
 
-- **`abs(int j)`**: Absolute value. Requires `signed int` support (available in `cc45`).
-- **`atoi(const char *nptr)`**: Convert string to integer.
-- **`itoa(int value, char *str, int base)`**: Convert integer to string (essential for embedded display output).
-- **`rand()` / `srand(unsigned int seed)`**: Pseudo-random number generation (16-bit LFSR or xorshift).
+- **`abs(int j)`**: Absolute value. Returns `|j|` via two's complement negation if negative. **Implemented.**
+- **`atoi(const char *nptr)`**: Convert string to integer. Handles optional leading sign and decimal digits. **Implemented.**
+- **`itoa(int value, char *str, int base)`**: Convert integer to string in given base (2-36). Handles negative values for base 10. Uses MEGA65 hardware divider. **Implemented.**
+- **`rand()`**: Returns pseudo-random int (0-32767). Reads two bytes from MEGA65 hardware RNG at `$D7EF`, busy-waiting on `$D7FE` bit 7 for stabilization. Bit 15 cleared to match C standard positive range. **Implemented.**
+- **`srand(unsigned int seed)`**: No-op stub for C compatibility (MEGA65 hardware RNG is autonomous). **Implemented.**
 - **`exit(int status)`**: Terminate program execution. Loads the status code into `.AX` and jumps to the `__exit` label emitted by the CRT startup. The exit behavior depends on the `#pragma crt exit_*` mode: `exit_rts` (default) restores the caller's SP and returns, `exit_halt` enters an infinite loop, `exit_brk` triggers a BRK. **Implemented.**
 
 ## 6. Minimal I/O (`stdio.h`)
