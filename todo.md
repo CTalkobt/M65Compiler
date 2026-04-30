@@ -104,10 +104,10 @@ Steps required to bring the C compiler closer to C11 standards.
 - [d] **`long` Type**: Support 32-bit `long` integer type.
 - [d] **`long long` Type**: Support 64-bit `long long` integer type (C99).
 - [X] **`_Bool` Type**: Support C99 `_Bool` boolean type and `<stdbool.h>` header.
-- [ ] **`float` / `double` Types**: Support floating-point types (may leverage Commodore 40-bit float format via assembler).
+- [d] **`float` / `double` Types**: Support floating-point types (may leverage Commodore 40-bit float format via assembler).
 - [X] **`enum` Types**: Implement `enum` for defining named integer constant sets.
 - [X] **`const` Qualifier**: Support `const` type qualifier and associated read-only variable semantics.
-- [ ] **`restrict` Qualifier**: Support C99 `restrict` pointer qualifier to declare non-aliasing pointer arguments.
+- [X] **`restrict` Qualifier**: Support C99 `restrict` pointer qualifier to declare non-aliasing pointer arguments.
 - [ ] **`inline` Specifier**: Support the `inline` function specifier for inlining hints (C99).
 - [X] **Storage Classes**: Implement `auto` (default local) and `volatile` (qualifier).
 - [d] **Modern Type Inference**: Implement `auto` as C23/C++ style type inference for declarations with initializers.

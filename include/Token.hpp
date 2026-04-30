@@ -36,6 +36,7 @@ enum class TokenType {
     ENUM,
     EXTERN,
     BOOL,  // _Bool (C99)
+    RESTRICT, // restrict (C99)
 
     // Literals
     IDENTIFIER,
@@ -135,6 +136,7 @@ struct Token {
             case TokenType::ENUM: return "ENUM";
             case TokenType::EXTERN: return "EXTERN";
             case TokenType::BOOL: return "_Bool";
+            case TokenType::RESTRICT: return "RESTRICT";
             case TokenType::IDENTIFIER: return "IDENTIFIER";
             case TokenType::INTEGER_LITERAL: return "INTEGER_LITERAL";
             case TokenType::STRING_LITERAL: return "STRING_LITERAL";

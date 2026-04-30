@@ -198,6 +198,9 @@ Token Lexer::lexIdentifierOrKeyword() {
         {"enum", TokenType::ENUM},
         {"extern", TokenType::EXTERN},
         {"_Bool", TokenType::BOOL},
+        {"restrict", TokenType::RESTRICT},
+        {"__restrict", TokenType::RESTRICT},
+        {"__restrict__", TokenType::RESTRICT},
         };
 
     auto it = keywords.find(value);

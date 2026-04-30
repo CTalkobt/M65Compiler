@@ -68,6 +68,7 @@ TEST_FILES=(
     "src/test-resources/test_ptr_precedence.c"
     "src/test-resources/test_bool.c"
     "src/test-resources/test_opt_load_store.c"
+    "src/test-resources/test_restrict.c"
 )
 
 mkdir -p build/test
