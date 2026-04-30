@@ -9,9 +9,9 @@ Legend:
 ## Known Bugs
 
 - [ ] **BinaryExpr reentrancy**: `BinaryExpr::emit()` for `+`, `-`, `*`, `/` stores the left operand into MEGA65 hardware multiplier registers ($D770+), then evaluates `right->emit()`. If the right sub-expression itself contains `+`/`-`/`*`/`/`, it clobbers $D770 before the outer operation reads it. Example: `(a*b) * (c*d)` — inner `c*d` overwrites $D770 used by outer `*`. Bitwise/shift ops are safe (they use push_ax/pop_ax via the stack). Fix: switch arithmetic ops to the same push/pop pattern, or save/restore $D770-$D77F around right-side evaluation.
-- [ ] **Global array store SP offset**: When assigning to a global array element with a runtime index (`arr[i] = expr`), the compiler evaluates the RHS first and pushes it (`push .ax`), shifting SP by 2. The subsequent LHS `emitAddress` evaluates the index sub-expression (`ldax _l_i, s`) at the wrong SP offset. Constant-index stores work correctly. Root cause: `emitAddress` uses hardcoded ZP $02/$04 for intermediates, which conflicts with any ZP-based RHS save; and `push/pop` shifts SP. Fix requires either (a) making `emitAddress` use `allocateZP` instead of hardcoded addresses, or (b) restructuring evaluation order.
+- [X] **Global array store SP offset**: Fixed. The assignment handler now saves the RHS to an `allocateZP`-managed ZP slot instead of using `push .ax`/`pop .ax`, so SP remains unchanged during LHS address computation. Additionally fixed `bne(0x02)` → `bne(0x01)` for the `inc a; bne; inx` carry propagation pattern — the offset was 1 byte too large, causing a branch into the middle of the next instruction.
 - [ ] **Assembler simulated op size drift**: Some simulated opcodes may produce different sizes in pass 1 vs pass 2 when operand symbols are forward-referenced. Accumulates over large code bodies causing label address drift. `ptrstack` was fixed (was missing from pass 1 and pass 2 size chains). Other ops may have similar issues with large programs containing many function calls.
-- [ ] **Compiler `emitAddress` hardcoded ZP**: `emitAddress` uses hardcoded ZP $02/$04 for intermediate values without going through `allocateZP`. This prevents other codegen paths from safely using ZP for temporaries (e.g., saving RHS during assignment) since the allocator doesn't know $02/$04 are in use. Fix: migrate `emitAddress` to use `allocateZP`/`freeZP`.
+- [X] **Compiler `emitAddress` ZP conflict**: Resolved — `emitAddress` already used `allocateZP` (not hardcoded addresses as initially suspected). The assignment handler was the actual conflict source, using `push/pop` instead of `allocateZP`. Fixed by switching to ZP-based RHS save.
 - [ ] **Assembler `.var` non-positional evaluation**: `.var` assignments are evaluated during pass 1 parsing and the FINAL value is used for ALL references in pass 2. Temporary bumps (`.var x = x + 2` then `.var x = x - 2`) don't work positionally — all references see the last-set value. This prevents SP offset compensation via `.var` bumps around `push`/`pop` sequences.
 
 ---
@@ -117,7 +117,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [d] **Modern Type Inference**: Implement `auto` as C23/C++ style type inference for declarations with initializers.
 - [ ] **Storage Classes (remaining)**: Implement `static` (local persistence and file-scope linkage), `extern` (external linkage), `register` (hint).
 - [X] **Arrays**: Implement native array declarations (`type name[size]`), subscript indexing (`a[i]`), and pointer decay.
-- [X] **Multi-dimensional arrays**: Support `int a[3][4]` row-major layout. Parser, type system, stride computation, and constant-index codegen implemented. Runtime-index stores to global arrays blocked by SP offset bug (see Known Bugs).
+- [X] **Multi-dimensional arrays**: Support `int a[3][4]` row-major layout. Parser, type system, stride computation, constant-index and runtime-index codegen implemented. Validated via mmemu with loop-based stores and reads.
 - [ ] **Array Initializers**: Support initialized array declarations including partial initialization and `= {0}` zero-fill.
 - [ ] **Struct arrays**: Support `struct point pts[10];`.
 - [ ] **Designated Initializers**: Support C99 designated initializers for structs (`{.x=1}`) and arrays (`{[2]=3}`).
@@ -393,6 +393,21 @@ All modules are hand-written 45GS02 assembly in `lib/stdlib/`, archived into `st
   for immediate mode without verifying the `#` prefix. Fix: added `isImmediate`
   check (looks for `HASH` token) to `emitMulCode`, `emitDivCode`, and
   `emitSignedMathOp`. Only uses the immediate path when `#` is present.
+
+- [X] **Compiler: assignment RHS saved via `push .ax` shifted SP** —
+  The generic assignment fallback evaluated the RHS, pushed it to the hardware
+  stack (`push .ax`), then called `emitAddress` to compute the LHS address.
+  `emitAddress` re-evaluated index sub-expressions via `ldax _l_i, s` which read
+  the wrong stack offset (SP shifted by 2). Fix: save RHS to an `allocateZP`-managed
+  ZP slot instead of the hardware stack. SP remains unchanged during LHS computation.
+
+- [X] **Compiler: `inc a; bne *+4; inx` branch offset off by 1** —
+  The 16-bit increment pattern emitted `bne(0x02)` to skip the 1-byte `INX`.
+  Relative offset 2 skips 2 bytes past the BNE, but INX is only 1 byte — the
+  branch landed 1 byte into the following instruction. This caused BRK crashes
+  when the next instruction wasn't a 2-byte opcode (previously masked because
+  `push .ax` = PHX+PHA happened to have a valid opcode at byte 2).
+  Fix: `bne(0x01)` to correctly skip the single-byte INX.
 
 - [X] **Compiler: `_init_bss` placed after function code** —
   The BSS init routine was emitted in `emitData()` after all function bodies,

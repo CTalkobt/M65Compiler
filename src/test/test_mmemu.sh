@@ -316,6 +316,35 @@ else
     fi
 fi
 
+# --- Runtime-indexed array loop test ---
+echo "Testing mmemu-cli with test_array_loop.c (runtime-indexed global array stores)..."
+
+$CC src/test-resources/test_array_loop.c -o build/test/test_array_loop.s
+if [ $? -ne 0 ]; then
+    echo "FAIL: Compilation failed for test_array_loop.c"
+    failed=$((failed + 1))
+else
+    $AS build/test/test_array_loop.s -o build/test/test_array_loop.prg
+    if [ $? -ne 0 ]; then
+        echo "FAIL: Assembly failed for test_array_loop.s"
+        failed=$((failed + 1))
+    else
+        # Expected: 01 05 00 0C 17 AA
+        # scores[0]=1, scores[4]=5, grid[0][0]=0, grid[1][2]=12, grid[2][3]=23, marker=AA
+        OUTPUT=$(echo -e "load build/test/test_array_loop.prg\nsetpc \$2000\nstep 50000000\nm \$4000 6\nq" | $MMEMU -m rawMega65 2>/dev/null)
+
+        if echo "$OUTPUT" | grep -qi "4000: 01 05 00 0c 17 aa"; then
+            echo "SUCCESS: test_array_loop.c — runtime-indexed array loops correct."
+        else
+            echo "FAIL: test_array_loop.c — runtime-indexed array loop validation failed."
+            echo "Expected 4000: 01 05 00 0C 17 AA"
+            echo "Actual output:"
+            echo "$OUTPUT" | grep "4000:"
+            failed=$((failed + 1))
+        fi
+    fi
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All mmemu tests passed!"
     exit 0

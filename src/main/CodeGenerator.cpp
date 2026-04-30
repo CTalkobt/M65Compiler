@@ -1162,22 +1162,36 @@ void CodeGenerator::visit(Assignment& node) {
         }
     }
 
-    // Evaluate RHS first to avoid ZP clobber by function calls
+    // Evaluate RHS first, save to allocated ZP (not hardware stack, which
+    // would shift SP and break stack-relative index reads in emitAddress)
     bool oldNeeded = resultNeeded;
     resultNeeded = true;
     node.expression->accept(*this);
     resultNeeded = oldNeeded;
-    emitter->push_ax(); // save RHS on stack
+    int zpRHS = allocateZP(2);
+    {
+        std::stringstream ssR;
+        ssR << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpRHS);
+        emit("stax $" + ssR.str());
+    }
 
-    // Now compute destination address (ZP only used transiently)
+    // Compute destination address (emitAddress uses allocateZP internally,
+    // so its slots won't conflict with zpRHS)
     emitAddress(node.target.get());
     int zpIdx = allocateZP(2);
-    std::stringstream ss;
-    ss << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpIdx);
-    emit("stax $" + ss.str());
+    {
+        std::stringstream ss;
+        ss << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpIdx);
+        emit("stax $" + ss.str());
+    }
 
-    // Restore RHS value from stack
-    emitter->pop_ax();
+    // Restore RHS from ZP
+    {
+        std::stringstream ssR;
+        ssR << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpRHS);
+        emit("ldax $" + ssR.str());
+    }
+    freeZP(zpRHS, 2);
 
     emitter->sta_ind_z(emitter->getZP(zpIdx), false);
     updateRegY(0);
@@ -1217,7 +1231,7 @@ void CodeGenerator::visit(BinaryOperation& node) {
         resultNeeded = oldNeeded;
         if (node.op == "+") {
             std::string label = newDontCareLabel();
-            emitter->inc_a(); emitter->bne(0x02); emit("inx");
+            emitter->inc_a(); emitter->bne(0x01); emit("inx");
             out << label << ":" << std::endl;
         } else {
             std::string label = newDontCareLabel();
@@ -1499,7 +1513,7 @@ void CodeGenerator::visit(ArrayAccess& node) {
     std::stringstream ss;
     ss << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpAddr);
     emit("stax $" + ss.str());
-    
+
     ExpressionType resType = getExprType(&node);
     if (resType.pointerLevel > 0 || resType.type == "int") {
         std::stringstream ss2;
