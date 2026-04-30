@@ -310,6 +310,156 @@ void BinaryExpr::emit(M65Emitter& e, AssemblerParser* parser, int width, const s
     }
 }
 
+// ArrayIndexNode — computes base + sum(index[i] * stride[i]) and dereferences
+uint32_t ArrayIndexNode::getValue(AssemblerParser* parser) const {
+    if (!parser) return 0;
+    auto* info = parser->getArrayInfo(arrayName);
+    Symbol* sym = parser->resolveSymbol(arrayName, scopePrefix);
+    if (!info || !sym) return 0;
+    uint32_t addr = sym->value;
+    for (size_t i = 0; i < indices.size() && i < info->strides.size(); ++i)
+        addr += indices[i]->getValue(parser) * info->strides[i];
+    return addr; // returns the address, not the dereferenced value
+}
+
+bool ArrayIndexNode::isConstant(AssemblerParser*) const {
+    // Array indexing is a memory dereference — never a compile-time constant,
+    // even if the address is known. This prevents emitExpressionCode from
+    // short-circuiting to LDA #imm.
+    return false;
+}
+
+bool ArrayIndexNode::is16Bit(AssemblerParser* parser) const {
+    auto* info = parser->getArrayInfo(arrayName);
+    return info && info->elementSize >= 2;
+}
+
+void ArrayIndexNode::emit(M65Emitter& e, AssemblerParser* parser, int width, const std::string& target) {
+    if (!parser) return;
+    auto* info = parser->getArrayInfo(arrayName);
+    Symbol* sym = parser->resolveSymbol(arrayName, scopePrefix);
+    if (!info || !sym) return;
+
+    uint32_t base = sym->value;
+
+    // Check if all indices are compile-time constant
+    bool allConstant = true;
+    for (auto& idx : indices)
+        if (!idx->isConstant(parser)) { allConstant = false; break; }
+
+    // All-constant indices: load from computed address
+    if (allConstant) {
+        uint32_t addr = base;
+        for (size_t i = 0; i < indices.size() && i < info->strides.size(); ++i)
+            addr += indices[i]->getValue(parser) * info->strides[i];
+        e.lda_abs(addr);
+        if (width >= 16 && info->elementSize >= 2) e.ldx_abs(addr + 1);
+        else if (width >= 16) e.ldx_imm(0);
+        return;
+    }
+
+    // Runtime indexing: compute offset = sum(index[i] * stride[i])
+    // Count runtime (non-constant) index terms to optimize single-index case
+    uint32_t constOffset = 0;
+    int runtimeTermCount = 0;
+    for (size_t i = 0; i < indices.size() && i < info->strides.size(); ++i)
+        if (!indices[i]->isConstant(parser)) runtimeTermCount++;
+        else constOffset += indices[i]->getValue(parser) * info->strides[i];
+
+    if (runtimeTermCount == 0) {
+        // All constant — shouldn't reach here but handle gracefully
+        uint32_t addr = base + constOffset;
+        e.lda_abs(addr);
+        if (width >= 16 && info->elementSize >= 2) e.ldx_abs(addr + 1);
+        else if (width >= 16) e.ldx_imm(0);
+        return;
+    }
+
+    // Fast path: single runtime index that's already in X/Y/Z with stride=1
+    // Avoids unnecessary register round-trips (e.g. TXA; TAX)
+    if (runtimeTermCount == 1) {
+        // Find the single runtime index
+        for (size_t i = 0; i < indices.size() && i < info->strides.size(); ++i) {
+            if (indices[i]->isConstant(parser)) continue;
+            uint32_t stride = info->strides[i];
+            auto* regNode = dynamic_cast<RegisterNode*>(indices[i].get());
+            uint16_t absBase = (uint16_t)(base + constOffset);
+            if (regNode && stride == 1 && regNode->name == ".X") {
+                e.lda_abs_x(absBase);
+                if (width >= 16 && info->elementSize >= 2) {
+                    e.pha(); e.inx(); e.lda_abs_x(absBase); e.tax(); e.pla();
+                } else if (width >= 16) e.ldx_imm(0);
+                return;
+            }
+            break;
+        }
+    }
+
+    // General path: evaluate indices, accumulate offset in A, then TAX for LDA base,X
+    constOffset = 0;
+    int runtimeTermsSeen = 0;
+
+    for (size_t i = 0; i < indices.size() && i < info->strides.size(); ++i) {
+        uint32_t stride = info->strides[i];
+
+        if (indices[i]->isConstant(parser)) {
+            constOffset += indices[i]->getValue(parser) * stride;
+            continue;
+        }
+
+        runtimeTermsSeen++;
+
+        // Emit index value into A
+        indices[i]->emit(e, parser, 8, ".A");
+
+        // Multiply A by stride
+        if (stride == 1) {
+            // A already has the value
+        } else if ((stride & (stride - 1)) == 0 && stride <= 128) {
+            uint32_t s = stride;
+            while (s > 1) { e.asl_a(); s >>= 1; }
+        } else {
+            // General case: MEGA65 hardware multiplier
+            e.sta_abs(0xD770);
+            e.lda_imm(0); e.sta_abs(0xD771);
+            e.lda_imm(stride & 0xFF); e.sta_abs(0xD774);
+            e.lda_imm((stride >> 8) & 0xFF); e.sta_abs(0xD775);
+            e.lda_abs(0xD778);
+        }
+
+        if (runtimeTermsSeen > 1) {
+            // Add current term (in A) to partial sum on stack
+            e.sta_s(0);   // stash current in ZP scratch
+            e.pla();      // pop previous partial sum
+            e.clc();
+            e.adc_s(0);   // A = previous + current
+        }
+
+        // Push if more runtime terms are coming
+        if (runtimeTermsSeen < runtimeTermCount) {
+            e.pha();
+        }
+    }
+
+    // A now has the total runtime offset
+
+    // Add constant offset if any, then use as index into base
+    // LDA base+constOffset, X  where X = runtime offset
+    uint16_t absBase = (uint16_t)(base + constOffset);
+
+    e.tax();
+    e.lda_abs_x(absBase);
+    if (width >= 16 && info->elementSize >= 2) {
+        e.pha();
+        e.inx();
+        e.lda_abs_x(absBase);
+        e.tax();
+        e.pla();
+    } else if (width >= 16) {
+        e.ldx_imm(0);
+    }
+}
+
 std::unique_ptr<ExprAST> parseExprAST(const std::vector<AssemblerToken>& tokens, int& idx, std::map<std::string, Symbol>& symbolTable, const std::string& scopePrefix) {
     auto parsePrimary = [&]() -> std::unique_ptr<ExprAST> {
         if (idx >= (int)tokens.size()) return nullptr;
@@ -339,6 +489,26 @@ std::unique_ptr<ExprAST> parseExprAST(const std::vector<AssemblerToken>& tokens,
                 auto expr = parseExprAST(tokens, idx, symbolTable, scopePrefix);
                 if (idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::CLOSE_PAREN) idx++; // consume )
                 return std::make_unique<UnaryExpr>(lowerName, std::move(expr));
+            }
+            // Check for array indexing: name[expr][expr]...
+            if (idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::OPEN_BRACKET) {
+                // Resolve scoped name to find array metadata
+                std::string arrName = t.value;
+                std::string scopedName = scopePrefix + arrName;
+                bool isArray = symbolTable.count(scopedName + ".__stride0") > 0;
+                if (!isArray && symbolTable.count(arrName + ".__stride0") > 0) {
+                    isArray = true;
+                    scopedName = arrName;
+                }
+                if (isArray) {
+                    auto node = std::make_unique<ArrayIndexNode>(scopedName, scopePrefix);
+                    while (idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::OPEN_BRACKET) {
+                        idx++; // consume [
+                        node->indices.push_back(parseExprAST(tokens, idx, symbolTable, scopePrefix));
+                        if (idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::CLOSE_BRACKET) idx++; // consume ]
+                    }
+                    return node;
+                }
             }
             return std::make_unique<VariableNode>(t.value, scopePrefix);
         }

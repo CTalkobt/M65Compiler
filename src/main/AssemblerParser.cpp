@@ -476,6 +476,59 @@ void AssemblerParser::pass1() {
                 }
                 stmt->size = 0;
             }
+            else if (stmt->dir.name == "array") {
+                // .array name, element_size, dim0 [, dim1 [, dim2 ...]]
+                std::string arrName = expect(AssemblerTokenType::IDENTIFIER, "Expected array name").value;
+                std::string scName = stmt->scopePrefix + arrName;
+                if (peek().type == AssemblerTokenType::COMMA) advance();
+                uint32_t elemSize = evaluateExpressionAt((int)pos, stmt->scopePrefix);
+                while (peek().type != AssemblerTokenType::COMMA && peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
+
+                ArrayInfo info;
+                info.elementSize = elemSize;
+                while (peek().type == AssemblerTokenType::COMMA) {
+                    advance(); // consume comma
+                    int dimPos = (int)pos;
+                    uint32_t dim = evaluateExpressionAt(dimPos, stmt->scopePrefix);
+                    while (pos < (size_t)dimPos || (peek().type != AssemblerTokenType::COMMA && peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE)) {
+                        if (pos >= tokens.size()) break;
+                        advance();
+                    }
+                    info.dimensions.push_back(dim);
+                }
+                if (info.dimensions.empty()) {
+                    errors.push_back("Error: .array requires at least one dimension");
+                    stmt->size = 0;
+                } else {
+                    // Compute strides: stride[i] = product(dims[i+1..]) * elementSize
+                    info.strides.resize(info.dimensions.size());
+                    uint32_t stride = elemSize;
+                    for (int i = (int)info.dimensions.size() - 1; i >= 0; --i) {
+                        info.strides[i] = stride;
+                        stride *= info.dimensions[i];
+                    }
+                    uint32_t totalSize = stride; // product of all dims * elemSize
+
+                    // Define label at current address
+                    stmt->label = scName;
+                    symbolTable[scName] = {pc, true, 2, false, false, pc, false, 0, false, 0};
+
+                    // Define metadata constants in symbol table
+                    symbolTable[scName + ".__elsize"] = {elemSize, false, 2, false, true, elemSize, false, 0, false, 0};
+                    symbolTable[scName + ".__dims"] = {(uint32_t)info.dimensions.size(), false, 2, false, true, (uint32_t)info.dimensions.size(), false, 0, false, 0};
+                    for (size_t i = 0; i < info.dimensions.size(); ++i) {
+                        symbolTable[scName + ".__dim" + std::to_string(i)] = {info.dimensions[i], false, 2, false, true, info.dimensions[i], false, 0, false, 0};
+                        symbolTable[scName + ".__stride" + std::to_string(i)] = {info.strides[i], false, 2, false, true, info.strides[i], false, 0, false, 0};
+                    }
+
+                    arrayInfos[scName] = info;
+                    // Reserve storage — keep directive name as "array"
+                    // Generator will emit totalSize zero bytes
+                    stmt->size = (int)totalSize;
+                    stmt->dir.arguments.clear();
+                    stmt->dir.arguments.push_back(std::to_string(totalSize));
+                }
+            }
             else if (stmt->dir.name == "cleanup") {
                 stmt->dir.tokenIndex = (int)pos;
                 uint32_t val = evaluateExpressionAt((int)pos, stmt->scopePrefix);
@@ -1097,6 +1150,10 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
     if (dir.name == "res") {
         if (dir.arguments.empty()) return 0;
         return (int)evaluateExpressionAt(dir.tokenIndex, "");
+    }
+    if (dir.name == "array") {
+        if (dir.arguments.empty()) return 0;
+        return (int)parseNumericLiteral(dir.arguments[0]);
     }
     if (dir.name == "align" || dir.name == "balign") {
         if (dir.arguments.empty()) return 0;

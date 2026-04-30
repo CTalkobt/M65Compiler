@@ -8,7 +8,7 @@ Legend:
 
 ## Known Bugs
 
-(none)
+- [ ] **BinaryExpr reentrancy**: `BinaryExpr::emit()` for `+`, `-`, `*`, `/` stores the left operand into MEGA65 hardware multiplier registers ($D770+), then evaluates `right->emit()`. If the right sub-expression itself contains `+`/`-`/`*`/`/`, it clobbers $D770 before the outer operation reads it. Example: `(a*b) * (c*d)` — inner `c*d` overwrites $D770 used by outer `*`. Bitwise/shift ops are safe (they use push_ax/pop_ax via the stack). Fix: switch arithmetic ops to the same push/pop pattern, or save/restore $D770-$D77F around right-side evaluation.
 
 ---
 
@@ -159,6 +159,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **Alignment Directive**: Implement `.align <n>` or `.balign <n>` to support C11 `_Alignas`.
 - [X] **Segment Management**: Implement `.section` or `.segment` to support `_Thread_local` storage and separate data/text areas.
 - [ ] **Struct Layout Helper**: Implement `.struct` / `.endstruct` to define named field offsets as equates.
+- [X] **Array Directive**: Implement `.array name, element_size, dim0 [, dim1 ...]` for multi-dimensional array storage with auto-generated stride constants.
 
 ### 4. Expanded Literals & Data
 - [X] **Dword/Long**: Support `.dword` and `.long` for 32-bit unsigned data.
@@ -177,6 +178,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [ ] **Binary Import**: Implement `.import binary "file.bin"`.
 
 ### 7. Expressions & Logic
+- [X] **Array Indexing in Expressions**: Support `name[expr]` and `name[i][j]` syntax in `expr` for `.array`-declared arrays. Constant indices resolve at assembly time; runtime indices generate optimized indexed loads.
 - [ ] **Symbol Existence**: Implement `defined(<symbol>)` — Test existence at assembler level (post-pass-1).
 - [ ] **Extended Operators**: Support bitwise shift (`<<`, `>>`) and modulo (`%`) in constant expressions.
 - [ ] **Conditional Assembly**: Implement `.if <expr>` / `.else` / `.endif` (distinct from preprocessor `#if`).

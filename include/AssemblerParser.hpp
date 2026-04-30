@@ -57,6 +57,17 @@ public:
     bool isExternSymbol(const std::string& name) const { return externIndex.count(name) > 0; }
     uint32_t getExternIndex(const std::string& name) const;
 
+    // Array metadata (for expr array indexing)
+    struct ArrayInfo {
+        uint32_t elementSize;
+        std::vector<uint32_t> dimensions;
+        std::vector<uint32_t> strides;  // stride[i] = product(dimensions[i+1..]) * elementSize
+    };
+    const ArrayInfo* getArrayInfo(const std::string& name) const {
+        auto it = arrayInfos.find(name);
+        return it != arrayInfos.end() ? &it->second : nullptr;
+    }
+
     // Segment info accessors (for .o45 output)
     struct SegmentView {
         std::string name;
@@ -102,6 +113,8 @@ private:
     std::set<std::string> weakSymbols;           // symbols declared with .weak
     std::vector<std::string> externSymbols;      // symbols declared with .extern (ordered)
     std::map<std::string, uint32_t> externIndex; // name -> index in externSymbols
+
+    std::map<std::string, ArrayInfo> arrayInfos;
 
     struct Statement {
         enum Type { NONE, INSTRUCTION, DIRECTIVE, EXPR, BASIC_UPSTART, MUL, DIV, STACK_INC, STACK_DEC, STACK_INC8, STACK_DEC8,

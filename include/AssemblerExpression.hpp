@@ -85,4 +85,15 @@ struct BinaryExpr : public ExprAST {
     void emit(M65Emitter& e, AssemblerParser* parser, int width, const std::string& target) override;
 };
 
+struct ArrayIndexNode : public ExprAST {
+    std::string arrayName;
+    std::string scopePrefix;
+    std::vector<std::unique_ptr<ExprAST>> indices;
+    ArrayIndexNode(const std::string& name, const std::string& scope) : arrayName(name), scopePrefix(scope) {}
+    uint32_t getValue(AssemblerParser* parser) const override;
+    bool isConstant(AssemblerParser* parser) const override;
+    bool is16Bit(AssemblerParser* parser) const override;
+    void emit(M65Emitter& e, AssemblerParser* parser, int width, const std::string& target) override;
+};
+
 std::unique_ptr<ExprAST> parseExprAST(const std::vector<AssemblerToken>& tokens, int& idx, std::map<std::string, Symbol>& symbolTable, const std::string& scopePrefix = "");

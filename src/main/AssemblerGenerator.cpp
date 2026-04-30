@@ -433,6 +433,10 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
                         if (stmt->dir.arguments.size() > 1) fill = (uint8_t)parseNumericLiteral(stmt->dir.arguments[1]);
                         for (uint32_t i = 0; i < count; ++i) e.emitByte(fill);
                     }
+                    else if (stmt->dir.name == "array") {
+                        uint32_t count = stmt->dir.arguments.empty() ? 0 : (uint32_t)parseNumericLiteral(stmt->dir.arguments[0]);
+                        for (uint32_t i = 0; i < count; ++i) e.emitByte(0);
+                    }
                     else if (stmt->dir.name == "align" || stmt->dir.name == "balign") {
                         uint8_t fill = 0;
                         if (stmt->dir.arguments.size() > 1) fill = (uint8_t)parseNumericLiteral(stmt->dir.arguments[1]);
