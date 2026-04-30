@@ -10,6 +10,7 @@ enum class TokenType {
     SIGNED,
     RETURN,
     VOID,
+    CONST,
     IF,
     ELSE,
     WHILE,
@@ -108,6 +109,7 @@ struct Token {
             case TokenType::SIGNED: return "SIGNED";
             case TokenType::RETURN: return "RETURN";
             case TokenType::VOID: return "VOID";
+            case TokenType::CONST: return "CONST";
             case TokenType::IF: return "IF";
             case TokenType::ELSE: return "ELSE";
             case TokenType::WHILE: return "WHILE";

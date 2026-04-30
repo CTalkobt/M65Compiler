@@ -146,9 +146,9 @@ int CodeGenerator::getTypeSize(const std::string& type, int ptrLevel, int arrayS
 }
 
 CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
-    if (!expr) return {"int", 0, false};
+    if (!expr) return {"int", 0, false, false};
     if (auto* cast = dynamic_cast<CastExpression*>(expr)) {
-        return {cast->targetType, cast->pointerLevel, cast->isSigned};
+        return {cast->targetType, cast->pointerLevel, cast->isSigned, false};
     }
     if (auto* gs = dynamic_cast<GenericSelection*>(expr)) {
         // Resolve based on control type
@@ -167,25 +167,25 @@ CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
         std::string pName = "_p_" + ref->name;
         if (variableTypes.count(pName)) {
             VarInfo& vi = variableTypes.at(pName);
-            return {vi.type, vi.pointerLevel, vi.isSigned};
+            return {vi.type, vi.pointerLevel, vi.isSigned, vi.isConst, vi.isPointerConst};
         }
         std::string rName = "_l_" + ref->name;
         if (variableTypes.count(rName)) {
             VarInfo& vi = variableTypes.at(rName);
-            return {vi.type, vi.pointerLevel, vi.isSigned};
+            return {vi.type, vi.pointerLevel, vi.isSigned, vi.isConst, vi.isPointerConst};
         }
         if (globalVariableTypes.count("_" + ref->name)) {
             VarInfo& vi = globalVariableTypes.at("_" + ref->name);
-            return {vi.type, vi.pointerLevel, vi.isSigned};
+            return {vi.type, vi.pointerLevel, vi.isSigned, vi.isConst, vi.isPointerConst};
         }
     }
     if (auto* vd = dynamic_cast<VariableDeclaration*>(expr)) {
-        return {vd->type, vd->pointerLevel, vd->isSigned};
+        return {vd->type, vd->pointerLevel, vd->isSigned, vd->isConst, vd->isPointerConst};
     }
     if (auto* aa = dynamic_cast<ArrayAccess*>(expr)) {
         ExpressionType base = getExprType(aa->arrayExpr.get());
-        if (base.pointerLevel > 0) return {base.type, base.pointerLevel - 1, base.isSigned};
-        return {base.type, 0, base.isSigned};
+        if (base.pointerLevel > 0) return {base.type, base.pointerLevel - 1, base.isSigned, base.isConst};
+        return {base.type, 0, base.isSigned, base.isConst};
     }
     if (auto* cond = dynamic_cast<ConditionalExpression*>(expr)) {
         return getExprType(cond->thenExpr.get());
@@ -194,13 +194,13 @@ CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
         ExpressionType lhs = getExprType(bin->left.get());
         ExpressionType rhs = getExprType(bin->right.get());
         bool resSigned = lhs.isSigned || rhs.isSigned;
-        return {lhs.type, lhs.pointerLevel, resSigned};
+        return {lhs.type, lhs.pointerLevel, resSigned, lhs.isConst};
     }
     if (auto* un = dynamic_cast<UnaryOperation*>(expr)) {
-        if (un->op == "!") return {"char", 0, false};
+        if (un->op == "!") return {"char", 0, false, false};
         CodeGenerator::ExpressionType sub = getExprType(un->operand.get());
-        if (un->op == "*") return {sub.type, sub.pointerLevel > 0 ? sub.pointerLevel - 1 : 0, sub.isSigned};
-        if (un->op == "&") return {sub.type, sub.pointerLevel + 1, sub.isSigned};
+        if (un->op == "*") return {sub.type, sub.pointerLevel > 0 ? sub.pointerLevel - 1 : 0, sub.isSigned, sub.isConst};
+        if (un->op == "&") return {sub.type, sub.pointerLevel + 1, sub.isSigned, sub.isConst};
         return sub;
     }
     if (auto* ma = dynamic_cast<MemberAccess*>(expr)) {
@@ -209,7 +209,7 @@ CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
              if (auto* ref = dynamic_cast<VariableReference*>(ma->structExpr.get())) {
                  if (globalVariableTypes.count("_" + ref->name)) {
                      VarInfo& gv = globalVariableTypes.at("_" + ref->name);
-                     baseType = {gv.type, gv.pointerLevel, gv.isSigned};
+                     baseType = {gv.type, gv.pointerLevel, gv.isSigned, gv.isConst};
                  }
              }
         }
@@ -219,13 +219,13 @@ CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
                 auto& sInfo = *structs[sName];
                 if (sInfo.members.count(ma->memberName)) {
                     MemberInfo& mInfo = sInfo.members[ma->memberName];
-                    if (mInfo.arraySize >= 0) return {mInfo.type, mInfo.pointerLevel + 1, mInfo.isSigned};
-                    return {mInfo.type, mInfo.pointerLevel, mInfo.isSigned};
+                    if (mInfo.arraySize >= 0) return {mInfo.type, mInfo.pointerLevel + 1, mInfo.isSigned, mInfo.isConst};
+                    return {mInfo.type, mInfo.pointerLevel, mInfo.isSigned, mInfo.isConst};
                 }
             }
         }
     }
-    return {"int", 0, false};
+    return {"int", 0, false, false};
 }
 
 void CodeGenerator::emitAddress(Expression* expr) {
@@ -314,6 +314,7 @@ void CodeGenerator::emitIndirectIncDec(UnaryOperation& node, bool isInc, bool is
     // Handle ++/-- on indirect lvalues: (*p)++, arr[i]--, p->field++, etc.
     // Strategy: compute lvalue address → ZP, load value, inc/dec, store back.
     ExpressionType valType = getExprType(node.operand.get());
+    if (valType.isConst) throw std::runtime_error("Compile Error: Increment/decrement of read-only location");
     bool is16 = (valType.pointerLevel > 0 || valType.type == "int");
     if (isStruct(valType.type)) {
         std::string sName = getAggregateName(valType.type);
@@ -436,6 +437,11 @@ void CodeGenerator::visit(TranslationUnit& node) {
     for (auto& decl : node.topLevelDecls) {
         if (auto* fn = dynamic_cast<FunctionDeclaration*>(decl.get())) {
             knownFunctions.insert(fn->name);
+            std::vector<VarInfo> paramTypes;
+            for (auto& p : fn->parameters) {
+                paramTypes.push_back({p.type, p.pointerLevel, p.isSigned, p.isVolatile, p.isConst, p.isPointerConst});
+            }
+            functionParamTypes[fn->name] = std::move(paramTypes);
         }
     }
 
@@ -559,7 +565,7 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     std::vector<ParamInfo> paramInfos;
     for (auto& param : node.parameters) {
         std::string pName = "_p_" + param.name;
-        variableTypes[pName] = {param.type, param.pointerLevel, param.isVolatile};
+        variableTypes[pName] = {param.type, param.pointerLevel, param.isSigned, param.isVolatile, param.isConst, param.isPointerConst};
         int pSize;
         if (param.pointerLevel > 0) {
             procLine += ", W#" + pName;
@@ -623,7 +629,7 @@ void CodeGenerator::visit(VariableDeclaration& node) {
 
     if (node.isGlobal || currentFunction == nullptr) {
         std::string gName = "_" + node.name;
-        globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.arraySize};
+        globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, node.arraySize};
         if (node.isExtern) {
             // extern declaration — type is known but no storage emitted
             return;
@@ -636,7 +642,7 @@ void CodeGenerator::visit(VariableDeclaration& node) {
     }
 
     std::string lName = "_l_" + node.name;
-    variableTypes[lName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.arraySize};
+    variableTypes[lName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, node.arraySize};
 
     if (node.initializer && !dynamic_cast<CastExpression*>(node.initializer.get())) {
         if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
@@ -805,6 +811,20 @@ void CodeGenerator::emitOperation(const std::string& op, int zpLeft, ExpressionT
 
 void CodeGenerator::visit(Assignment& node) {
     embedSource(node);
+
+    // Check for const assignment
+    ExpressionType targetType = getExprType(node.target.get());
+    if (auto* ref = dynamic_cast<VariableReference*>(node.target.get())) {
+        // Direct variable assignment: check isConst for non-pointers, isPointerConst for pointers
+        if (targetType.pointerLevel > 0) {
+            if (targetType.isPointerConst) throw std::runtime_error("Compile Error: Assignment to read-only location '" + ref->name + "'");
+        } else {
+            if (targetType.isConst) throw std::runtime_error("Compile Error: Assignment to read-only location '" + ref->name + "'");
+        }
+    } else if (targetType.isConst) {
+        // Dereference or member access: isConst means pointed-to/member type is const
+        throw std::runtime_error("Compile Error: Assignment to read-only location");
+    }
 
     if (node.op == "=" && !dynamic_cast<CastExpression*>(node.expression.get())) {
         if (auto* lit = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
@@ -1084,7 +1104,6 @@ void CodeGenerator::visit(Assignment& node) {
 
     emitter->sta_ind_z(emitter->getZP(zpIdx), false);
     updateRegY(0);
-    ExpressionType targetType = getExprType(node.target.get());
     bool is16 = (targetType.pointerLevel > 0 || targetType.type == "int");
     if (isStruct(targetType.type)) {
         std::string sName = getAggregateName(targetType.type);
@@ -1446,6 +1465,7 @@ void CodeGenerator::visit(UnaryOperation& node) {
         if (auto* ref = dynamic_cast<VariableReference*>(node.operand.get())) {
             std::string rName = resolveVarName(ref->name);
             VarInfo vi = variableTypes.count(rName) ? variableTypes.at(rName) : globalVariableTypes.at(rName);
+            if (vi.isConst) throw std::runtime_error("Compile Error: Increment/decrement of read-only variable '" + ref->name + "'");
             bool is16Bit = (vi.pointerLevel > 0 || vi.type == "int");
             if (isStruct(vi.type)) {
                 std::string sName = getAggregateName(vi.type);
@@ -1453,12 +1473,14 @@ void CodeGenerator::visit(UnaryOperation& node) {
             }
             if (isPost && resultNeeded) ref->accept(*this);
             invalidateRegs();
+            bool isGlobal = globalVariableTypes.count(rName);
+            std::string suffix = isGlobal ? "" : ", s";
             if (is16Bit) {
-                if (isInc) emit("inw " + rName + ", s");
-                else emit("dew " + rName + ", s");
+                if (isInc) emit("inw " + rName + suffix);
+                else emit("dew " + rName + suffix);
             } else {
-                if (isInc) emit("inc " + rName + ", s");
-                else emit("dec " + rName + ", s");
+                if (isInc) emit("inc " + rName + suffix);
+                else emit("dec " + rName + suffix);
             }
             if (!isPost && resultNeeded) ref->accept(*this);
         } else if (auto* ma = dynamic_cast<MemberAccess*>(node.operand.get())) {
@@ -1470,6 +1492,7 @@ void CodeGenerator::visit(UnaryOperation& node) {
                         std::string sName = getAggregateName(baseType.type);
                         if (structs.count(sName) && structs[sName]->members.count(ma->memberName)) {
                             MemberInfo& mInfo = structs[sName]->members[ma->memberName];
+                            if (mInfo.isConst) throw std::runtime_error("Compile Error: Increment/decrement of read-only member '" + ma->memberName + "'");
                             bool is16Bit = (mInfo.pointerLevel > 0 || mInfo.type == "int");
                             if (isStruct(mInfo.type)) {
                                 std::string nestedSName = getAggregateName(mInfo.type);
@@ -1477,12 +1500,14 @@ void CodeGenerator::visit(UnaryOperation& node) {
                             }
                             if (isPost && resultNeeded) node.operand->accept(*this);
                             invalidateRegs();
+                            bool isGlobal = globalVariableTypes.count(rName);
+                            std::string suffix = isGlobal ? "" : ", s";
                             if (is16Bit) {
-                                if (isInc) emit("inw " + rName + "+" + std::to_string(mInfo.offset) + ", s");
-                                else emit("dew " + rName + "+" + std::to_string(mInfo.offset) + ", s");
+                                if (isInc) emit("inw " + rName + "+" + std::to_string(mInfo.offset) + suffix);
+                                else emit("dew " + rName + "+" + std::to_string(mInfo.offset) + suffix);
                             } else {
-                                if (isInc) emit("inc " + rName + "+" + std::to_string(mInfo.offset) + ", s");
-                                else emit("dec " + rName + "+" + std::to_string(mInfo.offset) + ", s");
+                                if (isInc) emit("inc " + rName + "+" + std::to_string(mInfo.offset) + suffix);
+                                else emit("dec " + rName + "+" + std::to_string(mInfo.offset) + suffix);
                             }
                             if (!isPost && resultNeeded) node.operand->accept(*this);
                         }
@@ -1908,6 +1933,8 @@ void CodeGenerator::visit(StructDefinition& node) {
             MemberInfo mInfo;
             mInfo.type = member.type;
             mInfo.pointerLevel = member.pointerLevel;
+            mInfo.isSigned = member.isSigned;
+            mInfo.isConst = member.isConst;
             mInfo.offset = node.isUnion ? 0 : currentOffset;
             mInfo.alignment = mAlign;
             mInfo.arraySize = member.arraySize;
@@ -2113,6 +2140,19 @@ void CodeGenerator::visit(FunctionCall& node) {
         std::string loc = sourceFilename.empty() ? "" : sourceFilename + ":";
         if (node.line > 0) loc += std::to_string(node.line) + ":" + std::to_string(node.column) + ": ";
         throw std::runtime_error(loc + "error: implicit declaration of function '" + node.name + "' (missing #include or prototype)");
+    }
+
+    // Warn on const-correctness violations (passing const pointer to non-const parameter)
+    if (functionParamTypes.count(node.name)) {
+        auto& paramTypes = functionParamTypes[node.name];
+        for (size_t i = 0; i < node.arguments.size() && i < paramTypes.size(); ++i) {
+            ExpressionType argType = getExprType(node.arguments[i].get());
+            VarInfo& pType = paramTypes[i];
+            if (argType.isConst && argType.pointerLevel > 0 && pType.pointerLevel > 0 && !pType.isConst) {
+                std::cerr << "warning: passing argument " << (i + 1) << " of '" << node.name
+                          << "' discards 'const' qualifier from pointer target type" << std::endl;
+            }
+        }
     }
 
     bool oldNeeded = resultNeeded; resultNeeded = true;

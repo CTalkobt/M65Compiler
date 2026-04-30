@@ -21,18 +21,23 @@ public:
         std::string type;
         int pointerLevel;
         bool isSigned = false;
-        bool isVolatile = false; // New: volatile qualifier
+        bool isVolatile = false;
+        bool isConst = false;         // base type is const (prevents *p = x)
+        bool isPointerConst = false;  // pointer itself is const (prevents p = x)
         int arraySize = -1;
     };
     struct ExpressionType {
         std::string type;
         int pointerLevel;
         bool isSigned = false;
+        bool isConst = false;
+        bool isPointerConst = false;
     };
     struct MemberInfo {
         std::string type;
         int pointerLevel;
         bool isSigned = false;
+        bool isConst = false;
         int offset;
         int alignment = 1;
         int arraySize = -1;
@@ -190,6 +195,7 @@ public:
     enum class CrtExit { HALT, RTS, BRK } crtExit = CrtExit::RTS;
     bool crtNoBssInit = false; // #pragma crt no_bssinit
     std::set<std::string> knownFunctions; // defined + prototyped function names
+    std::map<std::string, std::vector<VarInfo>> functionParamTypes; // parameter types per function
     FunctionDeclaration* currentFunction = nullptr;
     int currentParamByteSize = 0;
     int currentLocalByteSize = 0;

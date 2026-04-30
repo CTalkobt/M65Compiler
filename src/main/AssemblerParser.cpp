@@ -31,7 +31,7 @@ AssemblerParser::AssemblerParser(const std::vector<AssemblerToken>& tokens) : to
 }
 
 AssemblerParser::AssemblerParser(const std::vector<AssemblerToken>& tokens, const std::map<std::string, uint32_t>& predefinedSymbols) : tokens(tokens), pos(0), pc(0), nextScopeId(0) {
-    for (const auto& [name, val] : predefinedSymbols) symbolTable[name] = {val, false, 2, false, 0, false, 0};
+    for (const auto& [name, val] : predefinedSymbols) symbolTable[name] = {val, false, 2, false, false, val, false, 0, false, 0};
     switchSegment("default");
 }
 
@@ -335,14 +335,18 @@ void AssemblerParser::pass1() {
         if ((peek().type == AssemblerTokenType::IDENTIFIER || peek().type == AssemblerTokenType::INSTRUCTION) && pos + 1 < tokens.size() && tokens[pos+1].type == AssemblerTokenType::COLON) {
             stmt->label = stmt->scopePrefix + advance().value;
             advance();
-            symbolTable[stmt->label] = {pc, true, 2, false, 0, false, 0};
+            symbolTable[stmt->label] = {pc, true, 2, false, false, pc, false, 0, false, 0};
         }
 
         if (peek().type == AssemblerTokenType::IDENTIFIER && pos + 1 < tokens.size() && tokens[pos+1].type == AssemblerTokenType::EQUALS) {
             std::string name = advance().value;
             advance(); // =
             uint32_t val = evaluateExpressionAt((int)pos, stmt->scopePrefix);
-            symbolTable[stmt->scopePrefix + name] = {val, false, 2, false, 0, false, 0};
+            std::string fullSymName = stmt->scopePrefix + name;
+            if (symbolTable.count(fullSymName) && symbolTable[fullSymName].isConstant) {
+                errors.push_back("Error: Redefinition of constant symbol '" + fullSymName + "'");
+            }
+            symbolTable[fullSymName] = {val, false, 2, false, false, val, false, 0, false, 0};
             while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
             continue;
         }
@@ -405,12 +409,15 @@ void AssemblerParser::pass1() {
                 std::string vN = expect(AssemblerTokenType::IDENTIFIER, "Expected var name").value;
                 std::string scVN = stmt->scopePrefix + vN;
                 stmt->dir.varName = scVN;
+                if (symbolTable.count(scVN) && symbolTable[scVN].isConstant) {
+                    errors.push_back("Error: Cannot redefine constant '" + scVN + "' as variable");
+                }
                 if (match(AssemblerTokenType::EQUALS)) {
                     stmt->dir.varType = Directive::ASSIGN;
                     stmt->dir.tokenIndex = (int)pos;
                     uint32_t val = evaluateExpressionAt((int)pos, stmt->scopePrefix);
                     while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
-                    symbolTable[scVN] = {val, false, 2, true, val};
+                    symbolTable[scVN] = {val, false, 2, true, false, val, false, 0, false, 0};
                 }
                 else if (match(AssemblerTokenType::INCREMENT)) {
                     stmt->dir.varType = Directive::INC;
@@ -420,6 +427,19 @@ void AssemblerParser::pass1() {
                     stmt->dir.varType = Directive::DEC;
                     if (symbolTable.count(scVN)) symbolTable[scVN].value--;
                 }
+                stmt->size = 0;
+            }
+            else if (stmt->dir.name == "const") {
+                std::string cN = expect(AssemblerTokenType::IDENTIFIER, "Expected constant name").value;
+                std::string scCN = stmt->scopePrefix + cN;
+                stmt->dir.varName = scCN;
+                if (symbolTable.count(scCN)) {
+                    errors.push_back("Error: Redefinition of symbol '" + scCN + "'");
+                }
+                expect(AssemblerTokenType::EQUALS, "Expected '=' after constant name");
+                uint32_t val = evaluateExpressionAt((int)pos, stmt->scopePrefix);
+                while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
+                symbolTable[scCN] = {val, false, 2, false, true, val, false, 0, false, 0};
                 stmt->size = 0;
             }
             else if (stmt->dir.name == "global") {
@@ -451,7 +471,7 @@ void AssemblerParser::pass1() {
                         externSymbols.push_back(sym);
                         externIndex[sym] = idx;
                         // Add extern as a placeholder symbol (value 0, will be resolved by linker)
-                        symbolTable[sym] = {0, true, 2, false, 0};
+                        symbolTable[sym] = {0, true, 2, false, false, 0, false, 0, false, 0};
                     }
                 }
                 stmt->size = 0;
@@ -734,7 +754,7 @@ void AssemblerParser::pass1() {
                 if (stmt->instr.mnemonic == "proc") {
                     std::string pN = advance().value;
                     stmt->label = pN;
-                    symbolTable[pN] = {pc, true, 2, false, 0, false, 0};
+                    symbolTable[pN] = {pc, true, 2, false, false, pc, false, 0, false, 0};
                     auto ctx = std::make_shared<ProcContext>();
                     ctx->name = pN; ctx->totalParamSize = 0;
                     std::vector<std::pair<std::string, int>> args;
@@ -753,7 +773,7 @@ void AssemblerParser::pass1() {
                         std::string scA = stmt->scopePrefix + args[i].first;
                         std::string scAN = stmt->scopePrefix + "ARG" + std::to_string(i + 1);
                         ctx->localArgs[args[i].first] = sOff; ctx->localArgs["ARG" + std::to_string(i + 1)] = sOff;
-                        Symbol pSym = {(uint32_t)sOff, false, args[i].second, true, (uint32_t)sOff, false, sOff};
+                        Symbol pSym = {(uint32_t)sOff, false, args[i].second, true, false, (uint32_t)sOff, true, sOff, false, 0};
                         symbolTable[scA] = pSym;
                         symbolTable[scAN] = pSym;
                         sOff += args[i].second;

@@ -145,6 +145,8 @@ public:
     bool isSigned = false;
     std::string name;
     bool isVolatile = false;
+    bool isConst = false;        // const on the base type (pointed-to data is const)
+    bool isPointerConst = false; // const on the pointer itself (pointer variable is const)
     bool isGlobal = false;
     bool isExtern = false;
     int alignment = 0;
@@ -303,6 +305,7 @@ struct StructMember {
     int pointerLevel;
     bool isSigned = false;
     std::string name;
+    bool isConst = false;
     int alignment = 0;
     std::unique_ptr<Expression> alignmentExpr;
     bool isAnonymous = false;
@@ -331,7 +334,9 @@ struct Parameter {
     int pointerLevel;
     bool isSigned = false;
     std::string name;
-    bool isVolatile = false; // New: volatile qualifier
+    bool isVolatile = false;
+    bool isConst = false;
+    bool isPointerConst = false;
 };
 
 class FunctionDeclaration : public Statement {

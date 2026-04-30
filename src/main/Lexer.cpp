@@ -171,6 +171,7 @@ Token Lexer::lexIdentifierOrKeyword() {
         {"signed", TokenType::SIGNED},
         {"return", TokenType::RETURN},
         {"void", TokenType::VOID},
+        {"const", TokenType::CONST},
         {"if", TokenType::IF},
         {"else", TokenType::ELSE},
         {"while", TokenType::WHILE},

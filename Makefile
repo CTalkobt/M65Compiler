@@ -85,6 +85,9 @@ test: all
 	@bash src/test/test_compiler.sh
 	@echo "Running assembler feature tests..."
 	@bash src/test/test_assembler.sh
+	@echo "Running const keyword tests..."
+	@bash src/test/test_const_compiler.sh
+	@bash src/test/test_const_assembler.sh
 	@echo "Validating mmemu-cli integration..."
 	@bash src/test/test_mmemu.sh
 	@$(MAKE) test-opcodes
@@ -93,6 +96,10 @@ test: all
 
 test-assembler: all
 	@bash src/test/test_assembler.sh
+
+test-const: all
+	@bash src/test/test_const_compiler.sh
+	@bash src/test/test_const_assembler.sh
 
 test-mmemu: all
 	@bash src/test/test_mmemu.sh

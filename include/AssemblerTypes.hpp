@@ -39,6 +39,7 @@ struct Symbol {
     bool isAddress;
     int size;
     bool isVariable = false;
+    bool isConstant = false;
     uint32_t initialValue = 0;
     bool isStackRelative = false;
     int stackOffset = 0;

@@ -320,7 +320,7 @@ std::unique_ptr<ExprAST> parseExprAST(const std::vector<AssemblerToken>& tokens,
                     uint32_t val = (t.type == AssemblerTokenType::HEX_LITERAL) ? std::stoul(t.value.substr(1), nullptr, 16) : std::stoul(t.value);
                     idx += 2;
                     std::string tempName = "__stack_" + std::to_string(val);
-                    symbolTable[tempName] = {val, true, 2, false, 0, true, (int)val};
+                    symbolTable[tempName] = {val, true, 2, false, false, val, true, (int)val, false, 0};
                     return std::make_unique<VariableNode>(tempName, "");
                 }
             }

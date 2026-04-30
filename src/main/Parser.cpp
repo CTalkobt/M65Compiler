@@ -79,6 +79,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
         // Look ahead to distinguish function from global variable
         size_t look = pos;
         bool isVol = false;
+        bool isConst = false;
         bool isNR = false;
         bool isExtern = false;
 
@@ -107,9 +108,10 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
         
         bool isSig = false;
 
-        while (tokens[look].type == TokenType::VOLATILE || tokens[look].type == TokenType::AUTO ||
+        while (tokens[look].type == TokenType::VOLATILE || tokens[look].type == TokenType::CONST || tokens[look].type == TokenType::AUTO ||
                tokens[look].type == TokenType::SIGNED || tokens[look].type == TokenType::UNSIGNED) {
             if (tokens[look].type == TokenType::VOLATILE) isVol = true;
+            else if (tokens[look].type == TokenType::CONST) isConst = true;
             else if (tokens[look].type == TokenType::SIGNED) isSig = true;
             look++;
         }
@@ -158,7 +160,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
                     if (isExtern) match(TokenType::EXTERN);
                     if (isNR) match(TokenType::NORETURN);
-                    while (match(TokenType::VOLATILE) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
+                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
                     auto decl = parseFunctionDeclaration();
                     decl->isNoreturn = isNR;
                     // extern functions are always prototypes (no body)
@@ -168,8 +170,8 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 } else {
                     if (isExtern) match(TokenType::EXTERN);
                     if (isNR) match(TokenType::NORETURN);
-                    while (match(TokenType::VOLATILE) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
-                    auto decl = parseVariableDeclaration(isVol);
+                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
+                    auto decl = parseVariableDeclaration(isVol, isConst);
                     if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                         vd->isGlobal = true;
                         vd->isSigned = isSig;
@@ -180,7 +182,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 }
             } else {
                 if (isNR) match(TokenType::NORETURN);
-                while (match(TokenType::VOLATILE) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
+                while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
                 auto decl = parseFunctionDeclaration();
                 decl->isNoreturn = isNR;
                 flushPending(*unit);
@@ -188,7 +190,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             }
         } else {
             if (isNR) match(TokenType::NORETURN);
-            while (match(TokenType::VOLATILE) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
+            while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
             auto decl = parseFunctionDeclaration();
             decl->isNoreturn = isNR;
             flushPending(*unit);
@@ -251,8 +253,10 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     else if (peek().type != TokenType::CLOSE_PAREN) {
         do {
             bool pIsVolatile = false;
-            if (match(TokenType::VOLATILE)) {
-                pIsVolatile = true;
+            bool pIsConst = false;
+            while (match(TokenType::VOLATILE) || match(TokenType::CONST)) {
+                if (tokens[pos-1].type == TokenType::VOLATILE) pIsVolatile = true;
+                else if (tokens[pos-1].type == TokenType::CONST) pIsConst = true;
             }
             std::string pType;
             bool pIsSigned = false;
@@ -293,8 +297,15 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             int pPtrLevel = pBasePtrLevel;
             while (match(TokenType::STAR)) pPtrLevel++;
 
+            // Handle const/volatile after * (qualifies the pointer itself)
+            bool pIsPointerConst = false;
+            while (peek().type == TokenType::CONST || peek().type == TokenType::VOLATILE) {
+                if (match(TokenType::CONST)) pIsPointerConst = true;
+                else match(TokenType::VOLATILE);
+            }
+
             std::string pName = expect(TokenType::IDENTIFIER, "Expected parameter name").value;
-            params.push_back({pType, pPtrLevel, pIsSigned, pName, pIsVolatile});
+            params.push_back({pType, pPtrLevel, pIsSigned, pName, pIsVolatile, pIsConst, pIsPointerConst});
         } while (match(TokenType::COMMA));
     }
     expect(TokenType::CLOSE_PAREN, "Expected ')'");
@@ -357,14 +368,15 @@ std::unique_ptr<Statement> Parser::parseStatement() {
     }
 
     bool isVolatile = false;
+    bool isConst = false;
     bool isAuto = false;
     while (true) {
         if (match(TokenType::VOLATILE)) {
             isVolatile = true;
+        } else if (match(TokenType::CONST)) {
+            isConst = true;
         } else if (match(TokenType::AUTO)) {
             isAuto = true;
-        } else if (peek().type == TokenType::SIGNED || peek().type == TokenType::UNSIGNED) {
-            break;
         } else {
             break;
         }
@@ -411,13 +423,13 @@ std::unique_ptr<Statement> Parser::parseStatement() {
             expect(TokenType::SEMICOLON, "Expected ';' after struct/union definition");
             return def;
         }
-        return parseVariableDeclaration(isVolatile);
+        return parseVariableDeclaration(isVolatile, isConst);
     }
 
     if (peek().type == TokenType::INT || peek().type == TokenType::CHAR || peek().type == TokenType::BOOL ||
         peek().type == TokenType::UNSIGNED || peek().type == TokenType::SIGNED ||
         (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value))) {
-        return parseVariableDeclaration(isVolatile);
+        return parseVariableDeclaration(isVolatile, isConst);
     }
 
     if (match(TokenType::RETURN)) {
@@ -497,15 +509,19 @@ std::unique_ptr<Statement> Parser::parseStatement() {
                 peek().type == TokenType::BOOL ||
                 peek().type == TokenType::UNSIGNED || peek().type == TokenType::SIGNED ||
                 peek().type == TokenType::STRUCT || peek().type == TokenType::UNION ||
-                peek().type == TokenType::VOLATILE || peek().type == TokenType::AUTO) {
+                peek().type == TokenType::VOLATILE || peek().type == TokenType::CONST || peek().type == TokenType::AUTO) {
                 isDecl = true;
             }
 
             if (isDecl) {
                 bool isVolatile = false;
-                while (match(TokenType::VOLATILE)) isVolatile = true;
+                bool isConst = false;
+                while (match(TokenType::VOLATILE) || match(TokenType::CONST)) {
+                    if (tokens[pos-1].type == TokenType::VOLATILE) isVolatile = true;
+                    else if (tokens[pos-1].type == TokenType::CONST) isConst = true;
+                }
                 match(TokenType::AUTO); // consume auto if present
-                initializer = parseVariableDeclaration(isVolatile);
+                initializer = parseVariableDeclaration(isVolatile, isConst);
                 // parseVariableDeclaration expects and consumes a semicolon
             } else {
                 auto expr = parseExpression();
@@ -572,7 +588,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
     return setPos(std::make_unique<ExpressionStatement>(std::move(expr)), startToken);
 }
 
-std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile) {
+std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, bool isConst) {
     std::unique_ptr<Expression> alignmentExpr = nullptr;
     if (match(TokenType::ALIGNAS)) {
         expect(TokenType::OPEN_PAREN, "Expected '(' after '_Alignas'");
@@ -635,6 +651,13 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile) {
     int ptrLevel = basePtrLevel;
     while (match(TokenType::STAR)) ptrLevel++;
 
+    // Handle const/volatile after * (qualifies the pointer itself)
+    bool isPointerConst = false;
+    while (peek().type == TokenType::CONST || peek().type == TokenType::VOLATILE) {
+        if (match(TokenType::CONST)) isPointerConst = true;
+        else match(TokenType::VOLATILE); // consume but ignore volatile on pointer for now
+    }
+
     std::string name = expect(TokenType::IDENTIFIER, "Expected variable name").value;
     int arraySize = -1;
     if (match(TokenType::OPEN_SQUARE)) {
@@ -645,6 +668,8 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile) {
     auto decl = setPos(std::make_unique<VariableDeclaration>(type, name, ptrLevel), typeToken);
     decl->isSigned = isSigned;
     decl->isVolatile = isVolatile;
+    decl->isConst = isConst;
+    decl->isPointerConst = isPointerConst;
     decl->alignmentExpr = std::move(alignmentExpr);
     decl->arraySize = arraySize;
 
@@ -706,11 +731,16 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
                 advance(); // struct/union
                 auto nestedDef = parseStructDefinition(isNestedUnion);
                 std::string nestedTypeName = (isNestedUnion ? "union " : "struct ") + nestedDef->name;
-                def->members.push_back({nestedTypeName, 0, false, "", 0, nullptr, true, -1});
+                def->members.push_back({nestedTypeName, 0, false, "", false, 0, nullptr, true, -1});
                 pendingDefinitions.push_back(std::move(nestedDef));
                 match(TokenType::SEMICOLON); // consume optional semicolon
                 continue; 
             }
+        }
+
+        bool mIsConst = false;
+        while (match(TokenType::VOLATILE) || match(TokenType::CONST)) {
+            if (tokens[pos-1].type == TokenType::CONST) mIsConst = true;
         }
 
         std::string type;
@@ -751,7 +781,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             arraySize = std::stoi(sizeToken.value);
             expect(TokenType::CLOSE_SQUARE, "Expected ']' after array size");
         }
-        def->members.push_back({type, ptrLevel, mIsSigned, memberName, 0, std::move(mAlignmentExpr), false, arraySize});
+        def->members.push_back({type, ptrLevel, mIsSigned, memberName, mIsConst, 0, std::move(mAlignmentExpr), false, arraySize});
         expect(TokenType::SEMICOLON, "Expected ';'");
     }
     expect(TokenType::CLOSE_BRACE, "Expected '}'");

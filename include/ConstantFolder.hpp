@@ -13,6 +13,8 @@ public:
     std::unique_ptr<Statement> lastStmt;
     std::map<std::string, int> knownConstants;
     std::set<std::string> volatileVars;
+    std::set<std::string> constVars;        // non-pointer const vars (prevents x = ...)
+    std::set<std::string> constPointerVars;  // pointer-const vars (prevents p = ...)
     std::set<std::string> boolVars;
     std::map<std::string, std::shared_ptr<CodeGenerator::StructInfo>> structs;
 
@@ -52,6 +54,12 @@ public:
     }
 
     void visit(Assignment& node) override {
+        // Check for const assignment
+        if (auto* ref = dynamic_cast<VariableReference*>(node.target.get())) {
+            if (constVars.count(ref->name) || constPointerVars.count(ref->name)) {
+                throw std::runtime_error("Compile Error: Assignment to read-only location '" + ref->name + "'");
+            }
+        }
         // Don't fold the target! It must remain a VariableReference or MemberAccess.
         auto expression = fold(std::move(node.expression));
         
@@ -126,6 +134,18 @@ public:
     }
 
     void visit(UnaryOperation& node) override {
+        if (node.op == "++" || node.op == "--" || node.op == "++_POST" || node.op == "--_POST") {
+            if (auto* ref = dynamic_cast<VariableReference*>(node.operand.get())) {
+                if (constVars.count(ref->name)) {
+                    throw std::runtime_error("Compile Error: Increment/decrement of read-only location '" + ref->name + "'");
+                }
+            }
+        }
+        // Don't fold operands of address-of — the variable reference must survive
+        if (node.op == "&") {
+            lastExpr = copyPos(std::make_unique<UnaryOperation>(node.op, std::move(node.operand)), node);
+            return;
+        }
         auto operand = fold(std::move(node.operand));
         auto* lit = dynamic_cast<IntegerLiteral*>(operand.get());
 
@@ -199,6 +219,11 @@ public:
             }
         }
         auto initializer = node.initializer ? fold(std::move(node.initializer)) : nullptr;
+        if (node.pointerLevel > 0) {
+            if (node.isPointerConst) constPointerVars.insert(node.name);
+        } else {
+            if (node.isConst) constVars.insert(node.name);
+        }
         if (node.isVolatile) {
             volatileVars.insert(node.name);
             knownConstants.erase(node.name);
@@ -220,6 +245,8 @@ public:
         decl->alignmentExpr = std::move(alignmentExpr);
         decl->alignment = node.alignment;
         decl->isVolatile = node.isVolatile;
+        decl->isConst = node.isConst;
+        decl->isPointerConst = node.isPointerConst;
         decl->isGlobal = node.isGlobal;
         decl->isExtern = node.isExtern;
         decl->arraySize = node.arraySize;
@@ -339,13 +366,13 @@ public:
                 if (currentOffset % mAlign != 0) currentOffset += mAlign - (currentOffset % mAlign);
             }
 
-            CodeGenerator::MemberInfo mi = {m.type, m.pointerLevel, m.isSigned, currentOffset, mAlign, m.arraySize};
+            CodeGenerator::MemberInfo mi = {m.type, m.pointerLevel, m.isSigned, m.isConst, currentOffset, mAlign, m.arraySize};
             sInfo->members[m.name] = mi;
 
             if (!node.isUnion) currentOffset += mSize;
             else if (mSize > currentOffset) currentOffset = mSize;
 
-            def->members.push_back({m.type, m.pointerLevel, m.isSigned, m.name, alignment, std::move(alignmentExpr), m.isAnonymous, m.arraySize});
+            def->members.push_back({m.type, m.pointerLevel, m.isSigned, m.name, m.isConst, alignment, std::move(alignmentExpr), m.isAnonymous, m.arraySize});
         }
 
         if (currentOffset % maxAlignment != 0) currentOffset += maxAlignment - (currentOffset % maxAlignment);
