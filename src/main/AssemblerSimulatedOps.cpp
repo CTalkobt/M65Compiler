@@ -695,9 +695,23 @@ void AssemblerSimulatedOps::emitPtrStackCode(AssemblerParser* parser, M65Emitter
         e.tax();
         e.pla();
     } else {
-        uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-        uint16_t addr = e.spBase() + offset;
-        e.tsx(); e.txa(); e.clc(); e.adc_imm(addr & 0xFF); e.pha(); e.lda_imm(addr >> 8); e.adc_imm(0); e.tax(); e.pla();
+        // Check if the operand is a stack-relative variable vs global/absolute address.
+        // Stack variables (.var) are always defined before use and will be found by resolveSymbol.
+        // If the symbol is not found or is not stack-relative, treat it as a global address.
+        std::string baseName = parser->tokens[tokenIndex].value;
+        Symbol* sym = parser->resolveSymbol(baseName, scopePrefix);
+        bool isStack = sym && (sym->isStackRelative || (!sym->isAddress && sym->isVariable));
+        if (isStack) {
+            // Stack-relative variable: compute SP + spBase + offset
+            uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+            uint16_t addr = e.spBase() + offset;
+            e.tsx(); e.txa(); e.clc(); e.adc_imm(addr & 0xFF); e.pha(); e.lda_imm(addr >> 8); e.adc_imm(0); e.tax(); e.pla();
+        } else {
+            // Global/absolute address: load directly into AX
+            uint32_t addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+            e.lda_imm(addr & 0xFF);
+            e.ldx_imm((addr >> 8) & 0xFF);
+        }
     }
 }
 

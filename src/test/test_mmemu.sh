@@ -286,6 +286,36 @@ else
     fi
 fi
 
+# --- Multi-dimensional array test ---
+echo "Testing mmemu-cli with test_multidim_array.c (multi-dim arrays)..."
+
+$CC src/test-resources/test_multidim_array.c -o build/test/test_multidim_array.s
+if [ $? -ne 0 ]; then
+    echo "FAIL: Compilation failed for test_multidim_array.c"
+    failed=$((failed + 1))
+else
+    $AS build/test/test_multidim_array.s -o build/test/test_multidim_array.prg
+    if [ $? -ne 0 ]; then
+        echo "FAIL: Assembly failed for test_multidim_array.s"
+        failed=$((failed + 1))
+    else
+        # Expected: 03 0C 17 00 18 AA
+        # scores[2]=3, grid[1][2]=12, grid[2][3]=23, grid[0][0]=0, sizeof=24, marker=AA
+        EXPECTED_MD="03 0C 17 00 18 AA"
+        OUTPUT=$(echo -e "load build/test/test_multidim_array.prg\nsetpc \$2000\nstep 50000000\nm \$4000 6\nq" | $MMEMU -m rawMega65 2>/dev/null)
+
+        if echo "$OUTPUT" | grep -qi "4000: 03 0c 17 00 18 aa"; then
+            echo "SUCCESS: test_multidim_array.c — multi-dim arrays correct."
+        else
+            echo "FAIL: test_multidim_array.c — multi-dim array validation failed."
+            echo "Expected 4000: $EXPECTED_MD"
+            echo "Actual output:"
+            echo "$OUTPUT" | grep "4000:"
+            failed=$((failed + 1))
+        fi
+    fi
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All mmemu tests passed!"
     exit 0

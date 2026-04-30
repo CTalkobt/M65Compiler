@@ -233,12 +233,7 @@ CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
 
 void CodeGenerator::emitAddress(Expression* expr) {
     if (auto* ref = dynamic_cast<VariableReference*>(expr)) {
-        std::string rName = resolveVarName(ref->name);
-        if (globalVariableTypes.count(rName)) {
-            emit("ldax #" + rName);
-        } else {
-            emit("ptrstack " + rName);
-        }
+        emit("ptrstack " + resolveVarName(ref->name));
     } else if (auto* ma = dynamic_cast<MemberAccess*>(expr)) {
         if (ma->isArrow) {
             bool oldNeeded = resultNeeded;
@@ -330,13 +325,9 @@ void CodeGenerator::emitAddress(Expression* expr) {
         if (elementSize == 2) {
             emitter->asl_a(); emitter->pha(); emitter->txa(); emitter->rol_a(); emitter->tax(); emitter->pla();
         } else if (elementSize > 2) {
-             int zpIdx = allocateZP(2);
-             std::stringstream ssM; ssM << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpIdx);
-             emit("stax $" + ssM.str());
-             std::stringstream ssVal; ssVal << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << elementSize;
-             emit("ldax #$" + ssVal.str());
-             emit("mul.16 .ax, $" + ssM.str());
-             freeZP(zpIdx, 2);
+             // Index is in AX; multiply by stride using immediate operand
+             std::stringstream ssVal; ssVal << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << elementSize;
+             emit("mul.16 .ax, " + ssVal.str());
         }
 
         std::stringstream ss2;

@@ -10,7 +10,7 @@ Legend:
 
 - [ ] **BinaryExpr reentrancy**: `BinaryExpr::emit()` for `+`, `-`, `*`, `/` stores the left operand into MEGA65 hardware multiplier registers ($D770+), then evaluates `right->emit()`. If the right sub-expression itself contains `+`/`-`/`*`/`/`, it clobbers $D770 before the outer operation reads it. Example: `(a*b) * (c*d)` — inner `c*d` overwrites $D770 used by outer `*`. Bitwise/shift ops are safe (they use push_ax/pop_ax via the stack). Fix: switch arithmetic ops to the same push/pop pattern, or save/restore $D770-$D77F around right-side evaluation.
 - [ ] **Global array store SP offset**: When assigning to a global array element with a runtime index (`arr[i] = expr`), the compiler evaluates the RHS first and pushes it (`push .ax`), shifting SP by 2. The subsequent LHS `emitAddress` evaluates the index sub-expression (`ldax _l_i, s`) at the wrong SP offset. This causes the store to target the wrong address and the loop comparison to misread `i`, resulting in single-iteration loops. The `.var` system cannot support temporary offset bumps because `.var` assignments are only evaluated during pass 1 (not positionally during pass 2). Fix: either (a) track a "push depth" counter and adjust stack-relative operands in the emitter, or (b) reorder evaluation when the RHS has no function calls, or (c) implement positional `.var` evaluation in the assembler.
-- [ ] **Assembler segment resume address drift**: When the compiler emits `_init_bss` in a resumed `.code` section after function code, the assembler computes the wrong address for the label. This was worked around by moving `_init_bss` into the CRT stub area (before functions). Root cause is likely a simulated opcode size mismatch between pass 1 and pass 2 that accumulates over large code bodies.
+- [ ] **Assembler simulated op size drift**: Some simulated opcodes may produce different sizes in pass 1 vs pass 2 when operand symbols are forward-referenced. Accumulates over large code bodies causing label address drift. `ptrstack` was fixed (was missing from pass 1 and pass 2 size chains). Other ops may have similar issues with large programs containing many function calls.
 
 ---
 
@@ -353,6 +353,37 @@ All modules are hand-written 45GS02 assembly in `lib/stdlib/`, archived into `st
   value set during parsing is now final. INC/DEC variants are unaffected.
 
 ---
+
+- [X] **Assembler: `ptrstack` broken for global variables** —
+  `ptrstack _globalVar` always emitted stack-relative code (`TSX; TXA; CLC; ADC #(spBase + addr)...`),
+  treating the global label's absolute address as a stack offset. This produced
+  nonsensical addresses for global arrays and pointers. Fix: `emitPtrStackCode`
+  now checks `resolveSymbol` — if the symbol is not stack-relative or `.var`-defined,
+  it emits `LDA #lo; LDX #hi` (absolute address load) instead.
+
+- [X] **Assembler: `ptrstack` missing from pass 1 and pass 2 sizing chains** —
+  `PTRSTACK` was not listed in the simulated opcode sizing blocks in either
+  `pass1()` or the pass 2 recalculation loop. This caused `stmt->size = 0` for
+  all `ptrstack` instructions, producing cumulative address drift for every label
+  after a `ptrstack`. Programs with multiple `ptrstack` calls (e.g., global array
+  access) would crash with BRK due to label addresses being off by the total
+  missing bytes. Fix: added `PTRSTACK` to both sizing chains alongside `PTRDEREF`.
+
+- [X] **Compiler: `emitAddress` stride multiply treated ZP address as constant** —
+  For array element size > 2, `emitAddress` stored the index value to a ZP
+  scratch address (e.g., `stax $04`), then emitted `mul.16 .ax, $04`. The
+  assembler's `mul.16` expression parser interpreted `$04` as the literal value 4,
+  not as a memory reference to ZP $04. All stride multiplications produced
+  `index * 4` instead of `index * stride`. Fix: emit `mul.16 .ax, #$stride`
+  using an immediate operand, keeping the index in AX.
+
+- [X] **Compiler: `_init_bss` placed after function code** —
+  The BSS init routine was emitted in `emitData()` after all function bodies,
+  requiring a `.code` segment resume. The assembler's simulated opcode size
+  drift caused the `_init_bss` label to resolve to an incorrect address,
+  jumping into the middle of a preceding instruction (BRK). Fix: moved
+  `_init_bss` into the CRT stub area (before functions) with a pre-scan
+  of global declarations to determine if BSS zeroing is needed.
 
 ## Validation & Stress Testing
 - [ ] **Duff's device**: Switch interleaved with loop (stress test).

@@ -770,6 +770,7 @@ void AssemblerParser::pass1() {
                 else if (stmt->type == Statement::STX_STACK) emitSTX_StackCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 else if (stmt->type == Statement::STY_STACK) emitSTY_StackCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 else if (stmt->type == Statement::STZ_STACK) emitSTZ_StackCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::PTRSTACK) emitPtrStackCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 else if (stmt->type == Statement::PTRDEREF) emitPtrDerefCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 else if (stmt->type == Statement::LDWF || stmt->type == Statement::STWF || stmt->type == Statement::INCF || stmt->type == Statement::DECF) emitFlatMemoryCode(d, stmt->instr.mnemonic, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 else if (stmt->type == Statement::ASW) emitASWCode(d, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
@@ -1239,6 +1240,7 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                     else if (s->type == Statement::STX_STACK) emitSTX_StackCode(d, s->instr.operandTokenIndex, s->scopePrefix);
                     else if (s->type == Statement::STY_STACK) emitSTY_StackCode(d, s->instr.operandTokenIndex, s->scopePrefix);
                     else if (s->type == Statement::STZ_STACK) emitSTZ_StackCode(d, s->instr.operandTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::PTRSTACK) emitPtrStackCode(d, s->instr.operandTokenIndex, s->scopePrefix);
                     else if (s->type == Statement::PTRDEREF) emitPtrDerefCode(d, s->instr.operandTokenIndex, s->scopePrefix);
                     else if (s->type == Statement::LDWF || s->type == Statement::STWF || s->type == Statement::INCF || s->type == Statement::DECF) emitFlatMemoryCode(d, s->instr.mnemonic, s->instr.operandTokenIndex, s->scopePrefix);
                     else if (s->type == Statement::ASW) emitASWCode(d, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
