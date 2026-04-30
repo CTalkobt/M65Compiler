@@ -2398,8 +2398,8 @@ void CodeGenerator::emitData() {
         if (gVar->arraySize() >= 0) size *= gVar->arraySize();
 
         if (auto* lit = dynamic_cast<IntegerLiteral*>(gVar->initializer.get())) {
-            if (size == 1) out << "    .byte $" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (lit->value & 0xFF) << std::dec << std::endl;
-            else if (size == 2) out << "    .word $" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (lit->value & 0xFFFF) << std::dec << std::endl;
+            if (size == 1) out << "    .byte $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (lit->value & 0xFF) << std::dec << std::endl;
+            else if (size == 2) out << "    .word $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (lit->value & 0xFFFF) << std::dec << std::endl;
             else out << "    .res " << std::to_string(size) << ", 0" << std::endl;
         } else {
             out << "    .res " << std::to_string(size) << ", 0" << std::endl;

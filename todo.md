@@ -8,7 +8,7 @@ Legend:
 
 ## Known Bugs
 
-- [ ] **BinaryExpr reentrancy**: `BinaryExpr::emit()` for `+`, `-`, `*`, `/` stores the left operand into MEGA65 hardware multiplier registers ($D770+), then evaluates `right->emit()`. If the right sub-expression itself contains `+`/`-`/`*`/`/`, it clobbers $D770 before the outer operation reads it. Example: `(a*b) * (c*d)` — inner `c*d` overwrites $D770 used by outer `*`. Bitwise/shift ops are safe (they use push_ax/pop_ax via the stack). Fix: switch arithmetic ops to the same push/pop pattern, or save/restore $D770-$D77F around right-side evaluation.
+- [d] **BinaryExpr reentrancy (assembler expr only)**: `BinaryExpr::emit()` for `+`, `-`, `*`, `/` stores the left operand into MEGA65 hardware multiplier registers ($D770+), then evaluates `right->emit()`. If the right sub-expression itself contains `+`/`-`/`*`/`/`, it clobbers $D770 before the outer operation reads it. The compiler's `visit(BinaryOperation)` codegen is NOT affected — it evaluates left to ZP first, then right, so the hardware registers are used sequentially. This bug only affects hand-written assembler `expr` with nested runtime arithmetic sub-expressions, which is very hard to construct (constant operands are folded, register operands get clobbered). Deferred until an actual use case emerges.
 - [X] **Global array store SP offset**: Fixed. The assignment handler now saves the RHS to an `allocateZP`-managed ZP slot instead of using `push .ax`/`pop .ax`, so SP remains unchanged during LHS address computation. Additionally fixed `bne(0x02)` → `bne(0x01)` for the `inc a; bne; inx` carry propagation pattern — the offset was 1 byte too large, causing a branch into the middle of the next instruction.
 - [ ] **Assembler simulated op size drift**: Some simulated opcodes may produce different sizes in pass 1 vs pass 2 when operand symbols are forward-referenced. Accumulates over large code bodies causing label address drift. `ptrstack` was fixed (was missing from pass 1 and pass 2 size chains). Other ops may have similar issues with large programs containing many function calls.
 - [X] **Compiler `emitAddress` ZP conflict**: Resolved — `emitAddress` already used `allocateZP` (not hardcoded addresses as initially suspected). The assignment handler was the actual conflict source, using `push/pop` instead of `allocateZP`. Fixed by switching to ZP-based RHS save.
@@ -393,6 +393,11 @@ All modules are hand-written 45GS02 assembly in `lib/stdlib/`, archived into `st
   for immediate mode without verifying the `#` prefix. Fix: added `isImmediate`
   check (looks for `HASH` token) to `emitMulCode`, `emitDivCode`, and
   `emitSignedMathOp`. Only uses the immediate path when `#` is present.
+
+- [X] **Compiler: global integer initializers emitted with wrong hex padding** —
+  `int a = 3` emitted `.word $3000` instead of `.word $0003`. The `std::setw(4)`
+  hex formatting was right-padded because a previous output statement had set
+  `std::left` on the stream. Fix: add `std::right` before `setw`/`setfill`.
 
 - [X] **Compiler: assignment RHS saved via `push .ax` shifted SP** —
   The generic assignment fallback evaluated the RHS, pushed it to the hardware
