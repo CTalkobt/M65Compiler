@@ -8,6 +8,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - **Assembler (ca45)**:
     - **`.array` directive**: Declares multi-dimensional arrays with automatic storage reservation and metadata. Syntax: `.array name, element_size, dim0 [, dim1 [, dim2 ...]]`. Reserves `element_size × product(dims)` bytes and defines compile-time constants for each dimension: `name.__elsize`, `name.__dims`, `name.__dimN`, `name.__strideN`. Strides are computed in row-major order (stride[i] = product of subsequent dimensions × element size). Supports arbitrary dimensions and element sizes (1=byte, 2=word, etc.).
     - **Array indexing in `expr`**: The expression evaluator now supports `name[index]` and `name[i][j][...]` syntax for arrays declared with `.array`. Constant indices are resolved at assembly time to direct `LDA addr` instructions. Runtime indices generate optimized code: bare `.X` register with stride=1 emits a single `LDA base,X`; power-of-2 strides use ASL shifts; arbitrary strides use the MEGA65 hardware multiplier ($D770). Multi-dimensional runtime indexing accumulates partial offsets on the hardware stack with no scratch memory conflicts. Mixed constant/runtime indices are supported (constant dimensions are folded into the base address).
+- **Compiler (cc45)**:
+    - **Multi-dimensional array declarations**: Support `int a[3][4]` row-major layout. The parser accepts multiple `[N]` suffixes on variable and struct member declarations. The type system stores dimension vectors (`arrayDims`) and computes correct strides at each indexing level. `sizeof` returns the full array size. `getExprType` adds array dimensions to pointer level for correct type propagation through chained `a[i][j]` access. `emitAddress` walks the `ArrayAccess` chain to determine the dimension depth and computes the appropriate stride (product of remaining dimensions × element size).
+    - **Global array `emitAddress` fix**: Global array variables now use `ldax #label` instead of `ptrstack` for base address computation. `ptrstack` is stack-relative and produced wrong addresses for globals.
+    - **CRT `_init_bss` placement fix**: Moved `_init_bss` into the CRT stub area (before function code) to avoid assembler segment-resume address drift that caused BRK on programs with BSS variables.
+
+### Fixed
+- **Compiler (cc45)**:
+    - Fixed `emitAddress` for global variables — now emits `ldax #label` (absolute) instead of `ptrstack` (stack-relative), which produced incorrect addresses for global arrays and pointers.
+    - Fixed `_init_bss` address resolution — moved BSS init routine into the CRT stub area so its address is computed before any function code, avoiding assembler simulated opcode size drift.
 
 ## 2026-04-29
 

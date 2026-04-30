@@ -661,10 +661,10 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     }
 
     std::string name = expect(TokenType::IDENTIFIER, "Expected variable name").value;
-    int arraySize = -1;
-    if (match(TokenType::OPEN_SQUARE)) {
+    std::vector<int> arrayDims;
+    while (match(TokenType::OPEN_SQUARE)) {
         const Token& sizeToken = expect(TokenType::INTEGER_LITERAL, "Expected integer literal for array size");
-        arraySize = std::stoi(sizeToken.value);
+        arrayDims.push_back(std::stoi(sizeToken.value));
         expect(TokenType::CLOSE_SQUARE, "Expected ']' after array size");
     }
     auto decl = setPos(std::make_unique<VariableDeclaration>(type, name, ptrLevel), typeToken);
@@ -673,7 +673,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     decl->isConst = isConst;
     decl->isPointerConst = isPointerConst;
     decl->alignmentExpr = std::move(alignmentExpr);
-    decl->arraySize = arraySize;
+    decl->arrayDims = arrayDims;
 
     if (match(TokenType::EQUALS)) {
         decl->initializer = parseExpression();
@@ -733,7 +733,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
                 advance(); // struct/union
                 auto nestedDef = parseStructDefinition(isNestedUnion);
                 std::string nestedTypeName = (isNestedUnion ? "union " : "struct ") + nestedDef->name;
-                def->members.push_back({nestedTypeName, 0, false, "", false, 0, nullptr, true, -1});
+                { StructMember sm; sm.type = nestedTypeName; sm.isAnonymous = true; def->members.push_back(std::move(sm)); }
                 pendingDefinitions.push_back(std::move(nestedDef));
                 match(TokenType::SEMICOLON); // consume optional semicolon
                 continue; 
@@ -777,13 +777,18 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         int ptrLevel = 0;
         while (match(TokenType::STAR)) ptrLevel++;
         std::string memberName = expect(TokenType::IDENTIFIER, "Expected member name").value;
-        int arraySize = -1;
-        if (match(TokenType::OPEN_SQUARE)) {
+        std::vector<int> memberArrayDims;
+        while (match(TokenType::OPEN_SQUARE)) {
             const Token& sizeToken = expect(TokenType::INTEGER_LITERAL, "Expected integer literal for array size");
-            arraySize = std::stoi(sizeToken.value);
+            memberArrayDims.push_back(std::stoi(sizeToken.value));
             expect(TokenType::CLOSE_SQUARE, "Expected ']' after array size");
         }
-        def->members.push_back({type, ptrLevel, mIsSigned, memberName, mIsConst, 0, std::move(mAlignmentExpr), false, arraySize});
+        StructMember sm;
+        sm.type = type; sm.pointerLevel = ptrLevel; sm.isSigned = mIsSigned;
+        sm.name = memberName; sm.isConst = mIsConst; sm.alignment = 0;
+        sm.alignmentExpr = std::move(mAlignmentExpr); sm.isAnonymous = false;
+        sm.arrayDims = memberArrayDims;
+        def->members.push_back(std::move(sm));
         expect(TokenType::SEMICOLON, "Expected ';'");
     }
     expect(TokenType::CLOSE_BRACE, "Expected '}'");

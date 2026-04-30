@@ -167,16 +167,19 @@ CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
         std::string pName = "_p_" + ref->name;
         if (variableTypes.count(pName)) {
             VarInfo& vi = variableTypes.at(pName);
-            return {vi.type, vi.pointerLevel, vi.isSigned, vi.isConst, vi.isPointerConst};
+            int pl = vi.pointerLevel + (int)vi.arrayDims.size();
+            return {vi.type, pl, vi.isSigned, vi.isConst, vi.isPointerConst};
         }
         std::string rName = "_l_" + ref->name;
         if (variableTypes.count(rName)) {
             VarInfo& vi = variableTypes.at(rName);
-            return {vi.type, vi.pointerLevel, vi.isSigned, vi.isConst, vi.isPointerConst};
+            int pl = vi.pointerLevel + (int)vi.arrayDims.size();
+            return {vi.type, pl, vi.isSigned, vi.isConst, vi.isPointerConst};
         }
         if (globalVariableTypes.count("_" + ref->name)) {
             VarInfo& vi = globalVariableTypes.at("_" + ref->name);
-            return {vi.type, vi.pointerLevel, vi.isSigned, vi.isConst, vi.isPointerConst};
+            int pl = vi.pointerLevel + (int)vi.arrayDims.size();
+            return {vi.type, pl, vi.isSigned, vi.isConst, vi.isPointerConst};
         }
     }
     if (auto* vd = dynamic_cast<VariableDeclaration*>(expr)) {
@@ -219,7 +222,7 @@ CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
                 auto& sInfo = *structs[sName];
                 if (sInfo.members.count(ma->memberName)) {
                     MemberInfo& mInfo = sInfo.members[ma->memberName];
-                    if (mInfo.arraySize >= 0) return {mInfo.type, mInfo.pointerLevel + 1, mInfo.isSigned, mInfo.isConst};
+                    if (mInfo.arraySize() >= 0) return {mInfo.type, mInfo.pointerLevel + 1, mInfo.isSigned, mInfo.isConst};
                     return {mInfo.type, mInfo.pointerLevel, mInfo.isSigned, mInfo.isConst};
                 }
             }
@@ -230,7 +233,12 @@ CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
 
 void CodeGenerator::emitAddress(Expression* expr) {
     if (auto* ref = dynamic_cast<VariableReference*>(expr)) {
-        emit("ptrstack " + resolveVarName(ref->name));
+        std::string rName = resolveVarName(ref->name);
+        if (globalVariableTypes.count(rName)) {
+            emit("ldax #" + rName);
+        } else {
+            emit("ptrstack " + rName);
+        }
     } else if (auto* ma = dynamic_cast<MemberAccess*>(expr)) {
         if (ma->isArrow) {
             bool oldNeeded = resultNeeded;
@@ -263,7 +271,13 @@ void CodeGenerator::emitAddress(Expression* expr) {
     } else if (auto* aa = dynamic_cast<ArrayAccess*>(expr)) {
         bool oldNeeded = resultNeeded;
         resultNeeded = true;
-        aa->arrayExpr->accept(*this); // Get base address in AX
+        // For chained array access (multi-dim), recurse via emitAddress to get
+        // the sub-array address without dereferencing
+        if (dynamic_cast<ArrayAccess*>(aa->arrayExpr.get())) {
+            emitAddress(aa->arrayExpr.get());
+        } else {
+            aa->arrayExpr->accept(*this); // Get base address in AX (pointer decay)
+        }
         resultNeeded = oldNeeded;
         int zpBase = allocateZP(2);
         std::stringstream ss;
@@ -273,14 +287,44 @@ void CodeGenerator::emitAddress(Expression* expr) {
         resultNeeded = true;
         aa->indexExpr->accept(*this); // Get index in AX
         resultNeeded = oldNeeded;
-        
-        ExpressionType baseType = getExprType(aa->arrayExpr.get());
+
+        // Compute element size (stride) for this dimension level
+        // For multi-dim arrays like int a[3][4], a[i] has stride = 4*sizeof(int) = 8
         int elementSize = 1;
-        if (baseType.pointerLevel > 1 || baseType.type == "int") {
-            elementSize = 2;
-        } else if (isStruct(baseType.type)) {
-             std::string sName = getAggregateName(baseType.type);
-             if (structs.count(sName)) elementSize = structs[sName]->totalSize;
+        {
+            // Walk the ArrayAccess chain to find the root variable and depth
+            int depth = 0;
+            Expression* base = aa->arrayExpr.get();
+            while (auto* inner = dynamic_cast<ArrayAccess*>(base)) {
+                depth++;
+                base = inner->arrayExpr.get();
+            }
+
+            std::vector<int> dims;
+            VarInfo* vi = nullptr;
+            if (auto* ref = dynamic_cast<VariableReference*>(base)) {
+                std::string rName = resolveVarName(ref->name);
+                if (variableTypes.count(rName)) vi = &variableTypes.at(rName);
+                else if (globalVariableTypes.count(rName)) vi = &globalVariableTypes.at(rName);
+                if (vi) dims = vi->arrayDims;
+            }
+
+            if (!dims.empty() && depth < (int)dims.size() && vi) {
+                // Multi-dim array: stride = product(dims[depth+1..]) * scalar_element_size
+                int scalarSize = getTypeSize(vi->type, vi->pointerLevel, -1, structs);
+                elementSize = scalarSize;
+                for (int d = depth + 1; d < (int)dims.size(); d++)
+                    elementSize *= dims[d];
+            } else {
+                // Plain pointer indexing or single-dim (fallback to original behavior)
+                ExpressionType baseType = getExprType(aa->arrayExpr.get());
+                if (baseType.pointerLevel > 1 || baseType.type == "int") {
+                    elementSize = 2;
+                } else if (isStruct(baseType.type)) {
+                    std::string sName = getAggregateName(baseType.type);
+                    if (structs.count(sName)) elementSize = structs[sName]->totalSize;
+                }
+            }
         }
 
         if (elementSize == 2) {
@@ -542,6 +586,48 @@ void CodeGenerator::visit(TranslationUnit& node) {
             out << "    jmp _main" << std::endl;
             out << "_init_features:" << std::endl;
             out << "    rts" << std::endl;
+            // Emit _init_bss inline in CRT area so its address is stable
+            // (avoids simulated opcode size drift when placed after functions).
+            // Pre-scan for uninitialized globals to decide if BSS zeroing is needed.
+            bool hasBssVars = false;
+            if (!crtNoBssInit && !relocMode) {
+                for (auto& decl : node.topLevelDecls) {
+                    if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
+                        if ((vd->isGlobal || currentFunction == nullptr) && !vd->isExtern && !vd->initializer) {
+                            hasBssVars = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            out << "_init_bss:" << std::endl;
+            if (hasBssVars) {
+                out << "    lda #<__bss_start" << std::endl;
+                out << "    sta $02" << std::endl;
+                out << "    lda #>__bss_start" << std::endl;
+                out << "    sta $03" << std::endl;
+                out << "    lda #<__bss_end" << std::endl;
+                out << "    sta $04" << std::endl;
+                out << "    lda #>__bss_end" << std::endl;
+                out << "    sta $05" << std::endl;
+                out << "    lda #0" << std::endl;
+                out << "    ldy #0" << std::endl;
+                out << "@__bss_loop:" << std::endl;
+                out << "    ldx $02" << std::endl;
+                out << "    cpx $04" << std::endl;
+                out << "    bne @__bss_store" << std::endl;
+                out << "    ldx $03" << std::endl;
+                out << "    cpx $05" << std::endl;
+                out << "    beq @__bss_done" << std::endl;
+                out << "@__bss_store:" << std::endl;
+                out << "    sta ($02),y" << std::endl;
+                out << "    inc $02" << std::endl;
+                out << "    bne @__bss_loop" << std::endl;
+                out << "    inc $03" << std::endl;
+                out << "    bra @__bss_loop" << std::endl;
+                out << "@__bss_done:" << std::endl;
+            }
+            out << "    rts" << std::endl;
         }
         out << std::endl;
     }
@@ -629,7 +715,7 @@ void CodeGenerator::visit(VariableDeclaration& node) {
 
     if (node.isGlobal || currentFunction == nullptr) {
         std::string gName = "_" + node.name;
-        globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, node.arraySize};
+        globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, node.arrayDims};
         if (node.isExtern) {
             // extern declaration — type is known but no storage emitted
             return;
@@ -642,7 +728,7 @@ void CodeGenerator::visit(VariableDeclaration& node) {
     }
 
     std::string lName = "_l_" + node.name;
-    variableTypes[lName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, node.arraySize};
+    variableTypes[lName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, node.arrayDims};
 
     if (node.initializer && !dynamic_cast<CastExpression*>(node.initializer.get())) {
         if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
@@ -670,7 +756,7 @@ void CodeGenerator::visit(VariableDeclaration& node) {
         if (structs.count(sName)) size = structs[sName]->totalSize;
         else throw std::runtime_error("Unknown struct/union type: " + sName);
     }
-    if (node.arraySize >= 0) size *= node.arraySize;
+    if (node.arraySize() >= 0) size *= node.arraySize();
 
     if (node.isVolatile) {
         if (node.initializer) {
@@ -1599,13 +1685,13 @@ void CodeGenerator::visit(SizeofExpression& node) {
     } else {
         ExpressionType et = getExprType(node.expression.get());
         // We need the array size if it's a variable
-        int arraySize = -1;
+        int arrSize = -1;
         if (auto* ref = dynamic_cast<VariableReference*>(node.expression.get())) {
             std::string rName = resolveVarName(ref->name);
-            if (variableTypes.count(rName)) arraySize = variableTypes.at(rName).arraySize;
-            else if (globalVariableTypes.count("_" + ref->name)) arraySize = globalVariableTypes.at("_" + ref->name).arraySize;
+            if (variableTypes.count(rName)) arrSize = variableTypes.at(rName).arraySize();
+            else if (globalVariableTypes.count("_" + ref->name)) arrSize = globalVariableTypes.at("_" + ref->name).arraySize();
         }
-        size = getTypeSize(et.type, et.pointerLevel, arraySize, structs);
+        size = getTypeSize(et.type, et.pointerLevel, arrSize, structs);
     }
     std::stringstream ss; ss << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << size;
     emit("ldax #$" + ss.str());
@@ -1911,7 +1997,7 @@ void CodeGenerator::visit(StructDefinition& node) {
         if (member.alignment > mAlign) mAlign = member.alignment;
         if (mAlign > maxAlign) maxAlign = mAlign;
         
-        if (member.arraySize >= 0) mSize *= member.arraySize;
+        if (member.arraySize() >= 0) mSize *= member.arraySize();
 
         if (!node.isUnion) {
             if (currentOffset % mAlign != 0) currentOffset += mAlign - (currentOffset % mAlign);
@@ -1937,7 +2023,7 @@ void CodeGenerator::visit(StructDefinition& node) {
             mInfo.isConst = member.isConst;
             mInfo.offset = node.isUnion ? 0 : currentOffset;
             mInfo.alignment = mAlign;
-            mInfo.arraySize = member.arraySize;
+            mInfo.arrayDims = member.arrayDims;
             if (!member.name.empty()) info->members[member.name] = mInfo;
             if (!node.isUnion) currentOffset += mSize;
             else if (mSize > maxSize) maxSize = mSize;
@@ -2053,7 +2139,7 @@ void CodeGenerator::visit(VariableReference& node) {
     std::string suffix = isGlobal ? "" : ", s";
     VarInfo vi = variableTypes.count(rName) ? variableTypes.at(rName) : globalVariableTypes.at(rName);
 
-    if (vi.arraySize >= 0) {
+    if (vi.arraySize() >= 0) {
         emitAddress(&node); // This will put address in AX
         return;
     }
@@ -2270,7 +2356,6 @@ void CodeGenerator::visit(AlignofExpression& node) {
 }
 
 void CodeGenerator::emitData() {
-    bool hasBss = false;
     // Emit .global/.weak for all global variables in relocatable mode
     if (relocMode) {
         for (auto* gVar : globalVars) {
@@ -2290,37 +2375,7 @@ void CodeGenerator::emitData() {
         else initializedVars.push_back(gVar);
     }
 
-    // Emit _init_bss routine in code segment (before data/bss)
-    out << std::endl << ".code" << std::endl;
-    out << "_init_bss:" << std::endl;
-    if (!uninitializedVars.empty() && !crtNoBssInit && !relocMode) {
-        // BSS zeroing routine using a 16-bit pointer loop
-        out << "    lda #<__bss_start" << std::endl;
-        out << "    sta $02" << std::endl;
-        out << "    lda #>__bss_start" << std::endl;
-        out << "    sta $03" << std::endl;
-        out << "    lda #<__bss_end" << std::endl;
-        out << "    sta $04" << std::endl;
-        out << "    lda #>__bss_end" << std::endl;
-        out << "    sta $05" << std::endl;
-        out << "    lda #0" << std::endl;
-        out << "    ldy #0" << std::endl;
-        out << "@__bss_loop:" << std::endl;
-        out << "    ldx $02" << std::endl;
-        out << "    cpx $04" << std::endl;
-        out << "    bne @__bss_store" << std::endl;
-        out << "    ldx $03" << std::endl;
-        out << "    cpx $05" << std::endl;
-        out << "    beq @__bss_done" << std::endl;
-        out << "@__bss_store:" << std::endl;
-        out << "    sta ($02),y" << std::endl;
-        out << "    inc $02" << std::endl;
-        out << "    bne @__bss_loop" << std::endl;
-        out << "    inc $03" << std::endl;
-        out << "    bra @__bss_loop" << std::endl;
-        out << "@__bss_done:" << std::endl;
-    }
-    out << "    rts" << std::endl;
+    // _init_bss is now emitted inline in the CRT stub (before functions)
 
     // Data section — initialized globals
     out << std::endl << ".data" << std::endl;
@@ -2335,7 +2390,7 @@ void CodeGenerator::emitData() {
         else if (gVar->type == "int") size = 2;
         else if (isStruct(gVar->type)) { std::string sName = getAggregateName(gVar->type); if (structs.count(sName)) size = structs[sName]->totalSize; }
 
-        if (gVar->arraySize >= 0) size *= gVar->arraySize;
+        if (gVar->arraySize() >= 0) size *= gVar->arraySize();
 
         if (auto* lit = dynamic_cast<IntegerLiteral*>(gVar->initializer.get())) {
             if (size == 1) out << "    .byte $" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (lit->value & 0xFF) << std::dec << std::endl;
@@ -2359,7 +2414,7 @@ void CodeGenerator::emitData() {
             else if (is8BitType(gVar->type)) size = 1;
             else if (gVar->type == "int") size = 2;
             else if (isStruct(gVar->type)) { std::string sName = getAggregateName(gVar->type); if (structs.count(sName)) size = structs[sName]->totalSize; }
-            if (gVar->arraySize >= 0) size *= gVar->arraySize;
+            if (gVar->arraySize() >= 0) size *= gVar->arraySize();
             out << "    .res " << std::to_string(size) << std::endl;
         }
         out << "__bss_end:" << std::endl;

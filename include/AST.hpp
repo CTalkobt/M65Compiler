@@ -152,7 +152,8 @@ public:
     int alignment = 0;
     std::unique_ptr<Expression> alignmentExpr;
     std::unique_ptr<Expression> initializer;
-    int arraySize = -1; // -1 means not an array
+    std::vector<int> arrayDims; // empty means not an array; e.g. {3,4} for int a[3][4]
+    int arraySize() const { if (arrayDims.empty()) return -1; int s=1; for (int d:arrayDims) s*=d; return s; }
     VariableDeclaration(const std::string& t, const std::string& n, int p = 0) : type(t), pointerLevel(p), name(n) {}
     void accept(ASTVisitor& visitor) override;
 };
@@ -309,7 +310,8 @@ struct StructMember {
     int alignment = 0;
     std::unique_ptr<Expression> alignmentExpr;
     bool isAnonymous = false;
-    int arraySize = -1;
+    std::vector<int> arrayDims; // empty means not an array
+    int arraySize() const { if (arrayDims.empty()) return -1; int s=1; for (int d:arrayDims) s*=d; return s; }
 };
 
 class EnumDefinition : public Statement {

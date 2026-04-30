@@ -9,6 +9,8 @@ Legend:
 ## Known Bugs
 
 - [ ] **BinaryExpr reentrancy**: `BinaryExpr::emit()` for `+`, `-`, `*`, `/` stores the left operand into MEGA65 hardware multiplier registers ($D770+), then evaluates `right->emit()`. If the right sub-expression itself contains `+`/`-`/`*`/`/`, it clobbers $D770 before the outer operation reads it. Example: `(a*b) * (c*d)` — inner `c*d` overwrites $D770 used by outer `*`. Bitwise/shift ops are safe (they use push_ax/pop_ax via the stack). Fix: switch arithmetic ops to the same push/pop pattern, or save/restore $D770-$D77F around right-side evaluation.
+- [ ] **Global array store SP offset**: When assigning to a global array element with a runtime index (`arr[i] = expr`), the compiler evaluates the RHS first and pushes it (`push .ax`), shifting SP by 2. The subsequent LHS `emitAddress` evaluates the index sub-expression (`ldax _l_i, s`) at the wrong SP offset. This causes the store to target the wrong address and the loop comparison to misread `i`, resulting in single-iteration loops. The `.var` system cannot support temporary offset bumps because `.var` assignments are only evaluated during pass 1 (not positionally during pass 2). Fix: either (a) track a "push depth" counter and adjust stack-relative operands in the emitter, or (b) reorder evaluation when the RHS has no function calls, or (c) implement positional `.var` evaluation in the assembler.
+- [ ] **Assembler segment resume address drift**: When the compiler emits `_init_bss` in a resumed `.code` section after function code, the assembler computes the wrong address for the label. This was worked around by moving `_init_bss` into the CRT stub area (before functions). Root cause is likely a simulated opcode size mismatch between pass 1 and pass 2 that accumulates over large code bodies.
 
 ---
 
@@ -113,7 +115,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [d] **Modern Type Inference**: Implement `auto` as C23/C++ style type inference for declarations with initializers.
 - [ ] **Storage Classes (remaining)**: Implement `static` (local persistence and file-scope linkage), `extern` (external linkage), `register` (hint).
 - [X] **Arrays**: Implement native array declarations (`type name[size]`), subscript indexing (`a[i]`), and pointer decay.
-- [ ] **Multi-dimensional arrays**: Support `int a[3][4]` row-major layout.
+- [X] **Multi-dimensional arrays**: Support `int a[3][4]` row-major layout. Parser, type system, stride computation, and constant-index codegen implemented. Runtime-index stores to global arrays blocked by SP offset bug (see Known Bugs).
 - [ ] **Array Initializers**: Support initialized array declarations including partial initialization and `= {0}` zero-fill.
 - [ ] **Struct arrays**: Support `struct point pts[10];`.
 - [ ] **Designated Initializers**: Support C99 designated initializers for structs (`{.x=1}`) and arrays (`{[2]=3}`).

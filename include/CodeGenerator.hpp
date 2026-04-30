@@ -24,7 +24,8 @@ public:
         bool isVolatile = false;
         bool isConst = false;         // base type is const (prevents *p = x)
         bool isPointerConst = false;  // pointer itself is const (prevents p = x)
-        int arraySize = -1;
+        std::vector<int> arrayDims;   // empty = not array; {3,4} = int[3][4]
+        int arraySize() const { if (arrayDims.empty()) return -1; int s=1; for (int d:arrayDims) s*=d; return s; }
     };
     struct ExpressionType {
         std::string type;
@@ -40,7 +41,8 @@ public:
         bool isConst = false;
         int offset;
         int alignment = 1;
-        int arraySize = -1;
+        std::vector<int> arrayDims;
+        int arraySize() const { if (arrayDims.empty()) return -1; int s=1; for (int d:arrayDims) s*=d; return s; }
     };
     struct StructInfo {
         std::string name;

@@ -249,7 +249,7 @@ public:
         decl->isPointerConst = node.isPointerConst;
         decl->isGlobal = node.isGlobal;
         decl->isExtern = node.isExtern;
-        decl->arraySize = node.arraySize;
+        decl->arrayDims = node.arrayDims;
         lastStmt = std::move(decl);
     }
 
@@ -358,7 +358,7 @@ public:
                 }
             }
 
-            int mSize = CodeGenerator::getTypeSize(m.type, m.pointerLevel, m.arraySize, structs);
+            int mSize = CodeGenerator::getTypeSize(m.type, m.pointerLevel, m.arraySize(), structs);
             int mAlign = alignment; // Simplification, should ideally check type alignment too
             if (mAlign > maxAlignment) maxAlignment = mAlign;
 
@@ -366,13 +366,22 @@ public:
                 if (currentOffset % mAlign != 0) currentOffset += mAlign - (currentOffset % mAlign);
             }
 
-            CodeGenerator::MemberInfo mi = {m.type, m.pointerLevel, m.isSigned, m.isConst, currentOffset, mAlign, m.arraySize};
+            CodeGenerator::MemberInfo mi;
+            mi.type = m.type; mi.pointerLevel = m.pointerLevel; mi.isSigned = m.isSigned;
+            mi.isConst = m.isConst; mi.offset = currentOffset; mi.alignment = mAlign; mi.arrayDims = m.arrayDims;
             sInfo->members[m.name] = mi;
 
             if (!node.isUnion) currentOffset += mSize;
             else if (mSize > currentOffset) currentOffset = mSize;
 
-            def->members.push_back({m.type, m.pointerLevel, m.isSigned, m.name, m.isConst, alignment, std::move(alignmentExpr), m.isAnonymous, m.arraySize});
+            {
+                StructMember sm;
+                sm.type = m.type; sm.pointerLevel = m.pointerLevel; sm.isSigned = m.isSigned;
+                sm.name = m.name; sm.isConst = m.isConst; sm.alignment = alignment;
+                sm.alignmentExpr = std::move(alignmentExpr); sm.isAnonymous = m.isAnonymous;
+                sm.arrayDims = m.arrayDims;
+                def->members.push_back(std::move(sm));
+            }
         }
 
         if (currentOffset % maxAlignment != 0) currentOffset += maxAlignment - (currentOffset % maxAlignment);
