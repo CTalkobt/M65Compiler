@@ -41,6 +41,9 @@ enum class TokenType {
     REGISTER, // register (storage class)
     INLINE,   // inline (function specifier, currently no-op)
 
+    // Variadic
+    ELLIPSIS,  // ...
+
     // Literals
     IDENTIFIER,
     INTEGER_LITERAL,
@@ -143,6 +146,7 @@ struct Token {
             case TokenType::RESTRICT: return "RESTRICT";
             case TokenType::REGISTER: return "REGISTER";
             case TokenType::INLINE: return "INLINE";
+            case TokenType::ELLIPSIS: return "ELLIPSIS";
             case TokenType::IDENTIFIER: return "IDENTIFIER";
             case TokenType::INTEGER_LITERAL: return "INTEGER_LITERAL";
             case TokenType::STRING_LITERAL: return "STRING_LITERAL";

@@ -101,6 +101,8 @@ public:
     void visit(StructDefinition& node) override;
     void visit(CompoundStatement& node) override;
     void visit(FunctionDeclaration& node) override;
+    void visit(BuiltinVaStart& node) override;
+    void visit(BuiltinVaArg& node) override;
     void visit(TranslationUnit& node) override;
     void emitAddress(Expression* expr);
     void emitIndirectIncDec(UnaryOperation& node, bool isInc, bool isPost);
@@ -214,6 +216,7 @@ public:
     bool crtHeap = false;      // #pragma crt heap
     bool crtStdio = false;     // #pragma crt stdio
     std::set<std::string> knownFunctions; // defined + prototyped function names
+    std::set<std::string> variadicFunctions; // functions declared with ...
     std::map<std::string, std::vector<VarInfo>> functionParamTypes; // parameter types per function
     FunctionDeclaration* currentFunction = nullptr;
     int currentParamByteSize = 0;

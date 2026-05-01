@@ -208,6 +208,12 @@ CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
         if (base.pointerLevel > 0) return {base.type, base.pointerLevel - 1, base.isSigned, base.isConst};
         return {base.type, 0, base.isSigned, base.isConst};
     }
+    if (auto* vaArg = dynamic_cast<BuiltinVaArg*>(expr)) {
+        return {vaArg->typeName, vaArg->pointerLevel, vaArg->isSigned, false};
+    }
+    if (auto* vaStart = dynamic_cast<BuiltinVaStart*>(expr)) {
+        return {"void", 0, false, false};
+    }
     if (auto* cond = dynamic_cast<ConditionalExpression*>(expr)) {
         return getExprType(cond->thenExpr.get());
     }
@@ -449,6 +455,8 @@ public:
         calledFunctions.insert(node.name);
         for (auto& arg : node.arguments) arg->accept(*this);
     }
+    void visit(BuiltinVaStart& node) override { node.ap->accept(*this); }
+    void visit(BuiltinVaArg& node) override { node.ap->accept(*this); }
     // Walk all node types that can contain expressions
     void visit(IntegerLiteral&) override {}
     void visit(StringLiteral&) override {}
@@ -496,9 +504,11 @@ void CodeGenerator::visit(TranslationUnit& node) {
 
     // Collect all known function names (definitions + prototypes) for call validation
     knownFunctions.clear();
+    variadicFunctions.clear();
     for (auto& decl : node.topLevelDecls) {
         if (auto* fn = dynamic_cast<FunctionDeclaration*>(decl.get())) {
             knownFunctions.insert(fn->name);
+            if (fn->isVariadic) variadicFunctions.insert(fn->name);
             std::vector<VarInfo> paramTypes;
             for (auto& p : fn->parameters) {
                 paramTypes.push_back({p.type, p.pointerLevel, p.isSigned, p.isVolatile, p.isConst, p.isPointerConst});
@@ -699,12 +709,23 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     currentVars.push_back("_fp");
     // Params are stack-relative: past return addr (2 bytes) + cumulative offset.
     // They get bumped alongside _fp when locals are declared.
+    // For variadic functions (right-to-left push): first param at offset 2.
+    // For normal functions (left-to-right push): last param at offset 2.
     {
         int pOff = 2; // past 2-byte return address
-        for (int i = (int)paramInfos.size() - 1; i >= 0; --i) {
-            emit(".var " + paramInfos[i].pName + " = " + std::to_string(pOff));
-            currentVars.push_back(paramInfos[i].pName);
-            pOff += paramInfos[i].size;
+        if (node.isVariadic) {
+            // Right-to-left push: first param closest to SP
+            for (int i = 0; i < (int)paramInfos.size(); ++i) {
+                emit(".var " + paramInfos[i].pName + " = " + std::to_string(pOff));
+                currentVars.push_back(paramInfos[i].pName);
+                pOff += paramInfos[i].size;
+            }
+        } else {
+            for (int i = (int)paramInfos.size() - 1; i >= 0; --i) {
+                emit(".var " + paramInfos[i].pName + " = " + std::to_string(pOff));
+                currentVars.push_back(paramInfos[i].pName);
+                pOff += paramInfos[i].size;
+            }
         }
     }
     node.body->accept(*this);
@@ -732,6 +753,135 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
 
     freeRegisterVars();
     currentFunction = nullptr;
+}
+
+void CodeGenerator::visit(BuiltinVaStart& node) {
+    // va_start(ap, last_param): compute the stack address of the first variadic arg
+    // and store it into the ap variable.
+    // For variadic functions with right-to-left push, first named param is at offset 2,
+    // and variadic args follow at higher offsets.
+    // first_va_offset = _p_<last_param> + sizeof(last_param)
+    // actual_address = __sp_base + first_va_offset + SPL
+    std::string lastPName = "_p_" + node.lastParamName;
+    if (!variableTypes.count(lastPName)) {
+        throw std::runtime_error("va_start: '" + node.lastParamName + "' is not a parameter of the current function");
+    }
+    VarInfo& vi = variableTypes.at(lastPName);
+    int paramSize = (vi.pointerLevel > 0 || vi.type == "int") ? 2 : 1;
+    // For default argument promotions, variadic args are always 2 bytes
+    // but the last named param keeps its original size
+
+    // Compute: address = __sp_base + (_p_last + paramSize) + SPL
+    // _p_last is an assembler .var that tracks the current offset
+    emit("tsx");         // X = SPL
+    emit("txa");         // A = SPL
+    emit("clc");
+    // Add low byte of (__sp_base + _p_last + paramSize)
+    emit("adc #<(__sp_base + " + lastPName + " + " + std::to_string(paramSize) + ")");
+    emitter->sta_scratch(); // save low byte in scratch ZP
+    emit("lda #>(__sp_base + " + lastPName + " + " + std::to_string(paramSize) + ")");
+    emit("adc #0");      // add carry
+    emit("tax");         // X = high byte
+    emitter->lda_scratch(); // A = low byte
+    // Now AX = address of first variadic arg
+    // Store into ap variable
+    auto* apRef = dynamic_cast<VariableReference*>(node.ap.get());
+    if (!apRef) {
+        throw std::runtime_error("va_start: first argument must be a variable");
+    }
+    std::string apName = resolveVarName(apRef->name);
+    if (registerVars.count(apName)) {
+        int zpIdx = registerVars[apName].zpIndex;
+        std::stringstream ss;
+        ss << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpIdx);
+        emit("sta $" + ss.str());
+        ss.str(""); ss.clear();
+        ss << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpIdx + 1);
+        emit("stx $" + ss.str());
+    } else {
+        emit("stax " + apName + ", s");
+    }
+    invalidateRegs();
+}
+
+void CodeGenerator::visit(BuiltinVaArg& node) {
+    // va_arg(ap, type): load value from *ap, then advance ap by 2
+    // All variadic args are 2 bytes (default argument promotions).
+    auto* apRef = dynamic_cast<VariableReference*>(node.ap.get());
+    if (!apRef) {
+        throw std::runtime_error("va_arg: first argument must be a variable");
+    }
+    std::string apName = resolveVarName(apRef->name);
+
+    bool is8Bit = (node.pointerLevel == 0 && is8BitType(node.typeName));
+    int advanceSize = 2; // always 2 due to default promotions
+
+    // Allocate ZP pairs: one for pointer indirection, one for result
+    int zpInd = allocateZP(2);
+    int zpRes = allocateZP(2);
+    auto zpHex = [&](int idx) {
+        std::stringstream ss;
+        ss << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(idx);
+        return "$" + ss.str();
+    };
+    std::string zpStr = zpHex(zpInd);
+    std::string zpStrHi = zpHex(zpInd + 1);
+    std::string zpResStr = zpHex(zpRes);
+    std::string zpResHi = zpHex(zpRes + 1);
+
+    // Load ap into ZP pair for indirection
+    if (registerVars.count(apName)) {
+        int zpIdx = registerVars[apName].zpIndex;
+        emit("lda " + zpHex(zpIdx));
+        emit("sta " + zpStr);
+        emit("lda " + zpHex(zpIdx + 1));
+        emit("sta " + zpStrHi);
+    } else {
+        emit("ldax " + apName + ", s");
+        emit("stax " + zpStr);
+    }
+
+    // Read value from *ap via (ZP),Y and save to zpRes
+    emit("ldy #0");
+    emit("lda (" + zpStr + "),y");
+    emit("sta " + zpResStr);
+    if (!is8Bit) {
+        emit("iny");
+        emit("lda (" + zpStr + "),y");
+        emit("sta " + zpResHi);
+    }
+
+    // Compute new ap = old ap + advanceSize
+    emit("clc");
+    emit("lda " + zpStr);
+    emit("adc #" + std::to_string(advanceSize));
+    emit("sta " + zpStr);
+    emit("lda " + zpStrHi);
+    emit("adc #0");
+    emit("sta " + zpStrHi);
+
+    // Write back updated ap (no stack displacement — safe)
+    if (registerVars.count(apName)) {
+        int zpIdx = registerVars[apName].zpIndex;
+        emit("lda " + zpStr);
+        emit("sta " + zpHex(zpIdx));
+        emit("lda " + zpStrHi);
+        emit("sta " + zpHex(zpIdx + 1));
+    } else {
+        emit("lda " + zpStr);
+        emit("ldx " + zpStrHi);
+        emit("stax " + apName + ", s");
+    }
+
+    // Load result into AX from zpRes
+    emit("lda " + zpResStr);
+    if (!is8Bit) {
+        emit("ldx " + zpResHi);
+    }
+
+    freeZP(zpRes, 2);
+    freeZP(zpInd, 2);
+    invalidateRegs();
 }
 
 void CodeGenerator::visit(CompoundStatement& node) {
@@ -2199,6 +2349,8 @@ void CodeGenerator::visit(SwitchStatement& node) {
         void visit(BinaryOperation& node) override { node.left->accept(*this); node.right->accept(*this); }
         void visit(UnaryOperation& node) override { node.operand->accept(*this); }
         void visit(FunctionCall& node) override { for (auto& arg : node.arguments) arg->accept(*this); }
+        void visit(BuiltinVaStart& node) override { node.ap->accept(*this); }
+        void visit(BuiltinVaArg& node) override { node.ap->accept(*this); }
         void visit(MemberAccess& node) override { node.structExpr->accept(*this); }
         void visit(ConditionalExpression& node) override { node.condition->accept(*this); node.thenExpr->accept(*this); node.elseExpr->accept(*this); }
         void visit(GenericSelection& node) override {
@@ -2684,7 +2836,14 @@ void CodeGenerator::visit(FunctionCall& node) {
 
     bool oldNeeded = resultNeeded; resultNeeded = true;
     int pushedBytes = 0;
-    for (auto& arg : node.arguments) {
+    // For variadic functions, push arguments right-to-left so named params
+    // end up at fixed offsets from SP regardless of extra args.
+    bool isVariadicCall = variadicFunctions.count(node.name) > 0;
+    int argStart = isVariadicCall ? (int)node.arguments.size() - 1 : 0;
+    int argEnd   = isVariadicCall ? -1 : (int)node.arguments.size();
+    int argStep  = isVariadicCall ? -1 : 1;
+    for (int ai = argStart; ai != argEnd; ai += argStep) {
+        auto& arg = node.arguments[ai];
         int pushSize = 2; // default 16-bit push
         if (auto* ref = dynamic_cast<VariableReference*>(arg.get())) {
             std::string rName = resolveVarName(ref->name);
@@ -2698,6 +2857,8 @@ void CodeGenerator::visit(FunctionCall& node) {
                     std::string sName = getAggregateName(vi.type);
                     if (structs.count(sName) && structs[sName]->totalSize > 1) is16Bit = true;
                 }
+                // For variadic calls, always push 2 bytes (default argument promotion)
+                if (isVariadicCall) is16Bit = true;
                 if (registerVars.count(rName)) {
                     arg->accept(*this);
                     if (is16Bit) emitter->push_ax();
@@ -2715,7 +2876,7 @@ void CodeGenerator::visit(FunctionCall& node) {
             emit(".var " + varName + " = " + varName + " + " + std::to_string(pushSize));
         }
     }
-    int argBytes = (int)node.arguments.size() * 2;
+    int argBytes = pushedBytes;
     resultNeeded = oldNeeded; emit("jsr _" + node.name);
     // Caller cleans up pushed arguments using PLA (A saved in Z)
     if (argBytes > 0) {
@@ -3006,6 +3167,8 @@ public:
     void visit(BinaryOperation& node) override { node.left->accept(*this); node.right->accept(*this); }
     void visit(UnaryOperation& node) override { node.operand->accept(*this); }
     void visit(FunctionCall& node) override { for (auto& arg : node.arguments) arg->accept(*this); }
+    void visit(BuiltinVaStart& node) override { node.ap->accept(*this); }
+    void visit(BuiltinVaArg& node) override { node.ap->accept(*this); }
     void visit(MemberAccess& node) override { node.structExpr->accept(*this); }
     void visit(ConditionalExpression& node) override { node.condition->accept(*this); node.thenExpr->accept(*this); node.elseExpr->accept(*this); }
     void visit(GenericSelection& node) override {

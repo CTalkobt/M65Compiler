@@ -126,11 +126,11 @@ Steps required to bring the C compiler closer to C11 standards.
 - [ ] **Compound Literals**: Support C99 compound literals for creating unnamed temporary objects inline (e.g., `(struct Point){.x=1, .y=2}`).
 - [ ] **Flexible Array Members**: Support C99 flexible array members as the last member of a struct (`int data[]`).
 - [ ] **Return struct**: Support returning structs from functions.
-- [ ] **Function Pointers**: Support declaration, assignment, and call-through of function pointer types.
+- [X] **Function Pointers**: Support declaration, assignment, and call-through of function pointer types.
 - [d] **Lambda Functions**: Support anonymous functions and closures (capturing local scope) leveraging stack-relative context.
 - [d] **Generator Functions**: Support stateful functions that can yield values (iterators).
 - [d] **Generator Loop Syntax**: Implement `for (var : generator)` syntax for idiomatic iteration over generators.
-- [ ] **Variadic Functions**: Support defining variadic functions and the `va_list`, `va_start`, `va_arg`, `va_end` macros.
+- [X] **Variadic Functions**: Support defining variadic functions and the `va_list`, `va_start`, `va_arg`, `va_end` macros. Variadic calls use right-to-left push order; `stdarg.h` provides macros wrapping `__builtin_va_start`/`__builtin_va_arg`/`__builtin_va_end` compiler intrinsics.
 - [ ] **Local `_Alignas`**: Extend `_Alignas` support to local (stack-allocated) variables.
 - [ ] **32-bit flat addressing**: Support pointer access above $FFFF (requires flat memory codegen).
 

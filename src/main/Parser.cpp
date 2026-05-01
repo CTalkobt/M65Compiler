@@ -368,8 +368,9 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
 
             std::string pName = expect(TokenType::IDENTIFIER, "Expected parameter name").value;
             params.push_back({pType, pPtrLevel, pIsSigned, pName, pIsVolatile, pIsConst, pIsPointerConst});
-        } while (match(TokenType::COMMA));
+        } while (match(TokenType::COMMA) && peek().type != TokenType::ELLIPSIS);
     }
+    bool isVariadic = match(TokenType::ELLIPSIS);
     expect(TokenType::CLOSE_PAREN, "Expected ')'");
 
     // Forward declaration (prototype): ends with ';' instead of '{'
@@ -381,6 +382,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         func->body = std::make_unique<CompoundStatement>();
         func->isNoreturn = isNR;
         func->isPrototype = true;
+        func->isVariadic = isVariadic;
         return func;
     }
 
@@ -393,6 +395,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     func->parameters = std::move(params);
     func->body = std::move(body);
     func->isNoreturn = isNR;
+    func->isVariadic = isVariadic;
     return func;
 }
 
@@ -1200,6 +1203,53 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
             throw std::runtime_error("Error at " + std::to_string(funcToken.line) + ":" + std::to_string(funcToken.column) + ": __func__ used outside of a function");
         }
         expr = setPos(std::make_unique<StringLiteral>(currentFunctionName), funcToken);
+    } else if (peek().type == TokenType::IDENTIFIER && peek().value == "__builtin_va_start") {
+        const Token& bToken = advance();
+        expect(TokenType::OPEN_PAREN, "Expected '(' after __builtin_va_start");
+        auto apExpr = parseExpression();
+        expect(TokenType::COMMA, "Expected ',' in __builtin_va_start");
+        std::string lastParam = expect(TokenType::IDENTIFIER, "Expected last named parameter").value;
+        expect(TokenType::CLOSE_PAREN, "Expected ')'");
+        expr = setPos(std::make_unique<BuiltinVaStart>(std::move(apExpr), lastParam), bToken);
+    } else if (peek().type == TokenType::IDENTIFIER && peek().value == "__builtin_va_arg") {
+        const Token& bToken = advance();
+        expect(TokenType::OPEN_PAREN, "Expected '(' after __builtin_va_arg");
+        auto apExpr = parseExpression();
+        expect(TokenType::COMMA, "Expected ',' in __builtin_va_arg");
+        // Parse type specifier
+        std::string vaType;
+        bool vaSigned = false;
+        int vaPtrLevel = 0;
+        if (match(TokenType::SIGNED)) {
+            vaSigned = true;
+            if (match(TokenType::INT)) vaType = "int";
+            else if (match(TokenType::CHAR)) vaType = "char";
+            else vaType = "int";
+        } else if (match(TokenType::UNSIGNED)) {
+            if (match(TokenType::INT)) vaType = "int";
+            else if (match(TokenType::CHAR)) vaType = "char";
+            else vaType = "int";
+        } else if (match(TokenType::INT)) vaType = "int";
+        else if (match(TokenType::CHAR)) vaType = "char";
+        else if (match(TokenType::VOID)) vaType = "void";
+        else if (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value)) {
+            std::string alias = advance().value;
+            vaType = typedefs[alias].baseType;
+            vaSigned = typedefs[alias].isSigned;
+            vaPtrLevel = typedefs[alias].pointerLevel;
+        } else {
+            throw std::runtime_error("Expected type in __builtin_va_arg");
+        }
+        while (match(TokenType::STAR)) vaPtrLevel++;
+        expect(TokenType::CLOSE_PAREN, "Expected ')'");
+        expr = setPos(std::make_unique<BuiltinVaArg>(std::move(apExpr), vaType, vaPtrLevel, vaSigned), bToken);
+    } else if (peek().type == TokenType::IDENTIFIER && peek().value == "__builtin_va_end") {
+        const Token& bToken = advance();
+        expect(TokenType::OPEN_PAREN, "Expected '(' after __builtin_va_end");
+        auto apExpr = parseExpression(); // consume but ignore
+        expect(TokenType::CLOSE_PAREN, "Expected ')'");
+        // va_end is a no-op; emit 0
+        expr = setPos(std::make_unique<IntegerLiteral>(0), bToken);
     } else if (peek().type == TokenType::IDENTIFIER) {
         const Token& nameToken = advance();
         std::string name = nameToken.value;

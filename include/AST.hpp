@@ -378,7 +378,30 @@ public:
     bool isNoreturn = false;
     bool isPrototype = false;
     bool isStatic = false;
+    bool isVariadic = false;
     FunctionDeclaration(const std::string& n, const std::string& rt) : name(n), returnType(rt) {}
+    void accept(ASTVisitor& visitor) override;
+};
+
+// __builtin_va_start(ap, last_named_param)
+class BuiltinVaStart : public Expression {
+public:
+    std::unique_ptr<Expression> ap;        // the va_list variable (lvalue)
+    std::string lastParamName;             // name of the last named parameter
+    BuiltinVaStart(std::unique_ptr<Expression> a, const std::string& lp)
+        : ap(std::move(a)), lastParamName(lp) {}
+    void accept(ASTVisitor& visitor) override;
+};
+
+// __builtin_va_arg(ap, type) — always returns int-width (2 bytes) per default promotions
+class BuiltinVaArg : public Expression {
+public:
+    std::unique_ptr<Expression> ap;        // the va_list variable (lvalue)
+    std::string typeName;                  // the type requested
+    int pointerLevel = 0;
+    bool isSigned = false;
+    BuiltinVaArg(std::unique_ptr<Expression> a, const std::string& t, int p = 0, bool s = false)
+        : ap(std::move(a)), typeName(t), pointerLevel(p), isSigned(s) {}
     void accept(ASTVisitor& visitor) override;
 };
 
@@ -429,5 +452,7 @@ public:
     virtual void visit(StructDefinition& node) = 0;
     virtual void visit(CompoundStatement& node) = 0;
     virtual void visit(FunctionDeclaration& node) = 0;
+    virtual void visit(BuiltinVaStart& node) = 0;
+    virtual void visit(BuiltinVaArg& node) = 0;
     virtual void visit(TranslationUnit& node) = 0;
 };

@@ -36,4 +36,6 @@ void EnumDefinition::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void StructDefinition::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void CompoundStatement::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void FunctionDeclaration::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void BuiltinVaStart::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void BuiltinVaArg::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void TranslationUnit::accept(ASTVisitor& visitor) { visitor.visit(*this); }

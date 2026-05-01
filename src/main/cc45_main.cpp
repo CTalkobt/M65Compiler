@@ -318,9 +318,18 @@ public:
         for (auto& stmt : node.statements) stmt->accept(*this);
         indent--;
     }
+    void visit(BuiltinVaStart& node) override {
+        printIndent(); std::cout << "BuiltinVaStart: last=" << node.lastParamName << std::endl;
+        indent++; node.ap->accept(*this); indent--;
+    }
+    void visit(BuiltinVaArg& node) override {
+        printIndent(); std::cout << "BuiltinVaArg: " << node.typeName << std::endl;
+        indent++; node.ap->accept(*this); indent--;
+    }
     void visit(FunctionDeclaration& node) override {
         printIndent(); std::cout << "FunctionDeclaration: " << node.name << " (" << (node.isSigned ? "signed " : "") << node.returnType << ")";
         if (node.isNoreturn) std::cout << " [noreturn]";
+        if (node.isVariadic) std::cout << " [variadic]";
         std::cout << std::endl;
         indent++;
         for (const auto& param : node.parameters) {

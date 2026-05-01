@@ -98,7 +98,11 @@ Token Lexer::nextToken() {
         case ':': return {TokenType::COLON, ":", startLine, startCol};
         case '?': return {TokenType::QUESTION_MARK, "?", startLine, startCol};
         case ',': return {TokenType::COMMA, ",", startLine, startCol};
-        case '.': return {TokenType::DOT, ".", startLine, startCol};
+        case '.':
+            if (peek() == '.' && pos + 1 < source.length() && source[pos + 1] == '.') {
+                get(); get(); return {TokenType::ELLIPSIS, "...", startLine, startCol};
+            }
+            return {TokenType::DOT, ".", startLine, startCol};
         case '=': 
             if (peek() == '=') { get(); return {TokenType::EQUALS_EQUALS, "==", startLine, startCol}; }
             return {TokenType::EQUALS, "=", startLine, startCol};

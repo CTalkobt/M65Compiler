@@ -173,6 +173,14 @@ public:
         lastExpr = std::move(call);
     }
 
+    void visit(BuiltinVaStart& node) override {
+        lastExpr = copyPos(std::make_unique<BuiltinVaStart>(fold(std::move(node.ap)), node.lastParamName), node);
+    }
+
+    void visit(BuiltinVaArg& node) override {
+        lastExpr = copyPos(std::make_unique<BuiltinVaArg>(fold(std::move(node.ap)), node.typeName, node.pointerLevel, node.isSigned), node);
+    }
+
     void visit(ConditionalExpression& node) override {
         auto condition = fold(std::move(node.condition));
         auto* lit = dynamic_cast<IntegerLiteral*>(condition.get());
