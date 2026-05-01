@@ -7,3 +7,5 @@
 
 int putchar(int c);
 int puts(char *s);
+int sprintf(char *buf, char *fmt, ...);
+int printf(char *fmt, ...);

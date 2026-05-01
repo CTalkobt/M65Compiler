@@ -2936,7 +2936,7 @@ void CodeGenerator::visit(StringLiteral& node) {
     if (!resultNeeded) return;
     if (stringPool.find(node.value) == stringPool.end()) stringPool[node.value] = "STR" + std::to_string(stringCount++);
     std::string label = stringPool[node.value];
-    emit("ldax #<" + label); invalidateRegs();
+    emit("ldax #" + label); invalidateRegs();
 }
 
 void CodeGenerator::visit(VariableReference& node) {
@@ -3200,34 +3200,52 @@ void CodeGenerator::visit(FunctionCall& node) {
     int argStart = isVariadicCall ? (int)node.arguments.size() - 1 : 0;
     int argEnd   = isVariadicCall ? -1 : (int)node.arguments.size();
     int argStep  = isVariadicCall ? -1 : 1;
+    // Look up callee's parameter types for correct push sizes
+    bool hasParamTypes = functionParamTypes.count(node.name) > 0;
+    auto& calleePTypes = hasParamTypes ? functionParamTypes[node.name] : functionParamTypes[""];
+
     for (int ai = argStart; ai != argEnd; ai += argStep) {
         auto& arg = node.arguments[ai];
-        int pushSize = 2; // default 16-bit push
+        // Determine the callee's expected param size for this arg position
+        bool paramIs8Bit = false;
+        if (hasParamTypes && ai < (int)calleePTypes.size()) {
+            paramIs8Bit = is8BitType(calleePTypes[ai].type) && calleePTypes[ai].pointerLevel == 0;
+        }
+        // Variadic args always promoted to 16-bit
+        if (isVariadicCall && ai >= (int)(hasParamTypes ? calleePTypes.size() : 0)) paramIs8Bit = false;
+        if (isVariadicCall) paramIs8Bit = false; // default argument promotion
+
+        int pushSize = paramIs8Bit ? 1 : 2;
         if (auto* ref = dynamic_cast<VariableReference*>(arg.get())) {
             std::string rName = resolveVarName(ref->name);
             if (!variableTypes.count(rName) && !globalVariableTypes.count(rName)) {
-                // Function name used as value — falls through to generic push
-                arg->accept(*this); emitter->push_ax();
+                arg->accept(*this);
+                if (paramIs8Bit) { emitter->push("a"); }
+                else emitter->push_ax();
             } else {
                 VarInfo vi = variableTypes.count(rName) ? variableTypes.at(rName) : globalVariableTypes.at(rName);
-                bool is16Bit = (vi.pointerLevel > 0 || vi.type == "int");
+                bool srcIs16Bit = (vi.pointerLevel > 0 || vi.type == "int");
                 if (isStruct(vi.type)) {
                     std::string sName = getAggregateName(vi.type);
-                    if (structs.count(sName) && structs[sName]->totalSize > 1) is16Bit = true;
+                    if (structs.count(sName) && structs[sName]->totalSize > 1) srcIs16Bit = true;
                 }
-                // For variadic calls, always push 2 bytes (default argument promotion)
-                if (isVariadicCall) is16Bit = true;
                 if (registerVars.count(rName)) {
                     arg->accept(*this);
-                    if (is16Bit) emitter->push_ax();
-                    else { emitter->push("a"); pushSize = 1; }
-                } else if (is16Bit) {
+                    if (paramIs8Bit) { emitter->push("a"); }
+                    else emitter->push_ax();
+                } else if (!paramIs8Bit && srcIs16Bit) {
                     emit("phw.sp " + rName + ", s");
                 } else {
-                    arg->accept(*this); emitter->push("a"); pushSize = 1;
+                    arg->accept(*this);
+                    if (paramIs8Bit) { emitter->push("a"); }
+                    else emitter->push_ax();
                 }
             }
-        } else { arg->accept(*this); emitter->push_ax(); }
+        } else {
+            arg->accept(*this);
+            if (paramIs8Bit) { emitter->push("a"); }
+            else emitter->push_ax();
+        }
         // Keep assembler's frame tracking in sync so subsequent stack-relative reads use correct offsets
         pushedBytes += pushSize;
         for (const auto& varName : currentVars) {
@@ -3411,7 +3429,7 @@ void CodeGenerator::emitData() {
     // BSS section — uninitialized globals
     out << std::endl << ".bss" << std::endl;
     out << "; BSS Section" << std::endl;
-    if (relocMode) out << ".global __bss_start" << std::endl;
+    if (relocMode) out << ".weak __bss_start" << std::endl;
     out << "__bss_start:" << std::endl;
     if (!uninitializedVars.empty()) {
         for (auto* gVar : uninitializedVars) {
@@ -3426,7 +3444,7 @@ void CodeGenerator::emitData() {
             out << "    .res " << std::to_string(size) << std::endl;
         }
     }
-    if (relocMode) out << ".global __bss_end" << std::endl;
+    if (relocMode) out << ".weak __bss_end" << std::endl;
     out << "__bss_end:" << std::endl;
 
     out << std::endl << ".data" << std::endl;
