@@ -101,14 +101,12 @@ void VariableNode::emit(M65Emitter& e, AssemblerParser* parser, int width, const
             Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
             uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 1;
             uint8_t yOff = (uint8_t)sym->frameOffset;
+            uint8_t totalOff = fpOff + yOff;
             if (width >= 16) {
-                e.ldy_imm(yOff + 1);
-                e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fpOff, true);
-                e.tax();
-                e.dey();
-                e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fpOff, true);
+                e.lda_stack(totalOff + 1); e.sta_scratch();
+                e.lda_stack(totalOff); e.ldx_scratch();
             } else {
-                e.lda_frame(fpOff, yOff);
+                e.lda_stack(totalOff);
             }
         } else if (sym->isStackRelative) {
             e.lda_stack((uint8_t)sym->stackOffset);
@@ -461,11 +459,15 @@ void ArrayIndexNode::emit(M65Emitter& e, AssemblerParser* parser, int width, con
 }
 
 std::unique_ptr<ExprAST> parseExprAST(const std::vector<AssemblerToken>& tokens, int& idx, std::map<std::string, Symbol>& symbolTable, const std::string& scopePrefix) {
+    int exprStartIdx = idx;
     auto parsePrimary = [&]() -> std::unique_ptr<ExprAST> {
         if (idx >= (int)tokens.size()) return nullptr;
         const auto& t = tokens[idx++];
         if (t.type == AssemblerTokenType::DECIMAL_LITERAL || t.type == AssemblerTokenType::HEX_LITERAL) {
-            if (idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::COMMA) {
+            // Only consume ", s" stack-relative suffix when this numeric literal is the
+            // entire expression (first token), not when it's an operand inside a binary
+            // expression like "_l_p + 0, s".
+            if ((idx - 1) == exprStartIdx && idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::COMMA) {
                 if (idx + 1 < (int)tokens.size() && (tokens[idx + 1].value == "s" || tokens[idx + 1].value == "S")) {
                     uint32_t val = (t.type == AssemblerTokenType::HEX_LITERAL) ? std::stoul(t.value.substr(1), nullptr, 16) : std::stoul(t.value);
                     idx += 2;

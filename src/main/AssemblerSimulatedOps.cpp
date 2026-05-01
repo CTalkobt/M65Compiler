@@ -373,26 +373,17 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
         if (isStack) {
             auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
             if (fa.isFrame) {
-                // Frame-relative: LDY #hi; LDA (fp,SP),Y; TAX/etc; DEY; LDA (fp,SP),Y
+                // Frame-relative: use direct stack access
+                uint8_t totalOff = fa.fpOff + fa.yOff;
                 if (reg2 == 'X') {
-                    e.ldy_imm(fa.yOff + 1);
-                    e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fa.fpOff, true);
-                    e.tax();
-                    e.dey();
-                    e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fa.fpOff, true);
+                    e.lda_stack(totalOff + 1); e.sta_scratch();
+                    e.lda_stack(totalOff); e.ldx_scratch();
                 } else if (reg2 == 'Y') {
-                    e.ldy_imm(fa.yOff + 1);
-                    e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fa.fpOff, true);
-                    e.sta_scratch();
-                    e.dey();
-                    e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fa.fpOff, true);
-                    e.ldy_abs(0);
+                    e.lda_stack(totalOff + 1); e.sta_scratch();
+                    e.lda_stack(totalOff); e.ldy_abs(0);
                 } else { // Z
-                    e.ldy_imm(fa.yOff + 1);
-                    e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fa.fpOff, true);
-                    e.taz();
-                    e.dey();
-                    e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fa.fpOff, true);
+                    e.lda_stack(totalOff + 1); e.taz();
+                    e.lda_stack(totalOff);
                 }
             } else if (reg2 == 'Z') {
                 // Load hi first into Z, then lo into A
@@ -475,11 +466,11 @@ void AssemblerSimulatedOps::emitSTWCode(AssemblerParser* parser, M65Emitter& e, 
         if (isStack) {
             auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
             if (fa.isFrame) {
-                // Frame-relative store: save A (lo), then hi byte
-                e.sta_frame(fa.fpOff, fa.yOff);
-                if (reg2 == 'X') { e.txa(); e.sta_frame(fa.fpOff, fa.yOff + 1); }
-                else if (reg2 == 'Y') { e.tya(); e.sta_frame(fa.fpOff, fa.yOff + 1); }
-                else if (reg2 == 'Z') { e.tza(); e.sta_frame(fa.fpOff, fa.yOff + 1); }
+                // Frame-relative store: same pattern as non-frame (save hi to scratch first)
+                uint8_t totalOff = fa.fpOff + fa.yOff;
+                if (reg2 == 'X') { e.stx_scratch(); e.sta_stack(totalOff); e.lda_scratch(); e.sta_stack(totalOff + 1); }
+                else if (reg2 == 'Y') { e.sty_scratch(); e.sta_stack(totalOff); e.lda_scratch(); e.sta_stack(totalOff + 1); }
+                else if (reg2 == 'Z') { e.sta_stack(totalOff); e.tza(); e.sta_stack(totalOff + 1); }
             } else {
                 // Save hi byte register to Z without using stack (PHA would shift SP)
                 if (reg2 == 'X') { e.stx_scratch(); e.sta_stack(offset); e.lda_scratch(); e.sta_stack(offset + 1); }
@@ -697,17 +688,9 @@ void AssemblerSimulatedOps::emitSelectCode(AssemblerParser* parser, M65Emitter& 
 void AssemblerSimulatedOps::emitPtrStackCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
     auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
     if (fa.isFrame) {
-        // Compute absolute address: FP_value + yOff
-        // Read FP hi byte, save to ZP temp, then read FP lo, add yOff
-        e.lda_stack(fa.fpOff);       // FP hi byte
-        e.sta_scratch();
-        e.lda_stack(fa.fpOff - 1);   // FP lo byte
-        e.clc(); e.adc_imm(fa.yOff);
-        e.pha();
-        e.lda_scratch();
-        e.adc_imm(0);
-        e.tax();
-        e.pla();
+        // Frame-relative: compute SP + spBase + fpOff + yOff (direct stack address)
+        uint16_t addr = e.spBase() + fa.fpOff + fa.yOff;
+        e.tsx(); e.txa(); e.clc(); e.adc_imm(addr & 0xFF); e.pha(); e.lda_imm(addr >> 8); e.adc_imm(0); e.tax(); e.pla();
     } else {
         // Check if the operand is a stack-relative variable vs global/absolute address.
         // Stack variables (.var) are always defined before use and will be found by resolveSymbol.
@@ -807,12 +790,9 @@ void AssemblerSimulatedOps::emitPHWStackCode(AssemblerParser* parser, M65Emitter
     auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
     if (fa.isFrame) {
         // Push 16-bit frame-relative value: hi byte first, then lo
-        e.ldy_imm(fa.yOff + 1);
-        e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fa.fpOff, true);
-        e.pha();
-        e.dey();
-        e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fa.fpOff, true);
-        e.pha();
+        uint8_t totalOff = fa.fpOff + fa.yOff;
+        e.lda_stack(totalOff + 1); e.pha();
+        e.lda_stack(totalOff); e.pha();
     } else {
         uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
         uint16_t sb = e.spBase();
@@ -1113,11 +1093,12 @@ void AssemblerSimulatedOps::emitLDAX_FPCode(AssemblerParser* parser, M65Emitter&
     Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    e.ldy_imm(yOff + 1);
-    e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fpOff, true);
-    e.tax();
-    e.dey();
-    e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fpOff, true);
+    uint8_t totalOff = fpOff + yOff;
+    // Load hi byte first into scratch, then lo byte into A, move hi to X
+    e.lda_stack(totalOff + 1);
+    e.sta_scratch();
+    e.lda_stack(totalOff);
+    e.ldx_scratch();
 }
 
 // stax.fp varOffset — Store AX (16-bit) to frame-relative offset
@@ -1125,11 +1106,12 @@ void AssemblerSimulatedOps::emitSTAX_FPCode(AssemblerParser* parser, M65Emitter&
     Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    e.ldy_imm(yOff);
-    e.emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fpOff, true);
-    e.txa();
-    e.iny();
-    e.emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fpOff, true);
+    uint8_t totalOff = fpOff + yOff;
+    // Save X to scratch before TSX clobbers it, then store lo and hi
+    e.stx_scratch();
+    e.sta_stack(totalOff);
+    e.lda_scratch();
+    e.sta_stack(totalOff + 1);
 }
 
 // leax.fp varOffset — Load effective address of frame variable into AX

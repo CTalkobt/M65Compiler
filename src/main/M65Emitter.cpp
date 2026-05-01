@@ -256,12 +256,14 @@ void M65Emitter::stz_stack(uint8_t offset) {
 }
 
 void M65Emitter::lda_frame(uint8_t fpOff, uint8_t yOff) {
-    ldy_imm(yOff);
-    emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fpOff, true);
+    // Direct stack access: TSX; LDA __sp_base + fpOff + yOff, X
+    uint8_t totalOff = fpOff + yOff;
+    lda_stack(totalOff);
 }
 void M65Emitter::sta_frame(uint8_t fpOff, uint8_t yOff) {
-    ldy_imm(yOff);
-    emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fpOff, true);
+    // Direct stack access: TSX; STA __sp_base + fpOff + yOff, X
+    uint8_t totalOff = fpOff + yOff;
+    sta_stack(totalOff);
 }
 
 void M65Emitter::lda_ind_z(uint8_t addr, bool flat) {

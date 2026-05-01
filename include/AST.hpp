@@ -372,6 +372,7 @@ class FunctionDeclaration : public Statement {
 public:
     std::string name;
     std::string returnType;
+    int returnPointerLevel = 0;
     bool isSigned = false;
     std::vector<Parameter> parameters;
     std::unique_ptr<CompoundStatement> body;

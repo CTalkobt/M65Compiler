@@ -377,6 +377,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     if (match(TokenType::SEMICOLON)) {
         // Create a function declaration with an empty body
         auto func = setPos(std::make_unique<FunctionDeclaration>(name, returnType), startToken);
+        func->returnPointerLevel = returnPtrLevel;
         func->isSigned = isSigned;
         func->parameters = std::move(params);
         func->body = std::make_unique<CompoundStatement>();
@@ -391,6 +392,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     auto body = parseCompoundStatement();
     currentFunctionName = savedFunctionName;
     auto func = setPos(std::make_unique<FunctionDeclaration>(name, returnType), startToken);
+    func->returnPointerLevel = returnPtrLevel;
     func->isSigned = isSigned;
     func->parameters = std::move(params);
     func->body = std::move(body);

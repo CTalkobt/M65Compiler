@@ -217,9 +217,17 @@ public:
     bool crtStdio = false;     // #pragma crt stdio
     std::set<std::string> knownFunctions; // defined + prototyped function names
     std::set<std::string> variadicFunctions; // functions declared with ...
+    std::set<std::string> structReturningFunctions; // functions that return a struct by value
+    struct FuncReturnInfo { std::string type; int pointerLevel; bool isSigned; };
+    std::map<std::string, FuncReturnInfo> functionReturnTypes; // function name → return type
     std::map<std::string, std::vector<VarInfo>> functionParamTypes; // parameter types per function
     FunctionDeclaration* currentFunction = nullptr;
     int currentParamByteSize = 0;
     int currentLocalByteSize = 0;
+
+    // Frame layout from pre-scan (local name → frame offset)
+    std::map<std::string, int> frameLocals_;
+    int frameSize_ = 0;
+    int structRetDest_ = -1; // frame offset for struct return destination (-1 = none)
     bool isVariableUsed(const std::string& varName, FunctionDeclaration& func);
 };

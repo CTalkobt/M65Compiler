@@ -214,6 +214,12 @@ CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
     if (auto* vaStart = dynamic_cast<BuiltinVaStart*>(expr)) {
         return {"void", 0, false, false};
     }
+    if (auto* fc = dynamic_cast<FunctionCall*>(expr)) {
+        if (functionReturnTypes.count(fc->name)) {
+            auto& ri = functionReturnTypes[fc->name];
+            return {ri.type, ri.pointerLevel, ri.isSigned, false};
+        }
+    }
     if (auto* cond = dynamic_cast<ConditionalExpression*>(expr)) {
         return getExprType(cond->thenExpr.get());
     }
@@ -495,6 +501,137 @@ public:
     void visit(FunctionDeclaration& n) override { n.body->accept(*this); }
     void visit(TranslationUnit& n) override { for (auto& d : n.topLevelDecls) d->accept(*this); }
 };
+
+// Pre-scan a function body to compute frame layout.
+// Assigns a fixed frame offset to every local variable, with scope-aware slot reuse
+// for variables in non-overlapping scopes.
+class FrameScanner : public ASTVisitor {
+public:
+    struct LocalInfo {
+        std::string name;   // _l_name
+        int size;
+        int frameOffset;
+    };
+    std::vector<LocalInfo> locals;
+    int maxFrameSize = 0;
+
+    FrameScanner(const std::map<std::string, std::shared_ptr<CodeGenerator::StructInfo>>& s) : structs_(s) {}
+
+    void scan(CompoundStatement& body) {
+        scopeBase_ = 0;
+        currentOffset_ = 0;
+        // Walk the body's statements directly (not through visit(CompoundStatement))
+        // to avoid the scope reset for the function's top-level block
+        for (auto& s : body.statements) s->accept(*this);
+    }
+
+    void visit(VariableDeclaration& node) override {
+        if (node.isGlobal || node.isExtern || node.isStatic) return;
+        // Register vars handled separately by CodeGenerator
+        if (node.isRegister && node.arraySize() < 0 &&
+            node.type != "struct " && node.type.substr(0, 7) != "struct " &&
+            node.type.substr(0, 6) != "union ") return;
+
+        std::string lName = "_l_" + node.name;
+        int size = computeSize(node);
+
+        locals.push_back({lName, size, currentOffset_});
+        currentOffset_ += size;
+        if (currentOffset_ > maxFrameSize) maxFrameSize = currentOffset_;
+    }
+
+    // Scope tracking: CompoundStatement that is NOT the function body
+    // gets scope enter/exit for slot reuse
+    void visit(CompoundStatement& node) override {
+        int savedOffset = currentOffset_;
+        int savedBase = scopeBase_;
+        scopeBase_ = currentOffset_;
+        for (auto& s : node.statements) s->accept(*this);
+        // After leaving the scope, release the slots (allow reuse)
+        currentOffset_ = savedOffset;
+        scopeBase_ = savedBase;
+        // But maxFrameSize retains the high-water mark
+    }
+
+    // Walk all other node types
+    void visit(IntegerLiteral&) override {}
+    void visit(StringLiteral&) override {}
+    void visit(VariableReference&) override {}
+    void visit(Assignment& n) override { n.target->accept(*this); n.expression->accept(*this); }
+    void visit(BinaryOperation& n) override { n.left->accept(*this); n.right->accept(*this); }
+    void visit(UnaryOperation& n) override { n.operand->accept(*this); }
+    void visit(ConditionalExpression& n) override { n.condition->accept(*this); n.thenExpr->accept(*this); n.elseExpr->accept(*this); }
+    void visit(GenericSelection& n) override { n.control->accept(*this); for (auto& a : n.associations) a.result->accept(*this); }
+    void visit(InitializerList& n) override { for (auto& e : n.elements) e->accept(*this); }
+    void visit(ArrayAccess& n) override { n.arrayExpr->accept(*this); n.indexExpr->accept(*this); }
+    void visit(FunctionCall& n) override { for (auto& a : n.arguments) a->accept(*this); }
+    void visit(MemberAccess& n) override { n.structExpr->accept(*this); }
+    void visit(CastExpression& n) override { n.expression->accept(*this); }
+    void visit(AlignofExpression&) override {}
+    void visit(SizeofExpression& n) override { if (n.expression) n.expression->accept(*this); }
+    void visit(ReturnStatement& n) override { if (n.expression) n.expression->accept(*this); }
+    void visit(BreakStatement&) override {}
+    void visit(ContinueStatement&) override {}
+    void visit(SwitchContinueStatement& n) override { if (n.target) n.target->accept(*this); }
+    void visit(GotoStatement&) override {}
+    void visit(LabelledStatement& n) override { n.statement->accept(*this); }
+    void visit(ExpressionStatement& n) override { if (n.expression) n.expression->accept(*this); }
+    void visit(IfStatement& n) override {
+        n.condition->accept(*this);
+        // Then and else are separate scopes (mutually exclusive)
+        int savedOffset = currentOffset_;
+        n.thenBranch->accept(*this);
+        int thenMax = currentOffset_;
+        currentOffset_ = savedOffset;
+        if (n.elseBranch) n.elseBranch->accept(*this);
+        // Keep the higher water mark
+        if (thenMax > currentOffset_) currentOffset_ = thenMax;
+    }
+    void visit(WhileStatement& n) override { n.condition->accept(*this); n.body->accept(*this); }
+    void visit(DoWhileStatement& n) override { n.body->accept(*this); n.condition->accept(*this); }
+    void visit(ForStatement& n) override {
+        if (n.initializer) n.initializer->accept(*this);
+        if (n.condition) n.condition->accept(*this);
+        if (n.increment) n.increment->accept(*this);
+        n.body->accept(*this);
+    }
+    void visit(SwitchStatement& n) override { n.expression->accept(*this); n.body->accept(*this); }
+    void visit(CaseStatement& n) override { if (n.value) n.value->accept(*this); }
+    void visit(DefaultStatement&) override {}
+    void visit(AsmStatement&) override {}
+    void visit(StaticAssert&) override {}
+    void visit(EnumDefinition&) override {}
+    void visit(StructDefinition&) override {}
+    void visit(FunctionDeclaration& n) override { if (n.body) n.body->accept(*this); }
+    void visit(BuiltinVaStart& n) override { n.ap->accept(*this); }
+    void visit(BuiltinVaArg& n) override { n.ap->accept(*this); }
+    void visit(TranslationUnit& n) override { for (auto& d : n.topLevelDecls) d->accept(*this); }
+
+private:
+    const std::map<std::string, std::shared_ptr<CodeGenerator::StructInfo>>& structs_;
+    int currentOffset_ = 0;
+    int scopeBase_ = 0;
+
+    int computeSize(VariableDeclaration& node) {
+        int size = 0;
+        if (node.pointerLevel > 0) size = 2;
+        else if (node.type == "char" || node.type == "_Bool") size = 1;
+        else if (node.type == "int") size = 2;
+        else if (node.type.length() >= 7 && node.type.substr(0, 7) == "struct ") {
+            std::string sName = node.type.substr(7);
+            if (structs_.count(sName)) size = structs_.at(sName)->totalSize;
+            else size = 2; // fallback
+        } else if (node.type.length() >= 6 && node.type.substr(0, 6) == "union ") {
+            std::string sName = node.type.substr(6);
+            if (structs_.count(sName)) size = structs_.at(sName)->totalSize;
+            else size = 2;
+        } else {
+            size = 2; // default (int, enum, etc.)
+        }
+        if (node.arraySize() >= 0) size *= node.arraySize();
+        return size;
+    }
+};
 }
 
 void CodeGenerator::visit(TranslationUnit& node) {
@@ -505,10 +642,16 @@ void CodeGenerator::visit(TranslationUnit& node) {
     // Collect all known function names (definitions + prototypes) for call validation
     knownFunctions.clear();
     variadicFunctions.clear();
+    structReturningFunctions.clear();
+    functionReturnTypes.clear();
     for (auto& decl : node.topLevelDecls) {
         if (auto* fn = dynamic_cast<FunctionDeclaration*>(decl.get())) {
             knownFunctions.insert(fn->name);
             if (fn->isVariadic) variadicFunctions.insert(fn->name);
+            functionReturnTypes[fn->name] = {fn->returnType, fn->returnPointerLevel, fn->isSigned};
+            if (fn->returnPointerLevel == 0 && isStruct(fn->returnType)) {
+                structReturningFunctions.insert(fn->name);
+            }
             std::vector<VarInfo> paramTypes;
             for (auto& p : fn->parameters) {
                 paramTypes.push_back({p.type, p.pointerLevel, p.isSigned, p.isVolatile, p.isConst, p.isPointerConst});
@@ -683,7 +826,20 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     currentParamByteSize = 0;
     currentLocalByteSize = 0;
 
+    // --- Pre-scan: compute frame layout ---
+    FrameScanner scanner(structs);
+    scanner.scan(*node.body);
+    int frameSize = scanner.maxFrameSize;
+
+    // Store frame layout for use by visit(VariableDeclaration)
+    frameLocals_.clear();
+    for (auto& loc : scanner.locals) {
+        frameLocals_[loc.name] = loc.frameOffset;
+    }
+    frameSize_ = frameSize;
+
     // Collect param info and build proc line
+    bool isStructReturn = structReturningFunctions.count(node.name) > 0;
     struct ParamInfo { std::string pName; int size; };
     std::vector<ParamInfo> paramInfos;
     for (auto& param : node.parameters) {
@@ -703,18 +859,44 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
         currentParamByteSize += pSize;
         paramInfos.push_back({pName, pSize});
     }
+    // Hidden return pointer parameter for struct-returning functions.
+    // Pushed FIRST by the caller (before regular args), so it's at the highest stack offset.
+    // Insert at the BEGINNING of paramInfos so reverse-order offset assignment gives it the highest offset.
+    if (isStructReturn) {
+        std::string rpName = "_p___ret_ptr";
+        variableTypes[rpName] = {node.returnType, 1, false, false, false, false, false, {}};
+        procLine += ", W#" + rpName;
+        currentParamByteSize += 2;
+        paramInfos.insert(paramInfos.begin(), {rpName, 2});
+    }
     out << procLine << std::endl;
-    // _fp tracks current local frame size (no saved frame pointer)
+
+    // --- Frame prologue ---
+    // _fp is the SP-relative offset to the frame base.
+    // After allocating the frame, _fp = 0 (frame base is at current SP).
+    // When args are pushed for calls, _fp gets bumped (only _fp, not every local).
     emit(".var _fp = 0");
     currentVars.push_back("_fp");
-    // Params are stack-relative: past return addr (2 bytes) + cumulative offset.
-    // They get bumped alongside _fp when locals are declared.
-    // For variadic functions (right-to-left push): first param at offset 2.
-    // For normal functions (left-to-right push): last param at offset 2.
+
+    // Allocate the entire frame at once
+    if (frameSize > 0) {
+        emit("; frame: " + std::to_string(frameSize) + " bytes");
+        // Push zeros to allocate frame space
+        for (int i = 0; i < frameSize / 2; ++i) emitter->phw_imm(0);
+        if (frameSize % 2) { emitter->lda_imm(0); emitter->pha(); }
+        currentLocalByteSize = frameSize;
+    }
+
+    // Emit .local for each pre-scanned local (frame-relative, fixed offset)
+    for (auto& loc : scanner.locals) {
+        emit(".local " + loc.name + " = " + std::to_string(loc.frameOffset));
+    }
+
+    // Params: stack-relative, past frame + return address.
+    // These use .var so they get bumped alongside _fp when needed.
     {
-        int pOff = 2; // past 2-byte return address
+        int pOff = frameSize + 2; // past frame + 2-byte return address
         if (node.isVariadic) {
-            // Right-to-left push: first param closest to SP
             for (int i = 0; i < (int)paramInfos.size(); ++i) {
                 emit(".var " + paramInfos[i].pName + " = " + std::to_string(pOff));
                 currentVars.push_back(paramInfos[i].pName);
@@ -728,10 +910,9 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
             }
         }
     }
+
     node.body->accept(*this);
     if (!node.isNoreturn) {
-        // Check if the last statement in the body was a return statement.
-        // If it was, we don't need to emit an implicit one.
         bool lastWasReturn = false;
         if (!node.body->statements.empty()) {
             if (dynamic_cast<ReturnStatement*>(node.body->statements.back().get())) {
@@ -739,10 +920,10 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
             }
         }
         if (!lastWasReturn) {
-            int cleanupSize = currentLocalByteSize;
-            if (cleanupSize > 0) {
+            // Clean up frame before returning
+            if (frameSize > 0) {
                 emitter->taz();
-                for (int i = 0; i < cleanupSize; ++i) emitter->pla();
+                for (int i = 0; i < frameSize; ++i) emitter->pla();
                 emitter->tza();
             }
             emit("rtn #0");
@@ -752,6 +933,8 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     out << std::endl;
 
     freeRegisterVars();
+    frameLocals_.clear();
+    frameSize_ = 0;
     currentFunction = nullptr;
 }
 
@@ -993,6 +1176,121 @@ void CodeGenerator::visit(VariableDeclaration& node) {
             // ZP space exhausted — fall back to normal stack allocation
             freeZP(zpIdx, regSize);
         }
+    }
+
+    // Frame-local: already pre-allocated in the frame prologue.
+    // Just emit initialization code targeting the frame slot, no stack push needed.
+    if (frameLocals_.count(lName)) {
+        int frameOff = frameLocals_[lName];
+        int size = 0;
+        if (node.pointerLevel > 0) size = 2;
+        else if (node.type == "char" || node.type == "_Bool") size = 1;
+        else if (node.type == "int") size = 2;
+        else if (isStruct(node.type)) {
+            std::string sName = getAggregateName(node.type);
+            if (structs.count(sName)) size = structs[sName]->totalSize;
+        }
+        if (node.arraySize() >= 0) size *= node.arraySize();
+
+        // Narrowing warnings
+        if (node.initializer && !dynamic_cast<CastExpression*>(node.initializer.get()) && !dynamic_cast<InitializerList*>(node.initializer.get())) {
+            if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
+                if (size == 1 && (lit->value < 0 || lit->value > 255)) {
+                    std::string loc = sourceFilename.empty() ? "" : sourceFilename + ":";
+                    if (node.line > 0) loc += std::to_string(node.line) + ":" + std::to_string(node.column) + ": ";
+                    std::string msg = loc + "warning: implicit conversion from constant " + std::to_string(lit->value) + " loses data (truncated to 'char')";
+                    warnings.push_back(msg);
+                    std::cerr << msg << std::endl;
+                }
+            } else {
+                ExpressionType initType = getExprType(node.initializer.get());
+                emitNarrowingWarning(node, initType.type, initType.pointerLevel, node.type, node.pointerLevel);
+            }
+        }
+
+        // Dead-code elimination for unused integer-initialized locals
+        if (node.initializer && dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
+            if (!isVariableUsed(node.name, *currentFunction)) {
+                return;
+            }
+        }
+
+        // Initialize the frame slot
+        if (auto* initList = dynamic_cast<InitializerList*>(node.initializer.get())) {
+            int elementSize = 0;
+            if (node.pointerLevel > 0) elementSize = 2;
+            else if (is8BitType(node.type)) elementSize = 1;
+            else if (node.type == "int") elementSize = 2;
+            int totalElements = node.arraySize() >= 0 ? node.arraySize() : 1;
+            for (int i = 0; i < totalElements; i++) {
+                int val = 0;
+                if (i < (int)initList->elements.size()) {
+                    if (auto* lit = dynamic_cast<IntegerLiteral*>(initList->elements[i].get())) {
+                        val = lit->value;
+                    }
+                }
+                int elemOff = frameOff + i * elementSize;
+                if (elementSize == 2) {
+                    emitter->lda_imm(val & 0xFF);
+                    emit("sta.fp " + std::to_string(elemOff));
+                    emitter->lda_imm((val >> 8) & 0xFF);
+                    emit("sta.fp " + std::to_string(elemOff + 1));
+                } else {
+                    emitter->lda_imm(val & 0xFF);
+                    emit("sta.fp " + std::to_string(elemOff));
+                }
+            }
+        } else if (node.initializer) {
+            if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
+                if (size == 2) {
+                    emitter->lda_imm(lit->value & 0xFF);
+                    emit("sta.fp " + std::to_string(frameOff));
+                    emitter->lda_imm((lit->value >> 8) & 0xFF);
+                    emit("sta.fp " + std::to_string(frameOff + 1));
+                } else {
+                    uint8_t val = lit->value & 0xFF;
+                    if (node.type == "_Bool") val = (val != 0) ? 1 : 0;
+                    emitter->lda_imm(val);
+                    emit("sta.fp " + std::to_string(frameOff));
+                }
+            } else {
+                // Check if this is a struct-returning function call
+                bool isStructRetInit = false;
+                if (auto* fc = dynamic_cast<FunctionCall*>(node.initializer.get())) {
+                    if (structReturningFunctions.count(fc->name)) isStructRetInit = true;
+                }
+
+                if (isStructRetInit && isStruct(node.type) && node.pointerLevel == 0) {
+                    // Set the destination frame offset so the FunctionCall visitor
+                    // passes our frame slot address as the hidden _ret_ptr.
+                    // The callee writes directly to our frame slot — no copy needed.
+                    structRetDest_ = frameOff;
+                    bool oldNeeded = resultNeeded;
+                    resultNeeded = true;
+                    node.initializer->accept(*this);
+                    resultNeeded = oldNeeded;
+                    structRetDest_ = -1;
+                } else {
+                    bool oldNeeded = resultNeeded;
+                    resultNeeded = true;
+                    node.initializer->accept(*this);
+                    resultNeeded = oldNeeded;
+                    if (node.type == "_Bool" && node.pointerLevel == 0) {
+                        ExpressionType srcType = getExprType(node.initializer.get());
+                        int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
+                        emitBoolNormalize(srcSize);
+                    }
+                    if (size == 2) {
+                        emit("stax.fp " + std::to_string(frameOff));
+                    } else {
+                        emit("sta.fp " + std::to_string(frameOff));
+                    }
+                }
+            }
+        }
+        // Frame slot was already zeroed by prologue, no init needed for uninitialized vars
+        invalidateRegs();
+        return;
     }
 
     if (node.initializer && !dynamic_cast<CastExpression*>(node.initializer.get()) && !dynamic_cast<InitializerList*>(node.initializer.get())) {
@@ -1557,12 +1855,13 @@ void CodeGenerator::visit(Assignment& node) {
                             std::string nestedSName = getAggregateName(mInfo.type);
                             if (structs.count(nestedSName) && structs[nestedSName]->totalSize > 1) is16 = true;
                         }
+                        std::string memberAddr = rName + (mInfo.offset ? "+" + std::to_string(mInfo.offset) : "");
                         if (is16) {
-                            emit("stax " + rName + "+" + std::to_string(mInfo.offset) + suffix);
+                            emit("stax " + memberAddr + suffix);
                             updateRegAVar(rName, mInfo.offset); updateRegXVar(rName, mInfo.offset + 1);
                         } else {
-                            if (isGlobal) emit("sta " + rName + "+" + std::to_string(mInfo.offset));
-                            else emit("sta.sp " + rName + "+" + std::to_string(mInfo.offset));
+                            if (isGlobal) emit("sta " + memberAddr);
+                            else emit("sta.sp " + memberAddr);
                             updateRegAVar(rName, mInfo.offset);
                         }
                         invalidateRegs();
@@ -2020,7 +2319,7 @@ void CodeGenerator::visit(UnaryOperation& node) {
                             invalidateRegs();
                             bool isGlobal = globalVariableTypes.count(rName);
                             std::string suffix = isGlobal ? "" : ", s";
-                            std::string memberAddr = rName + "+" + std::to_string(mInfo.offset);
+                            std::string memberAddr = rName + (mInfo.offset ? "+" + std::to_string(mInfo.offset) : "");
                             if (is16Bit && !isGlobal) {
                                 if (isInc) emit("inw " + memberAddr + suffix);
                                 else emit("dew " + memberAddr + suffix);
@@ -2101,12 +2400,56 @@ void CodeGenerator::visit(StaticAssert& node) {}
 
 void CodeGenerator::visit(ReturnStatement& node) {
     embedSource(node);
-    if (node.expression) {
+
+    // Check if this is a struct-returning function
+    bool isStructReturn = currentFunction && structReturningFunctions.count(currentFunction->name) > 0;
+
+    if (isStructReturn && node.expression) {
+        // Copy the return struct to *_ret_ptr
+        std::string sName = getAggregateName(currentFunction->returnType);
+        int structSize = structs.count(sName) ? structs[sName]->totalSize : 2;
+
+        // Get source address (the expression result — should be a struct lvalue)
+        emitAddress(node.expression.get());
+        // AX now holds the source address; save to ZP
+        int zpSrc = allocateZP(2);
+        std::stringstream ssSrc;
+        ssSrc << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpSrc);
+        emit("stax $" + ssSrc.str());
+
+        // Load destination address from _ret_ptr parameter
+        emit("ldax _p___ret_ptr, s");
+        int zpDest = allocateZP(2);
+        std::stringstream ssDest;
+        ssDest << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpDest);
+        emit("stax $" + ssDest.str());
+
+        // Byte-copy loop: copy structSize bytes from (zpSrc) to (zpDest)
+        if (structSize <= 8) {
+            // Unrolled copy for small structs
+            for (int i = 0; i < structSize; i++) {
+                emitter->ldy_imm(i);
+                emit("lda ($" + ssSrc.str() + "),y");
+                emit("sta ($" + ssDest.str() + "),y");
+            }
+        } else {
+            // Use DMA MOVE for larger structs
+            std::stringstream ssLen;
+            ssLen << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (structSize & 0xFF);
+            emit("ldx #$" + ssLen.str());
+            emit("ldy #$00");
+            emit("MOVE ($" + ssSrc.str() + "), ($" + ssDest.str() + ")");
+        }
+
+        freeZP(zpDest, 2);
+        freeZP(zpSrc, 2);
+    } else if (node.expression) {
         bool oldNeeded = resultNeeded;
         resultNeeded = true;
         node.expression->accept(*this);
         resultNeeded = oldNeeded;
     }
+
     // Clean up local variables from stack before returning.
     // AX holds the return value, so use Z register to preserve A.
     int cleanupSize = currentLocalByteSize;
@@ -2527,13 +2870,14 @@ void CodeGenerator::visit(MemberAccess& node) {
             }
             bool isGlobal = globalVariableTypes.count(rName);
             std::string suffix = isGlobal ? "" : ", s";
+            std::string memberAddr = rName + (mInfo.offset ? "+" + std::to_string(mInfo.offset) : "");
             if (is16) {
-                emit("ldax " + rName + "+" + std::to_string(mInfo.offset) + suffix);
+                emit("ldax " + memberAddr + suffix);
                 updateRegAVar(rName, mInfo.offset); updateRegXVar(rName, mInfo.offset + 1);
                 updateZNFlags(FlagSource::A);
             } else {
-                if (isGlobal) emit("lda " + rName + "+" + std::to_string(mInfo.offset));
-                else emit("lda.sp " + rName + "+" + std::to_string(mInfo.offset));
+                if (isGlobal) emit("lda " + memberAddr);
+                else emit("lda.sp " + memberAddr);
                 updateRegAVar(rName, mInfo.offset);
                 emitter->ldx_imm(0); updateRegX(0);
             }
@@ -2836,6 +3180,20 @@ void CodeGenerator::visit(FunctionCall& node) {
 
     bool oldNeeded = resultNeeded; resultNeeded = true;
     int pushedBytes = 0;
+
+    // For struct-returning functions, push hidden return pointer FIRST
+    // (before regular args) so leax.fp uses the un-bumped _fp value.
+    bool isStructRetCall = structReturningFunctions.count(node.name) > 0;
+    if (isStructRetCall && structRetDest_ >= 0) {
+        emit("leax.fp " + std::to_string(structRetDest_));
+        emitter->push_ax();
+        int pushSize = 2;
+        pushedBytes += pushSize;
+        for (const auto& varName : currentVars) {
+            emit(".var " + varName + " = " + varName + " + " + std::to_string(pushSize));
+        }
+    }
+
     // For variadic functions, push arguments right-to-left so named params
     // end up at fixed offsets from SP regardless of extra args.
     bool isVariadicCall = variadicFunctions.count(node.name) > 0;

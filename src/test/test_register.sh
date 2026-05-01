@@ -166,7 +166,7 @@ int main() {
 }
 EOF
 $CC -O0 $TEMP_C -o $TEMP_S 2>/dev/null
-if grep -q "\.var _l_a" $TEMP_S && grep -q "\.var _l_c" $TEMP_S; then
+if (grep -q "\.var _l_a\|\.local _l_a" $TEMP_S) && (grep -q "\.var _l_c\|\.local _l_c" $TEMP_S); then
     pass "non-register vars still use .var"
 else
     fail "non-register vars still use .var"
@@ -224,7 +224,7 @@ int main() {
 }
 EOF
 $CC $TEMP_C -o $TEMP_S 2>/dev/null
-if [ $? -eq 0 ] && grep -q "\.var _l_arr" $TEMP_S; then
+if [ $? -eq 0 ] && grep -q "\.var _l_arr\|\.local _l_arr" $TEMP_S; then
     pass "register on array falls back to stack"
 else
     fail "register on array falls back to stack"
@@ -240,7 +240,7 @@ int main() {
 }
 EOF
 $CC $TEMP_C -o $TEMP_S 2>/dev/null
-if [ $? -eq 0 ] && grep -q "\.var _l_p" $TEMP_S; then
+if [ $? -eq 0 ] && grep -q "\.var _l_p\|\.local _l_p" $TEMP_S; then
     pass "register on struct falls back to stack"
 else
     fail "register on struct falls back to stack"

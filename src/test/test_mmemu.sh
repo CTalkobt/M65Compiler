@@ -404,6 +404,27 @@ else
     fi
 fi
 
+# --- test_struct_return.c: struct return by value ---
+echo "Testing mmemu-cli with test_struct_return.c (struct return by value)..."
+$CC src/test-resources/test_struct_return.c -o build/test/test_struct_return.s 2>/dev/null
+if [ $? -ne 0 ]; then echo "FAIL: Compilation failed for test_struct_return.c"; failed=$((failed + 1));
+else
+    $AS build/test/test_struct_return.s -o build/test/test_struct_return.prg
+    if [ $? -ne 0 ]; then echo "FAIL: Assembly failed for test_struct_return.s"; failed=$((failed + 1));
+    else
+        OUTPUT=$(echo -e "load build/test/test_struct_return.prg\nsetpc \$2000\nstep 50000000\nm \$4000 7\nq" | $MMEMU -m rawMega65 2>/dev/null)
+        if echo "$OUTPUT" | grep -qi "4000:.*01 02 03 04 0a 14 aa"; then
+            echo "SUCCESS: test_struct_return.c — struct return by value correct."
+        else
+            echo "FAIL: test_struct_return.c — struct return by value validation failed."
+            echo "Expected 4000: 01 02 03 04 0A 14 AA"
+            echo "Actual output:"
+            echo "$OUTPUT" | grep "4000:"
+            failed=$((failed + 1))
+        fi
+    fi
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All mmemu tests passed!"
     exit 0
