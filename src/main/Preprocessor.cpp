@@ -769,6 +769,10 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         output << "__asm__(\".crt_exit_brk\");\n";
                     } else if (crtArg == "no_bssinit") {
                         output << "__asm__(\".crt_no_bssinit\");\n";
+                    } else if (crtArg == "heap") {
+                        output << "__asm__(\".crt_heap\");\n";
+                    } else if (crtArg == "stdio") {
+                        output << "__asm__(\".crt_stdio\");\n";
                     } else {
                         output << "\n";
                     }

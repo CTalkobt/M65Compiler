@@ -23,6 +23,20 @@ static std::string hex16(uint16_t val) {
     return ss.str();
 }
 
+void M65Emitter::emitDirective(const std::string& name, const std::string& arg) {
+    if (mode == Mode::TEXT) {
+        *out << "    ." << name;
+        if (!arg.empty()) *out << " " << arg;
+        *out << std::endl;
+    }
+}
+
+void M65Emitter::emitRaw(const std::string& text) {
+    if (mode == Mode::TEXT) {
+        *out << text << std::endl;
+    }
+}
+
 void M65Emitter::emitByte(uint8_t b) {
     if (mode == Mode::BINARY) {
         binary->push_back(b);

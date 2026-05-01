@@ -69,6 +69,8 @@ TEST_FILES=(
     "src/test-resources/test_bool.c"
     "src/test-resources/test_opt_load_store.c"
     "src/test-resources/test_restrict.c"
+    "src/test-resources/test_pragma_heap.c"
+    "src/test-resources/test_malloc.c"
 )
 
 mkdir -p build/test

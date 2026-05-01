@@ -196,6 +196,8 @@ public:
     bool crtNoPageOneStack = false; // #pragma crt no_0100_stack
     enum class CrtExit { HALT, RTS, BRK } crtExit = CrtExit::RTS;
     bool crtNoBssInit = false; // #pragma crt no_bssinit
+    bool crtHeap = false;      // #pragma crt heap
+    bool crtStdio = false;     // #pragma crt stdio
     std::set<std::string> knownFunctions; // defined + prototyped function names
     std::map<std::string, std::vector<VarInfo>> functionParamTypes; // parameter types per function
     FunctionDeclaration* currentFunction = nullptr;

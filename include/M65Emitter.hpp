@@ -184,6 +184,8 @@ public:
     void not_16();
     void transfer_ax_to_zp(uint8_t addr);
 
+    void emitDirective(const std::string& name, const std::string& arg = "");
+    void emitRaw(const std::string& text);
     void emitByte(uint8_t b);
     void emitWord(uint16_t w);
     void setAddress(uint32_t addr);

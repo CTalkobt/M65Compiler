@@ -480,29 +480,32 @@ void CodeGenerator::visit(TranslationUnit& node) {
         }
     }
 
-    if (relocMode) {
-        // Collect defined functions, weak functions, and called functions
-        std::set<std::string> definedFunctions;
-        std::set<std::string> weakFunctions;
-        bool nextIsWeak = false;
-        for (auto& decl : node.topLevelDecls) {
-            if (auto* asmStmt = dynamic_cast<AsmStatement*>(decl.get())) {
-                if (asmStmt->code == ".weak_next") { nextIsWeak = true; continue; }
-                if (asmStmt->code == ".crt_no_0100_stack") { crtNoPageOneStack = true; continue; }
-                if (asmStmt->code == ".crt_exit_halt") { crtExit = CrtExit::HALT; continue; }
-                if (asmStmt->code == ".crt_exit_rts") { crtExit = CrtExit::RTS; continue; }
-                if (asmStmt->code == ".crt_exit_brk") { crtExit = CrtExit::BRK; continue; }
-                if (asmStmt->code == ".crt_no_bssinit") { crtNoBssInit = true; continue; }
+    // 1. Scan for CRT flags and main function
+    bool hasMain = false;
+    std::set<std::string> definedFunctions;
+    std::set<std::string> weakFunctions;
+    bool nextIsWeak = false;
+    for (auto& decl : node.topLevelDecls) {
+        if (auto* fn = dynamic_cast<FunctionDeclaration*>(decl.get())) {
+            if (fn->name == "main") hasMain = true;
+            if (!fn->isPrototype) {
+                definedFunctions.insert(fn->name);
+                if (nextIsWeak) weakFunctions.insert(fn->name);
             }
-            if (auto* fn = dynamic_cast<FunctionDeclaration*>(decl.get())) {
-                if (!fn->isPrototype) {
-                    definedFunctions.insert(fn->name);
-                    if (nextIsWeak) { weakFunctions.insert(fn->name); }
-                }
-            }
-            nextIsWeak = false;
+        } else if (auto* as = dynamic_cast<AsmStatement*>(decl.get())) {
+            if (as->code == ".weak_next") { nextIsWeak = true; continue; }
+            if (as->code == ".crt_no_0100_stack") crtNoPageOneStack = true;
+            if (as->code == ".crt_exit_halt") crtExit = CrtExit::HALT;
+            if (as->code == ".crt_exit_rts") crtExit = CrtExit::RTS;
+            if (as->code == ".crt_exit_brk") crtExit = CrtExit::BRK;
+            if (as->code == ".crt_no_bssinit") crtNoBssInit = true;
+            if (as->code == ".crt_heap") crtHeap = true;
+            if (as->code == ".crt_stdio") crtStdio = true;
         }
+        nextIsWeak = false;
+    }
 
+    if (relocMode) {
         CallCollector cc;
         node.accept(cc);
 
@@ -522,105 +525,103 @@ void CodeGenerator::visit(TranslationUnit& node) {
             }
         }
 
-        // .global for global variables will be emitted by emitData()
-
         // Emit .extern __sp_base when stack relocation is requested
         if (crtNoPageOneStack) {
             out << ".extern __sp_base" << std::endl;
         }
 
         out << std::endl;
-    } else {
-        out << ".org $2000" << std::endl;
-
-        // Emit startup stub if a main function is present
-        bool hasMain = false;
-        for (auto& decl : node.topLevelDecls) {
-            if (auto* fn = dynamic_cast<FunctionDeclaration*>(decl.get())) {
-                if (fn->name == "main") { hasMain = true; break; }
-            }
+    }
+    // 2. Emit startup stub if main is present
+    if (hasMain) {
+        if (!relocMode) out << ".org $2000" << std::endl;
+        
+        if (crtExit == CrtExit::RTS) {
+            out << "    tsx" << std::endl;
+            out << "    stx __saved_spl + 1" << std::endl;
+            out << "    tsy" << std::endl;
+            out << "    sty __saved_sph + 1" << std::endl;
         }
-        if (hasMain) {
-            // Inline crt0: __init calls _init_features (weak stub), then _main
-            // Returns to caller with .AX = main's return value
-            if (crtExit == CrtExit::RTS) {
-                // Save caller's SP into the immediate operands of the restore instructions
-                out << "    tsx" << std::endl;
-                out << "    stx __saved_spl + 1" << std::endl;
-                out << "    tsy" << std::endl;
-                out << "    sty __saved_sph + 1" << std::endl;
-            }
-            out << "    jsr __init" << std::endl;
-            out << "__exit:" << std::endl;
-            switch (crtExit) {
-                case CrtExit::RTS:
-                    // Restore caller's SP (self-modified immediates) and return
-                    out << "__saved_spl:" << std::endl;
-                    out << "    ldx #$ff" << std::endl;
-                    out << "    txs" << std::endl;
-                    out << "__saved_sph:" << std::endl;
-                    out << "    ldy #$01" << std::endl;
-                    out << "    tys" << std::endl;
-                    out << "    rts" << std::endl;
-                    break;
-                case CrtExit::BRK:
-                    out << "    brk" << std::endl;
-                    break;
-                default: // HALT
-                    out << "_halt:" << std::endl;
-                    out << "    bra _halt" << std::endl;
-                    break;
-            }
-            out << "__init:" << std::endl;
-            out << "    jsr _init_bss" << std::endl;
-            out << "    jsr _init_features" << std::endl;
-            out << "    jmp _main" << std::endl;
-            out << "_init_features:" << std::endl;
-            out << "    rts" << std::endl;
-            // Emit _init_bss inline in CRT area so its address is stable
-            // (avoids simulated opcode size drift when placed after functions).
-            // Pre-scan for uninitialized globals to decide if BSS zeroing is needed.
-            bool hasBssVars = false;
-            if (!crtNoBssInit && !relocMode) {
-                for (auto& decl : node.topLevelDecls) {
-                    if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
-                        if ((vd->isGlobal || currentFunction == nullptr) && !vd->isExtern && !vd->initializer) {
-                            hasBssVars = true;
-                            break;
-                        }
+        out << "    jsr __init" << std::endl;
+        out << "__exit:" << std::endl;
+        switch (crtExit) {
+            case CrtExit::RTS:
+                out << "__saved_spl:" << std::endl;
+                out << "    ldx #$ff" << std::endl;
+                out << "    txs" << std::endl;
+                out << "__saved_sph:" << std::endl;
+                out << "    ldy #$01" << std::endl;
+                out << "    tys" << std::endl;
+                out << "    rts" << std::endl;
+                break;
+            case CrtExit::BRK:
+                out << "    brk" << std::endl;
+                break;
+            default: // HALT
+                out << "_halt:" << std::endl;
+                out << "    bra _halt" << std::endl;
+                break;
+        }
+        if (relocMode) out << ".global __init" << std::endl;
+        out << "__init:" << std::endl;
+        out << "__sp_base = $0101" << std::endl;
+        if (relocMode) out << ".global __sp_base" << std::endl;
+        out << "    jsr _init_bss" << std::endl;
+        if (crtHeap) {
+            out << "    .extern _init_heap_crt" << std::endl;
+            out << "    jsr _init_heap_crt" << std::endl;
+        }
+        if (crtStdio) {
+            out << "    .extern _init_stdio_crt" << std::endl;
+            out << "    jsr _init_stdio_crt" << std::endl;
+        }
+        out << "    jsr _init_features" << std::endl;
+        out << "    jmp _main" << std::endl;
+        if (relocMode) out << ".global _init_features" << std::endl;
+        out << "_init_features:" << std::endl;
+
+        out << "    rts" << std::endl;
+
+        // Emit _init_bss
+        bool hasBssVars = false;
+        if (!crtNoBssInit) {
+            for (auto& decl : node.topLevelDecls) {
+                if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
+                    if ((vd->isGlobal || currentFunction == nullptr) && !vd->isExtern && !vd->initializer) {
+                        hasBssVars = true;
+                        break;
                     }
                 }
             }
-            out << "_init_bss:" << std::endl;
-            if (hasBssVars) {
-                out << "    lda #<__bss_start" << std::endl;
-                out << "    sta $02" << std::endl;
-                out << "    lda #>__bss_start" << std::endl;
-                out << "    sta $03" << std::endl;
-                out << "    lda #<__bss_end" << std::endl;
-                out << "    sta $04" << std::endl;
-                out << "    lda #>__bss_end" << std::endl;
-                out << "    sta $05" << std::endl;
-                out << "    lda #0" << std::endl;
-                out << "    ldy #0" << std::endl;
-                out << "@__bss_loop:" << std::endl;
-                out << "    ldx $02" << std::endl;
-                out << "    cpx $04" << std::endl;
-                out << "    bne @__bss_store" << std::endl;
-                out << "    ldx $03" << std::endl;
-                out << "    cpx $05" << std::endl;
-                out << "    beq @__bss_done" << std::endl;
-                out << "@__bss_store:" << std::endl;
-                out << "    sta ($02),y" << std::endl;
-                out << "    inc $02" << std::endl;
-                out << "    bne @__bss_loop" << std::endl;
-                out << "    inc $03" << std::endl;
-                out << "    bra @__bss_loop" << std::endl;
-                out << "@__bss_done:" << std::endl;
-            }
-            out << "    rts" << std::endl;
         }
-        out << std::endl;
+        out << "_init_bss:" << std::endl;
+        if (hasBssVars && !relocMode) {
+            out << "    lda #<__bss_start" << std::endl;
+            out << "    sta $02" << std::endl;
+            out << "    lda #>__bss_start" << std::endl;
+            out << "    sta $03" << std::endl;
+            out << "    lda #<__bss_end" << std::endl;
+            out << "    sta $04" << std::endl;
+            out << "    lda #>__bss_end" << std::endl;
+            out << "    sta $05" << std::endl;
+            out << "    lda #0" << std::endl;
+            out << "    ldy #0" << std::endl;
+            out << "@__bss_loop:" << std::endl;
+            out << "    ldx $02" << std::endl;
+            out << "    cpx $04" << std::endl;
+            out << "    bne @__bss_store" << std::endl;
+            out << "    ldx $03" << std::endl;
+            out << "    cpx $05" << std::endl;
+            out << "    beq @__bss_done" << std::endl;
+            out << "@__bss_store:" << std::endl;
+            out << "    sta ($02),y" << std::endl;
+            out << "    inc $02" << std::endl;
+            out << "    bne @__bss_loop" << std::endl;
+            out << "    inc $03" << std::endl;
+            out << "    bra @__bss_loop" << std::endl;
+            out << "@__bss_done:" << std::endl;
+        }
+        out << "    rts" << std::endl << std::endl;
     }
 
     for (auto& decl : node.topLevelDecls) decl->accept(*this);
@@ -1644,6 +1645,14 @@ void CodeGenerator::visit(AsmStatement& node) {
         crtNoBssInit = true;
         return; // Don't emit — it's a compiler internal directive
     }
+    if (node.code == ".crt_heap") {
+        crtHeap = true;
+        return;
+    }
+    if (node.code == ".crt_stdio") {
+        crtStdio = true;
+        return;
+    }
     embedSource(node);
     emit(node.code);
     invalidateRegs();
@@ -2414,10 +2423,11 @@ void CodeGenerator::emitData() {
     }
 
     // BSS section — uninitialized globals
+    out << std::endl << ".bss" << std::endl;
+    out << "; BSS Section" << std::endl;
+    if (relocMode) out << ".global __bss_start" << std::endl;
+    out << "__bss_start:" << std::endl;
     if (!uninitializedVars.empty()) {
-        out << std::endl << ".bss" << std::endl;
-        out << "; BSS Section" << std::endl;
-        out << "__bss_start:" << std::endl;
         for (auto* gVar : uninitializedVars) {
             if (gVar->alignment > 1) out << "    .align " << std::to_string(gVar->alignment) << std::endl;
             out << "_" << gVar->name << ":" << std::endl;
@@ -2429,8 +2439,9 @@ void CodeGenerator::emitData() {
             if (gVar->arraySize() >= 0) size *= gVar->arraySize();
             out << "    .res " << std::to_string(size) << std::endl;
         }
-        out << "__bss_end:" << std::endl;
     }
+    if (relocMode) out << ".global __bss_end" << std::endl;
+    out << "__bss_end:" << std::endl;
 
     out << std::endl << ".data" << std::endl;
     for (const auto& entry : stringPool) { out << entry.second << ":" << std::endl; out << "    .text \"" << entry.first << "\"" << std::endl; out << "    .byte 0" << std::endl; }

@@ -194,7 +194,6 @@ Steps required to bring the C compiler closer to C11 standards.
 - [ ] **Repeat Block**: Implement `.repeat <n>` / `.endrep` for repeated code/data generation.
 - [ ] **User Warning**: Implement `.warn "<msg>"` — User-defined assembly-time warning.
 - [X] **Preprocessor**: Implement `#include`, `#define`, `#undef`, `#if`, `#ifdef`, `#ifndef`, `#elif`, `#else`, `#endif`, `#line`, `#error`, `#warning`, `#pragma`. Support function-like macros and operators.
-- [ ] **Standard Library**: Add built-in functions like `sin()`, `cos()`, `round()`.
 
 ---
 
@@ -218,8 +217,8 @@ Steps required to bring the C compiler closer to C11 standards.
     - [ ] **`#pragma crt no_datainit`**: Skip `.data` ROM→RAM copy at startup. Opt-out flag excludes `crt_datainit.o45`.
     - [ ] **`#pragma crt no_dpsetup`**: Skip Direct Page / B register setup. Opt-out flag excludes `crt_dpsetup.o45`.
     - [X] **`#pragma crt exit_halt|exit_rts|exit_brk`**: Select program exit behavior after `main` returns. `exit_rts` (default): saves/restores caller's full 16-bit SP, provides `__exit` label for future `exit()` support. `exit_halt`: infinite `bra` loop. `exit_brk`: break to debugger. Setting one unsets the others.
-    - [ ] **`#pragma crt heap`**: Pull in heap initialization and malloc/free support. Opt-in flag forces `crt_heap.o45` from the CRT archive.
-    - [ ] **`#pragma crt stdio`**: Pull in stdio initialization (screen, I/O). Opt-in flag forces `crt_stdio.o45` from the CRT archive.
+    - [X] **`#pragma crt heap`**: Pull in heap initialization and malloc/free support. Opt-in flag links `crt_heap.o45` from the CRT archive. CRT startup calls `_init_heap_crt` before `_init_features`.
+    - [ ] **`#pragma crt stdio`**: Pull in stdio initialization (screen, I/O). Opt-in flag forces `crt_stdio.o45` from the CRT archive. Pragma recognized but module not yet implemented.
 
 ## Roadmap - Standard Library (stdlib45.lib)
 All modules are hand-written 45GS02 assembly in `lib/stdlib/`, archived into `stdlib45.lib` by `lib/Makefile`.
@@ -228,8 +227,10 @@ All modules are hand-written 45GS02 assembly in `lib/stdlib/`, archived into `st
 - [X] **`stdio.h`**: `putchar`, `puts` (KERNAL CHROUT wrappers).
 - [X] **`stdlib.h`**: `exit` (jumps to CRT `__exit` label with status in `.AX`).
 - [X] **`ctype.h`**: `isdigit`, `isalpha`, `isalnum`, `isspace`, `isprint`, `toupper`, `tolower` (PETSCII-aware). Validated via build + link.
-- [X] **`stdlib.h` (remaining)**: `abs`, `atoi`, `itoa`, `rand`, `srand`. `rand` uses MEGA65 hardware RNG at `$D7EF` with busy-wait on `$D7FE` bit 7. `srand` is a no-op (hardware RNG).
-- [ ] **Heap**: `malloc`, `free`, `calloc`, `realloc` (requires `#pragma crt heap`).
+- [X] **stdlib.h** (remaining): `abs`, `atoi`, `itoa`, `rand`, `srand`. `rand` uses MEGA65 hardware RNG at `$D7EF` with busy-wait on `$D7FE` bit 7. `srand` is a no-op (hardware RNG).
+- [ ] **`math.h`**: `sin`, `cos`, `tan`, `sqrt`, `log`, `exp`, `pow`, `round`, `floor`, `ceil` (may leverage Commodore 40-bit float format or hardware).
+- [X] **Heap**: `malloc`, `free`, `calloc`, `realloc` (requires `#pragma crt heap`).
+- [ ] **o45 Support in Mcp Server:** Add o45 support for mmemu.  This could allow various workflows such as dynamic reloading, etc. 
 
 ---
 

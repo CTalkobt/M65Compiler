@@ -26,16 +26,20 @@ typedef uint16_t     size_t;
 
 ## 2. Memory Management (`stdlib.h`)
 
-Minimal dynamic memory allocation. Given the MEGA65's banked memory architecture, a simple heap manager operating within a single 64KB segment is appropriate for initial implementation.
+Dynamic memory allocation using a sorted free-list allocator. Enabled via `#pragma crt heap`. All functions are hand-written 45GS02 assembly in `lib/stdlib/malloc.s`.
 
-- **`malloc(size_t size)`**: Allocate a block of memory from the heap.
-- **`free(void *ptr)`**: Deallocate a previously allocated block.
-- **`calloc(size_t nmemb, size_t size)`**: Allocate and zero-initialize memory.
-- **`realloc(void *ptr, size_t size)`**: Resize an existing allocation.
+- **`malloc(size_t size)`**: First-fit allocation from sorted free list. Block splitting when remainder >= 4 bytes. Returns NULL for `malloc(0)`. Auto-initializes heap on first call. **Implemented.**
+- **`free(void *ptr)`**: Returns block to sorted free list. Coalesces adjacent free blocks (both forward and backward). `free(NULL)` is a no-op. **Implemented.**
+- **`calloc(size_t nmemb, size_t size)`**: Allocates `nmemb * size` bytes via `malloc`, then zeros with `memset`. **Implemented.**
+- **`realloc(void *ptr, size_t size)`**: Allocates new block, copies `min(old_size, new_size)` bytes via `memcpy`, frees old block. `realloc(NULL, n)` = `malloc(n)`, `realloc(p, 0)` = `free(p)`. **Implemented.**
 
-### Implementation Strategy
+### Implementation Details
 
-A simple free-list allocator with 4-byte headers (2-byte size + 2-byte next-free pointer) is recommended. The heap region should be placed after the BSS segment, growing upward. `cc45` supports pointer arithmetic and struct access needed for the allocator logic.
+- **Block header**: 4 bytes — 2-byte size (bit 0 = allocated flag), 2-byte next-free pointer.
+- **Minimum allocation**: 4 bytes (2-byte header + 2-byte minimum payload), 2-byte aligned.
+- **Heap region**: `__heap_start` (default: `__bss_end`) to `__heap_end` (default: `$D000`). Both are weak symbols, overridable at link time.
+- **Initialization**: `_heap_init` creates a single free block spanning the entire heap. Called automatically by `crt_heap.o45` during CRT startup, or lazily on first `malloc` call.
+- **CRT integration**: `#pragma crt heap` links `crt_heap.o45` from `crt45.lib`, which calls `_init_heap_crt` → `_heap_init` during the startup sequence (after BSS init, before `_init_features`).
 
 ## 3. String & Memory Operations (`string.h`)
 
@@ -286,8 +290,8 @@ Recommended order based on utility and dependency:
 1. **Phase 1 — Headers only** (no linkage needed): `stdint.h`, `stddef.h`, `stdbool.h`, `limits.h` — **Done.**
 2. **Phase 2 — Core runtime**: `crt0.s`, `putchar`/`puts`, `exit` (enables visible output and clean termination) — **Done.** CRT pragmas (`exit_rts`/`exit_halt`/`exit_brk`, `no_bssinit`, `no_0100_stack`) implemented.
 3. **Phase 3 — String/memory**: `string.h` functions (12 functions, all hand-written 45GS02 assembly, mmemu-validated) — **Done.**
-4. **Phase 4 — Utilities**: `ctype.h` (7 functions, all hand-written 45GS02 assembly) — **Done.** Remaining: `atoi`/`itoa`, `abs`, `rand`
-5. **Phase 5 — Heap**: `malloc`/`free`/`calloc`/`realloc` (complex, defer until needed)
+4. **Phase 4 — Utilities**: `ctype.h` (7 functions), `abs`, `atoi`, `itoa`, `rand`, `srand` — **Done.**
+5. **Phase 5 — Heap**: `malloc`/`free`/`calloc`/`realloc` with `#pragma crt heap` integration — **Done.**
 
 ## 11. Compiler Prerequisites
 
