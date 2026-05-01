@@ -24,6 +24,7 @@ public:
         bool isVolatile = false;
         bool isConst = false;         // base type is const (prevents *p = x)
         bool isPointerConst = false;  // pointer itself is const (prevents p = x)
+        bool isRegister = false;      // allocated in zero page
         std::vector<int> arrayDims;   // empty = not array; {3,4} = int[3][4]
         int arraySize() const { if (arrayDims.empty()) return -1; int s=1; for (int d:arrayDims) s*=d; return s; }
     };
@@ -191,6 +192,13 @@ public:
         bool inUse = false;
     };
     std::vector<ZPReg> zpRegs;
+    struct RegisterVarInfo {
+        int zpIndex;
+        int size;
+    };
+    std::map<std::string, RegisterVarInfo> registerVars; // resolved name → ZP allocation
+    void freeRegisterVars();
+
     std::vector<VariableDeclaration*> globalVars;
     std::set<std::string> weakGlobals; // global vars marked with #pragma weak
     std::set<std::string> staticGlobals; // global vars/funcs with static linkage

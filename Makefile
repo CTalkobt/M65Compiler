@@ -90,6 +90,8 @@ test: all
 	@bash src/test/test_const_assembler.sh
 	@echo "Running restrict qualifier tests..."
 	@bash src/test/test_restrict.sh
+	@echo "Running register keyword tests..."
+	@bash src/test/test_register.sh
 	@echo "Validating mmemu-cli integration..."
 	@bash src/test/test_mmemu.sh
 	@$(MAKE) test-opcodes
@@ -105,6 +107,9 @@ test-const: all
 
 test-restrict: all
 	@bash src/test/test_restrict.sh
+
+test-register: all
+	@bash src/test/test_register.sh
 
 test-mmemu: all
 	@bash src/test/test_mmemu.sh

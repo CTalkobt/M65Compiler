@@ -250,6 +250,7 @@ public:
         decl->isGlobal = node.isGlobal;
         decl->isExtern = node.isExtern;
         decl->isStatic = node.isStatic;
+        decl->isRegister = node.isRegister;
         decl->arrayDims = node.arrayDims;
         lastStmt = std::move(decl);
     }

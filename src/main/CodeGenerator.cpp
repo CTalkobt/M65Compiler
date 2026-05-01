@@ -711,6 +711,7 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     emit("endproc");
     out << std::endl;
 
+    freeRegisterVars();
     currentFunction = nullptr;
 }
 
@@ -723,7 +724,7 @@ void CodeGenerator::visit(VariableDeclaration& node) {
 
     if (node.isGlobal || currentFunction == nullptr) {
         std::string gName = "_" + node.name;
-        globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, node.arrayDims};
+        globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims};
         if (node.isExtern) {
             // extern declaration — type is known but no storage emitted
             return;
@@ -739,7 +740,7 @@ void CodeGenerator::visit(VariableDeclaration& node) {
     // Static local: allocate in data/bss segment, not on the stack
     if (node.isStatic && currentFunction != nullptr) {
         std::string sName = "__sl_" + currentFunction->name + "_" + node.name;
-        globalVariableTypes[sName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, node.arrayDims};
+        globalVariableTypes[sName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims};
         // Create a synthetic global VariableDeclaration for emitData
         auto* synth = new VariableDeclaration(node.type, currentFunction->name + "__" + node.name, node.pointerLevel);
         synth->isSigned = node.isSigned;
@@ -760,12 +761,62 @@ void CodeGenerator::visit(VariableDeclaration& node) {
         // Alias the local name to the global static label
         variableTypes.erase("_l_" + node.name);
         std::string gName = "_" + synth->name;
-        globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, node.arrayDims};
+        globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims};
         return;
     }
 
     std::string lName = "_l_" + node.name;
-    variableTypes[lName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, node.arrayDims};
+    variableTypes[lName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims};
+
+    // Register variable: allocate in zero page instead of stack
+    if (node.isRegister && node.arraySize() < 0 && !isStruct(node.type)) {
+        int regSize = (node.pointerLevel > 0 || node.type == "int") ? 2 : 1;
+        int zpIdx = allocateZP(regSize);
+        if ((int)(zeroPageStart + zpIdx + regSize) <= 0x100) {
+            variableTypes[lName].isRegister = true;
+            registerVars[lName] = {zpIdx, regSize};
+            std::stringstream ss;
+            ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpIdx);
+            // Emit the ZP address as a .var so source comments are meaningful
+            emit("; register " + lName + " = " + ss.str());
+            if (node.initializer) {
+                if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
+                    if (regSize == 2) {
+                        emitter->lda_imm(lit->value & 0xFF);
+                        emit("sta " + ss.str());
+                        emitter->lda_imm((lit->value >> 8) & 0xFF);
+                        emit("sta " + ss.str() + "+1");
+                    } else {
+                        uint8_t val = lit->value & 0xFF;
+                        if (node.type == "_Bool") val = (val != 0) ? 1 : 0;
+                        emitter->lda_imm(val);
+                        emit("sta " + ss.str());
+                    }
+                } else {
+                    bool oldNeeded = resultNeeded;
+                    resultNeeded = true;
+                    node.initializer->accept(*this);
+                    resultNeeded = oldNeeded;
+                    if (node.type == "_Bool" && node.pointerLevel == 0) {
+                        ExpressionType srcType = getExprType(node.initializer.get());
+                        int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
+                        emitBoolNormalize(srcSize);
+                    }
+                    emit("sta " + ss.str());
+                    if (regSize == 2) emit("stx " + ss.str() + "+1");
+                }
+            } else {
+                emitter->lda_imm(0);
+                emit("sta " + ss.str());
+                if (regSize == 2) emit("sta " + ss.str() + "+1");
+            }
+            invalidateRegs();
+            return;
+        } else {
+            // ZP space exhausted — fall back to normal stack allocation
+            freeZP(zpIdx, regSize);
+        }
+    }
 
     if (node.initializer && !dynamic_cast<CastExpression*>(node.initializer.get())) {
         if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
@@ -1023,6 +1074,82 @@ void CodeGenerator::visit(Assignment& node) {
 
     if (auto* ref = dynamic_cast<VariableReference*>(node.target.get())) {
         std::string rName = resolveVarName(ref->name);
+
+        // Register variable: use direct ZP addressing
+        if (registerVars.count(rName)) {
+            VarInfo vi = variableTypes.at(rName);
+            auto& rv = registerVars[rName];
+            std::stringstream ssZP;
+            ssZP << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(rv.zpIndex);
+            std::string zpAddr = ssZP.str();
+            bool is16 = (vi.pointerLevel > 0 || vi.type == "int");
+
+            // Optimization: x = x;
+            if (auto* rhsRef = dynamic_cast<VariableReference*>(node.expression.get())) {
+                if (resolveVarName(rhsRef->name) == rName && !vi.isVolatile) {
+                    if (resultNeeded) node.target->accept(*this);
+                    return;
+                }
+            }
+
+            // inc/dec optimization for x = x + 1 / x = x - 1
+            if (auto* bin = dynamic_cast<BinaryOperation*>(node.expression.get())) {
+                if (bin->op == "+" || bin->op == "-") {
+                    if (auto* leftRef = dynamic_cast<VariableReference*>(bin->left.get())) {
+                        if (auto* rightLit = dynamic_cast<IntegerLiteral*>(bin->right.get())) {
+                            if (resolveVarName(leftRef->name) == rName && rightLit->value == 1) {
+                                // inw/dew work for base-page addresses
+                                if (bin->op == "+") {
+                                    if (is16) emit("inw " + zpAddr);
+                                    else emit("inc " + zpAddr);
+                                } else {
+                                    if (is16) emit("dew " + zpAddr);
+                                    else emit("dec " + zpAddr);
+                                }
+                                invalidateRegs();
+                                if (resultNeeded) ref->accept(*this);
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Literal assignment
+            if (auto* lit = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
+                if (is16) {
+                    emitter->lda_imm(lit->value & 0xFF);
+                    emit("sta " + zpAddr);
+                    emitter->lda_imm((lit->value >> 8) & 0xFF);
+                    emit("sta " + zpAddr + "+1");
+                } else {
+                    uint8_t val = lit->value & 0xFF;
+                    if (vi.type == "_Bool") val = (val != 0) ? 1 : 0;
+                    emitter->lda_imm(val);
+                    emit("sta " + zpAddr);
+                }
+                invalidateRegs();
+                return;
+            }
+
+            // General expression assignment
+            bool oldNeeded = resultNeeded;
+            resultNeeded = true;
+            node.expression->accept(*this);
+            resultNeeded = oldNeeded;
+
+            if (vi.type == "_Bool" && vi.pointerLevel == 0) {
+                ExpressionType srcType = getExprType(node.expression.get());
+                int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
+                emitBoolNormalize(srcSize);
+            }
+
+            emit("sta " + zpAddr);
+            if (is16) emit("stx " + zpAddr + "+1");
+            invalidateRegs();
+            return;
+        }
+
         bool isGlobal = globalVariableTypes.count(rName);
         std::string suffix = isGlobal ? "" : ", s";
 
@@ -1122,7 +1249,7 @@ void CodeGenerator::visit(Assignment& node) {
                     if (auto* sourceRef = dynamic_cast<VariableReference*>(node.expression.get())) {
                         std::string srcName = resolveVarName(sourceRef->name);
                         bool sourceGlobal = globalVariableTypes.count(srcName);
-                        
+
                         std::stringstream ssX, ssY;
                         ssX << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (structSize & 0xFF);
                         ssY << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << ((structSize >> 8) & 0xFF);
@@ -2245,6 +2372,33 @@ void CodeGenerator::visit(StringLiteral& node) {
 void CodeGenerator::visit(VariableReference& node) {
     if (!resultNeeded) return;
     std::string rName = resolveVarName(node.name);
+
+    // Register variable: use direct ZP addressing
+    if (registerVars.count(rName)) {
+        VarInfo vi = variableTypes.at(rName);
+        auto& rv = registerVars[rName];
+        std::stringstream ss;
+        ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(rv.zpIndex);
+        std::string zpAddr = ss.str();
+        bool is16 = (vi.pointerLevel > 0 || vi.type == "int");
+
+        bool lowCorrect = (regA.known && regA.isVariable && regA.varName == rName && regA.varOffset == 0);
+        bool highCorrect = (regX.known && regX.isVariable && regX.varName == rName && regX.varOffset == 1);
+        if (vi.isVolatile) { lowCorrect = false; highCorrect = false; }
+
+        if (is16) {
+            if (lowCorrect && highCorrect) {}
+            else if (lowCorrect) { emit("ldx " + zpAddr + "+1"); updateRegXVar(rName, 1); }
+            else if (highCorrect) { emit("lda " + zpAddr); updateRegAVar(rName, 0); }
+            else { emit("ldax " + zpAddr); updateRegAVar(rName, 0); updateRegXVar(rName, 1); updateZNFlags(FlagSource::A); }
+        } else {
+            if (lowCorrect) {}
+            else { emit("lda " + zpAddr); updateRegAVar(rName, 0); }
+            if (!regX.known || regX.isVariable || regX.value != 0) { emitter->ldx_imm(0); updateRegX(0); }
+        }
+        return;
+    }
+
     bool isGlobal = globalVariableTypes.count(rName);
     std::string suffix = isGlobal ? "" : ", s";
     VarInfo vi = variableTypes.count(rName) ? variableTypes.at(rName) : globalVariableTypes.at(rName);
@@ -2361,8 +2515,16 @@ void CodeGenerator::visit(FunctionCall& node) {
                 std::string sName = getAggregateName(vi.type);
                 if (structs.count(sName) && structs[sName]->totalSize > 1) is16Bit = true;
             }
-            if (is16Bit) emit("phw.sp " + rName + ", s");
-            else { arg->accept(*this); emitter->push("a"); }
+            if (registerVars.count(rName)) {
+                // Register variable: load from ZP and push
+                arg->accept(*this);
+                if (is16Bit) emitter->push_ax();
+                else emitter->push("a");
+            } else if (is16Bit) {
+                emit("phw.sp " + rName + ", s");
+            } else {
+                arg->accept(*this); emitter->push("a");
+            }
         } else { arg->accept(*this); emitter->push_ax(); }
     }
     int argBytes = (int)node.arguments.size() * 2;
@@ -2608,6 +2770,13 @@ int CodeGenerator::allocateZP(int size) {
 
 void CodeGenerator::freeZP(int index, int size) {
     for (int i = 0; i < size; ++i) zpRegs[index + i].inUse = false;
+}
+
+void CodeGenerator::freeRegisterVars() {
+    for (auto& [name, rv] : registerVars) {
+        freeZP(rv.zpIndex, rv.size);
+    }
+    registerVars.clear();
 }
 
 class VariableUseChecker : public ASTVisitor {

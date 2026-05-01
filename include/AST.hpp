@@ -150,6 +150,7 @@ public:
     bool isGlobal = false;
     bool isExtern = false;
     bool isStatic = false;
+    bool isRegister = false;
     int alignment = 0;
     std::unique_ptr<Expression> alignmentExpr;
     std::unique_ptr<Expression> initializer;

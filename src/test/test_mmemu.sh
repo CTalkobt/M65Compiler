@@ -220,6 +220,7 @@ VALIDATION_TESTS=(
     "test_memcpy"
     "test_strchr"
     "test_opt_load_store"
+    "test_register"
 )
 
 for name in "${VALIDATION_TESTS[@]}"; do

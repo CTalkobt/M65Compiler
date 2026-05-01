@@ -202,6 +202,7 @@ Token Lexer::lexIdentifierOrKeyword() {
         {"restrict", TokenType::RESTRICT},
         {"__restrict", TokenType::RESTRICT},
         {"__restrict__", TokenType::RESTRICT},
+        {"register", TokenType::REGISTER},
         };
 
     auto it = keywords.find(value);
