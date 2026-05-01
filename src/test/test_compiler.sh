@@ -76,6 +76,8 @@ TEST_FILES=(
     "src/test-resources/test_array_init.c"
     "src/test-resources/test_funcptr.c"
     "src/test-resources/test_variadic.c"
+    "src/test-resources/test_short.c"
+    "src/test-resources/test_struct_return.c"
 )
 
 mkdir -p build/test

@@ -8,6 +8,11 @@ _Noreturn void exit(int status);
 
 int atoi(char *s);
 char *itoa(int value, char *str, int base);
+
+/* short aliases — cast through atoi/itoa (short == int on this target) */
+#define atos(s) ((short)atoi(s))
+#define stoa(value, str, base) itoa((int)(value), (str), (base))
+
 int abs(int value);
 int rand(void);
 void srand(unsigned int seed);

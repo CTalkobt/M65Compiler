@@ -36,6 +36,7 @@ Legend:
 - [X] **Volatile Keyword Support**: Correctly parse 'volatile' and prevent dead store elimination for volatile variables.
 - [X] **Frame Pointer Removal**: Eliminated 5-byte `proc` prologue and 2-byte `endproc` epilogue. Parameters now use direct stack-relative addressing (same as locals) instead of indirect `($nn,SP),Y` via a saved frame pointer. Saves 7 bytes + 2 stack bytes per function call.
 - [X] **Relocatable Stack Base (`__sp_base`)**: Replaced hardcoded `$0101` with the linker-resolvable `__sp_base` symbol. Enables stack relocation to any page via `#pragma crt no_0100_stack` or `-D__sp_base=$NNNN`.
+- [X] **Frame Pre-allocation**: Local variables are pre-scanned and allocated as a single frame in the function prologue. Only `_fp` needs bumping when pushing call args (not every local). Scope-aware slot reuse for non-overlapping scopes. New `.local` directive and `.fp` pseudo-ops (`lda.fp`, `sta.fp`, `ldax.fp`, `stax.fp`, `leax.fp`, `move.fp`).
 
 ---
 
@@ -105,7 +106,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **Type Definitions**: Implement `typedef`.
 - [X] **Signed Integers**: Support `signed` types and signed comparisons.
 - [X] **`unsigned` Keyword**: Support the explicit `unsigned` type specifier for variables and return types.
-- [d] **`short` Type**: Support 16-bit `short` integer type.
+- [X] **`short` Type**: Alias for `int` on this 16-bit target. `short`, `unsigned short`, `signed short` accepted in all type contexts.
 - [d] **`long` Type**: Support 32-bit `long` integer type.
 - [d] **`long long` Type**: Support 64-bit `long long` integer type (C99).
 - [X] **`_Bool` Type**: Support C99 `_Bool` boolean type and `<stdbool.h>` header.
@@ -125,7 +126,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [ ] **Designated Initializers**: Support C99 designated initializers for structs (`{.x=1}`) and arrays (`{[2]=3}`).
 - [ ] **Compound Literals**: Support C99 compound literals for creating unnamed temporary objects inline (e.g., `(struct Point){.x=1, .y=2}`).
 - [ ] **Flexible Array Members**: Support C99 flexible array members as the last member of a struct (`int data[]`).
-- [ ] **Return struct**: Support returning structs from functions.
+- [X] **Return struct**: Support returning structs from functions via hidden-pointer ABI.
 - [X] **Function Pointers**: Support declaration, assignment, and call-through of function pointer types.
 - [d] **Lambda Functions**: Support anonymous functions and closures (capturing local scope) leveraging stack-relative context.
 - [d] **Generator Functions**: Support stateful functions that can yield values (iterators).
@@ -229,7 +230,7 @@ All modules are hand-written 45GS02 assembly in `lib/stdlib/`, archived into `st
 - [X] **`stdio.h`**: `putchar`, `puts` (KERNAL CHROUT wrappers).
 - [X] **`stdlib.h`**: `exit` (jumps to CRT `__exit` label with status in `.AX`).
 - [X] **`ctype.h`**: `isdigit`, `isalpha`, `isalnum`, `isspace`, `isprint`, `toupper`, `tolower` (PETSCII-aware). Validated via build + link.
-- [X] **stdlib.h** (remaining): `abs`, `atoi`, `itoa`, `rand`, `srand`. `rand` uses MEGA65 hardware RNG at `$D7EF` with busy-wait on `$D7FE` bit 7. `srand` is a no-op (hardware RNG).
+- [X] **stdlib.h** (remaining): `abs`, `atoi`, `itoa`, `rand`, `srand`, `atos`, `stoa`. `rand` uses MEGA65 hardware RNG at `$D7EF` with busy-wait on `$D7FE` bit 7. `srand` is a no-op (hardware RNG). `atos`/`stoa` are macros casting through `atoi`/`itoa`.
 - [ ] **`math.h`**: `sin`, `cos`, `tan`, `sqrt`, `log`, `exp`, `pow`, `round`, `floor`, `ceil` (may leverage Commodore 40-bit float format or hardware).
 - [X] **Heap**: `malloc`, `free`, `calloc`, `realloc` (requires `#pragma crt heap`).
 - [ ] **o45 Support in Mcp Server:** Add o45 support for mmemu.  This could allow various workflows such as dynamic reloading, etc. 

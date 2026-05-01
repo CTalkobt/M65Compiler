@@ -206,6 +206,7 @@ Token Lexer::lexIdentifierOrKeyword() {
         {"restrict", TokenType::RESTRICT},
         {"__restrict", TokenType::RESTRICT},
         {"__restrict__", TokenType::RESTRICT},
+        {"short", TokenType::SHORT},
         {"register", TokenType::REGISTER},
         {"inline", TokenType::INLINE},
         {"__inline", TokenType::INLINE},
