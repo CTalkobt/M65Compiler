@@ -782,6 +782,7 @@ void AssemblerParser::pass1() {
                 else if (stmt->type == Statement::ASR16 || stmt->type == Statement::ASR_S16) emitASR16Code(d, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 else if (stmt->type == Statement::SXT8) emitSXT8Code(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 else if (stmt->type == Statement::PUSH || stmt->type == Statement::POP) emitPushPopCode(d, stmt->type == Statement::PUSH, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::SWAP) emitSwapCode(d, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
                 if (stmt->type != Statement::INSTRUCTION) stmt->size = d.size();
             }
             else {
@@ -1264,6 +1265,7 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                     else if (s->type == Statement::STACK_INC || s->type == Statement::STACK_DEC) emitStackIncDecCode(d, s->type == Statement::STACK_INC, s->instr.operandTokenIndex, s->scopePrefix);
                     else if (s->type == Statement::STACK_INC8 || s->type == Statement::STACK_DEC8) emitStackIncDec8Code(d, s->type == Statement::STACK_INC8, s->instr.operandTokenIndex, s->scopePrefix);
                     else if (s->type == Statement::ZERO) emitZeroCode(d, s->instr.operandTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::SWAP) emitSwapCode(d, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
                     s->size = (int)d.size();
                 }
                 else if (s->type == Statement::DIRECTIVE) s->size = calculateDirectiveSize(s->dir, cP);
