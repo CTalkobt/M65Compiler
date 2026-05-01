@@ -741,8 +741,8 @@ void AssemblerParser::pass1() {
                 else emitDivCode(d, stmt->mulWidth, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
                 stmt->size = d.size();
             }
-            else if (stmt->instr.mnemonic == "ldax" || stmt->instr.mnemonic == "lday" || stmt->instr.mnemonic == "ldaz" ||
-                     stmt->instr.mnemonic == "stax" || stmt->instr.mnemonic == "stay" || stmt->instr.mnemonic == "staz") {
+            else if (stmt->instr.mnemonic == "ldax" || stmt->instr.mnemonic == "lday" || stmt->instr.mnemonic == "ldaz" || stmt->instr.mnemonic == "ldxy" ||
+                     stmt->instr.mnemonic == "stax" || stmt->instr.mnemonic == "stay" || stmt->instr.mnemonic == "staz" || stmt->instr.mnemonic == "stxy") {
                 std::string m = stmt->instr.mnemonic;
                 std::string reg = "." + m.substr(2);
                 bool isLoad = (m.substr(0, 2) == "ld");

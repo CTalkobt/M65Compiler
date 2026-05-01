@@ -132,6 +132,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [d] **Generator Functions**: Support stateful functions that can yield values (iterators).
 - [d] **Generator Loop Syntax**: Implement `for (var : generator)` syntax for idiomatic iteration over generators.
 - [X] **Variadic Functions**: Support defining variadic functions and the `va_list`, `va_start`, `va_arg`, `va_end` macros. Variadic calls use right-to-left push order; `stdarg.h` provides macros wrapping `__builtin_va_start`/`__builtin_va_arg`/`__builtin_va_end` compiler intrinsics.
+- [ ] **Processor flag/register intrinsics**: `__builtin_carry()`, `__builtin_zero()`, `__builtin_negative()`, `__builtin_reg_a()`, etc. Each returns an `int` (0 or 1 for flags, 0-255 for registers) by emitting an inline snapshot (e.g. `lda #$00; adc #$00` for carry). Composable in any expression context. Useful for KERNAL wrappers that need to test carry/zero after `__asm__` calls without `php/plp`.
 - [ ] **Local `_Alignas`**: Extend `_Alignas` support to local (stack-allocated) variables.
 - [ ] **32-bit flat addressing**: Support pointer access above $FFFF (requires flat memory codegen).
 
@@ -146,7 +147,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **Other 16 bit registers**: Full support for `.AX`, `.AY`, `.AZ`, `.XY` in simulated high-level opcodes.
 - [X] **Mega65 Memory**: High-speed memory FILL and MOVE (copy) leveraging the Mega65 DMA controller.
 - [X] **PC Register**: Treat current program counter as a register named .PC similar to how .A, .X etc are defined.
-- [ ] **16-bit Loads/Stores**: Support `ldax`, `stax`, `ldaz`, `staz` simulated opcodes.
+- [X] **16-bit Loads/Stores**: Support `ldax`, `stax`, `ldaz`, `staz`, `ldxy`, `stxy` simulated opcodes.
 - [ ] **16-bit Math**: Support `add.16`, `sub.16`, `neg.16` simulated opcodes.
 - [ ] **Stack Operations**: Support `phw`, `ptrstack` simulated opcodes.
 - [ ] **Control Flow**: Support `branch.16` (16-bit relative jumps).
@@ -228,6 +229,7 @@ All modules are hand-written 45GS02 assembly in `lib/stdlib/`, archived into `st
 
 - [X] **`string.h`**: `strlen`, `strcpy`, `strncpy`, `strcmp`, `strncmp`, `strcat`, `strchr`, `strrchr`, `memcpy`, `memmove`, `memset`, `memcmp` (12 functions). Validated via mmemu emulator tests (`test_strlen`, `test_strcmp`, `test_strcpy`, `test_memcpy`, `test_strchr`).
 - [X] **`stdio.h`**: `putchar`, `puts` (KERNAL CHROUT wrappers).
+- [X] **`cbm.h`**: Inline KERNAL wrappers — 25 functions for character I/O, file I/O, screen, serial bus, clock. PETSCII constants and device numbers.
 - [X] **`stdlib.h`**: `exit` (jumps to CRT `__exit` label with status in `.AX`).
 - [X] **`ctype.h`**: `isdigit`, `isalpha`, `isalnum`, `isspace`, `isprint`, `toupper`, `tolower` (PETSCII-aware). Validated via build + link.
 - [X] **stdlib.h** (remaining): `abs`, `atoi`, `itoa`, `rand`, `srand`, `atos`, `stoa`. `rand` uses MEGA65 hardware RNG at `$D7EF` with busy-wait on `$D7FE` bit 7. `srand` is a no-op (hardware RNG). `atos`/`stoa` are macros casting through `atoi`/`itoa`.

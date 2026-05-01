@@ -421,7 +421,36 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
                 e.lda_abs(addr); uint32_t addr2 = addr + 1; if (reg2 == 'X') e.ldx_abs(addr2); else if (reg2 == 'Y') e.ldy_abs(addr2); else if (reg2 == 'Z') e.ldz_abs(addr2);
             }
         }
-    } else throw std::runtime_error("Simulated LDW only supports .AX, .AY, .AZ");
+    } else if (DEST == ".XY") {
+        // Load 16-bit into X(lo)/Y(hi) — used for KERNAL pointer args
+        if (isStack) {
+            auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
+            if (fa.isFrame) {
+                uint8_t totalOff = fa.fpOff + fa.yOff;
+                e.lda_stack(totalOff + 1); e.tay();
+                e.lda_stack(totalOff); e.tax();
+            } else {
+                e.lda_stack(offset + 1); e.tay();
+                e.lda_stack(offset); e.tax();
+            }
+        } else {
+            bool isImm = false; if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) { isImm = true; idx++; }
+            auto srcAst = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
+            if (!srcAst) return;
+            if (isImm) {
+                uint32_t val = srcAst->getValue(parser);
+                e.ldx_imm(val & 0xFF); e.ldy_imm((val >> 8) & 0xFF);
+            } else {
+                uint32_t addr = 0;
+                try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
+                catch (...) {
+                    Symbol* sym = parser->resolveSymbol(parser->tokens[tokenIndex].value, scopePrefix);
+                    if (sym) addr = sym->value;
+                }
+                e.ldx_abs(addr); e.ldy_abs(addr + 1);
+            }
+        }
+    } else throw std::runtime_error("Simulated LDW only supports .AX, .AY, .AZ, .XY");
 }
 
 void AssemblerSimulatedOps::emitSTWCode(AssemblerParser* parser, M65Emitter& e, const std::string& src, int tokenIndex, const std::string& scopePrefix, bool forceStack) {
@@ -484,7 +513,26 @@ void AssemblerSimulatedOps::emitSTWCode(AssemblerParser* parser, M65Emitter& e, 
             Symbol* sym = parser->resolveSymbol(dest, scopePrefix); uint32_t addr = 0; if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } }
             e.sta_abs(addr); uint32_t addr2 = addr + 1; if (reg2 == 'X') e.stx_abs(addr2); else if (reg2 == 'Y') e.sty_abs(addr2); else if (reg2 == 'Z') e.stz_abs(addr2);
         }
-    } else throw std::runtime_error("Simulated STW only supports .AX, .AY, .AZ");
+    } else if (SRC == ".XY") {
+        // Store X(lo)/Y(hi) to memory
+        if (isStack) {
+            auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
+            if (fa.isFrame) {
+                uint8_t totalOff = fa.fpOff + fa.yOff;
+                e.txa(); e.sta_stack(totalOff); e.tya(); e.sta_stack(totalOff + 1);
+            } else {
+                e.txa(); e.sta_stack(offset); e.tya(); e.sta_stack(offset + 1);
+            }
+        } else {
+            uint32_t addr = 0;
+            try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
+            catch (...) {
+                Symbol* sym = parser->resolveSymbol(parser->tokens[tokenIndex].value, scopePrefix);
+                if (sym) addr = sym->value;
+            }
+            e.stx_abs(addr); e.sty_abs(addr + 1);
+        }
+    } else throw std::runtime_error("Simulated STW only supports .AX, .AY, .AZ, .XY");
 }
 
 void AssemblerSimulatedOps::emitLDA_StackCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
