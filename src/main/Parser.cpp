@@ -112,7 +112,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
         
         bool isSig = false;
 
-        while (tokens[look].type == TokenType::VOLATILE || tokens[look].type == TokenType::CONST || tokens[look].type == TokenType::RESTRICT || tokens[look].type == TokenType::AUTO || tokens[look].type == TokenType::REGISTER ||
+        while (tokens[look].type == TokenType::VOLATILE || tokens[look].type == TokenType::CONST || tokens[look].type == TokenType::RESTRICT || tokens[look].type == TokenType::AUTO || tokens[look].type == TokenType::REGISTER || tokens[look].type == TokenType::INLINE ||
                tokens[look].type == TokenType::SIGNED || tokens[look].type == TokenType::UNSIGNED) {
             if (tokens[look].type == TokenType::VOLATILE) isVol = true;
             else if (tokens[look].type == TokenType::CONST) isConst = true;
@@ -165,7 +165,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     if (isExtern) match(TokenType::EXTERN);
                     if (isStatic) match(TokenType::STATIC);
                     if (isNR) match(TokenType::NORETURN);
-                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
+                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
                     auto decl = parseFunctionDeclaration();
                     decl->isNoreturn = isNR;
                     decl->isStatic = isStatic;
@@ -177,7 +177,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     if (isExtern) match(TokenType::EXTERN);
                     if (isStatic) match(TokenType::STATIC);
                     if (isNR) match(TokenType::NORETURN);
-                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
+                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
                     auto decl = parseVariableDeclaration(isVol, isConst);
                     if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                         vd->isGlobal = true;
@@ -393,6 +393,8 @@ std::unique_ptr<Statement> Parser::parseStatement() {
             isRegister = true;
         } else if (match(TokenType::RESTRICT)) {
             // consumed; restrict is a hint only
+        } else if (match(TokenType::INLINE)) {
+            // consumed; inline is a hint only (no-op for now)
         } else {
             break;
         }
@@ -525,7 +527,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
                 peek().type == TokenType::BOOL ||
                 peek().type == TokenType::UNSIGNED || peek().type == TokenType::SIGNED ||
                 peek().type == TokenType::STRUCT || peek().type == TokenType::UNION ||
-                peek().type == TokenType::VOLATILE || peek().type == TokenType::CONST || peek().type == TokenType::RESTRICT || peek().type == TokenType::AUTO || peek().type == TokenType::REGISTER) {
+                peek().type == TokenType::VOLATILE || peek().type == TokenType::CONST || peek().type == TokenType::RESTRICT || peek().type == TokenType::AUTO || peek().type == TokenType::REGISTER || peek().type == TokenType::INLINE) {
                 isDecl = true;
             }
 
@@ -533,7 +535,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
                 bool isVolatile = false;
                 bool isConst = false;
                 bool isRegister = false;
-                while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::REGISTER)) {
+                while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::REGISTER) || match(TokenType::INLINE)) {
                     if (tokens[pos-1].type == TokenType::VOLATILE) isVolatile = true;
                     else if (tokens[pos-1].type == TokenType::CONST) isConst = true;
                     else if (tokens[pos-1].type == TokenType::REGISTER) isRegister = true;

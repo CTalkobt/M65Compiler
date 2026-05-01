@@ -112,7 +112,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **`enum` Types**: Implement `enum` for defining named integer constant sets.
 - [X] **`const` Qualifier**: Support `const` type qualifier and associated read-only variable semantics.
 - [X] **`restrict` Qualifier**: Support C99 `restrict` pointer qualifier to declare non-aliasing pointer arguments.
-- [ ] **`inline` Specifier**: Support the `inline` function specifier for inlining hints (C99).
+- [ ] **`inline` Specifier**: The `inline` keyword is parsed and accepted (no-op). Actual function body inlining at call sites is not yet implemented — currently emits a normal `jsr` call. Future work: inline small functions (leaf, no loops, below a size threshold) by substituting the function body at the call site, mapping parameters to the caller's argument expressions.
 - [X] **Storage Classes**: Implement `auto` (default local), `volatile` (qualifier), and `register` (ZP allocation hint).
 - [d] **Modern Type Inference**: Implement `auto` as C23/C++ style type inference for declarations with initializers.
 - [X] **`static` Storage Class**: Implement `static` for file-scope internal linkage (globals, functions) and persistent local variables.

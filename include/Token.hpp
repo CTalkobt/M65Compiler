@@ -39,6 +39,7 @@ enum class TokenType {
     BOOL,  // _Bool (C99)
     RESTRICT, // restrict (C99)
     REGISTER, // register (storage class)
+    INLINE,   // inline (function specifier, currently no-op)
 
     // Literals
     IDENTIFIER,
@@ -141,6 +142,7 @@ struct Token {
             case TokenType::BOOL: return "_Bool";
             case TokenType::RESTRICT: return "RESTRICT";
             case TokenType::REGISTER: return "REGISTER";
+            case TokenType::INLINE: return "INLINE";
             case TokenType::IDENTIFIER: return "IDENTIFIER";
             case TokenType::INTEGER_LITERAL: return "INTEGER_LITERAL";
             case TokenType::STRING_LITERAL: return "STRING_LITERAL";

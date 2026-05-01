@@ -203,6 +203,9 @@ Token Lexer::lexIdentifierOrKeyword() {
         {"__restrict", TokenType::RESTRICT},
         {"__restrict__", TokenType::RESTRICT},
         {"register", TokenType::REGISTER},
+        {"inline", TokenType::INLINE},
+        {"__inline", TokenType::INLINE},
+        {"__inline__", TokenType::INLINE},
         };
 
     auto it = keywords.find(value);
