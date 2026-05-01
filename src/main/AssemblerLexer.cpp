@@ -212,7 +212,8 @@ AssemblerToken AssemblerLexer::lexIdentifierOrInstruction() {
         "STA.SP", "LDA.SP", "STW.SP", "LDW.SP", "PHW.SP", "FILL", "FILL.SP", "MOVE", "MOVE.SP",
         "CHKZERO.8", "CHKZERO.16", "CHKNONZERO.8", "CHKNONZERO.16", "BRANCH.16", "SELECT",
         "PTRSTACK", "PTRDEREF", "LDW.F", "STW.F", "INC.F", "DEC.F",
-        "PUSH", "POP"
+        "PUSH", "POP",
+        "LDA.FP", "STA.FP", "LDAX.FP", "STAX.FP", "LEAX.FP", "MOVE.FP"
     };
 
     std::string upperValue = value;

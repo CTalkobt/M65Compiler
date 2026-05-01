@@ -128,7 +128,8 @@ private:
                     LDX_STACK, LDY_STACK, LDZ_STACK,
                     STX_STACK, STY_STACK, STZ_STACK,
                     LDAX, LDAY, LDAZ, STAX, STAY, STAZ, FILL, COPY, PUSH, POP,
-                    MUL_S16, DIV_S16, MOD16, MOD_S16 } type = NONE;
+                    MUL_S16, DIV_S16, MOD16, MOD_S16,
+                    LDA_FP, STA_FP, LDAX_FP, STAX_FP, LEAX_FP, MOVE_FP } type = NONE;
         Instruction instr;
         Directive dir;
         std::string label;
@@ -171,6 +172,8 @@ private:
                 case LDAX: case LDAY: case LDAZ: case STAX: case STAY: case STAZ:
                 case FILL: case COPY: case PUSH: case POP:
                 case MUL_S16: case DIV_S16: case MOD16: case MOD_S16:
+                case LDA_FP: case STA_FP: case LDAX_FP: case STAX_FP:
+                case LEAX_FP: case MOVE_FP:
                     return true;
                 default:
                     return false;
@@ -250,6 +253,14 @@ private:
     void emitDivS16Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
     void emitMod16Code(std::vector<uint8_t>& binary, bool isSigned, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
     bool isStackRelativeOperand(int tokenIndex, uint32_t& offset, const std::string& scopePrefix);
+
+    // Frame-pointer pseudo-ops
+    void emitLDA_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");
+    void emitSTA_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");
+    void emitLDAX_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");
+    void emitSTAX_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");
+    void emitLEAX_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");
+    void emitMOVE_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");
 
     struct FrameAccessInfo {
         bool isFrame = false;

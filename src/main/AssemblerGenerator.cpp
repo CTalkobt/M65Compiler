@@ -301,6 +301,30 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
                 if (!isDeadCode) AssemblerSimulatedOps::emitSTWCode(parser, e, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix, false);
                 continue;
             }
+            if (stmt->type == AssemblerParser::Statement::LDA_FP) {
+                if (!isDeadCode) AssemblerSimulatedOps::emitLDA_FPCode(parser, e, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                continue;
+            }
+            if (stmt->type == AssemblerParser::Statement::STA_FP) {
+                if (!isDeadCode) AssemblerSimulatedOps::emitSTA_FPCode(parser, e, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                continue;
+            }
+            if (stmt->type == AssemblerParser::Statement::LDAX_FP) {
+                if (!isDeadCode) AssemblerSimulatedOps::emitLDAX_FPCode(parser, e, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                continue;
+            }
+            if (stmt->type == AssemblerParser::Statement::STAX_FP) {
+                if (!isDeadCode) AssemblerSimulatedOps::emitSTAX_FPCode(parser, e, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                continue;
+            }
+            if (stmt->type == AssemblerParser::Statement::LEAX_FP) {
+                if (!isDeadCode) AssemblerSimulatedOps::emitLEAX_FPCode(parser, e, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                continue;
+            }
+            if (stmt->type == AssemblerParser::Statement::MOVE_FP) {
+                if (!isDeadCode) AssemblerSimulatedOps::emitMOVE_FPCode(parser, e, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                continue;
+            }
 
             if (stmt->type == AssemblerParser::Statement::BASIC_UPSTART) {
                 if (!isDeadCode) {
@@ -426,6 +450,15 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
                             parser->symbolTable[stmt->dir.varName].value = val;
                         } else if (stmt->dir.varType == Directive::INC) parser->symbolTable[stmt->dir.varName].value++;
                         else if (stmt->dir.varType == Directive::DEC) parser->symbolTable[stmt->dir.varName].value--;
+                    }
+                    else if (stmt->dir.name == "local") {
+                        if (stmt->dir.varType == Directive::ASSIGN) {
+                            uint32_t val = parser->evaluateExpressionAt(stmt->dir.tokenIndex, stmt->scopePrefix);
+                            auto& sym = parser->symbolTable[stmt->dir.varName];
+                            sym.value = val;
+                            sym.frameOffset = (int)val;
+                            sym.isFrameRelative = true;
+                        }
                     }
                     else if (stmt->dir.name == "cleanup") { if (currentPass2Proc) currentPass2Proc->totalParamSize += parser->evaluateExpressionAt(stmt->dir.tokenIndex, stmt->scopePrefix); }
                     else if (stmt->dir.name == "byte") for (const auto& a : stmt->dir.arguments) e.emitByte((uint8_t)parseNumericLiteral(a));

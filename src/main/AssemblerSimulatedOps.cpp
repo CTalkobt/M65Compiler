@@ -1088,3 +1088,122 @@ void AssemblerSimulatedOps::emitMod16Code(AssemblerParser* parser, M65Emitter& e
         e.ldx_abs(0xD771);
     }
 }
+
+// --- Frame-pointer pseudo-ops ---
+// All use ($FP,SP),Y addressing where _fp is the SP-relative offset to the frame base
+
+// lda.fp varOffset — Load 8-bit value from frame-relative offset into A
+void AssemblerSimulatedOps::emitLDA_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
+    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
+    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    e.lda_frame(fpOff, yOff);
+}
+
+// sta.fp varOffset — Store 8-bit value from A to frame-relative offset
+void AssemblerSimulatedOps::emitSTA_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
+    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
+    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    e.sta_frame(fpOff, yOff);
+}
+
+// ldax.fp varOffset — Load 16-bit value from frame into AX (lo in A, hi in X)
+void AssemblerSimulatedOps::emitLDAX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
+    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
+    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    e.ldy_imm(yOff + 1);
+    e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fpOff, true);
+    e.tax();
+    e.dey();
+    e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fpOff, true);
+}
+
+// stax.fp varOffset — Store AX (16-bit) to frame-relative offset
+void AssemblerSimulatedOps::emitSTAX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
+    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
+    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    e.ldy_imm(yOff);
+    e.emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fpOff, true);
+    e.txa();
+    e.iny();
+    e.emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fpOff, true);
+}
+
+// leax.fp varOffset — Load effective address of frame variable into AX
+void AssemblerSimulatedOps::emitLEAX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
+    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
+    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    uint16_t sb = e.spBase();
+    uint16_t totalOffset = sb + fpOff + yOff;
+    // A = SPL + lo(totalOffset), X = hi(totalOffset) + carry
+    e.tsx();
+    e.txa();
+    e.clc();
+    e.adc_imm(totalOffset & 0xFF);
+    e.pha();
+    e.lda_imm((totalOffset >> 8) & 0xFF);
+    e.adc_imm(0); // add carry
+    e.tax();
+    e.pla();
+}
+
+// move.fp dest, src, len — Block copy between frame-relative addresses
+void AssemblerSimulatedOps::emitMOVE_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
+    int idx = tokenIndex;
+    if (idx < 0 || idx >= (int)parser->tokens.size()) return;
+
+    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
+    uint16_t sb = e.spBase();
+
+    // Parse dest offset
+    auto destAST = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
+    uint32_t destOff = destAST ? destAST->getValue(parser) : 0;
+    if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::COMMA) idx++;
+
+    // Parse src offset
+    auto srcAST = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
+    uint32_t srcOff = srcAST ? srcAST->getValue(parser) : 0;
+    if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::COMMA) idx++;
+
+    // Parse length
+    uint32_t lenVal = 0;
+    if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) {
+        idx++;
+    }
+    auto lenAST = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
+    lenVal = lenAST ? lenAST->getValue(parser) : 0;
+
+    // Compute absolute addresses: SP + spBase + fpOff + varOffset
+    // We need to compute at runtime since SP is dynamic.
+    // Build DMA job on stack (same as emitMoveCode but with frame-relative sources)
+    uint16_t srcTotal = sb + fpOff + (uint16_t)srcOff;
+    uint16_t destTotal = sb + fpOff + (uint16_t)destOff;
+
+    // Push DMA job onto stack and trigger
+    e.pha(); e.phw_imm(0); e.lda_imm(0); e.pha();
+    // dest address: SPL + destTotal
+    e.tsx(); e.txa(); e.clc(); e.adc_imm(destTotal & 0xFF); e.pha();
+    e.lda_imm((destTotal >> 8) & 0xFF); e.adc_imm(0); e.pha();
+    // dest bank + command
+    e.lda_imm(0); e.pha();
+    // src address: SPL + srcTotal
+    e.tsx(); e.txa(); e.clc(); e.adc_imm((srcTotal + 6) & 0xFF); e.pha();  // +6 for stack growth
+    e.lda_imm((srcTotal >> 8) & 0xFF); e.adc_imm(0); e.pha();
+    // length
+    e.lda_imm(lenVal >> 8); e.pha(); e.lda_imm(lenVal & 0xFF); e.pha();
+    // DMA command byte
+    e.lda_imm(0x00); e.pha();
+    // Trigger DMA
+    e.tsx(); e.txa(); e.clc(); e.adc_imm(sb & 0xFF);
+    e.sta_abs(0xD701);
+    e.lda_imm(sb >> 8); e.sta_abs(0xD702);
+    e.stz_abs(0xD703); e.stz_abs(0xD700);
+    // Clean up stack
+    e.tsx(); e.txa(); e.clc(); e.adc_imm(12); e.tax(); e.txs();
+    e.pla();
+}

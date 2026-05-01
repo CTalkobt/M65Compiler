@@ -54,6 +54,14 @@ public:
     static void emitMulS16Code(AssemblerParser* parser, M65Emitter& e, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
     static void emitDivS16Code(AssemblerParser* parser, M65Emitter& e, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
     static void emitMod16Code(AssemblerParser* parser, M65Emitter& e, bool isSigned, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
+
+    // Frame-pointer pseudo-ops
+    static void emitLDA_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
+    static void emitSTA_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
+    static void emitLDAX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
+    static void emitSTAX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
+    static void emitLEAX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
+    static void emitMOVE_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
 private:
     static uint32_t resolveAbsAddr(AssemblerParser* parser, int tokenIndex, const std::string& scopePrefix);
     static void emitSignedMathOp(AssemblerParser* parser, M65Emitter& e, int op, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
