@@ -27,6 +27,8 @@ public:
         bool isRegister = false;      // allocated in zero page
         std::vector<int> arrayDims;   // empty = not array; {3,4} = int[3][4]
         int arraySize() const { if (arrayDims.empty()) return -1; int s=1; for (int d:arrayDims) s*=d; return s; }
+        bool isFunctionPointer = false;
+        std::shared_ptr<FuncPtrSignature> funcPtrSig;
     };
     struct ExpressionType {
         std::string type;
@@ -34,6 +36,8 @@ public:
         bool isSigned = false;
         bool isConst = false;
         bool isPointerConst = false;
+        bool isFunctionPointer = false;
+        std::shared_ptr<FuncPtrSignature> funcPtrSig;
     };
     struct MemberInfo {
         std::string type;

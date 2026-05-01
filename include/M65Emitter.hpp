@@ -18,6 +18,17 @@ public:
     void setSpBase(uint16_t base) { spBase_ = base; }
     uint16_t spBase() const { return spBase_; }
 
+    void setScratchZP(uint8_t addr) { scratchZP_ = addr; }
+    uint8_t scratchZP() const { return scratchZP_; }
+
+    // Scratch ZP access — single byte used as temp by simulated ops
+    void lda_scratch() { lda_zp(scratchZP_); }
+    void sta_scratch() { sta_zp(scratchZP_); }
+    void stx_scratch() { stx_zp(scratchZP_); }
+    void sty_scratch() { emitInstruction("sty", AddressingMode::BASE_PAGE, scratchZP_, true); }
+    void ldx_scratch() { emitInstruction("ldx", AddressingMode::BASE_PAGE, scratchZP_, true); }
+    void cmp_scratch() { cmp_zp(scratchZP_); }
+
     void emitInstruction(const std::string& mnemonic, AddressingMode mode, uint32_t value = 0, bool hasValue = false);
     void emitLabel(const std::string& label);
     void emitComment(const std::string& comment);
@@ -208,6 +219,7 @@ private:
     Mode mode;
     uint32_t zeroPageStart;
     uint16_t spBase_ = 0x0101;
+    uint8_t scratchZP_ = 0x02;  // default; overridden by compiler via __zp_scratch
     uint32_t currentAddress = 0;
     bool addressSet = false;
     void emitText(const std::string& mnemonic, const std::string& operand = "");

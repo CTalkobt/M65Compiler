@@ -56,6 +56,10 @@ void CodeGenerator::generate(TranslationUnit& unit) {
     emitter = std::make_unique<M65Emitter>(out, zeroPageStart);
     zpRegs.clear();
     for (uint32_t i = 0; i < zeroPageAvail; ++i) zpRegs.push_back({false});
+    // Reserve first ZP slot as permanent scratch byte for simulated ops
+    int scratchIdx = allocateZP(1);
+    uint8_t scratchAddr = emitter->getZP(scratchIdx);
+    emitter->setScratchZP(scratchAddr);
     invalidateRegs();
     resultNeeded = true;
     unit.accept(*this);
@@ -247,6 +251,14 @@ CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
 
 void CodeGenerator::emitAddress(Expression* expr) {
     if (auto* ref = dynamic_cast<VariableReference*>(expr)) {
+        // Check if this is a function name (address-of-function)
+        if (knownFunctions.count(ref->name) && !variableTypes.count("_l_" + ref->name) &&
+            !variableTypes.count("_p_" + ref->name) && !globalVariableTypes.count("_" + ref->name)) {
+            emit("lda #<_" + ref->name);
+            emit("ldx #>_" + ref->name);
+            invalidateRegs();
+            return;
+        }
         emit("ptrstack " + resolveVarName(ref->name));
     } else if (auto* ma = dynamic_cast<MemberAccess*>(expr)) {
         if (ma->isArrow) {
@@ -583,6 +595,12 @@ void CodeGenerator::visit(TranslationUnit& node) {
         out << "__init:" << std::endl;
         out << "__sp_base = $0101" << std::endl;
         if (relocMode) out << ".global __sp_base" << std::endl;
+        {
+            std::stringstream ss;
+            ss << "__zp_scratch = $" << std::hex << std::uppercase
+               << std::setfill('0') << std::setw(2) << (int)emitter->scratchZP();
+            out << ss.str() << std::endl;
+        }
         out << "    jsr _init_bss" << std::endl;
         if (crtHeap) {
             out << "    .extern _init_heap_crt" << std::endl;
@@ -660,7 +678,7 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     std::vector<ParamInfo> paramInfos;
     for (auto& param : node.parameters) {
         std::string pName = "_p_" + param.name;
-        variableTypes[pName] = {param.type, param.pointerLevel, param.isSigned, param.isVolatile, param.isConst, param.isPointerConst};
+        variableTypes[pName] = {param.type, param.pointerLevel, param.isSigned, param.isVolatile, param.isConst, param.isPointerConst, false, {}, param.isFunctionPointer, param.funcPtrSig};
         int pSize;
         if (param.pointerLevel > 0) {
             procLine += ", W#" + pName;
@@ -725,7 +743,7 @@ void CodeGenerator::visit(VariableDeclaration& node) {
 
     if (node.isGlobal || currentFunction == nullptr) {
         std::string gName = "_" + node.name;
-        globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims};
+        globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims, node.isFunctionPointer, node.funcPtrSig};
         if (node.isExtern) {
             // extern declaration — type is known but no storage emitted
             return;
@@ -775,7 +793,7 @@ void CodeGenerator::visit(VariableDeclaration& node) {
     }
 
     std::string lName = "_l_" + node.name;
-    variableTypes[lName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims};
+    variableTypes[lName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims, node.isFunctionPointer, node.funcPtrSig};
 
     // Register variable: allocate in zero page instead of stack
     if (node.isRegister && node.arraySize() < 0 && !isStruct(node.type)) {
@@ -2427,6 +2445,14 @@ void CodeGenerator::visit(StringLiteral& node) {
 
 void CodeGenerator::visit(VariableReference& node) {
     if (!resultNeeded) return;
+    // Check if this is a function name used as a value (function pointer)
+    if (knownFunctions.count(node.name) && !variableTypes.count("_l_" + node.name) &&
+        !variableTypes.count("_p_" + node.name) && !globalVariableTypes.count("_" + node.name)) {
+        emit("lda #<_" + node.name);
+        emit("ldx #>_" + node.name);
+        invalidateRegs();
+        return;
+    }
     std::string rName = resolveVarName(node.name);
 
     // Register variable: use direct ZP addressing
@@ -2503,6 +2529,101 @@ void CodeGenerator::visit(VariableReference& node) {
 }
 
 void CodeGenerator::visit(FunctionCall& node) {
+    // Determine if this is an indirect call (function pointer)
+    bool isIndirect = false;
+    if (node.callExpr) {
+        isIndirect = true;
+    } else if (!node.name.empty() && !knownFunctions.count(node.name)) {
+        // Name might be a function pointer variable
+        std::string rName = resolveVarName(node.name);
+        if (variableTypes.count(rName) || globalVariableTypes.count(rName)) {
+            VarInfo vi = variableTypes.count(rName) ? variableTypes.at(rName) : globalVariableTypes.at(rName);
+            if (vi.isFunctionPointer || vi.pointerLevel > 0) {
+                isIndirect = true;
+            }
+        }
+    }
+
+    if (isIndirect) {
+        bool oldNeeded = resultNeeded; resultNeeded = true;
+        invalidateRegs(); // Ensure fresh load of function pointer value
+        // Evaluate the function pointer expression
+        if (node.callExpr) {
+            // For (*fp)(args) — the callExpr is a UnaryOperation("*", VariableReference("fp"))
+            // We need the address value, not the dereferenced content.
+            // If it's *expr, we want the value of expr (the pointer itself).
+            if (auto* un = dynamic_cast<UnaryOperation*>(node.callExpr.get())) {
+                if (un->op == "*") {
+                    un->operand->accept(*this);
+                } else {
+                    node.callExpr->accept(*this);
+                }
+            } else {
+                node.callExpr->accept(*this);
+            }
+        } else {
+            // fp(args) — load the variable value
+            auto ref = VariableReference(node.name);
+            ref.line = node.line;
+            ref.column = node.column;
+            ref.accept(*this);
+        }
+        // Store function address in ZP
+        int zpCall = allocateZP(2);
+        std::stringstream ssCall;
+        ssCall << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpCall);
+        emit("stax $" + ssCall.str());
+        // Push arguments (same logic as direct call to handle stack-relative offsets)
+        int pushedBytesI = 0;
+        for (auto& arg : node.arguments) {
+            int pushSize = 2;
+            if (auto* ref = dynamic_cast<VariableReference*>(arg.get())) {
+                std::string rName = resolveVarName(ref->name);
+                if (!variableTypes.count(rName) && !globalVariableTypes.count(rName)) {
+                    arg->accept(*this); emitter->push_ax();
+                } else {
+                    VarInfo vi = variableTypes.count(rName) ? variableTypes.at(rName) : globalVariableTypes.at(rName);
+                    bool is16Bit = (vi.pointerLevel > 0 || vi.type == "int");
+                    if (isStruct(vi.type)) {
+                        std::string sName = getAggregateName(vi.type);
+                        if (structs.count(sName) && structs[sName]->totalSize > 1) is16Bit = true;
+                    }
+                    if (registerVars.count(rName)) {
+                        arg->accept(*this);
+                        if (is16Bit) emitter->push_ax();
+                        else { emitter->push("a"); pushSize = 1; }
+                    } else if (is16Bit) {
+                        emit("phw.sp " + rName + ", s");
+                    } else {
+                        arg->accept(*this); emitter->push("a"); pushSize = 1;
+                    }
+                }
+            } else { arg->accept(*this); emitter->push_ax(); }
+            pushedBytesI += pushSize;
+            for (const auto& varName : currentVars) {
+                emit(".var " + varName + " = " + varName + " + " + std::to_string(pushSize));
+            }
+        }
+        int argBytes = (int)node.arguments.size() * 2;
+        resultNeeded = oldNeeded;
+        // Indirect call via JSR ($ZP)
+        emit("jsr ($" + ssCall.str() + ")");
+        freeZP(zpCall, 2);
+        // Caller cleanup
+        if (argBytes > 0) {
+            emitter->taz();
+            for (int i = 0; i < argBytes; ++i) emitter->pla();
+            emitter->tza();
+        }
+        if (pushedBytesI > 0) {
+            for (const auto& varName : currentVars) {
+                emit(".var " + varName + " = " + varName + " - " + std::to_string(pushedBytesI));
+            }
+        }
+        invalidateRegs();
+        return;
+    }
+
     if (node.name == "_memset" && node.arguments.size() == 3) {
         bool oldNeeded = resultNeeded; resultNeeded = true;
         node.arguments[0]->accept(*this);
@@ -2562,26 +2683,37 @@ void CodeGenerator::visit(FunctionCall& node) {
     }
 
     bool oldNeeded = resultNeeded; resultNeeded = true;
+    int pushedBytes = 0;
     for (auto& arg : node.arguments) {
+        int pushSize = 2; // default 16-bit push
         if (auto* ref = dynamic_cast<VariableReference*>(arg.get())) {
             std::string rName = resolveVarName(ref->name);
-            VarInfo vi = variableTypes.count(rName) ? variableTypes.at(rName) : globalVariableTypes.at(rName);
-            bool is16Bit = (vi.pointerLevel > 0 || vi.type == "int");
-            if (isStruct(vi.type)) {
-                std::string sName = getAggregateName(vi.type);
-                if (structs.count(sName) && structs[sName]->totalSize > 1) is16Bit = true;
-            }
-            if (registerVars.count(rName)) {
-                // Register variable: load from ZP and push
-                arg->accept(*this);
-                if (is16Bit) emitter->push_ax();
-                else emitter->push("a");
-            } else if (is16Bit) {
-                emit("phw.sp " + rName + ", s");
+            if (!variableTypes.count(rName) && !globalVariableTypes.count(rName)) {
+                // Function name used as value — falls through to generic push
+                arg->accept(*this); emitter->push_ax();
             } else {
-                arg->accept(*this); emitter->push("a");
+                VarInfo vi = variableTypes.count(rName) ? variableTypes.at(rName) : globalVariableTypes.at(rName);
+                bool is16Bit = (vi.pointerLevel > 0 || vi.type == "int");
+                if (isStruct(vi.type)) {
+                    std::string sName = getAggregateName(vi.type);
+                    if (structs.count(sName) && structs[sName]->totalSize > 1) is16Bit = true;
+                }
+                if (registerVars.count(rName)) {
+                    arg->accept(*this);
+                    if (is16Bit) emitter->push_ax();
+                    else { emitter->push("a"); pushSize = 1; }
+                } else if (is16Bit) {
+                    emit("phw.sp " + rName + ", s");
+                } else {
+                    arg->accept(*this); emitter->push("a"); pushSize = 1;
+                }
             }
         } else { arg->accept(*this); emitter->push_ax(); }
+        // Keep assembler's frame tracking in sync so subsequent stack-relative reads use correct offsets
+        pushedBytes += pushSize;
+        for (const auto& varName : currentVars) {
+            emit(".var " + varName + " = " + varName + " + " + std::to_string(pushSize));
+        }
     }
     int argBytes = (int)node.arguments.size() * 2;
     resultNeeded = oldNeeded; emit("jsr _" + node.name);
@@ -2590,6 +2722,12 @@ void CodeGenerator::visit(FunctionCall& node) {
         emitter->taz();
         for (int i = 0; i < argBytes; ++i) emitter->pla();
         emitter->tza();
+    }
+    // Restore assembler frame tracking
+    if (pushedBytes > 0) {
+        for (const auto& varName : currentVars) {
+            emit(".var " + varName + " = " + varName + " - " + std::to_string(pushedBytes));
+        }
     }
     invalidateRegs();
 }

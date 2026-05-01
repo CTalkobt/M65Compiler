@@ -51,11 +51,14 @@ private:
     std::unique_ptr<Expression> parseGenericSelection();
     std::unique_ptr<Expression> parseInitializerList();
     void parseTypedef();
+    std::shared_ptr<FuncPtrSignature> parseFuncPtrParams(const std::string& returnType, int returnPtrLevel, bool returnIsSigned);
 
     struct TypeAlias {
         std::string baseType;
         int pointerLevel;
         bool isSigned;
+        bool isFunctionPointer = false;
+        std::shared_ptr<FuncPtrSignature> funcPtrSig;
     };
     std::map<std::string, TypeAlias> typedefs;
     std::map<std::string, int> enumConstants;

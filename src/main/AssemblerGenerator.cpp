@@ -49,7 +49,7 @@ std::vector<uint8_t> AssemblerGenerator::generate(AssemblerParser* parser, bool 
         binary.push_back((uint8_t)(start & 0xFF));
         binary.push_back((uint8_t)(start >> 8));
     }
-    M65Emitter e(binary, parser->getZPStart()); e.setSpBase(parser->getSpBase());
+    M65Emitter e(binary, parser->getZPStart()); e.setSpBase(parser->getSpBase()); e.setScratchZP(parser->getScratchZP());
     if (start != 0xFFFFFFFF) {
         e.setAddress(start);
     }

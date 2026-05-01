@@ -169,6 +169,7 @@ public:
         for (auto& arg : node.arguments) {
             call->arguments.push_back(fold(std::move(arg)));
         }
+        if (node.callExpr) call->callExpr = fold(std::move(node.callExpr));
         lastExpr = std::move(call);
     }
 
@@ -260,6 +261,8 @@ public:
         decl->isStatic = node.isStatic;
         decl->isRegister = node.isRegister;
         decl->arrayDims = node.arrayDims;
+        decl->isFunctionPointer = node.isFunctionPointer;
+        decl->funcPtrSig = node.funcPtrSig;
         lastStmt = std::move(decl);
     }
 

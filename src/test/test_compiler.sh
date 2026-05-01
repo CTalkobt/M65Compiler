@@ -74,6 +74,7 @@ TEST_FILES=(
     "src/test-resources/test_static.c"
     "src/test-resources/test_register.c"
     "src/test-resources/test_array_init.c"
+    "src/test-resources/test_funcptr.c"
 )
 
 mkdir -p build/test

@@ -157,8 +157,25 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 look++; // skip int/char/void
             }
             
+            // Check for function pointer: type (*name)(params) — treat as variable
+            if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN &&
+                look + 1 < tokens.size() && tokens[look + 1].type == TokenType::STAR) {
+                if (isExtern) match(TokenType::EXTERN);
+                if (isStatic) match(TokenType::STATIC);
+                if (isNR) match(TokenType::NORETURN);
+                while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
+                auto decl = parseVariableDeclaration(isVol, isConst, isStatic);
+                if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
+                    vd->isGlobal = true;
+                    vd->isExtern = isExtern;
+                }
+                flushPending(*unit);
+                unit->topLevelDecls.push_back(std::move(decl));
+                continue;
+            }
+
             while (look < tokens.size() && tokens[look].type == TokenType::STAR) look++;
-            
+
             if (look < tokens.size() && tokens[look].type == TokenType::IDENTIFIER) {
                 look++;
                 if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
@@ -293,9 +310,25 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             }
             else if (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value)) {
                 std::string pAlias = advance().value;
-                pType = typedefs[pAlias].baseType;
-                pIsSigned = typedefs[pAlias].isSigned;
-                pBasePtrLevel = typedefs[pAlias].pointerLevel;
+                auto& ta = typedefs[pAlias];
+                pType = ta.baseType;
+                pIsSigned = ta.isSigned;
+                pBasePtrLevel = ta.pointerLevel;
+                if (ta.isFunctionPointer) {
+                    // Typedef'd function pointer parameter
+                    std::string pName = expect(TokenType::IDENTIFIER, "Expected parameter name").value;
+                    Parameter p;
+                    p.type = "void";
+                    p.pointerLevel = 1;
+                    p.isSigned = false;
+                    p.name = pName;
+                    p.isVolatile = pIsVolatile;
+                    p.isConst = pIsConst;
+                    p.isFunctionPointer = true;
+                    p.funcPtrSig = ta.funcPtrSig;
+                    params.push_back(p);
+                    continue;
+                }
             }
             else {
                 std::string foundStr = peek().value.empty() ? peek().typeToString() : peek().value;
@@ -303,6 +336,27 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             }
 
             int pPtrLevel = pBasePtrLevel;
+
+            // Check for function pointer parameter: type (*name)(params)
+            if (peek().type == TokenType::OPEN_PAREN && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::STAR) {
+                advance(); // consume '('
+                advance(); // consume '*'
+                std::string pName = expect(TokenType::IDENTIFIER, "Expected function pointer parameter name").value;
+                expect(TokenType::CLOSE_PAREN, "Expected ')' after function pointer name");
+                auto sig = parseFuncPtrParams(pType, pPtrLevel, pIsSigned);
+                Parameter p;
+                p.type = "void";
+                p.pointerLevel = 1;
+                p.isSigned = false;
+                p.name = pName;
+                p.isVolatile = pIsVolatile;
+                p.isConst = pIsConst;
+                p.isFunctionPointer = true;
+                p.funcPtrSig = sig;
+                params.push_back(p);
+                continue;
+            }
+
             while (match(TokenType::STAR)) pPtrLevel++;
 
             // Handle const/volatile after * (qualifies the pointer itself)
@@ -661,14 +715,57 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     }
     else if (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value)) {
         std::string alias = advance().value;
-        type = typedefs[alias].baseType;
-        isSigned = typedefs[alias].isSigned;
-        basePtrLevel = typedefs[alias].pointerLevel;
+        auto& ta = typedefs[alias];
+        type = ta.baseType;
+        isSigned = ta.isSigned;
+        basePtrLevel = ta.pointerLevel;
+        if (ta.isFunctionPointer) {
+            // Typedef is a function pointer type — create decl directly
+            std::string fpName = expect(TokenType::IDENTIFIER, "Expected variable name").value;
+            auto decl = setPos(std::make_unique<VariableDeclaration>("void", fpName, 1), typeToken);
+            decl->isSigned = false;
+            decl->isVolatile = isVolatile;
+            decl->isConst = isConst;
+            decl->isStatic = isStatic;
+            decl->isRegister = isRegister;
+            decl->isFunctionPointer = true;
+            decl->funcPtrSig = ta.funcPtrSig;
+            decl->alignmentExpr = std::move(alignmentExpr);
+            if (match(TokenType::EQUALS)) {
+                decl->initializer = parseExpression();
+            }
+            expect(TokenType::SEMICOLON, "Expected ';'");
+            return decl;
+        }
     } else {
         throw std::runtime_error("Syntax Error at " + std::to_string(peek().line) + ":" + std::to_string(peek().column) + ": Expected type for variable declaration. Found '" + peek().typeToString() + "' instead.");
     }
 
     int ptrLevel = basePtrLevel;
+
+    // Check for function pointer declaration: type (*name)(params)
+    if (peek().type == TokenType::OPEN_PAREN && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::STAR) {
+        advance(); // consume '('
+        advance(); // consume '*'
+        std::string fpName = expect(TokenType::IDENTIFIER, "Expected function pointer name").value;
+        expect(TokenType::CLOSE_PAREN, "Expected ')' after function pointer name");
+        auto fpSig = parseFuncPtrParams(type, ptrLevel, isSigned);
+        auto decl = setPos(std::make_unique<VariableDeclaration>("void", fpName, 1), typeToken);
+        decl->isSigned = false;
+        decl->isVolatile = isVolatile;
+        decl->isConst = isConst;
+        decl->isStatic = isStatic;
+        decl->isRegister = isRegister;
+        decl->isFunctionPointer = true;
+        decl->funcPtrSig = fpSig;
+        decl->alignmentExpr = std::move(alignmentExpr);
+        if (match(TokenType::EQUALS)) {
+            decl->initializer = parseExpression();
+        }
+        expect(TokenType::SEMICOLON, "Expected ';'");
+        return decl;
+    }
+
     while (match(TokenType::STAR)) ptrLevel++;
 
     // Handle const/volatile after * (qualifies the pointer itself)
@@ -1138,7 +1235,7 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         throw std::runtime_error("Syntax Error at " + std::to_string(peek().line) + ":" + std::to_string(peek().column) + ": Expected expression. Found '" + foundStr + "' (" + peek().typeToString() + ") instead.");
     }
 
-    while (match(TokenType::DOT) || match(TokenType::ARROW) || match(TokenType::PLUS_PLUS) || match(TokenType::MINUS_MINUS) || match(TokenType::OPEN_SQUARE)) {
+    while (match(TokenType::DOT) || match(TokenType::ARROW) || match(TokenType::PLUS_PLUS) || match(TokenType::MINUS_MINUS) || match(TokenType::OPEN_SQUARE) || match(TokenType::OPEN_PAREN)) {
         const Token& opToken = tokens[pos-1];
         if (opToken.type == TokenType::PLUS_PLUS || opToken.type == TokenType::MINUS_MINUS) {
             expr = setPos(std::make_unique<UnaryOperation>(opToken.value + "_POST", std::move(expr)), opToken);
@@ -1146,6 +1243,17 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
             auto indexExpr = parseExpression();
             expect(TokenType::CLOSE_SQUARE, "Expected ']' after array index");
             expr = setPos(std::make_unique<ArrayAccess>(std::move(expr), std::move(indexExpr)), opToken);
+        } else if (opToken.type == TokenType::OPEN_PAREN) {
+            // Indirect function call: expr(args) — e.g. (*fp)(args), fp_array[i](args)
+            auto call = setPos(std::make_unique<FunctionCall>(""), opToken);
+            call->callExpr = std::move(expr);
+            if (peek().type != TokenType::CLOSE_PAREN) {
+                do {
+                    call->arguments.push_back(parseExpression());
+                } while (match(TokenType::COMMA));
+            }
+            expect(TokenType::CLOSE_PAREN, "Expected ')'");
+            expr = std::move(call);
         } else {
             bool isArrow = (opToken.type == TokenType::ARROW);
             std::string memberName = expect(TokenType::IDENTIFIER, "Expected member name").value;
@@ -1257,6 +1365,25 @@ void Parser::parseTypedef() {
     }
 
     int ptrLevel = basePtrLevel;
+
+    // Check for function pointer typedef: typedef int (*name)(int, char);
+    if (peek().type == TokenType::OPEN_PAREN && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::STAR) {
+        advance(); // consume '('
+        advance(); // consume '*'
+        std::string newName = expect(TokenType::IDENTIFIER, "Expected alias name in function pointer typedef").value;
+        expect(TokenType::CLOSE_PAREN, "Expected ')' after function pointer name");
+        auto sig = parseFuncPtrParams(baseType, ptrLevel, isSigned);
+        expect(TokenType::SEMICOLON, "Expected ';' after typedef");
+        TypeAlias alias;
+        alias.baseType = "void"; // function pointers are pointer-sized
+        alias.pointerLevel = 1;
+        alias.isSigned = false;
+        alias.isFunctionPointer = true;
+        alias.funcPtrSig = sig;
+        typedefs[newName] = alias;
+        return;
+    }
+
     while (match(TokenType::STAR)) ptrLevel++;
 
     std::string newName = expect(TokenType::IDENTIFIER, "Expected alias name in typedef").value;
@@ -1267,6 +1394,55 @@ void Parser::parseTypedef() {
 
 bool Parser::isTypedef(const std::string& name) const {
     return typedefs.find(name) != typedefs.end();
+}
+
+std::shared_ptr<FuncPtrSignature> Parser::parseFuncPtrParams(const std::string& returnType, int returnPtrLevel, bool returnIsSigned) {
+    auto sig = std::make_shared<FuncPtrSignature>();
+    sig->returnType = returnType;
+    sig->returnPointerLevel = returnPtrLevel;
+    sig->returnIsSigned = returnIsSigned;
+    // Current token should be '(' — the opening paren of the parameter list
+    expect(TokenType::OPEN_PAREN, "Expected '(' for function pointer parameter list");
+    if (peek().type == TokenType::VOID && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::CLOSE_PAREN) {
+        advance(); // consume 'void'
+    } else if (peek().type != TokenType::CLOSE_PAREN) {
+        do {
+            FuncPtrSignature::Param fp;
+            while (match(TokenType::CONST) || match(TokenType::VOLATILE) || match(TokenType::RESTRICT)) {}
+            if (match(TokenType::SIGNED)) {
+                fp.isSigned = true;
+                if (match(TokenType::INT)) fp.type = "int";
+                else if (match(TokenType::CHAR)) fp.type = "char";
+                else fp.type = "int";
+            } else if (match(TokenType::UNSIGNED)) {
+                if (match(TokenType::INT)) fp.type = "int";
+                else if (match(TokenType::CHAR)) fp.type = "char";
+                else fp.type = "int";
+            } else if (match(TokenType::INT)) fp.type = "int";
+            else if (match(TokenType::CHAR)) fp.type = "char";
+            else if (match(TokenType::BOOL)) fp.type = "_Bool";
+            else if (match(TokenType::VOID)) fp.type = "void";
+            else if (match(TokenType::STRUCT) || match(TokenType::UNION) || match(TokenType::ENUM)) {
+                bool isU = tokens[pos-1].type == TokenType::UNION;
+                bool isE = tokens[pos-1].type == TokenType::ENUM;
+                if (isE) fp.type = "enum " + expect(TokenType::IDENTIFIER, "Expected enum name").value;
+                else fp.type = (isU ? "union " : "struct ") + expect(TokenType::IDENTIFIER, "Expected struct/union name").value;
+            } else if (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value)) {
+                std::string alias = advance().value;
+                fp.type = typedefs[alias].baseType;
+                fp.isSigned = typedefs[alias].isSigned;
+                fp.pointerLevel = typedefs[alias].pointerLevel;
+            } else {
+                throw std::runtime_error("Expected type in function pointer parameter list");
+            }
+            while (match(TokenType::STAR)) fp.pointerLevel++;
+            // Skip optional parameter name
+            if (peek().type == TokenType::IDENTIFIER && !isTypedef(peek().value)) advance();
+            sig->params.push_back(fp);
+        } while (match(TokenType::COMMA));
+    }
+    expect(TokenType::CLOSE_PAREN, "Expected ')' after function pointer parameter list");
+    return sig;
 }
 
 std::unique_ptr<EnumDefinition> Parser::parseEnumDefinition() {

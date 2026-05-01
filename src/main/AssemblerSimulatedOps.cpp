@@ -354,7 +354,7 @@ void AssemblerSimulatedOps::emitCMP_S16Code(AssemblerParser* parser, M65Emitter&
                 Symbol* sym = parser->resolveSymbol(src2, scopePrefix);
                 if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(src2); } catch(...) { addr = 0; } }
             }
-            e.cmp_abs(addr); e.bne(0x07); e.txa(); e.eor_imm(0x80); e.pha(); e.lda_abs(addr + 1); e.eor_imm(0x80); e.sta_abs(0); e.pla(); e.cmp_abs(0);
+            e.cmp_abs(addr); e.bne(0x07); e.txa(); e.eor_imm(0x80); e.pha(); e.lda_abs(addr + 1); e.eor_imm(0x80); e.sta_scratch(); e.pla(); e.cmp_scratch();
             // This is getting complex, maybe just use a simpler signed high-byte cmp.
             // Simplified: CMP low, BNE done, TXA EOR #$80, STA temp, LDA high EOR #$80, CMP temp
             // Actually: CMP low, BNE +7, TXA, EOR #$80, STA temp, LDA high, EOR #$80, CMP temp
@@ -383,7 +383,7 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
                 } else if (reg2 == 'Y') {
                     e.ldy_imm(fa.yOff + 1);
                     e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fa.fpOff, true);
-                    e.sta_abs(0);
+                    e.sta_scratch();
                     e.dey();
                     e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_SP_Y, fa.fpOff, true);
                     e.ldy_abs(0);
@@ -399,9 +399,9 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
                 e.lda_stack(offset + 1); e.taz(); e.lda_stack(offset);
             } else {
                 // Load hi into temp (ZP $00), then load lo into A, then move to reg2
-                e.lda_stack(offset + 1); e.sta_abs(0); // save hi to ZP $00
+                e.lda_stack(offset + 1); e.sta_scratch(); // save hi to ZP $00
                 e.lda_stack(offset); // A = lo byte
-                if (reg2 == 'X') e.ldx_abs(0);
+                if (reg2 == 'X') e.ldx_scratch();
                 else if (reg2 == 'Y') e.ldy_abs(0);
             }
         }
@@ -482,8 +482,8 @@ void AssemblerSimulatedOps::emitSTWCode(AssemblerParser* parser, M65Emitter& e, 
                 else if (reg2 == 'Z') { e.tza(); e.sta_frame(fa.fpOff, fa.yOff + 1); }
             } else {
                 // Save hi byte register to Z without using stack (PHA would shift SP)
-                if (reg2 == 'X') { e.stx_abs(0); e.sta_stack(offset); e.lda_abs(0); e.sta_stack(offset + 1); }
-                else if (reg2 == 'Y') { e.sty_abs(0); e.sta_stack(offset); e.lda_abs(0); e.sta_stack(offset + 1); }
+                if (reg2 == 'X') { e.stx_scratch(); e.sta_stack(offset); e.lda_scratch(); e.sta_stack(offset + 1); }
+                else if (reg2 == 'Y') { e.sty_scratch(); e.sta_stack(offset); e.lda_scratch(); e.sta_stack(offset + 1); }
                 else if (reg2 == 'Z') { e.sta_stack(offset); e.tza(); e.sta_stack(offset + 1); }
             }
         }
@@ -700,11 +700,11 @@ void AssemblerSimulatedOps::emitPtrStackCode(AssemblerParser* parser, M65Emitter
         // Compute absolute address: FP_value + yOff
         // Read FP hi byte, save to ZP temp, then read FP lo, add yOff
         e.lda_stack(fa.fpOff);       // FP hi byte
-        e.sta_abs(0);
+        e.sta_scratch();
         e.lda_stack(fa.fpOff - 1);   // FP lo byte
         e.clc(); e.adc_imm(fa.yOff);
         e.pha();
-        e.lda_abs(0);
+        e.lda_scratch();
         e.adc_imm(0);
         e.tax();
         e.pla();

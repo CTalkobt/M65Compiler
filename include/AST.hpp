@@ -5,6 +5,19 @@
 
 class ASTVisitor;
 
+// Signature info for function pointer types
+struct FuncPtrSignature {
+    std::string returnType;
+    int returnPointerLevel = 0;
+    bool returnIsSigned = false;
+    struct Param {
+        std::string type;
+        int pointerLevel = 0;
+        bool isSigned = false;
+    };
+    std::vector<Param> params;
+};
+
 class ASTNode {
 public:
     int line = 0;
@@ -41,6 +54,7 @@ class FunctionCall : public Expression {
 public:
     std::string name;
     std::vector<std::unique_ptr<Expression>> arguments;
+    std::unique_ptr<Expression> callExpr; // non-null for indirect calls: (*fp)(args) or fp(args)
     FunctionCall(const std::string& n) : name(n) {}
     void accept(ASTVisitor& visitor) override;
 };
@@ -163,6 +177,8 @@ public:
     std::unique_ptr<Expression> initializer;
     std::vector<int> arrayDims; // empty means not an array; e.g. {3,4} for int a[3][4]
     int arraySize() const { if (arrayDims.empty()) return -1; int s=1; for (int d:arrayDims) s*=d; return s; }
+    bool isFunctionPointer = false;
+    std::shared_ptr<FuncPtrSignature> funcPtrSig; // non-null when isFunctionPointer
     VariableDeclaration(const std::string& t, const std::string& n, int p = 0) : type(t), pointerLevel(p), name(n) {}
     void accept(ASTVisitor& visitor) override;
 };
@@ -348,6 +364,8 @@ struct Parameter {
     bool isVolatile = false;
     bool isConst = false;
     bool isPointerConst = false;
+    bool isFunctionPointer = false;
+    std::shared_ptr<FuncPtrSignature> funcPtrSig;
 };
 
 class FunctionDeclaration : public Statement {

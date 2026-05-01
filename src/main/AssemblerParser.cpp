@@ -105,6 +105,13 @@ uint16_t AssemblerParser::getSpBase() const {
     return 0x0101;
 }
 
+uint8_t AssemblerParser::getScratchZP() const {
+    if (symbolTable.count("__zp_scratch")) {
+        return (uint8_t)symbolTable.at("__zp_scratch").value;
+    }
+    return 0x02;
+}
+
 const AssemblerToken& AssemblerParser::expect(AssemblerTokenType type, const std::string& message) {
     if (peek().type == type) return advance();
     throw std::runtime_error(message + " at " + std::to_string(peek().line) + ":" + std::to_string(peek().column));
