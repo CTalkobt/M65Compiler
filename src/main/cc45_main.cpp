@@ -97,6 +97,12 @@ public:
         indent--;
         indent--;
     }
+    void visit(InitializerList& node) override {
+        printIndent(); std::cout << "InitializerList:" << std::endl;
+        indent++;
+        for (auto& elem : node.elements) elem->accept(*this);
+        indent--;
+    }
     void visit(ArrayAccess& node) override {
         printIndent(); std::cout << "ArrayAccess:" << std::endl;
         indent++;

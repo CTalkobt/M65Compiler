@@ -69,6 +69,7 @@ public:
     void visit(UnaryOperation& node) override;
     void visit(ConditionalExpression& node) override;
     void visit(GenericSelection& node) override;
+    void visit(InitializerList& node) override;
     void visit(ArrayAccess& node) override;
     void visit(FunctionCall& node) override;
     void visit(MemberAccess& node) override;

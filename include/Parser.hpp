@@ -49,6 +49,7 @@ private:
     std::unique_ptr<Expression> parseUnary();
     std::unique_ptr<Expression> parsePrimary();
     std::unique_ptr<Expression> parseGenericSelection();
+    std::unique_ptr<Expression> parseInitializerList();
     void parseTypedef();
 
     struct TypeAlias {

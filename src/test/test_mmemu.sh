@@ -346,6 +346,34 @@ else
     fi
 fi
 
+# --- Array initializer test ---
+echo "Testing mmemu-cli with test_array_init.c (array initializer lists)..."
+
+$CC src/test-resources/test_array_init.c -o build/test/test_array_init.s
+if [ $? -ne 0 ]; then
+    echo "FAIL: Compilation failed for test_array_init.c"
+    failed=$((failed + 1))
+else
+    $AS build/test/test_array_init.s -o build/test/test_array_init.prg
+    if [ $? -ne 0 ]; then
+        echo "FAIL: Assembly failed for test_array_init.s"
+        failed=$((failed + 1))
+    else
+        # Expected: 10 40 64 2C 0B 16 00 00 00 00 AA CC E8 D0 FF
+        OUTPUT=$(echo -e "load build/test/test_array_init.prg\nsetpc \$2000\nstep 50000000\nm \$4000 15\nq" | $MMEMU -m rawMega65 2>/dev/null)
+
+        if echo "$OUTPUT" | grep -qi "4000: 10 40 64 2c 0b 16 00 00 00 00 aa cc e8 d0 ff"; then
+            echo "SUCCESS: test_array_init.c — array initializer lists correct."
+        else
+            echo "FAIL: test_array_init.c — array initializer list validation failed."
+            echo "Expected 4000: 10 40 64 2C 0B 16 00 00 00 00 AA CC E8 D0 FF"
+            echo "Actual output:"
+            echo "$OUTPUT" | grep "4000:"
+            failed=$((failed + 1))
+        fi
+    fi
+fi
+
 # --- Struct array test ---
 echo "Testing mmemu-cli with test_struct_array.c (struct arrays with loop)..."
 

@@ -446,6 +446,7 @@ public:
     void visit(UnaryOperation& n) override { n.operand->accept(*this); }
     void visit(ConditionalExpression& n) override { n.condition->accept(*this); n.thenExpr->accept(*this); n.elseExpr->accept(*this); }
     void visit(GenericSelection& n) override { n.control->accept(*this); for (auto& a : n.associations) a.result->accept(*this); }
+    void visit(InitializerList& n) override { for (auto& e : n.elements) e->accept(*this); }
     void visit(ArrayAccess& n) override { n.arrayExpr->accept(*this); n.indexExpr->accept(*this); }
     void visit(MemberAccess& n) override { n.structExpr->accept(*this); }
     void visit(CastExpression& n) override { n.expression->accept(*this); }
@@ -753,6 +754,14 @@ void CodeGenerator::visit(VariableDeclaration& node) {
         if (node.initializer) {
             if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
                 synth->initializer = std::make_unique<IntegerLiteral>(lit->value);
+            } else if (auto* initList = dynamic_cast<InitializerList*>(node.initializer.get())) {
+                auto copy = std::make_unique<InitializerList>();
+                for (auto& elem : initList->elements) {
+                    if (auto* eLit = dynamic_cast<IntegerLiteral*>(elem.get())) {
+                        copy->elements.push_back(std::make_unique<IntegerLiteral>(eLit->value));
+                    }
+                }
+                synth->initializer = std::move(copy);
             }
             // Non-literal initializers: leave as nullptr, will be zero-initialized in BSS
         }
@@ -818,7 +827,7 @@ void CodeGenerator::visit(VariableDeclaration& node) {
         }
     }
 
-    if (node.initializer && !dynamic_cast<CastExpression*>(node.initializer.get())) {
+    if (node.initializer && !dynamic_cast<CastExpression*>(node.initializer.get()) && !dynamic_cast<InitializerList*>(node.initializer.get())) {
         if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
             int dstSize = (node.pointerLevel > 0 || node.type == "int") ? 2 : 1;
             if (dstSize == 1 && (lit->value < 0 || lit->value > 255)) {
@@ -847,7 +856,27 @@ void CodeGenerator::visit(VariableDeclaration& node) {
     if (node.arraySize() >= 0) size *= node.arraySize();
 
     if (node.isVolatile) {
-        if (node.initializer) {
+        if (auto* initList = dynamic_cast<InitializerList*>(node.initializer.get())) {
+            int elementSize = 0;
+            if (node.pointerLevel > 0) elementSize = 2;
+            else if (is8BitType(node.type)) elementSize = 1;
+            else if (node.type == "int") elementSize = 2;
+            int totalElements = node.arraySize() >= 0 ? node.arraySize() : 1;
+            for (int i = totalElements - 1; i >= 0; i--) {
+                int val = 0;
+                if (i < (int)initList->elements.size()) {
+                    if (auto* lit = dynamic_cast<IntegerLiteral*>(initList->elements[i].get())) {
+                        val = lit->value;
+                    }
+                }
+                if (elementSize == 2) {
+                    emitter->phw_imm((uint16_t)(int16_t)val);
+                } else {
+                    emitter->lda_imm(val & 0xFF);
+                    emitter->pha();
+                }
+            }
+        } else if (node.initializer) {
             if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
                  if (size == 2) {
                     emitter->phw_imm((uint16_t)(int16_t)lit->value);
@@ -882,7 +911,29 @@ void CodeGenerator::visit(VariableDeclaration& node) {
             }
         }
 
-        if (node.initializer) {
+        if (auto* initList = dynamic_cast<InitializerList*>(node.initializer.get())) {
+            // Local array with initializer list — push elements in reverse order
+            int elementSize = 0;
+            if (node.pointerLevel > 0) elementSize = 2;
+            else if (is8BitType(node.type)) elementSize = 1;
+            else if (node.type == "int") elementSize = 2;
+            int totalElements = node.arraySize() >= 0 ? node.arraySize() : 1;
+            // Push in reverse: last element first (stack grows down)
+            for (int i = totalElements - 1; i >= 0; i--) {
+                int val = 0;
+                if (i < (int)initList->elements.size()) {
+                    if (auto* lit = dynamic_cast<IntegerLiteral*>(initList->elements[i].get())) {
+                        val = lit->value;
+                    }
+                }
+                if (elementSize == 2) {
+                    emitter->phw_imm((uint16_t)(int16_t)val);
+                } else {
+                    emitter->lda_imm(val & 0xFF);
+                    emitter->pha();
+                }
+            }
+        } else if (node.initializer) {
             if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
                 if (size == 2) {
                     emitter->phw_imm((uint16_t)(int16_t)lit->value);
@@ -1693,6 +1744,10 @@ void CodeGenerator::visit(GenericSelection& node) {
     throw std::runtime_error("No matching association in _Generic selection");
 }
 
+void CodeGenerator::visit(InitializerList& node) {
+    throw std::runtime_error("Initializer list not valid in expression context");
+}
+
 void CodeGenerator::visit(ArrayAccess& node) {
     embedSource(node);
     if (!resultNeeded) {
@@ -2139,6 +2194,7 @@ void CodeGenerator::visit(SwitchStatement& node) {
                 if (assoc.isDefault) { assoc.result->accept(*this); return; }
             }
         }
+        void visit(InitializerList& node) override { for (auto& elem : node.elements) elem->accept(*this); }
         void visit(ArrayAccess& node) override { node.arrayExpr->accept(*this); node.indexExpr->accept(*this); }
         void visit(CastExpression& node) override { node.expression->accept(*this); }
         void visit(AlignofExpression&) override {}
@@ -2665,7 +2721,28 @@ void CodeGenerator::emitData() {
 
         if (gVar->arraySize() >= 0) size *= gVar->arraySize();
 
-        if (auto* lit = dynamic_cast<IntegerLiteral*>(gVar->initializer.get())) {
+        if (auto* initList = dynamic_cast<InitializerList*>(gVar->initializer.get())) {
+            int elementSize = 0;
+            if (gVar->pointerLevel > 0) elementSize = 2;
+            else if (is8BitType(gVar->type)) elementSize = 1;
+            else if (gVar->type == "int") elementSize = 2;
+            else if (isStruct(gVar->type)) { std::string sName = getAggregateName(gVar->type); if (structs.count(sName)) elementSize = structs[sName]->totalSize; }
+            int totalElements = gVar->arraySize() >= 0 ? gVar->arraySize() : 1;
+            int emitted = 0;
+            for (auto& elem : initList->elements) {
+                if (emitted >= totalElements) break;
+                if (auto* lit = dynamic_cast<IntegerLiteral*>(elem.get())) {
+                    if (elementSize == 1) out << "    .byte $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (lit->value & 0xFF) << std::dec << std::endl;
+                    else if (elementSize == 2) out << "    .word $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (lit->value & 0xFFFF) << std::dec << std::endl;
+                    else out << "    .res " << std::to_string(elementSize) << ", 0" << std::endl;
+                } else {
+                    out << "    .res " << std::to_string(elementSize) << ", 0" << std::endl;
+                }
+                emitted++;
+            }
+            int remaining = totalElements - emitted;
+            if (remaining > 0) out << "    .res " << std::to_string(remaining * elementSize) << ", 0" << std::endl;
+        } else if (auto* lit = dynamic_cast<IntegerLiteral*>(gVar->initializer.get())) {
             if (size == 1) out << "    .byte $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (lit->value & 0xFF) << std::dec << std::endl;
             else if (size == 2) out << "    .word $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (lit->value & 0xFFFF) << std::dec << std::endl;
             else out << "    .res " << std::to_string(size) << ", 0" << std::endl;
@@ -2804,6 +2881,7 @@ public:
             if (assoc.isDefault) { assoc.result->accept(*this); return; }
         }
     }
+    void visit(InitializerList& node) override { for (auto& elem : node.elements) elem->accept(*this); }
     void visit(ArrayAccess& node) override { node.arrayExpr->accept(*this); node.indexExpr->accept(*this); }
     void visit(CastExpression& node) override { node.expression->accept(*this); }
     void visit(AlignofExpression&) override {}

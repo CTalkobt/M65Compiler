@@ -696,7 +696,11 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     decl->arrayDims = arrayDims;
 
     if (match(TokenType::EQUALS)) {
-        decl->initializer = parseExpression();
+        if (peek().type == TokenType::OPEN_BRACE) {
+            decl->initializer = parseInitializerList();
+        } else {
+            decl->initializer = parseExpression();
+        }
     }
     expect(TokenType::SEMICOLON, "Expected ';'");
     return decl;
@@ -1190,6 +1194,22 @@ std::unique_ptr<Expression> Parser::parseGenericSelection() {
 
     expect(TokenType::CLOSE_PAREN, "Expected ')' at end of _Generic");
     return node;
+}
+
+std::unique_ptr<Expression> Parser::parseInitializerList() {
+    const Token& startToken = expect(TokenType::OPEN_BRACE, "Expected '{'");
+    auto initList = setPos(std::make_unique<InitializerList>(), startToken);
+    if (peek().type != TokenType::CLOSE_BRACE) {
+        do {
+            if (peek().type == TokenType::OPEN_BRACE) {
+                initList->elements.push_back(parseInitializerList());
+            } else {
+                initList->elements.push_back(parseConditional());
+            }
+        } while (match(TokenType::COMMA) && peek().type != TokenType::CLOSE_BRACE);
+    }
+    expect(TokenType::CLOSE_BRACE, "Expected '}'");
+    return initList;
 }
 
 void Parser::parseTypedef() {

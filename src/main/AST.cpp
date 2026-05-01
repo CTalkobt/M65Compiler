@@ -8,6 +8,7 @@ void BinaryOperation::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void UnaryOperation::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void MemberAccess::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void GenericSelection::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void InitializerList::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void ArrayAccess::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void ConditionalExpression::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void CastExpression::accept(ASTVisitor& visitor) { visitor.visit(*this); }

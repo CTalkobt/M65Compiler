@@ -99,6 +99,13 @@ public:
     void accept(ASTVisitor& visitor) override;
 };
 
+class InitializerList : public Expression {
+public:
+    std::vector<std::unique_ptr<Expression>> elements;
+    InitializerList() {}
+    void accept(ASTVisitor& visitor) override;
+};
+
 class ArrayAccess : public Expression {
 public:
     std::unique_ptr<Expression> arrayExpr;
@@ -376,6 +383,7 @@ public:
     virtual void visit(UnaryOperation& node) = 0;
     virtual void visit(ConditionalExpression& node) = 0;
     virtual void visit(GenericSelection& node) = 0;
+    virtual void visit(InitializerList& node) = 0;
     virtual void visit(ArrayAccess& node) = 0;
     virtual void visit(FunctionCall& node) = 0;
     virtual void visit(MemberAccess& node) = 0;

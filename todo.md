@@ -119,7 +119,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **`register` Storage Class**: Implement `register` keyword. Register variables are allocated in zero page for faster access; falls back to stack if ZP is exhausted.
 - [X] **Arrays**: Implement native array declarations (`type name[size]`), subscript indexing (`a[i]`), and pointer decay.
 - [X] **Multi-dimensional arrays**: Support `int a[3][4]` row-major layout. Parser, type system, stride computation, constant-index and runtime-index codegen implemented. Validated via mmemu with loop-based stores and reads.
-- [ ] **Array Initializers**: Support initialized array declarations including partial initialization and `= {0}` zero-fill.
+- [X] **Array Initializers**: Support initialized array declarations including partial initialization and `= {0}` zero-fill.
 - [X] **Struct arrays**: Support `struct point pts[10];`. Constant and runtime-indexed access with member access (`pts[i].x`), loop-based stores, and `sizeof` all work. Validated via mmemu.
 - [ ] **Designated Initializers**: Support C99 designated initializers for structs (`{.x=1}`) and arrays (`{[2]=3}`).
 - [ ] **Compound Literals**: Support C99 compound literals for creating unnamed temporary objects inline (e.g., `(struct Point){.x=1, .y=2}`).

@@ -185,6 +185,14 @@ public:
 
     void visit(GenericSelection& node) override;
 
+    void visit(InitializerList& node) override {
+        auto result = copyPos(std::make_unique<InitializerList>(), node);
+        for (auto& elem : node.elements) {
+            result->elements.push_back(fold(std::move(elem)));
+        }
+        lastExpr = std::move(result);
+    }
+
     void visit(ArrayAccess& node) override {
         lastExpr = copyPos(std::make_unique<ArrayAccess>(fold(std::move(node.arrayExpr)), fold(std::move(node.indexExpr))), node);
     }
