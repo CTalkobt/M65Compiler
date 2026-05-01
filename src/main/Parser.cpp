@@ -82,9 +82,13 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
         bool isConst = false;
         bool isNR = false;
         bool isExtern = false;
+        bool isStatic = false;
 
         if (tokens[look].type == TokenType::EXTERN) {
             isExtern = true;
+            look++;
+        } else if (tokens[look].type == TokenType::STATIC) {
+            isStatic = true;
             look++;
         }
 
@@ -159,16 +163,19 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 look++;
                 if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
                     if (isExtern) match(TokenType::EXTERN);
+                    if (isStatic) match(TokenType::STATIC);
                     if (isNR) match(TokenType::NORETURN);
                     while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
                     auto decl = parseFunctionDeclaration();
                     decl->isNoreturn = isNR;
+                    decl->isStatic = isStatic;
                     // extern functions are always prototypes (no body)
                     if (isExtern) decl->isPrototype = true;
                     flushPending(*unit);
                     unit->topLevelDecls.push_back(std::move(decl));
                 } else {
                     if (isExtern) match(TokenType::EXTERN);
+                    if (isStatic) match(TokenType::STATIC);
                     if (isNR) match(TokenType::NORETURN);
                     while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
                     auto decl = parseVariableDeclaration(isVol, isConst);
@@ -176,6 +183,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                         vd->isGlobal = true;
                         vd->isSigned = isSig;
                         vd->isExtern = isExtern;
+                        vd->isStatic = isStatic;
                     }
                     flushPending(*unit);
                     unit->topLevelDecls.push_back(std::move(decl));
@@ -370,6 +378,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
     bool isVolatile = false;
     bool isConst = false;
     bool isAuto = false;
+    bool isStatic = false;
     while (true) {
         if (match(TokenType::VOLATILE)) {
             isVolatile = true;
@@ -377,6 +386,8 @@ std::unique_ptr<Statement> Parser::parseStatement() {
             isConst = true;
         } else if (match(TokenType::AUTO)) {
             isAuto = true;
+        } else if (match(TokenType::STATIC)) {
+            isStatic = true;
         } else if (match(TokenType::RESTRICT)) {
             // consumed; restrict is a hint only
         } else {
@@ -425,13 +436,13 @@ std::unique_ptr<Statement> Parser::parseStatement() {
             expect(TokenType::SEMICOLON, "Expected ';' after struct/union definition");
             return def;
         }
-        return parseVariableDeclaration(isVolatile, isConst);
+        return parseVariableDeclaration(isVolatile, isConst, isStatic);
     }
 
     if (peek().type == TokenType::INT || peek().type == TokenType::CHAR || peek().type == TokenType::BOOL ||
         peek().type == TokenType::UNSIGNED || peek().type == TokenType::SIGNED ||
         (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value))) {
-        return parseVariableDeclaration(isVolatile, isConst);
+        return parseVariableDeclaration(isVolatile, isConst, isStatic);
     }
 
     if (match(TokenType::RETURN)) {
@@ -590,7 +601,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
     return setPos(std::make_unique<ExpressionStatement>(std::move(expr)), startToken);
 }
 
-std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, bool isConst) {
+std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, bool isConst, bool isStatic) {
     std::unique_ptr<Expression> alignmentExpr = nullptr;
     if (match(TokenType::ALIGNAS)) {
         expect(TokenType::OPEN_PAREN, "Expected '(' after '_Alignas'");
@@ -671,6 +682,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     decl->isSigned = isSigned;
     decl->isVolatile = isVolatile;
     decl->isConst = isConst;
+    decl->isStatic = isStatic;
     decl->isPointerConst = isPointerConst;
     decl->alignmentExpr = std::move(alignmentExpr);
     decl->arrayDims = arrayDims;

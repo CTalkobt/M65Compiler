@@ -197,6 +197,7 @@ Token Lexer::lexIdentifierOrKeyword() {
         {"typedef", TokenType::TYPEDEF},
         {"enum", TokenType::ENUM},
         {"extern", TokenType::EXTERN},
+        {"static", TokenType::STATIC},
         {"_Bool", TokenType::BOOL},
         {"restrict", TokenType::RESTRICT},
         {"__restrict", TokenType::RESTRICT},

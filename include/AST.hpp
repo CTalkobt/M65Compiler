@@ -149,6 +149,7 @@ public:
     bool isPointerConst = false; // const on the pointer itself (pointer variable is const)
     bool isGlobal = false;
     bool isExtern = false;
+    bool isStatic = false;
     int alignment = 0;
     std::unique_ptr<Expression> alignmentExpr;
     std::unique_ptr<Expression> initializer;
@@ -350,6 +351,7 @@ public:
     std::unique_ptr<CompoundStatement> body;
     bool isNoreturn = false;
     bool isPrototype = false;
+    bool isStatic = false;
     FunctionDeclaration(const std::string& n, const std::string& rt) : name(n), returnType(rt) {}
     void accept(ASTVisitor& visitor) override;
 };

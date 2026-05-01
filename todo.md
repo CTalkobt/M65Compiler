@@ -115,7 +115,8 @@ Steps required to bring the C compiler closer to C11 standards.
 - [ ] **`inline` Specifier**: Support the `inline` function specifier for inlining hints (C99).
 - [X] **Storage Classes**: Implement `auto` (default local) and `volatile` (qualifier).
 - [d] **Modern Type Inference**: Implement `auto` as C23/C++ style type inference for declarations with initializers.
-- [ ] **Storage Classes (remaining)**: Implement `static` (local persistence and file-scope linkage), `extern` (external linkage), `register` (hint).
+- [X] **`static` Storage Class**: Implement `static` for file-scope internal linkage (globals, functions) and persistent local variables.
+- [ ] **Storage Classes (remaining)**: Implement `register` (hint).
 - [X] **Arrays**: Implement native array declarations (`type name[size]`), subscript indexing (`a[i]`), and pointer decay.
 - [X] **Multi-dimensional arrays**: Support `int a[3][4]` row-major layout. Parser, type system, stride computation, constant-index and runtime-index codegen implemented. Validated via mmemu with loop-based stores and reads.
 - [ ] **Array Initializers**: Support initialized array declarations including partial initialization and `= {0}` zero-fill.

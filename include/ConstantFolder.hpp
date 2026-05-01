@@ -224,7 +224,7 @@ public:
         } else {
             if (node.isConst) constVars.insert(node.name);
         }
-        if (node.isVolatile) {
+        if (node.isVolatile || node.isStatic) {
             volatileVars.insert(node.name);
             knownConstants.erase(node.name);
         } else if (initializer) {
@@ -249,6 +249,7 @@ public:
         decl->isPointerConst = node.isPointerConst;
         decl->isGlobal = node.isGlobal;
         decl->isExtern = node.isExtern;
+        decl->isStatic = node.isStatic;
         decl->arrayDims = node.arrayDims;
         lastStmt = std::move(decl);
     }

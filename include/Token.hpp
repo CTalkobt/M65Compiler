@@ -35,6 +35,7 @@ enum class TokenType {
     TYPEDEF,
     ENUM,
     EXTERN,
+    STATIC,
     BOOL,  // _Bool (C99)
     RESTRICT, // restrict (C99)
 
@@ -135,6 +136,7 @@ struct Token {
             case TokenType::TYPEDEF: return "TYPEDEF";
             case TokenType::ENUM: return "ENUM";
             case TokenType::EXTERN: return "EXTERN";
+            case TokenType::STATIC: return "STATIC";
             case TokenType::BOOL: return "_Bool";
             case TokenType::RESTRICT: return "RESTRICT";
             case TokenType::IDENTIFIER: return "IDENTIFIER";

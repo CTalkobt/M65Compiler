@@ -118,6 +118,11 @@ std::string CodeGenerator::resolveVarName(const std::string& name) {
     if (variableTypes.count(pName)) return pName;
     std::string lName = "_l_" + name;
     if (variableTypes.count(lName)) return lName;
+    // Check for static local variable (stored as global with mangled name)
+    if (currentFunction) {
+        std::string slName = "_" + currentFunction->name + "__" + name;
+        if (globalVariableTypes.count(slName)) return slName;
+    }
     std::string gName = "_" + name;
     if (globalVariableTypes.count(gName)) return gName;
     return name;
@@ -175,6 +180,15 @@ CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
             VarInfo& vi = variableTypes.at(rName);
             int pl = vi.pointerLevel + (int)vi.arrayDims.size();
             return {vi.type, pl, vi.isSigned, vi.isConst, vi.isPointerConst};
+        }
+        // Check static local variable (mangled as global)
+        if (currentFunction) {
+            std::string slName = "_" + currentFunction->name + "__" + ref->name;
+            if (globalVariableTypes.count(slName)) {
+                VarInfo& vi = globalVariableTypes.at(slName);
+                int pl = vi.pointerLevel + (int)vi.arrayDims.size();
+                return {vi.type, pl, vi.isSigned, vi.isConst, vi.isPointerConst};
+            }
         }
         if (globalVariableTypes.count("_" + ref->name)) {
             VarInfo& vi = globalVariableTypes.at("_" + ref->name);
@@ -491,6 +505,7 @@ void CodeGenerator::visit(TranslationUnit& node) {
             if (!fn->isPrototype) {
                 definedFunctions.insert(fn->name);
                 if (nextIsWeak) weakFunctions.insert(fn->name);
+                if (fn->isStatic) staticFunctions.insert(fn->name);
             }
         } else if (auto* as = dynamic_cast<AsmStatement*>(decl.get())) {
             if (as->code == ".weak_next") { nextIsWeak = true; continue; }
@@ -516,8 +531,9 @@ void CodeGenerator::visit(TranslationUnit& node) {
             }
         }
 
-        // Emit .global/.weak for defined functions
+        // Emit .global/.weak for defined functions (skip static)
         for (const auto& name : definedFunctions) {
+            if (staticFunctions.count(name)) continue;
             if (weakFunctions.count(name)) {
                 out << ".weak _" << name << std::endl;
             } else {
@@ -715,8 +731,37 @@ void CodeGenerator::visit(VariableDeclaration& node) {
         if (node.isGlobal) {
             globalVars.push_back(&node);
             if (weakNext) { weakGlobals.insert(node.name); weakNext = false; }
+            if (node.isStatic) staticGlobals.insert(node.name);
             return;
         }
+    }
+
+    // Static local: allocate in data/bss segment, not on the stack
+    if (node.isStatic && currentFunction != nullptr) {
+        std::string sName = "__sl_" + currentFunction->name + "_" + node.name;
+        globalVariableTypes[sName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, node.arrayDims};
+        // Create a synthetic global VariableDeclaration for emitData
+        auto* synth = new VariableDeclaration(node.type, currentFunction->name + "__" + node.name, node.pointerLevel);
+        synth->isSigned = node.isSigned;
+        synth->isVolatile = node.isVolatile;
+        synth->isConst = node.isConst;
+        synth->isPointerConst = node.isPointerConst;
+        synth->arrayDims = node.arrayDims;
+        synth->isGlobal = true;
+        synth->isStatic = true;
+        if (node.initializer) {
+            if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
+                synth->initializer = std::make_unique<IntegerLiteral>(lit->value);
+            }
+            // Non-literal initializers: leave as nullptr, will be zero-initialized in BSS
+        }
+        globalVars.push_back(synth);
+        staticGlobals.insert(synth->name);
+        // Alias the local name to the global static label
+        variableTypes.erase("_l_" + node.name);
+        std::string gName = "_" + synth->name;
+        globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, node.arrayDims};
+        return;
     }
 
     std::string lName = "_l_" + node.name;
@@ -1003,12 +1048,31 @@ void CodeGenerator::visit(Assignment& node) {
                                 std::string sName = getAggregateName(vi.type);
                                 if (structs.count(sName) && structs[sName]->totalSize > 1) is16 = true;
                             }
-                            if (bin->op == "+") {
-                                if (is16) emit("inw " + rName + suffix);
-                                else emit("inc " + rName + suffix);
+                            if (!isGlobal) {
+                                // inw/dew work for base-page and stack-relative
+                                if (bin->op == "+") {
+                                    if (is16) emit("inw " + rName + suffix);
+                                    else emit("inc " + rName + suffix);
+                                } else {
+                                    if (is16) emit("dew " + rName + suffix);
+                                    else emit("dec " + rName + suffix);
+                                }
+                            } else if (!is16) {
+                                // 8-bit: inc/dec support absolute addressing
+                                if (bin->op == "+") emit("inc " + rName);
+                                else emit("dec " + rName);
                             } else {
-                                if (is16) emit("dew " + rName + suffix);
-                                else emit("dec " + rName + suffix);
+                                // 16-bit global: inw/dew only support base-page; use inc/dec absolute
+                                if (bin->op == "+") {
+                                    emit("inc " + rName);
+                                    emit("bne *+5");
+                                    emit("inc " + rName + "+1");
+                                } else {
+                                    emit("lda " + rName);
+                                    emit("bne *+5");
+                                    emit("dec " + rName + "+1");
+                                    emit("dec " + rName);
+                                }
                             }
                             invalidateRegs();
                             if (resultNeeded) ref->accept(*this);
@@ -1567,9 +1631,21 @@ void CodeGenerator::visit(UnaryOperation& node) {
             invalidateRegs();
             bool isGlobal = globalVariableTypes.count(rName);
             std::string suffix = isGlobal ? "" : ", s";
-            if (is16Bit) {
+            if (is16Bit && !isGlobal) {
                 if (isInc) emit("inw " + rName + suffix);
                 else emit("dew " + rName + suffix);
+            } else if (is16Bit) {
+                // inw/dew only support base-page; use inc/dec absolute
+                if (isInc) {
+                    emit("inc " + rName);
+                    emit("bne *+5");
+                    emit("inc " + rName + "+1");
+                } else {
+                    emit("lda " + rName);
+                    emit("bne *+5");
+                    emit("dec " + rName + "+1");
+                    emit("dec " + rName);
+                }
             } else {
                 if (isInc) emit("inc " + rName + suffix);
                 else emit("dec " + rName + suffix);
@@ -1594,12 +1670,25 @@ void CodeGenerator::visit(UnaryOperation& node) {
                             invalidateRegs();
                             bool isGlobal = globalVariableTypes.count(rName);
                             std::string suffix = isGlobal ? "" : ", s";
-                            if (is16Bit) {
-                                if (isInc) emit("inw " + rName + "+" + std::to_string(mInfo.offset) + suffix);
-                                else emit("dew " + rName + "+" + std::to_string(mInfo.offset) + suffix);
+                            std::string memberAddr = rName + "+" + std::to_string(mInfo.offset);
+                            if (is16Bit && !isGlobal) {
+                                if (isInc) emit("inw " + memberAddr + suffix);
+                                else emit("dew " + memberAddr + suffix);
+                            } else if (is16Bit) {
+                                // inw/dew only support base-page; use inc/dec absolute
+                                if (isInc) {
+                                    emit("inc " + memberAddr);
+                                    emit("bne *+5");
+                                    emit("inc " + memberAddr + "+1");
+                                } else {
+                                    emit("lda " + memberAddr);
+                                    emit("bne *+5");
+                                    emit("dec " + memberAddr + "+1");
+                                    emit("dec " + memberAddr);
+                                }
                             } else {
-                                if (isInc) emit("inc " + rName + "+" + std::to_string(mInfo.offset) + suffix);
-                                else emit("dec " + rName + "+" + std::to_string(mInfo.offset) + suffix);
+                                if (isInc) emit("inc " + memberAddr + suffix);
+                                else emit("dec " + memberAddr + suffix);
                             }
                             if (!isPost && resultNeeded) node.operand->accept(*this);
                         }
@@ -2377,9 +2466,10 @@ void CodeGenerator::visit(AlignofExpression& node) {
 }
 
 void CodeGenerator::emitData() {
-    // Emit .global/.weak for all global variables in relocatable mode
+    // Emit .global/.weak for all global variables in relocatable mode (skip static)
     if (relocMode) {
         for (auto* gVar : globalVars) {
+            if (staticGlobals.count(gVar->name)) continue;
             if (weakGlobals.count(gVar->name)) {
                 out << ".weak _" << gVar->name << std::endl;
             } else {

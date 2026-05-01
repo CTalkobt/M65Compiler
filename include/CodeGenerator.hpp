@@ -193,6 +193,8 @@ public:
     std::vector<ZPReg> zpRegs;
     std::vector<VariableDeclaration*> globalVars;
     std::set<std::string> weakGlobals; // global vars marked with #pragma weak
+    std::set<std::string> staticGlobals; // global vars/funcs with static linkage
+    std::set<std::string> staticFunctions; // functions with static linkage
     bool crtNoPageOneStack = false; // #pragma crt no_0100_stack
     enum class CrtExit { HALT, RTS, BRK } crtExit = CrtExit::RTS;
     bool crtNoBssInit = false; // #pragma crt no_bssinit
