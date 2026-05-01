@@ -88,6 +88,7 @@ private:
     std::map<std::string, Symbol> symbolTable;
     std::vector<std::string> scopeStack;
     int nextScopeId = 0;
+    std::string currentLocalScope_; // last non-@ label for auto-scoping @ labels
 
     struct ProcContext {
         std::string name;
@@ -135,6 +136,7 @@ private:
         int size = 0;
         int line = 0;
         std::string scopePrefix;
+        std::string localLabelScope; // auto-scope for @ label resolution
         std::string segmentName;
         std::shared_ptr<ProcContext> procCtx;
 

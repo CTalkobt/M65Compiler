@@ -78,6 +78,11 @@ uint32_t AssemblerParser::evaluateExpressionAt(int index, const std::string& sco
 }
 
 Symbol* AssemblerParser::resolveSymbol(const std::string& name, const std::string& scopePrefix) {
+    // For @ local labels outside proc scope, try auto-scope under last global label
+    if (!name.empty() && name[0] == '@' && !currentLocalScope_.empty() && scopePrefix.empty()) {
+        std::string scopedName = currentLocalScope_ + ":" + name;
+        if (symbolTable.count(scopedName)) return &symbolTable.at(scopedName);
+    }
     std::string current = scopePrefix;
     while (true) {
         std::string fullName = current + name;
@@ -322,6 +327,8 @@ void AssemblerParser::pass1() {
     currentProc = nullptr;
     firstOrgAddress = 0xFFFFFFFF;
     std::vector<std::shared_ptr<ProcContext>> pass1ProcStack;
+    std::string autoLabelScope; // auto-scope for @ local labels outside proc
+    currentLocalScope_ = ""; // reset for this pass
 
     auto currentScopePrefix = [&]() {
         std::string p = "";
@@ -340,10 +347,25 @@ void AssemblerParser::pass1() {
         stmt->segmentName = currentSegment->name;
 
         if ((peek().type == AssemblerTokenType::IDENTIFIER || peek().type == AssemblerTokenType::INSTRUCTION) && pos + 1 < tokens.size() && tokens[pos+1].type == AssemblerTokenType::COLON) {
-            stmt->label = stmt->scopePrefix + advance().value;
+            std::string labelName = advance().value;
+            if (!labelName.empty() && labelName[0] != '@' && scopeStack.empty()) {
+                // Non-@ labels outside proc become scope anchors for @ local labels
+                autoLabelScope = labelName;
+                currentLocalScope_ = labelName;
+            }
+            // @ labels get prefixed with the auto-scope; non-@ labels use normal scope
+            if (!labelName.empty() && labelName[0] == '@' && scopeStack.empty() && !autoLabelScope.empty()) {
+                stmt->label = autoLabelScope + ":" + labelName;
+            } else {
+                stmt->label = stmt->scopePrefix + labelName;
+            }
             advance();
+            if (symbolTable.count(stmt->label) && symbolTable[stmt->label].isAddress) {
+                errors.push_back("Error: Duplicate label '" + stmt->label + "' at line " + std::to_string(stmt->line));
+            }
             symbolTable[stmt->label] = {pc, true, 2, false, false, pc, false, 0, false, 0};
         }
+        stmt->localLabelScope = autoLabelScope;
 
         if (peek().type == AssemblerTokenType::IDENTIFIER && pos + 1 < tokens.size() && tokens[pos+1].type == AssemblerTokenType::EQUALS) {
             std::string name = advance().value;
@@ -1175,7 +1197,13 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
 
 std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
     bool overallChanged;
+    int pass2Iterations = 0;
+    const int maxPass2Iterations = 100;
     do {
+        if (++pass2Iterations > maxPass2Iterations) {
+            errors.push_back("Error: pass2 failed to converge after " + std::to_string(maxPass2Iterations) + " iterations (possible duplicate labels or size oscillation)");
+            break;
+        }
         overallChanged = false;
         bool optimizerMadeChanges = optimize();
         if (optimizerMadeChanges) overallChanged = true;
@@ -1189,6 +1217,7 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
         std::map<std::string, uint32_t> pass2PCs;
         for (auto const& [name, seg] : segments) pass2PCs[name] = 0xFFFFFFFF; // sentinel = never visited
         std::string activeSegment = "default"; uint32_t cP = 0; bool isDeadCode = false;
+        currentLocalScope_ = "";
         pass2PCs["default"] = 0; // default segment starts at 0
         for (auto& s : statements) {
             if (s->type == Statement::DIRECTIVE && (s->dir.name == "segment" || s->dir.name == "code" || s->dir.name == "text" || s->dir.name == "data" || s->dir.name == "bss")) {
@@ -1205,6 +1234,8 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
             }
             if (segments[activeSegment]->startAddress == 0xFFFFFFFF && (s->size > 0 || s->type == Statement::INSTRUCTION)) segments[activeSegment]->startAddress = cP;
             pc = cP; s->address = cP;
+            // Restore auto-scope for @ label resolution from per-statement data
+            currentLocalScope_ = s->localLabelScope;
             if (!s->label.empty()) {
                 isDeadCode = false;
                 if (symbolTable[s->label].value != cP) { symbolTable[s->label].value = cP; addressRecalculationMadeChanges = true; }

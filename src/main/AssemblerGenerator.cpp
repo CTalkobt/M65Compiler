@@ -94,6 +94,7 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
             }
             
             parser->pc = stmt->address; // Update parser pc for .PC evaluations
+            parser->currentLocalScope_ = stmt->localLabelScope; // Restore auto-scope for @ labels
             if (stmt->deleted) continue;
             if (!stmt->label.empty()) {
                 isDeadCode = false;
