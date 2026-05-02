@@ -656,7 +656,8 @@ private:
             std::string sName = node.targetType.substr(6);
             if (structs_.count(sName)) return structs_.at(sName)->totalSize;
         }
-        int elemSize = (node.pointerLevel > 0 || node.targetType == "int") ? 2 :
+        int elemSize = (node.targetType == "long") ? 4 :
+                       (node.pointerLevel > 0 || node.targetType == "int") ? 2 :
                        (node.targetType == "char" || node.targetType == "_Bool") ? 1 : 2;
         if (!node.arrayDims.empty()) {
             int total = 1;
@@ -670,6 +671,7 @@ private:
         int size = 0;
         if (node.pointerLevel > 0) size = 2;
         else if (node.type == "char" || node.type == "_Bool") size = 1;
+        else if (node.type == "long") size = 4;
         else if (node.type == "int") size = 2;
         else if (node.type.length() >= 7 && node.type.substr(0, 7) == "struct ") {
             std::string sName = node.type.substr(7);
@@ -703,7 +705,7 @@ void CodeGenerator::visit(TranslationUnit& node) {
             knownFunctions.insert(fn->name);
             if (fn->isVariadic) variadicFunctions.insert(fn->name);
             functionReturnTypes[fn->name] = {fn->returnType, fn->returnPointerLevel, fn->isSigned};
-            if (fn->returnPointerLevel == 0 && isStruct(fn->returnType)) {
+            if (fn->returnPointerLevel == 0 && (isStruct(fn->returnType) || is32BitType(fn->returnType))) {
                 structReturningFunctions.insert(fn->name);
             }
             std::vector<VarInfo> paramTypes;
@@ -911,6 +913,9 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
         } else if (is8BitType(param.type)) {
             procLine += ", B#" + pName;
             pSize = 1;
+        } else if (is32BitType(param.type)) {
+            procLine += ", D#" + pName;
+            pSize = 4;
         } else {
             procLine += ", W#" + pName;
             pSize = 2;
@@ -1261,6 +1266,7 @@ void CodeGenerator::visit(VariableDeclaration& node) {
         int size = 0;
         if (node.pointerLevel > 0) size = 2;
         else if (node.type == "char" || node.type == "_Bool") size = 1;
+        else if (node.type == "long") size = 4;
         else if (node.type == "int") size = 2;
         else if (isStruct(node.type)) {
             std::string sName = getAggregateName(node.type);
@@ -1355,7 +1361,17 @@ void CodeGenerator::visit(VariableDeclaration& node) {
             }
         } else if (node.initializer) {
             if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
-                if (size == 2) {
+                if (size == 4) {
+                    uint32_t val = (uint32_t)lit->value;
+                    emitter->lda_imm(val & 0xFF);
+                    emit("sta.fp " + std::to_string(frameOff));
+                    emitter->lda_imm((val >> 8) & 0xFF);
+                    emit("sta.fp " + std::to_string(frameOff + 1));
+                    emitter->lda_imm((val >> 16) & 0xFF);
+                    emit("sta.fp " + std::to_string(frameOff + 2));
+                    emitter->lda_imm((val >> 24) & 0xFF);
+                    emit("sta.fp " + std::to_string(frameOff + 3));
+                } else if (size == 2) {
                     emitter->lda_imm(lit->value & 0xFF);
                     emit("sta.fp " + std::to_string(frameOff));
                     emitter->lda_imm((lit->value >> 8) & 0xFF);
@@ -1373,7 +1389,7 @@ void CodeGenerator::visit(VariableDeclaration& node) {
                     if (structReturningFunctions.count(fc->name)) isStructRetInit = true;
                 }
 
-                if (isStructRetInit && isStruct(node.type) && node.pointerLevel == 0) {
+                if (isStructRetInit && (isStruct(node.type) || is32BitType(node.type)) && node.pointerLevel == 0) {
                     // Set the destination frame offset so the FunctionCall visitor
                     // passes our frame slot address as the hidden _ret_ptr.
                     // The callee writes directly to our frame slot — no copy needed.
@@ -1393,7 +1409,13 @@ void CodeGenerator::visit(VariableDeclaration& node) {
                         int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
                         emitBoolNormalize(srcSize);
                     }
-                    if (size == 2) {
+                    if (size == 4) {
+                        // Store AXYZ to frame slot byte-by-byte
+                        emit("sta.fp " + std::to_string(frameOff));
+                        emit("txa"); emit("sta.fp " + std::to_string(frameOff + 1));
+                        emit("tya"); emit("sta.fp " + std::to_string(frameOff + 2));
+                        emit("tza"); emit("sta.fp " + std::to_string(frameOff + 3));
+                    } else if (size == 2) {
                         emit("stax.fp " + std::to_string(frameOff));
                     } else {
                         emit("sta.fp " + std::to_string(frameOff));
@@ -1936,8 +1958,8 @@ void CodeGenerator::visit(Assignment& node) {
             } else {
                 emit("sta.sp " + rName);
                 emit("stx " + rName + "+1, s");
-                emit("sty " + rName + "+2, s");
-                emit("stz " + rName + "+3, s");
+                emit("pha"); emit("tya"); emit("sta " + rName + "+2, s"); emit("pla");
+                emit("pha"); emit("tza"); emit("sta " + rName + "+3, s"); emit("pla");
             }
             invalidateRegs();
         } else if (is16) {
@@ -2218,12 +2240,9 @@ void CodeGenerator::visit(BinaryOperation& node) {
             else if (val == 1) { /* Already in AX */ }
             else if (val > 0 && (val & (val - 1)) == 0) {
                 int shifts = 0; while (val > 1) { val >>= 1; shifts++; }
-                if (shifts == 1 && getExprType(node.left.get()).pointerLevel == 0 && (getExprType(node.left.get()).type == "int")) {
-                    emit("lsl.16 .ax");
-                } else {
-                    for (int i = 0; i < shifts; i++) {
-                        emit("lsl.16 .ax");
-                    }
+                bool is32 = is32BitType(lhsType.type) && lhsType.pointerLevel == 0;
+                for (int i = 0; i < shifts; i++) {
+                    emit(is32 ? "aslq" : "lsl.16 .ax");
                 }
             } else {
                 int zpIdx = allocateZP(2);
@@ -2264,9 +2283,15 @@ void CodeGenerator::visit(BinaryOperation& node) {
             invalidateFlags(); resultNeeded = oldNeeded; return;
         } else if (node.op == "<<" || node.op == ">>") {
             bool isSigned = lhsType.isSigned && lhsType.pointerLevel == 0;
+            bool is32 = is32BitType(lhsType.type) && lhsType.pointerLevel == 0;
             for (int i = 0; i < val; i++) {
-                if (node.op == "<<") { emit("lsl.16 .ax"); }
-                else { emit(isSigned ? "asr.16 .ax" : "lsr.16 .ax"); }
+                if (is32) {
+                    if (node.op == "<<") emit("aslq");
+                    else emit(isSigned ? "asr.32 .AXYZ" : "lsrq");
+                } else {
+                    if (node.op == "<<") emit("lsl.16 .ax");
+                    else emit(isSigned ? "asr.16 .ax" : "lsr.16 .ax");
+                }
             }
             invalidateFlags(); resultNeeded = oldNeeded; return;
         }
@@ -2278,12 +2303,22 @@ void CodeGenerator::visit(BinaryOperation& node) {
 
     if (is32BitOp) {
         // --- 32-bit code path using native Q register operations ---
+        // Widen left operand to 32-bit if needed
+        if (!is32BitType(lhsType.type) || lhsType.pointerLevel > 0) {
+            if (lhsType.isSigned) emit("sxt.16"); // sign-extend AX → AXYZ
+            else { emit("ldy #$00"); emit("ldz #$00"); } // zero-extend
+        }
         int zpIdx = allocateZP(4);
         std::stringstream ss;
         ss << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpIdx);
         emit("stq $" + ss.str());  // save left operand to ZP
         node.right->accept(*this);
         resultNeeded = oldNeeded;
+        // Widen right operand to 32-bit if needed
+        if (!is32BitType(rhsType.type) || rhsType.pointerLevel > 0) {
+            if (rhsType.isSigned) emit("sxt.16");
+            else { emit("ldy #$00"); emit("ldz #$00"); }
+        }
 
         if (node.op == "+" || node.op == "&" || node.op == "|" || node.op == "^") {
             // Commutative ops: right is in AXYZ, left in ZP — use native Q ops
@@ -2553,8 +2588,9 @@ void CodeGenerator::visit(UnaryOperation& node) {
             std::string rName = resolveVarName(ref->name);
             VarInfo vi = variableTypes.count(rName) ? variableTypes.at(rName) : globalVariableTypes.at(rName);
             if (vi.isConst) throw std::runtime_error("Compile Error: Increment/decrement of read-only variable '" + ref->name + "'");
-            bool is16Bit = (vi.pointerLevel > 0 || vi.type == "int");
-            if (isStruct(vi.type)) {
+            bool is32Bit = is32BitType(vi.type) && vi.pointerLevel == 0;
+            bool is16Bit = !is32Bit && (vi.pointerLevel > 0 || vi.type == "int");
+            if (!is32Bit && isStruct(vi.type)) {
                 std::string sName = getAggregateName(vi.type);
                 if (structs.count(sName) && structs[sName]->totalSize > 1) is16Bit = true;
             }
@@ -2562,11 +2598,17 @@ void CodeGenerator::visit(UnaryOperation& node) {
             invalidateRegs();
             bool isGlobal = globalVariableTypes.count(rName);
             std::string suffix = isGlobal ? "" : ", s";
-            if (is16Bit && !isGlobal) {
+            if (is32Bit && isGlobal) {
+                // Native 32-bit inc/dec on absolute address
+                if (isInc) emit("incq " + rName);
+                else emit("decq " + rName);
+            } else if (is32Bit) {
+                // Stack-relative 32-bit inc/dec: not yet implemented, fall through to generic path
+                // TODO: implement stack-relative 32-bit inc/dec
+            } else if (is16Bit && !isGlobal) {
                 if (isInc) emit("inw " + rName + suffix);
                 else emit("dew " + rName + suffix);
             } else if (is16Bit) {
-                // inw/dew only support base-page; use inc/dec absolute
                 if (isInc) {
                     emit("inc " + rName);
                     emit("bne *+5");
@@ -2664,8 +2706,15 @@ void CodeGenerator::visit(UnaryOperation& node) {
             bool is8Bit = (is8BitType(subType.type) && subType.pointerLevel == 0);
             if (is8Bit) emit("chkzero.8"); else emit("chkzero.16");
             invalidateRegs(); updateZNFlags(FlagSource::A); emitter->ldx_imm(0); updateRegX(0);
-        } else if (node.op == "~") { emitter->not_16(); }
-        else if (node.op == "-") { emitter->neg_16(); }
+        } else if (node.op == "~") {
+            ExpressionType subType = getExprType(node.operand.get());
+            if (is32BitType(subType.type) && subType.pointerLevel == 0) emitter->not_32();
+            else emitter->not_16();
+        } else if (node.op == "-") {
+            ExpressionType subType = getExprType(node.operand.get());
+            if (is32BitType(subType.type) && subType.pointerLevel == 0) emitter->neg_32();
+            else emitter->neg_16();
+        }
     }
     invalidateRegs();
 }
@@ -2711,44 +2760,74 @@ void CodeGenerator::visit(ReturnStatement& node) {
     bool isStructReturn = currentFunction && structReturningFunctions.count(currentFunction->name) > 0;
 
     if (isStructReturn && node.expression) {
-        // Copy the return struct to *_ret_ptr
-        std::string sName = getAggregateName(currentFunction->returnType);
-        int structSize = structs.count(sName) ? structs[sName]->totalSize : 2;
+        bool isLongReturn = is32BitType(currentFunction->returnType) && currentFunction->returnPointerLevel == 0;
 
-        // Get source address (the expression result — should be a struct lvalue)
-        emitAddress(node.expression.get());
-        // AX now holds the source address; save to ZP
-        int zpSrc = allocateZP(2);
-        std::stringstream ssSrc;
-        ssSrc << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpSrc);
-        emit("stax $" + ssSrc.str());
+        if (isLongReturn) {
+            // Long return: evaluate expression into AXYZ, store through hidden pointer
+            bool oldNeeded = resultNeeded;
+            resultNeeded = true;
+            node.expression->accept(*this);
+            resultNeeded = oldNeeded;
 
-        // Load destination address from _ret_ptr parameter
-        emit("ldax _p___ret_ptr, s");
-        int zpDest = allocateZP(2);
-        std::stringstream ssDest;
-        ssDest << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpDest);
-        emit("stax $" + ssDest.str());
-
-        // Byte-copy loop: copy structSize bytes from (zpSrc) to (zpDest)
-        if (structSize <= 8) {
-            // Unrolled copy for small structs
-            for (int i = 0; i < structSize; i++) {
+            // Save AXYZ to ZP byte-by-byte (avoiding stq for ZP compatibility)
+            int zpVal = allocateZP(4);
+            int zpDest = allocateZP(2);
+            std::stringstream ssVal, ssDest;
+            ssVal << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpVal);
+            ssDest << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpDest);
+            emit("sta " + ssVal.str());
+            emit("stx " + ssVal.str() + "+1");
+            emit("pha"); emit("tya"); emit("sta " + ssVal.str() + "+2");
+            emit("tza"); emit("sta " + ssVal.str() + "+3"); emit("pla");
+            // Load destination pointer
+            emit("ldax _p___ret_ptr, s");
+            emit("stax " + ssDest.str());
+            // Store 4 bytes through pointer
+            for (int i = 0; i < 4; i++) {
                 emitter->ldy_imm(i);
-                emit("lda ($" + ssSrc.str() + "),y");
-                emit("sta ($" + ssDest.str() + "),y");
+                emit("lda " + ssVal.str() + "+" + std::to_string(i));
+                emit("sta (" + ssDest.str() + "),y");
             }
+            freeZP(zpDest, 2);
+            freeZP(zpVal, 4);
         } else {
-            // Use DMA MOVE for larger structs
-            std::stringstream ssLen;
-            ssLen << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (structSize & 0xFF);
-            emit("ldx #$" + ssLen.str());
-            emit("ldy #$00");
-            emit("MOVE ($" + ssSrc.str() + "), ($" + ssDest.str() + ")");
-        }
+            // Struct return: copy via source address
+            std::string sName = getAggregateName(currentFunction->returnType);
+            int structSize = structs.count(sName) ? structs[sName]->totalSize : 2;
 
-        freeZP(zpDest, 2);
-        freeZP(zpSrc, 2);
+            // Get source address (the expression result — should be a struct lvalue)
+            emitAddress(node.expression.get());
+            // AX now holds the source address; save to ZP
+            int zpSrc = allocateZP(2);
+            std::stringstream ssSrc;
+            ssSrc << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpSrc);
+            emit("stax $" + ssSrc.str());
+
+            // Load destination address from _ret_ptr parameter
+            emit("ldax _p___ret_ptr, s");
+            int zpDest = allocateZP(2);
+            std::stringstream ssDest;
+            ssDest << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpDest);
+            emit("stax $" + ssDest.str());
+
+            // Byte-copy loop: copy structSize bytes from (zpSrc) to (zpDest)
+            if (structSize <= 8) {
+                for (int i = 0; i < structSize; i++) {
+                    emitter->ldy_imm(i);
+                    emit("lda ($" + ssSrc.str() + "),y");
+                    emit("sta ($" + ssDest.str() + "),y");
+                }
+            } else {
+                std::stringstream ssLen;
+                ssLen << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (structSize & 0xFF);
+                emit("ldx #$" + ssLen.str());
+                emit("ldy #$00");
+                emit("MOVE ($" + ssSrc.str() + "), ($" + ssDest.str() + ")");
+            }
+
+            freeZP(zpDest, 2);
+            freeZP(zpSrc, 2);
+        }
     } else if (node.expression) {
         bool oldNeeded = resultNeeded;
         resultNeeded = true;
@@ -3293,13 +3372,23 @@ void CodeGenerator::visit(MemberAccess& node) {
 
 void CodeGenerator::visit(IntegerLiteral& node) {
     if (!resultNeeded) return;
+    uint32_t uval = (uint32_t)node.value;
     if (node.value == 0) {
         emit("zero a, x"); updateRegA(0); updateRegX(0); updateZNFlags(FlagSource::A);
         return;
     }
-    std::stringstream ss;
-    ss << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (int)node.value;
-    emit("ldax " + ss.str());
+    if (uval > 0xFFFF || (node.value < 0 && node.value < -32768)) {
+        // Value exceeds 16-bit range — load all 4 bytes into AXYZ
+        std::stringstream ss;
+        ss << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (uval & 0xFFFF);
+        emit("ldax " + ss.str());
+        emitter->ldy_imm((uval >> 16) & 0xFF);
+        emitter->ldz_imm((uval >> 24) & 0xFF);
+    } else {
+        std::stringstream ss;
+        ss << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (uval & 0xFFFF);
+        emit("ldax " + ss.str());
+    }
     updateRegA(node.value & 0xFF); updateRegX((node.value >> 8) & 0xFF); updateZNFlags(FlagSource::A);
 }
 
@@ -3368,11 +3457,12 @@ void CodeGenerator::visit(VariableReference& node) {
         if (isGlobal) {
             emit("ldq " + rName);
         } else {
-            // Stack-relative: byte-by-byte load (LDQ doesn't support stack-relative)
-            emit("lda.sp " + rName);
+            // Stack-relative: byte-by-byte load
+            // LDY/LDZ don't support stack-relative, so use LDA+transfer
+            emit("lda " + rName + "+3, s"); emit("taz");
+            emit("lda " + rName + "+2, s"); emit("tay");
             emit("ldx " + rName + "+1, s");
-            emit("ldy " + rName + "+2, s");
-            emit("ldz " + rName + "+3, s");
+            emit("lda.sp " + rName);
         }
         invalidateRegs();
     } else if (is16Bit) {
@@ -3592,43 +3682,39 @@ void CodeGenerator::visit(FunctionCall& node) {
         auto& arg = node.arguments[ai];
         // Determine the callee's expected param size for this arg position
         bool paramIs8Bit = false;
+        bool paramIs32Bit = false;
         if (hasParamTypes && ai < (int)calleePTypes.size()) {
             paramIs8Bit = is8BitType(calleePTypes[ai].type) && calleePTypes[ai].pointerLevel == 0;
+            paramIs32Bit = is32BitType(calleePTypes[ai].type) && calleePTypes[ai].pointerLevel == 0;
         }
-        // Variadic args always promoted to 16-bit
+        // Also check the argument expression type for long
+        ExpressionType argType = getExprType(arg.get());
+        if (is32BitType(argType.type) && argType.pointerLevel == 0) paramIs32Bit = true;
+        // Variadic args always promoted to at least 16-bit
         if (isVariadicCall && ai >= (int)(hasParamTypes ? calleePTypes.size() : 0)) paramIs8Bit = false;
         if (isVariadicCall) paramIs8Bit = false; // default argument promotion
 
-        int pushSize = paramIs8Bit ? 1 : 2;
-        if (auto* ref = dynamic_cast<VariableReference*>(arg.get())) {
-            std::string rName = resolveVarName(ref->name);
-            if (!variableTypes.count(rName) && !globalVariableTypes.count(rName)) {
-                arg->accept(*this);
-                if (paramIs8Bit) { emitter->push("a"); }
-                else emitter->push_ax();
-            } else {
-                VarInfo vi = variableTypes.count(rName) ? variableTypes.at(rName) : globalVariableTypes.at(rName);
-                bool srcIs16Bit = (vi.pointerLevel > 0 || vi.type == "int");
-                if (isStruct(vi.type)) {
-                    std::string sName = getAggregateName(vi.type);
-                    if (structs.count(sName) && structs[sName]->totalSize > 1) srcIs16Bit = true;
-                }
-                if (registerVars.count(rName)) {
-                    arg->accept(*this);
-                    if (paramIs8Bit) { emitter->push("a"); }
-                    else emitter->push_ax();
-                } else if (!paramIs8Bit && srcIs16Bit) {
-                    emit("phw.sp " + rName + ", s");
-                } else {
-                    arg->accept(*this);
-                    if (paramIs8Bit) { emitter->push("a"); }
-                    else emitter->push_ax();
-                }
+        int pushSize = paramIs32Bit ? 4 : paramIs8Bit ? 1 : 2;
+        arg->accept(*this);
+        if (paramIs32Bit) {
+            // Widen to 32-bit if the argument expression is narrower
+            ExpressionType aType = getExprType(arg.get());
+            bool alreadyWide = is32BitType(aType.type) && aType.pointerLevel == 0;
+            // IntegerLiterals > 16-bit already loaded Y/Z directly
+            if (auto* lit = dynamic_cast<IntegerLiteral*>(arg.get())) {
+                uint32_t uv = (uint32_t)lit->value;
+                if (uv > 0xFFFF || (lit->value < 0 && lit->value < -32768)) alreadyWide = true;
             }
+            if (!alreadyWide) {
+                if (aType.isSigned) emit("sxt.16");
+                else { emit("ldy #$00"); emit("ldz #$00"); }
+            }
+            // Push AXYZ: Z first (hi), then Y, X, A (lo) for little-endian on stack
+            emit("phz"); emit("phy"); emit("phx"); emit("pha");
+        } else if (paramIs8Bit) {
+            emitter->push("a");
         } else {
-            arg->accept(*this);
-            if (paramIs8Bit) { emitter->push("a"); }
-            else emitter->push_ax();
+            emitter->push_ax();
         }
         // Keep assembler's frame tracking in sync so subsequent stack-relative reads use correct offsets
         pushedBytes += pushSize;
@@ -3638,7 +3724,7 @@ void CodeGenerator::visit(FunctionCall& node) {
     }
     int argBytes = pushedBytes;
     resultNeeded = oldNeeded; emit("jsr _" + node.name);
-    // Caller cleans up pushed arguments using PLA (A saved in Z)
+    // Caller cleans up pushed arguments
     if (argBytes > 0) {
         emitter->taz();
         for (int i = 0; i < argBytes; ++i) emitter->pla();
@@ -3715,23 +3801,29 @@ void CodeGenerator::visit(CastExpression& node) {
     if (!resultNeeded) return;
 
     ExpressionType srcType = getExprType(node.expression.get());
-    int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
-    int dstSize = (node.pointerLevel > 0 || node.targetType == "int" || node.targetType == "void") ? 2 : 1;
+    int srcSize = is32BitType(srcType.type) ? 4 : (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
+    int dstSize = is32BitType(node.targetType) ? 4 : (node.pointerLevel > 0 || node.targetType == "int" || node.targetType == "void") ? 2 : 1;
 
     if (node.targetType == "_Bool") {
         emitBoolNormalize(srcSize);
         emitter->ldx_imm(0);
         updateRegX(0);
+    } else if (dstSize == 4 && srcSize <= 2) {
+        // Widening to 32-bit: extend AX to AXYZ
+        if (srcSize == 1) { emitter->ldx_imm(0); updateRegX(0); }
+        if (node.isSigned || srcType.isSigned) emit("sxt.16"); // sign-extend AX → AXYZ
+        else { emit("ldy #$00"); emit("ldz #$00"); } // zero-extend
+    } else if (srcSize == 4 && dstSize <= 2) {
+        // Narrowing from 32-bit: keep A (and X for 16-bit), discard Y/Z
+        if (dstSize == 1) { emitter->ldx_imm(0); updateRegX(0); }
     } else if (srcSize == 2 && dstSize == 1) {
-        // Narrowing: int/pointer -> char, just keep A (low byte), ignore X
         emitter->ldx_imm(0);
         updateRegX(0);
     } else if (srcSize == 1 && dstSize == 2) {
-        // Widening: char -> int/pointer, zero-extend X
         emitter->ldx_imm(0);
         updateRegX(0);
     }
-    // Same size: no-op (the value is already in A or A:X)
+    // Same size: no-op
 }
 
 void CodeGenerator::visit(CompoundLiteral& node) {

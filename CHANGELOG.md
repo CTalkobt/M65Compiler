@@ -6,6 +6,7 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### Added
 - **Compiler (cc45)**:
+    - **`long` type**: Full support for 32-bit `long` and `unsigned long` integer types. Values use the Q register (AXYZ) (A=byte0, X=byte1, Y=byte2, Z=byte3). Supports global and local variable declarations, function parameters (4-byte push), function return values (hidden-pointer ABI, same as struct returns), arithmetic (`+`, `-`, `*`, `/`, `%`), bitwise (`&`, `|`, `^`, `~`), comparison (`==`, `!=`, `<`, `>`, `<=`, `>=`), shifts (`<<`, `>>`), unary negation (`-`), increment/decrement (`++`/`--` via native `incq`/`decq` for globals), and type casts (widening via `sxt.16`/zero-extend, narrowing by truncation). `sizeof(long)` returns 4. Integer literal suffixes `L`/`l`/`U`/`u` are accepted. Global data emitted via `.dword` directive. Leverages native 45GS02 Q register operations (`ldq`/`stq`, `adcq`/`sbcq`, `andq`/`oraq`/`eorq`, `cmpq`, `aslq`/`lsrq`/`rolq`/`rorq`, `incq`/`decq`) for efficient 32-bit code on absolute addresses.
     - **Compound literals**: Support for C99 compound literals — `(struct Point){1, 2}`, `(int){42}`, `(int[]){1,2,3}`. Creates anonymous temporary values inline. Struct and array compound literals allocate frame temporaries and return their address; scalar compound literals produce the value directly. Works as variable initializers (`struct Point p = (struct Point){10, 20}`), function arguments (`foo(&(struct Point){1, 2})`), and in general expression contexts. New `CompoundLiteral` AST node with full support across Parser, CodeGenerator, ConstantFolder, FrameScanner, and all internal AST visitors.
     - **Struct initializer lists**: `struct Point p = {1, 2}` now initializes struct members in declaration order (by offset). Previously, struct locals with initializer lists only worked for arrays. The frame-local VariableDeclaration handler now detects struct types and initializes each member individually at its correct offset.
     - **Bitfields**: Full support for C-standard bitfield declarations in structs and unions. Syntax: `unsigned char mode : 3;`, `unsigned int counter : 10;`. Storage units are automatically packed — consecutive bitfields of the same type share a byte (for `char`) or word (for `int`), with a new unit started when the type changes or the field won't fit. Layout is conformant with C99 §6.7.2.1 (never spans storage unit boundaries). Read, write, increment/decrement, and arrow-access all work. `&struct.bitfield` is correctly rejected as a compile error.
@@ -18,6 +19,13 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
         - `bfins.ind $zp, #bitoff, #width` — insert via indirect ZP pointer.
         - `bfins16` / `bfins16.sp` / `bfins16.ind` — 16-bit storage unit variants of the above.
     - All `bfins` variants use the 45GS02's TRB (Test and Reset Bits) and TSB (Test and Set Bits) instructions where possible (ZP and absolute addressing modes), providing atomic read-modify-write with fewer instructions than the general shift/mask/ORA approach.
+    - **32-bit simulated opcodes**: Sixteen new `.32` and `.s32` pseudo-ops for 32-bit operations on the Q register (AXYZ): `add.32`, `sub.32`, `and.32`, `ora.32`, `eor.32`, `cmp.32`, `cmp.s32`, `neg.32`, `not.32`, `abs.32`, `lsl.32`, `lsr.32`, `rol.32`, `ror.32`, `asr.32`, `sxt.16` (sign-extend AX to AXYZ). Plus signed variants (`add.s32`, `sub.s32`, `neg.s32`, `abs.s32`, `asr.s32`, `lsl.s32`, `lsr.s32`, `rol.s32`, `ror.s32`). All use deferred branch patching (`emitBranchPlaceholder`/`patchBranchTarget`) for correct offset resolution. These complement the native Q register operations for cases requiring register-only or simulated addressing modes.
+    - **Q register instruction aliases**: Added `adcq`, `sbcq`, `andq`, `oraq`, `eorq`, `cmpq`, `incq`, `decq`, `aslq`, `lsrq`, `rolq`, `rorq`, `negq` as recognized instruction mnemonics. These are NOP-NOP-prefixed versions of their 8-bit counterparts, operating on the full 32-bit Q register (AXYZ).
+    - **`D#` parameter size prefix**: The `proc` directive now accepts `D#` (dword, 4 bytes) in addition to `B#` (byte) and `W#` (word) for parameter size declarations, enabling 32-bit parameter passing.
+
+### Fixed
+- **Assembler (ca45)**:
+    - **`ldq`/`stq` missing Q prefix**: `ldq` and `stq` were being assembled without the NOP-NOP prefix required by the 45GS02 to operate on the Q register, causing them to behave as regular `lda`/`sta`. Both sizing (pass1) and emission (pass2) now correctly emit the 2-byte Q prefix for `ldq`/`stq`.
 
 ### Fixed
 - **Compiler (cc45)**:
@@ -28,6 +36,9 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - Added `test_compound_literal.c` — mmemu validation test for compound literals (7 sub-tests): struct compound literal as variable initializer, scalar int/char compound literals, struct compound literal passed as pointer argument to function, struct with expression values, zero-init struct. Verified at `$4000`: `1E 2A 07 2C 01 14 00`.
 - Added `test_bitfield.c` — compiler test validating bitfield struct declarations, read, write, increment, and 16-bit bitfields compile and assemble.
 - Added `test_bitfield_mmemu.c` — mmemu runtime validation test for bitfields. Tests 8-bit bitfield write/read/increment (`active:1`, `mode:3`, `priority:4`) and 16-bit bitfield write/read (`counter:10`, `channel:6`). Verified at `$4000`: `01 05 0C 06 F4 1E`.
+- Added `test_long.c` — compiler test validating long type declarations, arithmetic, function params/returns, unary ops, casting, sizeof, and bitwise operations compile and assemble correctly.
+- Added `test_long_mmemu.c` — mmemu runtime validation test for long type (8 sub-tests): sizeof(long)=4, function call with 32-bit args and hidden-pointer return, unsigned comparison, low-byte extraction via cast, int↔long casting, 32-bit overflow (incq wrapping). Verified at `$4000`: `04 C0 01 A0 2A A0 00 AA`.
+- Added `test_32bit_ops.s` — assembler-level mmemu validation test for 32-bit operations: native Q register add (`adcq`), subtract (`sbcq`), bitwise OR (`oraq`), negation (`neg.32`), and sign extension (`sxt.16`). Verified at `$4000`: `E0 93 04 00 A0 86 01 00 E0 8F 03 00 60 79 FE FF` and at `$4010`: `FF FF FF FF`.
 
 ### Changed
 - **Testing**:

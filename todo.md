@@ -114,7 +114,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **Signed Integers**: Support `signed` types and signed comparisons.
 - [X] **`unsigned` Keyword**: Support the explicit `unsigned` type specifier for variables and return types.
 - [X] **`short` Type**: Alias for `int` on this 16-bit target. `short`, `unsigned short`, `signed short` accepted in all type contexts.
-- [d] **`long` Type**: Support 32-bit `long` integer type.
+- [X] **`long` Type**: Support 32-bit `long` and `unsigned long` integer types. AXYZ register quad, native Q ops (`ldq`/`stq`/`adcq`/`sbcq`/`andq`/`oraq`/`eorq`/`cmpq`/`incq`/`decq`/`aslq`/`lsrq`), hidden-pointer return ABI, `.dword` data, assembler `.32` simulated ops.
 - [d] **`long long` Type**: Support 64-bit `long long` integer type (C99).
 - [X] **`_Bool` Type**: Support C99 `_Bool` boolean type and `<stdbool.h>` header.
 - [d] **`float` / `double` Types**: Support floating-point types (may leverage Commodore 40-bit float format via assembler).

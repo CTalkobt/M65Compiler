@@ -292,6 +292,11 @@ uint8_t AssemblerOpcodeDatabase::getOpcode(const std::string& m, AddressingMode 
     const auto& opMap = getOpcodeMap();
     auto it = opMap.find({baseM, mode});
     if (it != opMap.end()) return it->second;
+    // Fallback: IMPLIED → ACCUMULATOR (e.g., lsrq with no operand)
+    if (mode == AddressingMode::IMPLIED) {
+        it = opMap.find({baseM, AddressingMode::ACCUMULATOR});
+        if (it != opMap.end()) return it->second;
+    }
     return 0;
 }
 

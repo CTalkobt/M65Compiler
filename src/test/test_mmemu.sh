@@ -498,6 +498,68 @@ else
     fi
 fi
 
+echo "Testing long type (32-bit) operations..."
+
+$CC -O0 src/test-resources/test_long_mmemu.c -o build/test/test_long_mmemu.s 2>/dev/null
+if [ $? -ne 0 ]; then
+    echo "FAIL: Compilation failed for test_long_mmemu.c"
+    failed=$((failed + 1))
+else
+    $AS build/test/test_long_mmemu.s -o build/test/test_long_mmemu.prg
+    if [ $? -ne 0 ]; then
+        echo "FAIL: Assembly failed for test_long_mmemu.s"
+        failed=$((failed + 1))
+    else
+        OUTPUT=$(echo -e "load build/test/test_long_mmemu.prg\nsetpc \$2000\nstep 50000000\nm \$4000 12\nq" | $MMEMU -m rawMega65 2>/dev/null)
+
+        if echo "$OUTPUT" | grep -qi "4000:.*04 C0 01 A0 2A A0 00 E0 93 04 00 AA"; then
+            echo "SUCCESS: long type tests passed."
+        else
+            echo "FAIL: test_long_mmemu.c — long type validation failed."
+            echo "Expected 4000: 04 C0 01 A0 2A A0 00 E0 93 04 00 AA"
+            echo "Actual output:"
+            echo "$OUTPUT" | grep "4000:"
+            failed=$((failed + 1))
+        fi
+    fi
+fi
+
+echo "Testing 32-bit assembler operations..."
+
+$AS src/test-resources/test_32bit_ops.s -o build/test/test_32bit_ops.bin
+if [ $? -ne 0 ]; then
+    echo "FAIL: Assembly failed for test_32bit_ops.s"
+    failed=$((failed + 1))
+else
+    OUTPUT=$(echo -e "load build/test/test_32bit_ops.bin \$2000\nsetpc \$2000\nstep 500\nm \$4000 20\nq" | $MMEMU -m rawMega65 2>/dev/null)
+
+    # All results in one 16-byte dump line from $4000
+    EXPECTED_ALL="E0 93 04 00 A0 86 01 00 E0 8F 03 00 60 79 FE FF"
+
+    if echo "$OUTPUT" | grep -qi "4000:.*E0 93 04 00 A0 86 01 00 E0 8F 03 00 60 79 FE FF"; then
+        echo "SUCCESS: 32-bit ADD correct."
+        echo "SUCCESS: 32-bit SUB correct."
+        echo "SUCCESS: 32-bit ORA correct."
+        echo "SUCCESS: 32-bit NEG correct."
+    else
+        echo "FAIL: 32-bit operations failed."
+        echo "Expected at \$4000: $EXPECTED_ALL"
+        echo "Actual output:"
+        echo "$OUTPUT" | grep "4000:"
+        failed=$((failed + 1))
+    fi
+
+    if echo "$OUTPUT" | grep -qi "4010:.*FF FF FF FF"; then
+        echo "SUCCESS: SXT.16 correct."
+    else
+        echo "FAIL: SXT.16 failed."
+        echo "Expected sxt result: FF FF FF FF"
+        echo "Actual output:"
+        echo "$OUTPUT" | grep "4010:"
+        failed=$((failed + 1))
+    fi
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All mmemu tests passed!"
     exit 0

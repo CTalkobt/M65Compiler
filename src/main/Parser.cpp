@@ -1303,7 +1303,7 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         }
     } else if (peek().type == TokenType::INTEGER_LITERAL) {
         const Token& litToken = advance();
-        expr = setPos(std::make_unique<IntegerLiteral>(std::stoi(litToken.value)), litToken);
+        expr = setPos(std::make_unique<IntegerLiteral>((int)std::stol(litToken.value)), litToken);
     } else if (peek().type == TokenType::STRING_LITERAL) {
         const Token& litToken = advance();
         expr = setPos(std::make_unique<StringLiteral>(litToken.value), litToken);

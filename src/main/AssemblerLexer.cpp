@@ -203,6 +203,8 @@ AssemblerToken AssemblerLexer::lexIdentifierOrInstruction() {
         "SMB3", "SMB4", "SMB5", "SMB6", "SMB7", "STA", "STQ", "STX", "STY",
         "STZ", "TAB", "TAY", "TAZ", "TBA", "TAX", "TAY", "TSX", "TSY", "TXA",
         "TXS", "TYA", "TYS", "TZA", "TRB", "TSB",
+        "ADCQ", "SBCQ", "ANDQ", "ORAQ", "EORQ", "CMPQ", "INCQ", "DECQ",
+        "ASLQ", "LSRQ", "ROLQ", "RORQ", "NEGQ",
         "CALL", "PROC", "ENDPROC", "RTN", "EXPR", "MUL", "MUL.8", "MUL.16", "MUL.24", "MUL.32", "DIV", "DIV.8", "DIV.16", "DIV.24", "DIV.32",
         "MUL.S16", "DIV.S16", "MOD.16", "MOD.S16",
         "LDAX", "LDAY", "LDAZ", "STAX", "STAY", "STAZ",

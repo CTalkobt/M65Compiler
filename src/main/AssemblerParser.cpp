@@ -921,11 +921,14 @@ void AssemblerParser::pass1() {
                     ctx->name = pN; ctx->totalParamSize = 0;
                     std::vector<std::pair<std::string, int>> args;
                     while (match(AssemblerTokenType::COMMA)) {
-                        bool isB = false;
-                        if (peek().type == AssemblerTokenType::IDENTIFIER && (peek().value == "B" || peek().value == "W")) {
-                            isB = (advance().value == "B"); match(AssemblerTokenType::HASH);
+                        int pSize = 2; // default: word
+                        if (peek().type == AssemblerTokenType::IDENTIFIER && (peek().value == "B" || peek().value == "W" || peek().value == "D")) {
+                            std::string sizeSpec = advance().value;
+                            if (sizeSpec == "B") pSize = 1;
+                            else if (sizeSpec == "D") pSize = 4;
+                            match(AssemblerTokenType::HASH);
                         }
-                        args.push_back({advance().value, isB ? 1 : 2});
+                        args.push_back({advance().value, pSize});
                         ctx->totalParamSize += args.back().second;
                     }
                     scopeStack.push_back(pN); stmt->scopePrefix = currentScopePrefix();
@@ -1289,7 +1292,7 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
     }
 
     int size = 1;
-    bool isQuad = (instr.mnemonic.size() > 1 && instr.mnemonic.back() == 'q' && instr.mnemonic != "ldq" && instr.mnemonic != "stq" && instr.mnemonic != "beq" && instr.mnemonic != "bne" && instr.mnemonic != "bra" && instr.mnemonic != "bsr");
+    bool isQuad = (instr.mnemonic.size() > 1 && instr.mnemonic.back() == 'q' && instr.mnemonic != "beq" && instr.mnemonic != "bne" && instr.mnemonic != "bra" && instr.mnemonic != "bsr");
 
     if (isQuad) size += 2;
     if (resolvedMode == AddressingMode::FLAT_INDIRECT_Z) size += 1;
