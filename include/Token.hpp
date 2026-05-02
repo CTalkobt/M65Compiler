@@ -39,6 +39,7 @@ enum class TokenType {
     BOOL,  // _Bool (C99)
     RESTRICT, // restrict (C99)
     SHORT,    // short (alias for int on this target)
+    LONG,     // long (32-bit on this target)
     REGISTER, // register (storage class)
     INLINE,   // inline (function specifier, currently no-op)
 
@@ -146,6 +147,7 @@ struct Token {
             case TokenType::BOOL: return "_Bool";
             case TokenType::RESTRICT: return "RESTRICT";
             case TokenType::SHORT: return "SHORT";
+            case TokenType::LONG: return "LONG";
             case TokenType::REGISTER: return "REGISTER";
             case TokenType::INLINE: return "INLINE";
             case TokenType::ELLIPSIS: return "ELLIPSIS";

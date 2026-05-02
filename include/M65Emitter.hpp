@@ -188,12 +188,27 @@ public:
     void bmi_label(const std::string& label);
     void bpl_label(const std::string& label);
 
-    // --- High-level Helpers ---
+    // --- Branch patching (binary mode) ---
+    // Use these to avoid hardcoded branch offsets in simulated ops.
+    // emitBranchPlaceholder() emits a 2-byte branch with offset 0, returns the position.
+    // patchBranchTarget() patches the offset to jump to the current position.
+    size_t pos() const { return binary ? binary->size() : 0; }
+    size_t emitBranchPlaceholder(uint8_t opcode);
+    void patchBranchTarget(size_t branchPos);
+
+    // --- High-level Helpers (16-bit) ---
     void add_16_imm(uint16_t val);
     void sub_16_imm(uint16_t val);
     void neg_16();
     void not_16();
     void transfer_ax_to_zp(uint8_t addr);
+
+    // --- High-level Helpers (32-bit, .AXYZ) ---
+    void add_32_imm(uint32_t val);
+    void sub_32_imm(uint32_t val);
+    void neg_32();
+    void not_32();
+    void sxt_16();  // sign-extend AX to AXYZ
 
     void emitDirective(const std::string& name, const std::string& arg = "");
     void emitRaw(const std::string& text);

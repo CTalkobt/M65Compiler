@@ -1464,3 +1464,398 @@ void AssemblerSimulatedOps::emitBFInsCode(AssemblerParser* parser, M65Emitter& e
         e.emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
     }
 }
+
+// ========================================================================
+// 32-bit simulated operations
+// Convention: .AXYZ register quad — A=byte0(lo), X=byte1, Y=byte2, Z=byte3(hi)
+// Memory: addr+0..addr+3 (little-endian)
+// ========================================================================
+
+// SXT.16 — Sign-extend 16-bit AX to 32-bit AXYZ
+void AssemblerSimulatedOps::emitSXT16Code(AssemblerParser*, M65Emitter& e, int, const std::string&) {
+    // A=lo, X=hi already set. Sign-extend X into Y,Z.
+    e.pha();             // save A
+    e.txa();             // A = high byte of 16-bit value
+    e.cmp_imm(0x80);     // test sign bit → carry set if negative
+    e.lda_imm(0);
+    e.bcc(0x02);
+    e.lda_imm(0xFF);     // A = sign extension byte
+    e.tay();             // Y = sign
+    e.taz();             // Z = sign
+    e.pla();             // restore A (lo byte)
+}
+
+// ADD.32 / SUB.32 — 32-bit addition/subtraction
+void AssemblerSimulatedOps::emitAddSub32Code(AssemblerParser* parser, M65Emitter& e, bool isAdd,
+    const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    int idx = tokenIndex;
+    bool isImmediate = (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) ||
+                       (idx > 0 && parser->tokens[idx - 1].type == AssemblerTokenType::HASH);
+    if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) idx++;
+    auto srcAst = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
+    if (!srcAst) return;
+    std::string DEST = dest;
+    if (!DEST.empty() && DEST[0] != '.' && DEST[0] != '$' && !isdigit(DEST[0]) && DEST[0] != '#') DEST = "." + DEST;
+    std::transform(DEST.begin(), DEST.end(), DEST.begin(), ::toupper);
+
+    if (DEST == ".AXYZ" || DEST == ".Q" || DEST == "") {
+        if (isAdd) e.clc(); else e.sec();
+        if (isImmediate && srcAst->isConstant(parser)) {
+            uint32_t val = srcAst->getValue(parser);
+            // byte 0 (A)
+            if (isAdd) e.adc_imm(val & 0xFF); else e.sbc_imm(val & 0xFF);
+            e.pha();
+            // byte 1 (X)
+            e.txa();
+            if (isAdd) e.adc_imm((val >> 8) & 0xFF); else e.sbc_imm((val >> 8) & 0xFF);
+            e.tax();
+            // byte 2 (Y)
+            e.tya();
+            if (isAdd) e.adc_imm((val >> 16) & 0xFF); else e.sbc_imm((val >> 16) & 0xFF);
+            e.tay();
+            // byte 3 (Z)
+            e.tza();
+            if (isAdd) e.adc_imm((val >> 24) & 0xFF); else e.sbc_imm((val >> 24) & 0xFF);
+            e.taz();
+            e.pla();
+        } else {
+            uint32_t addr = 0;
+            try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
+            catch(...) {
+                std::string src = parser->tokens[tokenIndex].value;
+                if (parser->tokens[tokenIndex].type == AssemblerTokenType::REGISTER) src = "." + src;
+                Symbol* sym = parser->resolveSymbol(src, scopePrefix);
+                if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(src); } catch(...) { addr = 0; } }
+            }
+            if (isAdd) e.adc_abs(addr); else e.sbc_abs(addr);
+            e.pha(); e.txa();
+            if (isAdd) e.adc_abs(addr + 1); else e.sbc_abs(addr + 1);
+            e.tax(); e.tya();
+            if (isAdd) e.adc_abs(addr + 2); else e.sbc_abs(addr + 2);
+            e.tay(); e.tza();
+            if (isAdd) e.adc_abs(addr + 3); else e.sbc_abs(addr + 3);
+            e.taz(); e.pla();
+        }
+    } else {
+        // Memory destination
+        Symbol* sym = parser->resolveSymbol(dest, scopePrefix);
+        uint32_t dAddr = 0; if (sym) dAddr = sym->value; else { try { dAddr = parseNumericLiteral(dest); } catch(...) { dAddr = 0; } }
+        if (isAdd) e.clc(); else e.sec();
+        if (isImmediate && srcAst->isConstant(parser)) {
+            uint32_t val = srcAst->getValue(parser);
+            e.lda_abs(dAddr);   if (isAdd) e.adc_imm(val & 0xFF);         else e.sbc_imm(val & 0xFF);         e.sta_abs(dAddr);
+            e.lda_abs(dAddr+1); if (isAdd) e.adc_imm((val >> 8) & 0xFF);  else e.sbc_imm((val >> 8) & 0xFF);  e.sta_abs(dAddr+1);
+            e.lda_abs(dAddr+2); if (isAdd) e.adc_imm((val >> 16) & 0xFF); else e.sbc_imm((val >> 16) & 0xFF); e.sta_abs(dAddr+2);
+            e.lda_abs(dAddr+3); if (isAdd) e.adc_imm((val >> 24) & 0xFF); else e.sbc_imm((val >> 24) & 0xFF); e.sta_abs(dAddr+3);
+        } else {
+            uint32_t sAddr = 0;
+            try { sAddr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
+            catch(...) {
+                std::string src = parser->tokens[tokenIndex].value;
+                if (parser->tokens[tokenIndex].type == AssemblerTokenType::REGISTER) src = "." + src;
+                Symbol* symS = parser->resolveSymbol(src, scopePrefix);
+                if (symS) sAddr = symS->value; else { try { sAddr = parseNumericLiteral(src); } catch(...) { sAddr = 0; } }
+            }
+            e.lda_abs(dAddr);   if (isAdd) e.adc_abs(sAddr);   else e.sbc_abs(sAddr);   e.sta_abs(dAddr);
+            e.lda_abs(dAddr+1); if (isAdd) e.adc_abs(sAddr+1); else e.sbc_abs(sAddr+1); e.sta_abs(dAddr+1);
+            e.lda_abs(dAddr+2); if (isAdd) e.adc_abs(sAddr+2); else e.sbc_abs(sAddr+2); e.sta_abs(dAddr+2);
+            e.lda_abs(dAddr+3); if (isAdd) e.adc_abs(sAddr+3); else e.sbc_abs(sAddr+3); e.sta_abs(dAddr+3);
+        }
+    }
+}
+
+// AND.32 / ORA.32 / EOR.32 — 32-bit bitwise operations (AXYZ only)
+void AssemblerSimulatedOps::emitBitwise32Code(AssemblerParser* parser, M65Emitter& e,
+    const std::string& mnemonic, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    int idx = tokenIndex;
+    bool isImmediate = (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) ||
+                       (idx > 0 && parser->tokens[idx - 1].type == AssemblerTokenType::HASH);
+    if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) idx++;
+    auto srcAst = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
+    if (!srcAst) return;
+    std::string DEST = dest; if (!DEST.empty() && DEST[0] != '.') DEST = "." + DEST;
+    std::transform(DEST.begin(), DEST.end(), DEST.begin(), ::toupper);
+    std::string M = mnemonic; std::transform(M.begin(), M.end(), M.begin(), ::toupper);
+
+    auto doOp = [&](auto immFn, auto absFn) {
+        if (DEST == ".AXYZ" || DEST == ".Q") {
+            if (isImmediate && srcAst->isConstant(parser)) {
+                uint32_t val = srcAst->getValue(parser);
+                immFn(val & 0xFF);
+                e.pha(); e.txa(); immFn((val >> 8) & 0xFF); e.tax();
+                e.tya(); immFn((val >> 16) & 0xFF); e.tay();
+                e.tza(); immFn((val >> 24) & 0xFF); e.taz(); e.pla();
+            } else {
+                std::string src = parser->tokens[tokenIndex].value;
+                if (parser->tokens[tokenIndex].type == AssemblerTokenType::REGISTER) src = "." + src;
+                Symbol* sym = parser->resolveSymbol(src, scopePrefix);
+                uint32_t addr = 0; if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(src); } catch(...) { addr = 0; } }
+                absFn(addr);
+                e.pha(); e.txa(); absFn(addr + 1); e.tax();
+                e.tya(); absFn(addr + 2); e.tay();
+                e.tza(); absFn(addr + 3); e.taz(); e.pla();
+            }
+        } else throw std::runtime_error("Simulated bitwise 32-bit only supports .AXYZ destination");
+    };
+
+    if (M == "AND.32") doOp([&](uint8_t v){ e.and_imm(v); }, [&](uint32_t a){ e.and_abs(a); });
+    else if (M == "ORA.32") doOp([&](uint8_t v){ e.ora_imm(v); }, [&](uint32_t a){ e.ora_abs(a); });
+    else if (M == "EOR.32") doOp([&](uint8_t v){ e.eor_imm(v); }, [&](uint32_t a){ e.eor_abs(a); });
+}
+
+// CMP.32 — 32-bit unsigned comparison (.AXYZ vs immediate or memory)
+// Compare byte0(A), if NE→done; else byte1(X), ...; else byte3(Z).
+// Uses deferred branch patching via emitBranchPlaceholder/patchBranchTarget.
+void AssemblerSimulatedOps::emitCMP32Code(AssemblerParser* parser, M65Emitter& e,
+    const std::string& src1, int tokenIndex, const std::string& scopePrefix) {
+    int idx = tokenIndex;
+    bool isImmediate = (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) ||
+                       (idx > 0 && parser->tokens[idx - 1].type == AssemblerTokenType::HASH);
+    if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) idx++;
+    auto src2Ast = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
+    if (!src2Ast) return;
+    std::string SRC1 = src1; if (!SRC1.empty() && SRC1[0] != '.') SRC1 = "." + SRC1;
+    std::transform(SRC1.begin(), SRC1.end(), SRC1.begin(), ::toupper);
+    if (SRC1 == ".AXYZ" || SRC1 == ".Q") {
+        size_t br0, br1, br2;
+        if (isImmediate && src2Ast->isConstant(parser)) {
+            uint32_t val = src2Ast->getValue(parser);
+            e.cmp_imm(val & 0xFF);
+            br0 = e.emitBranchPlaceholder(0xD0); // BNE
+            e.txa(); e.cmp_imm((val >> 8) & 0xFF);
+            br1 = e.emitBranchPlaceholder(0xD0); // BNE
+            e.tya(); e.cmp_imm((val >> 16) & 0xFF);
+            br2 = e.emitBranchPlaceholder(0xD0); // BNE
+            e.tza(); e.cmp_imm((val >> 24) & 0xFF);
+        } else {
+            uint32_t addr = 0;
+            try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
+            catch(...) {
+                std::string src = parser->tokens[tokenIndex].value;
+                if (parser->tokens[tokenIndex].type == AssemblerTokenType::REGISTER) src = "." + src;
+                Symbol* sym = parser->resolveSymbol(src, scopePrefix);
+                if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(src); } catch(...) { addr = 0; } }
+            }
+            e.cmp_abs(addr);
+            br0 = e.emitBranchPlaceholder(0xD0); // BNE
+            e.txa(); e.cmp_abs(addr + 1);
+            br1 = e.emitBranchPlaceholder(0xD0); // BNE
+            e.tya(); e.cmp_abs(addr + 2);
+            br2 = e.emitBranchPlaceholder(0xD0); // BNE
+            e.tza(); e.cmp_abs(addr + 3);
+        }
+        // All BNE branches target here (end of compare)
+        e.patchBranchTarget(br0);
+        e.patchBranchTarget(br1);
+        e.patchBranchTarget(br2);
+    } else throw std::runtime_error("Simulated CMP.32 only supports .AXYZ as first operand");
+}
+
+// CMP.S32 — 32-bit signed comparison
+// Compare bytes 0-2 unsigned, then byte 3 with sign-flip (EOR #$80).
+void AssemblerSimulatedOps::emitCMP_S32Code(AssemblerParser* parser, M65Emitter& e,
+    const std::string& src1, int tokenIndex, const std::string& scopePrefix) {
+    int idx = tokenIndex;
+    bool isImmediate = (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) ||
+                       (idx > 0 && parser->tokens[idx - 1].type == AssemblerTokenType::HASH);
+    if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) idx++;
+    auto src2Ast = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
+    if (!src2Ast) return;
+    std::string SRC1 = src1; if (!SRC1.empty() && SRC1[0] != '.') SRC1 = "." + SRC1;
+    std::transform(SRC1.begin(), SRC1.end(), SRC1.begin(), ::toupper);
+    if (SRC1 == ".AXYZ" || SRC1 == ".Q") {
+        size_t br0, br1, br2;
+        if (isImmediate && src2Ast->isConstant(parser)) {
+            uint32_t val = src2Ast->getValue(parser);
+            e.cmp_imm(val & 0xFF);
+            br0 = e.emitBranchPlaceholder(0xD0); // BNE
+            e.txa(); e.cmp_imm((val >> 8) & 0xFF);
+            br1 = e.emitBranchPlaceholder(0xD0); // BNE
+            e.tya(); e.cmp_imm((val >> 16) & 0xFF);
+            br2 = e.emitBranchPlaceholder(0xD0); // BNE
+            e.tza(); e.eor_imm(0x80); e.cmp_imm(((val >> 24) & 0xFF) ^ 0x80);
+        } else {
+            uint32_t addr = 0;
+            try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
+            catch(...) {
+                std::string src = parser->tokens[tokenIndex].value;
+                if (parser->tokens[tokenIndex].type == AssemblerTokenType::REGISTER) src = "." + src;
+                Symbol* sym = parser->resolveSymbol(src, scopePrefix);
+                if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(src); } catch(...) { addr = 0; } }
+            }
+            e.cmp_abs(addr);
+            br0 = e.emitBranchPlaceholder(0xD0); // BNE
+            e.txa(); e.cmp_abs(addr + 1);
+            br1 = e.emitBranchPlaceholder(0xD0); // BNE
+            e.tya(); e.cmp_abs(addr + 2);
+            br2 = e.emitBranchPlaceholder(0xD0); // BNE
+            e.tza(); e.eor_imm(0x80); e.sta_scratch();
+            e.lda_abs(addr + 3); e.eor_imm(0x80); e.cmp_scratch();
+        }
+        e.patchBranchTarget(br0);
+        e.patchBranchTarget(br1);
+        e.patchBranchTarget(br2);
+    } else throw std::runtime_error("Simulated CMP.S32 only supports .AXYZ as first operand");
+}
+
+// NEG.32 / NOT.32 — 32-bit negation/complement
+void AssemblerSimulatedOps::emitNegNot32Code(AssemblerParser* parser, M65Emitter& e, bool isNeg,
+    const std::string& operand, int tokenIndex, const std::string& scopePrefix) {
+    std::string OP = operand; if (!OP.empty() && OP[0] != '.') OP = "." + OP;
+    std::transform(OP.begin(), OP.end(), OP.begin(), ::toupper);
+    if (OP == ".AXYZ" || OP == ".Q" || OP == "") {
+        // NOT: invert all 4 bytes
+        e.eor_imm(0xFF);
+        e.pha(); e.txa(); e.eor_imm(0xFF); e.tax();
+        e.tya(); e.eor_imm(0xFF); e.tay();
+        e.tza(); e.eor_imm(0xFF); e.taz(); e.pla();
+        if (isNeg) {
+            // NEG = NOT + 1: add 1 to the result
+            e.clc(); e.adc_imm(1);
+            e.pha(); e.txa(); e.adc_imm(0); e.tax();
+            e.tya(); e.adc_imm(0); e.tay();
+            e.tza(); e.adc_imm(0); e.taz(); e.pla();
+        }
+    } else {
+        // Memory operand
+        uint32_t addr = 0;
+        try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
+        catch(...) { Symbol* sym = parser->resolveSymbol(operand, scopePrefix); if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(operand); } catch(...) { addr = 0; } } }
+        if (isNeg) {
+            e.lda_abs(addr);   e.eor_imm(0xFF); e.clc(); e.adc_imm(1); e.sta_abs(addr);
+            e.lda_abs(addr+1); e.eor_imm(0xFF); e.adc_imm(0); e.sta_abs(addr+1);
+            e.lda_abs(addr+2); e.eor_imm(0xFF); e.adc_imm(0); e.sta_abs(addr+2);
+            e.lda_abs(addr+3); e.eor_imm(0xFF); e.adc_imm(0); e.sta_abs(addr+3);
+        } else {
+            e.lda_abs(addr);   e.eor_imm(0xFF); e.sta_abs(addr);
+            e.lda_abs(addr+1); e.eor_imm(0xFF); e.sta_abs(addr+1);
+            e.lda_abs(addr+2); e.eor_imm(0xFF); e.sta_abs(addr+2);
+            e.lda_abs(addr+3); e.eor_imm(0xFF); e.sta_abs(addr+3);
+        }
+    }
+}
+
+// ABS.32 — 32-bit absolute value
+// Uses deferred branch patching for the BPL skip.
+void AssemblerSimulatedOps::emitABS32Code(AssemblerParser* parser, M65Emitter& e,
+    const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    std::string DEST = dest; if (!DEST.empty() && DEST[0] != '.') DEST = "." + DEST;
+    std::transform(DEST.begin(), DEST.end(), DEST.begin(), ::toupper);
+    if (DEST == ".AXYZ" || DEST == ".Q" || DEST == "") {
+        // Test sign bit of Z (byte 3)
+        e.pha(); e.tza();
+        size_t brSkip = e.emitBranchPlaceholder(0x10); // BPL → skip negation
+        e.pla();
+        // Negate AXYZ: NOT all + add 1
+        e.eor_imm(0xFF); e.clc(); e.adc_imm(1);
+        e.pha(); e.txa(); e.eor_imm(0xFF); e.adc_imm(0); e.tax();
+        e.tya(); e.eor_imm(0xFF); e.adc_imm(0); e.tay();
+        e.tza(); e.eor_imm(0xFF); e.adc_imm(0); e.taz(); e.pla();
+        size_t brDone = e.emitBranchPlaceholder(0x80); // BRA → skip the positive-path PLA
+        e.patchBranchTarget(brSkip);
+        e.pla(); // positive path: restore A unchanged
+        e.patchBranchTarget(brDone);
+    } else {
+        uint32_t addr = 0;
+        try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
+        catch(...) { Symbol* sym = parser->resolveSymbol(dest, scopePrefix); if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } } }
+        e.lda_abs(addr + 3);
+        size_t brSkip = e.emitBranchPlaceholder(0x10); // BPL → skip
+        e.lda_abs(addr);   e.eor_imm(0xFF); e.clc(); e.adc_imm(1); e.sta_abs(addr);
+        e.lda_abs(addr+1); e.eor_imm(0xFF); e.adc_imm(0); e.sta_abs(addr+1);
+        e.lda_abs(addr+2); e.eor_imm(0xFF); e.adc_imm(0); e.sta_abs(addr+2);
+        e.lda_abs(addr+3); e.eor_imm(0xFF); e.adc_imm(0); e.sta_abs(addr+3);
+        e.patchBranchTarget(brSkip);
+    }
+}
+
+// LSL.32 — 32-bit logical shift left (one bit)
+void AssemblerSimulatedOps::emitLSL32Code(AssemblerParser* parser, M65Emitter& e,
+    const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    std::string DEST = dest; if (!DEST.empty() && DEST[0] != '.') DEST = "." + DEST;
+    std::transform(DEST.begin(), DEST.end(), DEST.begin(), ::toupper);
+    if (DEST == ".AXYZ" || DEST == ".Q") {
+        // ASL A, then ROL through X, Y, Z
+        e.asl_a();
+        e.pha(); e.txa(); e.rol_a(); e.tax();
+        e.tya(); e.rol_a(); e.tay();
+        e.tza(); e.rol_a(); e.taz(); e.pla();
+    } else {
+        uint32_t addr = 0;
+        try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
+        catch(...) { Symbol* sym = parser->resolveSymbol(dest, scopePrefix); if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } } }
+        e.asl_abs(addr); e.rol_abs(addr + 1); e.rol_abs(addr + 2); e.rol_abs(addr + 3);
+    }
+}
+
+// LSR.32 — 32-bit logical shift right (one bit)
+void AssemblerSimulatedOps::emitLSR32Code(AssemblerParser* parser, M65Emitter& e,
+    const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    std::string DEST = dest; if (!DEST.empty() && DEST[0] != '.') DEST = "." + DEST;
+    std::transform(DEST.begin(), DEST.end(), DEST.begin(), ::toupper);
+    if (DEST == ".AXYZ" || DEST == ".Q") {
+        // LSR Z, then ROR through Y, X, A
+        e.pha(); e.tza(); e.lsr_a(); e.taz();
+        e.tya(); e.ror_a(); e.tay();
+        e.txa(); e.ror_a(); e.tax(); e.pla(); e.ror_a();
+    } else {
+        uint32_t addr = 0;
+        try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
+        catch(...) { Symbol* sym = parser->resolveSymbol(dest, scopePrefix); if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } } }
+        e.lsr_abs(addr + 3); e.ror_abs(addr + 2); e.ror_abs(addr + 1); e.ror_abs(addr);
+    }
+}
+
+// ROL.32 — 32-bit rotate left (through carry)
+void AssemblerSimulatedOps::emitROL32Code(AssemblerParser* parser, M65Emitter& e,
+    const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    std::string DEST = dest; if (!DEST.empty() && DEST[0] != '.') DEST = "." + DEST;
+    std::transform(DEST.begin(), DEST.end(), DEST.begin(), ::toupper);
+    if (DEST == ".AXYZ" || DEST == ".Q") {
+        e.rol_a();
+        e.pha(); e.txa(); e.rol_a(); e.tax();
+        e.tya(); e.rol_a(); e.tay();
+        e.tza(); e.rol_a(); e.taz(); e.pla();
+    } else {
+        uint32_t addr = 0;
+        try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
+        catch(...) { Symbol* sym = parser->resolveSymbol(dest, scopePrefix); if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } } }
+        e.rol_abs(addr); e.rol_abs(addr + 1); e.rol_abs(addr + 2); e.rol_abs(addr + 3);
+    }
+}
+
+// ROR.32 — 32-bit rotate right (through carry)
+void AssemblerSimulatedOps::emitROR32Code(AssemblerParser* parser, M65Emitter& e,
+    const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    std::string DEST = dest; if (!DEST.empty() && DEST[0] != '.') DEST = "." + DEST;
+    std::transform(DEST.begin(), DEST.end(), DEST.begin(), ::toupper);
+    if (DEST == ".AXYZ" || DEST == ".Q") {
+        e.pha(); e.tza(); e.ror_a(); e.taz();
+        e.tya(); e.ror_a(); e.tay();
+        e.txa(); e.ror_a(); e.tax(); e.pla(); e.ror_a();
+    } else {
+        uint32_t addr = 0;
+        try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
+        catch(...) { Symbol* sym = parser->resolveSymbol(dest, scopePrefix); if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } } }
+        e.ror_abs(addr + 3); e.ror_abs(addr + 2); e.ror_abs(addr + 1); e.ror_abs(addr);
+    }
+}
+
+// ASR.32 — 32-bit arithmetic shift right (preserves sign)
+void AssemblerSimulatedOps::emitASR32Code(AssemblerParser* parser, M65Emitter& e,
+    const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    std::string DEST = dest; if (!DEST.empty() && DEST[0] != '.') DEST = "." + DEST;
+    std::transform(DEST.begin(), DEST.end(), DEST.begin(), ::toupper);
+    if (DEST == ".AXYZ" || DEST == ".Q") {
+        // CMP #$80 on high byte sets carry = sign bit, then ROR chain
+        e.pha(); e.tza(); e.cmp_imm(0x80); e.ror_a(); e.taz();
+        e.tya(); e.ror_a(); e.tay();
+        e.txa(); e.ror_a(); e.tax(); e.pla(); e.ror_a();
+    } else {
+        uint32_t addr = 0;
+        try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
+        catch(...) { Symbol* sym = parser->resolveSymbol(dest, scopePrefix); if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } } }
+        e.lda_abs(addr + 3); e.cmp_imm(0x80);
+        e.ror_abs(addr + 3); e.ror_abs(addr + 2); e.ror_abs(addr + 1); e.ror_abs(addr);
+    }
+}

@@ -49,6 +49,20 @@ public:
     static void emitROR16Code(AssemblerParser* parser, M65Emitter& e, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
     static void emitASR16Code(AssemblerParser* parser, M65Emitter& e, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
     static void emitSXT8Code(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
+    static void emitSXT16Code(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
+
+    // 32-bit simulated ops
+    static void emitAddSub32Code(AssemblerParser* parser, M65Emitter& e, bool isAdd, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
+    static void emitBitwise32Code(AssemblerParser* parser, M65Emitter& e, const std::string& mnemonic, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
+    static void emitCMP32Code(AssemblerParser* parser, M65Emitter& e, const std::string& src1, int tokenIndex, const std::string& scopePrefix);
+    static void emitCMP_S32Code(AssemblerParser* parser, M65Emitter& e, const std::string& src1, int tokenIndex, const std::string& scopePrefix);
+    static void emitNegNot32Code(AssemblerParser* parser, M65Emitter& e, bool isNeg, const std::string& operand, int tokenIndex, const std::string& scopePrefix);
+    static void emitABS32Code(AssemblerParser* parser, M65Emitter& e, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
+    static void emitLSL32Code(AssemblerParser* parser, M65Emitter& e, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
+    static void emitLSR32Code(AssemblerParser* parser, M65Emitter& e, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
+    static void emitROL32Code(AssemblerParser* parser, M65Emitter& e, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
+    static void emitROR32Code(AssemblerParser* parser, M65Emitter& e, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
+    static void emitASR32Code(AssemblerParser* parser, M65Emitter& e, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
     static void emitPushPopCode(AssemblerParser* parser, M65Emitter& e, bool isPush, const std::string& reg, int tokenIndex, const std::string& scopePrefix);
     static int getPushPopSize(AssemblerParser* parser, bool isPush, const std::string& reg, int tokenIndex, const std::string& scopePrefix);
     static void emitMulS16Code(AssemblerParser* parser, M65Emitter& e, const std::string& dest, int tokenIndex, const std::string& scopePrefix);

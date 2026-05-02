@@ -130,7 +130,11 @@ private:
                     LDAX, LDAY, LDAZ, STAX, STAY, STAZ, FILL, COPY, PUSH, POP,
                     MUL_S16, DIV_S16, MOD16, MOD_S16,
                     LDA_FP, STA_FP, LDAX_FP, STAX_FP, LEAX_FP, MOVE_FP,
-                    BFEXT, BFEXT16, BFINS, BFINS_SP, BFINS_IND, BFINS16, BFINS16_SP, BFINS16_IND } type = NONE;
+                    BFEXT, BFEXT16, BFINS, BFINS_SP, BFINS_IND, BFINS16, BFINS16_SP, BFINS16_IND,
+                    ADD32, SUB32, AND32, ORA32, EOR32, CMP32, NEG32, NOT32, ABS32,
+                    LSL32, LSR32, ROL32, ROR32, ASR32, SXT16,
+                    ADDS32, SUBS32, CMP_S32, NEG_S32, ABS_S32,
+                    ASR_S32, LSL_S32, LSR_S32, ROL_S32, ROR_S32 } type = NONE;
         Instruction instr;
         Directive dir;
         std::string label;
@@ -178,6 +182,11 @@ private:
                 case BFEXT: case BFEXT16:
                 case BFINS: case BFINS_SP: case BFINS_IND:
                 case BFINS16: case BFINS16_SP: case BFINS16_IND:
+                case ADD32: case SUB32: case AND32: case ORA32: case EOR32:
+                case CMP32: case NEG32: case NOT32: case ABS32:
+                case LSL32: case LSR32: case ROL32: case ROR32: case ASR32: case SXT16:
+                case ADDS32: case SUBS32: case CMP_S32: case NEG_S32: case ABS_S32:
+                case ASR_S32: case LSL_S32: case LSR_S32: case ROL_S32: case ROR_S32:
                     return true;
                 default:
                     return false;
@@ -252,6 +261,18 @@ private:
     void emitROR16Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
     void emitASR16Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
     void emitSXT8Code(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");
+    void emitSXT16Code(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");
+    void emitAddSub32Code(std::vector<uint8_t>& binary, bool isAdd, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
+    void emitBitwise32Code(std::vector<uint8_t>& binary, const std::string& mnemonic, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
+    void emitCMP32Code(std::vector<uint8_t>& binary, const std::string& src1, int tokenIndex, const std::string& scopePrefix = "");
+    void emitCMP_S32Code(std::vector<uint8_t>& binary, const std::string& src1, int tokenIndex, const std::string& scopePrefix = "");
+    void emitNegNot32Code(std::vector<uint8_t>& binary, bool isNeg, const std::string& operand, int tokenIndex, const std::string& scopePrefix = "");
+    void emitABS32Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
+    void emitLSL32Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
+    void emitLSR32Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
+    void emitROL32Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
+    void emitROR32Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
+    void emitASR32Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
     void emitPushPopCode(std::vector<uint8_t>& binary, bool isPush, int tokenIndex, const std::string& scopePrefix = "");
     void emitMulS16Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
     void emitDivS16Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");

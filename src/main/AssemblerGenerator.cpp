@@ -249,6 +249,62 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
                 if (!isDeadCode) AssemblerSimulatedOps::emitSXT8Code(parser, e, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 continue;
             }
+            if (stmt->type == AssemblerParser::Statement::SXT16) {
+                if (!isDeadCode) AssemblerSimulatedOps::emitSXT16Code(parser, e, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                continue;
+            }
+            if (stmt->type == AssemblerParser::Statement::ADD32 || stmt->type == AssemblerParser::Statement::ADDS32) {
+                if (!isDeadCode) AssemblerSimulatedOps::emitAddSub32Code(parser, e, true, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
+                continue;
+            }
+            if (stmt->type == AssemblerParser::Statement::SUB32 || stmt->type == AssemblerParser::Statement::SUBS32) {
+                if (!isDeadCode) AssemblerSimulatedOps::emitAddSub32Code(parser, e, false, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
+                continue;
+            }
+            if (stmt->type == AssemblerParser::Statement::AND32 || stmt->type == AssemblerParser::Statement::ORA32 || stmt->type == AssemblerParser::Statement::EOR32) {
+                if (!isDeadCode) AssemblerSimulatedOps::emitBitwise32Code(parser, e, stmt->instr.mnemonic, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
+                continue;
+            }
+            if (stmt->type == AssemblerParser::Statement::CMP32) {
+                if (!isDeadCode) AssemblerSimulatedOps::emitCMP32Code(parser, e, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
+                continue;
+            }
+            if (stmt->type == AssemblerParser::Statement::CMP_S32) {
+                if (!isDeadCode) AssemblerSimulatedOps::emitCMP_S32Code(parser, e, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
+                continue;
+            }
+            if (stmt->type == AssemblerParser::Statement::NEG32 || stmt->type == AssemblerParser::Statement::NEG_S32) {
+                if (!isDeadCode) AssemblerSimulatedOps::emitNegNot32Code(parser, e, true, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                continue;
+            }
+            if (stmt->type == AssemblerParser::Statement::NOT32) {
+                if (!isDeadCode) AssemblerSimulatedOps::emitNegNot32Code(parser, e, false, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                continue;
+            }
+            if (stmt->type == AssemblerParser::Statement::ABS32 || stmt->type == AssemblerParser::Statement::ABS_S32) {
+                if (!isDeadCode) AssemblerSimulatedOps::emitABS32Code(parser, e, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                continue;
+            }
+            if (stmt->type == AssemblerParser::Statement::LSL32 || stmt->type == AssemblerParser::Statement::LSL_S32) {
+                if (!isDeadCode) AssemblerSimulatedOps::emitLSL32Code(parser, e, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                continue;
+            }
+            if (stmt->type == AssemblerParser::Statement::LSR32 || stmt->type == AssemblerParser::Statement::LSR_S32) {
+                if (!isDeadCode) AssemblerSimulatedOps::emitLSR32Code(parser, e, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                continue;
+            }
+            if (stmt->type == AssemblerParser::Statement::ROL32 || stmt->type == AssemblerParser::Statement::ROL_S32) {
+                if (!isDeadCode) AssemblerSimulatedOps::emitROL32Code(parser, e, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                continue;
+            }
+            if (stmt->type == AssemblerParser::Statement::ROR32 || stmt->type == AssemblerParser::Statement::ROR_S32) {
+                if (!isDeadCode) AssemblerSimulatedOps::emitROR32Code(parser, e, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                continue;
+            }
+            if (stmt->type == AssemblerParser::Statement::ASR32 || stmt->type == AssemblerParser::Statement::ASR_S32) {
+                if (!isDeadCode) AssemblerSimulatedOps::emitASR32Code(parser, e, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                continue;
+            }
             if (stmt->type == AssemblerParser::Statement::PUSH || stmt->type == AssemblerParser::Statement::POP) {
                 if (!isDeadCode) AssemblerSimulatedOps::emitPushPopCode(parser, e, stmt->type == AssemblerParser::Statement::PUSH, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 continue;

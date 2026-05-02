@@ -207,6 +207,7 @@ Token Lexer::lexIdentifierOrKeyword() {
         {"__restrict", TokenType::RESTRICT},
         {"__restrict__", TokenType::RESTRICT},
         {"short", TokenType::SHORT},
+        {"long", TokenType::LONG},
         {"register", TokenType::REGISTER},
         {"inline", TokenType::INLINE},
         {"__inline", TokenType::INLINE},
@@ -232,12 +233,16 @@ Token Lexer::lexNumber() {
             while (std::isxdigit(peek())) value += get();
             // TODO: Add checks for integer overflow during parsing.
             uint32_t val = std::stoul(value.substr(2), nullptr, 16);
+            // Consume optional L/l/U/u suffixes
+            while (peek() == 'L' || peek() == 'l' || peek() == 'U' || peek() == 'u') get();
             return {TokenType::INTEGER_LITERAL, std::to_string(val), startLine, startCol};
         }
     }
     while (std::isdigit(peek())) {
         value += get();
     }
+    // Consume optional L/l/U/u suffixes
+    while (peek() == 'L' || peek() == 'l' || peek() == 'U' || peek() == 'u') get();
     return {TokenType::INTEGER_LITERAL, value, startLine, startCol};
 }
 

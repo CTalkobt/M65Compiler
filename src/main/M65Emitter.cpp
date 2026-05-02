@@ -23,6 +23,12 @@ static std::string hex16(uint16_t val) {
     return ss.str();
 }
 
+static std::string hex32(uint32_t val) {
+    std::stringstream ss;
+    ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(8) << val;
+    return ss.str();
+}
+
 void M65Emitter::emitDirective(const std::string& name, const std::string& arg) {
     if (mode == Mode::TEXT) {
         *out << "    ." << name;
@@ -425,3 +431,71 @@ void M65Emitter::not_16() {
 }
 
 void M65Emitter::transfer_ax_to_zp(uint8_t addr) { sta_zp(addr); stx_zp(addr + 1); }
+
+void M65Emitter::add_32_imm(uint32_t val) {
+    if (mode == Mode::TEXT) {
+        emitText("add.32", ".AXYZ, #" + hex32(val));
+    } else {
+        clc();
+        adc_imm(val & 0xFF);
+        pha(); txa(); adc_imm((val >> 8) & 0xFF); tax();
+        tya(); adc_imm((val >> 16) & 0xFF); tay();
+        tza(); adc_imm((val >> 24) & 0xFF); taz(); pla();
+    }
+}
+
+void M65Emitter::sub_32_imm(uint32_t val) {
+    if (mode == Mode::TEXT) {
+        emitText("sub.32", ".AXYZ, #" + hex32(val));
+    } else {
+        sec();
+        sbc_imm(val & 0xFF);
+        pha(); txa(); sbc_imm((val >> 8) & 0xFF); tax();
+        tya(); sbc_imm((val >> 16) & 0xFF); tay();
+        tza(); sbc_imm((val >> 24) & 0xFF); taz(); pla();
+    }
+}
+
+void M65Emitter::neg_32() {
+    if (mode == Mode::TEXT) emitText("neg.32");
+    else {
+        eor_imm(0xFF); clc(); adc_imm(1);
+        pha(); txa(); eor_imm(0xFF); adc_imm(0); tax();
+        tya(); eor_imm(0xFF); adc_imm(0); tay();
+        tza(); eor_imm(0xFF); adc_imm(0); taz(); pla();
+    }
+}
+
+void M65Emitter::not_32() {
+    if (mode == Mode::TEXT) emitText("not.32");
+    else {
+        eor_imm(0xFF);
+        pha(); txa(); eor_imm(0xFF); tax();
+        tya(); eor_imm(0xFF); tay();
+        tza(); eor_imm(0xFF); taz(); pla();
+    }
+}
+
+void M65Emitter::sxt_16() {
+    if (mode == Mode::TEXT) emitText("sxt.16");
+    else {
+        pha(); txa(); cmp_imm(0x80);
+        lda_imm(0); bcc(0x02); lda_imm(0xFF);
+        tay(); taz(); pla();
+    }
+}
+
+size_t M65Emitter::emitBranchPlaceholder(uint8_t opcode) {
+    if (!binary) return 0;
+    size_t branchPos = binary->size();
+    binary->push_back(opcode);
+    binary->push_back(0x00);  // placeholder offset
+    return branchPos;
+}
+
+void M65Emitter::patchBranchTarget(size_t branchPos) {
+    if (!binary || branchPos + 1 >= binary->size()) return;
+    // Relative branch: offset from byte AFTER the branch instruction (branchPos + 2)
+    int offset = (int)binary->size() - (int)(branchPos + 2);
+    (*binary)[branchPos + 1] = (uint8_t)offset;
+}

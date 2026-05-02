@@ -684,10 +684,35 @@ void AssemblerParser::pass1() {
             else if (fullMnemonic == "sxt.8") {
                 stmt->type = Statement::SXT8;
                 if (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
-                     // Optionally consume 'a' if present? C compilers sometimes use 'sxt.8 a' or similar. 
+                     // Optionally consume 'a' if present? C compilers sometimes use 'sxt.8 a' or similar.
                      // For now just keep it simple.
                 }
             }
+            else if (fullMnemonic == "sxt.16") stmt->type = Statement::SXT16;
+            else if (fullMnemonic == "add.32") stmt->type = Statement::ADD32;
+            else if (fullMnemonic == "sub.32") stmt->type = Statement::SUB32;
+            else if (fullMnemonic == "add.s32") stmt->type = Statement::ADDS32;
+            else if (fullMnemonic == "sub.s32") stmt->type = Statement::SUBS32;
+            else if (fullMnemonic == "and.32") stmt->type = Statement::AND32;
+            else if (fullMnemonic == "ora.32") stmt->type = Statement::ORA32;
+            else if (fullMnemonic == "eor.32") stmt->type = Statement::EOR32;
+            else if (fullMnemonic == "cmp.32") stmt->type = Statement::CMP32;
+            else if (fullMnemonic == "cmp.s32") stmt->type = Statement::CMP_S32;
+            else if (fullMnemonic == "neg.32") stmt->type = Statement::NEG32;
+            else if (fullMnemonic == "neg.s32") stmt->type = Statement::NEG_S32;
+            else if (fullMnemonic == "not.32") stmt->type = Statement::NOT32;
+            else if (fullMnemonic == "abs.32") stmt->type = Statement::ABS32;
+            else if (fullMnemonic == "abs.s32") stmt->type = Statement::ABS_S32;
+            else if (fullMnemonic == "lsl.32") stmt->type = Statement::LSL32;
+            else if (fullMnemonic == "lsr.32") stmt->type = Statement::LSR32;
+            else if (fullMnemonic == "rol.32") stmt->type = Statement::ROL32;
+            else if (fullMnemonic == "ror.32") stmt->type = Statement::ROR32;
+            else if (fullMnemonic == "asr.32") stmt->type = Statement::ASR32;
+            else if (fullMnemonic == "lsl.s32") stmt->type = Statement::LSL_S32;
+            else if (fullMnemonic == "lsr.s32") stmt->type = Statement::LSR_S32;
+            else if (fullMnemonic == "rol.s32") stmt->type = Statement::ROL_S32;
+            else if (fullMnemonic == "ror.s32") stmt->type = Statement::ROR_S32;
+            else if (fullMnemonic == "asr.s32") stmt->type = Statement::ASR_S32;
             else if (fullMnemonic == "push") stmt->type = Statement::PUSH;
             else if (fullMnemonic == "pop") stmt->type = Statement::POP;
             else if (fullMnemonic == "lda.fp") stmt->type = Statement::LDA_FP;
@@ -838,6 +863,18 @@ void AssemblerParser::pass1() {
                 else if (stmt->type == Statement::ROR16 || stmt->type == Statement::ROR_S16) emitROR16Code(d, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 else if (stmt->type == Statement::ASR16 || stmt->type == Statement::ASR_S16) emitASR16Code(d, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 else if (stmt->type == Statement::SXT8) emitSXT8Code(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::SXT16) emitSXT16Code(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::ADD32 || stmt->type == Statement::SUB32 || stmt->type == Statement::ADDS32 || stmt->type == Statement::SUBS32) emitAddSub32Code(d, stmt->type == Statement::ADD32 || stmt->type == Statement::ADDS32, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::AND32 || stmt->type == Statement::ORA32 || stmt->type == Statement::EOR32) emitBitwise32Code(d, stmt->instr.mnemonic, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::CMP32) emitCMP32Code(d, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::CMP_S32) emitCMP_S32Code(d, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::NEG32 || stmt->type == Statement::NOT32 || stmt->type == Statement::NEG_S32) emitNegNot32Code(d, stmt->type == Statement::NEG32 || stmt->type == Statement::NEG_S32, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::ABS32 || stmt->type == Statement::ABS_S32) emitABS32Code(d, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::LSL32 || stmt->type == Statement::LSL_S32) emitLSL32Code(d, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::LSR32 || stmt->type == Statement::LSR_S32) emitLSR32Code(d, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::ROL32 || stmt->type == Statement::ROL_S32) emitROL32Code(d, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::ROR32 || stmt->type == Statement::ROR_S32) emitROR32Code(d, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::ASR32 || stmt->type == Statement::ASR_S32) emitASR32Code(d, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 else if (stmt->type == Statement::PUSH || stmt->type == Statement::POP) emitPushPopCode(d, stmt->type == Statement::PUSH, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 else if (stmt->type == Statement::SWAP) emitSwapCode(d, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
                 else if (stmt->type == Statement::LDA_FP) emitLDA_FPCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
@@ -1099,6 +1136,66 @@ void AssemblerParser::emitASR16Code(std::vector<uint8_t>& binary, const std::str
 void AssemblerParser::emitSXT8Code(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
     M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitSXT8Code(this, e, tokenIndex, scopePrefix);
+}
+
+void AssemblerParser::emitSXT16Code(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    AssemblerSimulatedOps::emitSXT16Code(this, e, tokenIndex, scopePrefix);
+}
+
+void AssemblerParser::emitAddSub32Code(std::vector<uint8_t>& binary, bool isAdd, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    AssemblerSimulatedOps::emitAddSub32Code(this, e, isAdd, dest, tokenIndex, scopePrefix);
+}
+
+void AssemblerParser::emitBitwise32Code(std::vector<uint8_t>& binary, const std::string& mnemonic, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    AssemblerSimulatedOps::emitBitwise32Code(this, e, mnemonic, dest, tokenIndex, scopePrefix);
+}
+
+void AssemblerParser::emitCMP32Code(std::vector<uint8_t>& binary, const std::string& src1, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    AssemblerSimulatedOps::emitCMP32Code(this, e, src1, tokenIndex, scopePrefix);
+}
+
+void AssemblerParser::emitCMP_S32Code(std::vector<uint8_t>& binary, const std::string& src1, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    AssemblerSimulatedOps::emitCMP_S32Code(this, e, src1, tokenIndex, scopePrefix);
+}
+
+void AssemblerParser::emitNegNot32Code(std::vector<uint8_t>& binary, bool isNeg, const std::string& operand, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    AssemblerSimulatedOps::emitNegNot32Code(this, e, isNeg, operand, tokenIndex, scopePrefix);
+}
+
+void AssemblerParser::emitABS32Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    AssemblerSimulatedOps::emitABS32Code(this, e, dest, tokenIndex, scopePrefix);
+}
+
+void AssemblerParser::emitLSL32Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    AssemblerSimulatedOps::emitLSL32Code(this, e, dest, tokenIndex, scopePrefix);
+}
+
+void AssemblerParser::emitLSR32Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    AssemblerSimulatedOps::emitLSR32Code(this, e, dest, tokenIndex, scopePrefix);
+}
+
+void AssemblerParser::emitROL32Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    AssemblerSimulatedOps::emitROL32Code(this, e, dest, tokenIndex, scopePrefix);
+}
+
+void AssemblerParser::emitROR32Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    AssemblerSimulatedOps::emitROR32Code(this, e, dest, tokenIndex, scopePrefix);
+}
+
+void AssemblerParser::emitASR32Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    AssemblerSimulatedOps::emitASR32Code(this, e, dest, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitPushPopCode(std::vector<uint8_t>& binary, bool isPush, int tokenIndex, const std::string& scopePrefix) {
@@ -1364,6 +1461,18 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                     else if (s->type == Statement::ROR16 || s->type == Statement::ROR_S16) emitROR16Code(d, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
                     else if (s->type == Statement::ASR16 || s->type == Statement::ASR_S16) emitASR16Code(d, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
                     else if (s->type == Statement::SXT8) emitSXT8Code(d, s->instr.operandTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::SXT16) emitSXT16Code(d, s->instr.operandTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::ADD32 || s->type == Statement::SUB32 || s->type == Statement::ADDS32 || s->type == Statement::SUBS32) emitAddSub32Code(d, s->type == Statement::ADD32 || s->type == Statement::ADDS32, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::AND32 || s->type == Statement::ORA32 || s->type == Statement::EOR32) emitBitwise32Code(d, s->instr.mnemonic, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::CMP32) emitCMP32Code(d, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::CMP_S32) emitCMP_S32Code(d, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::NEG32 || s->type == Statement::NOT32 || s->type == Statement::NEG_S32) emitNegNot32Code(d, s->type == Statement::NEG32 || s->type == Statement::NEG_S32, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::ABS32 || s->type == Statement::ABS_S32) emitABS32Code(d, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::LSL32 || s->type == Statement::LSL_S32) emitLSL32Code(d, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::LSR32 || s->type == Statement::LSR_S32) emitLSR32Code(d, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::ROL32 || s->type == Statement::ROL_S32) emitROL32Code(d, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::ROR32 || s->type == Statement::ROR_S32) emitROR32Code(d, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::ASR32 || s->type == Statement::ASR_S32) emitASR32Code(d, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
                     else if (s->type == Statement::PUSH || s->type == Statement::POP) emitPushPopCode(d, s->type == Statement::PUSH, s->instr.operandTokenIndex, s->scopePrefix);
                     else if (s->type == Statement::EXPR) emitExpressionCode(d, s->exprTarget, s->exprTokenIndex, s->scopePrefix);
                     else if (s->type == Statement::MUL || s->type == Statement::DIV) {

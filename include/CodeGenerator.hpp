@@ -62,6 +62,7 @@ public:
     std::map<std::string, std::shared_ptr<StructInfo>> structs;
     static int getTypeSize(const std::string& type, int ptrLevel, int arraySize, const std::map<std::string, std::shared_ptr<CodeGenerator::StructInfo>>& structs);
     static bool is8BitType(const std::string& type) { return type == "char" || type == "_Bool"; }
+    static bool is32BitType(const std::string& type) { return type == "long"; }
     uint32_t zeroPageStart = 0x02;
     uint32_t zeroPageAvail = 9;
     bool relocMode = false; // When true, emit .global/.extern and skip .org/$2000 stub

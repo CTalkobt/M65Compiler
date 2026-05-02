@@ -144,6 +144,7 @@ int CodeGenerator::getTypeSize(const std::string& type, int ptrLevel, int arrayS
     else if (type == "char") size = 1;
     else if (type == "_Bool") size = 1;
     else if (type == "int") size = 2;
+    else if (type == "long") size = 4;
     else if (type.length() >= 5 && type.substr(0, 5) == "enum ") size = 2;
     else if (type.substr(0, 7) == "struct " || type.substr(0, 6) == "union ") {
         std::string sName = type.substr(type.find(' ') + 1);
@@ -1632,7 +1633,7 @@ void CodeGenerator::visit(Assignment& node) {
     if (node.op == "=" && !dynamic_cast<CastExpression*>(node.expression.get())) {
         if (auto* lit = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
             ExpressionType dstType = getExprType(node.target.get());
-            int dstSize = (dstType.pointerLevel > 0 || dstType.type == "int") ? 2 : 1;
+            int dstSize = is32BitType(dstType.type) ? 4 : (dstType.pointerLevel > 0 || dstType.type == "int") ? 2 : 1;
             if (dstSize == 1 && (lit->value < 0 || lit->value > 255)) {
                 std::string loc = sourceFilename.empty() ? "" : sourceFilename + ":";
                 if (node.line > 0) loc += std::to_string(node.line) + ":" + std::to_string(node.column) + ": ";
@@ -1841,12 +1842,30 @@ void CodeGenerator::visit(Assignment& node) {
 
         if (auto* lit = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
             VarInfo vi = variableTypes.count(rName) ? variableTypes.at(rName) : globalVariableTypes.at(rName);
-            bool is16 = (vi.pointerLevel > 0 || vi.type == "int");
-            if (isStruct(vi.type)) {
+            bool is32 = is32BitType(vi.type) && vi.pointerLevel == 0;
+            bool is16 = !is32 && (vi.pointerLevel > 0 || vi.type == "int");
+            if (!is32 && isStruct(vi.type)) {
                 std::string sName = getAggregateName(vi.type);
                 if (structs.count(sName) && structs[sName]->totalSize > 1) is16 = true;
             }
-            if (is16) {
+            if (is32) {
+                // Store 32-bit literal
+                uint32_t val = (uint32_t)lit->value;
+                if (isGlobal) {
+                    std::stringstream ssLo, ssHi;
+                    ssLo << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (val & 0xFFFF);
+                    ssHi << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << ((val >> 16) & 0xFFFF);
+                    emit("stw " + ssLo.str() + ", " + rName);
+                    emit("stw " + ssHi.str() + ", " + rName + "+2");
+                } else {
+                    std::stringstream ssLo, ssHi;
+                    ssLo << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (val & 0xFFFF);
+                    ssHi << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << ((val >> 16) & 0xFFFF);
+                    emit("stw.sp " + ssLo.str() + ", " + rName);
+                    emit("stw.sp " + ssHi.str() + ", " + rName + "+2");
+                }
+                invalidateRegs();
+            } else if (is16) {
                 std::stringstream ss;
                 ss << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (uint16_t)(int16_t)lit->value;
                 if (isGlobal) {
@@ -1904,12 +1923,24 @@ void CodeGenerator::visit(Assignment& node) {
             emitBoolNormalize(srcSize);
         }
 
-        bool is16 = (vi.pointerLevel > 0 || vi.type == "int");
-        if (isStruct(vi.type)) {
+        bool is32 = is32BitType(vi.type) && vi.pointerLevel == 0;
+        bool is16 = !is32 && (vi.pointerLevel > 0 || vi.type == "int");
+        if (!is32 && isStruct(vi.type)) {
             std::string sName = getAggregateName(vi.type);
             if (structs.count(sName) && structs[sName]->totalSize > 1) is16 = true;
         }
-        if (is16) {
+        if (is32) {
+            // Store AXYZ to 32-bit variable
+            if (isGlobal) {
+                emit("stq " + rName);
+            } else {
+                emit("sta.sp " + rName);
+                emit("stx " + rName + "+1, s");
+                emit("sty " + rName + "+2, s");
+                emit("stz " + rName + "+3, s");
+            }
+            invalidateRegs();
+        } else if (is16) {
             bool lowCorrect = (regA.known && regA.isVariable && regA.varName == rName && regA.varOffset == 0);
             bool highCorrect = (regX.known && regX.isVariable && regX.varName == rName && regX.varOffset == 1);
             if (vi.isVolatile) { lowCorrect = false; highCorrect = false; }
@@ -2241,6 +2272,97 @@ void CodeGenerator::visit(BinaryOperation& node) {
         }
     }
 
+    // Determine if this is a 32-bit operation
+    bool is32BitOp = (is32BitType(lhsType.type) && lhsType.pointerLevel == 0) ||
+                     (is32BitType(rhsType.type) && rhsType.pointerLevel == 0);
+
+    if (is32BitOp) {
+        // --- 32-bit code path using native Q register operations ---
+        int zpIdx = allocateZP(4);
+        std::stringstream ss;
+        ss << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpIdx);
+        emit("stq $" + ss.str());  // save left operand to ZP
+        node.right->accept(*this);
+        resultNeeded = oldNeeded;
+
+        if (node.op == "+" || node.op == "&" || node.op == "|" || node.op == "^") {
+            // Commutative ops: right is in AXYZ, left in ZP — use native Q ops
+            if (node.op == "+") { emit("clc"); emit("adcq $" + ss.str()); }
+            else if (node.op == "&") emit("andq $" + ss.str());
+            else if (node.op == "|") emit("oraq $" + ss.str());
+            else if (node.op == "^") emit("eorq $" + ss.str());
+        } else {
+            // Non-commutative: need left in AXYZ, right in ZP
+            int zpRight = allocateZP(4);
+            std::stringstream ssRight; ssRight << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpRight);
+            emit("stq $" + ssRight.str());  // save right
+            emit("ldq $" + ss.str());       // reload left into AXYZ
+
+            bool isSigned = (lhsType.isSigned || rhsType.isSigned) && lhsType.pointerLevel == 0;
+            if (node.op == "-") {
+                emit("sec"); emit("sbcq $" + ssRight.str());
+            } else if (node.op == "*") {
+                emit((isSigned ? "mul.s16" : "mul.32") + std::string(" .AXYZ, $") + ssRight.str());
+            } else if (node.op == "/" || node.op == "%") {
+                if (node.op == "/") emit("div.32 .AXYZ, $" + ssRight.str());
+                else emit("mod.32 .AXYZ, $" + ssRight.str());
+            } else if (node.op == "<<") {
+                std::string labelStart = newDontCareLabel(); std::string labelEnd = newDontCareLabel();
+                int shiftZp = allocateZP(1); std::stringstream ssSh; ssSh << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(shiftZp);
+                emit("lda $" + ssRight.str()); emit("sta $" + ssSh.str());
+                emit("ldq $" + ss.str()); // reload left
+                out << labelStart << ":" << std::endl;
+                emit("lda $" + ssSh.str()); emit("beq " + labelEnd); emit("dec $" + ssSh.str());
+                emit("ldq $" + ss.str()); emit("aslq"); emit("stq $" + ss.str());
+                emit("bra " + labelStart); out << labelEnd << ":" << std::endl;
+                emit("ldq $" + ss.str());
+                freeZP(shiftZp, 1);
+            } else if (node.op == ">>") {
+                bool isSigned = lhsType.isSigned && lhsType.pointerLevel == 0;
+                std::string labelStart = newDontCareLabel(); std::string labelEnd = newDontCareLabel();
+                int shiftZp = allocateZP(1); std::stringstream ssSh; ssSh << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(shiftZp);
+                emit("lda $" + ssRight.str()); emit("sta $" + ssSh.str());
+                emit("ldq $" + ss.str()); // reload left
+                out << labelStart << ":" << std::endl;
+                emit("lda $" + ssSh.str()); emit("beq " + labelEnd); emit("dec $" + ssSh.str());
+                emit("ldq $" + ss.str());
+                if (isSigned) emit("asr.32 .AXYZ"); else emit("lsrq");
+                emit("stq $" + ss.str());
+                emit("bra " + labelStart); out << labelEnd << ":" << std::endl;
+                emit("ldq $" + ss.str());
+                freeZP(shiftZp, 1);
+            } else {
+                // Relational operators
+                bool eitherSigned = lhsType.isSigned || rhsType.isSigned;
+                if (eitherSigned) emit("cmp.s32 .AXYZ, $" + ssRight.str());
+                else emit("cmpq $" + ssRight.str());
+
+                std::string labelFalse = newDontCareLabel(); std::string labelEnd = newDontCareLabel();
+                if (node.op == "==") emit("bne " + labelFalse);
+                else if (node.op == "!=") emit("beq " + labelFalse);
+                else if (node.op == "<") emit("bcs " + labelFalse);
+                else if (node.op == ">") {
+                    emit("beq " + labelFalse);
+                    emit("bcc " + labelFalse);
+                }
+                else if (node.op == "<=") {
+                    std::string labelTrue = newDontCareLabel();
+                    emit("beq " + labelTrue);
+                    emit("bcs " + labelFalse);
+                    out << labelTrue << ":" << std::endl;
+                }
+                else if (node.op == ">=") emit("bcc " + labelFalse);
+
+                emitter->lda_imm(1); emitter->bra(0x02); out << labelFalse << ":" << std::endl; emitter->lda_imm(0); out << labelEnd << ":" << std::endl;
+                emitter->ldx_imm(0); updateRegX(0);
+            }
+            freeZP(zpRight, 4);
+        }
+        invalidateFlags();
+        freeZP(zpIdx, 4);
+    } else {
+
+    // --- 16-bit code path (original) ---
     int zpIdx = allocateZP(2);
     std::stringstream ss;
     ss << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpIdx);
@@ -2257,7 +2379,7 @@ void CodeGenerator::visit(BinaryOperation& node) {
         else if (node.op == "&") emit("and.16 .ax, $" + ss2.str());
         else if (node.op == "|") emit("ora.16 .ax, $" + ss2.str());
         else if (node.op == "^") emit("eor.16 .ax, $" + ss2.str());
-    } else if (node.op == "-" || node.op == "*" || node.op == "/" || node.op == "%" || node.op == "<<" || node.op == ">>" || 
+    } else if (node.op == "-" || node.op == "*" || node.op == "/" || node.op == "%" || node.op == "<<" || node.op == ">>" ||
                node.op == "==" || node.op == "!=" || node.op == "<" || node.op == ">" || node.op == "<=" || node.op == ">=") {
         int zpRight = allocateZP(2);
         std::stringstream ssRight; ssRight << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpRight);
@@ -2326,6 +2448,7 @@ void CodeGenerator::visit(BinaryOperation& node) {
     }
     invalidateFlags();
     freeZP(zpIdx, 2);
+    } // end 16-bit else
     invalidateRegs();
 }
 
@@ -3234,12 +3357,25 @@ void CodeGenerator::visit(VariableReference& node) {
         return;
     }
 
-    bool is16Bit = (vi.pointerLevel > 0 || vi.type == "int");
-    if (isStruct(vi.type)) {
+    bool is32Bit = is32BitType(vi.type) && vi.pointerLevel == 0;
+    bool is16Bit = !is32Bit && (vi.pointerLevel > 0 || vi.type == "int");
+    if (!is32Bit && isStruct(vi.type)) {
         std::string sName = getAggregateName(vi.type);
         if (structs.count(sName) && structs[sName]->totalSize > 1) is16Bit = true;
     }
-    if (is16Bit) {
+    if (is32Bit) {
+        // Load 32-bit value into AXYZ via native LDQ
+        if (isGlobal) {
+            emit("ldq " + rName);
+        } else {
+            // Stack-relative: byte-by-byte load (LDQ doesn't support stack-relative)
+            emit("lda.sp " + rName);
+            emit("ldx " + rName + "+1, s");
+            emit("ldy " + rName + "+2, s");
+            emit("ldz " + rName + "+3, s");
+        }
+        invalidateRegs();
+    } else if (is16Bit) {
         bool lowCorrect = (regA.known && regA.isVariable && regA.varName == rName && regA.varOffset == 0);
         bool highCorrect = (regX.known && regX.isVariable && regX.varName == rName && regX.varOffset == 1);
         if (vi.isVolatile) { lowCorrect = false; highCorrect = false; }
@@ -3790,6 +3926,7 @@ void CodeGenerator::emitData() {
         int size = 0;
         if (gVar->pointerLevel > 0) size = 2;
         else if (is8BitType(gVar->type)) size = 1;
+        else if (is32BitType(gVar->type)) size = 4;
         else if (gVar->type == "int") size = 2;
         else if (isStruct(gVar->type)) { std::string sName = getAggregateName(gVar->type); if (structs.count(sName)) size = structs[sName]->totalSize; }
 
@@ -3799,6 +3936,7 @@ void CodeGenerator::emitData() {
             int elementSize = 0;
             if (gVar->pointerLevel > 0) elementSize = 2;
             else if (is8BitType(gVar->type)) elementSize = 1;
+            else if (is32BitType(gVar->type)) elementSize = 4;
             else if (gVar->type == "int") elementSize = 2;
             else if (isStruct(gVar->type)) { std::string sName = getAggregateName(gVar->type); if (structs.count(sName)) elementSize = structs[sName]->totalSize; }
             int totalElements = gVar->arraySize() >= 0 ? gVar->arraySize() : 1;
@@ -3809,6 +3947,7 @@ void CodeGenerator::emitData() {
                 if (tryEvalConstInt(elem.get(), constVal)) {
                     if (elementSize == 1) out << "    .byte $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (constVal & 0xFF) << std::dec << std::endl;
                     else if (elementSize == 2) out << "    .word $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (constVal & 0xFFFF) << std::dec << std::endl;
+                    else if (elementSize == 4) out << "    .dword $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(8) << (constVal & 0xFFFFFFFF) << std::dec << std::endl;
                     else out << "    .res " << std::to_string(elementSize) << ", 0" << std::endl;
                 } else {
                     out << "    .res " << std::to_string(elementSize) << ", 0" << std::endl;
@@ -3822,6 +3961,7 @@ void CodeGenerator::emitData() {
             if (tryEvalConstInt(gVar->initializer.get(), constVal)) {
                 if (size == 1) out << "    .byte $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (constVal & 0xFF) << std::dec << std::endl;
                 else if (size == 2) out << "    .word $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (constVal & 0xFFFF) << std::dec << std::endl;
+                else if (size == 4) out << "    .dword $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(8) << (constVal & 0xFFFFFFFF) << std::dec << std::endl;
                 else out << "    .res " << std::to_string(size) << ", 0" << std::endl;
             } else {
                 out << "    .res " << std::to_string(size) << ", 0" << std::endl;
@@ -3844,6 +3984,7 @@ void CodeGenerator::emitData() {
             int size = 0;
             if (gVar->pointerLevel > 0) size = 2;
             else if (is8BitType(gVar->type)) size = 1;
+            else if (is32BitType(gVar->type)) size = 4;
             else if (gVar->type == "int") size = 2;
             else if (isStruct(gVar->type)) { std::string sName = getAggregateName(gVar->type); if (structs.count(sName)) size = structs[sName]->totalSize; }
             if (gVar->arraySize() >= 0) size *= gVar->arraySize();
