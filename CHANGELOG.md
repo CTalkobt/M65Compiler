@@ -2,6 +2,17 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
+## [Unreleased] - 2026-05-02
+
+### Fixed
+- **Compiler (cc45)**:
+    - **PETSCII/ASCII encoding mismatch**: Character literals (`'A'`, `'d'`, etc.) now apply the same PETSCII case-swap conversion as the assembler's `.text` directive. Lowercase `'a'`–`'z'` map to `$41`–`$5A`, uppercase `'A'`–`'Z'` map to `$61`–`$7A`, matching the bytes emitted for string literals. This fixes comparisons like `*str == 'd'` when `str` points into a PETSCII-encoded string. Previously, char literals used raw ASCII values, causing mismatches.
+    - **`-O0` global pointer initializers**: Global variables with non-literal initializers (e.g., `volatile char *r = (char *)0x4000`) now emit correct `.word`/`.byte` values with `-O0`. Previously, `-O0` skipped constant folding, leaving the initializer as a `CastExpression` which `emitData()` couldn't handle, falling back to `.res` (uninitialized). Added `tryEvalConstInt()` — a recursive evaluator that handles `CastExpression`, unary `-`/`~`, and binary arithmetic on constants.
+
+### Changed
+- **Testing**:
+    - Removed `while(1){}` infinite loops from test programs (`test_short.c`, `test_struct_return.c`, `test_inline_asm.c`, `test_mmemu_control.c`). Programs now return cleanly via RTS to the caller, matching standard CRT `exit_rts` behavior.
+
 ## [Unreleased] - 2026-05-01
 
 ### Added
