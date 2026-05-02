@@ -236,7 +236,7 @@ Steps required to bring the C compiler closer to C11 standards.
 All modules are hand-written 45GS02 assembly in `lib/stdlib/`, archived into `stdlib45.lib` by `lib/Makefile`.
 
 - [X] **`string.h`**: `strlen`, `strcpy`, `strncpy`, `strcmp`, `strncmp`, `strcat`, `strchr`, `strrchr`, `memcpy`, `memmove`, `memset`, `memcmp` (12 functions). Validated via mmemu emulator tests (`test_strlen`, `test_strcmp`, `test_strcpy`, `test_memcpy`, `test_strchr`).
-- [X] **`stdio.h`**: `putchar`, `puts` (KERNAL CHROUT wrappers), `sprintf`, `printf` (variadic formatted output with `%d`, `%u`, `%x`, `%s`, `%c`, `%%`, `%o`, `%b`, `%p`). Long format support via `l` modifier: `%ld`, `%lu`, `%lx`, `%lo`, `%lb`.
+- [X] **`stdio.h`**: `putchar`, `puts` (KERNAL CHROUT wrappers), `sprintf`, `printf` (variadic formatted output with `%d`, `%u`, `%x`, `%s`, `%c`, `%%`, `%o`, `%b`, `%p`). Long format support via `l` modifier: `%ld`, `%lu`, `%lx`, `%lo`, `%lb`. `sscanf` (formatted string input with `%d`, `%u`, `%x`, `%o`, `%c`, `%s`, `%%`, plus long variants `%ld`, `%lu`, `%lx`, `%lo`).
 - [X] **`cbm.h`**: Inline KERNAL wrappers — 25 functions for character I/O, file I/O, screen, serial bus, clock. PETSCII constants and device numbers.
 - [X] **`stdlib.h`**: `exit` (jumps to CRT `__exit` label with status in `.AX`).
 - [X] **`ctype.h`**: `isdigit`, `isalpha`, `isalnum`, `isspace`, `isprint`, `toupper`, `tolower` (PETSCII-aware). Validated via build + link.

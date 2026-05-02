@@ -25,6 +25,7 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - **Standard Library (stdlib45.lib)**:
     - **`ltoa(long value, char *str, int base)`**: 32-bit long-to-string conversion. Uses the MEGA65 hardware divider's full 32-bit capability. Supports bases 2–36, signed negation for base 10. Declared in `<stdlib.h>`.
     - **`printf` / `sprintf` long format specifiers**: Added `l` length modifier for 32-bit arguments: `%ld` (signed decimal), `%lu` (unsigned decimal), `%lx` (hexadecimal), `%lo` (octal), `%lb` (binary, sprintf only). When `l` is present, 4 bytes are read from the variadic argument list and converted via `ltoa`.
+    - **`sscanf(char *str, char *fmt, ...)`**: Formatted string input parsing. Supports `%d`, `%u`, `%x`, `%o`, `%c`, `%s`, `%%`, and long variants `%ld`, `%lu`, `%lx`, `%lo`. Handles leading whitespace, optional sign for `%d`, hex prefixes (`$`, `0x`) for `%x`, and whitespace-delimited strings for `%s`. Returns the number of successfully matched and assigned items. Compiled as a separate object file (`sscanf.o45`) so it is only linked when referenced. Declared in `<stdio.h>`.
 
 ### Fixed
 - **Assembler (ca45)**:

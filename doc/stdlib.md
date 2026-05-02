@@ -102,6 +102,7 @@ Character I/O, string output, and formatted printing.
 - **`puts(const char *s)`**: Output a string followed by a newline. **Implemented.**
 - **`sprintf(char *buf, char *fmt, ...)`**: Formatted string output. **Implemented.**
 - **`printf(char *fmt, ...)`**: Formatted output to screen via `putchar`. **Implemented.**
+- **`sscanf(char *str, char *fmt, ...)`**: Formatted string input parsing. **Implemented.**
 
 ### Format Specifiers
 
@@ -123,6 +124,26 @@ Character I/O, string output, and formatted printing.
 | `%lb` | Binary (32-bit, `sprintf` only) |
 
 The `l` length modifier causes 4 bytes to be read from the variadic argument list and converted via `ltoa` instead of `itoa`.
+
+### `sscanf` Format Specifiers
+
+`sscanf` supports the same specifier letters as `sprintf`/`printf` for input parsing:
+
+| Specifier | Description | Destination type |
+|-----------|-------------|-----------------|
+| `%d` | Signed decimal | `int *` |
+| `%u` | Unsigned decimal | `unsigned int *` |
+| `%x` | Hexadecimal (accepts `$` or `0x` prefix) | `int *` |
+| `%o` | Octal | `int *` |
+| `%c` | Single character (no whitespace skip) | `char *` |
+| `%s` | Whitespace-delimited string (NUL-terminated) | `char *` |
+| `%%` | Literal `%` (matched, not assigned) | — |
+| `%ld` | Signed decimal long | `long *` |
+| `%lu` | Unsigned decimal long | `unsigned long *` |
+| `%lx` | Hexadecimal long | `long *` |
+| `%lo` | Octal long | `long *` |
+
+Returns the number of items successfully matched and assigned. Whitespace in the format string matches any amount of whitespace in the input. Compiled as a separate `.o45` object — only linked when referenced.
 
 ### Implementation Strategy
 
