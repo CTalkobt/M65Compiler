@@ -283,5 +283,9 @@ Token Lexer::lexChar() {
         c = get();
     }
     if (peek() == '\'') get(); // skip closing '
-    return {TokenType::INTEGER_LITERAL, std::to_string((int)(uint8_t)c), startLine, startCol};
+    // Convert to PETSCII to match .text string encoding
+    uint8_t petscii = (uint8_t)c;
+    if (c >= 'a' && c <= 'z') petscii = c - 32;
+    else if (c >= 'A' && c <= 'Z') petscii = c + 32;
+    return {TokenType::INTEGER_LITERAL, std::to_string((int)petscii), startLine, startCol};
 }
