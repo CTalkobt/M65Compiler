@@ -3363,6 +3363,41 @@ void CodeGenerator::visit(AlignofExpression& node) {
     emitter->lda_imm(alignment & 0xFF); updateRegA(alignment & 0xFF); invalidateFlags();
 }
 
+// Try to extract a compile-time constant integer from an expression tree.
+// Handles IntegerLiteral, CastExpression, unary -/~, and binary ops on constants.
+static bool tryEvalConstInt(Expression* expr, int& result) {
+    if (auto* lit = dynamic_cast<IntegerLiteral*>(expr)) {
+        result = lit->value;
+        return true;
+    }
+    if (auto* cast = dynamic_cast<CastExpression*>(expr)) {
+        return tryEvalConstInt(cast->expression.get(), result);
+    }
+    if (auto* unary = dynamic_cast<UnaryOperation*>(expr)) {
+        int val;
+        if (!tryEvalConstInt(unary->operand.get(), val)) return false;
+        if (unary->op == "-") { result = -val; return true; }
+        if (unary->op == "~") { result = ~val; return true; }
+        return false;
+    }
+    if (auto* bin = dynamic_cast<BinaryOperation*>(expr)) {
+        int l, r;
+        if (!tryEvalConstInt(bin->left.get(), l) || !tryEvalConstInt(bin->right.get(), r)) return false;
+        if (bin->op == "+") { result = l + r; return true; }
+        if (bin->op == "-") { result = l - r; return true; }
+        if (bin->op == "*") { result = l * r; return true; }
+        if (bin->op == "/" && r != 0) { result = l / r; return true; }
+        if (bin->op == "%" && r != 0) { result = l % r; return true; }
+        if (bin->op == "&") { result = l & r; return true; }
+        if (bin->op == "|") { result = l | r; return true; }
+        if (bin->op == "^") { result = l ^ r; return true; }
+        if (bin->op == "<<") { result = l << r; return true; }
+        if (bin->op == ">>") { result = l >> r; return true; }
+        return false;
+    }
+    return false;
+}
+
 void CodeGenerator::emitData() {
     // Emit .global/.weak for all global variables in relocatable mode (skip static)
     if (relocMode) {
@@ -3411,9 +3446,10 @@ void CodeGenerator::emitData() {
             int emitted = 0;
             for (auto& elem : initList->elements) {
                 if (emitted >= totalElements) break;
-                if (auto* lit = dynamic_cast<IntegerLiteral*>(elem.get())) {
-                    if (elementSize == 1) out << "    .byte $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (lit->value & 0xFF) << std::dec << std::endl;
-                    else if (elementSize == 2) out << "    .word $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (lit->value & 0xFFFF) << std::dec << std::endl;
+                int constVal;
+                if (tryEvalConstInt(elem.get(), constVal)) {
+                    if (elementSize == 1) out << "    .byte $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (constVal & 0xFF) << std::dec << std::endl;
+                    else if (elementSize == 2) out << "    .word $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (constVal & 0xFFFF) << std::dec << std::endl;
                     else out << "    .res " << std::to_string(elementSize) << ", 0" << std::endl;
                 } else {
                     out << "    .res " << std::to_string(elementSize) << ", 0" << std::endl;
@@ -3422,12 +3458,15 @@ void CodeGenerator::emitData() {
             }
             int remaining = totalElements - emitted;
             if (remaining > 0) out << "    .res " << std::to_string(remaining * elementSize) << ", 0" << std::endl;
-        } else if (auto* lit = dynamic_cast<IntegerLiteral*>(gVar->initializer.get())) {
-            if (size == 1) out << "    .byte $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (lit->value & 0xFF) << std::dec << std::endl;
-            else if (size == 2) out << "    .word $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (lit->value & 0xFFFF) << std::dec << std::endl;
-            else out << "    .res " << std::to_string(size) << ", 0" << std::endl;
         } else {
-            out << "    .res " << std::to_string(size) << ", 0" << std::endl;
+            int constVal;
+            if (tryEvalConstInt(gVar->initializer.get(), constVal)) {
+                if (size == 1) out << "    .byte $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (constVal & 0xFF) << std::dec << std::endl;
+                else if (size == 2) out << "    .word $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (constVal & 0xFFFF) << std::dec << std::endl;
+                else out << "    .res " << std::to_string(size) << ", 0" << std::endl;
+            } else {
+                out << "    .res " << std::to_string(size) << ", 0" << std::endl;
+            }
         }
     }
 
