@@ -6,7 +6,7 @@ This document outlines the requirements and proposed implementation for a minima
 
 These files define the fundamental types and constants required for C compliance and consistent memory layout.
 
-- **`<stdint.h>`**: Fixed-width integer types (`uint8_t`, `int8_t`, `uint16_t`, `int16_t`). Maps directly to `cc45`'s `char` (8-bit) and `int` (16-bit) types. Note: `cc45` does not yet support `long`/32-bit types.
+- **`<stdint.h>`**: Fixed-width integer types (`uint8_t`, `int8_t`, `uint16_t`, `int16_t`, `uint32_t`, `int32_t`). Maps to `cc45`'s `char` (8-bit), `int` (16-bit), and `long` (32-bit) types.
 - **`<stddef.h>`**: Common definitions: `size_t` (typedef to `unsigned int`, 16-bit), `ptrdiff_t`, and `NULL` (`((void *)0)`).
 - **`<stdbool.h>`**: Boolean type support. Defines `bool` as `_Bool` (a native 1-byte type that normalizes any non-zero value to `1`), `true` as `1`, `false` as `0`, and `__bool_true_false_are_defined` as `1`.
 - **`<limits.h>`**: Implementation-defined limits (`CHAR_BIT=8`, `INT_MAX=65535`, `INT_MIN=0` for unsigned; `SCHAR_MIN=-128`, `SCHAR_MAX=127` for signed char).
@@ -87,18 +87,42 @@ All character classification and conversion functions are implemented in hand-wr
 
 - **`abs(int j)`**: Absolute value. Returns `|j|` via two's complement negation if negative. **Implemented.**
 - **`atoi(const char *nptr)`**: Convert string to integer. Handles optional leading sign and decimal digits. **Implemented.**
-- **`itoa(int value, char *str, int base)`**: Convert integer to string in given base (2-36). Handles negative values for base 10. Uses MEGA65 hardware divider. **Implemented.**
+- **`itoa(int value, char *str, int base)`**: Convert 16-bit integer to string in given base (2-36). Handles negative values for base 10. Uses MEGA65 hardware divider. **Implemented.**
+- **`ltoa(long value, char *str, int base)`**: Convert 32-bit long to string in given base (2-36). Handles negative values for base 10. Uses MEGA65 hardware divider's full 32-bit dividend/divisor. **Implemented.**
 - **`rand()`**: Returns pseudo-random int (0-32767). Reads two bytes from MEGA65 hardware RNG at `$D7EF`, busy-waiting on `$D7FE` bit 7 for stabilization. Bit 15 cleared to match C standard positive range. **Implemented.**
 - **`srand(unsigned int seed)`**: No-op stub for C compatibility (MEGA65 hardware RNG is autonomous). **Implemented.**
 - **`exit(int status)`**: Terminate program execution. Loads the status code into `.AX` and jumps to the `__exit` label emitted by the CRT startup. The exit behavior depends on the `#pragma crt exit_*` mode: `exit_rts` (default) restores the caller's SP and returns, `exit_halt` enters an infinite loop, `exit_brk` triggers a BRK. **Implemented.**
 
-## 6. Minimal I/O (`stdio.h`)
+## 6. I/O (`stdio.h`)
 
-Excluding `printf` for now, but providing character-level building blocks.
+Character I/O, string output, and formatted printing.
 
-- **`putchar(int c)`**: Output a single character via KERNAL `CHROUT` ($FFD2).
+- **`putchar(int c)`**: Output a single character via KERNAL `CHROUT` ($FFD2). **Implemented.**
 - **`getchar()`**: Input a single character via KERNAL `GETIN` ($FFE4).
-- **`puts(const char *s)`**: Output a string followed by a newline.
+- **`puts(const char *s)`**: Output a string followed by a newline. **Implemented.**
+- **`sprintf(char *buf, char *fmt, ...)`**: Formatted string output. **Implemented.**
+- **`printf(char *fmt, ...)`**: Formatted output to screen via `putchar`. **Implemented.**
+
+### Format Specifiers
+
+| Specifier | Description |
+|-----------|-------------|
+| `%d` | Signed decimal (16-bit `int`) |
+| `%u` | Unsigned decimal (16-bit) |
+| `%x` | Hexadecimal (16-bit) |
+| `%o` | Octal (16-bit) |
+| `%b` | Binary (16-bit, `sprintf` only) |
+| `%s` | NUL-terminated string |
+| `%c` | Single character |
+| `%p` | Pointer (hex with `$` prefix) |
+| `%%` | Literal `%` |
+| `%ld` | Signed decimal (32-bit `long`) |
+| `%lu` | Unsigned decimal (32-bit) |
+| `%lx` | Hexadecimal (32-bit) |
+| `%lo` | Octal (32-bit) |
+| `%lb` | Binary (32-bit, `sprintf` only) |
+
+The `l` length modifier causes 4 bytes to be read from the variadic argument list and converted via `ltoa` instead of `itoa`.
 
 ### Implementation Strategy
 

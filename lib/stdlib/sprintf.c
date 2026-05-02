@@ -3,15 +3,19 @@
  * int sprintf(char *buf, char *fmt, ...);
  *
  * Supported format specifiers:
- *   %d   — signed decimal integer
- *   %u   — unsigned decimal integer
- *   %x   — unsigned hexadecimal
+ *   %d   — signed decimal integer (16-bit)
+ *   %u   — unsigned decimal integer (16-bit)
+ *   %x   — unsigned hexadecimal (16-bit)
  *   %s   — NUL-terminated string
  *   %c   — single character
  *   %%   — literal '%'
- *   %o   — unsigned octal
- *   %b   — unsigned binary
+ *   %o   — unsigned octal (16-bit)
+ *   %b   — unsigned binary (16-bit)
  *   %p   — pointer (hex with $)
+ *   %ld  — signed decimal long (32-bit)
+ *   %lu  — unsigned decimal long (32-bit)
+ *   %lx  — unsigned hexadecimal long (32-bit)
+ *   %lo  — unsigned octal long (32-bit)
  *
  * Note: Format specifiers are matched in PETSCII encoding (case-swapped
  * relative to ASCII) because string literals go through .text conversion.
@@ -22,13 +26,14 @@
 #include <stdarg.h>
 
 int itoa(int value, char *str, int base);
+char *ltoa(long value, char *str, int base);
 
 int sprintf(char *buf, char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
 
     char *out = buf;
-    char tmp[18];
+    char tmp[34];
     int i;
 
     while (*fmt) {
@@ -47,12 +52,24 @@ int sprintf(char *buf, char *fmt, ...) {
             continue;
         }
 
+        /* Check for 'l' length modifier (long) */
+        int isLong = 0;
+        if (*fmt == 'L' || *fmt == 'l') {
+            isLong = 1;
+            fmt = fmt + 1;
+        }
+
         /* PETSCII: .text swaps case, so 'd' ($64) becomes 'D' ($44).
          * Char literals are ASCII. Compare against uppercase for
          * lowercase format specifiers in the source. */
         if (*fmt == 'D' || *fmt == 'd') {
-            int val = va_arg(ap, int);
-            itoa(val, tmp, 10);
+            if (isLong) {
+                long val = va_arg(ap, long);
+                ltoa(val, tmp, 10);
+            } else {
+                int val = va_arg(ap, int);
+                itoa(val, tmp, 10);
+            }
             i = 0;
             while (tmp[i]) {
                 *out = tmp[i];
@@ -60,8 +77,13 @@ int sprintf(char *buf, char *fmt, ...) {
                 i = i + 1;
             }
         } else if (*fmt == 'U' || *fmt == 'u') {
-            unsigned int val = va_arg(ap, int);
-            itoa(val, tmp, 10);
+            if (isLong) {
+                unsigned long val = va_arg(ap, long);
+                ltoa(val, tmp, 10);
+            } else {
+                unsigned int val = va_arg(ap, int);
+                itoa(val, tmp, 10);
+            }
             i = 0;
             while (tmp[i]) {
                 if (tmp[i] != '-') {
@@ -71,8 +93,13 @@ int sprintf(char *buf, char *fmt, ...) {
                 i = i + 1;
             }
         } else if (*fmt == 'X' || *fmt == 'x') {
-            int val = va_arg(ap, int);
-            itoa(val, tmp, 16);
+            if (isLong) {
+                long val = va_arg(ap, long);
+                ltoa(val, tmp, 16);
+            } else {
+                int val = va_arg(ap, int);
+                itoa(val, tmp, 16);
+            }
             i = 0;
             while (tmp[i]) {
                 *out = tmp[i];
@@ -80,8 +107,13 @@ int sprintf(char *buf, char *fmt, ...) {
                 i = i + 1;
             }
         } else if (*fmt == 'O' || *fmt == 'o') {
-            int val = va_arg(ap, int);
-            itoa(val, tmp, 8);
+            if (isLong) {
+                long val = va_arg(ap, long);
+                ltoa(val, tmp, 8);
+            } else {
+                int val = va_arg(ap, int);
+                itoa(val, tmp, 8);
+            }
             i = 0;
             while (tmp[i]) {
                 *out = tmp[i];
@@ -89,8 +121,13 @@ int sprintf(char *buf, char *fmt, ...) {
                 i = i + 1;
             }
         } else if (*fmt == 'B' || *fmt == 'b') {
-            int val = va_arg(ap, int);
-            itoa(val, tmp, 2);
+            if (isLong) {
+                long val = va_arg(ap, long);
+                ltoa(val, tmp, 2);
+            } else {
+                int val = va_arg(ap, int);
+                itoa(val, tmp, 2);
+            }
             i = 0;
             while (tmp[i]) {
                 *out = tmp[i];

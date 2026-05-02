@@ -3,6 +3,7 @@
  * cc45 native types:
  *   char  = 8-bit unsigned
  *   int   = 16-bit (signed/unsigned)
+ *   long  = 32-bit (signed/unsigned)
  */
 
 #pragma include_once
@@ -12,6 +13,8 @@
 #define uint8_t  unsigned char
 #define int16_t  int
 #define uint16_t unsigned int
+#define int32_t  long
+#define uint32_t unsigned long
 
 /* Limits */
 #define INT8_MIN    (-128)
@@ -20,3 +23,6 @@
 #define INT16_MIN   (-32768)
 #define INT16_MAX   32767
 #define UINT16_MAX  65535
+#define INT32_MIN   (-2147483648L)
+#define INT32_MAX   2147483647L
+#define UINT32_MAX  4294967295UL

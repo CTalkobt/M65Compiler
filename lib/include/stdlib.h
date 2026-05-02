@@ -8,6 +8,7 @@ _Noreturn void exit(int status);
 
 int atoi(char *s);
 char *itoa(int value, char *str, int base);
+char *ltoa(long value, char *str, int base);
 
 /* short aliases — cast through atoi/itoa (short == int on this target) */
 #define atos(s) ((short)atoi(s))
