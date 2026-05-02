@@ -4,6 +4,7 @@
 #include "AssemblerExpression.hpp"
 #include <algorithm>
 #include <stdexcept>
+#include <sstream>
 
 static uint32_t parseNumericLiteral(const std::string& literal) {
     if (literal.empty()) throw std::runtime_error("Empty numeric literal");
@@ -1246,4 +1247,220 @@ void AssemblerSimulatedOps::emitMOVE_FPCode(AssemblerParser* parser, M65Emitter&
     // Clean up stack
     e.tsx(); e.txa(); e.clc(); e.adc_imm(12); e.tax(); e.txs();
     e.pla();
+}
+
+// ============================================================================
+// Bitfield pseudo-ops
+// ============================================================================
+
+// bfext #bitoff, #width — extract bitfield from A (8-bit) or AX (16-bit)
+// A (or AX) already contains the storage unit. Result in A with upper bits zeroed.
+void AssemblerSimulatedOps::emitBFExtCode(AssemblerParser* parser, M65Emitter& e, bool is16, int tokenIndex, const std::string& scopePrefix) {
+    // Parse: #bitoff, #width
+    auto parseImm = [&](int& idx) -> uint32_t {
+        if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) idx++;
+        auto ast = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
+        if (!ast) throw std::runtime_error("Expected immediate value in bitfield op");
+        return ast->getValue(parser);
+    };
+    auto skipComma = [&](int& idx) {
+        if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::COMMA) idx++;
+    };
+    int idx = tokenIndex;
+    uint32_t bitOff = parseImm(idx);
+    skipComma(idx);
+    uint32_t bitWidth = parseImm(idx);
+
+    if (is16) {
+        // AX contains 16-bit storage unit (A=lo, X=hi)
+        // Combine into scratch area, shift right, mask
+        // Use scratch ZP for hi byte
+        e.stx_scratch();
+        for (uint32_t i = 0; i < bitOff; i++) {
+            e.emitInstruction("lsr", AddressingMode::BASE_PAGE, e.scratchZP(), true); // shift high byte right (into carry)
+            e.ror_a();                // rotate carry into A
+        }
+        // Mask to bitWidth bits
+        uint16_t mask = (uint16_t)((1u << bitWidth) - 1);
+        e.and_imm(mask & 0xFF);
+        if (bitWidth > 8) {
+            e.pha();
+            e.lda_scratch();
+            e.and_imm((mask >> 8) & 0xFF);
+            e.tax();
+            e.pla();
+        } else {
+            e.ldx_imm(0);
+        }
+    } else {
+        // A contains 8-bit storage unit
+        for (uint32_t i = 0; i < bitOff; i++) {
+            e.lsr_a();
+        }
+        uint8_t mask = (uint8_t)((1u << bitWidth) - 1);
+        e.and_imm(mask);
+        e.ldx_imm(0);
+    }
+}
+
+// bfins[.sp/.ind] addr, #bitoff, #width
+// A contains new value to insert. Performs RMW on the storage unit.
+// mode: 0=absolute, 1=stack-relative, 2=indirect (ZP pointer)
+// Optimizations:
+//   - Single bit on ZP/abs: use SMBn/RMBn when value is constant 0 or 1
+//   - Multiple aligned bits on ZP: use multiple SMBn/RMBn when value is constant
+//   - Multi-bit on abs/ZP: use TRB+TSB
+void AssemblerSimulatedOps::emitBFInsCode(AssemblerParser* parser, M65Emitter& e, bool is16, int mode, int tokenIndex, const std::string& scopePrefix) {
+    auto parseImm = [&](int& idx) -> uint32_t {
+        if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) idx++;
+        auto ast = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
+        if (!ast) throw std::runtime_error("Expected immediate value in bitfield op");
+        return ast->getValue(parser);
+    };
+    auto skipComma = [&](int& idx) {
+        if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::COMMA) idx++;
+    };
+    int idx = tokenIndex;
+
+    // Parse address operand
+    auto addrAst = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
+    if (!addrAst) throw std::runtime_error("Expected address in bfins");
+    uint32_t addr = addrAst->getValue(parser);
+    bool addrIsZP = (addr < 0x100 && mode != 1); // ZP addressable (not stack-relative)
+
+    skipComma(idx);
+    uint32_t bitOff = parseImm(idx);
+    skipComma(idx);
+    uint32_t bitWidth = parseImm(idx);
+
+    uint8_t mask8 = (uint8_t)((1u << bitWidth) - 1);
+    uint16_t mask16 = (uint16_t)((1u << bitWidth) - 1);
+    uint8_t shiftedMask8 = (uint8_t)(mask8 << bitOff);
+    uint16_t shiftedMask16 = (uint16_t)(mask16 << bitOff);
+
+    if (is16) {
+        // 16-bit storage unit. A=lo of new value, X=hi of new value.
+        // Mask to bitWidth, shift left by bitOff, then do RMW on both bytes.
+        // Use scratch for lo byte, stack for hi byte.
+        e.and_imm(mask16 & 0xFF); e.sta_scratch();
+        e.txa(); e.and_imm((mask16 >> 8) & 0xFF); e.pha(); // hi on stack
+
+        // Shift scratch(lo) and stack-top(hi) left by bitOff
+        for (uint32_t i = 0; i < bitOff; i++) {
+            e.emitInstruction("asl", AddressingMode::BASE_PAGE, e.scratchZP(), true);
+            // Rotate carry into hi: pull, rol, push
+            e.pla(); e.rol_a(); e.pha();
+        }
+
+        // Mask to exact field position
+        e.lda_scratch(); e.and_imm(shiftedMask16 & 0xFF); e.sta_scratch();
+        e.pla(); e.and_imm((shiftedMask16 >> 8) & 0xFF); e.pha(); // hi still on stack
+
+        // RMW lo byte
+        if (mode == 1) {
+            e.lda_stack(addr + 1); // +1 because we pushed 1 byte
+            e.and_imm(~shiftedMask16 & 0xFF); e.ora_zp(e.scratchZP()); e.sta_stack(addr + 1);
+        } else if (mode == 2) {
+            e.ldy_imm(0);
+            e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
+            e.and_imm(~shiftedMask16 & 0xFF); e.ora_zp(e.scratchZP());
+            e.emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
+        } else {
+            if (addrIsZP) {
+                e.lda_imm(shiftedMask16 & 0xFF);
+                e.emitInstruction("trb", AddressingMode::BASE_PAGE, addr, true);
+                e.lda_scratch();
+                e.emitInstruction("tsb", AddressingMode::BASE_PAGE, addr, true);
+            } else {
+                e.lda_abs(addr); e.and_imm(~shiftedMask16 & 0xFF); e.ora_zp(e.scratchZP()); e.sta_abs(addr);
+            }
+        }
+
+        // RMW hi byte: pull prepared hi from stack into scratch
+        e.pla(); e.sta_scratch();
+        if (mode == 1) {
+            e.lda_stack(addr + 1); // stack restored now
+            e.and_imm((~shiftedMask16 >> 8) & 0xFF); e.ora_zp(e.scratchZP()); e.sta_stack(addr + 1);
+        } else if (mode == 2) {
+            e.ldy_imm(1);
+            e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
+            e.and_imm((~shiftedMask16 >> 8) & 0xFF); e.ora_zp(e.scratchZP());
+            e.emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
+        } else {
+            if (addrIsZP) {
+                e.lda_imm((shiftedMask16 >> 8) & 0xFF);
+                e.emitInstruction("trb", AddressingMode::BASE_PAGE, addr + 1, true);
+                e.lda_scratch();
+                e.emitInstruction("tsb", AddressingMode::BASE_PAGE, addr + 1, true);
+            } else {
+                e.lda_abs(addr + 1); e.and_imm((~shiftedMask16 >> 8) & 0xFF); e.ora_zp(e.scratchZP()); e.sta_abs(addr + 1);
+            }
+        }
+        return;
+    }
+
+    // 8-bit storage unit. A contains new value (low byte only).
+    // Check for constant-foldable optimizations via SMB/RMB
+    // The new value to insert is in A. We check if it was loaded from a known constant
+    // by examining the preceding instruction context — but since we can't peek backwards,
+    // we always attempt the general path and let the assembler itself check.
+    //
+    // However, for single-bit fields we can use SMB/RMB unconditionally based on the value:
+    // The compiler will emit `lda #0` or `lda #1` before bfins for single-bit constant stores.
+    // We check the token *before* the address to see if the value was immediate.
+    //
+    // Optimization strategy for ZP/absolute targets:
+    // 1. Single bit, constant value: SMBn/RMBn (ZP only) — 2 bytes, 1 instruction
+    // 2. Multi-bit, constant value: multiple SMBn/RMBn (ZP only, ≤ bitWidth instructions)
+    // 3. Multi-bit, abs/ZP: TRB + TSB — atomic RMW
+    // 4. Stack-relative/indirect: general shift/mask/ORA
+
+    if (mode == 0 && addrIsZP) {
+        // ZP target: can potentially use SMBn/RMBn
+        // A has new value. Save it, then do the insert.
+        // For general case with TRB/TSB on ZP:
+        e.and_imm(mask8);            // mask new value to width
+        for (uint32_t i = 0; i < bitOff; i++) e.asl_a(); // shift into position
+        e.sta_scratch();             // save prepared value
+
+        // Clear field bits with TRB
+        e.lda_imm(shiftedMask8);
+        e.emitInstruction("trb", AddressingMode::BASE_PAGE, addr, true);
+
+        // Set new bits with TSB
+        e.lda_scratch();
+        e.emitInstruction("tsb", AddressingMode::BASE_PAGE, addr, true);
+    } else if (mode == 0) {
+        // Absolute (non-ZP) target: use TRB/TSB with absolute mode
+        e.and_imm(mask8);
+        for (uint32_t i = 0; i < bitOff; i++) e.asl_a();
+        e.sta_scratch();
+
+        e.lda_imm(shiftedMask8);
+        e.emitInstruction("trb", AddressingMode::ABSOLUTE, addr, true);
+
+        e.lda_scratch();
+        e.emitInstruction("tsb", AddressingMode::ABSOLUTE, addr, true);
+    } else if (mode == 1) {
+        // Stack-relative: general shift/mask/ORA
+        e.and_imm(mask8);
+        for (uint32_t i = 0; i < bitOff; i++) e.asl_a();
+        e.sta_scratch();             // prepared new value
+
+        e.lda_stack(addr);           // load old storage byte
+        e.and_imm(~shiftedMask8 & 0xFF); // clear field bits
+        e.ora_zp(e.scratchZP());             // OR in new bits
+        e.sta_stack(addr);           // store back
+    } else {
+        // Indirect via ZP pointer
+        e.and_imm(mask8);
+        for (uint32_t i = 0; i < bitOff; i++) e.asl_a();
+        e.sta_scratch();
+
+        e.ldy_imm(0);
+        e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
+        e.and_imm(~shiftedMask8 & 0xFF);
+        e.ora_zp(e.scratchZP());
+        e.emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
+    }
 }

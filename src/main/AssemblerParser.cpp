@@ -696,6 +696,14 @@ void AssemblerParser::pass1() {
             else if (fullMnemonic == "stax.fp") stmt->type = Statement::STAX_FP;
             else if (fullMnemonic == "leax.fp") stmt->type = Statement::LEAX_FP;
             else if (fullMnemonic == "move.fp") stmt->type = Statement::MOVE_FP;
+            else if (fullMnemonic == "bfext") stmt->type = Statement::BFEXT;
+            else if (fullMnemonic == "bfext16") stmt->type = Statement::BFEXT16;
+            else if (fullMnemonic == "bfins") stmt->type = Statement::BFINS;
+            else if (fullMnemonic == "bfins.sp") stmt->type = Statement::BFINS_SP;
+            else if (fullMnemonic == "bfins.ind") stmt->type = Statement::BFINS_IND;
+            else if (fullMnemonic == "bfins16") stmt->type = Statement::BFINS16;
+            else if (fullMnemonic == "bfins16.sp") stmt->type = Statement::BFINS16_SP;
+            else if (fullMnemonic == "bfins16.ind") stmt->type = Statement::BFINS16_IND;
 
             if (stmt->instr.mnemonic == "expr") {
                 stmt->type = Statement::EXPR;
@@ -838,6 +846,13 @@ void AssemblerParser::pass1() {
                 else if (stmt->type == Statement::STAX_FP) emitSTAX_FPCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 else if (stmt->type == Statement::LEAX_FP) emitLEAX_FPCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 else if (stmt->type == Statement::MOVE_FP) emitMOVE_FPCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::BFEXT || stmt->type == Statement::BFEXT16) emitBFExtCode(d, stmt->type == Statement::BFEXT16, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::BFINS) emitBFInsCode(d, false, 0, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::BFINS_SP) emitBFInsCode(d, false, 1, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::BFINS_IND) emitBFInsCode(d, false, 2, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::BFINS16) emitBFInsCode(d, true, 0, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::BFINS16_SP) emitBFInsCode(d, true, 1, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::BFINS16_IND) emitBFInsCode(d, true, 2, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 if (stmt->type != Statement::INSTRUCTION) stmt->size = d.size();
             }
             else {
@@ -1132,6 +1147,14 @@ void AssemblerParser::emitMOVE_FPCode(std::vector<uint8_t>& binary, int tokenInd
     M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitMOVE_FPCode(this, e, tokenIndex, scopePrefix);
 }
+void AssemblerParser::emitBFExtCode(std::vector<uint8_t>& binary, bool is16, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setScratchZP(getScratchZP());
+    AssemblerSimulatedOps::emitBFExtCode(this, e, is16, tokenIndex, scopePrefix);
+}
+void AssemblerParser::emitBFInsCode(std::vector<uint8_t>& binary, bool is16, int mode, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setScratchZP(getScratchZP());
+    AssemblerSimulatedOps::emitBFInsCode(this, e, is16, mode, tokenIndex, scopePrefix);
+}
 
 int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t currentAddr, const std::string& scopePrefix) {
     if (instr.mnemonic == "proc") return 0;
@@ -1361,6 +1384,13 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                     else if (s->type == Statement::STAX_FP) emitSTAX_FPCode(d, s->instr.operandTokenIndex, s->scopePrefix);
                     else if (s->type == Statement::LEAX_FP) emitLEAX_FPCode(d, s->instr.operandTokenIndex, s->scopePrefix);
                     else if (s->type == Statement::MOVE_FP) emitMOVE_FPCode(d, s->instr.operandTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::BFEXT || s->type == Statement::BFEXT16) emitBFExtCode(d, s->type == Statement::BFEXT16, s->instr.operandTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::BFINS) emitBFInsCode(d, false, 0, s->instr.operandTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::BFINS_SP) emitBFInsCode(d, false, 1, s->instr.operandTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::BFINS_IND) emitBFInsCode(d, false, 2, s->instr.operandTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::BFINS16) emitBFInsCode(d, true, 0, s->instr.operandTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::BFINS16_SP) emitBFInsCode(d, true, 1, s->instr.operandTokenIndex, s->scopePrefix);
+                    else if (s->type == Statement::BFINS16_IND) emitBFInsCode(d, true, 2, s->instr.operandTokenIndex, s->scopePrefix);
                     s->size = (int)d.size();
                 }
                 else if (s->type == Statement::DIRECTIVE) s->size = calculateDirectiveSize(s->dir, cP);

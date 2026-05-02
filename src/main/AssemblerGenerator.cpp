@@ -325,6 +325,21 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
                 if (!isDeadCode) AssemblerSimulatedOps::emitMOVE_FPCode(parser, e, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 continue;
             }
+            if (stmt->type == AssemblerParser::Statement::BFEXT || stmt->type == AssemblerParser::Statement::BFEXT16) {
+                if (!isDeadCode) AssemblerSimulatedOps::emitBFExtCode(parser, e, stmt->type == AssemblerParser::Statement::BFEXT16, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                continue;
+            }
+            if (stmt->type == AssemblerParser::Statement::BFINS || stmt->type == AssemblerParser::Statement::BFINS_SP || stmt->type == AssemblerParser::Statement::BFINS_IND ||
+                stmt->type == AssemblerParser::Statement::BFINS16 || stmt->type == AssemblerParser::Statement::BFINS16_SP || stmt->type == AssemblerParser::Statement::BFINS16_IND) {
+                if (!isDeadCode) {
+                    bool is16 = (stmt->type == AssemblerParser::Statement::BFINS16 || stmt->type == AssemblerParser::Statement::BFINS16_SP || stmt->type == AssemblerParser::Statement::BFINS16_IND);
+                    int mode = 0;
+                    if (stmt->type == AssemblerParser::Statement::BFINS_SP || stmt->type == AssemblerParser::Statement::BFINS16_SP) mode = 1;
+                    else if (stmt->type == AssemblerParser::Statement::BFINS_IND || stmt->type == AssemblerParser::Statement::BFINS16_IND) mode = 2;
+                    AssemblerSimulatedOps::emitBFInsCode(parser, e, is16, mode, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                }
+                continue;
+            }
 
             if (stmt->type == AssemblerParser::Statement::BASIC_UPSTART) {
                 if (!isDeadCode) {

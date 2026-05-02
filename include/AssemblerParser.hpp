@@ -129,7 +129,8 @@ private:
                     STX_STACK, STY_STACK, STZ_STACK,
                     LDAX, LDAY, LDAZ, STAX, STAY, STAZ, FILL, COPY, PUSH, POP,
                     MUL_S16, DIV_S16, MOD16, MOD_S16,
-                    LDA_FP, STA_FP, LDAX_FP, STAX_FP, LEAX_FP, MOVE_FP } type = NONE;
+                    LDA_FP, STA_FP, LDAX_FP, STAX_FP, LEAX_FP, MOVE_FP,
+                    BFEXT, BFEXT16, BFINS, BFINS_SP, BFINS_IND, BFINS16, BFINS16_SP, BFINS16_IND } type = NONE;
         Instruction instr;
         Directive dir;
         std::string label;
@@ -174,6 +175,9 @@ private:
                 case MUL_S16: case DIV_S16: case MOD16: case MOD_S16:
                 case LDA_FP: case STA_FP: case LDAX_FP: case STAX_FP:
                 case LEAX_FP: case MOVE_FP:
+                case BFEXT: case BFEXT16:
+                case BFINS: case BFINS_SP: case BFINS_IND:
+                case BFINS16: case BFINS16_SP: case BFINS16_IND:
                     return true;
                 default:
                     return false;
@@ -261,6 +265,10 @@ private:
     void emitSTAX_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");
     void emitLEAX_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");
     void emitMOVE_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");
+
+    // Bitfield pseudo-ops
+    void emitBFExtCode(std::vector<uint8_t>& binary, bool is16, int tokenIndex, const std::string& scopePrefix = "");
+    void emitBFInsCode(std::vector<uint8_t>& binary, bool is16, int mode, int tokenIndex, const std::string& scopePrefix = "");
 
     struct FrameAccessInfo {
         bool isFrame = false;

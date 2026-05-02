@@ -48,6 +48,8 @@ public:
         int alignment = 1;
         std::vector<int> arrayDims;
         int arraySize() const { if (arrayDims.empty()) return -1; int s=1; for (int d:arrayDims) s*=d; return s; }
+        int bitWidth = 0;   // 0 = not a bitfield; >0 = bitfield width in bits
+        int bitOffset = 0;  // bit offset within the storage unit
     };
     struct StructInfo {
         std::string name;

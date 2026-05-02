@@ -214,7 +214,8 @@ AssemblerToken AssemblerLexer::lexIdentifierOrInstruction() {
         "PTRSTACK", "PTRDEREF", "LDW.F", "STW.F", "INC.F", "DEC.F",
         "PUSH", "POP",
         "LDXY", "STXY",
-        "LDA.FP", "STA.FP", "LDAX.FP", "STAX.FP", "LEAX.FP", "MOVE.FP"
+        "LDA.FP", "STA.FP", "LDAX.FP", "STAX.FP", "LEAX.FP", "MOVE.FP",
+        "BFEXT", "BFEXT16", "BFINS", "BFINS.SP", "BFINS.IND", "BFINS16", "BFINS16.SP", "BFINS16.IND"
     };
 
     std::string upperValue = value;

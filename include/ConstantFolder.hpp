@@ -410,7 +410,7 @@ public:
                 sm.type = m.type; sm.pointerLevel = m.pointerLevel; sm.isSigned = m.isSigned;
                 sm.name = m.name; sm.isConst = m.isConst; sm.alignment = alignment;
                 sm.alignmentExpr = std::move(alignmentExpr); sm.isAnonymous = m.isAnonymous;
-                sm.arrayDims = m.arrayDims;
+                sm.arrayDims = m.arrayDims; sm.bitWidth = m.bitWidth;
                 def->members.push_back(std::move(sm));
             }
         }

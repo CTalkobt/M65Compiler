@@ -1861,7 +1861,12 @@ void CodeGenerator::visit(Assignment& node) {
                             if (structs.count(nestedSName) && structs[nestedSName]->totalSize > 1) is16 = true;
                         }
                         std::string memberAddr = rName + (mInfo.offset ? "+" + std::to_string(mInfo.offset) : "");
-                        if (is16) {
+                        if (mInfo.bitWidth > 0) {
+                            // Bitfield insert: A has new value, do RMW on storage unit
+                            std::string bfOp = is16 ? "bfins16" : "bfins";
+                            if (!isGlobal) bfOp += ".sp";
+                            emit(bfOp + " " + memberAddr + ", #" + std::to_string(mInfo.bitOffset) + ", #" + std::to_string(mInfo.bitWidth));
+                        } else if (is16) {
                             emit("stax " + memberAddr + suffix);
                             updateRegAVar(rName, mInfo.offset); updateRegXVar(rName, mInfo.offset + 1);
                         } else {
@@ -1872,6 +1877,30 @@ void CodeGenerator::visit(Assignment& node) {
                         invalidateRegs();
                         return;
                     }
+                }
+            }
+        }
+    }
+
+    // Check if target is a bitfield member (for arrow/indirect access)
+    int bfWidth = 0, bfOffset = 0;
+    bool bfIs16 = false;
+    if (auto* ma = dynamic_cast<MemberAccess*>(node.target.get())) {
+        ExpressionType bType = getExprType(ma->structExpr.get());
+        if (!isStruct(bType.type)) {
+            if (auto* ref = dynamic_cast<VariableReference*>(ma->structExpr.get())) {
+                if (globalVariableTypes.count("_" + ref->name))
+                    bType = {globalVariableTypes.at("_" + ref->name).type, globalVariableTypes.at("_" + ref->name).pointerLevel};
+            }
+        }
+        if (isStruct(bType.type)) {
+            std::string sn = getAggregateName(bType.type);
+            if (structs.count(sn) && structs[sn]->members.count(ma->memberName)) {
+                auto& mi = structs[sn]->members[ma->memberName];
+                if (mi.bitWidth > 0) {
+                    bfWidth = mi.bitWidth;
+                    bfOffset = mi.bitOffset;
+                    bfIs16 = (mi.pointerLevel > 0 || mi.type == "int");
                 }
             }
         }
@@ -1908,19 +1937,27 @@ void CodeGenerator::visit(Assignment& node) {
     }
     freeZP(zpRHS, 2);
 
-    emitter->sta_ind_z(emitter->getZP(zpIdx), false);
-    updateRegY(0);
-    bool is16 = (targetType.pointerLevel > 0 || targetType.type == "int");
-    if (isStruct(targetType.type)) {
-        std::string sName = getAggregateName(targetType.type);
-        if (structs.count(sName) && structs[sName]->totalSize > 1) is16 = true;
-    }
-    if (is16) {
-        emitter->txa(); regA.known = false;
-        emitter->ldy_imm(1); updateRegY(1);
-        std::stringstream ss2;
-        ss2 << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpIdx);
-        emit("sta ($" + ss2.str() + "),y");
+    if (bfWidth > 0) {
+        // Bitfield insert via indirect ZP pointer
+        std::stringstream ssZ;
+        ssZ << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpIdx);
+        std::string bfOp = bfIs16 ? "bfins16.ind" : "bfins.ind";
+        emit(bfOp + " " + ssZ.str() + ", #" + std::to_string(bfOffset) + ", #" + std::to_string(bfWidth));
+    } else {
+        emitter->sta_ind_z(emitter->getZP(zpIdx), false);
+        updateRegY(0);
+        bool is16 = (targetType.pointerLevel > 0 || targetType.type == "int");
+        if (isStruct(targetType.type)) {
+            std::string sName = getAggregateName(targetType.type);
+            if (structs.count(sName) && structs[sName]->totalSize > 1) is16 = true;
+        }
+        if (is16) {
+            emitter->txa(); regA.known = false;
+            emitter->ldy_imm(1); updateRegY(1);
+            std::stringstream ss2;
+            ss2 << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpIdx);
+            emit("sta ($" + ss2.str() + "),y");
+        }
     }
     freeZP(zpIdx, 2);
     invalidateRegs();
@@ -2268,6 +2305,16 @@ void CodeGenerator::visit(UnaryOperation& node) {
         }
         freeZP(zpIdx, 2);
     } else if (node.op == "&") {
+        if (auto* ma = dynamic_cast<MemberAccess*>(node.operand.get())) {
+            ExpressionType bType = getExprType(ma->structExpr.get());
+            if (isStruct(bType.type)) {
+                std::string sn = getAggregateName(bType.type);
+                if (structs.count(sn) && structs[sn]->members.count(ma->memberName)) {
+                    if (structs[sn]->members[ma->memberName].bitWidth > 0)
+                        throw std::runtime_error("Cannot take address of bitfield member '" + ma->memberName + "'");
+                }
+            }
+        }
         emitAddress(node.operand.get());
     } else if (node.op == "++" || node.op == "--" || node.op == "++_POST" || node.op == "--_POST") {
         bool isInc = (node.op.substr(0, 2) == "++");
@@ -2320,6 +2367,29 @@ void CodeGenerator::visit(UnaryOperation& node) {
                                 std::string nestedSName = getAggregateName(mInfo.type);
                                 if (structs.count(nestedSName) && structs[nestedSName]->totalSize > 1) is16Bit = true;
                             }
+                            if (mInfo.bitWidth > 0) {
+                                // Bitfield ++/--: read, extract, inc/dec, insert
+                                bool isGlobal = globalVariableTypes.count(rName);
+                                std::string suffix = isGlobal ? "" : ", s";
+                                std::string memberAddr = rName + (mInfo.offset ? "+" + std::to_string(mInfo.offset) : "");
+                                // Load storage unit
+                                if (is16Bit) emit("ldax " + memberAddr + suffix);
+                                else { if (isGlobal) emit("lda " + memberAddr); else emit("lda.sp " + memberAddr); }
+                                // Extract bitfield
+                                std::string bfExtOp = is16Bit ? "bfext16" : "bfext";
+                                emit(bfExtOp + " #" + std::to_string(mInfo.bitOffset) + ", #" + std::to_string(mInfo.bitWidth));
+                                if (isPost && resultNeeded) { emitter->push("a"); }
+                                // Inc/dec
+                                if (isInc) { emitter->clc(); emitter->adc_imm(1); }
+                                else { emitter->sec(); emitter->sbc_imm(1); }
+                                // Insert back
+                                std::string bfInsOp = is16Bit ? "bfins16" : "bfins";
+                                if (!isGlobal) bfInsOp += ".sp";
+                                emit(bfInsOp + " " + memberAddr + ", #" + std::to_string(mInfo.bitOffset) + ", #" + std::to_string(mInfo.bitWidth));
+                                invalidateRegs();
+                                if (isPost && resultNeeded) { emitter->pop("a"); emitter->ldx_imm(0); }
+                                else if (!isPost && resultNeeded) node.operand->accept(*this);
+                            } else {
                             if (isPost && resultNeeded) node.operand->accept(*this);
                             invalidateRegs();
                             bool isGlobal = globalVariableTypes.count(rName);
@@ -2345,6 +2415,7 @@ void CodeGenerator::visit(UnaryOperation& node) {
                                 else emit("dec " + memberAddr + suffix);
                             }
                             if (!isPost && resultNeeded) node.operand->accept(*this);
+                            }
                         }
                     }
                 }
@@ -2785,6 +2856,20 @@ void CodeGenerator::visit(StructDefinition& node) {
     int maxAlign = 1;
     int maxSize = 0;
 
+    // Bitfield packing state
+    std::string bfUnitType;   // type of current bitfield storage unit ("" = none)
+    int bfUnitBits = 0;       // bits used in current unit
+    int bfUnitOffset = 0;     // byte offset of current unit
+    int bfUnitSize = 0;       // byte size of current unit (1 or 2)
+
+    auto closeBitfieldUnit = [&]() {
+        if (!bfUnitType.empty()) {
+            if (!node.isUnion) currentOffset = bfUnitOffset + bfUnitSize;
+            bfUnitType.clear();
+            bfUnitBits = 0;
+        }
+    };
+
     for (auto& member : node.members) {
         int mAlign = 1;
         int mSize = 0;
@@ -2807,8 +2892,46 @@ void CodeGenerator::visit(StructDefinition& node) {
 
         if (member.alignment > mAlign) mAlign = member.alignment;
         if (mAlign > maxAlign) maxAlign = mAlign;
-        
+
         if (member.arraySize() >= 0) mSize *= member.arraySize();
+
+        // Bitfield member
+        if (member.bitWidth > 0) {
+            int unitMaxBits = mSize * 8;
+            // Start new unit if: different type, or doesn't fit in current unit
+            if (bfUnitType.empty() || member.type != bfUnitType ||
+                bfUnitBits + member.bitWidth > unitMaxBits) {
+                closeBitfieldUnit();
+                // Align for new unit
+                if (!node.isUnion) {
+                    if (currentOffset % mAlign != 0) currentOffset += mAlign - (currentOffset % mAlign);
+                }
+                bfUnitType = member.type;
+                bfUnitBits = 0;
+                bfUnitOffset = node.isUnion ? 0 : currentOffset;
+                bfUnitSize = mSize;
+            }
+
+            MemberInfo mInfo;
+            mInfo.type = member.type;
+            mInfo.pointerLevel = member.pointerLevel;
+            mInfo.isSigned = member.isSigned;
+            mInfo.isConst = member.isConst;
+            mInfo.offset = bfUnitOffset;
+            mInfo.alignment = mAlign;
+            mInfo.bitWidth = member.bitWidth;
+            mInfo.bitOffset = bfUnitBits;
+            if (!member.name.empty()) info->members[member.name] = mInfo;
+            bfUnitBits += member.bitWidth;
+
+            if (node.isUnion) {
+                if (mSize > maxSize) maxSize = mSize;
+            }
+            continue;
+        }
+
+        // Non-bitfield member: close any open bitfield unit
+        closeBitfieldUnit();
 
         if (!node.isUnion) {
             if (currentOffset % mAlign != 0) currentOffset += mAlign - (currentOffset % mAlign);
@@ -2840,6 +2963,7 @@ void CodeGenerator::visit(StructDefinition& node) {
             else if (mSize > maxSize) maxSize = mSize;
         }
     }
+    closeBitfieldUnit();
     if (node.isUnion) currentOffset = maxSize;
     if (currentOffset % maxAlign != 0) currentOffset += maxAlign - (currentOffset % maxAlign);
     info->totalSize = currentOffset;
@@ -2886,6 +3010,12 @@ void CodeGenerator::visit(MemberAccess& node) {
                 updateRegAVar(rName, mInfo.offset);
                 emitter->ldx_imm(0); updateRegX(0);
             }
+            // Bitfield extract
+            if (mInfo.bitWidth > 0) {
+                std::string bfOp = is16 ? "bfext16" : "bfext";
+                emit(bfOp + " #" + std::to_string(mInfo.bitOffset) + ", #" + std::to_string(mInfo.bitWidth));
+                invalidateRegs();
+            }
             return;
         }
     }
@@ -2920,6 +3050,11 @@ void CodeGenerator::visit(MemberAccess& node) {
         regA.known = false; emitter->tax(); emitter->pop("a");
     } else {
         emitter->ldx_imm(0); updateRegX(0);
+    }
+    // Bitfield extract for indirect/arrow access
+    if (mInfo.bitWidth > 0) {
+        std::string bfOp = is16 ? "bfext16" : "bfext";
+        emit(bfOp + " #" + std::to_string(mInfo.bitOffset) + ", #" + std::to_string(mInfo.bitWidth));
     }
     freeZP(zpIdx, 2);
     invalidateRegs();

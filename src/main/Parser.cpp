@@ -910,11 +910,23 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             memberArrayDims.push_back(std::stoi(sizeToken.value));
             expect(TokenType::CLOSE_SQUARE, "Expected ']' after array size");
         }
+        int memberBitWidth = 0;
+        if (match(TokenType::COLON)) {
+            if (!memberArrayDims.empty())
+                throw std::runtime_error("Bitfield member '" + memberName + "' cannot be an array");
+            if (ptrLevel > 0)
+                throw std::runtime_error("Bitfield member '" + memberName + "' cannot be a pointer");
+            const Token& bwTok = expect(TokenType::INTEGER_LITERAL, "Expected integer literal for bitfield width");
+            memberBitWidth = std::stoi(bwTok.value);
+            int maxBits = (type == "int") ? 16 : 8;
+            if (memberBitWidth < 1 || memberBitWidth > maxBits)
+                throw std::runtime_error("Bitfield width " + std::to_string(memberBitWidth) + " out of range for type '" + type + "'");
+        }
         StructMember sm;
         sm.type = type; sm.pointerLevel = ptrLevel; sm.isSigned = mIsSigned;
         sm.name = memberName; sm.isConst = mIsConst; sm.alignment = 0;
         sm.alignmentExpr = std::move(mAlignmentExpr); sm.isAnonymous = false;
-        sm.arrayDims = memberArrayDims;
+        sm.arrayDims = memberArrayDims; sm.bitWidth = memberBitWidth;
         def->members.push_back(std::move(sm));
         expect(TokenType::SEMICOLON, "Expected ';'");
     }

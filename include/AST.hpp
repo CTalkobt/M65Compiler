@@ -337,6 +337,7 @@ struct StructMember {
     bool isAnonymous = false;
     std::vector<int> arrayDims; // empty means not an array
     int arraySize() const { if (arrayDims.empty()) return -1; int s=1; for (int d:arrayDims) s*=d; return s; }
+    int bitWidth = 0; // 0 = not a bitfield; >0 = bitfield width in bits
 };
 
 class EnumDefinition : public Statement {

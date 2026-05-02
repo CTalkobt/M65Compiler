@@ -4,10 +4,27 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [Unreleased] - 2026-05-02
 
+### Added
+- **Compiler (cc45)**:
+    - **Bitfields**: Full support for C-standard bitfield declarations in structs and unions. Syntax: `unsigned char mode : 3;`, `unsigned int counter : 10;`. Storage units are automatically packed — consecutive bitfields of the same type share a byte (for `char`) or word (for `int`), with a new unit started when the type changes or the field won't fit. Layout is conformant with C99 §6.7.2.1 (never spans storage unit boundaries). Read, write, increment/decrement, and arrow-access all work. `&struct.bitfield` is correctly rejected as a compile error.
+- **Assembler (ca45)**:
+    - **Bitfield pseudo-ops**: Eight new simulated opcodes for bitfield extract and insert:
+        - `bfext #bitoff, #width` — extract bitfield from A (8-bit storage unit). Shifts right and masks.
+        - `bfext16 #bitoff, #width` — extract from AX (16-bit storage unit). Result in A (with X=0 if ≤8 bits).
+        - `bfins addr, #bitoff, #width` — insert A into absolute/ZP storage byte. Uses TRB+TSB for atomic read-modify-write on ZP and absolute targets.
+        - `bfins.sp addr, #bitoff, #width` — insert into stack-relative storage byte. Uses shift/mask/ORA sequence.
+        - `bfins.ind $zp, #bitoff, #width` — insert via indirect ZP pointer.
+        - `bfins16` / `bfins16.sp` / `bfins16.ind` — 16-bit storage unit variants of the above.
+    - All `bfins` variants use the 45GS02's TRB (Test and Reset Bits) and TSB (Test and Set Bits) instructions where possible (ZP and absolute addressing modes), providing atomic read-modify-write with fewer instructions than the general shift/mask/ORA approach.
+
 ### Fixed
 - **Compiler (cc45)**:
     - **PETSCII/ASCII encoding mismatch**: Character literals (`'A'`, `'d'`, etc.) now apply the same PETSCII case-swap conversion as the assembler's `.text` directive. Lowercase `'a'`–`'z'` map to `$41`–`$5A`, uppercase `'A'`–`'Z'` map to `$61`–`$7A`, matching the bytes emitted for string literals. This fixes comparisons like `*str == 'd'` when `str` points into a PETSCII-encoded string. Previously, char literals used raw ASCII values, causing mismatches.
     - **`-O0` global pointer initializers**: Global variables with non-literal initializers (e.g., `volatile char *r = (char *)0x4000`) now emit correct `.word`/`.byte` values with `-O0`. Previously, `-O0` skipped constant folding, leaving the initializer as a `CastExpression` which `emitData()` couldn't handle, falling back to `.res` (uninitialized). Added `tryEvalConstInt()` — a recursive evaluator that handles `CastExpression`, unary `-`/`~`, and binary arithmetic on constants.
+
+### Testing
+- Added `test_bitfield.c` — compiler test validating bitfield struct declarations, read, write, increment, and 16-bit bitfields compile and assemble.
+- Added `test_bitfield_mmemu.c` — mmemu runtime validation test for bitfields. Tests 8-bit bitfield write/read/increment (`active:1`, `mode:3`, `priority:4`) and 16-bit bitfield write/read (`counter:10`, `channel:6`). Verified at `$4000`: `01 05 0C 06 F4 1E`.
 
 ### Changed
 - **Testing**:

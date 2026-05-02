@@ -446,6 +446,32 @@ else
     fi
 fi
 
+echo "Testing bitfield read/write/increment..."
+
+$CC src/test-resources/test_bitfield_mmemu.c -o build/test/test_bitfield_mmemu.s
+if [ $? -ne 0 ]; then
+    echo "FAIL: Compilation failed for test_bitfield_mmemu.c"
+    failed=$((failed + 1))
+else
+    $AS build/test/test_bitfield_mmemu.s -o build/test/test_bitfield_mmemu.prg
+    if [ $? -ne 0 ]; then
+        echo "FAIL: Assembly failed for test_bitfield_mmemu.s"
+        failed=$((failed + 1))
+    else
+        OUTPUT=$(echo -e "load build/test/test_bitfield_mmemu.prg\nsetpc \$2000\nstep 50000\nm \$4000 6\nq" | $MMEMU -m rawMega65 2>/dev/null)
+
+        if echo "$OUTPUT" | grep -q "4000: 01 05 0C 06 F4 1E"; then
+            echo "SUCCESS: bitfield read/write/increment works correctly."
+        else
+            echo "FAIL: test_bitfield_mmemu.c — bitfield validation failed."
+            echo "Expected 4000: 01 05 0C 06 F4 1E"
+            echo "Actual output:"
+            echo "$OUTPUT" | grep "4000:"
+            failed=$((failed + 1))
+        fi
+    fi
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All mmemu tests passed!"
     exit 0
