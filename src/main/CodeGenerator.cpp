@@ -754,6 +754,7 @@ void CodeGenerator::visit(TranslationUnit& node) {
                << std::setfill('0') << std::setw(2) << (int)emitter->scratchZP();
             out << ss.str() << std::endl;
         }
+        if (relocMode) out << ".extern _init_bss" << std::endl;
         out << "    jsr _init_bss" << std::endl;
         if (crtHeap) {
             out << "    .extern _init_heap_crt" << std::endl;
@@ -770,46 +771,50 @@ void CodeGenerator::visit(TranslationUnit& node) {
 
         out << "    rts" << std::endl;
 
-        // Emit _init_bss
-        bool hasBssVars = false;
-        if (!crtNoBssInit) {
-            for (auto& decl : node.topLevelDecls) {
-                if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
-                    if ((vd->isGlobal || currentFunction == nullptr) && !vd->isExtern && !vd->initializer) {
-                        hasBssVars = true;
-                        break;
+        // Emit _init_bss — only in flat mode. In reloc mode, _init_bss
+        // is provided by crt_bssinit.o45 in crt45.lib, using linker-defined
+        // __bss_start/__bss_end symbols.
+        if (!relocMode) {
+            bool hasBssVars = false;
+            if (!crtNoBssInit) {
+                for (auto& decl : node.topLevelDecls) {
+                    if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
+                        if ((vd->isGlobal || currentFunction == nullptr) && !vd->isExtern && !vd->initializer) {
+                            hasBssVars = true;
+                            break;
+                        }
                     }
                 }
             }
+            out << "_init_bss:" << std::endl;
+            if (hasBssVars) {
+                out << "    lda #<__bss_start" << std::endl;
+                out << "    sta $02" << std::endl;
+                out << "    lda #>__bss_start" << std::endl;
+                out << "    sta $03" << std::endl;
+                out << "    lda #<__bss_end" << std::endl;
+                out << "    sta $04" << std::endl;
+                out << "    lda #>__bss_end" << std::endl;
+                out << "    sta $05" << std::endl;
+                out << "    lda #0" << std::endl;
+                out << "    ldy #0" << std::endl;
+                out << "@__bss_loop:" << std::endl;
+                out << "    ldx $02" << std::endl;
+                out << "    cpx $04" << std::endl;
+                out << "    bne @__bss_store" << std::endl;
+                out << "    ldx $03" << std::endl;
+                out << "    cpx $05" << std::endl;
+                out << "    beq @__bss_done" << std::endl;
+                out << "@__bss_store:" << std::endl;
+                out << "    sta ($02),y" << std::endl;
+                out << "    inc $02" << std::endl;
+                out << "    bne @__bss_loop" << std::endl;
+                out << "    inc $03" << std::endl;
+                out << "    bra @__bss_loop" << std::endl;
+                out << "@__bss_done:" << std::endl;
+            }
+            out << "    rts" << std::endl << std::endl;
         }
-        out << "_init_bss:" << std::endl;
-        if (hasBssVars && !relocMode) {
-            out << "    lda #<__bss_start" << std::endl;
-            out << "    sta $02" << std::endl;
-            out << "    lda #>__bss_start" << std::endl;
-            out << "    sta $03" << std::endl;
-            out << "    lda #<__bss_end" << std::endl;
-            out << "    sta $04" << std::endl;
-            out << "    lda #>__bss_end" << std::endl;
-            out << "    sta $05" << std::endl;
-            out << "    lda #0" << std::endl;
-            out << "    ldy #0" << std::endl;
-            out << "@__bss_loop:" << std::endl;
-            out << "    ldx $02" << std::endl;
-            out << "    cpx $04" << std::endl;
-            out << "    bne @__bss_store" << std::endl;
-            out << "    ldx $03" << std::endl;
-            out << "    cpx $05" << std::endl;
-            out << "    beq @__bss_done" << std::endl;
-            out << "@__bss_store:" << std::endl;
-            out << "    sta ($02),y" << std::endl;
-            out << "    inc $02" << std::endl;
-            out << "    bne @__bss_loop" << std::endl;
-            out << "    inc $03" << std::endl;
-            out << "    bra @__bss_loop" << std::endl;
-            out << "@__bss_done:" << std::endl;
-        }
-        out << "    rts" << std::endl << std::endl;
     }
 
     for (auto& decl : node.topLevelDecls) decl->accept(*this);
@@ -3427,14 +3432,17 @@ void CodeGenerator::emitData() {
     }
 
     // BSS section — uninitialized globals
-    out << std::endl << ".bss" << std::endl;
-    out << "; BSS Section" << std::endl;
-    if (relocMode) out << ".weak __bss_start" << std::endl;
-    out << "__bss_start:" << std::endl;
-    if (!uninitializedVars.empty()) {
+    if (!uninitializedVars.empty() || !relocMode) {
+        out << std::endl << ".bss" << std::endl;
+        out << "; BSS Section" << std::endl;
+        // In flat mode: emit __bss_start/__bss_end labels (no linker to provide them).
+        // In reloc mode: the linker provides __bss_start/__bss_end at merged BSS boundaries.
+        if (!relocMode) out << "__bss_start:" << std::endl;
         for (auto* gVar : uninitializedVars) {
             if (gVar->alignment > 1) out << "    .align " << std::to_string(gVar->alignment) << std::endl;
-            out << "_" << gVar->name << ":" << std::endl;
+            std::string gName = "_" + gVar->name;
+            if (relocMode && !staticGlobals.count(gVar->name)) out << ".global " << gName << std::endl;
+            out << gName << ":" << std::endl;
             int size = 0;
             if (gVar->pointerLevel > 0) size = 2;
             else if (is8BitType(gVar->type)) size = 1;
@@ -3443,9 +3451,8 @@ void CodeGenerator::emitData() {
             if (gVar->arraySize() >= 0) size *= gVar->arraySize();
             out << "    .res " << std::to_string(size) << std::endl;
         }
+        if (!relocMode) out << "__bss_end:" << std::endl;
     }
-    if (relocMode) out << ".weak __bss_end" << std::endl;
-    out << "__bss_end:" << std::endl;
 
     out << std::endl << ".data" << std::endl;
     for (const auto& entry : stringPool) { out << entry.second << ":" << std::endl; out << "    .text \"" << entry.first << "\"" << std::endl; out << "    .byte 0" << std::endl; }

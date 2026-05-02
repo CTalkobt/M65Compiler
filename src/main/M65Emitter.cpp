@@ -230,6 +230,14 @@ void M65Emitter::recordSpBaseReloc(uint16_t addend) {
     }
 }
 
+void M65Emitter::recordSymbolReloc(const std::string& name) {
+    // In BINARY mode, record the address of the upcoming 16-bit operand
+    // as a symbol relocation site (for simulated ops referencing global symbols).
+    if (mode == Mode::BINARY) {
+        symbolRelocs_.push_back({currentAddress + 1, name});
+    }
+}
+
 void M65Emitter::lda_stack(uint8_t offset) {
     // Synthesize direct stack access: TSX; LDA __sp_base+offset,X
     tsx();

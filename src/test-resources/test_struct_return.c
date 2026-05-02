@@ -40,5 +40,4 @@ void main() {
     // Success marker
     results[6] = 0xAA;
 
-    while(1) {}
 }

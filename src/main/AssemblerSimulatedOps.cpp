@@ -418,7 +418,14 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
                         catch(...) { addr = 0; } // Assume 0 for forward references during pass1
                     }
                 }
-                e.lda_abs(addr); uint32_t addr2 = addr + 1; if (reg2 == 'X') e.ldx_abs(addr2); else if (reg2 == 'Y') e.ldy_abs(addr2); else if (reg2 == 'Z') e.ldz_abs(addr2);
+                // Record symbol relocation for each absolute address reference
+                std::string symName = parser->tokens[tokenIndex].value;
+                Symbol* relSym = parser->resolveSymbol(symName, scopePrefix);
+                if (relSym && relSym->isAddress) { e.recordSymbolReloc(symName); }
+                e.lda_abs(addr);
+                uint32_t addr2 = addr + 1;
+                if (relSym && relSym->isAddress) { e.recordSymbolReloc(symName); }
+                if (reg2 == 'X') e.ldx_abs(addr2); else if (reg2 == 'Y') e.ldy_abs(addr2); else if (reg2 == 'Z') e.ldz_abs(addr2);
             }
         }
     } else if (DEST == ".XY") {
@@ -511,7 +518,10 @@ void AssemblerSimulatedOps::emitSTWCode(AssemblerParser* parser, M65Emitter& e, 
             std::string dest = parser->tokens[tokenIndex].value; if (parser->tokens[tokenIndex].type == AssemblerTokenType::REGISTER) dest = "." + dest;
             else if (!dest.empty() && dest[0] != '.' && (dest=="A"||dest=="X"||dest=="Y"||dest=="Z"||dest=="a"||dest=="x"||dest=="y"||dest=="z")) dest = "." + dest;
             Symbol* sym = parser->resolveSymbol(dest, scopePrefix); uint32_t addr = 0; if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } }
-            e.sta_abs(addr); uint32_t addr2 = addr + 1; if (reg2 == 'X') e.stx_abs(addr2); else if (reg2 == 'Y') e.sty_abs(addr2); else if (reg2 == 'Z') e.stz_abs(addr2);
+            if (sym && sym->isAddress) { e.recordSymbolReloc(dest); }
+            e.sta_abs(addr); uint32_t addr2 = addr + 1;
+            if (sym && sym->isAddress) { e.recordSymbolReloc(dest); }
+            if (reg2 == 'X') e.stx_abs(addr2); else if (reg2 == 'Y') e.sty_abs(addr2); else if (reg2 == 'Z') e.stz_abs(addr2);
         }
     } else if (SRC == ".XY") {
         // Store X(lo)/Y(hi) to memory

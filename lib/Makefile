@@ -10,7 +10,7 @@ AR45 = ../bin/ar45
 BUILD = build
 
 # CRT0 modules
-CRT_SOURCES = crt0.s crt0_mega65.s crt_heap.s
+CRT_SOURCES = crt0.s crt0_mega65.s crt_heap.s crt_bssinit.s
 CRT_OBJECTS = $(patsubst %.s,$(BUILD)/%.o45,$(CRT_SOURCES))
 
 # Stdlib modules (assembly + C)

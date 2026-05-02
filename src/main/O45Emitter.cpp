@@ -391,6 +391,39 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                   << "); add '.extern __sp_base' for relocatable code" << std::endl;
     }
 
+    // Scan symbol relocation sites from simulated ops (ldax/stax of global variables).
+    for (const auto& sr : genEmitter.symbolRelocs()) {
+        std::string symName = sr.symbolName;
+        Symbol* sym = parser.resolveSymbol(symName, "");
+        if (!sym) continue;
+
+        bool isExtern = parser.isExternSymbol(symName);
+        std::string targetSeg;
+        if (!isExtern) {
+            targetSeg = findSegmentForAddress(sym->value);
+            if (targetSeg.empty()) continue;
+        }
+
+        // Find which source segment this reloc site falls into
+        for (const auto& segName : allSegNames) {
+            auto seg = parser.segments[segName];
+            uint32_t segStart = (seg->startAddress != 0xFFFFFFFF) ? seg->startAddress : 0;
+            if (sr.address >= segStart && sr.address < seg->pc) {
+                O45Reloc reloc;
+                reloc.offset = sr.address - segStart;
+                reloc.type = R_WORD;
+                if (isExtern) {
+                    reloc.segment = SEG_EXTERNAL;
+                    reloc.symbolIndex = syms.getImportIndex(symName);
+                } else {
+                    reloc.segment = segIdFromName(targetSeg);
+                }
+                segRelocs[segName].push_back(reloc);
+                break;
+            }
+        }
+    }
+
     // Sort relocations by offset
     for (auto& [segName, relocs] : segRelocs) {
         std::sort(relocs.begin(), relocs.end(),

@@ -81,6 +81,8 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
         while (off < data.size() && data[off] != 0) {
             uint8_t delta = data[off++];
             relocOut.push_back(delta);
+            // $FF = escape byte (advance 254, read next delta). No type/seg follows.
+            if (delta == 0xFF) continue;
             if (off >= data.size()) { errorMsg = "truncated reloc table"; return false; }
             uint8_t typeSeg = data[off++];
             relocOut.push_back(typeSeg);

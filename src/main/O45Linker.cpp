@@ -230,6 +230,19 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
         }
     }
 
+    // Inject linker-defined BSS boundary symbols.
+    // These are used by _init_bss in the CRT to zero BSS at startup.
+    if (!globalSymbols_.count("__bss_start")) {
+        globalSymbols_["__bss_start"] = bssBase_;
+        symbolSource_["__bss_start"] = "<linker>";
+        symbolWeak_["__bss_start"] = false;
+    }
+    if (!globalSymbols_.count("__bss_end")) {
+        globalSymbols_["__bss_end"] = bssBase_ + mergedBssLen_;
+        symbolSource_["__bss_end"] = "<linker>";
+        symbolWeak_["__bss_end"] = false;
+    }
+
     // Check that all imports are satisfied
     for (const auto& input : objects_) {
         for (const auto& imp : input.obj.imports) {

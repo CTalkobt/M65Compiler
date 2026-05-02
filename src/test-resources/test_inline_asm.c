@@ -66,7 +66,4 @@ void main() {
     // Success marker
     results[4] = 0xAA;
 
-    while(1) {
-        int z = 0;
-    }
 }

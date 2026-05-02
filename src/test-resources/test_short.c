@@ -28,5 +28,4 @@ void main() {
     r[5] = arr[1];         // 200 = 0xC8
     r[6] = 0xAA;           // marker
 
-    while(1) {}
 }

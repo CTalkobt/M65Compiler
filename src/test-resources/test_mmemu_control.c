@@ -78,7 +78,4 @@ void main() {
     // Final Success Flag
     results[0] = 0xAA;
     
-    while(1) {
-        i = i;
-    }
 }

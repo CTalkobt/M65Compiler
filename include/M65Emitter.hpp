@@ -212,8 +212,18 @@ public:
     void clearSpBaseRelocs() { spBaseRelocs_.clear(); }
     void recordSpBaseReloc(uint16_t addend);
 
+    // Symbol relocation tracking for simulated ops that emit absolute address references
+    // to named symbols (global variables accessed via ldax/stax/ptrstack etc.)
+    struct SymbolReloc {
+        uint32_t address;      // address of the 16-bit operand in the binary
+        std::string symbolName;
+    };
+    const std::vector<SymbolReloc>& symbolRelocs() const { return symbolRelocs_; }
+    void recordSymbolReloc(const std::string& name);
+
 private:
     std::vector<SpBaseReloc> spBaseRelocs_;
+    std::vector<SymbolReloc> symbolRelocs_;
     std::ostream* out = nullptr;
     std::vector<uint8_t>* binary = nullptr;
     Mode mode;

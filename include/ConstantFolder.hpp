@@ -12,6 +12,7 @@ public:
     std::unique_ptr<Expression> lastExpr;
     std::unique_ptr<Statement> lastStmt;
     std::map<std::string, int> knownConstants;
+    std::set<std::string> addressEscapedVars; // variables whose address was taken (non-const)
     std::set<std::string> volatileVars;
     std::set<std::string> constVars;        // non-pointer const vars (prevents x = ...)
     std::set<std::string> constPointerVars;  // pointer-const vars (prevents p = ...)
@@ -65,7 +66,7 @@ public:
         
         if (auto* ref = dynamic_cast<VariableReference*>(node.target.get())) {
             auto* lit = dynamic_cast<IntegerLiteral*>(expression.get());
-            if (lit && volatileVars.find(ref->name) == volatileVars.end()) {
+            if (lit && !volatileVars.count(ref->name) && !addressEscapedVars.count(ref->name)) {
                 // Only propagate simple assignments that aren't inside potentially complex control flow.
                 // For now, we clear constants in loops anyway, but this is a safeguard.
                 if (node.op == "=") {
@@ -141,8 +142,17 @@ public:
                 }
             }
         }
-        // Don't fold operands of address-of — the variable reference must survive
+        // Don't fold operands of address-of — the variable reference must survive.
+        // For non-const variables, remove from constant propagation since any
+        // function could modify it through the pointer. Const variables are safe
+        // to keep propagating since they can't be legally modified.
         if (node.op == "&") {
+            if (auto* ref = dynamic_cast<VariableReference*>(node.operand.get())) {
+                if (!constVars.count(ref->name)) {
+                    knownConstants.erase(ref->name);
+                    addressEscapedVars.insert(ref->name);
+                }
+            }
             lastExpr = copyPos(std::make_unique<UnaryOperation>(node.op, std::move(node.operand)), node);
             return;
         }
