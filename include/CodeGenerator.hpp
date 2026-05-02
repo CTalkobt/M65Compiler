@@ -80,6 +80,7 @@ public:
     void visit(FunctionCall& node) override;
     void visit(MemberAccess& node) override;
     void visit(CastExpression& node) override;
+    void visit(CompoundLiteral& node) override;
     void visit(AlignofExpression& node) override;
     void visit(SizeofExpression& node) override;
     void visit(VariableDeclaration& node) override;
@@ -231,5 +232,6 @@ public:
     std::map<std::string, int> frameLocals_;
     int frameSize_ = 0;
     int structRetDest_ = -1; // frame offset for struct return destination (-1 = none)
+    int compoundLiteralCount_ = 0; // unique ID counter for compound literal temporaries
     bool isVariableUsed(const std::string& varName, FunctionDeclaration& func);
 };

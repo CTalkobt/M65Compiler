@@ -159,6 +159,13 @@ CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
     if (auto* cast = dynamic_cast<CastExpression*>(expr)) {
         return {cast->targetType, cast->pointerLevel, cast->isSigned, false};
     }
+    if (auto* cl = dynamic_cast<CompoundLiteral*>(expr)) {
+        // Scalar compound literal produces a value; struct/array produces a pointer
+        if (cl->arrayDims.empty() && !isStruct(cl->targetType) && cl->pointerLevel == 0) {
+            return {cl->targetType, 0, cl->isSigned, false};
+        }
+        return {cl->targetType, cl->pointerLevel + 1, cl->isSigned, false};
+    }
     if (auto* gs = dynamic_cast<GenericSelection*>(expr)) {
         // Resolve based on control type
         ExpressionType controlType = getExprType(gs->control.get());
@@ -262,6 +269,11 @@ CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
 }
 
 void CodeGenerator::emitAddress(Expression* expr) {
+    // Compound literal already produces its address via leax.fp
+    if (auto* cl = dynamic_cast<CompoundLiteral*>(expr)) {
+        cl->accept(*this);
+        return;
+    }
     if (auto* ref = dynamic_cast<VariableReference*>(expr)) {
         // Check if this is a function name (address-of-function)
         if (knownFunctions.count(ref->name) && !variableTypes.count("_l_" + ref->name) &&
@@ -476,6 +488,7 @@ public:
     void visit(ArrayAccess& n) override { n.arrayExpr->accept(*this); n.indexExpr->accept(*this); }
     void visit(MemberAccess& n) override { n.structExpr->accept(*this); }
     void visit(CastExpression& n) override { n.expression->accept(*this); }
+    void visit(CompoundLiteral& n) override { for (auto& e : n.initializer->elements) e->accept(*this); }
     void visit(AlignofExpression&) override {}
     void visit(SizeofExpression& n) override { if (n.expression) n.expression->accept(*this); }
     void visit(VariableDeclaration& n) override { if (n.initializer) n.initializer->accept(*this); }
@@ -538,6 +551,9 @@ public:
         locals.push_back({lName, size, currentOffset_});
         currentOffset_ += size;
         if (currentOffset_ > maxFrameSize) maxFrameSize = currentOffset_;
+
+        // Walk initializer to find compound literals that need frame space
+        if (node.initializer) node.initializer->accept(*this);
     }
 
     // Scope tracking: CompoundStatement that is NOT the function body
@@ -567,6 +583,23 @@ public:
     void visit(FunctionCall& n) override { for (auto& a : n.arguments) a->accept(*this); }
     void visit(MemberAccess& n) override { n.structExpr->accept(*this); }
     void visit(CastExpression& n) override { n.expression->accept(*this); }
+    void visit(CompoundLiteral& n) override {
+        // Scalar compound literals don't need frame space — they produce values directly
+        bool isScalar = n.arrayDims.empty() && n.pointerLevel == 0 &&
+                        n.targetType.substr(0, 7) != "struct " &&
+                        n.targetType.substr(0, 6) != "union ";
+        if (!isScalar) {
+            // Allocate frame space for compound literal temporary
+            int size = computeCompoundLiteralSize(n);
+            std::string lName = "_cl_" + std::to_string(nextTempId_);
+            n.tempId = nextTempId_++;
+            locals.push_back({lName, size, currentOffset_});
+            currentOffset_ += size;
+            if (currentOffset_ > maxFrameSize) maxFrameSize = currentOffset_;
+        }
+        // Walk initializer elements (they may contain nested compound literals)
+        for (auto& e : n.initializer->elements) e->accept(*this);
+    }
     void visit(AlignofExpression&) override {}
     void visit(SizeofExpression& n) override { if (n.expression) n.expression->accept(*this); }
     void visit(ReturnStatement& n) override { if (n.expression) n.expression->accept(*this); }
@@ -611,6 +644,26 @@ private:
     const std::map<std::string, std::shared_ptr<CodeGenerator::StructInfo>>& structs_;
     int currentOffset_ = 0;
     int scopeBase_ = 0;
+    int nextTempId_ = 0;
+
+    int computeCompoundLiteralSize(CompoundLiteral& node) {
+        if (node.targetType.length() >= 7 && node.targetType.substr(0, 7) == "struct ") {
+            std::string sName = node.targetType.substr(7);
+            if (structs_.count(sName)) return structs_.at(sName)->totalSize;
+        }
+        if (node.targetType.length() >= 6 && node.targetType.substr(0, 6) == "union ") {
+            std::string sName = node.targetType.substr(6);
+            if (structs_.count(sName)) return structs_.at(sName)->totalSize;
+        }
+        int elemSize = (node.pointerLevel > 0 || node.targetType == "int") ? 2 :
+                       (node.targetType == "char" || node.targetType == "_Bool") ? 1 : 2;
+        if (!node.arrayDims.empty()) {
+            int total = 1;
+            for (int d : node.arrayDims) total *= d;
+            return elemSize * total;
+        }
+        return elemSize;
+    }
 
     int computeSize(VariableDeclaration& node) {
         int size = 0;
@@ -1183,6 +1236,23 @@ void CodeGenerator::visit(VariableDeclaration& node) {
         }
     }
 
+    // Unwrap compound literal initializer: (type){1,2} → {1,2}
+    // Struct/array compound literals become InitializerLists; scalar compound literals
+    // unwrap to the single element expression directly.
+    if (node.initializer) {
+        if (auto* cl = dynamic_cast<CompoundLiteral*>(node.initializer.get())) {
+            if (cl->arrayDims.empty() && !isStruct(cl->targetType) && cl->pointerLevel == 0) {
+                // Scalar: (int){42} → 42
+                if (cl->initializer && !cl->initializer->elements.empty()) {
+                    node.initializer = std::move(cl->initializer->elements[0]);
+                }
+            } else {
+                // Struct/array: (struct Point){1,2} → {1,2}
+                node.initializer = std::move(cl->initializer);
+            }
+        }
+    }
+
     // Frame-local: already pre-allocated in the frame prologue.
     // Just emit initialization code targeting the frame slot, no stack push needed.
     if (frameLocals_.count(lName)) {
@@ -1222,27 +1292,64 @@ void CodeGenerator::visit(VariableDeclaration& node) {
 
         // Initialize the frame slot
         if (auto* initList = dynamic_cast<InitializerList*>(node.initializer.get())) {
-            int elementSize = 0;
-            if (node.pointerLevel > 0) elementSize = 2;
-            else if (is8BitType(node.type)) elementSize = 1;
-            else if (node.type == "int") elementSize = 2;
-            int totalElements = node.arraySize() >= 0 ? node.arraySize() : 1;
-            for (int i = 0; i < totalElements; i++) {
-                int val = 0;
-                if (i < (int)initList->elements.size()) {
+            if (isStruct(node.type) && node.pointerLevel == 0) {
+                // Struct initializer: {val0, val1, ...} matched to members by offset order
+                std::string sName = getAggregateName(node.type);
+                if (!structs.count(sName))
+                    throw std::runtime_error("Unknown struct type: " + sName);
+                auto& sInfo = *structs[sName];
+                std::vector<std::pair<std::string, MemberInfo*>> orderedMembers;
+                for (auto& [mname, minfo] : sInfo.members) orderedMembers.push_back({mname, &minfo});
+                std::sort(orderedMembers.begin(), orderedMembers.end(),
+                          [](auto& a, auto& b) { return a.second->offset < b.second->offset; });
+                for (int i = 0; i < (int)orderedMembers.size() && i < (int)initList->elements.size(); i++) {
+                    auto& minfo = *orderedMembers[i].second;
+                    int memberOff = frameOff + minfo.offset;
+                    int memberSize = (minfo.pointerLevel > 0 || minfo.type == "int") ? 2 :
+                                     (minfo.type == "char" || minfo.type == "_Bool") ? 1 : 2;
                     if (auto* lit = dynamic_cast<IntegerLiteral*>(initList->elements[i].get())) {
-                        val = lit->value;
+                        if (memberSize == 2) {
+                            emitter->lda_imm(lit->value & 0xFF);
+                            emit("sta.fp " + std::to_string(memberOff));
+                            emitter->lda_imm((lit->value >> 8) & 0xFF);
+                            emit("sta.fp " + std::to_string(memberOff + 1));
+                        } else {
+                            emitter->lda_imm(lit->value & 0xFF);
+                            emit("sta.fp " + std::to_string(memberOff));
+                        }
+                    } else {
+                        bool oldNeeded = resultNeeded;
+                        resultNeeded = true;
+                        initList->elements[i]->accept(*this);
+                        resultNeeded = oldNeeded;
+                        if (memberSize == 2) emit("stax.fp " + std::to_string(memberOff));
+                        else emit("sta.fp " + std::to_string(memberOff));
                     }
                 }
-                int elemOff = frameOff + i * elementSize;
-                if (elementSize == 2) {
-                    emitter->lda_imm(val & 0xFF);
-                    emit("sta.fp " + std::to_string(elemOff));
-                    emitter->lda_imm((val >> 8) & 0xFF);
-                    emit("sta.fp " + std::to_string(elemOff + 1));
-                } else {
-                    emitter->lda_imm(val & 0xFF);
-                    emit("sta.fp " + std::to_string(elemOff));
+            } else {
+                // Array/scalar initializer
+                int elementSize = 0;
+                if (node.pointerLevel > 0) elementSize = 2;
+                else if (is8BitType(node.type)) elementSize = 1;
+                else if (node.type == "int") elementSize = 2;
+                int totalElements = node.arraySize() >= 0 ? node.arraySize() : 1;
+                for (int i = 0; i < totalElements; i++) {
+                    int val = 0;
+                    if (i < (int)initList->elements.size()) {
+                        if (auto* lit = dynamic_cast<IntegerLiteral*>(initList->elements[i].get())) {
+                            val = lit->value;
+                        }
+                    }
+                    int elemOff = frameOff + i * elementSize;
+                    if (elementSize == 2) {
+                        emitter->lda_imm(val & 0xFF);
+                        emit("sta.fp " + std::to_string(elemOff));
+                        emitter->lda_imm((val >> 8) & 0xFF);
+                        emit("sta.fp " + std::to_string(elemOff + 1));
+                    } else {
+                        emitter->lda_imm(val & 0xFF);
+                        emit("sta.fp " + std::to_string(elemOff));
+                    }
                 }
             }
         } else if (node.initializer) {
@@ -2786,6 +2893,7 @@ void CodeGenerator::visit(SwitchStatement& node) {
         void visit(InitializerList& node) override { for (auto& elem : node.elements) elem->accept(*this); }
         void visit(ArrayAccess& node) override { node.arrayExpr->accept(*this); node.indexExpr->accept(*this); }
         void visit(CastExpression& node) override { node.expression->accept(*this); }
+        void visit(CompoundLiteral& node) override { for (auto& e : node.initializer->elements) e->accept(*this); }
         void visit(AlignofExpression&) override {}
         void visit(SizeofExpression& node) override { if (!node.isType) node.expression->accept(*this); }
         void visit(VariableDeclaration& node) override { if (node.initializer) node.initializer->accept(*this); }
@@ -3490,6 +3598,122 @@ void CodeGenerator::visit(CastExpression& node) {
     // Same size: no-op (the value is already in A or A:X)
 }
 
+void CodeGenerator::visit(CompoundLiteral& node) {
+    embedSource(node);
+    if (!resultNeeded) return;
+
+    auto& initList = *node.initializer;
+
+    // Scalar compound literal: (int){42} — just produce the value, no temp needed
+    if (node.arrayDims.empty() && !isStruct(node.targetType) && node.pointerLevel == 0) {
+        if (initList.elements.size() >= 1) {
+            bool oldNeeded = resultNeeded;
+            resultNeeded = true;
+            initList.elements[0]->accept(*this);
+            resultNeeded = oldNeeded;
+        }
+        return;
+    }
+
+    // Struct/array compound literal: allocate frame temp, init, return address
+    std::string lName = "_cl_" + std::to_string(node.tempId);
+
+    if (frameLocals_.count(lName) == 0) {
+        throw std::runtime_error("Compound literal temporary '" + lName + "' not found in frame layout");
+    }
+    int frameOff = frameLocals_[lName];
+
+    if (isStruct(node.targetType) && node.pointerLevel == 0) {
+        // Struct compound literal: (struct Point){1, 2}
+        std::string sName = getAggregateName(node.targetType);
+        if (!structs.count(sName))
+            throw std::runtime_error("Unknown struct type in compound literal: " + sName);
+        auto& sInfo = *structs[sName];
+
+        // Build ordered member list (by offset)
+        std::vector<std::pair<std::string, MemberInfo*>> orderedMembers;
+        for (auto& [name, minfo] : sInfo.members) {
+            orderedMembers.push_back({name, &minfo});
+        }
+        std::sort(orderedMembers.begin(), orderedMembers.end(),
+                  [](auto& a, auto& b) { return a.second->offset < b.second->offset; });
+
+        for (int i = 0; i < (int)orderedMembers.size() && i < (int)initList.elements.size(); i++) {
+            auto& minfo = *orderedMembers[i].second;
+            int memberOff = frameOff + minfo.offset;
+            int memberSize = (minfo.pointerLevel > 0 || minfo.type == "int") ? 2 :
+                             (minfo.type == "char" || minfo.type == "_Bool") ? 1 : 2;
+            if (minfo.arraySize() >= 0) memberSize *= minfo.arraySize();
+
+            if (auto* lit = dynamic_cast<IntegerLiteral*>(initList.elements[i].get())) {
+                if (memberSize == 2) {
+                    emitter->lda_imm(lit->value & 0xFF);
+                    emit("sta.fp " + std::to_string(memberOff));
+                    emitter->lda_imm((lit->value >> 8) & 0xFF);
+                    emit("sta.fp " + std::to_string(memberOff + 1));
+                } else {
+                    emitter->lda_imm(lit->value & 0xFF);
+                    emit("sta.fp " + std::to_string(memberOff));
+                }
+            } else {
+                bool oldNeeded = resultNeeded;
+                resultNeeded = true;
+                initList.elements[i]->accept(*this);
+                resultNeeded = oldNeeded;
+                if (memberSize == 2) {
+                    emit("stax.fp " + std::to_string(memberOff));
+                } else {
+                    emit("sta.fp " + std::to_string(memberOff));
+                }
+            }
+        }
+    } else if (!node.arrayDims.empty()) {
+        // Array compound literal: (int[]){1, 2, 3}
+        int elementSize = (node.pointerLevel > 0 || node.targetType == "int") ? 2 :
+                          (node.targetType == "char" || node.targetType == "_Bool") ? 1 : 2;
+        int totalElements = 1;
+        for (int d : node.arrayDims) totalElements *= d;
+
+        for (int i = 0; i < totalElements; i++) {
+            int elemOff = frameOff + i * elementSize;
+            if (i < (int)initList.elements.size()) {
+                if (auto* lit = dynamic_cast<IntegerLiteral*>(initList.elements[i].get())) {
+                    if (elementSize == 2) {
+                        emitter->lda_imm(lit->value & 0xFF);
+                        emit("sta.fp " + std::to_string(elemOff));
+                        emitter->lda_imm((lit->value >> 8) & 0xFF);
+                        emit("sta.fp " + std::to_string(elemOff + 1));
+                    } else {
+                        emitter->lda_imm(lit->value & 0xFF);
+                        emit("sta.fp " + std::to_string(elemOff));
+                    }
+                } else {
+                    bool oldNeeded = resultNeeded;
+                    resultNeeded = true;
+                    initList.elements[i]->accept(*this);
+                    resultNeeded = oldNeeded;
+                    if (elementSize == 2) {
+                        emit("stax.fp " + std::to_string(elemOff));
+                    } else {
+                        emit("sta.fp " + std::to_string(elemOff));
+                    }
+                }
+            } else {
+                // Zero-fill remaining elements
+                emitter->lda_imm(0);
+                emit("sta.fp " + std::to_string(elemOff));
+                if (elementSize == 2) {
+                    emit("sta.fp " + std::to_string(elemOff + 1));
+                }
+            }
+        }
+    }
+
+    // Return address of the temporary in AX
+    emit("leax.fp " + std::to_string(frameOff));
+    invalidateRegs();
+}
+
 void CodeGenerator::visit(AlignofExpression& node) {
     int alignment = 1;
     if (node.pointerLevel > 0 || node.typeName == "int") alignment = 2;
@@ -3742,6 +3966,7 @@ public:
     void visit(InitializerList& node) override { for (auto& elem : node.elements) elem->accept(*this); }
     void visit(ArrayAccess& node) override { node.arrayExpr->accept(*this); node.indexExpr->accept(*this); }
     void visit(CastExpression& node) override { node.expression->accept(*this); }
+    void visit(CompoundLiteral& node) override { for (auto& e : node.initializer->elements) e->accept(*this); }
     void visit(AlignofExpression&) override {}
     void visit(SizeofExpression& node) override { if (!node.isType) node.expression->accept(*this); }
     void visit(VariableDeclaration& node) override { if (node.initializer) node.initializer->accept(*this); }

@@ -1175,6 +1175,19 @@ std::unique_ptr<Expression> Parser::parseUnary() {
         }
 
         if (isCast) {
+            // Compound literal: (type){...}
+            if (peek().type == TokenType::OPEN_BRACE) {
+                auto initList = parseInitializerList();
+                std::unique_ptr<InitializerList> initListPtr(static_cast<InitializerList*>(initList.release()));
+                auto cl = std::make_unique<CompoundLiteral>(castType, castPtrLevel, castSigned, std::move(initListPtr));
+                // For array compound literals like (int[]){1,2,3}, infer dimension from element count
+                if (castPtrLevel == 0 && !castType.empty() && castType.substr(0, 7) != "struct " && castType.substr(0, 6) != "union ") {
+                    if (cl->initializer && cl->initializer->elements.size() > 1) {
+                        cl->arrayDims.push_back((int)cl->initializer->elements.size());
+                    }
+                }
+                return setPos(std::move(cl), startToken);
+            }
             auto operand = parseUnary();
             return setPos(std::make_unique<CastExpression>(castType, castPtrLevel, castSigned, std::move(operand)), startToken);
         } else {

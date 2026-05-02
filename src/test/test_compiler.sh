@@ -79,6 +79,7 @@ TEST_FILES=(
     "src/test-resources/test_short.c"
     "src/test-resources/test_struct_return.c"
     "src/test-resources/test_bitfield.c"
+    "src/test-resources/test_compound_literal.c"
 )
 
 mkdir -p build/test

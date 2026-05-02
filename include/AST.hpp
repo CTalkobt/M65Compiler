@@ -150,6 +150,19 @@ public:
     void accept(ASTVisitor& visitor) override;
 };
 
+class CompoundLiteral : public Expression {
+public:
+    std::string targetType;
+    int pointerLevel = 0;
+    bool isSigned = false;
+    std::vector<int> arrayDims; // empty = scalar/struct; e.g. {3} for (int[]){1,2,3}
+    std::unique_ptr<InitializerList> initializer;
+    int tempId = 0; // unique ID for frame slot allocation
+    CompoundLiteral(const std::string& t, int p, bool s, std::unique_ptr<InitializerList> init)
+        : targetType(t), pointerLevel(p), isSigned(s), initializer(std::move(init)) {}
+    void accept(ASTVisitor& visitor) override;
+};
+
 class AlignofExpression : public Expression {
 public:
     std::string typeName;
@@ -431,6 +444,7 @@ public:
     virtual void visit(FunctionCall& node) = 0;
     virtual void visit(MemberAccess& node) = 0;
     virtual void visit(CastExpression& node) = 0;
+    virtual void visit(CompoundLiteral& node) = 0;
     virtual void visit(AlignofExpression& node) = 0;
     virtual void visit(SizeofExpression& node) = 0;
     virtual void visit(VariableDeclaration& node) = 0;

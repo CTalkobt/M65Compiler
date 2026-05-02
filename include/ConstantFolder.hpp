@@ -235,6 +235,21 @@ public:
         }
     }
 
+    void visit(CompoundLiteral& node) override {
+        auto result = copyPos(std::make_unique<CompoundLiteral>(node.targetType, node.pointerLevel, node.isSigned, nullptr), node);
+        result->arrayDims = node.arrayDims;
+        result->tempId = node.tempId;
+        // Fold the initializer list
+        auto foldedInit = std::make_unique<InitializerList>();
+        foldedInit->line = node.initializer->line;
+        foldedInit->column = node.initializer->column;
+        for (auto& elem : node.initializer->elements) {
+            foldedInit->elements.push_back(fold(std::move(elem)));
+        }
+        result->initializer = std::move(foldedInit);
+        lastExpr = std::move(result);
+    }
+
     void visit(AlignofExpression& node) override;
     void visit(SizeofExpression& node) override;
 

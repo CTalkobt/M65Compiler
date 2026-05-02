@@ -472,6 +472,32 @@ else
     fi
 fi
 
+echo "Testing compound literals..."
+
+$CC src/test-resources/test_compound_literal.c -o build/test/test_compound_literal.s
+if [ $? -ne 0 ]; then
+    echo "FAIL: Compilation failed for test_compound_literal.c"
+    failed=$((failed + 1))
+else
+    $AS build/test/test_compound_literal.s -o build/test/test_compound_literal.prg
+    if [ $? -ne 0 ]; then
+        echo "FAIL: Assembly failed for test_compound_literal.s"
+        failed=$((failed + 1))
+    else
+        OUTPUT=$(echo -e "load build/test/test_compound_literal.prg\nsetpc \$2000\nstep 50000\nm \$4000 7\nq" | $MMEMU -m rawMega65 2>/dev/null)
+
+        if echo "$OUTPUT" | grep -qi "4000: 1E 2A 07 2C 01 14 00"; then
+            echo "SUCCESS: compound literal tests passed."
+        else
+            echo "FAIL: test_compound_literal.c — compound literal validation failed."
+            echo "Expected 4000: 1E 2A 07 2C 01 14 00"
+            echo "Actual output:"
+            echo "$OUTPUT" | grep "4000:"
+            failed=$((failed + 1))
+        fi
+    fi
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All mmemu tests passed!"
     exit 0

@@ -12,6 +12,7 @@ void InitializerList::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void ArrayAccess::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void ConditionalExpression::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void CastExpression::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void CompoundLiteral::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void AlignofExpression::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void SizeofExpression::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void FunctionCall::accept(ASTVisitor& visitor) { visitor.visit(*this); }

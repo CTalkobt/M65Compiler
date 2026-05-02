@@ -124,6 +124,15 @@ public:
         node.expression->accept(*this);
         indent--;
     }
+    void visit(CompoundLiteral& node) override {
+        printIndent(); std::cout << "CompoundLiteral: (" << node.targetType;
+        for (int i = 0; i < node.pointerLevel; i++) std::cout << "*";
+        if (!node.arrayDims.empty()) { std::cout << "["; for (int d : node.arrayDims) std::cout << d; std::cout << "]"; }
+        std::cout << ")" << std::endl;
+        indent++;
+        node.initializer->accept(*this);
+        indent--;
+    }
     void visit(AlignofExpression& node) override {
         printIndent(); std::cout << "Alignof: " << node.typeName;
         for (int i = 0; i < node.pointerLevel; i++) std::cout << "*";
