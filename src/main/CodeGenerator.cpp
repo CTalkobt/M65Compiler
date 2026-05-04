@@ -981,6 +981,11 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     currentLocalByteSize = 0;
     useZpCall_ = (zpCallMode || node.isFastcall) && !node.isVariadic;
 
+    // Initialize per-function clobber tracking
+    auto& ci = funcClobbers_[node.name];
+    ci = FuncClobberInfo{};  // reset
+    currentClobbers_ = &ci;
+
     // --- Pre-scan: compute frame layout ---
     FrameScanner scanner(structs);
     scanner.scan(*node.body);
@@ -1173,8 +1178,28 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
                 }
                 return s;
             }());
-            emit(".reg_clobbers A, X, Y, Z");
         }
+
+        // Emit actual reg/flag clobbers from tracking (always, not just when ZP params present)
+        {
+            auto& ci = funcClobbers_[node.name];
+            std::string regs;
+            if (ci.regMask & CLOBBER_A) regs += "A, ";
+            if (ci.regMask & CLOBBER_X) regs += "X, ";
+            if (ci.regMask & CLOBBER_Y) regs += "Y, ";
+            if (ci.regMask & CLOBBER_Z) regs += "Z, ";
+            if (!regs.empty()) { regs.pop_back(); regs.pop_back(); emit(".reg_clobbers " + regs); }
+            std::string fl;
+            if (ci.flagMask & CLOBBER_C) fl += "C, ";
+            if (ci.flagMask & CLOBBER_N) fl += "N, ";
+            if (ci.flagMask & CLOBBER_ZF) fl += "Z, ";
+            if (ci.flagMask & CLOBBER_V) fl += "V, ";
+            if (!fl.empty()) { fl.pop_back(); fl.pop_back(); emit(".flag_clobbers " + fl); }
+        }
+
+        // Finalize clobber info
+        funcClobbers_[node.name].complete = true;
+        currentClobbers_ = nullptr;
 
         emit("endproc");
         out << std::endl;
@@ -1262,6 +1287,27 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
             emit("rtn #0");
         }
     }
+    // Emit reg/flag clobbers from tracking
+    {
+        auto& ci = funcClobbers_[node.name];
+        std::string regs;
+        if (ci.regMask & CLOBBER_A) regs += "A, ";
+        if (ci.regMask & CLOBBER_X) regs += "X, ";
+        if (ci.regMask & CLOBBER_Y) regs += "Y, ";
+        if (ci.regMask & CLOBBER_Z) regs += "Z, ";
+        if (!regs.empty()) { regs.pop_back(); regs.pop_back(); emit(".reg_clobbers " + regs); }
+        std::string fl;
+        if (ci.flagMask & CLOBBER_C) fl += "C, ";
+        if (ci.flagMask & CLOBBER_N) fl += "N, ";
+        if (ci.flagMask & CLOBBER_ZF) fl += "Z, ";
+        if (ci.flagMask & CLOBBER_V) fl += "V, ";
+        if (!fl.empty()) { fl.pop_back(); fl.pop_back(); emit(".flag_clobbers " + fl); }
+    }
+
+    // Finalize clobber info
+    funcClobbers_[node.name].complete = true;
+    currentClobbers_ = nullptr;
+
     emit("endproc");
     out << std::endl;
 
@@ -2620,7 +2666,9 @@ void CodeGenerator::visit(BinaryOperation& node) {
             emit("cmp #$00"); emit("bne " + label); emit("dex");
             out << label << ":" << std::endl; emitter->dec_a();
         }
-        invalidateRegs();
+        regA.known = false; regX.known = false;
+        clobberReg(CLOBBER_A | CLOBBER_X);
+        invalidateFlags();
         return;
     }
     if (node.op == "||") {
@@ -3156,8 +3204,25 @@ void CodeGenerator::visit(UnaryOperation& node) {
                 if (isInc) emit("incq " + rName);
                 else emit("decq " + rName);
             } else if (is32Bit) {
-                // Stack-relative 32-bit inc/dec: not yet implemented, fall through to generic path
-                // TODO: implement stack-relative 32-bit inc/dec
+                // Stack-relative 32-bit inc/dec via ZP temp + native incq/decq
+                int zpTmp = allocateZP(4);
+                std::stringstream ss;
+                ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpTmp);
+                std::string zpAddr = ss.str();
+                // Load 4 bytes from stack to ZP temp
+                for (int i = 0; i < 4; i++) {
+                    emit("lda.sp " + rName + (i ? "+" + std::to_string(i) : ""));
+                    emit("sta " + zpAddr + (i ? "+" + std::to_string(i) : ""));
+                }
+                // Native 32-bit inc/dec on ZP
+                if (isInc) emit("incq " + zpAddr);
+                else emit("decq " + zpAddr);
+                // Store back to stack
+                for (int i = 0; i < 4; i++) {
+                    emit("lda " + zpAddr + (i ? "+" + std::to_string(i) : ""));
+                    emit("sta.sp " + rName + (i ? "+" + std::to_string(i) : ""));
+                }
+                freeZP(zpTmp, 4);
             } else if (is16Bit && !isGlobal) {
                 if (isInc) emit("inw " + rName + suffix);
                 else emit("dew " + rName + suffix);
@@ -3409,7 +3474,10 @@ void CodeGenerator::visit(ReturnStatement& node) {
         emitter->tza();
     }
     emit("rtn #0");
+    auto* saved = currentClobbers_;
+    currentClobbers_ = nullptr;  // don't record post-return invalidation
     invalidateRegs();
+    currentClobbers_ = saved;
 }
 
 void CodeGenerator::visit(GotoStatement& node) {
@@ -4974,11 +5042,32 @@ void CodeGenerator::emitData() {
     }
 }
 
+void CodeGenerator::clobberReg(uint8_t mask) {
+    if (currentClobbers_) currentClobbers_->regMask |= mask;
+}
+
+void CodeGenerator::clobberFlag(uint8_t mask) {
+    if (currentClobbers_) currentClobbers_->flagMask |= mask;
+}
+
+void CodeGenerator::invalidateFromClobbers(uint8_t regMask, uint8_t flagMask) {
+    if (regMask & CLOBBER_A) { regA.known = false; regA.isVariable = false; regA.varName = ""; regA.varOffset = 0; regA.value = 0; }
+    if (regMask & CLOBBER_X) { regX.known = false; regX.isVariable = false; regX.varName = ""; regX.varOffset = 0; regX.value = 0; }
+    if (regMask & CLOBBER_Y) { regY.known = false; regY.isVariable = false; regY.varName = ""; regY.varOffset = 0; regY.value = 0; }
+    if (regMask & CLOBBER_Z) { regZ.known = false; regZ.isVariable = false; regZ.varName = ""; regZ.varOffset = 0; regZ.value = 0; }
+    if (flagMask & CLOBBER_C) flags.carry = TriState::UNKNOWN;
+    if (flagMask & CLOBBER_N) flags.negative = TriState::UNKNOWN;
+    if (flagMask & CLOBBER_ZF) flags.zero = TriState::UNKNOWN;
+    if (flagMask & CLOBBER_V) flags.overflow = TriState::UNKNOWN;
+    if (flagMask & (CLOBBER_N | CLOBBER_ZF)) flags.znSource = FlagSource::NONE;
+}
+
 void CodeGenerator::invalidateRegs() {
     regA.known = false; regA.isVariable = false; regA.varName = ""; regA.varOffset = 0; regA.value = 0;
     regX.known = false; regX.isVariable = false; regX.varName = ""; regX.varOffset = 0; regX.value = 0;
     regY.known = false; regY.isVariable = false; regY.varName = ""; regY.varOffset = 0; regY.value = 0;
     regZ.known = false; regZ.isVariable = false; regZ.varName = ""; regZ.varOffset = 0; regZ.value = 0;
+    clobberReg(CLOBBER_A | CLOBBER_X | CLOBBER_Y | CLOBBER_Z);
     invalidateFlags();
 }
 
@@ -4993,45 +5082,58 @@ void CodeGenerator::transferRegs(FlagSource dest, FlagSource src) {
     RegState* s = nullptr; RegState* d = nullptr;
     if (src == FlagSource::A) s = &regA; else if (src == FlagSource::X) s = &regX; else if (src == FlagSource::Y) s = &regY; else if (src == FlagSource::Z) s = &regZ;
     if (dest == FlagSource::A) d = &regA; else if (dest == FlagSource::X) d = &regX; else if (dest == FlagSource::Y) d = &regY; else if (dest == FlagSource::Z) d = &regZ;
-    if (s && d) { *d = *s; updateZNFlags(dest, flags.zero, flags.negative); }
+    if (s && d) {
+        *d = *s;
+        if (dest == FlagSource::A) clobberReg(CLOBBER_A);
+        else if (dest == FlagSource::X) clobberReg(CLOBBER_X);
+        else if (dest == FlagSource::Y) clobberReg(CLOBBER_Y);
+        else if (dest == FlagSource::Z) clobberReg(CLOBBER_Z);
+        updateZNFlags(dest, flags.zero, flags.negative);
+    }
 }
 
 void CodeGenerator::updateFlags(TriState c, TriState z, TriState n, TriState v) {
-    if (c != TriState::UNKNOWN) flags.carry = c;
-    if (z != TriState::UNKNOWN) flags.zero = z;
-    if (n != TriState::UNKNOWN) flags.negative = n;
-    if (v != TriState::UNKNOWN) flags.overflow = v;
+    if (c != TriState::UNKNOWN) { flags.carry = c; clobberFlag(CLOBBER_C); }
+    if (z != TriState::UNKNOWN) { flags.zero = z; clobberFlag(CLOBBER_ZF); }
+    if (n != TriState::UNKNOWN) { flags.negative = n; clobberFlag(CLOBBER_N); }
+    if (v != TriState::UNKNOWN) { flags.overflow = v; clobberFlag(CLOBBER_V); }
     if (z != TriState::UNKNOWN || n != TriState::UNKNOWN) flags.znSource = FlagSource::NONE;
 }
 
 void CodeGenerator::updateZNFlags(FlagSource source, TriState z, TriState n) {
     flags.znSource = source; flags.zero = z; flags.negative = n;
+    clobberFlag(CLOBBER_ZF | CLOBBER_N);
 }
 
 void CodeGenerator::invalidateFlags() {
     flags.carry = TriState::UNKNOWN; flags.zero = TriState::UNKNOWN; flags.negative = TriState::UNKNOWN; flags.overflow = TriState::UNKNOWN; flags.znSource = FlagSource::NONE;
+    clobberFlag(CLOBBER_C | CLOBBER_N | CLOBBER_ZF | CLOBBER_V);
 }
 
-void CodeGenerator::updateRegA(uint8_t val) { 
-    regA.known = true; regA.isVariable = false; regA.value = val; 
+void CodeGenerator::updateRegA(uint8_t val) {
+    regA.known = true; regA.isVariable = false; regA.value = val;
+    clobberReg(CLOBBER_A);
     updateZNFlags(FlagSource::A, val == 0 ? TriState::SET : TriState::CLEAR, (val & 0x80) ? TriState::SET : TriState::CLEAR);
 }
-void CodeGenerator::updateRegX(uint8_t val) { 
-    regX.known = true; regX.isVariable = false; regX.value = val; 
+void CodeGenerator::updateRegX(uint8_t val) {
+    regX.known = true; regX.isVariable = false; regX.value = val;
+    clobberReg(CLOBBER_X);
     updateZNFlags(FlagSource::X, val == 0 ? TriState::SET : TriState::CLEAR, (val & 0x80) ? TriState::SET : TriState::CLEAR);
 }
-void CodeGenerator::updateRegY(uint8_t val) { 
-    regY.known = true; regY.isVariable = false; regY.value = val; 
+void CodeGenerator::updateRegY(uint8_t val) {
+    regY.known = true; regY.isVariable = false; regY.value = val;
+    clobberReg(CLOBBER_Y);
     updateZNFlags(FlagSource::Y, val == 0 ? TriState::SET : TriState::CLEAR, (val & 0x80) ? TriState::SET : TriState::CLEAR);
 }
-void CodeGenerator::updateRegZ(uint8_t val) { 
-    regZ.known = true; regZ.isVariable = false; regZ.value = val; 
+void CodeGenerator::updateRegZ(uint8_t val) {
+    regZ.known = true; regZ.isVariable = false; regZ.value = val;
+    clobberReg(CLOBBER_Z);
     updateZNFlags(FlagSource::Z, val == 0 ? TriState::SET : TriState::CLEAR, (val & 0x80) ? TriState::SET : TriState::CLEAR);
 }
-void CodeGenerator::updateRegAVar(const std::string& name, int offset) { regA.known = true; regA.isVariable = true; regA.varName = name; regA.varOffset = offset; updateZNFlags(FlagSource::A); }
-void CodeGenerator::updateRegXVar(const std::string& name, int offset) { regX.known = true; regX.isVariable = true; regX.varName = name; regX.varOffset = offset; updateZNFlags(FlagSource::X); }
-void CodeGenerator::updateRegYVar(const std::string& name, int offset) { regY.known = true; regY.isVariable = true; regY.varName = name; regY.varOffset = offset; updateZNFlags(FlagSource::Y); }
-void CodeGenerator::updateRegZVar(const std::string& name, int offset) { regZ.known = true; regZ.isVariable = true; regZ.varName = name; regZ.varOffset = offset; updateZNFlags(FlagSource::Z); }
+void CodeGenerator::updateRegAVar(const std::string& name, int offset) { regA.known = true; regA.isVariable = true; regA.varName = name; regA.varOffset = offset; clobberReg(CLOBBER_A); updateZNFlags(FlagSource::A); }
+void CodeGenerator::updateRegXVar(const std::string& name, int offset) { regX.known = true; regX.isVariable = true; regX.varName = name; regX.varOffset = offset; clobberReg(CLOBBER_X); updateZNFlags(FlagSource::X); }
+void CodeGenerator::updateRegYVar(const std::string& name, int offset) { regY.known = true; regY.isVariable = true; regY.varName = name; regY.varOffset = offset; clobberReg(CLOBBER_Y); updateZNFlags(FlagSource::Y); }
+void CodeGenerator::updateRegZVar(const std::string& name, int offset) { regZ.known = true; regZ.isVariable = true; regZ.varName = name; regZ.varOffset = offset; clobberReg(CLOBBER_Z); updateZNFlags(FlagSource::Z); }
 
 int CodeGenerator::allocateZP(int size) {
     for (int i = 0; i <= (int)zpRegs.size() - size; ++i) {

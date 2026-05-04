@@ -123,6 +123,29 @@ public:
     std::string getAggregateName(const std::string& type);
     static bool matchType(const ExpressionType& t1, const std::string& t2Name, int t2Ptr);
 
+    // Per-function clobber tracking (Phase 1 of fine-grained invalidation)
+    static constexpr uint8_t CLOBBER_A = 0x01;
+    static constexpr uint8_t CLOBBER_X = 0x02;
+    static constexpr uint8_t CLOBBER_Y = 0x04;
+    static constexpr uint8_t CLOBBER_Z = 0x08;
+    static constexpr uint8_t CLOBBER_C = 0x01;  // carry flag bit
+    static constexpr uint8_t CLOBBER_N = 0x02;  // negative flag bit
+    static constexpr uint8_t CLOBBER_ZF = 0x04; // zero flag bit
+    static constexpr uint8_t CLOBBER_V = 0x08;  // overflow flag bit
+
+    struct FuncClobberInfo {
+        uint8_t regMask = 0;    // CLOBBER_A/X/Y/Z
+        uint8_t flagMask = 0;   // CLOBBER_C/N/ZF/V
+        bool isLeaf = true;     // no calls to other functions
+        bool complete = false;  // true once function body fully visited
+    };
+    std::map<std::string, FuncClobberInfo> funcClobbers_;
+    FuncClobberInfo* currentClobbers_ = nullptr;
+
+    void clobberReg(uint8_t mask);
+    void clobberFlag(uint8_t mask);
+    void invalidateFromClobbers(uint8_t regMask, uint8_t flagMask);
+
     // Register tracking
     struct RegState {
         bool known = false;

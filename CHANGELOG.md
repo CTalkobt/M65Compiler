@@ -2,6 +2,12 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
+## [Unreleased] - 2026-05-04
+
+### Added
+- **Compiler (cc45)**:
+    - **Fine-grained clobber tracking (Phase 1)**: The compiler now tracks which CPU registers (A, X, Y, Z) and processor flags (C, N, Z, V) each function actually modifies during code generation. Per-function `FuncClobberInfo` records are built incrementally as code is emitted. Accurate `.reg_clobbers` and `.flag_clobbers` directives are emitted for both ZP and stack calling conventions (previously only a blanket `A, X, Y, Z` was emitted for zpcall functions, nothing for stack convention). Leaf fastcall functions like `int identity(int x) { return x; }` now correctly report `.reg_clobbers A, X` instead of all four registers. Added `invalidateFromClobbers(regMask, flagMask)` for future Phase 2 selective invalidation at call sites.
+
 ## [Unreleased] - 2026-05-02
 
 ### Added
