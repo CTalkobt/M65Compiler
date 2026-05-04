@@ -79,6 +79,8 @@ lib: all
 
 clean:
 	rm -rf $(OBJ_DIR) $(BIN_DIR) build
+	@$(MAKE) -C bug clean
+	@$(MAKE) -C lib clean
 
 test: all
 	@echo "Running compiler tests..."

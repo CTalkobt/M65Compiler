@@ -451,6 +451,13 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
                             uint32_t val = parser->evaluateExpressionAt(stmt->instr.operandTokenIndex, stmt->scopePrefix);
                             bool fitsIn8 = (val <= 0xFF);
                             bool forceAbs = (stmt->instr.mnemonic == "jsr" || stmt->instr.mnemonic == "jmp");
+                            // Force absolute for symbols in relocatable segments (BSS, extern)
+                            if (fitsIn8 && !forceAbs && stmt->instr.operandTokenIndex < (int)parser->tokens.size() &&
+                                parser->tokens[stmt->instr.operandTokenIndex].type == AssemblerTokenType::IDENTIFIER) {
+                                std::string symName = stmt->scopePrefix + parser->tokens[stmt->instr.operandTokenIndex].value;
+                                if (!parser->symbolTable.count(symName)) symName = parser->tokens[stmt->instr.operandTokenIndex].value;
+                                if (parser->isRelocatableSymbol(symName)) forceAbs = true;
+                            }
                             if (stmt->instr.mode == AddressingMode::BASE_PAGE || stmt->instr.mode == AddressingMode::ABSOLUTE) resolvedMode = (fitsIn8 && !forceAbs) ? AddressingMode::BASE_PAGE : AddressingMode::ABSOLUTE;
                             else if (stmt->instr.mode == AddressingMode::BASE_PAGE_X || stmt->instr.mode == AddressingMode::ABSOLUTE_X) resolvedMode = (fitsIn8 && !forceAbs) ? AddressingMode::BASE_PAGE_X : AddressingMode::ABSOLUTE_X;
                             else if (stmt->instr.mode == AddressingMode::BASE_PAGE_Y || stmt->instr.mode == AddressingMode::ABSOLUTE_Y) resolvedMode = (fitsIn8 && !forceAbs) ? AddressingMode::BASE_PAGE_Y : AddressingMode::ABSOLUTE_Y;
@@ -536,8 +543,8 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
                     else if (stmt->dir.name == "word") for (const auto& a : stmt->dir.arguments) e.emitWord((uint16_t)parseNumericLiteral(a));
                     else if (stmt->dir.name == "dword" || stmt->dir.name == "long") for (const auto& a : stmt->dir.arguments) { uint32_t v = parseNumericLiteral(a); e.emitWord(v & 0xFFFF); e.emitWord(v >> 16); }
                     else if (stmt->dir.name == "float") for (const auto& a : stmt->dir.arguments) { double v = std::stod(a); std::vector<uint8_t> enc = encodeFloat(v); for (uint8_t eb : enc) e.emitByte(eb); }
-                    else if (stmt->dir.name == "text") for (char c : stmt->dir.arguments[0]) e.emitByte(toPetscii(c));
-                    else if (stmt->dir.name == "ascii") for (char c : stmt->dir.arguments[0]) e.emitByte((uint8_t)c);
+                    else if (stmt->dir.name == "text") { if (!stmt->dir.arguments.empty()) for (char c : stmt->dir.arguments[0]) e.emitByte(toPetscii(c)); }
+                    else if (stmt->dir.name == "ascii") { if (!stmt->dir.arguments.empty()) for (char c : stmt->dir.arguments[0]) e.emitByte((uint8_t)c); }
                     else if (stmt->dir.name == "res") {
                         uint32_t count = parser->evaluateExpressionAt(stmt->dir.tokenIndex, stmt->scopePrefix);
                         uint8_t fill = 0;

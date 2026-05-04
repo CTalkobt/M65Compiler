@@ -45,4 +45,5 @@ struct Symbol {
     int stackOffset = 0;
     bool isFrameRelative = false;
     int frameOffset = 0;
+    std::string segment;    // segment this symbol was defined in (empty = unknown/predefined)
 };

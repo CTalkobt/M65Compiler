@@ -96,6 +96,16 @@ Symbol* AssemblerParser::resolveSymbol(const std::string& name, const std::strin
     return nullptr;
 }
 
+bool AssemblerParser::isRelocatableSymbol(const std::string& name) const {
+    if (externIndex.count(name)) return true;
+    auto it = symbolTable.find(name);
+    if (it == symbolTable.end()) return false;
+    const auto& seg = it->second.segment;
+    if (seg.empty() || seg == "__extern__") return seg == "__extern__";
+    auto sit = segments.find(seg);
+    return sit != segments.end() && !sit->second->hasOrg;
+}
+
 uint32_t AssemblerParser::getZPStart() const {
     if (symbolTable.count("cc45.zeroPageStart")) {
         return symbolTable.at("cc45.zeroPageStart").value;
@@ -363,7 +373,7 @@ void AssemblerParser::pass1() {
             if (symbolTable.count(stmt->label) && symbolTable[stmt->label].isAddress) {
                 errors.push_back("Error: Duplicate label '" + stmt->label + "' at line " + std::to_string(stmt->line));
             }
-            symbolTable[stmt->label] = {pc, true, 2, false, false, pc, false, 0, false, 0};
+            symbolTable[stmt->label] = {pc, true, 2, false, false, pc, false, 0, false, 0, currentSegment->name};
         }
         stmt->localLabelScope = autoLabelScope;
 
@@ -514,7 +524,7 @@ void AssemblerParser::pass1() {
                         externSymbols.push_back(sym);
                         externIndex[sym] = idx;
                         // Add extern as a placeholder symbol (value 0, will be resolved by linker)
-                        symbolTable[sym] = {0, true, 2, false, false, 0, false, 0, false, 0};
+                        symbolTable[sym] = {0, true, 2, false, false, 0, false, 0, false, 0, "__extern__"};
                     }
                 }
                 stmt->size = 0;
@@ -674,6 +684,7 @@ void AssemblerParser::pass1() {
                 if (stmt->dir.name == "org") {
                     if (!stmt->dir.arguments.empty()) pc = parseNumericLiteral(stmt->dir.arguments[0]);
                     if (firstOrgAddress == 0xFFFFFFFF) firstOrgAddress = pc;
+                    currentSegment->hasOrg = true;
                     stmt->address = pc;
                     stmt->size = 0;
                 }
@@ -688,6 +699,7 @@ void AssemblerParser::pass1() {
             stmt->dir.arguments.push_back(advance().value);
             if (!stmt->dir.arguments.empty()) pc = parseNumericLiteral(stmt->dir.arguments[0]);
             if (firstOrgAddress == 0xFFFFFFFF) firstOrgAddress = pc;
+            currentSegment->hasOrg = true;
             stmt->address = pc;
             stmt->size = 0;
         }
@@ -1338,6 +1350,16 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
             uint32_t val = evaluateExpressionAt(instr.operandTokenIndex, scopePrefix);
             bool fitsIn8 = (val <= 0xFF);
             bool forceAbs = (instr.mnemonic == "jsr" || instr.mnemonic == "jmp");
+
+            // If the operand's primary symbol is in a relocatable segment (BSS, extern),
+            // its address is not yet known — force absolute addressing to be safe.
+            if (fitsIn8 && !forceAbs && instr.operandTokenIndex < (int)tokens.size() &&
+                tokens[instr.operandTokenIndex].type == AssemblerTokenType::IDENTIFIER) {
+                std::string symName = scopePrefix + tokens[instr.operandTokenIndex].value;
+                // Try scoped name first, then bare name
+                if (!symbolTable.count(symName)) symName = tokens[instr.operandTokenIndex].value;
+                if (isRelocatableSymbol(symName)) forceAbs = true;
+            }
 
             if (instr.mode == AddressingMode::BASE_PAGE || instr.mode == AddressingMode::ABSOLUTE) {
                 resolvedMode = (fitsIn8 && !forceAbs) ? AddressingMode::BASE_PAGE : AddressingMode::ABSOLUTE;
