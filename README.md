@@ -102,5 +102,4 @@ For detailed information on each tool, refer to:
 - [doc/lib45.md](doc/lib45.md) — `.o45` Relocatable Object Format Specification
 - [doc/ln45_usage.md](doc/ln45_usage.md) — Linker Usage and Reference
 - [doc/ar45.md](doc/ar45.md) — Archiver Usage and Reference
-- [doc/zpcall.md](doc/zpcall.md) — ZP Calling Convention Design
 - [doc/ln45.md](doc/ln45.md) — Linker Design Notes
