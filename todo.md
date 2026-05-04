@@ -1,4 +1,11 @@
 # TODO: cc45 Suite Roadmap
+
+> **Component roadmaps are also tracked in their respective docs:**
+> - Compiler: [doc/cc45.md](doc/cc45.md#roadmap)
+> - Assembler: [doc/ca45.md](doc/ca45.md#roadmap)
+> - Linker & Utilities: [doc/ln45_usage.md](doc/ln45_usage.md#roadmap)
+> - ZP Calling Convention: [doc/zpcall.md](doc/zpcall.md)
+
 Legend:
 [ ] - Todo
 [d] - Deferred long term, possible future
@@ -51,6 +58,8 @@ Legend:
 ---
 
 ## Roadmap - Compiler (cc45)
+> Also tracked in [doc/cc45.md — Roadmap](doc/cc45.md#roadmap)
+
 Steps required to bring the C compiler closer to C11 standards.
 
 ### 1. Keyword & Syntax Support
@@ -90,6 +99,8 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **Operator precedence (extended)**: Support complex pointer precedence like `*p++` vs `(*p)++`.
 
 ## Roadmap - Linker & Libraries (ln45)
+> Also tracked in [doc/ln45_usage.md — Roadmap](doc/ln45_usage.md#roadmap)
+
 - [X] **Object Format**: Define the `.o45` relocatable object format as an extension of the `.o65` specification. See [doc/lib45.md](doc/lib45.md).
     - [X] **Extended Header**: 41-byte header with 32-bit segment fields, mode word ($8800), CPU ID ($45).
     - [X] **Linear Relocations**: `R_LINEAR24` ($60) and `R_LINEAR32` ($A0) relocation types defined.
@@ -143,7 +154,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [d] **Generator Functions**: Support stateful functions that can yield values (iterators).
 - [d] **Generator Loop Syntax**: Implement `for (var : generator)` syntax for idiomatic iteration over generators.
 - [X] **Variadic Functions**: Support defining variadic functions and the `va_list`, `va_start`, `va_arg`, `va_end` macros. Variadic calls use right-to-left push order; `stdarg.h` provides macros wrapping `__builtin_va_start`/`__builtin_va_arg`/`__builtin_va_end` compiler intrinsics.
-- [X] **ZP Calling Convention (`-fzpcall`)**: Optional zero-page parameter passing. Parameters stored in fixed ZP region instead of stack. Includes caller-save semantics, address-of spill, leaf function optimization, per-function metadata (`.zp_uses`/`.zp_clobbers`/`.reg_clobbers`), linker call graph + transitive clobber propagation, and separate ZP-convention stdlib (`stdlib45_zp.lib`) + CRT (`crt45_zp.lib`). Phases 1-4 complete.
+- [X] **ZP Calling Convention (`-fzpcall`)**: Optional zero-page parameter passing. Parameters stored in fixed ZP region instead of stack. Includes caller-save semantics, address-of spill, leaf function optimization, per-function metadata (`.zp_uses`/`.zp_clobbers`/`.reg_clobbers`), linker call graph + transitive clobber propagation, separate ZP-convention stdlib (`stdlib45_zp.lib`) + CRT (`crt45_zp.lib`), and mixed convention support (zpCall callers can invoke variadic functions via automatic stack-push fallback). Phases 1-4 complete.
 - [ ] **Processor flag/register intrinsics**: `__builtin_carry()`, `__builtin_zero()`, `__builtin_negative()`, `__builtin_reg_a()`, etc. Each returns an `int` (0 or 1 for flags, 0-255 for registers) by emitting an inline snapshot (e.g. `lda #$00; adc #$00` for carry). Composable in any expression context. Useful for KERNAL wrappers that need to test carry/zero after `__asm__` calls without `php/plp`.
 - [ ] **Local `_Alignas`**: Extend `_Alignas` support to local (stack-allocated) variables.
 - [ ] **32-bit flat addressing**: Support pointer access above $FFFF (requires flat memory codegen).
@@ -151,6 +162,7 @@ Steps required to bring the C compiler closer to C11 standards.
 ---
 
 ## Roadmap - Assembler (ca45)
+> Also tracked in [doc/ca45.md — Roadmap](doc/ca45.md#roadmap)
 
 ### 1. Registers & Simulated Opcodes
 - [X] **Mega65 Multiplication**: Simulated `mul.<width> <dest>, <src>` opcode leveraging hardware multiplier.
@@ -217,10 +229,11 @@ Steps required to bring the C compiler closer to C11 standards.
 ---
 
 ## Roadmap - Companion Utilities
+> Also tracked in [doc/ln45_usage.md — Roadmap](doc/ln45_usage.md#roadmap)
 
 ### High Priority (directly support the linker workflow)
 
-- [X] **`objdump45` — Object File Inspector & Disassembler**: Disassembles `.o45`/`.o65` sections back to 45GS02 assembly with symbolic labels and branch annotations. Also displays file headers, section headers, symbol tables, relocation entries, and hex dumps. Covers all 45GS02 addressing modes. 85-assertion test suite (`make test-objdump45`).
+- [X] **`objdump45` — Object File Inspector & Disassembler**: Disassembles `.o45`/`.o65` sections back to 45GS02 assembly with symbolic labels and branch annotations. Also displays file headers, section headers, symbol tables, relocation entries, and hex dumps. Covers all 45GS02 addressing modes. 113-assertion test suite (`make test-objdump45`).
 - [X] **`nm45` — Symbol Lister & Object Inspector**: Lists symbols and inspects `.o45`/`.o65` object files. Symbol flags: `-u`, `-g`, `-n`, `-R`, `-p`, `-A`. Inspection flags: `-h` (header/mode/CPU/options), `-r` (decoded relocation tables), `-s` (segment sizes), `-a` (all). Replaces the need for separate `readobj45` and `size45` utilities.
 - [X] **`readobj45`**: Covered by `nm45 -h` (header) and `nm45 -r` (relocations).
 - [ ] **objdump45 symbolic disassembly**: Annotate disassembly addresses with resolved symbol names (e.g., `jsr $2026  ; = _puts`). Cross-reference the symbol table to find the label for each absolute address operand. Would significantly improve readability of linked PRG disassembly output.
@@ -241,6 +254,8 @@ Steps required to bring the C compiler closer to C11 standards.
     - [ ] **`#pragma crt stdio`**: Pull in stdio initialization (screen, I/O). Opt-in flag forces `crt_stdio.o45` from the CRT archive. Pragma recognized but module not yet implemented.
 
 ## Roadmap - Standard Library (stdlib45.lib)
+> Also tracked in [doc/cc45.md — Standard Library](doc/cc45.md#standard-library-stdlib45lib)
+
 All modules are hand-written 45GS02 assembly in `lib/stdlib/`, archived into `stdlib45.lib` by `lib/Makefile`.
 
 - [X] **`string.h`**: `strlen`, `strcpy`, `strncpy`, `strcmp`, `strncmp`, `strcat`, `strchr`, `strrchr`, `memcpy`, `memmove`, `memset`, `memcmp` (12 functions). Validated via mmemu emulator tests (`test_strlen`, `test_strcmp`, `test_strcpy`, `test_memcpy`, `test_strchr`).

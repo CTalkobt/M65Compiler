@@ -42,6 +42,7 @@ enum class TokenType {
     LONG,     // long (32-bit on this target)
     REGISTER, // register (storage class)
     INLINE,   // inline (function specifier, currently no-op)
+    FASTCALL, // __fastcall__ (per-function ZP calling convention)
 
     // Variadic
     ELLIPSIS,  // ...
@@ -151,6 +152,7 @@ struct Token {
             case TokenType::LONG: return "LONG";
             case TokenType::REGISTER: return "REGISTER";
             case TokenType::INLINE: return "INLINE";
+            case TokenType::FASTCALL: return "FASTCALL";
             case TokenType::ELLIPSIS: return "ELLIPSIS";
             case TokenType::IDENTIFIER: return "IDENTIFIER";
             case TokenType::INTEGER_LITERAL: return "INTEGER_LITERAL";

@@ -791,12 +791,14 @@ void CodeGenerator::visit(TranslationUnit& node) {
         if (auto* fn = dynamic_cast<FunctionDeclaration*>(decl.get())) {
             knownFunctions.insert(fn->name);
             if (fn->isVariadic) variadicFunctions.insert(fn->name);
+            if (fn->isFastcall) fastcallFunctions.insert(fn->name);
             functionReturnTypes[fn->name] = {fn->returnType, fn->returnPointerLevel, fn->isSigned};
             if (fn->returnPointerLevel == 0) {
                 bool isStructRet = isStruct(fn->returnType);
                 bool isLongRet = is32BitType(fn->returnType);
-                // In zpCall mode, long returns use AXYZ directly — no hidden pointer
-                if (isStructRet || (isLongRet && !zpCallMode)) {
+                // In zpCall/fastcall mode, long returns use AXYZ directly — no hidden pointer
+                bool fnUsesZpCall = zpCallMode || fn->isFastcall;
+                if (isStructRet || (isLongRet && !fnUsesZpCall)) {
                     structReturningFunctions.insert(fn->name);
                 }
             }
@@ -977,6 +979,7 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     currentFunction = &node;
     currentParamByteSize = 0;
     currentLocalByteSize = 0;
+    useZpCall_ = (zpCallMode || node.isFastcall) && !node.isVariadic;
 
     // --- Pre-scan: compute frame layout ---
     FrameScanner scanner(structs);
@@ -1000,7 +1003,7 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     bool isLongReturn = is32BitType(node.returnType) && node.returnPointerLevel == 0;
     bool needsHiddenPtr = isStructReturn && !isLongReturn;
     // In non-zpCall mode, long returns still use the hidden pointer
-    if (!zpCallMode) needsHiddenPtr = isStructReturn;
+    if (!useZpCall_) needsHiddenPtr = isStructReturn;
 
     if (needsHiddenPtr) {
         std::string rpName = "_p___ret_ptr";
@@ -1021,8 +1024,9 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
         paramInfos.push_back({pName, pSize});
     }
 
-    if (zpCallMode) {
+    if (useZpCall_) {
         // --- ZP Calling Convention ---
+        // Variadic functions use stack convention (va_start needs stack-relative addresses)
         zpParams_.clear();
         zpParamTotalBytes_ = 0;
         zpSpilledParams_.clear();
@@ -2779,7 +2783,7 @@ void CodeGenerator::visit(BinaryOperation& node) {
 
         // Check if right side has a call (zpCall mode ZP clobber protection)
         bool rightHasCall32 = false;
-        if (zpCallMode) {
+        if (useZpCall_) {
             CallCollector cc;
             node.right->accept(cc);
             rightHasCall32 = !cc.calledFunctions.empty();
@@ -2907,7 +2911,7 @@ void CodeGenerator::visit(BinaryOperation& node) {
     // If so, the left operand must be saved to the stack (not ZP) because
     // the callee will clobber the same ZP slots during recursion/nested calls.
     bool rightHasCall = false;
-    if (zpCallMode) {
+    if (useZpCall_) {
         CallCollector cc;
         node.right->accept(cc);
         rightHasCall = !cc.calledFunctions.empty();
@@ -3311,7 +3315,7 @@ void CodeGenerator::visit(ReturnStatement& node) {
     if (isStructReturn && node.expression) {
         bool isLongReturn = is32BitType(currentFunction->returnType) && currentFunction->returnPointerLevel == 0;
 
-        if (isLongReturn && zpCallMode) {
+        if (isLongReturn && useZpCall_) {
             // zpCall: long return in AXYZ directly — no hidden pointer needed
             bool oldNeeded = resultNeeded;
             resultNeeded = true;
@@ -4273,8 +4277,13 @@ void CodeGenerator::visit(FunctionCall& node) {
 
     bool oldNeeded = resultNeeded; resultNeeded = true;
 
-    if (zpCallMode) {
+    bool isVariadicCall = variadicFunctions.count(node.name) > 0;
+
+    bool calleeUsesZpCall = (zpCallMode || fastcallFunctions.count(node.name) > 0) && !isVariadicCall;
+
+    if (calleeUsesZpCall) {
         // --- ZP Calling Convention ---
+        // Variadic calls use stack convention (callee uses va_start with stack addresses)
         // Compute callee's ZP param layout
         bool hasParamTypes = functionParamTypes.count(node.name) > 0;
         auto& calleePTypes = hasParamTypes ? functionParamTypes[node.name] : functionParamTypes[""];
@@ -4466,6 +4475,21 @@ void CodeGenerator::visit(FunctionCall& node) {
     }
 
     // --- Stack-based calling convention (original) ---
+    // When in zpCallMode and falling through here (e.g., variadic call),
+    // save caller's ZP params to frame before the call clobbers them.
+    bool zpCallerSaveForStackCall = useZpCall_ && !zpParams_.empty();
+    if (zpCallerSaveForStackCall) {
+        int saveOff = frameSize_;
+        emit("; caller-save ZP params before stack-convention call");
+        for (auto& kv : zpParams_) {
+            auto& zpi = kv.second;
+            for (int b = 0; b < zpi.size; b++) {
+                emit("lda " + zpHex(zpi.zpAddr + b));
+                emit("sta.fp " + std::to_string(saveOff++));
+            }
+        }
+    }
+
     int pushedBytes = 0;
 
     // For struct-returning functions, push hidden return pointer FIRST
@@ -4483,7 +4507,7 @@ void CodeGenerator::visit(FunctionCall& node) {
 
     // For variadic functions, push arguments right-to-left so named params
     // end up at fixed offsets from SP regardless of extra args.
-    bool isVariadicCall = variadicFunctions.count(node.name) > 0;
+    // (isVariadicCall already computed above)
     int argStart = isVariadicCall ? (int)node.arguments.size() - 1 : 0;
     int argEnd   = isVariadicCall ? -1 : (int)node.arguments.size();
     int argStep  = isVariadicCall ? -1 : 1;
@@ -4562,6 +4586,30 @@ void CodeGenerator::visit(FunctionCall& node) {
     if (pushedBytes > 0) {
         for (const auto& varName : currentVars) {
             emit(".var " + varName + " = " + varName + " - " + std::to_string(pushedBytes));
+        }
+    }
+    // Restore caller's ZP params after stack-convention call
+    if (zpCallerSaveForStackCall) {
+        int saveOff = frameSize_;
+        emit("; caller-restore ZP params after stack-convention call");
+        if (resultNeeded) {
+            emitter->push_ax();
+            for (const auto& varName : currentVars) {
+                emit(".var " + varName + " = " + varName + " + 2");
+            }
+        }
+        for (auto& kv : zpParams_) {
+            auto& zpi = kv.second;
+            for (int b = 0; b < zpi.size; b++) {
+                emit("lda.fp " + std::to_string(saveOff++));
+                emit("sta " + zpHex(zpi.zpAddr + b));
+            }
+        }
+        if (resultNeeded) {
+            for (const auto& varName : currentVars) {
+                emit(".var " + varName + " = " + varName + " - 2");
+            }
+            emitter->pop_ax();
         }
     }
     invalidateRegs();

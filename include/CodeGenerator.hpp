@@ -223,6 +223,7 @@ public:
     bool crtStdio = false;     // #pragma crt stdio
     std::set<std::string> knownFunctions; // defined + prototyped function names
     std::set<std::string> variadicFunctions; // functions declared with ...
+    std::set<std::string> fastcallFunctions; // functions declared with __fastcall__
     std::set<std::string> structReturningFunctions; // functions that return a struct by value
     struct FuncReturnInfo { std::string type; int pointerLevel; bool isSigned; };
     std::map<std::string, FuncReturnInfo> functionReturnTypes; // function name → return type
@@ -245,7 +246,8 @@ public:
     };
     std::map<std::string, ZpParamInfo> zpParams_; // _p_name → ZP location (current function)
     int zpParamTotalBytes_ = 0;   // total param bytes in ZP block
-    bool isZpParam(const std::string& rName) const { return zpCallMode && zpParams_.count(rName) > 0; }
+    bool useZpCall_ = false; // true when current function uses ZP calling (zpCallMode or __fastcall__)
+    bool isZpParam(const std::string& rName) const { return useZpCall_ && zpParams_.count(rName) > 0; }
     std::string zpHex(uint8_t addr) const;  // format as "$XX"
     int zpCallerSaveSize_ = 0;  // frame bytes reserved for caller-save of ZP params
     // Params whose address is taken — spilled from ZP to frame
@@ -254,5 +256,5 @@ public:
         int size;         // 1, 2, or 4 bytes
     };
     std::map<std::string, ZpSpillInfo> zpSpilledParams_; // _p_name → frame location
-    bool isZpSpilledParam(const std::string& rName) const { return zpCallMode && zpSpilledParams_.count(rName) > 0; }
+    bool isZpSpilledParam(const std::string& rName) const { return useZpCall_ && zpSpilledParams_.count(rName) > 0; }
 };

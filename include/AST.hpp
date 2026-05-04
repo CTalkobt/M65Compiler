@@ -399,6 +399,7 @@ public:
     bool isPrototype = false;
     bool isStatic = false;
     bool isVariadic = false;
+    bool isFastcall = false;
     FunctionDeclaration(const std::string& n, const std::string& rt) : name(n), returnType(rt) {}
     void accept(ASTVisitor& visitor) override;
 };

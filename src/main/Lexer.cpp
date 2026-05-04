@@ -223,6 +223,7 @@ Token Lexer::lexIdentifierOrKeyword() {
         {"inline", TokenType::INLINE},
         {"__inline", TokenType::INLINE},
         {"__inline__", TokenType::INLINE},
+        {"__fastcall__", TokenType::FASTCALL},
         };
 
     auto it = keywords.find(value);

@@ -164,6 +164,71 @@ else
 fi
 
 # ===================================================================
+# Test 2b: Mixed convention — zpCall function calling variadic (stack-push)
+# ===================================================================
+echo ""
+echo "=== Test 2b: Mixed convention (zpCall calling variadic) ==="
+
+$CC -fzpcall src/test-resources/test_zpcall_mixed.c -o build/test/test_zpcall_mixed.s 2>build/test/test_zpcall_mixed.err
+if [ $? -ne 0 ]; then
+    fail "test_zpcall_mixed.c compilation" "$(cat build/test/test_zpcall_mixed.err)"
+else
+    $AS build/test/test_zpcall_mixed.s -o build/test/test_zpcall_mixed.prg 2>build/test/test_zpcall_mixed_asm.err
+    if [ $? -ne 0 ]; then
+        fail "test_zpcall_mixed.s assembly" "$(cat build/test/test_zpcall_mixed_asm.err)"
+    else
+        OUTPUT=$(echo -e "load build/test/test_zpcall_mixed.prg\nsetpc \$2000\nstep 500000\nm \$4000 9\nq" | $MMEMU -m rawMega65 2>/dev/null)
+
+        ALL_BYTES=$(echo "$OUTPUT" | grep -i "400[0-9a-f]:" | sed 's/.*://I' | tr '\n' ' ' | tr -s ' ')
+        read -ra BARR <<< "$ALL_BYTES"
+
+        byte() { echo "${BARR[$1]}" | tr a-f A-F; }
+
+        # Check sentinel
+        if [ "$(byte 8)" = "AA" ]; then
+            pass "mixed convention: program completed (sentinel AA)"
+        else
+            fail "mixed convention: execution" "Sentinel not found at offset 8"
+        fi
+
+        # Test 1: sum(3, 10, 20, 30) = 60 = $003C
+        if [ "$(byte 0)" = "3C" ] && [ "$(byte 1)" = "00" ]; then
+            pass "mixed: direct variadic call sum(3,10,20,30)=60"
+        else
+            fail "mixed: direct variadic" "Expected 3C 00, got $(byte 0) $(byte 1)"
+        fi
+
+        # Test 2: call_variadic_with_live_params(5,7) = 72 = $0048
+        if [ "$(byte 2)" = "48" ] && [ "$(byte 3)" = "00" ]; then
+            pass "mixed: zpCall with live params across variadic call=72"
+        else
+            fail "mixed: live params across variadic" "Expected 48 00, got $(byte 2) $(byte 3)"
+        fi
+
+        # Test 3: mixed_calls(25) = 150 = $0096
+        if [ "$(byte 4)" = "96" ] && [ "$(byte 5)" = "00" ]; then
+            pass "mixed: interleaved zpCall+variadic calls=150"
+        else
+            fail "mixed: interleaved calls" "Expected 96 00, got $(byte 4) $(byte 5)"
+        fi
+
+        # Test 4: max_of(4, 5, 99, 3, 42) = 99 = $63
+        if [ "$(byte 6)" = "63" ]; then
+            pass "mixed: max_of variadic=99"
+        else
+            fail "mixed: max_of" "Expected 63, got $(byte 6)"
+        fi
+
+        # Test 5: double_it(sum(2, 15, 25)) = 80 = $50
+        if [ "$(byte 7)" = "50" ]; then
+            pass "mixed: variadic result as zpCall arg=80"
+        else
+            fail "mixed: variadic as zpCall arg" "Expected 50, got $(byte 7)"
+        fi
+    fi
+fi
+
+# ===================================================================
 # Test 3: Compiler output diff — -fzpcall correctness for existing tests
 # ===================================================================
 echo ""

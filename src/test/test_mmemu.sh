@@ -587,6 +587,33 @@ else
     fi
 fi
 
+echo "Testing zpCall mixed convention (-fzpcall calling variadic)..."
+
+$CC -fzpcall src/test-resources/test_zpcall_mixed.c -o build/test/test_zpcall_mixed.s
+if [ $? -ne 0 ]; then
+    echo "FAIL: Compilation failed for test_zpcall_mixed.c"
+    failed=$((failed + 1))
+else
+    $AS build/test/test_zpcall_mixed.s -o build/test/test_zpcall_mixed.prg
+    if [ $? -ne 0 ]; then
+        echo "FAIL: Assembly failed for test_zpcall_mixed.s"
+        failed=$((failed + 1))
+    else
+        OUTPUT=$(echo -e "load build/test/test_zpcall_mixed.prg\nsetpc \$2000\nstep 500000\nm \$4000 9\nq" | $MMEMU -m rawMega65 2>/dev/null)
+
+        # Expected: 3C 00 48 00 96 00 63 50 AA
+        if echo "$OUTPUT" | grep -q "4000: 3C 00 48 00 96 00 63 50 AA"; then
+            echo "SUCCESS: zpCall mixed convention tests passed."
+        else
+            echo "FAIL: zpCall mixed convention validation failed."
+            echo "Expected at \$4000: 3C 00 48 00 96 00 63 50 AA"
+            echo "Actual output:"
+            echo "$OUTPUT" | grep "4000:"
+            failed=$((failed + 1))
+        fi
+    fi
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All mmemu tests passed!"
     exit 0

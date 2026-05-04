@@ -83,6 +83,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
         bool isNR = false;
         bool isExtern = false;
         bool isStatic = false;
+        bool isFC = false;
 
         if (tokens[look].type == TokenType::EXTERN) {
             isExtern = true;
@@ -94,6 +95,10 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
 
         if (tokens[look].type == TokenType::NORETURN) {
             isNR = true;
+            look++;
+        }
+        if (tokens[look].type == TokenType::FASTCALL) {
+            isFC = true;
             look++;
         }
 
@@ -112,7 +117,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
         
         bool isSig = false;
 
-        while (tokens[look].type == TokenType::VOLATILE || tokens[look].type == TokenType::CONST || tokens[look].type == TokenType::RESTRICT || tokens[look].type == TokenType::AUTO || tokens[look].type == TokenType::REGISTER || tokens[look].type == TokenType::INLINE ||
+        while (tokens[look].type == TokenType::VOLATILE || tokens[look].type == TokenType::CONST || tokens[look].type == TokenType::RESTRICT || tokens[look].type == TokenType::AUTO || tokens[look].type == TokenType::REGISTER || tokens[look].type == TokenType::INLINE || tokens[look].type == TokenType::FASTCALL ||
                tokens[look].type == TokenType::SIGNED || tokens[look].type == TokenType::UNSIGNED) {
             if (tokens[look].type == TokenType::VOLATILE) isVol = true;
             else if (tokens[look].type == TokenType::CONST) isConst = true;
@@ -165,7 +170,8 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 if (isExtern) match(TokenType::EXTERN);
                 if (isStatic) match(TokenType::STATIC);
                 if (isNR) match(TokenType::NORETURN);
-                while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
+                if (isFC) match(TokenType::FASTCALL);
+                while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
                 auto decl = parseVariableDeclaration(isVol, isConst, isStatic);
                 if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                     vd->isGlobal = true;
@@ -184,9 +190,11 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     if (isExtern) match(TokenType::EXTERN);
                     if (isStatic) match(TokenType::STATIC);
                     if (isNR) match(TokenType::NORETURN);
-                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
+                if (isFC) match(TokenType::FASTCALL);
+                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
                     auto decl = parseFunctionDeclaration();
                     decl->isNoreturn = isNR;
+                    decl->isFastcall = isFC;
                     decl->isStatic = isStatic;
                     // extern functions are always prototypes (no body)
                     if (isExtern) decl->isPrototype = true;
@@ -196,7 +204,8 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     if (isExtern) match(TokenType::EXTERN);
                     if (isStatic) match(TokenType::STATIC);
                     if (isNR) match(TokenType::NORETURN);
-                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
+                if (isFC) match(TokenType::FASTCALL);
+                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
                     auto decl = parseVariableDeclaration(isVol, isConst);
                     if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                         vd->isGlobal = true;
@@ -209,17 +218,21 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 }
             } else {
                 if (isNR) match(TokenType::NORETURN);
+                if (isFC) match(TokenType::FASTCALL);
                 while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
                 auto decl = parseFunctionDeclaration();
                 decl->isNoreturn = isNR;
+                decl->isFastcall = isFC;
                 flushPending(*unit);
                 unit->topLevelDecls.push_back(std::move(decl));
             }
         } else {
             if (isNR) match(TokenType::NORETURN);
+            if (isFC) match(TokenType::FASTCALL);
             while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
             auto decl = parseFunctionDeclaration();
             decl->isNoreturn = isNR;
+            decl->isFastcall = isFC;
             flushPending(*unit);
             unit->topLevelDecls.push_back(std::unique_ptr<Statement>(std::move(decl)));
         }
@@ -230,6 +243,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
 std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     const Token& startToken = peek();
     bool isNR = match(TokenType::NORETURN);
+    bool isFC = match(TokenType::FASTCALL);
     std::string returnType;
     bool isSigned = false;
     int basePtrLevel = 0;
@@ -384,6 +398,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         func->parameters = std::move(params);
         func->body = std::make_unique<CompoundStatement>();
         func->isNoreturn = isNR;
+        func->isFastcall = isFC;
         func->isPrototype = true;
         func->isVariadic = isVariadic;
         return func;
@@ -399,6 +414,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     func->parameters = std::move(params);
     func->body = std::move(body);
     func->isNoreturn = isNR;
+    func->isFastcall = isFC;
     func->isVariadic = isVariadic;
     return func;
 }
@@ -456,6 +472,8 @@ std::unique_ptr<Statement> Parser::parseStatement() {
             // consumed; restrict is a hint only
         } else if (match(TokenType::INLINE)) {
             // consumed; inline is a hint only (no-op for now)
+        } else if (match(TokenType::FASTCALL)) {
+            // consumed; handled at function declaration level
         } else {
             break;
         }
@@ -596,7 +614,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
                 bool isVolatile = false;
                 bool isConst = false;
                 bool isRegister = false;
-                while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::REGISTER) || match(TokenType::INLINE)) {
+                while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL)) {
                     if (tokens[pos-1].type == TokenType::VOLATILE) isVolatile = true;
                     else if (tokens[pos-1].type == TokenType::CONST) isConst = true;
                     else if (tokens[pos-1].type == TokenType::REGISTER) isRegister = true;

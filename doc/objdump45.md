@@ -187,7 +187,7 @@ Format detection: `objdump45` first attempts to parse the file as `.o45`/`.o65`.
 ## See Also
 
 - [nm45](nm45.md) — Symbol lister for `.o45` object files
-- [ln45](ln45_usage.md) — Linker usage and reference
+- [ln45](ln45.md) — Linker
 - [ar45](ar45.md) — Archiver for `.lib` archives
 - [ca45](ca45.md) — Assembler (produces `.o45` with `-c`)
 - [cc45](cc45.md) — C compiler (produces `.o45` with `-c`)
