@@ -15,12 +15,13 @@ private:
     int column;
 
     char peek() const;
+    char peekNext() const;
     char get();
     void skipWhitespace();
     Token nextToken();
-    
+
     Token lexIdentifierOrKeyword();
     Token lexNumber();
-    Token lexString();
-    Token lexChar();
+    Token lexString(bool ascii = false);
+    Token lexChar(bool ascii = false);
 };

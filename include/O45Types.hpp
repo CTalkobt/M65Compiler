@@ -83,6 +83,21 @@ constexpr uint8_t  OPT_CREATED       = 0x05;
 // OS identifier for MEGA65
 constexpr uint8_t  OPT_OS_MEGA65     = 0x05;
 
+// --- Function attribute record ---
+// Appended after an export entry in the export table when the function has
+// ZP calling convention metadata. Identified by the $FA marker byte.
+constexpr uint8_t  O45_FUNCATTR_MARKER = 0xFA;
+constexpr int      O45_FUNCATTR_SIZE   = 16;   // total bytes per record (including marker)
+
+struct O45FuncAttr {
+    uint8_t flags = 0;           // bit 0: leaf, bit 1: interrupt-safe
+    uint8_t regClobbers = 0;     // bit 0=A, 1=X, 2=Y, 3=Z
+    uint8_t flagClobbers = 0;    // bit 0=C, 1=N, 2=Z, 3=V
+    uint32_t zpUses = 0;         // bitmask: ZP slots read as params
+    uint32_t zpClobbers = 0;     // bitmask: ZP slots written
+    uint32_t zpRelease = 0;      // bitmask: ZP slots consumed
+};
+
 // --- Patch sizes per relocation type ---
 constexpr int o45RelocPatchSize(uint8_t rtype) {
     switch (rtype & O45_RTYPE_MASK) {

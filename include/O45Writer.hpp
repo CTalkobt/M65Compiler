@@ -55,6 +55,7 @@ public:
 
     void addImport(const std::string& name);
     void addExport(const std::string& name, O45Segment seg, uint32_t offset, bool weak = false);
+    void setFuncAttr(const std::string& name, const O45FuncAttr& attr);
 
     // Add a string option (NUL-terminated in output). For OPT_FNAME, OPT_ASM, OPT_AUTHOR, OPT_CREATED.
     void addOption(uint8_t type, const std::string& value);
@@ -97,6 +98,7 @@ private:
         bool weak = false;
     };
     std::vector<ExportEntry> exports_;
+    std::map<std::string, O45FuncAttr> funcAttrs_; // export name → function attributes
 
     struct OptionEntry {
         uint8_t type;
@@ -135,6 +137,8 @@ struct O45Export {
     O45Segment segment;
     uint32_t offset;
     bool weak = false;
+    bool hasFuncAttr = false;
+    O45FuncAttr funcAttr;
 };
 
 class O45SymbolTable {
@@ -146,6 +150,9 @@ public:
     // Add an export (global definition). Returns true on success,
     // false if the name was already exported (duplicate).
     bool addExport(const std::string& name, O45Segment segment, uint32_t offset, bool weak = false);
+
+    // Attach function attributes to an exported symbol.
+    void setFuncAttr(const std::string& name, const O45FuncAttr& attr);
 
     // Look up an import index by name. Returns (uint32_t)-1 if not found.
     uint32_t getImportIndex(const std::string& name) const;

@@ -38,6 +38,8 @@ struct O45File {
         std::string name;
         uint8_t segment;    // low 7 bits = segment ID, high bit = weak flag
         uint32_t offset;
+        bool hasFuncAttr = false;
+        O45FuncAttr funcAttr;
         bool isWeak() const { return (segment & O45_EXPORT_WEAK) != 0; }
         uint8_t segmentId() const { return segment & O45_EXPORT_SEG_MASK; }
     };

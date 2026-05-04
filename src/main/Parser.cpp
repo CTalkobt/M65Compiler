@@ -784,9 +784,16 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
 
     std::string name = expect(TokenType::IDENTIFIER, "Expected variable name").value;
     std::vector<int> arrayDims;
+    bool unsizedArray = false;
     while (match(TokenType::OPEN_SQUARE)) {
-        const Token& sizeToken = expect(TokenType::INTEGER_LITERAL, "Expected integer literal for array size");
-        arrayDims.push_back(std::stoi(sizeToken.value));
+        if (peek().type == TokenType::CLOSE_SQUARE) {
+            // Empty brackets: size inferred from initializer
+            arrayDims.push_back(0);
+            unsizedArray = true;
+        } else {
+            const Token& sizeToken = expect(TokenType::INTEGER_LITERAL, "Expected integer literal for array size");
+            arrayDims.push_back((int)std::stol(sizeToken.value));
+        }
         expect(TokenType::CLOSE_SQUARE, "Expected ']' after array size");
     }
     auto decl = setPos(std::make_unique<VariableDeclaration>(type, name, ptrLevel), typeToken);
@@ -806,6 +813,16 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             decl->initializer = parseExpression();
         }
     }
+
+    // Infer array size from initializer for unsized arrays (e.g., char x[] = "str")
+    if (unsizedArray && decl->initializer && !decl->arrayDims.empty() && decl->arrayDims[0] == 0) {
+        if (auto* strLit = dynamic_cast<StringLiteral*>(decl->initializer.get())) {
+            decl->arrayDims[0] = (int)strLit->value.length() + 1; // +1 for NUL
+        } else if (auto* initList = dynamic_cast<InitializerList*>(decl->initializer.get())) {
+            decl->arrayDims[0] = (int)initList->elements.size();
+        }
+    }
+
     expect(TokenType::SEMICOLON, "Expected ';'");
     return decl;
 }
@@ -1304,9 +1321,10 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
     } else if (peek().type == TokenType::INTEGER_LITERAL) {
         const Token& litToken = advance();
         expr = setPos(std::make_unique<IntegerLiteral>((int)std::stol(litToken.value)), litToken);
-    } else if (peek().type == TokenType::STRING_LITERAL) {
+    } else if (peek().type == TokenType::STRING_LITERAL || peek().type == TokenType::ASCII_STRING_LITERAL) {
+        bool isAscii = (peek().type == TokenType::ASCII_STRING_LITERAL);
         const Token& litToken = advance();
-        expr = setPos(std::make_unique<StringLiteral>(litToken.value), litToken);
+        expr = setPos(std::make_unique<StringLiteral>(litToken.value, isAscii), litToken);
     } else if (match(TokenType::OPEN_PAREN)) {
         expr = parseExpression();
         expect(TokenType::CLOSE_PAREN, "Expected ')'");

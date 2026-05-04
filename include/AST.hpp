@@ -39,7 +39,8 @@ public:
 class StringLiteral : public Expression {
 public:
     std::string value;
-    StringLiteral(const std::string& v) : value(v) {}
+    bool isAscii = false;  // @"..." prefix — emit .ascii instead of .text
+    StringLiteral(const std::string& v, bool ascii = false) : value(v), isAscii(ascii) {}
     void accept(ASTVisitor& visitor) override;
 };
 

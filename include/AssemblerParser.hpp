@@ -58,6 +58,24 @@ public:
     bool isExternSymbol(const std::string& name) const { return externIndex.count(name) > 0; }
     uint32_t getExternIndex(const std::string& name) const;
 
+    struct ProcContext {
+        std::string name;
+        int totalParamSize;
+        std::map<std::string, int> localArgs;
+
+        // Function attribute metadata (ZP calling convention)
+        uint32_t zpUsesMask = 0;
+        uint32_t zpClobbersMask = 0;
+        uint32_t zpReleaseMask = 0;
+        uint8_t regClobbersMask = 0;   // bit 0=A, 1=X, 2=Y, 3=Z
+        uint8_t flagClobbersMask = 0;  // bit 0=C, 1=N, 2=Z, 3=V
+        uint8_t funcFlags = 0;         // bit 0=leaf, bit 1=interrupt-safe
+        bool hasFuncAttrs = false;     // true if any .zp_*/reg_*/flag_* directive was used
+    };
+
+    // Function attribute metadata (for .o45 export)
+    const std::map<uint32_t, std::shared_ptr<ProcContext>>& getProcedures() const { return procedures; }
+
     // Array metadata (for expr array indexing)
     struct ArrayInfo {
         uint32_t elementSize;
@@ -90,11 +108,6 @@ private:
     int nextScopeId = 0;
     std::string currentLocalScope_; // last non-@ label for auto-scoping @ labels
 
-    struct ProcContext {
-        std::string name;
-        int totalParamSize;
-        std::map<std::string, int> localArgs;
-    };
     std::shared_ptr<ProcContext> currentProc;
     std::map<uint32_t, std::shared_ptr<ProcContext>> procedures;
 

@@ -50,6 +50,7 @@ enum class TokenType {
     IDENTIFIER,
     INTEGER_LITERAL,
     STRING_LITERAL,
+    ASCII_STRING_LITERAL,  // @"..." — raw ASCII, no PETSCII conversion
     
     // Punctuators
     OPEN_PAREN,    // (
@@ -154,6 +155,7 @@ struct Token {
             case TokenType::IDENTIFIER: return "IDENTIFIER";
             case TokenType::INTEGER_LITERAL: return "INTEGER_LITERAL";
             case TokenType::STRING_LITERAL: return "STRING_LITERAL";
+            case TokenType::ASCII_STRING_LITERAL: return "ASCII_STRING_LITERAL";
             case TokenType::OPEN_PAREN: return "OPEN_PAREN";
             case TokenType::CLOSE_PAREN: return "CLOSE_PAREN";
             case TokenType::OPEN_BRACE: return "OPEN_BRACE";

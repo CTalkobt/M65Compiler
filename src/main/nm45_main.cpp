@@ -55,6 +55,54 @@ static const char* cpuName(uint8_t id) {
     }
 }
 
+static std::string formatFuncAttr(const O45FuncAttr& fa, uint32_t zpStart) {
+    std::string result = "[";
+
+    // Format ZP mask as address range
+    auto fmtZpMask = [&](uint32_t mask) -> std::string {
+        if (mask == 0) return "-";
+        std::string s;
+        int first = -1, last = -1;
+        for (int i = 0; i < 32; i++) {
+            if (mask & (1u << i)) {
+                if (first < 0) first = i;
+                last = i;
+            }
+        }
+        char buf[16];
+        uint32_t base = zpStart + 1;
+        if (first == last) {
+            snprintf(buf, sizeof(buf), "%02X", (unsigned)(base + first));
+        } else {
+            snprintf(buf, sizeof(buf), "%02X-%02X", (unsigned)(base + first), (unsigned)(base + last));
+        }
+        return buf;
+    };
+
+    result += "uses:" + fmtZpMask(fa.zpUses);
+    result += " clobbers:" + fmtZpMask(fa.zpClobbers);
+    result += " releases:" + fmtZpMask(fa.zpRelease);
+
+    // Registers
+    std::string regs;
+    if (fa.regClobbers & 0x01) regs += 'A';
+    if (fa.regClobbers & 0x02) regs += 'X';
+    if (fa.regClobbers & 0x04) regs += 'Y';
+    if (fa.regClobbers & 0x08) regs += 'Z';
+    result += " regs:" + (regs.empty() ? "-" : regs);
+
+    // Flags
+    std::string flags;
+    if (fa.flagClobbers & 0x01) flags += 'C';
+    if (fa.flagClobbers & 0x02) flags += 'N';
+    if (fa.flagClobbers & 0x04) flags += 'Z';
+    if (fa.flagClobbers & 0x08) flags += 'V';
+    result += " flags:" + (flags.empty() ? "-" : flags);
+
+    result += "]";
+    return result;
+}
+
 static void printUsage(const char* progName) {
     std::cout << "Usage: " << progName << " [options] <file.o45> [...]" << std::endl;
     std::cout << "Symbol options:" << std::endl;
@@ -69,7 +117,8 @@ static void printUsage(const char* progName) {
     std::cout << "  -x       Hex dump of segment bodies" << std::endl;
     std::cout << "  -r       Display relocation table entries" << std::endl;
     std::cout << "  -s       Display segment sizes summary" << std::endl;
-    std::cout << "  -a       Display all (header + relocations + symbols)" << std::endl;
+    std::cout << "  -f       Display function attributes (ZP calling convention)" << std::endl;
+    std::cout << "  -a       Display all (header + relocations + symbols + func attrs)" << std::endl;
     std::cout << "  -?       Display this help message" << std::endl;
 }
 
@@ -189,6 +238,7 @@ int main(int argc, char** argv) {
     bool showSizes = false;
     bool showHex = false;
     bool showAll = false;
+    bool showFuncAttrs = false;
     bool showSymbols = true; // default behavior
     std::vector<std::string> files;
 
@@ -206,7 +256,8 @@ int main(int argc, char** argv) {
         else if (arg == "-r") { showRelocs = true; showSymbols = false; }
         else if (arg == "-s") { showSizes = true; showSymbols = false; }
         else if (arg == "-x") { showHex = true; showSymbols = false; }
-        else if (arg == "-a") { showAll = true; showHeader = true; showRelocs = true; showHex = true; showSymbols = true; }
+        else if (arg == "-f") { showFuncAttrs = true; }
+        else if (arg == "-a") { showAll = true; showHeader = true; showRelocs = true; showHex = true; showSymbols = true; showFuncAttrs = true; }
         else files.push_back(arg);
     }
 
@@ -289,19 +340,21 @@ int main(int argc, char** argv) {
                 char type;
                 uint32_t offset;
                 bool isUndefined;
+                bool hasFuncAttr = false;
+                O45FuncAttr funcAttr;
             };
             std::vector<SymEntry> syms;
 
             if (!onlyGlobal) {
                 for (const auto& imp : obj.imports) {
-                    syms.push_back({imp.name, 'U', 0, true});
+                    syms.push_back({imp.name, 'U', 0, true, false, {}});
                 }
             }
 
             if (!onlyUndefined) {
                 for (const auto& exp : obj.exports) {
                     char letter = exp.isWeak() ? 'W' : segmentLetter(exp.segmentId());
-                    syms.push_back({exp.name, letter, exp.offset, false});
+                    syms.push_back({exp.name, letter, exp.offset, false, exp.hasFuncAttr, exp.funcAttr});
                 }
             }
 
@@ -321,13 +374,20 @@ int main(int argc, char** argv) {
 
             std::string prefix = prependFilename ? (filename + ":") : "";
 
+            // Determine zpStart for attribute display (default $02)
+            uint32_t zpStart = 0x02;
+
             for (const auto& s : syms) {
                 if (s.isUndefined) {
                     std::cout << prefix << "         U " << s.name << std::endl;
                 } else {
                     std::cout << prefix
                               << std::setfill('0') << std::setw(8) << std::hex << s.offset
-                              << " " << s.type << " " << s.name << std::endl;
+                              << " " << s.type << " " << s.name;
+                    if (showFuncAttrs && s.hasFuncAttr) {
+                        std::cout << "  " << formatFuncAttr(s.funcAttr, zpStart);
+                    }
+                    std::cout << std::endl;
                 }
             }
         }

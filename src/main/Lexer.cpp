@@ -23,6 +23,11 @@ char Lexer::peek() const {
     return source[pos];
 }
 
+char Lexer::peekNext() const {
+    if (pos + 1 >= source.length()) return '\0';
+    return source[pos + 1];
+}
+
 char Lexer::get() {
     if (pos >= source.length()) return '\0';
     char c = source[pos++];
@@ -75,12 +80,18 @@ Token Lexer::nextToken() {
         return lexNumber();
     }
 
+    if (c == '@' && (peekNext() == '"' || peekNext() == '\'')) {
+        get(); // consume '@'
+        if (peek() == '"') return lexString(true);
+        else return lexChar(true);
+    }
+
     if (c == '"') {
-        return lexString();
+        return lexString(false);
     }
 
     if (c == '\'') {
-        return lexChar();
+        return lexChar(false);
     }
 
     int startLine = line;
@@ -246,7 +257,7 @@ Token Lexer::lexNumber() {
     return {TokenType::INTEGER_LITERAL, value, startLine, startCol};
 }
 
-Token Lexer::lexString() {
+Token Lexer::lexString(bool ascii) {
     int startLine = line;
     int startCol = column;
     get(); // skip opening quote
@@ -266,10 +277,11 @@ Token Lexer::lexString() {
         }
     }
     if (peek() == '"') get(); // skip closing quote
+    if (ascii) return {TokenType::ASCII_STRING_LITERAL, value, startLine, startCol};
     return {TokenType::STRING_LITERAL, value, startLine, startCol};
 }
 
-Token Lexer::lexChar() {
+Token Lexer::lexChar(bool ascii) {
     int startLine = line;
     int startCol = column;
     get(); // skip opening '
@@ -288,9 +300,13 @@ Token Lexer::lexChar() {
         c = get();
     }
     if (peek() == '\'') get(); // skip closing '
-    // Convert to PETSCII to match .text string encoding
-    uint8_t petscii = (uint8_t)c;
-    if (c >= 'a' && c <= 'z') petscii = c - 32;
-    else if (c >= 'A' && c <= 'Z') petscii = c + 32;
-    return {TokenType::INTEGER_LITERAL, std::to_string((int)petscii), startLine, startCol};
+    if (!ascii) {
+        // Convert to PETSCII to match .text string encoding
+        uint8_t petscii = (uint8_t)c;
+        if (c >= 'a' && c <= 'z') petscii = c - 32;
+        else if (c >= 'A' && c <= 'Z') petscii = c + 32;
+        return {TokenType::INTEGER_LITERAL, std::to_string((int)petscii), startLine, startCol};
+    }
+    // ASCII mode: preserve raw byte value
+    return {TokenType::INTEGER_LITERAL, std::to_string((int)(uint8_t)c), startLine, startCol};
 }

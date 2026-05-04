@@ -162,6 +162,7 @@ public:
     int stringCount = 0;
     int labelCount = 0;
     std::map<std::string, std::string> stringPool;
+    std::set<std::string> asciiStrings;  // pool keys for @"..." strings
     std::vector<std::string> currentVars;
     std::string sourceFilename;
     std::vector<std::string> sourceLines;

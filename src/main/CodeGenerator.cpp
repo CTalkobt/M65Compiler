@@ -770,8 +770,8 @@ void CodeGenerator::visit(TranslationUnit& node) {
 
         out << std::endl;
     }
-    // 2. Emit startup stub if main is present
-    if (hasMain) {
+    // 2. Emit startup stub if main is present (not in relocatable mode — CRT provides it)
+    if (hasMain && !relocMode) {
         if (!relocMode) out << ".org $2000" << std::endl;
         
         if (crtExit == CrtExit::RTS) {
@@ -903,6 +903,19 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     bool isStructReturn = structReturningFunctions.count(node.name) > 0;
     struct ParamInfo { std::string pName; int size; };
     std::vector<ParamInfo> paramInfos;
+
+    // Hidden return pointer parameter for struct/long-returning functions.
+    // Pushed FIRST by the caller (before regular args), so it's at the highest stack offset.
+    // Must appear FIRST in the proc line so the assembler's reverse-order offset
+    // assignment gives it the highest offset.
+    if (isStructReturn) {
+        std::string rpName = "_p___ret_ptr";
+        variableTypes[rpName] = {node.returnType, 1, false, false, false, false, false, {}};
+        procLine += ", W#" + rpName;
+        currentParamByteSize += 2;
+        paramInfos.push_back({rpName, 2});
+    }
+
     for (auto& param : node.parameters) {
         std::string pName = "_p_" + param.name;
         variableTypes[pName] = {param.type, param.pointerLevel, param.isSigned, param.isVolatile, param.isConst, param.isPointerConst, false, {}, param.isFunctionPointer, param.funcPtrSig};
@@ -922,16 +935,6 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
         }
         currentParamByteSize += pSize;
         paramInfos.push_back({pName, pSize});
-    }
-    // Hidden return pointer parameter for struct-returning functions.
-    // Pushed FIRST by the caller (before regular args), so it's at the highest stack offset.
-    // Insert at the BEGINNING of paramInfos so reverse-order offset assignment gives it the highest offset.
-    if (isStructReturn) {
-        std::string rpName = "_p___ret_ptr";
-        variableTypes[rpName] = {node.returnType, 1, false, false, false, false, false, {}};
-        procLine += ", W#" + rpName;
-        currentParamByteSize += 2;
-        paramInfos.insert(paramInfos.begin(), {rpName, 2});
     }
     out << procLine << std::endl;
 
@@ -1061,11 +1064,13 @@ void CodeGenerator::visit(BuiltinVaArg& node) {
     std::string apName = resolveVarName(apRef->name);
 
     bool is8Bit = (node.pointerLevel == 0 && is8BitType(node.typeName));
-    int advanceSize = 2; // always 2 due to default promotions
+    bool is32Bit = (node.pointerLevel == 0 && is32BitType(node.typeName));
+    int advanceSize = is32Bit ? 4 : 2; // long args are 4 bytes; default promotions give 2
 
-    // Allocate ZP pairs: one for pointer indirection, one for result
+    // Allocate ZP: pointer indirection pair + result storage
+    int resSize = is32Bit ? 4 : 2;
     int zpInd = allocateZP(2);
-    int zpRes = allocateZP(2);
+    int zpRes = allocateZP(resSize);
     auto zpHex = [&](int idx) {
         std::stringstream ss;
         ss << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(idx);
@@ -1097,6 +1102,14 @@ void CodeGenerator::visit(BuiltinVaArg& node) {
         emit("lda (" + zpStr + "),y");
         emit("sta " + zpResHi);
     }
+    if (is32Bit) {
+        emit("iny");
+        emit("lda (" + zpStr + "),y");
+        emit("sta " + zpHex(zpRes + 2));
+        emit("iny");
+        emit("lda (" + zpStr + "),y");
+        emit("sta " + zpHex(zpRes + 3));
+    }
 
     // Compute new ap = old ap + advanceSize
     emit("clc");
@@ -1120,13 +1133,20 @@ void CodeGenerator::visit(BuiltinVaArg& node) {
         emit("stax " + apName + ", s");
     }
 
-    // Load result into AX from zpRes
+    // Load result into registers
     emit("lda " + zpResStr);
-    if (!is8Bit) {
+    if (is32Bit) {
+        emit("ldx " + zpResHi);
+        // LDY/LDZ don't support base-page addressing — use LDA+transfer
+        emit("pha");
+        emit("lda " + zpHex(zpRes + 3)); emit("taz");
+        emit("lda " + zpHex(zpRes + 2)); emit("tay");
+        emit("pla");
+    } else if (!is8Bit) {
         emit("ldx " + zpResHi);
     }
 
-    freeZP(zpRes, 2);
+    freeZP(zpRes, resSize);
     freeZP(zpInd, 2);
     invalidateRegs();
 }
@@ -2130,8 +2150,10 @@ void CodeGenerator::visit(BinaryOperation& node) {
     if (lhsType.pointerLevel > 0 && rhsType.pointerLevel == 0 && (node.op == "+" || node.op == "-")) {
         scale = (is8BitType(lhsType.type) && lhsType.pointerLevel == 1) ? 1 : 2;
     }
+    bool anyIs32 = (is32BitType(lhsType.type) && lhsType.pointerLevel == 0) ||
+                   (is32BitType(rhsType.type) && rhsType.pointerLevel == 0);
     bool isLiteralOne = false;
-    if (scale == 1) {
+    if (scale == 1 && !anyIs32) {
         if (auto* lit = dynamic_cast<IntegerLiteral*>(node.right.get())) {
             if (lit->value == 1) isLiteralOne = true;
         }
@@ -2222,8 +2244,10 @@ void CodeGenerator::visit(BinaryOperation& node) {
         return;
     }
 
+    bool is32BitOp_early = (is32BitType(lhsType.type) && lhsType.pointerLevel == 0) ||
+                           (is32BitType(rhsType.type) && rhsType.pointerLevel == 0);
     bool isMultiplicativeLiteral = false;
-    if (dynamic_cast<IntegerLiteral*>(node.right.get())) {
+    if (!is32BitOp_early && dynamic_cast<IntegerLiteral*>(node.right.get())) {
         if (node.op == "*" || node.op == "/" || node.op == "%" || node.op == "<<" || node.op == ">>") {
             isMultiplicativeLiteral = true;
         }
@@ -3394,8 +3418,13 @@ void CodeGenerator::visit(IntegerLiteral& node) {
 
 void CodeGenerator::visit(StringLiteral& node) {
     if (!resultNeeded) return;
-    if (stringPool.find(node.value) == stringPool.end()) stringPool[node.value] = "STR" + std::to_string(stringCount++);
-    std::string label = stringPool[node.value];
+    // ASCII strings use a "\x01" prefix in the pool key to distinguish from PETSCII
+    std::string poolKey = node.isAscii ? std::string("\x01") + node.value : node.value;
+    if (stringPool.find(poolKey) == stringPool.end()) {
+        stringPool[poolKey] = "STR" + std::to_string(stringCount++);
+        if (node.isAscii) asciiStrings.insert(poolKey);
+    }
+    std::string label = stringPool[poolKey];
     emit("ldax #" + label); invalidateRegs();
 }
 
@@ -3457,12 +3486,15 @@ void CodeGenerator::visit(VariableReference& node) {
         if (isGlobal) {
             emit("ldq " + rName);
         } else {
-            // Stack-relative: byte-by-byte load
-            // LDY/LDZ don't support stack-relative, so use LDA+transfer
+            // Stack-relative: byte-by-byte load into AXYZ
+            // Load hi bytes via lda.sp+transfer (each lda.sp does its own TSX).
+            // Load byte 1→X last (just before final lda.sp for byte 0)
+            // because lda.sp clobbers X via TSX.
             emit("lda " + rName + "+3, s"); emit("taz");
             emit("lda " + rName + "+2, s"); emit("tay");
-            emit("ldx " + rName + "+1, s");
+            emit("lda " + rName + "+1, s"); emit("sta __zp_scratch");
             emit("lda.sp " + rName);
+            emit("ldx __zp_scratch");
         }
         invalidateRegs();
     } else if (is16Bit) {
@@ -3690,6 +3722,21 @@ void CodeGenerator::visit(FunctionCall& node) {
         // Also check the argument expression type for long
         ExpressionType argType = getExprType(arg.get());
         if (is32BitType(argType.type) && argType.pointerLevel == 0) paramIs32Bit = true;
+        // IntegerLiterals exceeding 16-bit range must be pushed as 32-bit
+        if (auto* lit = dynamic_cast<IntegerLiteral*>(arg.get())) {
+            uint32_t uv = (uint32_t)lit->value;
+            if (uv > 0xFFFF || (lit->value < 0 && lit->value < -32768)) paramIs32Bit = true;
+        }
+        // VariableReference to a long variable: the constant folder may have
+        // folded the expression to a small IntegerLiteral losing the long type,
+        // but the variable's declared type is still long.
+        if (auto* ref = dynamic_cast<VariableReference*>(arg.get())) {
+            std::string rn = resolveVarName(ref->name);
+            VarInfo* vi = nullptr;
+            if (variableTypes.count(rn)) vi = &variableTypes.at(rn);
+            else if (globalVariableTypes.count(rn)) vi = &globalVariableTypes.at(rn);
+            if (vi && is32BitType(vi->type) && vi->pointerLevel == 0) paramIs32Bit = true;
+        }
         // Variadic args always promoted to at least 16-bit
         if (isVariadicCall && ai >= (int)(hasParamTypes ? calleePTypes.size() : 0)) paramIs8Bit = false;
         if (isVariadicCall) paramIs8Bit = false; // default argument promotion
@@ -4086,7 +4133,16 @@ void CodeGenerator::emitData() {
     }
 
     out << std::endl << ".data" << std::endl;
-    for (const auto& entry : stringPool) { out << entry.second << ":" << std::endl; out << "    .text \"" << entry.first << "\"" << std::endl; out << "    .byte 0" << std::endl; }
+    for (const auto& entry : stringPool) {
+        out << entry.second << ":" << std::endl;
+        if (asciiStrings.count(entry.first)) {
+            // ASCII string: strip the \x01 prefix key marker, emit .ascii
+            out << "    .ascii \"" << entry.first.substr(1) << "\"" << std::endl;
+        } else {
+            out << "    .text \"" << entry.first << "\"" << std::endl;
+        }
+        out << "    .byte 0" << std::endl;
+    }
 }
 
 void CodeGenerator::invalidateRegs() {

@@ -171,6 +171,23 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
         exp.segment = data[off++];
         exp.offset = is32 ? readU32(&data[off]) : readU16(&data[off]);
         off += fw;
+
+        // Check for function attribute record ($FA marker)
+        if (off < data.size() && data[off] == O45_FUNCATTR_MARKER) {
+            if (off + O45_FUNCATTR_SIZE > data.size()) {
+                errorMsg = "truncated function attribute record";
+                return false;
+            }
+            off++; // skip $FA marker
+            exp.hasFuncAttr = true;
+            exp.funcAttr.flags = data[off++];
+            exp.funcAttr.regClobbers = data[off++];
+            exp.funcAttr.flagClobbers = data[off++];
+            exp.funcAttr.zpUses = readU32(&data[off]); off += 4;
+            exp.funcAttr.zpClobbers = readU32(&data[off]); off += 4;
+            exp.funcAttr.zpRelease = readU32(&data[off]); off += 4;
+        }
+
         out.exports.push_back(exp);
     }
 

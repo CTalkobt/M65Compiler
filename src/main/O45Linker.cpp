@@ -293,7 +293,14 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
                 errorMsg = "undefined symbol '" + symName + "' in " + input.filename;
                 return false;
             }
-            targetAddr = it->second;
+            // Read existing value at patch site as addend (e.g., __sp_base+offset
+            // has the offset baked in by the assembler)
+            uint32_t addend = 0;
+            int pSize = o45RelocPatchSize((uint8_t)r.type);
+            for (int i = 0; i < pSize && (patchPos + i) < body.size(); i++) {
+                addend |= ((uint32_t)body[patchPos + i]) << (i * 8);
+            }
+            targetAddr = it->second + addend;
         } else {
             // Internal relocation — read the current value at the patch site
             // and add the segment base + object offset for that segment.

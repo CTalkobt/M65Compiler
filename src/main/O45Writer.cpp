@@ -116,6 +116,10 @@ void O45Writer::addExport(const std::string& name, O45Segment seg, uint32_t offs
     exports_.push_back({name, seg, offset, weak});
 }
 
+void O45Writer::setFuncAttr(const std::string& name, const O45FuncAttr& attr) {
+    funcAttrs_[name] = attr;
+}
+
 // --- Options ---
 
 void O45Writer::addOption(uint8_t type, const std::string& value) {
@@ -255,6 +259,19 @@ void O45Writer::emitExports(std::vector<uint8_t>& out) const {
         if (exp.weak) segByte |= O45_EXPORT_WEAK;
         out.push_back(segByte);
         writeU32(out, exp.offset);
+
+        // Emit function attribute record if present
+        auto it = funcAttrs_.find(exp.name);
+        if (it != funcAttrs_.end()) {
+            const auto& fa = it->second;
+            out.push_back(O45_FUNCATTR_MARKER);  // $FA marker
+            out.push_back(fa.flags);
+            out.push_back(fa.regClobbers);
+            out.push_back(fa.flagClobbers);
+            writeU32(out, fa.zpUses);
+            writeU32(out, fa.zpClobbers);
+            writeU32(out, fa.zpRelease);
+        }
     }
 }
 
@@ -293,9 +310,22 @@ uint32_t O45SymbolTable::addImport(const std::string& name) {
 bool O45SymbolTable::addExport(const std::string& name, O45Segment segment, uint32_t offset, bool weak) {
     if (exportIndex_.count(name)) return false;
     uint32_t idx = (uint32_t)exports_.size();
-    exports_.push_back({name, segment, offset, weak});
+    O45Export exp;
+    exp.name = name;
+    exp.segment = segment;
+    exp.offset = offset;
+    exp.weak = weak;
+    exports_.push_back(exp);
     exportIndex_[name] = idx;
     return true;
+}
+
+void O45SymbolTable::setFuncAttr(const std::string& name, const O45FuncAttr& attr) {
+    auto it = exportIndex_.find(name);
+    if (it != exportIndex_.end()) {
+        exports_[it->second].hasFuncAttr = true;
+        exports_[it->second].funcAttr = attr;
+    }
 }
 
 uint32_t O45SymbolTable::getImportIndex(const std::string& name) const {
@@ -318,6 +348,9 @@ void O45SymbolTable::applyTo(O45Writer& writer) const {
     }
     for (const auto& exp : exports_) {
         writer.addExport(exp.name, exp.segment, exp.offset, exp.weak);
+        if (exp.hasFuncAttr) {
+            writer.setFuncAttr(exp.name, exp.funcAttr);
+        }
     }
 }
 

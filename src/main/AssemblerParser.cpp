@@ -519,6 +519,69 @@ void AssemblerParser::pass1() {
                 }
                 stmt->size = 0;
             }
+            else if (stmt->dir.name == "zp_uses" || stmt->dir.name == "zp_clobbers" || stmt->dir.name == "zp_release") {
+                // .zp_uses $03, $04, $05   — ZP slots read as parameters
+                // .zp_clobbers $03, $04    — ZP slots written by this function
+                // .zp_release $07, $08     — ZP slots consumed (caller need not restore)
+                if (!currentProc) {
+                    errors.push_back("Error: ." + stmt->dir.name + " outside proc/endproc block");
+                } else {
+                    uint32_t mask = 0;
+                    while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
+                        if (peek().type == AssemblerTokenType::COMMA) { advance(); continue; }
+                        uint32_t addr = evaluateExpressionAt((int)pos, stmt->scopePrefix);
+                        while (peek().type != AssemblerTokenType::COMMA && peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
+                        // Convert ZP address to bit position relative to zeroPageStart+1
+                        uint32_t zpStart = getZPStart();
+                        if (addr > zpStart) {
+                            uint32_t bit = addr - (zpStart + 1);
+                            if (bit < 32) mask |= (1u << bit);
+                            else errors.push_back("Error: ZP address $" + std::to_string(addr) + " out of range for function attributes");
+                        }
+                    }
+                    if (stmt->dir.name == "zp_uses") currentProc->zpUsesMask |= mask;
+                    else if (stmt->dir.name == "zp_clobbers") currentProc->zpClobbersMask |= mask;
+                    else currentProc->zpReleaseMask |= mask;
+                    currentProc->hasFuncAttrs = true;
+                }
+                stmt->size = 0;
+            }
+            else if (stmt->dir.name == "reg_clobbers") {
+                // .reg_clobbers A, X, Y, Z
+                if (!currentProc) {
+                    errors.push_back("Error: .reg_clobbers outside proc/endproc block");
+                } else {
+                    while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
+                        if (peek().type == AssemblerTokenType::COMMA) { advance(); continue; }
+                        std::string reg = advance().value;
+                        if (reg == "A" || reg == "a") currentProc->regClobbersMask |= 0x01;
+                        else if (reg == "X" || reg == "x") currentProc->regClobbersMask |= 0x02;
+                        else if (reg == "Y" || reg == "y") currentProc->regClobbersMask |= 0x04;
+                        else if (reg == "Z" || reg == "z") currentProc->regClobbersMask |= 0x08;
+                        else errors.push_back("Error: unknown register '" + reg + "' in .reg_clobbers");
+                    }
+                    currentProc->hasFuncAttrs = true;
+                }
+                stmt->size = 0;
+            }
+            else if (stmt->dir.name == "flag_clobbers") {
+                // .flag_clobbers C, N, Z, V
+                if (!currentProc) {
+                    errors.push_back("Error: .flag_clobbers outside proc/endproc block");
+                } else {
+                    while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
+                        if (peek().type == AssemblerTokenType::COMMA) { advance(); continue; }
+                        std::string flag = advance().value;
+                        if (flag == "C" || flag == "c") currentProc->flagClobbersMask |= 0x01;
+                        else if (flag == "N" || flag == "n") currentProc->flagClobbersMask |= 0x02;
+                        else if (flag == "Z" || flag == "z") currentProc->flagClobbersMask |= 0x04;
+                        else if (flag == "V" || flag == "v") currentProc->flagClobbersMask |= 0x08;
+                        else errors.push_back("Error: unknown flag '" + flag + "' in .flag_clobbers");
+                    }
+                    currentProc->hasFuncAttrs = true;
+                }
+                stmt->size = 0;
+            }
             else if (stmt->dir.name == "array") {
                 // .array name, element_size, dim0 [, dim1 [, dim2 ...]]
                 std::string arrName = expect(AssemblerTokenType::IDENTIFIER, "Expected array name").value;

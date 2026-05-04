@@ -10,7 +10,7 @@
 ;   then pop them into the output buffer in correct order.
 ;
 ;   Uses MEGA65 hardware divider at $D760-$D773.
-;   ZP usage: $02-$0A
+;   ZP usage: $0B-$13 (avoids compiler ZP pool at $02-$0A)
 
 .global _ltoa
 .extern __sp_base
@@ -21,100 +21,96 @@ proc _ltoa, D#_p_value, W#_p_str, W#_p_base
     .var _fp = 0
 
     ldax _p_str, s
-    stax $02            ; $02/$03 = output pointer
+    stax $0b            ; $0b/$0c = output pointer (avoid __zp_scratch at $02)
     ; Load 32-bit value into $04-$07
     lda _p_value, s
-    sta $04
+    sta $0d
     lda _p_value+1, s
-    sta $05
+    sta $0e
     lda _p_value+2, s
-    sta $06
+    sta $0f
     lda _p_value+3, s
-    sta $07
+    sta $10
     ldax _p_base, s
-    stax $08            ; $08/$09 = base
+    stax $11            ; $08/$09 = base
 
-    stz $0a             ; $0a = digit count on stack
+    stz $13             ; $0a = digit count on stack
     ldy #0              ; Y = write index into output
 
     ; --- Validate base (2-36) ---
-    lda $09
+    lda $12
     bne @valid          ; high byte nonzero => base >= 256, ok
-    lda $08
+    lda $11
     cmp #2
     bcs @valid
     ; base < 2: write "0\0" and return
     lda #$30
-    sta ($02),y
+    sta ($0b),y
     iny
     lda #0
-    sta ($02),y
+    sta ($0b),y
     ldax _p_str, s
     rtn #0
 
 @valid:
     ; --- Handle negative for base 10 only ---
-    lda $08
+    lda $11
     cmp #10
     bne @poscheck
-    lda $09
+    lda $12
     bne @poscheck
     ; base == 10: check sign bit (byte 3)
-    lda $07
+    lda $10
     bpl @poscheck
     ; Negative: write '-' and negate 32-bit value
     lda #$2d
-    sta ($02),y
+    sta ($0b),y
     iny
     sec
     lda #0
-    sbc $04
-    sta $04
+    sbc $0d
+    sta $0d
     lda #0
-    sbc $05
-    sta $05
+    sbc $0e
+    sta $0e
     lda #0
-    sbc $06
-    sta $06
+    sbc $0f
+    sta $0f
     lda #0
-    sbc $07
-    sta $07
+    sbc $10
+    sta $10
 @poscheck:
 
     ; --- Check for zero ---
-    lda $04
-    ora $05
-    ora $06
-    ora $07
+    lda $0d
+    ora $0e
+    ora $0f
+    ora $10
     bne @extract
     lda #$30
-    sta ($02),y
+    sta ($0b),y
     iny
     bra @nulterm
 
     ; --- Extract digits: divide 32-bit value by base ---
 @extract:
     ; Dividend: $D760-$D763 (32-bit)
-    lda $04
+    lda $0d
     sta $d760
-    lda $05
+    lda $0e
     sta $d761
-    lda $06
+    lda $0f
     sta $d762
-    lda $07
+    lda $10
     sta $d763
     ; Divisor: $D764-$D767 (base, 16-bit zero-extended)
-    lda $08
+    lda $11
     sta $d764
-    lda $09
+    lda $12
     sta $d765
     lda #0
     sta $d766
     sta $d767
-
-    ; Wait for divider (bit test $D70F)
-    bit $d70f
-    bne *-3
 
     ; Convert remainder ($D770) to character
     lda $d770
@@ -130,35 +126,35 @@ proc _ltoa, D#_p_value, W#_p_str, W#_p_base
     adc #$41            ; PETSCII lowercase 'a'
 @pushdig:
     pha                 ; push digit char onto hardware stack
-    inc $0a             ; count it
+    inc $13             ; count it
 
     ; Quotient ($D768-$D76B) becomes new value
     lda $d768
-    sta $04
+    sta $0d
     lda $d769
-    sta $05
+    sta $0e
     lda $d76a
-    sta $06
+    sta $0f
     lda $d76b
-    sta $07
+    sta $10
 
     ; Continue while value != 0
-    ora $04
-    ora $05
-    ora $06
+    ora $0d
+    ora $0e
+    ora $0f
     bne @extract
 
     ; --- Pop digits into output buffer (correct order) ---
 @poploop:
     pla
-    sta ($02),y
+    sta ($0b),y
     iny
-    dec $0a
+    dec $13
     bne @poploop
 
 @nulterm:
     lda #0
-    sta ($02),y
+    sta ($0b),y
 
     ldax _p_str, s
     rtn #0

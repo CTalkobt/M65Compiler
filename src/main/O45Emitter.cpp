@@ -184,7 +184,14 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         auto* sym = parser.resolveSymbol(name);
         if (!sym) continue;
 
-        // Determine which segment this symbol belongs to
+        // Equates (isAddress=false) are absolute values — not segment-relative
+        if (!sym->isAddress) {
+            bool isWeak = parser.isWeakSymbol(name);
+            syms.addExport(name, SEG_ABSOLUTE, sym->value, isWeak);
+            continue;
+        }
+
+        // Determine which segment this label belongs to
         std::string symSeg = findSegmentForAddress(sym->value);
         O45Segment segId = SEG_TEXT;
         uint32_t offset = sym->value;
@@ -198,6 +205,20 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
 
         bool isWeak = parser.isWeakSymbol(name);
         syms.addExport(name, segId, offset, isWeak);
+    }
+
+    // --- Step 2b: Attach function attributes from proc contexts ---
+    for (const auto& [addr, proc] : parser.getProcedures()) {
+        if (!proc->hasFuncAttrs) continue;
+        if (!syms.isExported(proc->name)) continue;
+        O45FuncAttr attr;
+        attr.flags = proc->funcFlags;
+        attr.regClobbers = proc->regClobbersMask;
+        attr.flagClobbers = proc->flagClobbersMask;
+        attr.zpUses = proc->zpUsesMask;
+        attr.zpClobbers = proc->zpClobbersMask;
+        attr.zpRelease = proc->zpReleaseMask;
+        syms.setFuncAttr(proc->name, attr);
     }
 
     // --- Step 3: Scan statements for relocations ---
@@ -366,16 +387,25 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
 
     // Scan __sp_base relocation sites from simulated stack ops.
     // If __sp_base is declared .extern, each site needs an R_WORD reloc.
+    // The assembler writes spBase+addend at each site; we patch it to just
+    // the addend so the linker can add the resolved __sp_base value.
     if (parser.isExternSymbol("__sp_base")) {
         uint32_t spBaseIdx = syms.getImportIndex("__sp_base");
+        uint16_t asmSpBase = genEmitter.spBase(); // built-in default (e.g., $0101)
         for (const auto& sr : genEmitter.spBaseRelocs()) {
             // Determine which segment this address falls into
             for (const auto& segName : allSegNames) {
                 auto seg = parser.segments[segName];
                 uint32_t segStart = (seg->startAddress != 0xFFFFFFFF) ? seg->startAddress : 0;
                 if (sr.address >= segStart && sr.address < seg->pc) {
+                    // Patch binary: replace spBase+addend with just addend
+                    uint32_t patchOff = sr.address - segStart;
+                    if (patchOff + 1 < segBodies[segName].bytes.size()) {
+                        segBodies[segName].bytes[patchOff]     = (uint8_t)(sr.addend & 0xFF);
+                        segBodies[segName].bytes[patchOff + 1] = (uint8_t)((sr.addend >> 8) & 0xFF);
+                    }
                     O45Reloc reloc;
-                    reloc.offset = sr.address - segStart;
+                    reloc.offset = patchOff;
                     reloc.type = R_WORD;
                     reloc.segment = SEG_EXTERNAL;
                     reloc.symbolIndex = spBaseIdx;
