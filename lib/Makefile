@@ -1,10 +1,8 @@
 # Makefile for cc45 standard library and runtime
 #
 # Builds:
-#   build/crt45.lib        — modular C runtime archive (stack calling)
-#   build/stdlib45.lib     — standard library archive (stack calling)
-#   build/crt45_zp.lib     — modular C runtime archive (ZP calling)
-#   build/stdlib45_zp.lib  — standard library archive (ZP calling)
+#   build/c45.lib      — combined CRT + stdlib archive (stack calling)
+#   build/c45_zp.lib   — combined CRT + stdlib archive (ZP calling)
 
 CC45 = ../bin/cc45
 CA45 = ../bin/ca45
@@ -33,7 +31,7 @@ STDLIB_ZP_OBJECTS = $(patsubst stdlib_zp/%.s,$(BUILD)/zp_%.o45,$(STDLIB_ZP_ASM_S
 
 .PHONY: all clean
 
-all: $(BUILD)/crt45.lib $(BUILD)/stdlib45.lib $(BUILD)/crt45_zp.lib $(BUILD)/stdlib45_zp.lib
+all: $(BUILD)/c45.lib $(BUILD)/c45_zp.lib
 
 # --- Stack convention rules ---
 
@@ -46,11 +44,8 @@ $(BUILD)/%.o45: stdlib/%.s | $(BUILD)
 $(BUILD)/%.o45: stdlib/%.c | $(BUILD)
 	$(CC45) -c $< -o $@
 
-$(BUILD)/crt45.lib: $(CRT_OBJECTS) | $(BUILD)
-	$(AR45) c $@ $(CRT_OBJECTS)
-
-$(BUILD)/stdlib45.lib: $(STDLIB_OBJECTS) | $(BUILD)
-	$(AR45) c $@ $(STDLIB_OBJECTS)
+$(BUILD)/c45.lib: $(CRT_OBJECTS) $(STDLIB_OBJECTS) | $(BUILD)
+	$(AR45) c $@ $(CRT_OBJECTS) $(STDLIB_OBJECTS)
 
 # --- ZP convention rules ---
 
@@ -60,11 +55,8 @@ $(BUILD)/zp_%.o45: stdlib_zp/%.s | $(BUILD)
 $(BUILD)/zp_%.o45: stdlib_zp/%.c | $(BUILD)
 	$(CC45) -c -fzpcall $< -o $@
 
-$(BUILD)/crt45_zp.lib: $(CRT_ZP_OBJECTS) | $(BUILD)
-	$(AR45) c $@ $(CRT_ZP_OBJECTS)
-
-$(BUILD)/stdlib45_zp.lib: $(STDLIB_ZP_OBJECTS) | $(BUILD)
-	$(AR45) c $@ $(STDLIB_ZP_OBJECTS)
+$(BUILD)/c45_zp.lib: $(CRT_ZP_OBJECTS) $(STDLIB_ZP_OBJECTS) | $(BUILD)
+	$(AR45) c $@ $(CRT_ZP_OBJECTS) $(STDLIB_ZP_OBJECTS)
 
 $(BUILD):
 	mkdir -p $(BUILD)

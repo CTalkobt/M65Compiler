@@ -1,6 +1,6 @@
 # Minimal C Standard Library (stdlib) for MEGA65/45GS02
 
-This document outlines the requirements and proposed implementation for a minimal `stdlib` for the `cc45` compiler targeting the MEGA65 (45GS02). It focuses on essential functionality for embedded systems while excluding large features like `printf`, `sprintf`, and floating-point math.
+This document describes the minimal C standard library (`stdlib`) for the `cc45` compiler targeting the MEGA65 (45GS02). All phases are implemented. The library ships as pre-built `.lib` archives in both stack and ZP calling conventions.
 
 ## 1. Core Headers & Types
 
@@ -9,7 +9,8 @@ These files define the fundamental types and constants required for C compliance
 - **`<stdint.h>`**: Fixed-width integer types (`uint8_t`, `int8_t`, `uint16_t`, `int16_t`, `uint32_t`, `int32_t`). Maps to `cc45`'s `char` (8-bit), `int` (16-bit), and `long` (32-bit) types.
 - **`<stddef.h>`**: Common definitions: `size_t` (typedef to `unsigned int`, 16-bit), `ptrdiff_t`, and `NULL` (`((void *)0)`).
 - **`<stdbool.h>`**: Boolean type support. Defines `bool` as `_Bool` (a native 1-byte type that normalizes any non-zero value to `1`), `true` as `1`, `false` as `0`, and `__bool_true_false_are_defined` as `1`.
-- **`<limits.h>`**: Implementation-defined limits (`CHAR_BIT=8`, `INT_MAX=65535`, `INT_MIN=0` for unsigned; `SCHAR_MIN=-128`, `SCHAR_MAX=127` for signed char).
+- **`<limits.h>`**: Implementation-defined limits (`CHAR_BIT=8`, `INT_MAX=65535`, `INT_MIN=0` for unsigned; `SCHAR_MIN=-128`, `SCHAR_MAX=127` for signed char; `LONG_MAX`, `LONG_MIN`, etc. for 32-bit).
+- **`<stdarg.h>`**: Variadic function support. Defines `va_list` (typedef to `unsigned int`), `va_start`, `va_arg`, and `va_end` as macros wrapping `__builtin_va_start`, `__builtin_va_arg`, and `__builtin_va_end`.
 
 ### Implementation Notes for Core Headers
 
@@ -39,11 +40,11 @@ Dynamic memory allocation using a sorted free-list allocator. Enabled via `#prag
 - **Minimum allocation**: 4 bytes (2-byte header + 2-byte minimum payload), 2-byte aligned.
 - **Heap region**: `__heap_start` (default: `__bss_end`) to `__heap_end` (default: `$D000`). Both are weak symbols, overridable at link time.
 - **Initialization**: `_heap_init` creates a single free block spanning the entire heap. Called automatically by `crt_heap.o45` during CRT startup, or lazily on first `malloc` call.
-- **CRT integration**: `#pragma crt heap` links `crt_heap.o45` from `crt45.lib`, which calls `_init_heap_crt` → `_heap_init` during the startup sequence (after BSS init, before `_init_features`).
+- **CRT integration**: `#pragma crt heap` links `crt_heap.o45` from `c45.lib`, which calls `_init_heap_crt` → `_heap_init` during the startup sequence (after BSS init, before `_init_features`).
 
 ## 3. String & Memory Operations (`string.h`)
 
-All string and memory functions are implemented in hand-written 45GS02 assembly (`lib/stdlib/*.s`) and archived in `stdlib45.lib`. Validated via mmemu emulator tests.
+All string and memory functions are implemented in hand-written 45GS02 assembly (`lib/stdlib/*.s`) and archived in `c45.lib`. Validated via mmemu emulator tests.
 
 **String functions:**
 - **`strlen(char *s)`**: Calculate string length. **Implemented.**
@@ -63,7 +64,7 @@ All string and memory functions are implemented in hand-written 45GS02 assembly 
 
 ## 4. Character Utilities (`ctype.h`)
 
-All character classification and conversion functions are implemented in hand-written 45GS02 assembly (`lib/stdlib/*.s`) and archived in `stdlib45.lib`. They operate on **PETSCII** character codes (the MEGA65's native character set).
+All character classification and conversion functions are implemented in hand-written 45GS02 assembly (`lib/stdlib/*.s`) and archived in `c45.lib`. They operate on **PETSCII** character codes (the MEGA65's native character set).
 
 **PETSCII character ranges:**
 - Digits `'0'`–`'9'` = `$30`–`$39`
@@ -179,65 +180,79 @@ The `ca45` assembler supports `.org` and segment directives (`.segment code/data
 
 The stdlib lives within the existing `ccomp` source tree. No separate repository is needed at this stage.
 
-### Proposed Directory Layout
+### Directory Layout
 
 ```text
 ccomp/
-├── include/            # Compiler C++ headers (existing)
+├── include/            # Compiler C++ headers
 ├── src/
-│   ├── main/           # Compiler/assembler C++ sources (existing)
-│   ├── test/           # Shell-based test scripts (existing)
-│   └── test-resources/ # Test C/asm source files (existing)
-├── lib/                # NEW: Standard library for target
-│   ├── include/        # C headers installed/searched by cc45
+│   ├── main/           # Compiler/assembler C++ sources
+│   ├── test/           # Shell-based test scripts
+│   └── test-resources/ # Test C/asm source files
+├── lib/                # Standard library for target
+│   ├── include/        # C headers (searched automatically by cc45)
 │   │   ├── stdint.h
 │   │   ├── stddef.h
 │   │   ├── stdbool.h
+│   │   ├── stdarg.h
 │   │   ├── limits.h
 │   │   ├── string.h
 │   │   ├── stdlib.h
 │   │   ├── stdio.h
 │   │   ├── ctype.h
-│   │   ├── cbm.h       # CBM-specific (see doc/stdcbm.md)
-│   │   ├── peekpoke.h  # PEEK/POKE macros
-│   │   └── mega65.h    # MEGA65 register definitions
-│   └── src/
-│       ├── crt0.s      # Startup code (ca45 assembly)
-│       ├── string.s    # Optimized memory/string ops (assembly)
-│       ├── string.c    # Fallback pure-C string ops
-│       ├── stdlib.c    # abs/atoi/itoa/rand
-│       ├── stdio.c     # putchar/getchar/puts
-│       ├── ctype.c     # Character classification
-│       ├── heap.c      # malloc/free/calloc/realloc
-│       └── cbm_io.s    # KERNAL call wrappers (assembly)
-├── doc/                # Documentation (existing)
-└── Makefile            # Build system (existing, extend)
+│   │   └── cbm.h       # CBM KERNAL interface (see doc/stdcbm.md)
+│   ├── stdlib/          # Library function implementations
+│   │   ├── strlen.s     # Hand-written 45GS02 assembly (29 files)
+│   │   ├── strcpy.s
+│   │   ├── malloc.s
+│   │   ├── printf.c     # C implementations (compiled via cc45)
+│   │   ├── sprintf.c
+│   │   └── sscanf.c
+│   ├── stdlib_zp/       # ZP calling convention variants
+│   ├── crt0.s           # Startup code (stack convention)
+│   ├── crt0_mega65.s    # MEGA65-specific startup
+│   ├── crt0_zp.s        # Startup code (ZP convention)
+│   ├── crt0_mega65_zp.s # MEGA65-specific startup (ZP)
+│   ├── crt_bssinit.s    # BSS initialization
+│   ├── crt_heap.s       # Heap initialization
+│   └── Makefile         # Builds .lib archives
+├── doc/                # Documentation
+└── Makefile            # Build system
 ```
 
-### Integration with Build System
+### Build System
 
-The `Makefile` should be extended with a `lib` target:
+The `lib/Makefile` builds four library archives:
 
-```makefile
-LIB_SRC = lib/src
-LIB_INC = lib/include
-LIB_OUT = build/lib
+| Archive | Convention | Contents |
+|---------|-----------|----------|
+| `c45.lib` | Stack | CRT + stdlib (combined) |
+| `c45_zp.lib` | ZP | CRT + stdlib (combined, ZP variant) |
 
-lib: all
-	@mkdir -p $(LIB_OUT)
-	$(BIN_DIR)/cc45 -I$(LIB_INC) $(LIB_SRC)/stdlib.c -o $(LIB_OUT)/stdlib.s
-	$(BIN_DIR)/ca45 $(LIB_SRC)/crt0.s -o $(LIB_OUT)/crt0.o
-	$(BIN_DIR)/ca45 $(LIB_SRC)/string.s -o $(LIB_OUT)/string.o
-	# ... additional modules
-```
+Each archive contains both CRT startup modules and all standard library functions. Selective linking ensures only referenced modules are pulled into the final binary — unused stdlib functions add zero overhead.
+
+Assembly `.s` files are assembled with `ca45 -c`, C `.c` files are compiled with `cc45 -c`, and all objects are bundled with `ar45 c`. Build via `make lib` from the project root.
 
 ### Include Path Convention
 
-`cc45` automatically searches `lib/include` relative to the compiler binary for standard headers. Additional search paths can be added with `-I<path>`:
+`cc45` automatically searches `lib/include/` relative to the compiler binary for standard headers. Additional search paths can be added with `-I<path>`:
 
 ```bash
 cc45 myprogram.c -o myprogram.s              # finds <stdbool.h> etc. automatically
 cc45 -Imy/headers myprogram.c -o myprogram.s  # adds custom search path
+```
+
+### Linking
+
+```bash
+# Stack convention (default)
+ln45 -prg main.o45 -l c45.lib -o program.prg
+
+# ZP convention
+ln45 -prg main.o45 -l c45_zp.lib -o program.prg
+
+# With BASIC auto-run stub
+ln45 -basic main.o45 -l c45.lib -o program.prg
 ```
 
 ## 9. Test Framework & Suggested Tests
@@ -326,21 +341,25 @@ test-stdlib: all lib
 	@bash src/test/test_stdlib.sh
 ```
 
-Add `test-stdlib` to the `test` target's dependency list once the stdlib is implemented.
+The `test-stdlib` target is included in the main `test` dependency list.
 
-## 10. Implementation Priority
+## 10. Implementation Status
 
-Recommended order based on utility and dependency:
+All phases are complete:
 
-1. **Phase 1 — Headers only** (no linkage needed): `stdint.h`, `stddef.h`, `stdbool.h`, `limits.h` — **Done.**
-2. **Phase 2 — Core runtime**: `crt0.s`, `putchar`/`puts`, `exit` (enables visible output and clean termination) — **Done.** CRT pragmas (`exit_rts`/`exit_halt`/`exit_brk`, `no_bssinit`, `no_0100_stack`) implemented.
-3. **Phase 3 — String/memory**: `string.h` functions (12 functions, all hand-written 45GS02 assembly, mmemu-validated) — **Done.**
-4. **Phase 4 — Utilities**: `ctype.h` (7 functions), `abs`, `atoi`, `itoa`, `rand`, `srand` — **Done.**
-5. **Phase 5 — Heap**: `malloc`/`free`/`calloc`/`realloc` with `#pragma crt heap` integration — **Done.**
+| Phase | Components | Status |
+|-------|-----------|--------|
+| 1. Headers | `stdint.h`, `stddef.h`, `stdbool.h`, `limits.h`, `stdarg.h` | Complete |
+| 2. Core runtime | `crt0.s`, `putchar`, `puts`, `exit`, CRT pragmas | Complete |
+| 3. String/memory | 12 functions in `string.h` (hand-written 45GS02 asm) | Complete |
+| 4. Utilities | `ctype.h` (7 functions), `abs`, `atoi`, `itoa`, `ltoa`, `rand`, `srand` | Complete |
+| 5. Heap | `malloc`, `free`, `calloc`, `realloc` with `#pragma crt heap` | Complete |
+| 6. Formatted I/O | `printf`, `sprintf`, `sscanf` (C implementations) | Complete |
+| 7. CBM interface | `cbm.h` KERNAL wrappers (see [stdcbm.md](stdcbm.md)) | Complete |
 
 ## 11. Compiler Prerequisites
 
-The following `cc45` features are required and already implemented:
+All `cc45` features required by the standard library are implemented:
 
 - Pointer arithmetic and dereferencing
 - `typedef` for type aliases
@@ -349,11 +368,15 @@ The following `cc45` features are required and already implemented:
 - `signed`/`unsigned` qualifiers
 - Arrays with subscript indexing
 - String literals (PETSCII, pooled in `.data`)
-- Multiple source file assembly (via `-I` includes)
+- `static` (file-scope and local static variables)
+- `extern` declarations and `.o45` relocatable linking
+- Function pointers (`int (*fp)(int)`, `typedef`, indirect calls)
+- Variadic functions (`va_list`, `va_start`, `va_arg`, `va_end`)
+- 32-bit `long` type (for `ltoa`, `%ld` format specifiers)
 
-Features that would benefit stdlib but are **not yet available**:
+## See Also
 
-- **`static`**: Needed for file-scoped globals (e.g., heap state, rand seed). Workaround: use unique prefixed global names.
-- **`const`**: Useful for ROM-able lookup tables. Workaround: place in `.data` segment.
-- **`extern`**: Required for true multi-module linking. Workaround: single-file inclusion or assembler-level `.include`.
-- **Function pointers**: Would enable callback-style APIs. Not critical for initial stdlib.
+- [stdcbm.md](stdcbm.md) — CBM KERNAL interface (`cbm.h`)
+- [cc45.md](cc45.md) — C compiler (CRT pragmas, inline assembly, calling conventions)
+- [ln45.md](ln45.md) — Linker (library linking, memory layout)
+- [ar45.md](ar45.md) — Archiver (`.lib` archive management)

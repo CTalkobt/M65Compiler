@@ -922,7 +922,7 @@ void CodeGenerator::visit(TranslationUnit& node) {
         out << "    rts" << std::endl;
 
         // Emit _init_bss — only in flat mode. In reloc mode, _init_bss
-        // is provided by crt_bssinit.o45 in crt45.lib, using linker-defined
+        // is provided by crt_bssinit.o45 in c45.lib, using linker-defined
         // __bss_start/__bss_end symbols.
         if (!relocMode) {
             bool hasBssVars = false;

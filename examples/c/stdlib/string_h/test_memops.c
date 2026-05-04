@@ -1,5 +1,5 @@
 // Example: memset/memcpy/memcmp — validate memory operations
-// Uses stdlib45.lib string.h implementation.
+// Uses c45.lib string.h implementation.
 // Returns 0 (A=$00) on success, non-zero on failure.
 
 #include <string.h>

@@ -1,6 +1,6 @@
 # string.h examples for cc45 / MEGA65
 #
-# Builds and links each test against stdlib45.lib.
+# Builds and links each test against c45.lib.
 # Each test returns A=$00 on success, non-zero on failure.
 #
 # Usage:
@@ -11,7 +11,7 @@ ROOT = ../../../..
 CC45 = $(ROOT)/bin/cc45
 LN45 = $(ROOT)/bin/ln45
 CRT0 = $(ROOT)/lib/build/crt0.o45
-STDLIB = $(ROOT)/lib/build/stdlib45.lib
+STDLIB = $(ROOT)/lib/build/c45.lib
 INCLUDES = -I$(ROOT)/lib/include
 
 TESTS = test_strlen test_strcmp test_strcpy test_strchr test_memops

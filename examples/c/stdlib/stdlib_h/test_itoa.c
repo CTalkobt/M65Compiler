@@ -1,5 +1,5 @@
 // Example: itoa — validate integer-to-string conversion
-// Uses stdlib45.lib stdlib.h and string.h implementations.
+// Uses c45.lib stdlib.h and string.h implementations.
 // Returns 0 (A=$00) on success, non-zero on failure.
 
 #include <stdlib.h>

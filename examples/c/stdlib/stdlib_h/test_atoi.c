@@ -1,5 +1,5 @@
 // Example: atoi — validate string-to-integer conversion
-// Uses stdlib45.lib stdlib.h implementation.
+// Uses c45.lib stdlib.h implementation.
 // Returns 0 (A=$00) on success, non-zero on failure.
 
 #include <stdlib.h>
