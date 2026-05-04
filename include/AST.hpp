@@ -32,6 +32,10 @@ class Statement : public ASTNode {};
 class IntegerLiteral : public Expression {
 public:
     int value;
+    // Optional type from folded CastExpression (empty = default "int")
+    std::string castType;
+    int castPointerLevel = 0;
+    bool castIsSigned = false;
     IntegerLiteral(int v) : value(v) {}
     void accept(ASTVisitor& visitor) override;
 };

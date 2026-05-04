@@ -92,6 +92,8 @@ test: all
 	@bash src/test/test_restrict.sh
 	@echo "Running register keyword tests..."
 	@bash src/test/test_register.sh
+	@echo "Running cast fold type preservation tests..."
+	@bash src/test/test_cast_fold.sh
 	@echo "Validating mmemu-cli integration..."
 	@bash src/test/test_mmemu.sh
 	@$(MAKE) test-opcodes
@@ -110,6 +112,9 @@ test-restrict: all
 
 test-register: all
 	@bash src/test/test_register.sh
+
+test-cast-fold: all
+	@bash src/test/test_cast_fold.sh
 
 test-mmemu: all
 	@bash src/test/test_mmemu.sh

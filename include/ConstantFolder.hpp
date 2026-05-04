@@ -39,7 +39,11 @@ public:
     }
 
     void visit(IntegerLiteral& node) override {
-        lastExpr = copyPos(std::make_unique<IntegerLiteral>(node.value), node);
+        auto result = copyPos(std::make_unique<IntegerLiteral>(node.value), node);
+        result->castType = node.castType;
+        result->castPointerLevel = node.castPointerLevel;
+        result->castIsSigned = node.castIsSigned;
+        lastExpr = std::move(result);
     }
 
     void visit(StringLiteral& node) override {
@@ -229,7 +233,11 @@ public:
             } else if (node.pointerLevel == 0 && node.targetType == "char") {
                 val = val & 0xFF;
             }
-            lastExpr = copyPos(std::make_unique<IntegerLiteral>(val), node);
+            auto result = copyPos(std::make_unique<IntegerLiteral>(val), node);
+            result->castType = node.targetType;
+            result->castPointerLevel = node.pointerLevel;
+            result->castIsSigned = node.isSigned;
+            lastExpr = std::move(result);
         } else {
             lastExpr = copyPos(std::make_unique<CastExpression>(node.targetType, node.pointerLevel, node.isSigned, std::move(operand)), node);
         }

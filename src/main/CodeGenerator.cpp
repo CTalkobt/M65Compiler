@@ -163,6 +163,12 @@ int CodeGenerator::getTypeSize(const std::string& type, int ptrLevel, int arrayS
 
 CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
     if (!expr) return {"int", 0, false, false};
+    if (auto* lit = dynamic_cast<IntegerLiteral*>(expr)) {
+        if (!lit->castType.empty()) {
+            return {lit->castType, lit->castPointerLevel, lit->castIsSigned, false};
+        }
+        return {"int", 0, false, false};
+    }
     if (auto* cast = dynamic_cast<CastExpression*>(expr)) {
         return {cast->targetType, cast->pointerLevel, cast->isSigned, false};
     }
@@ -3850,12 +3856,15 @@ void CodeGenerator::visit(MemberAccess& node) {
 void CodeGenerator::visit(IntegerLiteral& node) {
     if (!resultNeeded) return;
     uint32_t uval = (uint32_t)node.value;
+    bool needs32 = uval > 0xFFFF || (node.value < 0 && node.value < -32768)
+                   || is32BitType(node.castType);
     if (node.value == 0) {
         emit("zero a, x"); updateRegA(0); updateRegX(0); updateZNFlags(FlagSource::A);
+        if (needs32) { emitter->ldy_imm(0); emitter->ldz_imm(0); }
         return;
     }
-    if (uval > 0xFFFF || (node.value < 0 && node.value < -32768)) {
-        // Value exceeds 16-bit range — load all 4 bytes into AXYZ
+    if (needs32) {
+        // Load all 4 bytes into AXYZ
         std::stringstream ss;
         ss << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (uval & 0xFFFF);
         emit("ldax " + ss.str());
