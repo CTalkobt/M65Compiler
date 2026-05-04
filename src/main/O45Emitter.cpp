@@ -343,6 +343,92 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         }
     }
 
+    // Scan immediate instructions with <symbol or >symbol for lo/hi byte relocs,
+    // and PHW #symbol (IMMEDIATE16) for full word relocs.
+    for (const auto& stmt : parser.statements) {
+        if (stmt->deleted || stmt->size == 0) continue;
+        if (stmt->type != AssemblerParser::Statement::INSTRUCTION) continue;
+        if (stmt->instr.mode != AddressingMode::IMMEDIATE &&
+            stmt->instr.mode != AddressingMode::IMMEDIATE16) continue;
+
+        int idx = stmt->instr.operandTokenIndex;
+        if (idx < 0 || idx >= (int)parser.tokens.size()) continue;
+
+        // Determine if this is a lo/hi byte reference or a full word (PHW)
+        bool isLow = false, isHigh = false, isWord = false;
+        if (parser.tokens[idx].value == "<") {
+            isLow = true;
+            idx++;
+        } else if (parser.tokens[idx].value == ">") {
+            isHigh = true;
+            idx++;
+        } else if (stmt->instr.mode == AddressingMode::IMMEDIATE16) {
+            // PHW #symbol — full 16-bit immediate
+            isWord = true;
+        }
+
+        if (!isLow && !isHigh && !isWord) continue;
+        if (idx >= (int)parser.tokens.size()) continue;
+
+        std::string symName = parser.tokens[idx].value;
+        Symbol* sym = parser.resolveSymbol(symName, stmt->scopePrefix);
+        if (!sym || !sym->isAddress) continue;
+
+        bool isExtern = parser.isExternSymbol(symName);
+        std::string targetSeg;
+        if (!isExtern) {
+            targetSeg = findSegmentForAddress(sym->value);
+            if (targetSeg.empty()) continue;
+        }
+
+        std::string srcSeg = stmt->segmentName;
+        uint32_t srcBase = globalBase;
+        if (parser.segments.count(srcSeg)) {
+            srcBase = parser.segments.at(srcSeg)->startAddress;
+            if (srcBase == 0xFFFFFFFF) srcBase = 0;
+        }
+
+        // Operand byte is at stmt->address + 1 (after the opcode)
+        uint32_t patchOff = (stmt->address + 1) - srcBase;
+
+        if (isWord) {
+            O45Reloc reloc;
+            reloc.offset = patchOff;
+            reloc.type = R_WORD;
+            if (isExtern) {
+                reloc.segment = SEG_EXTERNAL;
+                reloc.symbolIndex = syms.getImportIndex(symName);
+            } else {
+                reloc.segment = segIdFromName(targetSeg);
+            }
+            segRelocs[srcSeg].push_back(reloc);
+        } else if (isLow) {
+            O45Reloc reloc;
+            reloc.offset = patchOff;
+            reloc.type = R_LOW;
+            if (isExtern) {
+                reloc.segment = SEG_EXTERNAL;
+                reloc.symbolIndex = syms.getImportIndex(symName);
+            } else {
+                reloc.segment = segIdFromName(targetSeg);
+            }
+            segRelocs[srcSeg].push_back(reloc);
+        } else { // isHigh
+            uint8_t lowByte = (uint8_t)(sym->value & 0xFF);
+            O45Reloc reloc;
+            reloc.offset = patchOff;
+            reloc.type = R_HIGH;
+            reloc.extra = lowByte;
+            if (isExtern) {
+                reloc.segment = SEG_EXTERNAL;
+                reloc.symbolIndex = syms.getImportIndex(symName);
+            } else {
+                reloc.segment = segIdFromName(targetSeg);
+            }
+            segRelocs[srcSeg].push_back(reloc);
+        }
+    }
+
     // Also check .word directives that reference symbols
     for (const auto& stmt : parser.statements) {
         if (stmt->deleted || stmt->size == 0) continue;
