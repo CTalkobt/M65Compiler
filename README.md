@@ -32,7 +32,9 @@ The compilation process follows a multi-pass pipeline:
 - **Inline Assembly**: Standard C `asm()` and `__asm__()` support for direct hardware control from C source.
 - **Compound Literals**: C99 compound literals for anonymous temporary values: `(struct Point){1, 2}`, `(int){42}`, `(int[]){1,2,3}`.
 - **Bitfields**: C-standard bitfield support in structs and unions with automatic packing into 8-bit or 16-bit storage units. Optimized codegen uses 45GS02 TRB/TSB instructions for atomic read-modify-write on ZP and absolute targets.
+- **32-bit Long Type**: Native `long` and `unsigned long` support using the 45GS02 Q register (AXYZ). All arithmetic, comparison, shift, and bitwise operations leverage native Q instructions.
 - **Explicit Casts & Narrowing Warnings**: C-style cast expressions `(type)expr` with compile-time warnings for implicit narrowing conversions.
+- **ZP Calling Convention**: Optional zero-page parameter passing (`-fzpcall`) for faster function calls. Parameters are placed in a fixed ZP region instead of the stack, eliminating TSX overhead. Includes caller-save semantics, address-of spill, and per-function metadata (`.zp_uses`, `.zp_clobbers`, `.reg_clobbers`) in `.o45` objects for interprocedural optimization.
 - **Extensibility**: The toolchain uses a visitor-based architecture in C++, making it easy to add new optimizations, language features, or hardware targets.
 
 ## General Usage
@@ -100,4 +102,5 @@ For detailed information on each tool, refer to:
 - [doc/lib45.md](doc/lib45.md) — `.o45` Relocatable Object Format Specification
 - [doc/ln45_usage.md](doc/ln45_usage.md) — Linker Usage and Reference
 - [doc/ar45.md](doc/ar45.md) — Archiver Usage and Reference
+- [doc/zpcall.md](doc/zpcall.md) — ZP Calling Convention Design
 - [doc/ln45.md](doc/ln45.md) — Linker Design Notes

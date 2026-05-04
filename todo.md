@@ -143,6 +143,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [d] **Generator Functions**: Support stateful functions that can yield values (iterators).
 - [d] **Generator Loop Syntax**: Implement `for (var : generator)` syntax for idiomatic iteration over generators.
 - [X] **Variadic Functions**: Support defining variadic functions and the `va_list`, `va_start`, `va_arg`, `va_end` macros. Variadic calls use right-to-left push order; `stdarg.h` provides macros wrapping `__builtin_va_start`/`__builtin_va_arg`/`__builtin_va_end` compiler intrinsics.
+- [X] **ZP Calling Convention (`-fzpcall`)**: Optional zero-page parameter passing. Parameters stored in fixed ZP region instead of stack. Includes caller-save semantics, address-of spill, leaf function optimization, per-function metadata (`.zp_uses`/`.zp_clobbers`/`.reg_clobbers`), linker call graph + transitive clobber propagation, and separate ZP-convention stdlib (`stdlib45_zp.lib`) + CRT (`crt45_zp.lib`). Phases 1-4 complete.
 - [ ] **Processor flag/register intrinsics**: `__builtin_carry()`, `__builtin_zero()`, `__builtin_negative()`, `__builtin_reg_a()`, etc. Each returns an `int` (0 or 1 for flags, 0-255 for registers) by emitting an inline snapshot (e.g. `lda #$00; adc #$00` for carry). Composable in any expression context. Useful for KERNAL wrappers that need to test carry/zero after `__asm__` calls without `php/plp`.
 - [ ] **Local `_Alignas`**: Extend `_Alignas` support to local (stack-allocated) variables.
 - [ ] **32-bit flat addressing**: Support pointer access above $FFFF (requires flat memory codegen).
@@ -159,12 +160,14 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **Mega65 Memory**: High-speed memory FILL and MOVE (copy) leveraging the Mega65 DMA controller.
 - [X] **PC Register**: Treat current program counter as a register named .PC similar to how .A, .X etc are defined.
 - [X] **16-bit Loads/Stores**: Support `ldax`, `stax`, `ldaz`, `staz`, `ldxy`, `stxy` simulated opcodes.
-- [ ] **16-bit Math**: Support `add.16`, `sub.16`, `neg.16` simulated opcodes.
-- [ ] **Stack Operations**: Support `phw`, `ptrstack` simulated opcodes.
-- [ ] **Control Flow**: Support `branch.16` (16-bit relative jumps).
-- [ ] **Indirect Call**: Support `call (.ax)` — Indirect call through a 16-bit pointer held in `.AX`.
+- [X] **16-bit Math**: Support `add.16`, `sub.16`, `neg.16` simulated opcodes.
+- [X] **Stack Operations**: Support `phw`, `ptrstack` simulated opcodes.
+- [X] **Control Flow**: Support `branch.16` (16-bit relative jumps).
+- [X] **Indirect Call**: Support `call (.ax)` — Indirect call through a 16-bit pointer held in `.AX`.
 - [ ] **Dynamic Shifts**: Support `shl.16 .ax, src` / `shr.16 .ax, src` — Dynamic 16-bit shift with count from memory/ZP.
 - [ ] **AX Increment/Decrement**: Support `inax` / `deax` — Increment/decrement `.AX` as a 16-bit pair.
+- [X] **Function Attribute Directives**: `.zp_uses`, `.zp_clobbers`, `.zp_release`, `.reg_clobbers`, `.flag_clobbers` — per-function metadata for interprocedural optimization. Stored in `.o45` function attribute records.
+- [X] **Frame-Relative Pseudo-ops**: `lda.fp`, `sta.fp`, `ldax.fp`, `stax.fp`, `leax.fp`, `move.fp` — direct access to pre-allocated frame slots. `.local` directive for named frame offsets.
 
 ### 2. Segments
 - [X] **Local Optimization Windows**: Implemented `@` labels to define boundaries for register/flag tracking. `@` labels are automatically scoped under the nearest preceding non-`@` label, allowing safe reuse across routines.
@@ -178,6 +181,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **Alignment Directive**: Implement `.align <n>` or `.balign <n>` to support C11 `_Alignas`.
 - [X] **Segment Management**: Implement `.section` or `.segment` to support `_Thread_local` storage and separate data/text areas.
 - [ ] **Struct Layout Helper**: Implement `.struct` / `.endstruct` to define named field offsets as equates.
+- [X] **Frame-Relative Locals (`.local`)**: `.local name = offset` creates frame-relative symbols for pre-allocated local variable access.
 - [X] **Array Directive**: Implement `.array name, element_size, dim0 [, dim1 ...]` for multi-dimensional array storage with auto-generated stride constants.
 
 ### 4. Expanded Literals & Data
