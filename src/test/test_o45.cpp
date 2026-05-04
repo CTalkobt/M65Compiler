@@ -1,7 +1,9 @@
 #include "O45Writer.hpp"
+#include "O45Linker.hpp"
 #include <cassert>
 #include <cstdio>
 #include <cstring>
+#include <sstream>
 
 static int tests_passed = 0;
 static int tests_failed = 0;
@@ -704,6 +706,236 @@ void test_segment_mapping() {
     CHECK(exports[2].segment == SEG_ZP, "export via zp name -> SEG_ZP");
 }
 
+// =============================================================================
+// Linker function attribute integration tests (Phase 3)
+// =============================================================================
+
+// Helper: create an O45File with a single function export + optional func attr
+static O45File makeObjWithFunc(const std::string& name, uint32_t offset,
+                                const std::vector<uint8_t>& textBody,
+                                const std::vector<uint8_t>& textRelocs = {},
+                                const std::vector<O45File::Import>& imports = {},
+                                bool hasFuncAttr = false, O45FuncAttr attr = {}) {
+    O45File obj;
+    obj.mode = O45_MODE_DEFAULT;
+    obj.cpuId = O45_CPU_45GS02;
+    obj.tbase = 0; obj.tlen = (uint32_t)textBody.size();
+    obj.dbase = 0; obj.dlen = 0;
+    obj.bbase = 0; obj.blen = 0;
+    obj.zbase = 0; obj.zlen = 0;
+    obj.textBody = textBody;
+    obj.textRelocs = textRelocs;
+    obj.imports = imports;
+    O45File::Export exp;
+    exp.name = name;
+    exp.segment = SEG_TEXT;
+    exp.offset = offset;
+    exp.hasFuncAttr = hasFuncAttr;
+    exp.funcAttr = attr;
+    obj.exports.push_back(exp);
+    return obj;
+}
+
+void test_linker_funcattr_basic() {
+    // Two objects: _main (no attrs) and _add (with attrs)
+    O45FuncAttr addAttr;
+    addAttr.zpUses = 0x03;      // bits 0,1 -> ZP $03,$04
+    addAttr.zpClobbers = 0x03;
+    addAttr.regClobbers = 0x07; // A,X,Y
+    addAttr.flagClobbers = 0x05; // C,Z
+
+    // _main: just an RTS
+    auto mainObj = makeObjWithFunc("_main", 0, {0x60});
+    // _add: RTS with func attr
+    auto addObj = makeObjWithFunc("_add", 0, {0x60}, {}, {}, true, addAttr);
+
+    O45Linker linker;
+    linker.setTextBase(0x2000);
+    linker.setWarningStream(nullptr); // suppress warnings
+    linker.addObject("main.o45", mainObj);
+    linker.addObject("add.o45", addObj);
+
+    std::string err;
+    auto binary = linker.link(err);
+    CHECK(!binary.empty(), "linker funcattr basic: link succeeds");
+    CHECK(err.empty(), "linker funcattr basic: no error");
+
+    // Check that function attributes were extracted
+    const auto& attrs = linker.getFuncAttrs();
+    CHECK(attrs.count("_add"), "linker funcattr basic: _add has attrs");
+    CHECK(!attrs.count("_main"), "linker funcattr basic: _main has no attrs");
+
+    if (attrs.count("_add")) {
+        CHECK(attrs.at("_add").zpUses == 0x03, "linker funcattr basic: zpUses match");
+        CHECK(attrs.at("_add").zpClobbers == 0x03, "linker funcattr basic: zpClobbers match");
+        CHECK(attrs.at("_add").regClobbers == 0x07, "linker funcattr basic: regClobbers match");
+        CHECK(attrs.at("_add").flagClobbers == 0x05, "linker funcattr basic: flagClobbers match");
+    }
+}
+
+void test_linker_callgraph() {
+    // _main calls _add via JSR (opcode $20 followed by R_WORD reloc to _add)
+    // Text body: JSR _add ($20, $00, $00) + RTS ($60) = 4 bytes
+    std::vector<uint8_t> mainText = {0x20, 0x00, 0x00, 0x60};
+
+    // Build reloc: offset=1 (the address bytes after JSR), R_WORD, SEG_EXTERNAL, index 0
+    // Delta-encoded: delta=1, type|seg = R_WORD|SEG_EXTERNAL = 0x80|0x00 = 0x80, 4-byte index 0
+    std::vector<uint8_t> mainRelocs = {
+        0x01, 0x80,  // delta=1, R_WORD | SEG_EXTERNAL
+        0x00, 0x00, 0x00, 0x00  // symbol index 0
+    };
+    std::vector<O45File::Import> mainImports = {{"_add"}};
+
+    O45File mainObj;
+    mainObj.mode = O45_MODE_DEFAULT;
+    mainObj.cpuId = O45_CPU_45GS02;
+    mainObj.tbase = 0; mainObj.tlen = 4;
+    mainObj.dbase = 0; mainObj.dlen = 0;
+    mainObj.bbase = 0; mainObj.blen = 0;
+    mainObj.zbase = 0; mainObj.zlen = 0;
+    mainObj.textBody = mainText;
+    mainObj.textRelocs = mainRelocs;
+    mainObj.imports = mainImports;
+    {
+        O45File::Export exp;
+        exp.name = "_main";
+        exp.segment = SEG_TEXT;
+        exp.offset = 0;
+        exp.hasFuncAttr = true;
+        exp.funcAttr.zpUses = 0;
+        exp.funcAttr.zpClobbers = 0x03;
+        exp.funcAttr.regClobbers = 0x07;
+        mainObj.exports.push_back(exp);
+    }
+
+    O45FuncAttr addAttr;
+    addAttr.zpUses = 0x03;
+    addAttr.zpClobbers = 0x0F; // clobbers more than main
+    addAttr.regClobbers = 0x0F; // AXYZ
+    auto addObj = makeObjWithFunc("_add", 0, {0x60}, {}, {}, true, addAttr);
+
+    O45Linker linker;
+    linker.setTextBase(0x2000);
+    linker.setWarningStream(nullptr);
+    linker.addObject("main.o45", mainObj);
+    linker.addObject("add.o45", addObj);
+
+    std::string err;
+    auto binary = linker.link(err);
+    CHECK(!binary.empty(), "linker callgraph: link succeeds");
+
+    // Check call graph
+    const auto& cg = linker.getCallGraph();
+    CHECK(cg.count("_main"), "linker callgraph: _main in call graph");
+    if (cg.count("_main")) {
+        CHECK(cg.at("_main").count("_add"), "linker callgraph: _main -> _add");
+    }
+}
+
+void test_linker_transitive_clobbers() {
+    // _a calls _b, _b calls _c
+    // _a clobbers ZP bits 0-1, _b clobbers bits 2-3, _c clobbers bits 4-5
+    // Transitive: _a should accumulate 0-5, _b should accumulate 2-5
+
+    // _a: JSR _b + RTS
+    O45File objA;
+    objA.mode = O45_MODE_DEFAULT; objA.cpuId = O45_CPU_45GS02;
+    objA.tbase = 0; objA.tlen = 4;
+    objA.textBody = {0x20, 0x00, 0x00, 0x60};
+    objA.textRelocs = {0x01, 0x80, 0x00, 0x00, 0x00, 0x00};
+    objA.imports = {{"_b"}};
+    {
+        O45File::Export exp;
+        exp.name = "_a"; exp.segment = SEG_TEXT; exp.offset = 0;
+        exp.hasFuncAttr = true;
+        exp.funcAttr.zpClobbers = 0x03; // bits 0-1
+        exp.funcAttr.regClobbers = 0x01; // A
+        objA.exports.push_back(exp);
+    }
+
+    // _b: JSR _c + RTS
+    O45File objB;
+    objB.mode = O45_MODE_DEFAULT; objB.cpuId = O45_CPU_45GS02;
+    objB.tbase = 0; objB.tlen = 4;
+    objB.textBody = {0x20, 0x00, 0x00, 0x60};
+    objB.textRelocs = {0x01, 0x80, 0x00, 0x00, 0x00, 0x00};
+    objB.imports = {{"_c"}};
+    {
+        O45File::Export exp;
+        exp.name = "_b"; exp.segment = SEG_TEXT; exp.offset = 0;
+        exp.hasFuncAttr = true;
+        exp.funcAttr.zpClobbers = 0x0C; // bits 2-3
+        exp.funcAttr.regClobbers = 0x02; // X
+        objB.exports.push_back(exp);
+    }
+
+    // _c: just RTS (leaf)
+    O45FuncAttr cAttr;
+    cAttr.zpClobbers = 0x30; // bits 4-5
+    cAttr.regClobbers = 0x04; // Y
+    auto objC = makeObjWithFunc("_c", 0, {0x60}, {}, {}, true, cAttr);
+
+    O45Linker linker;
+    linker.setTextBase(0x2000);
+    linker.setWarningStream(nullptr);
+    linker.addObject("a.o45", objA);
+    linker.addObject("b.o45", objB);
+    linker.addObject("c.o45", objC);
+
+    std::string err;
+    auto binary = linker.link(err);
+    CHECK(!binary.empty(), "linker trans clobber: link succeeds");
+
+    const auto& tc = linker.getTransitiveClobbers();
+
+    // _c: no callees, transitive == direct
+    CHECK(tc.count("_c"), "linker trans clobber: _c present");
+    if (tc.count("_c")) {
+        CHECK(tc.at("_c").zpClobbers == 0x30, "linker trans clobber: _c zpClob = 0x30");
+        CHECK(tc.at("_c").regClobbers == 0x04, "linker trans clobber: _c regClob = Y");
+    }
+
+    // _b: direct 0x0C | _c's 0x30 = 0x3C
+    CHECK(tc.count("_b"), "linker trans clobber: _b present");
+    if (tc.count("_b")) {
+        CHECK(tc.at("_b").zpClobbers == 0x3C, "linker trans clobber: _b zpClob = 0x3C");
+        CHECK(tc.at("_b").regClobbers == 0x06, "linker trans clobber: _b regClob = XY");
+    }
+
+    // _a: direct 0x03 | _b's transitive 0x3C = 0x3F
+    CHECK(tc.count("_a"), "linker trans clobber: _a present");
+    if (tc.count("_a")) {
+        CHECK(tc.at("_a").zpClobbers == 0x3F, "linker trans clobber: _a zpClob = 0x3F");
+        CHECK(tc.at("_a").regClobbers == 0x07, "linker trans clobber: _a regClob = AXY");
+    }
+}
+
+void test_linker_map_funcattrs() {
+    // Verify that writeMap includes function attributes
+    O45FuncAttr attr;
+    attr.zpUses = 0x03;
+    attr.zpClobbers = 0x03;
+    attr.regClobbers = 0x07;
+    auto obj = makeObjWithFunc("_foo", 0, {0x60}, {}, {}, true, attr);
+
+    O45Linker linker;
+    linker.setTextBase(0x2000);
+    linker.setWarningStream(nullptr);
+    linker.addObject("foo.o45", obj);
+
+    std::string err;
+    auto binary = linker.link(err);
+    CHECK(!binary.empty(), "linker map funcattrs: link succeeds");
+
+    std::ostringstream mapOut;
+    linker.writeMap(mapOut);
+    std::string map = mapOut.str();
+
+    CHECK(map.find("uses:") != std::string::npos, "linker map funcattrs: map contains uses:");
+    CHECK(map.find("clob:") != std::string::npos, "linker map funcattrs: map contains clob:");
+    CHECK(map.find("regs:AXY") != std::string::npos, "linker map funcattrs: map contains regs:AXY");
+}
+
 int main() {
     test_empty_object();
     test_segment_fields();
@@ -743,6 +975,12 @@ int main() {
 
     // Segment mapping tests
     test_segment_mapping();
+
+    // Linker function attribute integration tests (Phase 3)
+    test_linker_funcattr_basic();
+    test_linker_callgraph();
+    test_linker_transitive_clobbers();
+    test_linker_map_funcattrs();
 
     printf("\nO45 Format Tests: %d passed, %d failed\n", tests_passed, tests_failed);
     return tests_failed > 0 ? 1 : 0;

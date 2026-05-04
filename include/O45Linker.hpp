@@ -4,6 +4,7 @@
 #include <set>
 #include <map>
 #include <cstdint>
+#include <iostream>
 #include "O45Types.hpp"
 #include "O45Reader.hpp"
 #include "O45Writer.hpp"
@@ -51,6 +52,18 @@ public:
     // After a successful link, retrieve the global symbol map (name -> final address).
     const std::map<std::string, uint32_t>& getSymbolMap() const { return globalSymbols_; }
 
+    // After a successful link, retrieve function attributes (name -> O45FuncAttr).
+    const std::map<std::string, O45FuncAttr>& getFuncAttrs() const { return funcAttrs_; }
+
+    // After a successful link, retrieve the call graph (caller -> set of callees).
+    const std::map<std::string, std::set<std::string>>& getCallGraph() const { return callGraph_; }
+
+    // After a successful link, retrieve transitive clobber sets (name -> merged O45FuncAttr).
+    const std::map<std::string, O45FuncAttr>& getTransitiveClobbers() const { return transitiveClobbers_; }
+
+    // Set warning output stream (default: stderr). Set to nullptr to suppress.
+    void setWarningStream(std::ostream* os) { warnStream_ = os; }
+
     // Write a detailed linker map to a stream. Call after link().
     void writeMap(std::ostream& out) const;
 
@@ -91,10 +104,26 @@ private:
     // Track weak flag per symbol
     std::map<std::string, bool> symbolWeak_;
 
+    // Function attribute map: function name -> O45FuncAttr
+    std::map<std::string, O45FuncAttr> funcAttrs_;
+
+    // Call graph: function name -> set of callee names
+    std::map<std::string, std::set<std::string>> callGraph_;
+
+    // Transitive clobber sets: function name -> merged clobbers through call chain
+    std::map<std::string, O45FuncAttr> transitiveClobbers_;
+
+    // Warning stream (nullptr to suppress)
+    std::ostream* warnStream_ = &std::cerr;
+
     bool resolveLibraries(std::string& errorMsg);
     bool layoutSegments(std::string& errorMsg);
     bool resolveSymbols(std::string& errorMsg);
     bool applyRelocations(std::string& errorMsg);
+    void buildFuncAttrs();
+    void buildCallGraph();
+    void computeTransitiveClobbers();
+    void emitDiagnostics();
 
     // Get the final base address for a segment ID
     uint32_t segmentBase(O45Segment seg) const;
