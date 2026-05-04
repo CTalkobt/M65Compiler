@@ -7,6 +7,12 @@
 
 CodeGenerator::CodeGenerator(std::ostream& out) : out(out) {}
 
+std::string CodeGenerator::zpHex(uint8_t addr) const {
+    std::stringstream ss;
+    ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)addr;
+    return ss.str();
+}
+
 void CodeGenerator::setSourceInfo(const std::string& filename, const std::vector<std::string>& lines) {
     sourceFilename = filename;
     sourceLines = lines;
@@ -284,6 +290,22 @@ void CodeGenerator::emitAddress(Expression* expr) {
             invalidateRegs();
             return;
         }
+        // ZP calling convention: spilled params have a stable frame address
+        std::string resolvedName = resolveVarName(ref->name);
+        if (isZpSpilledParam(resolvedName)) {
+            auto& sp = zpSpilledParams_[resolvedName];
+            emit("leax.fp " + std::to_string(sp.frameOffset));
+            invalidateRegs();
+            return;
+        }
+        // ZP calling convention: non-spilled param address is a fixed ZP address
+        if (isZpParam(resolvedName)) {
+            auto& zpi = zpParams_[resolvedName];
+            emitter->lda_imm(zpi.zpAddr);
+            emitter->ldx_imm(0);
+            invalidateRegs();
+            return;
+        }
         emit("ptrstack " + resolveVarName(ref->name));
     } else if (auto* ma = dynamic_cast<MemberAccess*>(expr)) {
         if (ma->isArrow) {
@@ -516,6 +538,65 @@ public:
     void visit(TranslationUnit& n) override { for (auto& d : n.topLevelDecls) d->accept(*this); }
 };
 
+// Collect parameter names whose address is taken (&param) in a function body.
+// Used in zpCall mode to identify params that must be spilled from ZP to the stack frame.
+class AddressOfParamCollector : public ASTVisitor {
+public:
+    std::set<std::string> addressTakenParams; // _p_name entries
+    const std::set<std::string>& paramNames_;  // set of _p_name for this function
+
+    AddressOfParamCollector(const std::set<std::string>& paramNames) : paramNames_(paramNames) {}
+
+    void visit(UnaryOperation& n) override {
+        if (n.op == "&") {
+            if (auto* ref = dynamic_cast<VariableReference*>(n.operand.get())) {
+                std::string pName = "_p_" + ref->name;
+                if (paramNames_.count(pName)) addressTakenParams.insert(pName);
+            }
+        }
+        n.operand->accept(*this);
+    }
+    void visit(IntegerLiteral&) override {}
+    void visit(StringLiteral&) override {}
+    void visit(VariableReference&) override {}
+    void visit(Assignment& n) override { n.target->accept(*this); n.expression->accept(*this); }
+    void visit(BinaryOperation& n) override { n.left->accept(*this); n.right->accept(*this); }
+    void visit(ConditionalExpression& n) override { n.condition->accept(*this); n.thenExpr->accept(*this); n.elseExpr->accept(*this); }
+    void visit(GenericSelection& n) override { n.control->accept(*this); for (auto& a : n.associations) a.result->accept(*this); }
+    void visit(InitializerList& n) override { for (auto& e : n.elements) e->accept(*this); }
+    void visit(ArrayAccess& n) override { n.arrayExpr->accept(*this); n.indexExpr->accept(*this); }
+    void visit(FunctionCall& n) override { for (auto& arg : n.arguments) arg->accept(*this); }
+    void visit(MemberAccess& n) override { n.structExpr->accept(*this); }
+    void visit(CastExpression& n) override { n.expression->accept(*this); }
+    void visit(CompoundLiteral& n) override { for (auto& e : n.initializer->elements) e->accept(*this); }
+    void visit(AlignofExpression&) override {}
+    void visit(SizeofExpression& n) override { if (n.expression) n.expression->accept(*this); }
+    void visit(BuiltinVaStart& n) override { n.ap->accept(*this); }
+    void visit(BuiltinVaArg& n) override { n.ap->accept(*this); }
+    void visit(VariableDeclaration& n) override { if (n.initializer) n.initializer->accept(*this); }
+    void visit(ReturnStatement& n) override { if (n.expression) n.expression->accept(*this); }
+    void visit(BreakStatement&) override {}
+    void visit(ContinueStatement&) override {}
+    void visit(SwitchContinueStatement& n) override { if (n.target) n.target->accept(*this); }
+    void visit(GotoStatement&) override {}
+    void visit(LabelledStatement& n) override { n.statement->accept(*this); }
+    void visit(ExpressionStatement& n) override { if (n.expression) n.expression->accept(*this); }
+    void visit(IfStatement& n) override { n.condition->accept(*this); n.thenBranch->accept(*this); if (n.elseBranch) n.elseBranch->accept(*this); }
+    void visit(WhileStatement& n) override { n.condition->accept(*this); n.body->accept(*this); }
+    void visit(DoWhileStatement& n) override { n.body->accept(*this); n.condition->accept(*this); }
+    void visit(ForStatement& n) override { if (n.initializer) n.initializer->accept(*this); if (n.condition) n.condition->accept(*this); if (n.increment) n.increment->accept(*this); n.body->accept(*this); }
+    void visit(SwitchStatement& n) override { n.expression->accept(*this); n.body->accept(*this); }
+    void visit(CaseStatement& n) override { n.value->accept(*this); }
+    void visit(DefaultStatement&) override {}
+    void visit(AsmStatement&) override {}
+    void visit(StaticAssert&) override {}
+    void visit(EnumDefinition&) override {}
+    void visit(StructDefinition&) override {}
+    void visit(CompoundStatement& n) override { for (auto& s : n.statements) s->accept(*this); }
+    void visit(FunctionDeclaration& n) override { n.body->accept(*this); }
+    void visit(TranslationUnit& n) override { for (auto& d : n.topLevelDecls) d->accept(*this); }
+};
+
 // Pre-scan a function body to compute frame layout.
 // Assigns a fixed frame offset to every local variable, with scope-aware slot reuse
 // for variables in non-overlapping scopes.
@@ -705,8 +786,13 @@ void CodeGenerator::visit(TranslationUnit& node) {
             knownFunctions.insert(fn->name);
             if (fn->isVariadic) variadicFunctions.insert(fn->name);
             functionReturnTypes[fn->name] = {fn->returnType, fn->returnPointerLevel, fn->isSigned};
-            if (fn->returnPointerLevel == 0 && (isStruct(fn->returnType) || is32BitType(fn->returnType))) {
-                structReturningFunctions.insert(fn->name);
+            if (fn->returnPointerLevel == 0) {
+                bool isStructRet = isStruct(fn->returnType);
+                bool isLongRet = is32BitType(fn->returnType);
+                // In zpCall mode, long returns use AXYZ directly — no hidden pointer
+                if (isStructRet || (isLongRet && !zpCallMode)) {
+                    structReturningFunctions.insert(fn->name);
+                }
             }
             std::vector<VarInfo> paramTypes;
             for (auto& p : fn->parameters) {
@@ -881,7 +967,6 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     out << ".code" << std::endl;
     variableTypes.clear();
     currentVars.clear();
-    std::string procLine = "proc _" + node.name;
 
     currentFunction = &node;
     currentParamByteSize = 0;
@@ -899,19 +984,21 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     }
     frameSize_ = frameSize;
 
-    // Collect param info and build proc line
-    bool isStructReturn = structReturningFunctions.count(node.name) > 0;
+    // Collect param info
     struct ParamInfo { std::string pName; int size; };
     std::vector<ParamInfo> paramInfos;
 
-    // Hidden return pointer parameter for struct/long-returning functions.
-    // Pushed FIRST by the caller (before regular args), so it's at the highest stack offset.
-    // Must appear FIRST in the proc line so the assembler's reverse-order offset
-    // assignment gives it the highest offset.
-    if (isStructReturn) {
+    // In zpCall mode, long returns use AXYZ directly — no hidden pointer needed.
+    // Only actual struct returns need the hidden pointer.
+    bool isStructReturn = structReturningFunctions.count(node.name) > 0;
+    bool isLongReturn = is32BitType(node.returnType) && node.returnPointerLevel == 0;
+    bool needsHiddenPtr = isStructReturn && !isLongReturn;
+    // In non-zpCall mode, long returns still use the hidden pointer
+    if (!zpCallMode) needsHiddenPtr = isStructReturn;
+
+    if (needsHiddenPtr) {
         std::string rpName = "_p___ret_ptr";
         variableTypes[rpName] = {node.returnType, 1, false, false, false, false, false, {}};
-        procLine += ", W#" + rpName;
         currentParamByteSize += 2;
         paramInfos.push_back({rpName, 2});
     }
@@ -920,49 +1007,219 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
         std::string pName = "_p_" + param.name;
         variableTypes[pName] = {param.type, param.pointerLevel, param.isSigned, param.isVolatile, param.isConst, param.isPointerConst, false, {}, param.isFunctionPointer, param.funcPtrSig};
         int pSize;
-        if (param.pointerLevel > 0) {
-            procLine += ", W#" + pName;
-            pSize = 2;
-        } else if (is8BitType(param.type)) {
-            procLine += ", B#" + pName;
-            pSize = 1;
-        } else if (is32BitType(param.type)) {
-            procLine += ", D#" + pName;
-            pSize = 4;
-        } else {
-            procLine += ", W#" + pName;
-            pSize = 2;
-        }
+        if (param.pointerLevel > 0) pSize = 2;
+        else if (is8BitType(param.type)) pSize = 1;
+        else if (is32BitType(param.type)) pSize = 4;
+        else pSize = 2;
         currentParamByteSize += pSize;
         paramInfos.push_back({pName, pSize});
+    }
+
+    if (zpCallMode) {
+        // --- ZP Calling Convention ---
+        zpParams_.clear();
+        zpParamTotalBytes_ = 0;
+        zpSpilledParams_.clear();
+
+        // Compute ZP param layout: left-to-right packing from zeroPageStart+1
+        uint8_t zpBase = (uint8_t)(zeroPageStart + 1);
+        int zpOff = 0;
+        for (auto& pi : paramInfos) {
+            if (zpOff + pi.size > (int)(zeroPageAvail - 1)) {
+                throw std::runtime_error("Too many parameter bytes for ZP calling convention (" +
+                    std::to_string(zpOff + pi.size) + " > " + std::to_string(zeroPageAvail - 1) +
+                    "); increase zeroPageAvail");
+            }
+            zpParams_[pi.pName] = {(uint8_t)(zpBase + zpOff), pi.size};
+            zpOff += pi.size;
+        }
+        zpParamTotalBytes_ = zpOff;
+
+        // Detect params whose address is taken — must spill to frame
+        std::set<std::string> paramNameSet;
+        for (auto& pi : paramInfos) paramNameSet.insert(pi.pName);
+        AddressOfParamCollector addrCollector(paramNameSet);
+        node.body->accept(addrCollector);
+
+        // Allocate frame slots for address-taken params (after scanner's locals)
+        int spillOffset = frameSize; // append after existing locals
+        for (auto& pName : addrCollector.addressTakenParams) {
+            auto& zpi = zpParams_[pName];
+            zpSpilledParams_[pName] = {spillOffset, zpi.size};
+            spillOffset += zpi.size;
+        }
+        int spillSize = spillOffset - frameSize;
+        frameSize = spillOffset; // expand frame to include spill slots
+        frameSize_ = frameSize;  // update member so caller-save offsets are correct
+
+        // Reserve ZP param slots so allocateZP won't hand them out as scratch
+        // zpRegs[0] is __zp_scratch, zpRegs[1..N] map to param slots
+        for (int i = 0; i < zpOff; i++) {
+            int slot = 1 + i; // slot 0 is scratch, slot 1 is first param byte
+            while (slot >= (int)zpRegs.size()) zpRegs.push_back({false});
+            zpRegs[slot].inUse = true;
+        }
+
+        // proc line — no B#/W#/D# annotations in zpCall mode
+        out << "proc _" + node.name << std::endl;
+
+        // Frame prologue
+        emit(".var _fp = 0");
+        currentVars.push_back("_fp");
+
+        // Detect leaf functions — if no calls, no need for caller-save
+        CallCollector callChecker;
+        node.body->accept(callChecker);
+        bool isLeaf = callChecker.calledFunctions.empty();
+
+        // Compute caller-save area: save our ZP params when making calls
+        // Leaf functions never need caller-save (no calls = no clobber risk)
+        // Only save non-spilled params (spilled ones live in frame already)
+        int zpSavableBytes = 0;
+        for (auto& kv : zpParams_) {
+            if (!zpSpilledParams_.count(kv.first)) zpSavableBytes += kv.second.size;
+        }
+        zpCallerSaveSize_ = isLeaf ? 0 : zpSavableBytes;
+        int totalFrame = frameSize + zpCallerSaveSize_;
+        if (totalFrame > 0) {
+            emit("; frame: " + std::to_string(frameSize) + " bytes locals" +
+                 (spillSize > 0 ? " (incl " + std::to_string(spillSize) + " spill)" : "") +
+                 " + " + std::to_string(zpCallerSaveSize_) + " bytes caller-save");
+            for (int i = 0; i < totalFrame / 2; ++i) emitter->phw_imm(0);
+            if (totalFrame % 2) { emitter->lda_imm(0); emitter->pha(); }
+            currentLocalByteSize = totalFrame;
+        }
+
+        // Emit .local for pre-scanned locals
+        for (auto& loc : scanner.locals) {
+            emit(".local " + loc.name + " = " + std::to_string(loc.frameOffset));
+        }
+
+        // Emit .local for spilled params and copy ZP → frame at entry
+        for (auto& sp : zpSpilledParams_) {
+            emit(".local " + sp.first + " = " + std::to_string(sp.second.frameOffset));
+            auto& zpi = zpParams_[sp.first];
+            emit("; spill " + sp.first + " from " + zpHex(zpi.zpAddr) + " to frame offset " + std::to_string(sp.second.frameOffset));
+            for (int b = 0; b < sp.second.size; b++) {
+                emit("lda " + zpHex(zpi.zpAddr + b));
+                emit("sta.fp " + std::to_string(sp.second.frameOffset + b));
+            }
+            // Remove from zpParams_ so all subsequent access uses frame
+            zpParams_.erase(sp.first);
+        }
+
+        // Emit comment showing ZP param layout
+        for (auto& pi : paramInfos) {
+            if (zpSpilledParams_.count(pi.pName)) {
+                auto& sp = zpSpilledParams_[pi.pName];
+                emit("; " + pi.pName + " = frame offset " + std::to_string(sp.frameOffset) + " (spilled, " + std::to_string(sp.size) + " bytes)");
+            } else {
+                auto& zpi = zpParams_[pi.pName];
+                emit("; " + pi.pName + " = " + zpHex(zpi.zpAddr) + " (" + std::to_string(zpi.size) + " bytes)");
+            }
+        }
+
+        node.body->accept(*this);
+        if (!node.isNoreturn) {
+            bool lastWasReturn = false;
+            if (!node.body->statements.empty()) {
+                if (dynamic_cast<ReturnStatement*>(node.body->statements.back().get())) {
+                    lastWasReturn = true;
+                }
+            }
+            if (!lastWasReturn) {
+                if (totalFrame > 0) {
+                    emitter->taz();
+                    for (int i = 0; i < totalFrame; ++i) emitter->pla();
+                    emitter->tza();
+                }
+                emit("rtn #0");
+            }
+        }
+
+        // Emit function attribute directives for assembler
+        // Use paramInfos + zpBase to compute ZP addresses (zpParams_ may have spilled entries removed)
+        if (zpParamTotalBytes_ > 0) {
+            int attrOff = 0;
+            emit(".zp_uses " + [&]() {
+                std::string s;
+                int off = 0;
+                for (auto& pi : paramInfos) {
+                    if (!s.empty()) s += ", ";
+                    s += zpHex(zpBase + off);
+                    off += pi.size;
+                }
+                return s;
+            }());
+            emit(".zp_clobbers " + [&]() {
+                std::string s;
+                int off = 0;
+                for (auto& pi : paramInfos) {
+                    for (int b = 0; b < pi.size; b++) {
+                        if (!s.empty()) s += ", ";
+                        s += zpHex(zpBase + off + b);
+                    }
+                    off += pi.size;
+                }
+                return s;
+            }());
+            emit(".reg_clobbers A, X, Y, Z");
+        }
+
+        emit("endproc");
+        out << std::endl;
+
+        freeRegisterVars();
+        // Free ZP param slots
+        for (int i = 0; i < zpParamTotalBytes_; i++) {
+            int slot = 1 + i;
+            if (slot < (int)zpRegs.size()) zpRegs[slot].inUse = false;
+        }
+        frameLocals_.clear();
+        frameSize_ = 0;
+        zpParams_.clear();
+        zpSpilledParams_.clear();
+        zpParamTotalBytes_ = 0;
+        zpCallerSaveSize_ = 0;
+        currentFunction = nullptr;
+        return;
+    }
+
+    // --- Stack-based calling convention (original) ---
+    std::string procLine = "proc _" + node.name;
+
+    if (needsHiddenPtr) {
+        procLine += ", W#_p___ret_ptr";
+    }
+
+    for (auto& pi : paramInfos) {
+        if (pi.pName == "_p___ret_ptr") continue; // already added
+        VarInfo& vi = variableTypes.at(pi.pName);
+        if (vi.pointerLevel > 0) procLine += ", W#" + pi.pName;
+        else if (is8BitType(vi.type)) procLine += ", B#" + pi.pName;
+        else if (is32BitType(vi.type)) procLine += ", D#" + pi.pName;
+        else procLine += ", W#" + pi.pName;
     }
     out << procLine << std::endl;
 
     // --- Frame prologue ---
-    // _fp is the SP-relative offset to the frame base.
-    // After allocating the frame, _fp = 0 (frame base is at current SP).
-    // When args are pushed for calls, _fp gets bumped (only _fp, not every local).
     emit(".var _fp = 0");
     currentVars.push_back("_fp");
 
-    // Allocate the entire frame at once
     if (frameSize > 0) {
         emit("; frame: " + std::to_string(frameSize) + " bytes");
-        // Push zeros to allocate frame space
         for (int i = 0; i < frameSize / 2; ++i) emitter->phw_imm(0);
         if (frameSize % 2) { emitter->lda_imm(0); emitter->pha(); }
         currentLocalByteSize = frameSize;
     }
 
-    // Emit .local for each pre-scanned local (frame-relative, fixed offset)
     for (auto& loc : scanner.locals) {
         emit(".local " + loc.name + " = " + std::to_string(loc.frameOffset));
     }
 
     // Params: stack-relative, past frame + return address.
-    // These use .var so they get bumped alongside _fp when needed.
     {
-        int pOff = frameSize + 2; // past frame + 2-byte return address
+        int pOff = frameSize + 2;
         if (node.isVariadic) {
             for (int i = 0; i < (int)paramInfos.size(); ++i) {
                 emit(".var " + paramInfos[i].pName + " = " + std::to_string(pOff));
@@ -987,7 +1244,6 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
             }
         }
         if (!lastWasReturn) {
-            // Clean up frame before returning
             if (frameSize > 0) {
                 emitter->taz();
                 for (int i = 0; i < frameSize; ++i) emitter->pla();
@@ -1691,6 +1947,48 @@ void CodeGenerator::visit(Assignment& node) {
     }
 
     if (node.op != "=") {
+        // ZP calling convention: compound assignment on ZP params
+        if (auto* ref = dynamic_cast<VariableReference*>(node.target.get())) {
+            std::string rName = resolveVarName(ref->name);
+            if (isZpParam(rName)) {
+                auto& zpi = zpParams_[rName];
+                std::string zpAddr = zpHex(zpi.zpAddr);
+                ExpressionType targetType = getExprType(node.target.get());
+                bool is16 = (targetType.pointerLevel > 0 || targetType.type == "int");
+                std::string actualOp = node.op.substr(0, node.op.length() - 1);
+
+                // Evaluate RHS
+                bool oldNeeded = resultNeeded;
+                resultNeeded = true;
+                node.expression->accept(*this);
+                resultNeeded = oldNeeded;
+                emitter->push_ax(); // save RHS on stack
+
+                // Load current value from ZP
+                if (is16) {
+                    emit("ldax " + zpAddr);
+                } else {
+                    emit("lda " + zpAddr);
+                    emitter->ldx_imm(0);
+                }
+                int zpLeft = allocateZP(2);
+                std::stringstream ssLeft;
+                ssLeft << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpLeft);
+                emit("stax $" + ssLeft.str());
+
+                emitter->pop_ax();
+                emitOperation(actualOp, zpLeft, targetType, getExprType(node.expression.get()));
+
+                // Store result back to ZP
+                emit("sta " + zpAddr);
+                if (is16) emit("stx " + zpAddr + "+1");
+
+                freeZP(zpLeft, 2);
+                invalidateRegs();
+                return;
+            }
+        }
+
         std::string actualOp = node.op.substr(0, node.op.length() - 1);
         ExpressionType targetType = getExprType(node.target.get());
         bool is16 = (targetType.pointerLevel > 0 || targetType.type == "int");
@@ -1746,6 +2044,144 @@ void CodeGenerator::visit(Assignment& node) {
 
     if (auto* ref = dynamic_cast<VariableReference*>(node.target.get())) {
         std::string rName = resolveVarName(ref->name);
+
+        // ZP calling convention: spilled params (address-taken) live in frame
+        if (isZpSpilledParam(rName)) {
+            VarInfo vi = variableTypes.at(rName);
+            auto& sp = zpSpilledParams_[rName];
+            std::string off = std::to_string(sp.frameOffset);
+            bool is32 = is32BitType(vi.type) && vi.pointerLevel == 0;
+            bool is16 = !is32 && (vi.pointerLevel > 0 || vi.type == "int");
+
+            // Literal assignment
+            if (auto* lit = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
+                uint32_t uval = (uint32_t)lit->value;
+                if (is32) {
+                    emitter->lda_imm(uval & 0xFF); emit("sta.fp " + off);
+                    emitter->lda_imm((uval >> 8) & 0xFF); emit("sta.fp " + std::to_string(sp.frameOffset + 1));
+                    emitter->lda_imm((uval >> 16) & 0xFF); emit("sta.fp " + std::to_string(sp.frameOffset + 2));
+                    emitter->lda_imm((uval >> 24) & 0xFF); emit("sta.fp " + std::to_string(sp.frameOffset + 3));
+                } else if (is16) {
+                    emitter->lda_imm(uval & 0xFF); emit("sta.fp " + off);
+                    emitter->lda_imm((uval >> 8) & 0xFF); emit("sta.fp " + std::to_string(sp.frameOffset + 1));
+                } else {
+                    uint8_t val = uval & 0xFF;
+                    if (vi.type == "_Bool") val = (val != 0) ? 1 : 0;
+                    emitter->lda_imm(val); emit("sta.fp " + off);
+                }
+                invalidateRegs();
+                return;
+            }
+
+            // General expression assignment
+            bool oldNeeded = resultNeeded;
+            resultNeeded = true;
+            node.expression->accept(*this);
+            resultNeeded = oldNeeded;
+
+            if (vi.type == "_Bool" && vi.pointerLevel == 0) {
+                ExpressionType srcType = getExprType(node.expression.get());
+                int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
+                emitBoolNormalize(srcSize);
+            }
+
+            if (is32) {
+                // AXYZ → frame: stax.fp stores A,X; then Y,Z via save/restore
+                emit("stax.fp " + off);
+                emit("pha"); emit("tya"); emit("sta.fp " + std::to_string(sp.frameOffset + 2));
+                emit("tza"); emit("sta.fp " + std::to_string(sp.frameOffset + 3)); emit("pla");
+            } else if (is16) {
+                emit("stax.fp " + off);
+            } else {
+                emit("sta.fp " + off);
+            }
+            invalidateRegs();
+            return;
+        }
+
+        // ZP calling convention: params live in zero page
+        if (isZpParam(rName)) {
+            VarInfo vi = variableTypes.at(rName);
+            auto& zpi = zpParams_[rName];
+            std::string zpAddr = zpHex(zpi.zpAddr);
+            bool is32 = is32BitType(vi.type) && vi.pointerLevel == 0;
+            bool is16 = !is32 && (vi.pointerLevel > 0 || vi.type == "int");
+
+            // Optimization: x = x;
+            if (auto* rhsRef = dynamic_cast<VariableReference*>(node.expression.get())) {
+                if (resolveVarName(rhsRef->name) == rName && !vi.isVolatile) {
+                    if (resultNeeded) node.target->accept(*this);
+                    return;
+                }
+            }
+
+            // inc/dec optimization for x = x + 1 / x = x - 1
+            if (!is32) {
+                if (auto* bin = dynamic_cast<BinaryOperation*>(node.expression.get())) {
+                    if (bin->op == "+" || bin->op == "-") {
+                        if (auto* leftRef = dynamic_cast<VariableReference*>(bin->left.get())) {
+                            if (auto* rightLit = dynamic_cast<IntegerLiteral*>(bin->right.get())) {
+                                if (resolveVarName(leftRef->name) == rName && rightLit->value == 1) {
+                                    if (bin->op == "+") {
+                                        if (is16) emit("inw " + zpAddr);
+                                        else emit("inc " + zpAddr);
+                                    } else {
+                                        if (is16) emit("dew " + zpAddr);
+                                        else emit("dec " + zpAddr);
+                                    }
+                                    invalidateRegs();
+                                    if (resultNeeded) ref->accept(*this);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Literal assignment
+            if (auto* lit = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
+                uint32_t uval = (uint32_t)lit->value;
+                if (is32) {
+                    emitter->lda_imm(uval & 0xFF); emit("sta " + zpAddr);
+                    emitter->lda_imm((uval >> 8) & 0xFF); emit("sta " + zpAddr + "+1");
+                    emitter->lda_imm((uval >> 16) & 0xFF); emit("sta " + zpAddr + "+2");
+                    emitter->lda_imm((uval >> 24) & 0xFF); emit("sta " + zpAddr + "+3");
+                } else if (is16) {
+                    emitter->lda_imm(uval & 0xFF); emit("sta " + zpAddr);
+                    emitter->lda_imm((uval >> 8) & 0xFF); emit("sta " + zpAddr + "+1");
+                } else {
+                    uint8_t val = uval & 0xFF;
+                    if (vi.type == "_Bool") val = (val != 0) ? 1 : 0;
+                    emitter->lda_imm(val); emit("sta " + zpAddr);
+                }
+                invalidateRegs();
+                return;
+            }
+
+            // General expression assignment
+            bool oldNeeded = resultNeeded;
+            resultNeeded = true;
+            node.expression->accept(*this);
+            resultNeeded = oldNeeded;
+
+            if (vi.type == "_Bool" && vi.pointerLevel == 0) {
+                ExpressionType srcType = getExprType(node.expression.get());
+                int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
+                emitBoolNormalize(srcSize);
+            }
+
+            if (is32) {
+                emit("sta " + zpAddr); emit("stx " + zpAddr + "+1");
+                emit("pha"); emit("tya"); emit("sta " + zpAddr + "+2");
+                emit("tza"); emit("sta " + zpAddr + "+3"); emit("pla");
+            } else {
+                emit("sta " + zpAddr);
+                if (is16) emit("stx " + zpAddr + "+1");
+            }
+            invalidateRegs();
+            return;
+        }
 
         // Register variable: use direct ZP addressing
         if (registerVars.count(rName)) {
@@ -2618,6 +3054,11 @@ void CodeGenerator::visit(UnaryOperation& node) {
                 std::string sName = getAggregateName(vi.type);
                 if (structs.count(sName) && structs[sName]->totalSize > 1) is16Bit = true;
             }
+            // Spilled params: use indirect inc/dec through frame address
+            if (isZpSpilledParam(rName)) {
+                emitIndirectIncDec(node, isInc, isPost);
+                return;
+            }
             if (isPost && resultNeeded) ref->accept(*this);
             invalidateRegs();
             bool isGlobal = globalVariableTypes.count(rName);
@@ -2786,8 +3227,15 @@ void CodeGenerator::visit(ReturnStatement& node) {
     if (isStructReturn && node.expression) {
         bool isLongReturn = is32BitType(currentFunction->returnType) && currentFunction->returnPointerLevel == 0;
 
-        if (isLongReturn) {
-            // Long return: evaluate expression into AXYZ, store through hidden pointer
+        if (isLongReturn && zpCallMode) {
+            // zpCall: long return in AXYZ directly — no hidden pointer needed
+            bool oldNeeded = resultNeeded;
+            resultNeeded = true;
+            node.expression->accept(*this);
+            resultNeeded = oldNeeded;
+            // Result is already in AXYZ from the expression evaluation
+        } else if (isLongReturn) {
+            // Stack convention: long return via hidden pointer
             bool oldNeeded = resultNeeded;
             resultNeeded = true;
             node.expression->accept(*this);
@@ -2828,7 +3276,12 @@ void CodeGenerator::visit(ReturnStatement& node) {
             emit("stax $" + ssSrc.str());
 
             // Load destination address from _ret_ptr parameter
-            emit("ldax _p___ret_ptr, s");
+            if (isZpParam("_p___ret_ptr")) {
+                auto& zpi = zpParams_["_p___ret_ptr"];
+                emit("ldax " + zpHex(zpi.zpAddr));
+            } else {
+                emit("ldax _p___ret_ptr, s");
+            }
             int zpDest = allocateZP(2);
             std::stringstream ssDest;
             ssDest << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpDest);
@@ -3440,6 +3893,53 @@ void CodeGenerator::visit(VariableReference& node) {
     }
     std::string rName = resolveVarName(node.name);
 
+    // ZP calling convention: spilled params (address-taken) live in frame
+    if (isZpSpilledParam(rName)) {
+        VarInfo vi = variableTypes.at(rName);
+        auto& sp = zpSpilledParams_[rName];
+        bool is32 = is32BitType(vi.type) && vi.pointerLevel == 0;
+        bool is16 = !is32 && (vi.pointerLevel > 0 || vi.type == "int");
+        if (is32) {
+            emit("lda.fp " + std::to_string(sp.frameOffset + 3)); emit("taz");
+            emit("lda.fp " + std::to_string(sp.frameOffset + 2)); emit("tay");
+            emit("lda.fp " + std::to_string(sp.frameOffset + 1)); emit("tax");
+            emit("lda.fp " + std::to_string(sp.frameOffset));
+            invalidateRegs();
+        } else if (is16) {
+            emit("ldax.fp " + std::to_string(sp.frameOffset));
+            invalidateRegs();
+        } else {
+            emit("lda.fp " + std::to_string(sp.frameOffset));
+            invalidateRegs();
+            if (!regX.known || regX.isVariable || regX.value != 0) { emitter->ldx_imm(0); updateRegX(0); }
+        }
+        return;
+    }
+
+    // ZP calling convention: params live in zero page
+    if (isZpParam(rName)) {
+        VarInfo vi = variableTypes.at(rName);
+        auto& zpi = zpParams_[rName];
+        std::string zpAddr = zpHex(zpi.zpAddr);
+        bool is32 = is32BitType(vi.type) && vi.pointerLevel == 0;
+        bool is16 = !is32 && (vi.pointerLevel > 0 || vi.type == "int");
+        if (is32) {
+            // Load 32-bit from ZP into AXYZ
+            emit("lda " + zpAddr + "+3"); emit("taz");
+            emit("lda " + zpAddr + "+2"); emit("tay");
+            emit("ldx " + zpAddr + "+1");
+            emit("lda " + zpAddr);
+            invalidateRegs();
+        } else if (is16) {
+            emit("ldax " + zpAddr);
+            updateRegAVar(rName, 0); updateRegXVar(rName, 1); updateZNFlags(FlagSource::A);
+        } else {
+            emit("lda " + zpAddr); updateRegAVar(rName, 0);
+            if (!regX.known || regX.isVariable || regX.value != 0) { emitter->ldx_imm(0); updateRegX(0); }
+        }
+        return;
+    }
+
     // Register variable: use direct ZP addressing
     if (registerVars.count(rName)) {
         VarInfo vi = variableTypes.at(rName);
@@ -3685,6 +4185,200 @@ void CodeGenerator::visit(FunctionCall& node) {
     }
 
     bool oldNeeded = resultNeeded; resultNeeded = true;
+
+    if (zpCallMode) {
+        // --- ZP Calling Convention ---
+        // Compute callee's ZP param layout
+        bool hasParamTypes = functionParamTypes.count(node.name) > 0;
+        auto& calleePTypes = hasParamTypes ? functionParamTypes[node.name] : functionParamTypes[""];
+
+        struct CalleeParam { uint8_t zpAddr; int size; };
+        std::vector<CalleeParam> calleeParams;
+        uint8_t zpBase = (uint8_t)(zeroPageStart + 1);
+        int zpOff = 0;
+
+        // For struct-returning functions (not long), add hidden pointer as first param
+        bool isStructRetCall = structReturningFunctions.count(node.name) > 0;
+        bool isLongRetCall = false;
+        if (functionReturnTypes.count(node.name)) {
+            auto& ri = functionReturnTypes[node.name];
+            isLongRetCall = is32BitType(ri.type) && ri.pointerLevel == 0;
+        }
+        bool needsHiddenPtrCall = isStructRetCall && !isLongRetCall;
+
+        if (needsHiddenPtrCall && structRetDest_ >= 0) {
+            calleeParams.push_back({(uint8_t)(zpBase + zpOff), 2});
+            zpOff += 2;
+        }
+
+        for (size_t ai = 0; ai < node.arguments.size(); ++ai) {
+            int pSize = 2; // default
+            if (hasParamTypes && ai < calleePTypes.size()) {
+                if (is8BitType(calleePTypes[ai].type) && calleePTypes[ai].pointerLevel == 0) pSize = 1;
+                else if (is32BitType(calleePTypes[ai].type) && calleePTypes[ai].pointerLevel == 0) pSize = 4;
+            }
+            // Check argument expression type too
+            ExpressionType argType = getExprType(node.arguments[ai].get());
+            if (is32BitType(argType.type) && argType.pointerLevel == 0) pSize = 4;
+            if (auto* lit = dynamic_cast<IntegerLiteral*>(node.arguments[ai].get())) {
+                uint32_t uv = (uint32_t)lit->value;
+                if (uv > 0xFFFF || (lit->value < 0 && lit->value < -32768)) pSize = 4;
+            }
+            if (auto* ref = dynamic_cast<VariableReference*>(node.arguments[ai].get())) {
+                std::string rn = resolveVarName(ref->name);
+                VarInfo* vi = nullptr;
+                if (variableTypes.count(rn)) vi = &variableTypes.at(rn);
+                else if (globalVariableTypes.count(rn)) vi = &globalVariableTypes.at(rn);
+                if (vi && is32BitType(vi->type) && vi->pointerLevel == 0) pSize = 4;
+            }
+            calleeParams.push_back({(uint8_t)(zpBase + zpOff), pSize});
+            zpOff += pSize;
+        }
+
+        // Caller-save: save our active (non-spilled) ZP params to frame before clobbering them
+        bool hasActiveZpParams = !zpParams_.empty();
+        if (hasActiveZpParams) {
+            int saveOff = frameSize_; // caller-save area starts after locals (incl spill)
+            emit("; caller-save ZP params to frame");
+            for (auto& kv : zpParams_) {
+                auto& zpi = kv.second;
+                for (int b = 0; b < zpi.size; b++) {
+                    emit("lda " + zpHex(zpi.zpAddr + b));
+                    emit("sta.fp " + std::to_string(saveOff++));
+                }
+            }
+        }
+
+        // If caller has no active ZP params, we can store args directly.
+        // Otherwise, evaluate to stack first to avoid clobbering our own params.
+        bool directStore = !hasActiveZpParams;
+        int argIdx = 0;
+        int totalPushedForArgs = 0;
+        if (needsHiddenPtrCall && structRetDest_ >= 0) {
+            if (directStore) {
+                emit("leax.fp " + std::to_string(structRetDest_));
+                emit("sta " + zpHex(calleeParams[argIdx].zpAddr));
+                emit("stx " + zpHex(calleeParams[argIdx].zpAddr + 1));
+            } else {
+                emit("leax.fp " + std::to_string(structRetDest_));
+                emitter->push_ax();
+                totalPushedForArgs += 2;
+                for (const auto& varName : currentVars) {
+                    emit(".var " + varName + " = " + varName + " + 2");
+                }
+            }
+            argIdx++;
+        }
+
+        for (size_t ai = 0; ai < node.arguments.size(); ++ai) {
+            auto& arg = node.arguments[ai];
+            auto& cp = calleeParams[argIdx + ai];
+            arg->accept(*this);
+
+            if (cp.size == 4) {
+                ExpressionType aType = getExprType(arg.get());
+                bool alreadyWide = is32BitType(aType.type) && aType.pointerLevel == 0;
+                if (auto* lit = dynamic_cast<IntegerLiteral*>(arg.get())) {
+                    uint32_t uv = (uint32_t)lit->value;
+                    if (uv > 0xFFFF || (lit->value < 0 && lit->value < -32768)) alreadyWide = true;
+                }
+                if (!alreadyWide) {
+                    if (aType.isSigned) emit("sxt.16");
+                    else { emit("ldy #$00"); emit("ldz #$00"); }
+                }
+                if (directStore) {
+                    emit("sta " + zpHex(cp.zpAddr));
+                    emit("stx " + zpHex(cp.zpAddr + 1));
+                    emit("pha"); emit("tya"); emit("sta " + zpHex(cp.zpAddr + 2));
+                    emit("tza"); emit("sta " + zpHex(cp.zpAddr + 3)); emit("pla");
+                } else {
+                    emit("phz"); emit("phy"); emit("phx"); emit("pha");
+                    totalPushedForArgs += 4;
+                    for (const auto& varName : currentVars) {
+                        emit(".var " + varName + " = " + varName + " + 4");
+                    }
+                }
+            } else if (cp.size == 1) {
+                if (directStore) {
+                    emit("sta " + zpHex(cp.zpAddr));
+                } else {
+                    emitter->push("a");
+                    totalPushedForArgs += 1;
+                    for (const auto& varName : currentVars) {
+                        emit(".var " + varName + " = " + varName + " + 1");
+                    }
+                }
+            } else {
+                if (directStore) {
+                    emit("sta " + zpHex(cp.zpAddr));
+                    emit("stx " + zpHex(cp.zpAddr + 1));
+                } else {
+                    emitter->push_ax();
+                    totalPushedForArgs += 2;
+                    for (const auto& varName : currentVars) {
+                        emit(".var " + varName + " = " + varName + " + 2");
+                    }
+                }
+            }
+        }
+
+        // For indirect path: pop from stack into callee's ZP slots (reverse order)
+        if (!directStore && totalPushedForArgs > 0) {
+            for (int ai = (int)node.arguments.size() - 1 + argIdx; ai >= 0; --ai) {
+                auto& cp = calleeParams[ai];
+                if (cp.size == 4) {
+                    emit("pla"); emit("sta " + zpHex(cp.zpAddr));
+                    emit("pla"); emit("sta " + zpHex(cp.zpAddr + 1));
+                    emit("pla"); emit("sta " + zpHex(cp.zpAddr + 2));
+                    emit("pla"); emit("sta " + zpHex(cp.zpAddr + 3));
+                } else if (cp.size == 1) {
+                    emitter->pop("a");
+                    emit("sta " + zpHex(cp.zpAddr));
+                } else {
+                    emitter->pop_ax();
+                    emit("sta " + zpHex(cp.zpAddr));
+                    emit("stx " + zpHex(cp.zpAddr + 1));
+                }
+            }
+            for (const auto& varName : currentVars) {
+                emit(".var " + varName + " = " + varName + " - " + std::to_string(totalPushedForArgs));
+            }
+        }
+
+        resultNeeded = oldNeeded;
+        emit("jsr _" + node.name);
+
+        // Caller-restore: restore our active ZP params from frame
+        if (hasActiveZpParams) {
+            int saveOff = frameSize_;
+            emit("; caller-restore ZP params from frame");
+            // Save return value (A/AX/AXYZ) before restoring
+            if (resultNeeded) {
+                emitter->push_ax(); // save return value — shifts SP by 2
+                for (const auto& varName : currentVars) {
+                    emit(".var " + varName + " = " + varName + " + 2");
+                }
+            }
+            for (auto& kv : zpParams_) {
+                auto& zpi = kv.second;
+                for (int b = 0; b < zpi.size; b++) {
+                    emit("lda.fp " + std::to_string(saveOff++));
+                    emit("sta " + zpHex(zpi.zpAddr + b));
+                }
+            }
+            if (resultNeeded) {
+                for (const auto& varName : currentVars) {
+                    emit(".var " + varName + " = " + varName + " - 2");
+                }
+                emitter->pop_ax(); // restore return value
+            }
+        }
+
+        invalidateRegs();
+        return;
+    }
+
+    // --- Stack-based calling convention (original) ---
     int pushedBytes = 0;
 
     // For struct-returning functions, push hidden return pointer FIRST

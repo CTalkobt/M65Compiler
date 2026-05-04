@@ -371,6 +371,7 @@ int main(int argc, char** argv) {
     bool optimize = true;
     int listingLevel = 1;
     uint32_t zeroPageStart = 0x02;
+    bool zpCallMode = false;
     uint32_t zeroPageAvail = 9;
     std::string defineFlag = "";
     std::map<std::string, std::string> initialSymbols;
@@ -398,6 +399,8 @@ int main(int argc, char** argv) {
             std::cout << "  -l <level>     Listing level: 1=Standard (default), 2=Expanded" << std::endl;
             std::cout << "  -v             Enable verbose output (phase info)" << std::endl;
             std::cout << "  -vv            Extra verbose output (token dumps, AST)" << std::endl;
+            std::cout << "  -fzpcall       Use ZP parameter block calling convention" << std::endl;
+            std::cout << "  -fno-zpcall    Use stack-based calling convention (default)" << std::endl;
             std::cout << "  -Dname=val     Define a symbol (e.g., -Dcc45.zeroPageStart=$10)" << std::endl;
             std::cout << "  -I<path>       Add include search path" << std::endl;
             std::cout << "  -?             Display this help message" << std::endl;
@@ -411,6 +414,10 @@ int main(int argc, char** argv) {
             outputFileSet = true;
         } else if (arg == "-l" && i + 1 < argc) {
             listingLevel = std::stoi(argv[++i]);
+        } else if (arg == "-fzpcall") {
+            zpCallMode = true;
+        } else if (arg == "-fno-zpcall") {
+            zpCallMode = false;
         } else if (arg == "-O0") {
             optimize = false;
         } else if (arg == "-vv") {
@@ -559,6 +566,7 @@ int main(int argc, char** argv) {
         codegen.zeroPageStart = zeroPageStart;
         codegen.zeroPageAvail = zeroPageAvail;
         codegen.relocMode = assemble; // -c enables relocatable object mode
+        codegen.zpCallMode = zpCallMode;
         codegen.setSourceInfo(input_file, sourceLines);
         codegen.generate(*ast);
         if (verboseLevel >= 1) {

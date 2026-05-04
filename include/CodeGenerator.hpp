@@ -67,6 +67,7 @@ public:
     uint32_t zeroPageAvail = 9;
     bool relocMode = false; // When true, emit .global/.extern and skip .org/$2000 stub
     bool weakNext = false;  // When true, next function/global emits .weak instead of .global
+    bool zpCallMode = false; // When true, use ZP parameter block calling convention (-fzpcall)
 
     void visit(IntegerLiteral& node) override;
     void visit(StringLiteral& node) override;
@@ -236,4 +237,22 @@ public:
     int structRetDest_ = -1; // frame offset for struct return destination (-1 = none)
     int compoundLiteralCount_ = 0; // unique ID counter for compound literal temporaries
     bool isVariableUsed(const std::string& varName, FunctionDeclaration& func);
+
+    // ZP calling convention (zpCallMode)
+    struct ZpParamInfo {
+        uint8_t zpAddr;   // absolute ZP address (e.g., $03)
+        int size;          // 1, 2, or 4 bytes
+    };
+    std::map<std::string, ZpParamInfo> zpParams_; // _p_name → ZP location (current function)
+    int zpParamTotalBytes_ = 0;   // total param bytes in ZP block
+    bool isZpParam(const std::string& rName) const { return zpCallMode && zpParams_.count(rName) > 0; }
+    std::string zpHex(uint8_t addr) const;  // format as "$XX"
+    int zpCallerSaveSize_ = 0;  // frame bytes reserved for caller-save of ZP params
+    // Params whose address is taken — spilled from ZP to frame
+    struct ZpSpillInfo {
+        int frameOffset;  // offset within frame (for .local / sta.fp / leax.fp)
+        int size;         // 1, 2, or 4 bytes
+    };
+    std::map<std::string, ZpSpillInfo> zpSpilledParams_; // _p_name → frame location
+    bool isZpSpilledParam(const std::string& rName) const { return zpCallMode && zpSpilledParams_.count(rName) > 0; }
 };

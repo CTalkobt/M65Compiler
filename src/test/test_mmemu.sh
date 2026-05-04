@@ -560,6 +560,33 @@ else
     fi
 fi
 
+echo "Testing zpCall convention (-fzpcall): param passing, address-of spill, nested calls..."
+
+$CC -fzpcall src/test-resources/mmemu_zpcall.c -o build/test/mmemu_zpcall.s
+if [ $? -ne 0 ]; then
+    echo "FAIL: Compilation failed for mmemu_zpcall.c"
+    failed=$((failed + 1))
+else
+    $AS build/test/mmemu_zpcall.s -o build/test/mmemu_zpcall.prg
+    if [ $? -ne 0 ]; then
+        echo "FAIL: Assembly failed for mmemu_zpcall.s"
+        failed=$((failed + 1))
+    else
+        OUTPUT=$(echo -e "load build/test/mmemu_zpcall.prg\nsetpc \$2000\nstep 2000\nm \$4000 5\nq" | $MMEMU -m rawMega65 2>/dev/null)
+
+        # Expected: 0A=add(3,7), 2A 00=addr_of_test(99)→42, 23=outer(5,20)→35, FF=sentinel
+        if echo "$OUTPUT" | grep -q "4000: 0A 2A 00 23 FF"; then
+            echo "SUCCESS: zpCall tests passed."
+        else
+            echo "FAIL: zpCall test validation failed."
+            echo "Expected at \$4000: 0A 2A 00 23 FF"
+            echo "Actual output:"
+            echo "$OUTPUT" | grep "4000:"
+            failed=$((failed + 1))
+        fi
+    fi
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All mmemu tests passed!"
     exit 0
