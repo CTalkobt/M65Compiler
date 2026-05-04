@@ -377,6 +377,17 @@ int main(int argc, char** argv) {
     std::map<std::string, std::string> initialSymbols;
     std::vector<std::string> includePaths;
 
+    // Add paths from CC45_INCLUDE environment variable
+    if (const char* envInc = std::getenv("CC45_INCLUDE")) {
+        std::string s(envInc);
+        size_t pos = 0, found;
+        while ((found = s.find(':', pos)) != std::string::npos) {
+            if (found > pos) includePaths.push_back(s.substr(pos, found - pos));
+            pos = found + 1;
+        }
+        if (pos < s.size()) includePaths.push_back(s.substr(pos));
+    }
+
     // Add default system include path relative to the binary location
     {
         std::string exePath = argv[0];

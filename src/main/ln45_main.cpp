@@ -1,4 +1,5 @@
 #include <iostream>
+#include <cstdlib>
 #include <fstream>
 #include <vector>
 #include <string>
@@ -17,6 +18,7 @@ static void printUsage(const char* progName) {
     std::cout << "  -d <addr>      Set data segment base address (hex; default: after text)" << std::endl;
     std::cout << "  -b <addr>      Set BSS segment base address (hex; default: after data)" << std::endl;
     std::cout << "  -z <addr>      Set zero page base address (hex; default: 02)" << std::endl;
+    std::cout << "  -L <dir>       Add library search path" << std::endl;
     std::cout << "  -l <lib.lib>   Link against a library archive (selective linking)" << std::endl;
     std::cout << "  -m             Print linker map (symbol addresses) after linking" << std::endl;
     std::cout << "  -M <file>      Write detailed linker map file (segments, objects, symbols)" << std::endl;
@@ -41,6 +43,18 @@ int main(int argc, char** argv) {
     uint32_t zpBase = 0;   bool zpBaseSet = false;
     std::vector<std::string> inputFiles;
     std::vector<std::string> libFiles;
+    std::vector<std::string> libSearchPaths;
+
+    // Add paths from CC45_LIB environment variable
+    if (const char* envLib = std::getenv("CC45_LIB")) {
+        std::string s(envLib);
+        size_t pos = 0, found;
+        while ((found = s.find(':', pos)) != std::string::npos) {
+            if (found > pos) libSearchPaths.push_back(s.substr(pos, found - pos));
+            pos = found + 1;
+        }
+        if (pos < s.size()) libSearchPaths.push_back(s.substr(pos));
+    }
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -51,6 +65,7 @@ int main(int argc, char** argv) {
         else if (arg == "-basic") { isBasic = true; isPrg = true; }
         else if (arg == "-m") { printMap = true; }
         else if (arg == "-M" && i + 1 < argc) { mapFile = argv[++i]; }
+        else if (arg == "-L" && i + 1 < argc) { libSearchPaths.push_back(argv[++i]); }
         else if (arg == "-l" && i + 1 < argc) { libFiles.push_back(argv[++i]); }
         else if (arg == "-t" && i + 1 < argc) { textBase = parseAddr(argv[++i]); textBaseSet = true; }
         else if (arg == "-d" && i + 1 < argc) { dataBase = parseAddr(argv[++i]); dataBaseSet = true; }
@@ -112,9 +127,26 @@ int main(int argc, char** argv) {
 
     // Load libraries
     for (const auto& libname : libFiles) {
-        std::ifstream in(libname, std::ios::binary);
+        // Try the path as given first, then search CC45_LIB / -L directories
+        std::string resolvedLib = libname;
+        {
+            std::ifstream test(resolvedLib, std::ios::binary);
+            if (!test.is_open()) {
+                bool found = false;
+                for (const auto& dir : libSearchPaths) {
+                    std::string candidate = dir + "/" + libname;
+                    std::ifstream t(candidate, std::ios::binary);
+                    if (t.is_open()) { resolvedLib = candidate; found = true; break; }
+                }
+                if (!found) {
+                    std::cerr << "ln45: cannot find library " << libname << std::endl;
+                    return 1;
+                }
+            }
+        }
+        std::ifstream in(resolvedLib, std::ios::binary);
         if (!in.is_open()) {
-            std::cerr << "ln45: cannot open library " << libname << std::endl;
+            std::cerr << "ln45: cannot open library " << resolvedLib << std::endl;
             return 1;
         }
         std::vector<uint8_t> data((std::istreambuf_iterator<char>(in)),

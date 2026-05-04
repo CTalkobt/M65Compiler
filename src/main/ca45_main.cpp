@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include "AssemblerLexer.hpp"
@@ -21,6 +22,17 @@ int main(int argc, char** argv) {
     std::map<std::string, uint32_t> predefinedSymbols;
     std::map<std::string, std::string> initialSymbols;
     std::vector<std::string> includePaths;
+
+    // Add paths from CC45_INCLUDE environment variable
+    if (const char* envInc = std::getenv("CC45_INCLUDE")) {
+        std::string s(envInc);
+        size_t pos = 0, found;
+        while ((found = s.find(':', pos)) != std::string::npos) {
+            if (found > pos) includePaths.push_back(s.substr(pos, found - pos));
+            pos = found + 1;
+        }
+        if (pos < s.size()) includePaths.push_back(s.substr(pos));
+    }
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];

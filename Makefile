@@ -25,7 +25,13 @@ CA_OBJECTS = $(OBJ_DIR)/ca45_main.o $(OBJ_DIR)/AssemblerLexer.o $(OBJ_DIR)/Assem
 
 MAN_DIR = man
 
-.PHONY: all clean test man test-mmemu test-zpcall lib
+PREFIX ?= /usr/local
+BINDIR ?= $(PREFIX)/bin
+LIBDIR ?= $(PREFIX)/lib/cc45
+INCDIR ?= $(PREFIX)/include/cc45
+MANDIR ?= $(PREFIX)/share/man/man1
+
+.PHONY: all clean test man test-mmemu test-zpcall lib install install_local uninstall
 
 NM_OBJECTS = $(OBJ_DIR)/nm45_main.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o
 LN_OBJECTS = $(OBJ_DIR)/ln45_main.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o
@@ -34,7 +40,7 @@ OD_OBJECTS = $(OBJ_DIR)/objdump45_main.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Wr
 
 all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET) $(NM_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET)
 
-man: $(MAN_DIR)/cc45.1 $(MAN_DIR)/ca45.1
+man: $(MAN_DIR)/cc45.1 $(MAN_DIR)/ca45.1 $(MAN_DIR)/cp45.1 $(MAN_DIR)/ln45.1 $(MAN_DIR)/nm45.1 $(MAN_DIR)/ar45.1 $(MAN_DIR)/objdump45.1
 
 $(MAN_DIR)/%.1: doc/%.md
 	@mkdir -p $(MAN_DIR)
@@ -145,3 +151,29 @@ $(OBJ_DIR)/test_o45.o: src/test/test_o45.cpp
 
 test-o45: $(TEST_O45_TARGET)
 	@$(TEST_O45_TARGET)
+
+install: all lib
+	install -d $(DESTDIR)$(BINDIR)
+	install -m 755 $(CC_TARGET) $(CA_TARGET) $(NM_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DESTDIR)$(BINDIR)
+	ln -sf cc45 $(DESTDIR)$(BINDIR)/cp45
+	install -d $(DESTDIR)$(LIBDIR)
+	install -m 644 lib/build/c45.lib lib/build/c45_zp.lib $(DESTDIR)$(LIBDIR)
+	install -d $(DESTDIR)$(INCDIR)
+	install -m 644 lib/include/*.h $(DESTDIR)$(INCDIR)
+	install -d $(DESTDIR)$(MANDIR)
+	if [ -d $(MAN_DIR) ] && ls $(MAN_DIR)/*.1 >/dev/null 2>&1; then \
+		install -m 644 $(MAN_DIR)/*.1 $(DESTDIR)$(MANDIR); \
+	fi
+
+install_local:
+	@$(MAKE) install PREFIX=$(HOME)/.local
+
+uninstall:
+	rm -f $(DESTDIR)$(BINDIR)/cc45 $(DESTDIR)$(BINDIR)/ca45 $(DESTDIR)$(BINDIR)/cp45
+	rm -f $(DESTDIR)$(BINDIR)/nm45 $(DESTDIR)$(BINDIR)/ln45 $(DESTDIR)$(BINDIR)/ar45
+	rm -f $(DESTDIR)$(BINDIR)/objdump45
+	rm -rf $(DESTDIR)$(LIBDIR)
+	rm -rf $(DESTDIR)$(INCDIR)
+	rm -f $(DESTDIR)$(MANDIR)/cc45.1 $(DESTDIR)$(MANDIR)/ca45.1 $(DESTDIR)$(MANDIR)/cp45.1
+	rm -f $(DESTDIR)$(MANDIR)/ln45.1 $(DESTDIR)$(MANDIR)/nm45.1 $(DESTDIR)$(MANDIR)/ar45.1
+	rm -f $(DESTDIR)$(MANDIR)/objdump45.1

@@ -72,6 +72,28 @@ For a full list of command-line options, use the `-?` flag:
 ./bin/nm45 -?
 ```
 
+## Installation
+
+Install the toolchain binaries, standard library, C headers, and man pages:
+
+```bash
+make install                          # Install to /usr/local (may need sudo)
+make install_local                    # Install to ~/.local
+make install PREFIX=/opt/mega65       # Install to a custom prefix
+make uninstall                        # Remove installed files
+```
+
+The install targets build everything (including `lib`) automatically. Installed layout:
+
+| Component | Path |
+|-----------|------|
+| Binaries | `$(PREFIX)/bin/` |
+| Libraries (`c45.lib`, `c45_zp.lib`) | `$(PREFIX)/lib/cc45/` |
+| C headers | `$(PREFIX)/include/cc45/` |
+| Man pages | `$(PREFIX)/share/man/man1/` |
+
+After `make install_local`, ensure `~/.local/bin` is on your `PATH`.
+
 ## Documentation
 In addition to the Markdown files in the `doc/` directory, you can generate and view standard Unix man pages for both tools:
 
