@@ -1693,8 +1693,10 @@ void CodeGenerator::visit(VariableDeclaration& node) {
                     }
                     if (size == 4) {
                         // Store AXYZ to frame slot byte-by-byte
+                        // Note: sta.fp does TSX which clobbers X, so save X first
+                        emit("stx __zp_scratch");
                         emit("sta.fp " + std::to_string(frameOff));
-                        emit("txa"); emit("sta.fp " + std::to_string(frameOff + 1));
+                        emit("lda __zp_scratch"); emit("sta.fp " + std::to_string(frameOff + 1));
                         emit("tya"); emit("sta.fp " + std::to_string(frameOff + 2));
                         emit("tza"); emit("sta.fp " + std::to_string(frameOff + 3));
                     } else if (size == 2) {
@@ -2419,9 +2421,9 @@ void CodeGenerator::visit(Assignment& node) {
                 emit("stq " + rName);
             } else {
                 emit("sta.sp " + rName);
-                emit("stx " + rName + "+1, s");
-                emit("pha"); emit("tya"); emit("sta " + rName + "+2, s"); emit("pla");
-                emit("pha"); emit("tza"); emit("sta " + rName + "+3, s"); emit("pla");
+                emit("pha"); emit("txa"); emit("sta.sp " + rName + "+1"); emit("pla");
+                emit("pha"); emit("tya"); emit("sta.sp " + rName + "+2"); emit("pla");
+                emit("pha"); emit("tza"); emit("sta.sp " + rName + "+3"); emit("pla");
             }
             invalidateRegs();
         } else if (is16) {
@@ -2774,24 +2776,60 @@ void CodeGenerator::visit(BinaryOperation& node) {
             if (lhsType.isSigned) emit("sxt.16"); // sign-extend AX → AXYZ
             else { emit("ldy #$00"); emit("ldz #$00"); } // zero-extend
         }
+
+        // Check if right side has a call (zpCall mode ZP clobber protection)
+        bool rightHasCall32 = false;
+        if (zpCallMode) {
+            CallCollector cc;
+            node.right->accept(cc);
+            rightHasCall32 = !cc.calledFunctions.empty();
+        }
+
         int zpIdx = allocateZP(4);
         std::stringstream ss;
         ss << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpIdx);
-        emit("stq $" + ss.str());  // save left operand to ZP
-        node.right->accept(*this);
-        resultNeeded = oldNeeded;
-        // Widen right operand to 32-bit if needed
-        if (!is32BitType(rhsType.type) || rhsType.pointerLevel > 0) {
-            if (rhsType.isSigned) emit("sxt.16");
-            else { emit("ldy #$00"); emit("ldz #$00"); }
-        }
 
-        if (node.op == "+" || node.op == "&" || node.op == "|" || node.op == "^") {
-            // Commutative ops: right is in AXYZ, left in ZP — use native Q ops
+        if (rightHasCall32 && (node.op == "+" || node.op == "&" || node.op == "|" || node.op == "^")) {
+            // Commutative 32-bit op with call on right: save left to stack,
+            // evaluate right, store right to ZP, restore left to AXYZ, then op.
+            emit("phz"); emit("phy"); emit("phx"); emit("pha");
+            for (const auto& varName : currentVars) {
+                emit(".var " + varName + " = " + varName + " + 4");
+            }
+            node.right->accept(*this);
+            resultNeeded = oldNeeded;
+            if (!is32BitType(rhsType.type) || rhsType.pointerLevel > 0) {
+                if (rhsType.isSigned) emit("sxt.16");
+                else { emit("ldy #$00"); emit("ldz #$00"); }
+            }
+            // AXYZ = right. Store to ZP (call done, ZP stable).
+            emit("stq $" + ss.str());
+            // Pop left from stack
+            emit("pla"); emit("plx"); emit("ply"); emit("plz");
+            for (const auto& varName : currentVars) {
+                emit(".var " + varName + " = " + varName + " - 4");
+            }
+            // AXYZ = left, zpIdx = right. Commutative op:
             if (node.op == "+") { emit("clc"); emit("adcq $" + ss.str()); }
             else if (node.op == "&") emit("andq $" + ss.str());
             else if (node.op == "|") emit("oraq $" + ss.str());
             else if (node.op == "^") emit("eorq $" + ss.str());
+        } else {
+            emit("stq $" + ss.str());  // save left operand to ZP
+            node.right->accept(*this);
+            resultNeeded = oldNeeded;
+            // Widen right operand to 32-bit if needed
+            if (!is32BitType(rhsType.type) || rhsType.pointerLevel > 0) {
+                if (rhsType.isSigned) emit("sxt.16");
+                else { emit("ldy #$00"); emit("ldz #$00"); }
+            }
+
+            if (node.op == "+" || node.op == "&" || node.op == "|" || node.op == "^") {
+                // Commutative ops: right is in AXYZ, left in ZP — use native Q ops
+                if (node.op == "+") { emit("clc"); emit("adcq $" + ss.str()); }
+                else if (node.op == "&") emit("andq $" + ss.str());
+                else if (node.op == "|") emit("oraq $" + ss.str());
+                else if (node.op == "^") emit("eorq $" + ss.str());
         } else {
             // Non-commutative: need left in AXYZ, right in ZP
             int zpRight = allocateZP(4);
@@ -2861,15 +2899,55 @@ void CodeGenerator::visit(BinaryOperation& node) {
         }
         invalidateFlags();
         freeZP(zpIdx, 4);
+        }
     } else {
 
     // --- 16-bit code path (original) ---
+    // In zpCall mode, check if the right side contains a function call.
+    // If so, the left operand must be saved to the stack (not ZP) because
+    // the callee will clobber the same ZP slots during recursion/nested calls.
+    bool rightHasCall = false;
+    if (zpCallMode) {
+        CallCollector cc;
+        node.right->accept(cc);
+        rightHasCall = !cc.calledFunctions.empty();
+    }
+
     int zpIdx = allocateZP(2);
     std::stringstream ss;
     ss << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpIdx);
-    emit("stax $" + ss.str());
-    node.right->accept(*this);
-    resultNeeded = oldNeeded;
+
+    if (rightHasCall) {
+        // In zpCall mode, the right side contains a function call that will
+        // clobber ZP temps. Save left to stack (safe across calls), evaluate
+        // right, then restore left to ZP (call is done, ZP is stable now).
+        emitter->push_ax();  // left → stack (safe across call)
+        for (const auto& varName : currentVars) {
+            emit(".var " + varName + " = " + varName + " + 2");
+        }
+        node.right->accept(*this);
+        resultNeeded = oldNeeded;
+        // AX = right result. Call is done — ZP is now stable.
+        // Save right to zpIdx temporarily, pop left, then swap.
+        std::string zpLo = zpHex(emitter->getZP(zpIdx));
+        std::string zpHi = zpHex(emitter->getZP(zpIdx) + 1);
+        emit("stax " + zpLo);          // zpIdx = right (temporarily)
+        emitter->pop_ax();              // AX = left (from stack)
+        for (const auto& varName : currentVars) {
+            emit(".var " + varName + " = " + varName + " - 2");
+        }
+        // Now AX = left, zpIdx = right. Swap: zpIdx ← left, AX ← right.
+        emit("ldy " + zpLo);           // Y = right_lo
+        emit("sta " + zpLo);           // zpIdx_lo = left_lo
+        emit("lda " + zpHi);           // A = right_hi
+        emit("stx " + zpHi);           // zpIdx_hi = left_hi
+        emit("tax");                    // X = right_hi
+        emit("tya");                    // A = right_lo
+    } else {
+        emit("stax $" + ss.str());
+        node.right->accept(*this);
+        resultNeeded = oldNeeded;
+    }
     if (scale > 1) {
         emitter->asl_a(); emitter->pha(); emitter->txa(); emitter->rol_a(); emitter->tax(); emitter->pla();
     }
@@ -3996,12 +4074,12 @@ void CodeGenerator::visit(VariableReference& node) {
             emit("ldq " + rName);
         } else {
             // Stack-relative: byte-by-byte load into AXYZ
-            // Load hi bytes via lda.sp+transfer (each lda.sp does its own TSX).
+            // Load hi bytes via lda.sp+offset (each lda.sp does its own TSX).
             // Load byte 1→X last (just before final lda.sp for byte 0)
             // because lda.sp clobbers X via TSX.
-            emit("lda " + rName + "+3, s"); emit("taz");
-            emit("lda " + rName + "+2, s"); emit("tay");
-            emit("lda " + rName + "+1, s"); emit("sta __zp_scratch");
+            emit("lda.sp " + rName + "+3"); emit("taz");
+            emit("lda.sp " + rName + "+2"); emit("tay");
+            emit("lda.sp " + rName + "+1"); emit("sta __zp_scratch");
             emit("lda.sp " + rName);
             emit("ldx __zp_scratch");
         }

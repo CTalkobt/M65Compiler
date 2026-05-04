@@ -774,7 +774,14 @@ void AssemblerSimulatedOps::emitPtrStackCode(AssemblerParser* parser, M65Emitter
 void AssemblerSimulatedOps::emitPtrDerefCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
     std::string src = parser->tokens[tokenIndex].value; if (parser->tokens[tokenIndex].type == AssemblerTokenType::REGISTER) src = "." + src;
     Symbol* sym = parser->resolveSymbol(src, scopePrefix); uint32_t addr = 0; if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(src); } catch(...) { addr = 0; } }
-    e.ldy_imm(0); e.lda_ind_z(addr, false); e.pha(); e.ldy_imm(1); e.lda_ind_z(addr, false); e.tax(); e.pla();
+    // Load 16-bit value from address pointed to by ZP pair at addr/addr+1
+    // LDY #0; LDA ($addr),Y → lo byte; PHA; LDY #1; LDA ($addr),Y → hi byte; TAX; PLA
+    e.ldy_imm(0);
+    e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
+    e.pha();
+    e.ldy_imm(1);
+    e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
+    e.tax(); e.pla();
 }
 
 void AssemblerSimulatedOps::emitFillCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix, bool forceStack) {

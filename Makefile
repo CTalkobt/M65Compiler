@@ -25,7 +25,7 @@ CA_OBJECTS = $(OBJ_DIR)/ca45_main.o $(OBJ_DIR)/AssemblerLexer.o $(OBJ_DIR)/Assem
 
 MAN_DIR = man
 
-.PHONY: all clean test man test-mmemu lib
+.PHONY: all clean test man test-mmemu test-zpcall lib
 
 NM_OBJECTS = $(OBJ_DIR)/nm45_main.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o
 LN_OBJECTS = $(OBJ_DIR)/ln45_main.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o
@@ -118,6 +118,9 @@ test-cast-fold: all
 
 test-mmemu: all
 	@bash src/test/test_mmemu.sh
+
+test-zpcall: all
+	@bash src/test/test_zpcall.sh
 
 test-objdump45: all
 	@bash src/test/test_objdump45.sh
