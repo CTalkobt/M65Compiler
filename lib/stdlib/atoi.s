@@ -14,13 +14,17 @@
 
 proc _atoi, W#_p_s
     .var _fp = 0
-    ldax _p_s, s
-    stax $02            ; $02/$03 = string pointer
+    ; Save ZP $02-$05 to stack (compiler pool)
+    lda $02: pha
+    lda $03: pha
+    lda $04: pha
+    lda $05: pha
+
     ldy #0
 
     ; --- Skip leading whitespace ---
 @skipws:
-    lda ($02),y
+    lda (_p_s+4, sp), y    ; load from string via stack-relative indirect
     cmp #$20            ; space
     beq @skipnext
     cmp #$09
@@ -35,10 +39,10 @@ proc _atoi, W#_p_s
 
     ; --- Check for sign ---
 @checksign:
-    stz $06             ; $06 = sign flag (0=positive)
+    stz $04             ; $04 = sign flag (0=positive)
     cmp #$2d            ; '-'
     bne @checkplus
-    inc $06             ; mark negative
+    inc $04             ; mark negative
     iny
     bra @startnum
 @checkplus:
@@ -47,24 +51,25 @@ proc _atoi, W#_p_s
     iny
 @startnum:
     ; --- Initialize result = 0 ---
-    stz $04             ; $04/$05 = result (lo/hi)
-    stz $05
+    lda #0
+    sta $02             ; $02/$03 = result (lo/hi)
+    sta $03
 
     ; --- Parse digits ---
 @digit:
-    lda ($02),y
+    lda (_p_s+4, sp), y
     sec
     sbc #$30            ; subtract '0'
     bcc @done           ; < '0'
     cmp #10
     bcs @done           ; > '9'
-    sta $07             ; $07 = current digit
+    sta $05             ; $05 = current digit
 
     ; result = result * 10: use hardware multiplier
     ; $D770 = multiplicand, $D774 = multiplier, product at $D778
-    lda $04
+    lda $02
     sta $d770
-    lda $05
+    lda $03
     sta $d771
     lda #0
     sta $d772
@@ -77,42 +82,52 @@ proc _atoi, W#_p_s
     sta $d777
     ; Read 16-bit product
     lda $d778
-    sta $04
+    sta $02
     lda $d779
-    sta $05
+    sta $03
 
     ; result += digit
-    lda $04
+    lda $02
     clc
-    adc $07
-    sta $04
-    lda $05
+    adc $05
+    sta $02
+    lda $03
     adc #0
-    sta $05
+    sta $03
 
     iny
     bne @digit
-    ; Y overflow — unlikely for valid input but safe to stop
 
 @done:
     ; Check sign flag
-    lda $06
+    lda $04
     beq @positive
     ; Negate: result = 0 - result
     sec
     lda #0
-    sbc $04
-    sta $04
+    sbc $02
+    sta $02
     lda #0
-    sbc $05
-    sta $05
+    sbc $03
+    sta $03
 @positive:
-    lda $04
-    ldx $05
-    rtn #0
+    lda $02
+    ldx $03
+    bra @restore
 
 @retzero:
     lda #0
     ldx #0
-    rtn #0
+@restore:
+    ; Restore ZP $02-$05 from stack using Z as scratch.
+    ; A and X (return value) are preserved as PLZ only affects Z and flags.
+    plz
+    stz $05
+    plz
+    stz $04
+    plz
+    stz $03
+    plz
+    stz $02
+    rts
     endproc

@@ -94,6 +94,10 @@ proc _itoa
     sta $d766
     sta $d767
 
+@waitdiv:
+    lda $d7fe
+    bmi @waitdiv
+
     ; Convert remainder to character
     lda $d770
     cmp #10

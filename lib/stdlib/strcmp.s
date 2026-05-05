@@ -11,33 +11,58 @@
 
 proc _strcmp, W#_p_s1, W#_p_s2
     .var _fp = 0
-    ldax _p_s1, s
+    ; Save ZP $02-$04 to stack
+    lda $02: pha
+    lda $03: pha
+    lda $04: pha
+
+    ldax _p_s1+3, s
     stax $02
-    ldax _p_s2, s
-    stax $04
     ldy #0
 @loop:
-    lda ($02),y
-    cmp ($04),y
+    lda ($02),y         ; load from s1
+    sta $04             ; temporary scratch
+    lda (_p_s2+3, sp), y   ; load from s2
+    cmp $04
     bne @diff
     ; both equal — check if NUL
-    lda ($02),y
+    cmp #0
     beq @equal
     iny
     bne @loop
     inc $03
-    inc $05
+    ; increment s2 pointer on stack for wrap
+    clc
+    lda _p_s2+3, s
+    adc #0 ; y already 0 here
+    sta _p_s2+3, s
+    lda _p_s2+4, s
+    adc #1
+    sta _p_s2+4, s
     bra @loop
 @equal:
     ldax #$0000
-    rtn #0
+    bra @restore
 @diff:
+    ; A = s2 byte, $04 = s1 byte. We want s1 - s2.
+    ; CMP calculates Accumulator - operand.
+    ; If we do LDA s1_byte; CMP s2_byte, we get s1 - s2.
+    sta $03 ; save s2 byte
+    lda $04 ; load s1 byte
+    cmp $03 ; s1 - s2
     bcs @greater
-    ; s1 < s2: return -1 (0xFFFF)
+    ; s1 < s2
     ldax #$FFFF
-    rtn #0
+    bra @restore
 @greater:
-    ; s1 > s2: return 1
     ldax #$0001
-    rtn #0
+@restore:
+    ; Return AX is preserved (PLZ doesn't touch A/X).
+    plz
+    stz $04
+    plz
+    stz $03
+    plz
+    stz $02
+    rts
     endproc

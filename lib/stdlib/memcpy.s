@@ -11,31 +11,40 @@
 
 proc _memcpy, W#_p_dest, W#_p_src, W#_p_n
     .var _fp = 0
-    ldax _p_dest, s
+    ; Save ZP $02-$03 to stack
+    lda $02: pha
+    lda $03: pha
+
+    ldax _p_dest+2, s
     stax $02
-    ldax _p_src, s
-    stax $04
-    ldax _p_n, s
-    stax $06            ; $06/$07 = count
     ldy #0
 @loop:
-    lda $06
-    ora $07
+    lda _p_n+2, s
+    bne @do_copy
+    lda _p_n+3, s
     beq @done
-    lda ($04),y
-    sta ($02),y
+@do_copy:
+    lda (_p_src+2, sp), y   ; load from src via stack-relative indirect
+    sta ($02),y         ; store to dest
     iny
     bne @no_inc
     inc $03
-    inc $05
+    ; increment src high byte on stack
+    inc _p_src+3, s
 @no_inc:
-    lda $06
+    ; decrement count in-place on stack
+    lda _p_n+2, s
     bne @dec_lo
-    dec $07
+    dec _p_n+3, s
 @dec_lo:
-    dec $06
+    dec _p_n+2, s
     bra @loop
 @done:
-    ldax _p_dest, s
-    rtn #0
+    ; Restore ZP
+    plz
+    stz $03
+    plz
+    stz $02
+    ldax _p_dest+2, s     ; memcpy returns dest
+    rts
     endproc

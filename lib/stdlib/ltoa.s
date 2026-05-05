@@ -10,7 +10,7 @@
 ;   then pop them into the output buffer in correct order.
 ;
 ;   Uses MEGA65 hardware divider at $D760-$D773.
-;   ZP usage: $0B-$13 (avoids compiler ZP pool at $02-$0A)
+;   ZP usage: $02-$08 (saved/restored to stack)
 
 .global _ltoa
 .extern __sp_base
@@ -19,98 +19,115 @@
 
 proc _ltoa, D#_p_value, W#_p_str, W#_p_base
     .var _fp = 0
+    ; Save ZP $02-$08
+    lda $02
+    pha
+    lda $03
+    pha
+    lda $04
+    pha
+    lda $05
+    pha
+    lda $06
+    pha
+    lda $07
+    pha
+    lda $08
+    pha
 
-    ldax _p_str, s
-    stax $0b            ; $0b/$0c = output pointer (avoid __zp_scratch at $02)
-    ; Load 32-bit value into $04-$07
-    lda _p_value, s
-    sta $0d
-    lda _p_value+1, s
-    sta $0e
-    lda _p_value+2, s
-    sta $0f
-    lda _p_value+3, s
-    sta $10
-    ldax _p_base, s
-    stax $11            ; $08/$09 = base
+    ; Load 32-bit value into $02-$05
+    lda _p_value+7, s
+    sta $02
+    lda _p_value+8, s
+    sta $03
+    lda _p_value+9, s
+    sta $04
+    lda _p_value+10, s
+    sta $05
+    ldax _p_base+7, s
+    stax $06
 
-    stz $13             ; $0a = digit count on stack
+    stz $08             ; digit count on stack
     ldy #0              ; Y = write index into output
 
     ; --- Validate base (2-36) ---
-    lda $12
+    lda $07
     bne @valid          ; high byte nonzero => base >= 256, ok
-    lda $11
+    lda $06
     cmp #2
     bcs @valid
     ; base < 2: write "0\0" and return
     lda #$30
-    sta ($0b),y
+    sta (_p_str+7, sp),y
     iny
     lda #0
-    sta ($0b),y
-    ldax _p_str, s
-    rtn #0
+    sta (_p_str+7, sp),y
+    ldax _p_str+7, s
+    bra @restore
 
 @valid:
     ; --- Handle negative for base 10 only ---
-    lda $11
+    lda $06
     cmp #10
     bne @poscheck
-    lda $12
+    lda $07
     bne @poscheck
     ; base == 10: check sign bit (byte 3)
-    lda $10
+    lda $05
     bpl @poscheck
     ; Negative: write '-' and negate 32-bit value
     lda #$2d
-    sta ($0b),y
+    sta (_p_str+7, sp),y
     iny
     sec
     lda #0
-    sbc $0d
-    sta $0d
+    sbc $02
+    sta $02
     lda #0
-    sbc $0e
-    sta $0e
+    sbc $03
+    sta $03
     lda #0
-    sbc $0f
-    sta $0f
+    sbc $04
+    sta $04
     lda #0
-    sbc $10
-    sta $10
+    sbc $05
+    sta $05
 @poscheck:
 
     ; --- Check for zero ---
-    lda $0d
-    ora $0e
-    ora $0f
-    ora $10
+    lda $02
+    ora $03
+    ora $04
+    ora $05
     bne @extract
     lda #$30
-    sta ($0b),y
+    sta (_p_str+7, sp),y
     iny
     bra @nulterm
 
     ; --- Extract digits: divide 32-bit value by base ---
 @extract:
     ; Dividend: $D760-$D763 (32-bit)
-    lda $0d
+    lda $02
     sta $d760
-    lda $0e
+    lda $03
     sta $d761
-    lda $0f
+    lda $04
     sta $d762
-    lda $10
+    lda $05
     sta $d763
     ; Divisor: $D764-$D767 (base, 16-bit zero-extended)
-    lda $11
+    lda $06
     sta $d764
-    lda $12
+    lda $07
     sta $d765
     lda #0
     sta $d766
     sta $d767
+
+@waitdiv:
+    lda $d7fe
+    bmi @waitdiv
 
     ; Convert remainder ($D770) to character
     lda $d770
@@ -126,36 +143,52 @@ proc _ltoa, D#_p_value, W#_p_str, W#_p_base
     adc #$41            ; PETSCII lowercase 'a'
 @pushdig:
     pha                 ; push digit char onto hardware stack
-    inc $13             ; count it
+    inc $08             ; count it
 
     ; Quotient ($D768-$D76B) becomes new value
     lda $d768
-    sta $0d
+    sta $02
     lda $d769
-    sta $0e
+    sta $03
     lda $d76a
-    sta $0f
+    sta $04
     lda $d76b
-    sta $10
+    sta $05
 
     ; Continue while value != 0
-    ora $0d
-    ora $0e
-    ora $0f
+    ora $02
+    ora $03
+    ora $04
     bne @extract
 
     ; --- Pop digits into output buffer (correct order) ---
 @poploop:
     pla
-    sta ($0b),y
+    sta (_p_str+7, sp),y
     iny
-    dec $13
+    dec $08
     bne @poploop
 
 @nulterm:
     lda #0
-    sta ($0b),y
+    sta (_p_str+7, sp),y
 
-    ldax _p_str, s
-    rtn #0
+    ldax _p_str+7, s
+@restore:
+    ; Return value in AX preserved (PLZ doesn't touch A/X).
+    plz
+    stz $08
+    plz
+    stz $07
+    plz
+    stz $06
+    plz
+    stz $05
+    plz
+    stz $04
+    plz
+    stz $03
+    plz
+    stz $02
+    rts
     endproc

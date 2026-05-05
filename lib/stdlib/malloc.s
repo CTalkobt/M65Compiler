@@ -29,8 +29,22 @@ __bss_end = 0
 ; void *malloc(size_t size)
 ; -----------------------------------------------------------------------------
 proc _malloc, W#_p_size
+    .var _fp = 0
+    ; Save ZP $02-$0B to stack
+    lda $02: pha
+    lda $03: pha
+    lda $04: pha
+    lda $05: pha
+    lda $06: pha
+    lda $07: pha
+    lda $08: pha
+    lda $09: pha
+    lda $0a: pha
+    lda $0b: pha
+    ; Total stack shift for params = 10
+
     ; 1. Adjust size: add 2-byte header, align to 2 bytes, min 4 bytes.
-    ldax _p_size, s
+    ldax _p_size+10, s
     ora #0
     bne @non_zero
     txa
@@ -41,7 +55,7 @@ proc _malloc, W#_p_size
     clc
     adc #2              ; + header
     tax
-    lda _p_size+1, s
+    lda _p_size+11, s
     adc #0
     tay
     
@@ -55,8 +69,8 @@ proc _malloc, W#_p_size
     bcs @size_ok
     ldx #4              ; Min size 4
 @size_ok:
-    stx $08             ; Req size low
-    sty $09             ; Req size high
+    stx $08             ; $08/$09 = req_size
+    sty $09
 
     ; 2. Ensure initialized
     lda __heap_ptr
@@ -93,7 +107,7 @@ proc _malloc, W#_p_size
     bcc @next
 
 @found:
-    ; Found a block! (Y:X) = current size, ($09:$08) = req size.
+    ; Found a block! (Y:X) = current size.
     ; Check for split: remainder >= 4?
     txa
     sec
@@ -121,7 +135,7 @@ proc _malloc, W#_p_size
     sta $06
     lda $03
     adc $09
-    sta $07
+    sta $07             ; $06/$07 = new_free
     
     ; new_free->size = remainder
     ldy #0
@@ -197,7 +211,7 @@ proc _malloc, W#_p_size
     tax
     lda $03
     adc #0
-    rtn #0
+    bra @restore
 
 @next:
     ; prev = curr
@@ -213,20 +227,66 @@ proc _malloc, W#_p_size
     lda ($02),y
     stx $02
     sta $03
-    ora $02
+    txa
+    ora $03
     bne @loop
 
 @fail:
     lda #0
     tax
-    rtn #0
+@restore:
+    ; Return AX preserved; PLZ only clobbers Z/flags.
+    plz
+    stz $0b
+    plz
+    stz $0a
+    plz
+    stz $09
+    plz
+    stz $08
+    plz
+    stz $07
+    plz
+    stz $06
+    plz
+    stz $05
+    plz
+    stz $04
+    plz
+    stz $03
+    plz
+    stz $02
+    rts
     endproc
 
 ; -----------------------------------------------------------------------------
 ; void free(void *ptr)
 ; -----------------------------------------------------------------------------
 proc _free, W#_p_ptr
-    ldax _p_ptr, s
+    .var _fp = 0
+    ; Save ZP $02-$0B
+    lda $02
+    pha
+    lda $03
+    pha
+    lda $04
+    pha
+    lda $05
+    pha
+    lda $06
+    pha
+    lda $07
+    pha
+    lda $08
+    pha
+    lda $09
+    pha
+    lda $0a
+    pha
+    lda $0b
+    pha
+
+    ldax _p_ptr+10, s
     ora #0
     bne @not_null
     txa
@@ -238,7 +298,7 @@ proc _free, W#_p_ptr
     bcs @no_dec
     dex
 @no_dec:
-    sta $02             ; $02/$03 = block to free
+    sta $02             ; $02/$03 = block to free (curr)
     stx $03
     
     ; Mark free: curr->size &= ~1
@@ -246,12 +306,12 @@ proc _free, W#_p_ptr
     lda ($02),y
     and #$FE
     sta ($02),y
-    tax                 ; block size low
+    tax                 ; size low
     iny
     lda ($02),y
-    tay                 ; block size high
-    stx $08             ; block size low
-    sty $09             ; block size high
+    tay                 ; size high
+    stx $08             ; $08/$09 = size
+    sty $09
     
     ; Find insertion point in sorted list (prev < curr < next_p)
     stz $04             ; prev = 0
@@ -375,7 +435,9 @@ proc _free, W#_p_ptr
     bne @done
     tya                 ; high size
     adc $05             ; prev address high
-    cmp $03             ; curr address high
+    cmp $07             ; curr address high (was error, should be 17? no, ZP $03 is curr high)
+    ; wait, curr address high is $03
+    cmp $03
     bne @done
     
     ; prev->size += curr->size
@@ -398,13 +460,34 @@ proc _free, W#_p_ptr
     sta ($04),y
 
 @done:
-    rtn #0
+    plz
+    stz $0b
+    plz
+    stz $0a
+    plz
+    stz $09
+    plz
+    stz $08
+    plz
+    stz $07
+    plz
+    stz $06
+    plz
+    stz $05
+    plz
+    stz $04
+    plz
+    stz $03
+    plz
+    stz $02
+    rts
     endproc
 
 ; -----------------------------------------------------------------------------
 ; void *calloc(size_t nmemb, size_t size)
 ; -----------------------------------------------------------------------------
 proc _calloc, W#_p_nmemb, W#_p_size
+    .var _fp = 0
     ldax _p_nmemb, s
     stax $02
     ldax _p_size, s
@@ -421,7 +504,7 @@ proc _calloc, W#_p_nmemb, W#_p_size
     lda $0D
     pha
     lda $0C
-    pha                 ; n (total)
+    pha                 ; n
     phw #0              ; c
     lda $03
     pha
@@ -440,6 +523,7 @@ proc _calloc, W#_p_nmemb, W#_p_size
 ; void *realloc(void *ptr, size_t size)
 ; -----------------------------------------------------------------------------
 proc _realloc, W#_p_ptr, W#_p_size
+    .var _fp = 0
     ; 1. If ptr is NULL, realloc is malloc
     ldax _p_ptr, s
     ora #0
