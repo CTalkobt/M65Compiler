@@ -2,7 +2,6 @@
 
 ## Known Bugs (from root todo.md)
 
-- [ ] **ConstantFolder eliminates branches guarded by reassigned variables**: Lack of `IfStatement` visitor to invalidate constants on branch assignment.
 - [ ] **Assembler simulated op size drift**: Simulated opcodes may produce different sizes in pass 1 vs pass 2 with forward-referenced symbols.
 
 ## Calling Convention Safety

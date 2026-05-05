@@ -406,7 +406,25 @@ public:
                 }
             }
         } else {
-            lastStmt = copyPos(std::make_unique<IfStatement>(std::move(condition), fold(std::move(node.thenBranch)), fold(std::move(node.elseBranch))), node);
+            auto preIfConstants = knownConstants;
+            auto thenBranch = fold(std::move(node.thenBranch));
+            auto postThenConstants = knownConstants;
+
+            knownConstants = preIfConstants;
+            auto elseBranch = node.elseBranch ? fold(std::move(node.elseBranch)) : nullptr;
+            auto postElseConstants = knownConstants;
+
+            knownConstants.clear();
+            for (auto const& [name, info] : postThenConstants) {
+                if (postElseConstants.count(name)) {
+                    auto& other = postElseConstants[name];
+                    if (info.value == other.value && info.type == other.type && 
+                        info.pointerLevel == other.pointerLevel && info.isSigned == other.isSigned) {
+                        knownConstants[name] = info;
+                    }
+                }
+            }
+            lastStmt = copyPos(std::make_unique<IfStatement>(std::move(condition), std::move(thenBranch), std::move(elseBranch)), node);
         }
     }
 
@@ -504,8 +522,6 @@ public:
     }
 
     void visit(CompoundStatement& node) override {
-        auto oldConstants = knownConstants;
-        auto oldVolatile = volatileVars;
         // Track last dead-store-candidate index per variable for elimination.
         // A store is "dead" if a subsequent constant store overwrites it with no
         // intervening read. We conservatively clear all candidates whenever we
@@ -550,8 +566,6 @@ public:
             if (s) filtered.push_back(std::move(s));
         }
         node.statements = std::move(filtered);
-        knownConstants = std::move(oldConstants);
-        volatileVars = std::move(oldVolatile);
     }
 
     void visit(FunctionDeclaration& node) override {
