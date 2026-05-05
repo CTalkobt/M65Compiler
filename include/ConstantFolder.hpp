@@ -11,7 +11,14 @@ public:
     ConstantFolder();
     std::unique_ptr<Expression> lastExpr;
     std::unique_ptr<Statement> lastStmt;
-    std::map<std::string, int> knownConstants;
+    struct ConstantInfo {
+        int value;
+        std::string type;
+        int pointerLevel = 0;
+        bool isSigned = false;
+    };
+    std::map<std::string, ConstantInfo> knownConstants;
+    std::map<std::string, CodeGenerator::VarInfo> variableTypes;
     std::set<std::string> addressEscapedVars; // variables whose address was taken (non-const)
     std::set<std::string> volatileVars;
     std::set<std::string> constVars;        // non-pointer const vars (prevents x = ...)
@@ -52,7 +59,12 @@ public:
 
     void visit(VariableReference& node) override {
         if (knownConstants.count(node.name)) {
-            lastExpr = copyPos(std::make_unique<IntegerLiteral>(knownConstants[node.name]), node);
+            auto& ci = knownConstants[node.name];
+            auto lit = std::make_unique<IntegerLiteral>(ci.value);
+            lit->castType = ci.type;
+            lit->castPointerLevel = ci.pointerLevel;
+            lit->castIsSigned = ci.isSigned;
+            lastExpr = copyPos(std::move(lit), node);
         } else {
             lastExpr = copyPos(std::make_unique<VariableReference>(node.name), node);
         }
@@ -76,7 +88,13 @@ public:
                 if (node.op == "=") {
                     int val = lit->value;
                     if (boolVars.count(ref->name)) { val = (val != 0) ? 1 : 0; lit->value = val; }
-                    knownConstants[ref->name] = val;
+                    
+                    if (variableTypes.count(ref->name)) {
+                        auto& vi = variableTypes[ref->name];
+                        knownConstants[ref->name] = { val, vi.type, vi.pointerLevel, vi.isSigned };
+                    } else {
+                        knownConstants[ref->name] = { val, "int", 0, false };
+                    }
                 } else {
                     knownConstants.erase(ref->name);
                 }
@@ -131,7 +149,29 @@ public:
                 return;
             }
 
-            lastExpr = copyPos(std::make_unique<IntegerLiteral>(result), node);
+            auto lit = std::make_unique<IntegerLiteral>(result);
+            // Type promotion: if either operand is long, the result is long.
+            // If either operand is a pointer, the result is the same pointer type (for +/-).
+            if (leftLit->castType == "long" || rightLit->castType == "long") {
+                lit->castType = "long";
+                lit->castIsSigned = leftLit->castIsSigned || rightLit->castIsSigned;
+            } else if (leftLit->castPointerLevel > 0) {
+                lit->castType = leftLit->castType;
+                lit->castPointerLevel = leftLit->castPointerLevel;
+                lit->castIsSigned = leftLit->castIsSigned;
+            } else if (rightLit->castPointerLevel > 0) {
+                lit->castType = rightLit->castType;
+                lit->castPointerLevel = rightLit->castPointerLevel;
+                lit->castIsSigned = rightLit->castIsSigned;
+            } else if (!leftLit->castType.empty()) {
+                lit->castType = leftLit->castType;
+                lit->castIsSigned = leftLit->castIsSigned;
+            } else if (!rightLit->castType.empty()) {
+                lit->castType = rightLit->castType;
+                lit->castIsSigned = rightLit->castIsSigned;
+            }
+            
+            lastExpr = copyPos(std::move(lit), node);
             return;
         } else {
             lastExpr = copyPos(std::make_unique<BinaryOperation>(node.op, std::move(left), std::move(right)), node);
@@ -172,7 +212,11 @@ public:
                 lastExpr = copyPos(std::make_unique<UnaryOperation>(node.op, std::move(operand)), node);
                 return;
             }
-            lastExpr = copyPos(std::make_unique<IntegerLiteral>(result), node);
+            auto resLit = std::make_unique<IntegerLiteral>(result);
+            resLit->castType = lit->castType;
+            resLit->castPointerLevel = lit->castPointerLevel;
+            resLit->castIsSigned = lit->castIsSigned;
+            lastExpr = copyPos(std::move(resLit), node);
         } else {
             lastExpr = copyPos(std::make_unique<UnaryOperation>(node.op, std::move(operand)), node);
         }
@@ -262,6 +306,19 @@ public:
     void visit(SizeofExpression& node) override;
 
     void visit(VariableDeclaration& node) override {
+        // Track the variable's type even if it's not currently constant
+        CodeGenerator::VarInfo vi;
+        vi.type = node.type;
+        vi.pointerLevel = node.pointerLevel;
+        vi.isSigned = node.isSigned;
+        vi.isVolatile = node.isVolatile;
+        vi.isConst = node.isConst;
+        vi.isPointerConst = node.isPointerConst;
+        vi.arrayDims = node.arrayDims;
+        vi.isFunctionPointer = node.isFunctionPointer;
+        vi.funcPtrSig = node.funcPtrSig;
+        variableTypes[node.name] = vi;
+
         auto alignmentExpr = node.alignmentExpr ? fold(std::move(node.alignmentExpr)) : nullptr;
         if (alignmentExpr) {
             if (auto* lit = dynamic_cast<IntegerLiteral*>(alignmentExpr.get())) {
@@ -282,7 +339,7 @@ public:
             if (auto* lit = dynamic_cast<IntegerLiteral*>(initializer.get())) {
                 int val = lit->value;
                 if (node.type == "_Bool") { val = (val != 0) ? 1 : 0; lit->value = val; }
-                knownConstants[node.name] = val;
+                knownConstants[node.name] = { val, node.type, node.pointerLevel, node.isSigned };
             } else {
                 knownConstants.erase(node.name);
             }
@@ -500,6 +557,19 @@ public:
     void visit(FunctionDeclaration& node) override {
         knownConstants.clear(); // Fresh state for new function
         boolVars.clear();
+        // Record parameter types
+        for (const auto& param : node.parameters) {
+            CodeGenerator::VarInfo vi;
+            vi.type = param.type;
+            vi.pointerLevel = param.pointerLevel;
+            vi.isSigned = param.isSigned;
+            vi.isVolatile = param.isVolatile;
+            vi.isConst = param.isConst;
+            vi.isPointerConst = param.isPointerConst;
+            vi.isFunctionPointer = param.isFunctionPointer;
+            vi.funcPtrSig = param.funcPtrSig;
+            variableTypes[param.name] = vi;
+        }
         // The body is a CompoundStatement, which is modified in-place by its visit method.
         // We just need to call accept on it directly, not fold it via the helper.
         node.body->accept(*this);

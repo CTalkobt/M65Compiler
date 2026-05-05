@@ -1,5 +1,11 @@
 # TODO
 
+## Known Bugs (from root todo.md)
+
+- [I] **`sprintf` with `%ld` produces empty output**: Suspected ZP conflict between compiler-allocated ZP temps ($02-$0A) and ltoa's hardcoded ZP usage.
+- [ ] **ConstantFolder eliminates branches guarded by reassigned variables**: Lack of `IfStatement` visitor to invalidate constants on branch assignment.
+- [ ] **Assembler simulated op size drift**: Simulated opcodes may produce different sizes in pass 1 vs pass 2 with forward-referenced symbols.
+
 ## Calling Convention Safety
 
 ### Per-function convention attribute in .o45
@@ -27,7 +33,6 @@
 - [ ] Conservative fallback for forward refs / extern / indirect calls
 
 ### Phase 3: Emit accurate directives
-- [x] Emit `.reg_clobbers` / `.flag_clobbers` with tracked values (both conventions)
 - [ ] Emit `.func_flags leaf` for leaf functions
 - [ ] Add `.func_flags` directive to assembler
 
@@ -42,13 +47,7 @@
 
 ## 1.0 Blockers
 
-### Correctness
-- [ ] `limits.h` missing from `lib/include/` (documented as done in stdlib.md but file absent)
-- [ ] Stack-relative 32-bit `++`/`--` falls through to generic path (CodeGenerator.cpp:3207) — incorrect for `long` locals on stack
-- [ ] `stddef.h` missing `ptrdiff_t` and `offsetof`
-
 ### Documentation
-- [ ] `doc/stdlib.md` Section 11 stale — claims `static`, `const`, `extern`, function pointers not available (all implemented)
 - [ ] `getchar()` listed in stdlib.md without implementation status; absent from stdio.h
 
 ## 1.0 Should-Fix
@@ -65,16 +64,10 @@
 - [ ] `_Pragma()` currently silently discarded — should convert to `#pragma`
 
 ### Standard Library (minimal C subset)
-- [ ] `limits.h`: `CHAR_BIT`, `CHAR_MAX`, `INT_MAX`, `INT_MIN`, `UINT_MAX`, `LONG_MAX`, etc.
-- [ ] `stddef.h`: `ptrdiff_t`, `offsetof`
 - [ ] `ctype.h`: `isupper`, `islower`, `isxdigit`, `ispunct`, `isblank`, `iscntrl`
 - [ ] `string.h`: `strstr`, `strtok`, `strncat`, `strpbrk`, `strspn`, `strcspn`
 - [ ] `stdlib.h`: `strtol`, `strtoul`
 - [ ] `stdio.h`: `getchar`
-
-### Testing
-- [ ] Wire up orphaned test: `test_preprocessor.c`
-- [ ] Wire up orphaned test: `test_expr_reentrant.c`
 
 ## 1.0 Won't-Fix (Documented Limitations)
 

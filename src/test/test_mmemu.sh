@@ -222,6 +222,7 @@ VALIDATION_TESTS=(
     "test_opt_load_store"
     "test_register"
     "test_variadic"
+    "test_variadic_long"
 )
 
 for name in "${VALIDATION_TESTS[@]}"; do
