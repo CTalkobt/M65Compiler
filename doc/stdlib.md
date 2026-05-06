@@ -53,8 +53,14 @@ All string and memory functions are implemented in hand-written 45GS02 assembly 
 - **`strcmp(char *s1, char *s2)`**: Compare strings, returns -1/0/1. **Implemented.**
 - **`strncmp(char *s1, char *s2, int n)`**: Compare with length limit. **Implemented.**
 - **`strcat(char *dest, char *src)`**: Append src to end of dest. **Implemented.**
+- **`strncat(char *dest, char *src, int n)`**: Append at most `n` characters from src to dest, NUL-terminated. **Implemented.**
 - **`strchr(char *s, int c)`**: Find first occurrence of char. **Implemented.**
 - **`strrchr(char *s, int c)`**: Find last occurrence of char. **Implemented.**
+- **`strstr(char *haystack, char *needle)`**: Find first occurrence of substring. Returns pointer to match or NULL. **Implemented.**
+- **`strpbrk(char *s, char *accept)`**: Find first character in `s` that matches any character in `accept`. **Implemented.**
+- **`strspn(char *s, char *accept)`**: Count leading characters in `s` that are in `accept`. **Implemented.**
+- **`strcspn(char *s, char *reject)`**: Count leading characters in `s` that are NOT in `reject`. **Implemented.**
+- **`strtok(char *s, char *delim)`**: Tokenize string by delimiters. Uses internal static state for subsequent calls with `s=NULL`. **Implemented.**
 
 **Memory functions:**
 - **`memcpy(void *dest, void *src, int n)`**: Copy memory area (no overlap). **Implemented.**
@@ -79,6 +85,12 @@ All character classification and conversion functions are implemented in hand-wr
 - **`isalnum(int c)`**: Returns 1 if digit or letter. **Implemented.**
 - **`isspace(int c)`**: Returns 1 if `$20` (space) or `$09`–`$0D` (tab, LF, VT, FF, CR). **Implemented.**
 - **`isprint(int c)`**: Returns 1 if `$20`–`$7E` or `$A0`–`$FF`. **Implemented.**
+- **`isupper(int c)`**: Returns 1 if uppercase letter (`$C1`–`$DA`). **Implemented.**
+- **`islower(int c)`**: Returns 1 if lowercase letter (`$41`–`$5A`). **Implemented.**
+- **`isxdigit(int c)`**: Returns 1 if hex digit (`0`–`9`, `a`–`f`, `A`–`F` in PETSCII). **Implemented.**
+- **`ispunct(int c)`**: Returns 1 if printable, non-alphanumeric, non-space. **Implemented.**
+- **`isblank(int c)`**: Returns 1 if space (`$20`) or tab (`$09`). **Implemented.**
+- **`iscntrl(int c)`**: Returns 1 if control character (`$00`–`$1F` or `$7F`–`$9F`). **Implemented.**
 
 **Conversion functions:**
 - **`toupper(int c)`**: If lowercase (`$41`–`$5A`), returns uppercase (`$C1`–`$DA`) via `ORA #$80`. Otherwise returns `c` unchanged. **Implemented.**
@@ -92,6 +104,8 @@ All character classification and conversion functions are implemented in hand-wr
 - **`ltoa(long value, char *str, int base)`**: Convert 32-bit long to string in given base (2-36). Handles negative values for base 10. Uses MEGA65 hardware divider's full 32-bit dividend/divisor. **Implemented.**
 - **`rand()`**: Returns pseudo-random int (0-32767). Reads two bytes from MEGA65 hardware RNG at `$D7EF`, busy-waiting on `$D7FE` bit 7 for stabilization. Bit 15 cleared to match C standard positive range. **Implemented.**
 - **`srand(unsigned int seed)`**: No-op stub for C compatibility (MEGA65 hardware RNG is autonomous). **Implemented.**
+- **`strtol(char *nptr, char **endptr, int base)`**: Convert string to signed `long` (32-bit). Handles optional leading sign. Delegates to `strtoul` for digit parsing. **Implemented.**
+- **`strtoul(char *nptr, char **endptr, int base)`**: Convert string to unsigned `long` (32-bit). Supports base 0 (auto-detect from prefix), 8, 10, 16. Handles `0x`/`0X` hex prefix and PETSCII letter ranges for bases > 10. **Implemented.**
 - **`exit(int status)`**: Terminate program execution. Loads the status code into `.AX` and jumps to the `__exit` label emitted by the CRT startup. The exit behavior depends on the `#pragma crt exit_*` mode: `exit_rts` (default) restores the caller's SP and returns, `exit_halt` enters an infinite loop, `exit_brk` triggers a BRK. **Implemented.**
 
 ## 6. I/O (`stdio.h`)
@@ -99,7 +113,7 @@ All character classification and conversion functions are implemented in hand-wr
 Character I/O, string output, and formatted printing.
 
 - **`putchar(int c)`**: Output a single character via KERNAL `CHROUT` ($FFD2). **Implemented.**
-- **`getchar()`**: Input a single character via KERNAL `GETIN` ($FFE4).
+- **`getchar()`**: Input a single character via KERNAL `GETIN` ($FFE4). Busy-waits until a key is pressed. **Implemented.**
 - **`puts(const char *s)`**: Output a string followed by a newline. **Implemented.**
 - **`sprintf(char *buf, char *fmt, ...)`**: Formatted string output. **Implemented.**
 - **`printf(char *fmt, ...)`**: Formatted output to screen via `putchar`. **Implemented.**
@@ -351,8 +365,8 @@ All phases are complete:
 |-------|-----------|--------|
 | 1. Headers | `stdint.h`, `stddef.h`, `stdbool.h`, `limits.h`, `stdarg.h` | Complete |
 | 2. Core runtime | `crt0.s`, `putchar`, `puts`, `exit`, CRT pragmas | Complete |
-| 3. String/memory | 12 functions in `string.h` (hand-written 45GS02 asm) | Complete |
-| 4. Utilities | `ctype.h` (7 functions), `abs`, `atoi`, `itoa`, `ltoa`, `rand`, `srand` | Complete |
+| 3. String/memory | 18 functions in `string.h` (12 asm + 6 C) | Complete |
+| 4. Utilities | `ctype.h` (13 functions), `abs`, `atoi`, `itoa`, `ltoa`, `rand`, `srand`, `strtol`, `strtoul` | Complete |
 | 5. Heap | `malloc`, `free`, `calloc`, `realloc` with `#pragma crt heap` | Complete |
 | 6. Formatted I/O | `printf`, `sprintf`, `sscanf` (C implementations) | Complete |
 | 7. CBM interface | `cbm.h` KERNAL wrappers (see [stdcbm.md](stdcbm.md)) | Complete |

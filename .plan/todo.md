@@ -46,7 +46,7 @@
 ## 1.0 Blockers
 
 ### Documentation
-- [ ] `getchar()` listed in stdlib.md without implementation status; absent from stdio.h
+- [x] `getchar()` — implemented and added to stdio.h
 
 ## 1.0 Should-Fix
 
@@ -62,10 +62,10 @@
 - [ ] `_Pragma()` currently silently discarded — should convert to `#pragma`
 
 ### Standard Library (minimal C subset)
-- [ ] `ctype.h`: `isupper`, `islower`, `isxdigit`, `ispunct`, `isblank`, `iscntrl`
-- [ ] `string.h`: `strstr`, `strtok`, `strncat`, `strpbrk`, `strspn`, `strcspn`
-- [ ] `stdlib.h`: `strtol`, `strtoul`
-- [ ] `stdio.h`: `getchar`
+- [x] `ctype.h`: `isupper`, `islower`, `isxdigit`, `ispunct`, `isblank`, `iscntrl`
+- [x] `string.h`: `strstr`, `strtok`, `strncat`, `strpbrk`, `strspn`, `strcspn`
+- [x] `stdlib.h`: `strtol`, `strtoul`
+- [x] `stdio.h`: `getchar`
 
 ## Future Optimizations
 

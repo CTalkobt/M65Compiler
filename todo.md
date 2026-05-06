@@ -259,12 +259,12 @@ Steps required to bring the C compiler closer to C11 standards.
 
 All modules are hand-written 45GS02 assembly in `lib/stdlib/`, archived into `stdlib45.lib` by `lib/Makefile`.
 
-- [X] **`string.h`**: `strlen`, `strcpy`, `strncpy`, `strcmp`, `strncmp`, `strcat`, `strchr`, `strrchr`, `memcpy`, `memmove`, `memset`, `memcmp` (12 functions). Validated via mmemu emulator tests (`test_strlen`, `test_strcmp`, `test_strcpy`, `test_memcpy`, `test_strchr`).
-- [X] **`stdio.h`**: `putchar`, `puts` (KERNAL CHROUT wrappers), `sprintf`, `printf` (variadic formatted output with `%d`, `%u`, `%x`, `%s`, `%c`, `%%`, `%o`, `%b`, `%p`). Long format support via `l` modifier: `%ld`, `%lu`, `%lx`, `%lo`, `%lb`. `sscanf` (formatted string input with `%d`, `%u`, `%x`, `%o`, `%c`, `%s`, `%%`, plus long variants `%ld`, `%lu`, `%lx`, `%lo`).
+- [X] **`string.h`**: `strlen`, `strcpy`, `strncpy`, `strcmp`, `strncmp`, `strcat`, `strncat`, `strchr`, `strrchr`, `strstr`, `strpbrk`, `strspn`, `strcspn`, `strtok`, `memcpy`, `memmove`, `memset`, `memcmp` (18 functions). Validated via mmemu emulator tests (`test_strlen`, `test_strcmp`, `test_strcpy`, `test_memcpy`, `test_strchr`).
+- [X] **`stdio.h`**: `putchar`, `puts` (KERNAL CHROUT wrappers), `getchar` (KERNAL GETIN), `sprintf`, `printf` (variadic formatted output with `%d`, `%u`, `%x`, `%s`, `%c`, `%%`, `%o`, `%b`, `%p`). Long format support via `l` modifier: `%ld`, `%lu`, `%lx`, `%lo`, `%lb`. `sscanf` (formatted string input with `%d`, `%u`, `%x`, `%o`, `%c`, `%s`, `%%`, plus long variants `%ld`, `%lu`, `%lx`, `%lo`).
 - [X] **`cbm.h`**: Inline KERNAL wrappers — 25 functions for character I/O, file I/O, screen, serial bus, clock. PETSCII constants and device numbers.
 - [X] **`stdlib.h`**: `exit` (jumps to CRT `__exit` label with status in `.AX`).
-- [X] **`ctype.h`**: `isdigit`, `isalpha`, `isalnum`, `isspace`, `isprint`, `toupper`, `tolower` (PETSCII-aware). Validated via build + link.
-- [X] **stdlib.h** (remaining): `abs`, `atoi`, `itoa`, `ltoa`, `rand`, `srand`, `atos`, `stoa`. `rand` uses MEGA65 hardware RNG at `$D7EF` with busy-wait on `$D7FE` bit 7. `srand` is a no-op (hardware RNG). `atos`/`stoa` are macros casting through `atoi`/`itoa`. `ltoa` converts 32-bit long values using hardware divider.
+- [X] **`ctype.h`**: `isdigit`, `isalpha`, `isalnum`, `isspace`, `isprint`, `isupper`, `islower`, `isxdigit`, `ispunct`, `isblank`, `iscntrl`, `toupper`, `tolower` (13 PETSCII-aware functions). Validated via build + link.
+- [X] **stdlib.h** (remaining): `abs`, `atoi`, `itoa`, `ltoa`, `strtol`, `strtoul`, `rand`, `srand`, `atos`, `stoa`. `rand` uses MEGA65 hardware RNG at `$D7EF` with busy-wait on `$D7FE` bit 7. `srand` is a no-op (hardware RNG). `atos`/`stoa` are macros casting through `atoi`/`itoa`. `ltoa` converts 32-bit long values using hardware divider. `strtol`/`strtoul` support base auto-detection, PETSCII letter ranges.
 - [ ] **`math.h`**: `sin`, `cos`, `tan`, `sqrt`, `log`, `exp`, `pow`, `round`, `floor`, `ceil` (may leverage Commodore 40-bit float format or hardware).
 - [X] **Heap**: `malloc`, `free`, `calloc`, `realloc` (requires `#pragma crt heap`).
 - [ ] **o45 Support in Mcp Server:** Add o45 support for mmemu.  This could allow various workflows such as dynamic reloading, etc. 

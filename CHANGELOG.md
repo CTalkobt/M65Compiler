@@ -2,6 +2,29 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
+## [Unreleased] - 2026-05-05
+
+### Added
+- **Compiler (cc45)**:
+    - **`#pragma once`**: Replaces the non-standard `#pragma include_once` with the widely-supported `#pragma once` for header guard optimization. The old directive has been removed.
+    - **Type qualifier ordering**: All orderings of type qualifiers are now accepted across all declaration contexts (globals, locals, parameters, return types, typedefs). For example, `volatile signed int`, `int volatile`, `signed volatile int`, and `unsigned const char` all parse correctly. Previously, qualifiers were required to appear before signedness specifiers.
+- **Assembler (ca45)**:
+    - **`defined(<symbol>)` in expressions**: Test whether a symbol exists at assembly time (post-pass-1). Returns 1 if the symbol is defined, 0 otherwise. Works in any expression context (e.g., `.if defined(MY_FLAG)`). Accepts both IDENTIFIER and INSTRUCTION tokens as symbol names.
+- **Standard Library (stdlib45.lib)**:
+    - **`stdio.h`**: `getchar()` — Input a single character via KERNAL `GETIN` ($FFE4). Busy-waits until a key is pressed.
+    - **`ctype.h`**: Added 6 PETSCII-aware character classification functions: `isupper` ($C1-$DA), `islower` ($41-$5A), `isxdigit` (digits + hex letters in both PETSCII cases), `ispunct` (printable non-alnum non-space), `isblank` (space $20 or tab $09), `iscntrl` ($00-$1F and $7F-$9F). All implemented in hand-written 45GS02 assembly for both stack and ZP calling conventions.
+    - **`string.h`**: Added 6 string functions: `strncat` (concatenate with length limit, assembly), `strstr` (substring search, C), `strpbrk` (find first char from set, C), `strspn` (count leading chars in set, C), `strcspn` (count leading chars not in set, C), `strtok` (tokenize string, C with static state). All implemented for both calling conventions.
+    - **`stdlib.h`**: `strtol` (string to signed long) and `strtoul` (string to unsigned long). Support base 0 (auto-detect), 8, 10, 16 with optional `0x`/`0X` prefix. Handle PETSCII letter ranges for hex digits. `strtoul` is the core implementation; `strtol` wraps it with sign handling.
+
+### Fixed
+- **Assembler (ca45)**:
+    - **O45 relocation for equate-based ZP operands**: Fixed corrupt relocations when assembling instructions with equate-defined zero-page operands (e.g., `ptr = $20; lda ptr`). The O45 emitter was using the stale `stmt->instr.mode` (ABSOLUTE, the parser's default for unresolvable identifiers) instead of the resolved mode (BASE_PAGE, determined by `calculateInstructionSize` in pass 2). This caused 16-bit `R_WORD` relocations to be emitted for 1-byte ZP operands, corrupting both the operand byte and the adjacent opcode during linking. Fixed by re-resolving the addressing mode in the O45 emitter before generating relocations.
+- **Compiler (cc45)**:
+
+### Changed
+- **Preprocessor (cp45)**:
+    - Removed `#pragma include_once` directive. Use `#pragma once` instead (the standard form supported by GCC, Clang, and MSVC).
+
 ## [Unreleased] - 2026-05-04
 
 ### Added
