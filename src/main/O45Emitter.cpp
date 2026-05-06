@@ -228,6 +228,9 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         if (stmt->deleted || stmt->size == 0) continue;
         if (stmt->type != AssemblerParser::Statement::INSTRUCTION) continue;
 
+        // Restore @ label scope context for this statement
+        parser.currentLocalScope_ = stmt->localLabelScope;
+
         // Resolve the actual addressing mode (stmt->instr.mode may be stale from
         // initial parsing — e.g., equate operands like `ptr = $20` default to ABSOLUTE
         // during parsing because parseNumericLiteral can't resolve identifiers, but
@@ -321,6 +324,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
     for (const auto& stmt : parser.statements) {
         if (stmt->deleted || stmt->size == 0) continue;
         if (stmt->type != AssemblerParser::Statement::LDW) continue;
+        parser.currentLocalScope_ = stmt->localLabelScope;
 
         // Check if operand is immediate (#) by looking at the token stream
         int idx = stmt->exprTokenIndex;
@@ -381,6 +385,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         if (stmt->type != AssemblerParser::Statement::INSTRUCTION) continue;
         if (stmt->instr.mode != AddressingMode::IMMEDIATE &&
             stmt->instr.mode != AddressingMode::IMMEDIATE16) continue;
+        parser.currentLocalScope_ = stmt->localLabelScope;
 
         int idx = stmt->instr.operandTokenIndex;
         if (idx < 0 || idx >= (int)parser.tokens.size()) continue;
@@ -465,6 +470,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         if (stmt->deleted || stmt->size == 0) continue;
         if (stmt->type != AssemblerParser::Statement::DIRECTIVE) continue;
         if (stmt->dir.name != "word") continue;
+        parser.currentLocalScope_ = stmt->localLabelScope;
 
         std::string srcSeg = stmt->segmentName;
         uint32_t srcBase = globalBase;
