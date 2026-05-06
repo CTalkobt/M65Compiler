@@ -163,7 +163,16 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             } else {
                 look++; // skip int/char/void
             }
-            
+
+            // Skip qualifiers that may appear after the type keyword (e.g., int volatile x)
+            while (look < tokens.size() && (tokens[look].type == TokenType::VOLATILE || tokens[look].type == TokenType::CONST ||
+                   tokens[look].type == TokenType::RESTRICT || tokens[look].type == TokenType::SIGNED || tokens[look].type == TokenType::UNSIGNED)) {
+                if (tokens[look].type == TokenType::VOLATILE) isVol = true;
+                else if (tokens[look].type == TokenType::CONST) isConst = true;
+                else if (tokens[look].type == TokenType::SIGNED) isSig = true;
+                look++;
+            }
+
             // Check for function pointer: type (*name)(params) — treat as variable
             if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN &&
                 look + 1 < tokens.size() && tokens[look + 1].type == TokenType::STAR) {
@@ -248,13 +257,21 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     bool isSigned = false;
     int basePtrLevel = 0;
 
+    // Helper: skip qualifiers between type specifiers (e.g., signed volatile int)
+    auto skipRetQuals = [&]() {
+        while (peek().type == TokenType::VOLATILE || peek().type == TokenType::CONST || peek().type == TokenType::RESTRICT) {
+            match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT);
+        }
+    };
     if (match(TokenType::SIGNED)) {
         isSigned = true;
+        skipRetQuals();
         if (match(TokenType::LONG)) returnType = "long"; else if (match(TokenType::INT) || match(TokenType::SHORT)) returnType = "int";
         else if (match(TokenType::CHAR)) returnType = "char";
         else returnType = "int";
     }
     else if (match(TokenType::UNSIGNED)) {
+        skipRetQuals();
         if (match(TokenType::LONG)) returnType = "long"; else if (match(TokenType::INT) || match(TokenType::SHORT)) returnType = "int";
         else if (match(TokenType::CHAR)) returnType = "char";
         else returnType = "int"; // bare 'unsigned' is 'unsigned int'
@@ -280,6 +297,9 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         throw std::runtime_error("Syntax Error at " + std::to_string(peek().line) + ":" + std::to_string(peek().column) + ": Expected return type (int, char, void, struct, union) for function declaration. Found '" + foundStr + "' instead.");
     }
 
+    // Skip qualifiers after the type keyword (e.g., int volatile func())
+    skipRetQuals();
+
     int returnPtrLevel = basePtrLevel;
     while (match(TokenType::STAR)) returnPtrLevel++;
 
@@ -303,13 +323,22 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             bool pIsSigned = false;
             int pBasePtrLevel = 0;
 
+            auto skipParamQuals = [&]() {
+                while (peek().type == TokenType::VOLATILE || peek().type == TokenType::CONST || peek().type == TokenType::RESTRICT) {
+                    if (match(TokenType::VOLATILE)) pIsVolatile = true;
+                    else if (match(TokenType::CONST)) pIsConst = true;
+                    else match(TokenType::RESTRICT);
+                }
+            };
             if (match(TokenType::SIGNED)) {
                 pIsSigned = true;
+                skipParamQuals();
                 if (match(TokenType::LONG)) pType = "long"; else if (match(TokenType::INT) || match(TokenType::SHORT)) pType = "int";
                 else if (match(TokenType::CHAR)) pType = "char";
                 else pType = "int";
             }
             else if (match(TokenType::UNSIGNED)) {
+                skipParamQuals();
                 if (match(TokenType::LONG)) pType = "long"; else if (match(TokenType::INT) || match(TokenType::SHORT)) pType = "int";
                 else if (match(TokenType::CHAR)) pType = "char";
                 else pType = "int";
@@ -350,6 +379,9 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                 std::string foundStr = peek().value.empty() ? peek().typeToString() : peek().value;
                 throw std::runtime_error("Syntax Error at " + std::to_string(peek().line) + ":" + std::to_string(peek().column) + ": Expected parameter type (int, char, struct, union). Found '" + foundStr + "' instead.");
             }
+
+            // Skip qualifiers after the type keyword (e.g., int volatile param)
+            skipParamQuals();
 
             int pPtrLevel = pBasePtrLevel;
 
@@ -710,13 +742,23 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     std::string type;
     bool isSigned = false;
     int basePtrLevel = 0;
+    // Helper: skip qualifiers that may appear between specifiers (e.g., signed volatile int)
+    auto skipQualifiers = [&]() {
+        while (peek().type == TokenType::VOLATILE || peek().type == TokenType::CONST || peek().type == TokenType::RESTRICT) {
+            if (match(TokenType::VOLATILE)) isVolatile = true;
+            else if (match(TokenType::CONST)) isConst = true;
+            else match(TokenType::RESTRICT);
+        }
+    };
     if (match(TokenType::SIGNED)) {
         isSigned = true;
+        skipQualifiers();
         if (match(TokenType::LONG)) type = "long"; else if (match(TokenType::INT) || match(TokenType::SHORT)) type = "int";
         else if (match(TokenType::CHAR)) type = "char";
         else type = "int";
     }
     else if (match(TokenType::UNSIGNED)) {
+        skipQualifiers();
         if (match(TokenType::LONG)) type = "long"; else if (match(TokenType::INT) || match(TokenType::SHORT)) type = "int";
         else if (match(TokenType::CHAR)) type = "char";
         else type = "int";
@@ -767,6 +809,17 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     }
 
     int ptrLevel = basePtrLevel;
+
+    // Consume any qualifiers that appear after the type keyword (e.g., int volatile x)
+    while (peek().type == TokenType::VOLATILE || peek().type == TokenType::CONST ||
+           peek().type == TokenType::RESTRICT || peek().type == TokenType::SIGNED ||
+           peek().type == TokenType::UNSIGNED) {
+        if (match(TokenType::VOLATILE)) isVolatile = true;
+        else if (match(TokenType::CONST)) isConst = true;
+        else if (match(TokenType::SIGNED)) isSigned = true;
+        else if (match(TokenType::UNSIGNED)) { /* already unsigned by type match */ }
+        else match(TokenType::RESTRICT);
+    }
 
     // Check for function pointer declaration: type (*name)(params)
     if (peek().type == TokenType::OPEN_PAREN && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::STAR) {
@@ -1441,13 +1494,21 @@ void Parser::parseTypedef() {
     bool isSigned = false;
     int basePtrLevel = 0;
 
+    // Skip leading qualifiers (e.g., typedef volatile int vint)
+    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT)) {}
+
+    auto skipTdQuals = [&]() {
+        while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT)) {}
+    };
     if (match(TokenType::SIGNED)) {
         isSigned = true;
+        skipTdQuals();
         if (match(TokenType::LONG)) baseType = "long"; else if (match(TokenType::INT) || match(TokenType::SHORT)) baseType = "int";
         else if (match(TokenType::CHAR)) baseType = "char";
         else baseType = "int";
     }
     else if (match(TokenType::UNSIGNED)) {
+        skipTdQuals();
         if (match(TokenType::LONG)) baseType = "long"; else if (match(TokenType::INT) || match(TokenType::SHORT)) baseType = "int";
         else if (match(TokenType::CHAR)) baseType = "char";
         else baseType = "int";
@@ -1479,6 +1540,9 @@ void Parser::parseTypedef() {
     else {
         throw std::runtime_error("Expected type in typedef");
     }
+
+    // Skip qualifiers after type keyword (e.g., typedef int volatile ivol)
+    skipTdQuals();
 
     int ptrLevel = basePtrLevel;
 

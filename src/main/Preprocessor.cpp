@@ -553,7 +553,7 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                 ss >> cmd; // cmd will be #pragma or #something
                 if (cmd == "#pragma") {
                     ss >> sub;
-                    if (sub == "include_once") {
+                    if (sub == "include_once" || sub == "once") {
                         if (!currentFile.empty()) onceFiles.insert(currentFile);
                         output << "\n";
                         continue;
@@ -754,7 +754,10 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
             } else if (cmd == "#pragma") {
                 std::string pragmaArg;
                 ss >> pragmaArg;
-                if (isCompiler && pragmaArg == "weak") {
+                if (pragmaArg == "include_once" || pragmaArg == "once") {
+                    if (!currentFile.empty()) onceFiles.insert(currentFile);
+                    output << "\n";
+                } else if (isCompiler && pragmaArg == "weak") {
                     output << "__asm__(\".weak_next\");\n";
                 } else if (isCompiler && pragmaArg == "crt") {
                     std::string crtArg;

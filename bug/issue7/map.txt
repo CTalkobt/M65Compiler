@@ -1,0 +1,26 @@
+Linker Map
+==========
+
+Memory Layout
+-------------
+  TEXT   $200D - $2031  (37 bytes)
+  BSS    $2032 - $2431  (1024 bytes)
+
+Object Files
+------------
+  main_jmp.o45
+    TEXT  $200D - $2016  (10 bytes)
+  bug_jmp_reloc.o45
+    TEXT  $2017 - $2031  (27 bytes)
+    BSS   $2032 - $2431  (1024 bytes)
+
+Symbols (by address)
+--------------------
+  $200D  _main                          main_jmp.o45  [uses:- clob:- rel:- regs:AXYZ]
+  $2017  _test                          bug_jmp_reloc.o45
+  $2032  __bss_start                    <linker>
+  $2432  __bss_end                      <linker>
+
+Call Graph
+----------
+  _main -> _test
