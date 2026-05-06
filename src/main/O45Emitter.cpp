@@ -228,8 +228,39 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         if (stmt->deleted || stmt->size == 0) continue;
         if (stmt->type != AssemblerParser::Statement::INSTRUCTION) continue;
 
+        // Resolve the actual addressing mode (stmt->instr.mode may be stale from
+        // initial parsing — e.g., equate operands like `ptr = $20` default to ABSOLUTE
+        // during parsing because parseNumericLiteral can't resolve identifiers, but
+        // calculateInstructionSize correctly resolves them to BASE_PAGE in pass2
+        // without writing the resolved mode back).
+        AddressingMode resolvedMode = stmt->instr.mode;
+        if (!stmt->instr.forceMode && stmt->instr.operandTokenIndex != -1 &&
+            (resolvedMode == AddressingMode::BASE_PAGE || resolvedMode == AddressingMode::ABSOLUTE ||
+             resolvedMode == AddressingMode::BASE_PAGE_X || resolvedMode == AddressingMode::ABSOLUTE_X ||
+             resolvedMode == AddressingMode::BASE_PAGE_Y || resolvedMode == AddressingMode::ABSOLUTE_Y)) {
+            try {
+                uint32_t val = parser.evaluateExpressionAt(stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                bool fitsIn8 = (val <= 0xFF);
+                bool forceAbs = (stmt->instr.mnemonic == "jsr" || stmt->instr.mnemonic == "jmp");
+                if (fitsIn8 && !forceAbs && stmt->instr.operandTokenIndex < (int)parser.tokens.size() &&
+                    parser.tokens[stmt->instr.operandTokenIndex].type == AssemblerTokenType::IDENTIFIER) {
+                    std::string symName = stmt->scopePrefix + parser.tokens[stmt->instr.operandTokenIndex].value;
+                    if (!parser.symbolTable.count(symName)) symName = parser.tokens[stmt->instr.operandTokenIndex].value;
+                    if (parser.isRelocatableSymbol(symName)) forceAbs = true;
+                }
+                if (resolvedMode == AddressingMode::BASE_PAGE || resolvedMode == AddressingMode::ABSOLUTE)
+                    resolvedMode = (fitsIn8 && !forceAbs) ? AddressingMode::BASE_PAGE : AddressingMode::ABSOLUTE;
+                else if (resolvedMode == AddressingMode::BASE_PAGE_X || resolvedMode == AddressingMode::ABSOLUTE_X)
+                    resolvedMode = (fitsIn8 && !forceAbs) ? AddressingMode::BASE_PAGE_X : AddressingMode::ABSOLUTE_X;
+                else if (resolvedMode == AddressingMode::BASE_PAGE_Y || resolvedMode == AddressingMode::ABSOLUTE_Y)
+                    resolvedMode = (fitsIn8 && !forceAbs) ? AddressingMode::BASE_PAGE_Y : AddressingMode::ABSOLUTE_Y;
+            } catch(...) {
+                // Can't resolve — keep original mode (safe: ABSOLUTE)
+            }
+        }
+
         // Only care about instructions with absolute addressing (16-bit address operands)
-        if (!isAbsoluteMode(stmt->instr.mode)) continue;
+        if (!isAbsoluteMode(resolvedMode)) continue;
 
         // Skip branch instructions — they use relative offsets, not absolute addresses
         static const std::set<std::string> branches = {
