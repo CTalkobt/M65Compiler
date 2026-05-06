@@ -215,7 +215,7 @@ Steps required to bring the C compiler closer to C11 standards.
 
 ### 7. Expressions & Logic
 - [X] **Array Indexing in Expressions**: Support `name[expr]` and `name[i][j]` syntax in `expr` for `.array`-declared arrays. Constant indices resolve at assembly time; runtime indices generate optimized indexed loads.
-- [ ] **Symbol Existence**: Implement `defined(<symbol>)` — Test existence at assembler level (post-pass-1).
+- [X] **Symbol Existence**: Implement `defined(<symbol>)` — Test existence at assembler level (post-pass-1).
 - [ ] **Extended Operators**: Support bitwise shift (`<<`, `>>`) and modulo (`%`) in constant expressions.
 - [ ] **Conditional Assembly**: Implement `.if <expr>` / `.else` / `.endif` (distinct from preprocessor `#if`).
 

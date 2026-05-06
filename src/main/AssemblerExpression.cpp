@@ -485,6 +485,18 @@ std::unique_ptr<ExprAST> parseExprAST(const std::vector<AssemblerToken>& tokens,
             std::string name = t.value;
             std::string lowerName = name;
             std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
+            if (t.type == AssemblerTokenType::IDENTIFIER && lowerName == "defined" && idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::OPEN_PAREN) {
+                idx++; // consume (
+                std::string symName;
+                if (idx < (int)tokens.size() && (tokens[idx].type == AssemblerTokenType::IDENTIFIER || tokens[idx].type == AssemblerTokenType::INSTRUCTION)) {
+                    symName = tokens[idx++].value;
+                }
+                if (idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::CLOSE_PAREN) idx++; // consume )
+                // Check scoped name first, then bare name
+                std::string scopedName = scopePrefix + symName;
+                bool exists = symbolTable.count(scopedName) > 0 || symbolTable.count(symName) > 0;
+                return std::make_unique<ConstantNode>(exists ? 1 : 0);
+            }
             if (t.type == AssemblerTokenType::IDENTIFIER && (lowerName == "lo" || lowerName == "hi" || lowerName == "bank") && idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::OPEN_PAREN) {
                 idx++; // consume (
                 auto expr = parseExprAST(tokens, idx, symbolTable, scopePrefix);
