@@ -280,12 +280,22 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         // Skip numeric literals — they're absolute addresses, not relocatable
         if (operand[0] == '$' || operand[0] == '%' || (operand[0] >= '0' && operand[0] <= '9')) continue;
 
-        Symbol* sym = parser.resolveSymbol(operand, stmt->scopePrefix);
+        // Try resolving the full operand as a symbol first (simple case: bare label)
+        std::string symName = operand;
+        Symbol* sym = parser.resolveSymbol(symName, stmt->scopePrefix);
+        if (!sym) {
+            // Compound expression (e.g. "table+4"): extract base symbol from token stream
+            int tokIdx = stmt->instr.operandTokenIndex;
+            if (tokIdx >= 0 && tokIdx < (int)parser.tokens.size() &&
+                parser.tokens[tokIdx].type == AssemblerTokenType::IDENTIFIER) {
+                symName = parser.tokens[tokIdx].value;
+                sym = parser.resolveSymbol(symName, stmt->scopePrefix);
+            }
+        }
         if (!sym) continue;
 
-
         // Is it an extern symbol?
-        bool isExtern = parser.isExternSymbol(operand);
+        bool isExtern = parser.isExternSymbol(symName);
 
         // Is it in a relocatable segment?
         std::string targetSeg;
@@ -311,7 +321,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
 
         if (isExtern) {
             reloc.segment = SEG_EXTERNAL;
-            reloc.symbolIndex = syms.getImportIndex(operand);
+            reloc.symbolIndex = syms.getImportIndex(symName);
         } else {
             reloc.segment = segIdFromName(targetSeg);
         }

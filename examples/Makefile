@@ -7,6 +7,7 @@
 SUBDIRS = \
 	c/hello_world \
 	c/unit_convert \
+	c/text_scroller \
 	c/stdlib/string_h \
 	c/stdlib/stdlib_h \
 	c/stdlib/ctype_h
