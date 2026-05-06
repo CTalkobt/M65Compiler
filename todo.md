@@ -140,7 +140,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **Storage Classes**: Implement `auto` (default local), `volatile` (qualifier), and `register` (ZP allocation hint).
 - [d] **Modern Type Inference**: Implement `auto` as C23/C++ style type inference for declarations with initializers.
 - [X] **`static` Storage Class**: Implement `static` for file-scope internal linkage (globals, functions) and persistent local variables.
-- [X] **`register` Storage Class**: Implement `register` keyword. Register variables are allocated in zero page for faster access; falls back to stack if ZP is exhausted.
+- [X] **`register` Storage Class**: Implement `register` keyword. Register variables are allocated in zero page for faster access; falls back to stack if ZP is exhausted. `&register_var` is a compile error per C standard §6.7.1.
 - [X] **Bitfields**: Support C-standard bitfields in struct/union definitions (`unsigned char mode : 3`). 8-bit and 16-bit storage units with automatic packing. Assembler pseudo-ops `bfext`/`bfins` with TRB/TSB optimization for ZP/absolute targets.
 - [X] **Arrays**: Implement native array declarations (`type name[size]`), subscript indexing (`a[i]`), and pointer decay.
 - [X] **Multi-dimensional arrays**: Support `int a[3][4]` row-major layout. Parser, type system, stride computation, constant-index and runtime-index codegen implemented. Validated via mmemu with loop-based stores and reads.
