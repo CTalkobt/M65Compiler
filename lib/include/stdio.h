@@ -5,6 +5,7 @@
 
 #pragma once
 
+int getchar(void);
 int putchar(int c);
 int puts(char *s);
 int sprintf(char *buf, char *fmt, ...);

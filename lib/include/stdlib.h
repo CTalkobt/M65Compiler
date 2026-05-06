@@ -14,6 +14,9 @@ char *ltoa(long value, char *str, int base);
 #define atos(s) ((short)atoi(s))
 #define stoa(value, str, base) itoa((int)(value), (str), (base))
 
+long strtol(char *nptr, char **endptr, int base);
+unsigned long strtoul(char *nptr, char **endptr, int base);
+
 int abs(int value);
 int rand(void);
 void srand(unsigned int seed);

@@ -9,8 +9,14 @@ char *strncpy(char *dest, char *src, int n);
 int strcmp(char *s1, char *s2);
 int strncmp(char *s1, char *s2, int n);
 char *strcat(char *dest, char *src);
+char *strncat(char *dest, char *src, int n);
 char *strchr(char *s, int c);
 char *strrchr(char *s, int c);
+char *strstr(char *haystack, char *needle);
+char *strpbrk(char *s, char *accept);
+int strspn(char *s, char *accept);
+int strcspn(char *s, char *reject);
+char *strtok(char *s, char *delim);
 
 /* Memory operations */
 void *memcpy(void *dest, void *src, int n);
