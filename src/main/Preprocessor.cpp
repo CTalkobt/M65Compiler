@@ -33,12 +33,12 @@ Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
 std::string Preprocessor::expandMacros(const std::string& line) {
     std::string result = line;
     
-    // 0. Handle _Pragma("string") early
+    // 0. Handle _Pragma("string") — convert to equivalent #pragma directive (C99 §6.10.9)
     size_t pragmaPos;
     while ((pragmaPos = result.find("_Pragma")) != std::string::npos) {
         // Simple whole-word check
         bool bBefore = (pragmaPos == 0 || (!std::isalnum((unsigned char)result[pragmaPos-1]) && result[pragmaPos-1] != '_'));
-        if (!bBefore) { break; } // skip this one for now to avoid infinite loop if it's part of something else
+        if (!bBefore) { break; }
 
         size_t start = pragmaPos;
         pragmaPos += 7;
@@ -50,19 +50,19 @@ std::string Preprocessor::expandMacros(const std::string& line) {
                 size_t strStart = pragmaPos + 1;
                 size_t strEnd = result.find('"', strStart);
                 if (strEnd != std::string::npos) {
-                    // Extract the pragma content. In a real preprocessor this would emit a #pragma.
-                    // For our line-based system, we'll just remove it as we don't have a way 
-                    // to inject a directive into the middle of a line easily without returning multiple lines.
-                    // However, we'll just strip it for now as most pragmas are hints.
+                    std::string pragmaContent = result.substr(strStart, strEnd - strStart);
                     size_t endParen = result.find(')', strEnd);
                     if (endParen != std::string::npos) {
+                        // Replace _Pragma("...") with nothing and queue the pragma for processing
                         result.erase(start, endParen - start + 1);
+                        // Inject as #pragma line — store for the caller to process
+                        pendingPragmas_.push_back(pragmaContent);
                         continue;
                     }
                 }
             }
         }
-        break; 
+        break;
     }
 
     bool changed = true;
@@ -819,6 +819,28 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                 replaceAll(processed, "__TIME__", preprocTime);
 
                 output << processed << "\n";
+                // Process any _Pragma() directives collected during macro expansion
+                for (const auto& pragma : pendingPragmas_) {
+                    std::istringstream ps(pragma);
+                    std::string pragmaArg;
+                    ps >> pragmaArg;
+                    if (pragmaArg == "once") {
+                        if (!currentFile.empty()) onceFiles.insert(currentFile);
+                    } else if (isCompiler && pragmaArg == "weak") {
+                        output << "__asm__(\".weak_next\");\n";
+                    } else if (isCompiler && pragmaArg == "crt") {
+                        std::string crtArg;
+                        ps >> crtArg;
+                        if (crtArg == "no_0100_stack") output << "__asm__(\".crt_no_0100_stack\");\n";
+                        else if (crtArg == "exit_halt") output << "__asm__(\".crt_exit_halt\");\n";
+                        else if (crtArg == "exit_rts") output << "__asm__(\".crt_exit_rts\");\n";
+                        else if (crtArg == "exit_brk") output << "__asm__(\".crt_exit_brk\");\n";
+                        else if (crtArg == "no_bssinit") output << "__asm__(\".crt_no_bssinit\");\n";
+                        else if (crtArg == "heap") output << "__asm__(\".crt_heap\");\n";
+                        else if (crtArg == "stdio") output << "__asm__(\".crt_stdio\");\n";
+                    }
+                }
+                pendingPragmas_.clear();
             } else {
                 output << "\n";
             }

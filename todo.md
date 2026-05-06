@@ -76,7 +76,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **Preprocessor**: Support `#include`, `#define`, `#undef`, `#if`, `#ifdef`, `#ifndef`, `#elif`, `#else`, `#endif`, `#line`, `#error`, `#warning`, `#pragma`.
 - [X] **Macro Expansion**: Support object-like, function-like, and variadic macros, rescanning, and `#` / `##` operators.
 - [X] **Variadic Macros**: Support `__VA_ARGS__` and `##__VA_ARGS__` comma removal.
-- [X] **Pragma Operator**: Support `_Pragma("...")`.
+- [X] **Pragma Operator**: Support `_Pragma("...")`. Converts string content to equivalent `#pragma` directive; supports `once`, `weak`, and all `crt` pragmas.
 - [X] **Header Guards**: Support `#pragma once` for file inclusion optimization.
 - [X] **Expression Evaluation**: Support `defined()`, arithmetic, and logic in `#if` / `#elif`.
 - [X] **Line Continuation**: Support `\` at end of line.
@@ -136,7 +136,8 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **`enum` Types**: Implement `enum` for defining named integer constant sets.
 - [X] **`const` Qualifier**: Support `const` type qualifier and associated read-only variable semantics.
 - [X] **`restrict` Qualifier**: Support C99 `restrict` pointer qualifier to declare non-aliasing pointer arguments.
-- [ ] **`inline` Specifier**: The `inline` keyword is parsed and accepted (no-op). Actual function body inlining at call sites is not yet implemented — currently emits a normal `jsr` call. 
+- [X] **Integer Literal Overflow Checking**: Compile-time warnings when hex or decimal literals exceed 32-bit range. Checked in Lexer::lexNumber() using `std::stoull` with range validation.
+- [ ] **`inline` Specifier**: The `inline` keyword is parsed and accepted (no-op). Actual function body inlining at call sites is not yet implemented — currently emits a normal `jsr` call.
 - [d] Future work: inline small functions (leaf, no loops, below a size threshold) by substituting the function body at the call site, mapping parameters to the caller's argument expressions.
 - [X] **Storage Classes**: Implement `auto` (default local), `volatile` (qualifier), and `register` (ZP allocation hint).
 - [d] **Modern Type Inference**: Implement `auto` as C23/C++ style type inference for declarations with initializers.

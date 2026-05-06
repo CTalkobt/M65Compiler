@@ -2,6 +2,7 @@
 #include <cctype>
 #include <map>
 #include <cstdint>
+#include <iostream>
 
 Lexer::Lexer(const std::string& source) : source(source), pos(0), line(1), column(1) {}
 
@@ -243,8 +244,16 @@ Token Lexer::lexNumber() {
         if (peek() == 'x' || peek() == 'X') {
             value += get();
             while (std::isxdigit(peek())) value += get();
-            // TODO: Add checks for integer overflow during parsing.
-            uint32_t val = std::stoul(value.substr(2), nullptr, 16);
+            uint32_t val = 0;
+            try {
+                unsigned long long ull = std::stoull(value.substr(2), nullptr, 16);
+                if (ull > 0xFFFFFFFF) {
+                    std::cerr << startLine << ":" << startCol << ": warning: hex literal " << value << " overflows 32-bit integer" << std::endl;
+                }
+                val = static_cast<uint32_t>(ull);
+            } catch (...) {
+                std::cerr << startLine << ":" << startCol << ": warning: hex literal " << value << " overflows integer" << std::endl;
+            }
             // Consume optional L/l/U/u suffixes
             while (peek() == 'L' || peek() == 'l' || peek() == 'U' || peek() == 'u') get();
             return {TokenType::INTEGER_LITERAL, std::to_string(val), startLine, startCol};
@@ -252,6 +261,15 @@ Token Lexer::lexNumber() {
     }
     while (std::isdigit(peek())) {
         value += get();
+    }
+    // Check decimal literal overflow
+    try {
+        unsigned long long ull = std::stoull(value);
+        if (ull > 0xFFFFFFFF) {
+            std::cerr << startLine << ":" << startCol << ": warning: decimal literal " << value << " overflows 32-bit integer" << std::endl;
+        }
+    } catch (...) {
+        std::cerr << startLine << ":" << startCol << ": warning: decimal literal " << value << " overflows integer" << std::endl;
     }
     // Consume optional L/l/U/u suffixes
     while (peek() == 'L' || peek() == 'l' || peek() == 'U' || peek() == 'u') get();

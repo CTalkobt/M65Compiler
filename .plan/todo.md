@@ -57,11 +57,11 @@
 - [ ] `_Alignas` for local (stack) variables
 - [x] Type qualifier ordering: all orderings now accepted (globals, locals, params, return types, typedefs)
 - [x] Enforce `&register_var` as compile error (C standard requirement)
-- [ ] Integer literal overflow checking (Lexer.cpp:246)
+- [x] Integer literal overflow checking (Lexer.cpp:246)
 
 ### Preprocessor
 - [x] `#pragma once` support (replaced non-standard `#pragma include_once`)
-- [ ] `_Pragma()` currently silently discarded — should convert to `#pragma`
+- [x] `_Pragma()` converts to equivalent `#pragma` directive
 
 ### Standard Library (minimal C subset)
 - [x] `ctype.h`: `isupper`, `islower`, `isxdigit`, `ispunct`, `isblank`, `iscntrl`

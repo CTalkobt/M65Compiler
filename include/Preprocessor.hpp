@@ -42,6 +42,8 @@ private:
     };
     std::vector<State> stateStack;
 
+    std::vector<std::string> pendingPragmas_; // collected by expandMacros from _Pragma()
+
     std::string processInternal(const std::string& source, const std::string& currentFile, int depth);
     bool isConditionTrue();
     long evaluateExpression(const std::string& expr);
