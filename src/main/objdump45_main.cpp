@@ -1,5 +1,6 @@
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <vector>
 #include <string>
 #include <iomanip>
@@ -397,6 +398,46 @@ static std::map<uint32_t, std::string> buildSymbolMap(const O45File& obj) {
     return syms;
 }
 
+// Parse symbols from a linker map file (ln45 -M output).
+// Looks for the "Symbols (by address)" section and parses lines like:
+//   $200D  _main                          main_jmp.o45  [uses:- clob:- ...]
+static std::map<uint32_t, std::string> loadMapSymbols(const std::string& mapFile) {
+    std::map<uint32_t, std::string> syms;
+    std::ifstream in(mapFile);
+    if (!in.is_open()) {
+        std::cerr << "objdump45: warning: cannot open map file: " << mapFile << std::endl;
+        return syms;
+    }
+
+    bool inSymbols = false;
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.find("Symbols (by address)") != std::string::npos) {
+            inSymbols = true;
+            std::getline(in, line); // skip "----" underline
+            continue;
+        }
+        if (inSymbols) {
+            // Empty line or next section header ends the symbol block
+            if (line.empty() || (!line.empty() && line[0] != ' ')) {
+                break;
+            }
+            // Parse: "  $XXXX  name  ..."
+            std::istringstream iss(line);
+            std::string addrStr, name;
+            iss >> addrStr >> name;
+            if (addrStr.empty() || addrStr[0] != '$' || name.empty()) continue;
+            try {
+                uint32_t addr = (uint32_t)std::stoul(addrStr.substr(1), nullptr, 16);
+                syms[addr] = name;
+            } catch (...) {
+                continue;
+            }
+        }
+    }
+    return syms;
+}
+
 static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
                                const char* sectionName,
                                const std::map<uint8_t, OpcodeInfo>& opcodeTable,
@@ -467,7 +508,7 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
         const uint8_t* operandBytes = (opSize > 0) ? &body[i + 1] : nullptr;
         std::string operand = formatOperand(info.mode, operandBytes, opSize, pc);
 
-        // Annotate branch/call targets with symbol names
+        // Annotate operands with symbol names where the address matches
         std::string annotation;
         if (info.mode == AddressingMode::RELATIVE ||
             info.mode == AddressingMode::RELATIVE16) {
@@ -482,19 +523,30 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
             target &= 0xFFFF;
             auto tgtSym = symbols.find(target);
             if (tgtSym != symbols.end()) {
-                annotation = " <" + tgtSym->second + ">";
+                annotation = "\t; <" + tgtSym->second + ">";
             }
         } else if (info.mode == AddressingMode::ABSOLUTE ||
+                   info.mode == AddressingMode::ABSOLUTE_X ||
+                   info.mode == AddressingMode::ABSOLUTE_Y ||
                    info.mode == AddressingMode::ABSOLUTE_INDIRECT ||
                    info.mode == AddressingMode::ABSOLUTE_X_INDIRECT) {
-            // Annotate jsr/jmp targets
-            std::string mn = info.mnemonic;
-            if (mn == "jsr" || mn == "jmp") {
-                uint32_t target = body[i + 1] | (body[i + 2] << 8);
-                auto tgtSym = symbols.find(target);
-                if (tgtSym != symbols.end()) {
-                    annotation = " <" + tgtSym->second + ">";
-                }
+            uint32_t target = body[i + 1] | (body[i + 2] << 8);
+            auto tgtSym = symbols.find(target);
+            if (tgtSym != symbols.end()) {
+                annotation = "\t; <" + tgtSym->second + ">";
+            }
+        } else if (info.mode == AddressingMode::IMMEDIATE16) {
+            uint32_t val = body[i + 1] | (body[i + 2] << 8);
+            auto tgtSym = symbols.find(val);
+            if (tgtSym != symbols.end()) {
+                annotation = "\t; <" + tgtSym->second + ">";
+            }
+        } else if (info.mode == AddressingMode::BASE_PAGE_RELATIVE) {
+            int8_t rel = (int8_t)body[i + 2];
+            uint32_t target = (pc + 3 + rel) & 0xFFFF;
+            auto tgtSym = symbols.find(target);
+            if (tgtSym != symbols.end()) {
+                annotation = "\t; <" + tgtSym->second + ">";
             }
         }
 
@@ -530,6 +582,7 @@ static void printUsage(const char* progName) {
     std::cout << "  -d       Disassemble executable sections" << std::endl;
     std::cout << "  -a       Display all information" << std::endl;
     std::cout << "  -b ADDR  Set base address for raw binary files (default: $0000)" << std::endl;
+    std::cout << "  -m FILE  Load symbols from linker map file (ln45 -M output)" << std::endl;
     std::cout << "  -V       Display version" << std::endl;
     std::cout << "  -?       Display this help message" << std::endl;
     std::cout << std::endl;
@@ -549,6 +602,7 @@ int main(int argc, char** argv) {
     bool showAll = false;
     uint32_t baseAddr = 0;
     bool baseAddrSet = false;
+    std::string mapFile;
     std::vector<std::string> files;
 
     for (int i = 1; i < argc; i++) {
@@ -572,6 +626,12 @@ int main(int argc, char** argv) {
                 baseAddr = (uint32_t)std::stoul(addrStr, nullptr, 0);
             }
             baseAddrSet = true;
+        } else if (arg == "-m") {
+            if (i + 1 >= argc) {
+                std::cerr << "objdump45: -m requires a map file argument" << std::endl;
+                return 1;
+            }
+            mapFile = argv[++i];
         } else if (arg[0] == '-' && arg.size() > 1) {
             // Parse combined flags like -fdh
             for (size_t j = 1; j < arg.size(); j++) {
@@ -682,9 +742,12 @@ int main(int argc, char** argv) {
                 hexDump(body, base, isPrg ? "PRG" : "BIN");
             }
             if (showDisasm) {
-                std::map<uint32_t, std::string> emptySymbols;
+                std::map<uint32_t, std::string> prgSymbols;
+                if (!mapFile.empty()) {
+                    prgSymbols = loadMapSymbols(mapFile);
+                }
                 disassembleSection(body, base, isPrg ? "PRG" : "BIN",
-                                 opcodeTable, emptySymbols, filename);
+                                 opcodeTable, prgSymbols, filename);
             }
             // -h, -t, -r silently produce no output for raw binaries
         }

@@ -237,7 +237,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **`objdump45` — Object File Inspector & Disassembler**: Disassembles `.o45`/`.o65` sections back to 45GS02 assembly with symbolic labels and branch annotations. Also displays file headers, section headers, symbol tables, relocation entries, and hex dumps. Covers all 45GS02 addressing modes. 113-assertion test suite (`make test-objdump45`).
 - [X] **`nm45` — Symbol Lister & Object Inspector**: Lists symbols and inspects `.o45`/`.o65` object files. Symbol flags: `-u`, `-g`, `-n`, `-R`, `-p`, `-A`. Inspection flags: `-h` (header/mode/CPU/options), `-r` (decoded relocation tables), `-s` (segment sizes), `-a` (all). Replaces the need for separate `readobj45` and `size45` utilities.
 - [X] **`readobj45`**: Covered by `nm45 -h` (header) and `nm45 -r` (relocations).
-- [ ] **objdump45 symbolic disassembly**: Annotate disassembly addresses with resolved symbol names (e.g., `jsr $2026  ; = _puts`). Cross-reference the symbol table to find the label for each absolute address operand. Would significantly improve readability of linked PRG disassembly output.
+- [X] **objdump45 symbolic disassembly**: Annotate disassembly addresses with resolved symbol names (e.g., `ldx $200D <_count>`). All absolute, absolute-indexed, indirect, and immediate16 operands are cross-referenced against the symbol table. Branch targets and `BASE_PAGE_RELATIVE` (bbr/bbs) also annotated.
 
 ### Medium Priority
 

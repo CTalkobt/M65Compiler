@@ -22,6 +22,6 @@ clean:
 	rm -f $(OBJS) $(PRG) map.txt main_jmp.o45.s
 
 disasm:
-	$(OBJDUMP45) -d $(PRG)
+	$(OBJDUMP45) -d -m map.txt $(PRG)
 
 .PHONY: all clean

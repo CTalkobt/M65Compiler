@@ -327,6 +327,53 @@ else
     fail "branch annotation — assembly failed"
 fi
 
+# ─── Test 21: symbolic annotation on absolute operands ───────────────────────
+
+echo ""
+echo "--- Test: symbolic annotation on data access ---"
+
+cat > "$BUILD/objdump_symref.s" << 'EOF'
+.global _main
+.global _counter
+.global _table
+.segment "code"
+* = $4000
+
+_main:
+    lda _counter
+    sta _counter
+    ldx _counter
+    stx _counter
+    ldy _table
+    lda _table,x
+    lda _table,y
+    jmp _main
+    rts
+
+.segment "data"
+_counter: .byte $00
+_table: .byte $01, $02, $03
+EOF
+
+$AS -c "$BUILD/objdump_symref.s" -o "$BUILD/objdump_symref.o45" 2>&1
+if [ $? -eq 0 ]; then
+    OUT=$($OD -d "$BUILD/objdump_symref.o45" 2>&1)
+    assert_exit "symref exits 0" $? 0
+    # lda/sta/ldx/stx with absolute addressing should annotate
+    assert_contains "lda abs annotated" "$OUT" "lda"
+    assert_contains "lda abs has <_counter>" "$OUT" "<_counter>"
+    assert_contains "sta abs has <_counter>" "$OUT" "<_counter>"
+    assert_contains "lda abs,x has <_table>" "$OUT" "<_table>"
+    assert_contains "lda abs,y has <_table>" "$OUT" "<_table>"
+    assert_contains "jmp annotated with <_main>" "$OUT" "jmp"
+    assert_contains "jmp has <_main>" "$OUT" "<_main>"
+    assert_contains "_main label" "$OUT" "<_main>:"
+    assert_contains "_counter label" "$OUT" "<_counter>:"
+    assert_contains "_table label" "$OUT" "<_table>:"
+else
+    fail "symref — assembly failed"
+fi
+
 # ─── Test 18: PRG file disassembly ───────────────────────────────────────────
 
 echo ""
@@ -425,6 +472,58 @@ if [ $? -eq 0 ]; then
     assert_contains "basic prg has sta" "$OUT" "sta"
 else
     fail "basic prg — assembly failed"
+fi
+
+# ─── Test 22: -m map file for PRG disassembly ────────────────────────────────
+
+echo ""
+echo "--- Test: -m map file with PRG ---"
+
+# Build a linked PRG with a map file
+cat > "$BUILD/objdump_map_a.s" << 'EOF'
+.global _main
+.segment "code"
+_main:
+    jsr _helper
+    rts
+EOF
+
+cat > "$BUILD/objdump_map_b.s" << 'EOF'
+.global _helper
+.global _data
+.segment "code"
+_helper:
+    lda _data
+    rts
+.segment "data"
+_data: .byte $42
+EOF
+
+$AS -c "$BUILD/objdump_map_a.s" -o "$BUILD/objdump_map_a.o45" 2>&1
+$AS -c "$BUILD/objdump_map_b.s" -o "$BUILD/objdump_map_b.o45" 2>&1
+LN="./bin/ln45"
+if [ -x "$LN" ]; then
+    $LN -basic -M "$BUILD/objdump_map.txt" -o "$BUILD/objdump_map.prg" \
+        "$BUILD/objdump_map_a.o45" "$BUILD/objdump_map_b.o45" 2>&1
+
+    if [ $? -eq 0 ]; then
+        # Without -m: no labels
+        OUT=$($OD -d "$BUILD/objdump_map.prg" 2>&1)
+        assert_exit "prg no -m exits 0" $? 0
+        assert_not_contains "prg no -m has no _main label" "$OUT" "<_main>"
+
+        # With -m: labels appear
+        OUT=$($OD -d -m "$BUILD/objdump_map.txt" "$BUILD/objdump_map.prg" 2>&1)
+        assert_exit "prg -m exits 0" $? 0
+        assert_contains "prg -m shows _main label" "$OUT" "<_main>"
+        assert_contains "prg -m shows _helper label" "$OUT" "<_helper>"
+        assert_contains "prg -m jsr annotated" "$OUT" "<_helper>"
+        assert_contains "prg -m lda annotated with _data" "$OUT" "<_data>"
+    else
+        fail "map test — linking failed"
+    fi
+else
+    echo "  SKIP: ln45 not available"
 fi
 
 # ─── Summary ─────────────────────────────────────────────────────────────────

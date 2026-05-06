@@ -47,6 +47,7 @@
 
 ### Documentation
 - [x] `getchar()` — implemented and added to stdio.h
+- [x] `objdump45` symbolic disassembly — all absolute/indexed/indirect operands annotated with symbol names
 
 ## 1.0 Should-Fix
 
