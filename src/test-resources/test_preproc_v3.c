@@ -9,7 +9,7 @@ int printf(char *s);
 int main() {
     int success = 0;
 
-    // 1. Check #pragma include_once
+    // 1. Check #pragma once
     once_func();
     success++;
 

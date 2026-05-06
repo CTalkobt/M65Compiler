@@ -9,7 +9,7 @@
  *   signed long    = 32-bit signed
  */
 
-#pragma include_once
+#pragma once
 
 /* Number of bits in a char */
 #define CHAR_BIT    8

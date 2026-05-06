@@ -1,4 +1,4 @@
-#pragma include_once
+#pragma once
 void once_func() {
     return;
 }

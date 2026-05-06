@@ -1,6 +1,6 @@
 /* stdbool.h — Boolean type for cc45 / MEGA65 (C99) */
 
-#pragma include_once
+#pragma once
 
 #define bool    _Bool
 #define true    1

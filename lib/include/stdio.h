@@ -3,7 +3,7 @@
  * Provides character and string output via KERNAL CHROUT ($FFD2).
  */
 
-#pragma include_once
+#pragma once
 
 int putchar(int c);
 int puts(char *s);

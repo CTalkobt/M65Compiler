@@ -1,6 +1,6 @@
 /* stddef.h — Standard definitions for cc45 / MEGA65 */
 
-#pragma include_once
+#pragma once
 
 /* NULL pointer constant */
 #define NULL 0

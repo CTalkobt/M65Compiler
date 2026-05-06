@@ -1,3 +1,3 @@
-#pragma include_once
+#pragma once
 #define HEADER_INCLUDED
 // int header_val = 1; // Removed global

@@ -2,7 +2,7 @@
 
 ## Known Bugs (from root todo.md)
 
-- [ ] **Assembler simulated op size drift**: Simulated opcodes may produce different sizes in pass 1 vs pass 2 with forward-referenced symbols.
+- [x] **Assembler simulated op size drift**: Fixed in commits 3e1e5a0 and f38808e.
 
 ## Calling Convention Safety
 
@@ -53,12 +53,12 @@
 ### Language
 - [ ] Designated initializers: `{.x=1, .y=2}` for structs, `{[2]=3}` for arrays
 - [ ] `_Alignas` for local (stack) variables
-- [ ] Type qualifier ordering: `signed volatile int x` works, `volatile signed int x` does not
+- [x] Type qualifier ordering: all orderings now accepted (globals, locals, params, return types, typedefs)
 - [ ] Enforce `&register_var` as compile error (C standard requirement)
 - [ ] Integer literal overflow checking (Lexer.cpp:246)
 
 ### Preprocessor
-- [ ] `#pragma once` as alias for `#pragma include_once`
+- [x] `#pragma once` support (replaced non-standard `#pragma include_once`)
 - [ ] `_Pragma()` currently silently discarded — should convert to `#pragma`
 
 ### Standard Library (minimal C subset)
@@ -66,6 +66,10 @@
 - [ ] `string.h`: `strstr`, `strtok`, `strncat`, `strpbrk`, `strspn`, `strcspn`
 - [ ] `stdlib.h`: `strtol`, `strtoul`
 - [ ] `stdio.h`: `getchar`
+
+## Future Optimizations
+
+- [ ] Dead code elimination after unconditional infinite loops (`while(1){}` makes subsequent `return` unreachable)
 
 ## 1.0 Won't-Fix (Documented Limitations)
 

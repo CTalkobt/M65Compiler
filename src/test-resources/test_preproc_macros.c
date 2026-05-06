@@ -1,6 +1,6 @@
 #define INC_FILE "test_inc_macros.h"
 #include INC_FILE
-#include INC_FILE // Should be ignored due to #pragma include_once
+#include INC_FILE // Should be ignored due to #pragma once
 
 #define STR(x) #x
 #define GLUE(a, b) a##b
@@ -10,7 +10,7 @@
 int main() {
     int success = 0;
     
-    // Test #pragma include_once (indirectly by checking if HEADER_INCLUDED exists)
+    // Test #pragma once (indirectly by checking if HEADER_INCLUDED exists)
 #ifdef HEADER_INCLUDED
     success++;
 #endif

@@ -1,6 +1,6 @@
 /* ctype.h — PETSCII-aware character classification for cc45 / MEGA65 */
 
-#pragma include_once
+#pragma once
 
 /*
  * PETSCII character ranges:

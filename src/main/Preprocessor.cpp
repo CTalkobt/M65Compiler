@@ -547,19 +547,19 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
             if (trimmed.substr(0, 1) != "#") {
                 hasSeenNonWhitespace = true;
             } else {
-                // Check if it's #pragma include_once
+                // Check if it's #pragma once
                 std::stringstream ss(trimmed);
                 std::string hash, cmd, sub;
                 ss >> cmd; // cmd will be #pragma or #something
                 if (cmd == "#pragma") {
                     ss >> sub;
-                    if (sub == "include_once" || sub == "once") {
+                    if (sub == "once") {
                         if (!currentFile.empty()) onceFiles.insert(currentFile);
                         output << "\n";
                         continue;
                     }
                 }
-                // Other directives don't count as non-whitespace content for include_once purposes
+                // Other directives don't count as non-whitespace content for #pragma once purposes
                 // but we should still handle them.
             }
         }
@@ -754,7 +754,7 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
             } else if (cmd == "#pragma") {
                 std::string pragmaArg;
                 ss >> pragmaArg;
-                if (pragmaArg == "include_once" || pragmaArg == "once") {
+                if (pragmaArg == "once") {
                     if (!currentFile.empty()) onceFiles.insert(currentFile);
                     output << "\n";
                 } else if (isCompiler && pragmaArg == "weak") {

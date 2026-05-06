@@ -6,7 +6,7 @@
  *   long  = 32-bit (signed/unsigned)
  */
 
-#pragma include_once
+#pragma once
 
 /* Exact-width types */
 #define int8_t   signed char

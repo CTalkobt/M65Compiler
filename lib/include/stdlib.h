@@ -1,6 +1,6 @@
 /* stdlib.h — General utilities for cc45 / MEGA65 */
 
-#pragma include_once
+#pragma once
 
 #include <stddef.h>
 

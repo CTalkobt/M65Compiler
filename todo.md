@@ -76,7 +76,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **Macro Expansion**: Support object-like, function-like, and variadic macros, rescanning, and `#` / `##` operators.
 - [X] **Variadic Macros**: Support `__VA_ARGS__` and `##__VA_ARGS__` comma removal.
 - [X] **Pragma Operator**: Support `_Pragma("...")`.
-- [X] **Header Guards**: Support `#pragma include_once` for file inclusion optimization.
+- [X] **Header Guards**: Support `#pragma once` for file inclusion optimization.
 - [X] **Expression Evaluation**: Support `defined()`, arithmetic, and logic in `#if` / `#elif`.
 - [X] **Line Continuation**: Support `\` at end of line.
 - [X] **Predefined Macros**: Support `__FILE__`, `__LINE__`, `__DATE__`, `__TIME__`, `__STDC__`, `__STDC_VERSION__`, `__STDC_HOSTED__`.

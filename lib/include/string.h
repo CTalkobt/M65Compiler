@@ -1,6 +1,6 @@
 /* string.h — String and memory functions for cc45 / MEGA65 */
 
-#pragma include_once
+#pragma once
 
 /* String operations */
 int strlen(char *s);

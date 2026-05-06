@@ -10,7 +10,7 @@
  *   char ch = cbm_chrin();
  */
 
-#pragma include_once
+#pragma once
 
 /* ===== KERNAL Jump Table Addresses ===== */
 
