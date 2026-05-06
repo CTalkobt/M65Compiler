@@ -257,6 +257,7 @@ public:
         for (auto& elem : node.elements) {
             result->elements.push_back(fold(std::move(elem)));
         }
+        result->designators = node.designators;
         lastExpr = std::move(result);
     }
 

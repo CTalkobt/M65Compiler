@@ -146,7 +146,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **Multi-dimensional arrays**: Support `int a[3][4]` row-major layout. Parser, type system, stride computation, constant-index and runtime-index codegen implemented. Validated via mmemu with loop-based stores and reads.
 - [X] **Array Initializers**: Support initialized array declarations including partial initialization and `= {0}` zero-fill.
 - [X] **Struct arrays**: Support `struct point pts[10];`. Constant and runtime-indexed access with member access (`pts[i].x`), loop-based stores, and `sizeof` all work. Validated via mmemu.
-- [ ] **Designated Initializers**: Support C99 designated initializers for structs (`{.x=1}`) and arrays (`{[2]=3}`).
+- [X] **Designated Initializers**: Support C99 designated initializers for structs (`{.x=1}`) and arrays (`{[2]=3}`). Mixed positional+designated, sparse arrays, reordered struct members. Works for locals (frame and stack-push), globals, volatile, and static locals.
 - [X] **Compound Literals**: Support C99 compound literals for creating unnamed temporary objects inline (e.g., `(struct Point){1, 2}`, `(int){42}`, `(int[]){1,2,3}`). Struct/array compound literals allocate frame temporaries; scalar compound literals produce values directly. Works as variable initializers, function arguments, and in general expressions.
 - [X] **Flexible Array Members**: Support C99 flexible array members as the last member of a struct (`int data[]`). `sizeof` excludes FAM; validated: must be last member, not in union, struct needs ≥1 other member, no multi-dim.
 - [X] **Return struct**: Support returning structs from functions via hidden-pointer ABI.

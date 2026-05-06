@@ -1508,6 +1508,7 @@ void CodeGenerator::visit(VariableDeclaration& node) {
                         copy->elements.push_back(std::make_unique<IntegerLiteral>(eLit->value));
                     }
                 }
+                copy->designators = initList->designators;
                 synth->initializer = std::move(copy);
             }
             // Non-literal initializers: leave as nullptr, will be zero-initialized in BSS
@@ -1632,7 +1633,7 @@ void CodeGenerator::visit(VariableDeclaration& node) {
         // Initialize the frame slot
         if (auto* initList = dynamic_cast<InitializerList*>(node.initializer.get())) {
             if (isStruct(node.type) && node.pointerLevel == 0) {
-                // Struct initializer: {val0, val1, ...} matched to members by offset order
+                // Struct initializer: {val0, val1, ...} or {.x=val, ...} matched to members by offset order
                 std::string sName = getAggregateName(node.type);
                 if (!structs.count(sName))
                     throw std::runtime_error("Unknown struct type: " + sName);
@@ -1641,12 +1642,28 @@ void CodeGenerator::visit(VariableDeclaration& node) {
                 for (auto& [mname, minfo] : sInfo.members) orderedMembers.push_back({mname, &minfo});
                 std::sort(orderedMembers.begin(), orderedMembers.end(),
                           [](auto& a, auto& b) { return a.second->offset < b.second->offset; });
-                for (int i = 0; i < (int)orderedMembers.size() && i < (int)initList->elements.size(); i++) {
+                // Resolve designators to member-ordered positions
+                std::vector<Expression*> resolved(orderedMembers.size(), nullptr);
+                int nextPos = 0;
+                for (size_t ei = 0; ei < initList->elements.size(); ei++) {
+                    auto desig = initList->getDesignator(ei);
+                    if (!desig.memberName.empty()) {
+                        for (int j = 0; j < (int)orderedMembers.size(); j++) {
+                            if (orderedMembers[j].first == desig.memberName) { nextPos = j; break; }
+                        }
+                    }
+                    if (nextPos < (int)resolved.size()) {
+                        resolved[nextPos] = initList->elements[ei].get();
+                        nextPos++;
+                    }
+                }
+                for (int i = 0; i < (int)orderedMembers.size(); i++) {
+                    if (!resolved[i]) continue;
                     auto& minfo = *orderedMembers[i].second;
                     int memberOff = frameOff + minfo.offset;
                     int memberSize = (minfo.pointerLevel > 0 || minfo.type == "int") ? 2 :
                                      (minfo.type == "char" || minfo.type == "_Bool") ? 1 : 2;
-                    if (auto* lit = dynamic_cast<IntegerLiteral*>(initList->elements[i].get())) {
+                    if (auto* lit = dynamic_cast<IntegerLiteral*>(resolved[i])) {
                         if (memberSize == 2) {
                             emitter->lda_imm(lit->value & 0xFF);
                             emit("sta.fp " + std::to_string(memberOff));
@@ -1659,23 +1676,34 @@ void CodeGenerator::visit(VariableDeclaration& node) {
                     } else {
                         bool oldNeeded = resultNeeded;
                         resultNeeded = true;
-                        initList->elements[i]->accept(*this);
+                        resolved[i]->accept(*this);
                         resultNeeded = oldNeeded;
                         if (memberSize == 2) emit("stax.fp " + std::to_string(memberOff));
                         else emit("sta.fp " + std::to_string(memberOff));
                     }
                 }
             } else {
-                // Array/scalar initializer
+                // Array/scalar initializer (supports [N]=val designators)
                 int elementSize = 0;
                 if (node.pointerLevel > 0) elementSize = 2;
                 else if (is8BitType(node.type)) elementSize = 1;
                 else if (node.type == "int") elementSize = 2;
                 int totalElements = node.arraySize() >= 0 ? node.arraySize() : 1;
+                // Resolve array designators to position map
+                std::vector<Expression*> resolved(totalElements, nullptr);
+                int nextIdx = 0;
+                for (size_t ei = 0; ei < initList->elements.size(); ei++) {
+                    auto desig = initList->getDesignator(ei);
+                    if (desig.arrayIndex >= 0) nextIdx = desig.arrayIndex;
+                    if (nextIdx < totalElements) {
+                        resolved[nextIdx] = initList->elements[ei].get();
+                        nextIdx++;
+                    }
+                }
                 for (int i = 0; i < totalElements; i++) {
                     int val = 0;
-                    if (i < (int)initList->elements.size()) {
-                        if (auto* lit = dynamic_cast<IntegerLiteral*>(initList->elements[i].get())) {
+                    if (resolved[i]) {
+                        if (auto* lit = dynamic_cast<IntegerLiteral*>(resolved[i])) {
                             val = lit->value;
                         }
                     }
@@ -1797,10 +1825,21 @@ void CodeGenerator::visit(VariableDeclaration& node) {
             else if (is8BitType(node.type)) elementSize = 1;
             else if (node.type == "int") elementSize = 2;
             int totalElements = node.arraySize() >= 0 ? node.arraySize() : 1;
+            // Resolve array designators
+            std::vector<Expression*> resolved(totalElements, nullptr);
+            int nextIdx = 0;
+            for (size_t ei = 0; ei < initList->elements.size(); ei++) {
+                auto desig = initList->getDesignator(ei);
+                if (desig.arrayIndex >= 0) nextIdx = desig.arrayIndex;
+                if (nextIdx < totalElements) {
+                    resolved[nextIdx] = initList->elements[ei].get();
+                    nextIdx++;
+                }
+            }
             for (int i = totalElements - 1; i >= 0; i--) {
                 int val = 0;
-                if (i < (int)initList->elements.size()) {
-                    if (auto* lit = dynamic_cast<IntegerLiteral*>(initList->elements[i].get())) {
+                if (resolved[i]) {
+                    if (auto* lit = dynamic_cast<IntegerLiteral*>(resolved[i])) {
                         val = lit->value;
                     }
                 }
@@ -1853,11 +1892,22 @@ void CodeGenerator::visit(VariableDeclaration& node) {
             else if (is8BitType(node.type)) elementSize = 1;
             else if (node.type == "int") elementSize = 2;
             int totalElements = node.arraySize() >= 0 ? node.arraySize() : 1;
+            // Resolve array designators
+            std::vector<Expression*> resolved(totalElements, nullptr);
+            int nextIdx = 0;
+            for (size_t ei = 0; ei < initList->elements.size(); ei++) {
+                auto desig = initList->getDesignator(ei);
+                if (desig.arrayIndex >= 0) nextIdx = desig.arrayIndex;
+                if (nextIdx < totalElements) {
+                    resolved[nextIdx] = initList->elements[ei].get();
+                    nextIdx++;
+                }
+            }
             // Push in reverse: last element first (stack grows down)
             for (int i = totalElements - 1; i >= 0; i--) {
                 int val = 0;
-                if (i < (int)initList->elements.size()) {
-                    if (auto* lit = dynamic_cast<IntegerLiteral*>(initList->elements[i].get())) {
+                if (resolved[i]) {
+                    if (auto* lit = dynamic_cast<IntegerLiteral*>(resolved[i])) {
                         val = lit->value;
                     }
                 }
@@ -4995,22 +5045,64 @@ void CodeGenerator::emitData() {
             else if (gVar->type == "int") elementSize = 2;
             else if (isStruct(gVar->type)) { std::string sName = getAggregateName(gVar->type); if (structs.count(sName)) elementSize = structs[sName]->totalSize; }
             int totalElements = gVar->arraySize() >= 0 ? gVar->arraySize() : 1;
-            int emitted = 0;
-            for (auto& elem : initList->elements) {
-                if (emitted >= totalElements) break;
-                int constVal;
-                if (tryEvalConstInt(elem.get(), constVal)) {
+            // Resolve designators (array [N]=val or struct .member=val for global struct init)
+            std::vector<Expression*> resolved(totalElements, nullptr);
+            if (isStruct(gVar->type) && gVar->pointerLevel == 0 && gVar->arraySize() < 0) {
+                // Global struct: resolve member designators to per-member values
+                std::string sName = getAggregateName(gVar->type);
+                if (structs.count(sName)) {
+                    auto& sInfo = *structs[sName];
+                    std::vector<std::pair<std::string, MemberInfo*>> orderedMembers;
+                    for (auto& [mname, minfo] : sInfo.members) orderedMembers.push_back({mname, &minfo});
+                    std::sort(orderedMembers.begin(), orderedMembers.end(),
+                              [](auto& a, auto& b) { return a.second->offset < b.second->offset; });
+                    resolved.resize(orderedMembers.size(), nullptr);
+                    int nextPos = 0;
+                    for (size_t ei = 0; ei < initList->elements.size(); ei++) {
+                        auto desig = initList->getDesignator(ei);
+                        if (!desig.memberName.empty()) {
+                            for (int j = 0; j < (int)orderedMembers.size(); j++) {
+                                if (orderedMembers[j].first == desig.memberName) { nextPos = j; break; }
+                            }
+                        }
+                        if (nextPos < (int)resolved.size()) {
+                            resolved[nextPos] = initList->elements[ei].get();
+                            nextPos++;
+                        }
+                    }
+                    // Emit each member in offset order
+                    for (size_t mi = 0; mi < orderedMembers.size(); mi++) {
+                        auto& minfo = *orderedMembers[mi].second;
+                        int mSize = (minfo.pointerLevel > 0 || minfo.type == "int") ? 2 :
+                                    is8BitType(minfo.type) ? 1 : is32BitType(minfo.type) ? 4 : 2;
+                        int constVal = 0;
+                        if (resolved[mi]) tryEvalConstInt(resolved[mi], constVal);
+                        if (mSize == 1) out << "    .byte $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (constVal & 0xFF) << std::dec << std::endl;
+                        else if (mSize == 2) out << "    .word $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (constVal & 0xFFFF) << std::dec << std::endl;
+                        else if (mSize == 4) out << "    .dword $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(8) << (constVal & 0xFFFFFFFF) << std::dec << std::endl;
+                        else out << "    .res " << std::to_string(mSize) << ", 0" << std::endl;
+                    }
+                }
+            } else {
+                // Array or scalar: resolve array designators
+                int nextIdx = 0;
+                for (size_t ei = 0; ei < initList->elements.size(); ei++) {
+                    auto desig = initList->getDesignator(ei);
+                    if (desig.arrayIndex >= 0) nextIdx = desig.arrayIndex;
+                    if (nextIdx < totalElements) {
+                        resolved[nextIdx] = initList->elements[ei].get();
+                        nextIdx++;
+                    }
+                }
+                for (int i = 0; i < totalElements; i++) {
+                    int constVal = 0;
+                    if (resolved[i]) tryEvalConstInt(resolved[i], constVal);
                     if (elementSize == 1) out << "    .byte $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (constVal & 0xFF) << std::dec << std::endl;
                     else if (elementSize == 2) out << "    .word $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (constVal & 0xFFFF) << std::dec << std::endl;
                     else if (elementSize == 4) out << "    .dword $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(8) << (constVal & 0xFFFFFFFF) << std::dec << std::endl;
                     else out << "    .res " << std::to_string(elementSize) << ", 0" << std::endl;
-                } else {
-                    out << "    .res " << std::to_string(elementSize) << ", 0" << std::endl;
                 }
-                emitted++;
             }
-            int remaining = totalElements - emitted;
-            if (remaining > 0) out << "    .res " << std::to_string(remaining * elementSize) << ", 0" << std::endl;
         } else {
             int constVal;
             if (tryEvalConstInt(gVar->initializer.get(), constVal)) {

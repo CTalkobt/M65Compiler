@@ -1485,8 +1485,28 @@ std::unique_ptr<Expression> Parser::parseGenericSelection() {
 std::unique_ptr<Expression> Parser::parseInitializerList() {
     const Token& startToken = expect(TokenType::OPEN_BRACE, "Expected '{'");
     auto initList = setPos(std::make_unique<InitializerList>(), startToken);
+    bool hasDesignators = false;
     if (peek().type != TokenType::CLOSE_BRACE) {
         do {
+            InitializerList::Designator desig;
+            // Check for designators: .member = or [index] =
+            if (peek().type == TokenType::DOT && pos + 2 < tokens.size()
+                && tokens[pos + 1].type == TokenType::IDENTIFIER && tokens[pos + 2].type == TokenType::EQUALS) {
+                advance(); // consume '.'
+                desig.memberName = advance().value; // consume identifier
+                advance(); // consume '='
+                hasDesignators = true;
+            } else if (peek().type == TokenType::OPEN_SQUARE && pos + 3 < tokens.size()
+                && tokens[pos + 1].type == TokenType::INTEGER_LITERAL
+                && tokens[pos + 2].type == TokenType::CLOSE_SQUARE
+                && tokens[pos + 3].type == TokenType::EQUALS) {
+                advance(); // consume '['
+                desig.arrayIndex = std::stoi(advance().value); // consume integer
+                advance(); // consume ']'
+                advance(); // consume '='
+                hasDesignators = true;
+            }
+            initList->designators.push_back(desig);
             if (peek().type == TokenType::OPEN_BRACE) {
                 initList->elements.push_back(parseInitializerList());
             } else {
@@ -1494,6 +1514,8 @@ std::unique_ptr<Expression> Parser::parseInitializerList() {
             }
         } while (match(TokenType::COMMA) && peek().type != TokenType::CLOSE_BRACE);
     }
+    // Strip empty designators if none were used
+    if (!hasDesignators) initList->designators.clear();
     expect(TokenType::CLOSE_BRACE, "Expected '}'");
     return initList;
 }

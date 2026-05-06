@@ -120,9 +120,18 @@ public:
 
 class InitializerList : public Expression {
 public:
+    struct Designator {
+        std::string memberName;  // non-empty for .member designator
+        int arrayIndex = -1;     // >= 0 for [index] designator
+        bool isDesignated() const { return !memberName.empty() || arrayIndex >= 0; }
+    };
     std::vector<std::unique_ptr<Expression>> elements;
+    std::vector<Designator> designators; // parallel to elements; may be empty or shorter
     InitializerList() {}
     void accept(ASTVisitor& visitor) override;
+    Designator getDesignator(size_t i) const {
+        return (i < designators.size()) ? designators[i] : Designator{};
+    }
 };
 
 class ArrayAccess : public Expression {
