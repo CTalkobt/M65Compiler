@@ -148,7 +148,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **Struct arrays**: Support `struct point pts[10];`. Constant and runtime-indexed access with member access (`pts[i].x`), loop-based stores, and `sizeof` all work. Validated via mmemu.
 - [ ] **Designated Initializers**: Support C99 designated initializers for structs (`{.x=1}`) and arrays (`{[2]=3}`).
 - [X] **Compound Literals**: Support C99 compound literals for creating unnamed temporary objects inline (e.g., `(struct Point){1, 2}`, `(int){42}`, `(int[]){1,2,3}`). Struct/array compound literals allocate frame temporaries; scalar compound literals produce values directly. Works as variable initializers, function arguments, and in general expressions.
-- [ ] **Flexible Array Members**: Support C99 flexible array members as the last member of a struct (`int data[]`).
+- [X] **Flexible Array Members**: Support C99 flexible array members as the last member of a struct (`int data[]`). `sizeof` excludes FAM; validated: must be last member, not in union, struct needs ≥1 other member, no multi-dim.
 - [X] **Return struct**: Support returning structs from functions via hidden-pointer ABI.
 - [X] **Function Pointers**: Support declaration, assignment, and call-through of function pointer types.
 - [d] **Lambda Functions**: Support anonymous functions and closures (capturing local scope) leveraging stack-relative context.

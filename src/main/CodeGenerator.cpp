@@ -3818,6 +3818,20 @@ void CodeGenerator::visit(StructDefinition& node) {
         }
     };
 
+    // Validate flexible array members (C99): must be last, not in union, struct needs >=1 other member
+    for (size_t i = 0; i < node.members.size(); i++) {
+        auto& m = node.members[i];
+        bool isFAM = (!m.arrayDims.empty() && m.arrayDims[0] == 0 && m.arrayDims.size() == 1);
+        if (isFAM) {
+            if (node.isUnion)
+                throw std::runtime_error("Flexible array member '" + m.name + "' not allowed in union");
+            if (i != node.members.size() - 1)
+                throw std::runtime_error("Flexible array member '" + m.name + "' must be the last member of struct '" + node.name + "'");
+            if (node.members.size() < 2)
+                throw std::runtime_error("Struct '" + node.name + "' with flexible array member must have at least one other member");
+        }
+    }
+
     for (auto& member : node.members) {
         int mAlign = 1;
         int mSize = 0;

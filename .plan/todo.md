@@ -52,6 +52,7 @@
 ## 1.0 Should-Fix
 
 ### Language
+- [x] Flexible array members: `struct S { int n; char data[]; }`
 - [ ] Designated initializers: `{.x=1, .y=2}` for structs, `{[2]=3}` for arrays
 - [ ] `_Alignas` for local (stack) variables
 - [x] Type qualifier ordering: all orderings now accepted (globals, locals, params, return types, typedefs)

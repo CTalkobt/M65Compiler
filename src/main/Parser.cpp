@@ -994,11 +994,20 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         while (match(TokenType::STAR)) ptrLevel++;
         std::string memberName = expect(TokenType::IDENTIFIER, "Expected member name").value;
         std::vector<int> memberArrayDims;
+        bool isFlexArray = false;
         while (match(TokenType::OPEN_SQUARE)) {
-            const Token& sizeToken = expect(TokenType::INTEGER_LITERAL, "Expected integer literal for array size");
-            memberArrayDims.push_back(std::stoi(sizeToken.value));
-            expect(TokenType::CLOSE_SQUARE, "Expected ']' after array size");
+            if (match(TokenType::CLOSE_SQUARE)) {
+                // Flexible array member: type name[];
+                isFlexArray = true;
+                memberArrayDims.push_back(0);
+            } else {
+                const Token& sizeToken = expect(TokenType::INTEGER_LITERAL, "Expected integer literal for array size");
+                memberArrayDims.push_back(std::stoi(sizeToken.value));
+                expect(TokenType::CLOSE_SQUARE, "Expected ']' after array size");
+            }
         }
+        if (isFlexArray && memberArrayDims.size() > 1)
+            throw std::runtime_error("Flexible array member '" + memberName + "' cannot be multi-dimensional");
         int memberBitWidth = 0;
         if (match(TokenType::COLON)) {
             if (!memberArrayDims.empty())
