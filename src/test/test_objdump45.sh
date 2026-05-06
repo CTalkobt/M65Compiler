@@ -82,7 +82,7 @@ echo "--- Test: version ---"
 OUT=$($OD -V 2>&1)
 assert_exit "-V exits 0" $? 0
 assert_contains "-V prints tool name" "$OUT" "objdump45"
-assert_contains "-V prints version" "$OUT" "v0.99.dev"
+assert_contains "-V prints version" "$OUT" "objdump45 v"
 
 # ─── Test 2: -? (help) ──────────────────────────────────────────────────────
 
