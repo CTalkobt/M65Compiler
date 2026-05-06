@@ -3166,6 +3166,11 @@ void CodeGenerator::visit(UnaryOperation& node) {
         }
         freeZP(zpIdx, 2);
     } else if (node.op == "&") {
+        if (auto* ref = dynamic_cast<VariableReference*>(node.operand.get())) {
+            std::string rName = resolveVarName(ref->name);
+            if (registerVars.count(rName))
+                throw std::runtime_error("Compile Error: Cannot take address of register variable '" + ref->name + "'");
+        }
         if (auto* ma = dynamic_cast<MemberAccess*>(node.operand.get())) {
             ExpressionType bType = getExprType(ma->structExpr.get());
             if (isStruct(bType.type)) {
