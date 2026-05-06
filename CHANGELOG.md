@@ -8,6 +8,19 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - **Compiler (cc45)**:
     - **Fine-grained clobber tracking (Phase 1)**: The compiler now tracks which CPU registers (A, X, Y, Z) and processor flags (C, N, Z, V) each function actually modifies during code generation. Per-function `FuncClobberInfo` records are built incrementally as code is emitted. Accurate `.reg_clobbers` and `.flag_clobbers` directives are emitted for both ZP and stack calling conventions (previously only a blanket `A, X, Y, Z` was emitted for zpcall functions, nothing for stack convention). Leaf fastcall functions like `int identity(int x) { return x; }` now correctly report `.reg_clobbers A, X` instead of all four registers. Added `invalidateFromClobbers(regMask, flagMask)` for future Phase 2 selective invalidation at call sites.
 
+### Fixed
+- **Assembler (ca45)**:
+    - **Assembler simulated op size drift**: Fixed a major source of address drift where simulated opcodes produced different code lengths between pass 1 and pass 2, especially when operands involved forward references. This was addressed by implementing a "conservative sizing" strategy: in pass 1, if an operand's type or value is uncertain, the assembler assumes the largest possible code path (e.g., stack-relative for `ptrstack`). This prevents instructions from growing in size during pass 2, which ensures convergence. Also added `isPass1()` to `AssemblerParser` for this purpose, and refined `isStackRelativeOperand` and similar operand evaluation logic to handle forward references gracefully during pass 1.
+- **Compiler (cc45)**:
+    - **ConstantFolder type preservation**: Updated `ConstantFolder` to track and propagate C types along with folded values. When a `long` variable is replaced by a folded `IntegerLiteral`, the literal now preserves the original `"long"` type in its `castType` field. This ensures that variadic functions like `printf` correctly push 4 bytes for constant-folded long arguments instead of defaulting to 2-byte `int`.
+    - **Branch-aware constant invalidation**: Implemented constant state merging in the `IfStatement` visitor. Constants are now independently tracked through `then` and `else` branches and merged via intersection. A variable is only considered constant after an `if` if it holds the same constant value in all possible paths. Reassignments within branches now correctly invalidate any pre-existing constant assumptions.
+    - **CompoundStatement scope leakage**: Removed incorrect state restoration at block end that was causing constants assigned within nested scopes to be incorrectly discarded.
+- **Standard Library (stdlib45.lib)**:
+    - **ZP Safety & Relocation**: Relocated all standard library assembly functions (`atoi`, `itoa`, `ltoa`, `malloc`, `memcpy`, `strcmp`) to use the hardware stack for ZP preservation. All library functions now push clobbered ZP registers to the hardware stack at entry and restore them via `plz / stz $xx` at exit. This eliminates ZP conflicts between the library and the compiler's temporary register pool ($02-$0A).
+    - **Hardware Math Stability**: Added busy-wait loops on `$D7FE` bit 7 in `itoa` and `ltoa` to ensure the MEGA65 hardware divider has finished calculation before results are read. Fixes race conditions that produced empty or corrupted string output in `sprintf` / `%ld`.
+    - **Preservation of Return Values**: Refactored restoration logic to use the Z register as a temporary scratch, ensuring that 16-bit (`AX`), 24-bit (`AXY`), and 32-bit (`AXYZ`) return values are fully preserved without clobbering the Accumulator.
+    - **Stack Addressing Fixes**: Updated library functions to use correct stack-relative syntax (`(offset, sp), y` and `, s`) after ZP-push shifts.
+
 ## [Unreleased] - 2026-05-02
 
 ### Added

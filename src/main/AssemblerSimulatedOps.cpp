@@ -490,8 +490,12 @@ void AssemblerSimulatedOps::emitSTWCode(AssemblerParser* parser, M65Emitter& e, 
                 Symbol* sym = parser->resolveSymbol(dest, scopePrefix);
                 if (sym) addr = sym->value;
                 else {
-                    try { addr = parseNumericLiteral(dest); }
-                    catch(...) { addr = 0; } // Assume 0 for forward references during pass1
+                    if (!parser->isPass1()) { // Only try to parse numeric literal if not pass1
+                        try { addr = parseNumericLiteral(dest); }
+                        catch(...) { addr = 0; }
+                    } else {
+                        addr = 0; // Assume 0 for forward references during pass1
+                    }
                 }
             }
             e.lda_imm(low); e.sta_abs(addr); if (high == 0) e.stz_abs(addr + 1); else { e.lda_imm(high); e.sta_abs(addr + 1); }
@@ -756,7 +760,10 @@ void AssemblerSimulatedOps::emitPtrStackCode(AssemblerParser* parser, M65Emitter
         // If the symbol is not found or is not stack-relative, treat it as a global address.
         std::string baseName = parser->tokens[tokenIndex].value;
         Symbol* sym = parser->resolveSymbol(baseName, scopePrefix);
-        bool isStack = sym && (sym->isStackRelative || (!sym->isAddress && sym->isVariable));
+        // If the symbol is unresolved in pass1, assume it's a stack-relative variable to be conservative.
+        // This ensures the largest possible code path is chosen in pass1 to prevent size growth in pass2.
+        bool isStack = (sym && (sym->isStackRelative || (!sym->isAddress && sym->isVariable))) ||
+                       (!sym && parser->isPass1());
         if (isStack) {
             // Stack-relative variable: compute SP + spBase + offset
             uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);

@@ -24,7 +24,9 @@ The compilation process follows a multi-pass pipeline:
 - **Hierarchical Scoping**: Supports nested local scopes for labels and variables within procedures and `{}` blocks, preventing namespace pollution and allowing safe label reuse.
 - **Optimizations**: Includes advanced compiler optimizations such as:
     - **Strength Reduction**: Converts expensive operations (e.g., multiplication by a power of 2) into faster equivalents (e.g., bit shifts).
-    - **Constant Propagation**: Substitutes variables with known constant values into expressions at compile time, enabling further folding and simplification.
+    - **Constant Propagation**: Substitutes variables with known constant values into expressions at compile time. The optimizer is **branch-aware**, performing constant state merging across `if`/`else` paths to ensure safe invalidation on reassignments.
+    - **ZP-Safe Standard Library**: All standard library functions are designed to be disjoint from the compiler's temporary register pool ($02-$0A). Functions utilize the 45GS02 hardware stack and the Z-scratch restoration pattern (`plz/stz`) to preserve both zero page integrity and 32-bit return values (`AXYZ`).
+
     - **Dead Variable Elimination**: Removes stack allocation and initialization for local variables that are initialized with constants and not subsequently used in the function.
 - **Volatile Keyword Support**: The `volatile` keyword is fully supported, preventing unintended compiler optimizations on variables that may be changed by external factors (e.g., hardware, interrupts).
 - **MEGA65 First**: Special emphasis is placed on supporting the 45GS02 instruction set enhancements, including a high-level expression engine (`expr`) that handles constant folding and register arithmetic.

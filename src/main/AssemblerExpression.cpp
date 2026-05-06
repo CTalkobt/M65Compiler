@@ -19,8 +19,7 @@ uint32_t RegisterNode::getValue(AssemblerParser* parser) const {
     if (name == ".PC" && parser) return parser->getPC();
     return 0;
 }
-bool RegisterNode::isConstant(AssemblerParser* parser) const {
-    if (name == ".PC") return true;
+bool RegisterNode::isConstant(AssemblerParser*) const {
     return false;
 }
 bool RegisterNode::is16Bit(AssemblerParser*) const { return name == ".PC" || name.size() > 2; }

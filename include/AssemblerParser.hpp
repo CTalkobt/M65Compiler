@@ -60,6 +60,8 @@ public:
     bool isRelocatableSymbol(const std::string& name) const;
     uint32_t getExternIndex(const std::string& name) const;
 
+    bool isPass1() const { return isPass1_; }
+
     struct ProcContext {
         std::string name;
         int totalParamSize;
@@ -100,6 +102,7 @@ public:
     const std::map<std::string, Symbol>& getSymbolTable() const { return symbolTable; }
 
 private:
+    bool isPass1_ = true; // Flag to indicate if we are in pass 1 of assembly
     std::vector<AssemblerToken> tokens;
     size_t pos;
     uint32_t pc;

@@ -1,5 +1,4 @@
 #include "O45Writer.hpp"
-
 // =============================================================================
 // O45RelocEncoder — converts high-level relocation entries into .o65/.o45
 // delta-offset byte stream.
