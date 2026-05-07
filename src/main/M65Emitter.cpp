@@ -240,7 +240,19 @@ void M65Emitter::recordSymbolReloc(const std::string& name) {
     // In BINARY mode, record the address of the upcoming 16-bit operand
     // as a symbol relocation site (for simulated ops referencing global symbols).
     if (mode == Mode::BINARY) {
-        symbolRelocs_.push_back({currentAddress + 1, name});
+        symbolRelocs_.push_back({currentAddress + 1, name, 0x80, 0}); // R_WORD
+    }
+}
+
+void M65Emitter::recordSymbolRelocLo(const std::string& name) {
+    if (mode == Mode::BINARY) {
+        symbolRelocs_.push_back({currentAddress + 1, name, 0x20, 0}); // R_LOW
+    }
+}
+
+void M65Emitter::recordSymbolRelocHi(const std::string& name, uint8_t lowByte) {
+    if (mode == Mode::BINARY) {
+        symbolRelocs_.push_back({currentAddress + 1, name, 0x40, lowByte}); // R_HIGH
     }
 }
 

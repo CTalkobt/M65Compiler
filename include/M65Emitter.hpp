@@ -230,11 +230,15 @@ public:
     // Symbol relocation tracking for simulated ops that emit absolute address references
     // to named symbols (global variables accessed via ldax/stax/ptrstack etc.)
     struct SymbolReloc {
-        uint32_t address;      // address of the 16-bit operand in the binary
+        uint32_t address;      // address of the operand byte(s) in the binary
         std::string symbolName;
+        uint8_t relocType = 0x80; // R_WORD default; can be R_LOW (0x20) or R_HIGH (0x40)
+        uint8_t extra = 0;        // low byte for R_HIGH carry correction
     };
     const std::vector<SymbolReloc>& symbolRelocs() const { return symbolRelocs_; }
     void recordSymbolReloc(const std::string& name);
+    void recordSymbolRelocLo(const std::string& name);
+    void recordSymbolRelocHi(const std::string& name, uint8_t lowByte);
 
 private:
     std::vector<SpBaseReloc> spBaseRelocs_;

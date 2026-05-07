@@ -829,11 +829,11 @@ void AssemblerSimulatedOps::emitFillCode(AssemblerParser* parser, M65Emitter& e,
 
 void AssemblerSimulatedOps::emitMoveCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix, bool forceStack) {
     int idx = tokenIndex; if (idx < 0 || idx >= (int)parser->tokens.size()) return;
-    struct Operand { bool isAZ = false, isAbsolute = false, isStack = false; uint32_t value = 0; };
+    struct Operand { bool isAZ = false, isAbsolute = false, isStack = false; uint32_t value = 0; std::string symbolName; };
     auto parseMoveOp = [&](int& curIdx) -> Operand {
         Operand op; if (parser->tokens[curIdx].type == AssemblerTokenType::REGISTER && parser->tokens[curIdx].value == "AZ") { op.isAZ = true; curIdx++; }
         else { uint32_t offset = 0; if (parser->isStackRelativeOperand(curIdx, offset, scopePrefix)) { op.isStack = true; op.value = offset; parseExprAST(parser->tokens, curIdx, parser->symbolTable, scopePrefix); if (curIdx < (int)parser->tokens.size() && parser->tokens[curIdx].type == AssemblerTokenType::COMMA) curIdx++; if (curIdx < (int)parser->tokens.size() && (parser->tokens[curIdx].value == "s" || parser->tokens[curIdx].value == "S")) curIdx++; }
-        else { auto ast = parseExprAST(parser->tokens, curIdx, parser->symbolTable, scopePrefix); if (ast) { op.isAbsolute = true; op.value = ast->getValue(parser); } } } return op;
+        else { int symIdx = curIdx; auto ast = parseExprAST(parser->tokens, curIdx, parser->symbolTable, scopePrefix); if (ast) { op.isAbsolute = true; op.value = ast->getValue(parser); if (symIdx < (int)parser->tokens.size()) { std::string sn = parser->tokens[symIdx].value; Symbol* sym = parser->resolveSymbol(sn, scopePrefix); if (sym && sym->isAddress) op.symbolName = sn; } } } } return op;
     };
     Operand src = parseMoveOp(idx); if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::COMMA) idx++;
     Operand dest = parseMoveOp(idx);
@@ -841,10 +841,10 @@ void AssemblerSimulatedOps::emitMoveCode(AssemblerParser* parser, M65Emitter& e,
     { uint16_t sb = e.spBase();
     e.pha(); e.phw_imm(0); e.lda_imm(0); e.pha();
     if (dest.isAZ) { e.phz(); e.pha(); } else if (dest.isStack) { e.tsx(); e.txa(); e.clc(); e.adc_imm((sb + dest.value) & 0xFF); e.pha(); e.lda_imm((sb + dest.value) >> 8); e.adc_imm(0); e.pha(); }
-    else { e.lda_imm(dest.value >> 8); e.pha(); e.lda_imm(dest.value & 0xFF); e.pha(); }
+    else { if (!dest.symbolName.empty()) e.recordSymbolRelocHi(dest.symbolName, (uint8_t)(dest.value & 0xFF)); e.lda_imm(dest.value >> 8); e.pha(); if (!dest.symbolName.empty()) e.recordSymbolRelocLo(dest.symbolName); e.lda_imm(dest.value & 0xFF); e.pha(); }
     e.lda_imm(0); e.pha();
     if (src.isAZ) { e.phz(); e.pha(); } else if (src.isStack) { e.tsx(); e.txa(); e.clc(); e.adc_imm((sb + src.value) & 0xFF); e.pha(); e.lda_imm((sb + src.value) >> 8); e.adc_imm(0); e.pha(); }
-    else { e.lda_imm(src.value >> 8); e.pha(); e.lda_imm(src.value & 0xFF); e.pha(); }
+    else { if (!src.symbolName.empty()) e.recordSymbolRelocHi(src.symbolName, (uint8_t)(src.value & 0xFF)); e.lda_imm(src.value >> 8); e.pha(); if (!src.symbolName.empty()) e.recordSymbolRelocLo(src.symbolName); e.lda_imm(src.value & 0xFF); e.pha(); }
     e.phy(); e.phx(); e.lda_imm(0x00); e.pha();
     e.tsx(); e.txa(); e.clc(); e.adc_imm(sb & 0xFF); e.sta_abs(0xD701); e.lda_imm(sb >> 8); e.sta_abs(0xD702); e.stz_abs(0xD703); e.stz_abs(0xD700);
     e.tsx(); e.txa(); e.clc(); e.adc_imm(12); e.tax(); e.txs(); e.pla(); }

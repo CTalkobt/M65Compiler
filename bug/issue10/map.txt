@@ -1,0 +1,26 @@
+Linker Map
+==========
+
+Memory Layout
+-------------
+  TEXT   $200D - $2053  (71 bytes)
+  DATA   $2054 - $2063  (16 bytes)
+
+Object Files
+------------
+  main.o45
+    TEXT  $200D - $2016  (10 bytes)
+  bug_move_attic.o45
+    TEXT  $2017 - $2053  (61 bytes)
+    DATA  $2054 - $2063  (16 bytes)
+
+Symbols (by address)
+--------------------
+  $200D  _main                          main.o45  [uses:- clob:- rel:- regs:AXYZ]
+  $2017  _test                          bug_move_attic.o45
+  $2064  __bss_end                      <linker>
+  $2064  __bss_start                    <linker>
+
+Call Graph
+----------
+  _main -> _test

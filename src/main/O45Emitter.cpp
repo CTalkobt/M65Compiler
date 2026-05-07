@@ -574,7 +574,8 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             if (sr.address >= segStart && sr.address < seg->pc) {
                 O45Reloc reloc;
                 reloc.offset = sr.address - segStart;
-                reloc.type = R_WORD;
+                reloc.type = (O45RelocType)sr.relocType;
+                reloc.extra = sr.extra;
                 if (isExtern) {
                     reloc.segment = SEG_EXTERNAL;
                     reloc.symbolIndex = syms.getImportIndex(symName);
