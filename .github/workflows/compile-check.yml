@@ -1,0 +1,52 @@
+name: Compile Check
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+
+      - name: Build compiler suite
+        run: make all
+
+      - name: Verify compiler binaries
+        run: |
+          test -f bin/cc45 || (echo "cc45 not built" && exit 1)
+          test -f bin/ca45 || (echo "ca45 not built" && exit 1)
+          test -f bin/cp45 || (echo "cp45 not built" && exit 1)
+          test -f bin/nm45 || (echo "nm45 not built" && exit 1)
+          test -f bin/ln45 || (echo "ln45 not built" && exit 1)
+          test -f bin/ar45 || (echo "ar45 not built" && exit 1)
+          test -f bin/objdump45 || (echo "objdump45 not built" && exit 1)
+          echo "✓ All compiler binaries built successfully"
+
+      - name: Build standard library
+        run: make lib
+
+      - name: Verify library files
+        run: |
+          test -f lib/build/c45.lib || (echo "c45.lib not built" && exit 1)
+          test -f lib/build/c45_zp.lib || (echo "c45_zp.lib not built" && exit 1)
+          echo "✓ Standard library built successfully"
+
+      - name: Build examples
+        run: make -C examples all
+
+      - name: Clean build artifacts
+        run: make clean
+        if: always()
