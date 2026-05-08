@@ -555,7 +555,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
         return parseVariableDeclaration(isVolatile, isConst, isStatic, isRegister);
     }
 
-    if (peek().type == TokenType::INT || peek().type == TokenType::SHORT || peek().type == TokenType::LONG || peek().type == TokenType::CHAR || peek().type == TokenType::BOOL ||
+    if (peek().type == TokenType::ALIGNAS || peek().type == TokenType::INT || peek().type == TokenType::SHORT || peek().type == TokenType::LONG || peek().type == TokenType::CHAR || peek().type == TokenType::BOOL ||
         peek().type == TokenType::UNSIGNED || peek().type == TokenType::SIGNED ||
         (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value))) {
         return parseVariableDeclaration(isVolatile, isConst, isStatic, isRegister);

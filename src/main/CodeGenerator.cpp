@@ -603,6 +603,67 @@ public:
     void visit(TranslationUnit& n) override { for (auto& d : n.topLevelDecls) d->accept(*this); }
 };
 
+// Try to extract a compile-time constant integer from an expression tree.
+// Handles IntegerLiteral, CastExpression, unary -/~, and binary ops on constants.
+static bool tryEvalConstInt(Expression* expr, int& result) {
+    if (auto* lit = dynamic_cast<IntegerLiteral*>(expr)) {
+        result = lit->value;
+        return true;
+    }
+    if (auto* cast = dynamic_cast<CastExpression*>(expr)) {
+        return tryEvalConstInt(cast->expression.get(), result);
+    }
+    if (auto* unary = dynamic_cast<UnaryOperation*>(expr)) {
+        int val;
+        if (!tryEvalConstInt(unary->operand.get(), val)) return false;
+        if (unary->op == "-") { result = -val; return true; }
+        if (unary->op == "~") { result = ~val; return true; }
+        return false;
+    }
+    if (auto* bin = dynamic_cast<BinaryOperation*>(expr)) {
+        int l, r;
+        if (!tryEvalConstInt(bin->left.get(), l) || !tryEvalConstInt(bin->right.get(), r)) return false;
+        if (bin->op == "+") { result = l + r; return true; }
+        if (bin->op == "-") { result = l - r; return true; }
+        if (bin->op == "*") { result = l * r; return true; }
+        if (bin->op == "/" && r != 0) { result = l / r; return true; }
+        if (bin->op == "%" && r != 0) { result = l % r; return true; }
+        if (bin->op == "&") { result = l & r; return true; }
+        if (bin->op == "|") { result = l | r; return true; }
+        if (bin->op == "^") { result = l ^ r; return true; }
+        if (bin->op == "<<") { result = l << r; return true; }
+        if (bin->op == ">>") { result = l >> r; return true; }
+        return false;
+    }
+    return false;
+}
+
+// Resolves _Alignas(expr) or _Alignas(type) to an integer alignment value.
+// Returns 1 (no alignment) if expr is null, zero, or cannot be evaluated.
+static int resolveAlignmentExpr(
+    Expression* expr,
+    const std::map<std::string, std::shared_ptr<CodeGenerator::StructInfo>>& structs)
+{
+    if (!expr) return 1;
+    // _Alignas(type) → AlignofExpression
+    if (auto* ae = dynamic_cast<AlignofExpression*>(expr)) {
+        if (ae->pointerLevel > 0 || ae->typeName == "int") return 2;
+        if (ae->typeName == "char" || ae->typeName == "_Bool") return 1;
+        if (ae->typeName == "long") return 4;
+        // Strip struct/union prefix to get aggregate name
+        std::string sName = ae->typeName;
+        if (sName.length() >= 7 && sName.substr(0, 7) == "struct ") sName = sName.substr(7);
+        else if (sName.length() >= 6 && sName.substr(0, 6) == "union ") sName = sName.substr(6);
+        if (structs.count(sName)) return structs.at(sName)->alignment;
+        return 1;
+    }
+    // _Alignas(16) or _Alignas(1<<4) → constant expression
+    int val = 1;
+    if (tryEvalConstInt(expr, val) && val > 0 && (val & (val - 1)) == 0)
+        return val;
+    return 1;  // non-power-of-two or unevaluable → no alignment
+}
+
 // Pre-scan a function body to compute frame layout.
 // Assigns a fixed frame offset to every local variable, with scope-aware slot reuse
 // for variables in non-overlapping scopes.
@@ -635,6 +696,11 @@ public:
 
         std::string lName = "_l_" + node.name;
         int size = computeSize(node);
+
+        // Round currentOffset_ up to satisfy _Alignas requirement
+        int align = resolveAlignmentExpr(node.alignmentExpr.get(), structs_);
+        if (align > 1 && currentOffset_ % align != 0)
+            currentOffset_ += align - (currentOffset_ % align);
 
         locals.push_back({lName, size, currentOffset_});
         currentOffset_ += size;
@@ -3902,6 +3968,9 @@ void CodeGenerator::visit(StructDefinition& node) {
             }
         }
 
+        // Evaluate _Alignas on struct member if present
+        int memberAlignOverride = resolveAlignmentExpr(member.alignmentExpr.get(), structs);
+        if (memberAlignOverride > mAlign) mAlign = memberAlignOverride;
         if (member.alignment > mAlign) mAlign = member.alignment;
         if (mAlign > maxAlign) maxAlign = mAlign;
 
@@ -4965,39 +5034,6 @@ void CodeGenerator::visit(AlignofExpression& node) {
 
 // Try to extract a compile-time constant integer from an expression tree.
 // Handles IntegerLiteral, CastExpression, unary -/~, and binary ops on constants.
-static bool tryEvalConstInt(Expression* expr, int& result) {
-    if (auto* lit = dynamic_cast<IntegerLiteral*>(expr)) {
-        result = lit->value;
-        return true;
-    }
-    if (auto* cast = dynamic_cast<CastExpression*>(expr)) {
-        return tryEvalConstInt(cast->expression.get(), result);
-    }
-    if (auto* unary = dynamic_cast<UnaryOperation*>(expr)) {
-        int val;
-        if (!tryEvalConstInt(unary->operand.get(), val)) return false;
-        if (unary->op == "-") { result = -val; return true; }
-        if (unary->op == "~") { result = ~val; return true; }
-        return false;
-    }
-    if (auto* bin = dynamic_cast<BinaryOperation*>(expr)) {
-        int l, r;
-        if (!tryEvalConstInt(bin->left.get(), l) || !tryEvalConstInt(bin->right.get(), r)) return false;
-        if (bin->op == "+") { result = l + r; return true; }
-        if (bin->op == "-") { result = l - r; return true; }
-        if (bin->op == "*") { result = l * r; return true; }
-        if (bin->op == "/" && r != 0) { result = l / r; return true; }
-        if (bin->op == "%" && r != 0) { result = l % r; return true; }
-        if (bin->op == "&") { result = l & r; return true; }
-        if (bin->op == "|") { result = l | r; return true; }
-        if (bin->op == "^") { result = l ^ r; return true; }
-        if (bin->op == "<<") { result = l << r; return true; }
-        if (bin->op == ">>") { result = l >> r; return true; }
-        return false;
-    }
-    return false;
-}
-
 void CodeGenerator::emitData() {
     // Emit .global/.weak for all global variables in relocatable mode (skip static)
     if (relocMode) {
@@ -5026,6 +5062,9 @@ void CodeGenerator::emitData() {
     out << "; Data Section" << std::endl;
 
     for (auto* gVar : initializedVars) {
+        // Resolve _Alignas if not already set
+        if (gVar->alignment == 0 && gVar->alignmentExpr)
+            gVar->alignment = resolveAlignmentExpr(gVar->alignmentExpr.get(), structs);
         if (gVar->alignment > 1) out << "    .align " << std::to_string(gVar->alignment) << std::endl;
         out << "_" << gVar->name << ":" << std::endl;
         int size = 0;
@@ -5124,6 +5163,9 @@ void CodeGenerator::emitData() {
         // In reloc mode: the linker provides __bss_start/__bss_end at merged BSS boundaries.
         if (!relocMode) out << "__bss_start:" << std::endl;
         for (auto* gVar : uninitializedVars) {
+            // Resolve _Alignas if not already set
+            if (gVar->alignment == 0 && gVar->alignmentExpr)
+                gVar->alignment = resolveAlignmentExpr(gVar->alignmentExpr.get(), structs);
             if (gVar->alignment > 1) out << "    .align " << std::to_string(gVar->alignment) << std::endl;
             std::string gName = "_" + gVar->name;
             if (relocMode && !staticGlobals.count(gVar->name)) out << ".global " << gName << std::endl;
