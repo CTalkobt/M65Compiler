@@ -124,6 +124,5 @@ For detailed information on each tool, refer to:
 - [doc/cp45.md](doc/cp45.md) — Preprocessor Features and Usage
 - [doc/opcodes.md](doc/opcodes.md) — 45GS02 Instruction Reference
 - [doc/lib45.md](doc/lib45.md) — `.o45` Relocatable Object Format Specification
-- [doc/ln45_usage.md](doc/ln45_usage.md) — Linker Usage and Reference
+- [doc/ln45.md](doc/ln45.md) — Linker Usage and Reference
 - [doc/ar45.md](doc/ar45.md) — Archiver Usage and Reference
-- [doc/ln45.md](doc/ln45.md) — Linker Design Notes
