@@ -315,4 +315,9 @@ private:
         uint8_t yOff = 0;
     };
     FrameAccessInfo resolveFrameAccess(int tokenIndex, const std::string& scopePrefix);
+
+    uint32_t moveDmaFirstCopyAddr_ = 0xFFFFFFFF;
+    uint32_t moveDmaListAddr_      = 0xFFFFFFFF;
+    uint32_t fillDmaFirstFillAddr_ = 0xFFFFFFFF;
+    uint32_t fillDmaListAddr_      = 0xFFFFFFFF;
 };

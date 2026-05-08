@@ -105,6 +105,8 @@ test: all
 	@echo "Validating mmemu-cli integration..."
 	@bash src/test/test_mmemu.sh
 	@$(MAKE) test-opcodes
+	@echo "Running Move/Fill operation tests..."
+	@$(MAKE) test-move-fill
 	@echo "Running objdump45 tests..."
 	@bash src/test/test_objdump45.sh
 
@@ -151,6 +153,21 @@ $(OBJ_DIR)/test_o45.o: src/test/test_o45.cpp
 
 test-o45: $(TEST_O45_TARGET)
 	@$(TEST_O45_TARGET)
+
+# Move/Fill operations unit test
+TEST_MOVE_FILL_TARGET = $(BIN_DIR)/test_move_fill
+TEST_MOVE_FILL_OBJECTS = $(OBJ_DIR)/test_move_fill.o
+
+$(TEST_MOVE_FILL_TARGET): $(TEST_MOVE_FILL_OBJECTS) $(CA_TARGET)
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $(TEST_MOVE_FILL_OBJECTS)
+
+$(OBJ_DIR)/test_move_fill.o: src/test/test_move_fill.cpp
+	@mkdir -p $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+test-move-fill: $(TEST_MOVE_FILL_TARGET) all
+	@$(TEST_MOVE_FILL_TARGET)
 
 install: all lib
 	install -d $(DESTDIR)$(BINDIR)

@@ -174,6 +174,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **Stack-Relative Word Ops**: Simulated `INW/DEW offset, s` leveraging `TSX`.
 - [X] **Other 16 bit registers**: Full support for `.AX`, `.AY`, `.AZ`, `.XY` in simulated high-level opcodes.
 - [X] **Mega65 Memory**: High-speed memory FILL and MOVE (copy) leveraging the Mega65 DMA controller.
+- [X] **3-operand MOVE/FILL syntax**: Comprehensive test coverage for explicit length specification in MOVE and FILL instructions. Parser support confirmed. 9 new C++ unit tests + assembly examples in `test_fill_advanced.s`.
 - [X] **PC Register**: Treat current program counter as a register named .PC similar to how .A, .X etc are defined.
 - [X] **16-bit Loads/Stores**: Support `ldax`, `stax`, `ldaz`, `staz`, `ldxy`, `stxy` simulated opcodes.
 - [X] **16-bit Math**: Support `add.16`, `sub.16`, `neg.16` simulated opcodes.

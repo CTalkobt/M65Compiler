@@ -792,62 +792,535 @@ void AssemblerSimulatedOps::emitPtrDerefCode(AssemblerParser* parser, M65Emitter
 }
 
 void AssemblerSimulatedOps::emitFillCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix, bool forceStack) {
-    int idx = tokenIndex; if (idx < 0 || idx >= (int)parser->tokens.size()) return;
-    std::string destReg; bool destIsRegister = false, destIsIndirect = false; uint32_t destVal = 0; bool destIsStack = forceStack;
-    if (destIsStack) {
-        if (parser->tokens[idx].type == AssemblerTokenType::HASH) idx++;
-        if (parser->tokens[idx].type == AssemblerTokenType::REGISTER) { destReg = "." + parser->tokens[idx++].value; destIsRegister = true; }
-        else { auto ast = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix); if (ast) destVal = ast->getValue(parser); }
-    } else {
-        if (parser->tokens[idx].type == AssemblerTokenType::REGISTER) { destReg = "." + parser->tokens[idx++].value; destIsRegister = true; }
-        else if (parser->tokens[idx].type == AssemblerTokenType::OPEN_PAREN) { idx++; destReg = parser->tokens[idx++].value; if (parser->tokens[idx-1].type == AssemblerTokenType::REGISTER) destReg = "." + destReg; destIsIndirect = true; if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::CLOSE_BRACKET) idx++; }
-        else {
-            uint32_t offset = 0;
-            if (parser->isStackRelativeOperand(idx, offset, scopePrefix)) { destIsStack = true; destVal = offset; parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix); if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::COMMA) idx++; if (idx < (int)parser->tokens.size() && (parser->tokens[idx].value == "s" || parser->tokens[idx].value == "S")) idx++; }
-            else { auto ast = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix); if (ast) destVal = ast->getValue(parser); }
+    int idx = tokenIndex;
+    if (idx < 0 || idx >= (int)parser->tokens.size()) return;
+
+    enum OperandKind { NONE, REGISTER, STACK_REL, VALUE };
+    struct Operand {
+        OperandKind kind = NONE;
+        std::string regName;
+        uint32_t value = 0;
+        std::string symbolName;
+    };
+
+    auto parseOperand = [&](int& curIdx) -> Operand {
+        Operand op;
+        if (curIdx >= (int)parser->tokens.size() || parser->tokens[curIdx].type == AssemblerTokenType::COMMA) {
+            return op;
         }
-    }
+
+        const auto& tok = parser->tokens[curIdx];
+
+        if (tok.type == AssemblerTokenType::REGISTER) {
+            op.kind = REGISTER;
+            op.regName = tok.value;
+            curIdx++;
+            return op;
+        }
+
+        if (tok.type == AssemblerTokenType::DIRECTIVE) {
+            std::string upper = tok.value;
+            std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
+            if (upper == "AX" || upper == "AY" || upper == "AZ" ||
+                upper == "XY" || upper == "XZ" || upper == "YZ" ||
+                upper == "XYZ" || upper == "AXY" || upper == "AXZ" || upper == "AYZ" || upper == "AXYZ" || upper == "Q") {
+                op.kind = REGISTER;
+                op.regName = upper;
+                curIdx++;
+                return op;
+            }
+        }
+
+        uint32_t stackOffset = 0;
+        if (parser->isStackRelativeOperand(curIdx, stackOffset, scopePrefix)) {
+            op.kind = STACK_REL;
+            op.value = stackOffset;
+            parseExprAST(parser->tokens, curIdx, parser->symbolTable, scopePrefix);
+            if (curIdx < (int)parser->tokens.size() && parser->tokens[curIdx].type == AssemblerTokenType::COMMA) curIdx++;
+            if (curIdx < (int)parser->tokens.size() && (parser->tokens[curIdx].value == "s" || parser->tokens[curIdx].value == "S")) curIdx++;
+            return op;
+        }
+
+        int symIdx = curIdx;
+        auto ast = parseExprAST(parser->tokens, curIdx, parser->symbolTable, scopePrefix);
+        if (ast) {
+            op.kind = VALUE;
+            op.value = ast->getValue(parser);
+            if (symIdx < (int)parser->tokens.size()) {
+                std::string name = parser->tokens[symIdx].value;
+                Symbol* sym = parser->resolveSymbol(name, scopePrefix);
+                if (sym && sym->isAddress) {
+                    op.symbolName = name;
+                }
+            }
+        }
+        return op;
+    };
+
+    // Parse destination and length operands
+    Operand destOp = parseOperand(idx);
     if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::COMMA) idx++;
-    std::string lenReg; bool lenIsRegister = false; uint32_t lenVal = 0;
-    if (idx < (int)parser->tokens.size()) {
-        if (parser->tokens[idx].type == AssemblerTokenType::HASH) idx++;
-        if (parser->tokens[idx].type == AssemblerTokenType::REGISTER) { lenReg = "." + parser->tokens[idx++].value; lenIsRegister = true; }
-        else { auto ast = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix); if (ast) lenVal = ast->getValue(parser); }
+    Operand lenOp = parseOperand(idx);
+
+    if (forceStack && destOp.kind != STACK_REL) {
+        destOp.kind = STACK_REL;
     }
-    e.pha(); e.phw_imm(0); e.lda_imm(0); e.pha();
-    { uint16_t sb = e.spBase();
-    if (destIsStack) { e.tsx(); e.txa(); e.clc(); if (destIsRegister) { if (destReg == ".X") {} else if (destReg == ".Y") { e.tya(); e.tax(); } else if (destReg == ".Z") { e.tza(); e.tax(); } e.txa(); } else e.adc_imm((sb + destVal) & 0xFF); e.pha(); e.lda_imm((sb + destVal) >> 8); e.adc_imm(0); e.pha(); }
-    else if (destIsRegister) { if (destReg == ".AX") { e.phx(); e.pha(); } else if (destReg == ".AY") { e.phy(); e.pha(); } else if (destReg == ".AZ") { e.phz(); e.pha(); } else if (destReg == ".XY") { e.phy(); e.phx(); } }
-    else if (destIsIndirect) { Symbol* sym = parser->resolveSymbol(destReg, scopePrefix); uint32_t addr = 0; if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(destReg); } catch(...) { addr = 0; } } e.lda_zp(addr + 1); e.pha(); e.lda_zp(addr); e.pha(); }
-    else { e.lda_imm(destVal >> 8); e.pha(); e.lda_imm(destVal & 0xFF); e.pha(); }
-    e.lda_imm(0); e.pha(); e.lda_imm(sb >> 8); e.pha(); e.tsx(); e.txa(); e.clc(); e.adc_imm(8); e.pha();
-    if (lenIsRegister) { if (lenReg == ".XY") { e.phy(); e.phx(); } else { e.lda_imm(0); e.pha(); if (lenReg == ".X") e.phx(); else if (lenReg == ".Y") e.phy(); else if (lenReg == ".Z") e.phz(); else { e.tsx(); e.txa(); e.clc(); e.adc_imm(11); e.tax(); e.lda_abs_x(sb - 1); e.pha(); } } }
-    else { e.lda_imm(lenVal >> 8); e.pha(); e.lda_imm(lenVal & 0xFF); e.pha(); }
-    e.lda_imm(0x03); e.pha(); e.tsx(); e.txa(); e.clc(); e.adc_imm(sb & 0xFF); e.sta_abs(0xD701); e.lda_imm(sb >> 8); e.sta_abs(0xD702); e.stz_abs(0xD703); e.stz_abs(0xD700);
-    e.tsx(); e.txa(); e.clc(); e.adc_imm(12); e.tax(); e.txs(); e.pla(); }
+
+    uint16_t sb = e.spBase();
+    std::string bufSymbol = "__fill_dma_buf";
+    uint8_t bufAddrZP = 0x02;
+
+    // Load buffer address from symbol
+    e.recordSymbolRelocHi(bufSymbol, 0);
+    e.lda_imm(0);
+    e.sta_zp(bufAddrZP + 1);
+
+    e.recordSymbolRelocLo(bufSymbol);
+    e.lda_imm(0);
+    e.sta_zp(bufAddrZP);
+
+    // Helper for indirect addressing
+    auto sta_ind_z_with_y = [&](uint8_t addr, int offset) {
+        e.ldy_imm(offset);
+        e.emitByte(0x91);
+        e.emitByte(addr);
+    };
+
+    // Write command byte (0x03 for FILL)
+    e.lda_imm(0x03);
+    sta_ind_z_with_y(bufAddrZP, 0);
+
+    // Write destination address (buf+6-7)
+    if (destOp.kind == REGISTER) {
+        // 2-byte register pairs
+        if (destOp.regName == "AX" || destOp.regName == "ax") {
+            sta_ind_z_with_y(bufAddrZP, 6);
+            e.txa(); sta_ind_z_with_y(bufAddrZP, 7);
+        } else if (destOp.regName == "AY" || destOp.regName == "ay") {
+            sta_ind_z_with_y(bufAddrZP, 6);
+            e.tya(); sta_ind_z_with_y(bufAddrZP, 7);
+        } else if (destOp.regName == "AZ" || destOp.regName == "az") {
+            sta_ind_z_with_y(bufAddrZP, 6);
+            e.tza(); sta_ind_z_with_y(bufAddrZP, 7);
+        } else if (destOp.regName == "XY" || destOp.regName == "xy") {
+            e.txa(); sta_ind_z_with_y(bufAddrZP, 6);
+            e.tya(); sta_ind_z_with_y(bufAddrZP, 7);
+        } else if (destOp.regName == "XZ" || destOp.regName == "xz") {
+            e.txa(); sta_ind_z_with_y(bufAddrZP, 6);
+            e.tza(); sta_ind_z_with_y(bufAddrZP, 7);
+        } else if (destOp.regName == "YZ" || destOp.regName == "yz") {
+            e.tya(); sta_ind_z_with_y(bufAddrZP, 6);
+            e.tza(); sta_ind_z_with_y(bufAddrZP, 7);
+        }
+        // 3-byte groups: store all 3 bytes + zero-extend to 4 bytes (32-bit)
+        else if (destOp.regName == "AXY" || destOp.regName == "axy") {
+            sta_ind_z_with_y(bufAddrZP, 6);
+            e.txa(); sta_ind_z_with_y(bufAddrZP, 7);
+            e.tya(); sta_ind_z_with_y(bufAddrZP, 8);
+            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 9);
+        } else if (destOp.regName == "AXZ" || destOp.regName == "axz") {
+            sta_ind_z_with_y(bufAddrZP, 6);
+            e.txa(); sta_ind_z_with_y(bufAddrZP, 7);
+            e.tza(); sta_ind_z_with_y(bufAddrZP, 8);
+            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 9);
+        } else if (destOp.regName == "AYZ" || destOp.regName == "ayz") {
+            sta_ind_z_with_y(bufAddrZP, 6);
+            e.tya(); sta_ind_z_with_y(bufAddrZP, 7);
+            e.tza(); sta_ind_z_with_y(bufAddrZP, 8);
+            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 9);
+        } else if (destOp.regName == "AXYZ" || destOp.regName == "axyz" || destOp.regName == "Q" || destOp.regName == "q") {
+            sta_ind_z_with_y(bufAddrZP, 6);
+            e.txa(); sta_ind_z_with_y(bufAddrZP, 7);
+        }
+        // Single registers: extend to 16-bit with high byte = 0
+        else if (destOp.regName == "A" || destOp.regName == "a") {
+            sta_ind_z_with_y(bufAddrZP, 6);
+            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 7);
+        } else if (destOp.regName == "X" || destOp.regName == "x") {
+            e.txa(); sta_ind_z_with_y(bufAddrZP, 6);
+            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 7);
+        } else if (destOp.regName == "Y" || destOp.regName == "y") {
+            e.tya(); sta_ind_z_with_y(bufAddrZP, 6);
+            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 7);
+        } else if (destOp.regName == "Z" || destOp.regName == "z") {
+            e.tza(); sta_ind_z_with_y(bufAddrZP, 6);
+            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 7);
+        }
+    } else if (destOp.kind == STACK_REL) {
+        uint16_t addr = sb + destOp.value;
+        e.tsx(); e.txa(); e.clc(); e.adc_imm(addr & 0xFF);
+        sta_ind_z_with_y(bufAddrZP, 6);
+        e.lda_imm((addr >> 8) & 0xFF);
+        if ((addr & 0xFF) == 0) e.adc_imm(0);
+        sta_ind_z_with_y(bufAddrZP, 7);
+    } else if (destOp.kind == VALUE) {
+        uint8_t lo = destOp.value & 0xFF;
+        uint8_t hi = (destOp.value >> 8) & 0xFF;
+        if (lo == 0) {
+            e.lda_imm(0);
+        } else {
+            if (!destOp.symbolName.empty()) e.recordSymbolRelocLo(destOp.symbolName);
+            e.lda_imm(lo);
+        }
+        sta_ind_z_with_y(bufAddrZP, 6);
+        if (hi == 0) {
+            e.lda_imm(0);
+        } else {
+            if (!destOp.symbolName.empty()) e.recordSymbolRelocHi(destOp.symbolName, lo);
+            e.lda_imm(hi);
+        }
+        sta_ind_z_with_y(bufAddrZP, 7);
+    }
+
+    // Write length (count) address (buf+3-4)
+    if (lenOp.kind == REGISTER) {
+        // 2-byte register pairs
+        if (lenOp.regName == "AX" || lenOp.regName == "ax") {
+            sta_ind_z_with_y(bufAddrZP, 3);
+            e.txa(); sta_ind_z_with_y(bufAddrZP, 4);
+        } else if (lenOp.regName == "AY" || lenOp.regName == "ay") {
+            sta_ind_z_with_y(bufAddrZP, 3);
+            e.tya(); sta_ind_z_with_y(bufAddrZP, 4);
+        } else if (lenOp.regName == "AZ" || lenOp.regName == "az") {
+            sta_ind_z_with_y(bufAddrZP, 3);
+            e.tza(); sta_ind_z_with_y(bufAddrZP, 4);
+        } else if (lenOp.regName == "XY" || lenOp.regName == "xy") {
+            e.txa(); sta_ind_z_with_y(bufAddrZP, 3);
+            e.tya(); sta_ind_z_with_y(bufAddrZP, 4);
+        } else if (lenOp.regName == "XZ" || lenOp.regName == "xz") {
+            e.txa(); sta_ind_z_with_y(bufAddrZP, 3);
+            e.tza(); sta_ind_z_with_y(bufAddrZP, 4);
+        } else if (lenOp.regName == "YZ" || lenOp.regName == "yz") {
+            e.tya(); sta_ind_z_with_y(bufAddrZP, 3);
+            e.tza(); sta_ind_z_with_y(bufAddrZP, 4);
+        }
+        // 3-byte groups: store all 3 bytes + zero-extend to 4 bytes (32-bit)
+        else if (lenOp.regName == "AXY" || lenOp.regName == "axy") {
+            sta_ind_z_with_y(bufAddrZP, 3);
+            e.txa(); sta_ind_z_with_y(bufAddrZP, 4);
+            e.tya(); sta_ind_z_with_y(bufAddrZP, 5);
+            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 6);
+        } else if (lenOp.regName == "AXZ" || lenOp.regName == "axz") {
+            sta_ind_z_with_y(bufAddrZP, 3);
+            e.txa(); sta_ind_z_with_y(bufAddrZP, 4);
+            e.tza(); sta_ind_z_with_y(bufAddrZP, 5);
+            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 6);
+        } else if (lenOp.regName == "AYZ" || lenOp.regName == "ayz") {
+            sta_ind_z_with_y(bufAddrZP, 3);
+            e.tya(); sta_ind_z_with_y(bufAddrZP, 4);
+            e.tza(); sta_ind_z_with_y(bufAddrZP, 5);
+            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 6);
+        } else if (lenOp.regName == "AXYZ" || lenOp.regName == "axyz" || lenOp.regName == "Q" || lenOp.regName == "q") {
+            sta_ind_z_with_y(bufAddrZP, 3);
+            e.txa(); sta_ind_z_with_y(bufAddrZP, 4);
+        }
+        // Single registers: extend to 16-bit with high byte = 0
+        else if (lenOp.regName == "A" || lenOp.regName == "a") {
+            sta_ind_z_with_y(bufAddrZP, 3);
+            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 4);
+        } else if (lenOp.regName == "X" || lenOp.regName == "x") {
+            e.txa(); sta_ind_z_with_y(bufAddrZP, 3);
+            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 4);
+        } else if (lenOp.regName == "Y" || lenOp.regName == "y") {
+            e.tya(); sta_ind_z_with_y(bufAddrZP, 3);
+            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 4);
+        } else if (lenOp.regName == "Z" || lenOp.regName == "z") {
+            e.tza(); sta_ind_z_with_y(bufAddrZP, 3);
+            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 4);
+        }
+    } else if (lenOp.kind == VALUE) {
+        uint8_t lo = lenOp.value & 0xFF;
+        uint8_t hi = (lenOp.value >> 8) & 0xFF;
+        if (lo == 0) {
+            e.lda_imm(0);
+        } else {
+            e.lda_imm(lo);
+        }
+        sta_ind_z_with_y(bufAddrZP, 3);
+        if (hi == 0) {
+            e.lda_imm(0);
+        } else {
+            e.lda_imm(hi);
+        }
+        sta_ind_z_with_y(bufAddrZP, 4);
+    }
+
+    // Zero-fill remaining fields
+    e.lda_imm(0);
+    sta_ind_z_with_y(bufAddrZP, 1);  // buf+1 = reserved/flags
+    sta_ind_z_with_y(bufAddrZP, 2);  // buf+2 = reserved
+    sta_ind_z_with_y(bufAddrZP, 5);  // buf+5 = source bank
+    sta_ind_z_with_y(bufAddrZP, 8);  // buf+8 = destination bank
+    sta_ind_z_with_y(bufAddrZP, 9);  // buf+9 = command MSB
+    sta_ind_z_with_y(bufAddrZP, 10); // buf+10 = modulo lo
+    sta_ind_z_with_y(bufAddrZP, 11); // buf+11 = modulo hi
+
+    // Trigger DMA
+    e.lda_zp(bufAddrZP + 1);
+    e.sta_abs(0xD702);
+    e.stz_abs(0xD703);
+    e.lda_zp(bufAddrZP);
+    e.sta_abs(0xD701);
+    e.stz_abs(0xD700);
 }
 
 void AssemblerSimulatedOps::emitMoveCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix, bool forceStack) {
-    int idx = tokenIndex; if (idx < 0 || idx >= (int)parser->tokens.size()) return;
-    struct Operand { bool isAZ = false, isAbsolute = false, isStack = false; uint32_t value = 0; std::string symbolName; };
-    auto parseMoveOp = [&](int& curIdx) -> Operand {
-        Operand op; if (parser->tokens[curIdx].type == AssemblerTokenType::REGISTER && parser->tokens[curIdx].value == "AZ") { op.isAZ = true; curIdx++; }
-        else { uint32_t offset = 0; if (parser->isStackRelativeOperand(curIdx, offset, scopePrefix)) { op.isStack = true; op.value = offset; parseExprAST(parser->tokens, curIdx, parser->symbolTable, scopePrefix); if (curIdx < (int)parser->tokens.size() && parser->tokens[curIdx].type == AssemblerTokenType::COMMA) curIdx++; if (curIdx < (int)parser->tokens.size() && (parser->tokens[curIdx].value == "s" || parser->tokens[curIdx].value == "S")) curIdx++; }
-        else { int symIdx = curIdx; auto ast = parseExprAST(parser->tokens, curIdx, parser->symbolTable, scopePrefix); if (ast) { op.isAbsolute = true; op.value = ast->getValue(parser); if (symIdx < (int)parser->tokens.size()) { std::string sn = parser->tokens[symIdx].value; Symbol* sym = parser->resolveSymbol(sn, scopePrefix); if (sym && sym->isAddress) op.symbolName = sn; } } } } return op;
+
+    int idx = tokenIndex;
+    if (idx < 0 || idx >= (int)parser->tokens.size()) return;
+
+    enum OperandKind { NONE, REGISTER, STACK_REL, VALUE };
+    struct Operand {
+        OperandKind kind = NONE;
+        std::string regName;      // register name for REGISTER operands
+        uint32_t value = 0;       // value for VALUE or STACK_REL operands
+        std::string symbolName;   // symbol relocation if isAddress
     };
-    Operand src = parseMoveOp(idx); if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::COMMA) idx++;
-    Operand dest = parseMoveOp(idx);
-    if (forceStack && !src.isStack && !dest.isStack) { if (src.isAbsolute && !dest.isAbsolute && !dest.isAZ) src.isStack = true; else dest.isStack = true; }
-    { uint16_t sb = e.spBase();
-    e.pha(); e.phw_imm(0); e.lda_imm(0); e.pha();
-    if (dest.isAZ) { e.phz(); e.pha(); } else if (dest.isStack) { e.tsx(); e.txa(); e.clc(); e.adc_imm((sb + dest.value) & 0xFF); e.pha(); e.lda_imm((sb + dest.value) >> 8); e.adc_imm(0); e.pha(); }
-    else { if (!dest.symbolName.empty()) e.recordSymbolRelocHi(dest.symbolName, (uint8_t)(dest.value & 0xFF)); e.lda_imm(dest.value >> 8); e.pha(); if (!dest.symbolName.empty()) e.recordSymbolRelocLo(dest.symbolName); e.lda_imm(dest.value & 0xFF); e.pha(); }
-    e.lda_imm(0); e.pha();
-    if (src.isAZ) { e.phz(); e.pha(); } else if (src.isStack) { e.tsx(); e.txa(); e.clc(); e.adc_imm((sb + src.value) & 0xFF); e.pha(); e.lda_imm((sb + src.value) >> 8); e.adc_imm(0); e.pha(); }
-    else { if (!src.symbolName.empty()) e.recordSymbolRelocHi(src.symbolName, (uint8_t)(src.value & 0xFF)); e.lda_imm(src.value >> 8); e.pha(); if (!src.symbolName.empty()) e.recordSymbolRelocLo(src.symbolName); e.lda_imm(src.value & 0xFF); e.pha(); }
-    e.phy(); e.phx(); e.lda_imm(0x00); e.pha();
-    e.tsx(); e.txa(); e.clc(); e.adc_imm(sb & 0xFF); e.sta_abs(0xD701); e.lda_imm(sb >> 8); e.sta_abs(0xD702); e.stz_abs(0xD703); e.stz_abs(0xD700);
-    e.tsx(); e.txa(); e.clc(); e.adc_imm(12); e.tax(); e.txs(); e.pla(); }
+
+    auto parseOperand = [&](int& curIdx) -> Operand {
+        Operand op;
+        if (curIdx >= (int)parser->tokens.size() || parser->tokens[curIdx].type == AssemblerTokenType::COMMA) {
+            return op;  // NONE
+        }
+
+        const auto& tok = parser->tokens[curIdx];
+
+        // Check for REGISTER token (standard registers like "A", "X", "Y", "Z")
+        if (tok.type == AssemblerTokenType::REGISTER) {
+            op.kind = REGISTER;
+            op.regName = tok.value;
+            curIdx++;
+            return op;
+        }
+
+        // Check for DIRECTIVE token with register pair names (AX, AY, AZ, XY, XZ, YZ, etc.)
+        if (tok.type == AssemblerTokenType::DIRECTIVE) {
+            std::string upper = tok.value;
+            std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
+            if (upper == "AX" || upper == "AY" || upper == "AZ" ||
+                upper == "XY" || upper == "XZ" || upper == "YZ" ||
+                upper == "XYZ" || upper == "AXY" || upper == "AXZ" || upper == "AYZ" || upper == "AXYZ" || upper == "Q") {
+                op.kind = REGISTER;
+                op.regName = upper;
+                curIdx++;
+                return op;
+            }
+        }
+
+        // Check for stack-relative operand
+        uint32_t stackOffset = 0;
+        if (parser->isStackRelativeOperand(curIdx, stackOffset, scopePrefix)) {
+            op.kind = STACK_REL;
+            op.value = stackOffset;
+            parseExprAST(parser->tokens, curIdx, parser->symbolTable, scopePrefix);
+            if (curIdx < (int)parser->tokens.size() && parser->tokens[curIdx].type == AssemblerTokenType::COMMA) curIdx++;
+            if (curIdx < (int)parser->tokens.size() && (parser->tokens[curIdx].value == "s" || parser->tokens[curIdx].value == "S")) curIdx++;
+            return op;
+        }
+
+        // Parse as expression (constant or symbol)
+        int symIdx = curIdx;
+        auto ast = parseExprAST(parser->tokens, curIdx, parser->symbolTable, scopePrefix);
+        if (ast) {
+            op.kind = VALUE;
+            op.value = ast->getValue(parser);
+            // Check if this is a symbol that needs relocation
+            if (symIdx < (int)parser->tokens.size()) {
+                std::string name = parser->tokens[symIdx].value;
+                Symbol* sym = parser->resolveSymbol(name, scopePrefix);
+                if (sym && sym->isAddress) {
+                    op.symbolName = name;
+                }
+            }
+        }
+        return op;
+    };
+
+    // Parse up to 3 operands: src, dest, count
+    Operand ops[3];
+    ops[0] = parseOperand(idx);  // src
+    if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::COMMA) idx++;
+    ops[1] = parseOperand(idx);  // dest
+    if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::COMMA) idx++;
+    ops[2] = parseOperand(idx);  // count
+
+    // Handle forceStack: if neither src nor dest is stack-relative, make one of them so
+    if (forceStack && ops[0].kind != STACK_REL && ops[1].kind != STACK_REL) {
+        if (ops[0].kind == VALUE && ops[1].kind != VALUE) {
+            ops[0].kind = STACK_REL;
+        } else {
+            ops[1].kind = STACK_REL;
+        }
+    }
+
+    // Get stack base for stack-relative calculations
+    uint16_t sb = e.spBase();
+
+    // Buffer is allocated in BSS segment, referenced via symbol relocations
+    std::string bufSymbol = "__move_dma_buf";
+
+    // Load buffer address from symbol into zero page ($02-$03)
+    // This allows runtime relocation while maintaining clean code generation
+    uint8_t bufAddrZP = 0x02;
+    e.recordSymbolRelocHi(bufSymbol, 0);
+    e.lda_imm(0);  // placeholder, linker fills in hi byte
+    e.sta_zp(bufAddrZP + 1);
+
+    e.recordSymbolRelocLo(bufSymbol);
+    e.lda_imm(0);  // placeholder, linker fills in lo byte
+    e.sta_zp(bufAddrZP);
+
+    // Phase 1: Store register operands using ($bufAddrZP),Y addressing
+    // Helper to emit STA ($addr),Y with custom Y value (avoiding sta_ind_z which hardcodes LDY #0)
+    auto sta_ind_z_with_y = [&](uint8_t addr, int offset) {
+        e.ldy_imm(offset);
+        e.emitByte(0x91);  // STA ($addr),Y opcode
+        e.emitByte(addr);
+    };
+
+    auto storeReg16 = [&](const std::string& reg, int bufOffset) {
+        // 2-byte register pairs
+        if (reg == "AX" || reg == "ax") {
+            sta_ind_z_with_y(bufAddrZP, bufOffset);
+            e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+        }
+        else if (reg == "AY" || reg == "ay") {
+            sta_ind_z_with_y(bufAddrZP, bufOffset);
+            e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+        }
+        else if (reg == "AZ" || reg == "az") {
+            sta_ind_z_with_y(bufAddrZP, bufOffset);
+            e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+        }
+        else if (reg == "XY" || reg == "xy") {
+            e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset);
+            e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+        }
+        else if (reg == "XZ" || reg == "xz") {
+            e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset);
+            e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+        }
+        else if (reg == "YZ" || reg == "yz") {
+            e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset);
+            e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+        }
+        // 3-byte groups: store all 3 bytes + zero-extend to 4 bytes (32-bit)
+        else if (reg == "AXY" || reg == "axy") {
+            sta_ind_z_with_y(bufAddrZP, bufOffset);
+            e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+            e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset + 2);
+            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 3);
+        }
+        else if (reg == "AXZ" || reg == "axz") {
+            sta_ind_z_with_y(bufAddrZP, bufOffset);
+            e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+            e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset + 2);
+            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 3);
+        }
+        else if (reg == "AYZ" || reg == "ayz") {
+            sta_ind_z_with_y(bufAddrZP, bufOffset);
+            e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+            e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset + 2);
+            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 3);
+        }
+        else if (reg == "AXYZ" || reg == "axyz" || reg == "Q" || reg == "q") {
+            sta_ind_z_with_y(bufAddrZP, bufOffset);
+            e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+        }
+        // Single registers: extend to 16-bit with high byte = 0
+        else if (reg == "X" || reg == "x") {
+            e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset);
+            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+        }
+        else if (reg == "Y" || reg == "y") {
+            e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset);
+            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+        }
+        else if (reg == "Z" || reg == "z") {
+            e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset);
+            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+        }
+        else if (reg == "A" || reg == "a") {
+            sta_ind_z_with_y(bufAddrZP, bufOffset);
+            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+        }
+    };
+
+    for (int i = 0; i < 3; i++) {
+        if (ops[i].kind == REGISTER) {
+            int bufOffset = (i == 0) ? 3 : (i == 1) ? 6 : 1;  // src@3, dest@6, count@1
+            storeReg16(ops[i].regName, bufOffset);
+        }
+    }
+
+    // Phase 2: Stack-relative operands
+    for (int i = 0; i < 3; i++) {
+        if (ops[i].kind == STACK_REL) {
+            int bufOffset = (i == 0) ? 3 : (i == 1) ? 6 : 1;
+            uint16_t addr = sb + ops[i].value;
+            e.tsx(); e.txa(); e.clc(); e.adc_imm(addr & 0xFF);
+            sta_ind_z_with_y(bufAddrZP, bufOffset);
+            e.lda_imm((addr >> 8) & 0xFF);
+            if ((addr & 0xFF) == 0) e.adc_imm(0);
+            sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+        }
+    }
+
+    // Phase 3: Value/expression operands
+    for (int i = 0; i < 3; i++) {
+        if (ops[i].kind == VALUE) {
+            int bufOffset = (i == 0) ? 3 : (i == 1) ? 6 : 1;
+            uint8_t lo = ops[i].value & 0xFF;
+            uint8_t hi = (ops[i].value >> 8) & 0xFF;
+
+            // Low byte
+            if (lo == 0) {
+                e.lda_imm(0);
+            } else {
+                if (!ops[i].symbolName.empty()) e.recordSymbolRelocLo(ops[i].symbolName);
+                e.lda_imm(lo);
+            }
+            sta_ind_z_with_y(bufAddrZP, bufOffset);
+
+            // High byte
+            if (hi == 0) {
+                e.lda_imm(0);
+            } else {
+                if (!ops[i].symbolName.empty()) e.recordSymbolRelocHi(ops[i].symbolName, lo);
+                e.lda_imm(hi);
+            }
+            sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+        }
+    }
+
+    // Phase 4: Zero-fill unspecified operands and always-zero fields
+    e.lda_imm(0);
+    sta_ind_z_with_y(bufAddrZP, 0);   // Command = COPY at buf+0
+    if (ops[0].kind == NONE) {
+        sta_ind_z_with_y(bufAddrZP, 3);   // src lo
+        sta_ind_z_with_y(bufAddrZP, 4);   // src hi
+    }
+    if (ops[1].kind == NONE) {
+        sta_ind_z_with_y(bufAddrZP, 6);   // dest lo
+        sta_ind_z_with_y(bufAddrZP, 7);   // dest hi
+    }
+    if (ops[2].kind == NONE) {
+        sta_ind_z_with_y(bufAddrZP, 1);   // count lo
+        sta_ind_z_with_y(bufAddrZP, 2);   // count hi
+    }
+    sta_ind_z_with_y(bufAddrZP, 5);   // Source bank/flags
+    sta_ind_z_with_y(bufAddrZP, 8);   // Destination bank/flags
+    sta_ind_z_with_y(bufAddrZP, 9);   // Command MSB
+    sta_ind_z_with_y(bufAddrZP, 10);  // Modulo LSB
+    sta_ind_z_with_y(bufAddrZP, 11);  // Modulo MSB
+
+    // Trigger DMA - load buffer address and pass to DMA controller
+    e.lda_zp(bufAddrZP + 1);  // hi byte
+    e.sta_abs(0xD702);
+    e.stz_abs(0xD703);
+    e.lda_zp(bufAddrZP);      // lo byte
+    e.sta_abs(0xD701);
+    e.stz_abs(0xD700);        // Triggers DMA
 }
 
 void AssemblerSimulatedOps::emitFlatMemoryCode(AssemblerParser* parser, M65Emitter& e, const std::string& mnemonic, int tokenIndex, const std::string& scopePrefix) {

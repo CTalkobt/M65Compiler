@@ -331,16 +331,63 @@ This reference summarizes the instructions available in the `ca45` assembler for
 ## 7. DMA and Block Operations
 
 * **`FILL`, `FILL.SP` (Simulated)**
-  * *Description*: DMA High-speed fill with `.A`.
-  * *Modes*: `abs`, `(zp)`, reg_pair, `offset, s`
+  * *Description*: DMA High-speed memory fill operation. Fills destination with the byte in `.A`. Uses the MEGA65 DMA controller for fast bulk writes.
+  * *Syntax*: 
+    - 2-operand form: `FILL dest, len` — length must be in `.XY` register pair (`.XY` = 256*Y + X bytes)
+    - 3-operand form: `FILL dest, len, #count` — explicit length (3rd operand, typically `#256` etc.)
+  * *Destination modes*: `abs`, register pair (`.AX`, `.AY`, `.AZ`, `.XY`, `.XZ`, `.YZ`), multi-register (`.AXY`, `.AXZ`, `.AYZ`, `.AXYZ`/`.Q`), `offset, s`
+  * *Length modes*: `#immediate`, single register (`.A`, `.X`, `.Y`, `.Z`), register pair (`.AX`, `.AY`, `.AZ`, `.XY`, `.XZ`, `.YZ`), multi-register (`.AXY`, `.AXZ`, `.AYZ`, `.AXYZ`/`.Q`)
   * *Registers Affected*: None (preserved)
   * *Flags*: None
+  * **Examples**:
+    - `FILL $3000, #256` — Fill 256 bytes at $3000 with `.A`
+    - `lda #$42; ldx #5; FILL $4000, .X` — Fill 5 bytes (single register)
+    - `ldx #100; ldy #0; FILL .AX, #64` — Fill 64 bytes to address in `.AX`
+    - `ldx #10; ldy #2; FILL $5000, .XY` — Fill (.XY)=522 bytes using register pair
+  
+  * **Register Interpretation Notes**: 
+    - Single registers (`.A`, `.X`, `.Y`, `.Z`) are zero-extended to 16-bit (high byte = 0)
+    - 2-byte pairs (`.AX`, `.AY`, `.AZ`, `.XY`, `.XZ`, `.YZ`) are used as-is (16-bit values)
+    - 3-byte groups (`.AXY`, `.AXZ`, `.AYZ`) are treated as 24-bit values and zero-extended to 32 bits by appending a zero high byte for DMA structure field compatibility
+    - 4-byte group `.AXYZ` and its synonym `.Q` use all four bytes as a 32-bit value
 
 * **`MOVE`, `MOVE.SP` (Simulated)**
-  * *Description*: DMA High-speed copy. Length in `.XY`.
-  * *Modes*: `abs`, `.AZ`, `offset, s`
+  * *Description*: DMA High-speed memory copy (block transfer). Copies from source to destination. Uses the MEGA65 DMA controller for fast bulk memory operations.
+  * *Syntax*:
+    - 2-operand form: `MOVE src, dest` — length must be in `.XY` register pair (`.XY` = 256*Y + X bytes)
+    - 3-operand form: `MOVE src, dest, len` — explicit length (3rd operand)
+  * *Source modes*: `abs`, single register (`.A`, `.X`, `.Y`, `.Z`), register pair (`.AX`, `.AY`, `.AZ`, `.XY`, `.XZ`, `.YZ`), multi-register (`.AXY`, `.AXZ`, `.AYZ`, `.AXYZ`/`.Q`), symbol, `offset, s`
+  * *Destination modes*: Same as source
+  * *Length modes*: `#immediate`, single register (`.A`, `.X`, `.Y`, `.Z`), register pair (`.AX`, `.AY`, `.AZ`, `.XY`, `.XZ`, `.YZ`), multi-register (`.AXY`, `.AXZ`, `.AYZ`, `.AXYZ`/`.Q`)
   * *Registers Affected*: None (preserved)
   * *Flags*: None
+  
+  * **2-Operand Examples** (length in `.XY`):
+    - `ldx #0; ldy #1; MOVE $3000, $4000` — Move 256 bytes from $3000 to $4000 (`.XY` = 256*Y + X)
+  
+  * **3-Operand Examples** (explicit length):
+    - All immediate: `MOVE $3000, $4000, #256` — Move 256 bytes with explicit length
+    - Single register length: `ldx #128; MOVE $7000, $8000, .X` — Move 128 bytes using single register
+    - Register pair as length: `ldx #10; ldy #2; MOVE $7000, $8000, .XY` — Move (.XY)=522 bytes
+    - Register pair as source: `lda #$10; ldx #$00; MOVE .AX, $9000, #128` — Copy from address in `.AX`
+    - Register pair as destination: `lda #$20; ldy #$00; MOVE $A000, .AY, #64` — Copy to address in `.AY`
+    - Multi-register (3-byte group): `MOVE .AXY, $6000, #512` — Copy from 3-register address to $6000
+    - Symbols: `MOVE buffer1, buffer2, #100` — Copy 100 bytes between labeled buffers
+    - Stack-relative: `MOVE.SP $7000, #8, #64` — Copy from stack-relative offset
+  
+  * **Operand Type Reference**:
+    | Position | Accepted Types |
+    |----------|---|
+    | Source | Immediate (`$addr`), Single register (`.A`, `.X`, `.Y`, `.Z`), Register pair (`.AX`–`.YZ`), Multi-register (`.AXY`, `.AXZ`, `.AYZ`, `.AXYZ`/`.Q`), Symbol, Stack-relative |
+    | Destination | Same as source |
+    | Length (3rd operand only) | Immediate (`#bytes`), Single register (`.A`, `.X`, `.Y`, `.Z`), Register pair (`.AX`–`.YZ`), Multi-register (`.AXY`, `.AXZ`, `.AYZ`, `.AXYZ`/`.Q`) |
+  
+  * **Register Interpretation Notes**: 
+    - Single registers (`.A`, `.X`, `.Y`, `.Z`) are zero-extended to 16-bit (high byte = 0)
+    - 2-byte pairs (`.AX`, `.AY`, `.AZ`, `.XY`, `.XZ`, `.YZ`) are used as-is (16-bit values)
+    - 3-byte groups (`.AXY`, `.AXZ`, `.AYZ`) are treated as 24-bit values and zero-extended to 32 bits by appending a zero high byte for DMA structure field compatibility
+    - 4-byte group `.AXYZ` and its synonym `.Q` use all four bytes as a 32-bit value
+  * **Implementation Notes**: The explicit length operand is stored at DMA buffer offset 1-2 (lo/hi bytes), source at offset 3-4, and destination at offset 6-7. The DMA controller transfers the specified number of bytes. Comprehensive tests are in `src/test/test_move_fill.cpp` (C++) and `src/test-resources/test_fill_advanced.s` (assembly).
 
 ---
 

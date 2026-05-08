@@ -1475,6 +1475,10 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
         statements = std::move(newStatements);
         // Reset variables to initial values before each pass2 iteration
         for (auto& [name, symbol] : symbolTable) if (symbol.isVariable) symbol.value = symbol.initialValue;
+        moveDmaFirstCopyAddr_ = 0xFFFFFFFF;
+        moveDmaListAddr_      = 0xFFFFFFFF;
+        fillDmaFirstFillAddr_ = 0xFFFFFFFF;
+        fillDmaListAddr_      = 0xFFFFFFFF;
 
         bool addressRecalculationMadeChanges = false;
         std::map<std::string, uint32_t> pass2PCs;
@@ -1538,8 +1542,58 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                     else if (s->type == Statement::CMP_S16) emitCMP_S16Code(d, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
                     else if (s->type == Statement::LDW) emitLDWCode(d, s->instr.operand, s->exprTokenIndex, s->scopePrefix, s->instr.mnemonic == "ldw.sp");
                     else if (s->type == Statement::STW) emitSTWCode(d, s->instr.operand, s->exprTokenIndex, s->scopePrefix, s->instr.mnemonic == "stw.sp");
-                    else if (s->type == Statement::FILL) emitFillCode(d, s->instr.operandTokenIndex, s->scopePrefix, s->instr.mnemonic == "fill.sp");
-                    else if (s->type == Statement::COPY) emitMoveCode(d, s->instr.operandTokenIndex, s->scopePrefix, s->instr.mnemonic == "move.sp");
+                    else if (s->type == Statement::FILL) {
+                        if (fillDmaFirstFillAddr_ == 0xFFFFFFFF) {
+                            fillDmaFirstFillAddr_ = cP;
+
+                            // Allocate 12 bytes in BSS segment for DMA buffer
+                            if (segments.find("bss") == segments.end()) {
+                                segments["bss"] = std::make_shared<Segment>();
+                            }
+                            if (segments["bss"]->startAddress == 0xFFFFFFFF) {
+                                segments["bss"]->startAddress = 0x1000;
+                            }
+
+                            // Calculate buffer address: BSS start + current BSS size
+                            uint32_t bssCurrentSize = 0;
+                            for (const auto& stmt : statements) {
+                                if (stmt && stmt->segmentName == "bss" && !stmt->deleted) {
+                                    bssCurrentSize += stmt->size;
+                                }
+                            }
+                            fillDmaListAddr_ = segments["bss"]->startAddress + bssCurrentSize;
+
+                            // Create symbol for buffer
+                            symbolTable["__fill_dma_buf"] = {fillDmaListAddr_, true, 2, false, false, fillDmaListAddr_, false, 0, false, 0};
+                        }
+                        emitFillCode(d, s->instr.operandTokenIndex, s->scopePrefix, s->instr.mnemonic == "fill.sp");
+                    }
+                    else if (s->type == Statement::COPY) {
+                        if (moveDmaFirstCopyAddr_ == 0xFFFFFFFF) {
+                            moveDmaFirstCopyAddr_ = cP;
+
+                            // Allocate 12 bytes in BSS segment for DMA buffer
+                            if (segments.find("bss") == segments.end()) {
+                                segments["bss"] = std::make_shared<Segment>();
+                            }
+                            if (segments["bss"]->startAddress == 0xFFFFFFFF) {
+                                segments["bss"]->startAddress = 0x1000;  // typical BSS start
+                            }
+
+                            // Calculate buffer address: BSS start + current BSS size
+                            uint32_t bssCurrentSize = 0;
+                            for (const auto& stmt : statements) {
+                                if (stmt && stmt->segmentName == "bss" && !stmt->deleted) {
+                                    bssCurrentSize += stmt->size;
+                                }
+                            }
+                            moveDmaListAddr_ = segments["bss"]->startAddress + bssCurrentSize;
+
+                            // Create symbol for buffer
+                            symbolTable["__move_dma_buf"] = {moveDmaListAddr_, true, 2, false, false, moveDmaListAddr_, false, 0, false, 0};
+                        }
+                        emitMoveCode(d, s->instr.operandTokenIndex, s->scopePrefix, s->instr.mnemonic == "move.sp");
+                    }
                     else if (s->type == Statement::NEG16 || s->type == Statement::NOT16 || s->type == Statement::NEG_S16) emitNegNot16Code(d, s->type == Statement::NEG16 || s->type == Statement::NEG_S16, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
                     else if (s->type == Statement::ABS16 || s->type == Statement::ABS_S16) emitABS16Code(d, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
                     else if (s->type == Statement::CHKZERO8) emitChkZeroCode(d, false, false, s->instr.operandTokenIndex, s->scopePrefix);
