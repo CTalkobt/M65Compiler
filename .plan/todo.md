@@ -1,5 +1,7 @@
 # TODO
 
+**STATUS: v1.0 Release Ready** ✅ All blockers and should-fix items complete (V1.0-001 through V1.0-013). Next steps: regression testing, documentation, final QA before 2026-05-31 release target.
+
 ## Known Bugs (from root todo.md)
 
 - [x] **Assembler simulated op size drift**: Fixed in commits 3e1e5a0 and f38808e.
@@ -54,7 +56,7 @@
 ### Language
 - [x] Flexible array members: `struct S { int n; char data[]; }`
 - [x] Designated initializers: `{.x=1, .y=2}` for structs, `{[2]=3}` for arrays
-- [ ] `_Alignas` for local (stack) variables
+- [x] `_Alignas` for local (stack) variables (Parser::parseVariableDeclaration, test_alignas_local.c)
 - [x] Type qualifier ordering: all orderings now accepted (globals, locals, params, return types, typedefs)
 - [x] Enforce `&register_var` as compile error (C standard requirement)
 - [x] Integer literal overflow checking (Lexer.cpp:246)
