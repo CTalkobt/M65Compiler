@@ -15,31 +15,42 @@ void apply_fade(unsigned char level);
 int main(void) {
     unsigned char *border_color = (unsigned char *)0xD020;
 
+    // DEBUG: Red border = starting
+    *border_color = 2;
+
     // Unlock VIC-IV palette registers
     unlock_viciv();
 
+    // DEBUG: Green border = unlock done
+    *border_color = 5;
+
     // Save original palette for restoration
     save_palette();
+
+    // DEBUG: Yellow border = save done, entering fade loop
+    *border_color = 7;
 
     // Oscillating fade loop: 0 → 255 → 0
     while (1) {
         unsigned char level;
 
         // Fade in: 0 → 255
+        *border_color = 3;  // Cyan = fade in starting
         for (level = 0; level < 255; level++) {
             apply_fade(level);
-            *border_color = (level & 0x10) ? 1 : 0;  // Toggle border on/off
+            *border_color = (level & 0x20) ? 3 : 14;  // Cyan ↔ Light gray, every 32 levels
         }
         apply_fade(255);
-        *border_color = 1;
+        *border_color = 3;  // Cyan at peak
 
         // Fade out: 255 → 0
+        *border_color = 4;  // Purple = fade out starting
         for (level = 255; level > 0; level--) {
             apply_fade(level);
-            *border_color = (level & 0x10) ? 1 : 0;  // Toggle border on/off
+            *border_color = (level & 0x20) ? 4 : 14;  // Purple ↔ Light gray, every 32 levels
         }
         apply_fade(0);
-        *border_color = 0;
+        *border_color = 4;  // Purple at minimum
     }
 
     return 0;
