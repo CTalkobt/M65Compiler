@@ -2,7 +2,7 @@
 ;
 ; Four assembly functions exported to C:
 ;   _unlock_viciv()          — Unlock VIC-IV palette registers
-;   _save_palette()          — Save current palette (colors 0-15) to RAM
+;   _save_palette()          — Save current palette (colors 0-15) to BSS
 ;   _restore_palette()       — Restore saved palette
 ;   _apply_fade(level)       — Scale palette colors by fade level (0-256)
 ;
@@ -17,9 +17,11 @@
 .global _restore_palette
 .global _apply_fade
 
-; Palette storage at fixed RAM location: $0900-$0930
-; 16 colors × 3 bytes each = 48 bytes
-.define PALETTE_BASE $0900
+; Palette buffer at $A000-$A02F (safe high RAM, doesn't conflict with BASIC)
+; $0800-$0BFF: Screen RAM
+; $1000-$1FFF: Sprite/bitmap area
+; $2000+: BASIC program area
+; $A000-$BFFF: Safe for custom data
 
 .segment "code"
 
@@ -33,16 +35,17 @@ _unlock_viciv:
 
 
 ; _save_palette() — Read colors 0-15 from palette registers
-; Stores at $0900: [R0, G0, B0, R1, G1, B1, ..., R15, G15, B15]
+; Stores in BSS buffer (palette_buffer)
+; Uses absolute indexed addressing to avoid clobbering ZP
 _save_palette:
     ldx #0
 @save_loop:
     lda $D100,x
-    sta PALETTE_BASE, x
+    sta $A000, x              ; RED offset 0
     lda $D200,x
-    sta PALETTE_BASE + 16, x
+    sta $A000 + 16, x         ; GREEN offset 16
     lda $D300,x
-    sta PALETTE_BASE + 32, x
+    sta $A000 + 32, x         ; BLUE offset 32
     inx
     cpx #16
     bne @save_loop
@@ -50,14 +53,16 @@ _save_palette:
 
 
 ; _restore_palette() — Write saved palette back to registers
+; Reads from BSS buffer (palette_buffer)
+; Uses absolute indexed addressing to avoid clobbering ZP
 _restore_palette:
     ldx #0
 @restore_loop:
-    lda PALETTE_BASE, x
+    lda $A000, x              ; RED offset 0
     sta $D100,x
-    lda PALETTE_BASE + 16, x
+    lda $A000 + 16, x         ; GREEN offset 16
     sta $D200,x
-    lda PALETTE_BASE + 32, x
+    lda $A000 + 32, x         ; BLUE offset 32
     sta $D300,x
     inx
     cpx #16
@@ -67,13 +72,14 @@ _restore_palette:
 
 ; _apply_fade(unsigned char level) — Scale palette by fade level
 ; ZP calling convention: level parameter at $03
+; Reads from BSS buffer (palette_buffer)
 _apply_fade:
     ldx #0
 @fade_loop:
     ; Process RED
-    lda PALETTE_BASE, x     ; load original red
-    sta $04                 ; store multiplicand
-    lda $03                 ; load fade level (multiplier)
+    lda $A000, x              ; load original red
+    sta $04                         ; store multiplicand
+    lda $03                         ; load fade level (multiplier)
 
     ; Inline multiply: (A * $04) >> 8
     ldy #8
@@ -95,7 +101,7 @@ _apply_fade:
     sta $D100,x
 
     ; Process GREEN
-    lda PALETTE_BASE + 16, x
+    lda $A000 + 16, x         ; load original green
     sta $04
     lda $03
 
@@ -119,7 +125,7 @@ _apply_fade:
     sta $D200,x
 
     ; Process BLUE
-    lda PALETTE_BASE + 32, x
+    lda $A000 + 32, x         ; load original blue
     sta $04
     lda $03
 
