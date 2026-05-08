@@ -16,6 +16,9 @@ struct ExprAST {
     virtual bool isConstant(AssemblerParser* parser) const = 0;
     virtual bool is16Bit(AssemblerParser* parser) const = 0;
     virtual void emit(M65Emitter& e, AssemblerParser* parser, int width, const std::string& target) = 0;
+    // Returns true if emit() writes to MEGA65 hardware math registers ($D770+/$D760+)
+    // Used to determine if reentrant-safe save/restore (push_ax/pop_ax) is needed
+    virtual bool usesHardwareMath() const { return false; }
 };
 
 struct ConstantNode : public ExprAST {
@@ -63,6 +66,7 @@ struct UnaryExpr : public ExprAST {
     bool isConstant(AssemblerParser* parser) const override;
     bool is16Bit(AssemblerParser* parser) const override;
     void emit(M65Emitter& e, AssemblerParser* parser, int width, const std::string& target) override;
+    bool usesHardwareMath() const override;
 };
 
 struct DereferenceNode : public ExprAST {
@@ -73,6 +77,7 @@ struct DereferenceNode : public ExprAST {
     bool isConstant(AssemblerParser*) const override;
     bool is16Bit(AssemblerParser*) const override;
     void emit(M65Emitter& e, AssemblerParser* parser, int width, const std::string& target) override;
+    bool usesHardwareMath() const override;
 };
 
 struct BinaryExpr : public ExprAST {
@@ -83,6 +88,7 @@ struct BinaryExpr : public ExprAST {
     bool isConstant(AssemblerParser* parser) const override;
     bool is16Bit(AssemblerParser* parser) const override;
     void emit(M65Emitter& e, AssemblerParser* parser, int width, const std::string& target) override;
+    bool usesHardwareMath() const override;
 };
 
 struct ArrayIndexNode : public ExprAST {
@@ -94,6 +100,7 @@ struct ArrayIndexNode : public ExprAST {
     bool isConstant(AssemblerParser* parser) const override;
     bool is16Bit(AssemblerParser* parser) const override;
     void emit(M65Emitter& e, AssemblerParser* parser, int width, const std::string& target) override;
+    bool usesHardwareMath() const override;
 };
 
 std::unique_ptr<ExprAST> parseExprAST(const std::vector<AssemblerToken>& tokens, int& idx, std::map<std::string, Symbol>& symbolTable, const std::string& scopePrefix = "");

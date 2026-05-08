@@ -236,11 +236,24 @@ void BinaryExpr::emit(M65Emitter& e, AssemblerParser* parser, int width, const s
     if (op == "*" || op == "/" || op == "+" || op == "-") {
         left->emit(e, parser, width, ".A");
         uint8_t base = (op == "/") ? 0x60 : 0x70;
-        e.sta_abs(0xD700 + base);
-        if (bytes >= 2) e.stx_abs(0xD701 + base);
-        right->emit(e, parser, width, ".A");
-        e.sta_abs(0xD700 + base + 4);
-        if (bytes >= 2) e.stx_abs(0xD701 + base + 4);
+
+        if (right->usesHardwareMath()) {
+            // Right subtree writes $D770+/$D760+ during emit: save left on CPU stack first
+            e.push_ax();
+            right->emit(e, parser, width, ".A");
+            e.sta_abs(0xD700 + base + 4);
+            if (bytes >= 2) e.stx_abs(0xD701 + base + 4);
+            e.pop_ax();
+            e.sta_abs(0xD700 + base);
+            if (bytes >= 2) e.stx_abs(0xD701 + base);
+        } else {
+            // Original path — zero overhead for simple right operands (constants, variables)
+            e.sta_abs(0xD700 + base);
+            if (bytes >= 2) e.stx_abs(0xD701 + base);
+            right->emit(e, parser, width, ".A");
+            e.sta_abs(0xD700 + base + 4);
+            if (bytes >= 2) e.stx_abs(0xD701 + base + 4);
+        }
         if (op == "*") {
             for (int i = 0; i < bytes; ++i) {
                 e.lda_abs(0xD778 + i);
@@ -329,6 +342,35 @@ bool ArrayIndexNode::isConstant(AssemblerParser*) const {
 bool ArrayIndexNode::is16Bit(AssemblerParser* parser) const {
     auto* info = parser->getArrayInfo(arrayName);
     return info && info->elementSize >= 2;
+}
+
+// usesHardwareMath() — returns true if emit() writes to MEGA65 hardware math registers
+// Used to determine if reentrant-safe save/restore (push_ax/pop_ax) is needed in BinaryExpr
+
+bool UnaryExpr::usesHardwareMath() const {
+    return operand ? operand->usesHardwareMath() : false;
+}
+
+bool DereferenceNode::usesHardwareMath() const {
+    return address ? address->usesHardwareMath() : false;
+}
+
+bool BinaryExpr::usesHardwareMath() const {
+    // * / + - all write to hardware math registers ($D770+/$D760+)
+    if (op == "*" || op == "/" || op == "+" || op == "-") {
+        return true;
+    }
+    // & | ^ << >> are safe (use CPU stack for left, ZP for right)
+    // but check children to detect nested hardware math operations
+    bool leftUses = left ? left->usesHardwareMath() : false;
+    bool rightUses = right ? right->usesHardwareMath() : false;
+    return leftUses || rightUses;
+}
+
+bool ArrayIndexNode::usesHardwareMath() const {
+    // May use $D770/$D774 for non-power-of-2 stride multiply.
+    // Strides are stored in symbol table (need parser to check), so conservatively return true.
+    return true;
 }
 
 void ArrayIndexNode::emit(M65Emitter& e, AssemblerParser* parser, int width, const std::string& target) {
