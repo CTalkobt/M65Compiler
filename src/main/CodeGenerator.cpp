@@ -1544,8 +1544,42 @@ void CodeGenerator::visit(BuiltinVaArg& node) {
     invalidateRegs();
 }
 
+static bool isTerminalStatement(Statement* stmt) {
+    if (dynamic_cast<ReturnStatement*>(stmt)) return true;
+    if (dynamic_cast<BreakStatement*>(stmt)) return true;
+    if (dynamic_cast<ContinueStatement*>(stmt)) return true;
+    if (dynamic_cast<GotoStatement*>(stmt)) return true;
+    if (auto* ws = dynamic_cast<WhileStatement*>(stmt)) {
+        if (auto* lit = dynamic_cast<IntegerLiteral*>(ws->condition.get()))
+            return lit->value != 0;
+    }
+    if (auto* fs = dynamic_cast<ForStatement*>(stmt)) {
+        return fs->condition == nullptr;
+    }
+    return false;
+}
+
 void CodeGenerator::visit(CompoundStatement& node) {
-    for (auto& stmt : node.statements) stmt->accept(*this);
+    bool reachable = true;
+    for (auto& stmt : node.statements) {
+        // Case and default labels in a switch can always be jumped to, so they reset reachability
+        if (dynamic_cast<CaseStatement*>(stmt.get()) || dynamic_cast<DefaultStatement*>(stmt.get())) {
+            reachable = true;
+        }
+
+        if (!reachable) {
+            std::string loc = sourceFilename.empty() ? "" : sourceFilename + ":";
+            if (stmt->line > 0)
+                loc += std::to_string(stmt->line) + ":" + std::to_string(stmt->column) + ": ";
+            std::string msg = loc + "warning: unreachable code";
+            warnings.push_back(msg);
+            std::cerr << msg << std::endl;
+            break;
+        }
+        stmt->accept(*this);
+        if (isTerminalStatement(stmt.get()))
+            reachable = false;
+    }
 }
 
 void CodeGenerator::visit(VariableDeclaration& node) {
