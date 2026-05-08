@@ -74,13 +74,21 @@ Blockers and high-priority items for v1.0 release.
 
 ---
 
-### v1.1 Minor Release (Target: 2026-07-31)
+### ✅ DONE — v1.1 Minor Release
+
+| ID | Task | Effort | Category | Completed |
+|---|---|---|---|---|
+| **V1.1-001** | **Flexible Array Members (C99)** | L | parser, codegen | 2026-05-02 |
+| **V1.1-008** | **`objdump45` symbolic disassembly** | M | tool | 2026-04-28 |
+
+---
+
+### v1.1 Minor Release (Target: 2026-07-31) — In Progress
 
 **Compiler Features:**
 
 | ID | Task | Effort | Category | Phase Target | Dependencies |
 |---|---|---|---|---|---|
-| **V1.1-001** | Flexible Array Members (C99) | L | parser, codegen | v1.1 | V1.0 complete |
 | **V1.1-002** | `inline` keyword expansion (Phase 1) | L | optimizer | v1.1 | V1.0 complete; add `-finline-functions` flag |
 | **V1.1-003** | Processor flag/register intrinsics (`__builtin_carry`, etc.) | L | codegen | v1.1 | V1.0 complete |
 
@@ -92,12 +100,6 @@ Blockers and high-priority items for v1.0 release.
 | **V1.1-005** | `assert.h` macro | S | stdlib | v1.1 | V1.0 complete |
 | **V1.1-006** | `limits.h` completion | S | stdlib | v1.1 | V1.0 complete |
 | **V1.1-007** | `time.h` minimal (clock, time wrappers) | M | stdlib | v1.1 | V1.0 complete |
-
-**Utilities:**
-
-| ID | Task | Effort | Category | Phase Target | Dependencies |
-|---|---|---|---|---|---|
-| **V1.1-008** | `objdump45` symbolic disassembly | M | tool | v1.1 | V1.0 complete |
 
 ---
 
