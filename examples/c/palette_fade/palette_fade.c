@@ -13,6 +13,8 @@ void restore_palette(void);
 void apply_fade(unsigned char level);
 
 int main(void) {
+    unsigned char *border_color = (unsigned char *)0xD020;
+
     // Unlock VIC-IV palette registers
     unlock_viciv();
 
@@ -26,14 +28,18 @@ int main(void) {
         // Fade in: 0 → 255
         for (level = 0; level < 255; level++) {
             apply_fade(level);
+            *border_color = (level & 0x10) ? 1 : 0;  // Toggle border on/off
         }
         apply_fade(255);
+        *border_color = 1;
 
         // Fade out: 255 → 0
         for (level = 255; level > 0; level--) {
             apply_fade(level);
+            *border_color = (level & 0x10) ? 1 : 0;  // Toggle border on/off
         }
         apply_fade(0);
+        *border_color = 0;
     }
 
     return 0;
