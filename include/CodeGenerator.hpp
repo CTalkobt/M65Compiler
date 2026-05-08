@@ -261,6 +261,7 @@ public:
     int structRetDest_ = -1; // frame offset for struct return destination (-1 = none)
     int compoundLiteralCount_ = 0; // unique ID counter for compound literal temporaries
     bool isVariableUsed(const std::string& varName, FunctionDeclaration& func);
+    std::string getLocalOffsetSymbol(int offset); // Convert frame offset to symbolic name (e.g., _l_x or _l_x+1)
 
     // ZP calling convention (zpCallMode)
     struct ZpParamInfo {

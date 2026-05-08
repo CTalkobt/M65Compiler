@@ -138,6 +138,21 @@ std::string CodeGenerator::resolveVarName(const std::string& name) {
     return name;
 }
 
+std::string CodeGenerator::getLocalOffsetSymbol(int offset) {
+    for (const auto& [name, varOffset] : frameLocals_) {
+        if (varOffset == offset) {
+            return name;
+        }
+        if (varOffset < offset) {
+            int diff = offset - varOffset;
+            if (diff < 256) {
+                return name + "+" + std::to_string(diff);
+            }
+        }
+    }
+    return std::to_string(offset);
+}
+
 bool CodeGenerator::matchType(const ExpressionType& t1, const std::string& t2Name, int t2Ptr) {
     if (t1.type != t2Name) return false;
     if (t1.pointerLevel != t2Ptr) return false;
@@ -300,7 +315,7 @@ void CodeGenerator::emitAddress(Expression* expr) {
         std::string resolvedName = resolveVarName(ref->name);
         if (isZpSpilledParam(resolvedName)) {
             auto& sp = zpSpilledParams_[resolvedName];
-            emit("leax.fp " + std::to_string(sp.frameOffset));
+            emit("leax.fp " + getLocalOffsetSymbol(sp.frameOffset));
             invalidateRegs();
             return;
         }
@@ -1183,7 +1198,7 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
             emit("; spill " + sp.first + " from " + zpHex(zpi.zpAddr) + " to frame offset " + std::to_string(sp.second.frameOffset));
             for (int b = 0; b < sp.second.size; b++) {
                 emit("lda " + zpHex(zpi.zpAddr + b));
-                emit("sta.fp " + std::to_string(sp.second.frameOffset + b));
+                emit("sta.fp " + getLocalOffsetSymbol(sp.second.frameOffset + b));
             }
             // Remove from zpParams_ so all subsequent access uses frame
             zpParams_.erase(sp.first);
@@ -1732,20 +1747,20 @@ void CodeGenerator::visit(VariableDeclaration& node) {
                     if (auto* lit = dynamic_cast<IntegerLiteral*>(resolved[i])) {
                         if (memberSize == 2) {
                             emitter->lda_imm(lit->value & 0xFF);
-                            emit("sta.fp " + std::to_string(memberOff));
+                            emit("sta.fp " + getLocalOffsetSymbol(memberOff));
                             emitter->lda_imm((lit->value >> 8) & 0xFF);
-                            emit("sta.fp " + std::to_string(memberOff + 1));
+                            emit("sta.fp " + getLocalOffsetSymbol(memberOff + 1));
                         } else {
                             emitter->lda_imm(lit->value & 0xFF);
-                            emit("sta.fp " + std::to_string(memberOff));
+                            emit("sta.fp " + getLocalOffsetSymbol(memberOff));
                         }
                     } else {
                         bool oldNeeded = resultNeeded;
                         resultNeeded = true;
                         resolved[i]->accept(*this);
                         resultNeeded = oldNeeded;
-                        if (memberSize == 2) emit("stax.fp " + std::to_string(memberOff));
-                        else emit("sta.fp " + std::to_string(memberOff));
+                        if (memberSize == 2) emit("stax.fp " + getLocalOffsetSymbol(memberOff));
+                        else emit("sta.fp " + getLocalOffsetSymbol(memberOff));
                     }
                 }
             } else {
@@ -1776,12 +1791,12 @@ void CodeGenerator::visit(VariableDeclaration& node) {
                     int elemOff = frameOff + i * elementSize;
                     if (elementSize == 2) {
                         emitter->lda_imm(val & 0xFF);
-                        emit("sta.fp " + std::to_string(elemOff));
+                        emit("sta.fp " + getLocalOffsetSymbol(elemOff));
                         emitter->lda_imm((val >> 8) & 0xFF);
-                        emit("sta.fp " + std::to_string(elemOff + 1));
+                        emit("sta.fp " + getLocalOffsetSymbol(elemOff + 1));
                     } else {
                         emitter->lda_imm(val & 0xFF);
-                        emit("sta.fp " + std::to_string(elemOff));
+                        emit("sta.fp " + getLocalOffsetSymbol(elemOff));
                     }
                 }
             }
@@ -1790,23 +1805,23 @@ void CodeGenerator::visit(VariableDeclaration& node) {
                 if (size == 4) {
                     uint32_t val = (uint32_t)lit->value;
                     emitter->lda_imm(val & 0xFF);
-                    emit("sta.fp " + std::to_string(frameOff));
+                    emit("sta.fp " + getLocalOffsetSymbol(frameOff));
                     emitter->lda_imm((val >> 8) & 0xFF);
-                    emit("sta.fp " + std::to_string(frameOff + 1));
+                    emit("sta.fp " + getLocalOffsetSymbol(frameOff + 1));
                     emitter->lda_imm((val >> 16) & 0xFF);
-                    emit("sta.fp " + std::to_string(frameOff + 2));
+                    emit("sta.fp " + getLocalOffsetSymbol(frameOff + 2));
                     emitter->lda_imm((val >> 24) & 0xFF);
-                    emit("sta.fp " + std::to_string(frameOff + 3));
+                    emit("sta.fp " + getLocalOffsetSymbol(frameOff + 3));
                 } else if (size == 2) {
                     emitter->lda_imm(lit->value & 0xFF);
-                    emit("sta.fp " + std::to_string(frameOff));
+                    emit("sta.fp " + getLocalOffsetSymbol(frameOff));
                     emitter->lda_imm((lit->value >> 8) & 0xFF);
-                    emit("sta.fp " + std::to_string(frameOff + 1));
+                    emit("sta.fp " + getLocalOffsetSymbol(frameOff + 1));
                 } else {
                     uint8_t val = lit->value & 0xFF;
                     if (node.type == "_Bool") val = (val != 0) ? 1 : 0;
                     emitter->lda_imm(val);
-                    emit("sta.fp " + std::to_string(frameOff));
+                    emit("sta.fp " + getLocalOffsetSymbol(frameOff));
                 }
             } else {
                 // Check if this is a struct-returning function call
@@ -1839,14 +1854,14 @@ void CodeGenerator::visit(VariableDeclaration& node) {
                         // Store AXYZ to frame slot byte-by-byte
                         // Note: sta.fp does TSX which clobbers X, so save X first
                         emit("stx __zp_scratch");
-                        emit("sta.fp " + std::to_string(frameOff));
-                        emit("lda __zp_scratch"); emit("sta.fp " + std::to_string(frameOff + 1));
-                        emit("tya"); emit("sta.fp " + std::to_string(frameOff + 2));
-                        emit("tza"); emit("sta.fp " + std::to_string(frameOff + 3));
+                        emit("sta.fp " + getLocalOffsetSymbol(frameOff));
+                        emit("lda __zp_scratch"); emit("sta.fp " + getLocalOffsetSymbol(frameOff + 1));
+                        emit("tya"); emit("sta.fp " + getLocalOffsetSymbol(frameOff + 2));
+                        emit("tza"); emit("sta.fp " + getLocalOffsetSymbol(frameOff + 3));
                     } else if (size == 2) {
-                        emit("stax.fp " + std::to_string(frameOff));
+                        emit("stax.fp " + getLocalOffsetSymbol(frameOff));
                     } else {
-                        emit("sta.fp " + std::to_string(frameOff));
+                        emit("sta.fp " + getLocalOffsetSymbol(frameOff));
                     }
                 }
             }
@@ -2232,12 +2247,12 @@ void CodeGenerator::visit(Assignment& node) {
                 uint32_t uval = (uint32_t)lit->value;
                 if (is32) {
                     emitter->lda_imm(uval & 0xFF); emit("sta.fp " + off);
-                    emitter->lda_imm((uval >> 8) & 0xFF); emit("sta.fp " + std::to_string(sp.frameOffset + 1));
-                    emitter->lda_imm((uval >> 16) & 0xFF); emit("sta.fp " + std::to_string(sp.frameOffset + 2));
-                    emitter->lda_imm((uval >> 24) & 0xFF); emit("sta.fp " + std::to_string(sp.frameOffset + 3));
+                    emitter->lda_imm((uval >> 8) & 0xFF); emit("sta.fp " + getLocalOffsetSymbol(sp.frameOffset + 1));
+                    emitter->lda_imm((uval >> 16) & 0xFF); emit("sta.fp " + getLocalOffsetSymbol(sp.frameOffset + 2));
+                    emitter->lda_imm((uval >> 24) & 0xFF); emit("sta.fp " + getLocalOffsetSymbol(sp.frameOffset + 3));
                 } else if (is16) {
                     emitter->lda_imm(uval & 0xFF); emit("sta.fp " + off);
-                    emitter->lda_imm((uval >> 8) & 0xFF); emit("sta.fp " + std::to_string(sp.frameOffset + 1));
+                    emitter->lda_imm((uval >> 8) & 0xFF); emit("sta.fp " + getLocalOffsetSymbol(sp.frameOffset + 1));
                 } else {
                     uint8_t val = uval & 0xFF;
                     if (vi.type == "_Bool") val = (val != 0) ? 1 : 0;
@@ -2262,8 +2277,8 @@ void CodeGenerator::visit(Assignment& node) {
             if (is32) {
                 // AXYZ → frame: stax.fp stores A,X; then Y,Z via save/restore
                 emit("stax.fp " + off);
-                emit("pha"); emit("tya"); emit("sta.fp " + std::to_string(sp.frameOffset + 2));
-                emit("tza"); emit("sta.fp " + std::to_string(sp.frameOffset + 3)); emit("pla");
+                emit("pha"); emit("tya"); emit("sta.fp " + getLocalOffsetSymbol(sp.frameOffset + 2));
+                emit("tza"); emit("sta.fp " + getLocalOffsetSymbol(sp.frameOffset + 3)); emit("pla");
             } else if (is16) {
                 emit("stax.fp " + off);
             } else {
@@ -4197,16 +4212,16 @@ void CodeGenerator::visit(VariableReference& node) {
         bool is32 = is32BitType(vi.type) && vi.pointerLevel == 0;
         bool is16 = !is32 && (vi.pointerLevel > 0 || vi.type == "int");
         if (is32) {
-            emit("lda.fp " + std::to_string(sp.frameOffset + 3)); emit("taz");
-            emit("lda.fp " + std::to_string(sp.frameOffset + 2)); emit("tay");
-            emit("lda.fp " + std::to_string(sp.frameOffset + 1)); emit("tax");
-            emit("lda.fp " + std::to_string(sp.frameOffset));
+            emit("lda.fp " + getLocalOffsetSymbol(sp.frameOffset + 3)); emit("taz");
+            emit("lda.fp " + getLocalOffsetSymbol(sp.frameOffset + 2)); emit("tay");
+            emit("lda.fp " + getLocalOffsetSymbol(sp.frameOffset + 1)); emit("tax");
+            emit("lda.fp " + getLocalOffsetSymbol(sp.frameOffset));
             invalidateRegs();
         } else if (is16) {
-            emit("ldax.fp " + std::to_string(sp.frameOffset));
+            emit("ldax.fp " + getLocalOffsetSymbol(sp.frameOffset));
             invalidateRegs();
         } else {
-            emit("lda.fp " + std::to_string(sp.frameOffset));
+            emit("lda.fp " + getLocalOffsetSymbol(sp.frameOffset));
             invalidateRegs();
             if (!regX.known || regX.isVariable || regX.value != 0) { emitter->ldx_imm(0); updateRegX(0); }
         }
@@ -4546,7 +4561,7 @@ void CodeGenerator::visit(FunctionCall& node) {
                 auto& zpi = kv.second;
                 for (int b = 0; b < zpi.size; b++) {
                     emit("lda " + zpHex(zpi.zpAddr + b));
-                    emit("sta.fp " + std::to_string(saveOff++));
+                    emit("sta.fp " + getLocalOffsetSymbol(saveOff++));
                 }
             }
         }
@@ -4558,11 +4573,11 @@ void CodeGenerator::visit(FunctionCall& node) {
         int totalPushedForArgs = 0;
         if (needsHiddenPtrCall && structRetDest_ >= 0) {
             if (directStore) {
-                emit("leax.fp " + std::to_string(structRetDest_));
+                emit("leax.fp " + getLocalOffsetSymbol(structRetDest_));
                 emit("sta " + zpHex(calleeParams[argIdx].zpAddr));
                 emit("stx " + zpHex(calleeParams[argIdx].zpAddr + 1));
             } else {
-                emit("leax.fp " + std::to_string(structRetDest_));
+                emit("leax.fp " + getLocalOffsetSymbol(structRetDest_));
                 emitter->push_ax();
                 totalPushedForArgs += 2;
                 for (const auto& varName : currentVars) {
@@ -4664,7 +4679,7 @@ void CodeGenerator::visit(FunctionCall& node) {
             for (auto& kv : zpParams_) {
                 auto& zpi = kv.second;
                 for (int b = 0; b < zpi.size; b++) {
-                    emit("lda.fp " + std::to_string(saveOff++));
+                    emit("lda.fp " + getLocalOffsetSymbol(saveOff++));
                     emit("sta " + zpHex(zpi.zpAddr + b));
                 }
             }
@@ -4691,7 +4706,7 @@ void CodeGenerator::visit(FunctionCall& node) {
             auto& zpi = kv.second;
             for (int b = 0; b < zpi.size; b++) {
                 emit("lda " + zpHex(zpi.zpAddr + b));
-                emit("sta.fp " + std::to_string(saveOff++));
+                emit("sta.fp " + getLocalOffsetSymbol(saveOff++));
             }
         }
     }
@@ -4702,7 +4717,7 @@ void CodeGenerator::visit(FunctionCall& node) {
     // (before regular args) so leax.fp uses the un-bumped _fp value.
     bool isStructRetCall = structReturningFunctions.count(node.name) > 0;
     if (isStructRetCall && structRetDest_ >= 0) {
-        emit("leax.fp " + std::to_string(structRetDest_));
+        emit("leax.fp " + getLocalOffsetSymbol(structRetDest_));
         emitter->push_ax();
         int pushSize = 2;
         pushedBytes += pushSize;
@@ -4807,7 +4822,7 @@ void CodeGenerator::visit(FunctionCall& node) {
         for (auto& kv : zpParams_) {
             auto& zpi = kv.second;
             for (int b = 0; b < zpi.size; b++) {
-                emit("lda.fp " + std::to_string(saveOff++));
+                emit("lda.fp " + getLocalOffsetSymbol(saveOff++));
                 emit("sta " + zpHex(zpi.zpAddr + b));
             }
         }
@@ -4958,12 +4973,12 @@ void CodeGenerator::visit(CompoundLiteral& node) {
             if (auto* lit = dynamic_cast<IntegerLiteral*>(initList.elements[i].get())) {
                 if (memberSize == 2) {
                     emitter->lda_imm(lit->value & 0xFF);
-                    emit("sta.fp " + std::to_string(memberOff));
+                    emit("sta.fp " + getLocalOffsetSymbol(memberOff));
                     emitter->lda_imm((lit->value >> 8) & 0xFF);
-                    emit("sta.fp " + std::to_string(memberOff + 1));
+                    emit("sta.fp " + getLocalOffsetSymbol(memberOff + 1));
                 } else {
                     emitter->lda_imm(lit->value & 0xFF);
-                    emit("sta.fp " + std::to_string(memberOff));
+                    emit("sta.fp " + getLocalOffsetSymbol(memberOff));
                 }
             } else {
                 bool oldNeeded = resultNeeded;
@@ -4971,9 +4986,9 @@ void CodeGenerator::visit(CompoundLiteral& node) {
                 initList.elements[i]->accept(*this);
                 resultNeeded = oldNeeded;
                 if (memberSize == 2) {
-                    emit("stax.fp " + std::to_string(memberOff));
+                    emit("stax.fp " + getLocalOffsetSymbol(memberOff));
                 } else {
-                    emit("sta.fp " + std::to_string(memberOff));
+                    emit("sta.fp " + getLocalOffsetSymbol(memberOff));
                 }
             }
         }
@@ -4990,12 +5005,12 @@ void CodeGenerator::visit(CompoundLiteral& node) {
                 if (auto* lit = dynamic_cast<IntegerLiteral*>(initList.elements[i].get())) {
                     if (elementSize == 2) {
                         emitter->lda_imm(lit->value & 0xFF);
-                        emit("sta.fp " + std::to_string(elemOff));
+                        emit("sta.fp " + getLocalOffsetSymbol(elemOff));
                         emitter->lda_imm((lit->value >> 8) & 0xFF);
-                        emit("sta.fp " + std::to_string(elemOff + 1));
+                        emit("sta.fp " + getLocalOffsetSymbol(elemOff + 1));
                     } else {
                         emitter->lda_imm(lit->value & 0xFF);
-                        emit("sta.fp " + std::to_string(elemOff));
+                        emit("sta.fp " + getLocalOffsetSymbol(elemOff));
                     }
                 } else {
                     bool oldNeeded = resultNeeded;
@@ -5003,24 +5018,24 @@ void CodeGenerator::visit(CompoundLiteral& node) {
                     initList.elements[i]->accept(*this);
                     resultNeeded = oldNeeded;
                     if (elementSize == 2) {
-                        emit("stax.fp " + std::to_string(elemOff));
+                        emit("stax.fp " + getLocalOffsetSymbol(elemOff));
                     } else {
-                        emit("sta.fp " + std::to_string(elemOff));
+                        emit("sta.fp " + getLocalOffsetSymbol(elemOff));
                     }
                 }
             } else {
                 // Zero-fill remaining elements
                 emitter->lda_imm(0);
-                emit("sta.fp " + std::to_string(elemOff));
+                emit("sta.fp " + getLocalOffsetSymbol(elemOff));
                 if (elementSize == 2) {
-                    emit("sta.fp " + std::to_string(elemOff + 1));
+                    emit("sta.fp " + getLocalOffsetSymbol(elemOff + 1));
                 }
             }
         }
     }
 
     // Return address of the temporary in AX
-    emit("leax.fp " + std::to_string(frameOff));
+    emit("leax.fp " + getLocalOffsetSymbol(frameOff));
     invalidateRegs();
 }
 
