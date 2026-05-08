@@ -6,6 +6,7 @@
 
 SUBDIRS = \
 	c/hello_world \
+	c/palette_fade \
 	c/unit_convert \
 	c/stdlib/string_h \
 	c/stdlib/stdlib_h \
