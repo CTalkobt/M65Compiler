@@ -5,7 +5,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 ## [Unreleased] - 2026-05-07
 
 ### Added
+- **Compiler (cc45)**:
+    - **`_Alignas` support for local variables and struct members (Phase 1)** (d1debd3): Alignment computation and storage reservation implemented. Local variables and struct members can now be declared with `_Alignas(N)` specifiers. The compiler computes required padding between fields to meet alignment constraints and reserves additional frame space as needed. Struct member layout respects alignment boundaries.
+    - **Symbolic `.fp` references for local variables (Phase 2)** (6ab142e): Frame-pointer-relative variable references now use symbolic names (e.g., `.fp var_name`) in addition to numeric offsets. The assembler's symbol table supports frame-relative symbol lookup, enabling more readable and maintainable assembly output.
 - **Assembler (ca45)**:
+    - **Dead code elimination after infinite loops (Issue #26)** (7724cfa): The assembler now detects and removes unreachable code that follows infinite loops (e.g., code after `while(1)` constructs). Instructions after `BRA` loops are recognized as dead code and eliminated, reducing binary size and improving code clarity.
+    - **Fix BinaryExpr reentrancy bug in assembler expression evaluator (Issue #35)** (8bb0764): Fixed a critical bug where recursive evaluation of binary expressions in the assembler's expression evaluator could cause incorrect operand values or hangs. The fix ensures that complex nested expressions are evaluated correctly even when the evaluator processes sub-expressions recursively.
     - **3-operand MOVE/FILL test coverage**: Added comprehensive test cases for the 3-operand syntax (`MOVE src, dest, len` and `FILL dest, len`) that was previously undocumented. The syntax allows explicit specification of source, destination, and length operands without requiring preloaded register pairs. Tests include: immediate operands, register pair operands, symbol operands, stack-relative operands, and mixed operand types. All 9 new C++ tests pass; assembly examples in `test_fill_advanced.s` demonstrate practical usage. Parser support for 3-operand syntax was already implemented in `AssemblerSimulatedOps::emitMoveCode()` — tests validate and document this capability.
 - **Documentation**: Updated `doc/opcodes.md` with complete syntax documentation for 2-operand and 3-operand forms of `MOVE` and `FILL`, including usage examples.
 
