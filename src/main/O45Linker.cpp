@@ -297,9 +297,18 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
             // Read existing value at patch site as addend (e.g., __sp_base+offset
             // has the offset baked in by the assembler)
             uint32_t addend = 0;
-            int pSize = o45RelocPatchSize((uint8_t)r.type);
-            for (int i = 0; i < pSize && (patchPos + i) < body.size(); i++) {
-                addend |= ((uint32_t)body[patchPos + i]) << (i * 8);
+            if (r.type == R_HIGH) {
+                // For R_HIGH relocations, reconstruct 16-bit addend from:
+                // - High byte at patch site
+                // - Low byte stored in extra field (see issue #36)
+                uint8_t hi = body[patchPos];
+                uint8_t lo = r.extra;
+                addend = (hi << 8) | lo;
+            } else {
+                int pSize = o45RelocPatchSize((uint8_t)r.type);
+                for (int i = 0; i < pSize && (patchPos + i) < body.size(); i++) {
+                    addend |= ((uint32_t)body[patchPos + i]) << (i * 8);
+                }
             }
             targetAddr = it->second + addend;
         } else {
