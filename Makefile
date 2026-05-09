@@ -169,6 +169,7 @@ $(OBJ_DIR)/test_move_fill.o: src/test/test_move_fill.cpp
 test-move-fill: $(TEST_MOVE_FILL_TARGET) all
 	@$(TEST_MOVE_FILL_TARGET)
 
+# Assembler expression/emitter validation testTEST_VALIDATION_ASSEMBLER_TARGET = $(BIN_DIR)/test_validation_assemblerTEST_VALIDATION_ASSEMBLER_OBJECTS = $(OBJ_DIR)/test_validation_assembler.o$(TEST_VALIDATION_ASSEMBLER_TARGET): $(TEST_VALIDATION_ASSEMBLER_OBJECTS) $(CA_TARGET)	@mkdir -p $(BIN_DIR)	$(CXX) $(CXXFLAGS) -o $@ $(TEST_VALIDATION_ASSEMBLER_OBJECTS)$(OBJ_DIR)/test_validation_assembler.o: src/test/test_validation_assembler.cpp	@mkdir -p $(OBJ_DIR)	$(CXX) $(CXXFLAGS) -c -o $@ $<test-validation-assembler: $(TEST_VALIDATION_ASSEMBLER_TARGET) all	@$(TEST_VALIDATION_ASSEMBLER_TARGET)
 install: all lib
 	install -d $(DESTDIR)$(BINDIR)
 	install -m 755 $(CC_TARGET) $(CA_TARGET) $(NM_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DESTDIR)$(BINDIR)
