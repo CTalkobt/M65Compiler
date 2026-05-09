@@ -394,7 +394,7 @@ test-validation-preprocessor: $(TEST_VALIDATION_PREPROCESSOR_TARGET) all
 
 # Linker Error Validation unit test
 TEST_VALIDATION_LINKER_TARGET = $(BIN_DIR)/test_validation_linker
-TEST_VALIDATION_LINKER_OBJECTS = $(OBJ_DIR)/test_validation_linker.o
+TEST_VALIDATION_LINKER_OBJECTS = $(OBJ_DIR)/test_validation_linker.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o
 
 $(TEST_VALIDATION_LINKER_TARGET): $(TEST_VALIDATION_LINKER_OBJECTS) $(CA_TARGET)
 	@mkdir -p $(BIN_DIR)
