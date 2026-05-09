@@ -12,6 +12,15 @@ void save_palette(void);
 void restore_palette(void);
 void apply_fade(unsigned char level);
 
+// Delay to make fade visible
+void delay_frame(void) {
+    unsigned int i;
+    unsigned int j;
+    for (i = 0; i < 10; i++) {
+        for (j = 0; j < 3000; j++) { }
+    }
+}
+
 int main(void) {
     unsigned char *border_color = (unsigned char *)0xD020;
     unsigned char level;
@@ -37,6 +46,7 @@ int main(void) {
         *border_color = 3;  // Cyan = fade in starting
         for (level = 0; level < 255; level++) {
             apply_fade(level);
+            delay_frame();
             // Show progress: toggle every 16 levels
             if (level & 16) {
                 *border_color = 3;  // Cyan
@@ -45,12 +55,14 @@ int main(void) {
             }
         }
         apply_fade(255);
+        delay_frame();
         *border_color = 3;  // Cyan at peak fade
 
         // Fade out: 255 → 0
         *border_color = 4;  // Purple = fade out starting
         for (level = 255; level > 0; level--) {
             apply_fade(level);
+            delay_frame();
             // Show progress: toggle every 16 levels
             if (level & 16) {
                 *border_color = 4;  // Purple
@@ -59,6 +71,7 @@ int main(void) {
             }
         }
         apply_fade(0);
+        delay_frame();
         *border_color = 4;  // Purple at minimum fade
     }
 

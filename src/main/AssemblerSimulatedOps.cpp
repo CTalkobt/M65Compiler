@@ -796,11 +796,32 @@ void AssemblerSimulatedOps::emitFillCode(AssemblerParser* parser, M65Emitter& e,
     if (idx < 0 || idx >= (int)parser->tokens.size()) return;
 
     enum OperandKind { NONE, REGISTER, STACK_REL, VALUE };
+    enum OperandWidth { WIDTH_16 = 2, WIDTH_24 = 3, WIDTH_32 = 4 };
+
     struct Operand {
         OperandKind kind = NONE;
+        OperandWidth width = WIDTH_16;
         std::string regName;
         uint32_t value = 0;
         std::string symbolName;
+    };
+
+    // Helper to detect operand width from register name
+    auto getRegisterWidth = [](const std::string& regName) -> OperandWidth {
+        std::string upper = regName;
+        std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
+        // 32-bit: AXYZ, Q
+        if (upper == "AXYZ" || upper == "Q") return WIDTH_32;
+        // 24-bit: AXY, AXZ, AYZ (zero-extended to 32-bit in buffer)
+        if (upper == "AXY" || upper == "AXZ" || upper == "AYZ") return WIDTH_32;
+        // 16-bit: everything else
+        return WIDTH_16;
+    };
+
+    // Helper to detect operand width from value
+    auto getValueWidth = [](uint32_t value) -> OperandWidth {
+        if (value <= 0xFFFF) return WIDTH_16;
+        return WIDTH_32;
     };
 
     auto parseOperand = [&](int& curIdx) -> Operand {
@@ -814,6 +835,7 @@ void AssemblerSimulatedOps::emitFillCode(AssemblerParser* parser, M65Emitter& e,
         if (tok.type == AssemblerTokenType::REGISTER) {
             op.kind = REGISTER;
             op.regName = tok.value;
+            op.width = getRegisterWidth(tok.value);
             curIdx++;
             return op;
         }
@@ -826,6 +848,7 @@ void AssemblerSimulatedOps::emitFillCode(AssemblerParser* parser, M65Emitter& e,
                 upper == "XYZ" || upper == "AXY" || upper == "AXZ" || upper == "AYZ" || upper == "AXYZ" || upper == "Q") {
                 op.kind = REGISTER;
                 op.regName = upper;
+                op.width = getRegisterWidth(upper);
                 curIdx++;
                 return op;
             }
@@ -835,6 +858,7 @@ void AssemblerSimulatedOps::emitFillCode(AssemblerParser* parser, M65Emitter& e,
         if (parser->isStackRelativeOperand(curIdx, stackOffset, scopePrefix)) {
             op.kind = STACK_REL;
             op.value = stackOffset;
+            op.width = WIDTH_16;  // Stack-relative is always 16-bit
             parseExprAST(parser->tokens, curIdx, parser->symbolTable, scopePrefix);
             if (curIdx < (int)parser->tokens.size() && parser->tokens[curIdx].type == AssemblerTokenType::COMMA) curIdx++;
             if (curIdx < (int)parser->tokens.size() && (parser->tokens[curIdx].value == "s" || parser->tokens[curIdx].value == "S")) curIdx++;
@@ -846,12 +870,18 @@ void AssemblerSimulatedOps::emitFillCode(AssemblerParser* parser, M65Emitter& e,
         if (ast) {
             op.kind = VALUE;
             op.value = ast->getValue(parser);
+            // Check if this is a symbol that needs relocation
             if (symIdx < (int)parser->tokens.size()) {
                 std::string name = parser->tokens[symIdx].value;
                 Symbol* sym = parser->resolveSymbol(name, scopePrefix);
                 if (sym && sym->isAddress) {
                     op.symbolName = name;
+                    op.width = getValueWidth(sym->value);  // Use symbol's value for width
+                } else {
+                    op.width = getValueWidth(op.value);
                 }
+            } else {
+                op.width = getValueWidth(op.value);
             }
         }
         return op;
@@ -890,170 +920,189 @@ void AssemblerSimulatedOps::emitFillCode(AssemblerParser* parser, M65Emitter& e,
     e.lda_imm(0x03);
     sta_ind_z_with_y(bufAddrZP, 0);
 
-    // Write destination address (buf+6-7)
+    // Calculate buffer offsets based on operand widths (length, destination)
+    // Layout: buf+0=cmd, buf+1+=length, then dest, dest_bank, then extra fields
+    int lenOffset = 1;
+    int lenSize = (int)lenOp.width;
+    int destOffset = lenOffset + lenSize;
+    int destSize = (int)destOp.width;
+    int destBankOffset = destOffset + destSize;
+    int extraOffset = destBankOffset + 1;
+
+    // Helper lambda to store register value with width awareness
+    auto storeRegValue = [&](const std::string& reg, int bufOffset, OperandWidth width) {
+        std::string upper = reg;
+        std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
+
+        if (width == WIDTH_32) {
+            // 4-byte register values
+            if (upper == "AXYZ" || upper == "Q") {
+                sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+                e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset + 2);
+                e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset + 3);
+            }
+            else if (upper == "AXY") {
+                sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+                e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset + 2);
+                e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 3);
+            }
+            else if (upper == "AXZ") {
+                sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+                e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset + 2);
+                e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 3);
+            }
+            else if (upper == "AYZ") {
+                sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+                e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset + 2);
+                e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 3);
+            }
+        } else {
+            // 16-bit (2-byte) register values
+            if (upper == "AX") {
+                sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+            } else if (upper == "AY") {
+                sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+            } else if (upper == "AZ") {
+                sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+            } else if (upper == "XY") {
+                e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+            } else if (upper == "XZ") {
+                e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+            } else if (upper == "YZ") {
+                e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+            } else if (upper == "X") {
+                e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+            } else if (upper == "Y") {
+                e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+            } else if (upper == "Z") {
+                e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+            } else if (upper == "A") {
+                sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+            }
+        }
+    };
+
+    // Write destination address
     if (destOp.kind == REGISTER) {
-        // 2-byte register pairs
-        if (destOp.regName == "AX" || destOp.regName == "ax") {
-            sta_ind_z_with_y(bufAddrZP, 6);
-            e.txa(); sta_ind_z_with_y(bufAddrZP, 7);
-        } else if (destOp.regName == "AY" || destOp.regName == "ay") {
-            sta_ind_z_with_y(bufAddrZP, 6);
-            e.tya(); sta_ind_z_with_y(bufAddrZP, 7);
-        } else if (destOp.regName == "AZ" || destOp.regName == "az") {
-            sta_ind_z_with_y(bufAddrZP, 6);
-            e.tza(); sta_ind_z_with_y(bufAddrZP, 7);
-        } else if (destOp.regName == "XY" || destOp.regName == "xy") {
-            e.txa(); sta_ind_z_with_y(bufAddrZP, 6);
-            e.tya(); sta_ind_z_with_y(bufAddrZP, 7);
-        } else if (destOp.regName == "XZ" || destOp.regName == "xz") {
-            e.txa(); sta_ind_z_with_y(bufAddrZP, 6);
-            e.tza(); sta_ind_z_with_y(bufAddrZP, 7);
-        } else if (destOp.regName == "YZ" || destOp.regName == "yz") {
-            e.tya(); sta_ind_z_with_y(bufAddrZP, 6);
-            e.tza(); sta_ind_z_with_y(bufAddrZP, 7);
-        }
-        // 3-byte groups: store all 3 bytes + zero-extend to 4 bytes (32-bit)
-        else if (destOp.regName == "AXY" || destOp.regName == "axy") {
-            sta_ind_z_with_y(bufAddrZP, 6);
-            e.txa(); sta_ind_z_with_y(bufAddrZP, 7);
-            e.tya(); sta_ind_z_with_y(bufAddrZP, 8);
-            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 9);
-        } else if (destOp.regName == "AXZ" || destOp.regName == "axz") {
-            sta_ind_z_with_y(bufAddrZP, 6);
-            e.txa(); sta_ind_z_with_y(bufAddrZP, 7);
-            e.tza(); sta_ind_z_with_y(bufAddrZP, 8);
-            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 9);
-        } else if (destOp.regName == "AYZ" || destOp.regName == "ayz") {
-            sta_ind_z_with_y(bufAddrZP, 6);
-            e.tya(); sta_ind_z_with_y(bufAddrZP, 7);
-            e.tza(); sta_ind_z_with_y(bufAddrZP, 8);
-            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 9);
-        } else if (destOp.regName == "AXYZ" || destOp.regName == "axyz" || destOp.regName == "Q" || destOp.regName == "q") {
-            sta_ind_z_with_y(bufAddrZP, 6);
-            e.txa(); sta_ind_z_with_y(bufAddrZP, 7);
-        }
-        // Single registers: extend to 16-bit with high byte = 0
-        else if (destOp.regName == "A" || destOp.regName == "a") {
-            sta_ind_z_with_y(bufAddrZP, 6);
-            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 7);
-        } else if (destOp.regName == "X" || destOp.regName == "x") {
-            e.txa(); sta_ind_z_with_y(bufAddrZP, 6);
-            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 7);
-        } else if (destOp.regName == "Y" || destOp.regName == "y") {
-            e.tya(); sta_ind_z_with_y(bufAddrZP, 6);
-            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 7);
-        } else if (destOp.regName == "Z" || destOp.regName == "z") {
-            e.tza(); sta_ind_z_with_y(bufAddrZP, 6);
-            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 7);
-        }
+        storeRegValue(destOp.regName, destOffset, destOp.width);
     } else if (destOp.kind == STACK_REL) {
         uint16_t addr = sb + destOp.value;
         e.tsx(); e.txa(); e.clc(); e.adc_imm(addr & 0xFF);
-        sta_ind_z_with_y(bufAddrZP, 6);
+        sta_ind_z_with_y(bufAddrZP, destOffset);
         e.lda_imm((addr >> 8) & 0xFF);
         if ((addr & 0xFF) == 0) e.adc_imm(0);
-        sta_ind_z_with_y(bufAddrZP, 7);
+        sta_ind_z_with_y(bufAddrZP, destOffset + 1);
+        // Zero-fill remaining bytes if 32-bit
+        if (destOp.width == WIDTH_32) {
+            e.lda_imm(0);
+            sta_ind_z_with_y(bufAddrZP, destOffset + 2);
+            sta_ind_z_with_y(bufAddrZP, destOffset + 3);
+        }
     } else if (destOp.kind == VALUE) {
-        uint8_t lo = destOp.value & 0xFF;
-        uint8_t hi = (destOp.value >> 8) & 0xFF;
-        if (lo == 0) {
-            e.lda_imm(0);
+        if (destOp.width == WIDTH_16) {
+            uint8_t lo = destOp.value & 0xFF;
+            uint8_t hi = (destOp.value >> 8) & 0xFF;
+            if (lo == 0) {
+                e.lda_imm(0);
+            } else {
+                if (!destOp.symbolName.empty()) e.recordSymbolRelocLo(destOp.symbolName);
+                e.lda_imm(lo);
+            }
+            sta_ind_z_with_y(bufAddrZP, destOffset);
+            if (hi == 0) {
+                e.lda_imm(0);
+            } else {
+                if (!destOp.symbolName.empty()) e.recordSymbolRelocHi(destOp.symbolName, lo);
+                e.lda_imm(hi);
+            }
+            sta_ind_z_with_y(bufAddrZP, destOffset + 1);
         } else {
-            if (!destOp.symbolName.empty()) e.recordSymbolRelocLo(destOp.symbolName);
-            e.lda_imm(lo);
+            // 32-bit destination
+            uint8_t b0 = destOp.value & 0xFF;
+            uint8_t b1 = (destOp.value >> 8) & 0xFF;
+            uint8_t b2 = (destOp.value >> 16) & 0xFF;
+            uint8_t b3 = (destOp.value >> 24) & 0xFF;
+
+            if (b0 == 0) {
+                e.lda_imm(0);
+            } else {
+                if (!destOp.symbolName.empty()) e.recordSymbolRelocLo(destOp.symbolName);
+                e.lda_imm(b0);
+            }
+            sta_ind_z_with_y(bufAddrZP, destOffset);
+
+            if (b1 == 0) {
+                e.lda_imm(0);
+            } else {
+                if (!destOp.symbolName.empty()) e.recordSymbolRelocHi(destOp.symbolName, b0);
+                e.lda_imm(b1);
+            }
+            sta_ind_z_with_y(bufAddrZP, destOffset + 1);
+
+            // Byte 2 (low byte of upper 16-bit)
+            if (b2 == 0) {
+                e.lda_imm(0);
+            } else {
+                if (!destOp.symbolName.empty()) e.recordSymbolReloc32Bit(destOp.symbolName);
+                e.lda_imm(b2);
+            }
+            sta_ind_z_with_y(bufAddrZP, destOffset + 2);
+
+            // Byte 3 (high byte of upper 16-bit)
+            e.lda_imm(b3);
+            sta_ind_z_with_y(bufAddrZP, destOffset + 3);
         }
-        sta_ind_z_with_y(bufAddrZP, 6);
-        if (hi == 0) {
-            e.lda_imm(0);
-        } else {
-            if (!destOp.symbolName.empty()) e.recordSymbolRelocHi(destOp.symbolName, lo);
-            e.lda_imm(hi);
-        }
-        sta_ind_z_with_y(bufAddrZP, 7);
     }
 
-    // Write length (count) address (buf+3-4)
+    // Write length (count)
     if (lenOp.kind == REGISTER) {
-        // 2-byte register pairs
-        if (lenOp.regName == "AX" || lenOp.regName == "ax") {
-            sta_ind_z_with_y(bufAddrZP, 3);
-            e.txa(); sta_ind_z_with_y(bufAddrZP, 4);
-        } else if (lenOp.regName == "AY" || lenOp.regName == "ay") {
-            sta_ind_z_with_y(bufAddrZP, 3);
-            e.tya(); sta_ind_z_with_y(bufAddrZP, 4);
-        } else if (lenOp.regName == "AZ" || lenOp.regName == "az") {
-            sta_ind_z_with_y(bufAddrZP, 3);
-            e.tza(); sta_ind_z_with_y(bufAddrZP, 4);
-        } else if (lenOp.regName == "XY" || lenOp.regName == "xy") {
-            e.txa(); sta_ind_z_with_y(bufAddrZP, 3);
-            e.tya(); sta_ind_z_with_y(bufAddrZP, 4);
-        } else if (lenOp.regName == "XZ" || lenOp.regName == "xz") {
-            e.txa(); sta_ind_z_with_y(bufAddrZP, 3);
-            e.tza(); sta_ind_z_with_y(bufAddrZP, 4);
-        } else if (lenOp.regName == "YZ" || lenOp.regName == "yz") {
-            e.tya(); sta_ind_z_with_y(bufAddrZP, 3);
-            e.tza(); sta_ind_z_with_y(bufAddrZP, 4);
-        }
-        // 3-byte groups: store all 3 bytes + zero-extend to 4 bytes (32-bit)
-        else if (lenOp.regName == "AXY" || lenOp.regName == "axy") {
-            sta_ind_z_with_y(bufAddrZP, 3);
-            e.txa(); sta_ind_z_with_y(bufAddrZP, 4);
-            e.tya(); sta_ind_z_with_y(bufAddrZP, 5);
-            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 6);
-        } else if (lenOp.regName == "AXZ" || lenOp.regName == "axz") {
-            sta_ind_z_with_y(bufAddrZP, 3);
-            e.txa(); sta_ind_z_with_y(bufAddrZP, 4);
-            e.tza(); sta_ind_z_with_y(bufAddrZP, 5);
-            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 6);
-        } else if (lenOp.regName == "AYZ" || lenOp.regName == "ayz") {
-            sta_ind_z_with_y(bufAddrZP, 3);
-            e.tya(); sta_ind_z_with_y(bufAddrZP, 4);
-            e.tza(); sta_ind_z_with_y(bufAddrZP, 5);
-            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 6);
-        } else if (lenOp.regName == "AXYZ" || lenOp.regName == "axyz" || lenOp.regName == "Q" || lenOp.regName == "q") {
-            sta_ind_z_with_y(bufAddrZP, 3);
-            e.txa(); sta_ind_z_with_y(bufAddrZP, 4);
-        }
-        // Single registers: extend to 16-bit with high byte = 0
-        else if (lenOp.regName == "A" || lenOp.regName == "a") {
-            sta_ind_z_with_y(bufAddrZP, 3);
-            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 4);
-        } else if (lenOp.regName == "X" || lenOp.regName == "x") {
-            e.txa(); sta_ind_z_with_y(bufAddrZP, 3);
-            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 4);
-        } else if (lenOp.regName == "Y" || lenOp.regName == "y") {
-            e.tya(); sta_ind_z_with_y(bufAddrZP, 3);
-            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 4);
-        } else if (lenOp.regName == "Z" || lenOp.regName == "z") {
-            e.tza(); sta_ind_z_with_y(bufAddrZP, 3);
-            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, 4);
-        }
+        storeRegValue(lenOp.regName, lenOffset, lenOp.width);
     } else if (lenOp.kind == VALUE) {
-        uint8_t lo = lenOp.value & 0xFF;
-        uint8_t hi = (lenOp.value >> 8) & 0xFF;
-        if (lo == 0) {
-            e.lda_imm(0);
-        } else {
+        if (lenOp.width == WIDTH_16) {
+            uint8_t lo = lenOp.value & 0xFF;
+            uint8_t hi = (lenOp.value >> 8) & 0xFF;
             e.lda_imm(lo);
-        }
-        sta_ind_z_with_y(bufAddrZP, 3);
-        if (hi == 0) {
-            e.lda_imm(0);
-        } else {
+            sta_ind_z_with_y(bufAddrZP, lenOffset);
             e.lda_imm(hi);
+            sta_ind_z_with_y(bufAddrZP, lenOffset + 1);
+        } else {
+            // 32-bit length
+            uint8_t b0 = lenOp.value & 0xFF;
+            uint8_t b1 = (lenOp.value >> 8) & 0xFF;
+            uint8_t b2 = (lenOp.value >> 16) & 0xFF;
+            uint8_t b3 = (lenOp.value >> 24) & 0xFF;
+
+            e.lda_imm(b0);
+            sta_ind_z_with_y(bufAddrZP, lenOffset);
+            e.lda_imm(b1);
+            sta_ind_z_with_y(bufAddrZP, lenOffset + 1);
+            e.lda_imm(b2);
+            sta_ind_z_with_y(bufAddrZP, lenOffset + 2);
+            e.lda_imm(b3);
+            sta_ind_z_with_y(bufAddrZP, lenOffset + 3);
         }
-        sta_ind_z_with_y(bufAddrZP, 4);
     }
 
     // Zero-fill remaining fields
     e.lda_imm(0);
-    sta_ind_z_with_y(bufAddrZP, 1);  // buf+1 = reserved/flags
-    sta_ind_z_with_y(bufAddrZP, 2);  // buf+2 = reserved
-    sta_ind_z_with_y(bufAddrZP, 5);  // buf+5 = source bank
-    sta_ind_z_with_y(bufAddrZP, 8);  // buf+8 = destination bank
-    sta_ind_z_with_y(bufAddrZP, 9);  // buf+9 = command MSB
-    sta_ind_z_with_y(bufAddrZP, 10); // buf+10 = modulo lo
-    sta_ind_z_with_y(bufAddrZP, 11); // buf+11 = modulo hi
+    sta_ind_z_with_y(bufAddrZP, destBankOffset);     // Destination bank/flags
+    sta_ind_z_with_y(bufAddrZP, extraOffset);        // Command MSB
+    if (extraOffset + 1 < 256) sta_ind_z_with_y(bufAddrZP, extraOffset + 1);  // Modulo LSB
+    if (extraOffset + 2 < 256) sta_ind_z_with_y(bufAddrZP, extraOffset + 2);  // Modulo MSB
 
     // Trigger DMA
     e.lda_zp(bufAddrZP + 1);
@@ -1070,11 +1119,32 @@ void AssemblerSimulatedOps::emitMoveCode(AssemblerParser* parser, M65Emitter& e,
     if (idx < 0 || idx >= (int)parser->tokens.size()) return;
 
     enum OperandKind { NONE, REGISTER, STACK_REL, VALUE };
+    enum OperandWidth { WIDTH_16 = 2, WIDTH_24 = 3, WIDTH_32 = 4 };
+
     struct Operand {
         OperandKind kind = NONE;
+        OperandWidth width = WIDTH_16;
         std::string regName;      // register name for REGISTER operands
         uint32_t value = 0;       // value for VALUE or STACK_REL operands
         std::string symbolName;   // symbol relocation if isAddress
+    };
+
+    // Helper to detect operand width from register name
+    auto getRegisterWidth = [](const std::string& regName) -> OperandWidth {
+        std::string upper = regName;
+        std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
+        // 32-bit: AXYZ, Q
+        if (upper == "AXYZ" || upper == "Q") return WIDTH_32;
+        // 24-bit: AXY, AXZ, AYZ (zero-extended to 32-bit in buffer)
+        if (upper == "AXY" || upper == "AXZ" || upper == "AYZ") return WIDTH_32;
+        // 16-bit: everything else (single regs, pairs)
+        return WIDTH_16;
+    };
+
+    // Helper to detect operand width from value
+    auto getValueWidth = [](uint32_t value) -> OperandWidth {
+        if (value <= 0xFFFF) return WIDTH_16;
+        return WIDTH_32;
     };
 
     auto parseOperand = [&](int& curIdx) -> Operand {
@@ -1089,6 +1159,7 @@ void AssemblerSimulatedOps::emitMoveCode(AssemblerParser* parser, M65Emitter& e,
         if (tok.type == AssemblerTokenType::REGISTER) {
             op.kind = REGISTER;
             op.regName = tok.value;
+            op.width = getRegisterWidth(tok.value);
             curIdx++;
             return op;
         }
@@ -1102,16 +1173,18 @@ void AssemblerSimulatedOps::emitMoveCode(AssemblerParser* parser, M65Emitter& e,
                 upper == "XYZ" || upper == "AXY" || upper == "AXZ" || upper == "AYZ" || upper == "AXYZ" || upper == "Q") {
                 op.kind = REGISTER;
                 op.regName = upper;
+                op.width = getRegisterWidth(upper);
                 curIdx++;
                 return op;
             }
         }
 
-        // Check for stack-relative operand
+        // Check for stack-relative operand (always 16-bit for local addresses)
         uint32_t stackOffset = 0;
         if (parser->isStackRelativeOperand(curIdx, stackOffset, scopePrefix)) {
             op.kind = STACK_REL;
             op.value = stackOffset;
+            op.width = WIDTH_16;  // Stack-relative is always 16-bit
             parseExprAST(parser->tokens, curIdx, parser->symbolTable, scopePrefix);
             if (curIdx < (int)parser->tokens.size() && parser->tokens[curIdx].type == AssemblerTokenType::COMMA) curIdx++;
             if (curIdx < (int)parser->tokens.size() && (parser->tokens[curIdx].value == "s" || parser->tokens[curIdx].value == "S")) curIdx++;
@@ -1130,7 +1203,12 @@ void AssemblerSimulatedOps::emitMoveCode(AssemblerParser* parser, M65Emitter& e,
                 Symbol* sym = parser->resolveSymbol(name, scopePrefix);
                 if (sym && sym->isAddress) {
                     op.symbolName = name;
+                    op.width = getValueWidth(sym->value);  // Use symbol's value for width
+                } else {
+                    op.width = getValueWidth(op.value);
                 }
+            } else {
+                op.width = getValueWidth(op.value);
             }
         }
         return op;
@@ -1178,141 +1256,223 @@ void AssemblerSimulatedOps::emitMoveCode(AssemblerParser* parser, M65Emitter& e,
         e.emitByte(addr);
     };
 
-    auto storeReg16 = [&](const std::string& reg, int bufOffset) {
-        // 2-byte register pairs
-        if (reg == "AX" || reg == "ax") {
-            sta_ind_z_with_y(bufAddrZP, bufOffset);
-            e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
-        }
-        else if (reg == "AY" || reg == "ay") {
-            sta_ind_z_with_y(bufAddrZP, bufOffset);
-            e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
-        }
-        else if (reg == "AZ" || reg == "az") {
-            sta_ind_z_with_y(bufAddrZP, bufOffset);
-            e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
-        }
-        else if (reg == "XY" || reg == "xy") {
-            e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset);
-            e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
-        }
-        else if (reg == "XZ" || reg == "xz") {
-            e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset);
-            e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
-        }
-        else if (reg == "YZ" || reg == "yz") {
-            e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset);
-            e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
-        }
-        // 3-byte groups: store all 3 bytes + zero-extend to 4 bytes (32-bit)
-        else if (reg == "AXY" || reg == "axy") {
-            sta_ind_z_with_y(bufAddrZP, bufOffset);
-            e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
-            e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset + 2);
-            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 3);
-        }
-        else if (reg == "AXZ" || reg == "axz") {
-            sta_ind_z_with_y(bufAddrZP, bufOffset);
-            e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
-            e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset + 2);
-            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 3);
-        }
-        else if (reg == "AYZ" || reg == "ayz") {
-            sta_ind_z_with_y(bufAddrZP, bufOffset);
-            e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
-            e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset + 2);
-            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 3);
-        }
-        else if (reg == "AXYZ" || reg == "axyz" || reg == "Q" || reg == "q") {
-            sta_ind_z_with_y(bufAddrZP, bufOffset);
-            e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
-        }
-        // Single registers: extend to 16-bit with high byte = 0
-        else if (reg == "X" || reg == "x") {
-            e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset);
-            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
-        }
-        else if (reg == "Y" || reg == "y") {
-            e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset);
-            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
-        }
-        else if (reg == "Z" || reg == "z") {
-            e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset);
-            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
-        }
-        else if (reg == "A" || reg == "a") {
-            sta_ind_z_with_y(bufAddrZP, bufOffset);
-            e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+    auto storeRegValue = [&](const std::string& reg, int bufOffset, OperandWidth width) {
+        std::string upper = reg;
+        std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
+
+        if (width == WIDTH_32) {
+            // 4-byte register values (32-bit and 24-bit zero-extended)
+            if (upper == "AXYZ" || upper == "Q") {
+                // Full 32-bit: A, X, Y, Z
+                sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+                e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset + 2);
+                e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset + 3);
+            }
+            else if (upper == "AXY") {
+                // 24-bit: A, X, Y, then zero for MSB
+                sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+                e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset + 2);
+                e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 3);
+            }
+            else if (upper == "AXZ") {
+                // 24-bit: A, X, Z, then zero for MSB
+                sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+                e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset + 2);
+                e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 3);
+            }
+            else if (upper == "AYZ") {
+                // 24-bit: A, Y, Z, then zero for MSB
+                sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+                e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset + 2);
+                e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 3);
+            }
+        } else {
+            // 16-bit (2-byte) register values
+            // 2-byte register pairs
+            if (upper == "AX") {
+                sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+            }
+            else if (upper == "AY") {
+                sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+            }
+            else if (upper == "AZ") {
+                sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+            }
+            else if (upper == "XY") {
+                e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+            }
+            else if (upper == "XZ") {
+                e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+            }
+            else if (upper == "YZ") {
+                e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+            }
+            // Single registers: extend to 16-bit with high byte = 0
+            else if (upper == "X") {
+                e.txa(); sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+            }
+            else if (upper == "Y") {
+                e.tya(); sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+            }
+            else if (upper == "Z") {
+                e.tza(); sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+            }
+            else if (upper == "A") {
+                sta_ind_z_with_y(bufAddrZP, bufOffset);
+                e.lda_imm(0); sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+            }
         }
     };
 
+    // Calculate buffer offsets based on operand widths (count, src, dest)
+    // Layout: buf+0=cmd, buf+1+=count, then src, src_bank, then dest, dest_bank, then extra fields
+    int countOffset = 1;
+    int countSize = (int)ops[2].width;
+    int srcOffset = countOffset + countSize;
+    int srcSize = (int)ops[0].width;
+    int srcBankOffset = srcOffset + srcSize;
+    int destOffset = srcBankOffset + 1;
+    int destSize = (int)ops[1].width;
+    int destBankOffset = destOffset + destSize;
+    int extraOffset = destBankOffset + 1;
+
+    // Phase 1: Store register operands
     for (int i = 0; i < 3; i++) {
         if (ops[i].kind == REGISTER) {
-            int bufOffset = (i == 0) ? 3 : (i == 1) ? 6 : 1;  // src@3, dest@6, count@1
-            storeReg16(ops[i].regName, bufOffset);
+            int bufOffset = (i == 2) ? countOffset : (i == 0) ? srcOffset : destOffset;
+            storeRegValue(ops[i].regName, bufOffset, ops[i].width);
         }
     }
 
-    // Phase 2: Stack-relative operands
+    // Phase 2: Stack-relative operands (always 16-bit)
     for (int i = 0; i < 3; i++) {
         if (ops[i].kind == STACK_REL) {
-            int bufOffset = (i == 0) ? 3 : (i == 1) ? 6 : 1;
+            int bufOffset = (i == 2) ? countOffset : (i == 0) ? srcOffset : destOffset;
             uint16_t addr = sb + ops[i].value;
             e.tsx(); e.txa(); e.clc(); e.adc_imm(addr & 0xFF);
             sta_ind_z_with_y(bufAddrZP, bufOffset);
             e.lda_imm((addr >> 8) & 0xFF);
             if ((addr & 0xFF) == 0) e.adc_imm(0);
             sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+            // Zero-fill remaining bytes if 32-bit field
+            if (ops[i].width == WIDTH_32) {
+                e.lda_imm(0);
+                sta_ind_z_with_y(bufAddrZP, bufOffset + 2);
+                sta_ind_z_with_y(bufAddrZP, bufOffset + 3);
+            }
         }
     }
 
     // Phase 3: Value/expression operands
     for (int i = 0; i < 3; i++) {
         if (ops[i].kind == VALUE) {
-            int bufOffset = (i == 0) ? 3 : (i == 1) ? 6 : 1;
-            uint8_t lo = ops[i].value & 0xFF;
-            uint8_t hi = (ops[i].value >> 8) & 0xFF;
+            int bufOffset = (i == 2) ? countOffset : (i == 0) ? srcOffset : destOffset;
+            OperandWidth width = ops[i].width;
 
-            // Low byte
-            if (lo == 0) {
-                e.lda_imm(0);
-            } else {
-                if (!ops[i].symbolName.empty()) e.recordSymbolRelocLo(ops[i].symbolName);
-                e.lda_imm(lo);
-            }
-            sta_ind_z_with_y(bufAddrZP, bufOffset);
+            if (width == WIDTH_16) {
+                // 16-bit: store 2 bytes
+                uint8_t lo = ops[i].value & 0xFF;
+                uint8_t hi = (ops[i].value >> 8) & 0xFF;
 
-            // High byte
-            if (hi == 0) {
-                e.lda_imm(0);
+                if (lo == 0) {
+                    e.lda_imm(0);
+                } else {
+                    if (!ops[i].symbolName.empty()) e.recordSymbolRelocLo(ops[i].symbolName);
+                    e.lda_imm(lo);
+                }
+                sta_ind_z_with_y(bufAddrZP, bufOffset);
+
+                if (hi == 0) {
+                    e.lda_imm(0);
+                } else {
+                    if (!ops[i].symbolName.empty()) e.recordSymbolRelocHi(ops[i].symbolName, lo);
+                    e.lda_imm(hi);
+                }
+                sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
             } else {
-                if (!ops[i].symbolName.empty()) e.recordSymbolRelocHi(ops[i].symbolName, lo);
-                e.lda_imm(hi);
+                // 32-bit: store 4 bytes with relocation support
+                uint8_t b0 = ops[i].value & 0xFF;
+                uint8_t b1 = (ops[i].value >> 8) & 0xFF;
+                uint8_t b2 = (ops[i].value >> 16) & 0xFF;
+                uint8_t b3 = (ops[i].value >> 24) & 0xFF;
+
+                // Byte 0 (low byte of 32-bit value)
+                if (b0 == 0) {
+                    e.lda_imm(0);
+                } else {
+                    if (!ops[i].symbolName.empty()) e.recordSymbolRelocLo(ops[i].symbolName);
+                    e.lda_imm(b0);
+                }
+                sta_ind_z_with_y(bufAddrZP, bufOffset);
+
+                // Byte 1 (high byte of lower 16-bit)
+                if (b1 == 0) {
+                    e.lda_imm(0);
+                } else {
+                    if (!ops[i].symbolName.empty()) e.recordSymbolRelocHi(ops[i].symbolName, b0);
+                    e.lda_imm(b1);
+                }
+                sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
+
+                // Byte 2 (low byte of upper 16-bit)
+                if (b2 == 0) {
+                    e.lda_imm(0);
+                } else {
+                    if (!ops[i].symbolName.empty()) e.recordSymbolReloc32Bit(ops[i].symbolName);
+                    e.lda_imm(b2);
+                }
+                sta_ind_z_with_y(bufAddrZP, bufOffset + 2);
+
+                // Byte 3 (high byte of upper 16-bit)
+                e.lda_imm(b3);
+                sta_ind_z_with_y(bufAddrZP, bufOffset + 3);
             }
-            sta_ind_z_with_y(bufAddrZP, bufOffset + 1);
         }
     }
 
     // Phase 4: Zero-fill unspecified operands and always-zero fields
     e.lda_imm(0);
     sta_ind_z_with_y(bufAddrZP, 0);   // Command = COPY at buf+0
+
+    // Zero-fill missing operands
+    if (ops[2].kind == NONE) {
+        // Count is zero
+        for (int j = 0; j < countSize; j++) {
+            sta_ind_z_with_y(bufAddrZP, countOffset + j);
+        }
+    }
     if (ops[0].kind == NONE) {
-        sta_ind_z_with_y(bufAddrZP, 3);   // src lo
-        sta_ind_z_with_y(bufAddrZP, 4);   // src hi
+        // Source is zero
+        for (int j = 0; j < srcSize; j++) {
+            sta_ind_z_with_y(bufAddrZP, srcOffset + j);
+        }
     }
     if (ops[1].kind == NONE) {
-        sta_ind_z_with_y(bufAddrZP, 6);   // dest lo
-        sta_ind_z_with_y(bufAddrZP, 7);   // dest hi
+        // Destination is zero
+        for (int j = 0; j < destSize; j++) {
+            sta_ind_z_with_y(bufAddrZP, destOffset + j);
+        }
     }
-    if (ops[2].kind == NONE) {
-        sta_ind_z_with_y(bufAddrZP, 1);   // count lo
-        sta_ind_z_with_y(bufAddrZP, 2);   // count hi
-    }
-    sta_ind_z_with_y(bufAddrZP, 5);   // Source bank/flags
-    sta_ind_z_with_y(bufAddrZP, 8);   // Destination bank/flags
-    sta_ind_z_with_y(bufAddrZP, 9);   // Command MSB
-    sta_ind_z_with_y(bufAddrZP, 10);  // Modulo LSB
-    sta_ind_z_with_y(bufAddrZP, 11);  // Modulo MSB
+
+    // Zero-fill bank/flags fields
+    sta_ind_z_with_y(bufAddrZP, srcBankOffset);      // Source bank/flags
+    sta_ind_z_with_y(bufAddrZP, destBankOffset);     // Destination bank/flags
+    sta_ind_z_with_y(bufAddrZP, extraOffset);        // Command MSB
+    if (extraOffset + 1 < 256) sta_ind_z_with_y(bufAddrZP, extraOffset + 1);  // Modulo LSB
+    if (extraOffset + 2 < 256) sta_ind_z_with_y(bufAddrZP, extraOffset + 2);  // Modulo MSB
 
     // Trigger DMA - load buffer address and pass to DMA controller
     e.lda_zp(bufAddrZP + 1);  // hi byte

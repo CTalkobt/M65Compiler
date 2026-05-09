@@ -256,6 +256,12 @@ void M65Emitter::recordSymbolRelocHi(const std::string& name, uint8_t lowByte) {
     }
 }
 
+void M65Emitter::recordSymbolReloc32Bit(const std::string& name) {
+    if (mode == Mode::BINARY) {
+        symbolRelocs_.push_back({currentAddress + 1, name, 0xA0, 0}); // R_LINEAR32
+    }
+}
+
 void M65Emitter::lda_stack(uint8_t offset) {
     // Synthesize direct stack access: TSX; LDA __sp_base+offset,X
     tsx();

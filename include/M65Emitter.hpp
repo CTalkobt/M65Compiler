@@ -239,6 +239,7 @@ public:
     void recordSymbolReloc(const std::string& name);
     void recordSymbolRelocLo(const std::string& name);
     void recordSymbolRelocHi(const std::string& name, uint8_t lowByte);
+    void recordSymbolReloc32Bit(const std::string& name);
 
 private:
     std::vector<SpBaseReloc> spBaseRelocs_;

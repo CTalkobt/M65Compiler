@@ -440,7 +440,8 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         if (isWord) {
             O45Reloc reloc;
             reloc.offset = patchOff;
-            reloc.type = R_WORD;
+            // Use R_LINEAR32 for 32-bit symbols, R_WORD for 16-bit
+            reloc.type = (sym->value > 0xFFFF) ? R_LINEAR32 : R_WORD;
             if (isExtern) {
                 reloc.segment = SEG_EXTERNAL;
                 reloc.symbolIndex = syms.getImportIndex(symName);
@@ -493,7 +494,13 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         for (size_t ai = 0; ai < stmt->dir.arguments.size(); ai++) {
             const std::string& arg = stmt->dir.arguments[ai];
             Symbol* sym = parser.resolveSymbol(arg, stmt->scopePrefix);
+            // For 32-bit symbols in .word directives, skip (they should use .dword)
             if (!sym) { patchAddr += 2; continue; }
+            if (sym->value > 0xFFFF) {
+                // .word is 16-bit; 32-bit symbols require .dword
+                patchAddr += 2;
+                continue;
+            }
 
             bool isExtern = parser.isExternSymbol(arg);
             std::string targetSeg;
