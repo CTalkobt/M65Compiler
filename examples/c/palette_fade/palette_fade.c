@@ -14,8 +14,9 @@ void apply_fade(unsigned char level);
 
 int main(void) {
     unsigned char *border_color = (unsigned char *)0xD020;
+    unsigned char level;
 
-    // DEBUG: Red border = starting
+    // DEBUG: Red border = starting (should appear immediately)
     *border_color = 2;
 
     // Unlock VIC-IV palette registers
@@ -32,25 +33,33 @@ int main(void) {
 
     // Oscillating fade loop: 0 → 255 → 0
     while (1) {
-        unsigned char level;
-
         // Fade in: 0 → 255
         *border_color = 3;  // Cyan = fade in starting
         for (level = 0; level < 255; level++) {
             apply_fade(level);
-            *border_color = (level & 0x20) ? 3 : 14;  // Cyan ↔ Light gray, every 32 levels
+            // Show progress: toggle every 16 levels
+            if (level & 16) {
+                *border_color = 3;  // Cyan
+            } else {
+                *border_color = 14; // Light gray
+            }
         }
         apply_fade(255);
-        *border_color = 3;  // Cyan at peak
+        *border_color = 3;  // Cyan at peak fade
 
         // Fade out: 255 → 0
         *border_color = 4;  // Purple = fade out starting
         for (level = 255; level > 0; level--) {
             apply_fade(level);
-            *border_color = (level & 0x20) ? 4 : 14;  // Purple ↔ Light gray, every 32 levels
+            // Show progress: toggle every 16 levels
+            if (level & 16) {
+                *border_color = 4;  // Purple
+            } else {
+                *border_color = 14; // Light gray
+            }
         }
         apply_fade(0);
-        *border_color = 4;  // Purple at minimum
+        *border_color = 4;  // Purple at minimum fade
     }
 
     return 0;

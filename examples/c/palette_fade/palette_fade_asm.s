@@ -73,79 +73,67 @@ _restore_palette:
 ; _apply_fade(unsigned char level) — Scale palette by fade level
 ; ZP calling convention: level parameter at $03
 ; Reads from BSS buffer (palette_buffer)
+; Uses ZP: $03 (parameter), $04-$07 (temp storage)
 _apply_fade:
     ldx #0
 @fade_loop:
     ; Process RED
     lda $A000, x              ; load original red
-    sta $04                         ; store multiplicand
-    lda $03                         ; load fade level (multiplier)
+    sta $04                   ; store multiplicand at $04
+    lda $03                   ; load fade level into A
+    sta $07                   ; SAVE multiplier at $07
 
-    ; Inline multiply: (A * $04) >> 8
-    ldy #8
-    sty $06
-    lda #0
-    sta $05
+    ; Inline multiply: ($04 * $07) >> 8
+    ; Using shift-and-add: shift multiplier right, add multiplicand when bit set
+    lda #0                    ; A = accumulator (result)
+    ldy #8                    ; Y = loop counter
 @red_mul:
-    asl $05
-    ror a
-    bcc @red_skip
-    lda $05
+    lsr $07                   ; shift multiplier right, carry = current bit
+    bcc @red_skip             ; if bit was 0, skip add
     clc
-    adc $04
-    sta $05
+    adc $04                   ; add multiplicand to result
 @red_skip:
-    dec $06
+    ror a                     ; rotate result right (arithmetic shift)
+    dey
     bne @red_mul
-    lda $05
-    sta $D100,x
+    sta $D100,x               ; write result to RED register
 
     ; Process GREEN
     lda $A000 + 16, x         ; load original green
     sta $04
-    lda $03
+    lda $03                   ; load fade level
+    sta $07                   ; save multiplier
 
-    ; Inline multiply: (A * $04) >> 8
-    ldy #8
-    sty $06
     lda #0
-    sta $05
+    ldy #8
 @green_mul:
-    asl $05
-    ror a
+    lsr $07
     bcc @green_skip
-    lda $05
     clc
     adc $04
-    sta $05
 @green_skip:
-    dec $06
+    ror a
+    dey
     bne @green_mul
-    lda $05
     sta $D200,x
 
     ; Process BLUE
     lda $A000 + 32, x         ; load original blue
     sta $04
-    lda $03
+    lda $03                   ; load fade level
+    sta $07                   ; save multiplier
 
-    ; Inline multiply: (A * $04) >> 8
-    ldy #8
-    sty $06
     lda #0
-    sta $05
+    ldy #8
 @blue_mul:
-    asl $05
-    ror a
+    lsr $07
     bcc @blue_skip
-    lda $05
     clc
     adc $04
-    sta $05
 @blue_skip:
-    dec $06
+    ror a
+    dey
     bne @blue_mul
-    lda $05
     sta $D300,x
 
     inx
