@@ -157,10 +157,10 @@ int main() {
     CHECK(failed_correctly, "Taking address of bitfield member fails with expected error");
 }
 
-// Test 7: Increment const pointer parameter
+// Test 7: Increment through const pointer parameter (pointer to const)
 void test_increment_const_ptr_param() {
     std::string code = R"(
-void f(int *const p) {
+void f(const int *p) {
     (*p)++;
 }
 int main() {
