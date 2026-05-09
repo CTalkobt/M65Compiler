@@ -2,7 +2,7 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
-## [Unreleased] - 2026-05-07
+## [Unreleased] - 2026-05-08
 
 ### Added
 - **Compiler (cc45)**:
