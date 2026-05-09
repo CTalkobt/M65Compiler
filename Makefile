@@ -104,6 +104,34 @@ test: all
 	@bash src/test/test_cast_fold.sh
 	@echo "Validating mmemu-cli integration..."
 	@bash src/test/test_mmemu.sh
+	@echo "Running parser syntax error validation tests..."
+	@$(MAKE) test-validation-parser
+	@echo "Running struct/union semantic error validation tests..."
+	@$(MAKE) test-validation-struct
+	@echo "Running const/register constraint error validation tests..."
+	@$(MAKE) test-validation-const
+	@echo "Running semantic/type error validation tests..."
+	@$(MAKE) test-validation-semantic
+	@echo "Running preprocessor error validation tests..."
+	@$(MAKE) test-validation-preprocessor
+	@echo "Running linker error validation tests..."
+	@$(MAKE) test-validation-linker
+	@echo "Running assembler expression/emitter error validation tests..."
+	@$(MAKE) test-validation-assembler
+	@echo "Running simulated ops register constraint validation tests..."
+	@$(MAKE) test-validation-simops
+	@echo "Running data directives validation tests..."
+	@$(MAKE) test-validation-directives
+	@echo "Running symbol/expression validation tests..."
+	@$(MAKE) test-validation-symbols
+	@echo "Running segment/visibility validation tests..."
+	@$(MAKE) test-validation-segments
+	@echo "Running proc/function attribute validation tests..."
+	@$(MAKE) test-validation-proc
+	@echo "Running addressing mode validation tests..."
+	@$(MAKE) test-validation-addressing
+	@echo "Running extended simulated ops validation tests..."
+	@$(MAKE) test-validation-simops-extended
 	@$(MAKE) test-opcodes
 	@echo "Running Move/Fill operation tests..."
 	@$(MAKE) test-move-fill
@@ -213,6 +241,172 @@ $(OBJ_DIR)/test_validation_simops.o: src/test/test_validation_simops.cpp
 
 test-validation-simops: $(TEST_VALIDATION_SIMOPS_TARGET) all
 	@$(TEST_VALIDATION_SIMOPS_TARGET)
+
+# Addressing Mode validation test
+TEST_VALIDATION_ADDRESSING_TARGET = $(BIN_DIR)/test_validation_addressing
+TEST_VALIDATION_ADDRESSING_OBJECTS = $(OBJ_DIR)/test_validation_addressing.o
+
+$(TEST_VALIDATION_ADDRESSING_TARGET): $(TEST_VALIDATION_ADDRESSING_OBJECTS) $(CA_TARGET)
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $(TEST_VALIDATION_ADDRESSING_OBJECTS)
+
+$(OBJ_DIR)/test_validation_addressing.o: src/test/test_validation_addressing.cpp
+	@mkdir -p $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+test-validation-addressing: $(TEST_VALIDATION_ADDRESSING_TARGET) all
+	@$(TEST_VALIDATION_ADDRESSING_TARGET)
+
+# Extended Simulated Ops validation test
+TEST_VALIDATION_SIMOPS_EXTENDED_TARGET = $(BIN_DIR)/test_validation_simops_extended
+TEST_VALIDATION_SIMOPS_EXTENDED_OBJECTS = $(OBJ_DIR)/test_validation_simops_extended.o
+
+$(TEST_VALIDATION_SIMOPS_EXTENDED_TARGET): $(TEST_VALIDATION_SIMOPS_EXTENDED_OBJECTS) $(CA_TARGET)
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $(TEST_VALIDATION_SIMOPS_EXTENDED_OBJECTS)
+
+$(OBJ_DIR)/test_validation_simops_extended.o: src/test/test_validation_simops_extended.cpp
+	@mkdir -p $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+test-validation-simops-extended: $(TEST_VALIDATION_SIMOPS_EXTENDED_TARGET) all
+	@$(TEST_VALIDATION_SIMOPS_EXTENDED_TARGET)
+
+# Segment and Visibility Directives validation test
+TEST_VALIDATION_SEGMENTS_TARGET = $(BIN_DIR)/test_validation_segments
+TEST_VALIDATION_SEGMENTS_OBJECTS = $(OBJ_DIR)/test_validation_segments.o
+
+$(TEST_VALIDATION_SEGMENTS_TARGET): $(TEST_VALIDATION_SEGMENTS_OBJECTS) $(CA_TARGET)
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $(TEST_VALIDATION_SEGMENTS_OBJECTS)
+
+$(OBJ_DIR)/test_validation_segments.o: src/test/test_validation_segments.cpp
+	@mkdir -p $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+test-validation-segments: $(TEST_VALIDATION_SEGMENTS_TARGET) all
+	@$(TEST_VALIDATION_SEGMENTS_TARGET)
+
+# Symbol & Expression validation test
+TEST_VALIDATION_SYMBOLS_TARGET = $(BIN_DIR)/test_validation_symbols
+TEST_VALIDATION_SYMBOLS_OBJECTS = $(OBJ_DIR)/test_validation_symbols.o
+
+$(TEST_VALIDATION_SYMBOLS_TARGET): $(TEST_VALIDATION_SYMBOLS_OBJECTS) $(CA_TARGET)
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $(TEST_VALIDATION_SYMBOLS_OBJECTS)
+
+$(OBJ_DIR)/test_validation_symbols.o: src/test/test_validation_symbols.cpp
+	@mkdir -p $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+test-validation-symbols: $(TEST_VALIDATION_SYMBOLS_TARGET) all
+	@$(TEST_VALIDATION_SYMBOLS_TARGET)
+
+# Data Directives validation test
+TEST_VALIDATION_DIRECTIVES_TARGET = $(BIN_DIR)/test_validation_directives
+TEST_VALIDATION_DIRECTIVES_OBJECTS = $(OBJ_DIR)/test_validation_directives.o
+
+$(TEST_VALIDATION_DIRECTIVES_TARGET): $(TEST_VALIDATION_DIRECTIVES_OBJECTS) $(CA_TARGET)
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $(TEST_VALIDATION_DIRECTIVES_OBJECTS)
+
+$(OBJ_DIR)/test_validation_directives.o: src/test/test_validation_directives.cpp
+	@mkdir -p $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+test-validation-directives: $(TEST_VALIDATION_DIRECTIVES_TARGET) all
+	@$(TEST_VALIDATION_DIRECTIVES_TARGET)
+
+# Proc / Function Attribute validation test
+TEST_VALIDATION_PROC_TARGET = $(BIN_DIR)/test_validation_proc
+TEST_VALIDATION_PROC_OBJECTS = $(OBJ_DIR)/test_validation_proc.o
+
+$(TEST_VALIDATION_PROC_TARGET): $(TEST_VALIDATION_PROC_OBJECTS) $(CA_TARGET)
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $(TEST_VALIDATION_PROC_OBJECTS)
+
+$(OBJ_DIR)/test_validation_proc.o: src/test/test_validation_proc.cpp
+	@mkdir -p $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+test-validation-proc: $(TEST_VALIDATION_PROC_TARGET) all
+	@$(TEST_VALIDATION_PROC_TARGET)
+
+# Struct/Union Semantic Error Validation unit test
+TEST_VALIDATION_STRUCT_TARGET = $(BIN_DIR)/test_validation_struct
+TEST_VALIDATION_STRUCT_OBJECTS = $(OBJ_DIR)/test_validation_struct.o
+
+$(TEST_VALIDATION_STRUCT_TARGET): $(TEST_VALIDATION_STRUCT_OBJECTS) $(CC_TARGET)
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $(TEST_VALIDATION_STRUCT_OBJECTS)
+
+$(OBJ_DIR)/test_validation_struct.o: src/test/test_validation_struct.cpp
+	@mkdir -p $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+test-validation-struct: $(TEST_VALIDATION_STRUCT_TARGET) all
+	@$(TEST_VALIDATION_STRUCT_TARGET)
+
+# Const/Register Constraint Error Validation unit test
+TEST_VALIDATION_CONST_TARGET = $(BIN_DIR)/test_validation_const
+TEST_VALIDATION_CONST_OBJECTS = $(OBJ_DIR)/test_validation_const.o
+
+$(TEST_VALIDATION_CONST_TARGET): $(TEST_VALIDATION_CONST_OBJECTS) $(CC_TARGET)
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $(TEST_VALIDATION_CONST_OBJECTS)
+
+$(OBJ_DIR)/test_validation_const.o: src/test/test_validation_const.cpp
+	@mkdir -p $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+test-validation-const: $(TEST_VALIDATION_CONST_TARGET) all
+	@$(TEST_VALIDATION_CONST_TARGET)
+
+# Semantic/Type Error Validation unit test
+TEST_VALIDATION_SEMANTIC_TARGET = $(BIN_DIR)/test_validation_semantic
+TEST_VALIDATION_SEMANTIC_OBJECTS = $(OBJ_DIR)/test_validation_semantic.o
+
+$(TEST_VALIDATION_SEMANTIC_TARGET): $(TEST_VALIDATION_SEMANTIC_OBJECTS) $(CC_TARGET)
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $(TEST_VALIDATION_SEMANTIC_OBJECTS)
+
+$(OBJ_DIR)/test_validation_semantic.o: src/test/test_validation_semantic.cpp
+	@mkdir -p $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+test-validation-semantic: $(TEST_VALIDATION_SEMANTIC_TARGET) all
+	@$(TEST_VALIDATION_SEMANTIC_TARGET)
+
+# Preprocessor Error Validation unit test
+TEST_VALIDATION_PREPROCESSOR_TARGET = $(BIN_DIR)/test_validation_preprocessor
+TEST_VALIDATION_PREPROCESSOR_OBJECTS = $(OBJ_DIR)/test_validation_preprocessor.o
+
+$(TEST_VALIDATION_PREPROCESSOR_TARGET): $(TEST_VALIDATION_PREPROCESSOR_OBJECTS) $(CC_TARGET)
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $(TEST_VALIDATION_PREPROCESSOR_OBJECTS)
+
+$(OBJ_DIR)/test_validation_preprocessor.o: src/test/test_validation_preprocessor.cpp
+	@mkdir -p $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+test-validation-preprocessor: $(TEST_VALIDATION_PREPROCESSOR_TARGET) all
+	@$(TEST_VALIDATION_PREPROCESSOR_TARGET)
+
+# Linker Error Validation unit test
+TEST_VALIDATION_LINKER_TARGET = $(BIN_DIR)/test_validation_linker
+TEST_VALIDATION_LINKER_OBJECTS = $(OBJ_DIR)/test_validation_linker.o
+
+$(TEST_VALIDATION_LINKER_TARGET): $(TEST_VALIDATION_LINKER_OBJECTS) $(CA_TARGET)
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $(TEST_VALIDATION_LINKER_OBJECTS)
+
+$(OBJ_DIR)/test_validation_linker.o: src/test/test_validation_linker.cpp
+	@mkdir -p $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+test-validation-linker: $(TEST_VALIDATION_LINKER_TARGET) all
+	@$(TEST_VALIDATION_LINKER_TARGET)
+
 install: all lib
 	install -d $(DESTDIR)$(BINDIR)
 	install -m 755 $(CC_TARGET) $(CA_TARGET) $(NM_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DESTDIR)$(BINDIR)
