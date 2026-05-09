@@ -1,6 +1,6 @@
 # `.o45` Relocatable Object Format Specification
 
-The `.o45` format is a 32-bit extension of Andre Fachat's `.o65` relocatable object format for 6502-family systems. It reuses the `.o65` header structure, magic bytes, mode flags, segment IDs, and relocation type encoding, adding only what is needed for the MEGA65's 45GS02 CPU and its 28-bit linear address space.
+The `.o45` format is a 32-bit extension of Andre Fachat's `.o65` relocatable object format for 6502-family systems. It reuses the `.o65` header structure, mode flags, segment IDs, and relocation type encoding, adding 32-bit address support and extensions needed for the MEGA65's 45GS02 CPU and its 28-bit linear address space. The magic bytes identify it as `.o45` rather than `.o65` to clearly distinguish the substantially extended format.
 
 References: [Andre Fachat o65 file format](http://www.6502.org/users/andre/o65/fileformat.html)
 
@@ -16,7 +16,7 @@ The header is a direct extension of the `.o65` header. When mode bit 15 (`SIZE32
 |--------|--------------|---------|----------------------------------------------|
 | 0      | marker       | 1       | `$01` (non-C64 marker, per `.o65` spec)      |
 | 1      | marker2      | 1       | `$00`                                        |
-| 2-4    | magic        | 3       | `$6F $36 $35` ("o65")                        |
+| 2-4    | magic        | 3       | `$6F $34 $35` ("o45")                        |
 | 5      | version      | 1       | `$00` (format version 0)                     |
 | 6-7    | mode         | 2 (LE)  | Mode bit field (see 1.2)                     |
 
@@ -271,7 +271,7 @@ The export table corresponds to `.global` directives in `ca45`.
 +-------------------------------+
 | Fixed Header (41 bytes)       |   marker, magic, version, mode,
 |   marker:  $01 $00            |   tbase/tlen, dbase/dlen,
-|   magic:   "o65"              |   bbase/blen, zbase/zlen,
+|   magic:   "o45"              |   bbase/blen, zbase/zlen,
 |   version: $00                |   cpu_id ($45)
 |   mode:    $xx $xx            |
 |   tbase/tlen (4+4)            |
@@ -309,7 +309,7 @@ These constants and enums are defined in `include/O45Types.hpp`. They reuse `.o6
 // --- File markers ---
 constexpr uint8_t  O45_MARKER1       = 0x01;
 constexpr uint8_t  O45_MARKER2       = 0x00;
-constexpr uint8_t  O45_MAGIC[3]      = { 0x6F, 0x36, 0x35 }; // "o65"
+constexpr uint8_t  O45_MAGIC[3]      = { 0x6F, 0x34, 0x35 }; // "o45"
 constexpr uint8_t  O45_VERSION       = 0x00;
 
 // --- Mode word bits (reused from .o65) ---

@@ -12,7 +12,7 @@
 // --- File markers ---
 constexpr uint8_t  O45_MARKER1       = 0x01;
 constexpr uint8_t  O45_MARKER2       = 0x00;
-constexpr uint8_t  O45_MAGIC[3]      = { 0x6F, 0x36, 0x35 }; // "o65"
+constexpr uint8_t  O45_MAGIC[3]      = { 0x6F, 0x34, 0x35 }; // "o45"
 constexpr uint8_t  O45_VERSION       = 0x00;
 
 // --- Fixed header size (32-bit mode + CPU ext byte) ---
