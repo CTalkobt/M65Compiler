@@ -3,6 +3,7 @@
 #include "M65Emitter.hpp"
 #include <stdexcept>
 #include <algorithm>
+#include <iostream>
 
 // ConstantNode
 uint32_t ConstantNode::getValue(AssemblerParser*) const { return value; }
@@ -78,7 +79,14 @@ void FlagNode::emit(M65Emitter& e, AssemblerParser* parser, int width, const std
 // VariableNode
 uint32_t VariableNode::getValue(AssemblerParser* parser) const {
     Symbol* sym = parser->resolveSymbol(name, scopePrefix);
-    return sym ? sym->value : 0;
+    if (sym) return sym->value;
+
+    // Symbol not found — check if it's declared as extern
+    // Only emit error in later passes when all labels should be known
+    if (parser && !parser->isPass1() && !parser->isExternSymbol(name)) {
+        std::cerr << "Error: undefined symbol '" << name << "' (did you forget .extern " << name << "?)\n";
+    }
+    return 0; // fallback: treat as zero
 }
 bool VariableNode::isConstant(AssemblerParser* parser) const {
     Symbol* sym = parser->resolveSymbol(name, scopePrefix);

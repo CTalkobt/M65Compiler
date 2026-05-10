@@ -1,0 +1,21 @@
+Linked 4 objects to 20.prg (8080 bytes)
+
+Symbol map:
+  00005815 __bss_end
+  00003f8e __bss_start
+  0000203b _getkey
+  00002ded _initangles
+  00002dfa _initpxyattic
+  0000204c _initvideomode
+  000021da _loadobj
+  00002000 _main
+  00002e0d _projectallvertices
+  00002166 _returntobasic
+  00002e0d frac1000q88
+  0000396e ih
+  0000396d il
+  00005419 pbuf
+  00003d83 pbufp
+  00003bbe rbuf
+  00003d7c rbufp
+  00003d8e sin256
