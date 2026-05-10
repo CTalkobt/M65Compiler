@@ -38,9 +38,9 @@ std::vector<O45Reloc> O45RelocDecoder::decode(const std::vector<uint8_t>& raw) {
             r.extra = raw[pos++];
         }
 
-        // External and internal references have a 4-byte symbol index
+        // External references have a 4-byte symbol index
         // (O45Reader always widens 16-bit .o65 indices to 4 bytes)
-        if (r.segment == SEG_EXTERNAL || r.segment == SEG_TEXT) {
+        if (r.segment == SEG_EXTERNAL) {
             if (pos + 4 > raw.size()) break;
             r.symbolIndex = raw[pos] | (raw[pos+1] << 8) | (raw[pos+2] << 16) | (raw[pos+3] << 24);
             pos += 4;

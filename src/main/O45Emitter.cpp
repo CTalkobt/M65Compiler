@@ -324,7 +324,6 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             reloc.symbolIndex = syms.getImportIndex(symName);
         } else {
             reloc.segment = segIdFromName(targetSeg);
-            reloc.symbolIndex = syms.getExportIndex(symName);
         }
 
         segRelocs[srcSeg].push_back(reloc);
@@ -448,7 +447,6 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                 reloc.symbolIndex = syms.getImportIndex(symName);
             } else {
                 reloc.segment = segIdFromName(targetSeg);
-                reloc.symbolIndex = syms.getExportIndex(symName);
             }
             segRelocs[srcSeg].push_back(reloc);
         } else if (isLow) {
@@ -460,7 +458,6 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                 reloc.symbolIndex = syms.getImportIndex(symName);
             } else {
                 reloc.segment = segIdFromName(targetSeg);
-                reloc.symbolIndex = syms.getExportIndex(symName);
             }
             segRelocs[srcSeg].push_back(reloc);
         } else { // isHigh
@@ -474,7 +471,6 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                 reloc.symbolIndex = syms.getImportIndex(symName);
             } else {
                 reloc.segment = segIdFromName(targetSeg);
-                reloc.symbolIndex = syms.getExportIndex(symName);
             }
             segRelocs[srcSeg].push_back(reloc);
         }
@@ -522,7 +518,6 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                 reloc.symbolIndex = syms.getImportIndex(arg);
             } else {
                 reloc.segment = segIdFromName(targetSeg);
-                reloc.symbolIndex = syms.getExportIndex(arg);
             }
 
             segRelocs[srcSeg].push_back(reloc);
@@ -593,7 +588,6 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                     reloc.symbolIndex = syms.getImportIndex(symName);
                 } else {
                     reloc.segment = segIdFromName(targetSeg);
-                    reloc.symbolIndex = syms.getExportIndex(symName);
                 }
                 segRelocs[segName].push_back(reloc);
                 break;

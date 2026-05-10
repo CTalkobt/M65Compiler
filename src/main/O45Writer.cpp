@@ -56,8 +56,8 @@ std::vector<uint8_t> O45RelocEncoder::encode(const std::vector<O45Reloc>& relocs
             out.push_back(r.extra);
         }
 
-        // External and internal symbol index (4 bytes LE in SIZE32 mode)
-        if (r.segment == SEG_EXTERNAL || r.segment == SEG_TEXT) {
+        // External symbol index (4 bytes LE in SIZE32 mode)
+        if (r.segment == SEG_EXTERNAL) {
             out.push_back((uint8_t)(r.symbolIndex & 0xFF));
             out.push_back((uint8_t)((r.symbolIndex >> 8) & 0xFF));
             out.push_back((uint8_t)((r.symbolIndex >> 16) & 0xFF));
@@ -330,12 +330,6 @@ void O45SymbolTable::setFuncAttr(const std::string& name, const O45FuncAttr& att
 uint32_t O45SymbolTable::getImportIndex(const std::string& name) const {
     auto it = importIndex_.find(name);
     if (it != importIndex_.end()) return it->second;
-    return (uint32_t)-1;
-}
-
-uint32_t O45SymbolTable::getExportIndex(const std::string& name) const {
-    auto it = exportIndex_.find(name);
-    if (it != exportIndex_.end()) return it->second;
     return (uint32_t)-1;
 }
 
