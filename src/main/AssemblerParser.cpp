@@ -4,6 +4,7 @@
 #include "AssemblerSimulatedOps.hpp"
 #include "AssemblerGenerator.hpp"
 #include "M65Emitter.hpp"
+#include "O45Types.hpp"
 #include <stdexcept>
 #include <iostream>
 #include <iomanip>
@@ -587,6 +588,24 @@ void AssemblerParser::pass1() {
                         else if (flag == "Z" || flag == "z") currentProc->flagClobbersMask |= 0x04;
                         else if (flag == "V" || flag == "v") currentProc->flagClobbersMask |= 0x08;
                         else errors.push_back("Error: unknown flag '" + flag + "' in .flag_clobbers");
+                    }
+                    currentProc->hasFuncAttrs = true;
+                }
+                stmt->size = 0;
+            }
+            else if (stmt->dir.name == "func_flags") {
+                // .func_flags zp_call, leaf, reentrant, int_safe, stack_call
+                if (!currentProc) {
+                    errors.push_back("Error: .func_flags outside proc/endproc block");
+                } else {
+                    while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
+                        if (peek().type == AssemblerTokenType::COMMA) { advance(); continue; }
+                        std::string flag = advance().value;
+                        if (flag == "zp_call")        currentProc->funcFlags |= FUNC_FLAG_ZP_CONV;
+                        else if (flag == "stack_call") { /* ZP_CONV bit clear; hasFuncAttrs signals known */ }
+                        else if (flag == "leaf")       currentProc->funcFlags |= FUNC_FLAG_LEAF;
+                        else if (flag == "reentrant")  currentProc->funcFlags |= FUNC_FLAG_REENTRANT;
+                        else errors.push_back("Error: unknown flag '" + flag + "' in .func_flags");
                     }
                     currentProc->hasFuncAttrs = true;
                 }

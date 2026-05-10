@@ -90,13 +90,18 @@ constexpr uint8_t  O45_FUNCATTR_MARKER = 0xFA;
 constexpr int      O45_FUNCATTR_SIZE   = 16;   // total bytes per record (including marker)
 
 struct O45FuncAttr {
-    uint8_t flags = 0;           // bit 0: leaf, bit 1: interrupt-safe
+    uint8_t flags = 0;           // see FUNC_FLAG_* constants
     uint8_t regClobbers = 0;     // bit 0=A, 1=X, 2=Y, 3=Z
     uint8_t flagClobbers = 0;    // bit 0=C, 1=N, 2=Z, 3=V
     uint32_t zpUses = 0;         // bitmask: ZP slots read as params
     uint32_t zpClobbers = 0;     // bitmask: ZP slots written
     uint32_t zpRelease = 0;      // bitmask: ZP slots consumed
 };
+
+// Bit values for O45FuncAttr::flags
+constexpr uint8_t FUNC_FLAG_LEAF      = 0x01;  // no calls to other functions
+constexpr uint8_t FUNC_FLAG_REENTRANT = 0x02;  // re-entrant safe (no global state, stack-only locals)
+constexpr uint8_t FUNC_FLAG_ZP_CONV   = 0x04;  // ZP calling convention (0 = stack-based)
 
 // --- Patch sizes per relocation type ---
 constexpr int o45RelocPatchSize(uint8_t rtype) {

@@ -263,6 +263,37 @@ value         (2 or 4 bytes) ; offset within segment (width depends on SIZE32)
 
 The export table corresponds to `.global` directives in `ca45`.
 
+### 4.4 Function Attribute Record (Optional)
+
+When an export has associated function metadata (calling convention, register clobbers, etc.), an optional function attribute record is appended immediately after the export's value field. The record is identified by the marker byte `$FA`.
+
+```
+$FA               ; marker byte (must be $FA)
+flags             (1 byte)  ; see table below
+regClobbers       (1 byte)  ; bit 0=A, 1=X, 2=Y, 3=Z
+flagClobbers      (1 byte)  ; bit 0=C, 1=N, 2=Z, 3=V
+zpUses            (4 bytes, LE) ; bitmask: which ZP slots are read as parameters
+zpClobbers        (4 bytes, LE) ; bitmask: which ZP slots are written by function
+zpRelease         (4 bytes, LE) ; bitmask: which ZP slots are consumed (caller need not restore)
+```
+
+**Total size**: 16 bytes (including marker).
+
+#### Flags Byte (offset 0 in attribute record, after marker)
+
+| Bit | Name | Meaning |
+|-----|------|---------|
+| 0 | `FUNC_FLAG_LEAF` | Function makes no calls to other functions |
+| 1 | `FUNC_FLAG_REENTRANT` | Function is re-entrant safe (no global mutable state, stack-only locals) |
+| 2 | `FUNC_FLAG_ZP_CONV` | Function uses ZP calling convention; 0 = stack-based |
+| 3–7 | — | Reserved, must be zero |
+
+**Convention Known**: The presence of the entire funcAttr record (marker $FA) indicates that the calling convention is known. If no record is present, convention is unknown (old object file or hand-written assembly without metadata).
+
+#### Enforcement
+
+The linker enforces that ZP-convention callers (`FUNC_FLAG_ZP_CONV` set) do not call stack-convention callees (`FUNC_FLAG_ZP_CONV` clear, funcAttr present). Violations are linker errors. The reverse direction (stack→ZP) is permitted to allow `__fastcall__` functions to be called from stack-convention code.
+
 ---
 
 ## 5. Complete File Layout (Summary)

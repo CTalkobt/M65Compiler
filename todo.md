@@ -117,6 +117,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [X] **Relocations**: Support standard (`WORD`, `LOW`, `HIGH`) and linear (`LINEAR24`, `LINEAR32`) relocations in the format. `WORD` relocations emitted by `-c` mode for absolute address operands.
 - [X] **Linker Tool**: `ln45` links multiple `.o45` objects: segment merging, symbol resolution, relocation patching, PRG/binary output. Supports `-t`/`-d`/`-b`/`-z` for memory layout, `-prg` for PRG output, `-m` for symbol map.
 - [X] **Archiver**: `ar45` creates and manages `.lib` archives. Commands: `c` (create), `t` (list), `x` (extract), `s` (symbol index), `a` (add), `d` (delete). Global symbol index built by scanning member .o45 exports. `ln45` supports `-l` for selective linking from archives (iterative resolution handles dependency chains).
+- [X] **Calling Convention Enforcement**: Linker detects and rejects mismatched calling conventions at link time. `FUNC_FLAG_ZP_CONV` (bit 0x04) in `O45FuncAttr.flags` marks functions compiled with `-fzpcall` (ZP convention). Linker enforces ZP→stack mismatch as hard error (always wrong; ZP code can't pass stack params). Stack→ZP is permitted (fastcall interop where compiler generates ZP setup). Automatic emission in both compiler code paths; `.func_flags` directive for hand-written assembly. nm45 and objdump45 display convention in symbol output.
 
 ### 2. Type System Enhancements
 - [X] **Structures**: Support `struct` definitions, members, and dot/arrow operators.

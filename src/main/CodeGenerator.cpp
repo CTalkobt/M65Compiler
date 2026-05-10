@@ -1261,6 +1261,9 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
             }());
         }
 
+        // Emit function flags
+        emit(isLeaf ? ".func_flags zp_call, leaf" : ".func_flags zp_call");
+
         // Emit actual reg/flag clobbers from tracking (always, not just when ZP params present)
         {
             auto& ci = funcClobbers_[node.name];
@@ -1367,6 +1370,13 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
             }
             emit("rtn #0");
         }
+    }
+    // Detect leaf functions for stack path (ZP path did this at line 1169)
+    {
+        CallCollector stackCallChecker;
+        node.body->accept(stackCallChecker);
+        bool isLeaf = stackCallChecker.calledFunctions.empty();
+        emit(isLeaf ? ".func_flags stack_call, leaf" : ".func_flags stack_call");
     }
     // Emit reg/flag clobbers from tracking
     {

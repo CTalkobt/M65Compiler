@@ -438,6 +438,14 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     computeTransitiveClobbers();
     emitDiagnostics();
 
+    // Check for calling convention errors
+    if (!convErrors_.empty()) {
+        errorMsg = convErrors_[0];
+        for (size_t i = 1; i < convErrors_.size(); i++)
+            errorMsg += "\n" + convErrors_[i];
+        return {};
+    }
+
     if (!applyRelocations(errorMsg)) return {};
 
     // Build the output binary: text + data (BSS is not emitted)
@@ -589,37 +597,27 @@ void O45Linker::computeTransitiveClobbers() {
     }
 }
 
-// 3.3 — Emit diagnostics: warn on param count mismatches.
+// 3.3 — Emit diagnostics: enforce calling convention compatibility.
+// Only ZP→stack calls are errors (stack callers can generate ZP setup for fastcall).
 void O45Linker::emitDiagnostics() {
-    if (!warnStream_) return;
-
-    // Helper: count param bytes from zpUses mask (contiguous set bits from bit 0)
-    auto zpParamSize = [](uint32_t mask) -> int {
-        int count = 0;
-        while (mask & (1u << count)) count++;
-        return count;
-    };
+    convErrors_.clear();
 
     for (const auto& [caller, callees] : callGraph_) {
+        auto callerIt = funcAttrs_.find(caller);
+        if (callerIt == funcAttrs_.end()) continue;
+
+        // Only enforce if caller is ZP convention
+        if (!(callerIt->second.flags & FUNC_FLAG_ZP_CONV)) continue;
+
         for (const auto& callee : callees) {
             auto calleeIt = funcAttrs_.find(callee);
             if (calleeIt == funcAttrs_.end()) continue;
 
-            auto callerIt = funcAttrs_.find(caller);
-            if (callerIt == funcAttrs_.end()) continue;
-
-            int calleeParams = zpParamSize(calleeIt->second.zpUses);
-            int callerClobberCount = zpParamSize(callerIt->second.zpClobbers);
-
-            // Warn if callee expects more ZP param bytes than caller appears to set up.
-            // This is a heuristic — we check callee's zpUses against the caller's zpClobbers,
-            // because the caller must write to ZP slots to set up params (which shows as clobbers).
-            // Only warn if the callee's uses extend beyond the caller's clobber range.
-            if (calleeParams > 0 && callerClobberCount > 0 &&
-                (calleeIt->second.zpUses & ~callerIt->second.zpClobbers) != 0) {
-                // Check if the missing slots are actually set up — could be direct stores
-                // that don't show up in caller's clobbers. Only warn for clear mismatches.
-                // For now, this is advisory.
+            // Error if callee is stack convention (ZP_CONV bit clear)
+            if (!(calleeIt->second.flags & FUNC_FLAG_ZP_CONV)) {
+                convErrors_.push_back(
+                    "calling convention mismatch: '" + caller + "' (zp_call)"
+                    + " calls '" + callee + "' (stack_call)");
             }
         }
     }

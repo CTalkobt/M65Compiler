@@ -9,6 +9,7 @@
 #include <cstdio>
 #include "O45Reader.hpp"
 #include "O45Linker.hpp"
+#include "O45FormatUtil.hpp"
 #include "AssemblerOpcodeDatabase.hpp"
 #include "AssemblerTypes.hpp"
 #include "Version.hpp"
@@ -316,7 +317,11 @@ static void printSymbolTable(const O45File& obj, const std::string& filename) {
     }
     for (const auto& exp : obj.exports) {
         char letter = exp.isWeak() ? 'W' : segmentLetter(exp.segmentId());
-        printf("%08X %c %s\n", exp.offset, letter, exp.name.c_str());
+        printf("%08X %c %s", exp.offset, letter, exp.name.c_str());
+        if (exp.hasFuncAttr) {
+            printf("  %s", formatFuncAttr(exp.funcAttr, obj.zbase).c_str());
+        }
+        printf("\n");
     }
 
     if (obj.imports.empty() && obj.exports.empty()) {

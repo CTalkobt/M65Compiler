@@ -113,6 +113,9 @@ private:
     // Transitive clobber sets: function name -> merged clobbers through call chain
     std::map<std::string, O45FuncAttr> transitiveClobbers_;
 
+    // Calling convention mismatch errors
+    std::vector<std::string> convErrors_;
+
     // Warning stream (nullptr to suppress)
     std::ostream* warnStream_ = &std::cerr;
 

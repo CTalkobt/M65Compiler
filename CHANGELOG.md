@@ -2,6 +2,22 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
+## [Unreleased] - 2026-05-09
+
+### Added
+- **Linker (ln45) & Object Format (`.o45`)**:
+    - **Calling convention enforcement**: Added `FUNC_FLAG_ZP_CONV` bit (0x04) to `O45FuncAttr.flags` to track calling convention per-function. The linker now enforces that ZP-convention callers (compiled with `-fzpcall`) do not call stack-convention callees, catching a class of silent wrong-answer bugs. Enforcement is one-directional (ZP→stack only) to permit intentional `__fastcall__` interop where stack-convention code generates ZP param setup before calling. Hard linker error on mismatch.
+    - **`FUNC_FLAG_REENTRANT` semantic clarification**: Renamed the previously-unused `INT_SAFE` flag to `FUNC_FLAG_REENTRANT` (bit 0x02) to capture the more general property: a function that is re-entrant safe (no global mutable state, stack-only locals). This is the superset property of which interrupt-safety is one consequence.
+- **Assembler (ca45)**:
+    - **`.func_flags` directive**: New directive for hand-written assembly to annotate function calling convention and properties. Syntax: `.func_flags zp_call [, stack_call] [, leaf] [, reentrant]`. Parsed within `proc`/`endproc` blocks. Integrates seamlessly with automatic metadata emission from the compiler.
+- **Compiler (cc45)**:
+    - **Automatic calling convention metadata emission**: Both ZP and stack code paths now emit `.func_flags zp_call` / `.func_flags stack_call` directives automatically for every function, with `leaf` annotation when no calls are present. Enables linker enforcement without requiring manual annotation in C source.
+- **Tools**:
+    - **nm45 symbol display**: Updated `nm45 -f` to display calling convention and function flags in symbol listings. Example: `[zp_call leaf uses:- clobbers:- ...]`.
+    - **objdump45 symbol table**: Added function attribute display to symbol table output, showing convention and flags for each exported function.
+- **Documentation**:
+    - **`doc/lib45.md` Section 4.4**: Complete specification of function attribute records: marker byte `$FA`, flags byte (LEAF, REENTRANT, ZP_CONV), register/flag clobber masks, ZP usage/clobber bitmasks. Documents linker enforcement rule (ZP→stack errors, stack→ZP permitted).
+
 ## [Unreleased] - 2026-05-08
 
 ### Added
