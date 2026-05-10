@@ -938,10 +938,8 @@ void CodeGenerator::visit(TranslationUnit& node) {
             }
         }
 
-        // Emit .extern __sp_base when stack relocation is requested
-        if (crtNoPageOneStack) {
-            out << ".extern __sp_base" << std::endl;
-        }
+        // Emit .extern __sp_base for relocatable code (linker provides from CRT)
+        out << ".extern __sp_base" << std::endl;
 
         out << std::endl;
     }
