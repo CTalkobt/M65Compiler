@@ -368,7 +368,7 @@ constexpr uint8_t  O45_CPU_45GS02    = 0x45;
 enum O45Segment : uint8_t {
     SEG_EXTERNAL  = 0,   // external symbol (index follows)
     SEG_ABSOLUTE  = 1,   // absolute / no relocation
-    SEG_TEXT      = 2,   // .text (code)
+    SEG_TEXT      = 2,   // .code (text/code segment)
     SEG_DATA      = 3,   // .data (initialized)
     SEG_BSS       = 4,   // .bss  (uninitialized)
     SEG_ZP        = 5,   // .zp   (zero/direct page)

@@ -2,6 +2,16 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
+## [Unreleased] - 2026-05-10
+
+### Fixed
+- **Assembler (ca45)**:
+    - **Segment `startAddress` going stale across pass2 iterations (Issue #45)**: When assembling `.o45` files with both `.code` and `.data` sections, forward-reference resolution caused pass2 to run multiple iterations. On the first iteration, unresolved instructions were oversized, inflating the code section. The data segment's `startAddress` was set on this first iteration and never recalculated, creating a gap between TEXT and DATA segments. This caused `findSegmentForAddress()` to fail for data symbols, which then defaulted to `SEG_TEXT` with wrong offsets. After linking, data symbols overlapped with code symbols at the same addresses. Fix: reset segment `startAddress` at the start of each pass2 iteration.
+
+### Changed
+- **Assembler (ca45)**:
+    - **Bare `.text` no longer switches segments**: Previously, `.text` without arguments was an alias for `.code` (segment switch). This created ambiguity with the `.text "string"` PETSCII data directive. Bare `.text` is no longer recognized as a segment switch. Use `.code` instead. The `.segment "text"` form and `.text "string"` data directive are unaffected.
+
 ## [Unreleased] - 2026-05-09
 
 ### Added
