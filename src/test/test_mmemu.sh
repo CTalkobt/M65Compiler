@@ -4,10 +4,39 @@
 
 CC="./bin/cc45"
 AS="./bin/ca45"
+LD="./bin/ln45"
 MMEMU="mmemu-cli"
 mkdir -p build/test
 
 failed=0
+
+# Helper function: compile, assemble, and link with stdlib (for tests using assert.h)
+# Usage: compile_link_test "test_name.c" "output.prg" ["-fzpcall"]
+compile_link_test() {
+    local src="$1"
+    local prg_out="$2"
+    local flags="${3:-}"
+    local s_file="${prg_out%.prg}.s"
+    local o_file="${prg_out%.prg}.o45"
+
+    # Compile to assembly
+    $CC $flags "$src" -o "$s_file"
+    if [ $? -ne 0 ]; then return 1; fi
+
+    # Assemble to relocatable object
+    $AS -c "$s_file" -o "$o_file"
+    if [ $? -ne 0 ]; then return 2; fi
+
+    # Link with stdlib (stack or zp based on flags)
+    if [[ "$flags" == *"-fzpcall"* ]]; then
+        $LD "$o_file" lib/build/c45_zp.lib -o "$prg_out" 2>/dev/null
+    else
+        $LD "$o_file" lib/build/c45.lib -o "$prg_out" 2>/dev/null
+    fi
+    if [ $? -ne 0 ]; then return 3; fi
+
+    return 0
+}
 
 echo "Testing mmemu-cli with a simple 'hello world' program..."
 
@@ -245,6 +274,46 @@ for name in "${VALIDATION_TESTS[@]}"; do
     $AS "$s_file" -o "$prg_file" 2>/dev/null
     if [ $? -ne 0 ]; then
         echo "FAIL: $name (assembly error)"
+        failed=$((failed + 1))
+        continue
+    fi
+
+    # Run on mmemu and check A register
+    OUTPUT=$(echo -e "load $prg_file\nsetpc \$2000\nrun 500000\nregs\nq" | $MMEMU -m rawMega65 2>/dev/null)
+    A_VAL=$(echo "$OUTPUT" | grep -oP 'A:\s*\$\K[0-9A-Fa-f]+' | tail -1)
+
+    if [ "$A_VAL" = "00" ]; then
+        echo "PASS: $name (A=\$00)"
+    else
+        echo "FAIL: $name (A=\$$A_VAL)"
+        failed=$((failed + 1))
+    fi
+done
+
+echo ""
+echo "Running calling convention tests with assert validation..."
+
+# Tests that use assert.h and require linking with stdlib
+CC_TESTS=(
+    "test_cc_stack_to_zp"
+    "test_cc_struct_return"
+    "test_cc_long_return"
+    "test_cc_zp_variadic"
+)
+
+for name in "${CC_TESTS[@]}"; do
+    src="src/test-resources/${name}.c"
+    prg_file="build/test/${name}.prg"
+
+    if [ ! -f "$src" ]; then
+        echo "Skip: $name (source not found)"
+        continue
+    fi
+
+    # Compile, assemble, and link with stdlib (test returns 0 on success)
+    compile_link_test "$src" "$prg_file"
+    if [ $? -ne 0 ]; then
+        echo "FAIL: $name (compilation/linking error)"
         failed=$((failed + 1))
         continue
     fi
@@ -563,28 +632,22 @@ fi
 
 echo "Testing zpCall convention (-fzpcall): param passing, address-of spill, nested calls..."
 
-$CC -fzpcall src/test-resources/mmemu_zpcall.c -o build/test/mmemu_zpcall.s
+compile_link_test "src/test-resources/mmemu_zpcall.c" "build/test/mmemu_zpcall.prg" "-fzpcall"
 if [ $? -ne 0 ]; then
-    echo "FAIL: Compilation failed for mmemu_zpcall.c"
+    echo "FAIL: Compilation/linking failed for mmemu_zpcall.c"
     failed=$((failed + 1))
 else
-    $AS build/test/mmemu_zpcall.s -o build/test/mmemu_zpcall.prg
-    if [ $? -ne 0 ]; then
-        echo "FAIL: Assembly failed for mmemu_zpcall.s"
-        failed=$((failed + 1))
-    else
-        OUTPUT=$(echo -e "load build/test/mmemu_zpcall.prg\nsetpc \$2000\nstep 2000\nm \$4000 5\nq" | $MMEMU -m rawMega65 2>/dev/null)
+    OUTPUT=$(echo -e "load build/test/mmemu_zpcall.prg\nsetpc \$2000\nstep 2000\nm \$4000 5\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
-        # Expected: 0A=add(3,7), 2A 00=addr_of_test(99)→42, 23=outer(5,20)→35, FF=sentinel
-        if echo "$OUTPUT" | grep -q "4000: 0A 2A 00 23 FF"; then
-            echo "SUCCESS: zpCall tests passed."
-        else
-            echo "FAIL: zpCall test validation failed."
-            echo "Expected at \$4000: 0A 2A 00 23 FF"
-            echo "Actual output:"
-            echo "$OUTPUT" | grep "4000:"
-            failed=$((failed + 1))
-        fi
+    # Expected: 0A=add(3,7), 2A 00=addr_of_test(99)→42, 23=outer(5,20)→35, FF=sentinel
+    if echo "$OUTPUT" | grep -q "4000: 0A 2A 00 23 FF"; then
+        echo "SUCCESS: zpCall tests passed."
+    else
+        echo "FAIL: zpCall test validation failed."
+        echo "Expected at \$4000: 0A 2A 00 23 FF"
+        echo "Actual output:"
+        echo "$OUTPUT" | grep "4000:"
+        failed=$((failed + 1))
     fi
 fi
 

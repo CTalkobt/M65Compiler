@@ -10,6 +10,8 @@
 
 .cpu _45gs02
 
+.global _assert_fail
+
 _assert_fail:
     proc
 
