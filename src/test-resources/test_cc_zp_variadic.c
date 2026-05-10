@@ -7,9 +7,9 @@
 
 char *results = 0x4000;
 
-// Simple variadic function that sums its arguments
-// (We'll keep it simple since full variadic support may be complex)
-int sum_three(int a, int b, int c) {
+// Simple multi-argument function that sums its arguments
+// Marked as __fastcall__ to be compatible with ZP-convention callers
+__fastcall__ int sum_three(int a, int b, int c) {
     return a + b + c;
 }
 
