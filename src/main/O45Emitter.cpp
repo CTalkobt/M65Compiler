@@ -192,15 +192,22 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         }
 
         // Determine which segment this label belongs to
-        std::string symSeg = findSegmentForAddress(sym->value);
+        // Prefer direct segment tracking from symbol, fall back to address lookup
+        std::string symSeg = sym->segment;
+        if (symSeg.empty()) {
+            symSeg = findSegmentForAddress(sym->value);
+        }
+
         O45Segment segId = SEG_TEXT;
         uint32_t offset = sym->value;
 
-        if (!symSeg.empty()) {
+        if (!symSeg.empty() && symSeg != "__extern__") {
             segId = segIdFromName(symSeg);
-            uint32_t segBase = parser.segments.at(symSeg)->startAddress;
-            if (segBase == 0xFFFFFFFF) segBase = 0;
-            offset = sym->value - segBase;
+            if (parser.segments.count(symSeg)) {
+                uint32_t segBase = parser.segments.at(symSeg)->startAddress;
+                if (segBase == 0xFFFFFFFF) segBase = 0;
+                offset = sym->value - segBase;
+            }
         }
 
         bool isWeak = parser.isWeakSymbol(name);
@@ -300,8 +307,12 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         // Is it in a relocatable segment?
         std::string targetSeg;
         if (!isExtern) {
-            targetSeg = findSegmentForAddress(sym->value);
-            if (targetSeg.empty()) continue; // absolute/unknown — no relocation needed
+            // Prefer direct segment tracking from symbol
+            targetSeg = sym->segment;
+            if (targetSeg.empty()) {
+                targetSeg = findSegmentForAddress(sym->value);
+            }
+            if (targetSeg.empty() || targetSeg == "__extern__") continue; // absolute/unknown — no relocation needed
         }
 
         // Build relocation entry
@@ -359,8 +370,12 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         bool isExtern = parser.isExternSymbol(symName);
         std::string targetSeg;
         if (!isExtern) {
-            targetSeg = findSegmentForAddress(sym->value);
-            if (targetSeg.empty()) continue;
+            // Prefer direct segment tracking from symbol
+            targetSeg = sym->segment;
+            if (targetSeg.empty()) {
+                targetSeg = findSegmentForAddress(sym->value);
+            }
+            if (targetSeg.empty() || targetSeg == "__extern__") continue;
         }
 
         std::string srcSeg = stmt->segmentName;
