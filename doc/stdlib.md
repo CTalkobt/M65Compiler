@@ -10,7 +10,7 @@ These files define the fundamental types and constants required for C compliance
 - **`<stddef.h>`**: Common definitions: `size_t` (typedef to `unsigned int`, 16-bit), `ptrdiff_t`, and `NULL` (`((void *)0)`).
 - **`<stdbool.h>`**: Boolean type support. Defines `bool` as `_Bool` (a native 1-byte type that normalizes any non-zero value to `1`), `true` as `1`, `false` as `0`, and `__bool_true_false_are_defined` as `1`.
 - **`<limits.h>`**: Implementation-defined limits (`CHAR_BIT=8`, `INT_MAX=65535`, `INT_MIN=0` for unsigned; `SCHAR_MIN=-128`, `SCHAR_MAX=127` for signed char; `LONG_MAX`, `LONG_MIN`, etc. for 32-bit).
-- **`<stdarg.h>`**: Variadic function support. Defines `va_list` (typedef to `unsigned int`), `va_start`, `va_arg`, and `va_end` as macros wrapping `__builtin_va_start`, `__builtin_va_arg`, and `__builtin_va_end`.
+- **`<stdarg.h>`**: Variadic function support. Defines `va_list` (typedef to `unsigned int` — a 16-bit stack offset into the caller's arguments), `va_start`, `va_arg`, and `va_end` as macros wrapping `__builtin_va_start`, `__builtin_va_arg`, and `__builtin_va_end`. Variadic functions always use stack-based argument passing, even when compiled with `-fzpcall`. See "Variadic Functions" in [cc45.md](cc45.md#variadic-functions) for comprehensive details.
 
 ### Implementation Notes for Core Headers
 

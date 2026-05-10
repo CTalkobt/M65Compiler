@@ -529,7 +529,6 @@ void O45Linker::buildCallGraph() {
         // Decode text relocations and identify JSR call sites
         auto textRelocs = O45RelocDecoder::decode(input.obj.textRelocs);
         for (const auto& r : textRelocs) {
-            if (r.segment != SEG_EXTERNAL) continue;
             if (r.type != R_WORD) continue;
 
             // The relocation offset is relative to the object's text body.
@@ -539,9 +538,22 @@ void O45Linker::buildCallGraph() {
             uint8_t opcode = input.obj.textBody[r.offset - 1];
             if (opcode != 0x20) continue; // not JSR
 
-            // Resolve the callee name
-            if (r.symbolIndex >= input.obj.imports.size()) continue;
-            const std::string& callee = input.obj.imports[r.symbolIndex].name;
+            // Resolve the callee name based on relocation segment type
+            std::string callee;
+            if (r.segment == SEG_EXTERNAL) {
+                // External call — look up in imports
+                if (r.symbolIndex >= input.obj.imports.size()) continue;
+                callee = input.obj.imports[r.symbolIndex].name;
+            } else if (r.segment == SEG_TEXT) {
+                // Internal call — look up in exports to get the function name
+                // The symbol index for TEXT relocations points to an export within this object
+                if (r.symbolIndex >= input.obj.exports.size()) continue;
+                const auto& exp = input.obj.exports[r.symbolIndex];
+                if (exp.segmentId() != SEG_TEXT) continue; // Skip non-text symbols
+                callee = exp.name;
+            } else {
+                continue; // Ignore other segment types
+            }
 
             // Find which function owns this call site
             uint32_t siteInMerged = input.textOffset + r.offset;
