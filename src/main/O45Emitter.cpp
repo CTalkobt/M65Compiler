@@ -171,6 +171,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         segBodies[segName] = sb;
     }
 
+
     // --- Step 2: Build symbol table ---
     O45SymbolTable syms;
 

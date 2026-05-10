@@ -413,14 +413,12 @@ void AssemblerParser::pass1() {
             stmt->type = Statement::DIRECTIVE;
             stmt->dir.name = tokens[pos-1].value;
 
-            if (stmt->dir.name == "segment" || stmt->dir.name == "code" || stmt->dir.name == "text" || stmt->dir.name == "data" || stmt->dir.name == "bss") {
-                if (stmt->dir.name != "text" || peek().type != AssemblerTokenType::STRING_LITERAL) {
+            if (stmt->dir.name == "segment" || stmt->dir.name == "code" || stmt->dir.name == "data" || stmt->dir.name == "bss") {
                     std::string newSeg;
                     if (stmt->dir.name == "segment") {
                         if (peek().type == AssemblerTokenType::STRING_LITERAL) newSeg = advance().value;
                         else newSeg = expect(AssemblerTokenType::IDENTIFIER, "Expected segment name").value;
-                    } else if (stmt->dir.name == "text") newSeg = "code";
-                    else newSeg = stmt->dir.name;
+                    } else newSeg = stmt->dir.name;
                     std::string oldSeg = currentSegment->name;
                     switchSegment(newSeg);
                     if (match(AssemblerTokenType::OPEN_CURLY)) {
@@ -432,7 +430,6 @@ void AssemblerParser::pass1() {
                     stmt->segmentName = currentSegment->name;
                     statements.push_back(std::move(stmt));
                     continue;
-                }
             }
 
             if (stmt->dir.name == "segmentOrder") {
@@ -1501,7 +1498,10 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
 
         bool addressRecalculationMadeChanges = false;
         std::map<std::string, uint32_t> pass2PCs;
-        for (auto const& [name, seg] : segments) pass2PCs[name] = 0xFFFFFFFF; // sentinel = never visited
+        for (auto const& [name, seg] : segments) {
+            pass2PCs[name] = 0xFFFFFFFF; // sentinel = never visited
+            seg->startAddress = 0xFFFFFFFF; // reset for recalculation
+        }
         std::string activeSegment = "default"; uint32_t cP = 0; bool isDeadCode = false;
         currentLocalScope_ = "";
         pass2PCs["default"] = 0; // default segment starts at 0
@@ -1521,7 +1521,7 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                     else if (s->dir.varType == Directive::DEC) { symbolTable[s->dir.varName].value--; addressRecalculationMadeChanges = true; }
                 }
             }
-            if (s->type == Statement::DIRECTIVE && (s->dir.name == "segment" || s->dir.name == "code" || s->dir.name == "text" || s->dir.name == "data" || s->dir.name == "bss")) {
+            if (s->type == Statement::DIRECTIVE && (s->dir.name == "segment" || s->dir.name == "code" || s->dir.name == "data" || s->dir.name == "bss")) {
                 pass2PCs[activeSegment] = cP; activeSegment = s->segmentName;
                 uint32_t savedPC = pass2PCs[activeSegment];
                 if (savedPC != 0xFFFFFFFF) cP = savedPC; // restore saved PC for revisited segments
