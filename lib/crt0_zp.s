@@ -6,7 +6,7 @@
 .global __init
 .global __exit
 .global __sp_base
-.weak _init_features
+.extern _init_features
 .extern _main
 
 .segment "init"
@@ -37,6 +37,4 @@ __saved_sph:
     tys
     rts
 
-; Default init_features — does nothing. Override with a strong definition.
-_init_features:
-    rts
+; _init_features is provided by crt0_mega65_zp.s (pulled from c45_zp.lib).

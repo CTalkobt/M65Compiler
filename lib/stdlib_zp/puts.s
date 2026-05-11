@@ -3,6 +3,8 @@
 ; int puts(char *s);
 ;   Writes string s to the screen via KERNAL CHROUT, then a newline.
 ;   Returns 0 on success.
+;
+; Uses ZP $FB/$FC for the string pointer — kernal-safe locations.
 
 .global _puts
 
@@ -15,10 +17,18 @@ proc _puts
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
 
-    ; s is already at $03/$04 — use as indirect pointer
+    ; Save $FB/$FC and copy string pointer there
+    lda $FB
+    pha
+    lda $FC
+    pha
+    lda $03
+    sta $FB
+    lda $04
+    sta $FC
     ldy #0
 @loop:
-    lda ($03),y
+    lda ($FB),y
     beq @done
     phz
     phy
@@ -32,6 +42,11 @@ proc _puts
     phz
     jsr $FFD2
     plz
+    ; Restore $FB/$FC
+    pla
+    sta $FC
+    pla
+    sta $FB
     lda #0
     tax
     rts

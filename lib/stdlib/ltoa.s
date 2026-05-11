@@ -58,10 +58,10 @@ proc _ltoa, D#_p_value, W#_p_str, W#_p_base
     bcs @valid
     ; base < 2: write "0\0" and return
     lda #$30
-    sta (_p_str+7, sp),y
+    sta (_p_str+8, sp),y
     iny
     lda #0
-    sta (_p_str+7, sp),y
+    sta (_p_str+8, sp),y
     ldax _p_str+7, s
     bra @restore
 
@@ -77,7 +77,7 @@ proc _ltoa, D#_p_value, W#_p_str, W#_p_base
     bpl @poscheck
     ; Negative: write '-' and negate 32-bit value
     lda #$2d
-    sta (_p_str+7, sp),y
+    sta (_p_str+8, sp),y
     iny
     sec
     lda #0
@@ -101,7 +101,7 @@ proc _ltoa, D#_p_value, W#_p_str, W#_p_base
     ora $05
     bne @extract
     lda #$30
-    sta (_p_str+7, sp),y
+    sta (_p_str+8, sp),y
     iny
     bra @nulterm
 
@@ -164,14 +164,14 @@ proc _ltoa, D#_p_value, W#_p_str, W#_p_base
     ; --- Pop digits into output buffer (correct order) ---
 @poploop:
     pla
-    sta (_p_str+7, sp),y
+    sta (_p_str+8, sp),y
     iny
     dec $08
     bne @poploop
 
 @nulterm:
     lda #0
-    sta (_p_str+7, sp),y
+    sta (_p_str+8, sp),y
 
     ldax _p_str+7, s
 @restore:

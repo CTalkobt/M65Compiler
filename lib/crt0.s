@@ -16,7 +16,7 @@
 .global __init
 .global __exit
 .global __sp_base
-.weak _init_features
+.extern _init_features
 .extern _main
 
 .segment "init"
@@ -47,7 +47,5 @@ __saved_sph:
     tys
     rts
 
-; Default init_features — does nothing. Override with a strong definition
-; to set up hardware (16-bit stack, I/O mapping, DMA, etc.)
-_init_features:
-    rts
+; _init_features is provided by crt0_mega65.s (pulled from c45.lib).
+; For bare-metal without MEGA65 platform init, provide your own.
