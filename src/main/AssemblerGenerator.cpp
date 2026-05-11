@@ -92,10 +92,11 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
             if (stmt->address > e.getAddress()) {
                 e.setAddress(stmt->address);
             }
-            
+
             parser->pc = stmt->address; // Update parser pc for .PC evaluations
             parser->currentLocalScope_ = stmt->localLabelScope; // Restore auto-scope for @ labels
             if (stmt->deleted) continue;
+          try {
             if (!stmt->label.empty()) {
                 isDeadCode = false;
                 e.emitLabel(stmt->label);
@@ -562,6 +563,9 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
                     }
                 }
             }
+          } catch (const std::runtime_error& ex) {
+            throw std::runtime_error("line " + std::to_string(stmt->line) + ": " + ex.what());
+          }
         }
     }
 }

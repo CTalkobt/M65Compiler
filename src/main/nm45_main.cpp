@@ -8,6 +8,7 @@
 #include "O45Reader.hpp"
 #include "O45Linker.hpp"
 #include "O45FormatUtil.hpp"
+#include "O45Archive.hpp"
 #include "Version.hpp"
 
 static char segmentLetter(uint8_t seg) {
@@ -239,6 +240,15 @@ int main(int argc, char** argv) {
         std::vector<uint8_t> data((std::istreambuf_iterator<char>(in)),
                                    std::istreambuf_iterator<char>());
         in.close();
+
+        // Detect .lib archive and suggest ar45
+        if (data.size() >= 4 && data[0] == AR45_MAGIC[0] && data[1] == AR45_MAGIC[1]
+            && data[2] == AR45_MAGIC[2] && data[3] == AR45_MAGIC[3]) {
+            std::cerr << "nm45: " << filename << ": is a .lib archive, not an object file." << std::endl;
+            std::cerr << "  Use 'ar45 t " << filename << "' to list members." << std::endl;
+            exitCode = 1;
+            continue;
+        }
 
         O45File obj;
         std::string err;

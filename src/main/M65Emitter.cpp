@@ -135,7 +135,22 @@ void M65Emitter::emitInstruction(const std::string& mnemonic, AddressingMode amo
         std::string lowerMnemonic = mnemonic;
         std::transform(lowerMnemonic.begin(), lowerMnemonic.end(), lowerMnemonic.begin(), [](unsigned char c){ return std::tolower(c); });
         uint8_t op = AssemblerOpcodeDatabase::getOpcode(lowerMnemonic, amode);
-        if (op == 0 && lowerMnemonic != "brk") { std::cout << "DEBUG: " << lowerMnemonic << " amode: " << (int)amode << std::endl; throw std::runtime_error("Invalid opcode for " + lowerMnemonic); }
+        if (op == 0 && lowerMnemonic != "brk") {
+            std::string msg = "'" + lowerMnemonic + "' does not support addressing mode '"
+                + AssemblerOpcodeDatabase::AddressingModeToString(amode) + "'";
+            auto validModes = AssemblerOpcodeDatabase::getValidAddressingModes(lowerMnemonic);
+            if (!validModes.empty()) {
+                msg += "; supported modes: ";
+                for (size_t i = 0; i < validModes.size(); ++i) {
+                    if (i > 0) msg += ", ";
+                    msg += AssemblerOpcodeDatabase::AddressingModeToString(validModes[i]);
+                }
+            }
+            if (amode == AddressingMode::STACK_RELATIVE) {
+                msg += " (note: stack-relative is only available via simulated ops for lda/sta/ldx/ldy/ldz/stx/sty/stz/inc/dec/inw/dew/phw)";
+            }
+            throw std::runtime_error(msg);
+        }
         emitByte(op);
         if (hasValue) {
             switch (amode) {

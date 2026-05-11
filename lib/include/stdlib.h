@@ -18,6 +18,7 @@ long strtol(char *nptr, char **endptr, int base);
 unsigned long strtoul(char *nptr, char **endptr, int base);
 
 int abs(int value);
+long labs(long value);
 int rand(void);
 void srand(unsigned int seed);
 
