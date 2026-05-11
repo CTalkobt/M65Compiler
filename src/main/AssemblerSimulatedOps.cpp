@@ -748,12 +748,34 @@ void AssemblerSimulatedOps::emitSelectCode(AssemblerParser* parser, M65Emitter& 
     e.bne(0x03); e.lda_imm(val2Ast->getValue(parser)); e.bra(0x02); e.lda_imm(val1Ast->getValue(parser));
 }
 
+// Helper: emit TSX; TXA; CLC; ADC #lo; PHA; LDA #hi; ADC #0; TAX; PLA
+// with __sp_base relocs when in relocatable mode.
+static void emitSpBaseAddrCalc(AssemblerParser* parser, M65Emitter& e, uint8_t addend) {
+    bool spExtern = parser->isExternSymbol("__sp_base");
+    e.tsx(); e.txa(); e.clc();
+    if (spExtern) {
+        e.recordSymbolRelocLo("__sp_base");
+        e.adc_imm(addend);
+    } else {
+        uint16_t total = e.spBase() + addend;
+        e.adc_imm(total & 0xFF);
+    }
+    e.pha();
+    if (spExtern) {
+        e.recordSymbolRelocHi("__sp_base", addend);
+        e.lda_imm(0);
+    } else {
+        uint16_t total = e.spBase() + addend;
+        e.lda_imm((total >> 8) & 0xFF);
+    }
+    e.adc_imm(0); e.tax(); e.pla();
+}
+
 void AssemblerSimulatedOps::emitPtrStackCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
     auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
     if (fa.isFrame) {
         // Frame-relative: compute SP + spBase + fpOff + yOff (direct stack address)
-        uint16_t addr = e.spBase() + fa.fpOff + fa.yOff;
-        e.tsx(); e.txa(); e.clc(); e.adc_imm(addr & 0xFF); e.pha(); e.lda_imm(addr >> 8); e.adc_imm(0); e.tax(); e.pla();
+        emitSpBaseAddrCalc(parser, e, fa.fpOff + fa.yOff);
     } else {
         // Check if the operand is a stack-relative variable vs global/absolute address.
         // Stack variables (.var) are always defined before use and will be found by resolveSymbol.
@@ -767,8 +789,7 @@ void AssemblerSimulatedOps::emitPtrStackCode(AssemblerParser* parser, M65Emitter
         if (isStack) {
             // Stack-relative variable: compute SP + spBase + offset
             uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-            uint16_t addr = e.spBase() + offset;
-            e.tsx(); e.txa(); e.clc(); e.adc_imm(addr & 0xFF); e.pha(); e.lda_imm(addr >> 8); e.adc_imm(0); e.tax(); e.pla();
+            emitSpBaseAddrCalc(parser, e, (uint8_t)offset);
         } else {
             // Global/absolute address: load directly into AX
             uint32_t addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
@@ -1822,37 +1843,12 @@ void AssemblerSimulatedOps::emitSTAX_FPCode(AssemblerParser* parser, M65Emitter&
 
 // leax.fp varOffset — Load effective address of frame variable into AX
 // Computes: AX = __sp_base + _fp + varOffset + SPL
-// In relocatable mode (__sp_base is extern), emits lo/hi relocs so the
-// linker can patch the immediate operands with the resolved __sp_base.
+// Uses emitSpBaseAddrCalc for correct relocation in .o45 mode.
 void AssemblerSimulatedOps::emitLEAX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
     Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    uint16_t sb = e.spBase();
-    uint16_t totalOffset = sb + fpOff + yOff;
-    uint8_t addend = fpOff + yOff;  // portion beyond __sp_base
-    bool spExtern = parser->isExternSymbol("__sp_base");
-
-    // TSX; TXA; CLC; ADC #lo(total); PHA; LDA #hi(total); ADC #0; TAX; PLA
-    e.tsx();
-    e.txa();
-    e.clc();
-    if (spExtern) {
-        e.recordSymbolRelocLo("__sp_base");
-        e.adc_imm(addend);
-    } else {
-        e.adc_imm(totalOffset & 0xFF);
-    }
-    e.pha();
-    if (spExtern) {
-        e.recordSymbolRelocHi("__sp_base", addend);
-        e.lda_imm(0);
-    } else {
-        e.lda_imm((totalOffset >> 8) & 0xFF);
-    }
-    e.adc_imm(0); // add carry
-    e.tax();
-    e.pla();
+    emitSpBaseAddrCalc(parser, e, fpOff + yOff);
 }
 
 // move.fp dest, src, len — Block copy between frame-relative addresses

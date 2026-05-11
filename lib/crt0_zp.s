@@ -25,7 +25,10 @@ __init:
 
     ; Fall through to __exit
 __exit:
-    ; Restore caller's stack pointer and return
+    ; Restore caller's stack pointer and return.
+    ; Clear Z register — the MEGA65 kernal/BASIC may use Z as part of
+    ; the return address banking; a stale Z causes PC corruption on RTS.
+    ldz #$00
 __saved_spl:
     ldx #$FF
     txs
