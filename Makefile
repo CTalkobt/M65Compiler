@@ -392,6 +392,7 @@ $(OBJ_DIR)/test_validation_preprocessor.o: src/test/test_validation_preprocessor
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 test-validation-preprocessor: $(TEST_VALIDATION_PREPROCESSOR_TARGET) all
+	@mkdir -p src/test/build
 	@$(TEST_VALIDATION_PREPROCESSOR_TARGET)
 
 # Linker Error Validation unit test

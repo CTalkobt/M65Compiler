@@ -1821,19 +1821,35 @@ void AssemblerSimulatedOps::emitSTAX_FPCode(AssemblerParser* parser, M65Emitter&
 }
 
 // leax.fp varOffset — Load effective address of frame variable into AX
+// Computes: AX = __sp_base + _fp + varOffset + SPL
+// In relocatable mode (__sp_base is extern), emits lo/hi relocs so the
+// linker can patch the immediate operands with the resolved __sp_base.
 void AssemblerSimulatedOps::emitLEAX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
     Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     uint16_t sb = e.spBase();
     uint16_t totalOffset = sb + fpOff + yOff;
-    // A = SPL + lo(totalOffset), X = hi(totalOffset) + carry
+    uint8_t addend = fpOff + yOff;  // portion beyond __sp_base
+    bool spExtern = parser->isExternSymbol("__sp_base");
+
+    // TSX; TXA; CLC; ADC #lo(total); PHA; LDA #hi(total); ADC #0; TAX; PLA
     e.tsx();
     e.txa();
     e.clc();
-    e.adc_imm(totalOffset & 0xFF);
+    if (spExtern) {
+        e.recordSymbolRelocLo("__sp_base");
+        e.adc_imm(addend);
+    } else {
+        e.adc_imm(totalOffset & 0xFF);
+    }
     e.pha();
-    e.lda_imm((totalOffset >> 8) & 0xFF);
+    if (spExtern) {
+        e.recordSymbolRelocHi("__sp_base", addend);
+        e.lda_imm(0);
+    } else {
+        e.lda_imm((totalOffset >> 8) & 0xFF);
+    }
     e.adc_imm(0); // add carry
     e.tax();
     e.pla();
