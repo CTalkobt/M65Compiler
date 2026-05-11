@@ -103,6 +103,8 @@ private:
     std::map<std::string, std::string> symbolSource_;
     // Track weak flag per symbol
     std::map<std::string, bool> symbolWeak_;
+    // Track segment ID per symbol (for cross-segment overlap detection)
+    std::map<std::string, uint8_t> symbolSegment_;
 
     // Function attribute map: function name -> O45FuncAttr
     std::map<std::string, O45FuncAttr> funcAttrs_;

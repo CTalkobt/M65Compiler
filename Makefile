@@ -116,6 +116,8 @@ test: all
 	@$(MAKE) test-validation-preprocessor
 	@echo "Running linker error validation tests..."
 	@$(MAKE) test-validation-linker
+	@echo "Running segment emission tests..."
+	@$(MAKE) test-segment-emission
 	@echo "Running assembler expression/emitter error validation tests..."
 	@$(MAKE) test-validation-assembler
 	@echo "Running simulated ops register constraint validation tests..."
@@ -406,6 +408,21 @@ $(OBJ_DIR)/test_validation_linker.o: src/test/test_validation_linker.cpp
 
 test-validation-linker: $(TEST_VALIDATION_LINKER_TARGET) all
 	@$(TEST_VALIDATION_LINKER_TARGET)
+
+# Segment emission unit test
+TEST_SEGMENT_EMISSION_TARGET = $(BIN_DIR)/test_segment_emission
+TEST_SEGMENT_EMISSION_OBJECTS = $(OBJ_DIR)/test_segment_emission.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o
+
+$(TEST_SEGMENT_EMISSION_TARGET): $(TEST_SEGMENT_EMISSION_OBJECTS) $(CA_TARGET)
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $(TEST_SEGMENT_EMISSION_OBJECTS)
+
+$(OBJ_DIR)/test_segment_emission.o: src/test/test_segment_emission.cpp
+	@mkdir -p $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+test-segment-emission: $(TEST_SEGMENT_EMISSION_TARGET) all
+	@$(TEST_SEGMENT_EMISSION_TARGET)
 
 install: all lib
 	install -d $(DESTDIR)$(BINDIR)

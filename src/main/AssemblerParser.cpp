@@ -643,7 +643,7 @@ void AssemblerParser::pass1() {
 
                     // Define label at current address
                     stmt->label = scName;
-                    symbolTable[scName] = {pc, true, 2, false, false, pc, false, 0, false, 0};
+                    symbolTable[scName] = {pc, true, 2, false, false, pc, false, 0, false, 0, currentSegment->name};
 
                     // Define metadata constants in symbol table
                     symbolTable[scName + ".__elsize"] = {elemSize, false, 2, false, true, elemSize, false, 0, false, 0};
@@ -1007,7 +1007,7 @@ void AssemblerParser::pass1() {
                 if (stmt->instr.mnemonic == "proc") {
                     std::string pN = advance().value;
                     stmt->label = pN;
-                    symbolTable[pN] = {pc, true, 2, false, false, pc, false, 0, false, 0};
+                    symbolTable[pN] = {pc, true, 2, false, false, pc, false, 0, false, 0, currentSegment->name};
                     auto ctx = std::make_shared<ProcContext>();
                     ctx->name = pN; ctx->totalParamSize = 0;
                     std::vector<std::pair<std::string, int>> args;
@@ -1583,7 +1583,7 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                             fillDmaListAddr_ = segments["bss"]->startAddress + bssCurrentSize;
 
                             // Create symbol for buffer
-                            symbolTable["__fill_dma_buf"] = {fillDmaListAddr_, true, 2, false, false, fillDmaListAddr_, false, 0, false, 0};
+                            symbolTable["__fill_dma_buf"] = {fillDmaListAddr_, true, 2, false, false, fillDmaListAddr_, false, 0, false, 0, "bss"};
                         }
                         emitFillCode(d, s->instr.operandTokenIndex, s->scopePrefix, s->instr.mnemonic == "fill.sp");
                     }
@@ -1609,7 +1609,7 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                             moveDmaListAddr_ = segments["bss"]->startAddress + bssCurrentSize;
 
                             // Create symbol for buffer
-                            symbolTable["__move_dma_buf"] = {moveDmaListAddr_, true, 2, false, false, moveDmaListAddr_, false, 0, false, 0};
+                            symbolTable["__move_dma_buf"] = {moveDmaListAddr_, true, 2, false, false, moveDmaListAddr_, false, 0, false, 0, "bss"};
                         }
                         emitMoveCode(d, s->instr.operandTokenIndex, s->scopePrefix, s->instr.mnemonic == "move.sp");
                     }

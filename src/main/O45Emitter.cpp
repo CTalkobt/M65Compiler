@@ -32,17 +32,6 @@ static bool isAbsoluteMode(AddressingMode m) {
 }
 
 std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVersion) {
-    // Find which segment a symbol's value falls into (lambda to access private Segment).
-    auto findSegmentForAddress = [&](uint32_t addr) -> std::string {
-        for (const auto& seg : parser.segmentOrder) {
-            uint32_t base = (seg->startAddress != 0xFFFFFFFF) ? seg->startAddress : 0;
-            if (seg->pc <= base) continue; // empty segment
-            if (addr >= base && addr < seg->pc) {
-                return seg->name;
-            }
-        }
-        return "";
-    };
     // --- Step 1: Generate per-segment binary bodies ---
     // We run the generator per-segment, collecting each segment's bytes separately.
 
@@ -192,12 +181,12 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             continue;
         }
 
-        // Determine which segment this label belongs to
-        std::string symSeg = findSegmentForAddress(sym->value);
+        // Use the authoritative segment field set at parse time
+        std::string symSeg = sym->segment;
         O45Segment segId = SEG_TEXT;
         uint32_t offset = sym->value;
 
-        if (!symSeg.empty()) {
+        if (!symSeg.empty() && parser.segments.count(symSeg)) {
             segId = segIdFromName(symSeg);
             uint32_t segBase = parser.segments.at(symSeg)->startAddress;
             if (segBase == 0xFFFFFFFF) segBase = 0;
@@ -301,7 +290,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         // Is it in a relocatable segment?
         std::string targetSeg;
         if (!isExtern) {
-            targetSeg = findSegmentForAddress(sym->value);
+            targetSeg = sym->segment;
             if (targetSeg.empty()) continue; // absolute/unknown — no relocation needed
         }
 
@@ -360,7 +349,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         bool isExtern = parser.isExternSymbol(symName);
         std::string targetSeg;
         if (!isExtern) {
-            targetSeg = findSegmentForAddress(sym->value);
+            targetSeg = sym->segment;
             if (targetSeg.empty()) continue;
         }
 
@@ -424,7 +413,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         bool isExtern = parser.isExternSymbol(symName);
         std::string targetSeg;
         if (!isExtern) {
-            targetSeg = findSegmentForAddress(sym->value);
+            targetSeg = sym->segment;
             if (targetSeg.empty()) continue;
         }
 
@@ -506,7 +495,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             bool isExtern = parser.isExternSymbol(arg);
             std::string targetSeg;
             if (!isExtern) {
-                targetSeg = findSegmentForAddress(sym->value);
+                targetSeg = sym->segment;
                 if (targetSeg.empty()) { patchAddr += 2; continue; }
             }
 
@@ -571,7 +560,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         bool isExtern = parser.isExternSymbol(symName);
         std::string targetSeg;
         if (!isExtern) {
-            targetSeg = findSegmentForAddress(sym->value);
+            targetSeg = sym->segment;
             if (targetSeg.empty()) continue;
         }
 

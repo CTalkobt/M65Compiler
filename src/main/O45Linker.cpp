@@ -188,6 +188,7 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
     globalSymbols_.clear();
     symbolSource_.clear();
     symbolWeak_.clear();
+    symbolSegment_.clear();
 
     // Collect all exports, handling weak-vs-strong resolution
     for (const auto& input : objects_) {
@@ -228,6 +229,31 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
             globalSymbols_[exp.name] = finalAddr;
             symbolSource_[exp.name] = input.filename;
             symbolWeak_[exp.name] = isWeak;
+            symbolSegment_[exp.name] = segId;
+        }
+    }
+
+    // Detect cross-segment address collisions (different symbols from different
+    // segments placed at the same address — indicates an assembler segment bug)
+    {
+        // Build address -> (name, segId) map
+        std::map<uint32_t, std::pair<std::string, uint8_t>> addrMap;
+        for (const auto& [name, addr] : globalSymbols_) {
+            auto segIt = symbolSegment_.find(name);
+            uint8_t seg = (segIt != symbolSegment_.end()) ? segIt->second : 0;
+            auto it = addrMap.find(addr);
+            if (it != addrMap.end() && it->second.second != seg) {
+                if (warnStream_) {
+                    *warnStream_ << "warning: symbols '" << it->second.first
+                                 << "' and '" << name << "' overlap at $"
+                                 << std::hex << std::uppercase << std::setfill('0')
+                                 << std::setw(4) << addr << std::dec
+                                 << " (different segments)" << std::endl;
+                }
+            }
+            if (it == addrMap.end()) {
+                addrMap[addr] = {name, seg};
+            }
         }
     }
 
