@@ -30,6 +30,15 @@ struct O45File {
     std::vector<uint8_t> textRelocs;
     std::vector<uint8_t> dataRelocs;
 
+    // Sub-segment attributes (from OPT_SEGATTR option records)
+    struct SegAttr {
+        uint8_t segId;          // which .o45 segment (SEG_TEXT, SEG_DATA, ...)
+        uint32_t offset;        // byte offset within that segment's body
+        uint32_t length;        // byte count
+        std::string name;       // original assembler segment name ("init", "code", ...)
+    };
+    std::vector<SegAttr> segAttrs;
+
     // Symbol tables
     struct Import {
         std::string name;

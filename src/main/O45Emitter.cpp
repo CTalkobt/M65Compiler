@@ -10,7 +10,7 @@
 
 // Map ca45 segment names to O45 segment IDs.
 static O45Segment segIdFromName(const std::string& name) {
-    if (name == "code" || name == "text") return SEG_TEXT;
+    if (name == "code" || name == "text" || name == "init") return SEG_TEXT;
     if (name == "data") return SEG_DATA;
     if (name == "bss") return SEG_BSS;
     if (name == "zp") return SEG_ZP;
@@ -42,7 +42,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
     };
 
     std::vector<std::string> segOrder = parser.requestedSegmentOrder;
-    if (segOrder.empty()) segOrder = {"code", "data", "bss"};
+    if (segOrder.empty()) segOrder = {"init", "code", "data", "bss"};
 
     // Build ordered unique segment name list
     std::vector<std::string> allSegNames;
@@ -595,12 +595,99 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
     O45Writer writer;
     writer.addDefaultOptions(asmVersion);
 
-    // Set segments
-    // Text = "code" or "default"
-    std::string textName = segBodies.count("code") ? "code" : "default";
-    if (segBodies.count(textName)) {
-        const auto& tb = segBodies[textName];
-        writer.setTextSegment(tb.base, tb.bytes);
+    // Collect all assembler segments that map to SEG_TEXT, in order.
+    // Concatenate their bodies and emit OPT_SEGATTR records.
+    std::vector<std::string> textSegNames;
+    for (const auto& name : allSegNames) {
+        if (segBodies.count(name) && segIdFromName(name) == SEG_TEXT) {
+            textSegNames.push_back(name);
+        }
+    }
+    // Fallback: if no named text segments, try "default"
+    if (textSegNames.empty() && segBodies.count("default")) {
+        textSegNames.push_back("default");
+    }
+
+    // Build merged text body from all text sub-segments, tracking per-sub-segment
+    // offsets for symbol adjustment.
+    std::map<std::string, uint32_t> textSubSegOffset; // segName -> offset in merged body
+    {
+        std::vector<uint8_t> mergedTextBody;
+        std::vector<O45Reloc> mergedTextRelocs;
+        uint32_t textBase = 0;
+        bool baseSet = false;
+
+        for (const auto& name : textSegNames) {
+            const auto& sb = segBodies[name];
+            uint32_t offset = (uint32_t)mergedTextBody.size();
+            textSubSegOffset[name] = offset;
+
+            if (!baseSet && !sb.bytes.empty()) {
+                textBase = sb.base;
+                baseSet = true;
+            }
+
+            // Emit OPT_SEGATTR when there are multiple text sub-segments,
+            // or when a single sub-segment has a non-default name (e.g., "init")
+            bool needAttr = (textSegNames.size() > 1) ||
+                            (name != "code" && name != "default" && name != "text");
+            if (needAttr && !sb.bytes.empty()) {
+                std::vector<uint8_t> payload;
+                payload.push_back((uint8_t)SEG_TEXT);
+                // offset (4 LE)
+                payload.push_back((uint8_t)(offset & 0xFF));
+                payload.push_back((uint8_t)((offset >> 8) & 0xFF));
+                payload.push_back((uint8_t)((offset >> 16) & 0xFF));
+                payload.push_back((uint8_t)((offset >> 24) & 0xFF));
+                // length (4 LE)
+                uint32_t len = (uint32_t)sb.bytes.size();
+                payload.push_back((uint8_t)(len & 0xFF));
+                payload.push_back((uint8_t)((len >> 8) & 0xFF));
+                payload.push_back((uint8_t)((len >> 16) & 0xFF));
+                payload.push_back((uint8_t)((len >> 24) & 0xFF));
+                // name (NUL-terminated)
+                for (char c : name) payload.push_back((uint8_t)c);
+                payload.push_back(0x00);
+                writer.addOptionRaw(OPT_SEGATTR, payload);
+            }
+
+            // Adjust relocation offsets for this sub-segment
+            auto it = segRelocs.find(name);
+            if (it != segRelocs.end()) {
+                for (auto r : it->second) {
+                    r.offset += offset;
+                    mergedTextRelocs.push_back(r);
+                }
+            }
+
+            mergedTextBody.insert(mergedTextBody.end(), sb.bytes.begin(), sb.bytes.end());
+        }
+
+        // Sort merged relocs by offset
+        std::sort(mergedTextRelocs.begin(), mergedTextRelocs.end(),
+                  [](const O45Reloc& a, const O45Reloc& b) { return a.offset < b.offset; });
+
+        if (!mergedTextBody.empty()) {
+            writer.setTextSegment(textBase, mergedTextBody);
+        }
+        writer.setTextRelocations(O45RelocEncoder::encode(mergedTextRelocs));
+
+        // Adjust exported symbol offsets for merged text sub-segments.
+        // Symbols were computed relative to their individual segment base;
+        // add the sub-segment's position within the merged text body.
+        if (textSegNames.size() > 1) {
+            for (auto& exp : syms.getExportsMut()) {
+                if (exp.segment != SEG_TEXT) continue;
+                // Find which sub-segment this symbol belongs to by checking
+                // its original assembler segment name
+                auto* sym = parser.resolveSymbol(exp.name);
+                if (!sym || sym->segment.empty()) continue;
+                auto adjIt = textSubSegOffset.find(sym->segment);
+                if (adjIt != textSubSegOffset.end() && adjIt->second > 0) {
+                    exp.offset += adjIt->second;
+                }
+            }
+        }
     }
 
     if (segBodies.count("data")) {
@@ -622,15 +709,11 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         }
     }
 
-    // Encode and set relocation tables
-    auto encodeRelocs = [&](const std::string& segName) -> std::vector<uint8_t> {
-        auto it = segRelocs.find(segName);
-        if (it == segRelocs.end()) return {};
-        return O45RelocEncoder::encode(it->second);
-    };
-
-    writer.setTextRelocations(encodeRelocs(textName));
-    writer.setDataRelocations(encodeRelocs("data"));
+    // Data relocation table
+    {
+        auto it = segRelocs.find("data");
+        writer.setDataRelocations(it != segRelocs.end() ? O45RelocEncoder::encode(it->second) : std::vector<uint8_t>{});
+    }
 
     // Apply symbols
     syms.applyTo(writer);

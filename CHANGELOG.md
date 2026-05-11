@@ -2,6 +2,26 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
+## [Unreleased] - 2026-05-11
+
+### Added
+- **Standard Library**:
+    - **`math.h`**: `div_t`/`ldiv_t` types, `labs()`, `div()`, `ldiv()` using MEGA65 hardware divider. Both stack and ZP calling conventions.
+    - **`errno.h`**: `errno` (standard `int` in BSS), `_errnoc` (alias for CBM kernal status byte at `$90`), error constants `ERANGE`, `ENOMEM`, `EINVAL`, `EDOM`. EDOM reserved for future math domain validation.
+    - **`setjmp.h`**: `jmp_buf` (4 bytes: PC + 16-bit SP), `setjmp()`/`longjmp()` for non-local jumps. Both stack and ZP calling conventions.
+    - **`stdlib.h`**: Added `labs()` declaration.
+- **Object Format (`.o45`)**:
+    - **`OPT_SEGATTR` option record** (`$10`): Sub-segment attribute metadata for named text sub-segments. Allows the assembler to tag portions of the text body with their original segment name (e.g., `"init"`, `"code"`). The linker uses these to reorder sub-segments, ensuring `"init"` always precedes `"code"` regardless of link order. Backward compatible — old tools skip unknown option types.
+    - **`.segment "init"` support**: New assembler segment that maps to `SEG_TEXT` in `.o45` but is guaranteed to be placed before `"code"` by the linker. CRT startup code (`crt0*.s`) now uses this segment.
+- **Linker (ln45)**:
+    - **Sub-segment ordering**: The linker reads `OPT_SEGATTR` records to split each object's text body into named sub-segments, then concatenates them in priority order (`"init"` → `"code"` → others). This fixes the link-order dependency where CRT startup code had to be linked before user objects.
+
+### Improved
+- **Assembler (ca45)**:
+    - **Error messages**: Invalid opcode errors now show the source file, line number, attempted addressing mode, and all supported addressing modes for the instruction. Stack-relative mode errors include a note about which instructions have simulated stack-relative support.
+- **Tools**:
+    - **nm45**: Detects `.lib` archive files and suggests using `ar45 t` instead of showing a generic "unrecognized format" error.
+
 ## [v1.0-rc2] - 2026-05-11
 
 ### Fixed
@@ -20,7 +40,7 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
     - **Bare `.text` no longer switches segments**: Previously, `.text` without arguments was an alias for `.code` (segment switch). This created ambiguity with the `.text "string"` PETSCII data directive. Bare `.text` is no longer recognized as a segment switch. Use `.code` instead. The `.segment "text"` form and `.text "string"` data directive are unaffected.
 
 ### Known Limitations
-- **Custom segments in `.o45` mode**: User-defined segments (`.segment "myname"`) are silently mapped to `SEG_TEXT` in `.o45` output. The `.o45` format only supports four segment IDs: TEXT, DATA, BSS, and ZP. Custom segments work correctly in flat binary mode but lose their identity in relocatable objects. Use `.code`, `.data`, `.bss`, or `.zp` for relocatable builds.
+- **Custom segments in `.o45` mode**: User-defined segments (`.segment "myname"`) are mapped to `SEG_TEXT` in `.o45` output. The `.o45` format supports four segment IDs: TEXT, DATA, BSS, and ZP. Custom segment names are preserved via `OPT_SEGATTR` option records, enabling linker-side ordering (e.g., `"init"` before `"code"`). Custom segments work correctly in flat binary mode; in relocatable builds they share the TEXT segment body but retain their name metadata.
 
 ## [Unreleased] - 2026-05-09
 

@@ -104,11 +104,29 @@ option_data   (N bytes)  ; length - 2 bytes of payload
 | `$03`  | `OPT_ASM`    | Assembler name/version (NUL-terminated)              |
 | `$04`  | `OPT_AUTHOR` | Author string (NUL-terminated)                       |
 | `$05`  | `OPT_CREATED`| Creation timestamp (NUL-terminated)                  |
+| `$10`  | `OPT_SEGATTR`| Sub-segment attribute (see 1.7)                      |
 | `$80`+ | user-defined | Available for toolchain-specific extensions           |
 
 Recommended `.o45` options:
 - `OPT_ASM` = `"ca45 <version>\0"`
 - `OPT_OS` with byte `$05` = MEGA65/C65 (user-defined OS ID, outside the standard o65 OS range)
+
+### 1.7 Sub-Segment Attributes (OPT_SEGATTR) [IMPLEMENTED]
+
+Describes a named sub-segment within a segment body. Multiple assembler segments that map to the same `.o45` segment (e.g., `"init"` and `"code"` both map to `SEG_TEXT`) are concatenated into one body. `OPT_SEGATTR` records describe each sub-segment's position so the linker can reorder them.
+
+```
+option_length  (1 byte)   ; 2 + payload_length
+option_type    (1 byte)   ; $10 (OPT_SEGATTR)
+seg_id         (1 byte)   ; target .o45 segment ID (e.g., $02 = SEG_TEXT)
+offset         (4 bytes)  ; LE offset within the segment body
+length         (4 bytes)  ; LE byte count of this sub-segment
+name           (N+1 bytes); NUL-terminated original assembler segment name
+```
+
+The linker uses the `name` field to determine ordering priority. The built-in priority order for text sub-segments is: `"init"` before `"code"` before any other names. This ensures CRT startup code (in the `"init"` segment) is always placed at the beginning of the text section, regardless of link order.
+
+Objects without `OPT_SEGATTR` records are treated as having a single unnamed sub-segment equivalent to `"code"`. Old tools that do not understand `OPT_SEGATTR` simply ignore it (standard option skip behavior).
 
 ---
 

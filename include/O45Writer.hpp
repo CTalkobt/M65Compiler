@@ -169,6 +169,7 @@ public:
     // Accessors
     const std::vector<std::string>& getImports() const { return imports_; }
     const std::vector<O45Export>& getExports() const { return exports_; }
+    std::vector<O45Export>& getExportsMut() { return exports_; }
     uint32_t importCount() const { return (uint32_t)imports_.size(); }
     uint32_t exportCount() const { return (uint32_t)exports_.size(); }
 

@@ -119,6 +119,21 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
         opt.type = data[off + 1];
         opt.data.assign(data.begin() + off + 2, data.begin() + off + len);
         out.options.push_back(opt);
+
+        // Parse OPT_SEGATTR into structured segAttrs
+        if (opt.type == OPT_SEGATTR && opt.data.size() >= 10) {
+            O45File::SegAttr sa;
+            sa.segId = opt.data[0];
+            sa.offset = opt.data[1] | (opt.data[2] << 8) | (opt.data[3] << 16) | (opt.data[4] << 24);
+            sa.length = opt.data[5] | (opt.data[6] << 8) | (opt.data[7] << 16) | (opt.data[8] << 24);
+            // Name is NUL-terminated starting at byte 9
+            size_t nameStart = 9;
+            size_t nameEnd = nameStart;
+            while (nameEnd < opt.data.size() && opt.data[nameEnd] != 0) nameEnd++;
+            sa.name.assign(opt.data.begin() + nameStart, opt.data.begin() + nameEnd);
+            out.segAttrs.push_back(sa);
+        }
+
         off += len;
     }
     if (off >= data.size()) { errorMsg = "missing option terminator"; return false; }

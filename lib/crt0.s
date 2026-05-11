@@ -19,7 +19,7 @@
 .weak _init_features
 .extern _main
 
-.segment "code"
+.segment "init"
 
 __sp_base = $0101
 

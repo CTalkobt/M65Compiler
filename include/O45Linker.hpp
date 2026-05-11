@@ -76,6 +76,28 @@ private:
         uint32_t dataOffset = 0;
         uint32_t bssOffset = 0;
         uint32_t zpOffset = 0;
+
+        // Sub-segment remapping for text body reordering.
+        // Maps [srcOffset, srcLen] in original text body → destOffset in merged text.
+        struct TextRemap {
+            uint32_t srcOffset;   // offset within this object's original textBody
+            uint32_t srcLen;      // length of this sub-segment
+            uint32_t destOffset;  // offset within the merged text body
+            std::string name;     // sub-segment name ("init", "code", etc.)
+        };
+        std::vector<TextRemap> textRemaps;
+
+        // Translate an offset within this object's original text body
+        // to an offset within the merged text body.
+        uint32_t remapTextOffset(uint32_t origOff) const {
+            for (const auto& r : textRemaps) {
+                if (origOff >= r.srcOffset && origOff < r.srcOffset + r.srcLen) {
+                    return r.destOffset + (origOff - r.srcOffset);
+                }
+            }
+            // No remap — use simple textOffset (single-segment object)
+            return textOffset + origOff;
+        }
     };
 
     std::vector<InputObject> objects_;

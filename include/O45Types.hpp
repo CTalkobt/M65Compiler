@@ -80,8 +80,16 @@ constexpr uint8_t  OPT_ASM           = 0x03;
 constexpr uint8_t  OPT_AUTHOR        = 0x04;
 constexpr uint8_t  OPT_CREATED       = 0x05;
 
+// Extended option types (.o45 specific)
+constexpr uint8_t  OPT_SEGATTR       = 0x10; // sub-segment attribute (see below)
+
 // OS identifier for MEGA65
 constexpr uint8_t  OPT_OS_MEGA65     = 0x05;
+
+// --- Sub-segment attribute record (OPT_SEGATTR) ---
+// Describes a named sub-segment within a segment body (e.g., "init" within text).
+// Payload: seg_id(1) + offset(4 LE) + length(4 LE) + name(NUL-terminated)
+// The linker uses these to order sub-segments (e.g., "init" before "code").
 
 // --- Function attribute record ---
 // Appended after an export entry in the export table when the function has
@@ -120,6 +128,7 @@ constexpr int o45RelocPatchSize(uint8_t rtype) {
 constexpr O45Segment o45SegmentFromName(const char* name) {
     if (name[0] == 't') return SEG_TEXT;
     if (name[0] == 'c') return SEG_TEXT;  // "code" alias
+    if (name[0] == 'i') return SEG_TEXT;  // "init" maps to text body
     if (name[0] == 'd') return SEG_DATA;
     if (name[0] == 'b') return SEG_BSS;
     if (name[0] == 'z') return SEG_ZP;

@@ -65,7 +65,7 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
 
     std::vector<std::string> order = parser->requestedSegmentOrder;
     if (order.empty()) {
-        order = {"code", "data", "bss"};
+        order = {"init", "code", "data", "bss"};
     }
     
     // Create a list of all known segments to ensure they are all processed

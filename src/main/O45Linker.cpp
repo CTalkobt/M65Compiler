@@ -57,7 +57,7 @@ std::vector<O45Reloc> O45RelocDecoder::decode(const std::vector<uint8_t>& raw) {
 // =============================================================================
 
 void O45Linker::addObject(const std::string& filename, const O45File& obj) {
-    objects_.push_back({filename, obj, 0, 0, 0, 0});
+    objects_.push_back({filename, obj, 0, 0, 0, 0, {}});
 }
 
 void O45Linker::addLibrary(const std::string& filename, const Ar45Archive& lib) {
@@ -107,7 +107,7 @@ bool O45Linker::resolveLibraries(std::string& errorMsg) {
                     return false;
                 }
 
-                objects_.push_back({libEntry.filename + "(" + member.name + ")", obj, 0, 0, 0, 0});
+                objects_.push_back({libEntry.filename + "(" + member.name + ")", obj, 0, 0, 0, 0, {}});
                 pulledMembers.insert(key);
                 changed = true;
 
@@ -146,22 +146,103 @@ bool O45Linker::layoutSegments(std::string& errorMsg) {
     mergedBssLen_ = 0;
     mergedZpLen_ = 0;
 
-    for (auto& input : objects_) {
-        // Text
-        input.textOffset = (uint32_t)mergedText_.size();
-        mergedText_.insert(mergedText_.end(),
-                           input.obj.textBody.begin(), input.obj.textBody.end());
+    // --- Text segment: sub-segment-aware layout ---
+    // Priority order for named text sub-segments. "init" comes first.
+    static const std::vector<std::string> textSubSegOrder = {"init", "code"};
 
-        // Data
+    // Collect sub-segment chunks from all objects, grouped by sub-segment name.
+    struct TextChunk {
+        size_t objectIdx;
+        uint32_t srcOffset;     // offset within object's textBody
+        uint32_t srcLen;        // byte length
+        std::string subSegName; // "init", "code", etc.
+    };
+    std::map<std::string, std::vector<TextChunk>> chunksByName;
+    std::vector<TextChunk> defaultChunks; // objects without segAttrs
+
+    for (size_t i = 0; i < objects_.size(); i++) {
+        auto& input = objects_[i];
+        if (input.obj.textBody.empty()) continue;
+
+        // Check for OPT_SEGATTR records covering the text segment
+        std::vector<O45File::SegAttr> textAttrs;
+        for (const auto& sa : input.obj.segAttrs) {
+            if (sa.segId == SEG_TEXT) textAttrs.push_back(sa);
+        }
+
+        if (textAttrs.empty()) {
+            // No sub-segments — entire text body is one chunk ("code")
+            defaultChunks.push_back({i, 0, (uint32_t)input.obj.textBody.size(), "code"});
+        } else {
+            // Sort by offset within text body
+            std::sort(textAttrs.begin(), textAttrs.end(),
+                      [](const O45File::SegAttr& a, const O45File::SegAttr& b) {
+                          return a.offset < b.offset;
+                      });
+            for (const auto& sa : textAttrs) {
+                chunksByName[sa.name].push_back({i, sa.offset, sa.length, sa.name});
+            }
+        }
+    }
+
+    // Add default chunks (no segAttrs) to "code" group
+    for (auto& dc : defaultChunks) {
+        chunksByName["code"].push_back(dc);
+    }
+
+    // Build merged text in priority order: known names first, then any remaining
+    std::vector<std::string> orderedNames;
+    for (const auto& name : textSubSegOrder) {
+        if (chunksByName.count(name)) orderedNames.push_back(name);
+    }
+    for (const auto& [name, chunks] : chunksByName) {
+        bool found = false;
+        for (const auto& n : orderedNames) if (n == name) { found = true; break; }
+        if (!found) orderedNames.push_back(name);
+    }
+
+    // Concatenate chunks in order, building remaps for each object
+    for (const auto& name : orderedNames) {
+        for (const auto& chunk : chunksByName[name]) {
+            auto& input = objects_[chunk.objectIdx];
+            uint32_t destOffset = (uint32_t)mergedText_.size();
+
+            // Copy bytes from object's textBody
+            auto begin = input.obj.textBody.begin() + chunk.srcOffset;
+            auto end = begin + chunk.srcLen;
+            mergedText_.insert(mergedText_.end(), begin, end);
+
+            // Record remap
+            input.textRemaps.push_back({chunk.srcOffset, chunk.srcLen, destOffset, chunk.subSegName});
+        }
+    }
+
+    // For objects with no sub-segments and no text body processed above,
+    // set simple textOffset (already handled via defaultChunks → "code")
+    for (auto& input : objects_) {
+        if (input.textRemaps.empty() && !input.obj.textBody.empty()) {
+            // Shouldn't happen — all objects should have been processed above
+            input.textOffset = (uint32_t)mergedText_.size();
+            mergedText_.insert(mergedText_.end(),
+                               input.obj.textBody.begin(), input.obj.textBody.end());
+        } else if (input.textRemaps.size() == 1 && input.textRemaps[0].srcOffset == 0) {
+            // Single chunk — set textOffset for backward compatibility
+            input.textOffset = input.textRemaps[0].destOffset;
+        } else if (!input.textRemaps.empty()) {
+            // Multiple chunks — textOffset points to the first chunk
+            input.textOffset = input.textRemaps[0].destOffset;
+        }
+    }
+
+    // --- Data, BSS, ZP: simple concatenation (unchanged) ---
+    for (auto& input : objects_) {
         input.dataOffset = (uint32_t)mergedData_.size();
         mergedData_.insert(mergedData_.end(),
                            input.obj.dataBody.begin(), input.obj.dataBody.end());
 
-        // BSS
         input.bssOffset = mergedBssLen_;
         mergedBssLen_ += input.obj.blen;
 
-        // ZP
         input.zpOffset = mergedZpLen_;
         mergedZpLen_ += input.obj.zlen;
     }
@@ -206,7 +287,14 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
                 case SEG_ZP:   base = zpBase_;   objOffset = input.zpOffset;   break;
                 default:       base = 0; objOffset = 0; break;
             }
-            uint32_t finalAddr = base + objOffset + exp.offset;
+            uint32_t finalAddr;
+            if (segId == SEG_TEXT && !input.textRemaps.empty() && input.textRemaps.size() > 1) {
+                // Symbol offset is within the object's original text body;
+                // remap to position in the merged text body.
+                finalAddr = base + input.remapTextOffset(exp.offset);
+            } else {
+                finalAddr = base + objOffset + exp.offset;
+            }
 
             if (globalSymbols_.count(exp.name)) {
                 bool existingWeak = symbolWeak_[exp.name];
@@ -295,8 +383,15 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
                              std::string& errorMsg) {
     for (const auto& r : relocs) {
         // The relocation offset is relative to the object's segment start.
-        // In the merged body, add the object's offset within the merged segment.
-        uint32_t patchPos = objOffset + r.offset;
+        // If the object has text sub-segment remaps (init/code reordering)
+        // and we're patching text, use remapTextOffset for correct positioning.
+        uint32_t patchPos;
+        if (!input.textRemaps.empty() && input.textRemaps.size() > 1
+            && objOffset == input.textOffset) {
+            patchPos = input.remapTextOffset(r.offset);
+        } else {
+            patchPos = objOffset + r.offset;
+        }
 
         if (patchPos >= body.size()) {
             errorMsg = "relocation offset " + std::to_string(patchPos) +
@@ -378,7 +473,12 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
                 default: break;
             }
 
-            targetAddr = segBase + segObjOff + (existingVal - origBase);
+            uint32_t segRelOff = existingVal - origBase;
+            if (r.segment == SEG_TEXT && !input.textRemaps.empty() && input.textRemaps.size() > 1) {
+                targetAddr = segBase + input.remapTextOffset(segRelOff);
+            } else {
+                targetAddr = segBase + segObjOff + segRelOff;
+            }
         }
 
         // Patch the bytes at the relocation site

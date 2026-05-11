@@ -4,7 +4,7 @@
 
 .global _init_features
 
-.segment "code"
+.segment "init"
 
 _init_features:
     ; Enable MEGA65 I/O
