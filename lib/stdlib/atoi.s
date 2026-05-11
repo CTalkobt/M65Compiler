@@ -15,10 +15,14 @@
 proc _atoi, W#_p_s
     .var _fp = 0
     ; Save ZP $02-$05 to stack (compiler pool)
-    lda $02: pha
-    lda $03: pha
-    lda $04: pha
-    lda $05: pha
+    lda $02
+    pha
+    lda $03
+    pha
+    lda $04
+    pha
+    lda $05
+    pha
 
     ldy #0
 

@@ -12,11 +12,13 @@ proc _putchar
     .zp_uses $03, $04
     .zp_clobbers $03, $04
     .zp_release $03, $04
-    .reg_clobbers A, X
-    .flag_clobbers C, N, Z
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
 
     lda $03
+    phz
     jsr $FFD2
+    plz
     lda $03
     ldx $04
     rts

@@ -12,7 +12,9 @@
 proc _getchar
     .var _fp = 0
 @wait:
+    phz
     jsr $FFE4
+    plz
     cmp #0
     beq @wait
     ldx #0

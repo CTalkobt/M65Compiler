@@ -31,16 +31,26 @@ __bss_end = 0
 proc _malloc, W#_p_size
     .var _fp = 0
     ; Save ZP $02-$0B to stack
-    lda $02: pha
-    lda $03: pha
-    lda $04: pha
-    lda $05: pha
-    lda $06: pha
-    lda $07: pha
-    lda $08: pha
-    lda $09: pha
-    lda $0a: pha
-    lda $0b: pha
+    lda $02
+    pha
+    lda $03
+    pha
+    lda $04
+    pha
+    lda $05
+    pha
+    lda $06
+    pha
+    lda $07
+    pha
+    lda $08
+    pha
+    lda $09
+    pha
+    lda $0a
+    pha
+    lda $0b
+    pha
     ; Total stack shift for params = 10
 
     ; 1. Adjust size: add 2-byte header, align to 2 bytes, min 4 bytes.

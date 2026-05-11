@@ -12,8 +12,10 @@
 proc _memcpy, W#_p_dest, W#_p_src, W#_p_n
     .var _fp = 0
     ; Save ZP $02-$03 to stack
-    lda $02: pha
-    lda $03: pha
+    lda $02
+    pha
+    lda $03
+    pha
 
     ldax _p_dest+2, s
     stax $02

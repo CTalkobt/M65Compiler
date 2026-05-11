@@ -18,12 +18,18 @@ proc _puts, W#_p_s
 @loop:
     lda ($02),y
     beq @done
+    phz
+    phy
     jsr $FFD2
+    ply
+    plz
     iny
     bne @loop
 @done:
     lda #$0D
+    phz
     jsr $FFD2
+    plz
     ldax #$0000         ; return 0
     rtn #0
     endproc

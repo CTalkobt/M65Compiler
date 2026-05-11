@@ -12,9 +12,12 @@
 proc _strcmp, W#_p_s1, W#_p_s2
     .var _fp = 0
     ; Save ZP $02-$04 to stack
-    lda $02: pha
-    lda $03: pha
-    lda $04: pha
+    lda $02
+    pha
+    lda $03
+    pha
+    lda $04
+    pha
 
     ldax _p_s1+3, s
     stax $02

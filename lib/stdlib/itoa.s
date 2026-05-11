@@ -20,11 +20,16 @@
 proc _itoa, W#_p_value, W#_p_str, W#_p_base
     .var _fp = 0
     ; Save ZP $02-$06 to stack
-    lda $02: pha
-    lda $03: pha
-    lda $04: pha
-    lda $05: pha
-    lda $06: pha
+    lda $02
+    pha
+    lda $03
+    pha
+    lda $04
+    pha
+    lda $05
+    pha
+    lda $06
+    pha
 
     ldax _p_value+5, s
     stax $02

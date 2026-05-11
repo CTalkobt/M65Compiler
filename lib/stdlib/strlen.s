@@ -11,7 +11,12 @@
 
 proc _strlen, W#_p_s
     .var _fp = 0
-    ldax _p_s, s
+    ; Save ZP $02/$03 (used as pointer; $02 is __zp_scratch)
+    lda $02
+    pha
+    lda $03
+    pha
+    ldax _p_s+2, s
     stax $02
     ldy #0
 @loop:
@@ -22,5 +27,12 @@ proc _strlen, W#_p_s
 @done:
     tya
     ldx #0
+    ; Restore ZP $02/$03
+    taz
+    pla
+    sta $03
+    pla
+    sta $02
+    tza
     rtn #0
     endproc

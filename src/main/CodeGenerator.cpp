@@ -2665,7 +2665,7 @@ void CodeGenerator::visit(Assignment& node) {
             } else {
                 emit("stax " + rName + suffix);
             }
-            if (vi.isVolatile) invalidateRegs();
+            if (vi.isVolatile || !isGlobal) invalidateRegs();
             else { updateRegAVar(rName, 0); updateRegXVar(rName, 1); }
         } else {
             bool lowCorrect = (regA.known && regA.isVariable && regA.varName == rName && regA.varOffset == 0);
@@ -2677,7 +2677,7 @@ void CodeGenerator::visit(Assignment& node) {
                 if (isGlobal) emit("sta " + rName);
                 else emit("sta.sp " + rName);
             }
-            if (vi.isVolatile) invalidateRegs();
+            if (vi.isVolatile || !isGlobal) invalidateRegs();
             else updateRegAVar(rName, 0);
         }
         return;
@@ -3643,9 +3643,11 @@ void CodeGenerator::visit(ReturnStatement& node) {
         resultNeeded = oldNeeded;
     }
 
-    // Clean up local variables from stack before returning.
+    // Clean up the pre-allocated frame from stack before returning.
+    // Use frameSize_ (not currentLocalByteSize, which accumulates transient arg pushes).
+    // For ZP calling convention, also include the caller-save area.
     // AX holds the return value, so use Z register to preserve A.
-    int cleanupSize = currentLocalByteSize;
+    int cleanupSize = frameSize_ + zpCallerSaveSize_;
     if (cleanupSize > 0) {
         emitter->taz();
         for (int i = 0; i < cleanupSize; ++i) emitter->pla();

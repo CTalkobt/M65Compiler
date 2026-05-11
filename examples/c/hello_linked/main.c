@@ -2,24 +2,26 @@
  *
  * Demonstrates the relocatable compilation workflow:
  *   cc45 -c main.c -o main.o45      (compile to object)
- *   ln45 -basic -o hello.prg crt0.o45 main.o45 c45.lib  (link)
+ *   ln45 -basic -o hello.prg main.o45 c45.lib  (link)
  *
- * The linker resolves printf/puts from c45.lib and prepends
- * the CRT startup code from crt0.o45.
+ * The linker resolves puts/strlen from c45.lib and prepends
+ * the CRT startup code.
  */
 
 #include <stdio.h>
 #include <string.h>
 
 int main() {
-    char buf[32];
+    int len;
 
     puts("linked hello!");
 
-    strcpy(buf, "built with cc45");
-    puts(buf);
+    len = strlen("built with cc45");
 
-    printf("string length: %d\n", strlen(buf));
+    if (len == 15)
+        puts("strlen: pass");
+    else
+        puts("strlen: fail");
 
     return 0;
 }

@@ -9,11 +9,13 @@
 .segment "code"
 
 proc _getchar
-    .reg_clobbers A, X
-    .flag_clobbers C, N, Z
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
 
 @wait:
+    phz
     jsr $FFE4
+    plz
     cmp #0
     beq @wait
     ldx #0
