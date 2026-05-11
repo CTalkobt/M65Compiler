@@ -12,6 +12,10 @@ These examples demonstrate different features of the m65compiler.
 - **stdlib/stdlib_h/** - Standard library examples (atoi, itoa)
 - **stdlib/ctype_h/** - Character type examples for classification and conversion
 - **palette_fade/** - Demonstrates mixed C and assembly code with calling conventions and MEGA65 hardware register access. C controls fade timing while assembly manipulates the palette.
+- **hello_linked/** - Minimal linked C program showing the `cc45 -c` + `ln45` relocatable build workflow.
+- **multi_module/** - Multi-file project with shared header, separate compilation of 3 modules, and linking. Demonstrates extern, struct pass/return, and the standard build workflow.
+- **bitfield_registers/** - MEGA65 VIC-IV hardware register access using C bitfield structs. Maps control registers, sprite enables, and screen attributes as typed bitfield overlays.
+- **game_of_life/** - Conway's Game of Life on the 40x25 text screen with wrapping edges. Demonstrates 2D arrays, nested loops, and direct screen/color RAM access.
 
 ### Assembly Examples
 
