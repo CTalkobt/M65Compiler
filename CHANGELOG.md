@@ -2,15 +2,25 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
-## [Unreleased] - 2026-05-10
+## [v1.0-rc2] - 2026-05-11
 
 ### Fixed
 - **Assembler (ca45)**:
+    - **O45Emitter symbol segment misassignment (Issue #45-2)**: Symbols defined after a `.data` or `.bss` directive could be incorrectly tagged as TEXT segment in the `.o45` output. Root cause: the O45Emitter inferred segment membership from address ranges (`findSegmentForAddress()`), which failed at segment boundaries where the code segment's PC was adjacent to the data segment's start. Fix: use the authoritative `sym->segment` field set at parse time instead of address-range inference. Also fixed missing segment fields on `.array`, `proc`, `__fill_dma_buf`, and `__move_dma_buf` symbol initializers. The `findSegmentForAddress()` function has been removed.
     - **Segment `startAddress` going stale across pass2 iterations (Issue #45)**: When assembling `.o45` files with both `.code` and `.data` sections, forward-reference resolution caused pass2 to run multiple iterations. On the first iteration, unresolved instructions were oversized, inflating the code section. The data segment's `startAddress` was set on this first iteration and never recalculated, creating a gap between TEXT and DATA segments. This caused `findSegmentForAddress()` to fail for data symbols, which then defaulted to `SEG_TEXT` with wrong offsets. After linking, data symbols overlapped with code symbols at the same addresses. Fix: reset segment `startAddress` at the start of each pass2 iteration.
+- **Linker (ln45)**:
+    - **Cross-segment address collision detection**: The linker now tracks the segment ID of each exported symbol and emits a warning when two symbols from different segments are placed at the same address. This catches assembler segment bugs early instead of producing silently-corrupt binaries.
+
+### Added
+- **Testing**:
+    - **Segment emission test suite** (`make test-segment-emission`): 55 new tests covering end-to-end segment assignment (data/bss/boundary/multi-segment/proc labels), multi-object linking (no overlap, BSS placement, unique addresses, cross-object relocations), and regression tests for Issue #45-2.
 
 ### Changed
 - **Assembler (ca45)**:
     - **Bare `.text` no longer switches segments**: Previously, `.text` without arguments was an alias for `.code` (segment switch). This created ambiguity with the `.text "string"` PETSCII data directive. Bare `.text` is no longer recognized as a segment switch. Use `.code` instead. The `.segment "text"` form and `.text "string"` data directive are unaffected.
+
+### Known Limitations
+- **Custom segments in `.o45` mode**: User-defined segments (`.segment "myname"`) are silently mapped to `SEG_TEXT` in `.o45` output. The `.o45` format only supports four segment IDs: TEXT, DATA, BSS, and ZP. Custom segments work correctly in flat binary mode but lose their identity in relocatable objects. Use `.code`, `.data`, `.bss`, or `.zp` for relocatable builds.
 
 ## [Unreleased] - 2026-05-09
 

@@ -1,7 +1,7 @@
 # MEGA65 C Compiler Suite — Codebase Documentation
 
-**Status:** v0.99.dev (v1.0 release ready, target: 2026-05-31)  
-**Last Updated:** 2026-05-08  
+**Status:** v1.0-rc2 (target: 2026-05-31)
+**Last Updated:** 2026-05-11
 **Maintainer:** Craig Taylor (CTalkobt)
 
 ---
@@ -310,17 +310,17 @@ The `.o45` relocatable object format is documented in `doc/lib45.md`. Key sectio
 
 - [x] All v1.0 blockers resolved
 - [x] All v1.0 should-fix items implemented
-- [x] Comprehensive test coverage (Units 1-8 validation tests)
+- [x] Comprehensive test coverage (Units 1-8 validation tests, 55 segment emission tests)
 - [x] Documentation updated (README, tool docs, stdlib, opcodes)
+- [x] Version bumped to v1.0-rc2 in code and documentation
 - [ ] Final QA on target hardware (MEGA65 emulator)
 - [ ] Release notes prepared
-- [ ] Version bumped to v1.0 in code and documentation
 
 ## References
 
 - **MEGA65 Hardware**: https://github.com/MEGA65/mega65-core
 - **45GS02 CPU**: Extended 6502 with Q register (AXYZ) and 32-bit operations
-- **Test Coverage**: 176 assembler validation tests (Units 1-7), semantic/parser error tests
+- **Test Coverage**: 176 assembler validation tests (Units 1-7), 55 segment emission tests, semantic/parser error tests
 - **Standards**: C99 preprocessor, C89/C99 subset for language features
 
 ---
