@@ -182,17 +182,44 @@ void AssemblerSimulatedOps::emitStackIncDecCode(AssemblerParser* parser, M65Emit
         }
     } else {
         uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-        uint16_t sb = e.spBase();
-        e.tsx();
-        if (isInc) {
-            e.recordSpBaseReloc(offset); e.inc_abs_x(sb + offset);
-            e.bne(0x03);
-            e.recordSpBaseReloc(offset + 1); e.inc_abs_x(sb + offset + 1);
+        if (e.hasFramePointer()) {
+            uint8_t fp = e.framePointerZP();
+            if (isInc) {
+                e.ldy_imm(offset);
+                e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, fp, true);
+                e.clc(); e.adc_imm(1);
+                e.emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, fp, true);
+                e.bne(0x07); // skip hi byte increment (LDY+LDA+ADC+STA = 7 bytes)
+                e.ldy_imm(offset + 1);
+                e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, fp, true);
+                e.adc_imm(0);
+                e.emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, fp, true);
+            } else {
+                e.ldy_imm(offset);
+                e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, fp, true);
+                e.bne(0x07); // if lo != 0, skip hi decrement
+                e.ldy_imm(offset + 1);
+                e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, fp, true);
+                e.sec(); e.sbc_imm(1);
+                e.emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, fp, true);
+                e.ldy_imm(offset);
+                e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, fp, true);
+                e.sec(); e.sbc_imm(1);
+                e.emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, fp, true);
+            }
         } else {
-            e.recordSpBaseReloc(offset); e.lda_abs_x(sb + offset);
-            e.bne(0x03);
-            e.recordSpBaseReloc(offset + 1); e.dec_abs_x(sb + offset + 1);
-            e.recordSpBaseReloc(offset); e.dec_abs_x(sb + offset);
+            uint16_t sb = e.spBase();
+            e.tsx();
+            if (isInc) {
+                e.recordSpBaseReloc(offset); e.inc_abs_x(sb + offset);
+                e.bne(0x03);
+                e.recordSpBaseReloc(offset + 1); e.inc_abs_x(sb + offset + 1);
+            } else {
+                e.recordSpBaseReloc(offset); e.lda_abs_x(sb + offset);
+                e.bne(0x03);
+                e.recordSpBaseReloc(offset + 1); e.dec_abs_x(sb + offset + 1);
+                e.recordSpBaseReloc(offset); e.dec_abs_x(sb + offset);
+            }
         }
     }
 }
@@ -748,9 +775,23 @@ void AssemblerSimulatedOps::emitSelectCode(AssemblerParser* parser, M65Emitter& 
     e.bne(0x03); e.lda_imm(val2Ast->getValue(parser)); e.bra(0x02); e.lda_imm(val1Ast->getValue(parser));
 }
 
-// Helper: emit TSX; TXA; CLC; ADC #lo; PHA; LDA #hi; ADC #0; TAX; PLA
-// with __sp_base relocs when in relocatable mode.
+// Helper: compute effective address of a stack variable into AX.
+// When frame pointer is active: FP + addend (simple ZP addition, no relocs).
+// Otherwise: TSX; TXA; CLC; ADC #lo(__sp_base+addend); ... with relocs.
 static void emitSpBaseAddrCalc(AssemblerParser* parser, M65Emitter& e, uint8_t addend) {
+    if (e.hasFramePointer()) {
+        // FP-relative: AX = FP + addend
+        uint8_t fp = e.framePointerZP();
+        e.clc();
+        e.lda_zp(fp);
+        e.adc_imm(addend);
+        e.pha();
+        e.lda_zp(fp + 1);
+        e.adc_imm(0);
+        e.tax();
+        e.pla();
+        return;
+    }
     bool spExtern = parser->isExternSymbol("__sp_base");
     e.tsx(); e.txa(); e.clc();
     if (spExtern) {

@@ -1,20 +1,20 @@
-/* printf return path test */
+/* hello_linked — Minimal linked C program for MEGA65 */
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 int main() {
-    asm("tsx");
-    asm("stx $0800");   /* SP at start */
+    char buf[8];
 
-    printf("x");        /* simplest printf - single literal char, no %d */
+    puts("linked hello!");
 
-    asm("tsx");
-    asm("stx $0801");   /* SP after printf literal */
+    itoa(42, buf, 10);
+    puts(buf);
 
-    printf("%d", 7);    /* printf with %d */
+    printf("string length: %d\n", strlen("hello"));
 
-    asm("tsx");
-    asm("stx $0802");   /* SP after printf %d */
+    puts("done!");
 
     return 0;
 }

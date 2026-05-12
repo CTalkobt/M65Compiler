@@ -277,21 +277,72 @@ void M65Emitter::recordSymbolReloc32Bit(const std::string& name) {
     }
 }
 
-void M65Emitter::lda_stack(uint8_t offset) {
-    // Synthesize direct stack access: TSX; LDA __sp_base+offset,X
+void M65Emitter::setupFramePointer() {
+    // Compute FP from current SP: FP = SP + 1 (address of first occupied stack byte)
+    // No save/restore needed — caller recalculates FP after each JSR return.
+    uint8_t fp = framePointerZP_;
     tsx();
-    recordSpBaseReloc(offset);
-    emitInstruction("lda", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
+    txa();
+    clc();
+    adc_imm(1);   // SPL + 1 (SP points to next free; +1 = first occupied)
+    sta_zp(fp);
+    lda_imm((spBase_ >> 8) & 0xFF);
+    adc_imm(0);
+    sta_zp(fp + 1);
+    // Record __sp_base relocation for the low byte addition.
+    // The addend is 1 (the +1 for SP convention).
+    // We need spBaseReloc for the TSX-based absolute,X instructions that DON'T
+    // exist here — instead we just need the $01 in the high byte to be correct.
+    // Since we're using immediates, we record symbol relocs if extern.
+    // Actually, for the FP setup we hardcode: FP_lo = SPL + 1, FP_hi = $01.
+    // The +1 accounts for the 6502 SP convention (SP points to next free).
+    // __sp_base is always $01xx, so the high byte is always $01.
+    // No relocation needed — the high byte is $01 regardless of __sp_base's low byte.
+}
+
+void M65Emitter::restoreFramePointer() {
+    // Pop saved FP from stack (reverse of setupFramePointer save)
+    uint8_t fp = framePointerZP_;
+    pla();
+    sta_zp(fp + 1);
+    pla();
+    sta_zp(fp);
+}
+
+void M65Emitter::lda_stack(uint8_t offset) {
+    if (hasFramePointer()) {
+        // Use frame pointer: LDY #offset; LDA ($FP),Y
+        ldy_imm(offset);
+        emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
+    } else {
+        // Legacy: TSX; LDA __sp_base+offset,X
+        tsx();
+        recordSpBaseReloc(offset);
+        emitInstruction("lda", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
+    }
 }
 void M65Emitter::sta_stack(uint8_t offset) {
-    // Synthesize direct stack access: TSX; STA __sp_base+offset,X
-    tsx();
-    recordSpBaseReloc(offset);
-    emitInstruction("sta", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
+    if (hasFramePointer()) {
+        // Use frame pointer: LDY #offset; STA ($FP),Y
+        ldy_imm(offset);
+        emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
+    } else {
+        // Legacy: TSX; STA __sp_base+offset,X
+        tsx();
+        recordSpBaseReloc(offset);
+        emitInstruction("sta", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
+    }
 }
 void M65Emitter::stx_stack(uint8_t offset) {
-    txa();
-    sta_stack(offset);
+    if (hasFramePointer()) {
+        // TXA; LDY #offset; STA ($FP),Y
+        txa();
+        ldy_imm(offset);
+        emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
+    } else {
+        txa();
+        sta_stack(offset);
+    }
 }
 void M65Emitter::sty_stack(uint8_t offset) {
     tya();
@@ -303,7 +354,6 @@ void M65Emitter::stz_stack(uint8_t offset) {
 }
 
 void M65Emitter::lda_frame(uint8_t fpOff, uint8_t yOff) {
-    // Direct stack access: TSX; LDA __sp_base + fpOff + yOff, X
     uint8_t totalOff = fpOff + yOff;
     lda_stack(totalOff);
 }

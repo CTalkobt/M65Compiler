@@ -1338,6 +1338,15 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
         currentLocalByteSize = frameSize;
     }
 
+    // Set up ZP frame pointer ($FD/$FE) for stack-relative access.
+    // FP points to the first frame byte (SP+1 after frame allocation).
+    // This eliminates per-access __sp_base relocations.
+    if (!useZpCall_) {
+        emit("; setup frame pointer");
+        emitter->setFramePointerZP(0xFD);
+        emitter->setupFramePointer();
+    }
+
     for (auto& loc : scanner.locals) {
         emit(".local " + loc.name + " = " + std::to_string(loc.frameOffset));
     }
@@ -1411,6 +1420,7 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     freeRegisterVars();
     frameLocals_.clear();
     frameSize_ = 0;
+    emitter->setFramePointerZP(0); // disable FP for next function
     currentFunction = nullptr;
 }
 
@@ -4843,8 +4853,22 @@ void CodeGenerator::visit(FunctionCall& node) {
     resultNeeded = oldNeeded; emit("jsr _" + node.name);
     // Caller cleans up pushed arguments
     if (argBytes > 0) {
-        emitter->taz();
+        emitter->taz();  // save A to Z
         for (int i = 0; i < argBytes; ++i) emitter->pla();
+        // Recalculate frame pointer after arg cleanup (SP back at frame level).
+        // A is in Z, save X to scratch ZP.
+        if (emitter->hasFramePointer()) {
+            emitter->stx_scratch();
+            emitter->setupFramePointer();
+            emitter->ldx_scratch();
+        }
+        emitter->tza();  // restore A
+    } else if (emitter->hasFramePointer()) {
+        // No args but still need FP recalc
+        emitter->taz();
+        emitter->stx_scratch();
+        emitter->setupFramePointer();
+        emitter->ldx_scratch();
         emitter->tza();
     }
     // Restore assembler frame tracking

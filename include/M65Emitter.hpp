@@ -21,6 +21,17 @@ public:
     void setScratchZP(uint8_t addr) { scratchZP_ = addr; }
     uint8_t scratchZP() const { return scratchZP_; }
 
+    // Frame pointer: ZP pair used for (ZP),Y stack access
+    // When active (non-zero), stack-relative ops use ($FP),Y instead of TSX+abs,X
+    void setFramePointerZP(uint8_t addr) { framePointerZP_ = addr; }
+    uint8_t framePointerZP() const { return framePointerZP_; }
+    bool hasFramePointer() const { return framePointerZP_ != 0; }
+
+    // Emit FP setup: save old FP, compute new FP from current SP
+    void setupFramePointer();
+    // Emit FP restore: pop old FP from stack
+    void restoreFramePointer();
+
     // Scratch ZP access — single byte used as temp by simulated ops
     void lda_scratch() { lda_zp(scratchZP_); }
     void sta_scratch() { sta_zp(scratchZP_); }
@@ -250,6 +261,7 @@ private:
     uint32_t zeroPageStart;
     uint16_t spBase_ = 0x0101;
     uint8_t scratchZP_ = 0x02;  // default; overridden by compiler via __zp_scratch
+    uint8_t framePointerZP_ = 0; // 0 = disabled; when set, stack ops use ($FP),Y
     uint32_t currentAddress = 0;
     bool addressSet = false;
     void emitText(const std::string& mnemonic, const std::string& operand = "");
