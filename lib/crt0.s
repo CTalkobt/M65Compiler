@@ -16,7 +16,7 @@
 .global __init
 .global __exit
 .global __sp_base
-.extern _init_features
+.weak _init_features
 .extern _main
 
 .segment "init"
@@ -47,5 +47,11 @@ __saved_sph:
     tys
     rts
 
-; _init_features is provided by crt0_mega65.s (pulled from c45.lib).
-; For bare-metal without MEGA65 platform init, provide your own.
+; Default init_features — unlocks MEGA65 I/O (required for hardware math unit).
+; Override with a strong definition for additional platform setup.
+_init_features:
+    lda #$47
+    sta $D02F
+    lda #$53
+    sta $D02F
+    rts

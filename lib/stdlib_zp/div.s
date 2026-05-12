@@ -71,8 +71,8 @@ proc _div
     stz $D767
 
 @wait:
-    lda $D7FE
-    bmi @wait
+    bit $D70F
+    bne @wait
 
     ; Quotient
     lda $D768

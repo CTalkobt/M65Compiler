@@ -95,8 +95,8 @@ proc _itoa
     sta $d767
 
 @waitdiv:
-    lda $d7fe
-    bmi @waitdiv
+    bit $D70F
+    bne @waitdiv
 
     ; Convert remainder to character
     lda $d770

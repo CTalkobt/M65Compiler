@@ -97,29 +97,59 @@ proc _itoa, W#_p_value, W#_p_str, W#_p_base
     bra @nulterm
 
     ; --- Extract digits: divide, push remainder as char ---
+    ; MEGA65 math unit registers:
+    ;   MULTINA ($D770-$D773) = numerator / multiplier input A
+    ;   MULTINB ($D774-$D777) = denominator / multiplier input B
+    ;   DIVOUT whole quotient at $D76C-$D76F
+    ;   MULTOUT product at $D778-$D77F (1-cycle, no wait)
+    ;   DIVBUSY at $D70F bit 7
+    ; Remainder = value - quotient * base (computed via multiplier).
 @extract:
-    ; Divide value by base using hardware divider
+    ; Load numerator (value) into MULTINA ($D770-$D773)
     lda $02
-    sta $d760
+    sta $d770
     lda $03
-    sta $d761
+    sta $d771
     lda #0
-    sta $d762
-    sta $d763
+    sta $d772
+    sta $d773
+    ; Load denominator (base) into MULTINB ($D774-$D777)
     lda $04
-    sta $d764
+    sta $d774
     lda $05
-    sta $d765
+    sta $d775
     lda #0
-    sta $d766
-    sta $d767
+    sta $d776
+    sta $d777
 
 @waitdiv:
-    lda $d7fe
-    bmi @waitdiv
+    bit $d70f
+    bne @waitdiv
+
+    ; Save quotient from DIVOUT whole ($D76C/$D76D) before overwriting MULTINA.
+    ; Use $07/$08 as temp (within our saved ZP range).
+    lda $d76c
+    sta $07             ; quotient lo
+    lda $d76d
+    sta $08             ; quotient hi
+
+    ; Compute quotient * base via multiplier to derive remainder:
+    ; MULTINA = quotient, MULTINB still = base from above.
+    lda $07
+    sta $d770
+    lda $08
+    sta $d771
+    lda #0
+    sta $d772
+    sta $d773
+    ; MULTOUT ($D778) = quotient * base (available in 1 cycle, no wait)
+
+    ; remainder = value - quotient*base (low byte only, always < base ≤ 36)
+    sec
+    lda $02
+    sbc $d778
 
     ; Convert remainder to character
-    lda $d770
     cmp #10
     bcs @hexdig
     clc
@@ -135,9 +165,9 @@ proc _itoa, W#_p_value, W#_p_str, W#_p_base
     inc $06             ; count it
 
     ; Quotient becomes new value
-    lda $d768
+    lda $07
     sta $02
-    lda $d769
+    lda $08
     sta $03
 
     ; Continue while value != 0

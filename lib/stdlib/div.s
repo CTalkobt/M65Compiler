@@ -87,8 +87,8 @@ proc _div, W#_p___ret_ptr, W#_p_numer, W#_p_denom
 
     ; Wait for hardware divider
 @wait:
-    lda $D7FE
-    bmi @wait
+    bit $D70F
+    bne @wait
 
     ; Quotient at $D768-$D769
     lda $D768

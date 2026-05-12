@@ -121,8 +121,8 @@ proc _ldiv, W#_p___ret_ptr, D#_p_numer, D#_p_denom
 
     ; Wait for hardware divider
 @wait:
-    lda $D7FE
-    bmi @wait
+    bit $D70F
+    bne @wait
 
     ; Load ret_ptr into $04/$05 (adjusted for 7 pushed ZP bytes)
     ldax _p___ret_ptr+7, s

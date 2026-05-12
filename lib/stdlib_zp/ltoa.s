@@ -101,8 +101,8 @@ proc _ltoa
     sta $d767
 
 @waitdiv:
-    lda $d7fe
-    bmi @waitdiv
+    bit $D70F
+    bne @waitdiv
 
     ; Convert remainder ($D770) to character
     lda $d770

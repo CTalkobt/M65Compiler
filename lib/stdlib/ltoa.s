@@ -126,8 +126,8 @@ proc _ltoa, D#_p_value, W#_p_str, W#_p_base
     sta $d767
 
 @waitdiv:
-    lda $d7fe
-    bmi @waitdiv
+    bit $d70f
+    bne @waitdiv
 
     ; Convert remainder ($D770) to character
     lda $d770
