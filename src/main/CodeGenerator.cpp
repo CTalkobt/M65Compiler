@@ -941,6 +941,14 @@ void CodeGenerator::visit(TranslationUnit& node) {
         // Emit .extern __sp_base for relocatable code (linker provides from CRT)
         out << ".extern __sp_base" << std::endl;
 
+        // Define __zp_scratch for simulated ops (always at $02 for cc45)
+        {
+            std::stringstream ss;
+            ss << "__zp_scratch = $" << std::hex << std::uppercase
+               << std::setfill('0') << std::setw(2) << (int)emitter->scratchZP();
+            out << ss.str() << std::endl;
+        }
+
         out << std::endl;
     }
     // 2. Emit startup stub if main is present (not in relocatable mode — CRT provides it)

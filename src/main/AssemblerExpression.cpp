@@ -83,6 +83,11 @@ uint32_t VariableNode::getValue(AssemblerParser* parser) const {
 
     // Symbol not found — check if it's declared as extern
     // Only emit error in later passes when all labels should be known
+    // TODO: Make this a hard error that aborts assembly. Currently it prints
+    // an error but continues with value 0, which silently produces corrupt
+    // binaries (e.g., __zp_scratch=0 causes writes to ZP $00 instead of $02,
+    // corrupting the 45GS02 base page register). The assembler should refuse
+    // to produce a .o45 when symbols are unresolved and not declared .extern.
     if (parser && !parser->isPass1() && !parser->isExternSymbol(name)) {
         std::cerr << "Error: undefined symbol '" << name << "' (did you forget .extern " << name << "?)\n";
     }

@@ -14,6 +14,14 @@
 #include "AssemblerTypes.hpp"
 #include "Version.hpp"
 
+// TODO: Add binary diff mode (-D) for comparing two .prg/.o45 files.
+// Shows byte-level differences at matching symbol addresses, highlighting
+// relocation mismatches (e.g., __sp_base or __zp_scratch resolved differently
+// between direct-compile and linked builds). Usage:
+//   objdump45 -D direct.prg linked.prg
+// For each shared symbol, show side-by-side disassembly of the first N
+// instructions with differing bytes highlighted.
+
 // ─── Helpers shared with nm45 ───────────────────────────────────────────────
 
 static const char* segmentName(uint8_t seg) {
