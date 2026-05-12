@@ -1422,18 +1422,10 @@ void CodeGenerator::visit(BuiltinVaStart& node) {
     // For default argument promotions, variadic args are always 2 bytes
     // but the last named param keeps its original size
 
-    // Compute: address = __sp_base + (_p_last + paramSize) + SPL
-    // _p_last is an assembler .var that tracks the current offset
-    emit("tsx");         // X = SPL
-    emit("txa");         // A = SPL
-    emit("clc");
-    // Add low byte of (__sp_base + _p_last + paramSize)
-    emit("adc #<(__sp_base + " + lastPName + " + " + std::to_string(paramSize) + ")");
-    emitter->sta_scratch(); // save low byte in scratch ZP
-    emit("lda #>(__sp_base + " + lastPName + " + " + std::to_string(paramSize) + ")");
-    emit("adc #0");      // add carry
-    emit("tax");         // X = high byte
-    emitter->lda_scratch(); // A = low byte
+    // Compute address of first variadic arg on the stack.
+    // Use ptrstack which correctly handles __sp_base relocation in .o45 mode.
+    // The first variadic arg is at _p_last + paramSize (just past the last named param).
+    emit("ptrstack " + lastPName + " + " + std::to_string(paramSize));
     // Now AX = address of first variadic arg
     // Store into ap variable
     auto* apRef = dynamic_cast<VariableReference*>(node.ap.get());
