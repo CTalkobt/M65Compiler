@@ -37,10 +37,6 @@ __saved_sph:
     tys
     rts
 
-; Default init_features — unlocks MEGA65 I/O (required for hardware math unit).
+; Default init_features — does nothing. Override with a strong definition.
 _init_features:
-    lda #$47
-    sta $D02F
-    lda #$53
-    sta $D02F
     rts

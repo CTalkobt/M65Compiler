@@ -104,9 +104,14 @@ proc _itoa, W#_p_value, W#_p_str, W#_p_base
     ;   MULTOUT product at $D778-$D77F (1-cycle, no wait)
     ;   DIVBUSY at $D70F bit 7
     ; Remainder = value - quotient * base (computed via multiplier).
+    ; Z register holds old value lo byte across the quotient computation.
 @extract:
-    ; Load numerator (value) into MULTINA ($D770-$D773)
+    ; Save old value lo in Z for remainder computation later
     lda $02
+    taz
+
+    ; Load numerator (value) into MULTINA ($D770-$D773)
+    ; A still has $02
     sta $d770
     lda $03
     sta $d771
@@ -126,28 +131,29 @@ proc _itoa, W#_p_value, W#_p_str, W#_p_base
     bit $d70f
     bne @waitdiv
 
-    ; Save quotient from DIVOUT whole ($D76C/$D76D) before overwriting MULTINA.
-    ; Use $07/$08 as temp (within our saved ZP range).
+    ; Read quotient from DIVOUT whole ($D76C/$D76D).
+    ; Store quotient to $02/$03 (becomes next iteration's value).
     lda $d76c
-    sta $07             ; quotient lo
+    sta $02             ; quotient lo → new value lo
     lda $d76d
-    sta $08             ; quotient hi
+    sta $03             ; quotient hi → new value hi
 
-    ; Compute quotient * base via multiplier to derive remainder:
-    ; MULTINA = quotient, MULTINB still = base from above.
-    lda $07
+    ; Compute quotient * base via multiplier to derive remainder.
+    ; MULTINA = quotient, MULTINB still = base.
+    lda $02
     sta $d770
-    lda $08
+    lda $03
     sta $d771
     lda #0
     sta $d772
     sta $d773
-    ; MULTOUT ($D778) = quotient * base (available in 1 cycle, no wait)
+    ; MULTOUT ($D778) = quotient * base (1-cycle, no wait)
 
-    ; remainder = value - quotient*base (low byte only, always < base ≤ 36)
+    ; remainder = old_value_lo - (quotient*base)_lo
+    ; Old value lo was saved in Z register.
     sec
-    lda $02
-    sbc $d778
+    tza                 ; A = old value lo
+    sbc $d778           ; A = remainder
 
     ; Convert remainder to character
     cmp #10
@@ -164,13 +170,8 @@ proc _itoa, W#_p_value, W#_p_str, W#_p_base
     pha                 ; push digit char onto hardware stack
     inc $06             ; count it
 
-    ; Quotient becomes new value
-    lda $07
-    sta $02
-    lda $08
-    sta $03
-
     ; Continue while value != 0
+    lda $03
     ora $02
     bne @extract
 
