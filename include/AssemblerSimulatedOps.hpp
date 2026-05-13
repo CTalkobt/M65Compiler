@@ -3,12 +3,73 @@
 #include <string>
 #include <cstdint>
 #include "AssemblerTypes.hpp"
+#include "AssemblerParser.hpp"
 
-class AssemblerParser;
 class M65Emitter;
 
 class AssemblerSimulatedOps {
 public:
+    // Unified dispatch wrappers — each adapts the (parser, emitter, stmt) signature
+    // to the existing emitXxxCode functions. Used as Statement::emitFn values.
+    using Stmt = AssemblerParser::Statement;
+    static void dispatch_Expr(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_Mul(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_Div(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_StackIncDec(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_StackIncDec8(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_AddSub16(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_Bitwise16(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_CMP16(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_CMP_S16(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_LDW(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_STW(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_Fill(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_Copy(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_Swap(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_NegNot16(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_ABS16(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_ChkZero(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_Branch16(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_Select(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_PtrStack(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_PtrDeref(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_FlatMemory(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_PHWStack(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_ASW(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_ROW(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_Shift16(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_SXT8(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_SXT16(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_AddSub32(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_Bitwise32(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_CMP32(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_CMP_S32(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_NegNot32(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_ABS32(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_Shift32(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_PushPop(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_LDA_Stack(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_STA_Stack(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_LDX_Stack(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_LDY_Stack(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_LDZ_Stack(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_STX_Stack(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_STY_Stack(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_STZ_Stack(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_Zero(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_LDA_FP(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_STA_FP(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_LDAX_FP(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_STAX_FP(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_LEAX_FP(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_MOVE_FP(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_BFExt(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_BFIns(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_MulS16(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_DivS16(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_Mod16(AssemblerParser* p, M65Emitter& e, Stmt* s);
+
+    // Original emit functions (implementations unchanged)
     static void emitExpressionCode(AssemblerParser* parser, M65Emitter& e, const std::string& target, int tokenIndex, const std::string& scopePrefix);
     static void emitMulCode(AssemblerParser* parser, M65Emitter& e, int width, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
     static void emitDivCode(AssemblerParser* parser, M65Emitter& e, int width, const std::string& dest, int tokenIndex, const std::string& scopePrefix);

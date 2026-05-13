@@ -10,6 +10,8 @@
 #include "AssemblerTypes.hpp"
 #include "AssemblerOpcodeDatabase.hpp"
 
+class M65Emitter;  // forward declaration for SimOpEmitFn
+
 struct Instruction {
     std::string mnemonic;
     AddressingMode mode;
@@ -136,6 +138,7 @@ private:
 
     std::map<std::string, ArrayInfo> arrayInfos;
 
+public:
     struct Statement {
         enum Type { NONE, INSTRUCTION, DIRECTIVE, EXPR, BASIC_UPSTART, MUL, DIV, STACK_INC, STACK_DEC, STACK_INC8, STACK_DEC8,
                     ADD16, SUB16, AND16, ORA16, EOR16, CMP16, LDW, STW, SWAP, ZERO,
@@ -176,40 +179,11 @@ private:
 
         bool deleted = false;
 
-        bool isSimulatedOp() const {
-            switch (type) {
-                case MUL: case DIV: case STACK_INC: case STACK_DEC:
-                case STACK_INC8: case STACK_DEC8: case ADD16: case SUB16:
-                case AND16: case ORA16: case EOR16: case CMP16: case LDW:
-                case STW: case SWAP: case ZERO: case NEG16: case NOT16:
-                case ABS16: case CHKZERO8: case CHKZERO16:
-                case ADDS16: case SUBS16: case CMP_S16: case NEG_S16: case ABS_S16:
-                case ASR_S16: case LSL_S16: case LSR_S16: case ROL_S16: case ROR_S16: case SXT8:
-                case LDA_STACK: case STA_STACK:
-                case LDX_STACK: case LDY_STACK: case LDZ_STACK:
-                case STX_STACK: case STY_STACK: case STZ_STACK:
-                case CHKNONZERO8: case CHKNONZERO16: case BRANCH16: case SELECT:
-                case PTRSTACK: case PTRDEREF: case LDWF: case STWF: case INCF:
-                case DECF: case PHW_STACK: case ASW: case ROW: case ASR16:
-                case LSL16: case LSR16: case ROL16: case ROR16:
-                case LDAX: case LDAY: case LDAZ: case STAX: case STAY: case STAZ:
-                case FILL: case COPY: case PUSH: case POP:
-                case MUL_S16: case DIV_S16: case MOD16: case MOD_S16:
-                case LDA_FP: case STA_FP: case LDAX_FP: case STAX_FP:
-                case LEAX_FP: case MOVE_FP:
-                case BFEXT: case BFEXT16:
-                case BFINS: case BFINS_SP: case BFINS_IND:
-                case BFINS16: case BFINS16_SP: case BFINS16_IND:
-                case ADD32: case SUB32: case AND32: case ORA32: case EOR32:
-                case CMP32: case NEG32: case NOT32: case ABS32:
-                case LSL32: case LSR32: case ROL32: case ROR32: case ASR32: case SXT16:
-                case ADDS32: case SUBS32: case CMP_S32: case NEG_S32: case ABS_S32:
-                case ASR_S32: case LSL_S32: case LSR_S32: case ROL_S32: case ROR_S32:
-                    return true;
-                default:
-                    return false;
-            }
-        }
+        // Simulated op dispatch: set at parse time, used for both sizing and emission
+        using SimOpEmitFn = void(*)(AssemblerParser*, M65Emitter&, Statement*);
+        SimOpEmitFn emitFn = nullptr;
+
+        bool isSimulatedOp() const { return emitFn != nullptr; }
 
         bool is16BitOp() const {
             switch (type) {
@@ -228,6 +202,7 @@ private:
     };
     std::deque<std::unique_ptr<Statement>> statements;
 
+private:
     void switchSegment(const std::string& name);
 
     const AssemblerToken& peek() const;

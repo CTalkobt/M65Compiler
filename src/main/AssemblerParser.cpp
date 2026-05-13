@@ -726,103 +726,107 @@ void AssemblerParser::pass1() {
             std::transform(fullMnemonic.begin(), fullMnemonic.end(), fullMnemonic.begin(), ::tolower);
             stmt->instr.mnemonic = fullMnemonic;
 
-            if (fullMnemonic == "add.16") stmt->type = Statement::ADD16;
-            else if (fullMnemonic == "sub.16") stmt->type = Statement::SUB16;
-            else if (fullMnemonic == "add.s16") stmt->type = Statement::ADDS16;
-            else if (fullMnemonic == "sub.s16") stmt->type = Statement::SUBS16;
-            else if (fullMnemonic == "and.16") stmt->type = Statement::AND16;
-            else if (fullMnemonic == "ora.16") stmt->type = Statement::ORA16;
-            else if (fullMnemonic == "eor.16") stmt->type = Statement::EOR16;
-            else if (fullMnemonic == "cmp.16" || fullMnemonic == "cpw") stmt->type = Statement::CMP16;
-            else if (fullMnemonic == "cmp.s16") stmt->type = Statement::CMP_S16;
-            else if (fullMnemonic == "ldw" || fullMnemonic == "ldw.sp") stmt->type = Statement::LDW;
-            else if (fullMnemonic == "stw" || fullMnemonic == "stw.sp") stmt->type = Statement::STW;
-            else if (fullMnemonic == "fill" || fullMnemonic == "fill.sp") stmt->type = Statement::FILL;
-            else if (fullMnemonic == "move" || fullMnemonic == "move.sp") stmt->type = Statement::COPY;
-            else if (fullMnemonic == "swap") stmt->type = Statement::SWAP;
-            else if (fullMnemonic == "neg.16") stmt->type = Statement::NEG16;
-            else if (fullMnemonic == "not.16") stmt->type = Statement::NOT16;
-            else if (fullMnemonic == "neg.s16") stmt->type = Statement::NEG_S16;
-            else if (fullMnemonic == "abs.16") stmt->type = Statement::ABS16;
-            else if (fullMnemonic == "abs.s16") stmt->type = Statement::ABS_S16;
-            else if (fullMnemonic == "chkzero.8") stmt->type = Statement::CHKZERO8;
-            else if (fullMnemonic == "chkzero.16") stmt->type = Statement::CHKZERO16;
-            else if (fullMnemonic == "chknonzero.8") stmt->type = Statement::CHKNONZERO8;
-            else if (fullMnemonic == "chknonzero.16") stmt->type = Statement::CHKNONZERO16;
-            else if (fullMnemonic == "branch.16") stmt->type = Statement::BRANCH16;
-            else if (fullMnemonic == "select") stmt->type = Statement::SELECT;
-            else if (fullMnemonic == "ptrstack") stmt->type = Statement::PTRSTACK;
-            else if (fullMnemonic == "ptrderef") stmt->type = Statement::PTRDEREF;
-            else if (fullMnemonic == "phw.sp") stmt->type = Statement::PHW_STACK;
-            else if (fullMnemonic == "lda.sp") stmt->type = Statement::LDA_STACK;
-            else if (fullMnemonic == "sta.sp") stmt->type = Statement::STA_STACK;
-            else if (fullMnemonic == "ldw.f") stmt->type = Statement::LDWF;
-            else if (fullMnemonic == "stw.f") stmt->type = Statement::STWF;
-            else if (fullMnemonic == "inc.f") stmt->type = Statement::INCF;
-            else if (fullMnemonic == "dec.f") stmt->type = Statement::DECF;
-            else if (fullMnemonic == "asw") stmt->type = Statement::ASW;
-            else if (fullMnemonic == "row") stmt->type = Statement::ROW;
-            else if (fullMnemonic == "lsl.16") stmt->type = Statement::LSL16;
-            else if (fullMnemonic == "lsr.16") stmt->type = Statement::LSR16;
-            else if (fullMnemonic == "rol.16") stmt->type = Statement::ROL16;
-            else if (fullMnemonic == "ror.16") stmt->type = Statement::ROR16;
-            else if (fullMnemonic == "asr.16") stmt->type = Statement::ASR16;
-            else if (fullMnemonic == "lsl.s16") stmt->type = Statement::LSL_S16;
-            else if (fullMnemonic == "lsr.s16") stmt->type = Statement::LSR_S16;
-            else if (fullMnemonic == "rol.s16") stmt->type = Statement::ROL_S16;
-            else if (fullMnemonic == "ror.s16") stmt->type = Statement::ROR_S16;
-            else if (fullMnemonic == "asr.s16") stmt->type = Statement::ASR_S16;
+            // Mnemonic → type + dispatch function assignment
+            // Shorthand: S = AssemblerSimulatedOps
+            using S = AssemblerSimulatedOps;
+            #define SIMOP(T, F) stmt->type = Statement::T; stmt->emitFn = S::F
+
+            if (fullMnemonic == "add.16") { SIMOP(ADD16, dispatch_AddSub16); }
+            else if (fullMnemonic == "sub.16") { SIMOP(SUB16, dispatch_AddSub16); }
+            else if (fullMnemonic == "add.s16") { SIMOP(ADDS16, dispatch_AddSub16); }
+            else if (fullMnemonic == "sub.s16") { SIMOP(SUBS16, dispatch_AddSub16); }
+            else if (fullMnemonic == "and.16") { SIMOP(AND16, dispatch_Bitwise16); }
+            else if (fullMnemonic == "ora.16") { SIMOP(ORA16, dispatch_Bitwise16); }
+            else if (fullMnemonic == "eor.16") { SIMOP(EOR16, dispatch_Bitwise16); }
+            else if (fullMnemonic == "cmp.16" || fullMnemonic == "cpw") { SIMOP(CMP16, dispatch_CMP16); }
+            else if (fullMnemonic == "cmp.s16") { SIMOP(CMP_S16, dispatch_CMP_S16); }
+            else if (fullMnemonic == "ldw" || fullMnemonic == "ldw.sp") { SIMOP(LDW, dispatch_LDW); }
+            else if (fullMnemonic == "stw" || fullMnemonic == "stw.sp") { SIMOP(STW, dispatch_STW); }
+            else if (fullMnemonic == "fill" || fullMnemonic == "fill.sp") { SIMOP(FILL, dispatch_Fill); }
+            else if (fullMnemonic == "move" || fullMnemonic == "move.sp") { SIMOP(COPY, dispatch_Copy); }
+            else if (fullMnemonic == "swap") { SIMOP(SWAP, dispatch_Swap); }
+            else if (fullMnemonic == "neg.16") { SIMOP(NEG16, dispatch_NegNot16); }
+            else if (fullMnemonic == "not.16") { SIMOP(NOT16, dispatch_NegNot16); }
+            else if (fullMnemonic == "neg.s16") { SIMOP(NEG_S16, dispatch_NegNot16); }
+            else if (fullMnemonic == "abs.16") { SIMOP(ABS16, dispatch_ABS16); }
+            else if (fullMnemonic == "abs.s16") { SIMOP(ABS_S16, dispatch_ABS16); }
+            else if (fullMnemonic == "chkzero.8") { SIMOP(CHKZERO8, dispatch_ChkZero); }
+            else if (fullMnemonic == "chkzero.16") { SIMOP(CHKZERO16, dispatch_ChkZero); }
+            else if (fullMnemonic == "chknonzero.8") { SIMOP(CHKNONZERO8, dispatch_ChkZero); }
+            else if (fullMnemonic == "chknonzero.16") { SIMOP(CHKNONZERO16, dispatch_ChkZero); }
+            else if (fullMnemonic == "branch.16") { SIMOP(BRANCH16, dispatch_Branch16); }
+            else if (fullMnemonic == "select") { SIMOP(SELECT, dispatch_Select); }
+            else if (fullMnemonic == "ptrstack") { SIMOP(PTRSTACK, dispatch_PtrStack); }
+            else if (fullMnemonic == "ptrderef") { SIMOP(PTRDEREF, dispatch_PtrDeref); }
+            else if (fullMnemonic == "phw.sp") { SIMOP(PHW_STACK, dispatch_PHWStack); }
+            else if (fullMnemonic == "lda.sp") { SIMOP(LDA_STACK, dispatch_LDA_Stack); }
+            else if (fullMnemonic == "sta.sp") { SIMOP(STA_STACK, dispatch_STA_Stack); }
+            else if (fullMnemonic == "ldw.f") { SIMOP(LDWF, dispatch_FlatMemory); }
+            else if (fullMnemonic == "stw.f") { SIMOP(STWF, dispatch_FlatMemory); }
+            else if (fullMnemonic == "inc.f") { SIMOP(INCF, dispatch_FlatMemory); }
+            else if (fullMnemonic == "dec.f") { SIMOP(DECF, dispatch_FlatMemory); }
+            else if (fullMnemonic == "asw") { SIMOP(ASW, dispatch_ASW); }
+            else if (fullMnemonic == "row") { SIMOP(ROW, dispatch_ROW); }
+            else if (fullMnemonic == "lsl.16") { SIMOP(LSL16, dispatch_Shift16); }
+            else if (fullMnemonic == "lsr.16") { SIMOP(LSR16, dispatch_Shift16); }
+            else if (fullMnemonic == "rol.16") { SIMOP(ROL16, dispatch_Shift16); }
+            else if (fullMnemonic == "ror.16") { SIMOP(ROR16, dispatch_Shift16); }
+            else if (fullMnemonic == "asr.16") { SIMOP(ASR16, dispatch_Shift16); }
+            else if (fullMnemonic == "lsl.s16") { SIMOP(LSL_S16, dispatch_Shift16); }
+            else if (fullMnemonic == "lsr.s16") { SIMOP(LSR_S16, dispatch_Shift16); }
+            else if (fullMnemonic == "rol.s16") { SIMOP(ROL_S16, dispatch_Shift16); }
+            else if (fullMnemonic == "ror.s16") { SIMOP(ROR_S16, dispatch_Shift16); }
+            else if (fullMnemonic == "asr.s16") { SIMOP(ASR_S16, dispatch_Shift16); }
             else if (fullMnemonic == "sxt.8") {
-                stmt->type = Statement::SXT8;
+                SIMOP(SXT8, dispatch_SXT8);
                 if (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
-                     // Optionally consume 'a' if present? C compilers sometimes use 'sxt.8 a' or similar.
-                     // For now just keep it simple.
                 }
             }
-            else if (fullMnemonic == "sxt.16") stmt->type = Statement::SXT16;
-            else if (fullMnemonic == "add.32") stmt->type = Statement::ADD32;
-            else if (fullMnemonic == "sub.32") stmt->type = Statement::SUB32;
-            else if (fullMnemonic == "add.s32") stmt->type = Statement::ADDS32;
-            else if (fullMnemonic == "sub.s32") stmt->type = Statement::SUBS32;
-            else if (fullMnemonic == "and.32") stmt->type = Statement::AND32;
-            else if (fullMnemonic == "ora.32") stmt->type = Statement::ORA32;
-            else if (fullMnemonic == "eor.32") stmt->type = Statement::EOR32;
-            else if (fullMnemonic == "cmp.32") stmt->type = Statement::CMP32;
-            else if (fullMnemonic == "cmp.s32") stmt->type = Statement::CMP_S32;
-            else if (fullMnemonic == "neg.32") stmt->type = Statement::NEG32;
-            else if (fullMnemonic == "neg.s32") stmt->type = Statement::NEG_S32;
-            else if (fullMnemonic == "not.32") stmt->type = Statement::NOT32;
-            else if (fullMnemonic == "abs.32") stmt->type = Statement::ABS32;
-            else if (fullMnemonic == "abs.s32") stmt->type = Statement::ABS_S32;
-            else if (fullMnemonic == "lsl.32") stmt->type = Statement::LSL32;
-            else if (fullMnemonic == "lsr.32") stmt->type = Statement::LSR32;
-            else if (fullMnemonic == "rol.32") stmt->type = Statement::ROL32;
-            else if (fullMnemonic == "ror.32") stmt->type = Statement::ROR32;
-            else if (fullMnemonic == "asr.32") stmt->type = Statement::ASR32;
-            else if (fullMnemonic == "lsl.s32") stmt->type = Statement::LSL_S32;
-            else if (fullMnemonic == "lsr.s32") stmt->type = Statement::LSR_S32;
-            else if (fullMnemonic == "rol.s32") stmt->type = Statement::ROL_S32;
-            else if (fullMnemonic == "ror.s32") stmt->type = Statement::ROR_S32;
-            else if (fullMnemonic == "asr.s32") stmt->type = Statement::ASR_S32;
-            else if (fullMnemonic == "push") stmt->type = Statement::PUSH;
-            else if (fullMnemonic == "pop") stmt->type = Statement::POP;
-            else if (fullMnemonic == "lda.fp") stmt->type = Statement::LDA_FP;
-            else if (fullMnemonic == "sta.fp") stmt->type = Statement::STA_FP;
-            else if (fullMnemonic == "ldax.fp") stmt->type = Statement::LDAX_FP;
-            else if (fullMnemonic == "stax.fp") stmt->type = Statement::STAX_FP;
-            else if (fullMnemonic == "leax.fp") stmt->type = Statement::LEAX_FP;
-            else if (fullMnemonic == "move.fp") stmt->type = Statement::MOVE_FP;
-            else if (fullMnemonic == "bfext") stmt->type = Statement::BFEXT;
-            else if (fullMnemonic == "bfext16") stmt->type = Statement::BFEXT16;
-            else if (fullMnemonic == "bfins") stmt->type = Statement::BFINS;
-            else if (fullMnemonic == "bfins.sp") stmt->type = Statement::BFINS_SP;
-            else if (fullMnemonic == "bfins.ind") stmt->type = Statement::BFINS_IND;
-            else if (fullMnemonic == "bfins16") stmt->type = Statement::BFINS16;
-            else if (fullMnemonic == "bfins16.sp") stmt->type = Statement::BFINS16_SP;
-            else if (fullMnemonic == "bfins16.ind") stmt->type = Statement::BFINS16_IND;
+            else if (fullMnemonic == "sxt.16") { SIMOP(SXT16, dispatch_SXT16); }
+            else if (fullMnemonic == "add.32") { SIMOP(ADD32, dispatch_AddSub32); }
+            else if (fullMnemonic == "sub.32") { SIMOP(SUB32, dispatch_AddSub32); }
+            else if (fullMnemonic == "add.s32") { SIMOP(ADDS32, dispatch_AddSub32); }
+            else if (fullMnemonic == "sub.s32") { SIMOP(SUBS32, dispatch_AddSub32); }
+            else if (fullMnemonic == "and.32") { SIMOP(AND32, dispatch_Bitwise32); }
+            else if (fullMnemonic == "ora.32") { SIMOP(ORA32, dispatch_Bitwise32); }
+            else if (fullMnemonic == "eor.32") { SIMOP(EOR32, dispatch_Bitwise32); }
+            else if (fullMnemonic == "cmp.32") { SIMOP(CMP32, dispatch_CMP32); }
+            else if (fullMnemonic == "cmp.s32") { SIMOP(CMP_S32, dispatch_CMP_S32); }
+            else if (fullMnemonic == "neg.32") { SIMOP(NEG32, dispatch_NegNot32); }
+            else if (fullMnemonic == "neg.s32") { SIMOP(NEG_S32, dispatch_NegNot32); }
+            else if (fullMnemonic == "not.32") { SIMOP(NOT32, dispatch_NegNot32); }
+            else if (fullMnemonic == "abs.32") { SIMOP(ABS32, dispatch_ABS32); }
+            else if (fullMnemonic == "abs.s32") { SIMOP(ABS_S32, dispatch_ABS32); }
+            else if (fullMnemonic == "lsl.32") { SIMOP(LSL32, dispatch_Shift32); }
+            else if (fullMnemonic == "lsr.32") { SIMOP(LSR32, dispatch_Shift32); }
+            else if (fullMnemonic == "rol.32") { SIMOP(ROL32, dispatch_Shift32); }
+            else if (fullMnemonic == "ror.32") { SIMOP(ROR32, dispatch_Shift32); }
+            else if (fullMnemonic == "asr.32") { SIMOP(ASR32, dispatch_Shift32); }
+            else if (fullMnemonic == "lsl.s32") { SIMOP(LSL_S32, dispatch_Shift32); }
+            else if (fullMnemonic == "lsr.s32") { SIMOP(LSR_S32, dispatch_Shift32); }
+            else if (fullMnemonic == "rol.s32") { SIMOP(ROL_S32, dispatch_Shift32); }
+            else if (fullMnemonic == "ror.s32") { SIMOP(ROR_S32, dispatch_Shift32); }
+            else if (fullMnemonic == "asr.s32") { SIMOP(ASR_S32, dispatch_Shift32); }
+            else if (fullMnemonic == "push") { SIMOP(PUSH, dispatch_PushPop); }
+            else if (fullMnemonic == "pop") { SIMOP(POP, dispatch_PushPop); }
+            else if (fullMnemonic == "lda.fp") { SIMOP(LDA_FP, dispatch_LDA_FP); }
+            else if (fullMnemonic == "sta.fp") { SIMOP(STA_FP, dispatch_STA_FP); }
+            else if (fullMnemonic == "ldax.fp") { SIMOP(LDAX_FP, dispatch_LDAX_FP); }
+            else if (fullMnemonic == "stax.fp") { SIMOP(STAX_FP, dispatch_STAX_FP); }
+            else if (fullMnemonic == "leax.fp") { SIMOP(LEAX_FP, dispatch_LEAX_FP); }
+            else if (fullMnemonic == "move.fp") { SIMOP(MOVE_FP, dispatch_MOVE_FP); }
+            else if (fullMnemonic == "bfext") { SIMOP(BFEXT, dispatch_BFExt); }
+            else if (fullMnemonic == "bfext16") { SIMOP(BFEXT16, dispatch_BFExt); }
+            else if (fullMnemonic == "bfins") { SIMOP(BFINS, dispatch_BFIns); }
+            else if (fullMnemonic == "bfins.sp") { SIMOP(BFINS_SP, dispatch_BFIns); }
+            else if (fullMnemonic == "bfins.ind") { SIMOP(BFINS_IND, dispatch_BFIns); }
+            else if (fullMnemonic == "bfins16") { SIMOP(BFINS16, dispatch_BFIns); }
+            else if (fullMnemonic == "bfins16.sp") { SIMOP(BFINS16_SP, dispatch_BFIns); }
+            else if (fullMnemonic == "bfins16.ind") { SIMOP(BFINS16_IND, dispatch_BFIns); }
+            #undef SIMOP
 
             if (stmt->instr.mnemonic == "expr") {
-                stmt->type = Statement::EXPR;
+                stmt->type = Statement::EXPR; stmt->emitFn = AssemblerSimulatedOps::dispatch_Expr;
                 const auto& trg = advance();
                 stmt->exprTarget = (trg.type == AssemblerTokenType::REGISTER ? "." : "") + trg.value;
                 expect(AssemblerTokenType::COMMA, "Expected ,");
@@ -835,10 +839,10 @@ void AssemblerParser::pass1() {
             else if (stmt->instr.mnemonic == "mul.s16" || stmt->instr.mnemonic == "div.s16" ||
                      stmt->instr.mnemonic == "mod.16" || stmt->instr.mnemonic == "mod.s16") {
                 std::string m = stmt->instr.mnemonic;
-                if (m == "mul.s16") stmt->type = Statement::MUL_S16;
-                else if (m == "div.s16") stmt->type = Statement::DIV_S16;
-                else if (m == "mod.16") stmt->type = Statement::MOD16;
-                else stmt->type = Statement::MOD_S16;
+                if (m == "mul.s16") { stmt->type = Statement::MUL_S16; stmt->emitFn = AssemblerSimulatedOps::dispatch_MulS16; }
+                else if (m == "div.s16") { stmt->type = Statement::DIV_S16; stmt->emitFn = AssemblerSimulatedOps::dispatch_DivS16; }
+                else if (m == "mod.16") { stmt->type = Statement::MOD16; stmt->emitFn = AssemblerSimulatedOps::dispatch_Mod16; }
+                else { stmt->type = Statement::MOD_S16; stmt->emitFn = AssemblerSimulatedOps::dispatch_Mod16; }
                 const auto& dst = advance();
                 stmt->instr.operand = (dst.type == AssemblerTokenType::REGISTER ? "." : "") + dst.value;
                 expect(AssemblerTokenType::COMMA, "Expected , after destination");
@@ -852,6 +856,7 @@ void AssemblerParser::pass1() {
             }
             else if (stmt->instr.mnemonic.substr(0, 3) == "mul" || stmt->instr.mnemonic.substr(0, 3) == "div") {
                 stmt->type = (stmt->instr.mnemonic.substr(0, 3) == "mul") ? Statement::MUL : Statement::DIV;
+                stmt->emitFn = (stmt->type == Statement::MUL) ? AssemblerSimulatedOps::dispatch_Mul : AssemblerSimulatedOps::dispatch_Div;
                 std::string m = stmt->instr.mnemonic;
                 if (m.size() > 4 && m[3] == '.') stmt->mulWidth = std::stoi(m.substr(4));
                 else stmt->mulWidth = 8;
@@ -871,6 +876,7 @@ void AssemblerParser::pass1() {
                 std::string reg = "." + m.substr(2);
                 bool isLoad = (m.substr(0, 2) == "ld");
                 stmt->type = isLoad ? Statement::LDW : Statement::STW;
+                stmt->emitFn = isLoad ? AssemblerSimulatedOps::dispatch_LDW : AssemblerSimulatedOps::dispatch_STW;
                 stmt->instr.operand = reg;
                 stmt->exprTokenIndex = (int)pos;
                 while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
@@ -917,71 +923,13 @@ void AssemblerParser::pass1() {
                         }
                     }
                 }
-                std::vector<uint8_t> d;
-                if (stmt->type == Statement::ADD16 || stmt->type == Statement::SUB16 || stmt->type == Statement::ADDS16 || stmt->type == Statement::SUBS16) emitAddSub16Code(d, stmt->type == Statement::ADD16 || stmt->type == Statement::ADDS16, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::AND16 || stmt->type == Statement::ORA16 || stmt->type == Statement::EOR16) emitBitwise16Code(d, stmt->instr.mnemonic, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::CMP16) emitCMP16Code(d, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::CMP_S16) emitCMP_S16Code(d, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::LDW) emitLDWCode(d, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix, stmt->instr.mnemonic == "ldw.sp");
-                else if (stmt->type == Statement::STW) emitSTWCode(d, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix, stmt->instr.mnemonic == "stw.sp");
-                else if (stmt->type == Statement::FILL) emitFillCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix, stmt->instr.mnemonic == "fill.sp");
-                else if (stmt->type == Statement::COPY) emitMoveCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix, stmt->instr.mnemonic == "move.sp");
-                else if (stmt->type == Statement::NEG16 || stmt->type == Statement::NOT16 || stmt->type == Statement::NEG_S16) emitNegNot16Code(d, stmt->type == Statement::NEG16 || stmt->type == Statement::NEG_S16, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::ABS16 || stmt->type == Statement::ABS_S16) emitABS16Code(d, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::CHKZERO8) emitChkZeroCode(d, false, false, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::CHKZERO16) emitChkZeroCode(d, true, false, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::CHKNONZERO8) emitChkZeroCode(d, false, true, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::CHKNONZERO16) emitChkZeroCode(d, true, true, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::BRANCH16) emitBranch16Code(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::SELECT) emitSelectCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::PHW_STACK) emitPHWStackCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::LDA_STACK) emitLDA_StackCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::STA_STACK) emitSTA_StackCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::LDX_STACK) emitLDX_StackCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::LDY_STACK) emitLDY_StackCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::LDZ_STACK) emitLDZ_StackCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::STX_STACK) emitSTX_StackCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::STY_STACK) emitSTY_StackCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::STZ_STACK) emitSTZ_StackCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::PTRSTACK) emitPtrStackCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::PTRDEREF) emitPtrDerefCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::LDWF || stmt->type == Statement::STWF || stmt->type == Statement::INCF || stmt->type == Statement::DECF) emitFlatMemoryCode(d, stmt->instr.mnemonic, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::ASW) emitASWCode(d, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::ROW) emitROWCode(d, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::LSL16 || stmt->type == Statement::LSL_S16) emitLSL16Code(d, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::LSR16 || stmt->type == Statement::LSR_S16) emitLSR16Code(d, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::ROL16 || stmt->type == Statement::ROL_S16) emitROL16Code(d, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::ROR16 || stmt->type == Statement::ROR_S16) emitROR16Code(d, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::ASR16 || stmt->type == Statement::ASR_S16) emitASR16Code(d, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::SXT8) emitSXT8Code(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::SXT16) emitSXT16Code(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::ADD32 || stmt->type == Statement::SUB32 || stmt->type == Statement::ADDS32 || stmt->type == Statement::SUBS32) emitAddSub32Code(d, stmt->type == Statement::ADD32 || stmt->type == Statement::ADDS32, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::AND32 || stmt->type == Statement::ORA32 || stmt->type == Statement::EOR32) emitBitwise32Code(d, stmt->instr.mnemonic, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::CMP32) emitCMP32Code(d, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::CMP_S32) emitCMP_S32Code(d, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::NEG32 || stmt->type == Statement::NOT32 || stmt->type == Statement::NEG_S32) emitNegNot32Code(d, stmt->type == Statement::NEG32 || stmt->type == Statement::NEG_S32, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::ABS32 || stmt->type == Statement::ABS_S32) emitABS32Code(d, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::LSL32 || stmt->type == Statement::LSL_S32) emitLSL32Code(d, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::LSR32 || stmt->type == Statement::LSR_S32) emitLSR32Code(d, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::ROL32 || stmt->type == Statement::ROL_S32) emitROL32Code(d, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::ROR32 || stmt->type == Statement::ROR_S32) emitROR32Code(d, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::ASR32 || stmt->type == Statement::ASR_S32) emitASR32Code(d, stmt->instr.operand, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::PUSH || stmt->type == Statement::POP) emitPushPopCode(d, stmt->type == Statement::PUSH, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::SWAP) emitSwapCode(d, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::LDA_FP) emitLDA_FPCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::STA_FP) emitSTA_FPCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::LDAX_FP) emitLDAX_FPCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::STAX_FP) emitSTAX_FPCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::LEAX_FP) emitLEAX_FPCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::MOVE_FP) emitMOVE_FPCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::BFEXT || stmt->type == Statement::BFEXT16) emitBFExtCode(d, stmt->type == Statement::BFEXT16, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::BFINS) emitBFInsCode(d, false, 0, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::BFINS_SP) emitBFInsCode(d, false, 1, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::BFINS_IND) emitBFInsCode(d, false, 2, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::BFINS16) emitBFInsCode(d, true, 0, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::BFINS16_SP) emitBFInsCode(d, true, 1, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                else if (stmt->type == Statement::BFINS16_IND) emitBFInsCode(d, true, 2, stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                if (stmt->type != Statement::INSTRUCTION) stmt->size = d.size();
+                // Unified sizing via emitFn dispatch
+                if (stmt->emitFn) {
+                    std::vector<uint8_t> d;
+                    M65Emitter sizer(d, getZPStart()); sizer.setSpBase(getSpBase()); sizer.setScratchZP(getScratchZP());
+                    stmt->emitFn(this, sizer, stmt.get());
+                    stmt->size = d.size();
+                }
             }
             else {
                 size_t dotPos = fullMnemonic.find('.');
@@ -1060,7 +1008,7 @@ void AssemblerParser::pass1() {
                     stmt->size = calculateInstructionSize(stmt->instr, pc, stmt->scopePrefix);
                 }
                 else if (stmt->instr.mnemonic == "zero") {
-                    stmt->type = Statement::ZERO; stmt->instr.operandTokenIndex = (int)pos;
+                    stmt->type = Statement::ZERO; stmt->emitFn = AssemblerSimulatedOps::dispatch_Zero; stmt->instr.operandTokenIndex = (int)pos;
                     while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
                     std::vector<uint8_t> d; emitZeroCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                     stmt->size = d.size();
@@ -1146,25 +1094,27 @@ void AssemblerParser::pass1() {
                     }
                     if ((stmt->instr.mnemonic == "inw" || stmt->instr.mnemonic == "dew") && stmt->instr.mode == AddressingMode::STACK_RELATIVE) {
                         stmt->type = (stmt->instr.mnemonic == "inw") ? Statement::STACK_INC : Statement::STACK_DEC;
+                        stmt->emitFn = AssemblerSimulatedOps::dispatch_StackIncDec;
                         stmt->size = (stmt->type == Statement::STACK_INC) ? 9 : 12;
                     } else if ((stmt->instr.mnemonic == "inc" || stmt->instr.mnemonic == "dec") && stmt->instr.mode == AddressingMode::STACK_RELATIVE) {
                         stmt->type = (stmt->instr.mnemonic == "inc") ? Statement::STACK_INC8 : Statement::STACK_DEC8;
+                        stmt->emitFn = AssemblerSimulatedOps::dispatch_StackIncDec8;
                         stmt->size = 5;
                     } else if (stmt->instr.mode == AddressingMode::STACK_RELATIVE) {
-                        if (stmt->instr.mnemonic == "lda") stmt->type = Statement::LDA_STACK;
-                        else if (stmt->instr.mnemonic == "sta") stmt->type = Statement::STA_STACK;
-                        else if (stmt->instr.mnemonic == "ldx") stmt->type = Statement::LDX_STACK;
-                        else if (stmt->instr.mnemonic == "ldy") stmt->type = Statement::LDY_STACK;
-                        else if (stmt->instr.mnemonic == "ldz") stmt->type = Statement::LDZ_STACK;
-                        else if (stmt->instr.mnemonic == "stx") stmt->type = Statement::STX_STACK;
-                        else if (stmt->instr.mnemonic == "sty") stmt->type = Statement::STY_STACK;
-                        else if (stmt->instr.mnemonic == "stz") stmt->type = Statement::STZ_STACK;
+                        if (stmt->instr.mnemonic == "lda") { stmt->type = Statement::LDA_STACK; stmt->emitFn = AssemblerSimulatedOps::dispatch_LDA_Stack; }
+                        else if (stmt->instr.mnemonic == "sta") { stmt->type = Statement::STA_STACK; stmt->emitFn = AssemblerSimulatedOps::dispatch_STA_Stack; }
+                        else if (stmt->instr.mnemonic == "ldx") { stmt->type = Statement::LDX_STACK; stmt->emitFn = AssemblerSimulatedOps::dispatch_LDX_Stack; }
+                        else if (stmt->instr.mnemonic == "ldy") { stmt->type = Statement::LDY_STACK; stmt->emitFn = AssemblerSimulatedOps::dispatch_LDY_Stack; }
+                        else if (stmt->instr.mnemonic == "ldz") { stmt->type = Statement::LDZ_STACK; stmt->emitFn = AssemblerSimulatedOps::dispatch_LDZ_Stack; }
+                        else if (stmt->instr.mnemonic == "stx") { stmt->type = Statement::STX_STACK; stmt->emitFn = AssemblerSimulatedOps::dispatch_STX_Stack; }
+                        else if (stmt->instr.mnemonic == "sty") { stmt->type = Statement::STY_STACK; stmt->emitFn = AssemblerSimulatedOps::dispatch_STY_Stack; }
+                        else if (stmt->instr.mnemonic == "stz") { stmt->type = Statement::STZ_STACK; stmt->emitFn = AssemblerSimulatedOps::dispatch_STZ_Stack; }
                     }
 
                     if (stmt->type != Statement::INSTRUCTION) {
                         // Already handled
                     } else if (stmt->instr.mnemonic == "phw" && stmt->instr.mode == AddressingMode::STACK_RELATIVE) {
-                        stmt->type = Statement::PHW_STACK;
+                        stmt->type = Statement::PHW_STACK; stmt->emitFn = AssemblerSimulatedOps::dispatch_PHWStack;
                         std::vector<uint8_t> d; emitPHWStackCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                         stmt->size = d.size();
                     } else {
@@ -1554,130 +1504,29 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
             else {
                 if (s->type == Statement::INSTRUCTION) s->size = calculateInstructionSize(s->instr, cP, s->scopePrefix);
                 else if (s->isSimulatedOp()) {
+                    // DMA buffer allocation for FILL/COPY (must happen before sizing)
+                    if (s->type == Statement::FILL && fillDmaFirstFillAddr_ == 0xFFFFFFFF) {
+                        fillDmaFirstFillAddr_ = cP;
+                        if (segments.find("bss") == segments.end()) segments["bss"] = std::make_shared<Segment>();
+                        if (segments["bss"]->startAddress == 0xFFFFFFFF) segments["bss"]->startAddress = 0x1000;
+                        uint32_t bssCurrentSize = 0;
+                        for (const auto& stmt : statements) if (stmt && stmt->segmentName == "bss" && !stmt->deleted) bssCurrentSize += stmt->size;
+                        fillDmaListAddr_ = segments["bss"]->startAddress + bssCurrentSize;
+                        symbolTable["__fill_dma_buf"] = {fillDmaListAddr_, true, 2, false, false, fillDmaListAddr_, false, 0, false, 0, "bss"};
+                    }
+                    if (s->type == Statement::COPY && moveDmaFirstCopyAddr_ == 0xFFFFFFFF) {
+                        moveDmaFirstCopyAddr_ = cP;
+                        if (segments.find("bss") == segments.end()) segments["bss"] = std::make_shared<Segment>();
+                        if (segments["bss"]->startAddress == 0xFFFFFFFF) segments["bss"]->startAddress = 0x1000;
+                        uint32_t bssCurrentSize = 0;
+                        for (const auto& stmt : statements) if (stmt && stmt->segmentName == "bss" && !stmt->deleted) bssCurrentSize += stmt->size;
+                        moveDmaListAddr_ = segments["bss"]->startAddress + bssCurrentSize;
+                        symbolTable["__move_dma_buf"] = {moveDmaListAddr_, true, 2, false, false, moveDmaListAddr_, false, 0, false, 0, "bss"};
+                    }
+                    // Unified sizing via emitFn dispatch
                     std::vector<uint8_t> d;
-                    if (s->type == Statement::ADD16 || s->type == Statement::SUB16 || s->type == Statement::ADDS16 || s->type == Statement::SUBS16) emitAddSub16Code(d, s->type == Statement::ADD16 || s->type == Statement::ADDS16, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::AND16 || s->type == Statement::ORA16 || s->type == Statement::EOR16) emitBitwise16Code(d, s->instr.mnemonic, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::CMP16) emitCMP16Code(d, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::CMP_S16) emitCMP_S16Code(d, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::LDW) emitLDWCode(d, s->instr.operand, s->exprTokenIndex, s->scopePrefix, s->instr.mnemonic == "ldw.sp");
-                    else if (s->type == Statement::STW) emitSTWCode(d, s->instr.operand, s->exprTokenIndex, s->scopePrefix, s->instr.mnemonic == "stw.sp");
-                    else if (s->type == Statement::FILL) {
-                        if (fillDmaFirstFillAddr_ == 0xFFFFFFFF) {
-                            fillDmaFirstFillAddr_ = cP;
-
-                            // Allocate 12 bytes in BSS segment for DMA buffer
-                            if (segments.find("bss") == segments.end()) {
-                                segments["bss"] = std::make_shared<Segment>();
-                            }
-                            if (segments["bss"]->startAddress == 0xFFFFFFFF) {
-                                segments["bss"]->startAddress = 0x1000;
-                            }
-
-                            // Calculate buffer address: BSS start + current BSS size
-                            uint32_t bssCurrentSize = 0;
-                            for (const auto& stmt : statements) {
-                                if (stmt && stmt->segmentName == "bss" && !stmt->deleted) {
-                                    bssCurrentSize += stmt->size;
-                                }
-                            }
-                            fillDmaListAddr_ = segments["bss"]->startAddress + bssCurrentSize;
-
-                            // Create symbol for buffer
-                            symbolTable["__fill_dma_buf"] = {fillDmaListAddr_, true, 2, false, false, fillDmaListAddr_, false, 0, false, 0, "bss"};
-                        }
-                        emitFillCode(d, s->instr.operandTokenIndex, s->scopePrefix, s->instr.mnemonic == "fill.sp");
-                    }
-                    else if (s->type == Statement::COPY) {
-                        if (moveDmaFirstCopyAddr_ == 0xFFFFFFFF) {
-                            moveDmaFirstCopyAddr_ = cP;
-
-                            // Allocate 12 bytes in BSS segment for DMA buffer
-                            if (segments.find("bss") == segments.end()) {
-                                segments["bss"] = std::make_shared<Segment>();
-                            }
-                            if (segments["bss"]->startAddress == 0xFFFFFFFF) {
-                                segments["bss"]->startAddress = 0x1000;  // typical BSS start
-                            }
-
-                            // Calculate buffer address: BSS start + current BSS size
-                            uint32_t bssCurrentSize = 0;
-                            for (const auto& stmt : statements) {
-                                if (stmt && stmt->segmentName == "bss" && !stmt->deleted) {
-                                    bssCurrentSize += stmt->size;
-                                }
-                            }
-                            moveDmaListAddr_ = segments["bss"]->startAddress + bssCurrentSize;
-
-                            // Create symbol for buffer
-                            symbolTable["__move_dma_buf"] = {moveDmaListAddr_, true, 2, false, false, moveDmaListAddr_, false, 0, false, 0, "bss"};
-                        }
-                        emitMoveCode(d, s->instr.operandTokenIndex, s->scopePrefix, s->instr.mnemonic == "move.sp");
-                    }
-                    else if (s->type == Statement::NEG16 || s->type == Statement::NOT16 || s->type == Statement::NEG_S16) emitNegNot16Code(d, s->type == Statement::NEG16 || s->type == Statement::NEG_S16, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::ABS16 || s->type == Statement::ABS_S16) emitABS16Code(d, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::CHKZERO8) emitChkZeroCode(d, false, false, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::CHKZERO16) emitChkZeroCode(d, true, false, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::CHKNONZERO8) emitChkZeroCode(d, false, true, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::CHKNONZERO16) emitChkZeroCode(d, true, true, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::BRANCH16) emitBranch16Code(d, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::SELECT) emitSelectCode(d, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::PHW_STACK) emitPHWStackCode(d, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::LDA_STACK) emitLDA_StackCode(d, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::STA_STACK) emitSTA_StackCode(d, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::LDX_STACK) emitLDX_StackCode(d, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::LDY_STACK) emitLDY_StackCode(d, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::LDZ_STACK) emitLDZ_StackCode(d, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::STX_STACK) emitSTX_StackCode(d, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::STY_STACK) emitSTY_StackCode(d, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::STZ_STACK) emitSTZ_StackCode(d, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::PTRSTACK) emitPtrStackCode(d, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::PTRDEREF) emitPtrDerefCode(d, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::LDWF || s->type == Statement::STWF || s->type == Statement::INCF || s->type == Statement::DECF) emitFlatMemoryCode(d, s->instr.mnemonic, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::ASW) emitASWCode(d, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::ROW) emitROWCode(d, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::LSL16 || s->type == Statement::LSL_S16) emitLSL16Code(d, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::LSR16 || s->type == Statement::LSR_S16) emitLSR16Code(d, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::ROL16 || s->type == Statement::ROL_S16) emitROL16Code(d, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::ROR16 || s->type == Statement::ROR_S16) emitROR16Code(d, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::ASR16 || s->type == Statement::ASR_S16) emitASR16Code(d, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::SXT8) emitSXT8Code(d, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::SXT16) emitSXT16Code(d, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::ADD32 || s->type == Statement::SUB32 || s->type == Statement::ADDS32 || s->type == Statement::SUBS32) emitAddSub32Code(d, s->type == Statement::ADD32 || s->type == Statement::ADDS32, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::AND32 || s->type == Statement::ORA32 || s->type == Statement::EOR32) emitBitwise32Code(d, s->instr.mnemonic, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::CMP32) emitCMP32Code(d, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::CMP_S32) emitCMP_S32Code(d, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::NEG32 || s->type == Statement::NOT32 || s->type == Statement::NEG_S32) emitNegNot32Code(d, s->type == Statement::NEG32 || s->type == Statement::NEG_S32, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::ABS32 || s->type == Statement::ABS_S32) emitABS32Code(d, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::LSL32 || s->type == Statement::LSL_S32) emitLSL32Code(d, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::LSR32 || s->type == Statement::LSR_S32) emitLSR32Code(d, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::ROL32 || s->type == Statement::ROL_S32) emitROL32Code(d, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::ROR32 || s->type == Statement::ROR_S32) emitROR32Code(d, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::ASR32 || s->type == Statement::ASR_S32) emitASR32Code(d, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::PUSH || s->type == Statement::POP) emitPushPopCode(d, s->type == Statement::PUSH, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::SWAP) emitSwapCode(d, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::LDA_FP) emitLDA_FPCode(d, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::STA_FP) emitSTA_FPCode(d, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::LDAX_FP) emitLDAX_FPCode(d, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::STAX_FP) emitSTAX_FPCode(d, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::LEAX_FP) emitLEAX_FPCode(d, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::MOVE_FP) emitMOVE_FPCode(d, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::BFEXT || s->type == Statement::BFEXT16) emitBFExtCode(d, s->type == Statement::BFEXT16, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::BFINS) emitBFInsCode(d, false, 0, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::BFINS_SP) emitBFInsCode(d, false, 1, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::BFINS_IND) emitBFInsCode(d, false, 2, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::BFINS16) emitBFInsCode(d, true, 0, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::BFINS16_SP) emitBFInsCode(d, true, 1, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::BFINS16_IND) emitBFInsCode(d, true, 2, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::MUL) emitMulCode(d, s->mulWidth, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::DIV) emitDivCode(d, s->mulWidth, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::MUL_S16) emitMulS16Code(d, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::DIV_S16) emitDivS16Code(d, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::MOD16 || s->type == Statement::MOD_S16) emitMod16Code(d, s->type == Statement::MOD_S16, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::ZERO) emitZeroCode(d, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::STACK_INC) emitStackIncDecCode(d, true, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::STACK_DEC) emitStackIncDecCode(d, false, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::STACK_INC8) emitStackIncDec8Code(d, true, s->instr.operandTokenIndex, s->scopePrefix);
-                    else if (s->type == Statement::STACK_DEC8) emitStackIncDec8Code(d, false, s->instr.operandTokenIndex, s->scopePrefix);
+                    M65Emitter sizer(d, getZPStart()); sizer.setSpBase(getSpBase()); sizer.setScratchZP(getScratchZP());
+                    s->emitFn(this, sizer, s.get());
                     s->size = (int)d.size();
                 }
                 else if (s->type == Statement::DIRECTIVE) {

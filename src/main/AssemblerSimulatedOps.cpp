@@ -2559,3 +2559,207 @@ void AssemblerSimulatedOps::emitASR32Code(AssemblerParser* parser, M65Emitter& e
         e.ror_abs(addr + 3); e.ror_abs(addr + 2); e.ror_abs(addr + 1); e.ror_abs(addr);
     }
 }
+
+// ============================================================================
+// Unified dispatch wrappers
+// Each adapts the (parser, emitter, stmt) signature to existing emitXxxCode.
+// ============================================================================
+
+using Stmt = AssemblerParser::Statement;
+
+void AssemblerSimulatedOps::dispatch_Expr(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitExpressionCode(p, e, s->exprTarget, s->exprTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_Mul(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitMulCode(p, e, s->mulWidth, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_Div(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitDivCode(p, e, s->mulWidth, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_StackIncDec(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitStackIncDecCode(p, e, s->type == Stmt::STACK_INC, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_StackIncDec8(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitStackIncDec8Code(p, e, s->type == Stmt::STACK_INC8, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_AddSub16(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    bool isAdd = (s->type == Stmt::ADD16 || s->type == Stmt::ADDS16);
+    emitAddSub16Code(p, e, isAdd, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_Bitwise16(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitBitwise16Code(p, e, s->instr.mnemonic, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_CMP16(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitCMP16Code(p, e, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_CMP_S16(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitCMP_S16Code(p, e, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDW(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDWCode(p, e, s->instr.operand, s->exprTokenIndex, s->scopePrefix,
+                s->instr.mnemonic == "ldw.sp");
+}
+void AssemblerSimulatedOps::dispatch_STW(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTWCode(p, e, s->instr.operand, s->exprTokenIndex, s->scopePrefix,
+                s->instr.mnemonic == "stw.sp");
+}
+void AssemblerSimulatedOps::dispatch_Fill(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitFillCode(p, e, s->instr.operandTokenIndex, s->scopePrefix,
+                 s->instr.mnemonic == "fill.sp");
+}
+void AssemblerSimulatedOps::dispatch_Copy(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitMoveCode(p, e, s->instr.operandTokenIndex, s->scopePrefix,
+                 s->instr.mnemonic == "move.sp");
+}
+void AssemblerSimulatedOps::dispatch_Swap(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSwapCode(p, e, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_NegNot16(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    bool isNeg = (s->type == Stmt::NEG16 || s->type == Stmt::NEG_S16);
+    emitNegNot16Code(p, e, isNeg, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_ABS16(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitABS16Code(p, e, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_ChkZero(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    bool is16 = (s->type == Stmt::CHKZERO16 || s->type == Stmt::CHKNONZERO16);
+    bool isInverse = (s->type == Stmt::CHKNONZERO8 || s->type == Stmt::CHKNONZERO16);
+    emitChkZeroCode(p, e, is16, isInverse, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_Branch16(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitBranch16Code(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_Select(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSelectCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_PtrStack(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitPtrStackCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_PtrDeref(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitPtrDerefCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_FlatMemory(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitFlatMemoryCode(p, e, s->instr.mnemonic, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_PHWStack(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitPHWStackCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_ASW(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitASWCode(p, e, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_ROW(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitROWCode(p, e, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_Shift16(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    switch (s->type) {
+        case Stmt::LSL16: case Stmt::LSL_S16: emitLSL16Code(p, e, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix); break;
+        case Stmt::LSR16: case Stmt::LSR_S16: emitLSR16Code(p, e, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix); break;
+        case Stmt::ROL16: case Stmt::ROL_S16: emitROL16Code(p, e, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix); break;
+        case Stmt::ROR16: case Stmt::ROR_S16: emitROR16Code(p, e, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix); break;
+        case Stmt::ASR16: case Stmt::ASR_S16: emitASR16Code(p, e, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix); break;
+        default: break;
+    }
+}
+void AssemblerSimulatedOps::dispatch_SXT8(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSXT8Code(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_SXT16(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSXT16Code(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_AddSub32(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    bool isAdd = (s->type == Stmt::ADD32 || s->type == Stmt::ADDS32);
+    emitAddSub32Code(p, e, isAdd, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_Bitwise32(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitBitwise32Code(p, e, s->instr.mnemonic, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_CMP32(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitCMP32Code(p, e, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_CMP_S32(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitCMP_S32Code(p, e, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_NegNot32(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    bool isNeg = (s->type == Stmt::NEG32 || s->type == Stmt::NEG_S32);
+    emitNegNot32Code(p, e, isNeg, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_ABS32(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitABS32Code(p, e, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_Shift32(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    switch (s->type) {
+        case Stmt::LSL32: case Stmt::LSL_S32: emitLSL32Code(p, e, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix); break;
+        case Stmt::LSR32: case Stmt::LSR_S32: emitLSR32Code(p, e, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix); break;
+        case Stmt::ROL32: case Stmt::ROL_S32: emitROL32Code(p, e, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix); break;
+        case Stmt::ROR32: case Stmt::ROR_S32: emitROR32Code(p, e, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix); break;
+        case Stmt::ASR32: case Stmt::ASR_S32: emitASR32Code(p, e, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix); break;
+        default: break;
+    }
+}
+void AssemblerSimulatedOps::dispatch_PushPop(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitPushPopCode(p, e, s->type == Stmt::PUSH, s->instr.operand, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDA_Stack(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDA_StackCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STA_Stack(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTA_StackCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDX_Stack(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDX_StackCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDY_Stack(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDY_StackCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDZ_Stack(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDZ_StackCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STX_Stack(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTX_StackCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STY_Stack(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTY_StackCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STZ_Stack(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTZ_StackCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_Zero(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitZeroCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDA_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDA_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STA_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTA_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDAX_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDAX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STAX_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTAX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LEAX_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLEAX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_MOVE_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitMOVE_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_BFExt(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitBFExtCode(p, e, s->type == Stmt::BFEXT16, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_BFIns(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    bool is16 = (s->type == Stmt::BFINS16 || s->type == Stmt::BFINS16_SP || s->type == Stmt::BFINS16_IND);
+    int mode = 0;
+    if (s->type == Stmt::BFINS_SP || s->type == Stmt::BFINS16_SP) mode = 1;
+    else if (s->type == Stmt::BFINS_IND || s->type == Stmt::BFINS16_IND) mode = 2;
+    emitBFInsCode(p, e, is16, mode, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_MulS16(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitMulS16Code(p, e, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_DivS16(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitDivS16Code(p, e, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_Mod16(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitMod16Code(p, e, s->type == Stmt::MOD_S16, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
+}
