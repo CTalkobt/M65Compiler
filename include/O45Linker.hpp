@@ -64,6 +64,10 @@ public:
     // Set warning output stream (default: stderr). Set to nullptr to suppress.
     void setWarningStream(std::ostream* os) { warnStream_ = os; }
 
+    // Calling convention thunk mode
+    enum ThunkMode { THUNK_AUTO, THUNK_WARN, THUNK_ERROR };
+    void setThunkMode(ThunkMode m) { thunkMode_ = m; }
+
     // Write a detailed linker map to a stream. Call after link().
     void writeMap(std::ostream& out) const;
 
@@ -143,6 +147,13 @@ private:
     // Warning stream (nullptr to suppress)
     std::ostream* warnStream_ = &std::cerr;
 
+    // Thunk mode and generated thunks
+    ThunkMode thunkMode_ = THUNK_AUTO;
+    // Maps callee name → thunk address (for mismatched call sites)
+    std::map<std::string, uint32_t> thunkAddresses_;
+    // Per-call-site override: (objectIdx, relocIdx) → thunk target address
+    std::map<std::pair<int,int>, uint32_t> callSiteOverrides_;
+
     bool resolveLibraries(std::string& errorMsg);
     bool layoutSegments(std::string& errorMsg);
     bool resolveSymbols(std::string& errorMsg);
@@ -151,6 +162,7 @@ private:
     void buildCallGraph();
     void computeTransitiveClobbers();
     void emitDiagnostics();
+    void generateThunks();
 
     // Get the final base address for a segment ID
     uint32_t segmentBase(O45Segment seg) const;
@@ -161,5 +173,6 @@ private:
                      uint32_t bodyBase,
                      uint32_t objOffset,
                      const InputObject& input,
-                     std::string& errorMsg);
+                     std::string& errorMsg,
+                     int objIdx = -1);
 };

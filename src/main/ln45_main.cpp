@@ -22,6 +22,8 @@ static void printUsage(const char* progName) {
     std::cout << "  -l <lib.lib>   Link against a library archive (selective linking)" << std::endl;
     std::cout << "  -m             Print linker map (symbol addresses) after linking" << std::endl;
     std::cout << "  -M <file>      Write detailed linker map file (segments, objects, symbols)" << std::endl;
+    std::cout << "  --no-thunks    Error on calling convention mismatches (no thunk generation)" << std::endl;
+    std::cout << "  -Wthunk        Warn (but still generate thunks) on convention mismatches" << std::endl;
     std::cout << "  -?             Display this help message" << std::endl;
 }
 
@@ -44,6 +46,7 @@ int main(int argc, char** argv) {
     std::vector<std::string> inputFiles;
     std::vector<std::string> libFiles;
     std::vector<std::string> libSearchPaths;
+    O45Linker::ThunkMode thunkMode = O45Linker::THUNK_AUTO;
 
     // Add paths from CC45_LIB environment variable
     if (const char* envLib = std::getenv("CC45_LIB")) {
@@ -71,6 +74,8 @@ int main(int argc, char** argv) {
         else if (arg == "-d" && i + 1 < argc) { dataBase = parseAddr(argv[++i]); dataBaseSet = true; }
         else if (arg == "-b" && i + 1 < argc) { bssBase = parseAddr(argv[++i]); bssBaseSet = true; }
         else if (arg == "-z" && i + 1 < argc) { zpBase = parseAddr(argv[++i]); zpBaseSet = true; }
+        else if (arg == "--no-thunks") { thunkMode = O45Linker::THUNK_ERROR; }
+        else if (arg == "-Wthunk") { thunkMode = O45Linker::THUNK_WARN; }
         else if (arg.length() > 4 && arg.substr(arg.length() - 4) == ".lib") { libFiles.push_back(arg); }
         else inputFiles.push_back(arg);
     }
@@ -104,6 +109,7 @@ int main(int argc, char** argv) {
     if (dataBaseSet) linker.setDataBase(dataBase);
     if (bssBaseSet)  linker.setBssBase(bssBase);
     if (zpBaseSet)   linker.setZpBase(zpBase);
+    linker.setThunkMode(thunkMode);
 
     for (const auto& filename : inputFiles) {
         std::ifstream in(filename, std::ios::binary);

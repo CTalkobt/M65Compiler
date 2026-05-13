@@ -380,8 +380,10 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
                              uint32_t /*bodyBase*/,
                              uint32_t objOffset,
                              const InputObject& input,
-                             std::string& errorMsg) {
-    for (const auto& r : relocs) {
+                             std::string& errorMsg,
+                             int objIdx) {
+    for (int rIdx = 0; rIdx < (int)relocs.size(); rIdx++) {
+        const auto& r = relocs[rIdx];
         // The relocation offset is relative to the object's segment start.
         // If the object has text sub-segment remaps (init/code reordering)
         // and we're patching text, use remapTextOffset for correct positioning.
@@ -432,6 +434,14 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
                 }
             }
             targetAddr = it->second + addend;
+
+            // Check for thunk override (convention bridge)
+            if (objIdx >= 0) {
+                auto overIt = callSiteOverrides_.find({objIdx, rIdx});
+                if (overIt != callSiteOverrides_.end()) {
+                    targetAddr = overIt->second;
+                }
+            }
         } else {
             // Internal relocation — read the current value at the patch site
             // and add the segment base + object offset for that segment.
@@ -525,18 +535,19 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
 }
 
 bool O45Linker::applyRelocations(std::string& errorMsg) {
-    for (auto& input : objects_) {
+    for (int objIdx = 0; objIdx < (int)objects_.size(); objIdx++) {
+        auto& input = objects_[objIdx];
         // Text relocations
         auto textRelocs = O45RelocDecoder::decode(input.obj.textRelocs);
         if (!applyRelocs(textRelocs, mergedText_, textBase_, input.textOffset,
-                         input, errorMsg)) {
+                         input, errorMsg, objIdx)) {
             return false;
         }
 
         // Data relocations
         auto dataRelocs = O45RelocDecoder::decode(input.obj.dataRelocs);
         if (!applyRelocs(dataRelocs, mergedData_, dataBase_, input.dataOffset,
-                         input, errorMsg)) {
+                         input, errorMsg, -1)) {
             return false;
         }
     }
@@ -571,6 +582,9 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
             errorMsg += "\n" + convErrors_[i];
         return {};
     }
+
+    // Generate thunks for convention mismatches (appends to mergedText_)
+    generateThunks();
 
     if (!applyRelocations(errorMsg)) return {};
 
@@ -736,26 +750,194 @@ void O45Linker::computeTransitiveClobbers() {
 }
 
 // 3.3 — Emit diagnostics: enforce calling convention compatibility.
-// Only ZP→stack calls are errors (stack callers can generate ZP setup for fastcall).
+// Detect all mismatches (both directions). In THUNK_ERROR mode, report them
+// as errors. In THUNK_AUTO/THUNK_WARN mode, record them for thunk generation.
 void O45Linker::emitDiagnostics() {
     convErrors_.clear();
 
     for (const auto& [caller, callees] : callGraph_) {
         auto callerIt = funcAttrs_.find(caller);
         if (callerIt == funcAttrs_.end()) continue;
-
-        // Only enforce if caller is ZP convention
-        if (!(callerIt->second.flags & FUNC_FLAG_ZP_CONV)) continue;
+        bool callerIsZp = (callerIt->second.flags & FUNC_FLAG_ZP_CONV) != 0;
 
         for (const auto& callee : callees) {
             auto calleeIt = funcAttrs_.find(callee);
             if (calleeIt == funcAttrs_.end()) continue;
+            bool calleeIsZp = (calleeIt->second.flags & FUNC_FLAG_ZP_CONV) != 0;
 
-            // Error if callee is stack convention (ZP_CONV bit clear)
-            if (!(calleeIt->second.flags & FUNC_FLAG_ZP_CONV)) {
-                convErrors_.push_back(
-                    "calling convention mismatch: '" + caller + "' (zp_call)"
-                    + " calls '" + callee + "' (stack_call)");
+            if (callerIsZp == calleeIsZp) continue; // same convention, fine
+
+            std::string direction = callerIsZp ? "zp_call -> stack_call" : "stack_call -> zp_call";
+            std::string msg = "calling convention mismatch: '" + caller + "' calls '" + callee + "' (" + direction + ")";
+
+            if (thunkMode_ == THUNK_ERROR) {
+                convErrors_.push_back(msg);
+            } else {
+                if (thunkMode_ == THUNK_WARN && warnStream_) {
+                    *warnStream_ << "ln45: warning: " << msg << " (generating thunk)" << std::endl;
+                }
+            }
+        }
+    }
+}
+
+// 3.4 — Generate convention bridge thunks.
+// Appended to mergedText_, symbol addresses updated for relocation patching.
+void O45Linker::generateThunks() {
+    if (thunkMode_ == THUNK_ERROR) return;
+
+    // Collect unique (caller_conv, callee) pairs that need thunks
+    struct ThunkNeed {
+        std::string callee;
+        bool callerIsZp;   // true = ZP caller → stack callee (z2s), false = stack caller → ZP callee (s2z)
+    };
+    std::map<std::string, ThunkNeed> needed; // key: thunk symbol name
+
+    for (const auto& [caller, callees] : callGraph_) {
+        auto callerIt = funcAttrs_.find(caller);
+        if (callerIt == funcAttrs_.end()) continue;
+        bool callerIsZp = (callerIt->second.flags & FUNC_FLAG_ZP_CONV) != 0;
+
+        for (const auto& callee : callees) {
+            auto calleeIt = funcAttrs_.find(callee);
+            if (calleeIt == funcAttrs_.end()) continue;
+            bool calleeIsZp = (calleeIt->second.flags & FUNC_FLAG_ZP_CONV) != 0;
+            if (callerIsZp == calleeIsZp) continue;
+
+            std::string prefix = callerIsZp ? "__thunk_z2s_" : "__thunk_s2z_";
+            std::string thunkName = prefix + callee;
+            if (!needed.count(thunkName)) {
+                needed[thunkName] = {callee, callerIsZp};
+            }
+        }
+    }
+
+    if (needed.empty()) return;
+
+    // ZP param base for zpcall convention (matches CodeGenerator: zpBase = $03)
+    const uint8_t zpParamBase = 0x03;
+
+    // __sp_base symbol (needed for stack-relative access in thunks)
+    uint32_t spBase = 0x0101; // default
+    auto spIt = globalSymbols_.find("__sp_base");
+    if (spIt != globalSymbols_.end()) spBase = spIt->second;
+
+    for (auto& [thunkName, need] : needed) {
+        auto calleeIt = funcAttrs_.find(need.callee);
+        uint8_t paramSize = (calleeIt != funcAttrs_.end()) ? calleeIt->second.paramSize : 0;
+        auto calleeAddrIt = globalSymbols_.find(need.callee);
+        if (calleeAddrIt == globalSymbols_.end()) continue;
+        uint16_t calleeAddr = (uint16_t)calleeAddrIt->second;
+
+        uint32_t thunkAddr = textBase_ + (uint32_t)mergedText_.size();
+        thunkAddresses_[thunkName] = thunkAddr;
+        globalSymbols_[thunkName] = thunkAddr;
+
+        if (!need.callerIsZp) {
+            // Stack→ZP thunk (s2z): copy stack args to ZP param slots, then JMP callee
+            // Stack layout at entry: [ret_lo, ret_hi, param0, param1, ...]
+            // TSX; LDA spBase+2+i,X; STA $03+i  for each param byte
+            for (int i = 0; i < paramSize; i++) {
+                mergedText_.push_back(0xBA);                       // TSX
+                mergedText_.push_back(0xBD);                       // LDA abs,X
+                uint16_t srcAddr = (uint16_t)(spBase + 2 + i);
+                mergedText_.push_back((uint8_t)(srcAddr & 0xFF));
+                mergedText_.push_back((uint8_t)(srcAddr >> 8));
+                mergedText_.push_back(0x85);                       // STA zp
+                mergedText_.push_back((uint8_t)(zpParamBase + i));
+            }
+            // JMP callee (tail-call; callee's RTS returns directly to original caller)
+            mergedText_.push_back(0x4C);                           // JMP abs
+            mergedText_.push_back((uint8_t)(calleeAddr & 0xFF));
+            mergedText_.push_back((uint8_t)(calleeAddr >> 8));
+        } else {
+            // ZP→Stack thunk (z2s): push ZP params onto stack, JSR callee, clean up, RTS
+            // Push params in reverse order (highest address first) so they appear
+            // in the correct order on the stack for the callee
+            for (int i = paramSize - 1; i >= 0; i--) {
+                mergedText_.push_back(0xA5);                       // LDA zp
+                mergedText_.push_back((uint8_t)(zpParamBase + i));
+                mergedText_.push_back(0x48);                       // PHA
+            }
+            // JSR callee
+            mergedText_.push_back(0x20);                           // JSR abs
+            mergedText_.push_back((uint8_t)(calleeAddr & 0xFF));
+            mergedText_.push_back((uint8_t)(calleeAddr >> 8));
+            // Clean up stack: remove paramSize bytes
+            // TSX; TXA; CLC; ADC #paramSize; TAX; TXS
+            if (paramSize > 0) {
+                mergedText_.push_back(0xBA);                       // TSX
+                mergedText_.push_back(0x8A);                       // TXA
+                mergedText_.push_back(0x18);                       // CLC
+                mergedText_.push_back(0x69);                       // ADC #imm
+                mergedText_.push_back((uint8_t)paramSize);
+                mergedText_.push_back(0xAA);                       // TAX
+                mergedText_.push_back(0x9A);                       // TXS
+            }
+            // RTS (return to ZP caller)
+            mergedText_.push_back(0x60);                           // RTS
+        }
+    }
+
+    // Now build call-site overrides: for each object's JSR relocation that targets
+    // a mismatched callee, record the thunk address to use instead.
+    for (int objIdx = 0; objIdx < (int)objects_.size(); objIdx++) {
+        const auto& input = objects_[objIdx];
+        auto textRelocs = O45RelocDecoder::decode(input.obj.textRelocs);
+
+        // Build function ranges for this object (same logic as buildCallGraph)
+        struct FuncRange { std::string name; uint32_t startOff, endOff; };
+        std::vector<FuncRange> funcs;
+        for (const auto& exp : input.obj.exports) {
+            if (exp.segmentId() == SEG_TEXT)
+                funcs.push_back({exp.name, input.textOffset + exp.offset, 0});
+        }
+        std::sort(funcs.begin(), funcs.end(),
+                  [](const FuncRange& a, const FuncRange& b) { return a.startOff < b.startOff; });
+        uint32_t objTextEnd = input.textOffset + input.obj.tlen;
+        for (size_t i = 0; i < funcs.size(); i++)
+            funcs[i].endOff = (i + 1 < funcs.size()) ? funcs[i + 1].startOff : objTextEnd;
+
+        for (int rIdx = 0; rIdx < (int)textRelocs.size(); rIdx++) {
+            const auto& r = textRelocs[rIdx];
+            if (r.type != R_WORD) continue;
+            if (r.offset == 0 || r.offset - 1 >= input.obj.textBody.size()) continue;
+            if (input.obj.textBody[r.offset - 1] != 0x20) continue; // not JSR
+
+            // Get callee name
+            std::string callee;
+            if (r.segment == SEG_EXTERNAL) {
+                if (r.symbolIndex >= input.obj.imports.size()) continue;
+                callee = input.obj.imports[r.symbolIndex].name;
+            } else if (r.segment == SEG_TEXT) {
+                if (r.symbolIndex >= input.obj.exports.size()) continue;
+                callee = input.obj.exports[r.symbolIndex].name;
+            } else continue;
+
+            // Find caller
+            uint32_t siteInMerged = input.textOffset + r.offset;
+            std::string caller;
+            for (const auto& fn : funcs) {
+                if (siteInMerged >= fn.startOff && siteInMerged < fn.endOff) {
+                    caller = fn.name;
+                    break;
+                }
+            }
+            if (caller.empty()) continue;
+
+            auto callerIt = funcAttrs_.find(caller);
+            auto calleeIt = funcAttrs_.find(callee);
+            if (callerIt == funcAttrs_.end() || calleeIt == funcAttrs_.end()) continue;
+
+            bool callerIsZp = (callerIt->second.flags & FUNC_FLAG_ZP_CONV) != 0;
+            bool calleeIsZp = (calleeIt->second.flags & FUNC_FLAG_ZP_CONV) != 0;
+            if (callerIsZp == calleeIsZp) continue;
+
+            std::string prefix = callerIsZp ? "__thunk_z2s_" : "__thunk_s2z_";
+            std::string thunkName = prefix + callee;
+            auto thunkIt = thunkAddresses_.find(thunkName);
+            if (thunkIt != thunkAddresses_.end()) {
+                callSiteOverrides_[{objIdx, rIdx}] = thunkIt->second;
             }
         }
     }

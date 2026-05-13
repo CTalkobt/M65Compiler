@@ -201,6 +201,7 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
             exp.funcAttr.zpUses = readU32(&data[off]); off += 4;
             exp.funcAttr.zpClobbers = readU32(&data[off]); off += 4;
             exp.funcAttr.zpRelease = readU32(&data[off]); off += 4;
+            exp.funcAttr.paramSize = data[off++];
         }
 
         out.exports.push_back(exp);

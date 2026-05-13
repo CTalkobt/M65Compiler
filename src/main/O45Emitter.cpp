@@ -208,6 +208,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         attr.zpUses = proc->zpUsesMask;
         attr.zpClobbers = proc->zpClobbersMask;
         attr.zpRelease = proc->zpReleaseMask;
+        attr.paramSize = (uint8_t)proc->totalParamSize;
         syms.setFuncAttr(proc->name, attr);
     }
 

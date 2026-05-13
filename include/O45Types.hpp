@@ -95,7 +95,7 @@ constexpr uint8_t  OPT_OS_MEGA65     = 0x05;
 // Appended after an export entry in the export table when the function has
 // ZP calling convention metadata. Identified by the $FA marker byte.
 constexpr uint8_t  O45_FUNCATTR_MARKER = 0xFA;
-constexpr int      O45_FUNCATTR_SIZE   = 16;   // total bytes per record (including marker)
+constexpr int      O45_FUNCATTR_SIZE   = 17;   // total bytes per record (including marker)
 
 struct O45FuncAttr {
     uint8_t flags = 0;           // see FUNC_FLAG_* constants
@@ -104,6 +104,7 @@ struct O45FuncAttr {
     uint32_t zpUses = 0;         // bitmask: ZP slots read as params
     uint32_t zpClobbers = 0;     // bitmask: ZP slots written
     uint32_t zpRelease = 0;      // bitmask: ZP slots consumed
+    uint8_t paramSize = 0;       // total parameter bytes (for thunk generation)
 };
 
 // Bit values for O45FuncAttr::flags
