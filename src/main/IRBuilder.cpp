@@ -159,6 +159,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
     auto vreg = allocVreg(t);
     locals_[node.name] = vreg;
     localTypes_[node.name] = t;
+    localSigned_[node.name] = node.isSigned;
 
     // Emit initializer if present
     if (node.initializer) {
@@ -189,6 +190,7 @@ void IRBuilder::visit(IntegerLiteral& node) {
     inst.loc = loc(node);
     emit(inst);
     lastValue_ = dest;
+    lastValueSigned_ = node.castIsSigned;
 }
 
 void IRBuilder::visit(StringLiteral& node) {
@@ -208,6 +210,8 @@ void IRBuilder::visit(VariableReference& node) {
     auto it = locals_.find(node.name);
     if (it != locals_.end()) {
         lastValue_ = it->second;
+        auto sit = localSigned_.find(node.name);
+        lastValueSigned_ = (sit != localSigned_.end()) ? sit->second : false;
     } else {
         auto dest = allocVreg(ir::Type::I16);
         ir::Inst inst;
@@ -310,8 +314,15 @@ void IRBuilder::visit(Assignment& node) {
 void IRBuilder::visit(BinaryOperation& node) {
     node.left->accept(*this);
     auto lhs = lastValue_;
+    bool lhsSigned = lastValueSigned_;
     node.right->accept(*this);
     auto rhs = lastValue_;
+    bool rhsSigned = lastValueSigned_;
+
+    // For comparison operators: use signed ops only if BOTH operands are signed.
+    // cc45 treats int as unsigned by default (isSigned=false).
+    // Only explicitly `signed int` variables use signed comparison.
+    bool bothSigned = lhsSigned && rhsSigned;
 
     ir::Op op = ir::Op::NOP;
     ir::Type resultType = lhs.type;
@@ -328,10 +339,10 @@ void IRBuilder::visit(BinaryOperation& node) {
     else if (node.op == ">>") op = ir::Op::SHR;
     else if (node.op == "==") { op = ir::Op::CMP_EQ; resultType = ir::Type::I8; }
     else if (node.op == "!=") { op = ir::Op::CMP_NE; resultType = ir::Type::I8; }
-    else if (node.op == "<") { op = ir::Op::CMP_LT; resultType = ir::Type::I8; }
-    else if (node.op == "<=") { op = ir::Op::CMP_LE; resultType = ir::Type::I8; }
-    else if (node.op == ">") { op = ir::Op::CMP_GT; resultType = ir::Type::I8; }
-    else if (node.op == ">=") { op = ir::Op::CMP_GE; resultType = ir::Type::I8; }
+    else if (node.op == "<") { op = bothSigned ? ir::Op::CMP_LT : ir::Op::CMP_LTU; resultType = ir::Type::I8; }
+    else if (node.op == "<=") { op = bothSigned ? ir::Op::CMP_LE : ir::Op::CMP_LEU; resultType = ir::Type::I8; }
+    else if (node.op == ">") { op = bothSigned ? ir::Op::CMP_GT : ir::Op::CMP_GTU; resultType = ir::Type::I8; }
+    else if (node.op == ">=") { op = bothSigned ? ir::Op::CMP_GE : ir::Op::CMP_GEU; resultType = ir::Type::I8; }
     else if (node.op == "&&") { op = ir::Op::AND; resultType = ir::Type::I8; }
     else if (node.op == "||") { op = ir::Op::OR; resultType = ir::Type::I8; }
 

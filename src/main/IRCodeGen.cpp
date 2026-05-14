@@ -497,11 +497,13 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             {
             std::string src2 = src2MemOperand(inst.src2);
             loadOperand(inst.src1);
-            // All comparisons use unsigned cmp.16 to match legacy CodeGenerator behavior.
-            // The legacy CodeGenerator uses unsigned comparison for all C operators
-            // (<, <=, >, >=). Signed comparison would require cmp.s16 which the
-            // legacy path only uses in specific contexts (not general expression eval).
-            emit("cmp.16 .AX, " + src2);
+            // Signed ops (CMP_LT/LE/GT/GE) use cmp.s16.
+            // Unsigned ops (CMP_LTU/LEU/GTU/GEU) and eq/ne use cmp.16.
+            // The IRBuilder selects signed vs unsigned based on operand type:
+            // int (default, unsigned) → CMP_LTU etc; signed int → CMP_LT etc.
+            bool isSigned = (inst.op == ir::Op::CMP_LT || inst.op == ir::Op::CMP_LE ||
+                             inst.op == ir::Op::CMP_GT || inst.op == ir::Op::CMP_GE);
+            emit(isSigned ? ("cmp.s16 .AX, " + src2) : ("cmp.16 .AX, " + src2));
             } // end src2/signed scope
             // Branch IMMEDIATELY (flags live), set result to 0 or 1
             {

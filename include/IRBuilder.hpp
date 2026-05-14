@@ -68,7 +68,11 @@ private:
     // Variable tracking: name → allocated vReg (address operand for locals)
     std::map<std::string, ir::Operand> locals_;
     std::map<std::string, ir::Type> localTypes_;
+    std::map<std::string, bool> localSigned_;  // true if variable was declared signed
     std::map<std::string, std::vector<int>> localArrayDims_; // for stride computation
+
+    // Track signedness of last expression result (for comparison op selection)
+    bool lastValueSigned_ = false;
 
     // Struct layout tracking
     struct IRMemberInfo {
