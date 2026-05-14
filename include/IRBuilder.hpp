@@ -68,6 +68,42 @@ private:
     // Variable tracking: name → allocated vReg (address operand for locals)
     std::map<std::string, ir::Operand> locals_;
     std::map<std::string, ir::Type> localTypes_;
+    std::map<std::string, std::vector<int>> localArrayDims_; // for stride computation
+
+    // Struct layout tracking
+    struct IRMemberInfo {
+        std::string type;
+        int pointerLevel = 0;
+        bool isSigned = false;
+        int offset = 0;
+        int size = 0;
+        std::vector<int> arrayDims;
+    };
+    struct IRStructInfo {
+        std::string name;
+        bool isUnion = false;
+        std::map<std::string, IRMemberInfo> members;
+        std::vector<std::string> memberOrder;
+        int totalSize = 0;
+    };
+    std::map<std::string, IRStructInfo> structs_;
+
+    // Break/continue label stack
+    struct LoopLabels {
+        std::string breakLabel;
+        std::string continueLabel;
+    };
+    std::vector<LoopLabels> loopStack_;
+
+    // Switch tracking
+    struct SwitchCtx {
+        std::string breakLabel;
+        std::string defaultLabel;
+        ir::Operand expr;
+        std::vector<std::pair<int64_t, std::string>> cases;
+        bool hasDefault = false;
+    };
+    std::vector<SwitchCtx> switchStack_;
 
     // Label generation
     int nextLabel_ = 0;
@@ -84,6 +120,9 @@ private:
 
     // Helper: map C type to IR type
     ir::Type mapType(const std::string& typeName, int ptrLevel);
+
+    // Helper: get size for a type
+    int getTypeSize(const std::string& typeName, int ptrLevel);
 
     // Helper: source location from AST node
     ir::SourceLoc loc(ASTNode& node);

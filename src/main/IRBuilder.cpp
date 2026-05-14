@@ -43,6 +43,18 @@ ir::Type IRBuilder::mapType(const std::string& typeName, int ptrLevel) {
     return ir::Type::I16;
 }
 
+int IRBuilder::getTypeSize(const std::string& typeName, int ptrLevel) {
+    if (ptrLevel > 0) return 2;
+    if (typeName == "char" || typeName == "unsigned char") return 1;
+    if (typeName == "int" || typeName == "unsigned int" ||
+        typeName == "short" || typeName == "unsigned short" ||
+        typeName == "unsigned") return 2;
+    if (typeName == "long" || typeName == "unsigned long") return 4;
+    auto it = structs_.find(typeName);
+    if (it != structs_.end()) return it->second.totalSize;
+    return 2; // default for unknown types
+}
+
 ir::SourceLoc IRBuilder::loc(ASTNode& node) {
     ir::SourceLoc sl;
     sl.file = module_.sourceFile;
@@ -458,6 +470,8 @@ void IRBuilder::visit(WhileStatement& node) {
     std::string bodyLabel = newLabel("while_body");
     std::string endLabel = newLabel("while_end");
 
+    loopStack_.push_back({endLabel, condLabel});
+
     ir::Inst brCond;
     brCond.op = ir::Op::BR;
     brCond.src1 = ir::Operand::label(condLabel);
@@ -479,6 +493,7 @@ void IRBuilder::visit(WhileStatement& node) {
     brBack.src1 = ir::Operand::label(condLabel);
     emit(brBack);
 
+    loopStack_.pop_back();
     startBlock(endLabel);
 }
 
@@ -486,6 +501,8 @@ void IRBuilder::visit(DoWhileStatement& node) {
     std::string bodyLabel = newLabel("do_body");
     std::string condLabel = newLabel("do_cond");
     std::string endLabel = newLabel("do_end");
+
+    loopStack_.push_back({endLabel, condLabel});
 
     ir::Inst brBody;
     brBody.op = ir::Op::BR;
@@ -504,6 +521,7 @@ void IRBuilder::visit(DoWhileStatement& node) {
     br.src2 = ir::Operand::label(endLabel);
     emit(br);
 
+    loopStack_.pop_back();
     startBlock(endLabel);
 }
 
@@ -512,6 +530,8 @@ void IRBuilder::visit(ForStatement& node) {
     std::string bodyLabel = newLabel("for_body");
     std::string incLabel = newLabel("for_inc");
     std::string endLabel = newLabel("for_end");
+
+    loopStack_.push_back({endLabel, incLabel});
 
     if (node.initializer) node.initializer->accept(*this);
 
@@ -546,6 +566,7 @@ void IRBuilder::visit(ForStatement& node) {
     brBack.src1 = ir::Operand::label(condLabel);
     emit(brBack);
 
+    loopStack_.pop_back();
     startBlock(endLabel);
 }
 
@@ -554,25 +575,174 @@ void IRBuilder::visit(ForStatement& node) {
 // ============================================================================
 
 void IRBuilder::visit(ConditionalExpression& node) {
-    // TODO: ternary → BR_COND + PHI
     node.condition->accept(*this);
+    auto cond = lastValue_;
+
+    std::string thenLabel = newLabel("tern_then");
+    std::string elseLabel = newLabel("tern_else");
+    std::string endLabel = newLabel("tern_end");
+
+    ir::Inst br;
+    br.op = ir::Op::BR_COND;
+    br.src1 = cond;
+    br.dest = ir::Operand::label(thenLabel);
+    br.src2 = ir::Operand::label(elseLabel);
+    br.loc = loc(node);
+    emit(br);
+
+    startBlock(thenLabel);
+    node.thenExpr->accept(*this);
+    auto thenVal = lastValue_;
+    ir::Inst brEnd1;
+    brEnd1.op = ir::Op::BR;
+    brEnd1.src1 = ir::Operand::label(endLabel);
+    emit(brEnd1);
+
+    startBlock(elseLabel);
+    node.elseExpr->accept(*this);
+    auto elseVal = lastValue_;
+    ir::Inst brEnd2;
+    brEnd2.op = ir::Op::BR;
+    brEnd2.src1 = ir::Operand::label(endLabel);
+    emit(brEnd2);
+
+    startBlock(endLabel);
+    auto dest = allocVreg(thenVal.type);
+    ir::Inst phi;
+    phi.op = ir::Op::PHI;
+    phi.dest = dest;
+    phi.resultType = thenVal.type;
+    phi.phiIncoming = {{thenVal, thenLabel}, {elseVal, elseLabel}};
+    phi.loc = loc(node);
+    emit(phi);
+    lastValue_ = dest;
 }
 
-void IRBuilder::visit(GenericSelection&) { /* TODO */ }
-void IRBuilder::visit(InitializerList&) { /* TODO */ }
+void IRBuilder::visit(GenericSelection& node) {
+    // Evaluate the controlling expression (default association used at IR level)
+    if (node.control) node.control->accept(*this);
+}
+
+void IRBuilder::visit(InitializerList& node) {
+    // Emit each element; last value is the last element
+    for (auto& elem : node.elements) {
+        elem->accept(*this);
+    }
+}
 
 void IRBuilder::visit(ArrayAccess& node) {
-    // TODO: ADDR_ELEM + LOAD
+    // Evaluate base address
     node.arrayExpr->accept(*this);
+    auto base = lastValue_;
+
+    // Evaluate index
+    node.indexExpr->accept(*this);
+    auto index = lastValue_;
+
+    // Determine element size from array type
+    int elemSize = 2; // default
+    if (auto* ref = dynamic_cast<VariableReference*>(node.arrayExpr.get())) {
+        auto dit = localArrayDims_.find(ref->name);
+        if (dit != localArrayDims_.end() && !dit->second.empty()) {
+            auto tit = localTypes_.find(ref->name);
+            ir::Type elemType = (tit != localTypes_.end()) ? tit->second : ir::Type::I16;
+            elemSize = ir::typeSize(elemType);
+        }
+    }
+
+    // addr = base + index * elemSize
+    auto addr = allocVreg(ir::Type::PTR);
+    ir::Inst inst;
+    inst.op = ir::Op::ADDR_ELEM;
+    inst.dest = addr;
+    inst.resultType = ir::Type::PTR;
+    inst.src1 = base;
+    inst.src2 = index;
+    inst.args.push_back(ir::Operand::imm(elemSize, ir::Type::I16));
+    inst.loc = loc(node);
+    emit(inst);
+
+    // Load the element
+    auto val = allocVreg(ir::Type::I16);
+    ir::Inst load;
+    load.op = ir::Op::LOAD;
+    load.dest = val;
+    load.resultType = ir::Type::I16;
+    load.src1 = addr;
+    load.loc = loc(node);
+    emit(load);
+    lastValue_ = val;
 }
 
 void IRBuilder::visit(MemberAccess& node) {
-    // TODO: struct member offset calculation
+    // Evaluate struct expression
     node.structExpr->accept(*this);
+    auto base = lastValue_;
+
+    // Look up member offset
+    int memberOffset = 0;
+    ir::Type memberType = ir::Type::I16;
+
+    // Try to resolve struct type from variable reference
+    if (auto* ref = dynamic_cast<VariableReference*>(node.structExpr.get())) {
+        auto tit = localTypes_.find(ref->name);
+        // For now, look up in structs_ by scanning for the member name
+        for (const auto& [sname, sinfo] : structs_) {
+            auto mit = sinfo.members.find(node.memberName);
+            if (mit != sinfo.members.end()) {
+                memberOffset = mit->second.offset;
+                memberType = mapType(mit->second.type, mit->second.pointerLevel);
+                break;
+            }
+        }
+    }
+
+    if (node.isArrow) {
+        // Pointer dereference + offset: load from (base + offset)
+        auto addr = allocVreg(ir::Type::PTR);
+        ir::Inst add;
+        add.op = ir::Op::ADD;
+        add.dest = addr;
+        add.resultType = ir::Type::PTR;
+        add.src1 = base;
+        add.src2 = ir::Operand::imm(memberOffset, ir::Type::I16);
+        add.loc = loc(node);
+        emit(add);
+
+        auto val = allocVreg(memberType);
+        ir::Inst load;
+        load.op = ir::Op::LOAD;
+        load.dest = val;
+        load.resultType = memberType;
+        load.src1 = addr;
+        load.loc = loc(node);
+        emit(load);
+        lastValue_ = val;
+    } else {
+        // Direct struct access: add offset to base address
+        auto addr = allocVreg(ir::Type::PTR);
+        ir::Inst add;
+        add.op = ir::Op::ADD;
+        add.dest = addr;
+        add.resultType = ir::Type::PTR;
+        add.src1 = base;
+        add.src2 = ir::Operand::imm(memberOffset, ir::Type::I16);
+        add.loc = loc(node);
+        emit(add);
+
+        auto val = allocVreg(memberType);
+        ir::Inst load;
+        load.op = ir::Op::LOAD;
+        load.dest = val;
+        load.resultType = memberType;
+        load.src1 = addr;
+        load.loc = loc(node);
+        emit(load);
+        lastValue_ = val;
+    }
 }
 
 void IRBuilder::visit(CompoundLiteral& node) {
-    // TODO: frame-allocated compound literal
     if (node.initializer) node.initializer->accept(*this);
 }
 
@@ -595,20 +765,102 @@ void IRBuilder::visit(SizeofExpression& node) {
 }
 
 void IRBuilder::visit(SwitchStatement& node) {
-    // TODO: proper SWITCH instruction
     node.expression->accept(*this);
+    auto expr = lastValue_;
+
+    std::string breakLabel = newLabel("switch_end");
+    std::string defaultLabel = breakLabel; // default falls through to break if no default case
+
+    SwitchCtx ctx;
+    ctx.breakLabel = breakLabel;
+    ctx.defaultLabel = defaultLabel;
+    ctx.expr = expr;
+    switchStack_.push_back(ctx);
+    loopStack_.push_back({breakLabel, ""}); // break works in switch, continue does not
+
+    // Pre-scan case values by visiting body (CaseStatement/DefaultStatement will register themselves)
     node.body->accept(*this);
+
+    // Emit the switch dispatch at the end (after all case labels are known)
+    // Note: cases were already registered during body visit
+    auto& sw = switchStack_.back();
+    if (!sw.cases.empty()) {
+        // The SWITCH instruction is informational — actual comparison+branch was emitted inline by CaseStatement
+    }
+
+    loopStack_.pop_back();
+    switchStack_.pop_back();
+    startBlock(breakLabel);
 }
-void IRBuilder::visit(CaseStatement&) { /* TODO */ }
-void IRBuilder::visit(DefaultStatement&) { /* TODO */ }
+
+void IRBuilder::visit(CaseStatement& node) {
+    if (switchStack_.empty()) return;
+
+    // Evaluate case value
+    int64_t caseVal = 0;
+    if (auto* lit = dynamic_cast<IntegerLiteral*>(node.value.get())) {
+        caseVal = lit->value;
+    }
+
+    std::string caseLabel = newLabel("case");
+    switchStack_.back().cases.push_back({caseVal, caseLabel});
+
+    // Emit comparison: if expr == caseVal, branch to case body
+    auto dest = allocVreg(ir::Type::I8);
+    ir::Inst cmp;
+    cmp.op = ir::Op::CMP_EQ;
+    cmp.dest = dest;
+    cmp.resultType = ir::Type::I8;
+    cmp.src1 = switchStack_.back().expr;
+    cmp.src2 = ir::Operand::imm(caseVal, switchStack_.back().expr.type);
+    cmp.loc = loc(node);
+    emit(cmp);
+
+    std::string skipLabel = newLabel("case_skip");
+    ir::Inst br;
+    br.op = ir::Op::BR_COND;
+    br.src1 = dest;
+    br.dest = ir::Operand::label(caseLabel);
+    br.src2 = ir::Operand::label(skipLabel);
+    emit(br);
+
+    startBlock(caseLabel);
+    // Case body follows (emitted by CompoundStatement visit)
+
+    // The skip block will be started by the next case or end of switch
+    // We need to ensure it exists
+    startBlock(skipLabel);
+}
+
+void IRBuilder::visit(DefaultStatement&) {
+    if (switchStack_.empty()) return;
+
+    std::string defaultLabel = newLabel("default");
+    switchStack_.back().defaultLabel = defaultLabel;
+    switchStack_.back().hasDefault = true;
+
+    startBlock(defaultLabel);
+}
 
 void IRBuilder::visit(BreakStatement&) {
-    // TODO: track break target label
+    if (loopStack_.empty()) return;
+    ir::Inst br;
+    br.op = ir::Op::BR;
+    br.src1 = ir::Operand::label(loopStack_.back().breakLabel);
+    emit(br);
 }
+
 void IRBuilder::visit(ContinueStatement&) {
-    // TODO: track continue target label
+    if (loopStack_.empty() || loopStack_.back().continueLabel.empty()) return;
+    ir::Inst br;
+    br.op = ir::Op::BR;
+    br.src1 = ir::Operand::label(loopStack_.back().continueLabel);
+    emit(br);
 }
-void IRBuilder::visit(SwitchContinueStatement&) { /* TODO */ }
+
+void IRBuilder::visit(SwitchContinueStatement&) {
+    // Non-standard extension — skip for now
+}
 
 void IRBuilder::visit(GotoStatement& node) {
     ir::Inst br;
@@ -632,7 +884,45 @@ void IRBuilder::visit(AsmStatement& node) {
 }
 
 void IRBuilder::visit(StaticAssert&) { /* compile-time only */ }
-void IRBuilder::visit(EnumDefinition&) { /* type-level only */ }
-void IRBuilder::visit(StructDefinition&) { /* type-level only */ }
+
+void IRBuilder::visit(EnumDefinition&) { /* type-level only, values folded by ConstantFolder */ }
+
+void IRBuilder::visit(StructDefinition& node) {
+    IRStructInfo info;
+    info.name = node.name;
+    info.isUnion = node.isUnion;
+    int currentOffset = 0;
+
+    for (const auto& m : node.members) {
+        IRMemberInfo mi;
+        mi.type = m.type;
+        mi.pointerLevel = m.pointerLevel;
+        mi.isSigned = m.isSigned;
+        mi.arrayDims = m.arrayDims;
+        mi.size = getTypeSize(m.type, m.pointerLevel);
+        if (m.arraySize() > 0) mi.size *= m.arraySize();
+
+        if (node.isUnion) {
+            mi.offset = 0;
+        } else {
+            int align = std::max(1, getTypeSize(m.type, m.pointerLevel));
+            if (align > 1 && currentOffset % align != 0)
+                currentOffset += align - (currentOffset % align);
+            mi.offset = currentOffset;
+            currentOffset += mi.size;
+        }
+
+        info.members[m.name] = mi;
+        info.memberOrder.push_back(m.name);
+    }
+
+    info.totalSize = node.isUnion ? 0 : currentOffset;
+    if (node.isUnion) {
+        for (const auto& [n, mi] : info.members)
+            if (mi.size > info.totalSize) info.totalSize = mi.size;
+    }
+
+    structs_[node.name] = info;
+}
 void IRBuilder::visit(BuiltinVaStart&) { /* TODO */ }
 void IRBuilder::visit(BuiltinVaArg&) { /* TODO */ }
