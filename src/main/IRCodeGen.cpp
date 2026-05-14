@@ -69,27 +69,61 @@ void IRCodeGen::prescanFunction(const ir::Function& fn) {
 // ============================================================================
 
 void IRCodeGen::loadVreg(uint32_t vregId) {
-    int off = slotOf(vregId);
-    auto it = vregType_.find(vregId);
-    ir::Type t = (it != vregType_.end()) ? it->second : ir::Type::I16;
-    if (t == ir::Type::I8) {
-        emit("lda.fp " + std::to_string(off));
-    } else if (t == ir::Type::I32) {
-        emit("lda.fp " + std::to_string(off));
-        emit("ldx.fp " + std::to_string(off)); // TODO: proper 32-bit load
-    } else {
-        emit("ldax.fp " + std::to_string(off));
+    auto alloc = alloc_.getAlloc(vregId);
+    switch (alloc.loc) {
+        case VRegAllocator::IN_AX:
+            // Already in A:X — check if it's still there
+            if (alloc_.isInAX(vregId, currentInstIdx_)) return; // no-op!
+            // Fell through from A:X to somewhere — treat as frame
+            if (vregOffset_.count(vregId)) {
+                emit("ldax.fp " + std::to_string(vregOffset_[vregId]));
+            }
+            break;
+        case VRegAllocator::IN_ZP: {
+            std::stringstream ss;
+            ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << alloc.offset;
+            std::string zpAddr = ss.str();
+            if (alloc.type == ir::Type::I8) {
+                emit("lda " + zpAddr);
+            } else {
+                emit("lda " + zpAddr);
+                ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (alloc.offset + 1);
+                emit("ldx " + ss.str());
+            }
+            break;
+        }
+        case VRegAllocator::IN_FRAME: {
+            int off = slotOf(vregId);
+            emit("ldax.fp " + std::to_string(off));
+            break;
+        }
     }
 }
 
 void IRCodeGen::storeVreg(uint32_t vregId) {
-    int off = slotOf(vregId);
-    auto it = vregType_.find(vregId);
-    ir::Type t = (it != vregType_.end()) ? it->second : ir::Type::I16;
-    if (t == ir::Type::I8) {
-        emit("sta.fp " + std::to_string(off));
-    } else {
-        emit("stax.fp " + std::to_string(off));
+    auto alloc = alloc_.getAlloc(vregId);
+    switch (alloc.loc) {
+        case VRegAllocator::IN_AX:
+            // Value stays in A:X — no store needed!
+            break;
+        case VRegAllocator::IN_ZP: {
+            std::stringstream ss;
+            ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << alloc.offset;
+            std::string zpAddr = ss.str();
+            if (alloc.type == ir::Type::I8) {
+                emit("sta " + zpAddr);
+            } else {
+                emit("sta " + zpAddr);
+                ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (alloc.offset + 1);
+                emit("stx " + ss.str());
+            }
+            break;
+        }
+        case VRegAllocator::IN_FRAME: {
+            int off = slotOf(vregId);
+            emit("stax.fp " + std::to_string(off));
+            break;
+        }
     }
 }
 
@@ -188,7 +222,23 @@ void IRCodeGen::emitStrings() {
 
 void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode) {
     emitComment("function " + fn.name);
+
+    // Run register allocator
+    alloc_.analyze(fn);
+
+    // Prescan for frame-allocated vRegs only
     prescanFunction(fn);
+
+    // Override: only allocate frame slots for vRegs assigned to frame by allocator
+    resetFrame();
+    for (const auto& lr : alloc_.liveRanges()) {
+        auto alloc = alloc_.getAlloc(lr.vregId);
+        if (alloc.loc == VRegAllocator::IN_FRAME) {
+            allocSlot(lr.vregId, lr.type);
+        }
+    }
+
+    currentInstIdx_ = 0;
 
     // proc directive with parameter specs
     std::string procLine = "proc " + fn.name;
@@ -210,10 +260,10 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode) {
     // Frame pointer variable
     emit(".var _fp = 0");
 
-    // Allocate frame for vRegs (past params)
+    // Allocate frame only for frame-allocated vRegs
     int localFrameSize = frameSize_;
     if (localFrameSize > 0) {
-        emitComment("frame: " + std::to_string(localFrameSize) + " bytes for vRegs");
+        emitComment("frame: " + std::to_string(localFrameSize) + " bytes (frame-allocated vRegs only)");
         // Allocate in 2-byte pairs
         for (int i = 0; i < localFrameSize; i += 2) {
             emit("phw #0");
@@ -221,9 +271,12 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode) {
         }
     }
 
-    // Emit .local for each vReg
+    // Emit .local for frame-allocated vRegs only
     for (const auto& [vregId, offset] : vregOffset_) {
-        emit(".local __vr" + std::to_string(vregId) + " = " + std::to_string(offset));
+        auto alloc = alloc_.getAlloc(vregId);
+        if (alloc.loc == VRegAllocator::IN_FRAME) {
+            emit(".local __vr" + std::to_string(vregId) + " = " + std::to_string(offset));
+        }
     }
 
     // Emit parameter .var directives (past frame + return addr)
@@ -246,11 +299,13 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode) {
         storeVreg((uint32_t)i);
     }
 
-    // Emit blocks
+    // Emit blocks (with instruction index tracking for allocator queries)
+    currentInstIdx_ = 0;
     for (const auto& block : fn.blocks) {
         emitLabel("@" + block.label);
         for (const auto& inst : block.insts) {
             emitInst(inst);
+            currentInstIdx_++;
         }
     }
 

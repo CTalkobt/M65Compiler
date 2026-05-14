@@ -1,5 +1,6 @@
 #pragma once
 #include "IR.hpp"
+#include "VRegAllocator.hpp"
 #include <ostream>
 #include <map>
 #include <string>
@@ -56,4 +57,8 @@ private:
     // Current function metadata
     bool relocMode_ = false;
     bool zpCallMode_ = false;
+
+    // Register allocator
+    VRegAllocator alloc_;
+    int currentInstIdx_ = 0;  // tracks position during emission
 };
