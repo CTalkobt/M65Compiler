@@ -283,6 +283,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode) {
     // Run register allocator
     alloc_.analyze(fn);
 
+    // Copy local slot info from IR function
+    localSlotVregs_ = fn.localSlotVregs;
+
     // Prescan for frame-allocated vRegs only
     prescanFunction(fn);
 
@@ -597,15 +600,15 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 emit("sta " + inst.src2.name);
                 emit("stx " + inst.src2.name + "+1");
             } else if (inst.src2.isVreg() && inst.src1.isVreg()) {
-                // Check if dest vReg is an address (from ADDR_GLOBAL/ADDR_LOCAL/ADDR_ELEM)
-                // or just a local slot. For local slots, it's a direct copy.
-                auto alloc = alloc_.getAlloc(inst.src2.vregId);
-                if (alloc.loc == VRegAllocator::IN_ZP || alloc.loc == VRegAllocator::IN_FRAME) {
-                    // Direct vReg-to-vReg copy
+                // Is the target a local variable slot (direct write)
+                // or a computed address (indirect write through pointer)?
+                bool isLocalSlot = localSlotVregs_.count(inst.src2.vregId) > 0;
+                if (isLocalSlot) {
+                    // Direct vReg-to-vReg copy (local variable assignment)
                     loadVreg(inst.src1.vregId);
                     storeVreg(inst.src2.vregId);
                 } else {
-                    // Address in AX — store through pointer
+                    // Indirect store: write value through pointer address
                     loadVreg(inst.src2.vregId);  // load address
                     emit("sta __zp_scratch");
                     emit("stx __zp_scratch+1");

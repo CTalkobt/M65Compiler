@@ -126,6 +126,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         //               int * const p → isPointerConst=true, pointer is read-only
         localConst_[p.name] = (p.pointerLevel == 0 && p.isConst) || p.isPointerConst;
         localPointsToConst_[p.name] = p.isConst && p.pointerLevel > 0;
+        currentFunc_->localSlotVregs.insert(vreg.vregId);
     }
 
     // Visit body
@@ -182,8 +183,9 @@ void IRBuilder::visit(VariableDeclaration& node) {
     locals_[node.name] = vreg;
     localTypes_[node.name] = t;
     localSigned_[node.name] = node.isSigned;
-    localConst_[node.name] = node.isConst && node.pointerLevel == 0; // const on the variable itself
-    localPointsToConst_[node.name] = node.isConst && node.pointerLevel > 0; // const on pointed-to data
+    localConst_[node.name] = node.isConst && node.pointerLevel == 0;
+    localPointsToConst_[node.name] = node.isConst && node.pointerLevel > 0;
+    if (currentFunc_) currentFunc_->localSlotVregs.insert(vreg.vregId);
 
     // Emit initializer if present
     if (node.initializer) {

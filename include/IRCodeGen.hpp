@@ -65,4 +65,9 @@ private:
     // Register allocator
     VRegAllocator alloc_;
     int currentInstIdx_ = 0;  // tracks position during emission
+
+    // Track which vRegs are direct local slots (from params/VariableDeclaration)
+    // vs computed addresses (from LOAD/ADDR_*). STORE to a slot = direct write.
+    // STORE to a non-slot = indirect write through pointer.
+    std::set<uint32_t> localSlotVregs_;
 };

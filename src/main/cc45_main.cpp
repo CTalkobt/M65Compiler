@@ -376,7 +376,7 @@ int main(int argc, char** argv) {
     uint32_t zeroPageStart = 0x02;
     bool zpCallMode = false;
     bool emitIR = false;
-    bool codegenIR = false;  // IR codegen via --codegen-ir (not yet default)
+    bool codegenIR = false;  // IR codegen via --codegen-ir (15 mmemu failures remain)
     bool legacyCodegen = true;
     uint32_t zeroPageAvail = 9;
     std::string defineFlag = "";
