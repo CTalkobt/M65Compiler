@@ -15,6 +15,7 @@
 #include "AssemblerGenerator.hpp"
 #include "M65Emitter.hpp"
 #include "IRBuilder.hpp"
+#include "IRCodeGen.hpp"
 #include "Version.hpp"
 
 class ASTPrinter : public ASTVisitor {
@@ -374,6 +375,7 @@ int main(int argc, char** argv) {
     uint32_t zeroPageStart = 0x02;
     bool zpCallMode = false;
     bool emitIR = false;
+    bool codegenIR = false;
     uint32_t zeroPageAvail = 9;
     std::string defineFlag = "";
     std::map<std::string, std::string> initialSymbols;
@@ -433,6 +435,8 @@ int main(int argc, char** argv) {
             zpCallMode = false;
         } else if (arg == "--emit-ir") {
             emitIR = true;
+        } else if (arg == "--codegen-ir") {
+            codegenIR = true; emitIR = true;
         } else if (arg == "-O0") {
             optimize = false;
         } else if (arg == "-vv") {
@@ -591,20 +595,38 @@ int main(int argc, char** argv) {
         if (verboseLevel >= 1) std::cout << "Code generation complete." << std::endl;
 
         // IR generation (shadow mode)
-        if (emitIR) {
-            std::string irFile = asmFile;
-            size_t dotPos = irFile.rfind('.');
-            if (dotPos != std::string::npos) irFile = irFile.substr(0, dotPos);
-            irFile += ".ir";
+        if (emitIR || codegenIR) {
             IRBuilder irBuilder;
             irBuilder.zpCallMode = zpCallMode;
             irBuilder.setSourceInfo(input_file);
             irBuilder.generate(*ast);
-            std::ofstream irOut(irFile);
-            if (irOut.is_open()) {
-                ir::Printer::print(irOut, irBuilder.getModule());
-                irOut.close();
-                if (verboseLevel >= 1) std::cout << "Generated IR in " << irFile << std::endl;
+
+            if (emitIR) {
+                std::string irFile = asmFile;
+                size_t dotPos = irFile.rfind('.');
+                if (dotPos != std::string::npos) irFile = irFile.substr(0, dotPos);
+                irFile += ".ir";
+                std::ofstream irOut(irFile);
+                if (irOut.is_open()) {
+                    ir::Printer::print(irOut, irBuilder.getModule());
+                    irOut.close();
+                    if (verboseLevel >= 1) std::cout << "Generated IR in " << irFile << std::endl;
+                }
+            }
+
+            if (codegenIR) {
+                // Overwrite the assembly file with IR-generated code
+                std::string irAsmFile = asmFile;
+                size_t dotPos = irAsmFile.rfind('.');
+                if (dotPos != std::string::npos) irAsmFile = irAsmFile.substr(0, dotPos);
+                irAsmFile += ".ir.s";
+                std::ofstream irAsmOut(irAsmFile);
+                if (irAsmOut.is_open()) {
+                    IRCodeGen irCodeGen(irAsmOut);
+                    irCodeGen.generate(irBuilder.getModule(), assemble, zpCallMode);
+                    irAsmOut.close();
+                    if (verboseLevel >= 1) std::cout << "Generated IR assembly in " << irAsmFile << std::endl;
+                }
             }
         }
 
