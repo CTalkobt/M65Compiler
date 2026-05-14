@@ -229,10 +229,8 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
             exp.funcAttr.zpUses = readU32(&data[off]); off += 4;
             exp.funcAttr.zpClobbers = readU32(&data[off]); off += 4;
             exp.funcAttr.zpRelease = readU32(&data[off]); off += 4;
-            // paramSize is present in new format (17 bytes total)
-            if (off < data.size() && data[off] != O45_FUNCATTR_MARKER && data[off] != 0x00) {
-                // Heuristic: if next byte looks like a paramSize (not a marker or NUL string start)
-                // Actually, just check if the total record was written as 17 bytes
+            // paramSize byte (always present in current format)
+            if (off < data.size()) {
                 exp.funcAttr.paramSize = data[off++];
             }
         }
