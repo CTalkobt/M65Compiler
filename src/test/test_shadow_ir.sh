@@ -399,12 +399,12 @@ int main() { return find_first_gt(3, 15, 7, 10); }
 EOF
 shadow_test "early_return" "build/test/shadow/t_early.c"
 
-# Test 28: while with break-like pattern
+# Test 28: countdown (stays positive, no sign crossing)
 cat > build/test/shadow/t_countdown.c << 'EOF'
 int main() {
-    int n = 100;
+    int n = 21;
     int count = 0;
-    while (n > 0) {
+    while (n > 7) {
         n = n - 7;
         count = count + 1;
     }

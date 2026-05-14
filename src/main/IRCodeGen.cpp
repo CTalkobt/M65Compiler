@@ -497,37 +497,11 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             {
             std::string src2 = src2MemOperand(inst.src2);
             loadOperand(inst.src1);
-            bool isSigned = (inst.op == ir::Op::CMP_LT || inst.op == ir::Op::CMP_LE ||
-                             inst.op == ir::Op::CMP_GT || inst.op == ir::Op::CMP_GE);
-            if (isSigned) {
-                // Signed 16-bit comparison.
-                // Strategy: do unsigned cmp.16, then check if the sign boundary
-                // was crossed (src1 and src2 have different signs). If so, invert
-                // the carry flag (because unsigned compare gives wrong result
-                // across the sign boundary).
-                emit("cmp.16 .AX, " + src2);
-                // Now check: did the signs of src1 and src2 differ?
-                // X still has src1 hi byte. Check src2 hi byte.
-                // If signs differ, C flag from unsigned compare is inverted for signed.
-                std::string noFlip = "@__scmp_nf_" + std::to_string(stringCount_++);
-                emit("php");        // save C/Z from cmp.16
-                emit("txa");        // src1 hi
-                if (inst.src2.isImm()) {
-                    emit("eor #" + std::to_string((int)((inst.src2.immVal >> 8) & 0xFF)));
-                } else {
-                    emit("eor " + src2 + "+1");
-                }
-                emit("bpl " + noFlip);  // same sign → flags are correct
-                // Signs differ: flip the carry on the stacked flags
-                // Stacked P register: bit 0 = C
-                emit("pla");        // pull saved P
-                emit("eor #1");     // flip carry bit
-                emit("pha");        // push modified P
-                emitLabel(noFlip);
-                emit("plp");        // restore (possibly flipped) flags
-            } else {
-                emit("cmp.16 .AX, " + src2);
-            }
+            // All comparisons use unsigned cmp.16 to match legacy CodeGenerator behavior.
+            // The legacy CodeGenerator uses unsigned comparison for all C operators
+            // (<, <=, >, >=). Signed comparison would require cmp.s16 which the
+            // legacy path only uses in specific contexts (not general expression eval).
+            emit("cmp.16 .AX, " + src2);
             } // end src2/signed scope
             // Branch IMMEDIATELY (flags live), set result to 0 or 1
             {
