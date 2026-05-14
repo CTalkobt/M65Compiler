@@ -46,6 +46,10 @@ private:
     void storeVreg(uint32_t vregId);
     // Load any operand into A:X
     void loadOperand(const ir::Operand& op);
+    // Get a memory operand string for src2 in binary ops (for simulated ops like add.16)
+    // Returns "#imm" for immediates, "$ZZ" for ZP vRegs, "symbol, s" for frame vRegs.
+    // If the vReg is in A:X, spills it to __zp_scratch first and returns the ZP addr.
+    std::string src2MemOperand(const ir::Operand& op);
 
     // Pre-scan a function to allocate frame slots for all vRegs
     void prescanFunction(const ir::Function& fn);

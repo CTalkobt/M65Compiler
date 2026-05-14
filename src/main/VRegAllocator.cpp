@@ -135,6 +135,9 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
     // Map vregId → zpAddr for ZP-allocated vRegs
     std::map<uint32_t, int> zpAllocMap;
 
+    uint32_t paramCount = (uint32_t)fn.paramTypes.size();
+    int axOccupiedUntil = -1; // instruction index until which A:X is occupied
+
     for (auto& lr : ranges_) {
         int span = lr.lastUse - lr.firstDef;
 
@@ -147,13 +150,17 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
             }
         }
 
-        if (span == 0) {
-            // Defined and last used at the same instruction — keep in A:X
+        // Parameters always go to ZP or frame (they arrive on stack, not in AX)
+        bool isParam = (lr.vregId < paramCount);
+
+        // Can this vReg go in A:X?
+        // Must not be a parameter, must not conflict with another AX occupant
+        bool canUseAX = !isParam && !crossesCall && (lr.firstDef > axOccupiedUntil);
+
+        if (canUseAX && span <= 1) {
+            // Short-lived, no conflict — keep in A:X
             allocs_[lr.vregId] = {IN_AX, 0, lr.type};
-            axState_[lr.firstDef] = (int)lr.vregId;
-        } else if (span == 1 && !crossesCall) {
-            // Used by the very next instruction — keep in A:X
-            allocs_[lr.vregId] = {IN_AX, 0, lr.type};
+            axOccupiedUntil = lr.lastUse;
             for (int i = lr.firstDef; i <= lr.lastUse && i < (int)axState_.size(); i++) {
                 axState_[i] = (int)lr.vregId;
             }

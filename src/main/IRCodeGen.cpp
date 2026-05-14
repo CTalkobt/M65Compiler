@@ -146,6 +146,31 @@ void IRCodeGen::loadOperand(const ir::Operand& op) {
     }
 }
 
+std::string IRCodeGen::src2MemOperand(const ir::Operand& op) {
+    if (op.isImm()) {
+        return "#" + std::to_string((int)op.immVal);
+    }
+    if (op.isVreg()) {
+        auto alloc = alloc_.getAlloc(op.vregId);
+        switch (alloc.loc) {
+            case VRegAllocator::IN_ZP: {
+                std::stringstream ss;
+                ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << alloc.offset;
+                return ss.str();
+            }
+            case VRegAllocator::IN_FRAME:
+                return "__vr" + std::to_string(op.vregId) + ", s";
+            case VRegAllocator::IN_AX:
+                // Value is in A:X — we need to spill to ZP scratch so the simulated op
+                // can read it as a memory operand. Use __zp_scratch and __zp_scratch+1.
+                emit("sta __zp_scratch");
+                emit("stx __zp_scratch+1");
+                return "__zp_scratch";
+        }
+    }
+    return "#0";
+}
+
 // ============================================================================
 // Module-level emission
 // ============================================================================
@@ -158,9 +183,23 @@ void IRCodeGen::generate(const ir::Module& mod, bool relocMode, bool zpCallMode)
         emit(".o45");
         emit(".extern __sp_base");
         emitBlank();
+    } else {
+        // Standalone PRG mode: emit startup stub
+        bool hasMain = false;
+        for (const auto& fn : mod.functions) {
+            if (fn.name == "_main") { hasMain = true; break; }
+        }
+        out_ << "* = $2000\n";
+        emit("__sp_base = $0101");
+        emit("__zp_scratch = $02");
+        if (hasMain) {
+            emit("jsr _main");
+            emit("rts");
+        }
+        emitBlank();
     }
 
-    // Emit global declarations
+    // Emit global declarations (segment switching only in reloc mode)
     emitGlobals(mod, relocMode);
 
     // Emit functions
@@ -188,7 +227,7 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
     bool hasData = false;
     for (const auto& g : mod.globals) {
         if (!hasData) {
-            emit(".segment \"data\"");
+            if (relocMode) emit(".segment \"data\"");
             hasData = true;
         }
         emitLabel(g.name);
@@ -196,10 +235,8 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
     }
     if (hasData) emitBlank();
 
-    // Switch to code segment
+    // Switch to code segment (only in reloc mode; PRG mode is linear)
     if (relocMode) {
-        emit(".segment \"code\"");
-    } else {
         emit(".segment \"code\"");
     }
     emitBlank();
@@ -208,7 +245,7 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
 void IRCodeGen::emitStrings() {
     if (stringPool_.empty()) return;
     emitBlank();
-    emit(".segment \"data\"");
+    if (relocMode_) emit(".segment \"data\"");
     for (const auto& [text, label] : stringPool_) {
         emitLabel(label);
         emit(".text \"" + text + "\"");
@@ -352,20 +389,10 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
         case ir::Op::ADD:
         case ir::Op::SUB: {
+            std::string src2 = src2MemOperand(inst.src2);
             loadOperand(inst.src1);
-            if (inst.dest.isVreg()) storeVreg(inst.dest.vregId); // temp store src1
-            loadOperand(inst.src1); // reload
             std::string op16 = (inst.op == ir::Op::ADD) ? "add.16" : "sub.16";
-            // src2: if immediate, use immediate form; otherwise load from vReg
-            if (inst.src2.isImm()) {
-                emit(op16 + " .AX, #" + std::to_string((int)inst.src2.immVal));
-            } else if (inst.src2.isVreg()) {
-                int off2 = slotOf(inst.src2.vregId);
-                // Use frame-relative operand
-                emit(op16 + " .AX, __vr" + std::to_string(inst.src2.vregId) + ", s");
-            } else {
-                emit(op16 + " .AX, #0");
-            }
+            emit(op16 + " .AX, " + src2);
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
@@ -373,16 +400,13 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         case ir::Op::AND:
         case ir::Op::OR:
         case ir::Op::XOR: {
+            std::string src2 = src2MemOperand(inst.src2);
             loadOperand(inst.src1);
             std::string mn;
             if (inst.op == ir::Op::AND) mn = "and.16";
             else if (inst.op == ir::Op::OR) mn = "ora.16";
             else mn = "eor.16";
-            if (inst.src2.isImm()) {
-                emit(mn + " .AX, #" + std::to_string((int)inst.src2.immVal));
-            } else if (inst.src2.isVreg()) {
-                emit(mn + " .AX, __vr" + std::to_string(inst.src2.vregId) + ", s");
-            }
+            emit(mn + " .AX, " + src2);
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
@@ -402,44 +426,43 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::SHL: {
+            std::string src2 = src2MemOperand(inst.src2);
             loadOperand(inst.src1);
-            emit("lsl.16 .AX, #" + std::to_string((int)inst.src2.immVal));
+            emit("lsl.16 .AX, " + src2);
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
 
         case ir::Op::SHR:
         case ir::Op::ASR: {
+            std::string src2 = src2MemOperand(inst.src2);
             loadOperand(inst.src1);
             std::string mn = (inst.op == ir::Op::ASR) ? "asr.16" : "lsr.16";
-            emit(mn + " .AX, #" + std::to_string((int)inst.src2.immVal));
+            emit(mn + " .AX, " + src2);
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
 
         case ir::Op::MUL: {
+            std::string src2 = src2MemOperand(inst.src2);
             loadOperand(inst.src1);
-            if (inst.src2.isImm()) {
-                emit("mul.16 .AX, #" + std::to_string((int)inst.src2.immVal));
-            }
+            emit("mul.16 .AX, " + src2);
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
 
         case ir::Op::DIV: {
+            std::string src2 = src2MemOperand(inst.src2);
             loadOperand(inst.src1);
-            if (inst.src2.isImm()) {
-                emit("div.16 .AX, #" + std::to_string((int)inst.src2.immVal));
-            }
+            emit("div.16 .AX, " + src2);
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
 
         case ir::Op::MOD: {
+            std::string src2 = src2MemOperand(inst.src2);
             loadOperand(inst.src1);
-            if (inst.src2.isImm()) {
-                emit("mod.16 .AX, #" + std::to_string((int)inst.src2.immVal));
-            }
+            emit("mod.16 .AX, " + src2);
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
@@ -455,11 +478,10 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         case ir::Op::CMP_GTU:
         case ir::Op::CMP_GEU: {
             // Load src1, compare with src2, set result to 0 or 1
+            {
+            std::string src2 = src2MemOperand(inst.src2);
             loadOperand(inst.src1);
-            if (inst.src2.isImm()) {
-                emit("cmp.16 .AX, #" + std::to_string((int)inst.src2.immVal));
-            } else if (inst.src2.isVreg()) {
-                emit("cmp.16 .AX, __vr" + std::to_string(inst.src2.vregId) + ", s");
+            emit("cmp.16 .AX, " + src2);
             }
             // Set A to 0 or 1 based on flags
             emit("lda #0");
