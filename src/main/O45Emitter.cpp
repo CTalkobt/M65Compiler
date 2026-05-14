@@ -719,5 +719,63 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
     // Apply symbols
     syms.applyTo(writer);
 
+    // Emit debug line info option (OPT_LINEINFO)
+    auto& lineMap = parser.getLineMap();
+    if (!lineMap.empty()) {
+        // Build file string table (dedup filenames)
+        std::vector<std::string> fileTable;
+        std::map<std::string, uint16_t> fileIndex;
+        for (const auto& entry : lineMap) {
+            if (!fileIndex.count(entry.file)) {
+                fileIndex[entry.file] = (uint16_t)fileTable.size();
+                fileTable.push_back(entry.file);
+            }
+        }
+        // First option: file string table
+        // Payload: fileCount(2) + NUL-terminated strings
+        {
+            std::vector<uint8_t> payload;
+            uint16_t fc = (uint16_t)fileTable.size();
+            payload.push_back((uint8_t)(fc & 0xFF));
+            payload.push_back((uint8_t)(fc >> 8));
+            for (const auto& f : fileTable) {
+                for (char c : f) payload.push_back((uint8_t)c);
+                payload.push_back(0x00);
+            }
+            // Followed by entryCount(2) and as many 6-byte entries as fit
+            // Max payload per option: 253 bytes (255 - len - type)
+            uint16_t totalEntries = (uint16_t)lineMap.size();
+            payload.push_back((uint8_t)(totalEntries & 0xFF));
+            payload.push_back((uint8_t)(totalEntries >> 8));
+            size_t ei = 0;
+            while (payload.size() + 6 <= 253 && ei < lineMap.size()) {
+                uint16_t off = (uint16_t)(lineMap[ei].address - genStart);
+                uint16_t fi = fileIndex[lineMap[ei].file];
+                uint16_t ln = (uint16_t)lineMap[ei].line;
+                payload.push_back((uint8_t)(off & 0xFF)); payload.push_back((uint8_t)(off >> 8));
+                payload.push_back((uint8_t)(fi & 0xFF)); payload.push_back((uint8_t)(fi >> 8));
+                payload.push_back((uint8_t)(ln & 0xFF)); payload.push_back((uint8_t)(ln >> 8));
+                ei++;
+            }
+            writer.addOptionRaw(OPT_LINEINFO, payload);
+
+            // Continuation options: just 6-byte entries, no header
+            // Use OPT_LINEINFO + 1 (0x12) as continuation marker
+            while (ei < lineMap.size()) {
+                std::vector<uint8_t> cont;
+                while (cont.size() + 6 <= 253 && ei < lineMap.size()) {
+                    uint16_t off = (uint16_t)(lineMap[ei].address - genStart);
+                    uint16_t fi = fileIndex[lineMap[ei].file];
+                    uint16_t ln = (uint16_t)lineMap[ei].line;
+                    cont.push_back((uint8_t)(off & 0xFF)); cont.push_back((uint8_t)(off >> 8));
+                    cont.push_back((uint8_t)(fi & 0xFF)); cont.push_back((uint8_t)(fi >> 8));
+                    cont.push_back((uint8_t)(ln & 0xFF)); cont.push_back((uint8_t)(ln >> 8));
+                    ei++;
+                }
+                writer.addOptionRaw(OPT_LINEINFO, cont);
+            }
+        }
+    }
+
     return writer.emit();
 }

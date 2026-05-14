@@ -23,6 +23,7 @@ void CodeGenerator::embedSource(ASTNode& node) {
     if (node.line == lastEmbeddedLine) return;
     lastEmbeddedLine = node.line;
     out << "; [" << sourceFilename << ":" << node.line << "] " << sourceLines[node.line - 1] << std::endl;
+    out << ".loc \"" << sourceFilename << "\", " << node.line << std::endl;
 }
 
 void CodeGenerator::emitNarrowingWarning(ASTNode& node, const std::string& fromType, int fromPtr, const std::string& toType, int toPtr) {

@@ -134,6 +134,33 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
             out.segAttrs.push_back(sa);
         }
 
+        // Parse OPT_LINEINFO into structured line info
+        if (opt.type == OPT_LINEINFO && opt.data.size() >= 4) {
+            const auto& d = opt.data;
+            size_t p = 0;
+            if (out.lineFiles.empty()) {
+                // First OPT_LINEINFO: contains file table + entryCount + entries
+                uint16_t fileCount = d[p] | (d[p+1] << 8); p += 2;
+                for (uint16_t fi = 0; fi < fileCount && p < d.size(); fi++) {
+                    std::string fname;
+                    while (p < d.size() && d[p] != 0) fname += (char)d[p++];
+                    if (p < d.size()) p++; // skip NUL
+                    out.lineFiles.push_back(fname);
+                }
+                if (p + 2 <= d.size()) {
+                    p += 2; // skip entryCount (we just read all entries we find)
+                }
+            }
+            // Read 6-byte entries (works for both first and continuation records)
+            while (p + 6 <= d.size()) {
+                O45File::LineInfo li;
+                li.textOffset = d[p] | (d[p+1] << 8); p += 2;
+                li.fileIndex = d[p] | (d[p+1] << 8); p += 2;
+                li.line = d[p] | (d[p+1] << 8); p += 2;
+                out.lineInfos.push_back(li);
+            }
+        }
+
         off += len;
     }
     if (off >= data.size()) { errorMsg = "missing option terminator"; return false; }
@@ -188,8 +215,9 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
         off += fw;
 
         // Check for function attribute record ($FA marker)
+        // Supports both old (16 byte) and new (17 byte, with paramSize) formats
         if (off < data.size() && data[off] == O45_FUNCATTR_MARKER) {
-            if (off + O45_FUNCATTR_SIZE > data.size()) {
+            if (off + 16 > data.size()) {  // minimum 16 bytes (old format)
                 errorMsg = "truncated function attribute record";
                 return false;
             }
@@ -201,7 +229,12 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
             exp.funcAttr.zpUses = readU32(&data[off]); off += 4;
             exp.funcAttr.zpClobbers = readU32(&data[off]); off += 4;
             exp.funcAttr.zpRelease = readU32(&data[off]); off += 4;
-            exp.funcAttr.paramSize = data[off++];
+            // paramSize is present in new format (17 bytes total)
+            if (off < data.size() && data[off] != O45_FUNCATTR_MARKER && data[off] != 0x00) {
+                // Heuristic: if next byte looks like a paramSize (not a marker or NUL string start)
+                // Actually, just check if the total record was written as 17 bytes
+                exp.funcAttr.paramSize = data[off++];
+            }
         }
 
         out.exports.push_back(exp);

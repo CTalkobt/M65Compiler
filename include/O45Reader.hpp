@@ -54,6 +54,15 @@ struct O45File {
     };
     std::vector<Import> imports;
     std::vector<Export> exports;
+
+    // Debug line info (from OPT_LINEINFO option)
+    struct LineInfo {
+        uint32_t textOffset;    // offset within text segment
+        uint16_t fileIndex;     // index into lineFiles
+        uint16_t line;          // source line number
+    };
+    std::vector<std::string> lineFiles;   // file string table
+    std::vector<LineInfo> lineInfos;
 };
 
 // Reads and parses a .o45 or .o65 file from a byte vector.

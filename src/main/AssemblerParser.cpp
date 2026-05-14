@@ -356,6 +356,8 @@ void AssemblerParser::pass1() {
         stmt->line = peek().line;
         stmt->scopePrefix = currentScopePrefix();
         stmt->segmentName = currentSegment->name;
+        stmt->sourceFile = currentSourceFile_;
+        stmt->sourceLine = currentSourceLine_;
 
         if ((peek().type == AssemblerTokenType::IDENTIFIER || peek().type == AssemblerTokenType::INSTRUCTION) && pos + 1 < tokens.size() && tokens[pos+1].type == AssemblerTokenType::COLON) {
             std::string labelName = advance().value;
@@ -605,6 +607,15 @@ void AssemblerParser::pass1() {
                         else errors.push_back("Error: unknown flag '" + flag + "' in .func_flags");
                     }
                     currentProc->hasFuncAttrs = true;
+                }
+                stmt->size = 0;
+            }
+            else if (stmt->dir.name == "loc") {
+                // .loc "filename", line — source-level debug info marker
+                currentSourceFile_ = advance().value;
+                if (match(AssemblerTokenType::COMMA)) {
+                    currentSourceLine_ = (int)evaluateExpressionAt((int)pos, stmt->scopePrefix);
+                    while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
                 }
                 stmt->size = 0;
             }
@@ -1431,6 +1442,7 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
             break;
         }
         overallChanged = false;
+        lineMap_.clear();  // rebuild each iteration; final iteration's map is kept
         bool optimizerMadeChanges = optimize();
         if (optimizerMadeChanges) overallChanged = true;
         std::deque<std::unique_ptr<Statement>> newStatements;
@@ -1547,6 +1559,14 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                 else if (s->type == Statement::BASIC_UPSTART) s->size = 12;
             }
             if (s->size != oS) addressRecalculationMadeChanges = true;
+            // Build source-level line map (only on last iteration)
+            if (!s->sourceFile.empty() && s->sourceLine > 0 && s->size > 0 && !s->deleted) {
+                if (lineMap_.empty() || lineMap_.back().address != s->address
+                    || lineMap_.back().line != s->sourceLine
+                    || lineMap_.back().file != s->sourceFile) {
+                    lineMap_.push_back({s->address, s->sourceFile, s->sourceLine});
+                }
+            }
             cP += s->size;
             if (s->type == Statement::INSTRUCTION) {
                 if (s->instr.mnemonic == "rts" || s->instr.mnemonic == "rtn" || s->instr.mnemonic == "rti") isDeadCode = true;

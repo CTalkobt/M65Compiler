@@ -103,6 +103,14 @@ public:
     std::vector<SegmentView> getSegmentViews() const;
     const std::map<std::string, Symbol>& getSymbolTable() const { return symbolTable; }
 
+    // Source-level line map (for debug info)
+    struct LineEntry {
+        uint32_t address;
+        std::string file;
+        int line;
+    };
+    const std::vector<LineEntry>& getLineMap() const { return lineMap_; }
+
 private:
     bool isPass1_ = true; // Flag to indicate if we are in pass 1 of assembly
     std::vector<AssemblerToken> tokens;
@@ -137,6 +145,11 @@ private:
     std::map<std::string, uint32_t> externIndex; // name -> index in externSymbols
 
     std::map<std::string, ArrayInfo> arrayInfos;
+
+    // Source-level debug tracking
+    std::string currentSourceFile_;
+    int currentSourceLine_ = 0;
+    std::vector<LineEntry> lineMap_;
 
 public:
     struct Statement {
@@ -176,6 +189,10 @@ public:
 
         // MUL specific
         int mulWidth = 8;
+
+        // Source-level debug info (set by .loc directive)
+        std::string sourceFile;
+        int sourceLine = 0;
 
         bool deleted = false;
 

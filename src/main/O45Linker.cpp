@@ -569,7 +569,8 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     if (!layoutSegments(errorMsg)) return {};
     if (!resolveSymbols(errorMsg)) return {};
 
-    // Phase 3: function attribute integration
+    // Phase 3: function attribute integration and debug info
+    mergeLineMaps();
     buildFuncAttrs();
     buildCallGraph();
     computeTransitiveClobbers();
@@ -941,6 +942,40 @@ void O45Linker::generateThunks() {
             }
         }
     }
+}
+
+// =============================================================================
+// Debug line map
+// =============================================================================
+
+void O45Linker::mergeLineMaps() {
+    mergedLineMap_.clear();
+    for (const auto& input : objects_) {
+        if (input.obj.lineInfos.empty()) continue;
+        for (const auto& li : input.obj.lineInfos) {
+            std::string file;
+            if (li.fileIndex < input.obj.lineFiles.size())
+                file = input.obj.lineFiles[li.fileIndex];
+            uint32_t addr = textBase_ + input.remapTextOffset(li.textOffset);
+            mergedLineMap_.push_back({addr, file, (int)li.line});
+        }
+    }
+    // Sort by address
+    std::sort(mergedLineMap_.begin(), mergedLineMap_.end(),
+              [](const MergedLineEntry& a, const MergedLineEntry& b) { return a.address < b.address; });
+}
+
+void O45Linker::writeLineMap(std::ostream& out) const {
+    if (mergedLineMap_.empty()) return;
+    out << "[\n";
+    for (size_t i = 0; i < mergedLineMap_.size(); i++) {
+        out << "  {\"addr\":" << mergedLineMap_[i].address
+            << ",\"file\":\"" << mergedLineMap_[i].file
+            << "\",\"line\":" << mergedLineMap_[i].line << "}";
+        if (i + 1 < mergedLineMap_.size()) out << ",";
+        out << "\n";
+    }
+    out << "]\n";
 }
 
 // =============================================================================

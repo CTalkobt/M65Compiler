@@ -222,6 +222,16 @@ int main(int argc, char** argv) {
               << (inputFiles.size() > 1 ? "s" : "")
               << " to " << outputFile << " (" << binary.size() << " bytes)" << std::endl;
 
+    // Write debug line map JSON if line info is available
+    if (linker.hasLineMap()) {
+        std::string debugFile = outputFile + ".debug.json";
+        std::ofstream dbgOut(debugFile);
+        if (dbgOut.is_open()) {
+            linker.writeLineMap(dbgOut);
+            dbgOut.close();
+        }
+    }
+
     // Print map if requested
     if (printMap) {
         std::cout << std::endl << "Symbol map:" << std::endl;

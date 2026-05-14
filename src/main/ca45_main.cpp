@@ -12,6 +12,21 @@
 #include "O45Emitter.hpp"
 #include "Version.hpp"
 
+static void writeLineMapJson(const std::string& jsonFile, const std::vector<AssemblerParser::LineEntry>& lineMap) {
+    if (lineMap.empty()) return;
+    std::ofstream jout(jsonFile);
+    if (!jout.is_open()) return;
+    jout << "[\n";
+    for (size_t i = 0; i < lineMap.size(); i++) {
+        jout << "  {\"addr\":" << lineMap[i].address
+             << ",\"file\":\"" << lineMap[i].file
+             << "\",\"line\":" << lineMap[i].line << "}";
+        if (i + 1 < lineMap.size()) jout << ",";
+        jout << "\n";
+    }
+    jout << "]\n";
+}
+
 int main(int argc, char** argv) {
     std::string input_file;
     std::string output_file;
@@ -175,6 +190,7 @@ int main(int argc, char** argv) {
                 std::ofstream out(output_file, std::ios::binary);
                 out.write(reinterpret_cast<const char*>(binary.data()), binary.size());
                 std::cout << "Assembled to " << output_file << " (" << binary.size() << " bytes)" << std::endl;
+                writeLineMapJson(output_file + ".debug.json", parser.getLineMap());
             }
         }
     } catch (const std::exception& e) {

@@ -71,6 +71,16 @@ public:
     // Write a detailed linker map to a stream. Call after link().
     void writeMap(std::ostream& out) const;
 
+    // Write a JSON debug line map to a stream. Call after link().
+    void writeLineMap(std::ostream& out) const;
+    bool hasLineMap() const { return !mergedLineMap_.empty(); }
+
+    struct MergedLineEntry {
+        uint32_t address;
+        std::string file;
+        int line;
+    };
+
 private:
     struct InputObject {
         std::string filename;
@@ -144,6 +154,9 @@ private:
     // Calling convention mismatch errors
     std::vector<std::string> convErrors_;
 
+    // Merged debug line map
+    std::vector<MergedLineEntry> mergedLineMap_;
+
     // Warning stream (nullptr to suppress)
     std::ostream* warnStream_ = &std::cerr;
 
@@ -163,6 +176,7 @@ private:
     void computeTransitiveClobbers();
     void emitDiagnostics();
     void generateThunks();
+    void mergeLineMaps();
 
     // Get the final base address for a segment ID
     uint32_t segmentBase(O45Segment seg) const;
