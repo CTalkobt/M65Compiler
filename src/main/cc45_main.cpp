@@ -375,7 +375,8 @@ int main(int argc, char** argv) {
     uint32_t zeroPageStart = 0x02;
     bool zpCallMode = false;
     bool emitIR = false;
-    bool codegenIR = false;
+    bool codegenIR = false;  // IR codegen available via --codegen-ir
+    bool legacyCodegen = true;
     uint32_t zeroPageAvail = 9;
     std::string defineFlag = "";
     std::map<std::string, std::string> initialSymbols;
@@ -436,7 +437,9 @@ int main(int argc, char** argv) {
         } else if (arg == "--emit-ir") {
             emitIR = true;
         } else if (arg == "--codegen-ir") {
-            codegenIR = true; emitIR = true;
+            codegenIR = true; legacyCodegen = false; emitIR = true;
+        } else if (arg == "--legacy-codegen") {
+            codegenIR = false; legacyCodegen = true;
         } else if (arg == "-O0") {
             optimize = false;
         } else if (arg == "-vv") {
@@ -574,33 +577,16 @@ int main(int argc, char** argv) {
             ast->accept(printer);
         }
 
-        std::ofstream asmOut(asmFile);
-        if (!asmOut.is_open()) {
-            std::cerr << "Failed to open output file for assembly: " << asmFile << std::endl;
-            return 1;
-        }
-
         if (verboseLevel >= 1) std::cout << "Code generation..." << std::endl;
-        CodeGenerator codegen(asmOut);
-        codegen.zeroPageStart = zeroPageStart;
-        codegen.zeroPageAvail = zeroPageAvail;
-        codegen.relocMode = assemble; // -c enables relocatable object mode
-        codegen.zpCallMode = zpCallMode;
-        codegen.setSourceInfo(input_file, sourceLines);
-        codegen.generate(*ast);
-        if (verboseLevel >= 1) {
-            std::cout << "Generated assembly in " << asmFile << std::endl;
-        }
-        asmOut.close();
-        if (verboseLevel >= 1) std::cout << "Code generation complete." << std::endl;
 
-        // IR generation (shadow mode)
-        if (emitIR || codegenIR) {
+        if (codegenIR) {
+            // IR pipeline: AST → IRBuilder → IR → IRCodeGen → assembly
             IRBuilder irBuilder;
             irBuilder.zpCallMode = zpCallMode;
             irBuilder.setSourceInfo(input_file);
             irBuilder.generate(*ast);
 
+            // Write IR text dump if requested
             if (emitIR) {
                 std::string irFile = asmFile;
                 size_t dotPos = irFile.rfind('.');
@@ -614,20 +600,35 @@ int main(int argc, char** argv) {
                 }
             }
 
-            if (codegenIR) {
-                // Overwrite the assembly file with IR-generated code
-                std::string irAsmFile = asmFile;
-                size_t dotPos = irAsmFile.rfind('.');
-                if (dotPos != std::string::npos) irAsmFile = irAsmFile.substr(0, dotPos);
-                irAsmFile += ".ir.s";
-                std::ofstream irAsmOut(irAsmFile);
-                if (irAsmOut.is_open()) {
-                    IRCodeGen irCodeGen(irAsmOut);
-                    irCodeGen.generate(irBuilder.getModule(), assemble, zpCallMode);
-                    irAsmOut.close();
-                    if (verboseLevel >= 1) std::cout << "Generated IR assembly in " << irAsmFile << std::endl;
-                }
+            // Emit assembly from IR
+            std::ofstream asmOut(asmFile);
+            if (!asmOut.is_open()) {
+                std::cerr << "Failed to open output file for assembly: " << asmFile << std::endl;
+                return 1;
             }
+            IRCodeGen irCodeGen(asmOut);
+            irCodeGen.generate(irBuilder.getModule(), assemble, zpCallMode);
+            asmOut.close();
+        } else {
+            // Legacy path: AST → CodeGenerator → assembly
+            std::ofstream asmOut(asmFile);
+            if (!asmOut.is_open()) {
+                std::cerr << "Failed to open output file for assembly: " << asmFile << std::endl;
+                return 1;
+            }
+            CodeGenerator codegen(asmOut);
+            codegen.zeroPageStart = zeroPageStart;
+            codegen.zeroPageAvail = zeroPageAvail;
+            codegen.relocMode = assemble;
+            codegen.zpCallMode = zpCallMode;
+            codegen.setSourceInfo(input_file, sourceLines);
+            codegen.generate(*ast);
+            asmOut.close();
+        }
+
+        if (verboseLevel >= 1) {
+            std::cout << "Generated assembly in " << asmFile << std::endl;
+            std::cout << "Code generation complete." << std::endl;
         }
 
         if (listingLevel == 2) {
