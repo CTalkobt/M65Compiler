@@ -220,6 +220,48 @@ void IRBuilder::visit(Assignment& node) {
     node.expression->accept(*this);
     auto rhs = lastValue_;
 
+    // Check for bitfield assignment: target is MemberAccess to a bitfield
+    if (auto* ma = dynamic_cast<MemberAccess*>(node.target.get())) {
+        int bitWidth = 0, bitOffset = 0, memberOffset = 0;
+        ir::Type memberType = ir::Type::I16;
+        for (const auto& [sname, sinfo] : structs_) {
+            auto mit = sinfo.members.find(ma->memberName);
+            if (mit != sinfo.members.end() && mit->second.bitWidth > 0) {
+                bitWidth = mit->second.bitWidth;
+                bitOffset = mit->second.bitOffset;
+                memberOffset = mit->second.offset;
+                memberType = mapType(mit->second.type, mit->second.pointerLevel);
+                break;
+            }
+        }
+        if (bitWidth > 0) {
+            // Evaluate struct base address
+            ma->structExpr->accept(*this);
+            auto base = lastValue_;
+            auto addr = allocVreg(ir::Type::PTR);
+            ir::Inst add;
+            add.op = ir::Op::ADD;
+            add.dest = addr;
+            add.resultType = ir::Type::PTR;
+            add.src1 = base;
+            add.src2 = ir::Operand::imm(memberOffset, ir::Type::I16);
+            add.loc = loc(node);
+            emit(add);
+
+            ir::Inst bfins;
+            bfins.op = ir::Op::BFINS;
+            bfins.resultType = memberType;
+            bfins.src1 = rhs;
+            bfins.src2 = addr;
+            bfins.args.push_back(ir::Operand::imm(bitOffset, ir::Type::I8));
+            bfins.args.push_back(ir::Operand::imm(bitWidth, ir::Type::I8));
+            bfins.loc = loc(node);
+            emit(bfins);
+            lastValue_ = rhs;
+            return;
+        }
+    }
+
     // Simple assignment to variable reference
     if (auto* vr = dynamic_cast<VariableReference*>(node.target.get())) {
         auto it = locals_.find(vr->name);
@@ -394,16 +436,27 @@ void IRBuilder::visit(FunctionCall& node) {
 
     ir::Inst inst;
     inst.args = args;
-    inst.src1 = ir::Operand::global("_" + node.name);
     inst.loc = loc(node);
 
-    // Assume non-void return for now (we don't track return types of callees)
-    auto dest = allocVreg(ir::Type::I16);
-    inst.op = ir::Op::CALL;
-    inst.dest = dest;
-    inst.resultType = ir::Type::I16;
-    emit(inst);
-    lastValue_ = dest;
+    if (node.callExpr) {
+        // Indirect call via function pointer
+        node.callExpr->accept(*this);
+        inst.src1 = lastValue_;
+        auto dest = allocVreg(ir::Type::I16);
+        inst.op = ir::Op::CALL_INDIRECT;
+        inst.dest = dest;
+        inst.resultType = ir::Type::I16;
+        emit(inst);
+        lastValue_ = dest;
+    } else {
+        inst.src1 = ir::Operand::global("_" + node.name);
+        auto dest = allocVreg(ir::Type::I16);
+        inst.op = ir::Op::CALL;
+        inst.dest = dest;
+        inst.resultType = ir::Type::I16;
+        emit(inst);
+        lastValue_ = dest;
+    }
 }
 
 void IRBuilder::visit(ExpressionStatement& node) {
@@ -736,7 +789,53 @@ void IRBuilder::visit(MemberAccess& node) {
 }
 
 void IRBuilder::visit(CompoundLiteral& node) {
-    if (node.initializer) node.initializer->accept(*this);
+    ir::Type t = mapType(node.targetType, node.pointerLevel);
+    int size = getTypeSize(node.targetType, node.pointerLevel);
+    if (!node.arrayDims.empty()) {
+        int total = 1;
+        for (int d : node.arrayDims) total *= d;
+        size *= total;
+    }
+
+    if (node.initializer && node.initializer->elements.size() == 1 && node.arrayDims.empty()) {
+        // Scalar compound literal: just evaluate the value
+        node.initializer->elements[0]->accept(*this);
+    } else {
+        // Aggregate: allocate a frame temp, initialize, return address
+        auto temp = allocVreg(ir::Type::PTR);
+        ir::Inst alloc;
+        alloc.op = ir::Op::ADDR_LOCAL;
+        alloc.dest = temp;
+        alloc.resultType = ir::Type::PTR;
+        alloc.src1 = ir::Operand::imm(0, ir::Type::I16); // frame offset (placeholder)
+        alloc.loc = loc(node);
+        emit(alloc);
+
+        if (node.initializer) {
+            int elemOff = 0;
+            int elemSize = ir::typeSize(t);
+            for (auto& elem : node.initializer->elements) {
+                elem->accept(*this);
+                auto val = lastValue_;
+                auto addr = allocVreg(ir::Type::PTR);
+                ir::Inst add;
+                add.op = ir::Op::ADD;
+                add.dest = addr;
+                add.resultType = ir::Type::PTR;
+                add.src1 = temp;
+                add.src2 = ir::Operand::imm(elemOff, ir::Type::I16);
+                emit(add);
+                ir::Inst store;
+                store.op = ir::Op::STORE;
+                store.resultType = t;
+                store.src1 = val;
+                store.src2 = addr;
+                emit(store);
+                elemOff += elemSize;
+            }
+        }
+        lastValue_ = temp;
+    }
 }
 
 void IRBuilder::visit(AlignofExpression&) {
@@ -745,7 +844,13 @@ void IRBuilder::visit(AlignofExpression&) {
 
 void IRBuilder::visit(SizeofExpression& node) {
     int sz = 2;
-    if (node.isType) sz = ir::typeSize(mapType(node.typeName, node.pointerLevel));
+    if (node.isType) {
+        sz = getTypeSize(node.typeName, node.pointerLevel);
+    } else if (node.expression) {
+        // sizeof(expr) — evaluate type of expression
+        // For now use default; a full implementation would call getExprType
+        sz = 2;
+    }
     auto dest = allocVreg(ir::Type::I16);
     ir::Inst inst;
     inst.op = ir::Op::CONST;
@@ -963,5 +1068,91 @@ void IRBuilder::visit(StructDefinition& node) {
 
     structs_[node.name] = info;
 }
-void IRBuilder::visit(BuiltinVaStart&) { /* TODO */ }
-void IRBuilder::visit(BuiltinVaArg&) { /* TODO */ }
+void IRBuilder::visit(BuiltinVaStart& node) {
+    // va_start(ap, last_param): compute address past last named param
+    // At IR level: ap = addr_local(last_param) + sizeof(last_param)
+    node.ap->accept(*this);
+    auto apAddr = lastValue_;
+
+    // Find the last named param to compute its address
+    auto paramIt = locals_.find(node.lastParamName);
+    ir::Operand lastParamAddr;
+    if (paramIt != locals_.end()) {
+        lastParamAddr = paramIt->second;
+    } else {
+        lastParamAddr = ir::Operand::imm(0, ir::Type::PTR);
+    }
+
+    // ap = &last_param + sizeof(last_param)
+    // For simplicity at IR level, emit as an opaque address computation
+    auto dest = allocVreg(ir::Type::PTR);
+    ir::Inst inst;
+    inst.op = ir::Op::ADD;
+    inst.dest = dest;
+    inst.resultType = ir::Type::PTR;
+    inst.src1 = lastParamAddr;
+    inst.src2 = ir::Operand::imm(2, ir::Type::I16); // default param promotion size
+    inst.loc = loc(node);
+    emit(inst);
+
+    // Store into ap
+    ir::Inst store;
+    store.op = ir::Op::STORE;
+    store.resultType = ir::Type::PTR;
+    store.src1 = dest;
+    store.src2 = apAddr;
+    store.loc = loc(node);
+    emit(store);
+    lastValue_ = dest;
+}
+
+void IRBuilder::visit(BuiltinVaArg& node) {
+    // va_arg(ap, type): load value from *ap, then advance ap by sizeof(type)
+    node.ap->accept(*this);
+    auto apAddr = lastValue_;
+
+    ir::Type argType = mapType(node.typeName, node.pointerLevel);
+    int argSize = ir::typeSize(argType);
+    if (argSize < 2) argSize = 2; // default argument promotion
+
+    // Load current ap value (pointer)
+    auto apVal = allocVreg(ir::Type::PTR);
+    ir::Inst loadAp;
+    loadAp.op = ir::Op::LOAD;
+    loadAp.dest = apVal;
+    loadAp.resultType = ir::Type::PTR;
+    loadAp.src1 = apAddr;
+    loadAp.loc = loc(node);
+    emit(loadAp);
+
+    // Load the argument from *ap
+    auto val = allocVreg(argType);
+    ir::Inst loadVal;
+    loadVal.op = ir::Op::LOAD;
+    loadVal.dest = val;
+    loadVal.resultType = argType;
+    loadVal.src1 = apVal;
+    loadVal.loc = loc(node);
+    emit(loadVal);
+
+    // Advance ap: ap += argSize
+    auto newAp = allocVreg(ir::Type::PTR);
+    ir::Inst advance;
+    advance.op = ir::Op::ADD;
+    advance.dest = newAp;
+    advance.resultType = ir::Type::PTR;
+    advance.src1 = apVal;
+    advance.src2 = ir::Operand::imm(argSize, ir::Type::I16);
+    advance.loc = loc(node);
+    emit(advance);
+
+    // Store back
+    ir::Inst storeAp;
+    storeAp.op = ir::Op::STORE;
+    storeAp.resultType = ir::Type::PTR;
+    storeAp.src1 = newAp;
+    storeAp.src2 = apAddr;
+    emit(storeAp);
+
+    lastValue_ = val;
+}
