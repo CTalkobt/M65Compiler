@@ -376,8 +376,8 @@ int main(int argc, char** argv) {
     uint32_t zeroPageStart = 0x02;
     bool zpCallMode = false;
     bool emitIR = false;
-    bool codegenIR = true;   // IR codegen is the default
-    bool legacyCodegen = false;
+    bool codegenIR = false;  // IR codegen via --codegen-ir (not yet default)
+    bool legacyCodegen = true;
     uint32_t zeroPageAvail = 9;
     std::string defineFlag = "";
     std::map<std::string, std::string> initialSymbols;
@@ -599,6 +599,11 @@ int main(int argc, char** argv) {
                     irOut.close();
                     if (verboseLevel >= 1) std::cout << "Generated IR in " << irFile << std::endl;
                 }
+            }
+
+            // Emit warnings
+            for (const auto& warn : irBuilder.getWarnings()) {
+                std::cerr << input_file << ":" << warn << std::endl;
             }
 
             // Check for IR errors (const violations, etc.)

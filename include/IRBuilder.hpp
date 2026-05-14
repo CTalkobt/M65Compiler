@@ -15,6 +15,7 @@ public:
     const ir::Module& getModule() const { return module_; }
     bool hasErrors() const { return !errors_.empty(); }
     const std::vector<std::string>& getErrors() const { return errors_; }
+    const std::vector<std::string>& getWarnings() const { return warnings_; }
 
     bool zpCallMode = false;
 
@@ -125,8 +126,13 @@ private:
     std::set<std::string> calledFunctions_;
     std::set<std::string> definedFunctions_;
 
-    // Error reporting
+    // Track function parameter info for const-qualification warnings
+    struct ParamInfo { bool isConst = false; int pointerLevel = 0; };
+    std::map<std::string, std::vector<ParamInfo>> funcParamInfo_;
+
+    // Error and warning reporting
     std::vector<std::string> errors_;
+    std::vector<std::string> warnings_;
 
     // Helper: emit an instruction to the current block
     void emit(ir::Inst inst);

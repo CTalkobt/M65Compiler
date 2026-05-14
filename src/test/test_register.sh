@@ -1,7 +1,8 @@
 #!/bin/bash
 # Test for register keyword in compiler — validates parsing, ZP allocation, and codegen
 
-CC="./bin/cc45"
+# register keyword tests check legacy-specific assembly patterns
+CC="./bin/cc45 --legacy-codegen"
 AS="./bin/ca45"
 TEMP_C="test_register_tmp.c"
 TEMP_S="test_register_tmp.s"

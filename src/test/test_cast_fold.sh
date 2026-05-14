@@ -2,7 +2,8 @@
 # Test for constant folder cast type preservation — validates that folding
 # CastExpression to IntegerLiteral preserves type info (long, pointer, etc.)
 
-CC="./bin/cc45"
+# Cast fold tests check legacy-specific assembly patterns
+CC="./bin/cc45 --legacy-codegen"
 TEMP_C="test_cast_fold_tmp.c"
 TEMP_S="test_cast_fold_tmp.s"
 

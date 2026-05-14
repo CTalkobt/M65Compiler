@@ -83,6 +83,13 @@ void IRBuilder::visit(TranslationUnit& node) {
 // ============================================================================
 
 void IRBuilder::visit(FunctionDeclaration& node) {
+    // Record parameter info for all functions (including prototypes)
+    {
+        std::vector<ParamInfo> pinfo;
+        for (const auto& p : node.parameters)
+            pinfo.push_back({p.isConst, p.pointerLevel});
+        funcParamInfo_[node.name] = pinfo;
+    }
     if (node.isPrototype || !node.body) return;
 
     ir::Function fn;
@@ -504,6 +511,33 @@ void IRBuilder::visit(CastExpression& node) {
 }
 
 void IRBuilder::visit(FunctionCall& node) {
+    // Check for passing &const_var to non-const pointer parameter
+    auto pit = funcParamInfo_.find(node.name);
+    if (pit != funcParamInfo_.end()) {
+        for (size_t i = 0; i < node.arguments.size() && i < pit->second.size(); i++) {
+            const auto& pinfo = pit->second[i];
+            // If param is a non-const pointer and argument is &const_var
+            if (pinfo.pointerLevel > 0 && !pinfo.isConst) {
+                if (auto* addr = dynamic_cast<UnaryOperation*>(node.arguments[i].get())) {
+                    if (addr->op == "&") {
+                        if (auto* vr = dynamic_cast<VariableReference*>(addr->operand.get())) {
+                            auto cit = localConst_.find(vr->name);
+                            bool varIsConst = (cit != localConst_.end() && cit->second);
+                            auto pcit = localPointsToConst_.find(vr->name);
+                            if (!varIsConst && pcit != localPointsToConst_.end()) varIsConst = false;
+                            // Check if the variable itself is const (not pointer-to-const)
+                            // For `const int x`, localConst_["x"] = true
+                            if (cit != localConst_.end() && cit->second) {
+                                warnings_.push_back(
+                                    "warning: passing argument discards 'const' qualifier");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Evaluate arguments
     std::vector<ir::Operand> args;
     for (auto& arg : node.arguments) {
