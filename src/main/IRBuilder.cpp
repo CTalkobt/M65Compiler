@@ -126,6 +126,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         //               int * const p → isPointerConst=true, pointer is read-only
         localConst_[p.name] = (p.pointerLevel == 0 && p.isConst) || p.isPointerConst;
         localPointsToConst_[p.name] = p.isConst && p.pointerLevel > 0;
+        if (p.pointerLevel > 0) localPointedToType_[p.name] = mapType(p.type, 0);
         currentFunc_->localSlotVregs.insert(vreg.vregId);
     }
 
@@ -174,6 +175,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
                 gv.initValue = lit->value;
             }
         }
+        if (node.pointerLevel > 0) globalPointedToType_[node.name] = mapType(node.type, 0);
         module_.globals.push_back(gv);
         return;
     }
@@ -185,6 +187,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
     localSigned_[node.name] = node.isSigned;
     localConst_[node.name] = node.isConst && node.pointerLevel == 0;
     localPointsToConst_[node.name] = node.isConst && node.pointerLevel > 0;
+    if (node.pointerLevel > 0) localPointedToType_[node.name] = mapType(node.type, 0);
     if (currentFunc_) currentFunc_->localSlotVregs.insert(vreg.vregId);
 
     // Emit initializer if present
@@ -351,6 +354,115 @@ void IRBuilder::visit(Assignment& node) {
         store.resultType = rhs.type;
         store.src1 = rhs;
         store.src2 = ir::Operand::global("_" + vr->name);
+        store.loc = loc(node);
+        emit(store);
+        lastValue_ = rhs;
+        return;
+    }
+
+    // Dereference assignment: *ptr = val → evaluate ptr (not *ptr), store through it
+    if (auto* deref = dynamic_cast<UnaryOperation*>(node.target.get())) {
+        if (deref->op == "*") {
+            // Determine the pointed-to type for correct store width
+            ir::Type storeType = rhs.type;
+            if (auto* vr = dynamic_cast<VariableReference*>(deref->operand.get())) {
+                auto ptit = localPointedToType_.find(vr->name);
+                if (ptit != localPointedToType_.end()) storeType = ptit->second;
+                else {
+                    auto gpit = globalPointedToType_.find(vr->name);
+                    if (gpit != globalPointedToType_.end()) storeType = gpit->second;
+                }
+            }
+            deref->operand->accept(*this);  // evaluate pointer expression (NOT dereference)
+            auto ptrAddr = lastValue_;
+            ir::Inst store;
+            store.op = ir::Op::STORE;
+            store.resultType = storeType;
+            store.src1 = rhs;
+            store.src2 = ptrAddr;
+            store.loc = loc(node);
+            emit(store);
+            lastValue_ = rhs;
+            return;
+        }
+    }
+
+    // Array subscript assignment: arr[i] = val → compute element address, store through it
+    if (auto* aa = dynamic_cast<ArrayAccess*>(node.target.get())) {
+        // Determine element type for correct store width
+        ir::Type storeType = rhs.type;
+        int elemSize = 2;
+        if (auto* vr = dynamic_cast<VariableReference*>(aa->arrayExpr.get())) {
+            auto ptit = localPointedToType_.find(vr->name);
+            if (ptit != localPointedToType_.end()) {
+                storeType = ptit->second;
+                elemSize = ir::typeSize(storeType);
+            } else {
+                auto gpit = globalPointedToType_.find(vr->name);
+                if (gpit != globalPointedToType_.end()) {
+                    storeType = gpit->second;
+                    elemSize = ir::typeSize(storeType);
+                }
+            }
+        }
+        // Evaluate base
+        aa->arrayExpr->accept(*this);
+        auto base = lastValue_;
+        // Evaluate index
+        aa->indexExpr->accept(*this);
+        auto index = lastValue_;
+        auto addr = allocVreg(ir::Type::PTR);
+        ir::Inst elem;
+        elem.op = ir::Op::ADDR_ELEM;
+        elem.dest = addr;
+        elem.resultType = ir::Type::PTR;
+        elem.src1 = base;
+        elem.src2 = index;
+        elem.args.push_back(ir::Operand::imm(elemSize, ir::Type::I16));
+        elem.loc = loc(node);
+        emit(elem);
+        // Store value through computed address (use element type width)
+        ir::Inst store;
+        store.op = ir::Op::STORE;
+        store.resultType = storeType;
+        store.src1 = rhs;
+        store.src2 = addr;
+        store.loc = loc(node);
+        emit(store);
+        lastValue_ = rhs;
+        return;
+    }
+
+    // Member access assignment: s.m = val or p->m = val → compute member address, store
+    if (auto* ma = dynamic_cast<MemberAccess*>(node.target.get())) {
+        // Get member offset
+        int memberOffset = 0;
+        for (const auto& [sname, sinfo] : structs_) {
+            auto mit = sinfo.members.find(ma->memberName);
+            if (mit != sinfo.members.end()) {
+                memberOffset = mit->second.offset;
+                break;
+            }
+        }
+        // Evaluate struct base
+        ma->structExpr->accept(*this);
+        auto base = lastValue_;
+        // Compute address: base + offset
+        auto addr = allocVreg(ir::Type::PTR);
+        ir::Inst add;
+        add.op = ir::Op::ADD;
+        add.dest = addr;
+        add.resultType = ir::Type::PTR;
+        add.src1 = base;
+        add.src2 = ir::Operand::imm(memberOffset, ir::Type::I16);
+        add.loc = loc(node);
+        emit(add);
+        // Store value
+        ir::Inst store;
+        store.op = ir::Op::STORE;
+        store.resultType = rhs.type;
+        store.src1 = rhs;
+        store.src2 = addr;
         store.loc = loc(node);
         emit(store);
         lastValue_ = rhs;

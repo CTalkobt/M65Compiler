@@ -75,6 +75,8 @@ private:
     std::map<std::string, bool> localSigned_;  // true if variable was declared signed
     std::map<std::string, bool> localConst_;       // true if variable itself is const
     std::map<std::string, bool> localPointsToConst_; // true if pointed-to data is const (const int *p)
+    std::map<std::string, ir::Type> localPointedToType_; // for pointers: the type of *ptr
+    std::map<std::string, ir::Type> globalPointedToType_; // for global pointers
     std::map<std::string, std::vector<int>> localArrayDims_; // for stride computation
 
     // Track signedness of last expression result (for comparison op selection)

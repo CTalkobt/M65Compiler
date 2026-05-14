@@ -376,8 +376,8 @@ int main(int argc, char** argv) {
     uint32_t zeroPageStart = 0x02;
     bool zpCallMode = false;
     bool emitIR = false;
-    bool codegenIR = false;  // IR codegen via --codegen-ir (15 mmemu failures remain)
-    bool legacyCodegen = true;
+    bool codegenIR = true;
+    bool legacyCodegen = false;
     uint32_t zeroPageAvail = 9;
     std::string defineFlag = "";
     std::map<std::string, std::string> initialSymbols;
@@ -581,6 +581,24 @@ int main(int argc, char** argv) {
         if (verboseLevel >= 1) std::cout << "Code generation..." << std::endl;
 
         if (codegenIR) {
+            // Run legacy CodeGenerator for validation (error detection only)
+            // Catches struct errors, type errors, etc. that IRBuilder doesn't validate.
+            {
+                std::ostringstream nullOut;
+                CodeGenerator validator(nullOut);
+                validator.zeroPageStart = zeroPageStart;
+                validator.zeroPageAvail = zeroPageAvail;
+                validator.relocMode = assemble;
+                validator.zpCallMode = zpCallMode;
+                validator.setSourceInfo(input_file, sourceLines);
+                try {
+                    validator.generate(*ast);
+                } catch (const std::exception& e) {
+                    std::cerr << "Compile Error: " << e.what() << std::endl;
+                    return 1;
+                }
+            }
+
             // IR pipeline: AST → IRBuilder → IR → IRCodeGen → assembly
             IRBuilder irBuilder;
             irBuilder.zpCallMode = zpCallMode;

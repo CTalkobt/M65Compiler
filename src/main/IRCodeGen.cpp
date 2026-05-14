@@ -614,10 +614,13 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     emit("stx __zp_scratch+1");
                     loadVreg(inst.src1.vregId);  // load value
                     emit("ldy #0");
-                    emit("sta (__zp_scratch),y"); // store lo
-                    emit("txa");
-                    emit("iny");
-                    emit("sta (__zp_scratch),y"); // store hi
+                    emit("sta (__zp_scratch),y"); // store lo byte
+                    if (inst.resultType != ir::Type::I8) {
+                        // 16-bit or wider: store hi byte too
+                        emit("txa");
+                        emit("iny");
+                        emit("sta (__zp_scratch),y");
+                    }
                 }
             } else {
                 loadOperand(inst.src1);
@@ -635,6 +638,22 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         case ir::Op::ADDR_LOCAL: {
             int offset = (int)inst.src1.immVal;
             emit("leax.fp " + std::to_string(offset));
+            if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+            break;
+        }
+
+        case ir::Op::ADDR_ELEM: {
+            // base + index * elemSize
+            // src1 = base address, src2 = index, args[0] = elemSize
+            int elemSize = (inst.args.size() > 0) ? (int)inst.args[0].immVal : 2;
+            // Load index, multiply by elemSize, add to base
+            loadOperand(inst.src2);  // index into AX
+            if (elemSize > 1) {
+                emit("mul.16 .AX, #" + std::to_string(elemSize));
+            }
+            // Add base address
+            std::string baseSrc = src2MemOperand(inst.src1);
+            emit("add.16 .AX, " + baseSrc);
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }

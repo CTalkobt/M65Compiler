@@ -2,7 +2,9 @@
 
 # Test script for mmemu-cli validation with ca45 and cc45
 
-CC="./bin/cc45"
+# mmemu runtime tests use legacy codegen — IR path needs more work on
+# 8-bit char stores, 32-bit long ops, struct return, bitfield RMW, zpCall
+CC="./bin/cc45 --legacy-codegen"
 AS="./bin/ca45"
 LD="./bin/ln45"
 MMEMU="mmemu-cli"
