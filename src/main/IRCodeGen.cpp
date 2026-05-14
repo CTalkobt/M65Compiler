@@ -317,13 +317,19 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode) {
     }
 
     // Emit parameter .var directives (past frame + return addr)
-    for (size_t i = 0; i < fn.paramTypes.size(); i++) {
-        int pSize = ir::typeSize(fn.paramTypes[i]);
-        if (pSize < 2) pSize = 2;
-        std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
-            ? fn.paramNames[i] : std::to_string(i);
-        emit(".var _p_" + pName + " = _fp + 2");
-        emit(".var _fp = _fp + " + std::to_string(pSize));
+    // Params sit above the frame on the stack: _fp + 2 + cumulative offset
+    // The proc directive handles the actual param layout; .var just creates symbols
+    // for ldax.fp access. Do NOT bump _fp — it's fixed at the local frame size.
+    {
+        int paramOff = 0;
+        for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+            int pSize = ir::typeSize(fn.paramTypes[i]);
+            if (pSize < 2) pSize = 2;
+            std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
+                ? fn.paramNames[i] : std::to_string(i);
+            emit(".var _p_" + pName + " = _fp + 2 + " + std::to_string(paramOff));
+            paramOff += pSize;
+        }
     }
 
     emitBlank();
@@ -483,23 +489,48 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             loadOperand(inst.src1);
             emit("cmp.16 .AX, " + src2);
             }
-            // Set A to 0 or 1 based on flags
-            emit("lda #0");
+            // Set A to 0 or 1 based on flags from cmp.16
+            // Use PHP/PLP to preserve flags across the lda #0 setup
+            {
+            std::string setLabel = "@__cmp_set_" + std::to_string(stringCount_);
+            std::string doneLabel = "@__cmp_done_" + std::to_string(stringCount_++);
+            emit("php");          // save flags from cmp.16
+            emit("lda #0");       // default result = 0
             emit("ldx #0");
-            std::string branch;
+            emit("plp");          // restore flags
             switch (inst.op) {
-                case ir::Op::CMP_EQ:  branch = "bne"; break; // skip set if not equal
-                case ir::Op::CMP_NE:  branch = "beq"; break;
+                case ir::Op::CMP_EQ:
+                    emit("bne " + doneLabel);
+                    break;
+                case ir::Op::CMP_NE:
+                    emit("beq " + doneLabel);
+                    break;
                 case ir::Op::CMP_LT:
-                case ir::Op::CMP_LTU: branch = "bcs"; break; // skip if carry set (>=)
+                case ir::Op::CMP_LTU:
+                    emit("bcs " + doneLabel);
+                    break;
+                case ir::Op::CMP_LE:
+                case ir::Op::CMP_LEU:
+                    emit("beq " + setLabel);
+                    emit("bcs " + doneLabel);
+                    break;
+                case ir::Op::CMP_GT:
+                case ir::Op::CMP_GTU:
+                    emit("beq " + doneLabel);
+                    emit("bcc " + doneLabel);
+                    break;
                 case ir::Op::CMP_GE:
-                case ir::Op::CMP_GEU: branch = "bcc"; break;
-                default: branch = "bne"; break;
+                case ir::Op::CMP_GEU:
+                    emit("bcc " + doneLabel);
+                    break;
+                default:
+                    emit("bne " + doneLabel);
+                    break;
             }
-            std::string skipLabel = "@__cmp_skip_" + std::to_string(stringCount_++);
-            emit(branch + " " + skipLabel);
+            emitLabel(setLabel);
             emit("lda #1");
-            emitLabel(skipLabel);
+            emitLabel(doneLabel);
+            }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
@@ -584,16 +615,20 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             if (inst.src1.kind == ir::OperandKind::GLOBAL) {
                 emit("jsr " + inst.src1.name);
             }
-            // Cleanup args
+            // Cleanup args (must preserve A:X return value)
             int argBytes = (int)inst.args.size() * 2;
             if (argBytes > 0) {
-                // Stack cleanup: TSX; TXA; CLC; ADC #N; TAX; TXS
+                // Save return value, clean stack, restore
+                emit("sta __zp_scratch");
+                emit("stx __zp_scratch+1");
                 emit("tsx");
                 emit("txa");
                 emit("clc");
                 emit("adc #" + std::to_string(argBytes));
                 emit("tax");
                 emit("txs");
+                emit("lda __zp_scratch");
+                emit("ldx __zp_scratch+1");
             }
             // Store return value
             if (inst.op == ir::Op::CALL && inst.dest.isVreg()) {
@@ -612,15 +647,19 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             // Load function pointer and call
             loadOperand(inst.src1);
             emitComment("TODO: indirect call via JSR ($ZP)");
-            // Cleanup
+            // Cleanup (preserve A:X return value)
             int argBytes = (int)inst.args.size() * 2;
             if (argBytes > 0) {
+                emit("sta __zp_scratch");
+                emit("stx __zp_scratch+1");
                 emit("tsx");
                 emit("txa");
                 emit("clc");
                 emit("adc #" + std::to_string(argBytes));
                 emit("tax");
                 emit("txs");
+                emit("lda __zp_scratch");
+                emit("ldx __zp_scratch+1");
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
