@@ -9,8 +9,9 @@ designed for the 45GS02 target. It sits between the AST and assembly emission:
 C Source → Lexer → Parser → AST → [ConstantFolder] → IRBuilder → IR → IRCodeGen → Assembly
 ```
 
-Currently only the IR data structures are defined (`include/IR.hpp`). The `IRBuilder`
-(AST → IR) and `IRCodeGen` (IR → assembly) are future work.
+The `IRBuilder` (AST → IR) is implemented and covers all C language constructs
+supported by cc45. Use `cc45 --emit-ir` to generate a `.ir` dump alongside
+normal assembly output. The `IRCodeGen` (IR → assembly) is future work.
 
 ## Type System
 
@@ -40,7 +41,7 @@ func @_add(i16, i16) -> i16 { ... }
 ### Functions
 
 ```
-func @_add(i16 %0, i16 %1) -> i16 conv=stack {
+func @_add(i16 %x, i16 %y) -> i16 conv=stack {
 entry:
   %2 = add i16 %0, %1
   ret %2
@@ -50,6 +51,7 @@ entry:
 - `@_name`: Global symbol (mangled with underscore prefix)
 - `%N`: Virtual register
 - `conv=stack` or `conv=zp`: Calling convention (default: stack)
+- Variadic functions: `func @_printf(i16 %fmt, ...) -> i16`
 
 ### Instructions
 
@@ -57,7 +59,7 @@ entry:
 
 ```
 %0 = const i16 42
-%1 = const i8 'A'
+%1 = const i8 65
 %2 = const i32 100000
 ```
 
@@ -124,6 +126,16 @@ store_zp i8 %1, $03           ; store to zero-page address
 %4 = sext i16 %0 to i32       ; sign-extend int → long
 ```
 
+#### Bitfield Operations
+
+```
+%2 = bfext i16 %1, 4, 4       ; extract 4 bits at bit offset 4
+bfins i16 %0, %addr, 0, 4     ; insert %0 into *%addr at bit offset 0, width 4
+```
+
+Bitfield layout follows C packing rules: consecutive same-type bitfields share
+a storage unit. A new unit starts on type change or overflow.
+
 #### Control Flow
 
 ```
@@ -134,6 +146,9 @@ store_zp i8 %1, $03           ; store to zero-page address
   ret void                              ; void return
 ```
 
+Break and continue within loops emit `br` to the appropriate loop-end or
+loop-continue label. Switch/case emits inline `cmp_eq` + `br_cond` per case.
+
 #### Function Calls
 
 ```
@@ -142,21 +157,67 @@ call_void @_puts(%0)                     ; void call
 %3 = call_indirect %fptr(%0) -> i16      ; indirect call via function pointer
 ```
 
+#### Variadic Functions
+
+```
+; va_start: compute address past last named param, store to ap
+%1 = add i16 %last_param, 2
+store i16 %1, %ap
+
+; va_arg: load from *ap, advance ap
+%2 = load i16 %ap           ; current ap pointer
+%3 = load i16 %2            ; argument value
+%4 = add i16 %2, 2          ; advance past argument
+store i16 %4, %ap           ; update ap
+```
+
+#### Ternary (Conditional Expression)
+
+```
+  br_cond %cond, .tern_then, .tern_else
+tern_then:
+  ...                         ; evaluate then-expression
+  br .tern_end
+tern_else:
+  ...                         ; evaluate else-expression
+  br .tern_end
+tern_end:
+  %r = phi [%thenVal, .tern_then], [%elseVal, .tern_else]
+```
+
 #### Special
 
 ```
 asm "sei"                                ; inline assembly
-%3 = phi [%1, .then], [%2, .else]       ; SSA phi node (future use)
+%3 = phi [%1, .then], [%2, .else]       ; SSA phi node
+nop                                      ; no operation
 ```
 
 ### Source Locations
 
-Instructions may carry source location annotations:
+Instructions carry source location annotations as comments:
 
 ```
   %0 = const i16 42                     ; main.c:10
   %1 = call @_foo(%0) -> i16            ; main.c:11
 ```
+
+## IRBuilder Coverage
+
+The `IRBuilder` (`include/IRBuilder.hpp`, `src/main/IRBuilder.cpp`) implements
+all 42 `ASTVisitor` methods:
+
+| Category | Nodes | Notes |
+|----------|-------|-------|
+| **Expressions** | IntegerLiteral, StringLiteral, VariableReference, BinaryOperation, UnaryOperation, Assignment, CastExpression, FunctionCall, ConditionalExpression, SizeofExpression, AlignofExpression | Full arithmetic, comparison, bitwise, shift, logical ops |
+| **Struct/Union** | StructDefinition, MemberAccess | Layout with alignment, bitfield packing, `.` and `->` access, BFEXT/BFINS |
+| **Arrays** | ArrayAccess | ADDR_ELEM with stride computation + LOAD |
+| **Control flow** | IfStatement, WhileStatement, DoWhileStatement, ForStatement, SwitchStatement, CaseStatement, DefaultStatement, BreakStatement, ContinueStatement, GotoStatement, LabelledStatement | Proper basic blocks, loop label stack for break/continue |
+| **Functions** | FunctionDeclaration, ReturnStatement, FunctionCall (direct + indirect) | Params, return types, calling convention, CALL_INDIRECT for function pointers |
+| **Variadic** | BuiltinVaStart, BuiltinVaArg | Address computation + load/advance pattern |
+| **Compound** | CompoundLiteral, CompoundStatement, InitializerList | Scalar passthrough or frame-allocated aggregate |
+| **Type-level** | EnumDefinition, StructDefinition, StaticAssert | Enum/static_assert are compile-time only; struct builds IRStructInfo |
+| **Misc** | ExpressionStatement, AsmStatement, GenericSelection, SwitchContinueStatement, TranslationUnit | ASM_INLINE for inline asm |
 
 ## Design Rationale
 
@@ -188,8 +249,8 @@ addressing mode and operand types. The IR abstracts away:
 
 ## Future Work
 
-1. **IRBuilder**: AST → IR visitor (shadow mode alongside CodeGenerator)
-2. **IRCodeGen**: IR → assembly emitter (replaces CodeGenerator)
+1. **IRCodeGen**: IR → assembly emitter (replaces CodeGenerator)
+2. **Shadow comparison**: Run IRCodeGen alongside CodeGenerator, diff output
 3. **IR Optimizer**: Passes operating on IR (CSE, DCE, constant propagation)
 4. **Register Allocator**: vReg → {A,X,Y,Z} + ZP slot assignment
 5. **Debug Info**: IR source locations → line map emission
