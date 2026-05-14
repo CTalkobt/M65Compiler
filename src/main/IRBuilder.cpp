@@ -8,6 +8,12 @@ void IRBuilder::setSourceInfo(const std::string& filename) {
 
 void IRBuilder::generate(TranslationUnit& unit) {
     unit.accept(*this);
+    // Compute extern symbols: called but not defined in this module
+    for (const auto& name : calledFunctions_) {
+        if (!definedFunctions_.count(name)) {
+            module_.externs.push_back(name);
+        }
+    }
 }
 
 std::string IRBuilder::newLabel(const std::string& prefix) {
@@ -81,6 +87,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
 
     ir::Function fn;
     fn.name = "_" + node.name;
+    definedFunctions_.insert(fn.name);
     fn.returnType = mapType(node.returnType, node.returnPointerLevel);
     fn.conv = (zpCallMode || node.isFastcall) ? ir::CallConv::ZP : ir::CallConv::STACK;
     fn.isVariadic = node.isVariadic;
@@ -95,6 +102,8 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     currentFunc_ = &module_.functions.back();
     locals_.clear();
     localTypes_.clear();
+    localSigned_.clear();
+    localConst_.clear();
 
     startBlock("entry");
 
@@ -104,6 +113,12 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         auto vreg = allocVreg(pt);
         locals_[p.name] = vreg;
         localTypes_[p.name] = pt;
+        localSigned_[p.name] = p.isSigned;
+        // For non-pointers: const int x → isConst=true, variable is read-only
+        // For pointers: const int *p → isConst=true, pointed-to is read-only, pointer itself is writable
+        //               int * const p → isPointerConst=true, pointer is read-only
+        localConst_[p.name] = (p.pointerLevel == 0 && p.isConst) || p.isPointerConst;
+        localPointsToConst_[p.name] = p.isConst && p.pointerLevel > 0;
     }
 
     // Visit body
@@ -160,6 +175,8 @@ void IRBuilder::visit(VariableDeclaration& node) {
     locals_[node.name] = vreg;
     localTypes_[node.name] = t;
     localSigned_[node.name] = node.isSigned;
+    localConst_[node.name] = node.isConst && node.pointerLevel == 0; // const on the variable itself
+    localPointsToConst_[node.name] = node.isConst && node.pointerLevel > 0; // const on pointed-to data
 
     // Emit initializer if present
     if (node.initializer) {
@@ -195,6 +212,8 @@ void IRBuilder::visit(IntegerLiteral& node) {
 
 void IRBuilder::visit(StringLiteral& node) {
     std::string name = "__str_" + std::to_string(nextLabel_++);
+    // Record the string literal in the module for data section emission
+    module_.strings.push_back({name, node.value, node.isAscii});
     auto dest = allocVreg(ir::Type::PTR);
     ir::Inst inst;
     inst.op = ir::Op::ADDR_GLOBAL;
@@ -226,6 +245,37 @@ void IRBuilder::visit(VariableReference& node) {
 }
 
 void IRBuilder::visit(Assignment& node) {
+    // Check for const member assignment (error)
+    if (auto* ma = dynamic_cast<MemberAccess*>(node.target.get())) {
+        for (const auto& [sname, sinfo] : structs_) {
+            auto mit = sinfo.members.find(ma->memberName);
+            if (mit != sinfo.members.end() && mit->second.isConst) {
+                errors_.push_back("Compile Error: Assignment to read-only location");
+                return;
+            }
+        }
+    }
+    // Check for const local/param assignment (error)
+    if (auto* vr = dynamic_cast<VariableReference*>(node.target.get())) {
+        auto cit = localConst_.find(vr->name);
+        if (cit != localConst_.end() && cit->second) {
+            errors_.push_back("Compile Error: Assignment to read-only location");
+            return;
+        }
+    }
+    // Check for write through const pointer: *p = val where p is const T *
+    if (auto* deref = dynamic_cast<UnaryOperation*>(node.target.get())) {
+        if (deref->op == "*") {
+            if (auto* vr = dynamic_cast<VariableReference*>(deref->operand.get())) {
+                auto pit = localPointsToConst_.find(vr->name);
+                if (pit != localPointsToConst_.end() && pit->second) {
+                    errors_.push_back("Compile Error: Assignment to read-only location");
+                    return;
+                }
+            }
+        }
+    }
+
     // Evaluate RHS
     node.expression->accept(*this);
     auto rhs = lastValue_;
@@ -476,7 +526,9 @@ void IRBuilder::visit(FunctionCall& node) {
         emit(inst);
         lastValue_ = dest;
     } else {
-        inst.src1 = ir::Operand::global("_" + node.name);
+        std::string mangledName = "_" + node.name;
+        calledFunctions_.insert(mangledName);
+        inst.src1 = ir::Operand::global(mangledName);
         auto dest = allocVreg(ir::Type::I16);
         inst.op = ir::Op::CALL;
         inst.dest = dest;
@@ -1038,6 +1090,7 @@ void IRBuilder::visit(StructDefinition& node) {
         mi.type = m.type;
         mi.pointerLevel = m.pointerLevel;
         mi.isSigned = m.isSigned;
+        mi.isConst = m.isConst;
         mi.arrayDims = m.arrayDims;
         mi.bitWidth = m.bitWidth;
 

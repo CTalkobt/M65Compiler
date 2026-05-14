@@ -199,6 +199,12 @@ void IRCodeGen::generate(const ir::Module& mod, bool relocMode, bool zpCallMode)
         emitBlank();
     }
 
+    // Emit extern declarations
+    for (const auto& ext : mod.externs) {
+        emit(".extern " + ext);
+    }
+    if (!mod.externs.empty()) emitBlank();
+
     // Emit global declarations (segment switching only in reloc mode)
     emitGlobals(mod, relocMode);
 
@@ -208,7 +214,7 @@ void IRCodeGen::generate(const ir::Module& mod, bool relocMode, bool zpCallMode)
     }
 
     // Emit string data
-    emitStrings();
+    emitStrings(mod);
 }
 
 void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
@@ -252,13 +258,17 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
     emitBlank();
 }
 
-void IRCodeGen::emitStrings() {
-    if (stringPool_.empty()) return;
+void IRCodeGen::emitStrings(const ir::Module& mod) {
+    if (mod.strings.empty()) return;
     emitBlank();
     if (relocMode_) emit(".segment \"data\"");
-    for (const auto& [text, label] : stringPool_) {
-        emitLabel(label);
-        emit(".text \"" + text + "\"");
+    for (const auto& sl : mod.strings) {
+        emitLabel(sl.label);
+        if (sl.isAscii) {
+            emit(".ascii \"" + sl.value + "\"");
+        } else {
+            emit(".text \"" + sl.value + "\"");
+        }
         emit(".byte 0");
     }
 }
@@ -565,23 +575,17 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 emit("lda " + inst.src1.name);
                 emit("ldx " + inst.src1.name + "+1");
             } else if (inst.src1.isVreg()) {
-                // Load from address in a vReg — use ZP indirect
+                // Load 16-bit value from address held in a vReg
+                // Use ZP indirect: store address to __zp_scratch, load via (zp),Y
                 loadVreg(inst.src1.vregId);
                 emit("sta __zp_scratch");
                 emit("stx __zp_scratch+1");
+                emit("ldy #1");
+                emit("lda (__zp_scratch),y");  // hi byte
+                emit("tax");                    // X = hi
                 emit("ldy #0");
-                emit("lda (__zp_scratch),y");
-                emit("iny");
-                emit("ldx (__zp_scratch),y");
-                // Now swap: we want lo in A, hi in X — but we got byte0 in A, byte1 in X
-                // Actually (__zp_scratch),y with y=0 gives lo byte, y=1 gives hi byte
-                // So A has lo, X has hi — but ldx (__zp_scratch),y doesn't exist.
-                // Use: lda (zp),y=0 → lo; sta tmp; lda (zp),y=1 → hi; tax; lda tmp
-                emit("sta __zp_scratch"); // stash lo
-                emit("iny");
-                emit("lda (__zp_scratch),y"); // oops, zp_scratch was overwritten
+                emit("lda (__zp_scratch),y");  // A = lo
             }
-            // For now, global loads work; indirect vReg loads need more work
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
@@ -593,12 +597,28 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 emit("sta " + inst.src2.name);
                 emit("stx " + inst.src2.name + "+1");
             } else if (inst.src2.isVreg() && inst.src1.isVreg()) {
-                // vReg-to-vReg copy
-                loadVreg(inst.src1.vregId);
-                storeVreg(inst.src2.vregId);
+                // Check if dest vReg is an address (from ADDR_GLOBAL/ADDR_LOCAL/ADDR_ELEM)
+                // or just a local slot. For local slots, it's a direct copy.
+                auto alloc = alloc_.getAlloc(inst.src2.vregId);
+                if (alloc.loc == VRegAllocator::IN_ZP || alloc.loc == VRegAllocator::IN_FRAME) {
+                    // Direct vReg-to-vReg copy
+                    loadVreg(inst.src1.vregId);
+                    storeVreg(inst.src2.vregId);
+                } else {
+                    // Address in AX — store through pointer
+                    loadVreg(inst.src2.vregId);  // load address
+                    emit("sta __zp_scratch");
+                    emit("stx __zp_scratch+1");
+                    loadVreg(inst.src1.vregId);  // load value
+                    emit("ldy #0");
+                    emit("sta (__zp_scratch),y"); // store lo
+                    emit("txa");
+                    emit("iny");
+                    emit("sta (__zp_scratch),y"); // store hi
+                }
             } else {
                 loadOperand(inst.src1);
-                emitComment("TODO: store to computed address");
+                emitComment("TODO: store to non-vReg address");
             }
             break;
         }

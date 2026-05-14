@@ -2,6 +2,7 @@
 #include "AST.hpp"
 #include "IR.hpp"
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -12,6 +13,8 @@ public:
     void generate(TranslationUnit& unit);
     void setSourceInfo(const std::string& filename);
     const ir::Module& getModule() const { return module_; }
+    bool hasErrors() const { return !errors_.empty(); }
+    const std::vector<std::string>& getErrors() const { return errors_; }
 
     bool zpCallMode = false;
 
@@ -69,6 +72,8 @@ private:
     std::map<std::string, ir::Operand> locals_;
     std::map<std::string, ir::Type> localTypes_;
     std::map<std::string, bool> localSigned_;  // true if variable was declared signed
+    std::map<std::string, bool> localConst_;       // true if variable itself is const
+    std::map<std::string, bool> localPointsToConst_; // true if pointed-to data is const (const int *p)
     std::map<std::string, std::vector<int>> localArrayDims_; // for stride computation
 
     // Track signedness of last expression result (for comparison op selection)
@@ -79,6 +84,7 @@ private:
         std::string type;
         int pointerLevel = 0;
         bool isSigned = false;
+        bool isConst = false;
         int offset = 0;
         int size = 0;
         std::vector<int> arrayDims;
@@ -114,6 +120,13 @@ private:
     // Label generation
     int nextLabel_ = 0;
     std::string newLabel(const std::string& prefix = "L");
+
+    // Track called function names for extern resolution
+    std::set<std::string> calledFunctions_;
+    std::set<std::string> definedFunctions_;
+
+    // Error reporting
+    std::vector<std::string> errors_;
 
     // Helper: emit an instruction to the current block
     void emit(ir::Inst inst);

@@ -252,6 +252,17 @@ struct Module {
         int64_t initValue = 0;  // scalar initial value (for simple int/char globals)
     };
     std::vector<GlobalVar> globals;
+
+    // String literals: label → content
+    struct StringLiteral {
+        std::string label;
+        std::string value;
+        bool isAscii = false;
+    };
+    std::vector<StringLiteral> strings;
+
+    // External symbol references (stdlib functions, etc.)
+    std::vector<std::string> externs;
 };
 
 // ============================================================================

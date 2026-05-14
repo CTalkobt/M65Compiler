@@ -27,7 +27,7 @@ private:
     // Module-level emission
     void emitStartupStub(const ir::Module& mod);
     void emitGlobals(const ir::Module& mod, bool relocMode);
-    void emitStrings();
+    void emitStrings(const ir::Module& mod);
     void emitFunction(const ir::Function& fn, bool relocMode);
     void emitInst(const ir::Inst& inst);
 

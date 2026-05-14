@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
+#include <sstream>
 #include "Lexer.hpp"
 #include "Parser.hpp"
 #include "AST.hpp"
@@ -375,8 +376,8 @@ int main(int argc, char** argv) {
     uint32_t zeroPageStart = 0x02;
     bool zpCallMode = false;
     bool emitIR = false;
-    bool codegenIR = false;  // IR codegen available via --codegen-ir
-    bool legacyCodegen = true;
+    bool codegenIR = true;   // IR codegen is the default
+    bool legacyCodegen = false;
     uint32_t zeroPageAvail = 9;
     std::string defineFlag = "";
     std::map<std::string, std::string> initialSymbols;
@@ -598,6 +599,14 @@ int main(int argc, char** argv) {
                     irOut.close();
                     if (verboseLevel >= 1) std::cout << "Generated IR in " << irFile << std::endl;
                 }
+            }
+
+            // Check for IR errors (const violations, etc.)
+            if (irBuilder.hasErrors()) {
+                for (const auto& err : irBuilder.getErrors()) {
+                    std::cerr << input_file << ":" << err << std::endl;
+                }
+                return 1;
             }
 
             // Emit assembly from IR
