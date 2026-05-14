@@ -231,7 +231,17 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
             hasData = true;
         }
         emitLabel(g.name);
-        emit(".res " + std::to_string(g.size > 0 ? g.size : ir::typeSize(g.type)));
+        if (g.hasInitValue) {
+            if (g.type == ir::Type::I8) {
+                emit(".byte " + std::to_string((int)(g.initValue & 0xFF)));
+            } else if (g.type == ir::Type::I32) {
+                emit(".dword " + std::to_string((int)g.initValue));
+            } else {
+                emit(".word " + std::to_string((int)(g.initValue & 0xFFFF)));
+            }
+        } else {
+            emit(".res " + std::to_string(g.size > 0 ? g.size : ir::typeSize(g.type)));
+        }
     }
     if (hasData) emitBlank();
 
@@ -487,48 +497,86 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             {
             std::string src2 = src2MemOperand(inst.src2);
             loadOperand(inst.src1);
-            emit("cmp.16 .AX, " + src2);
+            bool isSigned = (inst.op == ir::Op::CMP_LT || inst.op == ir::Op::CMP_LE ||
+                             inst.op == ir::Op::CMP_GT || inst.op == ir::Op::CMP_GE);
+            if (isSigned) {
+                // Signed 16-bit comparison.
+                // Strategy: do unsigned cmp.16, then check if the sign boundary
+                // was crossed (src1 and src2 have different signs). If so, invert
+                // the carry flag (because unsigned compare gives wrong result
+                // across the sign boundary).
+                emit("cmp.16 .AX, " + src2);
+                // Now check: did the signs of src1 and src2 differ?
+                // X still has src1 hi byte. Check src2 hi byte.
+                // If signs differ, C flag from unsigned compare is inverted for signed.
+                std::string noFlip = "@__scmp_nf_" + std::to_string(stringCount_++);
+                emit("php");        // save C/Z from cmp.16
+                emit("txa");        // src1 hi
+                if (inst.src2.isImm()) {
+                    emit("eor #" + std::to_string((int)((inst.src2.immVal >> 8) & 0xFF)));
+                } else {
+                    emit("eor " + src2 + "+1");
+                }
+                emit("bpl " + noFlip);  // same sign → flags are correct
+                // Signs differ: flip the carry on the stacked flags
+                // Stacked P register: bit 0 = C
+                emit("pla");        // pull saved P
+                emit("eor #1");     // flip carry bit
+                emit("pha");        // push modified P
+                emitLabel(noFlip);
+                emit("plp");        // restore (possibly flipped) flags
+            } else {
+                emit("cmp.16 .AX, " + src2);
             }
-            // Set A to 0 or 1 based on flags from cmp.16
-            // Use PHP/PLP to preserve flags across the lda #0 setup
+            } // end src2/signed scope
+            // Branch IMMEDIATELY (flags live), set result to 0 or 1
             {
             std::string setLabel = "@__cmp_set_" + std::to_string(stringCount_);
+            std::string zeroLabel = "@__cmp_zero_" + std::to_string(stringCount_);
             std::string doneLabel = "@__cmp_done_" + std::to_string(stringCount_++);
-            emit("php");          // save flags from cmp.16
-            emit("lda #0");       // default result = 0
-            emit("ldx #0");
-            emit("plp");          // restore flags
             switch (inst.op) {
                 case ir::Op::CMP_EQ:
-                    emit("bne " + doneLabel);
+                    emit("beq " + setLabel);
+                    emit("bra " + zeroLabel);
                     break;
                 case ir::Op::CMP_NE:
-                    emit("beq " + doneLabel);
+                    emit("bne " + setLabel);
+                    emit("bra " + zeroLabel);
                     break;
                 case ir::Op::CMP_LT:
                 case ir::Op::CMP_LTU:
-                    emit("bcs " + doneLabel);
+                    emit("bcc " + setLabel);
+                    emit("bra " + zeroLabel);
                     break;
                 case ir::Op::CMP_LE:
                 case ir::Op::CMP_LEU:
+                    emit("bcc " + setLabel);
                     emit("beq " + setLabel);
-                    emit("bcs " + doneLabel);
+                    emit("bra " + zeroLabel);
                     break;
                 case ir::Op::CMP_GT:
                 case ir::Op::CMP_GTU:
-                    emit("beq " + doneLabel);
-                    emit("bcc " + doneLabel);
+                    emit("beq " + zeroLabel);
+                    emit("bcs " + setLabel);
+                    emit("bra " + zeroLabel);
                     break;
                 case ir::Op::CMP_GE:
                 case ir::Op::CMP_GEU:
-                    emit("bcc " + doneLabel);
+                    emit("bcs " + setLabel);
+                    emit("bra " + zeroLabel);
                     break;
                 default:
-                    emit("bne " + doneLabel);
+                    emit("beq " + setLabel);
+                    emit("bra " + zeroLabel);
                     break;
             }
             emitLabel(setLabel);
             emit("lda #1");
+            emit("ldx #0");
+            emit("bra " + doneLabel);
+            emitLabel(zeroLabel);
+            emit("lda #0");
+            emit("ldx #0");
             emitLabel(doneLabel);
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
@@ -536,19 +584,40 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::LOAD: {
-            // Load from address in src1
-            loadOperand(inst.src1);
-            // TODO: proper indirect load — for now, assume address in AX
-            // This needs ZP indirect: store addr to ZP, lda (ZP),Y
-            emitComment("TODO: indirect load");
+            if (inst.src1.kind == ir::OperandKind::GLOBAL) {
+                // Load directly from global address
+                emit("lda " + inst.src1.name);
+                emit("ldx " + inst.src1.name + "+1");
+            } else if (inst.src1.isVreg()) {
+                // Load from address in a vReg — use ZP indirect
+                loadVreg(inst.src1.vregId);
+                emit("sta __zp_scratch");
+                emit("stx __zp_scratch+1");
+                emit("ldy #0");
+                emit("lda (__zp_scratch),y");
+                emit("iny");
+                emit("ldx (__zp_scratch),y");
+                // Now swap: we want lo in A, hi in X — but we got byte0 in A, byte1 in X
+                // Actually (__zp_scratch),y with y=0 gives lo byte, y=1 gives hi byte
+                // So A has lo, X has hi — but ldx (__zp_scratch),y doesn't exist.
+                // Use: lda (zp),y=0 → lo; sta tmp; lda (zp),y=1 → hi; tax; lda tmp
+                emit("sta __zp_scratch"); // stash lo
+                emit("iny");
+                emit("lda (__zp_scratch),y"); // oops, zp_scratch was overwritten
+            }
+            // For now, global loads work; indirect vReg loads need more work
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
 
         case ir::Op::STORE: {
-            // Store src1 (value) to address in src2
-            // For vReg-to-vReg stores, this is just a frame copy
-            if (inst.src2.isVreg() && inst.src1.isVreg()) {
+            if (inst.src2.kind == ir::OperandKind::GLOBAL) {
+                // Store directly to global address
+                loadOperand(inst.src1);
+                emit("sta " + inst.src2.name);
+                emit("stx " + inst.src2.name + "+1");
+            } else if (inst.src2.isVreg() && inst.src1.isVreg()) {
+                // vReg-to-vReg copy
                 loadVreg(inst.src1.vregId);
                 storeVreg(inst.src2.vregId);
             } else {

@@ -145,6 +145,12 @@ void IRBuilder::visit(VariableDeclaration& node) {
         if (node.arraySize() > 0) gv.size *= node.arraySize();
         gv.isConst = node.isConst;
         gv.isStatic = node.isStatic;
+        if (node.initializer) {
+            if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
+                gv.hasInitValue = true;
+                gv.initValue = lit->value;
+            }
+        }
         module_.globals.push_back(gv);
         return;
     }
@@ -276,6 +282,16 @@ void IRBuilder::visit(Assignment& node) {
             lastValue_ = rhs;
             return;
         }
+        // Global variable: store directly via global name
+        ir::Inst store;
+        store.op = ir::Op::STORE;
+        store.resultType = rhs.type;
+        store.src1 = rhs;
+        store.src2 = ir::Operand::global("_" + vr->name);
+        store.loc = loc(node);
+        emit(store);
+        lastValue_ = rhs;
+        return;
     }
 
     // Generic: evaluate target address, store

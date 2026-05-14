@@ -248,6 +248,8 @@ struct Module {
         int size = 0;           // total bytes (may differ from typeSize for arrays)
         bool isConst = false;
         bool isStatic = false;
+        bool hasInitValue = false;
+        int64_t initValue = 0;  // scalar initial value (for simple int/char globals)
     };
     std::vector<GlobalVar> globals;
 };
