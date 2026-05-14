@@ -78,6 +78,8 @@ private:
         int offset = 0;
         int size = 0;
         std::vector<int> arrayDims;
+        int bitWidth = 0;    // 0 = not a bitfield; >0 = width in bits
+        int bitOffset = 0;   // bit offset within storage unit
     };
     struct IRStructInfo {
         std::string name;

@@ -107,6 +107,10 @@ enum class Op : uint8_t {
     ZEXT,           // %d = zext <srcType> <src> to <destType>  (zero-extend)
     TRUNC,          // %d = trunc <srcType> <src> to <destType> (truncate)
 
+    // Bitfield operations
+    BFEXT,          // %d = bfext <type> <src>, <bitOffset>, <bitWidth>  (extract)
+    BFINS,          // bfins <type> <val>, <addr>, <bitOffset>, <bitWidth> (insert RMW)
+
     // Control flow
     BR,             // br <label>
     BR_COND,        // br_cond <cond>, <trueLabel>, <falseLabel>

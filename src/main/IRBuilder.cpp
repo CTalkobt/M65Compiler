@@ -679,65 +679,58 @@ void IRBuilder::visit(MemberAccess& node) {
     node.structExpr->accept(*this);
     auto base = lastValue_;
 
-    // Look up member offset
+    // Look up member info
     int memberOffset = 0;
     ir::Type memberType = ir::Type::I16;
+    int bitWidth = 0;
+    int bitOffset = 0;
 
-    // Try to resolve struct type from variable reference
-    if (auto* ref = dynamic_cast<VariableReference*>(node.structExpr.get())) {
-        auto tit = localTypes_.find(ref->name);
-        // For now, look up in structs_ by scanning for the member name
-        for (const auto& [sname, sinfo] : structs_) {
-            auto mit = sinfo.members.find(node.memberName);
-            if (mit != sinfo.members.end()) {
-                memberOffset = mit->second.offset;
-                memberType = mapType(mit->second.type, mit->second.pointerLevel);
-                break;
-            }
+    for (const auto& [sname, sinfo] : structs_) {
+        auto mit = sinfo.members.find(node.memberName);
+        if (mit != sinfo.members.end()) {
+            memberOffset = mit->second.offset;
+            memberType = mapType(mit->second.type, mit->second.pointerLevel);
+            bitWidth = mit->second.bitWidth;
+            bitOffset = mit->second.bitOffset;
+            break;
         }
     }
 
-    if (node.isArrow) {
-        // Pointer dereference + offset: load from (base + offset)
-        auto addr = allocVreg(ir::Type::PTR);
-        ir::Inst add;
-        add.op = ir::Op::ADD;
-        add.dest = addr;
-        add.resultType = ir::Type::PTR;
-        add.src1 = base;
-        add.src2 = ir::Operand::imm(memberOffset, ir::Type::I16);
-        add.loc = loc(node);
-        emit(add);
+    // Compute address of the storage unit containing the member
+    auto addr = allocVreg(ir::Type::PTR);
+    ir::Inst add;
+    add.op = ir::Op::ADD;
+    add.dest = addr;
+    add.resultType = ir::Type::PTR;
+    add.src1 = base;
+    add.src2 = ir::Operand::imm(memberOffset, ir::Type::I16);
+    add.loc = loc(node);
+    emit(add);
 
-        auto val = allocVreg(memberType);
-        ir::Inst load;
-        load.op = ir::Op::LOAD;
-        load.dest = val;
-        load.resultType = memberType;
-        load.src1 = addr;
-        load.loc = loc(node);
-        emit(load);
-        lastValue_ = val;
+    // Load the storage unit
+    auto val = allocVreg(memberType);
+    ir::Inst load;
+    load.op = ir::Op::LOAD;
+    load.dest = val;
+    load.resultType = memberType;
+    load.src1 = addr;
+    load.loc = loc(node);
+    emit(load);
+
+    if (bitWidth > 0) {
+        // Bitfield: extract the field from the loaded storage unit
+        auto extracted = allocVreg(memberType);
+        ir::Inst bfext;
+        bfext.op = ir::Op::BFEXT;
+        bfext.dest = extracted;
+        bfext.resultType = memberType;
+        bfext.src1 = val;
+        bfext.args.push_back(ir::Operand::imm(bitOffset, ir::Type::I8));
+        bfext.args.push_back(ir::Operand::imm(bitWidth, ir::Type::I8));
+        bfext.loc = loc(node);
+        emit(bfext);
+        lastValue_ = extracted;
     } else {
-        // Direct struct access: add offset to base address
-        auto addr = allocVreg(ir::Type::PTR);
-        ir::Inst add;
-        add.op = ir::Op::ADD;
-        add.dest = addr;
-        add.resultType = ir::Type::PTR;
-        add.src1 = base;
-        add.src2 = ir::Operand::imm(memberOffset, ir::Type::I16);
-        add.loc = loc(node);
-        emit(add);
-
-        auto val = allocVreg(memberType);
-        ir::Inst load;
-        load.op = ir::Op::LOAD;
-        load.dest = val;
-        load.resultType = memberType;
-        load.src1 = addr;
-        load.loc = loc(node);
-        emit(load);
         lastValue_ = val;
     }
 }
@@ -893,28 +886,74 @@ void IRBuilder::visit(StructDefinition& node) {
     info.isUnion = node.isUnion;
     int currentOffset = 0;
 
+    // Bitfield packing state
+    std::string bfUnitType;
+    int bfUnitOffset = 0;
+    int bfBitsUsed = 0;
+    int bfUnitSize = 0;
+
+    auto closeBitfieldUnit = [&]() {
+        if (!bfUnitType.empty()) {
+            currentOffset = bfUnitOffset + bfUnitSize;
+            bfUnitType.clear();
+            bfBitsUsed = 0;
+            bfUnitSize = 0;
+        }
+    };
+
     for (const auto& m : node.members) {
         IRMemberInfo mi;
         mi.type = m.type;
         mi.pointerLevel = m.pointerLevel;
         mi.isSigned = m.isSigned;
         mi.arrayDims = m.arrayDims;
-        mi.size = getTypeSize(m.type, m.pointerLevel);
-        if (m.arraySize() > 0) mi.size *= m.arraySize();
+        mi.bitWidth = m.bitWidth;
 
-        if (node.isUnion) {
-            mi.offset = 0;
+        if (m.bitWidth > 0) {
+            // Bitfield member
+            int unitSize = getTypeSize(m.type, 0);
+            int unitBits = unitSize * 8;
+
+            // Start new unit if type changes or bits don't fit
+            if (bfUnitType != m.type || bfBitsUsed + m.bitWidth > unitBits) {
+                closeBitfieldUnit();
+                // Align to unit size
+                int align = std::max(1, unitSize);
+                if (!node.isUnion && align > 1 && currentOffset % align != 0)
+                    currentOffset += align - (currentOffset % align);
+                bfUnitType = m.type;
+                bfUnitOffset = node.isUnion ? 0 : currentOffset;
+                bfBitsUsed = 0;
+                bfUnitSize = unitSize;
+            }
+
+            mi.offset = bfUnitOffset;
+            mi.size = unitSize;
+            mi.bitOffset = bfBitsUsed;
+            bfBitsUsed += m.bitWidth;
         } else {
-            int align = std::max(1, getTypeSize(m.type, m.pointerLevel));
-            if (align > 1 && currentOffset % align != 0)
-                currentOffset += align - (currentOffset % align);
-            mi.offset = currentOffset;
-            currentOffset += mi.size;
+            // Regular member — close any open bitfield unit first
+            closeBitfieldUnit();
+
+            mi.size = getTypeSize(m.type, m.pointerLevel);
+            if (m.arraySize() > 0) mi.size *= m.arraySize();
+
+            if (node.isUnion) {
+                mi.offset = 0;
+            } else {
+                int align = std::max(1, getTypeSize(m.type, m.pointerLevel));
+                if (align > 1 && currentOffset % align != 0)
+                    currentOffset += align - (currentOffset % align);
+                mi.offset = currentOffset;
+                currentOffset += mi.size;
+            }
         }
 
         info.members[m.name] = mi;
         info.memberOrder.push_back(m.name);
     }
+
+    closeBitfieldUnit();
 
     info.totalSize = node.isUnion ? 0 : currentOffset;
     if (node.isUnion) {

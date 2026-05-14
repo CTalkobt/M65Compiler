@@ -40,6 +40,8 @@ static const char* opName(Op op) {
         case Op::SEXT:         return "sext";
         case Op::ZEXT:         return "zext";
         case Op::TRUNC:        return "trunc";
+        case Op::BFEXT:        return "bfext";
+        case Op::BFINS:        return "bfins";
         case Op::BR:           return "br";
         case Op::BR_COND:      return "br_cond";
         case Op::SWITCH:       return "switch";
@@ -129,6 +131,26 @@ void Printer::print(std::ostream& out, const Inst& inst) {
                 out << operandStr(inst.args[i]);
             }
             out << ") -> " << typeName(inst.resultType) << locComment << "\n";
+            return;
+
+        case Op::BFEXT:
+            // %d = bfext type src, bitOffset, bitWidth
+            out << operandStr(inst.dest) << " = bfext " << typeName(inst.resultType)
+                << " " << operandStr(inst.src1);
+            if (inst.args.size() >= 2) {
+                out << ", " << inst.args[0].immVal << ", " << inst.args[1].immVal;
+            }
+            out << locComment << "\n";
+            return;
+
+        case Op::BFINS:
+            // bfins type val, addr, bitOffset, bitWidth
+            out << "bfins " << typeName(inst.resultType)
+                << " " << operandStr(inst.src1) << ", " << operandStr(inst.src2);
+            if (inst.args.size() >= 2) {
+                out << ", " << inst.args[0].immVal << ", " << inst.args[1].immVal;
+            }
+            out << locComment << "\n";
             return;
 
         case Op::ASM_INLINE:
