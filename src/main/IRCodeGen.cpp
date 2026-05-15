@@ -166,11 +166,12 @@ std::string IRCodeGen::src2MemOperand(const ir::Operand& op) {
                 emit("stx __zp_scratch2+1");
                 return "__zp_scratch2";
             case VRegAllocator::IN_AX:
-                // Value is in A:X — we need to spill to ZP scratch so the simulated op
-                // can read it as a memory operand. Use __zp_scratch and __zp_scratch+1.
-                emit("sta __zp_scratch");
-                emit("stx __zp_scratch+1");
-                return "__zp_scratch";
+                // Value is in A:X — spill to __zp_scratch2 (not __zp_scratch,
+                // because loadOperand for the other operand may use ldax.fp
+                // which clobbers __zp_scratch internally).
+                emit("sta __zp_scratch2");
+                emit("stx __zp_scratch2+1");
+                return "__zp_scratch2";
         }
     }
     return "#0";
@@ -333,10 +334,11 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode) {
     localFrameSize_ = localFrameSize;  // save for RET cleanup
     if (localFrameSize > 0) {
         emitComment("frame: " + std::to_string(localFrameSize) + " bytes (frame-allocated vRegs only)");
-        // Allocate in 2-byte pairs
+        // Push frame slots physically — do NOT bump _fp (stays at 0).
+        // ldax.fp computes __sp_base + _fp + offset + SPL.
+        // With _fp=0, SPL accounts for the physical pushes correctly.
         for (int i = 0; i < localFrameSize; i += 2) {
             emit("phw #0");
-            emit(".var _fp = _fp + 2");
         }
     }
 
@@ -348,9 +350,26 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode) {
         }
     }
 
-    // No .var for params — the proc directive assigns param offsets
-    // in reverse order (last param at _fp+2, first at highest offset).
-    // ldax.fp _p_name uses the proc-assigned offsets directly.
+    // Param .var overrides: proc assigns offsets at _fp+2, but _fp=0 and
+    // the physical frame hasn't been tracked via _fp. Override with correct
+    // offsets past the frame + return address, in reverse order (matching proc).
+    {
+        int totalParamSize = 0;
+        for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+            int ps = ir::typeSize(fn.paramTypes[i]);
+            if (ps < 2) ps = 2;
+            totalParamSize += ps;
+        }
+        int pOff = localFrameSize + 2; // past frame + return address
+        for (int i = (int)fn.paramTypes.size() - 1; i >= 0; i--) {
+            int ps = ir::typeSize(fn.paramTypes[i]);
+            if (ps < 2) ps = 2;
+            std::string pName = (i < (int)fn.paramNames.size() && !fn.paramNames[i].empty())
+                ? fn.paramNames[i] : std::to_string(i);
+            emit(".var _p_" + pName + " = " + std::to_string(pOff));
+            pOff += ps;
+        }
+    }
 
     emitBlank();
 
@@ -683,18 +702,25 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::ADDR_ELEM: {
-            // base + index * elemSize
+            // base + index * elemSize (commutative addition)
             // src1 = base address, src2 = index, args[0] = elemSize
             int elemSize = (inst.args.size() > 0) ? (int)inst.args[0].immVal : 2;
-            // Get base as memory operand FIRST (may use ldax.fp which clobbers AX)
-            std::string baseSrc = src2MemOperand(inst.src1);
-            // Then load index into AX
-            loadOperand(inst.src2);
+            // Get INDEX as memory operand (safe — usually IMM or ZP, won't clobber)
+            std::string idxSrc = src2MemOperand(inst.src2);
+            // Load BASE into AX
+            loadOperand(inst.src1);
+            // Add index (scaled by elemSize if needed)
             if (elemSize > 1) {
+                // Need to compute index*elemSize separately — load index, mul, save
+                // then load base, add saved result. Use scratch2.
+                std::string baseMem = src2MemOperand(inst.src1);
+                loadOperand(inst.src2);
                 emit("mul.16 .AX, #" + std::to_string(elemSize));
+                emit("add.16 .AX, " + baseMem);
+            } else {
+                // elemSize=1: base + index, just add
+                emit("add.16 .AX, " + idxSrc);
             }
-            // Add base address (commutative: index + base = base + index)
-            emit("add.16 .AX, " + baseSrc);
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
