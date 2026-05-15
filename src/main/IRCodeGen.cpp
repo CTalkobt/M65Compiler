@@ -194,8 +194,10 @@ void IRCodeGen::generate(const ir::Module& mod, bool relocMode, bool zpCallMode)
         emit("__zp_scratch = $02");
         if (hasMain) {
             emit("jsr _main");
-            emit("rts");
         }
+        // Halt: infinite loop (BRK vectors to $FFFE which is uninitialized RAM)
+        emitLabel("__halt");
+        emit("jmp __halt");
         emitBlank();
     }
 
@@ -322,6 +324,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode) {
 
     // Allocate frame only for frame-allocated vRegs
     int localFrameSize = frameSize_;
+    localFrameSize_ = localFrameSize;  // save for RET cleanup
     if (localFrameSize > 0) {
         emitComment("frame: " + std::to_string(localFrameSize) + " bytes (frame-allocated vRegs only)");
         // Allocate in 2-byte pairs
@@ -373,17 +376,6 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode) {
             emitInst(inst);
             currentInstIdx_++;
         }
-    }
-
-    // Epilogue
-    if (localFrameSize > 0) {
-        emitComment("frame cleanup");
-        // Preserve return value in AX, clean up frame
-        emit("tay"); // save A
-        for (int i = 0; i < localFrameSize; i++) {
-            emit("pla");
-        }
-        emit("tya"); // restore A
     }
 
     // Function attribute directives
@@ -578,16 +570,24 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 emit("lda " + inst.src1.name);
                 emit("ldx " + inst.src1.name + "+1");
             } else if (inst.src1.isVreg()) {
-                // Load 16-bit value from address held in a vReg
-                // Use ZP indirect: store address to __zp_scratch, load via (zp),Y
-                loadVreg(inst.src1.vregId);
-                emit("sta __zp_scratch");
-                emit("stx __zp_scratch+1");
+                // Load value from address held in a vReg via (ZP),Y
+                auto addrAlloc = alloc_.getAlloc(inst.src1.vregId);
+                std::string zpPair;
+                if (addrAlloc.loc == VRegAllocator::IN_ZP) {
+                    std::stringstream ss;
+                    ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << addrAlloc.offset;
+                    zpPair = ss.str();
+                } else {
+                    loadVreg(inst.src1.vregId);
+                    emit("sta __zp_scratch");
+                    emit("stx __zp_scratch+1");
+                    zpPair = "__zp_scratch";
+                }
                 emit("ldy #1");
-                emit("lda (__zp_scratch),y");  // hi byte
-                emit("tax");                    // X = hi
+                emit("lda (" + zpPair + "),y");  // hi byte
+                emit("tax");
                 emit("ldy #0");
-                emit("lda (__zp_scratch),y");  // A = lo
+                emit("lda (" + zpPair + "),y");  // A = lo
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
@@ -609,17 +609,28 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     storeVreg(inst.src2.vregId);
                 } else {
                     // Indirect store: write value through pointer address
-                    loadVreg(inst.src2.vregId);  // load address
-                    emit("sta __zp_scratch");
-                    emit("stx __zp_scratch+1");
+                    // If address vReg is already in ZP, use it directly for (ZP),Y
+                    auto addrAlloc = alloc_.getAlloc(inst.src2.vregId);
+                    std::string zpPair;
+                    if (addrAlloc.loc == VRegAllocator::IN_ZP) {
+                        // Address already in ZP — use directly
+                        std::stringstream ss;
+                        ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << addrAlloc.offset;
+                        zpPair = ss.str();
+                    } else {
+                        // Load address into __zp_scratch
+                        loadVreg(inst.src2.vregId);
+                        emit("sta __zp_scratch");
+                        emit("stx __zp_scratch+1");
+                        zpPair = "__zp_scratch";
+                    }
                     loadVreg(inst.src1.vregId);  // load value
                     emit("ldy #0");
-                    emit("sta (__zp_scratch),y"); // store lo byte
+                    emit("sta (" + zpPair + "),y"); // store lo byte
                     if (inst.resultType != ir::Type::I8) {
-                        // 16-bit or wider: store hi byte too
                         emit("txa");
                         emit("iny");
-                        emit("sta (__zp_scratch),y");
+                        emit("sta (" + zpPair + "),y");
                     }
                 }
             } else {
@@ -680,13 +691,21 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
         case ir::Op::RET: {
             loadOperand(inst.src1);
-            // Return value in A:X — frame cleanup handled by function epilogue
-            emit("rtn #0");
+            // Frame cleanup: pop localFrameSize bytes, preserving A:X return value
+            if (localFrameSize_ > 0) {
+                emit("tay");  // save A in Y
+                for (int i = 0; i < localFrameSize_; i++) emit("pla");
+                emit("tya");  // restore A
+            }
+            emit("rts");
             break;
         }
 
         case ir::Op::RET_VOID: {
-            emit("rtn #0");
+            if (localFrameSize_ > 0) {
+                for (int i = 0; i < localFrameSize_; i++) emit("pla");
+            }
+            emit("rts");
             break;
         }
 

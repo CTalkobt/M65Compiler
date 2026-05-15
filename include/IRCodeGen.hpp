@@ -62,6 +62,9 @@ private:
     bool relocMode_ = false;
     bool zpCallMode_ = false;
 
+    // Frame management
+    int localFrameSize_ = 0;
+
     // Register allocator
     VRegAllocator alloc_;
     int currentInstIdx_ = 0;  // tracks position during emission
