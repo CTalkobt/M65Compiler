@@ -116,3 +116,79 @@ All use `volatile char *r = (char *)0x4000` and write through the pointer:
 - `src/main/AssemblerSimulatedOps.cpp` — ldax.fp/stax.fp expansion
 - `src/test/test_mmemu.sh` — failing mmemu tests
 - `src/test/test_shadow_ir.sh` — passing shadow comparison tests
+
+## Clarifying Questions (from Gemini) and Answers
+
+### Q1: Stack Pointer Management
+> If we stop using `phw #0` for frame allocation, how will we ensure the
+> stack pointer is correctly moved to protect the frame data?
+
+**Answer:** We DON'T stop using `phw #0`. The legacy CodeGenerator DOES use
+`phw #0` to physically push frame slots. The fix is to **stop bumping `_fp`
+after the pushes**. The legacy pattern is:
+
+```asm
+proc _add, W#_p_a, W#_p_b
+    .var _fp = 0           ; _fp stays at 0!
+    phw #0                 ; push 2 bytes (SP -= 2), _fp NOT bumped
+    phw #0                 ; push 2 bytes (SP -= 2), _fp NOT bumped
+    .local _l_x = 0       ; local at frame offset 0
+    .local _l_y = 2       ; local at frame offset 2
+    .var _p_b = 6          ; param b at offset 6 (past 4-byte frame + 2-byte ret addr)
+    .var _p_a = 8          ; param a at offset 8
+```
+
+With `_fp = 0`, `ldax.fp _l_x` computes `__sp_base + 0 + 0 + SPL`, and SPL
+correctly reflects the 4 bytes of pushes + 2 bytes of return address. No
+double-counting.
+
+### Q2: vReg Initialization
+> Will the proposed fix include an explicit initialization step?
+
+**Answer:** `phw #0` already zero-initializes. We keep using `phw #0`. The
+only change is removing the `.var _fp = _fp + 2` that follows each `phw`.
+So initialization behavior is unchanged.
+
+### Q3: Interrupt Safety
+> If we reserve space via `.var` without physically moving the stack pointer,
+> the "frame" resides in unallocated stack space.
+
+**Answer:** This concern is moot — we ARE physically moving SP via `phw #0`.
+The proposed fix was poorly worded. The actual fix is: use `phw #0` (moves SP)
+but DON'T bump `_fp` (keep it at 0). This is exactly what legacy does.
+
+The space IS protected because SP physically moved. Interrupts push below the
+current SP and won't corrupt the frame.
+
+### Q4: Local Offset Calculation
+> Will offsets need to be reversed or shifted?
+
+**Answer:** No. The VRegAllocator assigns offsets starting from 0. With
+`_fp = 0`, `.local __vr0 = 0` means "0 bytes above the frame base." The
+formula `__sp_base + _fp + 0 + SPL` = `__sp_base + 0 + SPL` correctly
+addresses the first pushed word. Offsets 0, 2, 4, 6 map to the 4 pushed
+words in order.
+
+The param `.var` offsets need to account for the frame size + return addr:
+`.var _p_first = frameSize + 2 + cumulative`. With `_fp = 0`, this is just
+`frameSize + 2` for the first param.
+
+### Q5: Return Path Cleanup
+> Do we still need to physically adjust the stack pointer on return?
+
+**Answer:** Yes. The `phw` pushes must be matched by `pla` pops before `rts`.
+The legacy uses `taz; pla; pla; ...; tza` to preserve the return value in Z
+while popping. The `@__return` label emits this cleanup, then falls through
+to `endproc` which emits `rts #N` for param cleanup.
+
+## Corrected Fix
+The actual fix is simpler than originally proposed:
+
+**Remove the `.var _fp = _fp + 2` lines after each `phw #0`.**
+
+Keep `phw #0` (physical push). Keep `.local __vrN = offset`. Keep `pla`
+cleanup at `@__return`. Just stop telling the assembler that `_fp` grew.
+
+The param `.var` offsets must be computed as `frameSize + 2 + cumulative`
+(where frameSize is the total bytes pushed), NOT as `_fp + 2 + cumulative`
+(since `_fp` will be 0).
