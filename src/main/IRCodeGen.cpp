@@ -702,6 +702,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         case ir::Op::CALL_VOID: {
             // Push arguments left-to-right using push .ax (matches legacy CodeGenerator).
             // proc assigns params in reverse: last param at _fp+2, first at highest offset.
+            {
+            int argBytes = (int)inst.args.size() * 2;
             for (const auto& arg : inst.args) {
                 loadOperand(arg);
                 emit("push .ax");
@@ -711,9 +713,14 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             if (inst.src1.kind == ir::OperandKind::GLOBAL) {
                 emit("jsr " + inst.src1.name);
             }
-            // Return value is in A:X — no caller-side stack cleanup needed
+            // Restore _fp after callee cleaned params (rts #N popped argBytes)
+            if (argBytes > 0) {
+                emit(".var _fp = _fp - " + std::to_string(argBytes));
+            }
+            // Return value is in A:X
             if (inst.op == ir::Op::CALL && inst.dest.isVreg()) {
                 storeVreg(inst.dest.vregId);
+            }
             }
             break;
         }
@@ -723,7 +730,6 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             for (const auto& arg : inst.args) {
                 loadOperand(arg);
                 emit("push .ax");
-                emit(".var _fp = _fp + 2");
             }
             // Load function pointer and call
             loadOperand(inst.src1);
