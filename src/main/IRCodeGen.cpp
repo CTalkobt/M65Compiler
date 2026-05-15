@@ -93,8 +93,8 @@ void IRCodeGen::loadVreg(uint32_t vregId) {
             break;
         }
         case VRegAllocator::IN_FRAME: {
-            int off = slotOf(vregId);
-            emit("ldax.fp " + std::to_string(off));
+            std::string sym = "__vr" + std::to_string(vregId);
+            emit("ldax.fp " + sym);
             break;
         }
     }
@@ -104,7 +104,6 @@ void IRCodeGen::storeVreg(uint32_t vregId) {
     auto alloc = alloc_.getAlloc(vregId);
     switch (alloc.loc) {
         case VRegAllocator::IN_AX:
-            // Value stays in A:X — no store needed!
             break;
         case VRegAllocator::IN_ZP: {
             std::stringstream ss;
@@ -120,8 +119,8 @@ void IRCodeGen::storeVreg(uint32_t vregId) {
             break;
         }
         case VRegAllocator::IN_FRAME: {
-            int off = slotOf(vregId);
-            emit("stax.fp " + std::to_string(off));
+            std::string sym = "__vr" + std::to_string(vregId);
+            emit("stax.fp " + sym);
             break;
         }
     }
