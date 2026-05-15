@@ -189,17 +189,75 @@ void IRBuilder::visit(VariableDeclaration& node) {
     localPointsToConst_[node.name] = node.isConst && node.pointerLevel > 0;
     if (node.pointerLevel > 0) localPointedToType_[node.name] = mapType(node.type, 0);
     if (currentFunc_) currentFunc_->localSlotVregs.insert(vreg.vregId);
+    if (!node.arrayDims.empty()) {
+        localArrayDims_[node.name] = node.arrayDims;
+        // Record total byte size for array vRegs
+        int totalSize = ir::typeSize(t);
+        for (int d : node.arrayDims) totalSize *= d;
+        if (currentFunc_) currentFunc_->vregSizes[vreg.vregId] = totalSize;
+    }
 
-    // Emit initializer if present
+    // Emit initializer
     if (node.initializer) {
-        node.initializer->accept(*this);
-        ir::Inst store;
-        store.op = ir::Op::STORE;
-        store.resultType = t;
-        store.src1 = lastValue_;
-        store.src2 = vreg;
-        store.loc = loc(node);
-        emit(store);
+        if (auto* initList = dynamic_cast<InitializerList*>(node.initializer.get())) {
+            if (!node.arrayDims.empty()) {
+                // Array initializer: store each element at base + i*elemSize
+                // First, get the address of the array
+                auto baseAddr = allocVreg(ir::Type::PTR);
+                ir::Inst addrInst;
+                addrInst.op = ir::Op::ADDR_LOCAL;
+                addrInst.dest = baseAddr;
+                addrInst.resultType = ir::Type::PTR;
+                addrInst.src1 = ir::Operand::vreg(vreg.vregId, ir::Type::PTR);
+                addrInst.loc = loc(node);
+                emit(addrInst);
+
+                int elemSize = ir::typeSize(t);
+                for (size_t i = 0; i < initList->elements.size(); i++) {
+                    initList->elements[i]->accept(*this);
+                    auto val = lastValue_;
+                    // Compute element address: base + i*elemSize
+                    auto elemAddr = allocVreg(ir::Type::PTR);
+                    ir::Inst elem;
+                    elem.op = ir::Op::ADDR_ELEM;
+                    elem.dest = elemAddr;
+                    elem.resultType = ir::Type::PTR;
+                    elem.src1 = baseAddr;
+                    elem.src2 = ir::Operand::imm((int)i, ir::Type::I16);
+                    elem.args.push_back(ir::Operand::imm(elemSize, ir::Type::I16));
+                    elem.loc = loc(node);
+                    emit(elem);
+                    // Store element
+                    ir::Inst store;
+                    store.op = ir::Op::STORE;
+                    store.resultType = t;
+                    store.src1 = val;
+                    store.src2 = elemAddr;
+                    store.loc = loc(node);
+                    emit(store);
+                }
+            } else {
+                // Non-array initializer list (struct) — use last element
+                node.initializer->accept(*this);
+                ir::Inst store;
+                store.op = ir::Op::STORE;
+                store.resultType = t;
+                store.src1 = lastValue_;
+                store.src2 = vreg;
+                store.loc = loc(node);
+                emit(store);
+            }
+        } else {
+            // Simple scalar initializer
+            node.initializer->accept(*this);
+            ir::Inst store;
+            store.op = ir::Op::STORE;
+            store.resultType = t;
+            store.src1 = lastValue_;
+            store.src2 = vreg;
+            store.loc = loc(node);
+            emit(store);
+        }
     }
 }
 
@@ -565,8 +623,37 @@ void IRBuilder::visit(UnaryOperation& node) {
         emit(inst);
         lastValue_ = dest;
     } else if (node.op == "&") {
-        // Address-of: src is already an address for locals
-        lastValue_ = src;
+        // Address-of: compute the runtime address of the operand
+        if (auto* vr = dynamic_cast<VariableReference*>(node.operand.get())) {
+            auto it = locals_.find(vr->name);
+            if (it != locals_.end()) {
+                // Local variable: emit ADDR_LOCAL with the vReg ID
+                // IRCodeGen resolves to leax.fp __vrN (frame) or lda #$ZZ (ZP)
+                auto dest = allocVreg(ir::Type::PTR);
+                ir::Inst inst;
+                inst.op = ir::Op::ADDR_LOCAL;
+                inst.dest = dest;
+                inst.resultType = ir::Type::PTR;
+                // Store the target vReg as a vreg operand so IRCodeGen can resolve
+                inst.src1 = ir::Operand::vreg(it->second.vregId, ir::Type::PTR);
+                inst.loc = loc(node);
+                emit(inst);
+                lastValue_ = dest;
+            } else {
+                // Global variable
+                auto dest = allocVreg(ir::Type::PTR);
+                ir::Inst inst;
+                inst.op = ir::Op::ADDR_GLOBAL;
+                inst.dest = dest;
+                inst.resultType = ir::Type::PTR;
+                inst.src1 = ir::Operand::global("_" + vr->name);
+                inst.loc = loc(node);
+                emit(inst);
+                lastValue_ = dest;
+            }
+        } else {
+            lastValue_ = src;
+        }
     } else if (node.op == "*") {
         // Dereference
         auto dest = allocVreg(ir::Type::I16);
@@ -912,7 +999,30 @@ void IRBuilder::visit(InitializerList& node) {
 
 void IRBuilder::visit(ArrayAccess& node) {
     // Evaluate base address
-    node.arrayExpr->accept(*this);
+    // For local arrays, we need the ADDRESS (not the value at that location)
+    if (auto* ref = dynamic_cast<VariableReference*>(node.arrayExpr.get())) {
+        auto ait = localArrayDims_.find(ref->name);
+        if (ait != localArrayDims_.end() && !ait->second.empty()) {
+            // Local array — compute address via ADDR_LOCAL
+            auto it = locals_.find(ref->name);
+            if (it != locals_.end()) {
+                auto dest = allocVreg(ir::Type::PTR);
+                ir::Inst addrInst;
+                addrInst.op = ir::Op::ADDR_LOCAL;
+                addrInst.dest = dest;
+                addrInst.resultType = ir::Type::PTR;
+                addrInst.src1 = ir::Operand::vreg(it->second.vregId, ir::Type::PTR);
+                addrInst.loc = loc(node);
+                emit(addrInst);
+                lastValue_ = dest;
+            }
+        } else {
+            // Pointer variable — value IS the address
+            node.arrayExpr->accept(*this);
+        }
+    } else {
+        node.arrayExpr->accept(*this);
+    }
     auto base = lastValue_;
 
     // Evaluate index

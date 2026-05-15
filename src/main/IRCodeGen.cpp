@@ -34,6 +34,9 @@ int IRCodeGen::allocSlot(uint32_t vregId, ir::Type type) {
     auto it = vregOffset_.find(vregId);
     if (it != vregOffset_.end()) return it->second;
     int size = ir::typeSize(type);
+    // Check for array override size
+    auto sit = vregSizes_.find(vregId);
+    if (sit != vregSizes_.end()) size = sit->second;
     if (size < 2) size = 2; // minimum 2 bytes per slot for stack alignment
     int offset = frameSize_;
     frameSize_ += size;
@@ -294,6 +297,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode) {
 
     // Copy local slot info from IR function
     localSlotVregs_ = fn.localSlotVregs;
+    vregSizes_ = fn.vregSizes;
 
     // Prescan for frame-allocated vRegs only
     prescanFunction(fn);
@@ -695,32 +699,37 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::ADDR_LOCAL: {
-            int offset = (int)inst.src1.immVal;
-            emit("leax.fp " + std::to_string(offset));
+            if (inst.src1.isVreg()) {
+                // Address of a local vReg — resolve by allocation
+                auto alloc = alloc_.getAlloc(inst.src1.vregId);
+                if (alloc.loc == VRegAllocator::IN_FRAME) {
+                    emit("leax.fp __vr" + std::to_string(inst.src1.vregId));
+                } else if (alloc.loc == VRegAllocator::IN_ZP) {
+                    // ZP address: load the ZP address as a 16-bit value
+                    emit("lda #" + std::to_string(alloc.offset));
+                    emit("ldx #0");
+                }
+            } else {
+                int offset = (int)inst.src1.immVal;
+                emit("leax.fp " + std::to_string(offset));
+            }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
 
         case ir::Op::ADDR_ELEM: {
-            // base + index * elemSize (commutative addition)
-            // src1 = base address, src2 = index, args[0] = elemSize
+            // Compute: base + index * elemSize
             int elemSize = (inst.args.size() > 0) ? (int)inst.args[0].immVal : 2;
-            // Get INDEX as memory operand (safe — usually IMM or ZP, won't clobber)
-            std::string idxSrc = src2MemOperand(inst.src2);
-            // Load BASE into AX
-            loadOperand(inst.src1);
-            // Add index (scaled by elemSize if needed)
+            // Step 1: get base address as memory operand (may spill to scratch2)
+            std::string baseMem = src2MemOperand(inst.src1);
+            // Step 2: load index into AX
+            loadOperand(inst.src2);
+            // Step 3: multiply index by elemSize if needed
             if (elemSize > 1) {
-                // Need to compute index*elemSize separately — load index, mul, save
-                // then load base, add saved result. Use scratch2.
-                std::string baseMem = src2MemOperand(inst.src1);
-                loadOperand(inst.src2);
                 emit("mul.16 .AX, #" + std::to_string(elemSize));
-                emit("add.16 .AX, " + baseMem);
-            } else {
-                // elemSize=1: base + index, just add
-                emit("add.16 .AX, " + idxSrc);
             }
+            // Step 4: add base address
+            emit("add.16 .AX, " + baseMem);
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }

@@ -64,6 +64,7 @@ private:
 
     // Frame management
     int localFrameSize_ = 0;
+    std::map<uint32_t, int> vregSizes_; // override sizes for array vRegs
 
     // Register allocator
     VRegAllocator alloc_;

@@ -103,8 +103,8 @@ void VRegAllocator::freeZpSlot(int zpAddr, ir::Type type) {
     }
 }
 
-int VRegAllocator::allocFrameSlot(ir::Type type) {
-    int size = ir::typeSize(type);
+int VRegAllocator::allocFrameSlot(ir::Type type, int overrideSize) {
+    int size = (overrideSize > 0) ? overrideSize : ir::typeSize(type);
     if (size < 2) size = 2;
     int offset = frameSize_;
     frameSize_ += size;
@@ -152,6 +152,14 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
 
         // Parameters always go to ZP or frame (they arrive on stack, not in AX)
         bool isParam = (lr.vregId < paramCount);
+
+        // Array vRegs must go to frame (too large for ZP)
+        bool isArray = fn.vregSizes.count(lr.vregId) > 0;
+        if (isArray) {
+            int arraySize = fn.vregSizes.at(lr.vregId);
+            allocs_[lr.vregId] = {IN_FRAME, allocFrameSlot(lr.type, arraySize), lr.type};
+            continue;
+        }
 
         // Can this vReg go in A:X?
         // Must not be a parameter, must not conflict with another AX occupant

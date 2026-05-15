@@ -61,7 +61,7 @@ private:
 
     int allocZpSlot(ir::Type type);
     void freeZpSlot(int zpAddr, ir::Type type);
-    int allocFrameSlot(ir::Type type);
+    int allocFrameSlot(ir::Type type, int overrideSize = 0);
 
     // Flatten all instructions in a function to a linear index
     struct FlatInst {

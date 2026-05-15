@@ -6,6 +6,7 @@
 // See doc/ir.md for the human-readable text format specification.
 
 #include <cstdint>
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -231,6 +232,7 @@ struct Function {
     std::vector<Block> blocks;
     uint32_t nextVreg = 0;             // counter for allocating vRegs
     std::set<uint32_t> localSlotVregs; // vRegs that are direct local/param slots
+    std::map<uint32_t, int> vregSizes; // override sizes for array vRegs (bytes)
 
     uint32_t allocVreg() { return nextVreg++; }
 };
