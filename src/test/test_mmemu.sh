@@ -132,7 +132,7 @@ else
         
         EXPECTED_CONTROL="AA 01 01 0A 0A 12 0A 19 64 11 22"
         
-        OUTPUT=$(echo -e "load build/test/test_mmemu_control.prg\nsetpc \$2000\nstep 500000\nm \$4000 11\nq" | $MMEMU -m rawMega65 2>/dev/null)
+        OUTPUT=$(echo -e "load build/test/test_mmemu_control.prg\nsetpc \$2000\nstep 5000000\nm \$4000 11\nq" | $MMEMU -m rawMega65 2>/dev/null)
         
         if echo "$OUTPUT" | grep -q "$EXPECTED_CONTROL"; then
             echo "SUCCESS: test_mmemu_control.c executed correctly."
@@ -170,7 +170,7 @@ else
 
         EXPECTED_INLINE="01 01 01 01 AA"
 
-        OUTPUT=$(echo -e "load build/test/test_inline_asm.prg\nsetpc \$2000\nstep 500000\nm \$4000 5\nq" | $MMEMU -m rawMega65 2>/dev/null)
+        OUTPUT=$(echo -e "load build/test/test_inline_asm.prg\nsetpc \$2000\nstep 5000000\nm \$4000 5\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
         if echo "$OUTPUT" | grep -q "$EXPECTED_INLINE"; then
             echo "SUCCESS: test_inline_asm.c executed correctly."
@@ -356,7 +356,7 @@ else
         # Expected: 03 0C 17 00 18 AA
         # scores[2]=3, grid[1][2]=12, grid[2][3]=23, grid[0][0]=0, sizeof=24, marker=AA
         EXPECTED_MD="03 0C 17 00 18 AA"
-        OUTPUT=$(echo -e "load build/test/test_multidim_array.prg\nsetpc \$2000\nstep 500000\nm \$4000 6\nq" | $MMEMU -m rawMega65 2>/dev/null)
+        OUTPUT=$(echo -e "load build/test/test_multidim_array.prg\nsetpc \$2000\nstep 5000000\nm \$4000 6\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
         if echo "$OUTPUT" | grep -qi "4000: 03 0c 17 00 18 aa"; then
             echo "SUCCESS: test_multidim_array.c — multi-dim arrays correct."
@@ -385,7 +385,7 @@ else
     else
         # Expected: 01 05 00 0C 17 AA
         # scores[0]=1, scores[4]=5, grid[0][0]=0, grid[1][2]=12, grid[2][3]=23, marker=AA
-        OUTPUT=$(echo -e "load build/test/test_array_loop.prg\nsetpc \$2000\nstep 500000\nm \$4000 6\nq" | $MMEMU -m rawMega65 2>/dev/null)
+        OUTPUT=$(echo -e "load build/test/test_array_loop.prg\nsetpc \$2000\nstep 5000000\nm \$4000 6\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
         if echo "$OUTPUT" | grep -qi "4000: 01 05 00 0c 17 aa"; then
             echo "SUCCESS: test_array_loop.c — runtime-indexed array loops correct."
@@ -413,7 +413,7 @@ else
         failed=$((failed + 1))
     else
         # Expected: 10 40 64 2C 0B 16 00 00 00 00 AA CC E8 D0 FF
-        OUTPUT=$(echo -e "load build/test/test_array_init.prg\nsetpc \$2000\nstep 500000\nm \$4000 15\nq" | $MMEMU -m rawMega65 2>/dev/null)
+        OUTPUT=$(echo -e "load build/test/test_array_init.prg\nsetpc \$2000\nstep 5000000\nm \$4000 15\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
         if echo "$OUTPUT" | grep -qi "4000: 10 40 64 2c 0b 16 00 00 00 00 aa cc e8 d0 ff"; then
             echo "SUCCESS: test_array_init.c — array initializer lists correct."
@@ -442,7 +442,7 @@ else
     else
         # Expected: 00 0A 15 1F 10 AA
         # pts[0].x=0, pts[1].x=10, pts[2].y=21, pts[3].y=31, sizeof=16, marker
-        OUTPUT=$(echo -e "load build/test/test_struct_array.prg\nsetpc \$2000\nstep 500000\nm \$4000 6\nq" | $MMEMU -m rawMega65 2>/dev/null)
+        OUTPUT=$(echo -e "load build/test/test_struct_array.prg\nsetpc \$2000\nstep 5000000\nm \$4000 6\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
         if echo "$OUTPUT" | grep -qi "4000: 00 0a 15 1f 10 aa"; then
             echo "SUCCESS: test_struct_array.c — struct arrays correct."
@@ -464,7 +464,7 @@ else
     $AS build/test/test_short.s -o build/test/test_short.prg
     if [ $? -ne 0 ]; then echo "FAIL: Assembly failed for test_short.s"; failed=$((failed + 1));
     else
-        OUTPUT=$(echo -e "load build/test/test_short.prg\nsetpc \$2000\nstep 500000\nm \$4000 7\nq" | $MMEMU -m rawMega65 2>/dev/null)
+        OUTPUT=$(echo -e "load build/test/test_short.prg\nsetpc \$2000\nstep 5000000\nm \$4000 7\nq" | $MMEMU -m rawMega65 2>/dev/null)
         if echo "$OUTPUT" | grep -qi "4000:.*1e 05 02 0c 0a c8 aa"; then
             echo "SUCCESS: test_short.c — short type correct."
         else
@@ -485,7 +485,7 @@ else
     $AS build/test/test_struct_return.s -o build/test/test_struct_return.prg
     if [ $? -ne 0 ]; then echo "FAIL: Assembly failed for test_struct_return.s"; failed=$((failed + 1));
     else
-        OUTPUT=$(echo -e "load build/test/test_struct_return.prg\nsetpc \$2000\nstep 500000\nm \$4000 7\nq" | $MMEMU -m rawMega65 2>/dev/null)
+        OUTPUT=$(echo -e "load build/test/test_struct_return.prg\nsetpc \$2000\nstep 5000000\nm \$4000 7\nq" | $MMEMU -m rawMega65 2>/dev/null)
         if echo "$OUTPUT" | grep -qi "4000:.*01 02 03 04 0a 14 aa"; then
             echo "SUCCESS: test_struct_return.c — struct return by value correct."
         else
@@ -510,7 +510,7 @@ else
         echo "FAIL: Assembly failed for test_bitfield_mmemu.s"
         failed=$((failed + 1))
     else
-        OUTPUT=$(echo -e "load build/test/test_bitfield_mmemu.prg\nsetpc \$2000\nstep 500000\nm \$4000 6\nq" | $MMEMU -m rawMega65 2>/dev/null)
+        OUTPUT=$(echo -e "load build/test/test_bitfield_mmemu.prg\nsetpc \$2000\nstep 5000000\nm \$4000 6\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
         if echo "$OUTPUT" | grep -q "4000: 01 05 0C 06 F4 1E"; then
             echo "SUCCESS: bitfield read/write/increment works correctly."
@@ -536,7 +536,7 @@ else
         echo "FAIL: Assembly failed for test_compound_literal.s"
         failed=$((failed + 1))
     else
-        OUTPUT=$(echo -e "load build/test/test_compound_literal.prg\nsetpc \$2000\nstep 500000\nm \$4000 7\nq" | $MMEMU -m rawMega65 2>/dev/null)
+        OUTPUT=$(echo -e "load build/test/test_compound_literal.prg\nsetpc \$2000\nstep 5000000\nm \$4000 7\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
         if echo "$OUTPUT" | grep -qi "4000: 1E 2A 07 2C 01 14 00"; then
             echo "SUCCESS: compound literal tests passed."
@@ -562,7 +562,7 @@ else
         echo "FAIL: Assembly failed for test_long_mmemu.s"
         failed=$((failed + 1))
     else
-        OUTPUT=$(echo -e "load build/test/test_long_mmemu.prg\nsetpc \$2000\nstep 500000\nm \$4000 12\nq" | $MMEMU -m rawMega65 2>/dev/null)
+        OUTPUT=$(echo -e "load build/test/test_long_mmemu.prg\nsetpc \$2000\nstep 5000000\nm \$4000 12\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
         if echo "$OUTPUT" | grep -qi "4000:.*04 C0 01 A0 2A A0 00 E0 93 04 00 AA"; then
             echo "SUCCESS: long type tests passed."
@@ -645,7 +645,7 @@ else
         echo "FAIL: Assembly failed for test_zpcall_mixed.s"
         failed=$((failed + 1))
     else
-        OUTPUT=$(echo -e "load build/test/test_zpcall_mixed.prg\nsetpc \$2000\nstep 500000\nm \$4000 9\nq" | $MMEMU -m rawMega65 2>/dev/null)
+        OUTPUT=$(echo -e "load build/test/test_zpcall_mixed.prg\nsetpc \$2000\nstep 5000000\nm \$4000 9\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
         # Expected: 3C 00 48 00 96 00 63 50 AA
         if echo "$OUTPUT" | grep -q "4000: 3C 00 48 00 96 00 63 50 AA"; then

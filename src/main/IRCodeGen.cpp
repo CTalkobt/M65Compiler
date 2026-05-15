@@ -342,21 +342,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode) {
         }
     }
 
-    // Emit parameter .var directives (past frame + return addr)
-    // Params sit above the frame on the stack: _fp + 2 + cumulative offset
-    // The proc directive handles the actual param layout; .var just creates symbols
-    // for ldax.fp access. Do NOT bump _fp — it's fixed at the local frame size.
-    {
-        int paramOff = 0;
-        for (size_t i = 0; i < fn.paramTypes.size(); i++) {
-            int pSize = ir::typeSize(fn.paramTypes[i]);
-            if (pSize < 2) pSize = 2;
-            std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
-                ? fn.paramNames[i] : std::to_string(i);
-            emit(".var _p_" + pName + " = _fp + 2 + " + std::to_string(paramOff));
-            paramOff += pSize;
-        }
-    }
+    // No .var for params — the proc directive assigns param offsets
+    // in reverse order (last param at _fp+2, first at highest offset).
+    // ldax.fp _p_name uses the proc-assigned offsets directly.
 
     emitBlank();
 
@@ -712,12 +700,12 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
         case ir::Op::CALL:
         case ir::Op::CALL_VOID: {
-            // Push arguments right-to-left: last arg pushed first (deepest on stack),
-            // first arg pushed last (closest to return addr at _fp+2)
-            for (auto it = inst.args.rbegin(); it != inst.args.rend(); ++it) {
-                loadOperand(*it);
-                emit("phx");
-                emit("pha");
+            // Push arguments left-to-right using push .ax (matches legacy CodeGenerator).
+            // proc assigns params in reverse: last param at _fp+2, first at highest offset.
+            for (const auto& arg : inst.args) {
+                loadOperand(arg);
+                emit("push .ax");
+                emit(".var _fp = _fp + 2");
             }
             // JSR — callee's endproc handles param cleanup via rts #N
             if (inst.src1.kind == ir::OperandKind::GLOBAL) {
@@ -731,11 +719,11 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::CALL_INDIRECT: {
-            // Push arguments right-to-left
-            for (auto it = inst.args.rbegin(); it != inst.args.rend(); ++it) {
-                loadOperand(*it);
-                emit("phx");
-                emit("pha");
+            // Push arguments left-to-right
+            for (const auto& arg : inst.args) {
+                loadOperand(arg);
+                emit("push .ax");
+                emit(".var _fp = _fp + 2");
             }
             // Load function pointer and call
             loadOperand(inst.src1);
