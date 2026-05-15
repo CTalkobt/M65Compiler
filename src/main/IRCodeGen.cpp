@@ -159,7 +159,13 @@ std::string IRCodeGen::src2MemOperand(const ir::Operand& op) {
                 return ss.str();
             }
             case VRegAllocator::IN_FRAME:
-                return "__vr" + std::to_string(op.vregId) + ", s";
+                // Frame vRegs use ldax.fp which internally uses __zp_scratch.
+                // Spill to __zp_scratch2 to avoid conflict when loadOperand(src1)
+                // also needs __zp_scratch for its own ldax.fp.
+                loadVreg(op.vregId);
+                emit("sta __zp_scratch2");
+                emit("stx __zp_scratch2+1");
+                return "__zp_scratch2";
             case VRegAllocator::IN_AX:
                 // Value is in A:X — we need to spill to ZP scratch so the simulated op
                 // can read it as a memory operand. Use __zp_scratch and __zp_scratch+1.
@@ -192,6 +198,7 @@ void IRCodeGen::generate(const ir::Module& mod, bool relocMode, bool zpCallMode)
         out_ << "* = $2000\n";
         emit("__sp_base = $0101");
         emit("__zp_scratch = $02");
+        emit("__zp_scratch2 = $04");
         if (hasMain) {
             emit("jsr _main");
         }
@@ -407,10 +414,23 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
         case ir::Op::ADD:
         case ir::Op::SUB: {
-            std::string src2 = src2MemOperand(inst.src2);
-            loadOperand(inst.src1);
+            // For commutative ADD: if src1 is in frame (would clobber scratch),
+            // swap operands — load src1 as memory, src2 into AX
+            bool src1InFrame = inst.src1.isVreg() &&
+                alloc_.getAlloc(inst.src1.vregId).loc == VRegAllocator::IN_FRAME;
+            bool src2InFrame = inst.src2.isVreg() &&
+                alloc_.getAlloc(inst.src2.vregId).loc == VRegAllocator::IN_FRAME;
             std::string op16 = (inst.op == ir::Op::ADD) ? "add.16" : "sub.16";
-            emit(op16 + " .AX, " + src2);
+            if (inst.op == ir::Op::ADD && src2InFrame && !src1InFrame) {
+                // Swap: load src2 into AX, use src1 as memory operand
+                std::string src1mem = src2MemOperand(inst.src1);
+                loadOperand(inst.src2);
+                emit(op16 + " .AX, " + src1mem);
+            } else {
+                std::string src2mem = src2MemOperand(inst.src2);
+                loadOperand(inst.src1);
+                emit(op16 + " .AX, " + src2mem);
+            }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
@@ -418,13 +438,24 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         case ir::Op::AND:
         case ir::Op::OR:
         case ir::Op::XOR: {
-            std::string src2 = src2MemOperand(inst.src2);
-            loadOperand(inst.src1);
+            // Commutative: if src2 is in frame, swap to avoid scratch conflict
+            bool src2InFrame = inst.src2.isVreg() &&
+                alloc_.getAlloc(inst.src2.vregId).loc == VRegAllocator::IN_FRAME;
+            bool src1InFrame = inst.src1.isVreg() &&
+                alloc_.getAlloc(inst.src1.vregId).loc == VRegAllocator::IN_FRAME;
             std::string mn;
             if (inst.op == ir::Op::AND) mn = "and.16";
             else if (inst.op == ir::Op::OR) mn = "ora.16";
             else mn = "eor.16";
-            emit(mn + " .AX, " + src2);
+            if (src2InFrame && !src1InFrame) {
+                std::string src1mem = src2MemOperand(inst.src1);
+                loadOperand(inst.src2);
+                emit(mn + " .AX, " + src1mem);
+            } else {
+                std::string src2mem = src2MemOperand(inst.src2);
+                loadOperand(inst.src1);
+                emit(mn + " .AX, " + src2mem);
+            }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
@@ -615,11 +646,13 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << addrAlloc.offset;
                         zpPair = ss.str();
                     } else {
-                        // Load address into __zp_scratch
+                        // Load address into __zp_scratch2 (NOT __zp_scratch,
+                        // because loadVreg for the value uses ldax.fp which
+                        // clobbers __zp_scratch internally)
                         loadVreg(inst.src2.vregId);
-                        emit("sta __zp_scratch");
-                        emit("stx __zp_scratch+1");
-                        zpPair = "__zp_scratch";
+                        emit("sta __zp_scratch2");
+                        emit("stx __zp_scratch2+1");
+                        zpPair = "__zp_scratch2";
                     }
                     loadVreg(inst.src1.vregId);  // load value
                     emit("ldy #0");
@@ -654,13 +687,14 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             // base + index * elemSize
             // src1 = base address, src2 = index, args[0] = elemSize
             int elemSize = (inst.args.size() > 0) ? (int)inst.args[0].immVal : 2;
-            // Load index, multiply by elemSize, add to base
-            loadOperand(inst.src2);  // index into AX
+            // Get base as memory operand FIRST (may use ldax.fp which clobbers AX)
+            std::string baseSrc = src2MemOperand(inst.src1);
+            // Then load index into AX
+            loadOperand(inst.src2);
             if (elemSize > 1) {
                 emit("mul.16 .AX, #" + std::to_string(elemSize));
             }
-            // Add base address
-            std::string baseSrc = src2MemOperand(inst.src1);
+            // Add base address (commutative: index + base = base + index)
             emit("add.16 .AX, " + baseSrc);
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
