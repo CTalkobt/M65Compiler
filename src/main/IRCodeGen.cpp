@@ -378,6 +378,15 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode) {
         }
     }
 
+    // Common return point — clean up frame, then endproc emits rts
+    emitLabel("@__return");
+    if (localFrameSize > 0) {
+        // Preserve return value in Y while popping frame
+        emit("tay");
+        for (int i = 0; i < localFrameSize; i++) emit("pla");
+        emit("tya");
+    }
+
     // Function attribute directives
     if (zpCallMode_) {
         emit(".func_flags zp_call");
@@ -691,52 +700,30 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
         case ir::Op::RET: {
             loadOperand(inst.src1);
-            // Frame cleanup: pop localFrameSize bytes, preserving A:X return value
-            if (localFrameSize_ > 0) {
-                emit("tay");  // save A in Y
-                for (int i = 0; i < localFrameSize_; i++) emit("pla");
-                emit("tya");  // restore A
-            }
-            emit("rts");
+            // Jump to common return point (endproc handles frame cleanup + rts)
+            emit("bra @__return");
             break;
         }
 
         case ir::Op::RET_VOID: {
-            if (localFrameSize_ > 0) {
-                for (int i = 0; i < localFrameSize_; i++) emit("pla");
-            }
-            emit("rts");
+            emit("bra @__return");
             break;
         }
 
         case ir::Op::CALL:
         case ir::Op::CALL_VOID: {
-            // Push arguments in left-to-right order (cdecl: caller cleanup)
+            // Push arguments right-to-left: last arg pushed first (deepest on stack),
+            // first arg pushed last (closest to return addr at _fp+2)
             for (auto it = inst.args.rbegin(); it != inst.args.rend(); ++it) {
                 loadOperand(*it);
                 emit("phx");
                 emit("pha");
             }
-            // JSR
+            // JSR — callee's endproc handles param cleanup via rts #N
             if (inst.src1.kind == ir::OperandKind::GLOBAL) {
                 emit("jsr " + inst.src1.name);
             }
-            // Cleanup args (must preserve A:X return value)
-            int argBytes = (int)inst.args.size() * 2;
-            if (argBytes > 0) {
-                // Save return value, clean stack, restore
-                emit("sta __zp_scratch");
-                emit("stx __zp_scratch+1");
-                emit("tsx");
-                emit("txa");
-                emit("clc");
-                emit("adc #" + std::to_string(argBytes));
-                emit("tax");
-                emit("txs");
-                emit("lda __zp_scratch");
-                emit("ldx __zp_scratch+1");
-            }
-            // Store return value
+            // Return value is in A:X — no caller-side stack cleanup needed
             if (inst.op == ir::Op::CALL && inst.dest.isVreg()) {
                 storeVreg(inst.dest.vregId);
             }
@@ -744,7 +731,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::CALL_INDIRECT: {
-            // Push arguments
+            // Push arguments right-to-left
             for (auto it = inst.args.rbegin(); it != inst.args.rend(); ++it) {
                 loadOperand(*it);
                 emit("phx");
@@ -753,20 +740,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             // Load function pointer and call
             loadOperand(inst.src1);
             emitComment("TODO: indirect call via JSR ($ZP)");
-            // Cleanup (preserve A:X return value)
-            int argBytes = (int)inst.args.size() * 2;
-            if (argBytes > 0) {
-                emit("sta __zp_scratch");
-                emit("stx __zp_scratch+1");
-                emit("tsx");
-                emit("txa");
-                emit("clc");
-                emit("adc #" + std::to_string(argBytes));
-                emit("tax");
-                emit("txs");
-                emit("lda __zp_scratch");
-                emit("ldx __zp_scratch+1");
-            }
+            // Callee handles cleanup — no caller-side stack adjustment
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }

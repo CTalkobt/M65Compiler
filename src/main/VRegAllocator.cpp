@@ -174,12 +174,8 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
                 allocs_[lr.vregId] = {IN_FRAME, allocFrameSlot(lr.type), lr.type};
             }
         } else {
-            // Crosses a call — must be in ZP or frame (A:X would be clobbered)
-            int zpAddr = allocZpSlot(lr.type);
-            if (zpAddr >= 0) {
-                allocs_[lr.vregId] = {IN_ZP, zpAddr, lr.type};
-                zpAllocMap[lr.vregId] = zpAddr;
-            } else {
+            // Crosses a call — ZP is clobbered by callees, must use frame
+            {
                 allocs_[lr.vregId] = {IN_FRAME, allocFrameSlot(lr.type), lr.type};
             }
         }

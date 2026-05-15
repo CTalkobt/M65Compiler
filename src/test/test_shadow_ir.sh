@@ -61,22 +61,15 @@ shadow_test() {
         return
     fi
 
-    # IR path: cc45 --codegen-ir → .ir.s → ca45 → .prg
-    $CC --codegen-ir "$src" -o "build/test/shadow/${name}_tmp.s" 2>/dev/null
+    # IR path: cc45 (IR is default) → .s → ca45 → .prg
+    $CC "$src" -o "build/test/shadow/${name}_ir.s" 2>/dev/null
     if [ $? -ne 0 ]; then
         echo "SKIP: $name (IR compilation failed)"
         skipped=$((skipped + 1))
         return
     fi
 
-    local ir_s="build/test/shadow/${name}_tmp.ir.s"
-    if [ ! -f "$ir_s" ]; then
-        echo "SKIP: $name (no .ir.s produced)"
-        skipped=$((skipped + 1))
-        return
-    fi
-
-    $AS "$ir_s" -o "$ir_prg" 2>/dev/null
+    $AS "build/test/shadow/${name}_ir.s" -o "$ir_prg" 2>/dev/null
     if [ $? -ne 0 ]; then
         echo "FAIL: $name (IR assembly failed)"
         echo "  IR assembly file: $ir_s"
