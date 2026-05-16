@@ -113,6 +113,9 @@ enum class Op : uint8_t {
     BFEXT,          // %d = bfext <type> <src>, <bitOffset>, <bitWidth>  (extract)
     BFINS,          // bfins <type> <val>, <addr>, <bitOffset>, <bitWidth> (insert RMW)
 
+    // Assignment/Move
+    COPY,           // %d = copy <type> <src>
+
     // Control flow
     BR,             // br <label>
     BR_COND,        // br_cond <cond>, <trueLabel>, <falseLabel>
@@ -233,6 +236,8 @@ struct Function {
     uint32_t nextVreg = 0;             // counter for allocating vRegs
     std::set<uint32_t> localSlotVregs; // vRegs that are direct local/param slots
     std::map<uint32_t, int> vregSizes; // override sizes for array vRegs (bytes)
+    std::map<std::string, uint32_t> localNames; // name (without _l_ or _p_ prefix) -> vregId
+    std::set<uint32_t> memoryVregs;    // vRegs that MUST be in memory (e.g. volatile or address-taken)
 
     uint32_t allocVreg() { return nextVreg++; }
 };

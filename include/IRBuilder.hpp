@@ -68,16 +68,19 @@ private:
 
     // Last expression result (for chaining expression evaluation)
     ir::Operand lastValue_;
+    bool computeAddressOnly_ = false;
 
     // Variable tracking: name → allocated vReg (address operand for locals)
     std::map<std::string, ir::Operand> locals_;
     std::map<std::string, ir::Type> localTypes_;
+    std::map<std::string, ir::Type> globalTypes_;
     std::map<std::string, bool> localSigned_;  // true if variable was declared signed
     std::map<std::string, bool> localConst_;       // true if variable itself is const
     std::map<std::string, bool> localPointsToConst_; // true if pointed-to data is const (const int *p)
     std::map<std::string, ir::Type> localPointedToType_; // for pointers: the type of *ptr
     std::map<std::string, ir::Type> globalPointedToType_; // for global pointers
     std::map<std::string, std::vector<int>> localArrayDims_; // for stride computation
+    std::map<std::string, std::vector<int>> globalArrayDims_; // for stride computation
 
     // Track signedness of last expression result (for comparison op selection)
     bool lastValueSigned_ = false;
@@ -135,6 +138,8 @@ private:
     // Error and warning reporting
     std::vector<std::string> errors_;
     std::vector<std::string> warnings_;
+
+    friend class CaseCollector;
 
     // Helper: emit an instruction to the current block
     void emit(ir::Inst inst);

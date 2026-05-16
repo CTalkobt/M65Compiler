@@ -1,4 +1,7 @@
 #include "IRBuilder.hpp"
+#include <algorithm>
+#include <iostream>
+#include <sstream>
 
 IRBuilder::IRBuilder() {}
 
@@ -119,6 +122,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         ir::Type pt = mapType(p.type, p.pointerLevel);
         auto vreg = allocVreg(pt);
         locals_[p.name] = vreg;
+        if (currentFunc_) currentFunc_->localNames[p.name] = vreg.vregId;
         localTypes_[p.name] = pt;
         localSigned_[p.name] = p.isSigned;
         // For non-pointers: const int x → isConst=true, variable is read-only
@@ -127,6 +131,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         localConst_[p.name] = (p.pointerLevel == 0 && p.isConst) || p.isPointerConst;
         localPointsToConst_[p.name] = p.isConst && p.pointerLevel > 0;
         if (p.pointerLevel > 0) localPointedToType_[p.name] = mapType(p.type, 0);
+        if (p.isVolatile) currentFunc_->memoryVregs.insert(vreg.vregId);
         currentFunc_->localSlotVregs.insert(vreg.vregId);
     }
 
@@ -176,6 +181,8 @@ void IRBuilder::visit(VariableDeclaration& node) {
             }
         }
         if (node.pointerLevel > 0) globalPointedToType_[node.name] = mapType(node.type, 0);
+        if (!node.arrayDims.empty()) globalArrayDims_[node.name] = node.arrayDims;
+        globalTypes_[node.name] = t;
         module_.globals.push_back(gv);
         return;
     }
@@ -183,11 +190,13 @@ void IRBuilder::visit(VariableDeclaration& node) {
     // Local variable — allocate a vReg
     auto vreg = allocVreg(t);
     locals_[node.name] = vreg;
+    if (currentFunc_) currentFunc_->localNames[node.name] = vreg.vregId;
     localTypes_[node.name] = t;
     localSigned_[node.name] = node.isSigned;
     localConst_[node.name] = node.isConst && node.pointerLevel == 0;
     localPointsToConst_[node.name] = node.isConst && node.pointerLevel > 0;
     if (node.pointerLevel > 0) localPointedToType_[node.name] = mapType(node.type, 0);
+    if (node.isVolatile && currentFunc_) currentFunc_->memoryVregs.insert(vreg.vregId);
     if (currentFunc_) currentFunc_->localSlotVregs.insert(vreg.vregId);
     if (!node.arrayDims.empty()) {
         localArrayDims_[node.name] = node.arrayDims;
@@ -298,10 +307,36 @@ void IRBuilder::visit(StringLiteral& node) {
 void IRBuilder::visit(VariableReference& node) {
     auto it = locals_.find(node.name);
     if (it != locals_.end()) {
-        lastValue_ = it->second;
+        if (computeAddressOnly_) {
+            // Return the address of the local variable
+            auto addr = allocVreg(ir::Type::PTR);
+            ir::Inst addrInst;
+            addrInst.op = ir::Op::ADDR_LOCAL;
+            addrInst.dest = addr;
+            addrInst.resultType = ir::Type::PTR;
+            addrInst.src1 = it->second; // the vReg slot
+            addrInst.loc = loc(node);
+            emit(addrInst);
+            lastValue_ = addr;
+        } else {
+            lastValue_ = it->second;
+        }
         auto sit = localSigned_.find(node.name);
         lastValueSigned_ = (sit != localSigned_.end()) ? sit->second : false;
     } else {
+        // Global variable
+        if (computeAddressOnly_) {
+            lastValue_ = ir::Operand::global("_" + node.name);
+            return;
+        }
+
+        auto git = globalArrayDims_.find(node.name);
+        if (git != globalArrayDims_.end()) {
+            // It's a global array — value is its address
+            lastValue_ = ir::Operand::global("_" + node.name);
+            return;
+        }
+
         auto dest = allocVreg(ir::Type::I16);
         ir::Inst inst;
         inst.op = ir::Op::LOAD;
@@ -315,7 +350,7 @@ void IRBuilder::visit(VariableReference& node) {
 }
 
 void IRBuilder::visit(Assignment& node) {
-    // Check for const member assignment (error)
+    // 1. Semantic checks for constness
     if (auto* ma = dynamic_cast<MemberAccess*>(node.target.get())) {
         for (const auto& [sname, sinfo] : structs_) {
             auto mit = sinfo.members.find(ma->memberName);
@@ -325,7 +360,6 @@ void IRBuilder::visit(Assignment& node) {
             }
         }
     }
-    // Check for const local/param assignment (error)
     if (auto* vr = dynamic_cast<VariableReference*>(node.target.get())) {
         auto cit = localConst_.find(vr->name);
         if (cit != localConst_.end() && cit->second) {
@@ -333,7 +367,6 @@ void IRBuilder::visit(Assignment& node) {
             return;
         }
     }
-    // Check for write through const pointer: *p = val where p is const T *
     if (auto* deref = dynamic_cast<UnaryOperation*>(node.target.get())) {
         if (deref->op == "*") {
             if (auto* vr = dynamic_cast<VariableReference*>(deref->operand.get())) {
@@ -346,11 +379,11 @@ void IRBuilder::visit(Assignment& node) {
         }
     }
 
-    // Evaluate RHS
+    // 2. Evaluate RHS value
     node.expression->accept(*this);
     auto rhs = lastValue_;
 
-    // Check for bitfield assignment: target is MemberAccess to a bitfield
+    // 3. Handle bitfield assignment (special case as it needs RMW)
     if (auto* ma = dynamic_cast<MemberAccess*>(node.target.get())) {
         int bitWidth = 0, bitOffset = 0, memberOffset = 0;
         ir::Type memberType = ir::Type::I16;
@@ -365,7 +398,6 @@ void IRBuilder::visit(Assignment& node) {
             }
         }
         if (bitWidth > 0) {
-            // Evaluate struct base address
             ma->structExpr->accept(*this);
             auto base = lastValue_;
             auto addr = allocVreg(ir::Type::PTR);
@@ -392,151 +424,72 @@ void IRBuilder::visit(Assignment& node) {
         }
     }
 
-    // Simple assignment to variable reference
+    // 4. Standard assignment: evaluate LHS as an address and store RHS
+    computeAddressOnly_ = true;
+    node.target->accept(*this);
+    auto lhsAddr = lastValue_;
+    computeAddressOnly_ = false;
+
+    // Determine the type of the target (LHS) for correct store width
+    ir::Type storeType = rhs.type;
     if (auto* vr = dynamic_cast<VariableReference*>(node.target.get())) {
-        auto it = locals_.find(vr->name);
-        if (it != locals_.end()) {
-            ir::Inst store;
-            store.op = ir::Op::STORE;
-            store.resultType = it->second.type;
-            store.src1 = rhs;
-            store.src2 = it->second;
-            store.loc = loc(node);
-            emit(store);
-            lastValue_ = rhs;
-            return;
+        auto tit = localTypes_.find(vr->name);
+        if (tit != localTypes_.end()) storeType = tit->second;
+        else {
+            auto gtit = globalTypes_.find(vr->name);
+            if (gtit != globalTypes_.end()) storeType = gtit->second;
         }
-        // Global variable: store directly via global name
-        ir::Inst store;
-        store.op = ir::Op::STORE;
-        store.resultType = rhs.type;
-        store.src1 = rhs;
-        store.src2 = ir::Operand::global("_" + vr->name);
-        store.loc = loc(node);
-        emit(store);
-        lastValue_ = rhs;
-        return;
-    }
-
-    // Dereference assignment: *ptr = val → evaluate ptr (not *ptr), store through it
-    if (auto* deref = dynamic_cast<UnaryOperation*>(node.target.get())) {
-        if (deref->op == "*") {
-            // Determine the pointed-to type for correct store width
-            ir::Type storeType = rhs.type;
-            if (auto* vr = dynamic_cast<VariableReference*>(deref->operand.get())) {
-                auto ptit = localPointedToType_.find(vr->name);
-                if (ptit != localPointedToType_.end()) storeType = ptit->second;
+    } else if (auto* aa = dynamic_cast<ArrayAccess*>(node.target.get())) {
+        // Find root variable of the array
+        Expression* root = aa->arrayExpr.get();
+        while (auto* inner = dynamic_cast<ArrayAccess*>(root)) root = inner->arrayExpr.get();
+        if (auto* ref = dynamic_cast<VariableReference*>(root)) {
+            // If it's a pointer variable being subscripted, we want its pointed-to type
+            auto pit = localPointedToType_.find(ref->name);
+            if (pit != localPointedToType_.end()) storeType = pit->second;
+            else {
+                auto gpit = globalPointedToType_.find(ref->name);
+                if (gpit != globalPointedToType_.end()) storeType = gpit->second;
                 else {
-                    auto gpit = globalPointedToType_.find(vr->name);
-                    if (gpit != globalPointedToType_.end()) storeType = gpit->second;
-                }
-            }
-            deref->operand->accept(*this);  // evaluate pointer expression (NOT dereference)
-            auto ptrAddr = lastValue_;
-            ir::Inst store;
-            store.op = ir::Op::STORE;
-            store.resultType = storeType;
-            store.src1 = rhs;
-            store.src2 = ptrAddr;
-            store.loc = loc(node);
-            emit(store);
-            lastValue_ = rhs;
-            return;
-        }
-    }
-
-    // Array subscript assignment: arr[i] = val → compute element address, store through it
-    if (auto* aa = dynamic_cast<ArrayAccess*>(node.target.get())) {
-        // Determine element type for correct store width
-        ir::Type storeType = rhs.type;
-        int elemSize = 2;
-        if (auto* vr = dynamic_cast<VariableReference*>(aa->arrayExpr.get())) {
-            auto ptit = localPointedToType_.find(vr->name);
-            if (ptit != localPointedToType_.end()) {
-                storeType = ptit->second;
-                elemSize = ir::typeSize(storeType);
-            } else {
-                auto gpit = globalPointedToType_.find(vr->name);
-                if (gpit != globalPointedToType_.end()) {
-                    storeType = gpit->second;
-                    elemSize = ir::typeSize(storeType);
+                    // Fallback to base type (for arrays)
+                    auto tit = localTypes_.find(ref->name);
+                    if (tit != localTypes_.end()) storeType = tit->second;
+                    else {
+                        auto gtit = globalTypes_.find(ref->name);
+                        if (gtit != globalTypes_.end()) storeType = gtit->second;
+                    }
                 }
             }
         }
-        // Evaluate base
-        aa->arrayExpr->accept(*this);
-        auto base = lastValue_;
-        // Evaluate index
-        aa->indexExpr->accept(*this);
-        auto index = lastValue_;
-        auto addr = allocVreg(ir::Type::PTR);
-        ir::Inst elem;
-        elem.op = ir::Op::ADDR_ELEM;
-        elem.dest = addr;
-        elem.resultType = ir::Type::PTR;
-        elem.src1 = base;
-        elem.src2 = index;
-        elem.args.push_back(ir::Operand::imm(elemSize, ir::Type::I16));
-        elem.loc = loc(node);
-        emit(elem);
-        // Store value through computed address (use element type width)
-        ir::Inst store;
-        store.op = ir::Op::STORE;
-        store.resultType = storeType;
-        store.src1 = rhs;
-        store.src2 = addr;
-        store.loc = loc(node);
-        emit(store);
-        lastValue_ = rhs;
-        return;
-    }
-
-    // Member access assignment: s.m = val or p->m = val → compute member address, store
-    if (auto* ma = dynamic_cast<MemberAccess*>(node.target.get())) {
-        // Get member offset
-        int memberOffset = 0;
+    } else if (auto* ma = dynamic_cast<MemberAccess*>(node.target.get())) {
         for (const auto& [sname, sinfo] : structs_) {
             auto mit = sinfo.members.find(ma->memberName);
             if (mit != sinfo.members.end()) {
-                memberOffset = mit->second.offset;
+                storeType = mapType(mit->second.type, mit->second.pointerLevel);
                 break;
             }
         }
-        // Evaluate struct base
-        ma->structExpr->accept(*this);
-        auto base = lastValue_;
-        // Compute address: base + offset
-        auto addr = allocVreg(ir::Type::PTR);
-        ir::Inst add;
-        add.op = ir::Op::ADD;
-        add.dest = addr;
-        add.resultType = ir::Type::PTR;
-        add.src1 = base;
-        add.src2 = ir::Operand::imm(memberOffset, ir::Type::I16);
-        add.loc = loc(node);
-        emit(add);
-        // Store value
-        ir::Inst store;
-        store.op = ir::Op::STORE;
-        store.resultType = rhs.type;
-        store.src1 = rhs;
-        store.src2 = addr;
-        store.loc = loc(node);
-        emit(store);
-        lastValue_ = rhs;
-        return;
+    } else if (auto* deref = dynamic_cast<UnaryOperation*>(node.target.get())) {
+        if (deref->op == "*") {
+            if (auto* ref = dynamic_cast<VariableReference*>(deref->operand.get())) {
+                auto pit = localPointedToType_.find(ref->name);
+                if (pit != localPointedToType_.end()) storeType = pit->second;
+                else {
+                    auto gpit = globalPointedToType_.find(ref->name);
+                    if (gpit != globalPointedToType_.end()) storeType = gpit->second;
+                }
+            }
+        }
     }
 
-    // Generic: evaluate target address, store
-    node.target->accept(*this);
-    auto addr = lastValue_;
     ir::Inst store;
     store.op = ir::Op::STORE;
-    store.resultType = rhs.type;
+    store.resultType = storeType;
     store.src1 = rhs;
-    store.src2 = addr;
+    store.src2 = lhsAddr;
     store.loc = loc(node);
     emit(store);
+
     lastValue_ = rhs;
 }
 
@@ -957,9 +910,28 @@ void IRBuilder::visit(ConditionalExpression& node) {
     br.loc = loc(node);
     emit(br);
 
+    // Pre-allocate dest vReg (we need to know the type, use thenExpr)
+    // Actually, we can just use lastValue.type from thenExpr visit.
+    // But we need the vReg ID for both branches.
+    // Let's visit thenExpr in a "dry run" to get the type? No.
+    // Let's assume I16 for now or get it from thenExpr if possible.
+    // Actually, IRBuilder has getExprType equivalent? No.
+    
+    // Most ternaries are ints or pointers in our tests.
+    // Let's just use thenVal.type AFTER visiting it, and then reuse the SAME vReg.
+    
     startBlock(thenLabel);
     node.thenExpr->accept(*this);
     auto thenVal = lastValue_;
+    auto dest = allocVreg(thenVal.type);
+    
+    ir::Inst copyThen;
+    copyThen.op = ir::Op::COPY;
+    copyThen.dest = dest;
+    copyThen.src1 = thenVal;
+    copyThen.resultType = dest.type;
+    emit(copyThen);
+
     ir::Inst brEnd1;
     brEnd1.op = ir::Op::BR;
     brEnd1.src1 = ir::Operand::label(endLabel);
@@ -968,20 +940,19 @@ void IRBuilder::visit(ConditionalExpression& node) {
     startBlock(elseLabel);
     node.elseExpr->accept(*this);
     auto elseVal = lastValue_;
+    ir::Inst copyElse;
+    copyElse.op = ir::Op::COPY;
+    copyElse.dest = dest;
+    copyElse.src1 = elseVal;
+    copyElse.resultType = dest.type;
+    emit(copyElse);
+
     ir::Inst brEnd2;
     brEnd2.op = ir::Op::BR;
     brEnd2.src1 = ir::Operand::label(endLabel);
     emit(brEnd2);
 
     startBlock(endLabel);
-    auto dest = allocVreg(thenVal.type);
-    ir::Inst phi;
-    phi.op = ir::Op::PHI;
-    phi.dest = dest;
-    phi.resultType = thenVal.type;
-    phi.phiIncoming = {{thenVal, thenLabel}, {elseVal, elseLabel}};
-    phi.loc = loc(node);
-    emit(phi);
     lastValue_ = dest;
 }
 
@@ -998,8 +969,10 @@ void IRBuilder::visit(InitializerList& node) {
 }
 
 void IRBuilder::visit(ArrayAccess& node) {
+    bool oldAddrMode = computeAddressOnly_;
+    computeAddressOnly_ = false;
+
     // Evaluate base address
-    // For local arrays, we need the ADDRESS (not the value at that location)
     if (auto* ref = dynamic_cast<VariableReference*>(node.arrayExpr.get())) {
         auto ait = localArrayDims_.find(ref->name);
         if (ait != localArrayDims_.end() && !ait->second.empty()) {
@@ -1017,7 +990,7 @@ void IRBuilder::visit(ArrayAccess& node) {
                 lastValue_ = dest;
             }
         } else {
-            // Pointer variable — value IS the address
+            // Pointer variable or global array — value IS the address
             node.arrayExpr->accept(*this);
         }
     } else {
@@ -1028,15 +1001,46 @@ void IRBuilder::visit(ArrayAccess& node) {
     // Evaluate index
     node.indexExpr->accept(*this);
     auto index = lastValue_;
+    
+    computeAddressOnly_ = oldAddrMode;
 
-    // Determine element size from array type
+
+    // Determine element size from array type (handling multi-dimensional arrays)
     int elemSize = 2; // default
-    if (auto* ref = dynamic_cast<VariableReference*>(node.arrayExpr.get())) {
-        auto dit = localArrayDims_.find(ref->name);
-        if (dit != localArrayDims_.end() && !dit->second.empty()) {
-            auto tit = localTypes_.find(ref->name);
-            ir::Type elemType = (tit != localTypes_.end()) ? tit->second : ir::Type::I16;
-            elemSize = ir::typeSize(elemType);
+    Expression* root = node.arrayExpr.get();
+    int depth = 1;
+    while (auto* inner = dynamic_cast<ArrayAccess*>(root)) {
+        root = inner->arrayExpr.get();
+        depth++;
+    }
+
+    if (auto* ref = dynamic_cast<VariableReference*>(root)) {
+        std::vector<int> dims;
+        ir::Type baseType = ir::Type::I16;
+        
+        auto ait = localArrayDims_.find(ref->name);
+        if (ait != localArrayDims_.end()) {
+            dims = ait->second;
+            baseType = localTypes_[ref->name];
+        } else {
+            auto git = globalArrayDims_.find(ref->name);
+            if (git != globalArrayDims_.end()) {
+                dims = git->second;
+                // Find global type (ignoring _ prefix)
+                auto modGit = std::find_if(module_.globals.begin(), module_.globals.end(), 
+                               [&](auto const& g){ return g.name == "_" + ref->name; });
+                if (modGit != module_.globals.end()) baseType = modGit->type;
+            }
+        }
+
+        if (!dims.empty() && depth <= (int)dims.size()) {
+            int stride = ir::typeSize(baseType);
+            for (size_t i = depth; i < dims.size(); i++) {
+                stride *= dims[i];
+            }
+            elemSize = stride;
+        } else {
+            elemSize = ir::typeSize(baseType);
         }
     }
 
@@ -1052,16 +1056,50 @@ void IRBuilder::visit(ArrayAccess& node) {
     inst.loc = loc(node);
     emit(inst);
 
-    // Load the element
-    auto val = allocVreg(ir::Type::I16);
-    ir::Inst load;
-    load.op = ir::Op::LOAD;
-    load.dest = val;
-    load.resultType = ir::Type::I16;
-    load.src1 = addr;
-    load.loc = loc(node);
-    emit(load);
-    lastValue_ = val;
+    // Determine if we need to LOAD the final value or just use the sub-array address
+    bool isFinal = true;
+    if (auto* ref = dynamic_cast<VariableReference*>(root)) {
+        std::vector<int> dims;
+        auto ait = localArrayDims_.find(ref->name);
+        if (ait != localArrayDims_.end()) dims = ait->second;
+        else {
+            auto git = globalArrayDims_.find(ref->name);
+            if (git != globalArrayDims_.end()) dims = git->second;
+        }
+        if (depth < (int)dims.size()) isFinal = false;
+    }
+
+    if (isFinal) {
+        if (computeAddressOnly_) {
+            lastValue_ = addr;
+            return;
+        }
+
+        // Final element reached: load it
+        ir::Type finalType = ir::Type::I16;
+        if (auto* ref = dynamic_cast<VariableReference*>(root)) {
+            auto tit = localTypes_.find(ref->name);
+            if (tit != localTypes_.end()) finalType = tit->second;
+            else {
+                auto modGit = std::find_if(module_.globals.begin(), module_.globals.end(), 
+                               [&](auto const& g){ return g.name == "_" + ref->name; });
+                if (modGit != module_.globals.end()) finalType = modGit->type;
+            }
+        }
+        
+        auto val = allocVreg(finalType);
+        ir::Inst load;
+        load.op = ir::Op::LOAD;
+        load.dest = val;
+        load.resultType = finalType;
+        load.src1 = addr;
+        load.loc = loc(node);
+        emit(load);
+        lastValue_ = val;
+    } else {
+        // Intermediate sub-array address: no LOAD needed, address is the value
+        lastValue_ = addr;
+    }
 }
 
 void IRBuilder::visit(MemberAccess& node) {
@@ -1199,6 +1237,94 @@ void IRBuilder::visit(SizeofExpression& node) {
     lastValue_ = dest;
 }
 
+class CaseCollector : public ASTVisitor {
+public:
+    IRBuilder::SwitchCtx& ctx;
+    IRBuilder& builder;
+    CaseCollector(IRBuilder::SwitchCtx& c, IRBuilder& b) : ctx(c), builder(b) {}
+
+    void visit(IntegerLiteral&) override {}
+    void visit(StringLiteral&) override {}
+    void visit(VariableReference&) override {}
+    void visit(Assignment& node) override { if (node.expression) node.expression->accept(*this); }
+    void visit(BinaryOperation& node) override { if (node.left) node.left->accept(*this); if (node.right) node.right->accept(*this); }
+    void visit(UnaryOperation& node) override { if (node.operand) node.operand->accept(*this); }
+    void visit(FunctionCall& node) override { for (auto& arg : node.arguments) arg->accept(*this); }
+    void visit(BuiltinVaStart& node) override { if (node.ap) node.ap->accept(*this); }
+    void visit(BuiltinVaArg& node) override { if (node.ap) node.ap->accept(*this); }
+    void visit(MemberAccess& node) override { if (node.structExpr) node.structExpr->accept(*this); }
+    void visit(ConditionalExpression& node) override {
+        if (node.condition) node.condition->accept(*this);
+        if (node.thenExpr) node.thenExpr->accept(*this);
+        if (node.elseExpr) node.elseExpr->accept(*this);
+    }
+    void visit(GenericSelection& node) override {
+        if (node.control) node.control->accept(*this);
+        for (auto& assoc : node.associations) if (assoc.result) assoc.result->accept(*this);
+    }
+    void visit(InitializerList& node) override { for (auto& elem : node.elements) if (elem) elem->accept(*this); }
+    void visit(ArrayAccess& node) override { if (node.arrayExpr) node.arrayExpr->accept(*this); if (node.indexExpr) node.indexExpr->accept(*this); }
+    void visit(CastExpression& node) override { if (node.expression) node.expression->accept(*this); }
+    void visit(CompoundLiteral& node) override { if (node.initializer) node.initializer->accept(*this); }
+    void visit(AlignofExpression&) override {}
+    void visit(SizeofExpression& node) override { if (!node.isType && node.expression) node.expression->accept(*this); }
+    void visit(VariableDeclaration& node) override { if (node.initializer) node.initializer->accept(*this); }
+    void visit(ReturnStatement& node) override { if (node.expression) node.expression->accept(*this); }
+    void visit(BreakStatement&) override {}
+    void visit(ContinueStatement&) override {}
+    void visit(SwitchContinueStatement& node) override { if (node.target) node.target->accept(*this); }
+    void visit(GotoStatement&) override {}
+    void visit(LabelledStatement& node) override { if (node.statement) node.statement->accept(*this); }
+    void visit(ExpressionStatement& node) override { if (node.expression) node.expression->accept(*this); }
+    void visit(IfStatement& node) override {
+        if (node.condition) node.condition->accept(*this);
+        if (node.thenBranch) node.thenBranch->accept(*this);
+        if (node.elseBranch) node.elseBranch->accept(*this);
+    }
+    void visit(WhileStatement& node) override {
+        if (node.condition) node.condition->accept(*this);
+        if (node.body) node.body->accept(*this);
+    }
+    void visit(DoWhileStatement& node) override {
+        if (node.body) node.body->accept(*this);
+        if (node.condition) node.condition->accept(*this);
+    }
+    void visit(ForStatement& node) override {
+        if (node.initializer) node.initializer->accept(*this);
+        if (node.condition) node.condition->accept(*this);
+        if (node.increment) node.increment->accept(*this);
+        if (node.body) node.body->accept(*this);
+    }
+    void visit(SwitchStatement& node) override {
+        // Nested switches: don't collect their cases into our context!
+        // But we MUST visit them because they are part of our body.
+        // Actually, SwitchStatement::visit will handle its own cases.
+        // We only care about CaseStatements that belong to OUR switch.
+        // C rules say CaseStatements belong to the innermost switch.
+        // So we do NOT visit nested SwitchStatements' bodies.
+        if (node.expression) node.expression->accept(*this);
+    }
+    void visit(CaseStatement& node) override {
+        int64_t val = 0;
+        if (auto* lit = dynamic_cast<IntegerLiteral*>(node.value.get())) val = lit->value;
+        node.label = builder.newLabel("case");
+        ctx.cases.push_back({val, node.label});
+    }
+    void visit(DefaultStatement& node) override {
+        node.label = builder.newLabel("default");
+        ctx.defaultLabel = node.label;
+        ctx.hasDefault = true;
+        // Don't visit node.statement here; it will be visited by the main IRBuilder pass
+    }
+    void visit(AsmStatement&) override {}
+    void visit(StaticAssert&) override {}
+    void visit(EnumDefinition&) override {}
+    void visit(StructDefinition&) override {}
+    void visit(CompoundStatement& node) override { for (auto& s : node.statements) if (s) s->accept(*this); }
+    void visit(FunctionDeclaration&) override {}
+    void visit(TranslationUnit&) override {}
+};
+
 void IRBuilder::visit(SwitchStatement& node) {
     node.expression->accept(*this);
     auto expr = lastValue_;
@@ -1210,71 +1336,76 @@ void IRBuilder::visit(SwitchStatement& node) {
     ctx.breakLabel = breakLabel;
     ctx.defaultLabel = defaultLabel;
     ctx.expr = expr;
-    switchStack_.push_back(ctx);
-    loopStack_.push_back({breakLabel, ""}); // break works in switch, continue does not
+    
+    // First pass: collect all cases and default labels
+    CaseCollector collector(ctx, *this);
+    node.body->accept(collector);
 
-    // Pre-scan case values by visiting body (CaseStatement/DefaultStatement will register themselves)
-    node.body->accept(*this);
+    // Emit comparison dispatch logic
+    for (auto const& c : ctx.cases) {
+        auto dest = allocVreg(ir::Type::I8);
+        ir::Inst cmp;
+        cmp.op = ir::Op::CMP_EQ;
+        cmp.dest = dest;
+        cmp.resultType = ir::Type::I8;
+        cmp.src1 = expr;
+        cmp.src2 = ir::Operand::imm(c.first, expr.type);
+        cmp.loc = loc(node);
+        emit(cmp);
 
-    // Emit the switch dispatch at the end (after all case labels are known)
-    // Note: cases were already registered during body visit
-    auto& sw = switchStack_.back();
-    if (!sw.cases.empty()) {
-        // The SWITCH instruction is informational — actual comparison+branch was emitted inline by CaseStatement
+        std::string nextCmpLabel = newLabel("case_skip");
+        ir::Inst br;
+        br.op = ir::Op::BR_COND;
+        br.src1 = dest;
+        br.dest = ir::Operand::label(c.second);
+        br.src2 = ir::Operand::label(nextCmpLabel);
+        emit(br);
+        startBlock(nextCmpLabel);
     }
+
+    // Branch to default (or break if no default)
+    ir::Inst brDef;
+    brDef.op = ir::Op::BR;
+    brDef.src1 = ir::Operand::label(ctx.defaultLabel);
+    emit(brDef);
+
+    // Second pass: visit body to emit case blocks
+    switchStack_.push_back(ctx);
+    std::string outerContinue = loopStack_.empty() ? "" : loopStack_.back().continueLabel;
+    loopStack_.push_back({breakLabel, outerContinue});
+
+    node.body->accept(*this);
 
     loopStack_.pop_back();
     switchStack_.pop_back();
+    
+    // Ensure we end at the break label
+    if (!currentBlock_ || currentBlock_->insts.empty() || currentBlock_->insts.back().op != ir::Op::BR) {
+        ir::Inst brEnd;
+        brEnd.op = ir::Op::BR;
+        brEnd.dest = ir::Operand::label(breakLabel);
+        emit(brEnd);
+    }
     startBlock(breakLabel);
 }
 
 void IRBuilder::visit(CaseStatement& node) {
     if (switchStack_.empty()) return;
-
-    // Evaluate case value
-    int64_t caseVal = 0;
-    if (auto* lit = dynamic_cast<IntegerLiteral*>(node.value.get())) {
-        caseVal = lit->value;
+    
+    // Start the block for this case
+    if (node.label.empty()) {
+        node.label = newLabel("case"); // should have been set by collector
     }
-
-    std::string caseLabel = newLabel("case");
-    switchStack_.back().cases.push_back({caseVal, caseLabel});
-
-    // Emit comparison: if expr == caseVal, branch to case body
-    auto dest = allocVreg(ir::Type::I8);
-    ir::Inst cmp;
-    cmp.op = ir::Op::CMP_EQ;
-    cmp.dest = dest;
-    cmp.resultType = ir::Type::I8;
-    cmp.src1 = switchStack_.back().expr;
-    cmp.src2 = ir::Operand::imm(caseVal, switchStack_.back().expr.type);
-    cmp.loc = loc(node);
-    emit(cmp);
-
-    std::string skipLabel = newLabel("case_skip");
-    ir::Inst br;
-    br.op = ir::Op::BR_COND;
-    br.src1 = dest;
-    br.dest = ir::Operand::label(caseLabel);
-    br.src2 = ir::Operand::label(skipLabel);
-    emit(br);
-
-    startBlock(caseLabel);
-    // Case body follows (emitted by CompoundStatement visit)
-
-    // The skip block will be started by the next case or end of switch
-    // We need to ensure it exists
-    startBlock(skipLabel);
+    startBlock(node.label);
 }
 
-void IRBuilder::visit(DefaultStatement&) {
+void IRBuilder::visit(DefaultStatement& node) {
     if (switchStack_.empty()) return;
 
-    std::string defaultLabel = newLabel("default");
-    switchStack_.back().defaultLabel = defaultLabel;
-    switchStack_.back().hasDefault = true;
-
-    startBlock(defaultLabel);
+    if (node.label.empty()) {
+        node.label = newLabel("default"); // should have been set by collector
+    }
+    startBlock(node.label);
 }
 
 void IRBuilder::visit(BreakStatement&) {

@@ -155,15 +155,17 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
 
         // Array vRegs must go to frame (too large for ZP)
         bool isArray = fn.vregSizes.count(lr.vregId) > 0;
-        if (isArray) {
-            int arraySize = fn.vregSizes.at(lr.vregId);
-            allocs_[lr.vregId] = {IN_FRAME, allocFrameSlot(lr.type, arraySize), lr.type};
+        bool isMemory = fn.memoryVregs.count(lr.vregId) > 0;
+        if (isArray || isMemory) {
+            int size = fn.vregSizes.count(lr.vregId) ? fn.vregSizes.at(lr.vregId) : ir::typeSize(lr.type);
+            allocs_[lr.vregId] = {IN_FRAME, allocFrameSlot(lr.type, size), lr.type};
             continue;
         }
 
-        // Can this vReg go in A:X?
-        // Must not be a parameter, must not conflict with another AX occupant
-        bool canUseAX = !isParam && !crossesCall && (lr.firstDef > axOccupiedUntil);
+        // Disable IN_AX allocation: src2MemOperand for FRAME vRegs uses
+        // ldax.fp which clobbers AX, destroying IN_AX values between
+        // their definition and use. Use ZP or FRAME only.
+        bool canUseAX = false;
 
         if (canUseAX && span <= 1) {
             // Short-lived, no conflict — keep in A:X
