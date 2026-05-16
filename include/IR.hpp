@@ -259,6 +259,7 @@ struct Module {
         bool isStatic = false;
         bool hasInitValue = false;
         int64_t initValue = 0;  // scalar initial value (for simple int/char globals)
+        std::vector<int64_t> initList; // for array initializers
     };
     std::vector<GlobalVar> globals;
 

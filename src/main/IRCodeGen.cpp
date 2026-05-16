@@ -88,16 +88,29 @@ void IRCodeGen::loadVreg(uint32_t vregId) {
             std::string zpAddr = ss.str();
             if (alloc.type == ir::Type::I8) {
                 emit("lda " + zpAddr);
+                emit("ldx #0");
+            } else if (alloc.type == ir::Type::I32) {
+                emit("lda " + zpAddr);
+                ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 1);
+                emit("ldx " + ss.str());
+                ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 2);
+                emit("ldy " + ss.str());
+                ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 3);
+                emit("ldz " + ss.str());
             } else {
                 emit("lda " + zpAddr);
-                ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (alloc.offset + 1);
+                ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 1);
                 emit("ldx " + ss.str());
             }
             break;
         }
         case VRegAllocator::IN_FRAME: {
             std::string sym = "__vr" + std::to_string(vregId);
-            emit("ldax.fp " + sym);
+            if (alloc.type == ir::Type::I32) {
+                emit("ldaxyz.fp " + sym);
+            } else {
+                emit("ldax.fp " + sym);
+            }
             break;
         }
     }
@@ -114,16 +127,28 @@ void IRCodeGen::storeVreg(uint32_t vregId) {
             std::string zpAddr = ss.str();
             if (alloc.type == ir::Type::I8) {
                 emit("sta " + zpAddr);
+            } else if (alloc.type == ir::Type::I32) {
+                emit("sta " + zpAddr);
+                ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 1);
+                emit("stx " + ss.str());
+                ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 2);
+                emit("sty " + ss.str());
+                ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 3);
+                emit("stz " + ss.str());
             } else {
                 emit("sta " + zpAddr);
-                ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (alloc.offset + 1);
+                ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 1);
                 emit("stx " + ss.str());
             }
             break;
         }
         case VRegAllocator::IN_FRAME: {
             std::string sym = "__vr" + std::to_string(vregId);
-            emit("stax.fp " + sym);
+            if (alloc.type == ir::Type::I32) {
+                emit("staxyz.fp " + sym);
+            } else {
+                emit("stax.fp " + sym);
+            }
             break;
         }
     }
@@ -209,6 +234,7 @@ void IRCodeGen::generate(const ir::Module& mod, bool relocMode, bool zpCallMode)
 
     emit("__zp_scratch = $02");
     emit("__zp_scratch2 = $04");
+    emit("__zp_scratch3 = $06");
     emitBlank();
 
 
@@ -251,12 +277,33 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
         }
         emitLabel(g.name);
         if (g.hasInitValue) {
-            if (g.type == ir::Type::I8) {
-                emit(".byte " + std::to_string((int)(g.initValue & 0xFF)));
-            } else if (g.type == ir::Type::I32) {
-                emit(".dword " + std::to_string((int)g.initValue));
+            if (!g.initList.empty()) {
+                // Array initializer
+                for (size_t i = 0; i < g.initList.size(); i++) {
+                    if (g.type == ir::Type::I8) emit(".byte " + std::to_string((int)(g.initList[i] & 0xFF)));
+                    else if (g.type == ir::Type::I32) emit(".dword " + std::to_string((int)g.initList[i]));
+                    else emit(".word " + std::to_string((int)(g.initList[i] & 0xFFFF)));
+                }
+                // Handle partial initialization: padding with zeros
+                int bytesEmitted = (int)g.initList.size() * ir::typeSize(g.type);
+                if (bytesEmitted < g.size) {
+                    emit(".res " + std::to_string(g.size - bytesEmitted));
+                }
             } else {
-                emit(".word " + std::to_string((int)(g.initValue & 0xFFFF)));
+                // Scalar initializer
+                if (g.type == ir::Type::I8) {
+                    emit(".byte " + std::to_string((int)(g.initValue & 0xFF)));
+                } else if (g.type == ir::Type::I32) {
+                    emit(".dword " + std::to_string((int)g.initValue));
+                } else {
+                    emit(".word " + std::to_string((int)(g.initValue & 0xFFFF)));
+                }
+                // Scalar might be larger than its type if it's an array init to zero? 
+                // e.g. char a[10] = 0;
+                int typeSz = ir::typeSize(g.type);
+                if (typeSz < g.size) {
+                    emit(".res " + std::to_string(g.size - typeSz));
+                }
             }
         } else {
             emit(".res " + std::to_string(g.size > 0 ? g.size : ir::typeSize(g.type)));
@@ -408,7 +455,11 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode) {
         std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
             ? fn.paramNames[i] : std::to_string(i);
         // Use @_p_ prefix
-        emit("ldax.fp @_p_" + pName);
+        if (fn.paramTypes[i] == ir::Type::I32) {
+            emit("ldaxyz.fp @_p_" + pName);
+        } else {
+            emit("ldax.fp @_p_" + pName);
+        }
         storeVreg((uint32_t)i);
     }
 
@@ -425,10 +476,16 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode) {
     // Common return point — clean up frame, then endproc emits rts
     emitLabel("@__return");
     if (localFrameSize > 0) {
-        // Preserve return value in Y while popping frame
-        emit("tay");
+        // Preserve return value in A,X,Y,Z while popping frame
+        emit("sta __zp_scratch");
+        emit("stx __zp_scratch+1");
+        emit("sty __zp_scratch3");
+        emit("stz __zp_scratch3+1");
         for (int i = 0; i < localFrameSize; i++) emit("pla");
-        emit("tya");
+        emit("lda __zp_scratch");
+        emit("ldx __zp_scratch+1");
+        emit("ldy __zp_scratch3");
+        emit("ldz __zp_scratch3+1");
     }
 
     // Function attribute directives
@@ -469,16 +526,24 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 alloc_.getAlloc(inst.src1.vregId).loc == VRegAllocator::IN_FRAME;
             bool src2InFrame = inst.src2.isVreg() &&
                 alloc_.getAlloc(inst.src2.vregId).loc == VRegAllocator::IN_FRAME;
-            std::string op16 = (inst.op == ir::Op::ADD) ? "add.16" : "sub.16";
+            
+            std::string mn;
+            if (inst.resultType == ir::Type::I32) {
+                mn = (inst.op == ir::Op::ADD) ? "add.32" : "sub.32";
+            } else {
+                mn = (inst.op == ir::Op::ADD) ? "add.16" : "sub.16";
+            }
+            std::string reg = (inst.resultType == ir::Type::I32) ? ".AXYZ" : ".AX";
+
             if (inst.op == ir::Op::ADD && src2InFrame && !src1InFrame) {
                 // Swap: load src2 into AX, use src1 as memory operand
                 std::string src1mem = src2MemOperand(inst.src1);
                 loadOperand(inst.src2);
-                emit(op16 + " .AX, " + src1mem);
+                emit(mn + " " + reg + ", " + src1mem);
             } else {
                 std::string src2mem = src2MemOperand(inst.src2);
                 loadOperand(inst.src1);
-                emit(op16 + " .AX, " + src2mem);
+                emit(mn + " " + reg + ", " + src2mem);
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
@@ -492,18 +557,27 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 alloc_.getAlloc(inst.src2.vregId).loc == VRegAllocator::IN_FRAME;
             bool src1InFrame = inst.src1.isVreg() &&
                 alloc_.getAlloc(inst.src1.vregId).loc == VRegAllocator::IN_FRAME;
+            
             std::string mn;
-            if (inst.op == ir::Op::AND) mn = "and.16";
-            else if (inst.op == ir::Op::OR) mn = "ora.16";
-            else mn = "eor.16";
+            if (inst.resultType == ir::Type::I32) {
+                if (inst.op == ir::Op::AND) mn = "and.32";
+                else if (inst.op == ir::Op::OR) mn = "ora.32";
+                else mn = "eor.32";
+            } else {
+                if (inst.op == ir::Op::AND) mn = "and.16";
+                else if (inst.op == ir::Op::OR) mn = "ora.16";
+                else mn = "eor.16";
+            }
+            std::string reg = (inst.resultType == ir::Type::I32) ? ".AXYZ" : ".AX";
+
             if (src2InFrame && !src1InFrame) {
                 std::string src1mem = src2MemOperand(inst.src1);
                 loadOperand(inst.src2);
-                emit(mn + " .AX, " + src1mem);
+                emit(mn + " " + reg + ", " + src1mem);
             } else {
                 std::string src2mem = src2MemOperand(inst.src2);
                 loadOperand(inst.src1);
-                emit(mn + " .AX, " + src2mem);
+                emit(mn + " " + reg + ", " + src2mem);
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
@@ -544,7 +618,11 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         case ir::Op::MUL: {
             std::string src2 = src2MemOperand(inst.src2);
             loadOperand(inst.src1);
-            emit("mul.16 .AX, " + src2);
+            if (inst.resultType == ir::Type::I32) {
+                emit("mul.32 .AXYZ, " + src2);
+            } else {
+                emit("mul.16 .AX, " + src2);
+            }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
@@ -552,7 +630,11 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         case ir::Op::DIV: {
             std::string src2 = src2MemOperand(inst.src2);
             loadOperand(inst.src1);
-            emit("div.16 .AX, " + src2);
+            if (inst.resultType == ir::Type::I32) {
+                emit("div.32 .AXYZ, " + src2);
+            } else {
+                emit("div.16 .AX, " + src2);
+            }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
@@ -560,7 +642,11 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         case ir::Op::MOD: {
             std::string src2 = src2MemOperand(inst.src2);
             loadOperand(inst.src1);
-            emit("mod.16 .AX, " + src2);
+            if (inst.resultType == ir::Type::I32) {
+                emit("mod.32 .AXYZ, " + src2);
+            } else {
+                emit("mod.16 .AX, " + src2);
+            }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
@@ -579,13 +665,17 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             {
             std::string src2 = src2MemOperand(inst.src2);
             loadOperand(inst.src1);
-            // Signed ops (CMP_LT/LE/GT/GE) use cmp.s16.
-            // Unsigned ops (CMP_LTU/LEU/GTU/GEU) and eq/ne use cmp.16.
-            // The IRBuilder selects signed vs unsigned based on operand type:
-            // int (default, unsigned) → CMP_LTU etc; signed int → CMP_LT etc.
+            
             bool isSigned = (inst.op == ir::Op::CMP_LT || inst.op == ir::Op::CMP_LE ||
                              inst.op == ir::Op::CMP_GT || inst.op == ir::Op::CMP_GE);
-            emit(isSigned ? ("cmp.s16 .AX, " + src2) : ("cmp.16 .AX, " + src2));
+            
+            if (inst.src1.type == ir::Type::I32) {
+                emit(std::string(isSigned ? "cmp.s32" : "cmp.32") + " .AXYZ, " + src2);
+            } else if (inst.src1.type == ir::Type::I8) {
+                emit("cmp " + src2);
+            } else {
+                emit(std::string(isSigned ? "cmp.s16" : "cmp.16") + " .AX, " + src2);
+            }
             } // end src2/signed scope
             // Branch IMMEDIATELY (flags live), set result to 0 or 1
             {
@@ -645,21 +735,32 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             if (inst.src1.kind == ir::OperandKind::GLOBAL) {
                 // Load directly from global address
                 emit("lda " + inst.src1.name);
-                if (inst.resultType != ir::Type::I8) {
+                if (inst.resultType == ir::Type::I32) {
+                    emit("ldx " + inst.src1.name + "+1");
+                    emit("ldy " + inst.src1.name + "+2");
+                    emit("ldz " + inst.src1.name + "+3");
+                } else if (inst.resultType != ir::Type::I8) {
                     emit("ldx " + inst.src1.name + "+1");
                 } else {
                     emit("ldx #0");
                 }
-            } else if (inst.src1.isVreg()) {
-                // Load value from address held in a vReg via (ZP),Y
-                auto addrAlloc = alloc_.getAlloc(inst.src1.vregId);
+            } else if (inst.src1.kind != ir::OperandKind::NONE) {
+                // Load value from address held in an operand via (ZP),Y
                 std::string zpPair;
-                if (addrAlloc.loc == VRegAllocator::IN_ZP) {
-                    std::stringstream ss;
-                    ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << addrAlloc.offset;
-                    zpPair = ss.str();
+                if (inst.src1.isVreg()) {
+                    auto addrAlloc = alloc_.getAlloc(inst.src1.vregId);
+                    if (addrAlloc.loc == VRegAllocator::IN_ZP) {
+                        std::stringstream ss;
+                        ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << addrAlloc.offset;
+                        zpPair = ss.str();
+                    } else {
+                        loadVreg(inst.src1.vregId);
+                        emit("sta __zp_scratch");
+                        emit("stx __zp_scratch+1");
+                        zpPair = "__zp_scratch";
+                    }
                 } else {
-                    loadVreg(inst.src1.vregId);
+                    loadOperand(inst.src1);
                     emit("sta __zp_scratch");
                     emit("stx __zp_scratch+1");
                     zpPair = "__zp_scratch";
@@ -687,16 +788,20 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 // Store directly to global address
                 loadOperand(inst.src1);
                 emit("sta " + inst.src2.name);
-                if (inst.resultType != ir::Type::I8) {
+                if (inst.resultType == ir::Type::I32) {
+                    emit("stx " + inst.src2.name + "+1");
+                    emit("sty " + inst.src2.name + "+2");
+                    emit("stz " + inst.src2.name + "+3");
+                } else if (inst.resultType != ir::Type::I8) {
                     emit("stx " + inst.src2.name + "+1");
                 }
-            } else if (inst.src2.isVreg() && inst.src1.isVreg()) {
+            } else if (inst.src2.isVreg()) {
                 // Is the target a local variable slot (direct write)
                 // or a computed address (indirect write through pointer)?
                 bool isLocalSlot = localSlotVregs_.count(inst.src2.vregId) > 0;
                 if (isLocalSlot) {
                     // Direct vReg-to-vReg copy (local variable assignment)
-                    loadVreg(inst.src1.vregId);
+                    loadOperand(inst.src1);
                     storeVreg(inst.src2.vregId);
                 } else {
                     // Indirect store: write value through pointer address
@@ -719,14 +824,22 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     emit("ldy #0");
                     if (inst.resultType == ir::Type::I8) {
                         emit("sta (" + zpPair + "),y");
+                    } else if (inst.resultType == ir::Type::I32) {
+                        // Store 4 bytes. LDY clobbers Y, so save Y/Z to scratch3.
+                        emit("sty __zp_scratch3");
+                        emit("stz __zp_scratch3+1");
+                        emit("sta (" + zpPair + "),y"); // lo
+                        emit("txa"); emit("iny"); emit("sta (" + zpPair + "),y"); // byte 1
+                        emit("lda __zp_scratch3"); emit("iny"); emit("sta (" + zpPair + "),y"); // byte 2
+                        emit("lda __zp_scratch3+1"); emit("iny"); emit("sta (" + zpPair + "),y"); // byte 3
                     } else {
                         emit("sta (" + zpPair + "),y"); // store lo byte
                         emit("txa");
                         emit("iny");
                         emit("sta (" + zpPair + "),y"); // store hi byte
                     }
-                }
-            } else {
+                    }
+                    } else {
                 loadOperand(inst.src1);
                 emitComment("TODO: store to non-vReg address");
             }
@@ -787,6 +900,12 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             break;
         }
 
+        case ir::Op::COPY: {
+            loadOperand(inst.src1);
+            if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+            break;
+        }
+
         case ir::Op::BR: {
             if (inst.src1.kind == ir::OperandKind::LABEL) {
                 emit("bra @" + inst.src1.name);
@@ -820,43 +939,48 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::CALL:
-        case ir::Op::CALL_VOID: {
-            // Push arguments left-to-right using push .ax (matches legacy CodeGenerator).
+        case ir::Op::CALL_VOID:
+        case ir::Op::CALL_INDIRECT: {
+            // Push arguments left-to-right.
             // proc assigns params in reverse: last param at _fp+2, first at highest offset.
-            {
-            int argBytes = (int)inst.args.size() * 2;
+            int argBytes = 0;
             for (const auto& arg : inst.args) {
                 loadOperand(arg);
-                emit("push .ax");
-                emit(".var _fp = _fp + 2");
+                int ps = ir::typeSize(arg.type);
+                if (arg.type == ir::Type::I32) {
+                    emit("push .axyz");
+                } else if (arg.type == ir::Type::I8) {
+                    emit("pha");
+                } else {
+                    emit("push .ax");
+                }
+                if (ps < 2) ps = 2; // stack slots are at least 2 bytes
+                argBytes += ps;
+                emit(".var _fp = _fp + " + std::to_string(ps));
             }
+            
             // JSR — callee's endproc handles param cleanup via rts #N
-            if (inst.src1.kind == ir::OperandKind::GLOBAL) {
-                emit("jsr " + inst.src1.name);
+            if (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) {
+                if (inst.src1.kind == ir::OperandKind::GLOBAL) {
+                    emit("jsr " + inst.src1.name);
+                }
+            } else {
+                // CALL_INDIRECT
+                loadOperand(inst.src1);
+                emit("sta __zp_scratch");
+                emit("stx __zp_scratch+1");
+                emit("jsr (__zp_scratch)");
             }
+
             // Restore _fp after callee cleaned params (rts #N popped argBytes)
             if (argBytes > 0) {
                 emit(".var _fp = _fp - " + std::to_string(argBytes));
             }
-            // Return value is in A:X
-            if (inst.op == ir::Op::CALL && inst.dest.isVreg()) {
+
+            // Return value is in A,X,Y,Z (for 32-bit) or A:X (for 16-bit)
+            if (inst.op != ir::Op::CALL_VOID && inst.dest.isVreg()) {
                 storeVreg(inst.dest.vregId);
             }
-            }
-            break;
-        }
-
-        case ir::Op::CALL_INDIRECT: {
-            // Push arguments left-to-right
-            for (const auto& arg : inst.args) {
-                loadOperand(arg);
-                emit("push .ax");
-            }
-            // Load function pointer and call
-            loadOperand(inst.src1);
-            emitComment("TODO: indirect call via JSR ($ZP)");
-            // Callee handles cleanup — no caller-side stack adjustment
-            if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
 
@@ -883,6 +1007,42 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         case ir::Op::TRUNC: {
             loadOperand(inst.src1);
             // Truncation: just keep the low byte(s) — already in A
+            if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+            break;
+        }
+
+        case ir::Op::BFEXT: {
+            loadOperand(inst.src1);
+            int offset = (int)inst.args[0].immVal;
+            int width = (int)inst.args[1].immVal;
+            if (inst.src1.type == ir::Type::I16) {
+                emit("bfext16 #" + std::to_string(offset) + ", #" + std::to_string(width));
+            } else {
+                emit("bfext #" + std::to_string(offset) + ", #" + std::to_string(width));
+            }
+            if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+            break;
+        }
+
+        case ir::Op::BFINS: {
+            // src1: new field value, src2: address of storage unit
+            std::string addrStr;
+            if (inst.src2.kind == ir::OperandKind::GLOBAL) {
+                addrStr = inst.src2.name;
+            } else {
+                loadVreg(inst.src2.vregId);
+                emit("sta __zp_scratch2");
+                emit("stx __zp_scratch2+1");
+                addrStr = "__zp_scratch2";
+            }
+            loadOperand(inst.src1); // AX = new value
+            int offset = (int)inst.args[0].immVal;
+            int width = (int)inst.args[1].immVal;
+            if (inst.resultType == ir::Type::I16) {
+                emit("bfins16 " + addrStr + ", #" + std::to_string(offset) + ", #" + std::to_string(width));
+            } else {
+                emit("bfins " + addrStr + ", #" + std::to_string(offset) + ", #" + std::to_string(width));
+            }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }

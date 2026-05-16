@@ -9,6 +9,7 @@ class AssemblerOpcodeDatabase {
 public:
     static uint8_t getOpcode(const std::string& mnemonic, AddressingMode mode);
     static std::vector<AddressingMode> getValidAddressingModes(const std::string& mnemonic);
+    static bool isValidMode(const std::string& mnemonic, AddressingMode mode);
     static std::string AddressingModeToString(AddressingMode mode);
 
     static const std::map<std::pair<std::string, AddressingMode>, uint8_t>& getOpcodeMap();

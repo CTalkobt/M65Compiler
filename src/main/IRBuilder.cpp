@@ -49,6 +49,10 @@ ir::Type IRBuilder::mapType(const std::string& typeName, int ptrLevel) {
     if (typeName == "char" || typeName == "unsigned char") return ir::Type::I8;
     if (typeName == "long" || typeName == "unsigned long") return ir::Type::I32;
     if (typeName == "void") return ir::Type::VOID;
+    
+    // Check for 4-byte structs/unions
+    if (getTypeSize(typeName, 0) == 4) return ir::Type::I32;
+
     return ir::Type::I16;
 }
 
@@ -59,9 +63,171 @@ int IRBuilder::getTypeSize(const std::string& typeName, int ptrLevel) {
         typeName == "short" || typeName == "unsigned short" ||
         typeName == "unsigned") return 2;
     if (typeName == "long" || typeName == "unsigned long") return 4;
-    auto it = structs_.find(typeName);
+    
+    std::string sName = getAggregateName(typeName);
+    auto it = structs_.find(sName);
     if (it != structs_.end()) return it->second.totalSize;
     return 2; // default for unknown types
+}
+
+IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
+    if (!expr) return {};
+    
+    if (auto* lit = dynamic_cast<IntegerLiteral*>(expr)) {
+        ir::Type t = ir::Type::I16;
+        std::string tn = "int";
+        bool isSigned = true;
+        if (!lit->castType.empty()) {
+            tn = lit->castType;
+            t = mapType(lit->castType, lit->castPointerLevel);
+            isSigned = lit->castIsSigned;
+        }
+        return {t, tn, isSigned, (t == ir::Type::PTR) ? ir::Type::I16 : ir::Type::VOID, ir::typeSize(t)};
+    }
+    
+    if (auto* cast = dynamic_cast<CastExpression*>(expr)) {
+        ir::Type t = mapType(cast->targetType, cast->pointerLevel);
+        return {t, cast->targetType, cast->isSigned, (t == ir::Type::PTR) ? mapType(cast->targetType, 0) : ir::Type::VOID, ir::typeSize(t)};
+    }
+    
+    if (auto* ref = dynamic_cast<VariableReference*>(expr)) {
+        // Check for arrays first
+        auto ait = localArrayDims_.find(ref->name);
+        if (ait != localArrayDims_.end() && !ait->second.empty()) {
+            std::string tn = localTypeNames_[ref->name];
+            int totalSize = getTypeSize(tn, 0);
+            for (int d : ait->second) totalSize *= d;
+            return {ir::Type::PTR, tn, false, localTypes_[ref->name], totalSize};
+        }
+
+        auto gait = globalArrayDims_.find(ref->name);
+        if (gait != globalArrayDims_.end() && !gait->second.empty()) {
+            std::string tn = globalTypeNames_[ref->name];
+            int totalSize = getTypeSize(tn, 0);
+            for (int d : gait->second) totalSize *= d;
+            return {ir::Type::PTR, tn, false, globalTypes_[ref->name], totalSize};
+        }
+
+        auto it = localTypes_.find(ref->name);
+        if (it != localTypes_.end()) {
+            IRTypeInfo info;
+            info.type = it->second;
+            info.typeName = ref->name; // TODO: track actual C type strings in IRBuilder
+            info.isSigned = localSigned_[ref->name];
+            info.totalSize = ir::typeSize(info.type);
+            if (info.type == ir::Type::PTR) {
+                auto pit = localPointedToType_.find(ref->name);
+                if (pit != localPointedToType_.end()) info.pointedToType = pit->second;
+            }
+            return info;
+        }
+        auto git = globalTypes_.find(ref->name);
+        if (git != globalTypes_.end()) {
+            IRTypeInfo info;
+            info.type = git->second;
+            info.typeName = ref->name;
+            info.isSigned = true; 
+            info.totalSize = ir::typeSize(info.type);
+            if (info.type == ir::Type::PTR) {
+                auto gpit = globalPointedToType_.find(ref->name);
+                if (gpit != globalPointedToType_.end()) info.pointedToType = gpit->second;
+            }
+            return info;
+        }
+    }
+    
+    if (auto* ma = dynamic_cast<MemberAccess*>(expr)) {
+        for (const auto& [sname, sinfo] : structs_) {
+            auto mit = sinfo.members.find(ma->memberName);
+            if (mit != sinfo.members.end()) {
+                IRTypeInfo info;
+                info.type = mapType(mit->second.type, mit->second.pointerLevel);
+                info.typeName = mit->second.type;
+                info.isSigned = mit->second.isSigned;
+                info.totalSize = ir::typeSize(info.type);
+                if (info.type == ir::Type::PTR) {
+                    info.pointedToType = mapType(mit->second.type, 0);
+                }
+                return info;
+            }
+        }
+    }
+    
+    if (auto* aa = dynamic_cast<ArrayAccess*>(expr)) {
+        Expression* root = aa->arrayExpr.get();
+        int depth = 1;
+        while (auto* inner = dynamic_cast<ArrayAccess*>(root)) {
+            root = inner->arrayExpr.get();
+            depth++;
+        }
+        
+        if (auto* ref = dynamic_cast<VariableReference*>(root)) {
+            ir::Type baseType = ir::Type::I16;
+            std::string tn = "int";
+            bool isSigned = true;
+            std::vector<int> dims;
+            
+            auto pit = localPointedToType_.find(ref->name);
+            if (pit != localPointedToType_.end()) {
+                baseType = pit->second;
+                isSigned = localSigned_[ref->name];
+                // TODO: pointed-to type name
+            } else {
+                auto gpit = globalPointedToType_.find(ref->name);
+                if (gpit != globalPointedToType_.end()) {
+                    baseType = gpit->second;
+                } else {
+                    auto tit = localTypes_.find(ref->name);
+                    if (tit != localTypes_.end()) {
+                        baseType = tit->second;
+                        isSigned = localSigned_[ref->name];
+                    } else {
+                        auto gtit = globalTypes_.find(ref->name);
+                        if (gtit != globalTypes_.end()) baseType = gtit->second;
+                    }
+                }
+            }
+
+            auto ait = localArrayDims_.find(ref->name);
+            if (ait != localArrayDims_.end()) dims = ait->second;
+            else {
+                auto gait = globalArrayDims_.find(ref->name);
+                if (gait != globalArrayDims_.end()) dims = gait->second;
+            }
+
+            if (depth < (int)dims.size()) {
+                // Not the final dimension -> it's still an array/pointer
+                int totalSize = getTypeSize(tn, 0);
+                for (size_t i = depth; i < dims.size(); i++) totalSize *= dims[i];
+                return {ir::Type::PTR, tn, false, baseType, totalSize};
+            }
+            // Final dimension (or pointer subscript) -> it's the element type
+            return {baseType, tn, isSigned, ir::Type::VOID, getTypeSize(tn, 0)};
+        }
+    }
+    
+    if (auto* deref = dynamic_cast<UnaryOperation*>(expr)) {
+        if (deref->op == "*") {
+            if (auto* ref = dynamic_cast<VariableReference*>(deref->operand.get())) {
+                auto pit = localPointedToType_.find(ref->name);
+                if (pit != localPointedToType_.end()) return {pit->second, "TODO", localSigned_[ref->name], ir::Type::VOID, ir::typeSize(pit->second)};
+                auto gpit = globalPointedToType_.find(ref->name);
+                if (gpit != globalPointedToType_.end()) return {gpit->second, "TODO", true, ir::Type::VOID, ir::typeSize(gpit->second)};
+            }
+        }
+        if (deref->op == "&") {
+            IRTypeInfo sub = getExprTypeInfo(deref->operand.get());
+            return {ir::Type::PTR, sub.typeName + "*", false, sub.type, 2};
+        }
+    }
+    
+    return {ir::Type::I16, "int", true, ir::Type::VOID, 2};
+}
+
+std::string IRBuilder::getAggregateName(const std::string& type) {
+    if (type.length() >= 7 && type.substr(0, 7) == "struct ") return type.substr(7);
+    if (type.length() >= 6 && type.substr(0, 6) == "union ") return type.substr(6);
+    return type;
 }
 
 ir::SourceLoc IRBuilder::loc(ASTNode& node) {
@@ -86,12 +252,13 @@ void IRBuilder::visit(TranslationUnit& node) {
 // ============================================================================
 
 void IRBuilder::visit(FunctionDeclaration& node) {
-    // Record parameter info for all functions (including prototypes)
+    // Record parameter info and return type for all functions (including prototypes)
     {
         std::vector<ParamInfo> pinfo;
         for (const auto& p : node.parameters)
             pinfo.push_back({p.isConst, p.pointerLevel});
         funcParamInfo_[node.name] = pinfo;
+        functionReturnTypes_[node.name] = mapType(node.returnType, node.returnPointerLevel);
     }
     if (node.isPrototype || !node.body) return;
 
@@ -124,6 +291,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         locals_[p.name] = vreg;
         if (currentFunc_) currentFunc_->localNames[p.name] = vreg.vregId;
         localTypes_[p.name] = pt;
+        localTypeNames_[p.name] = p.type;
         localSigned_[p.name] = p.isSigned;
         // For non-pointers: const int x → isConst=true, variable is read-only
         // For pointers: const int *p → isConst=true, pointed-to is read-only, pointer itself is writable
@@ -170,7 +338,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
         ir::Module::GlobalVar gv;
         gv.name = "_" + node.name;
         gv.type = t;
-        gv.size = ir::typeSize(t);
+        gv.size = getTypeSize(node.type, node.pointerLevel);
         if (node.arraySize() > 0) gv.size *= node.arraySize();
         gv.isConst = node.isConst;
         gv.isStatic = node.isStatic;
@@ -178,11 +346,26 @@ void IRBuilder::visit(VariableDeclaration& node) {
             if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
                 gv.hasInitValue = true;
                 gv.initValue = lit->value;
+            } else if (auto* cast = dynamic_cast<CastExpression*>(node.initializer.get())) {
+                if (auto* clit = dynamic_cast<IntegerLiteral*>(cast->expression.get())) {
+                    gv.hasInitValue = true;
+                    gv.initValue = clit->value;
+                }
+            } else if (auto* il = dynamic_cast<InitializerList*>(node.initializer.get())) {
+                gv.hasInitValue = true;
+                for (auto const& elem : il->elements) {
+                    if (auto* elit = dynamic_cast<IntegerLiteral*>(elem.get())) {
+                        gv.initList.push_back(elit->value);
+                    } else {
+                        gv.initList.push_back(0); // TODO: handle non-constant global initializers?
+                    }
+                }
             }
         }
         if (node.pointerLevel > 0) globalPointedToType_[node.name] = mapType(node.type, 0);
         if (!node.arrayDims.empty()) globalArrayDims_[node.name] = node.arrayDims;
         globalTypes_[node.name] = t;
+        globalTypeNames_[node.name] = node.type;
         module_.globals.push_back(gv);
         return;
     }
@@ -192,6 +375,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
     locals_[node.name] = vreg;
     if (currentFunc_) currentFunc_->localNames[node.name] = vreg.vregId;
     localTypes_[node.name] = t;
+    localTypeNames_[node.name] = node.type;
     localSigned_[node.name] = node.isSigned;
     localConst_[node.name] = node.isConst && node.pointerLevel == 0;
     localPointsToConst_[node.name] = node.isConst && node.pointerLevel > 0;
@@ -201,9 +385,9 @@ void IRBuilder::visit(VariableDeclaration& node) {
     if (!node.arrayDims.empty()) {
         localArrayDims_[node.name] = node.arrayDims;
         // Record total byte size for array vRegs
-        int totalSize = ir::typeSize(t);
+        int totalSize = getTypeSize(node.type, node.pointerLevel);
         for (int d : node.arrayDims) totalSize *= d;
-        if (currentFunc_) currentFunc_->vregSizes[vreg.vregId] = totalSize;
+        currentFunc_->vregSizes[vreg.vregId] = totalSize;
     }
 
     // Emit initializer
@@ -337,11 +521,14 @@ void IRBuilder::visit(VariableReference& node) {
             return;
         }
 
-        auto dest = allocVreg(ir::Type::I16);
+        IRTypeInfo info = getExprTypeInfo(&node);
+        ir::Type loadType = info.type;
+
+        auto dest = allocVreg(loadType);
         ir::Inst inst;
         inst.op = ir::Op::LOAD;
         inst.dest = dest;
-        inst.resultType = ir::Type::I16;
+        inst.resultType = loadType;
         inst.src1 = ir::Operand::global("_" + node.name);
         inst.loc = loc(node);
         emit(inst);
@@ -430,57 +617,9 @@ void IRBuilder::visit(Assignment& node) {
     auto lhsAddr = lastValue_;
     computeAddressOnly_ = false;
 
-    // Determine the type of the target (LHS) for correct store width
-    ir::Type storeType = rhs.type;
-    if (auto* vr = dynamic_cast<VariableReference*>(node.target.get())) {
-        auto tit = localTypes_.find(vr->name);
-        if (tit != localTypes_.end()) storeType = tit->second;
-        else {
-            auto gtit = globalTypes_.find(vr->name);
-            if (gtit != globalTypes_.end()) storeType = gtit->second;
-        }
-    } else if (auto* aa = dynamic_cast<ArrayAccess*>(node.target.get())) {
-        // Find root variable of the array
-        Expression* root = aa->arrayExpr.get();
-        while (auto* inner = dynamic_cast<ArrayAccess*>(root)) root = inner->arrayExpr.get();
-        if (auto* ref = dynamic_cast<VariableReference*>(root)) {
-            // If it's a pointer variable being subscripted, we want its pointed-to type
-            auto pit = localPointedToType_.find(ref->name);
-            if (pit != localPointedToType_.end()) storeType = pit->second;
-            else {
-                auto gpit = globalPointedToType_.find(ref->name);
-                if (gpit != globalPointedToType_.end()) storeType = gpit->second;
-                else {
-                    // Fallback to base type (for arrays)
-                    auto tit = localTypes_.find(ref->name);
-                    if (tit != localTypes_.end()) storeType = tit->second;
-                    else {
-                        auto gtit = globalTypes_.find(ref->name);
-                        if (gtit != globalTypes_.end()) storeType = gtit->second;
-                    }
-                }
-            }
-        }
-    } else if (auto* ma = dynamic_cast<MemberAccess*>(node.target.get())) {
-        for (const auto& [sname, sinfo] : structs_) {
-            auto mit = sinfo.members.find(ma->memberName);
-            if (mit != sinfo.members.end()) {
-                storeType = mapType(mit->second.type, mit->second.pointerLevel);
-                break;
-            }
-        }
-    } else if (auto* deref = dynamic_cast<UnaryOperation*>(node.target.get())) {
-        if (deref->op == "*") {
-            if (auto* ref = dynamic_cast<VariableReference*>(deref->operand.get())) {
-                auto pit = localPointedToType_.find(ref->name);
-                if (pit != localPointedToType_.end()) storeType = pit->second;
-                else {
-                    auto gpit = globalPointedToType_.find(ref->name);
-                    if (gpit != globalPointedToType_.end()) storeType = gpit->second;
-                }
-            }
-        }
-    }
+    // Use LHS pointed-to type for store width
+    IRTypeInfo lhsInfo = getExprTypeInfo(node.target.get());
+    ir::Type storeType = lhsInfo.type;
 
     ir::Inst store;
     store.op = ir::Op::STORE;
@@ -494,17 +633,16 @@ void IRBuilder::visit(Assignment& node) {
 }
 
 void IRBuilder::visit(BinaryOperation& node) {
+    IRTypeInfo lhsInfo = getExprTypeInfo(node.left.get());
     node.left->accept(*this);
     auto lhs = lastValue_;
-    bool lhsSigned = lastValueSigned_;
+    
+    IRTypeInfo rhsInfo = getExprTypeInfo(node.right.get());
     node.right->accept(*this);
     auto rhs = lastValue_;
-    bool rhsSigned = lastValueSigned_;
 
     // For comparison operators: use signed ops only if BOTH operands are signed.
-    // cc45 treats int as unsigned by default (isSigned=false).
-    // Only explicitly `signed int` variables use signed comparison.
-    bool bothSigned = lhsSigned && rhsSigned;
+    bool bothSigned = lhsInfo.isSigned && rhsInfo.isSigned;
 
     ir::Op op = ir::Op::NOP;
     ir::Type resultType = lhs.type;
@@ -609,16 +747,34 @@ void IRBuilder::visit(UnaryOperation& node) {
         }
     } else if (node.op == "*") {
         // Dereference
-        auto dest = allocVreg(ir::Type::I16);
+        bool oldAddrMode = computeAddressOnly_;
+        computeAddressOnly_ = false;
+        node.operand->accept(*this);
+        auto src = lastValue_;
+        computeAddressOnly_ = oldAddrMode;
+
+        if (computeAddressOnly_) {
+            // We want the address this pointer points to, which IS its value
+            lastValue_ = src;
+            return;
+        }
+
+        IRTypeInfo info = getExprTypeInfo(&node);
+        ir::Type loadType = info.type;
+
+        auto dest = allocVreg(loadType);
         ir::Inst inst;
         inst.op = ir::Op::LOAD;
         inst.dest = dest;
-        inst.resultType = ir::Type::I16;
+        inst.resultType = loadType;
         inst.src1 = src;
         inst.loc = loc(node);
         emit(inst);
         lastValue_ = dest;
-    } else if (node.op == "++" || node.op == "--") {
+    } else if (node.op == "++" || node.op == "--" || node.op == "++_POST" || node.op == "--_POST") {
+        bool isPost = (node.op.find("_POST") != std::string::npos);
+        std::string baseOp = isPost ? node.op.substr(0, 2) : node.op;
+
         auto one = allocVreg(src.type);
         ir::Inst ci;
         ci.op = ir::Op::CONST;
@@ -626,16 +782,32 @@ void IRBuilder::visit(UnaryOperation& node) {
         ci.resultType = src.type;
         ci.src1 = ir::Operand::imm(1, src.type);
         emit(ci);
+
         auto dest = allocVreg(src.type);
         ir::Inst inst;
-        inst.op = (node.op == "++") ? ir::Op::ADD : ir::Op::SUB;
+        inst.op = (baseOp == "++") ? ir::Op::ADD : ir::Op::SUB;
         inst.dest = dest;
         inst.resultType = src.type;
         inst.src1 = src;
         inst.src2 = one;
         inst.loc = loc(node);
         emit(inst);
-        lastValue_ = dest;
+
+        // Store back
+        bool oldAddrMode = computeAddressOnly_;
+        computeAddressOnly_ = true;
+        node.operand->accept(*this);
+        auto addr = lastValue_;
+        computeAddressOnly_ = oldAddrMode;
+
+        ir::Inst store;
+        store.op = ir::Op::STORE;
+        store.src1 = dest;
+        store.src2 = addr;
+        store.resultType = src.type;
+        emit(store);
+
+        lastValue_ = isPost ? src : dest;
     }
 }
 
@@ -717,10 +889,15 @@ void IRBuilder::visit(FunctionCall& node) {
         std::string mangledName = "_" + node.name;
         calledFunctions_.insert(mangledName);
         inst.src1 = ir::Operand::global(mangledName);
-        auto dest = allocVreg(ir::Type::I16);
+        
+        ir::Type retType = ir::Type::I16;
+        auto it = functionReturnTypes_.find(node.name);
+        if (it != functionReturnTypes_.end()) retType = it->second;
+
+        auto dest = allocVreg(retType);
         inst.op = ir::Op::CALL;
         inst.dest = dest;
-        inst.resultType = ir::Type::I16;
+        inst.resultType = retType;
         emit(inst);
         lastValue_ = dest;
     }
@@ -737,9 +914,16 @@ void IRBuilder::visit(ExpressionStatement& node) {
 void IRBuilder::visit(ReturnStatement& node) {
     if (node.expression) {
         node.expression->accept(*this);
+        auto val = lastValue_;
+        
+        // Ensure resultType matches function return type
+        ir::Type retType = ir::Type::I16;
+        if (currentFunc_) retType = currentFunc_->returnType;
+
         ir::Inst ret;
         ret.op = ir::Op::RET;
-        ret.src1 = lastValue_;
+        ret.src1 = val;
+        ret.resultType = retType;
         ret.loc = loc(node);
         emit(ret);
     } else {
@@ -902,6 +1086,10 @@ void IRBuilder::visit(ConditionalExpression& node) {
     std::string elseLabel = newLabel("tern_else");
     std::string endLabel = newLabel("tern_end");
 
+    // Pre-allocate result vReg
+    IRTypeInfo info = getExprTypeInfo(&node);
+    auto dest = allocVreg(info.type);
+
     ir::Inst br;
     br.op = ir::Op::BR_COND;
     br.src1 = cond;
@@ -909,21 +1097,10 @@ void IRBuilder::visit(ConditionalExpression& node) {
     br.src2 = ir::Operand::label(elseLabel);
     br.loc = loc(node);
     emit(br);
-
-    // Pre-allocate dest vReg (we need to know the type, use thenExpr)
-    // Actually, we can just use lastValue.type from thenExpr visit.
-    // But we need the vReg ID for both branches.
-    // Let's visit thenExpr in a "dry run" to get the type? No.
-    // Let's assume I16 for now or get it from thenExpr if possible.
-    // Actually, IRBuilder has getExprType equivalent? No.
-    
-    // Most ternaries are ints or pointers in our tests.
-    // Let's just use thenVal.type AFTER visiting it, and then reuse the SAME vReg.
     
     startBlock(thenLabel);
     node.thenExpr->accept(*this);
     auto thenVal = lastValue_;
-    auto dest = allocVreg(thenVal.type);
     
     ir::Inst copyThen;
     copyThen.op = ir::Op::COPY;
@@ -940,6 +1117,7 @@ void IRBuilder::visit(ConditionalExpression& node) {
     startBlock(elseLabel);
     node.elseExpr->accept(*this);
     auto elseVal = lastValue_;
+    
     ir::Inst copyElse;
     copyElse.op = ir::Op::COPY;
     copyElse.dest = dest;
@@ -1018,23 +1196,35 @@ void IRBuilder::visit(ArrayAccess& node) {
         std::vector<int> dims;
         ir::Type baseType = ir::Type::I16;
         
-        auto ait = localArrayDims_.find(ref->name);
-        if (ait != localArrayDims_.end()) {
-            dims = ait->second;
-            baseType = localTypes_[ref->name];
+        auto pit = localPointedToType_.find(ref->name);
+        if (pit != localPointedToType_.end()) {
+            baseType = pit->second;
         } else {
-            auto git = globalArrayDims_.find(ref->name);
-            if (git != globalArrayDims_.end()) {
-                dims = git->second;
-                // Find global type (ignoring _ prefix)
-                auto modGit = std::find_if(module_.globals.begin(), module_.globals.end(), 
-                               [&](auto const& g){ return g.name == "_" + ref->name; });
-                if (modGit != module_.globals.end()) baseType = modGit->type;
+            auto gpit = globalPointedToType_.find(ref->name);
+            if (gpit != globalPointedToType_.end()) baseType = gpit->second;
+            else {
+                auto tit = localTypes_.find(ref->name);
+                if (tit != localTypes_.end()) baseType = tit->second;
+                else {
+                    auto gtit = globalTypes_.find(ref->name);
+                    if (gtit != globalTypes_.end()) baseType = gtit->second;
+                }
             }
         }
 
+        auto ait = localArrayDims_.find(ref->name);
+        if (ait != localArrayDims_.end()) dims = ait->second;
+        else {
+            auto gait = globalArrayDims_.find(ref->name);
+            if (gait != globalArrayDims_.end()) dims = gait->second;
+        }
+
         if (!dims.empty() && depth <= (int)dims.size()) {
-            int stride = ir::typeSize(baseType);
+            std::string tn;
+            if (localTypeNames_.count(ref->name)) tn = localTypeNames_[ref->name];
+            else tn = globalTypeNames_[ref->name];
+
+            int stride = getTypeSize(tn, 0);
             for (size_t i = depth; i < dims.size(); i++) {
                 stride *= dims[i];
             }
@@ -1076,16 +1266,8 @@ void IRBuilder::visit(ArrayAccess& node) {
         }
 
         // Final element reached: load it
-        ir::Type finalType = ir::Type::I16;
-        if (auto* ref = dynamic_cast<VariableReference*>(root)) {
-            auto tit = localTypes_.find(ref->name);
-            if (tit != localTypes_.end()) finalType = tit->second;
-            else {
-                auto modGit = std::find_if(module_.globals.begin(), module_.globals.end(), 
-                               [&](auto const& g){ return g.name == "_" + ref->name; });
-                if (modGit != module_.globals.end()) finalType = modGit->type;
-            }
-        }
+        IRTypeInfo info = getExprTypeInfo(&node);
+        ir::Type finalType = info.type;
         
         auto val = allocVreg(finalType);
         ir::Inst load;
@@ -1103,24 +1285,39 @@ void IRBuilder::visit(ArrayAccess& node) {
 }
 
 void IRBuilder::visit(MemberAccess& node) {
-    // Evaluate struct expression
+    // Evaluate struct expression as an address
+    bool oldAddrMode = computeAddressOnly_;
+    computeAddressOnly_ = true;
     node.structExpr->accept(*this);
     auto base = lastValue_;
+    computeAddressOnly_ = oldAddrMode;
 
     // Look up member info
     int memberOffset = 0;
-    ir::Type memberType = ir::Type::I16;
     int bitWidth = 0;
     int bitOffset = 0;
 
-    for (const auto& [sname, sinfo] : structs_) {
-        auto mit = sinfo.members.find(node.memberName);
-        if (mit != sinfo.members.end()) {
+    IRTypeInfo baseInfo = getExprTypeInfo(node.structExpr.get());
+    std::string sName = getAggregateName(baseInfo.typeName);
+
+    auto sit = structs_.find(sName);
+    if (sit != structs_.end()) {
+        auto mit = sit->second.members.find(node.memberName);
+        if (mit != sit->second.members.end()) {
             memberOffset = mit->second.offset;
-            memberType = mapType(mit->second.type, mit->second.pointerLevel);
             bitWidth = mit->second.bitWidth;
             bitOffset = mit->second.bitOffset;
-            break;
+        }
+    } else {
+        // Fallback: search all structs (fragile but handles some cases)
+        for (const auto& [sn, sinfo] : structs_) {
+            auto mit = sinfo.members.find(node.memberName);
+            if (mit != sinfo.members.end()) {
+                memberOffset = mit->second.offset;
+                bitWidth = mit->second.bitWidth;
+                bitOffset = mit->second.bitOffset;
+                break;
+            }
         }
     }
 
@@ -1135,23 +1332,31 @@ void IRBuilder::visit(MemberAccess& node) {
     add.loc = loc(node);
     emit(add);
 
+    if (computeAddressOnly_) {
+        lastValue_ = addr;
+        return;
+    }
+
     // Load the storage unit
-    auto val = allocVreg(memberType);
+    IRTypeInfo info = getExprTypeInfo(&node);
+    ir::Type loadType = info.type;
+
+    auto val = allocVreg(loadType);
     ir::Inst load;
     load.op = ir::Op::LOAD;
     load.dest = val;
-    load.resultType = memberType;
+    load.resultType = loadType;
     load.src1 = addr;
     load.loc = loc(node);
     emit(load);
 
     if (bitWidth > 0) {
         // Bitfield: extract the field from the loaded storage unit
-        auto extracted = allocVreg(memberType);
+        auto extracted = allocVreg(loadType);
         ir::Inst bfext;
         bfext.op = ir::Op::BFEXT;
         bfext.dest = extracted;
-        bfext.resultType = memberType;
+        bfext.resultType = loadType;
         bfext.src1 = val;
         bfext.args.push_back(ir::Operand::imm(bitOffset, ir::Type::I8));
         bfext.args.push_back(ir::Operand::imm(bitWidth, ir::Type::I8));
@@ -1223,8 +1428,8 @@ void IRBuilder::visit(SizeofExpression& node) {
         sz = getTypeSize(node.typeName, node.pointerLevel);
     } else if (node.expression) {
         // sizeof(expr) — evaluate type of expression
-        // For now use default; a full implementation would call getExprType
-        sz = 2;
+        IRTypeInfo info = getExprTypeInfo(node.expression.get());
+        sz = info.totalSize;
     }
     auto dest = allocVreg(ir::Type::I16);
     ir::Inst inst;
@@ -1534,7 +1739,6 @@ void IRBuilder::visit(StructDefinition& node) {
         for (const auto& [n, mi] : info.members)
             if (mi.size > info.totalSize) info.totalSize = mi.size;
     }
-
     structs_[node.name] = info;
 }
 void IRBuilder::visit(BuiltinVaStart& node) {

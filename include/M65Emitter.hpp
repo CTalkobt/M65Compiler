@@ -122,6 +122,9 @@ public:
 
     // --- Other Addressing Modes ---
     void lda_stack(uint8_t offset);
+    void ldx_stack(uint8_t offset);
+    void ldy_stack(uint8_t offset);
+    void ldz_stack(uint8_t offset);
     void sta_stack(uint8_t offset);
     void stx_stack(uint8_t offset);
     void sty_stack(uint8_t offset);

@@ -61,6 +61,8 @@ public:
     static void dispatch_STA_FP(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_LDAX_FP(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_STAX_FP(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_LDAXYZ_FP(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_STAXYZ_FP(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_LEAX_FP(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_MOVE_FP(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_BFExt(AssemblerParser* p, M65Emitter& e, Stmt* s);
@@ -140,6 +142,8 @@ public:
     static void emitSTA_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
     static void emitLDAX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
     static void emitSTAX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
+    static void emitLDAXYZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
+    static void emitSTAXYZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
     static void emitLEAX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
     static void emitMOVE_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
 private:

@@ -198,9 +198,8 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
                             e.emitByte((uint8_t)off);
                         } else if (stmt->instr.mnemonic == "rtn") {
                             uint32_t v = 0;
-                            if (!stmt->instr.operand.empty()) {
-                                Symbol* sym = parser->resolveSymbol(stmt->instr.operand, stmt->scopePrefix);
-                                v = sym ? sym->value : parseNumericLiteral(stmt->instr.operand);
+                            if (stmt->instr.operandTokenIndex != -1) {
+                                v = parser->evaluateExpressionAt(stmt->instr.operandTokenIndex, stmt->scopePrefix);
                             }
                             if (v == 0) e.emitInstruction("rts", AddressingMode::IMPLIED);
                             else e.emitInstruction("rts", AddressingMode::IMMEDIATE, v, true);

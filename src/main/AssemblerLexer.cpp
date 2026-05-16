@@ -97,7 +97,7 @@ AssemblerToken AssemblerLexer::nextToken() {
         }
         std::string upper = name;
         std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
-        static const std::set<std::string> regs = {"A", "X", "Y", "Z", "SP", "PC", "AX", "AY", "AZ", "XY", "Q"};
+        static const std::set<std::string> regs = {"A", "X", "Y", "Z", "SP", "PC", "AX", "AY", "AZ", "XY", "Q", "AXYZ"};
         if (regs.count(upper)) return {AssemblerTokenType::REGISTER, upper, startLine, startCol};
         return {AssemblerTokenType::DIRECTIVE, name, startLine, startCol};
     }
@@ -219,7 +219,7 @@ AssemblerToken AssemblerLexer::lexIdentifierOrInstruction() {
         "PTRSTACK", "PTRDEREF", "LDW.F", "STW.F", "INC.F", "DEC.F",
         "PUSH", "POP",
         "LDXY", "STXY",
-        "LDA.FP", "STA.FP", "LDAX.FP", "STAX.FP", "LEAX.FP", "MOVE.FP",
+        "LDA.FP", "STA.FP", "LDAX.FP", "STAX.FP", "LDAXYZ.FP", "STAXYZ.FP", "LEAX.FP", "MOVE.FP",
         "BFEXT", "BFEXT16", "BFINS", "BFINS.SP", "BFINS.IND", "BFINS16", "BFINS16.SP", "BFINS16.IND"
     };
 

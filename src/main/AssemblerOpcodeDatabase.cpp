@@ -214,6 +214,8 @@ const std::map<std::pair<std::string, AddressingMode>, uint8_t>& AssemblerOpcode
         {{"rti", AddressingMode::IMPLIED}, 0x40},
         {{"rts", AddressingMode::IMMEDIATE}, 0x62},
         {{"rts", AddressingMode::IMPLIED}, 0x60},
+        {{"rtn", AddressingMode::IMMEDIATE}, 0x62},
+        {{"rtn", AddressingMode::IMPLIED}, 0x60},
         {{"sbc", AddressingMode::BASE_PAGE_INDIRECT_Y}, 0xF1},
         {{"sbc", AddressingMode::BASE_PAGE_INDIRECT_Z}, 0xF2},
         {{"sbc", AddressingMode::FLAT_INDIRECT_Z}, 0xF2},
@@ -292,6 +294,23 @@ uint8_t AssemblerOpcodeDatabase::getOpcode(const std::string& m, AddressingMode 
     const auto& opMap = getOpcodeMap();
     auto it = opMap.find({baseM, mode});
     if (it != opMap.end()) return it->second;
+
+    // Fallback: BASE_PAGE -> ABSOLUTE
+    if (mode == AddressingMode::BASE_PAGE) {
+        it = opMap.find({baseM, AddressingMode::ABSOLUTE});
+        if (it != opMap.end()) return it->second;
+    }
+    // Fallback: BASE_PAGE_X -> ABSOLUTE_X
+    if (mode == AddressingMode::BASE_PAGE_X) {
+        it = opMap.find({baseM, AddressingMode::ABSOLUTE_X});
+        if (it != opMap.end()) return it->second;
+    }
+    // Fallback: BASE_PAGE_Y -> ABSOLUTE_Y
+    if (mode == AddressingMode::BASE_PAGE_Y) {
+        it = opMap.find({baseM, AddressingMode::ABSOLUTE_Y});
+        if (it != opMap.end()) return it->second;
+    }
+
     // Fallback: IMPLIED → ACCUMULATOR (e.g., lsrq with no operand)
     if (mode == AddressingMode::IMPLIED) {
         it = opMap.find({baseM, AddressingMode::ACCUMULATOR});
@@ -313,6 +332,17 @@ std::vector<AddressingMode> AssemblerOpcodeDatabase::getValidAddressingModes(con
         if (entry.first.first == baseM) modes.push_back(entry.first.second);
     }
     return modes;
+}
+
+bool AssemblerOpcodeDatabase::isValidMode(const std::string& mnemonic, AddressingMode mode) {
+    std::string lowerM = mnemonic;
+    std::transform(lowerM.begin(), lowerM.end(), lowerM.begin(), ::tolower);
+    std::string baseM = lowerM;
+    if (lowerM.size() > 1 && lowerM.back() == 'q' && lowerM != "ldq" && lowerM != "stq" && lowerM.substr(0, 3) != "beq" && lowerM.substr(0, 3) != "bne" && lowerM.substr(0, 3) != "bra" && lowerM.substr(0, 3) != "bsr") 
+        baseM = lowerM.substr(0, lowerM.size() - 1);
+
+    const auto& opMap = getOpcodeMap();
+    return opMap.find({baseM, mode}) != opMap.end();
 }
 
 std::string AssemblerOpcodeDatabase::AddressingModeToString(AddressingMode mode) {

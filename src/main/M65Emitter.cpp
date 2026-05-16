@@ -321,13 +321,43 @@ void M65Emitter::lda_stack(uint8_t offset) {
         emitInstruction("lda", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
     }
 }
+void M65Emitter::ldx_stack(uint8_t offset) {
+    if (hasFramePointer()) {
+        ldy_imm(offset);
+        emitInstruction("ldx", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
+    } else {
+        tsx();
+        recordSpBaseReloc(offset);
+        emitInstruction("ldx", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
+    }
+}
+void M65Emitter::ldy_stack(uint8_t offset) {
+    if (hasFramePointer()) {
+        // Special case: we need Y to hold the offset for indirect addressing.
+        // We must load through scratch.
+        lda_stack(offset);
+        tay();
+    } else {
+        tsx();
+        recordSpBaseReloc(offset);
+        emitInstruction("ldy", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
+    }
+}
+void M65Emitter::ldz_stack(uint8_t offset) {
+    if (hasFramePointer()) {
+        ldy_imm(offset);
+        emitInstruction("ldz", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
+    } else {
+        tsx();
+        recordSpBaseReloc(offset);
+        emitInstruction("ldz", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
+    }
+}
 void M65Emitter::sta_stack(uint8_t offset) {
     if (hasFramePointer()) {
-        // Use frame pointer: LDY #offset; STA ($FP),Y
         ldy_imm(offset);
         emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
     } else {
-        // Legacy: TSX; STA __sp_base+offset,X
         tsx();
         recordSpBaseReloc(offset);
         emitInstruction("sta", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
@@ -335,24 +365,40 @@ void M65Emitter::sta_stack(uint8_t offset) {
 }
 void M65Emitter::stx_stack(uint8_t offset) {
     if (hasFramePointer()) {
-        // TXA; LDY #offset; STA ($FP),Y
-        txa();
         ldy_imm(offset);
-        emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
+        emitInstruction("stx", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
     } else {
-        txa();
-        sta_stack(offset);
+        tsx();
+        recordSpBaseReloc(offset);
+        emitInstruction("stx", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
     }
 }
 void M65Emitter::sty_stack(uint8_t offset) {
-    tya();
-    sta_stack(offset);
+    if (hasFramePointer()) {
+        // Special case: we need Y for indirect offset.
+        // We must save Y to scratch first, or use a temporary ZP pair.
+        // For now, let's assume we can use Z as scratch if available?
+        // Better: PHA; TYA; STA_STACK; PLA
+        pha();
+        tya();
+        sta_stack(offset);
+        pla();
+    } else {
+        tsx();
+        recordSpBaseReloc(offset);
+        emitInstruction("sty", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
+    }
 }
 void M65Emitter::stz_stack(uint8_t offset) {
-    lda_imm(0);
-    sta_stack(offset);
+    if (hasFramePointer()) {
+        ldy_imm(offset);
+        emitInstruction("stz", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
+    } else {
+        tsx();
+        recordSpBaseReloc(offset);
+        emitInstruction("stz", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
+    }
 }
-
 void M65Emitter::lda_frame(uint8_t fpOff, uint8_t yOff) {
     uint8_t totalOff = fpOff + yOff;
     lda_stack(totalOff);

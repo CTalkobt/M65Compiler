@@ -74,6 +74,8 @@ private:
     std::map<std::string, ir::Operand> locals_;
     std::map<std::string, ir::Type> localTypes_;
     std::map<std::string, ir::Type> globalTypes_;
+    std::map<std::string, std::string> localTypeNames_;
+    std::map<std::string, std::string> globalTypeNames_;
     std::map<std::string, bool> localSigned_;  // true if variable was declared signed
     std::map<std::string, bool> localConst_;       // true if variable itself is const
     std::map<std::string, bool> localPointsToConst_; // true if pointed-to data is const (const int *p)
@@ -130,6 +132,7 @@ private:
     // Track called function names for extern resolution
     std::set<std::string> calledFunctions_;
     std::set<std::string> definedFunctions_;
+    std::map<std::string, ir::Type> functionReturnTypes_;
 
     // Track function parameter info for const-qualification warnings
     struct ParamInfo { bool isConst = false; int pointerLevel = 0; };
@@ -150,6 +153,16 @@ private:
     // Helper: allocate a new vReg
     ir::Operand allocVreg(ir::Type t);
 
+    struct IRTypeInfo {
+        ir::Type type = ir::Type::VOID;
+        std::string typeName; // Original C type name (e.g. "struct Point")
+        bool isSigned = false;
+        ir::Type pointedToType = ir::Type::VOID; // if type == PTR
+        int totalSize = 0;
+    };
+
+    IRTypeInfo getExprTypeInfo(Expression* expr);
+
     // Helper: map C type to IR type
     ir::Type mapType(const std::string& typeName, int ptrLevel);
 
@@ -158,4 +171,7 @@ private:
 
     // Helper: source location from AST node
     ir::SourceLoc loc(ASTNode& node);
+
+    // Helper: normalize struct/union names
+    std::string getAggregateName(const std::string& type);
 };

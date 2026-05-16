@@ -1882,6 +1882,36 @@ void AssemblerSimulatedOps::emitSTAX_FPCode(AssemblerParser* parser, M65Emitter&
     e.sta_stack(totalOff + 1);
 }
 
+// ldaxyz.fp varOffset — Load 32-bit value from frame into A,X,Y,Z
+void AssemblerSimulatedOps::emitLDAXYZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
+    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
+    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    uint8_t totalOff = fpOff + yOff;
+    
+    // Use stack to preserve bytes during sequential loads (avoiding lda_stack clobbering Y)
+    e.lda_stack(totalOff + 3); e.pha(); // byte 3
+    e.lda_stack(totalOff + 2); e.pha(); // byte 2
+    e.lda_stack(totalOff + 1); e.tax(); // byte 1 -> X
+    e.lda_stack(totalOff);              // byte 0 -> A
+    
+    e.pla(); e.tay(); // pop byte 2 -> Y
+    e.pla(); e.taz(); // pop byte 3 -> Z
+}
+
+// staxyz.fp varOffset — Store 32-bit value from A,X,Y,Z to frame
+void AssemblerSimulatedOps::emitSTAXYZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
+    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
+    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    uint8_t totalOff = fpOff + yOff;
+    
+    e.sta_stack(totalOff);
+    e.txa(); e.sta_stack(totalOff + 1);
+    e.tya(); e.sta_stack(totalOff + 2);
+    e.tza(); e.sta_stack(totalOff + 3);
+}
+
 // leax.fp varOffset — Load effective address of frame variable into AX
 // Computes: AX = __sp_base + _fp + varOffset + SPL
 // Uses emitSpBaseAddrCalc for correct relocation in .o45 mode.
@@ -2298,9 +2328,9 @@ void AssemblerSimulatedOps::emitBitwise32Code(AssemblerParser* parser, M65Emitte
         } else throw std::runtime_error("Simulated bitwise 32-bit only supports .AXYZ destination");
     };
 
-    if (M == "AND.32") doOp([&](uint8_t v){ e.and_imm(v); }, [&](uint32_t a){ e.and_abs(a); });
-    else if (M == "ORA.32") doOp([&](uint8_t v){ e.ora_imm(v); }, [&](uint32_t a){ e.ora_abs(a); });
-    else if (M == "EOR.32") doOp([&](uint8_t v){ e.eor_imm(v); }, [&](uint32_t a){ e.eor_abs(a); });
+    if (M == "AND" || M == "AND.32") doOp([&](uint8_t v){ e.and_imm(v); }, [&](uint16_t a){ e.and_abs(a); });
+    else if (M == "ORA" || M == "ORA.32") doOp([&](uint8_t v){ e.ora_imm(v); }, [&](uint16_t a){ e.ora_abs(a); });
+    else if (M == "EOR" || M == "EOR.32") doOp([&](uint8_t v){ e.eor_imm(v); }, [&](uint16_t a){ e.eor_abs(a); });
 }
 
 // CMP.32 — 32-bit unsigned comparison (.AXYZ vs immediate or memory)
@@ -2737,6 +2767,12 @@ void AssemblerSimulatedOps::dispatch_LDAX_FP(AssemblerParser* p, M65Emitter& e, 
 }
 void AssemblerSimulatedOps::dispatch_STAX_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
     emitSTAX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDAXYZ_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDAXYZ_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STAXYZ_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTAXYZ_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
 }
 void AssemblerSimulatedOps::dispatch_LEAX_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
     emitLEAX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);

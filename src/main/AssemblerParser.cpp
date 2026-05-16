@@ -824,6 +824,8 @@ void AssemblerParser::pass1() {
             else if (fullMnemonic == "sta.fp") { SIMOP(STA_FP, dispatch_STA_FP); }
             else if (fullMnemonic == "ldax.fp") { SIMOP(LDAX_FP, dispatch_LDAX_FP); }
             else if (fullMnemonic == "stax.fp") { SIMOP(STAX_FP, dispatch_STAX_FP); }
+            else if (fullMnemonic == "ldaxyz.fp") { SIMOP(LDAXYZ_FP, dispatch_LDAXYZ_FP); }
+            else if (fullMnemonic == "staxyz.fp") { SIMOP(STAXYZ_FP, dispatch_STAXYZ_FP); }
             else if (fullMnemonic == "leax.fp") { SIMOP(LEAX_FP, dispatch_LEAX_FP); }
             else if (fullMnemonic == "move.fp") { SIMOP(MOVE_FP, dispatch_MOVE_FP); }
             else if (fullMnemonic == "bfext") { SIMOP(BFEXT, dispatch_BFExt); }
@@ -1291,6 +1293,14 @@ void AssemblerParser::emitSTAX_FPCode(std::vector<uint8_t>& binary, int tokenInd
     M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitSTAX_FPCode(this, e, tokenIndex, scopePrefix);
 }
+void AssemblerParser::emitLDAXYZ_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    AssemblerSimulatedOps::emitLDAXYZ_FPCode(this, e, tokenIndex, scopePrefix);
+}
+void AssemblerParser::emitSTAXYZ_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    AssemblerSimulatedOps::emitSTAXYZ_FPCode(this, e, tokenIndex, scopePrefix);
+}
 void AssemblerParser::emitLEAX_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
     M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitLEAX_FPCode(this, e, tokenIndex, scopePrefix);
@@ -1339,11 +1349,14 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
             }
 
             if (instr.mode == AddressingMode::BASE_PAGE || instr.mode == AddressingMode::ABSOLUTE) {
-                resolvedMode = (fitsIn8 && !forceAbs) ? AddressingMode::BASE_PAGE : AddressingMode::ABSOLUTE;
+                bool supportsBP = AssemblerOpcodeDatabase::isValidMode(instr.mnemonic, AddressingMode::BASE_PAGE);
+                resolvedMode = (fitsIn8 && !forceAbs && supportsBP) ? AddressingMode::BASE_PAGE : AddressingMode::ABSOLUTE;
             } else if (instr.mode == AddressingMode::BASE_PAGE_X || instr.mode == AddressingMode::ABSOLUTE_X) {
-                resolvedMode = (fitsIn8 && !forceAbs) ? AddressingMode::BASE_PAGE_X : AddressingMode::ABSOLUTE_X;
+                bool supportsBPX = AssemblerOpcodeDatabase::isValidMode(instr.mnemonic, AddressingMode::BASE_PAGE_X);
+                resolvedMode = (fitsIn8 && !forceAbs && supportsBPX) ? AddressingMode::BASE_PAGE_X : AddressingMode::ABSOLUTE_X;
             } else if (instr.mode == AddressingMode::BASE_PAGE_Y || instr.mode == AddressingMode::ABSOLUTE_Y) {
-                resolvedMode = (fitsIn8 && !forceAbs) ? AddressingMode::BASE_PAGE_Y : AddressingMode::ABSOLUTE_Y;
+                bool supportsBPY = AssemblerOpcodeDatabase::isValidMode(instr.mnemonic, AddressingMode::BASE_PAGE_Y);
+                resolvedMode = (fitsIn8 && !forceAbs && supportsBPY) ? AddressingMode::BASE_PAGE_Y : AddressingMode::ABSOLUTE_Y;
             }
         } catch(...) {
             // If we can't evaluate yet, assume ABSOLUTE to be safe
