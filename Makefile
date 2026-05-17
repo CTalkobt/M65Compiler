@@ -91,7 +91,7 @@ clean:
 	@$(MAKE) -C bug clean
 	@$(MAKE) -C lib clean
 
-test: all
+test: all lib
 	@echo "Running compiler tests..."
 	@bash src/test/test_compiler.sh
 	@echo "Running assembler feature tests..."
