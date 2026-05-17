@@ -220,27 +220,36 @@ void M65Emitter::asl_abs(uint16_t addr) { emitInstruction("asl", AddressingMode:
 void M65Emitter::rol_abs(uint16_t addr) { emitInstruction("rol", AddressingMode::ABSOLUTE, addr, true); }
 void M65Emitter::lsr_abs(uint16_t addr) { emitInstruction("lsr", AddressingMode::ABSOLUTE, addr, true); }
 void M65Emitter::ror_abs(uint16_t addr) { emitInstruction("ror", AddressingMode::ABSOLUTE, addr, true); }
+void M65Emitter::inc_abs(uint16_t addr) { emitInstruction("inc", AddressingMode::ABSOLUTE, addr, true); }
+void M65Emitter::dec_abs(uint16_t addr) { emitInstruction("dec", AddressingMode::ABSOLUTE, addr, true); }
+void M65Emitter::inc_abs_x(uint16_t addr) { emitInstruction("inc", AddressingMode::ABSOLUTE_X, addr, true); }
+void M65Emitter::dec_abs_x(uint16_t addr) { emitInstruction("dec", AddressingMode::ABSOLUTE_X, addr, true); }
+void M65Emitter::bit_abs(uint16_t addr) { emitInstruction("bit", AddressingMode::ABSOLUTE, addr, true); }
 void M65Emitter::asw_abs(uint16_t addr) { emitInstruction("asw", AddressingMode::ABSOLUTE, addr, true); }
 void M65Emitter::row_abs(uint16_t addr) { emitInstruction("row", AddressingMode::ABSOLUTE, addr, true); }
 
 // --- Zero Page Mode ---
 void M65Emitter::lda_zp(uint8_t addr) { emitInstruction("lda", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::ldx_zp(uint8_t addr) { emitInstruction("ldx", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::ldy_zp(uint8_t addr) { emitInstruction("ldy", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::ldz_zp(uint8_t addr) { emitInstruction("ldz", AddressingMode::BASE_PAGE, addr, true); }
 void M65Emitter::sta_zp(uint8_t addr) { emitInstruction("sta", AddressingMode::BASE_PAGE, addr, true); }
 void M65Emitter::stx_zp(uint8_t addr) { emitInstruction("stx", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::sty_zp(uint8_t addr) { emitInstruction("sty", AddressingMode::BASE_PAGE, addr, true); }
 void M65Emitter::stz_zp(uint8_t addr) { emitInstruction("stz", AddressingMode::BASE_PAGE, addr, true); }
 void M65Emitter::adc_zp(uint8_t addr) { emitInstruction("adc", AddressingMode::BASE_PAGE, addr, true); }
 void M65Emitter::sbc_zp(uint8_t addr) { emitInstruction("sbc", AddressingMode::BASE_PAGE, addr, true); }
 void M65Emitter::and_zp(uint8_t addr) { emitInstruction("and", AddressingMode::BASE_PAGE, addr, true); }
 void M65Emitter::ora_zp(uint8_t addr) { emitInstruction("ora", AddressingMode::BASE_PAGE, addr, true); }
 void M65Emitter::eor_zp(uint8_t addr) { emitInstruction("eor", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::cmp_zp(uint8_t addr) { emitInstruction("cmp", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::bit_zp(uint8_t addr) { emitInstruction("bit", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::asl_zp(uint8_t addr) { emitInstruction("asl", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::lsr_zp(uint8_t addr) { emitInstruction("lsr", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::rol_zp(uint8_t addr) { emitInstruction("rol", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::ror_zp(uint8_t addr) { emitInstruction("ror", AddressingMode::BASE_PAGE, addr, true); }
 void M65Emitter::inc_zp(uint8_t addr) { emitInstruction("inc", AddressingMode::BASE_PAGE, addr, true); }
 void M65Emitter::dec_zp(uint8_t addr) { emitInstruction("dec", AddressingMode::BASE_PAGE, addr, true); }
-void M65Emitter::inc_abs(uint16_t addr) { emitInstruction("inc", AddressingMode::ABSOLUTE, addr, true); }
-void M65Emitter::dec_abs(uint16_t addr) { emitInstruction("dec", AddressingMode::ABSOLUTE, addr, true); }
-void M65Emitter::bit_zp(uint8_t addr) { emitInstruction("bit", AddressingMode::BASE_PAGE, addr, true); }
-void M65Emitter::cmp_zp(uint8_t addr) { emitInstruction("cmp", AddressingMode::BASE_PAGE, addr, true); }
-void M65Emitter::inc_abs_x(uint16_t addr) { emitInstruction("inc", AddressingMode::ABSOLUTE_X, addr, true); }
-void M65Emitter::dec_abs_x(uint16_t addr) { emitInstruction("dec", AddressingMode::ABSOLUTE_X, addr, true); }
 
 // --- Other Addressing Modes ---
 void M65Emitter::recordSpBaseReloc(uint16_t addend) {
@@ -427,8 +436,6 @@ void M65Emitter::sta_ind_z(uint8_t addr, bool flat) {
         else { ldy_imm(0); emitByte(0x91); emitByte(addr); }
     }
 }
-
-void M65Emitter::bit_abs(uint16_t addr) { emitInstruction("bit", AddressingMode::ABSOLUTE, addr, true); }
 
 // --- Register Transfers ---
 void M65Emitter::tax() { emitInstruction("tax", AddressingMode::IMPLIED); }

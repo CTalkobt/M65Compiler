@@ -776,6 +776,8 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         output << "__asm__(\".crt_heap\");\n";
                     } else if (crtArg == "stdio") {
                         output << "__asm__(\".crt_stdio\");\n";
+                    } else if (isCompiler && pragmaArg == "no_zp_save") {
+                        output << "__asm__(\".no_zp_save\");\n";
                     } else {
                         output << "\n";
                     }

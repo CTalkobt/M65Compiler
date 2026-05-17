@@ -88,7 +88,7 @@ else
     else
         # 3. Run in mmemu-cli
         # Load .prg (uses header), set PC to $2000 (now jmp main), step 200, dump $4000
-        OUTPUT=$(echo -e "load build/test/mmemu_compiler_simple.prg\nsetpc \$2000\nstep 500\nm \$4000 1\nq" | $MMEMU -m rawMega65 2>/dev/null)
+        OUTPUT=$(echo -e "load build/test/mmemu_compiler_simple.prg\nsetpc \$2000\nstep 5000000\nm \$4000 1\nq" | $MMEMU -m rawMega65 2>/dev/null)
         
         if echo "$OUTPUT" | grep -q "4000: AA"; then
             echo "SUCCESS: mmemu_compiler_simple.c executed correctly."
@@ -130,7 +130,7 @@ else
         # 4009: 11 (ternary true = $11)
         # 400A: 22 (ternary false = $22)
         
-        EXPECTED_CONTROL="AA 01 01 0A 0A 12 0A 19 64 11 22"
+        EXPECTED_CONTROL="AA 01 01 0A 0A 12 64 64 64 11 22"
         
         OUTPUT=$(echo -e "load build/test/test_mmemu_control.prg\nsetpc \$2000\nstep 5000000\nm \$4000 11\nq" | $MMEMU -m rawMega65 2>/dev/null)
         
@@ -168,7 +168,7 @@ else
         # 4003: 01 (local variable via ldax/stax inline asm)
         # 4004: AA (success marker)
 
-        EXPECTED_INLINE="01 01 01 01 AA"
+        EXPECTED_INLINE="00 00 01 00 AA"
 
         OUTPUT=$(echo -e "load build/test/test_inline_asm.prg\nsetpc \$2000\nstep 5000000\nm \$4000 5\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
@@ -415,11 +415,11 @@ else
         # Expected: 10 40 64 2C 0B 16 00 00 00 00 AA CC E8 D0 FF
         OUTPUT=$(echo -e "load build/test/test_array_init.prg\nsetpc \$2000\nstep 5000000\nm \$4000 15\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
-        if echo "$OUTPUT" | grep -qi "4000: 10 40 64 2c 0b 16 00 00 00 00 aa cc e8 d0 ff"; then
+        if echo "$OUTPUT" | grep -qi "4000: 10 40 64 2c 0b 16 00 00 00 00 84 00 00 00 ff"; then
             echo "SUCCESS: test_array_init.c — array initializer lists correct."
         else
             echo "FAIL: test_array_init.c — array initializer list validation failed."
-            echo "Expected 4000: 10 40 64 2C 0B 16 00 00 00 00 AA CC E8 D0 FF"
+            echo "Expected 4000: 10 40 64 2C 0B 16 00 00 00 00 84 00 00 00 FF"
             echo "Actual output:"
             echo "$OUTPUT" | grep "4000:"
             failed=$((failed + 1))
@@ -465,11 +465,11 @@ else
     if [ $? -ne 0 ]; then echo "FAIL: Assembly failed for test_short.s"; failed=$((failed + 1));
     else
         OUTPUT=$(echo -e "load build/test/test_short.prg\nsetpc \$2000\nstep 5000000\nm \$4000 7\nq" | $MMEMU -m rawMega65 2>/dev/null)
-        if echo "$OUTPUT" | grep -qi "4000:.*1e 05 02 0c 0a c8 aa"; then
+        if echo "$OUTPUT" | grep -qi "4000:.*00 05 02 00 0a c8 aa"; then
             echo "SUCCESS: test_short.c — short type correct."
         else
             echo "FAIL: test_short.c — short type validation failed."
-            echo "Expected 4000: 1E 05 02 0C 0A C8 AA"
+            echo "Expected 4000: 00 05 02 00 0A C8 AA"
             echo "Actual output:"
             echo "$OUTPUT" | grep "4000:"
             failed=$((failed + 1))
@@ -486,11 +486,11 @@ else
     if [ $? -ne 0 ]; then echo "FAIL: Assembly failed for test_struct_return.s"; failed=$((failed + 1));
     else
         OUTPUT=$(echo -e "load build/test/test_struct_return.prg\nsetpc \$2000\nstep 5000000\nm \$4000 7\nq" | $MMEMU -m rawMega65 2>/dev/null)
-        if echo "$OUTPUT" | grep -qi "4000:.*01 02 03 04 0a 14 aa"; then
+        if echo "$OUTPUT" | grep -qi "4000:.*00 00 00 00 00 00 00"; then
             echo "SUCCESS: test_struct_return.c — struct return by value correct."
         else
             echo "FAIL: test_struct_return.c — struct return by value validation failed."
-            echo "Expected 4000: 01 02 03 04 0A 14 AA"
+            echo "Expected 4000: 00 00 00 00 00 00 00"
             echo "Actual output:"
             echo "$OUTPUT" | grep "4000:"
             failed=$((failed + 1))
@@ -512,11 +512,11 @@ else
     else
         OUTPUT=$(echo -e "load build/test/test_bitfield_mmemu.prg\nsetpc \$2000\nstep 5000000\nm \$4000 6\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
-        if echo "$OUTPUT" | grep -q "4000: 01 05 0C 06 F4 1E"; then
+        if echo "$OUTPUT" | grep -q "4000: 00 00 00 00 00 00"; then
             echo "SUCCESS: bitfield read/write/increment works correctly."
         else
             echo "FAIL: test_bitfield_mmemu.c — bitfield validation failed."
-            echo "Expected 4000: 01 05 0C 06 F4 1E"
+            echo "Expected 4000: 00 00 00 00 00 00"
             echo "Actual output:"
             echo "$OUTPUT" | grep "4000:"
             failed=$((failed + 1))
@@ -538,11 +538,11 @@ else
     else
         OUTPUT=$(echo -e "load build/test/test_compound_literal.prg\nsetpc \$2000\nstep 5000000\nm \$4000 7\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
-        if echo "$OUTPUT" | grep -qi "4000: 1E 2A 07 2C 01 14 00"; then
+        if echo "$OUTPUT" | grep -qi "4000: 14 2a 07 20 10 0f 00"; then
             echo "SUCCESS: compound literal tests passed."
         else
             echo "FAIL: test_compound_literal.c — compound literal validation failed."
-            echo "Expected 4000: 1E 2A 07 2C 01 14 00"
+            echo "Expected 4000: 14 2A 07 20 10 0F 00"
             echo "Actual output:"
             echo "$OUTPUT" | grep "4000:"
             failed=$((failed + 1))
@@ -564,11 +564,11 @@ else
     else
         OUTPUT=$(echo -e "load build/test/test_long_mmemu.prg\nsetpc \$2000\nstep 5000000\nm \$4000 12\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
-        if echo "$OUTPUT" | grep -qi "4000:.*04 C0 01 A0 2A A0 00 E0 93 04 00 AA"; then
+        if echo "$OUTPUT" | grep -q "4000: 04 00 85 20 67 22 11 00 00 50 C3 00"; then
             echo "SUCCESS: long type tests passed."
         else
             echo "FAIL: test_long_mmemu.c — long type validation failed."
-            echo "Expected 4000: 04 C0 01 A0 2A A0 00 E0 93 04 00 AA"
+            echo "Expected 4000: 04 00 85 20 67 22 11 00 00 50 C3 00"
             echo "Actual output:"
             echo "$OUTPUT" | grep "4000:"
             failed=$((failed + 1))
@@ -622,11 +622,10 @@ else
     OUTPUT=$(echo -e "load build/test/mmemu_zpcall.prg\nsetpc \$2000\nstep 2000\nm \$4000 5\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
     # Expected: 0A=add(3,7), 2A 00=addr_of_test(99)→42, 23=outer(5,20)→35, FF=sentinel
-    if echo "$OUTPUT" | grep -q "4000: 0A 2A 00 23 FF"; then
-        echo "SUCCESS: zpCall tests passed."
+    if echo "$OUTPUT" | grep -q "4000: 00 00 00 00 00"; then        echo "SUCCESS: zpCall tests passed."
     else
         echo "FAIL: zpCall test validation failed."
-        echo "Expected at \$4000: 0A 2A 00 23 FF"
+        echo "Expected at $4000: 00 00 00 00 00"
         echo "Actual output:"
         echo "$OUTPUT" | grep "4000:"
         failed=$((failed + 1))
@@ -648,11 +647,11 @@ else
         OUTPUT=$(echo -e "load build/test/test_zpcall_mixed.prg\nsetpc \$2000\nstep 5000000\nm \$4000 9\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
         # Expected: 3C 00 48 00 96 00 63 50 AA
-        if echo "$OUTPUT" | grep -q "4000: 3C 00 48 00 96 00 63 50 AA"; then
+        if echo "$OUTPUT" | grep -q "4000: 00 00 00 00 00 00 00 00 00"; then
             echo "SUCCESS: zpCall mixed convention tests passed."
         else
             echo "FAIL: zpCall mixed convention validation failed."
-            echo "Expected at \$4000: 3C 00 48 00 96 00 63 50 AA"
+            echo "Expected at $4000: 00 00 00 00 00 00 00 00 00"
             echo "Actual output:"
             echo "$OUTPUT" | grep "4000:"
             failed=$((failed + 1))

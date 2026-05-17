@@ -1400,7 +1400,27 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         }
     } else if (peek().type == TokenType::INTEGER_LITERAL) {
         const Token& litToken = advance();
-        expr = setPos(std::make_unique<IntegerLiteral>((int)std::stol(litToken.value)), litToken);
+        std::string valStr = litToken.value;
+        bool isLong = false;
+        bool isUnsigned = false;
+        if (!valStr.empty() && (valStr.back() == 'L' || valStr.back() == 'l')) {
+            isLong = true;
+            valStr.pop_back();
+        }
+        if (!valStr.empty() && (valStr.back() == 'U' || valStr.back() == 'u')) {
+            isUnsigned = true;
+            valStr.pop_back();
+        }
+        int64_t val = (int64_t)std::stoll(valStr, nullptr, 0);
+        auto lit = std::make_unique<IntegerLiteral>(val);
+        if (isLong) {
+            lit->castType = "long";
+            lit->castIsSigned = !isUnsigned;
+        } else if (isUnsigned) {
+            lit->castType = "unsigned int";
+            lit->castIsSigned = false;
+        }
+        expr = setPos(std::move(lit), litToken);
     } else if (peek().type == TokenType::STRING_LITERAL || peek().type == TokenType::ASCII_STRING_LITERAL) {
         bool isAscii = (peek().type == TokenType::ASCII_STRING_LITERAL);
         const Token& litToken = advance();

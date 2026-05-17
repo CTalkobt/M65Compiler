@@ -23,7 +23,7 @@ public:
     };
 
     // Analyze a function: compute live ranges and assign allocations
-    void analyze(const ir::Function& fn, uint8_t zpStart = 0x20, int zpSlots = 8);
+    void analyze(const ir::Function& fn, uint8_t zpStart = 0x20, int zpSlots = 64);
 
     // Get the allocation for a vReg
     Allocation getAlloc(uint32_t vregId) const;

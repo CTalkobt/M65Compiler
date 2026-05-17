@@ -133,6 +133,9 @@ private:
     std::set<std::string> calledFunctions_;
     std::set<std::string> definedFunctions_;
     std::map<std::string, ir::Type> functionReturnTypes_;
+    std::map<std::string, std::vector<ir::Type>> functionParamTypes_;
+    std::map<std::string, std::vector<bool>> functionParamSigned_;
+    std::set<std::string> variadicFunctions_;
 
     // Track function parameter info for const-qualification warnings
     struct ParamInfo { bool isConst = false; int pointerLevel = 0; };
@@ -171,6 +174,9 @@ private:
 
     // Helper: source location from AST node
     ir::SourceLoc loc(ASTNode& node);
+
+    // Helper: emit explicit or implicit cast
+    ir::Operand emitCast(ir::Operand src, ir::Type targetType, bool isSigned);
 
     // Helper: normalize struct/union names
     std::string getAggregateName(const std::string& type);

@@ -44,6 +44,19 @@ void VRegAllocator::computeLiveRanges(const ir::Function& fn) {
         recordDef(map, i, 0, fn.paramTypes[i]);
     }
 
+    // Local variables are also effectively "defined" from start
+    for (const auto& [name, vregId] : fn.localNames) {
+        ir::Type t = ir::Type::I16;
+        if (fn.vregTypes.count(vregId)) {
+            t = fn.vregTypes.at(vregId);
+        } else if (fn.vregSizes.count(vregId)) {
+            int sz = fn.vregSizes.at(vregId);
+            if (sz == 1) t = ir::Type::I8;
+            else if (sz == 4) t = ir::Type::I32;
+        }
+        recordDef(map, vregId, 0, t);
+    }
+
     for (int idx = 0; idx < (int)flatInsts_.size(); idx++) {
         const ir::Inst& inst = *flatInsts_[idx].inst;
 
@@ -60,6 +73,8 @@ void VRegAllocator::computeLiveRanges(const ir::Function& fn) {
         // Record definition (dest)
         if (inst.dest.isVreg()) {
             ir::Type t = inst.resultType != ir::Type::VOID ? inst.resultType : ir::Type::I16;
+            // Prefer type from vregTypes if available
+            if (fn.vregTypes.count(inst.dest.vregId)) t = fn.vregTypes.at(inst.dest.vregId);
             recordDef(map, inst.dest.vregId, idx, t);
         }
     }

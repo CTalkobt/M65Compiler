@@ -199,7 +199,12 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
                         } else if (stmt->instr.mnemonic == "rtn") {
                             uint32_t v = 0;
                             if (stmt->instr.operandTokenIndex != -1) {
-                                v = parser->evaluateExpressionAt(stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                                // Check if there's actually a token to evaluate
+                                if (stmt->instr.operandTokenIndex < (int)parser->tokens.size() &&
+                                    parser->tokens[stmt->instr.operandTokenIndex].type != AssemblerTokenType::NEWLINE &&
+                                    parser->tokens[stmt->instr.operandTokenIndex].type != AssemblerTokenType::END_OF_FILE) {
+                                    v = parser->evaluateExpressionAt(stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                                }
                             }
                             if (v == 0) e.emitInstruction("rts", AddressingMode::IMPLIED);
                             else e.emitInstruction("rts", AddressingMode::IMMEDIATE, v, true);

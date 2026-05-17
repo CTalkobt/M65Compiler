@@ -162,6 +162,10 @@ void IRCodeGen::loadOperand(const ir::Operand& op) {
         case ir::OperandKind::IMM:
             emit("lda #" + std::to_string((int)(op.immVal & 0xFF)));
             emit("ldx #" + std::to_string((int)((op.immVal >> 8) & 0xFF)));
+            if (op.type == ir::Type::I32) {
+                emit("ldy #" + std::to_string((int)((op.immVal >> 16) & 0xFF)));
+                emit("ldz #" + std::to_string((int)((op.immVal >> 24) & 0xFF)));
+            }
             break;
         case ir::OperandKind::GLOBAL:
             emit("ldax #" + op.name);
@@ -224,17 +228,74 @@ void IRCodeGen::generate(const ir::Module& mod, bool relocMode, bool zpCallMode)
         }
         out_ << "* = $2000\n";
         emit("__sp_base = $0101");
+
+        // --- ZP Save ---
+        if (mod.saveZP) {
+            emitComment("Save ZP $08-$FF to stack");
+            emit("tsx"); // Save stack pointer
+            emit("sta __zp_scratch4");
+            emit("stx __zp_scratch4+1");
+
+            emit("ldx #61"); 
+            emitLabel("@__zp_save_loop_1");
+            emit("lda $08,x"); emit("pha");
+            emit("dex"); emit("bpl @__zp_save_loop_1");
+
+            emit("ldx #61"); 
+            emitLabel("@__zp_save_loop_2");
+            emit("lda $46,x"); emit("pha");
+            emit("dex"); emit("bpl @__zp_save_loop_2");
+
+            emit("ldx #61"); 
+            emitLabel("@__zp_save_loop_3");
+            emit("lda $84,x"); emit("pha");
+            emit("dex"); emit("bpl @__zp_save_loop_3");
+
+            emit("ldx #61"); 
+            emitLabel("@__zp_save_loop_4");
+            emit("lda $C2,x"); emit("pha");
+            emit("dex"); emit("bpl @__zp_save_loop_4");
+        }
+
         if (hasMain) {
             emit("jsr _main");
         }
-        // Halt: infinite loop (BRK vectors to $FFFE which is uninitialized RAM)
+        
+        // Halt or exit
         emitLabel("__halt");
+        if (mod.saveZP) {
+            emitComment("Restore ZP $08-$FF from stack");
+            emit("ldx #0"); 
+            emitLabel("@__zp_restore_loop_4");
+            emit("pla"); emit("sta $C2,x");
+            emit("inx"); emit("cpx #62"); emit("bne @__zp_restore_loop_4");
+
+            emit("ldx #0");
+            emitLabel("@__zp_restore_loop_3");
+            emit("pla"); emit("sta $84,x");
+            emit("inx"); emit("cpx #62"); emit("bne @__zp_restore_loop_3");
+
+            emit("ldx #0");
+            emitLabel("@__zp_restore_loop_2");
+            emit("pla"); emit("sta $46,x");
+            emit("inx"); emit("cpx #62"); emit("bne @__zp_restore_loop_2");
+
+            emit("ldx #0");
+            emitLabel("@__zp_restore_loop_1");
+            emit("pla"); emit("sta $08,x");
+            emit("inx"); emit("cpx #62"); emit("bne @__zp_restore_loop_1");
+
+            emit("lda __zp_scratch4"); // Restore stack pointer
+            emit("ldx __zp_scratch4+1");
+            emit("txs");
+        }
         emit("jmp __halt");
     }
 
-    emit("__zp_scratch = $02");
-    emit("__zp_scratch2 = $04");
-    emit("__zp_scratch3 = $06");
+    emit("__zp_scratch = $08");
+    emit("__zp_scratch2 = $0A");
+    emit("__zp_scratch3 = $0C");
+    emit("__zp_scratch4 = $0E");
     emitBlank();
 
 
@@ -337,7 +398,7 @@ void IRCodeGen::emitStrings(const ir::Module& mod) {
 // Function emission
 // ============================================================================
 
-void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode) {
+void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMainWithZPSave) {
     emitComment("function " + fn.name);
 
     // Run register allocator
@@ -368,7 +429,8 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode) {
         int pSize = ir::typeSize(fn.paramTypes[i]);
         if (pSize == 1) procLine += "B";
         else if (pSize == 4) procLine += "D";
-        else procLine += "W";
+        else if (pSize == 2) procLine += "W"; // Added for clarity
+        else procLine += "W"; // Default to Word
         // Parameter name
         if (i < fn.paramNames.size() && !fn.paramNames[i].empty()) {
             procLine += "#@_p_" + fn.paramNames[i];
@@ -819,7 +881,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     }
 
                     // Now load the VALUE to store
-                    loadVreg(inst.src1.vregId);
+                    loadOperand(inst.src1);
 
                     emit("ldy #0");
                     if (inst.resultType == ir::Type::I8) {
@@ -838,8 +900,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         emit("iny");
                         emit("sta (" + zpPair + "),y"); // store hi byte
                     }
-                    }
-                    } else {
+                }
+            } else {
                 loadOperand(inst.src1);
                 emitComment("TODO: store to non-vReg address");
             }

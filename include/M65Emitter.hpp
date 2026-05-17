@@ -18,8 +18,10 @@ public:
     void setSpBase(uint16_t base) { spBase_ = base; }
     uint16_t spBase() const { return spBase_; }
 
-    void setScratchZP(uint8_t addr) { scratchZP_ = addr; }
+    void setScratchZP(uint8_t addr) { scratchZP_ = addr; scratchZP2_ = addr + 2; scratchZP3_ = addr + 4; }
     uint8_t scratchZP() const { return scratchZP_; }
+    uint8_t scratchZP2() const { return scratchZP2_; }
+    uint8_t scratchZP3() const { return scratchZP3_; }
 
     // Frame pointer: ZP pair used for (ZP),Y stack access
     // When active (non-zero), stack-relative ops use ($FP),Y instead of TSX+abs,X
@@ -32,12 +34,29 @@ public:
     // Emit FP restore: pop old FP from stack
     void restoreFramePointer();
 
-    // Scratch ZP access — single byte used as temp by simulated ops
+    // Scratch ZP access — single bytes used as temps by simulated ops
     void lda_scratch() { lda_zp(scratchZP_); }
     void sta_scratch() { sta_zp(scratchZP_); }
+    void ldx_scratch() { ldx_zp(scratchZP_); }
     void stx_scratch() { stx_zp(scratchZP_); }
-    void sty_scratch() { emitInstruction("sty", AddressingMode::BASE_PAGE, scratchZP_, true); }
-    void ldx_scratch() { emitInstruction("ldx", AddressingMode::BASE_PAGE, scratchZP_, true); }
+    void ldy_scratch() { ldy_zp(scratchZP_); }
+    void sty_scratch() { sty_zp(scratchZP_); }
+
+    void lda_scratch2() { lda_zp(scratchZP2_); }
+    void sta_scratch2() { sta_zp(scratchZP2_); }
+    void ldx_scratch2() { ldx_zp(scratchZP2_); }
+    void stx_scratch2() { stx_zp(scratchZP2_); }
+
+    void lda_scratch3() { lda_zp(scratchZP3_); }
+    void sta_scratch3() { sta_zp(scratchZP3_); }
+    void ldy_scratch3() { ldy_zp(scratchZP3_); }
+    void sty_scratch3() { sty_zp(scratchZP3_); }
+
+    void lda_scratch3_hi() { lda_zp(scratchZP3_ + 1); }
+    void sta_scratch3_hi() { sta_zp(scratchZP3_ + 1); }
+    void ldz_scratch3_hi() { ldz_zp(scratchZP3_ + 1); }
+    void stz_scratch3_hi() { stz_zp(scratchZP3_ + 1); }
+
     void cmp_scratch() { cmp_zp(scratchZP_); }
 
     void emitInstruction(const std::string& mnemonic, AddressingMode mode, uint32_t value = 0, bool hasValue = false);
@@ -81,27 +100,36 @@ public:
     void rol_abs(uint16_t addr);
     void lsr_abs(uint16_t addr);
     void ror_abs(uint16_t addr);
+    void inc_abs(uint16_t addr);
+    void dec_abs(uint16_t addr);
+    void inc_abs_x(uint16_t addr);
+    void dec_abs_x(uint16_t addr);
     void asw_abs(uint16_t addr);
     void row_abs(uint16_t addr);
 
     // --- Zero Page Mode ---
     void lda_zp(uint8_t addr);
+    void ldx_zp(uint8_t addr);
+    void ldy_zp(uint8_t addr);
+    void ldz_zp(uint8_t addr);
     void sta_zp(uint8_t addr);
     void stx_zp(uint8_t addr);
+    void sty_zp(uint8_t addr);
     void stz_zp(uint8_t addr);
     void adc_zp(uint8_t addr);
     void sbc_zp(uint8_t addr);
     void and_zp(uint8_t addr);
     void ora_zp(uint8_t addr);
     void eor_zp(uint8_t addr);
+    void cmp_zp(uint8_t addr);
+    void bit_zp(uint8_t addr);
+    void asl_zp(uint8_t addr);
+    void lsr_zp(uint8_t addr);
+    void rol_zp(uint8_t addr);
+    void ror_zp(uint8_t addr);
     void inc_zp(uint8_t addr);
     void dec_zp(uint8_t addr);
-    void inc_abs(uint16_t addr);
-    void dec_abs(uint16_t addr);
-    void bit_zp(uint8_t addr);
-    void cmp_zp(uint8_t addr);
-    void inc_abs_x(uint16_t addr);
-    void dec_abs_x(uint16_t addr);
+
 
     // --- Scratchpad (Relative to zeroPageStart) ---
     void lda_s(uint8_t index) { lda_zp(getZP(index)); }
@@ -263,7 +291,9 @@ private:
     Mode mode;
     uint32_t zeroPageStart;
     uint16_t spBase_ = 0x0101;
-    uint8_t scratchZP_ = 0x02;  // default; overridden by compiler via __zp_scratch
+    uint8_t scratchZP_ = 0x02;
+    uint8_t scratchZP2_ = 0x04;
+    uint8_t scratchZP3_ = 0x06;
     uint8_t framePointerZP_ = 0; // 0 = disabled; when set, stack ops use ($FP),Y
     uint32_t currentAddress = 0;
     bool addressSet = false;

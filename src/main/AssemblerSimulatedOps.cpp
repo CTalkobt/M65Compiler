@@ -1889,14 +1889,15 @@ void AssemblerSimulatedOps::emitLDAXYZ_FPCode(AssemblerParser* parser, M65Emitte
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     uint8_t totalOff = fpOff + yOff;
     
-    // Use stack to preserve bytes during sequential loads (avoiding lda_stack clobbering Y)
-    e.lda_stack(totalOff + 3); e.pha(); // byte 3
-    e.lda_stack(totalOff + 2); e.pha(); // byte 2
-    e.lda_stack(totalOff + 1); e.tax(); // byte 1 -> X
-    e.lda_stack(totalOff);              // byte 0 -> A
+    // Load all bytes into scratch first (lda_stack clobbers X in non-FP mode)
+    e.lda_stack(totalOff + 3); e.sta_scratch3_hi();
+    e.lda_stack(totalOff + 2); e.sta_scratch3();
+    e.lda_stack(totalOff + 1); e.sta_scratch2();
+    e.lda_stack(totalOff); // byte 0 stays in A
     
-    e.pla(); e.tay(); // pop byte 2 -> Y
-    e.pla(); e.taz(); // pop byte 3 -> Z
+    e.ldx_scratch2();
+    e.ldy_scratch3();
+    e.ldz_scratch3_hi();
 }
 
 // staxyz.fp varOffset — Store 32-bit value from A,X,Y,Z to frame
@@ -1906,10 +1907,16 @@ void AssemblerSimulatedOps::emitSTAXYZ_FPCode(AssemblerParser* parser, M65Emitte
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     uint8_t totalOff = fpOff + yOff;
     
-    e.sta_stack(totalOff);
-    e.txa(); e.sta_stack(totalOff + 1);
-    e.tya(); e.sta_stack(totalOff + 2);
-    e.tza(); e.sta_stack(totalOff + 3);
+    // Store all bytes to scratch first (sta_stack clobbers X in non-FP mode)
+    e.sta_scratch();      // A
+    e.stx_scratch2();     // X
+    e.sty_scratch3();     // Y
+    e.stz_scratch3_hi();  // Z
+    
+    e.lda_scratch();    e.sta_stack(totalOff);
+    e.lda_scratch2();   e.sta_stack(totalOff + 1);
+    e.lda_scratch3();   e.sta_stack(totalOff + 2);
+    e.lda_scratch3_hi(); e.sta_stack(totalOff + 3);
 }
 
 // leax.fp varOffset — Load effective address of frame variable into AX

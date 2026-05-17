@@ -28,7 +28,7 @@ private:
     void emitStartupStub(const ir::Module& mod);
     void emitGlobals(const ir::Module& mod, bool relocMode);
     void emitStrings(const ir::Module& mod);
-    void emitFunction(const ir::Function& fn, bool relocMode);
+    void emitFunction(const ir::Function& fn, bool relocMode, bool isMainWithZPSave = false);
     void emitInst(const ir::Inst& inst);
 
     // vReg frame slot management (per-function)

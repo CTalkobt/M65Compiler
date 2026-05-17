@@ -19,6 +19,7 @@ void IRBuilder::generate(TranslationUnit& unit) {
     }
 }
 
+
 std::string IRBuilder::newLabel(const std::string& prefix) {
     return prefix + std::to_string(nextLabel_++);
 }
@@ -41,7 +42,9 @@ ir::Block& IRBuilder::startBlock(const std::string& label) {
 
 ir::Operand IRBuilder::allocVreg(ir::Type t) {
     if (!currentFunc_) return ir::Operand::none();
-    return ir::Operand::vreg(currentFunc_->allocVreg(), t);
+    uint32_t id = currentFunc_->allocVreg();
+    currentFunc_->vregTypes[id] = t;
+    return ir::Operand::vreg(id, t);
 }
 
 ir::Type IRBuilder::mapType(const std::string& typeName, int ptrLevel) {
@@ -112,7 +115,7 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         if (it != localTypes_.end()) {
             IRTypeInfo info;
             info.type = it->second;
-            info.typeName = ref->name; // TODO: track actual C type strings in IRBuilder
+            info.typeName = localTypeNames_[ref->name];
             info.isSigned = localSigned_[ref->name];
             info.totalSize = ir::typeSize(info.type);
             if (info.type == ir::Type::PTR) {
@@ -125,7 +128,7 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         if (git != globalTypes_.end()) {
             IRTypeInfo info;
             info.type = git->second;
-            info.typeName = ref->name;
+            info.typeName = globalTypeNames_[ref->name];
             info.isSigned = true; 
             info.totalSize = ir::typeSize(info.type);
             if (info.type == ir::Type::PTR) {
@@ -224,6 +227,33 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
     return {ir::Type::I16, "int", true, ir::Type::VOID, 2};
 }
 
+ir::Operand IRBuilder::emitCast(ir::Operand src, ir::Type targetType, bool isSigned) {
+    if (src.type == targetType) return src;
+    
+    // Determine conversion type
+    ir::Op op = ir::Op::NOP;
+    int srcSize = ir::typeSize(src.type);
+    int targetSize = ir::typeSize(targetType);
+
+    if (srcSize < targetSize) {
+        op = isSigned ? ir::Op::SEXT : ir::Op::ZEXT;
+    } else if (srcSize > targetSize) {
+        op = ir::Op::TRUNC;
+    } else {
+        // Same size, different types (e.g. PTR vs I16) — no conversion needed
+        return src;
+    }
+
+    auto dest = allocVreg(targetType);
+    ir::Inst inst;
+    inst.op = op;
+    inst.dest = dest;
+    inst.resultType = targetType;
+    inst.src1 = src;
+    emit(inst);
+    return dest;
+}
+
 std::string IRBuilder::getAggregateName(const std::string& type) {
     if (type.length() >= 7 && type.substr(0, 7) == "struct ") return type.substr(7);
     if (type.length() >= 6 && type.substr(0, 6) == "union ") return type.substr(6);
@@ -255,10 +285,18 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     // Record parameter info and return type for all functions (including prototypes)
     {
         std::vector<ParamInfo> pinfo;
-        for (const auto& p : node.parameters)
+        std::vector<ir::Type> ptypes;
+        std::vector<bool> psigned;
+        for (const auto& p : node.parameters) {
             pinfo.push_back({p.isConst, p.pointerLevel});
+            ptypes.push_back(mapType(p.type, p.pointerLevel));
+            psigned.push_back(p.isSigned);
+        }
         funcParamInfo_[node.name] = pinfo;
+        functionParamTypes_[node.name] = ptypes;
+        functionParamSigned_[node.name] = psigned;
         functionReturnTypes_[node.name] = mapType(node.returnType, node.returnPointerLevel);
+        if (node.isVariadic) variadicFunctions_.insert(node.name);
     }
     if (node.isPrototype || !node.body) return;
 
@@ -388,6 +426,12 @@ void IRBuilder::visit(VariableDeclaration& node) {
         int totalSize = getTypeSize(node.type, node.pointerLevel);
         for (int d : node.arrayDims) totalSize *= d;
         currentFunc_->vregSizes[vreg.vregId] = totalSize;
+        currentFunc_->memoryVregs.insert(vreg.vregId);
+    }
+    
+    if (getTypeSize(node.type, 0) > 2 && node.pointerLevel == 0) {
+        // Large aggregates must go to frame
+        currentFunc_->memoryVregs.insert(vreg.vregId);
     }
 
     // Emit initializer
@@ -617,19 +661,22 @@ void IRBuilder::visit(Assignment& node) {
     auto lhsAddr = lastValue_;
     computeAddressOnly_ = false;
 
-    // Use LHS pointed-to type for store width
+    // Use LHS type for store width
     IRTypeInfo lhsInfo = getExprTypeInfo(node.target.get());
     ir::Type storeType = lhsInfo.type;
+
+    // Ensure RHS matches store width
+    auto rhsVal = emitCast(rhs, storeType, lhsInfo.isSigned);
 
     ir::Inst store;
     store.op = ir::Op::STORE;
     store.resultType = storeType;
-    store.src1 = rhs;
+    store.src1 = rhsVal;
     store.src2 = lhsAddr;
     store.loc = loc(node);
     emit(store);
 
-    lastValue_ = rhs;
+    lastValue_ = rhsVal;
 }
 
 void IRBuilder::visit(BinaryOperation& node) {
@@ -641,11 +688,19 @@ void IRBuilder::visit(BinaryOperation& node) {
     node.right->accept(*this);
     auto rhs = lastValue_;
 
+    // Determine result type
+    ir::Type resultType = lhs.type;
+    if (ir::typeSize(rhs.type) > ir::typeSize(resultType)) resultType = rhs.type;
+
+    // Cast operands to result type
+    auto lhsVal = emitCast(lhs, resultType, lhsInfo.isSigned);
+    auto rhsVal = emitCast(rhs, resultType, rhsInfo.isSigned);
+
     // For comparison operators: use signed ops only if BOTH operands are signed.
     bool bothSigned = lhsInfo.isSigned && rhsInfo.isSigned;
 
     ir::Op op = ir::Op::NOP;
-    ir::Type resultType = lhs.type;
+    ir::Type finalResultType = resultType;
 
     if (node.op == "+") op = ir::Op::ADD;
     else if (node.op == "-") op = ir::Op::SUB;
@@ -657,22 +712,22 @@ void IRBuilder::visit(BinaryOperation& node) {
     else if (node.op == "^") op = ir::Op::XOR;
     else if (node.op == "<<") op = ir::Op::SHL;
     else if (node.op == ">>") op = ir::Op::SHR;
-    else if (node.op == "==") { op = ir::Op::CMP_EQ; resultType = ir::Type::I8; }
-    else if (node.op == "!=") { op = ir::Op::CMP_NE; resultType = ir::Type::I8; }
-    else if (node.op == "<") { op = bothSigned ? ir::Op::CMP_LT : ir::Op::CMP_LTU; resultType = ir::Type::I8; }
-    else if (node.op == "<=") { op = bothSigned ? ir::Op::CMP_LE : ir::Op::CMP_LEU; resultType = ir::Type::I8; }
-    else if (node.op == ">") { op = bothSigned ? ir::Op::CMP_GT : ir::Op::CMP_GTU; resultType = ir::Type::I8; }
-    else if (node.op == ">=") { op = bothSigned ? ir::Op::CMP_GE : ir::Op::CMP_GEU; resultType = ir::Type::I8; }
-    else if (node.op == "&&") { op = ir::Op::AND; resultType = ir::Type::I8; }
-    else if (node.op == "||") { op = ir::Op::OR; resultType = ir::Type::I8; }
+    else if (node.op == "==") { op = ir::Op::CMP_EQ; finalResultType = ir::Type::I8; }
+    else if (node.op == "!=") { op = ir::Op::CMP_NE; finalResultType = ir::Type::I8; }
+    else if (node.op == "<") { op = bothSigned ? ir::Op::CMP_LT : ir::Op::CMP_LTU; finalResultType = ir::Type::I8; }
+    else if (node.op == "<=") { op = bothSigned ? ir::Op::CMP_LE : ir::Op::CMP_LEU; finalResultType = ir::Type::I8; }
+    else if (node.op == ">") { op = bothSigned ? ir::Op::CMP_GT : ir::Op::CMP_GTU; finalResultType = ir::Type::I8; }
+    else if (node.op == ">=") { op = bothSigned ? ir::Op::CMP_GE : ir::Op::CMP_GEU; finalResultType = ir::Type::I8; }
+    else if (node.op == "&&") { op = ir::Op::AND; finalResultType = ir::Type::I8; }
+    else if (node.op == "||") { op = ir::Op::OR; finalResultType = ir::Type::I8; }
 
-    auto dest = allocVreg(resultType);
+    auto dest = allocVreg(finalResultType);
     ir::Inst inst;
     inst.op = op;
     inst.dest = dest;
-    inst.resultType = resultType;
-    inst.src1 = lhs;
-    inst.src2 = rhs;
+    inst.resultType = finalResultType;
+    inst.src1 = lhsVal;
+    inst.src2 = rhsVal;
     inst.loc = loc(node);
     emit(inst);
     lastValue_ = dest;
@@ -718,14 +773,15 @@ void IRBuilder::visit(UnaryOperation& node) {
         if (auto* vr = dynamic_cast<VariableReference*>(node.operand.get())) {
             auto it = locals_.find(vr->name);
             if (it != locals_.end()) {
+                // Force to frame because address is taken
+                if (currentFunc_) currentFunc_->memoryVregs.insert(it->second.vregId);
+
                 // Local variable: emit ADDR_LOCAL with the vReg ID
-                // IRCodeGen resolves to leax.fp __vrN (frame) or lda #$ZZ (ZP)
                 auto dest = allocVreg(ir::Type::PTR);
                 ir::Inst inst;
                 inst.op = ir::Op::ADDR_LOCAL;
                 inst.dest = dest;
                 inst.resultType = ir::Type::PTR;
-                // Store the target vReg as a vreg operand so IRCodeGen can resolve
                 inst.src1 = ir::Operand::vreg(it->second.vregId, ir::Type::PTR);
                 inst.loc = loc(node);
                 emit(inst);
@@ -874,6 +930,25 @@ void IRBuilder::visit(FunctionCall& node) {
     ir::Inst inst;
     inst.args = args;
     inst.loc = loc(node);
+    
+    // Determine calling convention
+    bool isVariadic = variadicFunctions_.count(node.name) > 0;
+    inst.callConv = (zpCallMode && !isVariadic) ? ir::CallConv::ZP : ir::CallConv::STACK;
+
+    std::vector<ir::Operand> castArgs;
+    auto const& pTypes = functionParamTypes_[node.name];
+    auto const& pSigned = functionParamSigned_[node.name];
+
+    for (size_t i = 0; i < args.size(); i++) {
+        if (i < pTypes.size()) {
+            castArgs.push_back(emitCast(args[i], pTypes[i], pSigned[i]));
+        } else {
+            // Variadic or extra arguments: use default promotions?
+            // For now just pass as is.
+            castArgs.push_back(args[i]);
+        }
+    }
+    inst.args = castArgs;
 
     if (node.callExpr) {
         // Indirect call via function pointer
@@ -881,6 +956,7 @@ void IRBuilder::visit(FunctionCall& node) {
         inst.src1 = lastValue_;
         auto dest = allocVreg(ir::Type::I16);
         inst.op = ir::Op::CALL_INDIRECT;
+        inst.callConv = ir::CallConv::STACK; // TODO: support ZP indirect calls
         inst.dest = dest;
         inst.resultType = ir::Type::I16;
         emit(inst);
@@ -920,9 +996,12 @@ void IRBuilder::visit(ReturnStatement& node) {
         ir::Type retType = ir::Type::I16;
         if (currentFunc_) retType = currentFunc_->returnType;
 
+        IRTypeInfo info = getExprTypeInfo(node.expression.get());
+        auto castVal = emitCast(val, retType, info.isSigned);
+
         ir::Inst ret;
         ret.op = ir::Op::RET;
-        ret.src1 = val;
+        ret.src1 = castVal;
         ret.resultType = retType;
         ret.loc = loc(node);
         emit(ret);
@@ -1647,6 +1726,10 @@ void IRBuilder::visit(LabelledStatement& node) {
 }
 
 void IRBuilder::visit(AsmStatement& node) {
+    if (node.code == ".no_zp_save") {
+        module_.saveZP = false;
+        return;
+    }
     ir::Inst inst;
     inst.op = ir::Op::ASM_INLINE;
     inst.asmText = node.code;

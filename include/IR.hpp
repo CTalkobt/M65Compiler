@@ -194,8 +194,9 @@ struct Inst {
     Operand src2;               // second operand (NONE for unary ops)
     Type resultType = Type::VOID;
 
-    // For CALL/CALL_INDIRECT: argument list
+    // For CALL/CALL_INDIRECT: argument list and convention
     std::vector<Operand> args;
+    CallConv callConv = CallConv::STACK;
 
     // For SWITCH: case values and labels
     std::vector<std::pair<int64_t, std::string>> switchCases;
@@ -235,7 +236,9 @@ struct Function {
     std::vector<Block> blocks;
     uint32_t nextVreg = 0;             // counter for allocating vRegs
     std::set<uint32_t> localSlotVregs; // vRegs that are direct local/param slots
-    std::map<uint32_t, int> vregSizes; // override sizes for array vRegs (bytes)
+    std::map<uint32_t, Type> vregTypes;
+    std::map<uint32_t, int> vregSizes;
+ // override sizes for array vRegs (bytes)
     std::map<std::string, uint32_t> localNames; // name (without _l_ or _p_ prefix) -> vregId
     std::set<uint32_t> memoryVregs;    // vRegs that MUST be in memory (e.g. volatile or address-taken)
 
@@ -248,6 +251,7 @@ struct Function {
 
 struct Module {
     std::string sourceFile;
+    bool saveZP = true;
     std::vector<Function> functions;
 
     // Global variable declarations (for ADDR_GLOBAL references)
