@@ -566,11 +566,17 @@ int main(int argc, char** argv) {
         auto ast = parser.parse();
         if (verboseLevel >= 1) std::cout << "Parsing complete." << std::endl;
 
+        // IR pipeline: AST → IRBuilder → IR → IRCodeGen → assembly
+        IRBuilder irBuilder;
+        irBuilder.zpCallMode = zpCallMode;
+        irBuilder.setSourceInfo(input_file);
+
         if (optimize) {
             if (verboseLevel >= 1) std::cout << "Constant folding..." << std::endl;
             ConstantFolder folder;
             ast = folder.foldTranslationUnit(std::move(ast));
             if (verboseLevel >= 1) std::cout << "Constant folding complete." << std::endl;
+            irBuilder.setExternalUsedVars(folder.usedVars_);
         }
 
         if (verboseLevel >= 2 && listingLevel >= 1) {
@@ -599,10 +605,6 @@ int main(int argc, char** argv) {
                 }
             }
 
-            // IR pipeline: AST → IRBuilder → IR → IRCodeGen → assembly
-            IRBuilder irBuilder;
-            irBuilder.zpCallMode = zpCallMode;
-            irBuilder.setSourceInfo(input_file);
             irBuilder.generate(*ast);
 
             // Write IR text dump if requested

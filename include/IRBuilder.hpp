@@ -12,6 +12,7 @@ public:
 
     void generate(TranslationUnit& unit);
     void setSourceInfo(const std::string& filename);
+    void setExternalUsedVars(const std::set<std::string>& vars) { externalUsedVars_ = vars; }
     const ir::Module& getModule() const { return module_; }
     bool hasErrors() const { return !errors_.empty(); }
     const std::vector<std::string>& getErrors() const { return errors_; }
@@ -83,6 +84,11 @@ private:
     std::map<std::string, ir::Type> globalPointedToType_; // for global pointers
     std::map<std::string, std::vector<int>> localArrayDims_; // for stride computation
     std::map<std::string, std::vector<int>> globalArrayDims_; // for stride computation
+
+    // Unused variable tracking
+    std::set<uint32_t> usedVregs_;
+    std::map<std::string, ir::SourceLoc> localDeclLocs_;
+    std::set<std::string> externalUsedVars_;
 
     // Track signedness of last expression result (for comparison op selection)
     bool lastValueSigned_ = false;

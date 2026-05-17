@@ -216,6 +216,24 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
                                 if (resolvedMode == AddressingMode::IMMEDIATE || resolvedMode == AddressingMode::STACK_RELATIVE || resolvedMode == AddressingMode::BASE_PAGE_INDIRECT_Z || resolvedMode == AddressingMode::FLAT_INDIRECT_Z || resolvedMode == AddressingMode::BASE_PAGE_INDIRECT_SP_Y || resolvedMode == AddressingMode::BASE_PAGE_X_INDIRECT || resolvedMode == AddressingMode::BASE_PAGE_INDIRECT_Y || resolvedMode == AddressingMode::BASE_PAGE || resolvedMode == AddressingMode::BASE_PAGE_X || resolvedMode == AddressingMode::BASE_PAGE_Y || resolvedMode == AddressingMode::ABSOLUTE || resolvedMode == AddressingMode::ABSOLUTE_X || resolvedMode == AddressingMode::ABSOLUTE_Y || resolvedMode == AddressingMode::ABSOLUTE_INDIRECT || resolvedMode == AddressingMode::ABSOLUTE_X_INDIRECT || resolvedMode == AddressingMode::IMMEDIATE16) {
                                     val = parser->evaluateExpressionAt(stmt->instr.operandTokenIndex, stmt->scopePrefix);
                                     hasValue = true;
+
+                                    // Overflow check for 8-bit modes
+                                    if (val > 0xFF) {
+                                        bool is8BitMode = (resolvedMode == AddressingMode::IMMEDIATE || 
+                                                           resolvedMode == AddressingMode::BASE_PAGE || 
+                                                           resolvedMode == AddressingMode::BASE_PAGE_X || 
+                                                           resolvedMode == AddressingMode::BASE_PAGE_Y ||
+                                                           resolvedMode == AddressingMode::INDIRECT ||
+                                                           resolvedMode == AddressingMode::BASE_PAGE_X_INDIRECT ||
+                                                           resolvedMode == AddressingMode::BASE_PAGE_INDIRECT_Y ||
+                                                           resolvedMode == AddressingMode::BASE_PAGE_INDIRECT_Z ||
+                                                           resolvedMode == AddressingMode::BASE_PAGE_INDIRECT_SP_Y ||
+                                                           resolvedMode == AddressingMode::STACK_RELATIVE ||
+                                                           resolvedMode == AddressingMode::FLAT_INDIRECT_Z);
+                                        if (is8BitMode) {
+                                            parser->addWarning("line " + std::to_string(stmt->line) + ": warning: 8-bit operand overflow (value " + std::to_string(val) + " truncated to " + std::to_string(val & 0xFF) + ")");
+                                        }
+                                    }
                                 }
                                 e.emitInstruction(stmt->instr.mnemonic, resolvedMode, val, hasValue);
                             } else { // Branch instructions

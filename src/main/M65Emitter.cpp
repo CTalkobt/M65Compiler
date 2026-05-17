@@ -6,9 +6,16 @@
 #include <cctype>
 #include <iostream>
 
-M65Emitter::M65Emitter(std::ostream& out, uint32_t zpStart) : out(&out), mode(Mode::TEXT), zeroPageStart(zpStart) {}
+M65Emitter::M65Emitter(std::ostream& out, uint32_t zpStart) : out(&out), mode(Mode::TEXT), zeroPageStart(zpStart) {
+    scratchZP_ = (uint8_t)zpStart;
+    scratchZP2_ = (uint8_t)zpStart + 2;
+    scratchZP3_ = (uint8_t)zpStart + 4;
+}
 M65Emitter::M65Emitter(std::vector<uint8_t>& binary, uint32_t zpStart) : binary(&binary), mode(Mode::BINARY), zeroPageStart(zpStart) {
     currentAddress = 0; // Will be set by setAddress()
+    scratchZP_ = (uint8_t)zpStart;
+    scratchZP2_ = (uint8_t)zpStart + 2;
+    scratchZP3_ = (uint8_t)zpStart + 4;
 }
 
 static std::string hex8(uint8_t val) {

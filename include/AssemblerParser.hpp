@@ -50,6 +50,9 @@ public:
     Symbol* resolveSymbol(const std::string& name, const std::string& scopePrefix = "");
     bool hasErrors() const { return !errors.empty(); }
     const std::vector<std::string>& getErrors() const { return errors; }
+    void addError(const std::string& msg) { errors.push_back(msg); }
+    void addWarning(const std::string& msg) { warnings.push_back(msg); }
+    const std::vector<std::string>& getWarnings() const { return warnings; }
 
     // .global / .extern symbol tracking (for .o45 output)
     const std::set<std::string>& getGlobalSymbols() const { return globalSymbols; }
@@ -117,6 +120,7 @@ private:
     size_t pos;
     uint32_t pc;
     std::vector<std::string> errors;
+    std::vector<std::string> warnings;
     uint32_t firstOrgAddress = 0xFFFFFFFF;
     std::map<std::string, Symbol> symbolTable;
     std::vector<std::string> scopeStack;

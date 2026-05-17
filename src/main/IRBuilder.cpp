@@ -319,6 +319,8 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     localTypes_.clear();
     localSigned_.clear();
     localConst_.clear();
+    usedVregs_.clear();
+    localDeclLocs_.clear();
 
     startBlock("entry");
 
@@ -327,6 +329,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         ir::Type pt = mapType(p.type, p.pointerLevel);
         auto vreg = allocVreg(pt);
         locals_[p.name] = vreg;
+        localDeclLocs_[p.name] = loc(node);
         if (currentFunc_) currentFunc_->localNames[p.name] = vreg.vregId;
         localTypes_[p.name] = pt;
         localTypeNames_[p.name] = p.type;
@@ -343,6 +346,20 @@ void IRBuilder::visit(FunctionDeclaration& node) {
 
     // Visit body
     node.body->accept(*this);
+
+    // Check for unused local variables and parameters
+    for (const auto& [name, vregOp] : locals_) {
+        if (usedVregs_.find(vregOp.vregId) == usedVregs_.end() &&
+            externalUsedVars_.find(name) == externalUsedVars_.end()) {
+            std::stringstream ss;
+            ss << "warning: unused variable '" << name << "'";
+            ir::SourceLoc sl = localDeclLocs_[name];
+            if (sl.valid()) {
+                ss << " at " << sl.file << ":" << sl.line;
+            }
+            warnings_.push_back(ss.str());
+        }
+    }
 
     // Ensure function ends with a return
     if (currentBlock_ && (currentBlock_->insts.empty() ||
@@ -411,6 +428,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
     // Local variable — allocate a vReg
     auto vreg = allocVreg(t);
     locals_[node.name] = vreg;
+    localDeclLocs_[node.name] = loc(node);
     if (currentFunc_) currentFunc_->localNames[node.name] = vreg.vregId;
     localTypes_[node.name] = t;
     localTypeNames_[node.name] = node.type;
@@ -535,6 +553,9 @@ void IRBuilder::visit(StringLiteral& node) {
 void IRBuilder::visit(VariableReference& node) {
     auto it = locals_.find(node.name);
     if (it != locals_.end()) {
+        if (!computeAddressOnly_) {
+            usedVregs_.insert(it->second.vregId);
+        }
         if (computeAddressOnly_) {
             // Return the address of the local variable
             auto addr = allocVreg(ir::Type::PTR);

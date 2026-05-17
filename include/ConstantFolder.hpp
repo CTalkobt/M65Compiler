@@ -25,6 +25,7 @@ public:
     std::set<std::string> constPointerVars;  // pointer-const vars (prevents p = ...)
     std::set<std::string> boolVars;
     std::map<std::string, std::shared_ptr<CodeGenerator::StructInfo>> structs;
+    std::set<std::string> usedVars_;
 
     std::unique_ptr<Expression> fold(std::unique_ptr<Expression> expr) {
         if (!expr) return nullptr;
@@ -58,6 +59,7 @@ public:
     }
 
     void visit(VariableReference& node) override {
+        usedVars_.insert(node.name);
         if (knownConstants.count(node.name)) {
             auto& ci = knownConstants[node.name];
             auto lit = std::make_unique<IntegerLiteral>(ci.value);

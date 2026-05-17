@@ -359,12 +359,27 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
     }
 
     // Check that all imports are satisfied
+    std::set<std::string> importedSymbols;
     for (const auto& input : objects_) {
         for (const auto& imp : input.obj.imports) {
             if (!globalSymbols_.count(imp.name)) {
                 errorMsg = "undefined symbol '" + imp.name + "' (referenced in " +
                            input.filename + ")";
                 return false;
+            }
+            importedSymbols.insert(imp.name);
+        }
+    }
+
+    // Check for unused global symbols
+    if (warnStream_) {
+        for (const auto& [name, addr] : globalSymbols_) {
+            (void)addr;
+            if (name != "_main" && name != "__main" && name != "__bss_start" && name != "__bss_end" &&
+                name != "__sp_base" && name != "__fill_dma_buf" && name != "__move_dma_buf" &&
+                importedSymbols.find(name) == importedSymbols.end() &&
+                symbolSource_[name] != "<linker>") {
+                *warnStream_ << "ln45: warning: unused global symbol '" << name << "' (defined in " << symbolSource_[name] << ")" << std::endl;
             }
         }
     }

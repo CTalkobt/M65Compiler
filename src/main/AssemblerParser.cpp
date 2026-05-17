@@ -966,6 +966,9 @@ void AssemblerParser::pass1() {
                 }
                 if (stmt->instr.mnemonic == "nop") throw std::runtime_error("nop disallowed");
                 if (stmt->instr.mnemonic == "proc") {
+                    if (currentProc != nullptr) {
+                        addError("Error: nested 'proc' not allowed (inside '" + currentProc->name + "')");
+                    }
                     std::string pN = advance().value;
                     stmt->label = pN;
                     symbolTable[pN] = {pc, true, 2, false, false, pc, false, 0, false, 0, currentSegment->name};
@@ -1003,6 +1006,8 @@ void AssemblerParser::pass1() {
                         stmt->instr.procParamSize = currentProc->totalParamSize;
                         currentProc = pass1ProcStack.empty() ? nullptr : pass1ProcStack.back();
                         if (!pass1ProcStack.empty()) pass1ProcStack.pop_back();
+                    } else {
+                        addError("Error: 'endproc' outside of procedure scope");
                     }
                     if (!scopeStack.empty()) scopeStack.pop_back();
                     // RTS (1 byte) or RTS #n (2 bytes)
@@ -1151,6 +1156,10 @@ void AssemblerParser::pass1() {
         }
         pc += stmt->size;
         statements.push_back(std::move(stmt));
+    }
+
+    if (currentProc) {
+        addError("Error: unclosed 'proc " + currentProc->name + "' at end of file");
     }
 }
 
