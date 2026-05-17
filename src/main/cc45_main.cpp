@@ -373,7 +373,7 @@ int main(int argc, char** argv) {
     int verboseLevel = 0;
     bool optimize = true;
     int listingLevel = 1;
-    uint32_t zeroPageStart = 0x02;
+    uint32_t zeroPageStart = 0x08;
     bool zpCallMode = false;
     bool emitIR = false;
     bool codegenIR = true;
@@ -641,7 +641,7 @@ int main(int argc, char** argv) {
                 return 1;
             }
             IRCodeGen irCodeGen(asmOut);
-            irCodeGen.generate(irBuilder.getModule(), assemble, zpCallMode);
+            irCodeGen.generate(irBuilder.getModule(), zeroPageStart, assemble, zpCallMode);
             asmOut.close();
         } else {
             // Legacy path: AST → CodeGenerator → assembly

@@ -1125,7 +1125,7 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
         zpSpilledParams_.clear();
 
         // Compute ZP param layout: left-to-right packing from zeroPageStart+1
-        uint8_t zpBase = (uint8_t)(zeroPageStart + 1);
+        uint8_t zpBase = (uint8_t)(zeroPageStart + 8);
         int zpOff = 0;
         for (auto& pi : paramInfos) {
             if (zpOff + pi.size > (int)(zeroPageAvail - 1)) {
@@ -4566,7 +4566,7 @@ void CodeGenerator::visit(FunctionCall& node) {
 
         struct CalleeParam { uint8_t zpAddr; int size; };
         std::vector<CalleeParam> calleeParams;
-        uint8_t zpBase = (uint8_t)(zeroPageStart + 1);
+        uint8_t zpBase = (uint8_t)(zeroPageStart + 8);
         int zpOff = 0;
 
         // For struct-returning functions (not long), add hidden pointer as first param

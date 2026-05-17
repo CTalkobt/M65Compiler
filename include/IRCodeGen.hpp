@@ -13,10 +13,11 @@ public:
     // Generate assembly for the entire module.
     // relocMode: true = .o45 (emit .global/.extern, no startup stub)
     //            false = PRG (emit .org $2000 + startup stub)
-    void generate(const ir::Module& mod, bool relocMode = false, bool zpCallMode = false);
+    void generate(const ir::Module& mod, uint32_t zpStart = 0x08, bool relocMode = false, bool zpCallMode = false);
 
 private:
     std::ostream& out_;
+    uint32_t zeroPageStart_ = 0x08;
 
     // Assembly emission helpers
     void emit(const std::string& line);

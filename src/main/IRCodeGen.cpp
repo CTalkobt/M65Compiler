@@ -213,9 +213,10 @@ std::string IRCodeGen::src2MemOperand(const ir::Operand& op) {
 // Module-level emission
 // ============================================================================
 
-void IRCodeGen::generate(const ir::Module& mod, bool relocMode, bool zpCallMode) {
+void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode, bool zpCallMode) {
     relocMode_ = relocMode;
     zpCallMode_ = zpCallMode;
+    zeroPageStart_ = zpStart;
 
     if (relocMode) {
         emit(".o45");
@@ -292,10 +293,16 @@ void IRCodeGen::generate(const ir::Module& mod, bool relocMode, bool zpCallMode)
         emit("jmp __halt");
     }
 
-    emit("__zp_scratch = $08");
-    emit("__zp_scratch2 = $0A");
-    emit("__zp_scratch3 = $0C");
-    emit("__zp_scratch4 = $0E");
+    auto hex8 = [](uint32_t val) {
+        std::stringstream ss;
+        ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (val & 0xFF);
+        return ss.str();
+    };
+
+    emit("__zp_scratch = " + hex8(zeroPageStart_));
+    emit("__zp_scratch2 = " + hex8(zeroPageStart_ + 2));
+    emit("__zp_scratch3 = " + hex8(zeroPageStart_ + 4));
+    emit("__zp_scratch4 = " + hex8(zeroPageStart_ + 6));
     emitBlank();
 
 
@@ -429,8 +436,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         int pSize = ir::typeSize(fn.paramTypes[i]);
         if (pSize == 1) procLine += "B";
         else if (pSize == 4) procLine += "D";
-        else if (pSize == 2) procLine += "W"; // Added for clarity
-        else procLine += "W"; // Default to Word
+        else procLine += "W";
         // Parameter name
         if (i < fn.paramNames.size() && !fn.paramNames[i].empty()) {
             procLine += "#@_p_" + fn.paramNames[i];
@@ -1003,40 +1009,75 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         case ir::Op::CALL:
         case ir::Op::CALL_VOID:
         case ir::Op::CALL_INDIRECT: {
-            // Push arguments left-to-right.
-            // proc assigns params in reverse: last param at _fp+2, first at highest offset.
-            int argBytes = 0;
-            for (const auto& arg : inst.args) {
-                loadOperand(arg);
-                int ps = ir::typeSize(arg.type);
-                if (arg.type == ir::Type::I32) {
-                    emit("push .axyz");
-                } else if (arg.type == ir::Type::I8) {
-                    emit("pha");
-                } else {
-                    emit("push .ax");
+            if (inst.callConv == ir::CallConv::ZP) {
+                // ZP convention: store args to ZP param block (past scratch)
+                int zpOff = (int)zeroPageStart_ + 8; // 8 bytes of scratch
+                for (const auto& arg : inst.args) {
+                    loadOperand(arg);
+                    int ps = ir::typeSize(arg.type);
+                    std::stringstream ss;
+                    ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << zpOff;
+                    std::string zpAddr = ss.str();
+
+                    if (arg.type == ir::Type::I32) {
+                        emit("sta " + zpAddr);
+                        ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (zpOff + 1);
+                        emit("stx " + ss.str());
+                        ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (zpOff + 2);
+                        emit("sty " + ss.str());
+                        ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (zpOff + 3);
+                        emit("stz " + ss.str());
+                    } else if (arg.type != ir::Type::I8) {
+                        emit("sta " + zpAddr);
+                        ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (zpOff + 1);
+                        emit("stx " + ss.str());
+                    } else {
+                        emit("sta " + zpAddr);
+                    }
+                    zpOff += ir::typeSize(arg.type);
                 }
-                if (ps < 2) ps = 2; // stack slots are at least 2 bytes
-                argBytes += ps;
-                emit(".var _fp = _fp + " + std::to_string(ps));
+            } else {
+                // STACK convention: Push arguments left-to-right.
+                int argBytes = 0;
+                for (const auto& arg : inst.args) {
+                    loadOperand(arg);
+                    int ps = ir::typeSize(arg.type);
+                    if (arg.type == ir::Type::I32) {
+                        emit("push .axyz");
+                    } else if (arg.type == ir::Type::I8) {
+                        emit("pha");
+                    } else {
+                        emit("push .ax");
+                    }
+                    if (ps < 2) ps = 2; // stack slots are at least 2 bytes
+                    argBytes += ps;
+                    emit(".var _fp = _fp + " + std::to_string(ps));
+                }
+                
+                // JSR
+                if (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) {
+                    if (inst.src1.kind == ir::OperandKind::GLOBAL) {
+                        emit("jsr " + inst.src1.name);
+                    }
+                } else {
+                    // CALL_INDIRECT
+                    loadOperand(inst.src1);
+                    emit("sta __zp_scratch");
+                    emit("stx __zp_scratch+1");
+                    emit("jsr (__zp_scratch)");
+                }
+
+                // Restore _fp after callee cleaned params (rts #N popped argBytes)
+                if (argBytes > 0) {
+                    emit(".var _fp = _fp - " + std::to_string(argBytes));
+                }
             }
-            
-            // JSR — callee's endproc handles param cleanup via rts #N
-            if (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) {
+
+            // If it's a direct call and we didn't jsr yet (ZP case)
+            if (inst.callConv == ir::CallConv::ZP && (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID)) {
                 if (inst.src1.kind == ir::OperandKind::GLOBAL) {
                     emit("jsr " + inst.src1.name);
                 }
-            } else {
-                // CALL_INDIRECT
-                loadOperand(inst.src1);
-                emit("sta __zp_scratch");
-                emit("stx __zp_scratch+1");
-                emit("jsr (__zp_scratch)");
-            }
-
-            // Restore _fp after callee cleaned params (rts #N popped argBytes)
-            if (argBytes > 0) {
-                emit(".var _fp = _fp - " + std::to_string(argBytes));
             }
 
             // Return value is in A,X,Y,Z (for 32-bit) or A:X (for 16-bit)

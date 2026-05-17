@@ -2,25 +2,29 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
-## [Unreleased] - 2026-05-11
+## [Unreleased] - 2026-05-17
 
 ### Added
-- **Standard Library**:
-    - **`math.h`**: `div_t`/`ldiv_t` types, `labs()`, `div()`, `ldiv()` using MEGA65 hardware divider. Both stack and ZP calling conventions.
-    - **`errno.h`**: `errno` (standard `int` in BSS), `_errnoc` (alias for CBM kernal status byte at `$90`), error constants `ERANGE`, `ENOMEM`, `EINVAL`, `EDOM`. EDOM reserved for future math domain validation.
-    - **`setjmp.h`**: `jmp_buf` (4 bytes: PC + 16-bit SP), `setjmp()`/`longjmp()` for non-local jumps. Both stack and ZP calling conventions.
-    - **`stdlib.h`**: Added `labs()` declaration.
-- **Object Format (`.o45`)**:
-    - **`OPT_SEGATTR` option record** (`$10`): Sub-segment attribute metadata for named text sub-segments. Allows the assembler to tag portions of the text body with their original segment name (e.g., `"init"`, `"code"`). The linker uses these to reorder sub-segments, ensuring `"init"` always precedes `"code"` regardless of link order. Backward compatible — old tools skip unknown option types.
-    - **`.segment "init"` support**: New assembler segment that maps to `SEG_TEXT` in `.o45` but is guaranteed to be placed before `"code"` by the linker. CRT startup code (`crt0*.s`) now uses this segment.
-- **Linker (ln45)**:
-    - **Sub-segment ordering**: The linker reads `OPT_SEGATTR` records to split each object's text body into named sub-segments, then concatenates them in priority order (`"init"` → `"code"` → others). This fixes the link-order dependency where CRT startup code had to be linked before user objects.
-
-### Improved
+- **Compiler (cc45)**:
+    - **Zero Page Preservation**: Automatic preservation of Zero Page state ($08-$FF) at program entry/exit. This ensures that compiled C programs do not corrupt the system's BASIC/KERNAL ZP state when they return to the OS. Controlled by the new `saveZP` flag in `ir::Module`.
+    - **`#pragma no_zp_save`**: Allows developers to explicitly disable ZP preservation when not needed (e.g., in standalone firmware).
+    - **Unused Variable Warnings**: The compiler now warns about unused local variables and function parameters, including filename and line number info. Integrated with `ConstantFolder` to prevent false positives for folded expressions.
 - **Assembler (ca45)**:
-    - **Error messages**: Invalid opcode errors now show the source file, line number, attempted addressing mode, and all supported addressing modes for the instruction. Stack-relative mode errors include a note about which instructions have simulated stack-relative support.
-- **Tools**:
-    - **nm45**: Detects `.lib` archive files and suggests using `ar45 t` instead of showing a generic "unrecognized format" error.
+    - **8-bit Operand Overflow Warnings**: Emits a warning when a 16-bit value is used for an 8-bit addressing mode (like `#immediate` or base-page), preventing silent truncation bugs.
+    - **Procedure Scoping Validation**: Enhanced validation of `proc`/`endproc` blocks. Detects and reports errors for nested procedures, `endproc` without a matching `proc`, and unclosed procedures at the end of the file.
+- **Linker (ln45)**:
+    - **Unused Global Symbol Warnings**: The linker now warns about exported global symbols that are not referenced by any other module, helping identify dead code at the link stage.
+
+### Fixed
+- **Compiler (cc45)**:
+    - **IR Pipeline Stabilization**: Unified type propagation in `IRBuilder`, fixed 32-bit arithmetic operations, array indexing, and pointer dereference logic. Corrected `IntegerLiteral` handling to use 64-bit values to prevent early truncation.
+    - **VReg Allocation Accuracy**: Fixed `VRegAllocator` to properly track all local variables, preventing memory corruption from overlapping ZP or frame slot assignments.
+    - **32-bit Memory Operations**: Fixed clobbering of registers during 32-bit indirect loads and stores by ensuring correct usage of scratch ZP registers.
+- **Assembler (ca45)**:
+    - **M65Emitter Scratch ZP Fix**: Corrected a bug where scratch ZP registers used by simulated operations were hardcoded to $02-$06. They are now correctly initialized relative to the user-specified `zeroPageStart` (e.g., $08). This prevents simulated ops from clobbering BASIC/KERNAL memory.
+    - **Improved Error Reporting**: Refactored error handling to ensure each diagnostic is printed only once and correctly results in a non-zero exit code.
+- **Linker (ln45)**:
+    - **Symbol Resolution Robustness**: Fixed edge cases in symbol resolution and improved internal state management during the multi-pass linking process.
 
 ## [v1.0-rc2] - 2026-05-11
 

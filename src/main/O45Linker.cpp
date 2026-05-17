@@ -830,8 +830,8 @@ void O45Linker::generateThunks() {
 
     if (needed.empty()) return;
 
-    // ZP param base for zpcall convention (matches CodeGenerator: zpBase = $03)
-    const uint8_t zpParamBase = 0x03;
+    // ZP param base for zpcall convention (matches CodeGenerator/IRCodeGen: zpBase = zpBase_ + 8)
+    uint8_t zpParamBase = (uint8_t)(zpBase_ + 8);
 
     // __sp_base symbol (needed for stack-relative access in thunks)
     uint32_t spBase = 0x0101; // default

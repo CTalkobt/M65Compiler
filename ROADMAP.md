@@ -1,6 +1,6 @@
 # M65 Compiler Suite Roadmap: v1.0 → v2.0
 
-**Current Status:** v1.0-rc2
+**Current Status:** v1.0-rc3
 **Last Updated:** 2026-05-11
 **Maintainer:** Craig Taylor (CTalkobt)
 
@@ -68,9 +68,9 @@ Blockers and high-priority items for v1.0 release.
 
 | ID | Task | Effort | Category | Phase Target | Dependencies |
 |---|---|---|---|---|---|
-| **V1.0.1-001** | Regression test validation (diverse 45GS02 patterns) | M | test | v1.0.1 | All v1.0 items done |
+| **V1.0.1-001** | **Regression test validation (diverse 45GS02 patterns)** | M | test | v1.0.1 | 2026-05-17 |
 | **V1.0.1-002** | Performance microbenchmarks | M | test | v1.0.1 | All v1.0 items done |
-| **V1.0.1-003** | Documentation updates from v1.0 testing | M | doc | v1.0.1 | Beta testing complete |
+| **V1.0.1-003** | **Documentation updates from v1.0 testing** | M | doc | v1.0.1 | 2026-05-17 |
 
 ---
 
