@@ -75,4 +75,12 @@ private:
     // vs computed addresses (from LOAD/ADDR_*). STORE to a slot = direct write.
     // STORE to a non-slot = indirect write through pointer.
     std::set<uint32_t> localSlotVregs_;
+
+    // Per-function clobber analysis
+    struct FuncClobbers {
+        uint8_t regs = 0;   // bit 0=A, 1=X, 2=Y, 3=Z
+        uint8_t flags = 0;  // bit 0=C, 1=N, 2=Z, 3=V
+        bool isLeaf = true;
+    };
+    FuncClobbers computeFuncClobbers(const ir::Function& fn);
 };

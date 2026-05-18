@@ -8,7 +8,7 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
     bool changed = false; // Flag to track if any code modification occurred
     struct RegState {
         bool known = false;
-        std::string var; 
+        std::string var;
         AddressingMode mode;
         std::string imm; // Last immediate value loaded
 
@@ -24,6 +24,19 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
     std::map<std::string, std::string> stackVarLastValue;
 
     auto invalidate = [&](RegState& r) { r.known = false; r.var = ""; r.imm = ""; };
+
+    // Build proc-name → clobber info lookup from parsed procedures
+    // Used for selective register invalidation at JSR call sites (Phase 2)
+    struct ProcClobbers {
+        uint8_t regMask = 0xFF;   // default: clobbers all
+        bool known = false;
+    };
+    std::map<std::string, ProcClobbers> procClobbers;
+    for (const auto& [addr, ctx] : parser->getProcedures()) {
+        if (ctx && ctx->hasFuncAttrs) {
+            procClobbers[ctx->name] = {ctx->regClobbersMask, true};
+        }
+    }
 
     for (size_t i = 0; i < parser->statements.size(); ++i) {
         auto* s = parser->statements[i].get();
@@ -161,7 +174,28 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
                 }
                 invalidate(regA); invalidate(regX); invalidate(regY); invalidate(regZ);
             }
-            else if (m == "PHA" || m == "PLA" || m == "PHX" || m == "PLX" || m == "PHY" || m == "PLY" || m == "PHZ" || m == "PLZ" || m == "PHW" || m == "JSR" || m == "CALL" || m == "RTN" || m == "RTS") {
+            else if (m == "JSR" && mode == AddressingMode::ABSOLUTE) {
+                // Phase 2: Selective register invalidation at call sites.
+                // Look up callee's .reg_clobbers from proc metadata.
+                // Only invalidate registers the callee actually modifies.
+                auto it = procClobbers.find(op);
+                if (it != procClobbers.end() && it->second.known) {
+                    uint8_t mask = it->second.regMask;
+                    if (mask & 0x01) invalidate(regA);
+                    if (mask & 0x02) invalidate(regX);
+                    if (mask & 0x04) invalidate(regY);
+                    if (mask & 0x08) invalidate(regZ);
+                } else {
+                    // Unknown callee (external, or no .reg_clobbers) — invalidate all
+                    invalidate(regA); invalidate(regX); invalidate(regY); invalidate(regZ);
+                }
+                stackVarLastValue.clear();
+            }
+            else if (m == "PHA" || m == "PLA" || m == "PHX" || m == "PLX" || m == "PHY" || m == "PLY" || m == "PHZ" || m == "PLZ" || m == "PHW" || m == "CALL" || m == "RTN" || m == "RTS") {
+                invalidate(regA); invalidate(regX); invalidate(regY); invalidate(regZ);
+            }
+            else if (m == "JSR") {
+                // Indirect JSR or non-absolute — invalidate all
                 invalidate(regA); invalidate(regX); invalidate(regY); invalidate(regZ);
             }
             else {
