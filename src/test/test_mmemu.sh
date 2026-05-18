@@ -247,6 +247,7 @@ VALIDATION_TESTS=(
     "test_register"
     "test_variadic"
     "test_variadic_long"
+    "test_cbm_h"
 )
 
 for name in "${VALIDATION_TESTS[@]}"; do
