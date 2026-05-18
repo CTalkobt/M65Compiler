@@ -405,179 +405,6 @@ void IRCodeGen::emitStrings(const ir::Module& mod) {
 // Function emission
 // ============================================================================
 
-// ============================================================================
-// Per-function clobber analysis
-// ============================================================================
-
-IRCodeGen::FuncClobbers IRCodeGen::computeFuncClobbers(const ir::Function& fn) {
-    // Register bit constants
-    constexpr uint8_t A = 0x01, X = 0x02, Y = 0x04, Z = 0x08;
-    constexpr uint8_t C = 0x01, N = 0x02, ZF = 0x04, V = 0x08;
-
-    FuncClobbers fc;
-
-    for (const auto& block : fn.blocks) {
-        for (const auto& inst : block.insts) {
-            switch (inst.op) {
-                case ir::Op::NOP:
-                    break;
-
-                case ir::Op::CONST:
-                    fc.regs |= A | X;    // lda #imm; ldx #imm
-                    fc.flags |= N | ZF;
-                    break;
-
-                case ir::Op::ADD:
-                case ir::Op::SUB:
-                    fc.regs |= A | X;    // simulated add.16/sub.16 uses AX
-                    fc.flags |= C | N | ZF | V;
-                    if (inst.resultType == ir::Type::I32) fc.regs |= Y | Z;
-                    break;
-
-                case ir::Op::MUL:
-                case ir::Op::DIV:
-                case ir::Op::MOD:
-                    fc.regs |= A | X;    // hardware math, result in AX
-                    fc.flags |= C | N | ZF | V;
-                    if (inst.resultType == ir::Type::I32) fc.regs |= Y | Z;
-                    break;
-
-                case ir::Op::NEG:
-                case ir::Op::NOT:
-                    fc.regs |= A | X;
-                    fc.flags |= C | N | ZF;
-                    break;
-
-                case ir::Op::AND:
-                case ir::Op::OR:
-                case ir::Op::XOR:
-                    fc.regs |= A | X;
-                    fc.flags |= N | ZF;
-                    if (inst.resultType == ir::Type::I32) fc.regs |= Y | Z;
-                    break;
-
-                case ir::Op::SHL:
-                case ir::Op::SHR:
-                case ir::Op::ASR:
-                    fc.regs |= A | X;
-                    fc.flags |= C | N | ZF;
-                    break;
-
-                case ir::Op::CMP_EQ: case ir::Op::CMP_NE:
-                case ir::Op::CMP_LT: case ir::Op::CMP_LE:
-                case ir::Op::CMP_GT: case ir::Op::CMP_GE:
-                case ir::Op::CMP_LTU: case ir::Op::CMP_LEU:
-                case ir::Op::CMP_GTU: case ir::Op::CMP_GEU:
-                    fc.regs |= A | X;    // cmp + set result in AX
-                    fc.flags |= C | N | ZF | V;
-                    break;
-
-                case ir::Op::LOAD:
-                    fc.regs |= A | X;
-                    fc.flags |= N | ZF;
-                    if (inst.resultType == ir::Type::I32) fc.regs |= Y | Z;
-                    if (inst.src1.kind != ir::OperandKind::GLOBAL) fc.regs |= Y; // ldy #0 for indirect
-                    break;
-
-                case ir::Op::STORE:
-                    fc.regs |= A | X;
-                    fc.flags |= N | ZF;
-                    if (inst.resultType == ir::Type::I32) fc.regs |= Y | Z;
-                    if (inst.src2.kind != ir::OperandKind::GLOBAL) fc.regs |= Y; // ldy for indirect
-                    break;
-
-                case ir::Op::LOAD_ZP:
-                case ir::Op::STORE_ZP:
-                    fc.regs |= A;
-                    fc.flags |= N | ZF;
-                    break;
-
-                case ir::Op::ADDR_GLOBAL:
-                    fc.regs |= A | X;
-                    fc.flags |= N | ZF;
-                    break;
-
-                case ir::Op::ADDR_LOCAL:
-                    fc.regs |= A | X;    // leax.fp uses AX
-                    fc.flags |= C | N | ZF;
-                    break;
-
-                case ir::Op::ADDR_ELEM:
-                    fc.regs |= A | X;    // mul.16 + add.16
-                    fc.flags |= C | N | ZF | V;
-                    break;
-
-                case ir::Op::SEXT:
-                    fc.regs |= A | X;    // sxt.8/sxt.16 modify AX
-                    fc.flags |= C | N | ZF;
-                    break;
-
-                case ir::Op::ZEXT:
-                    fc.regs |= A | X;    // ldx #0
-                    fc.flags |= N | ZF;
-                    break;
-
-                case ir::Op::TRUNC:
-                    fc.regs |= A | X;    // load into AX, keep low
-                    fc.flags |= N | ZF;
-                    break;
-
-                case ir::Op::BFEXT:
-                case ir::Op::BFINS:
-                    fc.regs |= A | X;
-                    fc.flags |= C | N | ZF;
-                    break;
-
-                case ir::Op::COPY:
-                    fc.regs |= A | X;
-                    fc.flags |= N | ZF;
-                    break;
-
-                case ir::Op::BR:
-                case ir::Op::PHI:
-                    break; // no register effects
-
-                case ir::Op::BR_COND:
-                    fc.regs |= A;        // chknonzero.8 tests A
-                    fc.flags |= N | ZF;
-                    break;
-
-                case ir::Op::RET:
-                    fc.regs |= A | X;    // return value in AX
-                    fc.flags |= N | ZF;
-                    if (inst.src1.type == ir::Type::I32) fc.regs |= Y | Z;
-                    break;
-
-                case ir::Op::RET_VOID:
-                    break;
-
-                case ir::Op::CALL:
-                case ir::Op::CALL_VOID:
-                case ir::Op::CALL_INDIRECT:
-                    // Calls conservatively clobber everything
-                    // (Phase 2 will refine this using callee's .reg_clobbers)
-                    fc.regs |= A | X | Y | Z;
-                    fc.flags |= C | N | ZF | V;
-                    fc.isLeaf = false;
-                    break;
-
-                case ir::Op::ASM_INLINE:
-                    // Inline asm — conservatively assume everything clobbered
-                    fc.regs |= A | X | Y | Z;
-                    fc.flags |= C | N | ZF | V;
-                    break;
-
-                case ir::Op::SWITCH:
-                    fc.regs |= A | X;
-                    fc.flags |= C | N | ZF;
-                    break;
-            }
-        }
-    }
-
-    return fc;
-}
-
 void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMainWithZPSave) {
     emitComment("function " + fn.name);
 
@@ -729,29 +556,14 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         emit("ldz __zp_scratch3+1");
     }
 
-    // Function attribute directives with per-function clobber analysis
-    auto fc = computeFuncClobbers(fn);
-    {
-        std::string funcFlags = zpCallMode_ ? "zp_call" : "stack_call";
-        if (fc.isLeaf) funcFlags += ", leaf";
-        emit(".func_flags " + funcFlags);
+    // Function attribute directives
+    if (zpCallMode_) {
+        emit(".func_flags zp_call");
+    } else {
+        emit(".func_flags stack_call");
     }
-    {
-        std::string regs;
-        if (fc.regs & 0x01) regs += "A, ";
-        if (fc.regs & 0x02) regs += "X, ";
-        if (fc.regs & 0x04) regs += "Y, ";
-        if (fc.regs & 0x08) regs += "Z, ";
-        if (!regs.empty()) { regs.pop_back(); regs.pop_back(); emit(".reg_clobbers " + regs); }
-    }
-    {
-        std::string flags;
-        if (fc.flags & 0x01) flags += "C, ";
-        if (fc.flags & 0x02) flags += "N, ";
-        if (fc.flags & 0x04) flags += "Z, ";
-        if (fc.flags & 0x08) flags += "V, ";
-        if (!flags.empty()) { flags.pop_back(); flags.pop_back(); emit(".flag_clobbers " + flags); }
-    }
+    emit(".reg_clobbers A, X, Y, Z");
+    emit(".flag_clobbers C, N, Z, V");
 
     emit("endproc");
     emitBlank();
