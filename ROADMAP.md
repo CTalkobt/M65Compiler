@@ -67,9 +67,13 @@
 
 | Task | Category | Status |
 |------|----------|--------|
-| Phase 2: Selective register invalidation at call sites | optimizer | todo |
-| Phase 3: Emit `.func_flags leaf` directives | codegen | done |
-| Assembler-level register tracking | asm | todo |
+| Phase 1: Per-function clobber tracking in IR pipeline | codegen | **done** |
+| Phase 2: Selective register invalidation at call sites | optimizer | **done** |
+| Phase 3: Emit `.func_flags leaf` directives | codegen | **done** |
+| Assembler optimizer case fix + correct instruction semantics | asm | **done** |
+| Assembler-level register tracking | asm | **done** |
+
+> Note: All v1.2 items completed ahead of schedule. Phase 1 (IR clobber tracking) and Phase 2 (selective JSR invalidation) were implemented together. The assembler optimizer was rewritten with correct per-instruction register semantics, fixing a pre-existing case-mismatch bug that made the entire register tracker dead code.
 
 ---
 
