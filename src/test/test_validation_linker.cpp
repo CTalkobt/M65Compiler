@@ -757,6 +757,568 @@ void test_prg_data_gap() {
 }
 
 // =============================================================================
+// ROUND 2: Deeper linker coverage — relocation types, func attrs, call graph,
+//          thunks, diagnostics, line maps, and map file detail
+// =============================================================================
+
+// Test: R_LINEAR24 relocation (3-byte address)
+void test_reloc_r_linear24() {
+    O45Writer w1;
+    // pad byte + 3 patch bytes + RTS (offset 1 avoids delta=0 encoding issue)
+    std::vector<uint8_t> code1 = {0xEA, 0x00, 0x00, 0x00, 0x60};
+    w1.setTextSegment(0, code1);
+    w1.addImport("_target");
+    std::vector<O45Reloc> relocs = {{1, R_LINEAR24, SEG_EXTERNAL, 0, 0}};
+    w1.setTextRelocations(O45RelocEncoder::encode(relocs));
+    O45File f1 = makeFile(w1);
+
+    O45Writer w2;
+    std::vector<uint8_t> code2 = {0x60};
+    w2.setTextSegment(0, code2);
+    w2.addExport("_target", SEG_TEXT, 0);
+    O45File f2 = makeFile(w2);
+
+    O45Linker linker;
+    linker.addObject("a.o45", f1);
+    linker.addObject("b.o45", f2);
+    linker.setTextBase(0x2000);
+    std::string err;
+    auto result = linker.link(err, false);
+
+    CHECK(!result.empty() && err.empty(), "R_LINEAR24 link succeeds");
+    // _target at $2005: lo=$05, mid=$20, hi=$00
+    CHECK(result[1] == 0x05, "R_LINEAR24 byte 0");
+    CHECK(result[2] == 0x20, "R_LINEAR24 byte 1");
+    CHECK(result[3] == 0x00, "R_LINEAR24 byte 2");
+}
+
+// Test: R_LINEAR32 relocation (4-byte address)
+void test_reloc_r_linear32() {
+    O45Writer w1;
+    std::vector<uint8_t> code1 = {0xEA, 0x00, 0x00, 0x00, 0x00, 0x60}; // pad + 4 patch + RTS
+    w1.setTextSegment(0, code1);
+    w1.addImport("_target");
+    std::vector<O45Reloc> relocs = {{1, R_LINEAR32, SEG_EXTERNAL, 0, 0}};
+    w1.setTextRelocations(O45RelocEncoder::encode(relocs));
+    O45File f1 = makeFile(w1);
+
+    O45Writer w2;
+    std::vector<uint8_t> code2 = {0x60};
+    w2.setTextSegment(0, code2);
+    w2.addExport("_target", SEG_TEXT, 0);
+    O45File f2 = makeFile(w2);
+
+    O45Linker linker;
+    linker.addObject("a.o45", f1);
+    linker.addObject("b.o45", f2);
+    linker.setTextBase(0x2000);
+    std::string err;
+    auto result = linker.link(err, false);
+
+    CHECK(!result.empty() && err.empty(), "R_LINEAR32 link succeeds");
+    // _target at $2006
+    CHECK(result[1] == 0x06, "R_LINEAR32 byte 0");
+    CHECK(result[2] == 0x20, "R_LINEAR32 byte 1");
+    CHECK(result[3] == 0x00, "R_LINEAR32 byte 2");
+    CHECK(result[4] == 0x00, "R_LINEAR32 byte 3");
+}
+
+// Test: R_SEGADR relocation (3-byte segment address)
+void test_reloc_r_segadr() {
+    O45Writer w1;
+    std::vector<uint8_t> code1 = {0xEA, 0x00, 0x00, 0x00, 0x60}; // pad + 3 patch + RTS
+    w1.setTextSegment(0, code1);
+    w1.addImport("_target");
+    std::vector<O45Reloc> relocs = {{1, R_SEGADR, SEG_EXTERNAL, 0, 0}};
+    w1.setTextRelocations(O45RelocEncoder::encode(relocs));
+    O45File f1 = makeFile(w1);
+
+    O45Writer w2;
+    std::vector<uint8_t> code2 = {0x60};
+    w2.setTextSegment(0, code2);
+    w2.addExport("_target", SEG_TEXT, 0);
+    O45File f2 = makeFile(w2);
+
+    O45Linker linker;
+    linker.addObject("a.o45", f1);
+    linker.addObject("b.o45", f2);
+    linker.setTextBase(0x2000);
+    std::string err;
+    auto result = linker.link(err, false);
+
+    CHECK(!result.empty() && err.empty(), "R_SEGADR link succeeds");
+    // _target at $002005: lo=$05, hi=$20, bank=$00
+    CHECK(result[1] == 0x05, "R_SEGADR lo byte");
+    CHECK(result[2] == 0x20, "R_SEGADR hi byte");
+    CHECK(result[3] == 0x00, "R_SEGADR bank byte");
+}
+
+// Test: Function attributes extracted from exports
+void test_func_attrs_extraction() {
+    O45Writer w;
+    std::vector<uint8_t> code = {0xA9, 0x42, 0x60}; // LDA #$42; RTS
+    w.setTextSegment(0, code);
+    w.addExport("_myfunc", SEG_TEXT, 0);
+    O45FuncAttr attr;
+    attr.flags = FUNC_FLAG_ZP_CONV | FUNC_FLAG_LEAF;
+    attr.regClobbers = 0x03; // A, X
+    attr.flagClobbers = 0x01; // C
+    attr.zpUses = 0x07; // bits 0-2
+    attr.zpClobbers = 0x03; // bits 0-1
+    attr.paramSize = 4;
+    w.setFuncAttr("_myfunc", attr);
+    O45File f = makeFile(w);
+
+    O45Linker linker;
+    linker.addObject("test.o45", f);
+    linker.setTextBase(0x2000);
+    std::ostringstream warns;
+    linker.setWarningStream(&warns);
+    std::string err;
+    linker.link(err, false);
+
+    auto& attrs = linker.getFuncAttrs();
+    CHECK(attrs.count("_myfunc"), "func attr extracted for _myfunc");
+    if (attrs.count("_myfunc")) {
+        CHECK(attrs.at("_myfunc").flags == (FUNC_FLAG_ZP_CONV | FUNC_FLAG_LEAF), "flags match");
+        CHECK(attrs.at("_myfunc").regClobbers == 0x03, "regClobbers match");
+        CHECK(attrs.at("_myfunc").paramSize == 4, "paramSize match");
+    }
+}
+
+// Test: Call graph discovery from JSR relocations
+void test_call_graph_discovery() {
+    // Object 1: _main contains JSR to external _helper
+    O45Writer w1;
+    std::vector<uint8_t> code1 = {0x20, 0x00, 0x00, 0x60}; // JSR $0000; RTS
+    w1.setTextSegment(0, code1);
+    w1.addExport("_main", SEG_TEXT, 0);
+    w1.addImport("_helper");
+    O45FuncAttr mainAttr;
+    mainAttr.flags = 0;
+    mainAttr.regClobbers = 0x0F;
+    w1.setFuncAttr("_main", mainAttr);
+    std::vector<O45Reloc> relocs = {{1, R_WORD, SEG_EXTERNAL, 0, 0}};
+    w1.setTextRelocations(O45RelocEncoder::encode(relocs));
+    O45File f1 = makeFile(w1);
+
+    // Object 2: exports _helper
+    O45Writer w2;
+    std::vector<uint8_t> code2 = {0xA9, 0x00, 0x60};
+    w2.setTextSegment(0, code2);
+    w2.addExport("_helper", SEG_TEXT, 0);
+    O45FuncAttr helperAttr;
+    helperAttr.flags = 0;
+    helperAttr.regClobbers = 0x01; // A only
+    w2.setFuncAttr("_helper", helperAttr);
+    O45File f2 = makeFile(w2);
+
+    O45Linker linker;
+    linker.addObject("main.o45", f1);
+    linker.addObject("helper.o45", f2);
+    linker.setTextBase(0x2000);
+    std::ostringstream warns;
+    linker.setWarningStream(&warns);
+    std::string err;
+    linker.link(err, false);
+
+    auto& cg = linker.getCallGraph();
+    CHECK(cg.count("_main"), "call graph has _main");
+    if (cg.count("_main")) {
+        CHECK(cg.at("_main").count("_helper"), "_main calls _helper");
+    }
+}
+
+// Test: Transitive clobber propagation through call chain
+void test_transitive_clobbers() {
+    // _main calls _func_a, _func_a calls _func_b
+    // _func_a clobbers A, _func_b clobbers X
+    // → transitive clobbers for _main should include A|X
+
+    // Object 1: _main → JSR _func_a
+    O45Writer w1;
+    std::vector<uint8_t> code1 = {0x20, 0x00, 0x00, 0x60};
+    w1.setTextSegment(0, code1);
+    w1.addExport("_main", SEG_TEXT, 0);
+    w1.addImport("_func_a");
+    O45FuncAttr mainAttr; mainAttr.regClobbers = 0;
+    w1.setFuncAttr("_main", mainAttr);
+    std::vector<O45Reloc> r1 = {{1, R_WORD, SEG_EXTERNAL, 0, 0}};
+    w1.setTextRelocations(O45RelocEncoder::encode(r1));
+    O45File f1 = makeFile(w1);
+
+    // Object 2: _func_a → JSR _func_b
+    O45Writer w2;
+    std::vector<uint8_t> code2 = {0x20, 0x00, 0x00, 0x60};
+    w2.setTextSegment(0, code2);
+    w2.addExport("_func_a", SEG_TEXT, 0);
+    w2.addImport("_func_b");
+    O45FuncAttr faAttr; faAttr.regClobbers = 0x01; // A
+    w2.setFuncAttr("_func_a", faAttr);
+    std::vector<O45Reloc> r2 = {{1, R_WORD, SEG_EXTERNAL, 0, 0}};
+    w2.setTextRelocations(O45RelocEncoder::encode(r2));
+    O45File f2 = makeFile(w2);
+
+    // Object 3: _func_b (leaf)
+    O45Writer w3;
+    std::vector<uint8_t> code3 = {0xA9, 0x42, 0x60};
+    w3.setTextSegment(0, code3);
+    w3.addExport("_func_b", SEG_TEXT, 0);
+    O45FuncAttr fbAttr; fbAttr.regClobbers = 0x02; // X
+    w3.setFuncAttr("_func_b", fbAttr);
+    O45File f3 = makeFile(w3);
+
+    O45Linker linker;
+    linker.addObject("main.o45", f1);
+    linker.addObject("fa.o45", f2);
+    linker.addObject("fb.o45", f3);
+    linker.setTextBase(0x2000);
+    std::ostringstream warns;
+    linker.setWarningStream(&warns);
+    std::string err;
+    linker.link(err, false);
+
+    auto& tc = linker.getTransitiveClobbers();
+    CHECK(tc.count("_main"), "transitive clobbers has _main");
+    if (tc.count("_main")) {
+        // _main transitively clobbers A (from _func_a) and X (from _func_b)
+        CHECK((tc.at("_main").regClobbers & 0x03) == 0x03, "_main transitive clobbers A|X");
+    }
+}
+
+// Test: Map file shows BSS, ZP, data, and per-object contributions
+void test_map_file_all_segments() {
+    O45Writer w;
+    std::vector<uint8_t> code = {0x60};
+    w.setTextSegment(0, code);
+    std::vector<uint8_t> data = {0xAA, 0xBB};
+    w.setDataSegment(0, data);
+    w.setBssSegment(0, 64);
+    w.setZpSegment(0, 4);
+    w.addExport("_main", SEG_TEXT, 0);
+    O45File f = makeFile(w);
+
+    O45Linker linker;
+    linker.addObject("full.o45", f);
+    linker.setTextBase(0x2000);
+    linker.setDataBase(0x3000);
+    linker.setBssBase(0x4000);
+    linker.setZpBase(0x10);
+    std::string err;
+    linker.link(err, false);
+
+    std::ostringstream map;
+    linker.writeMap(map);
+    std::string m = map.str();
+
+    CHECK(m.find("TEXT") != std::string::npos, "map shows TEXT");
+    CHECK(m.find("DATA") != std::string::npos, "map shows DATA");
+    CHECK(m.find("BSS") != std::string::npos, "map shows BSS");
+    CHECK(m.find("ZP") != std::string::npos, "map shows ZP");
+    CHECK(m.find("full.o45") != std::string::npos, "map shows object filename");
+}
+
+// Test: Map file shows function attributes
+void test_map_file_func_attrs() {
+    O45Writer w;
+    std::vector<uint8_t> code = {0x60};
+    w.setTextSegment(0, code);
+    w.addExport("_myfunc", SEG_TEXT, 0);
+    O45FuncAttr attr;
+    attr.flags = FUNC_FLAG_ZP_CONV;
+    attr.regClobbers = 0x03; // A, X
+    attr.zpUses = 0x01;
+    attr.zpClobbers = 0x01;
+    w.setFuncAttr("_myfunc", attr);
+    O45File f = makeFile(w);
+
+    O45Linker linker;
+    linker.addObject("test.o45", f);
+    linker.setTextBase(0x2000);
+    std::ostringstream warns;
+    linker.setWarningStream(&warns);
+    std::string err;
+    linker.link(err, false);
+
+    std::ostringstream map;
+    linker.writeMap(map);
+    std::string m = map.str();
+
+    CHECK(m.find("uses:") != std::string::npos, "map shows uses: field");
+    CHECK(m.find("clob:") != std::string::npos, "map shows clob: field");
+    CHECK(m.find("regs:") != std::string::npos, "map shows regs: field");
+    CHECK(m.find("AX") != std::string::npos, "map shows clobbered regs AX");
+}
+
+// Test: Map file shows call graph
+void test_map_file_call_graph() {
+    O45Writer w1;
+    std::vector<uint8_t> code1 = {0x20, 0x00, 0x00, 0x60};
+    w1.setTextSegment(0, code1);
+    w1.addExport("_caller", SEG_TEXT, 0);
+    w1.addImport("_callee");
+    O45FuncAttr a1; a1.regClobbers = 0x01;
+    w1.setFuncAttr("_caller", a1);
+    std::vector<O45Reloc> relocs = {{1, R_WORD, SEG_EXTERNAL, 0, 0}};
+    w1.setTextRelocations(O45RelocEncoder::encode(relocs));
+    O45File f1 = makeFile(w1);
+
+    O45Writer w2;
+    std::vector<uint8_t> code2 = {0x60};
+    w2.setTextSegment(0, code2);
+    w2.addExport("_callee", SEG_TEXT, 0);
+    O45FuncAttr a2; a2.regClobbers = 0x01;
+    w2.setFuncAttr("_callee", a2);
+    O45File f2 = makeFile(w2);
+
+    O45Linker linker;
+    linker.addObject("a.o45", f1);
+    linker.addObject("b.o45", f2);
+    linker.setTextBase(0x2000);
+    std::ostringstream warns;
+    linker.setWarningStream(&warns);
+    std::string err;
+    linker.link(err, false);
+
+    std::ostringstream map;
+    linker.writeMap(map);
+    std::string m = map.str();
+
+    CHECK(m.find("Call Graph") != std::string::npos, "map has Call Graph section");
+    CHECK(m.find("_caller") != std::string::npos, "map shows _caller");
+    CHECK(m.find("_callee") != std::string::npos, "map shows _callee");
+}
+
+// Test: Convention mismatch diagnostics
+void test_convention_mismatch_diagnostic() {
+    // _stack_func (stack conv) calls _zp_func (zp conv) — mismatch
+    O45Writer w1;
+    std::vector<uint8_t> code1 = {0x20, 0x00, 0x00, 0x60};
+    w1.setTextSegment(0, code1);
+    w1.addExport("_stack_func", SEG_TEXT, 0);
+    w1.addImport("_zp_func");
+    O45FuncAttr a1; a1.flags = 0; // stack convention
+    a1.regClobbers = 0x01;
+    w1.setFuncAttr("_stack_func", a1);
+    std::vector<O45Reloc> relocs = {{1, R_WORD, SEG_EXTERNAL, 0, 0}};
+    w1.setTextRelocations(O45RelocEncoder::encode(relocs));
+    O45File f1 = makeFile(w1);
+
+    O45Writer w2;
+    std::vector<uint8_t> code2 = {0x60};
+    w2.setTextSegment(0, code2);
+    w2.addExport("_zp_func", SEG_TEXT, 0);
+    O45FuncAttr a2; a2.flags = FUNC_FLAG_ZP_CONV; // zp convention
+    a2.regClobbers = 0x01;
+    a2.paramSize = 2;
+    w2.setFuncAttr("_zp_func", a2);
+    O45File f2 = makeFile(w2);
+
+    // Test THUNK_WARN mode
+    O45Linker linker;
+    linker.addObject("stack.o45", f1);
+    linker.addObject("zp.o45", f2);
+    linker.setTextBase(0x2000);
+    linker.setThunkMode(O45Linker::THUNK_WARN);
+    std::ostringstream warns;
+    linker.setWarningStream(&warns);
+    std::string err;
+    auto result = linker.link(err, false);
+
+    CHECK(!result.empty(), "THUNK_WARN link succeeds");
+    CHECK(warns.str().find("calling convention mismatch") != std::string::npos, "mismatch warning emitted");
+}
+
+// Test: Convention mismatch in THUNK_ERROR mode
+void test_convention_mismatch_error() {
+    O45Writer w1;
+    std::vector<uint8_t> code1 = {0x20, 0x00, 0x00, 0x60};
+    w1.setTextSegment(0, code1);
+    w1.addExport("_stack_func", SEG_TEXT, 0);
+    w1.addImport("_zp_func");
+    O45FuncAttr a1; a1.flags = 0;
+    a1.regClobbers = 0x01;
+    w1.setFuncAttr("_stack_func", a1);
+    std::vector<O45Reloc> relocs = {{1, R_WORD, SEG_EXTERNAL, 0, 0}};
+    w1.setTextRelocations(O45RelocEncoder::encode(relocs));
+    O45File f1 = makeFile(w1);
+
+    O45Writer w2;
+    std::vector<uint8_t> code2 = {0x60};
+    w2.setTextSegment(0, code2);
+    w2.addExport("_zp_func", SEG_TEXT, 0);
+    O45FuncAttr a2; a2.flags = FUNC_FLAG_ZP_CONV;
+    a2.regClobbers = 0x01;
+    a2.paramSize = 2;
+    w2.setFuncAttr("_zp_func", a2);
+    O45File f2 = makeFile(w2);
+
+    O45Linker linker;
+    linker.addObject("stack.o45", f1);
+    linker.addObject("zp.o45", f2);
+    linker.setTextBase(0x2000);
+    linker.setThunkMode(O45Linker::THUNK_ERROR);
+    std::string err;
+    auto result = linker.link(err, false);
+
+    CHECK(result.empty(), "THUNK_ERROR link fails");
+    CHECK(err.find("calling convention mismatch") != std::string::npos, "error mentions mismatch");
+}
+
+// Test: Stack-to-ZP thunk generation (THUNK_AUTO)
+void test_thunk_s2z_generation() {
+    O45Writer w1;
+    std::vector<uint8_t> code1 = {0x20, 0x00, 0x00, 0x60};
+    w1.setTextSegment(0, code1);
+    w1.addExport("_stack_caller", SEG_TEXT, 0);
+    w1.addImport("_zp_callee");
+    O45FuncAttr a1; a1.flags = 0; // stack
+    a1.regClobbers = 0x01;
+    w1.setFuncAttr("_stack_caller", a1);
+    std::vector<O45Reloc> relocs = {{1, R_WORD, SEG_EXTERNAL, 0, 0}};
+    w1.setTextRelocations(O45RelocEncoder::encode(relocs));
+    O45File f1 = makeFile(w1);
+
+    O45Writer w2;
+    std::vector<uint8_t> code2 = {0x60};
+    w2.setTextSegment(0, code2);
+    w2.addExport("_zp_callee", SEG_TEXT, 0);
+    O45FuncAttr a2; a2.flags = FUNC_FLAG_ZP_CONV;
+    a2.regClobbers = 0x01;
+    a2.paramSize = 2;
+    w2.setFuncAttr("_zp_callee", a2);
+    O45File f2 = makeFile(w2);
+
+    O45Linker linker;
+    linker.addObject("s.o45", f1);
+    linker.addObject("z.o45", f2);
+    linker.setTextBase(0x2000);
+    linker.setThunkMode(O45Linker::THUNK_AUTO);
+    std::ostringstream warns;
+    linker.setWarningStream(&warns);
+    std::string err;
+    auto result = linker.link(err, false);
+
+    CHECK(!result.empty() && err.empty(), "s2z thunk link succeeds");
+    auto& syms = linker.getSymbolMap();
+    CHECK(syms.count("__thunk_s2z__zp_callee"), "s2z thunk symbol created");
+    // Thunk should be appended after original code
+    CHECK(result.size() > 5, "binary larger than original code (thunk appended)");
+}
+
+// Test: ZP-to-stack thunk generation
+void test_thunk_z2s_generation() {
+    O45Writer w1;
+    std::vector<uint8_t> code1 = {0x20, 0x00, 0x00, 0x60};
+    w1.setTextSegment(0, code1);
+    w1.addExport("_zp_caller", SEG_TEXT, 0);
+    w1.addImport("_stack_callee");
+    O45FuncAttr a1; a1.flags = FUNC_FLAG_ZP_CONV; // zp
+    a1.regClobbers = 0x01;
+    w1.setFuncAttr("_zp_caller", a1);
+    std::vector<O45Reloc> relocs = {{1, R_WORD, SEG_EXTERNAL, 0, 0}};
+    w1.setTextRelocations(O45RelocEncoder::encode(relocs));
+    O45File f1 = makeFile(w1);
+
+    O45Writer w2;
+    std::vector<uint8_t> code2 = {0x60};
+    w2.setTextSegment(0, code2);
+    w2.addExport("_stack_callee", SEG_TEXT, 0);
+    O45FuncAttr a2; a2.flags = 0; // stack
+    a2.regClobbers = 0x01;
+    a2.paramSize = 3;
+    w2.setFuncAttr("_stack_callee", a2);
+    O45File f2 = makeFile(w2);
+
+    O45Linker linker;
+    linker.addObject("z.o45", f1);
+    linker.addObject("s.o45", f2);
+    linker.setTextBase(0x2000);
+    linker.setThunkMode(O45Linker::THUNK_AUTO);
+    std::ostringstream warns;
+    linker.setWarningStream(&warns);
+    std::string err;
+    auto result = linker.link(err, false);
+
+    CHECK(!result.empty() && err.empty(), "z2s thunk link succeeds");
+    auto& syms = linker.getSymbolMap();
+    CHECK(syms.count("__thunk_z2s__stack_callee"), "z2s thunk symbol created");
+    CHECK(result.size() > 5, "binary larger (thunk appended)");
+}
+
+// Test: Line map merge and JSON output
+void test_line_map_output() {
+    O45Writer w;
+    std::vector<uint8_t> code = {0xA9, 0x42, 0x60};
+    w.setTextSegment(0, code);
+    w.addExport("_main", SEG_TEXT, 0);
+    O45File f = makeFile(w);
+
+    // Manually add line info
+    f.lineFiles.push_back("test.c");
+    f.lineInfos.push_back({0, 0, 10}); // offset 0, file 0, line 10
+    f.lineInfos.push_back({2, 0, 12}); // offset 2, file 0, line 12
+
+    O45Linker linker;
+    linker.addObject("test.o45", f);
+    linker.setTextBase(0x2000);
+    std::ostringstream warns;
+    linker.setWarningStream(&warns);
+    std::string err;
+    linker.link(err, false);
+
+    CHECK(linker.hasLineMap(), "line map populated");
+
+    std::ostringstream json;
+    linker.writeLineMap(json);
+    std::string j = json.str();
+    CHECK(j.find("\"addr\"") != std::string::npos, "JSON has addr field");
+    CHECK(j.find("\"file\"") != std::string::npos, "JSON has file field");
+    CHECK(j.find("\"line\"") != std::string::npos, "JSON has line field");
+    CHECK(j.find("test.c") != std::string::npos, "JSON has filename");
+}
+
+// Test: Data relocation (relocs in data segment)
+void test_data_relocation() {
+    O45Writer w1;
+    std::vector<uint8_t> code1 = {0x60};
+    w1.setTextSegment(0, code1);
+    // Data: pad byte + pointer to _func (offset 1 avoids delta=0)
+    std::vector<uint8_t> data1 = {0xFF, 0x00, 0x00};
+    w1.setDataSegment(0, data1);
+    w1.addExport("_main", SEG_TEXT, 0);
+    w1.addImport("_func");
+    std::vector<O45Reloc> drelocs = {{1, R_WORD, SEG_EXTERNAL, 0, 0}};
+    w1.setDataRelocations(O45RelocEncoder::encode(drelocs));
+    O45File f1 = makeFile(w1);
+
+    O45Writer w2;
+    std::vector<uint8_t> code2 = {0xA9, 0xFF, 0x60};
+    w2.setTextSegment(0, code2);
+    w2.addExport("_func", SEG_TEXT, 0);
+    O45File f2 = makeFile(w2);
+
+    O45Linker linker;
+    linker.addObject("main.o45", f1);
+    linker.addObject("func.o45", f2);
+    linker.setTextBase(0x2000);
+    linker.setDataBase(0x3000);
+    std::string err;
+    auto result = linker.link(err, true);
+
+    CHECK(!result.empty() && err.empty(), "data relocation link succeeds");
+    // _func at $2001 (after main's 1 byte). Data at $3000.
+    // header(2) + text(4) + gap to $3000 + data(3)
+    size_t dataOff = 2 + (0x3000 - 0x2000); // header + (gap from textEnd to dataBase)
+    CHECK(result.size() > dataOff + 2, "result large enough for data");
+    // Byte at data+1 should be patched: lo byte of _func ($01)
+    CHECK(result[dataOff + 1] == 0x01, "data reloc low byte");
+    CHECK(result[dataOff + 2] == 0x20, "data reloc high byte");
+}
+
+// (segmentBase is private — verified indirectly via symbol addresses)
+
+// =============================================================================
 // Main entry point
 // =============================================================================
 
@@ -773,7 +1335,7 @@ int main() {
     test_relocation_patch_overflow();
     test_unknown_relocation_type();
 
-    // Success-path tests
+    // Success-path tests (round 1)
     test_single_object_prg();
     test_single_object_flat();
     test_two_objects_merge();
@@ -790,6 +1352,23 @@ int main() {
     test_auto_data_base_placement();
     test_zp_segment_merge();
     test_prg_data_gap();
+
+    // Round 2: deeper coverage
+    test_reloc_r_linear24();
+    test_reloc_r_linear32();
+    test_reloc_r_segadr();
+    test_func_attrs_extraction();
+    test_call_graph_discovery();
+    test_transitive_clobbers();
+    test_map_file_all_segments();
+    test_map_file_func_attrs();
+    test_map_file_call_graph();
+    test_convention_mismatch_diagnostic();
+    test_convention_mismatch_error();
+    test_thunk_s2z_generation();
+    test_thunk_z2s_generation();
+    test_line_map_output();
+    test_data_relocation();
 
     printf("\n=== Linker Validation Tests ===\n");
     printf("Passed: %d\n", tests_passed);
