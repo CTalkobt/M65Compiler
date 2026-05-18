@@ -1,6 +1,6 @@
 # MEGA65 C Compiler Suite — Codebase Documentation
 
-**Status:** v1.0-rc2 (target: 2026-05-31)
+**Status:** v1.0-rc3 (target: 2026-05-31)
 **Last Updated:** 2026-05-11
 **Maintainer:** Craig Taylor (CTalkobt)
 
@@ -312,7 +312,7 @@ The `.o45` relocatable object format is documented in `doc/lib45.md`. Key sectio
 - [x] All v1.0 should-fix items implemented
 - [x] Comprehensive test coverage (Units 1-8 validation tests, 55 segment emission tests)
 - [x] Documentation updated (README, tool docs, stdlib, opcodes)
-- [x] Version bumped to v1.0-rc2 in code and documentation
+- [x] Version bumped to v1.0-rc3 in code and documentation
 - [ ] Final QA on target hardware (MEGA65 emulator)
 - [ ] Release notes prepared
 

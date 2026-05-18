@@ -13,3 +13,6 @@ man/
 .gemini/*
 
 .mcp.json
+*.debug.json
+.claude
+.gemini/settings.json
