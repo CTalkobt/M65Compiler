@@ -428,8 +428,16 @@ void test_dec_f_valid() {
 }
 
 // --- Select (ternary) ---
-// NOTE: select currently crashes the assembler (segfault) — skipped pending fix
-// void test_select_valid() { ... }
+
+void test_select_valid() {
+    const char* code = R"(
+    proc test_select
+    .var _fp = 0
+    select .A, #$10, #$20
+    endproc
+    )";
+    CHECK(assembleSucceeded(code), "SELECT .A, #$10, #$20 succeeds");
+}
 
 // --- Ptrstack (compute stack variable address) ---
 
@@ -892,8 +900,8 @@ int main() {
     test_inc_f_valid();
     test_dec_f_valid();
 
-    // Select (ternary) — skipped, crashes assembler (segfault)
-    // test_select_valid();
+    // Select (ternary)
+    test_select_valid();
 
     // Ptrstack / Ptrderef
     test_ptrstack_global_valid();

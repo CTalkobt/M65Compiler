@@ -769,9 +769,12 @@ void AssemblerSimulatedOps::emitSelectCode(AssemblerParser* parser, M65Emitter& 
     int idx = tokenIndex; if (idx >= (int)parser->tokens.size()) return;
     idx++; // Skip reg
     if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::COMMA) idx++;
+    if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) idx++;
     auto val1Ast = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
     if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::COMMA) idx++;
+    if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) idx++;
     auto val2Ast = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
+    if (!val1Ast || !val2Ast) return;
     e.bne(0x03); e.lda_imm(val2Ast->getValue(parser)); e.bra(0x02); e.lda_imm(val1Ast->getValue(parser));
 }
 
