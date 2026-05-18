@@ -660,6 +660,47 @@ else
     fi
 fi
 
+# --- Opcode execution validation (31 instruction tests) ---
+echo "Testing opcode execution (LDA/STA/ADC/SBC/AND/ORA/EOR/shifts/branches/stack/JSR)..."
+
+$AS src/test-resources/test_opcode_execution.s -o build/test/test_opcode_execution.bin
+if [ $? -ne 0 ]; then
+    echo "FAIL: Assembly failed for test_opcode_execution.s"
+    failed=$((failed + 1))
+else
+    OUTPUT=$(echo -e "load build/test/test_opcode_execution.bin \$2000\nsetpc \$2000\nstep 5000\nm \$4000 33\nq" | $MMEMU -m rawMega65 2>/dev/null)
+
+    # Expected bytes at $4000-$4020:
+    # 42 7F 33 00 AB CD 30 15 0F F3 55 80 20 02 C0 06
+    # 09 10 1F 99 77 01 01 01 01 01 01 EE 5A BB 01 BB
+    # AA (sentinel)
+    EXPECTED_LINE1="42 7F 33 00 AB CD 30 15 0F F3 55 80 20 02 C0 06"
+    EXPECTED_LINE2="09 10 1F 99 77 01 01 01 01 01 01 EE 5A BB 01 BB"
+
+    ok=true
+    if ! echo "$OUTPUT" | grep -qi "4000:.*$EXPECTED_LINE1"; then
+        echo "FAIL: opcode execution tests 0-15 mismatch"
+        echo "Expected: $EXPECTED_LINE1"
+        echo "Actual:"; echo "$OUTPUT" | grep "4000:"
+        ok=false
+    fi
+    if ! echo "$OUTPUT" | grep -qi "4010:.*$EXPECTED_LINE2"; then
+        echo "FAIL: opcode execution tests 16-31 mismatch"
+        echo "Expected: $EXPECTED_LINE2"
+        echo "Actual:"; echo "$OUTPUT" | grep "4010:"
+        ok=false
+    fi
+    if ! echo "$OUTPUT" | grep -qi "4020:.*AA"; then
+        echo "FAIL: opcode execution sentinel missing"
+        ok=false
+    fi
+    if $ok; then
+        echo "SUCCESS: All 31 opcode execution tests passed."
+    else
+        failed=$((failed + 1))
+    fi
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All mmemu tests passed!"
     exit 0
