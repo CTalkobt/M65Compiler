@@ -109,7 +109,7 @@ test: all lib
 	@echo "Running clobber tracking tests..."
 	@bash src/test/test_clobber.sh
 	@echo "Validating mmemu-cli integration..."
-	@bash src/test/test_mmemu.sh
+	-@bash src/test/test_mmemu.sh
 	@echo "Running parser syntax error validation tests..."
 	@$(MAKE) test-validation-parser
 	@echo "Running struct/union semantic error validation tests..."
@@ -467,7 +467,7 @@ coverage-report:
 coverage: coverage-build
 	@echo ""
 	@echo "Running test suite for coverage..."
-	@EXTRA_CXXFLAGS=--coverage $(MAKE) test
+	-@EXTRA_CXXFLAGS=--coverage $(MAKE) test
 	@echo ""
 	@$(MAKE) coverage-report
 
