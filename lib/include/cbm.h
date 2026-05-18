@@ -57,7 +57,7 @@
 
 /* Output a character to the current output channel */
 static void cbm_chrout(char c) {
-    __asm__("lda.sp _p_c");
+    __asm__("lda.sp @_p_c");
     __asm__("jsr $FFD2");
 }
 
@@ -90,11 +90,11 @@ static int cbm_readst(void) {
  * KERNAL SETLFS: A=lfn, X=device, Y=sa
  */
 static void cbm_setlfs(char lfn, char device, char sa) {
-    __asm__("lda.sp _p_sa");
+    __asm__("lda.sp @_p_sa");
     __asm__("tay");
-    __asm__("lda.sp _p_device");
+    __asm__("lda.sp @_p_device");
     __asm__("tax");
-    __asm__("lda.sp _p_lfn");
+    __asm__("lda.sp @_p_lfn");
     __asm__("jsr $FFBA");
 }
 
@@ -102,8 +102,8 @@ static void cbm_setlfs(char lfn, char device, char sa) {
  * KERNAL SETNAM: A=length, X=lo(name), Y=hi(name)
  */
 static void cbm_setnam(char *name, char len) {
-    __asm__("ldxy _p_name, s");  /* X=lo, Y=hi */
-    __asm__("lda.sp _p_len");
+    __asm__("ldxy @_p_name, s");  /* X=lo, Y=hi */
+    __asm__("lda.sp @_p_len");
     __asm__("jsr $FFBD");
 }
 
@@ -120,13 +120,13 @@ static int cbm_open(void) {
 
 /* Close a logical file */
 static void cbm_close(char lfn) {
-    __asm__("lda.sp _p_lfn");
+    __asm__("lda.sp @_p_lfn");
     __asm__("jsr $FFC3");
 }
 
 /* Set input channel. Returns 0 on success, 1 on error. */
 static int cbm_chkin(char lfn) {
-    __asm__("lda.sp _p_lfn");
+    __asm__("lda.sp @_p_lfn");
     __asm__("tax");
     __asm__("jsr $FFC6");
     __asm__("lda #$00");
@@ -137,7 +137,7 @@ static int cbm_chkin(char lfn) {
 
 /* Set output channel. Returns 0 on success, 1 on error. */
 static int cbm_chkout(char lfn) {
-    __asm__("lda.sp _p_lfn");
+    __asm__("lda.sp @_p_lfn");
     __asm__("tax");
     __asm__("jsr $FFC9");
     __asm__("lda #$00");
@@ -178,9 +178,9 @@ static int cbm_stop(void) {
  */
 static void cbm_gotoxy(char col, char row) {
     __asm__("clc");
-    __asm__("lda.sp _p_row");
+    __asm__("lda.sp @_p_row");
     __asm__("tax");
-    __asm__("lda.sp _p_col");
+    __asm__("lda.sp @_p_col");
     __asm__("tay");
     __asm__("jsr $FFF0");
 }
@@ -226,7 +226,7 @@ static int cbm_rdtim(void) {
 
 /* Send LISTEN command to device */
 static void cbm_listen(char device) {
-    __asm__("lda.sp _p_device");
+    __asm__("lda.sp @_p_device");
     __asm__("jsr $FFB1");
 }
 
@@ -237,7 +237,7 @@ static void cbm_unlisten(void) {
 
 /* Send TALK command to device */
 static void cbm_talk(char device) {
-    __asm__("lda.sp _p_device");
+    __asm__("lda.sp @_p_device");
     __asm__("jsr $FFB4");
 }
 
@@ -248,19 +248,19 @@ static void cbm_untalk(void) {
 
 /* Send secondary address after LISTEN */
 static void cbm_second(char sa) {
-    __asm__("lda.sp _p_sa");
+    __asm__("lda.sp @_p_sa");
     __asm__("jsr $FF93");
 }
 
 /* Send secondary address after TALK */
 static void cbm_tksa(char sa) {
-    __asm__("lda.sp _p_sa");
+    __asm__("lda.sp @_p_sa");
     __asm__("jsr $FF96");
 }
 
 /* Send byte to serial bus */
 static void cbm_ciout(char data) {
-    __asm__("lda.sp _p_data");
+    __asm__("lda.sp @_p_data");
     __asm__("jsr $FFA8");
 }
 
