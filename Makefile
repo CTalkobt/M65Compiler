@@ -106,6 +106,8 @@ test: all lib
 	@bash src/test/test_register.sh
 	@echo "Running cast fold type preservation tests..."
 	@bash src/test/test_cast_fold.sh
+	@echo "Running clobber tracking tests..."
+	@bash src/test/test_clobber.sh
 	@echo "Validating mmemu-cli integration..."
 	@bash src/test/test_mmemu.sh
 	@echo "Running parser syntax error validation tests..."

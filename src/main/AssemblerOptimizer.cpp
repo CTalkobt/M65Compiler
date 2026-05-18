@@ -1,16 +1,15 @@
 #include "AssemblerOptimizer.hpp"
 #include "AssemblerParser.hpp"
 #include <algorithm>
-#include <map> // Required for std::map
-#include <iostream>
+#include <map>
 
 bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
-    bool changed = false; // Flag to track if any code modification occurred
+    bool changed = false;
     struct RegState {
         bool known = false;
         std::string var;
         AddressingMode mode;
-        std::string imm; // Last immediate value loaded
+        std::string imm;
 
         bool operator!=(const RegState& other) const {
             if (known != other.known) return true;
@@ -20,15 +19,14 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
     };
     RegState regA, regX, regY, regZ;
 
-    // For tracking last value stored to a stack variable (e.g., _l_c)
     std::map<std::string, std::string> stackVarLastValue;
 
     auto invalidate = [&](RegState& r) { r.known = false; r.var = ""; r.imm = ""; };
 
-    // Build proc-name → clobber info lookup from parsed procedures
-    // Used for selective register invalidation at JSR call sites (Phase 2)
+    // Build proc-name → clobber info lookup from parsed procedures.
+    // Used for selective register invalidation at JSR call sites (Phase 2).
     struct ProcClobbers {
-        uint8_t regMask = 0xFF;   // default: clobbers all
+        uint8_t regMask = 0xFF;
         bool known = false;
     };
     std::map<std::string, ProcClobbers> procClobbers;
@@ -42,7 +40,7 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
         auto* s = parser->statements[i].get();
         if (s->deleted) continue;
 
-        // Barrier: Non-dont-care labels reset all knowledge
+        // Barrier: non-local labels reset all knowledge
         if (!s->label.empty() && s->label[0] != '@') {
             invalidate(regA); invalidate(regX); invalidate(regY); invalidate(regZ);
             stackVarLastValue.clear();
@@ -50,40 +48,33 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
 
         bool isStackStoreOptimizationCandidate = false;
 
-        // Handle STW.SP (redundant store elimination)
+        // STW.SP redundant store elimination
         if (s->type == AssemblerParser::Statement::STW && s->instr.mnemonic == "STW.SP") {
             isStackStoreOptimizationCandidate = true;
-            std::string immediateValue = s->instr.operand; // e.g., "#$0000"
-            std::string varName = parser->tokens[s->exprTokenIndex].value; // e.g., "_l_c"
+            std::string immediateValue = s->instr.operand;
+            std::string varName = parser->tokens[s->exprTokenIndex].value;
 
             if (stackVarLastValue.count(varName) && stackVarLastValue[varName] == immediateValue) {
-                // Redundant store: delete this instruction
-                s->deleted = true;
-                s->size = 0;
-                changed = true;
-                continue;
+                s->deleted = true; s->size = 0; changed = true; continue;
             } else {
-                // Not redundant, or first store: update last stored value
                 stackVarLastValue[varName] = immediateValue;
             }
         }
 
-        // Invalidate stack variable state if this instruction could modify memory
-        // or render our knowledge of stack variables stale, UNLESS it was a STW.SP that was optimized.
+        // Invalidate stack variable state for memory-modifying instructions
         if (!isStackStoreOptimizationCandidate) {
             if (s->type == AssemblerParser::Statement::INSTRUCTION) {
-                std::string m = s->instr.mnemonic;
-                // Opcodes that write to memory or change control flow unpredictably
-                if (m == "STA" || m == "STX" || m == "STY" || m == "STZ" ||
-                    m == "PHA" || m == "PLA" || m == "PHX" || m == "PLX" || m == "PHY" || m == "PLY" ||
-                    m == "PHZ" || m == "PLZ" || m == "PHW" ||
-                    m == "JSR" || m == "RTS" || m == "RTN" || m == "RTI" ||
-                    m == "JMP" || m == "CALL" || m == "BSR" ||
-                    m == "ADC" || m == "SBC" || m == "AND" || m == "ORA" || m == "EOR" ||
-                    m == "ASL" || m == "LSR" || m == "ROL" || m == "ROR" ||
-                    m == "DEC" || m == "INC" ||
-                    m == "INX" || m == "DEX" || m == "INY" || m == "DEY" || m == "INZ" || m == "DEZ" 
-                   ) {
+                std::string M = s->instr.mnemonic;
+                std::transform(M.begin(), M.end(), M.begin(), ::toupper);
+                if (M == "STA" || M == "STX" || M == "STY" || M == "STZ" ||
+                    M == "JSR" || M == "JMP" || M == "CALL" || M == "BSR" ||
+                    M == "RTS" || M == "RTN" || M == "RTI" ||
+                    M == "PHA" || M == "PLA" || M == "PHX" || M == "PLX" ||
+                    M == "PHY" || M == "PLY" || M == "PHZ" || M == "PLZ" || M == "PHW" ||
+                    M == "ADC" || M == "SBC" || M == "AND" || M == "ORA" || M == "EOR" ||
+                    M == "ASL" || M == "LSR" || M == "ROL" || M == "ROR" ||
+                    M == "DEC" || M == "INC" ||
+                    M == "INX" || M == "DEX" || M == "INY" || M == "DEY" || M == "INZ" || M == "DEZ") {
                     stackVarLastValue.clear();
                 }
             } else if (s->isSimulatedOp()) {
@@ -91,93 +82,91 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
             }
         }
 
-        // Existing register optimizations
+        // Register tracking and redundant load elimination
         if (s->type == AssemblerParser::Statement::INSTRUCTION || s->type == AssemblerParser::Statement::LDW) {
-            std::string m = (s->type == AssemblerParser::Statement::INSTRUCTION) ? s->instr.mnemonic : (s->type == AssemblerParser::Statement::LDW ? "LDAX" : "STAX");
+            // Normalize mnemonic to uppercase for all comparisons
+            std::string m;
+            if (s->type == AssemblerParser::Statement::LDW) m = "LDAX";
+            else if (s->type == AssemblerParser::Statement::STW) m = "STAX";
+            else {
+                m = s->instr.mnemonic;
+                std::transform(m.begin(), m.end(), m.begin(), ::toupper);
+            }
             AddressingMode mode = s->instr.mode;
             std::string op = s->instr.operand;
-            
+
+            // Word load tracking (LDW)
             if (s->type == AssemblerParser::Statement::LDW) {
-                std::string regStr = s->instr.operand; 
+                std::string regStr = s->instr.operand;
                 std::transform(regStr.begin(), regStr.end(), regStr.begin(), ::toupper);
                 char r2 = 'X';
                 if (regStr == ".AY") r2 = 'Y';
                 else if (regStr == ".AZ") r2 = 'Z';
-                
-                // Track A and the second register
-                regA.known = true; regA.mode = AddressingMode::NONE; // Word loads are complex
+                regA.known = true; regA.mode = AddressingMode::NONE;
                 if (r2 == 'X') regX.known = true;
                 else if (r2 == 'Y') regY.known = true;
                 else if (r2 == 'Z') regZ.known = true;
                 continue;
             }
 
-            if (s->type == AssemblerParser::Statement::STW) { 
-                continue; 
-            }
+            if (s->type == AssemblerParser::Statement::STW) continue;
 
-            if (m == "LDA" && ( (regA.known && regA.mode == mode && regA.var == op) || (mode == AddressingMode::IMMEDIATE && regA.imm == op) )) {
+            // --- Redundant load elimination ---
+            if (m == "LDA" && ((regA.known && regA.mode == mode && regA.var == op) || (mode == AddressingMode::IMMEDIATE && regA.imm == op))) {
                 s->deleted = true; s->size = 0; changed = true; continue;
             }
-            if (m == "LDX" && ( (regX.known && regX.mode == mode && regX.var == op) || (mode == AddressingMode::IMMEDIATE && regX.imm == op) )) {
+            if (m == "LDX" && ((regX.known && regX.mode == mode && regX.var == op) || (mode == AddressingMode::IMMEDIATE && regX.imm == op))) {
                 s->deleted = true; s->size = 0; changed = true; continue;
             }
-            if (m == "LDY" && ( (regY.known && regY.mode == mode && regY.var == op) || (mode == AddressingMode::IMMEDIATE && regY.imm == op) )) {
+            if (m == "LDY" && ((regY.known && regY.mode == mode && regY.var == op) || (mode == AddressingMode::IMMEDIATE && regY.imm == op))) {
                 s->deleted = true; s->size = 0; changed = true; continue;
             }
-            if (m == "LDZ" && ( (regZ.known && regZ.mode == mode && regZ.var == op) || (mode == AddressingMode::IMMEDIATE && regZ.imm == op) )) {
-                s->deleted = true; s->size = 0; changed = true; continue;
-            }
-
-            if (m == "LDY" && mode == AddressingMode::IMMEDIATE && op == "#$00" && regY.imm == "#$00") {
+            if (m == "LDZ" && ((regZ.known && regZ.mode == mode && regZ.var == op) || (mode == AddressingMode::IMMEDIATE && regZ.imm == op))) {
                 s->deleted = true; s->size = 0; changed = true; continue;
             }
 
-            if (m == "LDA") { 
-                regA.known = true; regA.mode = mode; regA.var = op; 
-                if (mode == AddressingMode::IMMEDIATE) regA.imm = op; else regA.imm = "";
+            // --- Register state tracking ---
+            if (m == "LDA") {
+                regA.known = true; regA.mode = mode; regA.var = op;
+                regA.imm = (mode == AddressingMode::IMMEDIATE) ? op : "";
             }
-            else if (m == "STA") { 
-                if (mode != AddressingMode::IMMEDIATE) { regA.known = true; regA.mode = mode; regA.var = op; }
+            else if (m == "STA") {
+                // A still holds its value — don't invalidate.
+                // Don't track "A came from addr" because addr could be
+                // modified by side effects before a subsequent LDA.
             }
-            else if (m == "LDX") { 
-                regX.known = true; regX.mode = mode; regX.var = op; 
-                if (mode == AddressingMode::IMMEDIATE) regX.imm = op; else regX.imm = "";
+            else if (m == "LDX") {
+                regX.known = true; regX.mode = mode; regX.var = op;
+                regX.imm = (mode == AddressingMode::IMMEDIATE) ? op : "";
             }
-            else if (m == "STX") { 
-                if (mode != AddressingMode::IMMEDIATE) { regX.known = true; regX.mode = mode; regX.var = op; }
+            else if (m == "STX") { /* X unchanged, no addr tracking */ }
+            else if (m == "LDY") {
+                regY.known = true; regY.mode = mode; regY.var = op;
+                regY.imm = (mode == AddressingMode::IMMEDIATE) ? op : "";
             }
-            else if (m == "LDY") { 
-                regY.known = true; regY.mode = mode; regY.var = op; 
-                if (mode == AddressingMode::IMMEDIATE) regY.imm = op; else regY.imm = "";
+            else if (m == "STY") { /* Y unchanged */ }
+            else if (m == "LDZ") {
+                regZ.known = true; regZ.mode = mode; regZ.var = op;
+                regZ.imm = (mode == AddressingMode::IMMEDIATE) ? op : "";
             }
-            else if (m == "STY") { 
-                if (mode != AddressingMode::IMMEDIATE) { regY.known = true; regY.mode = mode; regY.var = op; }
-            }
-            else if (m == "LDZ") { 
-                regZ.known = true; regZ.mode = mode; regZ.var = op; 
-                if (mode == AddressingMode::IMMEDIATE) regZ.imm = op; else regZ.imm = "";
-            }
-            else if (m == "STZ") { 
-                if (mode != AddressingMode::IMMEDIATE) { regZ.known = true; regZ.mode = mode; regZ.var = op; }
-            }
+            else if (m == "STZ") { /* Z unchanged */ }
+
+            // --- Transfer instructions ---
             else if (m == "TAX") { regX = regA; }
             else if (m == "TXA") { regA = regX; }
             else if (m == "TAY") { regY = regA; }
             else if (m == "TYA") { regA = regY; }
             else if (m == "TAZ") { regZ = regA; }
             else if (m == "TZA") { regA = regZ; }
-            else if (m == "JMP" && mode == AddressingMode::ABSOLUTE) {
-                if (s->instr.operandTokenIndex != -1 && parser->tokens[s->instr.operandTokenIndex].type == AssemblerTokenType::IDENTIFIER) {
-                    s->instr.mnemonic = "BRA";
-                    changed = true;
-                }
+            else if (m == "TSX") { invalidate(regX); }
+
+            // --- Control flow ---
+            else if (m == "JMP") {
                 invalidate(regA); invalidate(regX); invalidate(regY); invalidate(regZ);
             }
+
+            // --- JSR: Phase 2 selective invalidation ---
             else if (m == "JSR" && mode == AddressingMode::ABSOLUTE) {
-                // Phase 2: Selective register invalidation at call sites.
-                // Look up callee's .reg_clobbers from proc metadata.
-                // Only invalidate registers the callee actually modifies.
                 auto it = procClobbers.find(op);
                 if (it != procClobbers.end() && it->second.known) {
                     uint8_t mask = it->second.regMask;
@@ -186,27 +175,71 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
                     if (mask & 0x04) invalidate(regY);
                     if (mask & 0x08) invalidate(regZ);
                 } else {
-                    // Unknown callee (external, or no .reg_clobbers) — invalidate all
                     invalidate(regA); invalidate(regX); invalidate(regY); invalidate(regZ);
                 }
-                stackVarLastValue.clear();
-            }
-            else if (m == "PHA" || m == "PLA" || m == "PHX" || m == "PLX" || m == "PHY" || m == "PLY" || m == "PHZ" || m == "PLZ" || m == "PHW" || m == "CALL" || m == "RTN" || m == "RTS") {
-                invalidate(regA); invalidate(regX); invalidate(regY); invalidate(regZ);
             }
             else if (m == "JSR") {
-                // Indirect JSR or non-absolute — invalidate all
+                // Indirect JSR — invalidate all
                 invalidate(regA); invalidate(regX); invalidate(regY); invalidate(regZ);
             }
-            else {
-                if (m == "ADC" || m == "SBC" || m == "AND" || m == "ORA" || m == "EOR" || m == "ASL" || m == "LSR" || m == "ROL" || m == "ROR" || m == "DEC" || m == "INC") {
+            else if (m == "CALL" || m == "BSR") {
+                invalidate(regA); invalidate(regX); invalidate(regY); invalidate(regZ);
+            }
+
+            // --- Push: does NOT modify any register ---
+            else if (m == "PHA" || m == "PHX" || m == "PHY" || m == "PHZ" || m == "PHW") {
+                // Push reads a register but doesn't change it — no invalidation
+            }
+
+            // --- Pull: modifies ONLY the target register ---
+            else if (m == "PLA") { invalidate(regA); }
+            else if (m == "PLX") { invalidate(regX); }
+            else if (m == "PLY") { invalidate(regY); }
+            else if (m == "PLZ") { invalidate(regZ); }
+
+            // --- RTS/RTN/RTI: function exit, no optimization across ---
+            else if (m == "RTS" || m == "RTN" || m == "RTI") {
+                // Nothing after this is reachable (until next label resets state)
+            }
+
+            // --- ALU: modifies A and flags ---
+            else if (m == "ADC" || m == "SBC" || m == "AND" || m == "ORA" || m == "EOR") {
+                invalidate(regA);
+            }
+            else if (m == "ASL" || m == "LSR" || m == "ROL" || m == "ROR") {
+                if (mode == AddressingMode::ACCUMULATOR || mode == AddressingMode::IMPLIED) {
                     invalidate(regA);
                 }
-                if (m == "INX" || m == "DEX") { invalidate(regX); }
-                if (m == "INY" || m == "DEY") { invalidate(regY); }
-                if (m == "INZ" || m == "DEZ") { invalidate(regZ); }
+                // Memory-mode shifts don't affect registers
             }
+            else if (m == "INC" || m == "DEC") {
+                if (mode == AddressingMode::ACCUMULATOR || mode == AddressingMode::IMPLIED) {
+                    invalidate(regA);
+                }
+                // Memory-mode inc/dec don't affect A
+            }
+            else if (m == "INX" || m == "DEX") { invalidate(regX); }
+            else if (m == "INY" || m == "DEY") { invalidate(regY); }
+            else if (m == "INZ" || m == "DEZ") { invalidate(regZ); }
+
+            // --- Compare: does not modify registers (only flags) ---
+            else if (m == "CMP" || m == "CPX" || m == "CPY" || m == "CPZ") {
+                // No register invalidation — only flags change
+            }
+
+            // --- Clear: sets register to 0 ---
+            else if (m == "CLA") { regA.known = true; regA.imm = "#$00"; regA.var = ""; regA.mode = AddressingMode::IMMEDIATE; }
+            else if (m == "CLX") { regX.known = true; regX.imm = "#$00"; regX.var = ""; regX.mode = AddressingMode::IMMEDIATE; }
+            else if (m == "CLY") { regY.known = true; regY.imm = "#$00"; regY.var = ""; regY.mode = AddressingMode::IMMEDIATE; }
+            else if (m == "CLZ") { regZ.known = true; regZ.imm = "#$00"; regZ.var = ""; regZ.mode = AddressingMode::IMMEDIATE; }
+
+            // --- Anything else: conservatively invalidate A ---
+            // (branches, bit tests, etc. — safe to not invalidate since they don't modify regs)
+            // Only truly unknown instructions should invalidate.
         } else if (s->isSimulatedOp()) {
+            // Simulated ops are complex multi-instruction expansions.
+            // Conservatively invalidate everything.
+            invalidate(regA); invalidate(regX); invalidate(regY); invalidate(regZ);
             stackVarLastValue.clear();
         }
     }
