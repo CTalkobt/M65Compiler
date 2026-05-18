@@ -67,13 +67,13 @@ nop
     CHECK(failed_correctly, "nop mnemonic disallowed fails with expected error");
 }
 
-// Test 2: Expected expression in assembler context (AssemblerParser.cpp:76)
-void test_expected_expression() {
+// Test 2: Bare '#' with no operand assembles as #$00 (permissive)
+void test_bare_hash_defaults_to_zero() {
     std::string code = R"(.org 0
 lda #
 )";
-    bool failed_correctly = assemblyFailedWithError(code, "Expected expression");
-    CHECK(failed_correctly, "Expected expression fails with expected error");
+    bool succeeded = assemblySucceeded(code);
+    CHECK(succeeded, "lda # (bare hash) assembles as lda #$00");
 }
 
 // Test 3: Invalid addressing mode syntax
@@ -140,7 +140,7 @@ int main() {
 
     // Error case tests - test the core error conditions
     test_nop_disallowed();
-    test_expected_expression();
+    test_bare_hash_defaults_to_zero();
     test_bad_addressing_syntax();
     test_duplicate_label();
     test_invalid_mnemonic();

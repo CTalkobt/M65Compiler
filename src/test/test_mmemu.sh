@@ -416,11 +416,11 @@ else
         # Expected: 10 40 64 2C 0B 16 00 00 00 00 AA CC E8 D0 FF
         OUTPUT=$(echo -e "load build/test/test_array_init.prg\nsetpc \$2000\nstep 5000000\nm \$4000 15\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
-        if echo "$OUTPUT" | grep -qi "4000: 10 40 64 2c 0b 16 00 00 00 00 84 00 00 00 ff"; then
+        if echo "$OUTPUT" | grep -qi "4000: 10 40 64 2c 0b 16 00 00 00 00 aa cc e8 d0 ff"; then
             echo "SUCCESS: test_array_init.c — array initializer lists correct."
         else
             echo "FAIL: test_array_init.c — array initializer list validation failed."
-            echo "Expected 4000: 10 40 64 2C 0B 16 00 00 00 00 84 00 00 00 FF"
+            echo "Expected 4000: 10 40 64 2C 0B 16 00 00 00 00 AA CC E8 D0 FF"
             echo "Actual output:"
             echo "$OUTPUT" | grep "4000:"
             failed=$((failed + 1))

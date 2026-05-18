@@ -1,5 +1,7 @@
 // Test array initialization with braced initializer lists
 // Results written to $4000+ for mmemu validation
+// Disable ZP save — 105-byte frame + 248-byte ZP save overflows 256-byte page-1 stack
+__asm__(".no_zp_save");
 
 volatile char *result = (char *)0x4000;
 
