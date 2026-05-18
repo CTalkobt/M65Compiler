@@ -818,6 +818,279 @@ void test_ldw_xy_imm() {
     CHECK(assembleSucceeded("ldxy #$5678"), "LDXY #$5678 (immediate word load XY) succeeds");
 }
 
+// ====================================================================
+// Round 2: Deeper code path coverage for complex simulated ops
+// ====================================================================
+
+// --- FILL: register-pair destinations and 24/32-bit widths ---
+
+void test_fill_reg_ax_valid() {
+    CHECK(assembleSucceeded("fill .AX, 128"), "FILL .AX, 128 (register dest) succeeds");
+}
+void test_fill_reg_axy_valid() {
+    CHECK(assembleSucceeded("fill .AXY, 64"), "FILL .AXY, 64 (24-bit register dest) succeeds");
+}
+void test_fill_reg_axyz_valid() {
+    CHECK(assembleSucceeded("fill .AXYZ, 32"), "FILL .AXYZ, 32 (32-bit register dest) succeeds");
+}
+void test_fill_reg_xy_valid() {
+    CHECK(assembleSucceeded("fill .XY, 100"), "FILL .XY, 100 (XY register dest) succeeds");
+}
+void test_fill_reg_axz_valid() {
+    CHECK(assembleSucceeded("fill .AXZ, 50"), "FILL .AXZ, 50 (AXZ register dest) succeeds");
+}
+void test_fill_reg_ayz_valid() {
+    CHECK(assembleSucceeded("fill .AYZ, 50"), "FILL .AYZ, 50 (AYZ register dest) succeeds");
+}
+void test_fill_reg_len_valid() {
+    CHECK(assembleSucceeded("fill $1000, .AX"), "FILL $1000, .AX (register length) succeeds");
+}
+void test_fill_large_addr_valid() {
+    CHECK(assembleSucceeded("fill $80000, 256"), "FILL $80000, 256 (32-bit address) succeeds");
+}
+void test_fill_stack_rel_valid() {
+    const char* code = R"(
+    __sp_base = $0101
+    proc test_fill_stack
+    .var _fp = 0
+    .var mybuf = 2
+    fill.sp mybuf, 16
+    endproc
+    )";
+    CHECK(assembleSucceeded(code), "FILL.SP mybuf, 16 (stack-relative dest) succeeds");
+}
+
+// --- MOVE: register-pair operands, stack-relative, various forms ---
+
+void test_move_reg_ax_valid() {
+    CHECK(assembleSucceeded("move .AX, $2000, 64"), "MOVE .AX, $2000, 64 (register dest) succeeds");
+}
+void test_move_reg_axyz_valid() {
+    CHECK(assembleSucceeded("move .AXYZ, $2000, 32"), "MOVE .AXYZ, $2000, 32 (32-bit register dest) succeeds");
+}
+void test_move_reg_src_valid() {
+    CHECK(assembleSucceeded("move $1000, .AX, 64"), "MOVE $1000, .AX, 64 (register src) succeeds");
+}
+void test_move_large_addr_valid() {
+    CHECK(assembleSucceeded("move $80000, $90000, 1024"), "MOVE $80000, $90000, 1024 (32-bit addresses) succeeds");
+}
+void test_move_stack_rel_valid() {
+    const char* code = R"(
+    __sp_base = $0101
+    proc test_move_stack
+    .var _fp = 0
+    .var src = 2
+    .var dst = 4
+    move.sp src, 8
+    endproc
+    )";
+    CHECK(assembleSucceeded(code), "MOVE.SP src, 8 (stack-relative) succeeds");
+}
+
+// --- Signed math: mod.s16, constant-negative operands ---
+
+void test_mod_s16_valid() {
+    CHECK(assembleSucceeded("mod.s16 .AX, #7"), "MOD.S16 .AX, #7 (signed modulo) succeeds");
+}
+void test_mul_s16_neg_const() {
+    CHECK(assembleSucceeded("mul.s16 .AX, #-10"), "MUL.S16 .AX, #-10 (negative constant) succeeds");
+}
+void test_div_s16_neg_const() {
+    CHECK(assembleSucceeded("div.s16 .AX, #-5"), "DIV.S16 .AX, #-5 (negative constant) succeeds");
+}
+
+// --- Division: memory source (non-immediate), register-pair results ---
+
+void test_div8_reg_src_valid() {
+    CHECK(assembleSucceeded("div.8 .A, .X"), "DIV.8 .A, .X (register divisor) succeeds");
+}
+void test_div16_reg_src_valid() {
+    CHECK(assembleSucceeded("div.16 .AX, .AX"), "DIV.16 .AX, .AX (register divisor) succeeds");
+}
+void test_div16_mem_src_valid() {
+    CHECK(assembleSucceeded("div.16 .AX, $3000"), "DIV.16 .AX, $3000 (memory divisor) succeeds");
+}
+
+// --- Multiplication: memory source, various widths ---
+
+void test_mul8_reg_src_valid() {
+    CHECK(assembleSucceeded("mul.8 .A, .X"), "MUL.8 .A, .X (register multiplier) succeeds");
+}
+void test_mul16_mem_src_valid() {
+    CHECK(assembleSucceeded("mul.16 .AX, $3000"), "MUL.16 .AX, $3000 (memory multiplier) succeeds");
+}
+
+// --- Bitfield: more extract/insert addressing modes ---
+
+void test_bfext_wide_field() {
+    CHECK(assembleSucceeded("bfext A, #7, $1000"), "BFEXT A, #7, $1000 (wide field) succeeds");
+}
+void test_bfins_wide_field() {
+    CHECK(assembleSucceeded("bfins A, #7, #$7F, $2000"), "BFINS A, #7, #$7F, $2000 (wide field) succeeds");
+}
+void test_bfext16_wide() {
+    CHECK(assembleSucceeded("bfext16 A, #12, $3000"), "BFEXT16 A, #12, $3000 (16-bit wide) succeeds");
+}
+void test_bfins16_ind_valid() {
+    CHECK(assembleSucceeded("bfins16.ind A, #4, #$0F, $20"), "BFINS16.IND (indirect 16-bit) succeeds");
+}
+
+// --- Stack inc/dec: frame-relative (with .local) ---
+
+void test_inw_frame_valid() {
+    const char* code = R"(
+    proc test_inw_frame
+    .var _fp = 0
+    phw #0
+    .local myvar = 0
+    inw myvar, s
+    endproc
+    )";
+    CHECK(assembleSucceeded(code), "INW frame-relative (via .local) succeeds");
+}
+void test_dew_frame_valid() {
+    const char* code = R"(
+    proc test_dew_frame
+    .var _fp = 0
+    phw #0
+    .local myvar = 0
+    dew myvar, s
+    endproc
+    )";
+    CHECK(assembleSucceeded(code), "DEW frame-relative (via .local) succeeds");
+}
+
+// --- Push/Pop: additional register sizes ---
+
+void test_push_y_valid() {
+    CHECK(assembleSucceeded("push Y"), "PUSH Y succeeds");
+}
+void test_push_z_valid() {
+    CHECK(assembleSucceeded("push Z"), "PUSH Z succeeds");
+}
+void test_pop_y_valid() {
+    CHECK(assembleSucceeded("pop Y"), "POP Y succeeds");
+}
+void test_pop_z_valid() {
+    CHECK(assembleSucceeded("pop Z"), "POP Z succeeds");
+}
+void test_push_axyz_valid() {
+    CHECK(assembleSucceeded("push .AXYZ"), "PUSH .AXYZ (32-bit) succeeds");
+}
+
+// --- Neg/Not 16-bit with memory addresses ---
+
+void test_neg16_zp_valid() {
+    CHECK(assembleSucceeded("neg.16 $20"), "NEG.16 $20 (zero page) succeeds");
+}
+void test_not16_zp_valid() {
+    CHECK(assembleSucceeded("not.16 $20"), "NOT.16 $20 (zero page) succeeds");
+}
+
+// --- CMP.16 with immediate ---
+
+void test_cmp16_imm_valid() {
+    CHECK(assembleSucceeded("cmp.16 .AX, #$1234"), "CMP.16 .AX, #$1234 (immediate) succeeds");
+}
+
+// --- CMP.S16 with immediate ---
+
+void test_cmp_s16_imm_valid() {
+    CHECK(assembleSucceeded("cmp.s16 .AX, #100"), "CMP.S16 .AX, #100 (immediate) succeeds");
+}
+
+// --- LDW/STW: stack-relative and memory ---
+
+void test_ldax_mem_valid() {
+    CHECK(assembleSucceeded("ldax $3000"), "LDAX $3000 (memory word load) succeeds");
+}
+void test_stax_stack_valid() {
+    const char* code = R"(
+    proc test_stax_stack
+    .var _fp = 0
+    .var myvar = 2
+    stax myvar, s
+    endproc
+    )";
+    CHECK(assembleSucceeded(code), "STAX myvar, s (stack word store) succeeds");
+}
+void test_ldax_stack_valid() {
+    const char* code = R"(
+    proc test_ldax_stack
+    .var _fp = 0
+    .var myvar = 2
+    ldax myvar, s
+    endproc
+    )";
+    CHECK(assembleSucceeded(code), "LDAX myvar, s (stack word load) succeeds");
+}
+
+// --- 16-bit add/sub with immediate operand ---
+
+void test_add16_ax_imm_valid() {
+    CHECK(assembleSucceeded("add.16 .AX, #$0100"), "ADD.16 .AX, #$0100 (imm) succeeds");
+}
+void test_sub16_ax_imm_valid() {
+    CHECK(assembleSucceeded("sub.16 .AX, #$0100"), "SUB.16 .AX, #$0100 (imm) succeeds");
+}
+void test_add16_ax_mem_valid() {
+    CHECK(assembleSucceeded("add.16 .AX, $3000"), "ADD.16 .AX, $3000 (memory) succeeds");
+}
+void test_sub16_ax_mem_valid() {
+    CHECK(assembleSucceeded("sub.16 .AX, $3000"), "SUB.16 .AX, $3000 (memory) succeeds");
+}
+
+// --- 32-bit operations with memory operands ---
+
+void test_add32_mem_valid() {
+    CHECK(assembleSucceeded("add.32 .Q, $3000"), "ADD.32 .Q, $3000 (memory) succeeds");
+}
+void test_sub32_mem_valid() {
+    CHECK(assembleSucceeded("sub.32 .Q, $3000"), "SUB.32 .Q, $3000 (memory) succeeds");
+}
+void test_and32_valid() {
+    CHECK(assembleSucceeded("and.32 .Q, #$FF00FF00"), "AND.32 .Q, #$FF00FF00 succeeds");
+}
+void test_ora32_valid() {
+    CHECK(assembleSucceeded("ora.32 .Q, #$00FF00FF"), "ORA.32 .Q, #$00FF00FF succeeds");
+}
+void test_eor32_valid() {
+    CHECK(assembleSucceeded("eor.32 .Q, #$FFFFFFFF"), "EOR.32 .Q, #$FFFFFFFF succeeds");
+}
+void test_cmp32_imm_valid() {
+    CHECK(assembleSucceeded("cmp.32 .Q, #1000000"), "CMP.32 .Q, #1000000 (immediate) succeeds");
+}
+void test_cmp32_mem_valid() {
+    CHECK(assembleSucceeded("cmp.32 .Q, $3000"), "CMP.32 .Q, $3000 (memory) succeeds");
+}
+void test_cmp_s32_valid() {
+    CHECK(assembleSucceeded("cmp.s32 .Q, #-100"), "CMP.S32 .Q, #-100 (signed) succeeds");
+}
+void test_neg32_valid() {
+    CHECK(assembleSucceeded("neg.32 .Q"), "NEG.32 .Q succeeds");
+}
+void test_not32_valid() {
+    CHECK(assembleSucceeded("not.32 .Q"), "NOT.32 .Q succeeds");
+}
+void test_abs32_valid() {
+    CHECK(assembleSucceeded("abs.32 .Q"), "ABS.32 .Q succeeds");
+}
+void test_lsl32_valid() {
+    CHECK(assembleSucceeded("lsl.32 .Q"), "LSL.32 .Q succeeds");
+}
+void test_lsr32_valid() {
+    CHECK(assembleSucceeded("lsr.32 .Q"), "LSR.32 .Q succeeds");
+}
+void test_asr32_valid() {
+    CHECK(assembleSucceeded("asr.32 .Q"), "ASR.32 .Q succeeds");
+}
+void test_rol32_valid() {
+    CHECK(assembleSucceeded("rol.32 .Q"), "ROL.32 .Q succeeds");
+}
+void test_ror32_valid() {
+    CHECK(assembleSucceeded("ror.32 .Q"), "ROR.32 .Q succeeds");
+}
+
 int main() {
     printf("Extended Simulated Ops Validation Tests\n");
     printf("========================================\n\n");
@@ -1002,6 +1275,94 @@ int main() {
     test_ldw_ax_imm();
     test_stw_ax_mem();
     test_ldw_xy_imm();
+
+    // --- Round 2: Deeper code path coverage ---
+
+    // FILL: register-pair destinations and widths
+    test_fill_reg_ax_valid();
+    test_fill_reg_axy_valid();
+    test_fill_reg_axyz_valid();
+    test_fill_reg_xy_valid();
+    test_fill_reg_axz_valid();
+    test_fill_reg_ayz_valid();
+    test_fill_reg_len_valid();
+    test_fill_large_addr_valid();
+    test_fill_stack_rel_valid();
+
+    // MOVE: register-pair and stack-relative
+    test_move_reg_ax_valid();
+    test_move_reg_axyz_valid();
+    test_move_reg_src_valid();
+    test_move_large_addr_valid();
+    test_move_stack_rel_valid();
+
+    // Signed math: mod, negative constants
+    test_mod_s16_valid();
+    test_mul_s16_neg_const();
+    test_div_s16_neg_const();
+
+    // Division: register/memory sources
+    test_div8_reg_src_valid();
+    test_div16_reg_src_valid();
+    test_div16_mem_src_valid();
+
+    // Multiplication: register/memory sources
+    test_mul8_reg_src_valid();
+    test_mul16_mem_src_valid();
+
+    // Bitfield: wider fields, 16-bit indirect
+    test_bfext_wide_field();
+    test_bfins_wide_field();
+    test_bfext16_wide();
+    test_bfins16_ind_valid();
+
+    // Stack inc/dec: frame-relative
+    test_inw_frame_valid();
+    test_dew_frame_valid();
+
+    // Push/Pop: additional registers
+    test_push_y_valid();
+    test_push_z_valid();
+    test_pop_y_valid();
+    test_pop_z_valid();
+    test_push_axyz_valid();
+
+    // Neg/Not 16-bit zero page
+    test_neg16_zp_valid();
+    test_not16_zp_valid();
+
+    // CMP.16 / CMP.S16 with immediate
+    test_cmp16_imm_valid();
+    test_cmp_s16_imm_valid();
+
+    // LDW/STW: memory and stack
+    test_ldax_mem_valid();
+    test_stax_stack_valid();
+    test_ldax_stack_valid();
+
+    // 16-bit add/sub modes
+    test_add16_ax_imm_valid();
+    test_sub16_ax_imm_valid();
+    test_add16_ax_mem_valid();
+    test_sub16_ax_mem_valid();
+
+    // 32-bit operations
+    test_add32_mem_valid();
+    test_sub32_mem_valid();
+    test_and32_valid();
+    test_ora32_valid();
+    test_eor32_valid();
+    test_cmp32_imm_valid();
+    test_cmp32_mem_valid();
+    test_cmp_s32_valid();
+    test_neg32_valid();
+    test_not32_valid();
+    test_abs32_valid();
+    test_lsl32_valid();
+    test_lsr32_valid();
+    test_asr32_valid();
+    test_rol32_valid();
+    test_ror32_valid();
 
     printf("\nExtended Simulated Ops Validation Tests: %d passed, %d failed\n", tests_passed, tests_failed);
     return tests_failed > 0 ? 1 : 0;
