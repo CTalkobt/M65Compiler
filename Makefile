@@ -1,6 +1,7 @@
 CX = g++
 GIT_HASH := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-CXXFLAGS = -std=c++17 -Wall -Wextra -Iinclude -MMD -MP -DGIT_HASH='"$(GIT_HASH)"'
+EXTRA_CXXFLAGS ?=
+CXXFLAGS = -std=c++17 -Wall -Wextra -Iinclude -MMD -MP -DGIT_HASH='"$(GIT_HASH)"' $(EXTRA_CXXFLAGS)
 SRC_DIR = src/main
 OBJ_DIR = obj
 BIN_DIR = bin
@@ -31,7 +32,7 @@ LIBDIR ?= $(PREFIX)/lib/cc45
 INCDIR ?= $(PREFIX)/include/cc45
 MANDIR ?= $(PREFIX)/share/man/man1
 
-.PHONY: all clean test man test-mmemu test-zpcall lib install install_local uninstall cppcheck
+.PHONY: all clean test man test-mmemu test-zpcall lib install install_local uninstall cppcheck coverage coverage-build coverage-clean coverage-report
 
 cppcheck:
 	cppcheck --enable=warning,performance,portability --inline-suppr -I include/ src/main/
@@ -427,6 +428,46 @@ $(OBJ_DIR)/test_segment_emission.o: src/test/test_segment_emission.cpp
 
 test-segment-emission: $(TEST_SEGMENT_EMISSION_TARGET) all
 	@$(TEST_SEGMENT_EMISSION_TARGET)
+
+# --- Code coverage ---
+# Usage: make coverage
+# Requires: gcov (always available with g++), gcovr (pip install gcovr) for reports
+# Output: build/coverage/ (HTML report), console summary
+COV_DIR = build/coverage
+
+coverage-clean:
+	@rm -rf $(COV_DIR) $(OBJ_DIR)/*.gcda $(OBJ_DIR)/*.gcno
+
+coverage-build: coverage-clean
+	@echo "Building with coverage instrumentation..."
+	@$(MAKE) clean
+	@EXTRA_CXXFLAGS=--coverage $(MAKE) all lib
+
+coverage-report:
+	@mkdir -p $(COV_DIR)
+	@if command -v gcovr >/dev/null 2>&1; then \
+		echo "Generating coverage report..."; \
+		gcovr --root . --filter 'src/main/' \
+			--exclude '.*_main\.cpp' \
+			--print-summary \
+			--html-details $(COV_DIR)/index.html \
+			--txt $(COV_DIR)/summary.txt \
+			$(OBJ_DIR)/; \
+		echo ""; \
+		echo "HTML report: $(COV_DIR)/index.html"; \
+		echo "Text summary: $(COV_DIR)/summary.txt"; \
+	else \
+		echo "gcovr not found — install with: pip install gcovr"; \
+		echo "Falling back to raw gcov..."; \
+		cd $(OBJ_DIR) && gcov *.gcda 2>/dev/null | grep -A1 "^File.*src/main" | head -40; \
+	fi
+
+coverage: coverage-build
+	@echo ""
+	@echo "Running test suite for coverage..."
+	@EXTRA_CXXFLAGS=--coverage $(MAKE) test
+	@echo ""
+	@$(MAKE) coverage-report
 
 install: all lib
 	install -d $(DESTDIR)$(BINDIR)
