@@ -1751,6 +1751,16 @@ void IRBuilder::visit(AsmStatement& node) {
         module_.saveZP = false;
         return;
     }
+    // Scan inline asm for parameter/local references (@_p_name, @_l_name)
+    // to suppress unused-variable warnings
+    for (const auto& [name, vregOp] : locals_) {
+        std::string pRef = "@_p_" + name;
+        std::string lRef = "@_l_" + name;
+        if (node.code.find(pRef) != std::string::npos ||
+            node.code.find(lRef) != std::string::npos) {
+            usedVregs_.insert(vregOp.vregId);
+        }
+    }
     ir::Inst inst;
     inst.op = ir::Op::ASM_INLINE;
     inst.asmText = node.code;
