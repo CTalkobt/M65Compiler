@@ -232,30 +232,14 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
 
         // --- ZP Save ---
         if (mod.saveZP) {
-            emitComment("Save ZP $08-$FF to stack");
-            emit("tsx"); // Save stack pointer
-            emit("sta __zp_scratch4");
-            emit("stx __zp_scratch4+1");
-
-            emit("ldx #61"); 
-            emitLabel("@__zp_save_loop_1");
-            emit("lda $08,x"); emit("pha");
-            emit("dex"); emit("bpl @__zp_save_loop_1");
-
-            emit("ldx #61"); 
-            emitLabel("@__zp_save_loop_2");
-            emit("lda $46,x"); emit("pha");
-            emit("dex"); emit("bpl @__zp_save_loop_2");
-
-            emit("ldx #61"); 
-            emitLabel("@__zp_save_loop_3");
-            emit("lda $84,x"); emit("pha");
-            emit("dex"); emit("bpl @__zp_save_loop_3");
-
-            emit("ldx #61"); 
-            emitLabel("@__zp_save_loop_4");
-            emit("lda $C2,x"); emit("pha");
-            emit("dex"); emit("bpl @__zp_save_loop_4");
+            emitComment("Save ZP $08-$FF to BSS buffer");
+            emit("ldx #0");
+            emitLabel("@__zp_save_loop");
+            emit("lda $08,x");
+            emit("sta __zp_save_buf,x");
+            emit("inx");
+            emit("cpx #248");
+            emit("bne @__zp_save_loop");
         }
 
         if (hasMain) {
@@ -263,33 +247,17 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         }
         
         // Halt or exit
-        emitLabel("__halt");
         if (mod.saveZP) {
-            emitComment("Restore ZP $08-$FF from stack");
-            emit("ldx #0"); 
-            emitLabel("@__zp_restore_loop_4");
-            emit("pla"); emit("sta $C2,x");
-            emit("inx"); emit("cpx #62"); emit("bne @__zp_restore_loop_4");
-
+            emitComment("Restore ZP $08-$FF from BSS buffer");
             emit("ldx #0");
-            emitLabel("@__zp_restore_loop_3");
-            emit("pla"); emit("sta $84,x");
-            emit("inx"); emit("cpx #62"); emit("bne @__zp_restore_loop_3");
-
-            emit("ldx #0");
-            emitLabel("@__zp_restore_loop_2");
-            emit("pla"); emit("sta $46,x");
-            emit("inx"); emit("cpx #62"); emit("bne @__zp_restore_loop_2");
-
-            emit("ldx #0");
-            emitLabel("@__zp_restore_loop_1");
-            emit("pla"); emit("sta $08,x");
-            emit("inx"); emit("cpx #62"); emit("bne @__zp_restore_loop_1");
-
-            emit("lda __zp_scratch4"); // Restore stack pointer
-            emit("ldx __zp_scratch4+1");
-            emit("txs");
+            emitLabel("@__zp_restore_loop");
+            emit("lda __zp_save_buf,x");
+            emit("sta $08,x");
+            emit("inx");
+            emit("cpx #248");
+            emit("bne @__zp_restore_loop");
         }
+        emitLabel("__halt");
         emit("jmp __halt");
     }
 
@@ -304,7 +272,6 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     emit("__zp_scratch3 = " + hex8(zeroPageStart_ + 4));
     emit("__zp_scratch4 = " + hex8(zeroPageStart_ + 6));
     emitBlank();
-
 
     // Emit extern declarations
     for (const auto& ext : mod.externs) {
@@ -322,6 +289,13 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
 
     // Emit string data
     emitStrings(mod);
+
+    // Emit ZP save buffer at end of program (BSS)
+    if (mod.saveZP) {
+        emitBlank();
+        emitLabel("__zp_save_buf");
+        emit(".res 248");
+    }
 }
 
 void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {

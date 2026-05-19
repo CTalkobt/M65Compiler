@@ -172,6 +172,16 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
                             if (stmt->instr.mode == AddressingMode::BASE_PAGE || stmt->instr.mode == AddressingMode::ABSOLUTE) resolvedMode = (fitsIn8 && !forceAbs) ? AddressingMode::BASE_PAGE : AddressingMode::ABSOLUTE;
                             else if (stmt->instr.mode == AddressingMode::BASE_PAGE_X || stmt->instr.mode == AddressingMode::ABSOLUTE_X) resolvedMode = (fitsIn8 && !forceAbs) ? AddressingMode::BASE_PAGE_X : AddressingMode::ABSOLUTE_X;
                             else if (stmt->instr.mode == AddressingMode::BASE_PAGE_Y || stmt->instr.mode == AddressingMode::ABSOLUTE_Y) resolvedMode = (fitsIn8 && !forceAbs) ? AddressingMode::BASE_PAGE_Y : AddressingMode::ABSOLUTE_Y;
+                            // Promote base-page to absolute if instruction lacks base-page mode
+                            const auto& opMap = AssemblerOpcodeDatabase::getOpcodeMap();
+                            std::string lm = stmt->instr.mnemonic;
+                            std::transform(lm.begin(), lm.end(), lm.begin(), ::tolower);
+                            if (resolvedMode == AddressingMode::BASE_PAGE && opMap.find({lm, AddressingMode::BASE_PAGE}) == opMap.end())
+                                resolvedMode = AddressingMode::ABSOLUTE;
+                            else if (resolvedMode == AddressingMode::BASE_PAGE_X && opMap.find({lm, AddressingMode::BASE_PAGE_X}) == opMap.end())
+                                resolvedMode = AddressingMode::ABSOLUTE_X;
+                            else if (resolvedMode == AddressingMode::BASE_PAGE_Y && opMap.find({lm, AddressingMode::BASE_PAGE_Y}) == opMap.end())
+                                resolvedMode = AddressingMode::ABSOLUTE_Y;
                         }
                         bool isQuad = (stmt->instr.mnemonic.size() > 1 && stmt->instr.mnemonic.back() == 'q' && stmt->instr.mnemonic != "beq" && stmt->instr.mnemonic != "bne" && stmt->instr.mnemonic != "bra" && stmt->instr.mnemonic != "bsr");
                         if (isQuad) { e.emitByte(0x42); e.emitByte(0x42); }

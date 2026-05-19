@@ -754,9 +754,9 @@ void AssemblerSimulatedOps::emitABS16Code(AssemblerParser* parser, M65Emitter& e
 }
 
 void AssemblerSimulatedOps::emitChkZeroCode(AssemblerParser* parser, M65Emitter& e, bool is16, bool isInverse, int, const std::string&) {
-    if (is16) { e.cmp_imm(0); e.bne(0x03); e.txa(); } else e.cmp_imm(0);
-    if (isInverse) { e.bne(0x03); e.lda_imm(0); e.bra(0x02); e.lda_imm(1); }
-    else { e.beq(0x03); e.lda_imm(0); e.bra(0x02); e.lda_imm(1); }
+    if (is16) { e.cmp_imm(0); e.bne(0x01); e.txa(); } else e.cmp_imm(0);
+    if (isInverse) { e.bne(0x04); e.lda_imm(0); e.bra(0x02); e.lda_imm(1); }
+    else { e.beq(0x04); e.lda_imm(0); e.bra(0x02); e.lda_imm(1); }
 }
 
 void AssemblerSimulatedOps::emitBranch16Code(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string&) {
@@ -775,7 +775,7 @@ void AssemblerSimulatedOps::emitSelectCode(AssemblerParser* parser, M65Emitter& 
     if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) idx++;
     auto val2Ast = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
     if (!val1Ast || !val2Ast) return;
-    e.bne(0x03); e.lda_imm(val2Ast->getValue(parser)); e.bra(0x02); e.lda_imm(val1Ast->getValue(parser));
+    e.bne(0x04); e.lda_imm(val2Ast->getValue(parser)); e.bra(0x02); e.lda_imm(val1Ast->getValue(parser));
 }
 
 // Helper: compute effective address of a stack variable into AX.

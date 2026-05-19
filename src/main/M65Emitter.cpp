@@ -239,7 +239,7 @@ void M65Emitter::row_abs(uint16_t addr) { emitInstruction("row", AddressingMode:
 void M65Emitter::lda_zp(uint8_t addr) { emitInstruction("lda", AddressingMode::BASE_PAGE, addr, true); }
 void M65Emitter::ldx_zp(uint8_t addr) { emitInstruction("ldx", AddressingMode::BASE_PAGE, addr, true); }
 void M65Emitter::ldy_zp(uint8_t addr) { emitInstruction("ldy", AddressingMode::BASE_PAGE, addr, true); }
-void M65Emitter::ldz_zp(uint8_t addr) { emitInstruction("ldz", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::ldz_zp(uint8_t addr) { emitInstruction("ldz", AddressingMode::ABSOLUTE, addr, true); }
 void M65Emitter::sta_zp(uint8_t addr) { emitInstruction("sta", AddressingMode::BASE_PAGE, addr, true); }
 void M65Emitter::stx_zp(uint8_t addr) { emitInstruction("stx", AddressingMode::BASE_PAGE, addr, true); }
 void M65Emitter::sty_zp(uint8_t addr) { emitInstruction("sty", AddressingMode::BASE_PAGE, addr, true); }
