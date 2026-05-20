@@ -641,41 +641,61 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         }
     }
 
-    // Param .var overrides: proc assigns offsets at _fp+2, but _fp=0 and
-    // the physical frame hasn't been tracked via _fp. Override with correct
-    // offsets past the frame + return address, in reverse order (matching proc).
-    {
-        int totalParamSize = 0;
-        for (size_t i = 0; i < fn.paramTypes.size(); i++) {
-            int ps = ir::typeSize(fn.paramTypes[i]);
-            if (ps < 2) ps = 2;
-            totalParamSize += ps;
-        }
-        int pOff = localFrameSize + 2; // past frame + return address
+    // Param .var overrides
+    if (!zpCallMode_) {
+        // Stack convention: offsets past frame + return address
+        int pOff = localFrameSize + 2;
         for (int i = (int)fn.paramTypes.size() - 1; i >= 0; i--) {
             int ps = ir::typeSize(fn.paramTypes[i]);
             if (ps < 2) ps = 2;
             std::string pName = (i < (int)fn.paramNames.size() && !fn.paramNames[i].empty())
                 ? fn.paramNames[i] : std::to_string(i);
-            // Must match proc argument prefix
             emit(".var @_p_" + pName + " = " + std::to_string(pOff));
             pOff += ps;
+        }
+    } else {
+        // ZP call convention: params in ZP block past scratch area
+        auto hex8 = [](uint32_t val) {
+            std::stringstream ss;
+            ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (val & 0xFF);
+            return ss.str();
+        };
+        int zpOff = (int)zeroPageStart_ + 8;
+        for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+            int ps = ir::typeSize(fn.paramTypes[i]);
+            if (ps < 2) ps = 2;
+            std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
+                ? fn.paramNames[i] : std::to_string(i);
+            emit(".var @_p_" + pName + " = " + hex8(zpOff));
+            zpOff += ps;
         }
     }
 
     emitBlank();
 
-    // Copy params from stack into vReg frame slots
-    for (size_t i = 0; i < fn.paramTypes.size(); i++) {
-        std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
-            ? fn.paramNames[i] : std::to_string(i);
-        // Use @_p_ prefix
-        if (fn.paramTypes[i] == ir::Type::I32) {
-            emit("ldaxyz.fp @_p_" + pName);
-        } else {
-            emit("ldax.fp @_p_" + pName);
+    // Copy params into vReg frame slots
+    if (!zpCallMode_) {
+        // Stack convention: params are on the stack, copy to ZP temps
+        for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+            std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
+                ? fn.paramNames[i] : std::to_string(i);
+            if (fn.paramTypes[i] == ir::Type::I32) {
+                emit("ldaxyz.fp @_p_" + pName);
+            } else {
+                emit("ldax.fp @_p_" + pName);
+            }
+            storeVreg((uint32_t)i);
         }
-        storeVreg((uint32_t)i);
+    } else {
+        // ZP call convention: params already in ZP block, copy to vReg slots
+        for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+            std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
+                ? fn.paramNames[i] : std::to_string(i);
+            // ZP params are at $10 + offset; load from the .var @_p_ location
+            emit("lda @_p_" + pName);
+            emit("ldx @_p_" + pName + "+1");
+            storeVreg((uint32_t)i);
+        }
     }
 
     // Emit blocks (with instruction index tracking for allocator queries)

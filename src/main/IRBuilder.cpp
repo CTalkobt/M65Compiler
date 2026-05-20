@@ -491,8 +491,42 @@ void IRBuilder::visit(VariableDeclaration& node) {
                     store.loc = loc(node);
                     emit(store);
                 }
+            } else if (structs_.count(getAggregateName(node.type))) {
+                // Struct initializer list — store each member at its offset
+                auto& si = structs_[getAggregateName(node.type)];
+                auto baseAddr = allocVreg(ir::Type::PTR);
+                ir::Inst addrInst;
+                addrInst.op = ir::Op::ADDR_LOCAL;
+                addrInst.dest = baseAddr;
+                addrInst.resultType = ir::Type::PTR;
+                addrInst.src1 = ir::Operand::vreg(vreg.vregId, ir::Type::PTR);
+                addrInst.loc = loc(node);
+                emit(addrInst);
+                for (size_t i = 0; i < initList->elements.size() && i < si.memberOrder.size(); i++) {
+                    initList->elements[i]->accept(*this);
+                    auto val = lastValue_;
+                    auto& mi = si.members[si.memberOrder[i]];
+                    ir::Type mt = mapType(mi.type, mi.pointerLevel);
+                    auto elemAddr = allocVreg(ir::Type::PTR);
+                    ir::Inst add;
+                    add.op = ir::Op::ADD;
+                    add.dest = elemAddr;
+                    add.resultType = ir::Type::PTR;
+                    add.src1 = baseAddr;
+                    add.src2 = ir::Operand::imm(mi.offset, ir::Type::I16);
+                    add.loc = loc(node);
+                    emit(add);
+                    ir::Inst store;
+                    store.op = ir::Op::STORE;
+                    store.resultType = mt;
+                    store.src1 = val;
+                    store.src2 = elemAddr;
+                    store.loc = loc(node);
+                    emit(store);
+                }
+                currentFunc_->memoryVregs.insert(vreg.vregId);
             } else {
-                // Non-array initializer list (struct) — use last element
+                // Non-struct initializer list — evaluate and store last value
                 node.initializer->accept(*this);
                 ir::Inst store;
                 store.op = ir::Op::STORE;
@@ -502,6 +536,41 @@ void IRBuilder::visit(VariableDeclaration& node) {
                 store.loc = loc(node);
                 emit(store);
             }
+        } else if (auto* cl = dynamic_cast<CompoundLiteral*>(node.initializer.get());
+                   cl && cl->initializer && structs_.count(getAggregateName(node.type))) {
+            // Struct compound literal — store members directly into variable
+            auto& si = structs_[getAggregateName(node.type)];
+            auto baseAddr = allocVreg(ir::Type::PTR);
+            ir::Inst addrInst;
+            addrInst.op = ir::Op::ADDR_LOCAL;
+            addrInst.dest = baseAddr;
+            addrInst.resultType = ir::Type::PTR;
+            addrInst.src1 = ir::Operand::vreg(vreg.vregId, ir::Type::PTR);
+            addrInst.loc = loc(node);
+            emit(addrInst);
+            for (size_t i = 0; i < cl->initializer->elements.size() && i < si.memberOrder.size(); i++) {
+                cl->initializer->elements[i]->accept(*this);
+                auto val = lastValue_;
+                auto& mi = si.members[si.memberOrder[i]];
+                ir::Type mt = mapType(mi.type, mi.pointerLevel);
+                auto elemAddr = allocVreg(ir::Type::PTR);
+                ir::Inst add;
+                add.op = ir::Op::ADD;
+                add.dest = elemAddr;
+                add.resultType = ir::Type::PTR;
+                add.src1 = baseAddr;
+                add.src2 = ir::Operand::imm(mi.offset, ir::Type::I16);
+                add.loc = loc(node);
+                emit(add);
+                ir::Inst store;
+                store.op = ir::Op::STORE;
+                store.resultType = mt;
+                store.src1 = val;
+                store.src2 = elemAddr;
+                store.loc = loc(node);
+                emit(store);
+            }
+            currentFunc_->memoryVregs.insert(vreg.vregId);
         } else {
             // Simple scalar initializer
             node.initializer->accept(*this);
