@@ -1454,9 +1454,10 @@ void IRBuilder::visit(ArrayAccess& node) {
 }
 
 void IRBuilder::visit(MemberAccess& node) {
-    // Evaluate struct expression as an address
+    // For p->member: load the pointer value (not address-of)
+    // For s.member: compute address of the struct variable
     bool oldAddrMode = computeAddressOnly_;
-    computeAddressOnly_ = true;
+    computeAddressOnly_ = !node.isArrow;
     node.structExpr->accept(*this);
     auto base = lastValue_;
     computeAddressOnly_ = oldAddrMode;
