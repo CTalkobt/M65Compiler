@@ -541,6 +541,11 @@ IRCodeGen::FuncClobbers IRCodeGen::computeFuncClobbers(const ir::Function& fn) {
                     fc.flags |= C | N | ZF | V;
                     break;
 
+                case ir::Op::VA_START:
+                    fc.regs |= A | X;
+                    fc.flags |= C | N | ZF | V;
+                    break;
+
                 case ir::Op::SWITCH:
                     fc.regs |= A | X;
                     fc.flags |= C | N | ZF;
@@ -643,12 +648,13 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     // Param .var overrides
     if (!zpCallMode_) {
-        // Stack convention: offsets past frame + return address
+        // Stack convention: args pushed right-to-left, so first param is
+        // closest to SP (smallest offset past frame + return address).
         int pOff = localFrameSize + 2;
-        for (int i = (int)fn.paramTypes.size() - 1; i >= 0; i--) {
+        for (size_t i = 0; i < fn.paramTypes.size(); i++) {
             int ps = ir::typeSize(fn.paramTypes[i]);
             if (ps < 2) ps = 2;
-            std::string pName = (i < (int)fn.paramNames.size() && !fn.paramNames[i].empty())
+            std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
                 ? fn.paramNames[i] : std::to_string(i);
             emit(".var @_p_" + pName + " = " + std::to_string(pOff));
             pOff += ps;
@@ -1219,19 +1225,44 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     zpOff += ir::typeSize(arg.type);
                 }
             } else {
-                // STACK convention: Push arguments left-to-right.
+                // STACK convention: Push arguments right-to-left (C convention).
+                // Phase 1: Load all args into ZP temp slots BEFORE any pushes,
+                // so frame-relative loads aren't affected by SP/fp changes.
+                // Phase 2: Push from ZP temps right-to-left.
                 int argBytes = 0;
-                for (const auto& arg : inst.args) {
+                int nArgs = (int)inst.args.size();
+                auto zpSlotAddr = [&](int idx, int byteOff) {
+                    std::stringstream ss;
+                    ss << "$" << std::hex << std::uppercase << std::setfill('0')
+                       << std::setw(2) << ((int)zeroPageStart_ + 0x20 + idx * 4 + byteOff);
+                    return ss.str();
+                };
+                // Phase 1: load all args (right-to-left) into ZP scratch slots
+                for (int ai = nArgs - 1; ai >= 0; ai--) {
+                    const auto& arg = inst.args[ai];
                     loadOperand(arg);
-                    int ps = ir::typeSize(arg.type);
+                    int slot = nArgs - 1 - ai;
+                    emit("sta " + zpSlotAddr(slot, 0));
+                    emit("stx " + zpSlotAddr(slot, 1));
                     if (arg.type == ir::Type::I32) {
+                        emit("sty " + zpSlotAddr(slot, 2));
+                        emit("stz " + zpSlotAddr(slot, 3));
+                    }
+                }
+                // Phase 2: push from ZP slots (same order — already right-to-left)
+                for (int i = 0; i < nArgs; i++) {
+                    const auto& arg = inst.args[nArgs - 1 - i]; // original arg (to get type)
+                    int ps = ir::typeSize(arg.type);
+                    if (ps < 2) ps = 2;
+                    emit("lda " + zpSlotAddr(i, 0));
+                    emit("ldx " + zpSlotAddr(i, 1));
+                    if (arg.type == ir::Type::I32) {
+                        emit("ldy " + zpSlotAddr(i, 2));
+                        emit("ldz " + zpSlotAddr(i, 3));
                         emit("push .axyz");
-                    } else if (arg.type == ir::Type::I8) {
-                        emit("pha");
                     } else {
                         emit("push .ax");
                     }
-                    if (ps < 2) ps = 2; // stack slots are at least 2 bytes
                     argBytes += ps;
                     emit(".var _fp = _fp + " + std::to_string(ps));
                 }
@@ -1334,6 +1365,17 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
         case ir::Op::ASM_INLINE: {
             emit(inst.asmText);
+            break;
+        }
+
+        case ir::Op::VA_START: {
+            // Compute stack address past last named parameter
+            // asmText = last param name; leax.fp gives its stack address
+            std::string pName = inst.asmText;
+            emit("leax.fp @_p_" + pName);
+            // Add sizeof(param) to get past it to the first variadic arg
+            emit("add.16 .AX, #2");
+            if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
 

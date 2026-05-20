@@ -51,6 +51,7 @@ static const char* opName(Op op) {
         case Op::CALL_INDIRECT: return "call_indirect";
         case Op::CALL_VOID:    return "call_void";
         case Op::ASM_INLINE:   return "asm";
+        case Op::VA_START:     return "va_start";
         case Op::PHI:          return "phi";
         case Op::NOP:          return "nop";
     }
@@ -155,6 +156,10 @@ void Printer::print(std::ostream& out, const Inst& inst) {
 
         case Op::ASM_INLINE:
             out << "asm \"" << inst.asmText << "\"" << locComment << "\n";
+            return;
+
+        case Op::VA_START:
+            out << opName(inst.op) << " \"" << inst.asmText << "\"" << locComment << "\n";
             return;
 
         case Op::SWITCH:

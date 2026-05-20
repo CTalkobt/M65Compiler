@@ -1965,26 +1965,19 @@ void IRBuilder::visit(BuiltinVaStart& node) {
     node.ap->accept(*this);
     auto apAddr = lastValue_;
 
-    // Find the last named param to compute its address
-    auto paramIt = locals_.find(node.lastParamName);
-    ir::Operand lastParamAddr;
-    if (paramIt != locals_.end()) {
-        lastParamAddr = paramIt->second;
-    } else {
-        lastParamAddr = ir::Operand::imm(0, ir::Type::PTR);
-    }
-
-    // ap = &last_param + sizeof(last_param)
-    // For simplicity at IR level, emit as an opaque address computation
+    // Compute ap = address on stack past the last named parameter.
+    // Variadic args follow the named params on the stack. Use inline asm
+    // to compute the stack address via leax.fp @_p_<lastParam>, then add sizeof.
     auto dest = allocVreg(ir::Type::PTR);
-    ir::Inst inst;
-    inst.op = ir::Op::ADD;
-    inst.dest = dest;
-    inst.resultType = ir::Type::PTR;
-    inst.src1 = lastParamAddr;
-    inst.src2 = ir::Operand::imm(2, ir::Type::I16); // default param promotion size
-    inst.loc = loc(node);
-    emit(inst);
+    {
+        ir::Inst inst;
+        inst.op = ir::Op::VA_START;
+        inst.dest = dest;
+        inst.resultType = ir::Type::PTR;
+        inst.asmText = node.lastParamName;
+        inst.loc = loc(node);
+        emit(inst);
+    }
 
     // Store into ap
     ir::Inst store;

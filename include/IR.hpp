@@ -130,6 +130,7 @@ enum class Op : uint8_t {
 
     // Special
     ASM_INLINE,     // asm("...")
+    VA_START,       // %d = va_start(lastParamName) — compute stack addr past last named param
     PHI,            // %d = phi [<val1>, <label1>], [<val2>, <label2>], ...
     NOP,
 };
