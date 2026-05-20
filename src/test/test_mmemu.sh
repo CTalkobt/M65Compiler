@@ -565,14 +565,11 @@ else
     else
         OUTPUT=$(echo -e "load build/test/test_long_mmemu.prg\nsetpc \$2000\nstep 5000000\nm \$4000 12\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
-        # NOTE: cmp.s32 has a pre-existing encoding bug causing BRK at the
-        # signed comparison — only sizeof(long) and add_longs verified here.
-        # Full 32-bit comparison validation blocked by cmp.s32 fix (TODO).
-        if echo "$OUTPUT" | grep -q "4000: 04 C0"; then
+        if echo "$OUTPUT" | grep -q "4000: 04 C0 01 A0 2A A0"; then
             echo "SUCCESS: long type tests passed."
         else
             echo "FAIL: test_long_mmemu.c — long type validation failed."
-            echo "Expected 4000: 04 C0 ..."
+            echo "Expected 4000: 04 C0 01 A0 2A A0 ..."
             echo "Actual output:"
             echo "$OUTPUT" | grep "4000:"
             failed=$((failed + 1))

@@ -633,6 +633,7 @@ size_t M65Emitter::emitBranchPlaceholder(uint8_t opcode) {
     size_t branchPos = binary->size();
     binary->push_back(opcode);
     binary->push_back(0x00);  // placeholder offset
+    currentAddress += 2;
     return branchPos;
 }
 

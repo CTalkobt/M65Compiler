@@ -2357,16 +2357,18 @@ void AssemblerSimulatedOps::emitCMP32Code(AssemblerParser* parser, M65Emitter& e
     std::string SRC1 = src1; if (!SRC1.empty() && SRC1[0] != '.') SRC1 = "." + SRC1;
     std::transform(SRC1.begin(), SRC1.end(), SRC1.begin(), ::toupper);
     if (SRC1 == ".AXYZ" || SRC1 == ".Q") {
+        // Compare high-to-low: Z (byte 3), Y (byte 2), X (byte 1), A (byte 0)
+        // Early exit on inequality — the flags from the first unequal byte determine the result
         size_t br0, br1, br2;
         if (isImmediate && src2Ast->isConstant(parser)) {
             uint32_t val = src2Ast->getValue(parser);
-            e.cmp_imm(val & 0xFF);
-            br0 = e.emitBranchPlaceholder(0xD0); // BNE
-            e.txa(); e.cmp_imm((val >> 8) & 0xFF);
-            br1 = e.emitBranchPlaceholder(0xD0); // BNE
-            e.tya(); e.cmp_imm((val >> 16) & 0xFF);
-            br2 = e.emitBranchPlaceholder(0xD0); // BNE
             e.tza(); e.cmp_imm((val >> 24) & 0xFF);
+            br0 = e.emitBranchPlaceholder(0xD0); // BNE
+            e.tya(); e.cmp_imm((val >> 16) & 0xFF);
+            br1 = e.emitBranchPlaceholder(0xD0); // BNE
+            e.txa(); e.cmp_imm((val >> 8) & 0xFF);
+            br2 = e.emitBranchPlaceholder(0xD0); // BNE
+            e.cmp_imm(val & 0xFF);
         } else {
             uint32_t addr = 0;
             try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
@@ -2376,15 +2378,14 @@ void AssemblerSimulatedOps::emitCMP32Code(AssemblerParser* parser, M65Emitter& e
                 Symbol* sym = parser->resolveSymbol(src, scopePrefix);
                 if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(src); } catch(...) { addr = 0; } }
             }
-            e.cmp_abs(addr);
-            br0 = e.emitBranchPlaceholder(0xD0); // BNE
-            e.txa(); e.cmp_abs(addr + 1);
-            br1 = e.emitBranchPlaceholder(0xD0); // BNE
-            e.tya(); e.cmp_abs(addr + 2);
-            br2 = e.emitBranchPlaceholder(0xD0); // BNE
             e.tza(); e.cmp_abs(addr + 3);
+            br0 = e.emitBranchPlaceholder(0xD0); // BNE
+            e.tya(); e.cmp_abs(addr + 2);
+            br1 = e.emitBranchPlaceholder(0xD0); // BNE
+            e.txa(); e.cmp_abs(addr + 1);
+            br2 = e.emitBranchPlaceholder(0xD0); // BNE
+            e.cmp_abs(addr);
         }
-        // All BNE branches target here (end of compare)
         e.patchBranchTarget(br0);
         e.patchBranchTarget(br1);
         e.patchBranchTarget(br2);
@@ -2404,16 +2405,17 @@ void AssemblerSimulatedOps::emitCMP_S32Code(AssemblerParser* parser, M65Emitter&
     std::string SRC1 = src1; if (!SRC1.empty() && SRC1[0] != '.') SRC1 = "." + SRC1;
     std::transform(SRC1.begin(), SRC1.end(), SRC1.begin(), ::toupper);
     if (SRC1 == ".AXYZ" || SRC1 == ".Q") {
+        // Signed compare high-to-low: Z^$80 (byte 3, sign-flipped), Y (byte 2), X (byte 1), A (byte 0)
         size_t br0, br1, br2;
         if (isImmediate && src2Ast->isConstant(parser)) {
             uint32_t val = src2Ast->getValue(parser);
-            e.cmp_imm(val & 0xFF);
-            br0 = e.emitBranchPlaceholder(0xD0); // BNE
-            e.txa(); e.cmp_imm((val >> 8) & 0xFF);
-            br1 = e.emitBranchPlaceholder(0xD0); // BNE
-            e.tya(); e.cmp_imm((val >> 16) & 0xFF);
-            br2 = e.emitBranchPlaceholder(0xD0); // BNE
             e.tza(); e.eor_imm(0x80); e.cmp_imm(((val >> 24) & 0xFF) ^ 0x80);
+            br0 = e.emitBranchPlaceholder(0xD0); // BNE
+            e.tya(); e.cmp_imm((val >> 16) & 0xFF);
+            br1 = e.emitBranchPlaceholder(0xD0); // BNE
+            e.txa(); e.cmp_imm((val >> 8) & 0xFF);
+            br2 = e.emitBranchPlaceholder(0xD0); // BNE
+            e.cmp_imm(val & 0xFF);
         } else {
             uint32_t addr = 0;
             try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
@@ -2423,14 +2425,14 @@ void AssemblerSimulatedOps::emitCMP_S32Code(AssemblerParser* parser, M65Emitter&
                 Symbol* sym = parser->resolveSymbol(src, scopePrefix);
                 if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(src); } catch(...) { addr = 0; } }
             }
-            e.cmp_abs(addr);
-            br0 = e.emitBranchPlaceholder(0xD0); // BNE
-            e.txa(); e.cmp_abs(addr + 1);
-            br1 = e.emitBranchPlaceholder(0xD0); // BNE
-            e.tya(); e.cmp_abs(addr + 2);
-            br2 = e.emitBranchPlaceholder(0xD0); // BNE
             e.tza(); e.eor_imm(0x80); e.sta_scratch();
             e.lda_abs(addr + 3); e.eor_imm(0x80); e.cmp_scratch();
+            br0 = e.emitBranchPlaceholder(0xD0); // BNE
+            e.tya(); e.cmp_abs(addr + 2);
+            br1 = e.emitBranchPlaceholder(0xD0); // BNE
+            e.txa(); e.cmp_abs(addr + 1);
+            br2 = e.emitBranchPlaceholder(0xD0); // BNE
+            e.cmp_abs(addr);
         }
         e.patchBranchTarget(br0);
         e.patchBranchTarget(br1);
