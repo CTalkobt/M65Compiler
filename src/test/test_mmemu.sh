@@ -587,9 +587,9 @@ else
     OUTPUT=$(echo -e "load build/test/test_32bit_ops.bin \$2000\nsetpc \$2000\nstep 500\nm \$4000 20\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
     # All results in one 16-byte dump line from $4000
-    EXPECTED_ALL="96 41 60 E0 76 C1 9F 9F 96 41 60 E0 F0 BF 9F 5F"
+    EXPECTED_ALL="E0 93 04 00 A0 86 01 00 E0 8F 03 00 60 79 FE FF"
 
-    if echo "$OUTPUT" | grep -qi "4000:.*96 41 60 E0 76 C1 9F 9F 96 41 60 E0 F0 BF 9F 5F"; then
+    if echo "$OUTPUT" | grep -qi "4000:.*E0 93 04 00 A0 86 01 00 E0 8F 03 00 60 79 FE FF"; then
         echo "SUCCESS: 32-bit ADD correct."
         echo "SUCCESS: 32-bit SUB correct."
         echo "SUCCESS: 32-bit ORA correct."

@@ -176,11 +176,16 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
                             const auto& opMap = AssemblerOpcodeDatabase::getOpcodeMap();
                             std::string lm = stmt->instr.mnemonic;
                             std::transform(lm.begin(), lm.end(), lm.begin(), ::tolower);
-                            if (resolvedMode == AddressingMode::BASE_PAGE && opMap.find({lm, AddressingMode::BASE_PAGE}) == opMap.end())
+                            // Strip Q suffix for quad instructions (adcq→adc) to match opcode map
+                            std::string lookupM = lm;
+                            if (lookupM.size() > 1 && lookupM.back() == 'q' && lookupM != "ldq" && lookupM != "stq"
+                                && lookupM.substr(0,3) != "beq" && lookupM.substr(0,3) != "bne" && lookupM.substr(0,3) != "bra" && lookupM.substr(0,3) != "bsr")
+                                lookupM = lookupM.substr(0, lookupM.size() - 1);
+                            if (resolvedMode == AddressingMode::BASE_PAGE && opMap.find({lookupM, AddressingMode::BASE_PAGE}) == opMap.end())
                                 resolvedMode = AddressingMode::ABSOLUTE;
-                            else if (resolvedMode == AddressingMode::BASE_PAGE_X && opMap.find({lm, AddressingMode::BASE_PAGE_X}) == opMap.end())
+                            else if (resolvedMode == AddressingMode::BASE_PAGE_X && opMap.find({lookupM, AddressingMode::BASE_PAGE_X}) == opMap.end())
                                 resolvedMode = AddressingMode::ABSOLUTE_X;
-                            else if (resolvedMode == AddressingMode::BASE_PAGE_Y && opMap.find({lm, AddressingMode::BASE_PAGE_Y}) == opMap.end())
+                            else if (resolvedMode == AddressingMode::BASE_PAGE_Y && opMap.find({lookupM, AddressingMode::BASE_PAGE_Y}) == opMap.end())
                                 resolvedMode = AddressingMode::ABSOLUTE_Y;
                         }
                         bool isQuad = (stmt->instr.mnemonic.size() > 1 && stmt->instr.mnemonic.back() == 'q' && stmt->instr.mnemonic != "beq" && stmt->instr.mnemonic != "bne" && stmt->instr.mnemonic != "bra" && stmt->instr.mnemonic != "bsr");
