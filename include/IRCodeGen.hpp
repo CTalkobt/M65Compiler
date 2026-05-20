@@ -36,6 +36,7 @@ private:
     std::map<uint32_t, int> vregOffset_;  // vregId → frame offset
     std::map<uint32_t, ir::Type> vregType_; // vregId → type
     int frameSize_ = 0;
+    int labelCounter_ = 0;
 
     void resetFrame();
     int allocSlot(uint32_t vregId, ir::Type type);

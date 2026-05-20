@@ -854,19 +854,61 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::SHL: {
-            std::string src2 = src2MemOperand(inst.src2);
+            // Determine shift count (immediate or constant vreg)
+            int shiftCount = -1;
+            if (inst.src2.isImm()) {
+                shiftCount = (int)(inst.src2.immVal & 0xFF);
+            }
             loadOperand(inst.src1);
-            emit("lsl.16 .AX, " + src2);
+            if (shiftCount >= 0) {
+                if (shiftCount == 8) {
+                    emit("tax"); emit("lda #0");
+                } else {
+                    for (int i = 0; i < shiftCount && i < 16; i++) emit("lsl.16 .AX");
+                }
+            } else {
+                // Variable shift count: load count, emit loop
+                std::string cntOp = src2MemOperand(inst.src2);
+                std::string lbl = "@__shl_loop_" + std::to_string(labelCounter_++);
+                std::string done = "@__shl_done_" + std::to_string(labelCounter_++);
+                emit("ldy " + cntOp);
+                emit("beq " + done);
+                emitLabel(lbl);
+                emit("lsl.16 .AX");
+                emit("dey");
+                emit("bne " + lbl);
+                emitLabel(done);
+            }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
 
         case ir::Op::SHR:
         case ir::Op::ASR: {
-            std::string src2 = src2MemOperand(inst.src2);
-            loadOperand(inst.src1);
             std::string mn = (inst.op == ir::Op::ASR) ? "asr.16" : "lsr.16";
-            emit(mn + " .AX, " + src2);
+            int shiftCount = -1;
+            if (inst.src2.isImm()) {
+                shiftCount = (int)(inst.src2.immVal & 0xFF);
+            }
+            loadOperand(inst.src1);
+            if (shiftCount >= 0) {
+                if (shiftCount == 8 && inst.op == ir::Op::SHR) {
+                    emit("txa"); emit("ldx #0");
+                } else {
+                    for (int i = 0; i < shiftCount && i < 16; i++) emit(mn + " .AX");
+                }
+            } else {
+                std::string cntOp = src2MemOperand(inst.src2);
+                std::string lbl = "@__shr_loop_" + std::to_string(labelCounter_++);
+                std::string done = "@__shr_done_" + std::to_string(labelCounter_++);
+                emit("ldy " + cntOp);
+                emit("beq " + done);
+                emitLabel(lbl);
+                emit(mn + " .AX");
+                emit("dey");
+                emit("bne " + lbl);
+                emitLabel(done);
+            }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
