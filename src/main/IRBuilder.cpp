@@ -1550,37 +1550,71 @@ void IRBuilder::visit(CompoundLiteral& node) {
         // Scalar compound literal: just evaluate the value
         node.initializer->elements[0]->accept(*this);
     } else {
-        // Aggregate: allocate a frame temp, initialize, return address
+        // Aggregate: allocate a frame buffer with the actual struct/array size,
+        // then a separate PTR vReg for the address (so ADDR_LOCAL doesn't overwrite the buffer)
+        auto buf = allocVreg(t);
+        if (currentFunc_) {
+            currentFunc_->memoryVregs.insert(buf.vregId);
+            currentFunc_->vregSizes[buf.vregId] = size;
+        }
         auto temp = allocVreg(ir::Type::PTR);
         ir::Inst alloc;
         alloc.op = ir::Op::ADDR_LOCAL;
         alloc.dest = temp;
         alloc.resultType = ir::Type::PTR;
-        alloc.src1 = ir::Operand::imm(0, ir::Type::I16); // frame offset (placeholder)
+        alloc.src1 = ir::Operand::vreg(buf.vregId, ir::Type::PTR);
         alloc.loc = loc(node);
         emit(alloc);
 
         if (node.initializer) {
-            int elemOff = 0;
-            int elemSize = ir::typeSize(t);
-            for (auto& elem : node.initializer->elements) {
-                elem->accept(*this);
-                auto val = lastValue_;
-                auto addr = allocVreg(ir::Type::PTR);
-                ir::Inst add;
-                add.op = ir::Op::ADD;
-                add.dest = addr;
-                add.resultType = ir::Type::PTR;
-                add.src1 = temp;
-                add.src2 = ir::Operand::imm(elemOff, ir::Type::I16);
-                emit(add);
-                ir::Inst store;
-                store.op = ir::Op::STORE;
-                store.resultType = t;
-                store.src1 = val;
-                store.src2 = addr;
-                emit(store);
-                elemOff += elemSize;
+            std::string sName = getAggregateName(node.targetType);
+            bool isStruct = structs_.count(sName) > 0;
+            if (isStruct) {
+                // Store each member at its correct offset using struct layout
+                auto& si = structs_[sName];
+                for (size_t i = 0; i < node.initializer->elements.size() && i < si.memberOrder.size(); i++) {
+                    node.initializer->elements[i]->accept(*this);
+                    auto val = lastValue_;
+                    auto& mi = si.members[si.memberOrder[i]];
+                    ir::Type mt = mapType(mi.type, mi.pointerLevel);
+                    auto addr = allocVreg(ir::Type::PTR);
+                    ir::Inst add;
+                    add.op = ir::Op::ADD;
+                    add.dest = addr;
+                    add.resultType = ir::Type::PTR;
+                    add.src1 = temp;
+                    add.src2 = ir::Operand::imm(mi.offset, ir::Type::I16);
+                    emit(add);
+                    ir::Inst store;
+                    store.op = ir::Op::STORE;
+                    store.resultType = mt;
+                    store.src1 = val;
+                    store.src2 = addr;
+                    emit(store);
+                }
+            } else {
+                // Array or non-struct aggregate
+                int elemOff = 0;
+                int elemSize = ir::typeSize(t);
+                for (auto& elem : node.initializer->elements) {
+                    elem->accept(*this);
+                    auto val = lastValue_;
+                    auto addr = allocVreg(ir::Type::PTR);
+                    ir::Inst add;
+                    add.op = ir::Op::ADD;
+                    add.dest = addr;
+                    add.resultType = ir::Type::PTR;
+                    add.src1 = temp;
+                    add.src2 = ir::Operand::imm(elemOff, ir::Type::I16);
+                    emit(add);
+                    ir::Inst store;
+                    store.op = ir::Op::STORE;
+                    store.resultType = t;
+                    store.src1 = val;
+                    store.src2 = addr;
+                    emit(store);
+                    elemOff += elemSize;
+                }
             }
         }
         lastValue_ = temp;
