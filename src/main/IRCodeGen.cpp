@@ -647,9 +647,10 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     }
 
     // Param .var overrides
-    if (!zpCallMode_) {
-        // Stack convention: args pushed right-to-left, so first param is
-        // closest to SP (smallest offset past frame + return address).
+    bool useStackParams = !zpCallMode_ || fn.isVariadic;
+    if (useStackParams) {
+        // Stack convention (or variadic in zpCall mode): args pushed right-to-left,
+        // first param is closest to SP (smallest offset past frame + return address).
         int pOff = localFrameSize + 2;
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
             int ps = ir::typeSize(fn.paramTypes[i]);
@@ -680,7 +681,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     emitBlank();
 
     // Copy params into vReg frame slots
-    if (!zpCallMode_) {
+    if (useStackParams) {
         // Stack convention: params are on the stack, copy to ZP temps
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
             std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
@@ -732,7 +733,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // Function attribute directives with per-function clobber analysis
     auto fc = computeFuncClobbers(fn);
     {
-        std::string funcFlags = zpCallMode_ ? "zp_call" : "stack_call";
+        std::string funcFlags = (zpCallMode_ && !fn.isVariadic) ? "zp_call" : "stack_call";
         if (fc.isLeaf) funcFlags += ", leaf";
         emit(".func_flags " + funcFlags);
     }
@@ -1411,11 +1412,12 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::VA_START: {
-            // Compute stack address past last named parameter
-            // asmText = last param name; leax.fp gives its stack address
+            // Compute stack address of first variadic argument.
+            // Variadic functions always receive ALL args on the stack (even in zpCall mode,
+            // the caller pushes everything for variadic calls). So named params are on the
+            // stack at their proc-declared offsets, and variadic args follow.
             std::string pName = inst.asmText;
             emit("leax.fp @_p_" + pName);
-            // Add sizeof(param) to get past it to the first variadic arg
             emit("add.16 .AX, #2");
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
