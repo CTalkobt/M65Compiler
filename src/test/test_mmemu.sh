@@ -565,7 +565,7 @@ else
     else
         OUTPUT=$(echo -e "load build/test/test_long_mmemu.prg\nsetpc \$2000\nstep 5000000\nm \$4000 12\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
-        if echo "$OUTPUT" | grep -q "4000: 04 C0 01 A0 2A A0"; then
+        if echo "$OUTPUT" | grep -q "4000: 04 C0 01 A0 2A A0 00"; then
             echo "SUCCESS: long type tests passed."
         else
             echo "FAIL: test_long_mmemu.c — long type validation failed."

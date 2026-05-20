@@ -939,12 +939,22 @@ void IRBuilder::visit(UnaryOperation& node) {
         inst.loc = loc(node);
         emit(inst);
 
-        // Store back
-        bool oldAddrMode = computeAddressOnly_;
-        computeAddressOnly_ = true;
-        node.operand->accept(*this);
-        auto addr = lastValue_;
-        computeAddressOnly_ = oldAddrMode;
+        // Store back to the variable
+        ir::Operand addr;
+        if (auto* vr = dynamic_cast<VariableReference*>(node.operand.get())) {
+            auto lit = locals_.find(vr->name);
+            if (lit != locals_.end()) {
+                addr = lit->second; // local vreg
+            } else {
+                addr = ir::Operand::global("_" + vr->name); // global
+            }
+        } else {
+            bool oldAddrMode = computeAddressOnly_;
+            computeAddressOnly_ = true;
+            node.operand->accept(*this);
+            addr = lastValue_;
+            computeAddressOnly_ = oldAddrMode;
+        }
 
         ir::Inst store;
         store.op = ir::Op::STORE;

@@ -186,7 +186,11 @@ public:
                 if (constVars.count(ref->name)) {
                     throw std::runtime_error("Compile Error: Increment/decrement of read-only location '" + ref->name + "'");
                 }
+                // Don't fold the operand — variable reference must survive for store-back
+                knownConstants.erase(ref->name);
             }
+            lastExpr = copyPos(std::make_unique<UnaryOperation>(node.op, std::move(node.operand)), node);
+            return;
         }
         // Don't fold operands of address-of — the variable reference must survive.
         // For non-const variables, remove from constant propagation since any
