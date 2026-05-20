@@ -1999,23 +1999,13 @@ void IRBuilder::visit(BuiltinVaArg& node) {
     int argSize = ir::typeSize(argType);
     if (argSize < 2) argSize = 2; // default argument promotion
 
-    // Load current ap value (pointer)
-    auto apVal = allocVreg(ir::Type::PTR);
-    ir::Inst loadAp;
-    loadAp.op = ir::Op::LOAD;
-    loadAp.dest = apVal;
-    loadAp.resultType = ir::Type::PTR;
-    loadAp.src1 = apAddr;
-    loadAp.loc = loc(node);
-    emit(loadAp);
-
-    // Load the argument from *ap
+    // Load the argument from *ap (ap is a ZP pointer pair — single dereference)
     auto val = allocVreg(argType);
     ir::Inst loadVal;
     loadVal.op = ir::Op::LOAD;
     loadVal.dest = val;
     loadVal.resultType = argType;
-    loadVal.src1 = apVal;
+    loadVal.src1 = apAddr;
     loadVal.loc = loc(node);
     emit(loadVal);
 
@@ -2025,7 +2015,7 @@ void IRBuilder::visit(BuiltinVaArg& node) {
     advance.op = ir::Op::ADD;
     advance.dest = newAp;
     advance.resultType = ir::Type::PTR;
-    advance.src1 = apVal;
+    advance.src1 = apAddr;
     advance.src2 = ir::Operand::imm(argSize, ir::Type::I16);
     advance.loc = loc(node);
     emit(advance);
