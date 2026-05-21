@@ -218,8 +218,24 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
                 }
                 // Memory-mode inc/dec don't affect A
             }
-            else if (m == "INX" || m == "DEX") { invalidate(regX); }
-            else if (m == "INY" || m == "DEY") { invalidate(regY); }
+            else if (m == "INX" || m == "DEX") {
+                invalidate(regX);
+                if (regA.known && (regA.mode == AddressingMode::BASE_PAGE_X_INDIRECT ||
+                    regA.mode == AddressingMode::ABSOLUTE_X || regA.mode == AddressingMode::BASE_PAGE_X))
+                    invalidate(regA);
+                if (regY.known && (regY.mode == AddressingMode::ABSOLUTE_X || regY.mode == AddressingMode::BASE_PAGE_X))
+                    invalidate(regY);
+            }
+            else if (m == "INY" || m == "DEY") {
+                invalidate(regY);
+                // Also invalidate registers loaded via Y-indexed addressing
+                if (regA.known && (regA.mode == AddressingMode::BASE_PAGE_INDIRECT_Y ||
+                    regA.mode == AddressingMode::ABSOLUTE_Y || regA.mode == AddressingMode::BASE_PAGE_Y))
+                    invalidate(regA);
+                if (regX.known && (regX.mode == AddressingMode::BASE_PAGE_INDIRECT_Y ||
+                    regX.mode == AddressingMode::ABSOLUTE_Y || regX.mode == AddressingMode::BASE_PAGE_Y))
+                    invalidate(regX);
+            }
             else if (m == "INZ" || m == "DEZ") { invalidate(regZ); }
 
             // --- Compare: does not modify registers (only flags) ---
