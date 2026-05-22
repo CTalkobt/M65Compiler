@@ -57,7 +57,7 @@ std::vector<uint8_t> AssemblerGenerator::generate(AssemblerParser* parser, bool 
     return binary;
 }
 
-void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
+void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const std::string& singleSegment) {
     std::shared_ptr<AssemblerParser::ProcContext> currentPass2Proc;
     std::vector<std::shared_ptr<AssemblerParser::ProcContext>> pass2ProcStack;
 
@@ -70,14 +70,18 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
     
     // Create a list of all known segments to ensure they are all processed
     std::vector<std::string> allSegNames;
-    for (const auto& s : order) {
-        if (parser->segments.count(s)) allSegNames.push_back(s);
-    }
-    // Also include any segments not in the requested order
-    for (auto const& seg : parser->segmentOrder) {
-        bool found = false;
-        for (const auto& s : order) if (s == seg->name) { found = true; break; }
-        if (!found) allSegNames.push_back(seg->name);
+    if (!singleSegment.empty()) {
+        allSegNames.push_back(singleSegment);
+    } else {
+        for (const auto& s : order) {
+            if (parser->segments.count(s)) allSegNames.push_back(s);
+        }
+        // Also include any segments not in the requested order
+        for (auto const& seg : parser->segmentOrder) {
+            bool found = false;
+            for (const auto& s : order) if (s == seg->name) { found = true; break; }
+            if (!found) allSegNames.push_back(seg->name);
+        }
     }
 
     for (const auto& segName : allSegNames) {
@@ -95,7 +99,7 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e) {
 
             parser->pc = stmt->address; // Update parser pc for .PC evaluations
             parser->currentLocalScope_ = stmt->localLabelScope; // Restore auto-scope for @ labels
-            if (stmt->deleted) continue;
+            if (stmt->deleted) continue; 
           try {
             if (!stmt->label.empty()) {
                 isDeadCode = false;

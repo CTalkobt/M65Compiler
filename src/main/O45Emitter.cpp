@@ -63,6 +63,9 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
 
     std::map<std::string, SegBody> segBodies;
 
+    std::vector<M65Emitter::SpBaseReloc> allSpBaseRelocs;
+    std::vector<M65Emitter::SymbolReloc> allSymbolRelocs;
+
     for (const auto& segName : allSegNames) {
         auto seg = parser.segments[segName];
         if (seg->startAddress == 0xFFFFFFFF) continue;
@@ -74,91 +77,21 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         std::vector<uint8_t> body;
         M65Emitter e(body, parser.getZPStart()); e.setSpBase(parser.getSpBase());
         e.setAddress(seg->startAddress);
+        AssemblerGenerator::generate(&parser, e, segName);
 
-        bool isDeadCode = false;
-        std::shared_ptr<AssemblerParser::ProcContext> proc;
+        auto spRelocs = e.spBaseRelocs();
+        allSpBaseRelocs.insert(allSpBaseRelocs.end(), spRelocs.begin(), spRelocs.end());
 
-        for (auto& [symName, sym] : parser.symbolTable) if (sym.isVariable) sym.value = sym.initialValue;
-
-        for (auto& stmt : parser.statements) {
-            if (stmt->segmentName != segName) continue;
-            if (stmt->address > e.getAddress()) e.setAddress(stmt->address);
-            parser.pc = stmt->address;
-            if (stmt->deleted) continue;
-            if (!stmt->label.empty()) isDeadCode = false;
-
-            // Use the same generation logic as AssemblerGenerator
-            if (stmt->isSimulatedOp() && !isDeadCode) {
-                std::vector<uint8_t> d;
-                // Emit simulated ops the same way pass2 does for sizing
-                // (the actual bytes are already determined)
-                // For simplicity, we re-emit via the generator path
-            }
-
-            if (stmt->type == AssemblerParser::Statement::INSTRUCTION) {
-                if (isDeadCode && stmt->instr.mnemonic != "proc" && stmt->instr.mnemonic != "endproc") continue;
-                if (stmt->instr.mnemonic == "rts" || stmt->instr.mnemonic == "rtn" || stmt->instr.mnemonic == "rti") isDeadCode = true;
-            }
-        }
+        auto symRelocs = e.symbolRelocs();
+        allSymbolRelocs.insert(allSymbolRelocs.end(), symRelocs.begin(), symRelocs.end());
 
         segBodies[segName] = {segName, seg->startAddress, body};
     }
 
-    // Actually, the per-segment extraction from the generator is complex because
-    // AssemblerGenerator::generate() processes all segments in order into one binary.
-    // The simplest correct approach: generate the full binary, then split by segment ranges.
-
-    std::vector<uint8_t> fullBinary;
-    M65Emitter genEmitter(fullBinary, parser.getZPStart()); genEmitter.setSpBase(parser.getSpBase());
-    uint32_t genStart = parser.getFirstOrgAddress();
-    if (genStart != 0xFFFFFFFF) genEmitter.setAddress(genStart);
-    AssemblerGenerator::generate(&parser, genEmitter);
-
     uint32_t globalBase = parser.getFirstOrgAddress();
     if (globalBase == 0xFFFFFFFF) globalBase = 0;
+    uint32_t genStart = globalBase; // Used for line map offset
 
-    // Rebuild segBodies from the flat binary using segment address ranges
-    segBodies.clear();
-    for (const auto& segName : allSegNames) {
-        auto seg = parser.segments[segName];
-        // Skip segments that have no content (no statements were placed in them).
-        // A segment has content if its startAddress was set (via .org or by emitting
-        // code into it) OR if it has a nonzero size in the original object.
-        bool hasContent = (seg->startAddress != 0xFFFFFFFF);
-        if (!hasContent) {
-            // Check if any statements were emitted into this segment
-            for (const auto& stmt : parser.statements) {
-                if (stmt->segmentName == segName && !stmt->deleted && stmt->size > 0) {
-                    hasContent = true;
-                    break;
-                }
-            }
-        }
-        if (!hasContent) continue;
-
-        SegBody sb;
-        sb.name = segName;
-        sb.base = (seg->startAddress != 0xFFFFFFFF) ? seg->startAddress : 0;
-
-        if (segName == "bss") {
-            sb.bytes.clear(); // BSS has no body
-        } else {
-            uint32_t segStart = sb.base;
-            uint32_t segEnd = seg->pc;
-            uint32_t segLen = (segEnd > segStart) ? (segEnd - segStart) : 0;
-
-            // Offset in the flat binary
-            uint32_t binOffset = segStart - globalBase;
-            // Clamp to actual binary size (PC may overshoot due to dead code)
-            if (binOffset < fullBinary.size()) {
-                uint32_t avail = (uint32_t)fullBinary.size() - binOffset;
-                uint32_t copyLen = (segLen <= avail) ? segLen : avail;
-                sb.bytes.assign(fullBinary.begin() + binOffset,
-                                fullBinary.begin() + binOffset + copyLen);
-            }
-        }
-        segBodies[segName] = sb;
-    }
 
 
     // --- Step 2: Build symbol table ---
@@ -522,8 +455,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
     // the addend so the linker can add the resolved __sp_base value.
     if (parser.isExternSymbol("__sp_base")) {
         uint32_t spBaseIdx = syms.getImportIndex("__sp_base");
-        uint16_t asmSpBase = genEmitter.spBase(); // built-in default (e.g., $0101)
-        for (const auto& sr : genEmitter.spBaseRelocs()) {
+        for (const auto& sr : allSpBaseRelocs) {
             // Determine which segment this address falls into
             for (const auto& segName : allSegNames) {
                 auto seg = parser.segments[segName];
@@ -545,15 +477,15 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                 }
             }
         }
-    } else if (!genEmitter.spBaseRelocs().empty()) {
+    } else if (!allSpBaseRelocs.empty()) {
         std::cerr << "warning: stack-relative access uses built-in __sp_base ($"
                   << std::hex << std::uppercase << std::setfill('0') << std::setw(4)
-                  << genEmitter.spBase()
+                  << parser.getSpBase()
                   << "); add '.extern __sp_base' for relocatable code" << std::endl;
     }
 
     // Scan symbol relocation sites from simulated ops (ldax/stax of global variables).
-    for (const auto& sr : genEmitter.symbolRelocs()) {
+    for (const auto& sr : allSymbolRelocs) {
         std::string symName = sr.symbolName;
         Symbol* sym = parser.resolveSymbol(symName, "");
         if (!sym) continue;
