@@ -12,6 +12,7 @@ long global_b = 200000L;
 unsigned long global_c;
 
 void main() {
+    __asm__(".no_zp_save");
     // sizeof(long) = 4
     r[0] = sizeof(long);
 

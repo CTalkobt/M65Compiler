@@ -792,7 +792,19 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             }
             std::string reg = (inst.resultType == ir::Type::I32) ? ".AXYZ" : ".AX";
 
-            if (inst.op == ir::Op::ADD && src2InFrame && !src1InFrame) {
+            if (inst.resultType == ir::Type::I32 && src1InFrame && src2InFrame) {
+                // Both I32 operands in frame: ldaxyz.fp clobbers __zp_scratch2/__zp_scratch3.
+                // Load src2 first, save to safe ZP area ($10-$13), then load src1 into AXYZ.
+                auto hex8 = [](int v) { std::stringstream s; s << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << v; return s.str(); };
+                int safeZP = (int)zeroPageStart_ + 8; // past scratch area
+                loadOperand(inst.src2);
+                emit("sta " + hex8(safeZP));
+                emit("stx " + hex8(safeZP + 1));
+                emit("sty " + hex8(safeZP + 2));
+                emit("stz " + hex8(safeZP + 3));
+                loadOperand(inst.src1);
+                emit(mn + " " + reg + ", " + hex8(safeZP));
+            } else if (inst.op == ir::Op::ADD && src2InFrame && !src1InFrame) {
                 // Swap: load src2 into AX, use src1 as memory operand
                 std::string src1mem = src2MemOperand(inst.src1);
                 loadOperand(inst.src2);
