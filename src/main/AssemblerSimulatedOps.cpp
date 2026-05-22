@@ -404,13 +404,13 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
                 // Frame-relative: use direct stack access
                 uint8_t totalOff = fa.fpOff + fa.yOff;
                 if (reg2 == 'X') {
-                    printf("EMITTING LDAX_FP\n"); e.lda_stack(totalOff + 1); e.sta_scratch();
+                    e.lda_stack(totalOff + 1); e.sta_scratch();
                     e.lda_stack(totalOff); e.ldx_scratch();
                 } else if (reg2 == 'Y') {
-                    printf("EMITTING LDAX_FP\n"); e.lda_stack(totalOff + 1); e.sta_scratch();
+                    e.lda_stack(totalOff + 1); e.sta_scratch();
                     e.lda_stack(totalOff); e.ldy_abs(0);
                 } else { // Z
-                    printf("EMITTING LDAX_FP\n"); e.lda_stack(totalOff + 1); e.taz();
+                    e.lda_stack(totalOff + 1); e.taz();
                     e.lda_stack(totalOff);
                 }
             } else if (reg2 == 'Z') {
@@ -462,7 +462,7 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
             auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
             if (fa.isFrame) {
                 uint8_t totalOff = fa.fpOff + fa.yOff;
-                printf("EMITTING LDAX_FP\n"); e.lda_stack(totalOff + 1); e.tay();
+                e.lda_stack(totalOff + 1); e.tay();
                 e.lda_stack(totalOff); e.tax();
             } else {
                 e.lda_stack(offset + 1); e.tay();
@@ -1562,7 +1562,7 @@ void AssemblerSimulatedOps::emitPHWStackCode(AssemblerParser* parser, M65Emitter
     if (fa.isFrame) {
         // Push 16-bit frame-relative value: hi byte first, then lo
         uint8_t totalOff = fa.fpOff + fa.yOff;
-        printf("EMITTING LDAX_FP\n"); e.lda_stack(totalOff + 1); e.pha();
+        e.lda_stack(totalOff + 1); e.pha();
         e.lda_stack(totalOff); e.pha();
     } else {
         uint32_t offset = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
@@ -1866,7 +1866,7 @@ void AssemblerSimulatedOps::emitLDAX_FPCode(AssemblerParser* parser, M65Emitter&
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     uint8_t totalOff = fpOff + yOff;
     // Load hi byte first into scratch, then lo byte into A, move hi to X
-    printf("EMITTING LDAX_FP\n"); e.lda_stack(totalOff + 1);
+    e.lda_stack(totalOff + 1);
     e.sta_scratch();
     e.lda_stack(totalOff);
     e.ldx_scratch();
@@ -1895,7 +1895,7 @@ void AssemblerSimulatedOps::emitLDAXYZ_FPCode(AssemblerParser* parser, M65Emitte
     // Load all bytes into scratch first (lda_stack clobbers X in non-FP mode)
     e.lda_stack(totalOff + 3); e.sta_scratch3_hi();
     e.lda_stack(totalOff + 2); e.sta_scratch3();
-    printf("EMITTING LDAX_FP\n"); e.lda_stack(totalOff + 1); e.sta_scratch2();
+    e.lda_stack(totalOff + 1); e.sta_scratch2();
     e.lda_stack(totalOff); // byte 0 stays in A
     
     e.ldx_scratch2();

@@ -32,7 +32,7 @@ LIBDIR ?= $(PREFIX)/lib/cc45
 INCDIR ?= $(PREFIX)/include/cc45
 MANDIR ?= $(PREFIX)/share/man/man1
 
-.PHONY: all clean test man test-mmemu test-zpcall lib install install_local uninstall cppcheck coverage coverage-build coverage-clean coverage-report
+.PHONY: all clean test man test-mmemu test-zpcall test-integration lib install install_local uninstall cppcheck coverage coverage-build coverage-clean coverage-report
 
 cppcheck:
 	cppcheck --enable=warning,performance,portability --inline-suppr -I include/ src/main/
@@ -161,6 +161,9 @@ test-register: all
 
 test-cast-fold: all
 	@bash src/test/test_cast_fold.sh
+
+test-integration: all
+	@bash src/test/test_integration.sh
 
 test-mmemu: all
 	@bash src/test/test_mmemu.sh
