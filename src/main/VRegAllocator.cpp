@@ -153,8 +153,32 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
     uint32_t paramCount = (uint32_t)fn.paramTypes.size();
     int axOccupiedUntil = -1; // instruction index until which A:X is occupied
 
+    // Build a set of "local variable" vRegs — these have long implicit lifetimes
+    // and should NOT be reused (they may be accessed via inline asm or address-of)
+    std::set<uint32_t> localVarVregs;
+    for (const auto& [name, vid] : fn.localNames) localVarVregs.insert(vid);
+    for (uint32_t i = 0; i < paramCount; i++) localVarVregs.insert(i);
+
     for (auto& lr : ranges_) {
         int span = lr.lastUse - lr.firstDef;
+
+        // Expire ZP slots for temporaries whose live ranges have ended.
+        // Only expire non-local-variable vRegs (temporaries are safe to reuse).
+        {
+            std::vector<uint32_t> expired;
+            for (auto& [vid, zpAddr] : zpAllocMap) {
+                if (localVarVregs.count(vid)) continue; // don't expire named locals
+                // Find this vReg's lastUse
+                for (auto& r : ranges_) {
+                    if (r.vregId == vid && r.lastUse < lr.firstDef) {
+                        expired.push_back(vid);
+                        freeZpSlot(zpAddr, allocs_[vid].type);
+                        break;
+                    }
+                }
+            }
+            for (auto vid : expired) zpAllocMap.erase(vid);
+        }
 
         // Check if any call occurs within the live range
         bool crossesCall = false;
