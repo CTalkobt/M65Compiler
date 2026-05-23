@@ -448,8 +448,9 @@ void IRBuilder::visit(VariableDeclaration& node) {
     }
     
     if (getTypeSize(node.type, 0) > 2 && node.pointerLevel == 0) {
-        // Large aggregates must go to frame
+        // Large aggregates must go to frame with correct byte size
         currentFunc_->memoryVregs.insert(vreg.vregId);
+        currentFunc_->vregSizes[vreg.vregId] = getTypeSize(node.type, 0);
     }
 
     // Emit initializer
