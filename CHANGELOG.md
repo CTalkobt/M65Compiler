@@ -2,6 +2,23 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
+## [Unreleased] - 2026-05-22
+
+### Added
+- **CPU and Flag Intrinsics**: High-level access to processor state via `__cpu.R` and `__flags.F`.
+    - Supports all physical registers (A, X, Y, Z) and virtual pairs/quads (AX, Q, etc.).
+    - Supports processor flags (Carry, Zero, Negative, Overflow).
+    - Optimized code generation: `__flags.Carry = 1` emits `SEC`; `__cpu.X = 5` emits `LDX #5`.
+    - Integrated safety: compile-time error if taking address of registers/flags.
+- **`mod.32` support**: Added 32-bit unsigned modulo support to the assembler.
+- **Hardware Register Header**: Centralized MEGA65 math and DMA register definitions in `include/Mega65Registers.hpp`.
+
+### Fixed
+- **Math Accelerator**: Corrected register addresses for Quotient and Remainder based on empirical simulator probing.
+- **`realloc` memory corruption**: Fixed a bug where simulated operations clobbered scratch registers used by the memory allocator.
+- **DMA Buffer Hazards**: Implemented explicit BSS reservation for FILL and MOVE buffers in the assembler.
+- **Relocation Signedness**: Improved linker support for signed offsets on external symbols.
+
 ## [Unreleased] - 2026-05-17
 
 ### Added

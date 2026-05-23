@@ -166,7 +166,7 @@ Steps required to bring the C compiler closer to C11 standards.
 - [d] **Generator Loop Syntax**: Implement `for (var : generator)` syntax for idiomatic iteration over generators.
 - [X] **Variadic Functions**: Support defining variadic functions and the `va_list`, `va_start`, `va_arg`, `va_end` macros. Variadic calls use right-to-left push order; `stdarg.h` provides macros wrapping `__builtin_va_start`/`__builtin_va_arg`/`__builtin_va_end` compiler intrinsics.
 - [X] **ZP Calling Convention (`-fzpcall`)**: Optional zero-page parameter passing. Parameters stored in fixed ZP region instead of stack. Includes caller-save semantics, address-of spill, leaf function optimization, per-function metadata (`.zp_uses`/`.zp_clobbers`/`.reg_clobbers`), linker call graph + transitive clobber propagation, separate ZP-convention stdlib (`stdlib45_zp.lib`) + CRT (`crt45_zp.lib`), and mixed convention support (zpCall callers can invoke variadic functions via automatic stack-push fallback). Phases 1-4 complete.
-- [ ] **Processor flag/register intrinsics**: `__builtin_carry()`, `__builtin_zero()`, `__builtin_negative()`, `__builtin_reg_a()`, etc. Each returns an `int` (0 or 1 for flags, 0-255 for registers) by emitting an inline snapshot (e.g. `lda #$00; adc #$00` for carry). Composable in any expression context. Useful for KERNAL wrappers that need to test carry/zero after `__asm__` calls without `php/plp`.
+- [X] **Processor flag/register intrinsics**: `__cpu.A`, `__flags.Carry`, etc. High-level access with optimized emission (SEC/CLC, LDX/LDY). (Completed 2026-05-22).
 - [X] **Local `_Alignas`**: Extend `_Alignas` support to local (stack-allocated) variables.
 - [d] **32-bit flat addressing**: Support pointer access above $FFFF (requires flat memory codegen).
 

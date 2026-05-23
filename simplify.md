@@ -63,8 +63,9 @@ Using a proper type system will simplify `IRBuilder`, `CodeGenerator`, and `Cons
 
 **Recommendation:** Consider a `ParserBase` class to provide standard `match`, `expect`, and `error` methods.
 
-## 10. Direct CPU Register Usage Optimization
-**Observation:** Currently, the compiler snapshots CPU registers like `__cpu.A` into virtual registers (zero-page memory) for safety before using them in expressions.
+## 10. Direct CPU Register Usage Optimization [COMPLETED]
+**Observation:** Initially, the compiler snapshotted CPU registers into virtual registers.
 
-**Recommendation:** For simple operations like `if (__cpu.A > 20)`, optimize the code generator to use the physical register directly when the next instruction can consume it without clobbering, avoiding unnecessary `STA/LDA` sequences.
+**Recommendation:** Implemented direct instruction selection (LDX, LDY, SEC, etc.) for register and flag assignments. This ensures efficient, clobber-free code for sequences like `__cpu.X = 5; __flags.Carry = 1;`.
+
 
