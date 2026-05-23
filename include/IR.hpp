@@ -237,6 +237,8 @@ struct Function {
     std::vector<std::string> paramNames; // optional, for debug info
     bool isVariadic = false;
     bool isStatic = false;
+    bool isInterrupt = false;
+    bool isNaked = false;
 
     std::vector<Block> blocks;
     uint32_t nextVreg = 0;             // counter for allocating vRegs

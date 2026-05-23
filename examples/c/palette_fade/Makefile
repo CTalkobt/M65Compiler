@@ -13,8 +13,8 @@ CC45 = $(ROOT)/bin/cc45
 CA45 = $(ROOT)/bin/ca45
 LN45 = $(ROOT)/bin/ln45
 OBJDUMP = $(ROOT)/bin/objdump45
-CRT0 = $(ROOT)/lib/build/crt0.o45
-STDLIB = $(ROOT)/lib/build/c45.lib
+CRT0 = $(ROOT)/lib/build/crt0_zp.o45
+STDLIB = $(ROOT)/lib/build/c45_zp.lib
 INCLUDES = -I$(ROOT)/lib/include
 
 TARGET = palette_fade.prg
@@ -32,7 +32,7 @@ palette_fade_asm.o45: palette_fade_asm.s
 	$(CA45) -c palette_fade_asm.s -o palette_fade_asm.o45
 
 $(TARGET): palette_fade.o45 palette_fade_asm.o45 $(CRT0) $(STDLIB)
-	$(LN45) -basic -o $(TARGET) $(CRT0) palette_fade.o45 palette_fade_asm.o45 $(STDLIB)
+	$(LN45) -basic -M palette_fade.map -o $(TARGET) $(CRT0) palette_fade.o45 palette_fade_asm.o45 $(STDLIB)
 
 disasm: palette_fade.o45 palette_fade_asm.o45
 	@echo "=== Disassembly of palette_fade.o45 (C) ===" > $(DISASM_C)
@@ -51,7 +51,7 @@ disasm: palette_fade.o45 palette_fade_asm.o45
 	@echo "Disassembly written to $(DISASM_C) and $(DISASM_ASM)"
 
 clean:
-	rm -f palette_fade.o45 palette_fade.o45.s palette_fade_asm.o45 $(TARGET) $(DISASM_C) $(DISASM_ASM)
+	rm -f palette_fade.o45 palette_fade.o45.s palette_fade_asm.o45 $(TARGET) $(DISASM_C) $(DISASM_ASM) palette_fade.map
 
 run: $(TARGET)
 	xemu-xmega65 -prg $(TARGET)

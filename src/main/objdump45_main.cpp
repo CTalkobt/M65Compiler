@@ -451,14 +451,92 @@ static std::map<uint32_t, std::string> loadMapSymbols(const std::string& mapFile
     return syms;
 }
 
+// Source line info: address → (file, line)
+struct SourceLineEntry {
+    std::string file;
+    int line;
+};
+using SourceLineMap = std::map<uint32_t, SourceLineEntry>;
+
+// Parse "Source Lines" section from a linker map file
+static SourceLineMap loadMapSourceLines(const std::string& mapFile) {
+    SourceLineMap lines;
+    std::ifstream in(mapFile);
+    if (!in.is_open()) return lines;
+
+    bool inSection = false;
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.find("Source Lines") != std::string::npos) {
+            inSection = true;
+            std::getline(in, line); // skip "----" underline
+            continue;
+        }
+        if (inSection) {
+            if (line.empty() || line[0] != ' ') break;
+            // Parse: "  $XXXX  file.c:NN"
+            std::istringstream iss(line);
+            std::string addrStr, fileLine;
+            iss >> addrStr >> fileLine;
+            if (addrStr.empty() || addrStr[0] != '$' || fileLine.empty()) continue;
+            auto colon = fileLine.rfind(':');
+            if (colon == std::string::npos) continue;
+            try {
+                uint32_t addr = (uint32_t)std::stoul(addrStr.substr(1), nullptr, 16);
+                std::string file = fileLine.substr(0, colon);
+                int lineNum = std::stoi(fileLine.substr(colon + 1));
+                lines[addr] = {file, lineNum};
+            } catch (...) { continue; }
+        }
+    }
+    return lines;
+}
+
+// Build source line map from .o45 line info
+static SourceLineMap buildSourceLineMap(const O45File& obj) {
+    SourceLineMap lines;
+    for (const auto& li : obj.lineInfos) {
+        std::string file;
+        if (li.fileIndex < obj.lineFiles.size())
+            file = obj.lineFiles[li.fileIndex];
+        uint32_t addr = obj.tbase + li.textOffset;
+        if (lines.find(addr) == lines.end())
+            lines[addr] = {file, (int)li.line};
+    }
+    return lines;
+}
+
+// Cache for reading source file lines on demand
+static std::map<std::string, std::vector<std::string>> sourceFileCache_;
+
+static std::string getSourceLine(const std::string& file, int lineNum) {
+    auto it = sourceFileCache_.find(file);
+    if (it == sourceFileCache_.end()) {
+        std::vector<std::string> fileLines;
+        std::ifstream in(file);
+        if (in.is_open()) {
+            std::string l;
+            while (std::getline(in, l)) fileLines.push_back(l);
+        }
+        it = sourceFileCache_.emplace(file, std::move(fileLines)).first;
+    }
+    if (lineNum >= 1 && lineNum <= (int)it->second.size())
+        return it->second[lineNum - 1];
+    return "";
+}
+
 static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
                                const char* sectionName,
                                const std::map<uint8_t, OpcodeInfo>& opcodeTable,
                                const std::map<uint32_t, std::string>& symbols,
-                               const std::string& filename) {
+                               const std::string& filename,
+                               const SourceLineMap& sourceLines = {}) {
     if (body.empty()) return;
     std::cout << std::endl;
     printf("Disassembly of section %s (%s):\n", sectionName, filename.c_str());
+
+    int lastSourceLine = -1;
+    std::string lastSourceFile;
 
     size_t i = 0;
     while (i < body.size()) {
@@ -469,6 +547,21 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
         if (symIt != symbols.end()) {
             std::cout << std::endl;
             printf("%08x <%s>:\n", pc, symIt->second.c_str());
+        }
+
+        // Print source line comment when location changes
+        if (!sourceLines.empty()) {
+            auto slIt = sourceLines.find(pc);
+            if (slIt != sourceLines.end() &&
+                (slIt->second.line != lastSourceLine || slIt->second.file != lastSourceFile)) {
+                lastSourceFile = slIt->second.file;
+                lastSourceLine = slIt->second.line;
+                std::string srcText = getSourceLine(lastSourceFile, lastSourceLine);
+                // Trim leading whitespace
+                size_t start = srcText.find_first_not_of(" \t");
+                if (start != std::string::npos) srcText = srcText.substr(start);
+                printf("; %s:%d  %s\n", lastSourceFile.c_str(), lastSourceLine, srcText.c_str());
+            }
         }
 
         uint8_t opcode = body[i];
@@ -715,8 +808,9 @@ int main(int argc, char** argv) {
             if (showContents)   printSectionContents(obj);
             if (showDisasm) {
                 auto symbols = buildSymbolMap(obj);
+                auto srcLines = buildSourceLineMap(obj);
                 disassembleSection(obj.textBody, obj.tbase, "TEXT", opcodeTable,
-                                 symbols, filename);
+                                 symbols, filename, srcLines);
                 disassembleSection(obj.dataBody, obj.dbase, "DATA", opcodeTable,
                                  symbols, filename);
             }
@@ -756,11 +850,22 @@ int main(int argc, char** argv) {
             }
             if (showDisasm) {
                 std::map<uint32_t, std::string> prgSymbols;
-                if (!mapFile.empty()) {
-                    prgSymbols = loadMapSymbols(mapFile);
+                std::string effectiveMap = mapFile;
+                // Auto-discover map file: foo.prg → foo.map
+                if (effectiveMap.empty() && isPrg) {
+                    std::string autoMap = filename.substr(0, filename.size() - 4) + ".map";
+                    std::ifstream probe(autoMap);
+                    if (probe.good()) {
+                        effectiveMap = autoMap;
+                    }
+                }
+                SourceLineMap srcLines;
+                if (!effectiveMap.empty()) {
+                    prgSymbols = loadMapSymbols(effectiveMap);
+                    srcLines = loadMapSourceLines(effectiveMap);
                 }
                 disassembleSection(body, base, isPrg ? "PRG" : "BIN",
-                                 opcodeTable, prgSymbols, filename);
+                                 opcodeTable, prgSymbols, filename, srcLines);
             }
             // -h, -t, -r silently produce no output for raw binaries
         }

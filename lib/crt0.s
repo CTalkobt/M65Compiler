@@ -30,11 +30,21 @@ __init:
     tsy
     sty __saved_sph + 1
 
+    ; Save ZP $08-$FF to BSS buffer (preserve KERNAL/BASIC state)
+    ldx #248
+    ldy #0
+    move $08, __zp_save_buf
+
     jsr _init_features
     jsr _main
 
     ; Fall through to __exit
 __exit:
+    ; Restore ZP $08-$FF from BSS buffer
+    ldx #248
+    ldy #0
+    move __zp_save_buf, $08
+
     ; Restore caller's stack pointer and return.
     ; Clear Z register — the MEGA65 kernal/BASIC may use Z as part of
     ; the return address banking; a stale Z causes PC corruption on RTS.
@@ -51,3 +61,7 @@ __saved_sph:
 ; to set up hardware (16-bit stack, I/O mapping, DMA, etc.)
 _init_features:
     rts
+
+.segment "bss"
+__zp_save_buf:
+    .res 248

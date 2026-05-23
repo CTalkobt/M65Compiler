@@ -77,6 +77,10 @@ private:
     // STORE to a non-slot = indirect write through pointer.
     std::set<uint32_t> localSlotVregs_;
 
+    // Source location tracking for .loc directives
+    int lastLocLine_ = -1;
+    std::string lastLocFile_;
+
     // Per-function clobber analysis
     struct FuncClobbers {
         uint8_t regs = 0;   // bit 0=A, 1=X, 2=Y, 3=Z

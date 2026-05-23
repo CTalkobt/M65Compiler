@@ -43,6 +43,9 @@ enum class TokenType {
     REGISTER, // register (storage class)
     INLINE,   // inline (function specifier, currently no-op)
     FASTCALL, // __fastcall__ (per-function ZP calling convention)
+    INTERRUPT, // __interrupt (ISR function attribute)
+    NAKED,     // __naked (no prologue/epilogue)
+    UNPACKED,  // __unpacked (opt-in alignment padding for structs)
 
     // Variadic
     ELLIPSIS,  // ...
@@ -153,6 +156,9 @@ struct Token {
             case TokenType::REGISTER: return "REGISTER";
             case TokenType::INLINE: return "INLINE";
             case TokenType::FASTCALL: return "FASTCALL";
+            case TokenType::INTERRUPT: return "INTERRUPT";
+            case TokenType::NAKED: return "NAKED";
+            case TokenType::UNPACKED: return "UNPACKED";
             case TokenType::ELLIPSIS: return "ELLIPSIS";
             case TokenType::IDENTIFIER: return "IDENTIFIER";
             case TokenType::INTEGER_LITERAL: return "INTEGER_LITERAL";

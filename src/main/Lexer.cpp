@@ -225,6 +225,12 @@ Token Lexer::lexIdentifierOrKeyword() {
         {"__inline", TokenType::INLINE},
         {"__inline__", TokenType::INLINE},
         {"__fastcall__", TokenType::FASTCALL},
+        {"__interrupt", TokenType::INTERRUPT},
+        {"__interrupt__", TokenType::INTERRUPT},
+        {"__naked", TokenType::NAKED},
+        {"__naked__", TokenType::NAKED},
+        {"__unpacked", TokenType::UNPACKED},
+        {"__unpacked__", TokenType::UNPACKED},
         };
 
     auto it = keywords.find(value);

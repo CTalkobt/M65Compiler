@@ -381,6 +381,7 @@ class StructDefinition : public Statement {
 public:
     std::string name;
     bool isUnion = false;
+    bool isUnpacked = false;  // __unpacked — opt-in to alignment padding
     std::vector<StructMember> members;
     StructDefinition(const std::string& n, bool isUnion = false) : name(n), isUnion(isUnion) {}
     void accept(ASTVisitor& visitor) override;
@@ -411,6 +412,8 @@ public:
     bool isStatic = false;
     bool isVariadic = false;
     bool isFastcall = false;
+    bool isInterrupt = false;
+    bool isNaked = false;
     FunctionDeclaration(const std::string& n, const std::string& rt) : name(n), returnType(rt) {}
     void accept(ASTVisitor& visitor) override;
 };

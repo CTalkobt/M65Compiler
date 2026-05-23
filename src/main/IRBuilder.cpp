@@ -229,7 +229,7 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
 
 ir::Operand IRBuilder::emitCast(ir::Operand src, ir::Type targetType, bool isSigned) {
     if (src.type == targetType) return src;
-    
+
     // Determine conversion type
     ir::Op op = ir::Op::NOP;
     int srcSize = ir::typeSize(src.type);
@@ -242,6 +242,23 @@ ir::Operand IRBuilder::emitCast(ir::Operand src, ir::Type targetType, bool isSig
     } else {
         // Same size, different types (e.g. PTR vs I16) — no conversion needed
         return src;
+    }
+
+    // Optimize: immediate values can be cast at compile time without emitting instructions
+    if (src.isImm()) {
+        int64_t val = src.immVal;
+        if (op == ir::Op::TRUNC) {
+            if (targetType == ir::Type::I8) val &= 0xFF;
+            else if (targetType == ir::Type::I16) val &= 0xFFFF;
+        } else if (op == ir::Op::SEXT) {
+            if (src.type == ir::Type::I8 && targetType == ir::Type::I16) {
+                val = (int64_t)(int8_t)(val & 0xFF);
+            } else if (src.type == ir::Type::I16 && targetType == ir::Type::I32) {
+                val = (int64_t)(int16_t)(val & 0xFFFF);
+            }
+        }
+        // ZEXT: high bits already zero for unsigned values
+        return ir::Operand::imm(val, targetType);
     }
 
     auto dest = allocVreg(targetType);
@@ -307,6 +324,8 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     fn.conv = (zpCallMode || node.isFastcall) ? ir::CallConv::ZP : ir::CallConv::STACK;
     fn.isVariadic = node.isVariadic;
     fn.isStatic = node.isStatic;
+    fn.isInterrupt = node.isInterrupt;
+    fn.isNaked = node.isNaked;
 
     for (const auto& p : node.parameters) {
         fn.paramTypes.push_back(mapType(p.type, p.pointerLevel));
@@ -702,7 +721,27 @@ void IRBuilder::visit(Assignment& node) {
     }
 
     // 2. Evaluate RHS value
-    node.expression->accept(*this);
+    // If RHS is a simple integer literal and LHS is narrower, emit CONST at target width
+    // to avoid unnecessary widening + truncation.
+    IRTypeInfo lhsTypeHint = getExprTypeInfo(node.target.get());
+    if (auto* lit = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
+        if (lit->castType.empty() && lhsTypeHint.type == ir::Type::I8) {
+            auto dest = allocVreg(ir::Type::I8);
+            ir::Inst inst;
+            inst.op = ir::Op::CONST;
+            inst.dest = dest;
+            inst.resultType = ir::Type::I8;
+            inst.src1 = ir::Operand::imm(lit->value & 0xFF, ir::Type::I8);
+            inst.loc = loc(node);
+            emit(inst);
+            lastValue_ = dest;
+            lastValueSigned_ = false;
+        } else {
+            node.expression->accept(*this);
+        }
+    } else {
+        node.expression->accept(*this);
+    }
     auto rhs = lastValue_;
 
     // 2.5 Handle CPU register/flag writes
@@ -1994,8 +2033,8 @@ void IRBuilder::visit(StructDefinition& node) {
             // Start new unit if type changes or bits don't fit
             if (bfUnitType != m.type || bfBitsUsed + m.bitWidth > unitBits) {
                 closeBitfieldUnit();
-                // Align to unit size
-                int align = std::max(1, unitSize);
+                // Align to unit size (only if __unpacked)
+                int align = node.isUnpacked ? std::max(1, unitSize) : 1;
                 if (!node.isUnion && align > 1 && currentOffset % align != 0)
                     currentOffset += align - (currentOffset % align);
                 bfUnitType = m.type;
@@ -2018,7 +2057,8 @@ void IRBuilder::visit(StructDefinition& node) {
             if (node.isUnion) {
                 mi.offset = 0;
             } else {
-                int align = std::max(1, getTypeSize(m.type, m.pointerLevel));
+                // Packed by default — only align if __unpacked
+                int align = node.isUnpacked ? std::max(1, getTypeSize(m.type, m.pointerLevel)) : 1;
                 if (align > 1 && currentOffset % align != 0)
                     currentOffset += align - (currentOffset % align);
                 mi.offset = currentOffset;

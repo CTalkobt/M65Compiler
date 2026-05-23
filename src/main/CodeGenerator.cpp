@@ -1123,6 +1123,19 @@ void CodeGenerator::visit(TranslationUnit& node) {
 
 void CodeGenerator::visit(FunctionDeclaration& node) {
     if (node.isPrototype) return; // Forward declaration — no code emitted
+
+    // __naked: emit only proc label + body + endproc, no prologue/epilogue
+    if (node.isNaked) {
+        out << ".code" << std::endl;
+        out << "proc _" + node.name << std::endl;
+        currentFunction = &node;
+        node.body->accept(*this);
+        emit("endproc");
+        out << std::endl;
+        currentFunction = nullptr;
+        return;
+    }
+
     out << ".code" << std::endl;
     variableTypes.clear();
     currentVars.clear();
@@ -1229,6 +1242,11 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
         // proc line — no B#/W#/D# annotations in zpCall mode
         out << "proc _" + node.name << std::endl;
 
+        // __interrupt: save all registers at entry
+        if (node.isInterrupt) {
+            emit("pha"); emit("phx"); emit("phy"); emit("phz");
+        }
+
         // Frame prologue
         emit(".var _fp = 0");
         currentVars.push_back("_fp");
@@ -1299,7 +1317,12 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
                     for (int i = 0; i < totalFrame; ++i) emitter->pla();
                     emitter->tza();
                 }
-                emit("rtn #0");
+                if (node.isInterrupt) {
+                    emit("plz"); emit("ply"); emit("plx"); emit("pla");
+                    emit("rti");
+                } else {
+                    emit("rtn #0");
+                }
             }
         }
 
@@ -1391,6 +1414,11 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     }
     out << procLine << std::endl;
 
+    // __interrupt: save all registers at entry
+    if (node.isInterrupt) {
+        emit("pha"); emit("phx"); emit("phy"); emit("phz");
+    }
+
     // --- Frame prologue ---
     emit(".var _fp = 0");
     currentVars.push_back("_fp");
@@ -1447,7 +1475,12 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
                 for (int i = 0; i < frameSize; ++i) emitter->pla();
                 emitter->tza();
             }
-            emit("rtn #0");
+            if (node.isInterrupt) {
+                emit("plz"); emit("ply"); emit("plx"); emit("pla");
+                emit("rti");
+            } else {
+                emit("rtn #0");
+            }
         }
     }
     // Detect leaf functions for stack path (ZP path did this at line 1169)
@@ -3783,7 +3816,12 @@ void CodeGenerator::visit(ReturnStatement& node) {
         for (int i = 0; i < cleanupSize; ++i) emitter->pla();
         emitter->tza();
     }
-    emit("rtn #0");
+    if (currentFunction && currentFunction->isInterrupt) {
+        emit("plz"); emit("ply"); emit("plx"); emit("pla");
+        emit("rti");
+    } else {
+        emit("rtn #0");
+    }
     auto* saved = currentClobbers_;
     currentClobbers_ = nullptr;  // don't record post-return invalidation
     invalidateRegs();
@@ -4164,22 +4202,22 @@ void CodeGenerator::visit(StructDefinition& node) {
         int mSize = 0;
 
         if (member.pointerLevel > 0 || member.type == "int") {
-            mAlign = 2;
             mSize = 2;
+            mAlign = node.isUnpacked ? 2 : 1;  // packed by default
         } else if (is8BitType(member.type)) {
             mAlign = 1;
             mSize = 1;
         } else if (isStruct(member.type)) {
             std::string sName = getAggregateName(member.type);
             if (structs.count(sName)) {
-                mAlign = structs[sName]->alignment;
+                mAlign = node.isUnpacked ? structs[sName]->alignment : 1;
                 mSize = structs[sName]->totalSize;
             } else {
                 throw std::runtime_error("Unknown struct/union type in member: " + sName);
             }
         }
 
-        // Evaluate _Alignas on struct member if present
+        // Evaluate _Alignas on struct member if present (always honored)
         int memberAlignOverride = resolveAlignmentExpr(member.alignmentExpr.get(), structs);
         if (memberAlignOverride > mAlign) mAlign = memberAlignOverride;
         if (member.alignment > mAlign) mAlign = member.alignment;

@@ -7,7 +7,7 @@
 ;   _apply_fade(level)       — Scale palette colors by fade level (0-256)
 ;
 ; ZP calling convention:
-;   Input:  Parameters in zero page ($02+)
+;   Input:  Parameters in zero page ($10+)
 ;   Output: 16-bit result in A,X
 
 .cpu _45gs02
@@ -71,16 +71,16 @@ _restore_palette:
 
 
 ; _apply_fade(unsigned char level) — Scale palette by fade level
-; ZP calling convention: level parameter at $03
+; ZP calling convention: level parameter at $10
 ; Reads from BSS buffer (palette_buffer)
-; Uses ZP: $03 (parameter), $04-$07 (temp storage)
+; Uses ZP: $10 (parameter), $04-$07 (temp storage)
 _apply_fade:
     ldx #0
 @fade_loop:
     ; Process RED
     lda $A000, x              ; load original red
     sta $04                   ; store multiplicand at $04
-    lda $03                   ; load fade level into A
+    lda $10                   ; load fade level into A
     sta $07                   ; SAVE multiplier at $07
 
     ; Inline multiply: ($04 * $07) >> 8
@@ -101,7 +101,7 @@ _apply_fade:
     ; Process GREEN
     lda $A000 + 16, x         ; load original green
     sta $04
-    lda $03                   ; load fade level
+    lda $10                   ; load fade level
     sta $07                   ; save multiplier
 
     lda #0
@@ -120,7 +120,7 @@ _apply_fade:
     ; Process BLUE
     lda $A000 + 32, x         ; load original blue
     sta $04
-    lda $03                   ; load fade level
+    lda $10                   ; load fade level
     sta $07                   ; save multiplier
 
     lda #0

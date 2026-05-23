@@ -127,6 +127,8 @@ void IRCodeGen::loadVreg(uint32_t vregId) {
             std::string sym = "__vr" + std::to_string(vregId);
             if (alloc.type == ir::Type::I32) {
                 emit("ldaxyz.fp " + sym);
+            } else if (alloc.type == ir::Type::I8) {
+                emit("lda.fp " + sym);
             } else {
                 emit("ldax.fp " + sym);
             }
@@ -165,6 +167,8 @@ void IRCodeGen::storeVreg(uint32_t vregId) {
             std::string sym = "__vr" + std::to_string(vregId);
             if (alloc.type == ir::Type::I32) {
                 emit("staxyz.fp " + sym);
+            } else if (alloc.type == ir::Type::I8) {
+                emit("sta.fp " + sym);
             } else {
                 emit("stax.fp " + sym);
             }
@@ -180,10 +184,12 @@ void IRCodeGen::loadOperand(const ir::Operand& op) {
             break;
         case ir::OperandKind::IMM:
             emit("lda #" + std::to_string((int)(op.immVal & 0xFF)));
-            emit("ldx #" + std::to_string((int)((op.immVal >> 8) & 0xFF)));
             if (op.type == ir::Type::I32) {
+                emit("ldx #" + std::to_string((int)((op.immVal >> 8) & 0xFF)));
                 emit("ldy #" + std::to_string((int)((op.immVal >> 16) & 0xFF)));
                 emit("ldz #" + std::to_string((int)((op.immVal >> 24) & 0xFF)));
+            } else if (op.type != ir::Type::I8) {
+                emit("ldx #" + std::to_string((int)((op.immVal >> 8) & 0xFF)));
             }
             break;
         case ir::OperandKind::GLOBAL:
@@ -616,6 +622,21 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     currentInstIdx_ = 0;
 
+    // __naked: emit only proc label + body + endproc, no prologue/epilogue
+    if (fn.isNaked) {
+        emit("proc " + fn.name);
+        for (const auto& block : fn.blocks) {
+            emitLabel("@" + block.label);
+            for (const auto& inst : block.insts) {
+                emitInst(inst);
+                currentInstIdx_++;
+            }
+        }
+        emit("endproc");
+        emitBlank();
+        return;
+    }
+
     // proc directive with parameter specs
     std::string procLine = "proc " + fn.name;
     for (size_t i = 0; i < fn.paramTypes.size(); i++) {
@@ -632,6 +653,15 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         }
     }
     emit(procLine);
+
+    // Reset source location tracking for this function
+    lastLocLine_ = -1;
+    lastLocFile_.clear();
+
+    // __interrupt: save all registers at entry
+    if (fn.isInterrupt) {
+        emit("pha"); emit("phx"); emit("phy"); emit("phz");
+    }
 
     // Frame pointer variable
     emit(".var _fp = 0");
@@ -765,6 +795,12 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         emit("ldz __zp_scratch3+1");
     }
 
+    // __interrupt: restore registers and return with RTI
+    if (fn.isInterrupt) {
+        emit("plz"); emit("ply"); emit("plx"); emit("pla");
+        emit("rti");
+    }
+
     // Function attribute directives with per-function clobber analysis
     auto fc = computeFuncClobbers(fn);
     {
@@ -798,6 +834,13 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 // ============================================================================
 
 void IRCodeGen::emitInst(const ir::Inst& inst) {
+    // Emit .loc directive when source location changes
+    if (inst.loc.valid() && (inst.loc.line != lastLocLine_ || inst.loc.file != lastLocFile_)) {
+        lastLocLine_ = inst.loc.line;
+        lastLocFile_ = inst.loc.file;
+        emit(".loc \"" + inst.loc.file + "\", " + std::to_string(inst.loc.line));
+    }
+
     switch (inst.op) {
         case ir::Op::NOP:
             break;
@@ -805,7 +848,13 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         case ir::Op::CONST: {
             int val = (int)inst.src1.immVal;
             emit("lda #" + std::to_string(val & 0xFF));
-            emit("ldx #" + std::to_string((val >> 8) & 0xFF));
+            if (inst.resultType == ir::Type::I32) {
+                emit("ldx #" + std::to_string((val >> 8) & 0xFF));
+                emit("ldy #" + std::to_string((val >> 16) & 0xFF));
+                emit("ldz #" + std::to_string((val >> 24) & 0xFF));
+            } else if (inst.resultType != ir::Type::I8) {
+                emit("ldx #" + std::to_string((val >> 8) & 0xFF));
+            }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
@@ -1207,7 +1256,27 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     }
 
                     // Now load the VALUE to store
-                    loadOperand(inst.src1);
+                    if (inst.resultType == ir::Type::I8) {
+                        // 8-bit store: only need A, skip X load
+                        if (inst.src1.isImm()) {
+                            emit("lda #" + std::to_string((int)(inst.src1.immVal & 0xFF)));
+                        } else if (inst.src1.isVreg()) {
+                            auto valAlloc = alloc_.getAlloc(inst.src1.vregId);
+                            if (valAlloc.loc == VRegAllocator::IN_ZP) {
+                                std::stringstream vs;
+                                vs << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << valAlloc.offset;
+                                emit("lda " + vs.str());
+                            } else if (valAlloc.loc == VRegAllocator::IN_FRAME) {
+                                emit("lda.fp __vr" + std::to_string(inst.src1.vregId));
+                            } else {
+                                loadOperand(inst.src1);
+                            }
+                        } else {
+                            loadOperand(inst.src1);
+                        }
+                    } else {
+                        loadOperand(inst.src1);
+                    }
 
                     emit("ldy #0");
                     if (inst.resultType == ir::Type::I8) {

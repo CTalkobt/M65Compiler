@@ -65,14 +65,19 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 unit->topLevelDecls.push_back(std::move(def));
                 continue;
             }
-            if (pos + 1 < tokens.size() && tokens[pos+1].type == TokenType::IDENTIFIER &&
-                pos + 2 < tokens.size() && tokens[pos+2].type == TokenType::OPEN_BRACE) {
-                advance(); // struct/union
-                auto def = parseStructDefinition(isUnion);
-                expect(TokenType::SEMICOLON, "Expected ';' after struct/union definition");
-                flushPending(*unit);
-                unit->topLevelDecls.push_back(std::move(def));
-                continue;
+            {
+                // Check for struct/union definition: struct [__unpacked] name { ... };
+                size_t sLook = pos + 1;
+                if (sLook < tokens.size() && tokens[sLook].type == TokenType::UNPACKED) sLook++;
+                if (sLook < tokens.size() && tokens[sLook].type == TokenType::IDENTIFIER &&
+                    sLook + 1 < tokens.size() && tokens[sLook+1].type == TokenType::OPEN_BRACE) {
+                    advance(); // struct/union
+                    auto def = parseStructDefinition(isUnion);
+                    expect(TokenType::SEMICOLON, "Expected ';' after struct/union definition");
+                    flushPending(*unit);
+                    unit->topLevelDecls.push_back(std::move(def));
+                    continue;
+                }
             }
         }
 
@@ -84,6 +89,8 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
         bool isExtern = false;
         bool isStatic = false;
         bool isFC = false;
+        bool isInterrupt = false;
+        bool isNaked = false;
 
         if (tokens[look].type == TokenType::EXTERN) {
             isExtern = true;
@@ -99,6 +106,14 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
         }
         if (tokens[look].type == TokenType::FASTCALL) {
             isFC = true;
+            look++;
+        }
+        if (tokens[look].type == TokenType::INTERRUPT) {
+            isInterrupt = true;
+            look++;
+        }
+        if (tokens[look].type == TokenType::NAKED) {
+            isNaked = true;
             look++;
         }
 
@@ -199,11 +214,15 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     if (isExtern) match(TokenType::EXTERN);
                     if (isStatic) match(TokenType::STATIC);
                     if (isNR) match(TokenType::NORETURN);
-                if (isFC) match(TokenType::FASTCALL);
-                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
+                    if (isFC) match(TokenType::FASTCALL);
+                    if (isInterrupt) match(TokenType::INTERRUPT);
+                    if (isNaked) match(TokenType::NAKED);
+                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
                     auto decl = parseFunctionDeclaration();
                     decl->isNoreturn = isNR;
                     decl->isFastcall = isFC;
+                    decl->isInterrupt = isInterrupt;
+                    decl->isNaked = isNaked;
                     decl->isStatic = isStatic;
                     // extern functions are always prototypes (no body)
                     if (isExtern) decl->isPrototype = true;
@@ -213,8 +232,10 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     if (isExtern) match(TokenType::EXTERN);
                     if (isStatic) match(TokenType::STATIC);
                     if (isNR) match(TokenType::NORETURN);
-                if (isFC) match(TokenType::FASTCALL);
-                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
+                    if (isFC) match(TokenType::FASTCALL);
+                    if (isInterrupt) match(TokenType::INTERRUPT);
+                    if (isNaked) match(TokenType::NAKED);
+                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
                     auto decl = parseVariableDeclaration(isVol, isConst);
                     if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                         vd->isGlobal = true;
@@ -228,20 +249,28 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             } else {
                 if (isNR) match(TokenType::NORETURN);
                 if (isFC) match(TokenType::FASTCALL);
+                if (isInterrupt) match(TokenType::INTERRUPT);
+                if (isNaked) match(TokenType::NAKED);
                 while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
                 auto decl = parseFunctionDeclaration();
                 decl->isNoreturn = isNR;
                 decl->isFastcall = isFC;
+                decl->isInterrupt = isInterrupt;
+                decl->isNaked = isNaked;
                 flushPending(*unit);
                 unit->topLevelDecls.push_back(std::move(decl));
             }
         } else {
             if (isNR) match(TokenType::NORETURN);
             if (isFC) match(TokenType::FASTCALL);
+            if (isInterrupt) match(TokenType::INTERRUPT);
+            if (isNaked) match(TokenType::NAKED);
             while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
             auto decl = parseFunctionDeclaration();
             decl->isNoreturn = isNR;
             decl->isFastcall = isFC;
+            decl->isInterrupt = isInterrupt;
+            decl->isNaked = isNaked;
             flushPending(*unit);
             unit->topLevelDecls.push_back(std::unique_ptr<Statement>(std::move(decl)));
         }
@@ -253,6 +282,8 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     const Token& startToken = peek();
     bool isNR = match(TokenType::NORETURN);
     bool isFC = match(TokenType::FASTCALL);
+    bool isInterrupt = match(TokenType::INTERRUPT);
+    bool isNaked = match(TokenType::NAKED);
     std::string returnType;
     bool isSigned = false;
     int basePtrLevel = 0;
@@ -431,6 +462,8 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         func->body = std::make_unique<CompoundStatement>();
         func->isNoreturn = isNR;
         func->isFastcall = isFC;
+        func->isInterrupt = isInterrupt;
+        func->isNaked = isNaked;
         func->isPrototype = true;
         func->isVariadic = isVariadic;
         return func;
@@ -447,6 +480,8 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     func->body = std::move(body);
     func->isNoreturn = isNR;
     func->isFastcall = isFC;
+    func->isInterrupt = isInterrupt;
+    func->isNaked = isNaked;
     func->isVariadic = isVariadic;
     return func;
 }
@@ -915,6 +950,7 @@ std::unique_ptr<StaticAssert> Parser::parseStaticAssert() {
 
 std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
     const Token& startToken = tokens[pos-1]; // 'struct' or 'union'
+    bool isUnpacked = match(TokenType::UNPACKED);
     std::string name;
     if (peek().type == TokenType::IDENTIFIER) {
         name = advance().value;
@@ -924,6 +960,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
 
     expect(TokenType::OPEN_BRACE, "Expected '{'");
     auto def = setPos(std::make_unique<StructDefinition>(name, isUnion), startToken);
+    def->isUnpacked = isUnpacked;
     while (peek().type != TokenType::CLOSE_BRACE && peek().type != TokenType::END_OF_FILE) {
         std::unique_ptr<Expression> mAlignmentExpr = nullptr;
         if (match(TokenType::ALIGNAS)) {

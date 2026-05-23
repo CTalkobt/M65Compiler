@@ -229,6 +229,8 @@ VALIDATION_TESTS=(
     "test_global_res"
     "test_switch_continue"
     "test_case_range"
+    "test_packed_struct"
+    "test_naked"
     "test_goto_sizeof"
     "test_signed_cc"
     "test_sub"

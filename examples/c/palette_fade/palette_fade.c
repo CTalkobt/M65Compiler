@@ -25,6 +25,8 @@ int main(void) {
     unsigned char *border_color = (unsigned char *)0xD020;
     unsigned char level;
 
+    *border_color = 1;
+
     // DEBUG: Red border = starting (should appear immediately)
     *border_color = 2;
 

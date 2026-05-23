@@ -1162,4 +1162,20 @@ void O45Linker::writeMap(std::ostream& out) const {
             out << "\n";
         }
     }
+
+    // Source line map section — one entry per unique file:line (first address only)
+    if (!mergedLineMap_.empty()) {
+        out << "\nSource Lines\n";
+        out << "------------\n";
+        std::set<std::pair<std::string, int>> seen;
+        for (const auto& entry : mergedLineMap_) {
+            auto key = std::make_pair(entry.file, entry.line);
+            if (seen.insert(key).second) {
+                char buf[256];
+                snprintf(buf, sizeof(buf), "  $%04X  %s:%d\n",
+                         entry.address, entry.file.c_str(), entry.line);
+                out << buf;
+            }
+        }
+    }
 }

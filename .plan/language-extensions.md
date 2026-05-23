@@ -132,7 +132,7 @@ inline assembly or manual lookup tables.
 
 ## 4. Code Generation Extensions
 
-### `__interrupt` function attribute
+### `__interrupt` function attribute -- IMPLEMENTED (v1.0-rc3)
 ```c
 __interrupt void timer_isr(void) {
     tick_count++;
@@ -145,7 +145,7 @@ RTS. Currently requires inline assembly wrappers. The compiler already tracks
 which registers the function body clobbers via `.reg_clobbers`, so it can emit
 minimal save/restore sequences.
 
-### `__naked` function attribute
+### `__naked` function attribute -- IMPLEMENTED (v1.0-rc3)
 ```c
 __naked void fast_memcpy(void) {
     __asm__("...");  // No prologue/epilogue emitted
@@ -242,6 +242,14 @@ another function (or itself). Saves 2 bytes of stack per call depth and 12
 cycles (JSR+RTS -> JMP). Critical for recursive algorithms on a 256-byte stack.
 Implemented as an assembler optimizer pass (JSR absolute + RTS implied -> JMP).
 
+### Pointer constant propagation
+When a pointer is assigned a constant address and never reassigned, replace
+indirect stores/loads through it with direct absolute addressing. Example:
+`unsigned char *p = (unsigned char *)0xD020; *p = 2;` should emit
+`lda #2; sta $D020` instead of storing the pointer to a frame slot and
+dereferencing through ZP indirect. Related: the vreg allocator also
+round-trips constants through ZP unnecessarily (store then immediate reload).
+
 ### Interprocedural register allocation
 Already emitting `.reg_clobbers` metadata (Phase 1 complete). The next step: if
 the linker knows `helper()` only clobbers A, then the caller doesn't need to
@@ -254,11 +262,11 @@ highest-impact optimization for call-heavy code.
 
 | Extension | Code Size | Speed | Impl. Complexity |
 |-----------|:---------:|:-----:|:-----------------:|
-| `__interrupt` | medium | medium | low |
+| `__interrupt` | medium | medium | **DONE** |
 | Case ranges (`'A'...'Z'`) | high | medium | **DONE** |
 | `__zp` globals | medium | high | medium |
 | Tail-call optimization | medium | high | **DONE** |
-| `__packed` structs | medium | -- | low |
+| Packed-by-default / `__unpacked` | medium | -- | **DONE** |
 | `repeat(n)` unrolling | high (trades size) | high | low |
 | Fixed-point types | high | high | high |
 | DMA intrinsics | -- | very high | medium |
