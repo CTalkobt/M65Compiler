@@ -11,5 +11,6 @@ int main() {
     if (ga < gb) r[1] = 1;
     else r[1] = 0;
     r[2] = 0xAA;
+    __asm__("brk");
     return 0;
 }

@@ -9,5 +9,6 @@ int main() {
     r[0] = (char)add(10, 20);   // 30 = $1E
     r[1] = (char)sub(20, 13);   // 7 = $07
     r[2] = 0xAA;
+    __asm__("brk");
     return 0;
 }
