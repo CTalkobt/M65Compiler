@@ -579,7 +579,7 @@ public:
     void visit(DoWhileStatement& n) override { n.body->accept(*this); n.condition->accept(*this); }
     void visit(ForStatement& n) override { if (n.initializer) n.initializer->accept(*this); if (n.condition) n.condition->accept(*this); if (n.increment) n.increment->accept(*this); n.body->accept(*this); }
     void visit(SwitchStatement& n) override { n.expression->accept(*this); n.body->accept(*this); }
-    void visit(CaseStatement& n) override { n.value->accept(*this); }
+    void visit(CaseStatement& n) override { n.value->accept(*this); if (n.rangeEnd) n.rangeEnd->accept(*this); }
     void visit(DefaultStatement&) override {}
     void visit(AsmStatement&) override {}
     void visit(StaticAssert&) override {}
@@ -640,7 +640,7 @@ public:
     void visit(DoWhileStatement& n) override { n.body->accept(*this); n.condition->accept(*this); }
     void visit(ForStatement& n) override { if (n.initializer) n.initializer->accept(*this); if (n.condition) n.condition->accept(*this); if (n.increment) n.increment->accept(*this); n.body->accept(*this); }
     void visit(SwitchStatement& n) override { n.expression->accept(*this); n.body->accept(*this); }
-    void visit(CaseStatement& n) override { n.value->accept(*this); }
+    void visit(CaseStatement& n) override { n.value->accept(*this); if (n.rangeEnd) n.rangeEnd->accept(*this); }
     void visit(DefaultStatement&) override {}
     void visit(AsmStatement&) override {}
     void visit(StaticAssert&) override {}
@@ -831,7 +831,7 @@ public:
         n.body->accept(*this);
     }
     void visit(SwitchStatement& n) override { n.expression->accept(*this); n.body->accept(*this); }
-    void visit(CaseStatement& n) override { if (n.value) n.value->accept(*this); }
+    void visit(CaseStatement& n) override { if (n.value) n.value->accept(*this); if (n.rangeEnd) n.rangeEnd->accept(*this); }
     void visit(DefaultStatement&) override {}
     void visit(AsmStatement&) override {}
     void visit(StaticAssert&) override {}
@@ -4063,7 +4063,13 @@ void CodeGenerator::visit(SwitchStatement& node) {
         void visit(SwitchStatement&) override {}
         void visit(CaseStatement& node) override {
             uint32_t val = 0; if (auto* lit = dynamic_cast<IntegerLiteral*>(node.value.get())) val = lit->value;
-            std::string l = gen.newLabel(); info.cases.push_back({val, l}); node.label = l;
+            uint32_t endVal = val;
+            bool isRange = false;
+            if (node.rangeEnd) {
+                if (auto* lit2 = dynamic_cast<IntegerLiteral*>(node.rangeEnd.get())) endVal = lit2->value;
+                isRange = true;
+            }
+            std::string l = gen.newLabel(); info.cases.push_back({val, endVal, isRange, l}); node.label = l;
         }
         void visit(DefaultStatement& node) override {
             std::string l = gen.newLabel(); info.defaultLabel = l; info.hasDefault = true; node.label = l;
@@ -4080,9 +4086,23 @@ void CodeGenerator::visit(SwitchStatement& node) {
     node.body->accept(collector);
     for (auto& c : info.cases) {
         emit("ldax $" + ss.str());
-        std::stringstream ssVal;
-        ssVal << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << c.value;
-        emit("cmp.16 .ax, " + ssVal.str()); emit("beq " + c.label);
+        if (c.isRange) {
+            // Range case: check value >= min && value <= max
+            std::string skipLabel = newLabel();
+            std::stringstream ssMin;
+            ssMin << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << c.value;
+            emit("cmp.16 .ax, " + ssMin.str());
+            emit("bcc " + skipLabel);  // value < min → skip
+            std::stringstream ssMax;
+            ssMax << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (c.rangeEndValue + 1);
+            emit("cmp.16 .ax, " + ssMax.str());
+            emit("bcc " + c.label);    // value < max+1 (i.e., value <= max) → match
+            out << skipLabel << ":" << std::endl;
+        } else {
+            std::stringstream ssVal;
+            ssVal << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << c.value;
+            emit("cmp.16 .ax, " + ssVal.str()); emit("beq " + c.label);
+        }
     }
     if (info.hasDefault) emit("bra " + info.defaultLabel);
     else emit("bra " + labelBreak);
@@ -5567,7 +5587,7 @@ public:
         node.body->accept(*this);
     }
     void visit(SwitchStatement& node) override { node.expression->accept(*this); node.body->accept(*this); }
-    void visit(CaseStatement& node) override { node.value->accept(*this); }
+    void visit(CaseStatement& node) override { node.value->accept(*this); if (node.rangeEnd) node.rangeEnd->accept(*this); }
     void visit(DefaultStatement&) override {}
     void visit(AsmStatement&) override {}
     void visit(StaticAssert&) override {}

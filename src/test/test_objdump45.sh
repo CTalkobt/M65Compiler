@@ -399,8 +399,7 @@ if [ $? -eq 0 ]; then
     assert_exit "prg -d exits 0" $? 0
     assert_contains "prg disassembly header" "$OUT" "Disassembly"
     assert_contains "prg lda #\$42" "$OUT" '#$42'
-    assert_contains "prg jsr" "$OUT" "jsr"
-    assert_contains "prg rts" "$OUT" "rts"
+    assert_contains "prg jmp (tail-call optimized)" "$OUT" "jmp"
     assert_contains "prg address at 0810" "$OUT" "0810:"
 
     # Test -s hex dump on PRG

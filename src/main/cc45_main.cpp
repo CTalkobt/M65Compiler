@@ -289,9 +289,10 @@ public:
         indent--;
     }
     void visit(CaseStatement& node) override {
-        printIndent(); std::cout << "CaseStatement: " << std::endl;
+        printIndent(); std::cout << "CaseStatement" << (node.rangeEnd ? " (range)" : "") << ": " << std::endl;
         indent++;
         node.value->accept(*this);
+        if (node.rangeEnd) { printIndent(); std::cout << "..." << std::endl; node.rangeEnd->accept(*this); }
         indent--;
     }
     void visit(DefaultStatement&) override {

@@ -36,6 +36,43 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
         }
     }
 
+    // --- Pass 1: Tail-call optimization (JSR + RTS → JMP) ---
+    // Must run before register tracking pass since it changes control flow.
+    for (size_t i = 0; i < parser->statements.size(); ++i) {
+        auto* s = parser->statements[i].get();
+        if (s->deleted) continue;
+        if (s->type != AssemblerParser::Statement::INSTRUCTION) continue;
+
+        std::string m = s->instr.mnemonic;
+        std::transform(m.begin(), m.end(), m.begin(), ::toupper);
+
+        // Match JSR with absolute addressing (not indirect JSR)
+        if (m == "JSR" && s->instr.mode == AddressingMode::ABSOLUTE) {
+            // Find next non-deleted statement
+            size_t j = i + 1;
+            while (j < parser->statements.size() && parser->statements[j]->deleted) ++j;
+            if (j >= parser->statements.size()) continue;
+
+            auto* next = parser->statements[j].get();
+            // Must not have a label (label = branch target, can't delete)
+            if (!next->label.empty()) continue;
+            if (next->type != AssemblerParser::Statement::INSTRUCTION) continue;
+
+            std::string nm = next->instr.mnemonic;
+            std::transform(nm.begin(), nm.end(), nm.begin(), ::toupper);
+
+            // Only plain RTS/RTN (IMPLIED mode, no stack cleanup operand)
+            if ((nm == "RTS" || nm == "RTN") && next->instr.mode == AddressingMode::IMPLIED) {
+                s->instr.mnemonic = "jmp";
+                // operand and mode (ABSOLUTE) stay the same; size stays 3 bytes
+                next->deleted = true;
+                next->size = 0;
+                changed = true;
+            }
+        }
+    }
+
+    // --- Pass 2: Register tracking and redundant load elimination ---
     for (size_t i = 0; i < parser->statements.size(); ++i) {
         auto* s = parser->statements[i].get();
         if (s->deleted) continue;

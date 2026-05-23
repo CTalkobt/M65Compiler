@@ -1746,8 +1746,14 @@ public:
     void visit(CaseStatement& node) override {
         int64_t val = 0;
         if (auto* lit = dynamic_cast<IntegerLiteral*>(node.value.get())) val = lit->value;
+        int64_t endVal = val;
+        bool isRange = false;
+        if (node.rangeEnd) {
+            if (auto* lit2 = dynamic_cast<IntegerLiteral*>(node.rangeEnd.get())) endVal = lit2->value;
+            isRange = true;
+        }
         node.label = builder.newLabel("case");
-        ctx.cases.push_back({(uint32_t)val, node.label});
+        ctx.cases.push_back({val, endVal, isRange, node.label});
     }
     void visit(DefaultStatement& node) override {
         node.label = builder.newLabel("default");
@@ -1781,24 +1787,69 @@ void IRBuilder::visit(SwitchStatement& node) {
 
     // Emit comparison dispatch logic
     for (auto const& c : ctx.cases) {
-        auto dest = allocVreg(ir::Type::I8);
-        ir::Inst cmp;
-        cmp.op = ir::Op::CMP_EQ;
-        cmp.dest = dest;
-        cmp.resultType = ir::Type::I8;
-        cmp.src1 = expr;
-        cmp.src2 = ir::Operand::imm(c.first, expr.type);
-        cmp.loc = loc(node);
-        emit(cmp);
+        if (c.isRange) {
+            // Range case: expr >= minVal && expr <= maxVal
+            std::string nextCmpLabel = newLabel("case_skip");
 
-        std::string nextCmpLabel = newLabel("case_skip");
-        ir::Inst br;
-        br.op = ir::Op::BR_COND;
-        br.src1 = dest;
-        br.dest = ir::Operand::label(c.second);
-        br.src2 = ir::Operand::label(nextCmpLabel);
-        emit(br);
-        startBlock(nextCmpLabel);
+            // Check expr >= minVal (unsigned)
+            auto geDest = allocVreg(ir::Type::I8);
+            ir::Inst cmpGe;
+            cmpGe.op = ir::Op::CMP_GEU;
+            cmpGe.dest = geDest;
+            cmpGe.resultType = ir::Type::I8;
+            cmpGe.src1 = expr;
+            cmpGe.src2 = ir::Operand::imm(c.minVal, expr.type);
+            cmpGe.loc = loc(node);
+            emit(cmpGe);
+
+            std::string checkUpperLabel = newLabel("range_upper");
+            ir::Inst brGe;
+            brGe.op = ir::Op::BR_COND;
+            brGe.src1 = geDest;
+            brGe.dest = ir::Operand::label(checkUpperLabel);
+            brGe.src2 = ir::Operand::label(nextCmpLabel);
+            emit(brGe);
+            startBlock(checkUpperLabel);
+
+            // Check expr <= maxVal (unsigned)
+            auto leDest = allocVreg(ir::Type::I8);
+            ir::Inst cmpLe;
+            cmpLe.op = ir::Op::CMP_LEU;
+            cmpLe.dest = leDest;
+            cmpLe.resultType = ir::Type::I8;
+            cmpLe.src1 = expr;
+            cmpLe.src2 = ir::Operand::imm(c.maxVal, expr.type);
+            cmpLe.loc = loc(node);
+            emit(cmpLe);
+
+            ir::Inst brLe;
+            brLe.op = ir::Op::BR_COND;
+            brLe.src1 = leDest;
+            brLe.dest = ir::Operand::label(c.label);
+            brLe.src2 = ir::Operand::label(nextCmpLabel);
+            emit(brLe);
+            startBlock(nextCmpLabel);
+        } else {
+            // Single-value case
+            auto dest = allocVreg(ir::Type::I8);
+            ir::Inst cmp;
+            cmp.op = ir::Op::CMP_EQ;
+            cmp.dest = dest;
+            cmp.resultType = ir::Type::I8;
+            cmp.src1 = expr;
+            cmp.src2 = ir::Operand::imm(c.minVal, expr.type);
+            cmp.loc = loc(node);
+            emit(cmp);
+
+            std::string nextCmpLabel = newLabel("case_skip");
+            ir::Inst br;
+            br.op = ir::Op::BR_COND;
+            br.src1 = dest;
+            br.dest = ir::Operand::label(c.label);
+            br.src2 = ir::Operand::label(nextCmpLabel);
+            emit(br);
+            startBlock(nextCmpLabel);
+        }
     }
 
     // Branch to default (or break if no default)

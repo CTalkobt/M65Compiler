@@ -128,7 +128,13 @@ private:
         std::string breakLabel;
         std::string defaultLabel;
         ir::Operand expr;
-        std::vector<std::pair<int64_t, std::string>> cases;
+        struct CaseEntry {
+            int64_t minVal;
+            int64_t maxVal;  // == minVal for single cases
+            bool isRange;
+            std::string label;
+        };
+        std::vector<CaseEntry> cases;
         bool hasDefault = false;
     };
     std::vector<SwitchCtx> switchStack_;

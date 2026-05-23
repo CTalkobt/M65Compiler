@@ -686,8 +686,12 @@ std::unique_ptr<Statement> Parser::parseStatement() {
     if (match(TokenType::CASE)) {
         const Token& startToken = tokens[pos-1];
         auto value = parseExpression();
+        std::unique_ptr<Expression> rangeEnd;
+        if (match(TokenType::ELLIPSIS)) {
+            rangeEnd = parseExpression();
+        }
         expect(TokenType::COLON, "Expected ':' after case value");
-        return setPos(std::make_unique<CaseStatement>(std::move(value)), startToken);
+        return setPos(std::make_unique<CaseStatement>(std::move(value), std::move(rangeEnd)), startToken);
     }
 
     if (match(TokenType::DEFAULT)) {

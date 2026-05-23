@@ -319,8 +319,10 @@ public:
 class CaseStatement : public Statement {
 public:
     std::unique_ptr<Expression> value;
+    std::unique_ptr<Expression> rangeEnd;  // non-null for case ranges (e.g., case 'A' ... 'Z':)
     std::string label;
-    CaseStatement(std::unique_ptr<Expression> val) : value(std::move(val)) {}
+    CaseStatement(std::unique_ptr<Expression> val, std::unique_ptr<Expression> end = nullptr)
+        : value(std::move(val)), rangeEnd(std::move(end)) {}
     void accept(ASTVisitor& visitor) override;
 };
 

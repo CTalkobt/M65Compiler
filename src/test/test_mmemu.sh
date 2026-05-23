@@ -228,6 +228,7 @@ VALIDATION_TESTS=(
     "test_global_vars"
     "test_global_res"
     "test_switch_continue"
+    "test_case_range"
     "test_goto_sizeof"
     "test_signed_cc"
     "test_sub"

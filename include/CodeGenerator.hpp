@@ -207,6 +207,8 @@ public:
         std::string defaultLabel;
         struct Case {
             uint32_t value;
+            uint32_t rangeEndValue; // == value for single cases
+            bool isRange;
             std::string label;
         };
         std::vector<Case> cases;

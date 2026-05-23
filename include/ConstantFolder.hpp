@@ -467,7 +467,9 @@ public:
         // from a previous case (they're mutually exclusive paths).
         knownConstants.clear();
         auto value = fold(std::move(node.value));
-        auto newNode = std::make_unique<CaseStatement>(std::move(value));
+        std::unique_ptr<Expression> rangeEnd;
+        if (node.rangeEnd) rangeEnd = fold(std::move(node.rangeEnd));
+        auto newNode = std::make_unique<CaseStatement>(std::move(value), std::move(rangeEnd));
         newNode->label = node.label;
         lastStmt = copyPos(std::move(newNode), node);
     }
