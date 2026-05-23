@@ -267,9 +267,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         idx++; // skip #
 
         // Check for < prefix (address-of operator from compiler)
-        bool hasLowPrefix = false;
         if (idx < (int)parser.tokens.size() && parser.tokens[idx].value == "<") {
-            hasLowPrefix = true;
             idx++;
         }
 

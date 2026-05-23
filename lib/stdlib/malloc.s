@@ -567,8 +567,8 @@ proc _realloc, W#_p_ptr, W#_p_size
     phx
     pha
     jsr _malloc
-    stax $02            ; new_ptr
-    ora $03
+    stax $06            ; new_ptr (use $06/$07, $02 is clobbered by ldax)
+    ora $07
     beq @fail
     
     ; memcpy(new_ptr, old_ptr, min(old_size, new_size))
@@ -615,10 +615,10 @@ proc _realloc, W#_p_ptr, W#_p_size
     ldax _p_ptr, s
     phx
     pha                 ; src (.AX)
-    lda $03
+    lda $07
     pha
-    lda $02
-    pha                 ; dest ($02)
+    lda $06
+    pha                 ; dest ($06/$07)
     jsr _memcpy
     
     ldax _p_ptr, s
@@ -626,7 +626,7 @@ proc _realloc, W#_p_ptr, W#_p_size
     pha
     jsr _free
     
-    ldax $02
+    ldax $06
     rtn #0
 @fail:
     lda #0

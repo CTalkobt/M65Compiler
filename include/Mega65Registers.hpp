@@ -14,8 +14,8 @@ namespace m65 {
     // 32-bit Divider
     constexpr uint16_t DIV_ARG1         = 0xD760; // 0xD760-0xD763
     constexpr uint16_t DIV_ARG2         = 0xD764; // 0xD764-0xD767
-    constexpr uint16_t DIV_RES          = 0xD768; // 0xD768-0xD76B
-    constexpr uint16_t DIV_REM          = 0xD770; // 0xD770-0xD773 (As used in cc45 for 16-bit remainder)
+    constexpr uint16_t DIV_RES          = 0xD768; // 0xD768-0xD76B (Quotient)
+    constexpr uint16_t DIV_REM          = 0xD76C; // 0xD76C-0xD76F (Remainder)
     
     constexpr uint16_t MATH_SIGN        = 0xD76E;
 

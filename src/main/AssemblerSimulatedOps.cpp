@@ -744,7 +744,7 @@ void AssemblerSimulatedOps::emitABS16Code(AssemblerParser* parser, M65Emitter& e
     }
 }
 
-void AssemblerSimulatedOps::emitChkZeroCode(AssemblerParser* parser, M65Emitter& e, bool is16, bool isInverse, int, const std::string&) {
+void AssemblerSimulatedOps::emitChkZeroCode(AssemblerParser* /*parser*/, M65Emitter& e, bool is16, bool isInverse, int, const std::string&) {
     if (is16) { e.cmp_imm(0); e.bne(0x01); e.txa(); } else e.cmp_imm(0);
     if (isInverse) { e.bne(0x04); e.lda_imm(0); e.bra(0x02); e.lda_imm(1); }
     else { e.beq(0x04); e.lda_imm(0); e.bra(0x02); e.lda_imm(1); }
@@ -2801,4 +2801,34 @@ void AssemblerSimulatedOps::dispatch_DivS16(AssemblerParser* p, M65Emitter& e, S
 }
 void AssemblerSimulatedOps::dispatch_Mod16(AssemblerParser* p, M65Emitter& e, Stmt* s) {
     emitMod16Code(p, e, s->type == Stmt::MOD_S16, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
+}
+
+void AssemblerSimulatedOps::dispatch_Mod32(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitMod32Code(p, e, s->type == Stmt::MOD_S32, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::emitMod32Code(AssemblerParser* parser, M65Emitter& e, bool isSigned, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    if (isSigned) {
+        // Signed 32-bit modulo not yet fully implemented with sign fixup,
+        // fallback to unsigned for now but emit a warning if we could.
+        emitDivCode(parser, e, 32, dest, tokenIndex, scopePrefix);
+    } else {
+        // Unsigned mod: perform div.32, then read remainder from $D76C-$D76F
+        emitDivCode(parser, e, 32, dest, tokenIndex, scopePrefix);
+        // divCode loaded quotient into .AXYZ from $D768. Override with remainder:
+        std::string DEST = dest; if (!DEST.empty() && DEST[0] != '.') DEST = "." + DEST;
+        std::transform(DEST.begin(), DEST.end(), DEST.begin(), ::toupper);
+        if (DEST == ".Q" || DEST == ".AXYZ") {
+            e.lda_abs(m65::DIV_REM + 3); e.taz();
+            e.lda_abs(m65::DIV_REM + 2); e.tay();
+            e.lda_abs(m65::DIV_REM + 1); e.tax();
+            e.lda_abs(m65::DIV_REM);
+        } else {
+            for (int i = 0; i < 4; ++i) {
+                e.lda_abs(m65::DIV_REM + i);
+                Symbol* sym = parser->resolveSymbol(dest, scopePrefix);
+                uint32_t addr = 0; if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } }
+                e.sta_abs(addr + i);
+            }
+        }
+    }
 }

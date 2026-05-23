@@ -166,7 +166,7 @@ public:
                     LDX_STACK, LDY_STACK, LDZ_STACK,
                     STX_STACK, STY_STACK, STZ_STACK,
                     LDAX, LDAY, LDAZ, STAX, STAY, STAZ, FILL, COPY, PUSH, POP,
-                    MUL_S16, DIV_S16, MOD16, MOD_S16,
+                    MUL_S16, DIV_S16, MOD16, MOD_S16, MOD32, MOD_S32,
                     LDA_FP, STA_FP, LDAX_FP, STAX_FP, LDAXYZ_FP, STAXYZ_FP, LEAX_FP, MOVE_FP,
                     BFEXT, BFEXT16, BFINS, BFINS_SP, BFINS_IND, BFINS16, BFINS16_SP, BFINS16_IND,
                     ADD32, SUB32, AND32, ORA32, EOR32, CMP32, NEG32, NOT32, ABS32,
@@ -291,6 +291,7 @@ private:
     void emitMulS16Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
     void emitDivS16Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
     void emitMod16Code(std::vector<uint8_t>& binary, bool isSigned, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
+    void emitMod32Code(std::vector<uint8_t>& binary, bool isSigned, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
     bool isStackRelativeOperand(int tokenIndex, uint32_t& offset, const std::string& scopePrefix);
 
     // Frame-pointer pseudo-ops

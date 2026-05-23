@@ -120,15 +120,21 @@ public:
             else if (node.op == "-") result = leftLit->value - rightLit->value;
             else if (node.op == "*") result = leftLit->value * rightLit->value;
             else if (node.op == "/") {
-                if (rightLit->value != 0) result = leftLit->value / rightLit->value;
-                else {
+                if (rightLit->value != 0) {
+                    bool isSignedResult = leftLit->castIsSigned && rightLit->castIsSigned;
+                    if (isSignedResult) result = leftLit->value / rightLit->value;
+                    else result = (int)((uint32_t)leftLit->value / (uint32_t)rightLit->value);
+                } else {
                     lastExpr = copyPos(std::make_unique<BinaryOperation>(node.op, std::move(left), std::move(right)), node);
                     return;
                 }
             }
             else if (node.op == "%") {
-                if (rightLit->value != 0) result = leftLit->value % rightLit->value;
-                else {
+                if (rightLit->value != 0) {
+                    bool isSignedResult = leftLit->castIsSigned && rightLit->castIsSigned;
+                    if (isSignedResult) result = leftLit->value % rightLit->value;
+                    else result = (int)((uint32_t)leftLit->value % (uint32_t)rightLit->value);
+                } else {
                     lastExpr = copyPos(std::make_unique<BinaryOperation>(node.op, std::move(left), std::move(right)), node);
                     return;
                 }

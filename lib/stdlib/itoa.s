@@ -100,60 +100,40 @@ proc _itoa, W#_p_value, W#_p_str, W#_p_base
     ; MEGA65 math unit registers:
     ;   MULTINA ($D770-$D773) = numerator / multiplier input A
     ;   MULTINB ($D774-$D777) = denominator / multiplier input B
-    ;   DIVOUT whole quotient at $D76C-$D76F
-    ;   MULTOUT product at $D778-$D77F (1-cycle, no wait)
+    ;   DIVOUT whole quotient at $D768-$D76B
+    ;   DIVOUT remainder at $D76C-$D76F
     ;   DIVBUSY at $D70F bit 7
-    ; Remainder = value - quotient * base (computed via multiplier).
-    ; Z register holds old value lo byte across the quotient computation.
 @extract:
-    ; Save old value lo in Z for remainder computation later
+    ; Load numerator (value) into DIVIDEND ($D760-$D763)
     lda $02
-    taz
-
-    ; Load numerator (value) into MULTINA ($D770-$D773)
-    ; A still has $02
-    sta $d770
+    sta $d760
     lda $03
-    sta $d771
+    sta $d761
     lda #0
-    sta $d772
-    sta $d773
-    ; Load denominator (base) into MULTINB ($D774-$D777)
+    sta $d762
+    sta $d763
+    ; Load denominator (base) into DIVISOR ($D764-$D767)
     lda $04
-    sta $d774
+    sta $d764
     lda $05
-    sta $d775
+    sta $d765
     lda #0
-    sta $d776
-    sta $d777
+    sta $d766
+    sta $d767
 
 @waitdiv:
     bit $d70f
     bne @waitdiv
 
-    ; Read quotient from DIVOUT whole ($D76C/$D76D).
+    ; Read quotient from DIVOUT whole ($D768/$D769).
     ; Store quotient to $02/$03 (becomes next iteration's value).
-    lda $d76c
+    lda $d768
     sta $02             ; quotient lo → new value lo
-    lda $d76d
+    lda $d769
     sta $03             ; quotient hi → new value hi
 
-    ; Compute quotient * base via multiplier to derive remainder.
-    ; MULTINA = quotient, MULTINB still = base.
-    lda $02
-    sta $d770
-    lda $03
-    sta $d771
-    lda #0
-    sta $d772
-    sta $d773
-    ; MULTOUT ($D778) = quotient * base (1-cycle, no wait)
-
-    ; remainder = old_value_lo - (quotient*base)_lo
-    ; Old value lo was saved in Z register.
-    sec
-    tza                 ; A = old value lo
-    sbc $d778           ; A = remainder
+    ; Read remainder from DIVOUT remainder ($D76C).
+    lda $d76c           ; A = remainder
 
     ; Convert remainder to character
     cmp #10

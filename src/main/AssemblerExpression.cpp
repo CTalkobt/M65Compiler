@@ -242,7 +242,7 @@ bool BinaryExpr::isConstant(AssemblerParser* parser) const {
 bool BinaryExpr::is16Bit(AssemblerParser* parser) const {
     return getValue(parser) > 0xFF || (left && left->is16Bit(parser)) || (right && right->is16Bit(parser));
 }
-void BinaryExpr::emit(M65Emitter& e, AssemblerParser* parser, int width, const std::string& target) {
+void BinaryExpr::emit(M65Emitter& e, AssemblerParser* parser, int width, const std::string& /*target*/) {
     if (!parser || !left || !right) return;
     int bytes = width / 8;
     if (bytes < 1) bytes = 1;
@@ -387,7 +387,7 @@ bool ArrayIndexNode::usesHardwareMath() const {
     return true;
 }
 
-void ArrayIndexNode::emit(M65Emitter& e, AssemblerParser* parser, int width, const std::string& target) {
+void ArrayIndexNode::emit(M65Emitter& e, AssemblerParser* parser, int width, const std::string& /*target*/) {
     if (!parser) return;
     auto* info = parser->getArrayInfo(arrayName);
     Symbol* sym = parser->resolveSymbol(arrayName, scopePrefix);
@@ -527,7 +527,7 @@ std::unique_ptr<ExprAST> parseExprAST(const std::vector<AssemblerToken>& tokens,
                     uint32_t val = (t.type == AssemblerTokenType::HEX_LITERAL) ? std::stoul(t.value.substr(1), nullptr, 16) : std::stoul(t.value);
                     idx += 2;
                     std::string tempName = "__stack_" + std::to_string(val);
-                    symbolTable[tempName] = {val, true, 2, false, false, val, true, (int)val, false, 0};
+                    symbolTable[tempName] = {val, true, 2, false, false, val, true, (int)val, false, 0, ""};
                     return std::make_unique<VariableNode>(tempName, "");
                 }
             }

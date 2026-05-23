@@ -20,7 +20,7 @@ AssemblerParser::AssemblerParser(const std::vector<AssemblerToken>& tokens) : to
 }
 
 AssemblerParser::AssemblerParser(const std::vector<AssemblerToken>& tokens, const std::map<std::string, uint32_t>& predefinedSymbols) : tokens(tokens), pos(0), pc(0), nextScopeId(0) {
-    for (const auto& [name, val] : predefinedSymbols) symbolTable[name] = {val, false, 2, false, false, val, false, 0, false, 0};
+    for (const auto& [name, val] : predefinedSymbols) symbolTable[name] = {val, false, 2, false, false, val, false, 0, false, 0, ""};
     switchSegment("default");
 }
 
@@ -376,7 +376,7 @@ void AssemblerParser::pass1() {
             if (symbolTable.count(fullSymName) && symbolTable[fullSymName].isConstant) {
                 errors.push_back("Error: Redefinition of constant symbol '" + fullSymName + "'");
             }
-            symbolTable[fullSymName] = {val, false, 2, false, false, val, false, 0, false, 0};
+            symbolTable[fullSymName] = {val, false, 2, false, false, val, false, 0, false, 0, ""};
             while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
             continue;
         }
@@ -444,7 +444,7 @@ void AssemblerParser::pass1() {
                     stmt->dir.tokenIndex = (int)pos;
                     uint32_t val = evaluateExpressionAt((int)pos, stmt->scopePrefix);
                     while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
-                    symbolTable[scVN] = {val, false, 2, true, false, val, false, 0, false, 0};
+                    symbolTable[scVN] = {val, false, 2, true, false, val, false, 0, false, 0, ""};
                 }
                 else if (match(AssemblerTokenType::INCREMENT)) {
                     stmt->dir.varType = Directive::INC;
@@ -465,7 +465,7 @@ void AssemblerParser::pass1() {
                     stmt->dir.tokenIndex = (int)pos;
                     uint32_t val = evaluateExpressionAt((int)pos, stmt->scopePrefix);
                     while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
-                    Symbol sym = {val, false, 2, true, false, val, false, 0, true, (int)val};
+                    Symbol sym = {val, false, 2, true, false, val, false, 0, true, (int)val, ""};
                     symbolTable[scVN] = sym;
                 }
                 stmt->size = 0;
@@ -480,7 +480,7 @@ void AssemblerParser::pass1() {
                 expect(AssemblerTokenType::EQUALS, "Expected '=' after constant name");
                 uint32_t val = evaluateExpressionAt((int)pos, stmt->scopePrefix);
                 while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
-                symbolTable[scCN] = {val, false, 2, false, true, val, false, 0, false, 0};
+                symbolTable[scCN] = {val, false, 2, false, true, val, false, 0, false, 0, ""};
                 stmt->size = 0;
             }
             else if (stmt->dir.name == "global") {
@@ -645,11 +645,11 @@ void AssemblerParser::pass1() {
                     symbolTable[scName] = {pc, true, 2, false, false, pc, false, 0, false, 0, currentSegment->name};
 
                     // Define metadata constants in symbol table
-                    symbolTable[scName + ".__elsize"] = {elemSize, false, 2, false, true, elemSize, false, 0, false, 0};
-                    symbolTable[scName + ".__dims"] = {(uint32_t)info.dimensions.size(), false, 2, false, true, (uint32_t)info.dimensions.size(), false, 0, false, 0};
+                    symbolTable[scName + ".__elsize"] = {elemSize, false, 2, false, true, elemSize, false, 0, false, 0, ""};
+                    symbolTable[scName + ".__dims"] = {(uint32_t)info.dimensions.size(), false, 2, false, true, (uint32_t)info.dimensions.size(), false, 0, false, 0, ""};
                     for (size_t i = 0; i < info.dimensions.size(); ++i) {
-                        symbolTable[scName + ".__dim" + std::to_string(i)] = {info.dimensions[i], false, 2, false, true, info.dimensions[i], false, 0, false, 0};
-                        symbolTable[scName + ".__stride" + std::to_string(i)] = {info.strides[i], false, 2, false, true, info.strides[i], false, 0, false, 0};
+                        symbolTable[scName + ".__dim" + std::to_string(i)] = {info.dimensions[i], false, 2, false, true, info.dimensions[i], false, 0, false, 0, ""};
+                        symbolTable[scName + ".__stride" + std::to_string(i)] = {info.strides[i], false, 2, false, true, info.strides[i], false, 0, false, 0, ""};
                     }
 
                     arrayInfos[scName] = info;
@@ -981,7 +981,7 @@ void AssemblerParser::pass1() {
                         std::string scA = stmt->scopePrefix + args[i].first;
                         std::string scAN = stmt->scopePrefix + "ARG" + std::to_string(i + 1);
                         ctx->localArgs[args[i].first] = sOff; ctx->localArgs["ARG" + std::to_string(i + 1)] = sOff;
-                        Symbol pSym = {(uint32_t)sOff, false, args[i].second, true, false, (uint32_t)sOff, true, sOff, false, 0};
+                        Symbol pSym = {(uint32_t)sOff, false, args[i].second, true, false, (uint32_t)sOff, true, sOff, false, 0, ""};
                         symbolTable[scA] = pSym;
                         symbolTable[scAN] = pSym;
                         sOff += args[i].second;

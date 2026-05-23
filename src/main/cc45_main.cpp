@@ -377,7 +377,6 @@ int main(int argc, char** argv) {
     bool zpCallMode = false;
     bool emitIR = false;
     bool codegenIR = true;
-    bool legacyCodegen = false;
     uint32_t zeroPageAvail = 9;
     std::string defineFlag = "";
     std::map<std::string, std::string> initialSymbols;
@@ -438,9 +437,9 @@ int main(int argc, char** argv) {
         } else if (arg == "--emit-ir") {
             emitIR = true;
         } else if (arg == "--codegen-ir") {
-            codegenIR = true; legacyCodegen = false; emitIR = true;
+            codegenIR = true; emitIR = true;
         } else if (arg == "--legacy-codegen") {
-            codegenIR = false; legacyCodegen = true;
+            codegenIR = false;
         } else if (arg == "-O0") {
             optimize = false;
         } else if (arg == "-vv") {

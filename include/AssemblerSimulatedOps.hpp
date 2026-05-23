@@ -70,6 +70,7 @@ public:
     static void dispatch_MulS16(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_DivS16(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_Mod16(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_Mod32(AssemblerParser* p, M65Emitter& e, Stmt* s);
 
     // Original emit functions (implementations unchanged)
     static void emitExpressionCode(AssemblerParser* parser, M65Emitter& e, const std::string& target, int tokenIndex, const std::string& scopePrefix);
@@ -131,6 +132,7 @@ public:
     static void emitMulS16Code(AssemblerParser* parser, M65Emitter& e, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
     static void emitDivS16Code(AssemblerParser* parser, M65Emitter& e, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
     static void emitMod16Code(AssemblerParser* parser, M65Emitter& e, bool isSigned, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
+    static void emitMod32Code(AssemblerParser* parser, M65Emitter& e, bool isSigned, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
 
     // Bitfield pseudo-ops
     static void emitBFExtCode(AssemblerParser* parser, M65Emitter& e, bool is16, int tokenIndex, const std::string& scopePrefix);

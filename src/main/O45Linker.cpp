@@ -441,11 +441,18 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
                 // - Low byte stored in extra field (see issue #36)
                 uint8_t hi = body[patchPos];
                 uint8_t lo = r.extra;
-                addend = (hi << 8) | lo;
+                uint16_t w = (hi << 8) | lo;
+                addend = (uint32_t)(int32_t)(int16_t)w; // sign-extend 16-bit addend
             } else {
                 int pSize = o45RelocPatchSize((uint8_t)r.type);
                 for (int i = 0; i < pSize && (patchPos + i) < body.size(); i++) {
                     addend |= ((uint32_t)body[patchPos + i]) << (i * 8);
+                }
+                // Sign-extend addend if it's smaller than 32-bit
+                if (pSize == 1) addend = (uint32_t)(int32_t)(int8_t)(uint8_t)addend;
+                else if (pSize == 2) addend = (uint32_t)(int32_t)(int16_t)(uint16_t)addend;
+                else if (pSize == 3) {
+                    if (addend & 0x800000) addend |= 0xFF000000;
                 }
             }
             targetAddr = it->second + addend;

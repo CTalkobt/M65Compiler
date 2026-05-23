@@ -15,7 +15,7 @@ std::unique_ptr<ASTNode> ConstantFolder::fold(std::unique_ptr<ASTNode> node) {
     if (lastExpr) return std::move(lastExpr);
     if (lastStmt) return std::move(lastStmt);
 
-    return std::move(node);
+    return node;
 }
 
 std::unique_ptr<TranslationUnit> ConstantFolder::foldTranslationUnit(std::unique_ptr<TranslationUnit> unit) {
@@ -133,7 +133,7 @@ void ConstantFolder::visit(SizeofExpression& node) {
         // ConstantFolder doesn't have a full type-checking pass yet, 
         // so we might need to defer this to CodeGenerator or implement minimal lookup.
         // For now, if it's a VariableReference we might know it.
-        if (auto* ref = dynamic_cast<VariableReference*>(node.expression.get())) {
+        if (dynamic_cast<VariableReference*>(node.expression.get())) {
              // We'd need a map of variable types in ConstantFolder too.
              // Given the current architecture, deferring 'sizeof expr' to CodeGenerator is safer
              // unless we add variableType tracking to ConstantFolder.
