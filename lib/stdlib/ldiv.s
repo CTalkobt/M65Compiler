@@ -175,23 +175,23 @@ proc _ldiv, W#_p___ret_ptr, D#_p_numer, D#_p_denom
     lda $02
     beq @rem_pos
     ; Negate remainder
-    lda $D76C
+    lda $D770
     eor #$FF
     clc
     adc #1
     ldy #4
     sta ($04), y
-    lda $D76D
+    lda $D771
     eor #$FF
     adc #0
     iny
     sta ($04), y
-    lda $D76E
+    lda $D772
     eor #$FF
     adc #0
     iny
     sta ($04), y
-    lda $D76F
+    lda $D773
     eor #$FF
     adc #0
     iny
@@ -200,16 +200,16 @@ proc _ldiv, W#_p___ret_ptr, D#_p_numer, D#_p_denom
 
 @rem_pos:
     ldy #4
-    lda $D76C
+    lda $D770
     sta ($04), y
     iny
-    lda $D76D
+    lda $D771
     sta ($04), y
     iny
-    lda $D76E
+    lda $D772
     sta ($04), y
     iny
-    lda $D76F
+    lda $D773
     sta ($04), y
 
 @done:

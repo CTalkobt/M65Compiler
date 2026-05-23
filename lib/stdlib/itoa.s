@@ -97,11 +97,11 @@ proc _itoa, W#_p_value, W#_p_str, W#_p_base
     bra @nulterm
 
     ; --- Extract digits: divide, push remainder as char ---
-    ; MEGA65 math unit registers:
-    ;   MULTINA ($D770-$D773) = numerator / multiplier input A
-    ;   MULTINB ($D774-$D777) = denominator / multiplier input B
+    ; MEGA65 math unit registers (mmsim version):
+    ;   DIVIDEND ($D760-$D763)
+    ;   DIVISOR  ($D764-$D767)
     ;   DIVOUT whole quotient at $D768-$D76B
-    ;   DIVOUT remainder at $D76C-$D76F
+    ;   DIVOUT remainder at $D770-$D773 (aliased with MULTINA)
     ;   DIVBUSY at $D70F bit 7
 @extract:
     ; Load numerator (value) into DIVIDEND ($D760-$D763)
@@ -132,8 +132,8 @@ proc _itoa, W#_p_value, W#_p_str, W#_p_base
     lda $d769
     sta $03             ; quotient hi → new value hi
 
-    ; Read remainder from DIVOUT remainder ($D76C).
-    lda $d76c           ; A = remainder
+    ; Read remainder from DIVOUT remainder ($D770).
+    lda $d770           ; A = remainder
 
     ; Convert remainder to character
     cmp #10

@@ -114,9 +114,9 @@ proc _div, W#_p___ret_ptr, W#_p_numer, W#_p_denom
     txa
     sta (_p___ret_ptr+2, sp), y
 
-    ; Remainder at $D76C-$D76D
-    lda $D76C
-    ldx $D76D
+    ; Remainder at $D770-$D771 (verified in mmsim)
+    lda $D770
+    ldx $D771
 
     ; Remainder sign follows numerator sign
     ldy $02

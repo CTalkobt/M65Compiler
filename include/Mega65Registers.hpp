@@ -12,11 +12,11 @@ namespace m65 {
     constexpr uint16_t MULT_RES         = 0xD778; // 0xD778-0xD77B
     
     // 32-bit Divider
-    constexpr uint16_t DIV_ARG1         = 0xD760; // 0xD760-0xD763
-    constexpr uint16_t DIV_ARG2         = 0xD764; // 0xD764-0xD767
+    constexpr uint16_t DIV_ARG1         = 0xD760; // 0xD760-0xD763 (Dividend)
+    constexpr uint16_t DIV_ARG2         = 0xD764; // 0xD764-0xD767 (Divisor)
     constexpr uint16_t DIV_RES          = 0xD768; // 0xD768-0xD76B (Quotient)
-    constexpr uint16_t DIV_REM          = 0xD76C; // 0xD76C-0xD76F (Remainder)
-    
+    constexpr uint16_t DIV_REM          = 0xD770; // 0xD770-0xD773 (Remainder - aliased with MULT_ARG1 in mmsim)
+
     constexpr uint16_t MATH_SIGN        = 0xD76E;
 
     // DMA Controller
