@@ -1,6 +1,7 @@
 #include "AssemblerExpression.hpp"
 #include "AssemblerParser.hpp"
 #include "M65Emitter.hpp"
+#include "Mega65Registers.hpp"
 #include <stdexcept>
 #include <algorithm>
 #include <iostream>
@@ -248,51 +249,51 @@ void BinaryExpr::emit(M65Emitter& e, AssemblerParser* parser, int width, const s
     if (bytes > 4) bytes = 4;
     if (op == "*" || op == "/" || op == "+" || op == "-") {
         left->emit(e, parser, width, ".A");
-        uint8_t base = (op == "/") ? 0x60 : 0x70;
+        uint16_t regBase = (op == "/") ? m65::DIV_ARG1 : m65::MULT_ARG1;
 
         if (right->usesHardwareMath()) {
             // Right subtree writes $D770+/$D760+ during emit: save left on CPU stack first
             e.push_ax();
             right->emit(e, parser, width, ".A");
-            e.sta_abs(0xD700 + base + 4);
-            if (bytes >= 2) e.stx_abs(0xD701 + base + 4);
+            e.sta_abs(regBase + 4);
+            if (bytes >= 2) e.stx_abs(regBase + 5);
             e.pop_ax();
-            e.sta_abs(0xD700 + base);
-            if (bytes >= 2) e.stx_abs(0xD701 + base);
+            e.sta_abs(regBase);
+            if (bytes >= 2) e.stx_abs(regBase + 1);
         } else {
             // Original path — zero overhead for simple right operands (constants, variables)
-            e.sta_abs(0xD700 + base);
-            if (bytes >= 2) e.stx_abs(0xD701 + base);
+            e.sta_abs(regBase);
+            if (bytes >= 2) e.stx_abs(regBase + 1);
             right->emit(e, parser, width, ".A");
-            e.sta_abs(0xD700 + base + 4);
-            if (bytes >= 2) e.stx_abs(0xD701 + base + 4);
+            e.sta_abs(regBase + 4);
+            if (bytes >= 2) e.stx_abs(regBase + 5);
         }
         if (op == "*") {
             for (int i = 0; i < bytes; ++i) {
-                e.lda_abs(0xD778 + i);
+                e.lda_abs(m65::MULT_RES + i);
                 if (i == 1) e.tax();
             }
         } else if (op == "/") {
-            e.bit_abs(0xD70F);
+            e.bit_abs(m65::MATH_BUSY_STATUS);
             e.bne(-5);
             for (int i = 0; i < bytes; ++i) {
-                e.lda_abs(0xD768 + i);
+                e.lda_abs(m65::DIV_RES + i);
                 if (i == 1) e.tax();
             }
         } else if (op == "+") {
             for (int i = 0; i < bytes; ++i) {
-                e.lda_abs(0xD77C + i);
+                e.lda_abs(m65::MULT_RES + 4 + i);
                 if (i == 1) e.tax();
             }
         } else if (op == "-") {
             e.sec();
             for (int i = 0; i < bytes; ++i) {
-                e.lda_abs(0xD770 + i);
-                e.sbc_abs(0xD774 + i);
-                e.sta_abs(0xD770 + i);
+                e.lda_abs(m65::MULT_ARG1 + i);
+                e.sbc_abs(m65::MULT_ARG2 + i);
+                e.sta_abs(m65::MULT_ARG1 + i);
             }
-            e.lda_abs(0xD770);
-            if (bytes >= 2) e.ldx_abs(0xD771);
+            e.lda_abs(m65::MULT_ARG1);
+            if (bytes >= 2) e.ldx_abs(m65::MULT_ARG1 + 1);
         }
     } else if (op == "&" || op == "|" || op == "^") {
         left->emit(e, parser, width, ".A");
@@ -472,11 +473,11 @@ void ArrayIndexNode::emit(M65Emitter& e, AssemblerParser* parser, int width, con
             while (s > 1) { e.asl_a(); s >>= 1; }
         } else {
             // General case: MEGA65 hardware multiplier
-            e.sta_abs(0xD770);
-            e.lda_imm(0); e.sta_abs(0xD771);
-            e.lda_imm(stride & 0xFF); e.sta_abs(0xD774);
-            e.lda_imm((stride >> 8) & 0xFF); e.sta_abs(0xD775);
-            e.lda_abs(0xD778);
+            e.sta_abs(m65::MULT_ARG1);
+            e.lda_imm(0); e.sta_abs(m65::MULT_ARG1 + 1);
+            e.lda_imm(stride & 0xFF); e.sta_abs(m65::MULT_ARG2);
+            e.lda_imm((stride >> 8) & 0xFF); e.sta_abs(m65::MULT_ARG2 + 1);
+            e.lda_abs(m65::MULT_RES);
         }
 
         if (runtimeTermsSeen > 1) {

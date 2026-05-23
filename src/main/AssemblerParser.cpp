@@ -5,25 +5,13 @@
 #include "AssemblerGenerator.hpp"
 #include "M65Emitter.hpp"
 #include "O45Types.hpp"
+#include "StringUtil.hpp"
 #include <stdexcept>
 #include <iostream>
 #include <iomanip>
 #include <algorithm>
 #include <memory>
 #include <cmath>
-
-// --- Support Functions ---
-
-static uint32_t parseNumericLiteral(const std::string& literal) {
-    if (literal.empty()) throw std::runtime_error("Empty numeric literal");
-    try {
-        if (literal[0] == '$') return std::stoul(literal.substr(1), nullptr, 16);
-        if (literal[0] == '%') return std::stoul(literal.substr(1), nullptr, 2);
-        return std::stoul(literal);
-    } catch (...) {
-        throw std::runtime_error("Invalid numeric literal: '" + literal + "'");
-    }
-}
 
 // --- AssemblerParser Implementation ---
 

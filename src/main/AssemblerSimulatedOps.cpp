@@ -2,20 +2,11 @@
 #include "AssemblerParser.hpp"
 #include "M65Emitter.hpp"
 #include "AssemblerExpression.hpp"
+#include "StringUtil.hpp"
+#include "Mega65Registers.hpp"
 #include <algorithm>
 #include <stdexcept>
 #include <sstream>
-
-static uint32_t parseNumericLiteral(const std::string& literal) {
-    if (literal.empty()) throw std::runtime_error("Empty numeric literal");
-    try {
-        if (literal[0] == '$') return std::stoul(literal.substr(1), nullptr, 16);
-        if (literal[0] == '%') return std::stoul(literal.substr(1), nullptr, 2);
-        return std::stoul(literal);
-    } catch (...) {
-        throw std::runtime_error("Invalid numeric literal: " + literal);
-    }
-}
 
 void AssemblerSimulatedOps::emitExpressionCode(AssemblerParser* parser, M65Emitter& e, const std::string& target, int tokenIndex, const std::string& scopePrefix) {
     int idx = tokenIndex;
@@ -56,51 +47,51 @@ void AssemblerSimulatedOps::emitMulCode(AssemblerParser* parser, M65Emitter& e, 
     if (isImmediate) idx++;
     auto srcAst = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
     if (!srcAst) return;
-    auto storeMath = [&](uint8_t base, int i, const std::string& src) {
-        if (src == ".A") e.sta_abs(0xD700 + base + i);
-        else if (src == ".X") { e.txa(); e.sta_abs(0xD700 + base + i); }
-        else if (src == ".Y") { e.tya(); e.sta_abs(0xD700 + base + i); }
-        else if (src == ".Z") { e.tza(); e.sta_abs(0xD700 + base + i); }
+    auto storeMath = [&](uint16_t regBase, int i, const std::string& src) {
+        if (src == ".A") e.sta_abs(regBase + i);
+        else if (src == ".X") { e.txa(); e.sta_abs(regBase + i); }
+        else if (src == ".Y") { e.tya(); e.sta_abs(regBase + i); }
+        else if (src == ".Z") { e.tza(); e.sta_abs(regBase + i); }
         else {
             Symbol* sym = parser->resolveSymbol(src, scopePrefix);
             uint32_t addr = i; if (sym) addr += sym->value; else { try { addr += parseNumericLiteral(src); } catch(...) { addr += 0; } }
-            e.lda_abs(addr); e.sta_abs(0xD700 + base + i);
+            e.lda_abs(addr); e.sta_abs(regBase + i);
         }
     };
     if (dest == ".A" || dest == ".AX" || dest == ".AXY" || dest == ".AXYZ" || dest == ".Q") {
-        if (bytes >= 1) storeMath(0x70, 0, ".A");
-        if (bytes >= 2) storeMath(0x70, 1, ".X");
-        if (bytes >= 3) storeMath(0x70, 2, ".Y");
-        if (bytes >= 4) storeMath(0x70, 3, ".Z");
-    } else for (int i = 0; i < bytes; ++i) storeMath(0x70, i, dest);
+        if (bytes >= 1) storeMath(m65::MULT_ARG1, 0, ".A");
+        if (bytes >= 2) storeMath(m65::MULT_ARG1, 1, ".X");
+        if (bytes >= 3) storeMath(m65::MULT_ARG1, 2, ".Y");
+        if (bytes >= 4) storeMath(m65::MULT_ARG1, 3, ".Z");
+    } else for (int i = 0; i < bytes; ++i) storeMath(m65::MULT_ARG1, i, dest);
 
     if (isImmediate && srcAst->isConstant(parser)) {
         uint32_t val = srcAst->getValue(parser);
         for (int i = 0; i < bytes; ++i) {
             e.lda_imm((val >> (i * 8)) & 0xFF);
-            e.sta_abs(0xD774 + i);
+            e.sta_abs(m65::MULT_ARG2 + i);
         }
     } else {
         int srcTokenIdx = isImmediate ? tokenIndex + 1 : tokenIndex;
         std::string srcName = parser->tokens[srcTokenIdx].value;
         if (parser->tokens[srcTokenIdx].type == AssemblerTokenType::REGISTER) srcName = "." + srcName;
         if (srcName == ".A" || srcName == ".AX" || srcName == ".AXY" || srcName == ".AXYZ" || srcName == ".Q") {
-            if (bytes >= 1) storeMath(0x74, 0, ".A");
-            if (bytes >= 2) storeMath(0x74, 1, ".X");
-            if (bytes >= 3) storeMath(0x74, 2, ".Y");
-            if (bytes >= 4) storeMath(0x74, 3, ".Z");
-        } else for (int i = 0; i < bytes; ++i) storeMath(0x74, i, srcName);
+            if (bytes >= 1) storeMath(m65::MULT_ARG2, 0, ".A");
+            if (bytes >= 2) storeMath(m65::MULT_ARG2, 1, ".X");
+            if (bytes >= 3) storeMath(m65::MULT_ARG2, 2, ".Y");
+            if (bytes >= 4) storeMath(m65::MULT_ARG2, 3, ".Z");
+        } else for (int i = 0; i < bytes; ++i) storeMath(m65::MULT_ARG2, i, srcName);
     }
     if (dest == ".A" || dest == ".AX" || dest == ".AXY" || dest == ".AXYZ" || dest == ".Q") {
         // Read result into registers: load high bytes first into their
         // target registers, then load the low byte into A last
-        if (bytes >= 4) { e.lda_abs(0xD77B); e.taz(); }
-        if (bytes >= 3) { e.lda_abs(0xD77A); e.tay(); }
-        if (bytes >= 2) { e.lda_abs(0xD779); e.tax(); }
-        e.lda_abs(0xD778);
+        if (bytes >= 4) { e.lda_abs(m65::MULT_RES + 3); e.taz(); }
+        if (bytes >= 3) { e.lda_abs(m65::MULT_RES + 2); e.tay(); }
+        if (bytes >= 2) { e.lda_abs(m65::MULT_RES + 1); e.tax(); }
+        e.lda_abs(m65::MULT_RES);
     } else {
         for (int i = 0; i < bytes; ++i) {
-            e.lda_abs(0xD778 + i);
+            e.lda_abs(m65::MULT_RES + i);
             Symbol* sym = parser->resolveSymbol(dest, scopePrefix);
             uint32_t addr = 0; if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } }
             e.sta_abs(addr + i);
@@ -117,51 +108,51 @@ void AssemblerSimulatedOps::emitDivCode(AssemblerParser* parser, M65Emitter& e, 
     if (isImmediate) idx++;
     auto srcAst = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
     if (!srcAst) return;
-    auto storeMath = [&](uint8_t base, int i, const std::string& src) {
-        if (src == ".A") e.sta_abs(0xD700 + base + i);
-        else if (src == ".X") { e.txa(); e.sta_abs(0xD700 + base + i); }
-        else if (src == ".Y") { e.tya(); e.sta_abs(0xD700 + base + i); }
-        else if (src == ".Z") { e.tza(); e.sta_abs(0xD700 + base + i); }
+    auto storeMath = [&](uint16_t regBase, int i, const std::string& src) {
+        if (src == ".A") e.sta_abs(regBase + i);
+        else if (src == ".X") { e.txa(); e.sta_abs(regBase + i); }
+        else if (src == ".Y") { e.tya(); e.sta_abs(regBase + i); }
+        else if (src == ".Z") { e.tza(); e.sta_abs(regBase + i); }
         else {
             Symbol* sym = parser->resolveSymbol(src, scopePrefix);
             uint32_t addr = i; if (sym) addr += sym->value; else { try { addr += parseNumericLiteral(src); } catch(...) { addr += 0; } }
-            e.lda_abs(addr); e.sta_abs(0xD700 + base + i);
+            e.lda_abs(addr); e.sta_abs(regBase + i);
         }
     };
     if (dest == ".A" || dest == ".AX" || dest == ".AXY" || dest == ".AXYZ" || dest == ".Q") {
-        if (bytes >= 1) storeMath(0x60, 0, ".A");
-        if (bytes >= 2) storeMath(0x60, 1, ".X");
-        if (bytes >= 3) storeMath(0x60, 2, ".Y");
-        if (bytes >= 4) storeMath(0x60, 3, ".Z");
-    } else for (int i = 0; i < bytes; ++i) storeMath(0x60, i, dest);
+        if (bytes >= 1) storeMath(m65::DIV_ARG1, 0, ".A");
+        if (bytes >= 2) storeMath(m65::DIV_ARG1, 1, ".X");
+        if (bytes >= 3) storeMath(m65::DIV_ARG1, 2, ".Y");
+        if (bytes >= 4) storeMath(m65::DIV_ARG1, 3, ".Z");
+    } else for (int i = 0; i < bytes; ++i) storeMath(m65::DIV_ARG1, i, dest);
 
     if (isImmediate && srcAst->isConstant(parser)) {
         uint32_t val = srcAst->getValue(parser);
         if (val == 0) throw std::runtime_error("Division by zero at line " + std::to_string(parser->tokens[tokenIndex].line));
         for (int i = 0; i < bytes; ++i) {
             e.lda_imm((val >> (i * 8)) & 0xFF);
-            e.sta_abs(0xD764 + i);
+            e.sta_abs(m65::DIV_ARG2 + i);
         }
     } else {
         int srcTokenIdx = isImmediate ? tokenIndex + 1 : tokenIndex;
         std::string srcName = parser->tokens[srcTokenIdx].value;
         if (parser->tokens[srcTokenIdx].type == AssemblerTokenType::REGISTER) srcName = "." + srcName;
         if (srcName == ".A" || srcName == ".AX" || srcName == ".AXY" || srcName == ".AXYZ" || srcName == ".Q") {
-            if (bytes >= 1) storeMath(0x64, 0, ".A");
-            if (bytes >= 2) storeMath(0x64, 1, ".X");
-            if (bytes >= 3) storeMath(0x64, 2, ".Y");
-            if (bytes >= 4) storeMath(0x64, 3, ".Z");
-        } else for (int i = 0; i < bytes; ++i) storeMath(0x64, i, srcName);
+            if (bytes >= 1) storeMath(m65::DIV_ARG2, 0, ".A");
+            if (bytes >= 2) storeMath(m65::DIV_ARG2, 1, ".X");
+            if (bytes >= 3) storeMath(m65::DIV_ARG2, 2, ".Y");
+            if (bytes >= 4) storeMath(m65::DIV_ARG2, 3, ".Z");
+        } else for (int i = 0; i < bytes; ++i) storeMath(m65::DIV_ARG2, i, srcName);
     }
-    e.bit_abs(0xD70F); e.bne(-5);
+    e.bit_abs(m65::MATH_BUSY_STATUS); e.bne(-5);
     if (dest == ".A" || dest == ".AX" || dest == ".AXY" || dest == ".AXYZ" || dest == ".Q") {
-        if (bytes >= 4) { e.lda_abs(0xD76B); e.taz(); }
-        if (bytes >= 3) { e.lda_abs(0xD76A); e.tay(); }
-        if (bytes >= 2) { e.lda_abs(0xD769); e.tax(); }
-        e.lda_abs(0xD768);
+        if (bytes >= 4) { e.lda_abs(m65::DIV_RES + 3); e.taz(); }
+        if (bytes >= 3) { e.lda_abs(m65::DIV_RES + 2); e.tay(); }
+        if (bytes >= 2) { e.lda_abs(m65::DIV_RES + 1); e.tax(); }
+        e.lda_abs(m65::DIV_RES);
     } else {
         for (int i = 0; i < bytes; ++i) {
-            e.lda_abs(0xD768 + i);
+            e.lda_abs(m65::DIV_RES + i);
             Symbol* sym = parser->resolveSymbol(dest, scopePrefix);
             uint32_t addr = 0; if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } }
             e.sta_abs(addr + i);
@@ -1171,11 +1162,11 @@ void AssemblerSimulatedOps::emitFillCode(AssemblerParser* parser, M65Emitter& e,
 
     // Trigger DMA
     e.lda_zp(bufAddrZP + 1);
-    e.sta_abs(0xD702);
-    e.stz_abs(0xD703);
+    e.sta_abs(m65::DMA_ADDR_MI);
+    e.stz_abs(m65::DMA_ADDR_HI);
     e.lda_zp(bufAddrZP);
-    e.sta_abs(0xD701);
-    e.stz_abs(0xD700);
+    e.sta_abs(m65::DMA_ADDR_LO);
+    e.stz_abs(m65::DMA_CONTROL);
 }
 
 void AssemblerSimulatedOps::emitMoveCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix, bool forceStack) {
@@ -1541,11 +1532,11 @@ void AssemblerSimulatedOps::emitMoveCode(AssemblerParser* parser, M65Emitter& e,
 
     // Trigger DMA - load buffer address and pass to DMA controller
     e.lda_zp(bufAddrZP + 1);  // hi byte
-    e.sta_abs(0xD702);
-    e.stz_abs(0xD703);
+    e.sta_abs(m65::DMA_ADDR_MI);
+    e.stz_abs(m65::DMA_ADDR_HI);
     e.lda_zp(bufAddrZP);      // lo byte
-    e.sta_abs(0xD701);
-    e.stz_abs(0xD700);        // Triggers DMA
+    e.sta_abs(m65::DMA_ADDR_LO);
+    e.stz_abs(m65::DMA_CONTROL);        // Triggers DMA
 }
 
 void AssemblerSimulatedOps::emitFlatMemoryCode(AssemblerParser* parser, M65Emitter& e, const std::string& mnemonic, int tokenIndex, const std::string& scopePrefix) {
@@ -1736,9 +1727,9 @@ void AssemblerSimulatedOps::emitSignedMathOp(AssemblerParser* parser, M65Emitter
     auto srcAst = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
     if (!srcAst) return;
 
-    const uint16_t SIGN = 0xD76E;
-    uint16_t leftBase  = (op == 0) ? 0xD770 : 0xD760;
-    uint16_t rightBase = (op == 0) ? 0xD774 : 0xD764;
+    const uint16_t SIGN = m65::MATH_SIGN;
+    uint16_t leftBase  = (op == 0) ? m65::MULT_ARG1 : m65::DIV_ARG1;
+    uint16_t rightBase = (op == 0) ? m65::MULT_ARG2 : m65::DIV_ARG2;
 
     // --- Step 1: Save sign info ---
     // For mul/div: need XOR of both signs. For mod: need left sign only.
@@ -1790,16 +1781,16 @@ void AssemblerSimulatedOps::emitSignedMathOp(AssemblerParser* parser, M65Emitter
 
     // --- Step 5: Wait for hardware (div/mod only) ---
     if (op != 0) {
-        e.bit_abs(0xD70F); e.bne(-5);
+        e.bit_abs(m65::MATH_BUSY_STATUS); e.bne(-5);
     }
 
     // --- Step 6: Read result ---
     if (op == 0) {
-        e.lda_abs(0xD778); e.ldx_abs(0xD779);
+        e.lda_abs(m65::MULT_RES); e.ldx_abs(m65::MULT_RES + 1);
     } else if (op == 1) {
-        e.lda_abs(0xD768); e.ldx_abs(0xD769);
+        e.lda_abs(m65::DIV_RES); e.ldx_abs(m65::DIV_RES + 1);
     } else {
-        e.lda_abs(0xD770); e.ldx_abs(0xD771);
+        e.lda_abs(m65::DIV_REM); e.ldx_abs(m65::DIV_REM + 1);
     }
 
     // --- Step 7: Sign correction ---
@@ -1835,8 +1826,8 @@ void AssemblerSimulatedOps::emitMod16Code(AssemblerParser* parser, M65Emitter& e
         // (The div hardware leaves the remainder there after any division.)
         emitDivCode(parser, e, 16, dest, tokenIndex, scopePrefix);
         // divCode loaded quotient into .AX from $D768. Override with remainder:
-        e.lda_abs(0xD770);
-        e.ldx_abs(0xD771);
+        e.lda_abs(m65::DIV_REM);
+        e.ldx_abs(m65::DIV_REM + 1);
     }
 }
 
@@ -1981,9 +1972,9 @@ void AssemblerSimulatedOps::emitMOVE_FPCode(AssemblerParser* parser, M65Emitter&
     e.lda_imm(0x00); e.pha();
     // Trigger DMA
     e.tsx(); e.txa(); e.clc(); e.adc_imm(sb & 0xFF);
-    e.sta_abs(0xD701);
-    e.lda_imm(sb >> 8); e.sta_abs(0xD702);
-    e.stz_abs(0xD703); e.stz_abs(0xD700);
+    e.sta_abs(m65::DMA_ADDR_LO);
+    e.lda_imm(sb >> 8); e.sta_abs(m65::DMA_ADDR_MI);
+    e.stz_abs(m65::DMA_ADDR_HI); e.stz_abs(m65::DMA_CONTROL);
     // Clean up stack
     e.tsx(); e.txa(); e.clc(); e.adc_imm(12); e.tax(); e.txs();
     e.pla();

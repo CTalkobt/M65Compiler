@@ -3,6 +3,7 @@
 #include "M65Emitter.hpp"
 #include "AssemblerOpcodeDatabase.hpp"
 #include "AssemblerSimulatedOps.hpp"
+#include "StringUtil.hpp"
 #include <algorithm>
 #include <stdexcept>
 #include <cmath>
@@ -15,17 +16,6 @@ static uint8_t toPetscii(char c) {
     if (c >= 'a' && c <= 'z') return c - 32;
     if (c >= 'A' && c <= 'Z') return c + 32;
     return (uint8_t)c;
-}
-
-static uint32_t parseNumericLiteral(const std::string& literal) {
-    if (literal.empty()) throw std::runtime_error("Empty numeric literal");
-    try {
-        if (literal[0] == '$') return std::stoul(literal.substr(1), nullptr, 16);
-        if (literal[0] == '%') return std::stoul(literal.substr(1), nullptr, 2);
-        return std::stoul(literal);
-    } catch (...) {
-        throw std::runtime_error("Invalid numeric literal: " + literal);
-    }
 }
 
 static std::vector<uint8_t> encodeFloat(double val) {
