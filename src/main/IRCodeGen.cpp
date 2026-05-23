@@ -1461,12 +1461,16 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         case ir::Op::RET: {
             loadOperand(inst.src1);
             // Jump to common return point (endproc handles frame cleanup + rts)
-            emit("bra @__return");
+            if (nextBlockLabel_ != "__return") {
+                emit("bra @__return");
+            }
             break;
         }
 
         case ir::Op::RET_VOID: {
-            emit("bra @__return");
+            if (nextBlockLabel_ != "__return") {
+                emit("bra @__return");
+            }
             break;
         }
 
