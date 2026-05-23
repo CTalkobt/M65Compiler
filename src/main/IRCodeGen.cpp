@@ -867,29 +867,46 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::SHL: {
-            // Determine shift count (immediate or constant vreg)
+            bool is32 = (inst.resultType == ir::Type::I32);
+            std::string shOp = is32 ? "lsl.32 .AXYZ" : "lsl.16 .AX";
             int shiftCount = -1;
             if (inst.src2.isImm()) {
                 shiftCount = (int)(inst.src2.immVal & 0xFF);
             }
             loadOperand(inst.src1);
             if (shiftCount >= 0) {
-                if (shiftCount == 8) {
+                if (shiftCount == 8 && !is32) {
                     emit("tax"); emit("lda #0");
+                } else if (shiftCount == 8 && is32) {
+                    // Shift bytes up: Z=Y, Y=X, X=A, A=0
+                    emit("pha"); emit("tya"); emit("taz"); emit("txa"); emit("tay"); emit("pla"); emit("tax"); emit("lda #0");
                 } else {
-                    for (int i = 0; i < shiftCount && i < 16; i++) emit("lsl.16 .AX");
+                    int maxBits = is32 ? 32 : 16;
+                    for (int i = 0; i < shiftCount && i < maxBits; i++) emit(shOp);
                 }
             } else {
-                // Variable shift count: load count, emit loop
                 std::string cntOp = src2MemOperand(inst.src2);
                 std::string lbl = "@__shl_loop_" + std::to_string(labelCounter_++);
                 std::string done = "@__shl_done_" + std::to_string(labelCounter_++);
-                emit("ldy " + cntOp);
-                emit("beq " + done);
-                emitLabel(lbl);
-                emit("lsl.16 .AX");
-                emit("dey");
-                emit("bne " + lbl);
+                if (is32) {
+                    emit("lda " + cntOp);
+                    emit("sta __zp_scratch4");
+                    loadOperand(inst.src1);
+                    emit("lda __zp_scratch4");
+                    emit("beq " + done);
+                    emit("sta __zp_scratch4");
+                    emitLabel(lbl);
+                    emit(shOp);
+                    emit("dec __zp_scratch4");
+                    emit("bne " + lbl);
+                } else {
+                    emit("ldy " + cntOp);
+                    emit("beq " + done);
+                    emitLabel(lbl);
+                    emit(shOp);
+                    emit("dey");
+                    emit("bne " + lbl);
+                }
                 emitLabel(done);
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
@@ -898,28 +915,53 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
         case ir::Op::SHR:
         case ir::Op::ASR: {
-            std::string mn = (inst.op == ir::Op::ASR) ? "asr.16" : "lsr.16";
+            bool is32 = (inst.resultType == ir::Type::I32);
+            std::string mn;
+            if (is32) mn = (inst.op == ir::Op::ASR) ? "asr.32 .AXYZ" : "lsr.32 .AXYZ";
+            else mn = (inst.op == ir::Op::ASR) ? "asr.16 .AX" : "lsr.16 .AX";
             int shiftCount = -1;
             if (inst.src2.isImm()) {
                 shiftCount = (int)(inst.src2.immVal & 0xFF);
             }
             loadOperand(inst.src1);
             if (shiftCount >= 0) {
-                if (shiftCount == 8 && inst.op == ir::Op::SHR) {
+                if (shiftCount == 8 && inst.op == ir::Op::SHR && !is32) {
                     emit("txa"); emit("ldx #0");
+                } else if (shiftCount == 8 && inst.op == ir::Op::SHR && is32) {
+                    // Shift bytes down: A=X, X=Y, Y=Z, Z=0
+                    emit("txa"); emit("pha"); emit("tya"); emit("tax"); emit("tza"); emit("tay"); emit("ldz #0"); emit("pla");
+                } else if (shiftCount == 16 && inst.op == ir::Op::SHR && is32) {
+                    emit("tya"); emit("ldx #0"); emit("ldy #0"); emit("ldz #0"); // byte 2→A, clear rest
+                } else if (shiftCount == 24 && inst.op == ir::Op::SHR && is32) {
+                    emit("tza"); emit("ldx #0"); emit("ldy #0"); emit("ldz #0"); // byte 3→A, clear rest
                 } else {
-                    for (int i = 0; i < shiftCount && i < 16; i++) emit(mn + " .AX");
+                    int maxBits = is32 ? 32 : 16;
+                    for (int i = 0; i < shiftCount && i < maxBits; i++) emit(mn);
                 }
             } else {
                 std::string cntOp = src2MemOperand(inst.src2);
                 std::string lbl = "@__shr_loop_" + std::to_string(labelCounter_++);
                 std::string done = "@__shr_done_" + std::to_string(labelCounter_++);
-                emit("ldy " + cntOp);
-                emit("beq " + done);
-                emitLabel(lbl);
-                emit(mn + " .AX");
-                emit("dey");
-                emit("bne " + lbl);
+                if (is32) {
+                    // 32-bit shift clobbers Y — use ZP counter instead of DEY
+                    emit("lda " + cntOp);
+                    emit("sta __zp_scratch4");
+                    loadOperand(inst.src1);
+                    emit("lda __zp_scratch4");
+                    emit("beq " + done);
+                    emit("sta __zp_scratch4");
+                    emitLabel(lbl);
+                    emit(mn);
+                    emit("dec __zp_scratch4");
+                    emit("bne " + lbl);
+                } else {
+                    emit("ldy " + cntOp);
+                    emit("beq " + done);
+                    emitLabel(lbl);
+                    emit(mn);
+                    emit("dey");
+                    emit("bne " + lbl);
+                }
                 emitLabel(done);
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
