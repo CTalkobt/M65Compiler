@@ -81,6 +81,20 @@ private:
     int lastLocLine_ = -1;
     std::string lastLocFile_;
 
+    // Next block label for no-op branch elimination
+    std::string nextBlockLabel_;
+
+    // Track last CMP instruction for fused compare-and-branch
+    struct LastCmp {
+        ir::Op op = ir::Op::NOP;
+        uint32_t destVreg = 0;
+        bool valid = false;
+    } lastCmp_;
+
+    // Current function and block index for peephole lookahead
+    const ir::Function* currentFn_ = nullptr;
+    size_t currentBlockIdx_ = 0;
+
     // Per-function clobber analysis
     struct FuncClobbers {
         uint8_t regs = 0;   // bit 0=A, 1=X, 2=Y, 3=Z

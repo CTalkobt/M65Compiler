@@ -72,6 +72,49 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
         }
     }
 
+    // --- Pass 1b: Eliminate no-op branches (bra to next instruction) ---
+    for (size_t i = 0; i < parser->statements.size(); ++i) {
+        auto* s = parser->statements[i].get();
+        if (s->deleted) continue;
+        if (s->type != AssemblerParser::Statement::INSTRUCTION) continue;
+
+        std::string m = s->instr.mnemonic;
+        std::transform(m.begin(), m.end(), m.begin(), ::toupper);
+
+        if (m == "BRA" && s->instr.mode == AddressingMode::RELATIVE) {
+            // Find next non-deleted statement
+            size_t j = i + 1;
+            while (j < parser->statements.size() && parser->statements[j]->deleted) ++j;
+            if (j >= parser->statements.size()) continue;
+
+            auto* next = parser->statements[j].get();
+            // If the branch target matches the next statement's label, it's a no-op.
+            // Labels may be scope-qualified (e.g., "proc:@label") while the operand
+            // uses the unqualified name ("@label"). Match either way.
+            if (!next->label.empty()) {
+                const auto& lbl = next->label;
+                const auto& op = s->instr.operand;
+                bool match = (lbl == op);
+                if (!match && !s->scopePrefix.empty()) {
+                    match = (lbl == s->scopePrefix + op);
+                }
+                if (!match) {
+                    // Also check if label ends with the operand (suffix match after ':')
+                    auto colonPos = lbl.rfind(':');
+                    if (colonPos != std::string::npos) {
+                        match = (lbl.substr(colonPos + 1) == op ||
+                                 lbl.substr(colonPos) == ":" + op);
+                    }
+                }
+                if (match) {
+                    s->deleted = true;
+                    s->size = 0;
+                    changed = true;
+                }
+            }
+        }
+    }
+
     // --- Pass 2: Register tracking and redundant load elimination ---
     for (size_t i = 0; i < parser->statements.size(); ++i) {
         auto* s = parser->statements[i].get();

@@ -772,13 +772,19 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     // Emit blocks (with instruction index tracking for allocator queries)
     currentInstIdx_ = 0;
-    for (const auto& block : fn.blocks) {
+    currentFn_ = &fn;
+    for (size_t bi = 0; bi < fn.blocks.size(); bi++) {
+        const auto& block = fn.blocks[bi];
+        currentBlockIdx_ = bi;
+        // Track the next block's label for no-op branch elimination
+        nextBlockLabel_ = (bi + 1 < fn.blocks.size()) ? fn.blocks[bi + 1].label : "__return";
         emitLabel("@" + block.label);
         for (const auto& inst : block.insts) {
             emitInst(inst);
             currentInstIdx_++;
         }
     }
+    nextBlockLabel_.clear();
 
     // Common return point — clean up frame, then endproc emits rts
     emitLabel("@__return");
@@ -1102,10 +1108,10 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             {
             std::string src2 = src2MemOperand(inst.src2);
             loadOperand(inst.src1);
-            
+
             bool isSigned = (inst.op == ir::Op::CMP_LT || inst.op == ir::Op::CMP_LE ||
                              inst.op == ir::Op::CMP_GT || inst.op == ir::Op::CMP_GE);
-            
+
             if (inst.src1.type == ir::Type::I32) {
                 emit(std::string(isSigned ? "cmp.s32" : "cmp.32") + " .AXYZ, " + src2);
             } else if (inst.src1.type == ir::Type::I8) {
@@ -1114,57 +1120,79 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 emit(std::string(isSigned ? "cmp.s16" : "cmp.16") + " .AX, " + src2);
             }
             } // end src2/signed scope
-            // Branch IMMEDIATELY (flags live), set result to 0 or 1
-            {
-            std::string setLabel = "@__cmp_set_" + std::to_string(stringCount_);
-            std::string zeroLabel = "@__cmp_zero_" + std::to_string(stringCount_);
-            std::string doneLabel = "@__cmp_done_" + std::to_string(stringCount_++);
-            switch (inst.op) {
-                case ir::Op::CMP_EQ:
-                    emit("beq " + setLabel);
-                    emit("bra " + zeroLabel);
-                    break;
-                case ir::Op::CMP_NE:
-                    emit("bne " + setLabel);
-                    emit("bra " + zeroLabel);
-                    break;
-                case ir::Op::CMP_LT:
-                case ir::Op::CMP_LTU:
-                    emit("bcc " + setLabel);
-                    emit("bra " + zeroLabel);
-                    break;
-                case ir::Op::CMP_LE:
-                case ir::Op::CMP_LEU:
-                    emit("bcc " + setLabel);
-                    emit("beq " + setLabel);
-                    emit("bra " + zeroLabel);
-                    break;
-                case ir::Op::CMP_GT:
-                case ir::Op::CMP_GTU:
-                    emit("beq " + zeroLabel);
-                    emit("bcs " + setLabel);
-                    emit("bra " + zeroLabel);
-                    break;
-                case ir::Op::CMP_GE:
-                case ir::Op::CMP_GEU:
-                    emit("bcs " + setLabel);
-                    emit("bra " + zeroLabel);
-                    break;
-                default:
-                    emit("beq " + setLabel);
-                    emit("bra " + zeroLabel);
-                    break;
+
+            // Check if this CMP result is consumed solely by the next BR_COND.
+            // If so, skip boolean materialization and let BR_COND use flags directly.
+            bool canFuse = false;
+            if (inst.dest.isVreg() && currentFn_) {
+                // Peek at next instruction in current block
+                auto& blk = currentFn_->blocks[currentBlockIdx_];
+                size_t instIdx = &inst - &blk.insts[0];
+                if (instIdx + 1 < blk.insts.size()) {
+                    const auto& next = blk.insts[instIdx + 1];
+                    if (next.op == ir::Op::BR_COND && next.src1.isVreg() &&
+                        next.src1.vregId == inst.dest.vregId) {
+                        canFuse = true;
+                    }
+                }
             }
-            emitLabel(setLabel);
-            emit("lda #1");
-            emit("ldx #0");
-            emit("bra " + doneLabel);
-            emitLabel(zeroLabel);
-            emit("lda #0");
-            emit("ldx #0");
-            emitLabel(doneLabel);
+
+            if (canFuse) {
+                // Record for the following BR_COND to use
+                lastCmp_ = {inst.op, inst.dest.vregId, true};
+                // Don't materialize boolean — BR_COND will branch on flags
+            } else {
+                lastCmp_.valid = false;
+                // Branch IMMEDIATELY (flags live), set result to 0 or 1
+                std::string setLabel = "@__cmp_set_" + std::to_string(stringCount_);
+                std::string zeroLabel = "@__cmp_zero_" + std::to_string(stringCount_);
+                std::string doneLabel = "@__cmp_done_" + std::to_string(stringCount_++);
+                switch (inst.op) {
+                    case ir::Op::CMP_EQ:
+                        emit("beq " + setLabel);
+                        emit("bra " + zeroLabel);
+                        break;
+                    case ir::Op::CMP_NE:
+                        emit("bne " + setLabel);
+                        emit("bra " + zeroLabel);
+                        break;
+                    case ir::Op::CMP_LT:
+                    case ir::Op::CMP_LTU:
+                        emit("bcc " + setLabel);
+                        emit("bra " + zeroLabel);
+                        break;
+                    case ir::Op::CMP_LE:
+                    case ir::Op::CMP_LEU:
+                        emit("bcc " + setLabel);
+                        emit("beq " + setLabel);
+                        emit("bra " + zeroLabel);
+                        break;
+                    case ir::Op::CMP_GT:
+                    case ir::Op::CMP_GTU:
+                        emit("beq " + zeroLabel);
+                        emit("bcs " + setLabel);
+                        emit("bra " + zeroLabel);
+                        break;
+                    case ir::Op::CMP_GE:
+                    case ir::Op::CMP_GEU:
+                        emit("bcs " + setLabel);
+                        emit("bra " + zeroLabel);
+                        break;
+                    default:
+                        emit("beq " + setLabel);
+                        emit("bra " + zeroLabel);
+                        break;
+                }
+                emitLabel(setLabel);
+                emit("lda #1");
+                emit("ldx #0");
+                emit("bra " + doneLabel);
+                emitLabel(zeroLabel);
+                emit("lda #0");
+                emit("ldx #0");
+                emitLabel(doneLabel);
+                if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             }
-            if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
 
@@ -1365,20 +1393,67 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
         case ir::Op::BR: {
             if (inst.src1.kind == ir::OperandKind::LABEL) {
-                emit("bra @" + inst.src1.name);
+                // Skip branch if target is the immediately following block
+                if (inst.src1.name != nextBlockLabel_) {
+                    emit("bra @" + inst.src1.name);
+                }
             }
             break;
         }
 
         case ir::Op::BR_COND: {
             // src1 = condition, dest = true label, src2 = false label
+            std::string trueTarget = (inst.dest.kind == ir::OperandKind::LABEL) ? "@" + inst.dest.name : "";
+            std::string falseTarget = (inst.src2.kind == ir::OperandKind::LABEL) ? "@" + inst.src2.name : "";
+            bool falseFallsThrough = (inst.src2.kind == ir::OperandKind::LABEL && inst.src2.name == nextBlockLabel_);
+
+            // Fused compare-and-branch: if the condition is from a CMP that just set flags,
+            // branch directly using the comparison flags instead of materializing a boolean.
+            if (lastCmp_.valid && inst.src1.isVreg() && inst.src1.vregId == lastCmp_.destVreg) {
+                switch (lastCmp_.op) {
+                    case ir::Op::CMP_EQ:
+                        emit("beq " + trueTarget);
+                        break;
+                    case ir::Op::CMP_NE:
+                        emit("bne " + trueTarget);
+                        break;
+                    case ir::Op::CMP_LT:
+                    case ir::Op::CMP_LTU:
+                        emit("bcc " + trueTarget);
+                        break;
+                    case ir::Op::CMP_LE:
+                    case ir::Op::CMP_LEU:
+                        emit("bcc " + trueTarget);
+                        emit("beq " + trueTarget);
+                        break;
+                    case ir::Op::CMP_GT:
+                    case ir::Op::CMP_GTU:
+                        emit("beq " + falseTarget);
+                        emit("bcs " + trueTarget);
+                        falseFallsThrough = false; // already handled
+                        break;
+                    case ir::Op::CMP_GE:
+                    case ir::Op::CMP_GEU:
+                        emit("bcs " + trueTarget);
+                        break;
+                    default:
+                        emit("bne " + trueTarget);
+                        break;
+                }
+                if (!falseFallsThrough && !falseTarget.empty()) {
+                    emit("bra " + falseTarget);
+                }
+                lastCmp_.valid = false;
+                break;
+            }
+
             loadOperand(inst.src1);
             emit("chknonzero.8 .A");
-            if (inst.dest.kind == ir::OperandKind::LABEL) {
-                emit("bne @" + inst.dest.name);
+            if (!trueTarget.empty()) {
+                emit("bne " + trueTarget);
             }
-            if (inst.src2.kind == ir::OperandKind::LABEL) {
-                emit("bra @" + inst.src2.name);
+            if (!falseFallsThrough && !falseTarget.empty()) {
+                emit("bra " + falseTarget);
             }
             break;
         }
