@@ -200,9 +200,18 @@ void test_valid_code_succeeds() {
     RunResult res = runCC45(src);
     CHECK(res.exitCode == 0, "test_valid_code_succeeds: exit code == 0");
 }
+// Test: Expected member after __cpu.
+void test_cpu_intrinsic_syntax() {
+    const char* src = "int main() { __cpu = 5; }";
+    RunResult res = runCC45(src);
+    CHECK(res.exitCode != 0, "test_cpu_intrinsic_syntax: exit code != 0");
+    CHECK(res.output.find("must be followed by '.'") != std::string::npos,
+          "test_cpu_intrinsic_syntax: error message present");
+}
 
 int main() {
-    printf("Running Parser Syntax Error Validation Tests...\n");
+    // Create build directory if needed
+    system("mkdir -p build");
 
     test_expected_return_type();
     test_expected_parameter_type();
@@ -219,6 +228,7 @@ int main() {
     test_expected_type_in_generic();
     test_expected_type_in_typedef();
     test_expected_type_in_function_pointer_params();
+    test_cpu_intrinsic_syntax();
     test_valid_code_succeeds();
 
     printf("\nParser Syntax Tests: %d passed, %d failed\n", tests_passed, tests_failed);

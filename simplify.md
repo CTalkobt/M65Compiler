@@ -63,7 +63,8 @@ Using a proper type system will simplify `IRBuilder`, `CodeGenerator`, and `Cons
 
 **Recommendation:** Consider a `ParserBase` class to provide standard `match`, `expect`, and `error` methods.
 
-## 9. Emitter Abstraction
-**Observation:** `M65Emitter` handles both text and binary emission. `O45Emitter` uses `M65Emitter` but also adds a layer for O45 object format segments and relocations.
+## 10. Direct CPU Register Usage Optimization
+**Observation:** Currently, the compiler snapshots CPU registers like `__cpu.A` into virtual registers (zero-page memory) for safety before using them in expressions.
 
-**Recommendation:** Ensure `M65Emitter` provides a clean interface for "abstract emission" that doesn't care about the final format (text vs binary) until the end. Consider if some of the relocation logic in `O45Emitter` can be moved into a more general `ObjectEmitter` base.
+**Recommendation:** For simple operations like `if (__cpu.A > 20)`, optimize the code generator to use the physical register directly when the next instruction can consume it without clobbering, avoiding unnecessary `STA/LDA` sequences.
+

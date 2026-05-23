@@ -731,6 +731,24 @@ else
     fi
 fi
 
+echo "Testing CPU and flag intrinsics (__cpu.R, __flags.F)..."
+$CC src/test-resources/test_cpu_intrinsics.c -o build/test/test_cpu_intrinsics.s
+if [ $? -eq 0 ]; then
+    $AS build/test/test_cpu_intrinsics.s -o build/test/test_cpu_intrinsics.prg
+    # Return 0 in A means success
+    OUTPUT=$(echo -e "load build/test/test_cpu_intrinsics.prg\nsetpc \$2000\nstep 2000000\nregs\nq" | $MMEMU -m rawMega65 2>/dev/null)
+    if echo "$OUTPUT" | grep -q "A: \$00"; then
+        echo "SUCCESS: CPU and flag intrinsics tests passed."
+    else
+        echo "FAIL: CPU and flag intrinsics tests failed (A != 0)."
+        echo "$OUTPUT" | grep "A: \$"
+        failed=$((failed + 1))
+    fi
+else
+    echo "FAIL: Could not compile test_cpu_intrinsics.c"
+    failed=$((failed + 1))
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All mmemu tests passed!"
     exit 0

@@ -131,6 +131,10 @@ enum class Op : uint8_t {
     // Special
     ASM_INLINE,     // asm("...")
     VA_START,       // %d = va_start(lastParamName) — compute stack addr past last named param
+    CPU_REG_READ,   // %d = cpu_reg_read <regName>
+    CPU_REG_WRITE,  // cpu_reg_write <regName>, <val>
+    CPU_FLAG_READ,  // %d = cpu_flag_read <flagName>
+    CPU_FLAG_WRITE, // cpu_flag_write <flagName>, <val>
     PHI,            // %d = phi [<val1>, <label1>], [<val2>, <label2>], ...
     NOP,
 };

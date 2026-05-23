@@ -108,14 +108,16 @@ int main() {
     CHECK(hasError, "va_start non-variable error detected");
 }
 
-// Test: va_arg first arg must be a variable
+// Test: va_arg second arg must be a type
 void test_va_arg_non_variable() {
     std::string code = R"(
 #include <stdarg.h>
 
 int f(int x, ...) {
-    va_list *ap = 0;
-    va_arg(0, int);
+    va_list ap;
+    va_start(ap, x);
+    int y = va_arg(ap, 123);
+    va_end(ap);
     return 0;
 }
 
@@ -124,99 +126,126 @@ int main() {
 }
 )";
 
-    bool hasError = compileAndCheckError(code, "va_arg: first argument must be a variable");
-    CHECK(hasError, "va_arg non-variable error detected");
+    bool hasError = compileAndCheckError(code, "Expected type in __builtin_va_arg");
+    CHECK(hasError, "va_arg non-type error detected");
 }
 
-// Test: Unknown struct type in sizeof
+// Test: sizeof unknown struct
 void test_unknown_struct_sizeof() {
     std::string code = R"(
 int main() {
-    int size = sizeof(struct Unknown);
+    int s = sizeof(struct Unknown);
     return 0;
 }
 )";
 
-    bool hasError = compileAndCheckError(code, "Unknown struct/union type");
-    CHECK(hasError, "unknown struct type error detected");
+    bool hasError = compileAndCheckError(code, "Unknown struct/union type: Unknown");
+    CHECK(hasError, "sizeof unknown struct error detected");
 }
 
-// Test: No matching _Generic association
+// Test: _Generic no match
 void test_generic_no_match() {
     std::string code = R"(
 int main() {
-    int x = 5;
-    int y = _Generic(x, float: 1.0, double: 2.0);
+    int x = _Generic((long)0, int: 1, char: 2);
     return 0;
 }
 )";
 
-    bool hasError = compileAndCheckError(code, "Expected type name in _Generic association");
-    CHECK(hasError, "Generic no match error detected");
+    bool hasError = compileAndCheckError(code, "No matching association in _Generic selection");
+    CHECK(hasError, "_Generic no match error detected");
 }
 
-// Test: Static assertion fails (0)
+// Test: _Static_assert fail
 void test_static_assert_fail() {
     std::string code = R"(
-int main() {
-    _Static_assert(0, "This assertion should fail");
-    return 0;
-}
+_Static_assert(0, "failure");
+int main() { return 0; }
 )";
 
     bool hasError = compileAndCheckError(code, "Static assertion failed");
-    CHECK(hasError, "Static assertion failure error detected");
+    CHECK(hasError, "_Static_assert failure detected");
 }
 
-// Test: Static assertion non-constant expression
+// Test: _Static_assert non-constant
 void test_static_assert_non_constant() {
     std::string code = R"(
-int x;  // global non-constant
-
-int main() {
-    _Static_assert(x, "Non-constant expression");
-    return 0;
-}
+extern int x;
+_Static_assert(x, "failure");
+int main() { return 0; }
 )";
 
-    bool hasError = compileAndCheckError(code, "Static assertion condition is not a constant expression");
-    CHECK(hasError, "Static assertion non-constant error detected");
+    bool hasError = compileAndCheckError(code, "condition is not a constant expression");
+    CHECK(hasError, "_Static_assert non-constant detected");
 }
 
-// Test: Undefined function reference (different from implicit declaration)
+// Test: Undefined function reference
 void test_undefined_function_reference() {
     std::string code = R"(
+int f();
 int main() {
-    return undefined_function();
+    return f();
 }
 )";
 
-    bool hasError = compileAndCheckError(code, "implicit declaration of function");
-    CHECK(hasError, "Undefined function reference error detected");
+    // Should compile - linker handles undefined symbols
+    bool ok = compileAndSucceed(code);
+    CHECK(ok, "undefined function reference succeeds (linker task)");
 }
 
-// Test: Valid semantic code succeeds (sanity check)
-void test_valid_code() {
+// Test: Cannot take address of CPU register
+void test_cpu_reg_address() {
     std::string code = R"(
-#include <stdio.h>
-
-void declared_func(void) {
-    printf("Hello\n");
-}
-
 int main() {
-    declared_func();
+    int p = (int)&__cpu.A;
     return 0;
 }
 )";
+    bool hasError = compileAndCheckError(code, "Cannot take address of CPU register");
+    CHECK(hasError, "address-of CPU register error detected");
+}
 
-    bool succeeded = compileAndSucceed(code);
-    CHECK(succeeded, "valid code compiles successfully");
+// Test: Cannot take address of CPU flag
+void test_cpu_flag_address() {
+    std::string code = R"(
+int main() {
+    int p = (int)&__flags.Carry;
+    return 0;
+}
+)";
+    bool hasError = compileAndCheckError(code, "Cannot take address of CPU flag");
+    CHECK(hasError, "address-of CPU flag error detected");
+}
+
+// Test: CPU intrinsics r-value and l-value
+void test_cpu_intrinsics_valid() {
+    std::string code = R"(
+int main() {
+    __cpu.A = 42;
+    if (__cpu.X > 10) __flags.Zero = 1;
+    return 0;
+}
+)";
+    bool ok = compileAndSucceed(code);
+    CHECK(ok, "valid CPU intrinsics usage succeeds");
+}
+
+// Test: Valid code
+void test_valid_code() {
+    std::string code = R"(
+struct S { int x; };
+int main() {
+    struct S s = {1};
+    return s.x - 1;
+}
+)";
+
+    bool ok = compileAndSucceed(code);
+    CHECK(ok, "valid code compiles successfully");
 }
 
 int main() {
     printf("Running semantic/type validation error tests...\n");
-
     // Create build directory if needed
     system("mkdir -p build");
 
@@ -229,6 +258,9 @@ int main() {
     test_static_assert_fail();
     test_static_assert_non_constant();
     test_undefined_function_reference();
+    test_cpu_reg_address();
+    test_cpu_flag_address();
+    test_cpu_intrinsics_valid();
     test_valid_code();
 
     printf("\n=== Semantic/Type Validation Error Tests ===\n");

@@ -108,6 +108,8 @@ public:
     void visit(FunctionDeclaration& node) override;
     void visit(BuiltinVaStart& node) override;
     void visit(BuiltinVaArg& node) override;
+    void visit(CpuRegisterAccess& node) override;
+    void visit(CpuFlagAccess& node) override;
     void visit(TranslationUnit& node) override;
     void emitAddress(Expression* expr);
     void emitIndirectIncDec(UnaryOperation& node, bool isInc, bool isPost);

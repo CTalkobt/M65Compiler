@@ -7,6 +7,24 @@
 
 CodeGenerator::CodeGenerator(std::ostream& out) : out(out) {}
 
+static std::string hex8(uint8_t val) {
+    std::stringstream ss;
+    ss << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)val;
+    return ss.str();
+}
+
+static std::string hex16(uint16_t val) {
+    std::stringstream ss;
+    ss << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (int)val;
+    return ss.str();
+}
+
+static std::string hex32(uint32_t val) {
+    std::stringstream ss;
+    ss << std::hex << std::uppercase << std::setfill('0') << std::setw(8) << (int)val;
+    return ss.str();
+}
+
 std::string CodeGenerator::zpHex(uint8_t addr) const {
     std::stringstream ss;
     ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)addr;
@@ -178,22 +196,32 @@ int CodeGenerator::getTypeSize(const std::string& type, int ptrLevel, int arrayS
 }
 
 CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
-    if (!expr) return {"int", 0, false, false};
+    if (!expr) return {"int", 0, false, false, false, false, {}}; 
+    if (auto* cra = dynamic_cast<CpuRegisterAccess*>(expr)) {
+        std::string reg = cra->regName;
+        std::transform(reg.begin(), reg.end(), reg.begin(), ::toupper);
+        if (reg == "AX" || reg == "AY" || reg == "AZ" || reg == "XY" || reg == "SP") return {"int", 0, false, false, false, false, {}}; 
+        if (reg == "Q" || reg == "AXYZ") return {"long", 0, false, false, false, false, {}}; 
+        return {"char", 0, false, false, false, false, {}}; 
+    }
+    if (auto* cfa = dynamic_cast<CpuFlagAccess*>(expr)) {
+        return {"_Bool", 0, false, false, false, false, {}}; 
+    }
     if (auto* lit = dynamic_cast<IntegerLiteral*>(expr)) {
         if (!lit->castType.empty()) {
-            return {lit->castType, lit->castPointerLevel, lit->castIsSigned, false};
+            return {lit->castType, lit->castPointerLevel, lit->castIsSigned, false, false, false, {}};
         }
-        return {"int", 0, false, false};
+        return {"int", 0, false, false, false, false, {}};
     }
     if (auto* cast = dynamic_cast<CastExpression*>(expr)) {
-        return {cast->targetType, cast->pointerLevel, cast->isSigned, false};
+        return {cast->targetType, cast->pointerLevel, cast->isSigned, false, false, false, {}};
     }
     if (auto* cl = dynamic_cast<CompoundLiteral*>(expr)) {
         // Scalar compound literal produces a value; struct/array produces a pointer
         if (cl->arrayDims.empty() && !isStruct(cl->targetType) && cl->pointerLevel == 0) {
-            return {cl->targetType, 0, cl->isSigned, false};
+            return {cl->targetType, 0, cl->isSigned, false, false, false, {}};
         }
-        return {cl->targetType, cl->pointerLevel + 1, cl->isSigned, false};
+        return {cl->targetType, cl->pointerLevel + 1, cl->isSigned, false, false, false, {}};
     }
     if (auto* gs = dynamic_cast<GenericSelection*>(expr)) {
         // Resolve based on control type
@@ -213,13 +241,13 @@ CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
         if (variableTypes.count(pName)) {
             VarInfo& vi = variableTypes.at(pName);
             int pl = vi.pointerLevel + (int)vi.arrayDims.size();
-            return {vi.type, pl, vi.isSigned, vi.isConst, vi.isPointerConst};
+            return {vi.type, pl, vi.isSigned, vi.isConst, vi.isPointerConst, false, {}}; 
         }
         std::string rName = "_l_" + ref->name;
         if (variableTypes.count(rName)) {
             VarInfo& vi = variableTypes.at(rName);
             int pl = vi.pointerLevel + (int)vi.arrayDims.size();
-            return {vi.type, pl, vi.isSigned, vi.isConst, vi.isPointerConst};
+            return {vi.type, pl, vi.isSigned, vi.isConst, vi.isPointerConst, false, {}}; 
         }
         // Check static local variable (mangled as global)
         if (currentFunction) {
@@ -227,33 +255,33 @@ CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
             if (globalVariableTypes.count(slName)) {
                 VarInfo& vi = globalVariableTypes.at(slName);
                 int pl = vi.pointerLevel + (int)vi.arrayDims.size();
-                return {vi.type, pl, vi.isSigned, vi.isConst, vi.isPointerConst};
+                return {vi.type, pl, vi.isSigned, vi.isConst, vi.isPointerConst, false, {}}; 
             }
         }
         if (globalVariableTypes.count("_" + ref->name)) {
             VarInfo& vi = globalVariableTypes.at("_" + ref->name);
             int pl = vi.pointerLevel + (int)vi.arrayDims.size();
-            return {vi.type, pl, vi.isSigned, vi.isConst, vi.isPointerConst};
+            return {vi.type, pl, vi.isSigned, vi.isConst, vi.isPointerConst, false, {}}; 
         }
     }
     if (auto* vd = dynamic_cast<VariableDeclaration*>(expr)) {
-        return {vd->type, vd->pointerLevel, vd->isSigned, vd->isConst, vd->isPointerConst};
+        return {vd->type, vd->pointerLevel, vd->isSigned, vd->isConst, vd->isPointerConst, false, {}}; 
     }
     if (auto* aa = dynamic_cast<ArrayAccess*>(expr)) {
         ExpressionType base = getExprType(aa->arrayExpr.get());
-        if (base.pointerLevel > 0) return {base.type, base.pointerLevel - 1, base.isSigned, base.isConst};
-        return {base.type, 0, base.isSigned, base.isConst};
+        if (base.pointerLevel > 0) return {base.type, base.pointerLevel - 1, base.isSigned, base.isConst, false, false, {}}; 
+        return {base.type, 0, base.isSigned, base.isConst, false, false, {}}; 
     }
     if (auto* vaArg = dynamic_cast<BuiltinVaArg*>(expr)) {
-        return {vaArg->typeName, vaArg->pointerLevel, vaArg->isSigned, false};
+        return {vaArg->typeName, vaArg->pointerLevel, vaArg->isSigned, false, false, false, {}}; 
     }
     if (auto* vaStart = dynamic_cast<BuiltinVaStart*>(expr)) {
-        return {"void", 0, false, false};
+        return {"void", 0, false, false, false, false, {}};  
     }
     if (auto* fc = dynamic_cast<FunctionCall*>(expr)) {
         if (functionReturnTypes.count(fc->name)) {
             auto& ri = functionReturnTypes[fc->name];
-            return {ri.type, ri.pointerLevel, ri.isSigned, false};
+            return {ri.type, ri.pointerLevel, ri.isSigned, false, false, false, {}}; 
         }
     }
     if (auto* cond = dynamic_cast<ConditionalExpression*>(expr)) {
@@ -263,13 +291,13 @@ CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
         ExpressionType lhs = getExprType(bin->left.get());
         ExpressionType rhs = getExprType(bin->right.get());
         bool resSigned = lhs.isSigned || rhs.isSigned;
-        return {lhs.type, lhs.pointerLevel, resSigned, lhs.isConst};
+        return {lhs.type, lhs.pointerLevel, resSigned, lhs.isConst, false, false, {}}; 
     }
     if (auto* un = dynamic_cast<UnaryOperation*>(expr)) {
-        if (un->op == "!") return {"char", 0, false, false};
+        if (un->op == "!") return {"char", 0, false, false, false, false, {}}; 
         CodeGenerator::ExpressionType sub = getExprType(un->operand.get());
-        if (un->op == "*") return {sub.type, sub.pointerLevel > 0 ? sub.pointerLevel - 1 : 0, sub.isSigned, sub.isConst};
-        if (un->op == "&") return {sub.type, sub.pointerLevel + 1, sub.isSigned, sub.isConst};
+        if (un->op == "*") return {sub.type, sub.pointerLevel > 0 ? sub.pointerLevel - 1 : 0, sub.isSigned, sub.isConst, false, false, {}}; 
+        if (un->op == "&") return {sub.type, sub.pointerLevel + 1, sub.isSigned, sub.isConst, false, false, {}}; 
         return sub;
     }
     if (auto* ma = dynamic_cast<MemberAccess*>(expr)) {
@@ -288,13 +316,13 @@ CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
                 auto& sInfo = *structs[sName];
                 if (sInfo.members.count(ma->memberName)) {
                     MemberInfo& mInfo = sInfo.members[ma->memberName];
-                    if (mInfo.arraySize() >= 0) return {mInfo.type, mInfo.pointerLevel + 1, mInfo.isSigned, mInfo.isConst};
-                    return {mInfo.type, mInfo.pointerLevel, mInfo.isSigned, mInfo.isConst};
+                    if (mInfo.arraySize() >= 0) return {mInfo.type, mInfo.pointerLevel + 1, mInfo.isSigned, mInfo.isConst, false, false, {}}; 
+                    return {mInfo.type, mInfo.pointerLevel, mInfo.isSigned, mInfo.isConst, false, false, {}}; 
                 }
             }
         }
     }
-    return {"int", 0, false, false};
+    return {"int", 0, false, false, false, false, {}}; 
 }
 
 void CodeGenerator::emitAddress(Expression* expr) {
@@ -520,6 +548,8 @@ public:
     }
     void visit(BuiltinVaStart& node) override { node.ap->accept(*this); }
     void visit(BuiltinVaArg& node) override { node.ap->accept(*this); }
+    void visit(CpuRegisterAccess&) override {}
+    void visit(CpuFlagAccess&) override {}
     // Walk all node types that can contain expressions
     void visit(IntegerLiteral&) override {}
     void visit(StringLiteral&) override {}
@@ -595,6 +625,8 @@ public:
     void visit(SizeofExpression& n) override { if (n.expression) n.expression->accept(*this); }
     void visit(BuiltinVaStart& n) override { n.ap->accept(*this); }
     void visit(BuiltinVaArg& n) override { n.ap->accept(*this); }
+    void visit(CpuRegisterAccess&) override {}
+    void visit(CpuFlagAccess&) override {}
     void visit(VariableDeclaration& n) override { if (n.initializer) n.initializer->accept(*this); }
     void visit(ReturnStatement& n) override { if (n.expression) n.expression->accept(*this); }
     void visit(BreakStatement&) override {}
@@ -808,6 +840,8 @@ public:
     void visit(FunctionDeclaration& n) override { if (n.body) n.body->accept(*this); }
     void visit(BuiltinVaStart& n) override { n.ap->accept(*this); }
     void visit(BuiltinVaArg& n) override { n.ap->accept(*this); }
+    void visit(CpuRegisterAccess&) override {}
+    void visit(CpuFlagAccess&) override {}
     void visit(TranslationUnit& n) override { for (auto& d : n.topLevelDecls) d->accept(*this); }
 
 private:
@@ -857,6 +891,35 @@ private:
         return size;
     }
 };
+}
+
+void CodeGenerator::visit(CpuRegisterAccess& node) {
+    std::string reg = node.regName;
+    std::transform(reg.begin(), reg.end(), reg.begin(), ::toupper);
+    if (reg == "A") ;
+    else if (reg == "X") { if (resultNeeded) emit("txa"); }
+    else if (reg == "Y") { if (resultNeeded) emit("tya"); }
+    else if (reg == "Z") { if (resultNeeded) emit("tza"); }
+    else if (reg == "AX") ;
+    else if (reg == "AY") { if (resultNeeded) { emit("phy"); emit("plx"); } }
+    else if (reg == "AZ") { if (resultNeeded) { emit("phz"); emit("plx"); } }
+    else if (reg == "XY") { if (resultNeeded) { emit("txa"); emit("phy"); emit("plx"); emit("pla"); } }
+    else if (reg == "SP") { if (resultNeeded) { emit("tsy"); emit("phy"); emit("plx"); } }
+    else if (reg == "Q" || reg == "AXYZ") ;
+    invalidateRegs();
+}
+
+void CodeGenerator::visit(CpuFlagAccess& node) {
+    std::string flag = node.flagName;
+    std::transform(flag.begin(), flag.end(), flag.begin(), ::toupper);
+    if (resultNeeded) {
+        emit("lda #0");
+        if (flag == "CARRY") emit("adc #0");
+        else if (flag == "ZERO") { emit("bne *+3"); emit("lda #1"); }
+        else if (flag == "NEGATIVE") { emit("bpl *+3"); emit("lda #1"); }
+        else if (flag == "OVERFLOW") { emit("bvc *+3"); emit("lda #1"); }
+    }
+    invalidateRegs();
 }
 
 void CodeGenerator::visit(TranslationUnit& node) {
@@ -2168,6 +2231,62 @@ void CodeGenerator::visit(Assignment& node) {
     } else if (targetType.isConst) {
         // Dereference or member access: isConst means pointed-to/member type is const
         throw std::runtime_error("Compile Error: Assignment to read-only location");
+    }
+
+    if (node.op == "=") {
+        if (auto* cra = dynamic_cast<CpuRegisterAccess*>(node.target.get())) {
+            std::string reg = cra->regName;
+            std::transform(reg.begin(), reg.end(), reg.begin(), ::toupper);
+
+            // Optimization: Direct load for immediate values
+            if (auto* lit = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
+                uint32_t val = (uint32_t)lit->value;
+                if (reg == "A") emit("lda #$" + hex8((uint8_t)val));
+                else if (reg == "X") emit("ldx #$" + hex8((uint8_t)val));
+                else if (reg == "Y") emit("ldy #$" + hex8((uint8_t)val));
+                else if (reg == "Z") emit("ldz #$" + hex8((uint8_t)val));
+                else if (reg == "AX") emit("ldax #$" + hex16((uint16_t)val));
+                else if (reg == "AY") emit("lday #$" + hex16((uint16_t)val));
+                else if (reg == "AZ") emit("ldaz #$" + hex16((uint16_t)val));
+                else if (reg == "XY") emit("ldxy #$" + hex16((uint16_t)val));
+                else if (reg == "Q" || reg == "AXYZ") emit("ldq #$" + hex32(val));
+                else if (reg == "SP") { emit("ldy #$" + hex8((uint8_t)val)); emit("ldx #$" + hex8((uint8_t)(val >> 8))); emit("tys"); }
+                invalidateRegs();
+                return;
+            }
+
+            node.expression->accept(*this);
+            if (reg == "A") ;
+            else if (reg == "X") emit("tax");
+            else if (reg == "Y") emit("tay");
+            else if (reg == "Z") emit("taz");
+            else if (reg == "AX") ;
+            else if (reg == "AY") { emit("phx"); emit("ply"); }
+            else if (reg == "AZ") { emit("phx"); emit("plz"); }
+            else if (reg == "XY") { emit("tax"); emit("phx"); emit("ply"); emit("plx"); }
+            else if (reg == "SP") { emit("phx"); emit("ply"); emit("tys"); }
+            invalidateRegs();
+            return;
+        }
+        if (auto* cfa = dynamic_cast<CpuFlagAccess*>(node.target.get())) {
+            std::string flag = cfa->flagName;
+            std::transform(flag.begin(), flag.end(), flag.begin(), ::toupper);
+
+            // Optimization: Direct SEC/CLC for immediate values
+            if (auto* lit = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
+                int val = lit->value;
+                if (flag == "CARRY") { emit(val ? "sec" : "clc"); invalidateRegs(); return; }
+                else if (flag == "DECIMAL") { emit(val ? "sed" : "cld"); invalidateRegs(); return; }
+                else if (flag == "INTERRUPT") { emit(val ? "sei" : "cli"); invalidateRegs(); return; }
+                else if (flag == "OVERFLOW" && val == 0) { emit("clv"); invalidateRegs(); return; }
+            }
+
+            node.expression->accept(*this);
+            if (flag == "CARRY") { emit("lsr a"); }
+            else if (flag == "ZERO") { emit("cmp #0"); }
+            invalidateRegs();
+            return;
+        }
     }
 
     if (node.op == "=" && !dynamic_cast<CastExpression*>(node.expression.get())) {
@@ -3903,6 +4022,8 @@ void CodeGenerator::visit(SwitchStatement& node) {
         void visit(FunctionCall& node) override { for (auto& arg : node.arguments) arg->accept(*this); }
         void visit(BuiltinVaStart& node) override { node.ap->accept(*this); }
         void visit(BuiltinVaArg& node) override { node.ap->accept(*this); }
+        void visit(CpuRegisterAccess&) override {}
+        void visit(CpuFlagAccess&) override {}
         void visit(MemberAccess& node) override { node.structExpr->accept(*this); }
         void visit(ConditionalExpression& node) override { node.condition->accept(*this); node.thenExpr->accept(*this); node.elseExpr->accept(*this); }
         void visit(GenericSelection& node) override {
@@ -5407,6 +5528,8 @@ public:
     void visit(FunctionCall& node) override { for (auto& arg : node.arguments) arg->accept(*this); }
     void visit(BuiltinVaStart& node) override { node.ap->accept(*this); }
     void visit(BuiltinVaArg& node) override { node.ap->accept(*this); }
+    void visit(CpuRegisterAccess&) override {}
+    void visit(CpuFlagAccess&) override {}
     void visit(MemberAccess& node) override { node.structExpr->accept(*this); }
     void visit(ConditionalExpression& node) override { node.condition->accept(*this); node.thenExpr->accept(*this); node.elseExpr->accept(*this); }
     void visit(GenericSelection& node) override {

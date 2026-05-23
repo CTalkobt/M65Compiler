@@ -338,6 +338,12 @@ public:
         printIndent(); std::cout << "BuiltinVaArg: " << node.typeName << std::endl;
         indent++; node.ap->accept(*this); indent--;
     }
+    void visit(CpuRegisterAccess& node) override {
+        printIndent(); std::cout << "CpuRegisterAccess: " << node.regName << std::endl;
+    }
+    void visit(CpuFlagAccess& node) override {
+        printIndent(); std::cout << "CpuFlagAccess: " << node.flagName << std::endl;
+    }
     void visit(FunctionDeclaration& node) override {
         printIndent(); std::cout << "FunctionDeclaration: " << node.name << " (" << (node.isSigned ? "signed " : "") << node.returnType << ")";
         if (node.isNoreturn) std::cout << " [noreturn]";

@@ -50,6 +50,10 @@ static const char* opName(Op op) {
         case Op::CALL:         return "call";
         case Op::CALL_INDIRECT: return "call_indirect";
         case Op::CALL_VOID:    return "call_void";
+        case Op::CPU_REG_READ: return "cpu_reg_read";
+        case Op::CPU_REG_WRITE: return "cpu_reg_write";
+        case Op::CPU_FLAG_READ: return "cpu_flag_read";
+        case Op::CPU_FLAG_WRITE: return "cpu_flag_write";
         case Op::ASM_INLINE:   return "asm";
         case Op::VA_START:     return "va_start";
         case Op::PHI:          return "phi";
@@ -160,6 +164,16 @@ void Printer::print(std::ostream& out, const Inst& inst) {
 
         case Op::VA_START:
             out << opName(inst.op) << " \"" << inst.asmText << "\"" << locComment << "\n";
+            return;
+
+        case Op::CPU_REG_READ:
+        case Op::CPU_FLAG_READ:
+            out << operandStr(inst.dest) << " = " << opName(inst.op) << " \"" << inst.asmText << "\"" << locComment << "\n";
+            return;
+
+        case Op::CPU_REG_WRITE:
+        case Op::CPU_FLAG_WRITE:
+            out << opName(inst.op) << " \"" << inst.asmText << "\", " << operandStr(inst.src1) << locComment << "\n";
             return;
 
         case Op::SWITCH:

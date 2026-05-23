@@ -436,6 +436,23 @@ public:
 };
 
 
+// __cpu.A, __cpu.X, etc.
+class CpuRegisterAccess : public Expression {
+public:
+    std::string regName;
+    CpuRegisterAccess(const std::string& r) : regName(r) {}
+    void accept(ASTVisitor& visitor) override;
+};
+
+// __flags.Carry, __flags.Zero, etc.
+class CpuFlagAccess : public Expression {
+public:
+    std::string flagName;
+    CpuFlagAccess(const std::string& f) : flagName(f) {}
+    void accept(ASTVisitor& visitor) override;
+};
+
+
 class TranslationUnit : public ASTNode {
 public:
     std::vector<std::unique_ptr<Statement>> topLevelDecls;
@@ -485,5 +502,7 @@ public:
     virtual void visit(FunctionDeclaration& node) = 0;
     virtual void visit(BuiltinVaStart& node) = 0;
     virtual void visit(BuiltinVaArg& node) = 0;
+    virtual void visit(CpuRegisterAccess& node) = 0;
+    virtual void visit(CpuFlagAccess& node) = 0;
     virtual void visit(TranslationUnit& node) = 0;
 };

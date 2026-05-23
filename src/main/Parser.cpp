@@ -1297,7 +1297,16 @@ std::unique_ptr<Expression> Parser::parseUnary() {
         match(TokenType::PLUS_PLUS) || match(TokenType::MINUS_MINUS)) {
         const Token& opToken = tokens[pos-1];
         std::string op = opToken.value;
-        return setPos(std::make_unique<UnaryOperation>(op, parseUnary()), opToken);
+        auto operand = parseUnary();
+        if (op == "&") {
+            if (dynamic_cast<CpuRegisterAccess*>(operand.get())) {
+                throw std::runtime_error("Error at " + std::to_string(opToken.line) + ":" + std::to_string(opToken.column) + ": Cannot take address of CPU register");
+            }
+            if (dynamic_cast<CpuFlagAccess*>(operand.get())) {
+                throw std::runtime_error("Error at " + std::to_string(opToken.line) + ":" + std::to_string(opToken.column) + ": Cannot take address of CPU flag");
+            }
+        }
+        return setPos(std::make_unique<UnaryOperation>(op, std::move(operand)), opToken);
     }
     return parsePrimary();
 }
@@ -1330,6 +1339,19 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
             throw std::runtime_error("Error at " + std::to_string(funcToken.line) + ":" + std::to_string(funcToken.column) + ": __func__ used outside of a function");
         }
         expr = setPos(std::make_unique<StringLiteral>(currentFunctionName), funcToken);
+    } else if (peek().type == TokenType::IDENTIFIER && (peek().value == "__cpu" || peek().value == "__flags")) {
+        const Token& baseToken = advance();
+        std::string base = baseToken.value;
+        if (!match(TokenType::DOT)) {
+            throw std::runtime_error("Error at " + std::to_string(baseToken.line) + ":" + std::to_string(baseToken.column) + ": '" + base + "' must be followed by '.' and a member name");
+        }
+        const Token& memberToken = expect(TokenType::IDENTIFIER, "Expected member name after " + base + ".");
+        std::string member = memberToken.value;
+        if (base == "__cpu") {
+            expr = setPos(std::make_unique<CpuRegisterAccess>(member), baseToken);
+        } else {
+            expr = setPos(std::make_unique<CpuFlagAccess>(member), baseToken);
+        }
     } else if (peek().type == TokenType::IDENTIFIER && peek().value == "__builtin_va_start") {
         const Token& bToken = advance();
         expect(TokenType::OPEN_PAREN, "Expected '(' after __builtin_va_start");

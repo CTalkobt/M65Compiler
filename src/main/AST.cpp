@@ -39,4 +39,6 @@ void CompoundStatement::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void FunctionDeclaration::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void BuiltinVaStart::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void BuiltinVaArg::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void CpuRegisterAccess::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void CpuFlagAccess::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void TranslationUnit::accept(ASTVisitor& visitor) { visitor.visit(*this); }

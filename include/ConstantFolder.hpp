@@ -251,6 +251,14 @@ public:
         lastExpr = copyPos(std::make_unique<BuiltinVaArg>(fold(std::move(node.ap)), node.typeName, node.pointerLevel, node.isSigned), node);
     }
 
+    void visit(CpuRegisterAccess& node) override {
+        lastExpr = copyPos(std::make_unique<CpuRegisterAccess>(node.regName), node);
+    }
+
+    void visit(CpuFlagAccess& node) override {
+        lastExpr = copyPos(std::make_unique<CpuFlagAccess>(node.flagName), node);
+    }
+
     void visit(ConditionalExpression& node) override {
         auto condition = fold(std::move(node.condition));
         auto* lit = dynamic_cast<IntegerLiteral*>(condition.get());

@@ -1,6 +1,25 @@
 #include "IRCodeGen.hpp"
 #include <iomanip>
 #include <sstream>
+#include <algorithm>
+
+static std::string hex8(uint8_t val) {
+    std::stringstream ss;
+    ss << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)val;
+    return ss.str();
+}
+
+static std::string hex16(uint16_t val) {
+    std::stringstream ss;
+    ss << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (int)val;
+    return ss.str();
+}
+
+static std::string hex32(uint32_t val) {
+    std::stringstream ss;
+    ss << std::hex << std::uppercase << std::setfill('0') << std::setw(8) << (int)val;
+    return ss.str();
+}
 
 IRCodeGen::IRCodeGen(std::ostream& out) : out_(out) {}
 
@@ -543,12 +562,28 @@ IRCodeGen::FuncClobbers IRCodeGen::computeFuncClobbers(const ir::Function& fn) {
 
                 case ir::Op::VA_START:
                     fc.regs |= A | X;
+                    fc.flags |= C | N | ZF;
+                    break;
+
+                case ir::Op::CPU_REG_READ:
+                    fc.regs |= A | X; // result goes to AX
+                    if (inst.resultType == ir::Type::I32) fc.regs |= Y | Z;
+                    fc.flags |= N | ZF;
+                    break;
+
+                case ir::Op::CPU_REG_WRITE:
+                    fc.regs |= A | X | Y | Z; // conservative write
+                    fc.flags |= N | ZF;
+                    break;
+
+                case ir::Op::CPU_FLAG_READ:
+                    fc.regs |= A; // lda #0; adc #0
                     fc.flags |= C | N | ZF | V;
                     break;
 
-                case ir::Op::SWITCH:
-                    fc.regs |= A | X;
-                    fc.flags |= C | N | ZF;
+                case ir::Op::CPU_FLAG_WRITE:
+                    fc.regs |= A; // lda val
+                    fc.flags |= C | N | ZF | V;
                     break;
             }
         }
@@ -1474,6 +1509,109 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             emit("leax.fp @_p_" + pName);
             emit("add.16 .AX, #2");
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+            break;
+        }
+
+        case ir::Op::CPU_REG_READ: {
+            std::string reg = inst.asmText;
+            std::transform(reg.begin(), reg.end(), reg.begin(), ::toupper);
+            if (reg == "A") ;
+            else if (reg == "X") emit("txa");
+            else if (reg == "Y") emit("tya");
+            else if (reg == "Z") emit("tza");
+            else if (reg == "AX") ;
+            else if (reg == "AY") { emit("phy"); emit("plx"); }
+            else if (reg == "AZ") { emit("phz"); emit("plx"); }
+            else if (reg == "XY") { emit("txa"); emit("phy"); emit("plx"); emit("pla"); } // Swap AX/XY
+            else if (reg == "SP") { emit("tsy"); emit("phy"); emit("plx"); }
+            else if (reg == "Q" || reg == "AXYZ") ; // already in AXYZ
+            if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+            break;
+        }
+
+        case ir::Op::CPU_REG_WRITE: {
+            std::string reg = inst.asmText;
+            std::transform(reg.begin(), reg.end(), reg.begin(), ::toupper);
+            
+            bool optimized = false;
+            if (inst.src1.isImm()) {
+                uint32_t val = (uint32_t)inst.src1.immVal;
+                if (reg == "A") { emit("lda #$" + hex8((uint8_t)val)); optimized = true; }
+                else if (reg == "X") { emit("ldx #$" + hex8((uint8_t)val)); optimized = true; }
+                else if (reg == "Y") { emit("ldy #$" + hex8((uint8_t)val)); optimized = true; }
+                else if (reg == "Z") { emit("ldz #$" + hex8((uint8_t)val)); optimized = true; }
+                else if (reg == "AX") { emit("ldax #$" + hex16((uint16_t)val)); optimized = true; }
+                else if (reg == "AY") { emit("lday #$" + hex16((uint16_t)val)); optimized = true; }
+                else if (reg == "AZ") { emit("ldaz #$" + hex16((uint16_t)val)); optimized = true; }
+                else if (reg == "XY") { emit("ldxy #$" + hex16((uint16_t)val)); optimized = true; }
+                else if (reg == "Q" || reg == "AXYZ") { emit("ldq #$" + hex32(val)); optimized = true; }
+            } else if (inst.src1.isVreg()) {
+                auto alloc = alloc_.getAlloc(inst.src1.vregId);
+                if (alloc.loc == VRegAllocator::IN_ZP) {
+                    std::string zp = "$" + hex8(alloc.offset);
+                    if (reg == "A") { emit("lda " + zp); optimized = true; }
+                    else if (reg == "X") { emit("ldx " + zp); optimized = true; }
+                    else if (reg == "Y") { emit("ldy " + zp); optimized = true; }
+                    else if (reg == "Z") { emit("ldz " + zp); optimized = true; }
+                    else if (reg == "AX") { emit("ldax " + zp); optimized = true; }
+                    else if (reg == "AY") { emit("lday " + zp); optimized = true; }
+                    else if (reg == "AZ") { emit("ldaz " + zp); optimized = true; }
+                    else if (reg == "XY") { emit("ldxy " + zp); optimized = true; }
+                    else if (reg == "Q" || reg == "AXYZ") { emit("ldq " + zp); optimized = true; }
+                }
+            }
+
+            if (!optimized) {
+                if (inst.src1.isVreg()) loadVreg(inst.src1.vregId);
+                else if (inst.src1.isImm()) {
+                    if (inst.src1.type == ir::Type::I16) emit("ldax #$" + hex16((uint16_t)inst.src1.immVal));
+                    else if (inst.src1.type == ir::Type::I32) emit("ldq #$" + hex32((uint32_t)inst.src1.immVal));
+                    else emit("lda #$" + hex8((uint8_t)inst.src1.immVal));
+                }
+                if (reg == "A") ;
+                else if (reg == "X") emit("tax");
+                else if (reg == "Y") emit("tay");
+                else if (reg == "Z") emit("taz");
+                else if (reg == "AX") ;
+                else if (reg == "AY") { emit("phx"); emit("ply"); }
+                else if (reg == "AZ") { emit("phx"); emit("plz"); }
+                else if (reg == "XY") { emit("tax"); emit("phx"); emit("ply"); emit("plx"); }
+                else if (reg == "SP") { emit("phx"); emit("ply"); emit("tys"); }
+            }
+            break;
+        }
+
+        case ir::Op::CPU_FLAG_READ: {
+            std::string flag = inst.asmText;
+            std::transform(flag.begin(), flag.end(), flag.begin(), ::toupper);
+            emit("lda #0");
+            if (flag == "CARRY") emit("adc #0");
+            else if (flag == "ZERO") { emit("bne *+3"); emit("lda #1"); }
+            else if (flag == "NEGATIVE") { emit("bpl *+3"); emit("lda #1"); }
+            else if (flag == "OVERFLOW") { emit("bvc *+3"); emit("lda #1"); }
+            if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+            break;
+        }
+
+        case ir::Op::CPU_FLAG_WRITE: {
+            std::string flag = inst.asmText;
+            std::transform(flag.begin(), flag.end(), flag.begin(), ::toupper);
+
+            bool optimized = false;
+            if (inst.src1.isImm()) {
+                int val = (int)inst.src1.immVal;
+                if (flag == "CARRY") { emit(val ? "sec" : "clc"); optimized = true; }
+                else if (flag == "DECIMAL") { emit(val ? "sed" : "cld"); optimized = true; }
+                else if (flag == "INTERRUPT") { emit(val ? "sei" : "cli"); optimized = true; }
+                else if (flag == "OVERFLOW" && val == 0) { emit("clv"); optimized = true; }
+            }
+
+            if (!optimized) {
+                if (inst.src1.isVreg()) loadVreg(inst.src1.vregId);
+                else if (inst.src1.isImm()) emit("lda #$" + hex8((uint8_t)inst.src1.immVal));
+                if (flag == "CARRY") { emit("lsr a"); }
+                else if (flag == "ZERO") { emit("cmp #0"); }
+            }
             break;
         }
 

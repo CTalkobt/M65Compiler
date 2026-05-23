@@ -705,6 +705,28 @@ void IRBuilder::visit(Assignment& node) {
     node.expression->accept(*this);
     auto rhs = lastValue_;
 
+    // 2.5 Handle CPU register/flag writes
+    if (auto* cra = dynamic_cast<CpuRegisterAccess*>(node.target.get())) {
+        ir::Inst inst;
+        inst.op = ir::Op::CPU_REG_WRITE;
+        inst.asmText = cra->regName;
+        inst.src1 = rhs;
+        inst.loc = loc(node);
+        emit(inst);
+        lastValue_ = rhs;
+        return;
+    }
+    if (auto* cfa = dynamic_cast<CpuFlagAccess*>(node.target.get())) {
+        ir::Inst inst;
+        inst.op = ir::Op::CPU_FLAG_WRITE;
+        inst.asmText = cfa->flagName;
+        inst.src1 = rhs;
+        inst.loc = loc(node);
+        emit(inst);
+        lastValue_ = rhs;
+        return;
+    }
+
     // 3. Handle bitfield assignment (special case as it needs RMW)
     if (auto* ma = dynamic_cast<MemberAccess*>(node.target.get())) {
         int bitWidth = 0, bitOffset = 0, memberOffset = 0;
@@ -1672,6 +1694,8 @@ public:
     void visit(FunctionCall& node) override { for (auto& arg : node.arguments) arg->accept(*this); }
     void visit(BuiltinVaStart& node) override { if (node.ap) node.ap->accept(*this); }
     void visit(BuiltinVaArg& node) override { if (node.ap) node.ap->accept(*this); }
+    void visit(CpuRegisterAccess&) override {}
+    void visit(CpuFlagAccess&) override {}
     void visit(MemberAccess& node) override { if (node.structExpr) node.structExpr->accept(*this); }
     void visit(ConditionalExpression& node) override {
         if (node.condition) node.condition->accept(*this);
@@ -1716,25 +1740,19 @@ public:
         if (node.body) node.body->accept(*this);
     }
     void visit(SwitchStatement& node) override {
-        // Nested switches: don't collect their cases into our context!
-        // But we MUST visit them because they are part of our body.
-        // Actually, SwitchStatement::visit will handle its own cases.
-        // We only care about CaseStatements that belong to OUR switch.
-        // C rules say CaseStatements belong to the innermost switch.
-        // So we do NOT visit nested SwitchStatements' bodies.
         if (node.expression) node.expression->accept(*this);
+        // Do NOT visit body to avoid collecting cases from nested switches
     }
     void visit(CaseStatement& node) override {
         int64_t val = 0;
         if (auto* lit = dynamic_cast<IntegerLiteral*>(node.value.get())) val = lit->value;
         node.label = builder.newLabel("case");
-        ctx.cases.push_back({val, node.label});
+        ctx.cases.push_back({(uint32_t)val, node.label});
     }
     void visit(DefaultStatement& node) override {
         node.label = builder.newLabel("default");
         ctx.defaultLabel = node.label;
         ctx.hasDefault = true;
-        // Don't visit node.statement here; it will be visited by the main IRBuilder pass
     }
     void visit(AsmStatement&) override {}
     void visit(StaticAssert&) override {}
@@ -2041,3 +2059,36 @@ void IRBuilder::visit(BuiltinVaArg& node) {
 
     lastValue_ = val;
 }
+
+void IRBuilder::visit(CpuRegisterAccess& node) {
+    ir::Type t = ir::Type::I8;
+    std::string reg = node.regName;
+    std::transform(reg.begin(), reg.end(), reg.begin(), ::toupper);
+    if (reg == "AX" || reg == "AY" || reg == "AZ" || reg == "XY" || reg == "SP") t = ir::Type::I16;
+    else if (reg == "Q" || reg == "AXYZ") t = ir::Type::I32;
+
+    auto dest = allocVreg(t);
+    ir::Inst inst;
+    inst.op = ir::Op::CPU_REG_READ;
+    inst.dest = dest;
+    inst.resultType = t;
+    inst.asmText = node.regName;
+    inst.loc = loc(node);
+    emit(inst);
+    lastValue_ = dest;
+    lastValueSigned_ = false; // Registers are unsigned
+}
+
+void IRBuilder::visit(CpuFlagAccess& node) {
+    auto dest = allocVreg(ir::Type::I8); // Flags are 1-bit, use i8 boolean
+    ir::Inst inst;
+    inst.op = ir::Op::CPU_FLAG_READ;
+    inst.dest = dest;
+    inst.resultType = ir::Type::I8;
+    inst.asmText = node.flagName;
+    inst.loc = loc(node);
+    emit(inst);
+    lastValue_ = dest;
+    lastValueSigned_ = false;
+}
+
