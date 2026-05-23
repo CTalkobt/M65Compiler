@@ -1132,12 +1132,18 @@ void IRBuilder::visit(FunctionCall& node) {
         auto it = functionReturnTypes_.find(node.name);
         if (it != functionReturnTypes_.end()) retType = it->second;
 
-        auto dest = allocVreg(retType);
-        inst.op = ir::Op::CALL;
-        inst.dest = dest;
-        inst.resultType = retType;
-        emit(inst);
-        lastValue_ = dest;
+        if (retType == ir::Type::VOID) {
+            inst.op = ir::Op::CALL_VOID;
+            inst.resultType = ir::Type::VOID;
+            emit(inst);
+        } else {
+            auto dest = allocVreg(retType);
+            inst.op = ir::Op::CALL;
+            inst.dest = dest;
+            inst.resultType = retType;
+            emit(inst);
+            lastValue_ = dest;
+        }
     }
 }
 
@@ -1211,6 +1217,27 @@ void IRBuilder::visit(IfStatement& node) {
 }
 
 void IRBuilder::visit(WhileStatement& node) {
+    // Detect while(1) / while(true) — constant true condition
+    if (auto* lit = dynamic_cast<IntegerLiteral*>(node.condition.get())) {
+        if (lit->value != 0) {
+            // Infinite loop: just emit body + unconditional back-branch
+            std::string bodyLabel = newLabel("while_body");
+            std::string endLabel = newLabel("while_end");
+            loopStack_.push_back({endLabel, bodyLabel});
+
+            startBlock(bodyLabel);
+            node.body->accept(*this);
+            ir::Inst brBack;
+            brBack.op = ir::Op::BR;
+            brBack.src1 = ir::Operand::label(bodyLabel);
+            emit(brBack);
+
+            loopStack_.pop_back();
+            startBlock(endLabel);
+            return;
+        }
+    }
+
     std::string condLabel = newLabel("while_cond");
     std::string bodyLabel = newLabel("while_body");
     std::string endLabel = newLabel("while_end");
