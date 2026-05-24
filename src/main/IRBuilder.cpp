@@ -928,8 +928,16 @@ void IRBuilder::visit(BinaryOperation& node) {
     node.left->accept(*this);
     auto lhs = lastValue_;
 
+    // For shift operations with literal amount, pass as immediate (enables byte-shuffle optimizations)
+    bool shiftImm = false;
+    if ((node.op == "<<" || node.op == ">>") && dynamic_cast<IntegerLiteral*>(node.right.get())) {
+        shiftImm = true;
+    }
+
     // Visit RHS — emit literal at I8 width if forceI8
-    if (forceI8 && dynamic_cast<IntegerLiteral*>(node.right.get())) {
+    if (shiftImm) {
+        // Don't visit RHS — will use immediate directly in the shift instruction
+    } else if (forceI8 && dynamic_cast<IntegerLiteral*>(node.right.get())) {
         auto* rlit = dynamic_cast<IntegerLiteral*>(node.right.get());
         auto dest = allocVreg(ir::Type::I8);
         ir::Inst inst;
@@ -943,15 +951,17 @@ void IRBuilder::visit(BinaryOperation& node) {
     } else {
         node.right->accept(*this);
     }
-    auto rhs = lastValue_;
+    auto rhs = shiftImm ? ir::Operand::imm(
+        dynamic_cast<IntegerLiteral*>(node.right.get())->value, ir::Type::I8)
+        : lastValue_;
 
     // Determine result type
     ir::Type resultType = forceI8 ? ir::Type::I8 : lhs.type;
-    if (!forceI8 && ir::typeSize(rhs.type) > ir::typeSize(resultType)) resultType = rhs.type;
+    if (!forceI8 && !shiftImm && ir::typeSize(rhs.type) > ir::typeSize(resultType)) resultType = rhs.type;
 
     // Cast operands to result type
     auto lhsVal = emitCast(lhs, resultType, lhsInfo.isSigned);
-    auto rhsVal = emitCast(rhs, resultType, rhsInfo.isSigned);
+    auto rhsVal = shiftImm ? rhs : emitCast(rhs, resultType, rhsInfo.isSigned);
 
     // For comparison operators: use signed ops only if BOTH operands are signed.
     bool bothSigned = lhsInfo.isSigned && rhsInfo.isSigned;

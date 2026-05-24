@@ -1005,6 +1005,16 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 } else if (shiftCount == 8 && is32) {
                     // Shift bytes up: Z=Y, Y=X, X=A, A=0
                     emit("pha"); emit("tya"); emit("taz"); emit("txa"); emit("tay"); emit("pla"); emit("tax"); emit("lda #0");
+                } else if (shiftCount == 16 && is32) {
+                    // A→Y, X→Z, clear A,X
+                    emit("tay"); emit("txa"); emit("taz"); emit("lda #0"); emit("ldx #0");
+                } else if (shiftCount == 24 && is32) {
+                    // A→Z, clear A,X,Y
+                    emit("taz"); emit("lda #0"); emit("ldx #0"); emit("ldy #0");
+                } else if (shiftCount >= (is32 ? 32 : 16)) {
+                    // Shift entirely out — result is 0
+                    emit("lda #0"); emit("ldx #0");
+                    if (is32) { emit("ldy #0"); emit("ldz #0"); }
                 } else {
                     int maxBits = is32 ? 32 : 16;
                     for (int i = 0; i < shiftCount && i < maxBits; i++) emit(shOp);
@@ -1050,16 +1060,37 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             }
             loadOperand(inst.src1);
             if (shiftCount >= 0) {
-                if (shiftCount == 8 && inst.op == ir::Op::SHR && !is32) {
-                    emit("txa"); emit("ldx #0");
-                } else if (shiftCount == 8 && inst.op == ir::Op::SHR && is32) {
-                    // Shift bytes down: A=X, X=Y, Y=Z, Z=0
-                    emit("txa"); emit("pha"); emit("tya"); emit("tax"); emit("tza"); emit("tay"); emit("ldz #0"); emit("pla");
-                } else if (shiftCount == 16 && inst.op == ir::Op::SHR && is32) {
-                    emit("tya"); emit("ldx #0"); emit("ldy #0"); emit("ldz #0"); // byte 2→A, clear rest
-                } else if (shiftCount == 24 && inst.op == ir::Op::SHR && is32) {
-                    emit("tza"); emit("ldx #0"); emit("ldy #0"); emit("ldz #0"); // byte 3→A, clear rest
+                bool isASR = (inst.op == ir::Op::ASR);
+                if (shiftCount >= (is32 ? 32 : 16)) {
+                    // Shift entirely out — result is 0 (SHR) or 0/-1 (ASR)
+                    if (isASR) {
+                        if (is32) emit("tza"); else emit("txa"); // sign byte → A
+                        emit("cmp #$80"); emit("lda #0"); emit("sbc #0"); // $FF if neg, $00 if pos
+                        emit("tax");
+                        if (is32) { emit("tay"); emit("taz"); }
+                    } else {
+                        emit("lda #0"); emit("ldx #0");
+                        if (is32) { emit("ldy #0"); emit("ldz #0"); }
+                    }
+                } else if (shiftCount == 8 && !is32) {
+                    // I16 >> 8: high byte → low byte
+                    emit("txa");
+                    emit(isASR ? "sxt.8" : "ldx #0");
+                } else if (shiftCount == 8 && is32 && !isASR) {
+                    // I32 >> 8 unsigned: A=X, X=Y, Y=Z, Z=0
+                    emit("txa"); emit("pha"); emit("tya"); emit("tax");
+                    emit("tza"); emit("tay"); emit("ldz #0"); emit("pla");
+                } else if (shiftCount == 16 && is32 && !isASR) {
+                    // I32 >> 16 unsigned: A=Y, X=Z, Y=Z=0
+                    // Must save Y before TZA clobbers A
+                    emit("tza"); emit("tax");  // X = old Z (byte 3)
+                    emit("tya");               // A = old Y (byte 2)
+                    emit("ldy #0"); emit("ldz #0");
+                } else if (shiftCount == 24 && is32 && !isASR) {
+                    // I32 >> 24 unsigned: A=Z, X=Y=Z=0
+                    emit("tza"); emit("ldx #0"); emit("ldy #0"); emit("ldz #0");
                 } else {
+                    // General case: loop of single-bit shifts
                     int maxBits = is32 ? 32 : 16;
                     for (int i = 0; i < shiftCount && i < maxBits; i++) emit(mn);
                 }
