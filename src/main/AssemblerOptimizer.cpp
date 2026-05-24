@@ -278,10 +278,19 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
                 // A still holds its value — don't invalidate.
                 // Record what was stored so subsequent LDA from same addr can be eliminated.
                 std::string key = makeMemKey(mode, op);
-                if (!key.empty() && regA.known) {
-                    memTrack[key] = {regA};
-                } else if (!key.empty()) {
-                    invalidateMemAt(key); // unknown value stored — can't track
+                if (!key.empty()) {
+                    if (regA.known) {
+                        memTrack[key] = {regA};
+                    } else {
+                        // A holds an unknown value, but after STA $addr, A and $addr
+                        // are guaranteed to hold the same value. Track A as "loaded from addr"
+                        // so a subsequent LDA $addr is recognized as redundant.
+                        regA.known = true;
+                        regA.mode = mode;
+                        regA.var = op;
+                        regA.imm = "";
+                        memTrack[key] = {regA};
+                    }
                 }
             }
             else if (m == "LDX") {
@@ -291,10 +300,16 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
             else if (m == "STX") {
                 // X unchanged. Record store for bidirectional tracking.
                 std::string key = makeMemKey(mode, op);
-                if (!key.empty() && regX.known) {
-                    memTrack[key] = {regX};
-                } else if (!key.empty()) {
-                    invalidateMemAt(key);
+                if (!key.empty()) {
+                    if (regX.known) {
+                        memTrack[key] = {regX};
+                    } else {
+                        regX.known = true;
+                        regX.mode = mode;
+                        regX.var = op;
+                        regX.imm = "";
+                        memTrack[key] = {regX};
+                    }
                 }
             }
             else if (m == "LDY") {
