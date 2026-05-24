@@ -258,6 +258,34 @@ liveness analysis or a simple check: if the dest vreg has no subsequent
 loads, omit the store. Would also benefit from interprocedural knowledge
 (if the callee is known to be void-returning, use CALL_VOID).
 
+### Direct local variable store (avoid ADDR_LOCAL + STORE)
+The IR generates `ADDR_LOCAL var` + `STORE` for local variable assignments,
+computing the stack address and storing through it indirectly. For simple
+local vreg assignments, emit a direct vreg-to-vreg copy instead. This is the
+single biggest codegen issue — adds ~20 bytes per local variable assignment.
+Every `*ptr = val` also triggers this: the pointer is loaded from a frame slot
+via ADDR_LOCAL + LOAD instead of a direct vreg read.
+
+### 8-bit arithmetic for char variables
+Variables declared as `unsigned char` are widened to 16-bit for all operations
+(AND, ADD, CMP, etc.) even when the operation could stay 8-bit. Example:
+`level & 16` generates 50 bytes of 16-bit AND + chknonzero instead of
+`lda level; and #16; beq` (6 bytes). The IR should track char-width variables
+and use I8 operations where safe.
+
+### Inline constant comparison operands
+`cmp.16 .AX, $0024` loads the comparison constant to ZP first, then compares
+against the ZP address. Constants should be inlined: `cmp.16 .AX, #10`.
+
+### Dead code elimination after infinite loops
+Code after `while(1)` (e.g., `return 0`) is unreachable but still emitted.
+The IR should detect blocks with no predecessors and omit them entirely.
+
+### BSS not occupying PRG space
+The `__zp_save_buf` (248 bytes) is in BSS but emitted as zeros in the linked
+PRG. For programs using `-basic`, BSS should be placed after the binary with
+only the BSS start/end symbols emitted, not zero-filled data.
+
 ### Interprocedural register allocation
 Already emitting `.reg_clobbers` metadata (Phase 1 complete). The next step: if
 the linker knows `helper()` only clobbers A, then the caller doesn't need to
