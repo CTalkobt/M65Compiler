@@ -136,6 +136,83 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
         }
     }
 
+    // --- Pass 1c: Invert conditional branch over BRA ---
+    // Pattern: Bcc +2; BRA target → B!cc target (saves 2 bytes)
+    {
+        auto invertBranch = [](const std::string& mnemonic) -> std::string {
+            std::string m = mnemonic;
+            std::transform(m.begin(), m.end(), m.begin(), ::toupper);
+            if (m == "BEQ") return "bne";
+            if (m == "BNE") return "beq";
+            if (m == "BCC") return "bcs";
+            if (m == "BCS") return "bcc";
+            if (m == "BMI") return "bpl";
+            if (m == "BPL") return "bmi";
+            if (m == "BVC") return "bvs";
+            if (m == "BVS") return "bvc";
+            return ""; // not invertible
+        };
+
+        for (size_t i = 0; i < parser->statements.size(); ++i) {
+            auto* s = parser->statements[i].get();
+            if (s->deleted) continue;
+            if (s->type != AssemblerParser::Statement::INSTRUCTION) continue;
+            // Only consider conditional branch instructions (not BRA, BBS, BBR, BRK, etc.)
+            std::string inv = invertBranch(s->instr.mnemonic);
+            if (inv.empty()) continue;
+            // Verify it's actually a branch with a relative target
+            std::string mUp = s->instr.mnemonic;
+            std::transform(mUp.begin(), mUp.end(), mUp.begin(), ::toupper);
+            if (mUp != "BEQ" && mUp != "BNE" && mUp != "BCC" && mUp != "BCS" &&
+                mUp != "BMI" && mUp != "BPL" && mUp != "BVC" && mUp != "BVS") continue;
+
+            // Find next non-deleted statement
+            size_t j = i + 1;
+            while (j < parser->statements.size() && parser->statements[j]->deleted) ++j;
+            if (j >= parser->statements.size()) continue;
+
+            auto* next = parser->statements[j].get();
+            if (!next->label.empty()) continue; // label = branch target from elsewhere
+            if (next->type != AssemblerParser::Statement::INSTRUCTION) continue;
+
+            std::string nm = next->instr.mnemonic;
+            std::transform(nm.begin(), nm.end(), nm.begin(), ::toupper);
+            if (nm != "BRA") continue;
+
+            // Check that the conditional branch targets the instruction after the BRA.
+            // Find the statement after the BRA
+            size_t k = j + 1;
+            while (k < parser->statements.size() && parser->statements[k]->deleted) ++k;
+            if (k >= parser->statements.size()) continue;
+
+            auto* afterBra = parser->statements[k].get();
+            // The conditional branch should target afterBra's label
+            if (afterBra->label.empty()) continue;
+
+            const auto& condTarget = s->instr.operand;
+            const auto& afterLabel = afterBra->label;
+            bool match = (condTarget == afterLabel);
+            if (!match && !s->scopePrefix.empty())
+                match = (afterLabel == s->scopePrefix + condTarget);
+            if (!match) {
+                auto cp = afterLabel.rfind(':');
+                if (cp != std::string::npos)
+                    match = (afterLabel.substr(cp + 1) == condTarget);
+            }
+            if (!match) continue;
+
+            // Invert: replace conditional branch with inverted condition + BRA's target
+            s->instr.mnemonic = inv;
+            s->instr.operand = next->instr.operand;
+            s->instr.operandTokenIndex = next->instr.operandTokenIndex;
+            s->exprTokenIndex = next->exprTokenIndex;
+            // Delete the BRA
+            next->deleted = true;
+            next->size = 0;
+            changed = true;
+        }
+    }
+
     // --- Pass 2: Register tracking and redundant load elimination ---
     for (size_t i = 0; i < parser->statements.size(); ++i) {
         auto* s = parser->statements[i].get();
