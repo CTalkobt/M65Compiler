@@ -23,8 +23,12 @@ static std::string hex32(uint32_t val) {
 
 IRCodeGen::IRCodeGen(std::ostream& out) : out_(out) {}
 
-void IRCodeGen::emit(const std::string& line) {
-    out_ << "    " << line << "\n";
+void IRCodeGen::emit(const std::string& line, const std::string& reason) {
+    out_ << "    " << line;
+    if (emitReasons_ && !reason.empty()) {
+        out_ << "  ; [" << reason << "]";
+    }
+    out_ << "\n";
 }
 
 void IRCodeGen::emitLabel(const std::string& label) {
@@ -90,15 +94,35 @@ void IRCodeGen::prescanFunction(const ir::Function& fn) {
 // Load/store vRegs via frame pointer
 // ============================================================================
 
+std::string IRCodeGen::vregDesc(uint32_t vregId) {
+    if (!emitReasons_) return "";
+    auto alloc = alloc_.getAlloc(vregId);
+    std::string loc;
+    switch (alloc.loc) {
+        case VRegAllocator::IN_AX: loc = "AX"; break;
+        case VRegAllocator::IN_ZP: loc = "ZP:$" + hex8((uint8_t)alloc.offset); break;
+        case VRegAllocator::IN_FRAME: loc = "frame"; break;
+    }
+    std::string ty;
+    switch (alloc.type) {
+        case ir::Type::I8: ty = "I8"; break;
+        case ir::Type::I16: ty = "I16/PTR"; break;  // PTR == I16 on 45GS02
+        case ir::Type::I32: ty = "I32"; break;
+        default: ty = "?"; break;
+    }
+    return "v" + std::to_string(vregId) + "(" + ty + "," + loc + ")";
+}
+
 void IRCodeGen::loadVreg(uint32_t vregId) {
     auto alloc = alloc_.getAlloc(vregId);
+    std::string r = "loadVreg " + vregDesc(vregId);
     switch (alloc.loc) {
         case VRegAllocator::IN_AX:
             // Already in A:X — check if it's still there
             if (alloc_.isInAX(vregId, currentInstIdx_)) return; // no-op!
             // Fell through from A:X to somewhere — treat as frame
             if (vregOffset_.count(vregId)) {
-                emit("ldax.fp " + std::to_string(vregOffset_[vregId]));
+                emit("ldax.fp " + std::to_string(vregOffset_[vregId]), r);
             }
             break;
         case VRegAllocator::IN_ZP: {
@@ -106,31 +130,31 @@ void IRCodeGen::loadVreg(uint32_t vregId) {
             ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << alloc.offset;
             std::string zpAddr = ss.str();
             if (alloc.type == ir::Type::I8) {
-                emit("lda " + zpAddr);
-                emit("ldx #0");
+                emit("lda " + zpAddr, r);
+                emit("ldx #0", "zext I8→I16");
             } else if (alloc.type == ir::Type::I32) {
-                emit("lda " + zpAddr);
+                emit("lda " + zpAddr, r);
                 ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 1);
-                emit("ldx " + ss.str());
+                emit("ldx " + ss.str(), r);
                 ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 2);
-                emit("ldy " + ss.str());
+                emit("ldy " + ss.str(), r);
                 ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 3);
-                emit("ldz " + ss.str());
+                emit("ldz " + ss.str(), r);
             } else {
-                emit("lda " + zpAddr);
+                emit("lda " + zpAddr, r);
                 ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 1);
-                emit("ldx " + ss.str());
+                emit("ldx " + ss.str(), r);
             }
             break;
         }
         case VRegAllocator::IN_FRAME: {
             std::string sym = "__vr" + std::to_string(vregId);
             if (alloc.type == ir::Type::I32) {
-                emit("ldaxyz.fp " + sym);
+                emit("ldaxyz.fp " + sym, r);
             } else if (alloc.type == ir::Type::I8) {
-                emit("lda.fp " + sym);
+                emit("lda.fp " + sym, r);
             } else {
-                emit("ldax.fp " + sym);
+                emit("ldax.fp " + sym, r);
             }
             break;
         }
@@ -139,6 +163,7 @@ void IRCodeGen::loadVreg(uint32_t vregId) {
 
 void IRCodeGen::storeVreg(uint32_t vregId) {
     auto alloc = alloc_.getAlloc(vregId);
+    std::string r = "storeVreg " + vregDesc(vregId);
     switch (alloc.loc) {
         case VRegAllocator::IN_AX:
             break;
@@ -147,7 +172,7 @@ void IRCodeGen::storeVreg(uint32_t vregId) {
             ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << alloc.offset;
             std::string zpAddr = ss.str();
             if (alloc.type == ir::Type::I8) {
-                emit("sta " + zpAddr);
+                emit("sta " + zpAddr, r);
             } else if (alloc.type == ir::Type::I32) {
                 emit("sta " + zpAddr);
                 ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 1);
@@ -238,7 +263,8 @@ std::string IRCodeGen::src2MemOperand(const ir::Operand& op) {
 // Module-level emission
 // ============================================================================
 
-void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode, bool zpCallMode) {
+void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode, bool zpCallMode, bool emitReasons) {
+    emitReasons_ = emitReasons;
     relocMode_ = relocMode;
     zpCallMode_ = zpCallMode;
     zeroPageStart_ = zpStart;
@@ -847,19 +873,73 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         emit(".loc \"" + inst.loc.file + "\", " + std::to_string(inst.loc.line));
     }
 
+    // Build IR instruction description for -Rcodegen annotations
+    auto irDesc = [&](const std::string& extra = "") -> std::string {
+        if (!emitReasons_) return "";
+        std::string name;
+        switch (inst.op) {
+            case ir::Op::NOP: name = "NOP"; break;
+            case ir::Op::CONST: name = "CONST"; break;
+            case ir::Op::ADD: name = "ADD"; break;
+            case ir::Op::SUB: name = "SUB"; break;
+            case ir::Op::MUL: name = "MUL"; break;
+            case ir::Op::DIV: name = "DIV"; break;
+            case ir::Op::MOD: name = "MOD"; break;
+            case ir::Op::AND: name = "AND"; break;
+            case ir::Op::OR: name = "OR"; break;
+            case ir::Op::XOR: name = "XOR"; break;
+            case ir::Op::NOT: name = "NOT"; break;
+            case ir::Op::NEG: name = "NEG"; break;
+            case ir::Op::SHL: name = "SHL"; break;
+            case ir::Op::SHR: name = "SHR"; break;
+            case ir::Op::ASR: name = "ASR"; break;
+            case ir::Op::CMP_EQ: name = "CMP_EQ"; break;
+            case ir::Op::CMP_NE: name = "CMP_NE"; break;
+            case ir::Op::CMP_LT: name = "CMP_LT"; break;
+            case ir::Op::CMP_LE: name = "CMP_LE"; break;
+            case ir::Op::CMP_GT: name = "CMP_GT"; break;
+            case ir::Op::CMP_GE: name = "CMP_GE"; break;
+            case ir::Op::CMP_LTU: name = "CMP_LTU"; break;
+            case ir::Op::CMP_LEU: name = "CMP_LEU"; break;
+            case ir::Op::CMP_GTU: name = "CMP_GTU"; break;
+            case ir::Op::CMP_GEU: name = "CMP_GEU"; break;
+            case ir::Op::LOAD: name = "LOAD"; break;
+            case ir::Op::STORE: name = "STORE"; break;
+            case ir::Op::ADDR_GLOBAL: name = "ADDR_GLOBAL"; break;
+            case ir::Op::ADDR_LOCAL: name = "ADDR_LOCAL"; break;
+            case ir::Op::ADDR_ELEM: name = "ADDR_ELEM"; break;
+            case ir::Op::TRUNC: name = "TRUNC"; break;
+            case ir::Op::ZEXT: name = "ZEXT"; break;
+            case ir::Op::SEXT: name = "SEXT"; break;
+            case ir::Op::BR: name = "BR"; break;
+            case ir::Op::BR_COND: name = "BR_COND"; break;
+            case ir::Op::CALL: name = "CALL"; break;
+            case ir::Op::CALL_VOID: name = "CALL_VOID"; break;
+            case ir::Op::RET: name = "RET"; break;
+            case ir::Op::RET_VOID: name = "RET_VOID"; break;
+            case ir::Op::COPY: name = "COPY"; break;
+            default: name = "OP" + std::to_string((int)inst.op); break;
+        }
+        std::string s = name;
+        if (inst.dest.isVreg()) s += " → " + vregDesc(inst.dest.vregId);
+        if (!extra.empty()) s += " " + extra;
+        return s;
+    };
+
     switch (inst.op) {
         case ir::Op::NOP:
             break;
 
         case ir::Op::CONST: {
             int val = (int)inst.src1.immVal;
-            emit("lda #" + std::to_string(val & 0xFF));
+            std::string r = irDesc("val=" + std::to_string(val));
+            emit("lda #" + std::to_string(val & 0xFF), r);
             if (inst.resultType == ir::Type::I32) {
-                emit("ldx #" + std::to_string((val >> 8) & 0xFF));
-                emit("ldy #" + std::to_string((val >> 16) & 0xFF));
-                emit("ldz #" + std::to_string((val >> 24) & 0xFF));
+                emit("ldx #" + std::to_string((val >> 8) & 0xFF), r);
+                emit("ldy #" + std::to_string((val >> 16) & 0xFF), r);
+                emit("ldz #" + std::to_string((val >> 24) & 0xFF), r);
             } else if (inst.resultType != ir::Type::I8) {
-                emit("ldx #" + std::to_string((val >> 8) & 0xFF));
+                emit("ldx #" + std::to_string((val >> 8) & 0xFF), r);
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
@@ -1315,16 +1395,33 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::STORE: {
+            std::string storeR = irDesc(inst.src2.kind == ir::OperandKind::GLOBAL ? "→ " + inst.src2.name : "");
             if (inst.src2.kind == ir::OperandKind::GLOBAL) {
                 // Store directly to global address
-                loadOperand(inst.src1);
-                emit("sta " + inst.src2.name);
+                if (inst.resultType == ir::Type::I8 && inst.src1.isVreg()) {
+                    // I8: only need A, skip ldx #0
+                    auto valAlloc = alloc_.getAlloc(inst.src1.vregId);
+                    if (valAlloc.loc == VRegAllocator::IN_ZP) {
+                        std::stringstream vs;
+                        vs << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << valAlloc.offset;
+                        emit("lda " + vs.str());
+                    } else if (valAlloc.loc == VRegAllocator::IN_FRAME) {
+                        emit("lda.fp __vr" + std::to_string(inst.src1.vregId));
+                    } else {
+                        loadOperand(inst.src1);
+                    }
+                } else if (inst.resultType == ir::Type::I8 && inst.src1.isImm()) {
+                    emit("lda #" + std::to_string((int)(inst.src1.immVal & 0xFF)));
+                } else {
+                    loadOperand(inst.src1);
+                }
+                emit("sta " + inst.src2.name, storeR);
                 if (inst.resultType == ir::Type::I32) {
-                    emit("stx " + inst.src2.name + "+1");
-                    emit("sty " + inst.src2.name + "+2");
-                    emit("stz " + inst.src2.name + "+3");
+                    emit("stx " + inst.src2.name + "+1", storeR);
+                    emit("sty " + inst.src2.name + "+2", storeR);
+                    emit("stz " + inst.src2.name + "+3", storeR);
                 } else if (inst.resultType != ir::Type::I8) {
-                    emit("stx " + inst.src2.name + "+1");
+                    emit("stx " + inst.src2.name + "+1", storeR);
                 }
             } else if (inst.src2.isVreg()) {
                 // Is the target a local variable slot (direct write)

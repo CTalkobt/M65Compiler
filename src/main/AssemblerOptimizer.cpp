@@ -21,7 +21,28 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
 
     std::map<std::string, std::string> stackVarLastValue;
 
+    // Track what register value was last stored to each memory location.
+    // Key: "mode:operand" (e.g., "BP:$20"), Value: the RegState at time of store.
+    // Enables: lda #1; sta $20; ... lda $20 → delete the lda (A still holds #1)
+    struct MemEntry { RegState val; };
+    std::map<std::string, MemEntry> memTrack;
+
+    auto makeMemKey = [](AddressingMode mode, const std::string& op) -> std::string {
+        // Only track simple addressing modes (ZP, absolute) — not indirect or indexed
+        // Use operand string as key (BASE_PAGE $20 and ABSOLUTE $0020 are the same location)
+        if (mode == AddressingMode::BASE_PAGE || mode == AddressingMode::ABSOLUTE)
+            return op;
+        return "";
+    };
+
     auto invalidate = [&](RegState& r) { r.known = false; r.var = ""; r.imm = ""; };
+
+    auto invalidateMem = [&]() { memTrack.clear(); };
+
+    // Invalidate memory entries that might alias with a store to the given address
+    auto invalidateMemAt = [&](const std::string& key) {
+        memTrack.erase(key);
+    };
 
     // Build proc-name → clobber info lookup from parsed procedures.
     // Used for selective register invalidation at JSR call sites (Phase 2).
@@ -124,6 +145,7 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
         if (!s->label.empty() && s->label[0] != '@') {
             invalidate(regA); invalidate(regX); invalidate(regY); invalidate(regZ);
             stackVarLastValue.clear();
+            invalidateMem();
         }
 
         bool isStackStoreOptimizationCandidate = false;
@@ -156,9 +178,19 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
                     M == "DEC" || M == "INC" ||
                     M == "INX" || M == "DEX" || M == "INY" || M == "DEY" || M == "INZ" || M == "DEZ") {
                     stackVarLastValue.clear();
+                    // For stores to simple addresses, only invalidate that address in memTrack.
+                    // For everything else (JSR, indirect stores, ALU ops), invalidate all.
+                    if (M == "STA" || M == "STX" || M == "STY" || M == "STZ") {
+                        std::string key = makeMemKey(s->instr.mode, s->instr.operand);
+                        if (!key.empty()) invalidateMemAt(key);
+                        else invalidateMem(); // indirect/indexed store — can't track
+                    } else {
+                        invalidateMem();
+                    }
                 }
             } else if (s->isSimulatedOp()) {
                 stackVarLastValue.clear();
+                invalidateMem();
             }
         }
 
@@ -192,17 +224,49 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
             if (s->type == AssemblerParser::Statement::STW) continue;
 
             // --- Redundant load elimination ---
-            if (m == "LDA" && ((regA.known && regA.mode == mode && regA.var == op) || (mode == AddressingMode::IMMEDIATE && regA.imm == op))) {
-                s->deleted = true; s->size = 0; changed = true; continue;
+            // Check 1: register already holds the value (same source)
+            // Check 2: register holds the value that was last stored to this address (bidirectional)
+            if (m == "LDA") {
+                bool redundant = (regA.known && regA.mode == mode && regA.var == op) ||
+                                 (mode == AddressingMode::IMMEDIATE && regA.imm == op);
+                if (!redundant) {
+                    std::string key = makeMemKey(mode, op);
+                    if (!key.empty()) {
+                        auto mit = memTrack.find(key);
+                        if (mit != memTrack.end() && regA.known &&
+                            regA.imm == mit->second.val.imm && regA.mode == mit->second.val.mode &&
+                            regA.var == mit->second.val.var) {
+                            redundant = true;
+                        }
+                    }
+                }
+                if (redundant) { s->deleted = true; s->size = 0; changed = true; continue; }
             }
-            if (m == "LDX" && ((regX.known && regX.mode == mode && regX.var == op) || (mode == AddressingMode::IMMEDIATE && regX.imm == op))) {
-                s->deleted = true; s->size = 0; changed = true; continue;
+            if (m == "LDX") {
+                bool redundant = (regX.known && regX.mode == mode && regX.var == op) ||
+                                 (mode == AddressingMode::IMMEDIATE && regX.imm == op);
+                if (!redundant) {
+                    std::string key = makeMemKey(mode, op);
+                    if (!key.empty()) {
+                        auto mit = memTrack.find(key);
+                        if (mit != memTrack.end() && regX.known &&
+                            regX.imm == mit->second.val.imm && regX.mode == mit->second.val.mode &&
+                            regX.var == mit->second.val.var) {
+                            redundant = true;
+                        }
+                    }
+                }
+                if (redundant) { s->deleted = true; s->size = 0; changed = true; continue; }
             }
-            if (m == "LDY" && ((regY.known && regY.mode == mode && regY.var == op) || (mode == AddressingMode::IMMEDIATE && regY.imm == op))) {
-                s->deleted = true; s->size = 0; changed = true; continue;
+            if (m == "LDY") {
+                bool redundant = (regY.known && regY.mode == mode && regY.var == op) ||
+                                 (mode == AddressingMode::IMMEDIATE && regY.imm == op);
+                if (redundant) { s->deleted = true; s->size = 0; changed = true; continue; }
             }
-            if (m == "LDZ" && ((regZ.known && regZ.mode == mode && regZ.var == op) || (mode == AddressingMode::IMMEDIATE && regZ.imm == op))) {
-                s->deleted = true; s->size = 0; changed = true; continue;
+            if (m == "LDZ") {
+                bool redundant = (regZ.known && regZ.mode == mode && regZ.var == op) ||
+                                 (mode == AddressingMode::IMMEDIATE && regZ.imm == op);
+                if (redundant) { s->deleted = true; s->size = 0; changed = true; continue; }
             }
 
             // --- Register state tracking ---
@@ -212,14 +276,27 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
             }
             else if (m == "STA") {
                 // A still holds its value — don't invalidate.
-                // Don't track "A came from addr" because addr could be
-                // modified by side effects before a subsequent LDA.
+                // Record what was stored so subsequent LDA from same addr can be eliminated.
+                std::string key = makeMemKey(mode, op);
+                if (!key.empty() && regA.known) {
+                    memTrack[key] = {regA};
+                } else if (!key.empty()) {
+                    invalidateMemAt(key); // unknown value stored — can't track
+                }
             }
             else if (m == "LDX") {
                 regX.known = true; regX.mode = mode; regX.var = op;
                 regX.imm = (mode == AddressingMode::IMMEDIATE) ? op : "";
             }
-            else if (m == "STX") { /* X unchanged, no addr tracking */ }
+            else if (m == "STX") {
+                // X unchanged. Record store for bidirectional tracking.
+                std::string key = makeMemKey(mode, op);
+                if (!key.empty() && regX.known) {
+                    memTrack[key] = {regX};
+                } else if (!key.empty()) {
+                    invalidateMemAt(key);
+                }
+            }
             else if (m == "LDY") {
                 regY.known = true; regY.mode = mode; regY.var = op;
                 regY.imm = (mode == AddressingMode::IMMEDIATE) ? op : "";
@@ -243,6 +320,7 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
             // --- Control flow ---
             else if (m == "JMP") {
                 invalidate(regA); invalidate(regX); invalidate(regY); invalidate(regZ);
+                invalidateMem();
             }
 
             // --- JSR: Phase 2 selective invalidation ---
@@ -257,13 +335,16 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
                 } else {
                     invalidate(regA); invalidate(regX); invalidate(regY); invalidate(regZ);
                 }
+                invalidateMem(); // callee may modify memory
             }
             else if (m == "JSR") {
                 // Indirect JSR — invalidate all
                 invalidate(regA); invalidate(regX); invalidate(regY); invalidate(regZ);
+                invalidateMem();
             }
             else if (m == "CALL" || m == "BSR") {
                 invalidate(regA); invalidate(regX); invalidate(regY); invalidate(regZ);
+                invalidateMem();
             }
 
             // --- Push: does NOT modify any register ---

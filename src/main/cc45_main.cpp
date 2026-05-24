@@ -384,6 +384,7 @@ int main(int argc, char** argv) {
     bool zpCallMode = false;
     bool emitIR = false;
     bool codegenIR = true;
+    bool emitReasons = false;
     uint32_t zeroPageAvail = 9;
     std::string defineFlag = "";
     std::map<std::string, std::string> initialSymbols;
@@ -426,6 +427,7 @@ int main(int argc, char** argv) {
             std::cout << "  -fno-zpcall    Use stack-based calling convention (default)" << std::endl;
             std::cout << "  -Dname=val     Define a symbol (e.g., -Dcc45.zeroPageStart=$10)" << std::endl;
             std::cout << "  -I<path>       Add include search path" << std::endl;
+            std::cout << "  -Rcodegen      Annotate assembly output with codegen reasoning comments" << std::endl;
             std::cout << "  -?             Display this help message" << std::endl;
             return 0;
         } else if (arg == "-c") {
@@ -447,6 +449,8 @@ int main(int argc, char** argv) {
             codegenIR = true; emitIR = true;
         } else if (arg == "--legacy-codegen") {
             codegenIR = false;
+        } else if (arg == "-Rcodegen") {
+            emitReasons = true;
         } else if (arg == "-O0") {
             optimize = false;
         } else if (arg == "-vv") {
@@ -647,7 +651,7 @@ int main(int argc, char** argv) {
                 return 1;
             }
             IRCodeGen irCodeGen(asmOut);
-            irCodeGen.generate(irBuilder.getModule(), zeroPageStart, assemble, zpCallMode);
+            irCodeGen.generate(irBuilder.getModule(), zeroPageStart, assemble, zpCallMode, emitReasons);
             asmOut.close();
         } else {
             // Legacy path: AST → CodeGenerator → assembly

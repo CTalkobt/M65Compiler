@@ -13,17 +13,20 @@ public:
     // Generate assembly for the entire module.
     // relocMode: true = .o45 (emit .global/.extern, no startup stub)
     //            false = PRG (emit .org $2000 + startup stub)
-    void generate(const ir::Module& mod, uint32_t zpStart = 0x08, bool relocMode = false, bool zpCallMode = false);
+    void generate(const ir::Module& mod, uint32_t zpStart = 0x08, bool relocMode = false, bool zpCallMode = false, bool emitReasons = false);
 
 private:
     std::ostream& out_;
     uint32_t zeroPageStart_ = 0x08;
 
     // Assembly emission helpers
-    void emit(const std::string& line);
+    void emit(const std::string& line, const std::string& reason = "");
     void emitLabel(const std::string& label);
     void emitComment(const std::string& text);
     void emitBlank();
+
+    // Codegen reasoning trace (enabled by -Rcodegen)
+    bool emitReasons_ = false;
 
     // Module-level emission
     void emitStartupStub(const ir::Module& mod);
@@ -42,6 +45,8 @@ private:
     int allocSlot(uint32_t vregId, ir::Type type);
     int slotOf(uint32_t vregId);
 
+    // Describe a vReg for codegen reasoning comments
+    std::string vregDesc(uint32_t vregId);
     // Load a vReg value into A (I8) or A:X (I16) or A:X:Y:Z (I32)
     void loadVreg(uint32_t vregId);
     // Store from A / A:X / A:X:Y:Z into a vReg frame slot
