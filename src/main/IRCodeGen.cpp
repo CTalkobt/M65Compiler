@@ -1688,9 +1688,23 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             }
 
             loadOperand(inst.src1);
-            emit("chknonzero.8 .A");
-            if (!trueTarget.empty()) {
-                emit("bne " + trueTarget);
+            // loadOperand loads A then X. After ldx, Z reflects X.
+            // I8: lda was last → Z reflects A → branch directly.
+            // I16: ldx was last → Z reflects X → test X first (free), then A.
+            if (inst.src1.isVreg()) {
+                auto alloc = alloc_.getAlloc(inst.src1.vregId);
+                if (alloc.type == ir::Type::I8) {
+                    // Z already set from lda — just branch
+                    if (!trueTarget.empty()) emit("bne " + trueTarget);
+                } else {
+                    // Z reflects X (high byte) from ldx
+                    if (!trueTarget.empty()) emit("bne " + trueTarget); // X != 0
+                    emit("cmp #$00"); // now test A (low byte)
+                    if (!trueTarget.empty()) emit("bne " + trueTarget); // A != 0
+                }
+            } else {
+                emit("cmp #$00");
+                if (!trueTarget.empty()) emit("bne " + trueTarget);
             }
             if (!falseFallsThrough && !falseTarget.empty()) {
                 emit("bra " + falseTarget);
