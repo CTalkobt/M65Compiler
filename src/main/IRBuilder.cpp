@@ -755,6 +755,35 @@ void IRBuilder::visit(Assignment& node) {
         }
     }
 
+    // 1.5 Fast path: *const_ptr = literal → emit direct store with immediate, no vreg
+    if (auto* deref = dynamic_cast<UnaryOperation*>(node.target.get())) {
+        if (deref->op == "*") {
+            if (auto* ref = dynamic_cast<VariableReference*>(deref->operand.get())) {
+                auto cit = localConstPtrValue_.find(ref->name);
+                if (cit != localConstPtrValue_.end()) {
+                    if (auto* litExpr = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
+                        IRTypeInfo derefInfo = getExprTypeInfo(node.target.get());
+                        std::string addrName = "$" + [&]() {
+                            std::stringstream ss;
+                            ss << std::hex << std::uppercase << std::setfill('0')
+                               << std::setw(4) << (uint16_t)cit->second;
+                            return ss.str();
+                        }();
+                        ir::Inst store;
+                        store.op = ir::Op::STORE;
+                        store.resultType = derefInfo.type;
+                        store.src1 = ir::Operand::imm(litExpr->value, derefInfo.type);
+                        store.src2 = ir::Operand::global(addrName);
+                        store.loc = loc(node);
+                        emit(store);
+                        lastValue_ = store.src1;
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
     // 2. Evaluate RHS value
     // If RHS is a simple integer literal and LHS is narrower, emit CONST at target width
     // to avoid unnecessary widening + truncation.
@@ -934,7 +963,14 @@ void IRBuilder::visit(Assignment& node) {
                 auto cit = localConstPtrValue_.find(ref->name);
                 if (cit != localConstPtrValue_.end()) {
                     IRTypeInfo derefInfo = getExprTypeInfo(node.target.get());
-                    auto val = emitCast(rhsVal, derefInfo.type, derefInfo.isSigned);
+
+                    // Use immediate operand if RHS is a literal (avoids CONST vreg entirely)
+                    ir::Operand val;
+                    if (auto* litExpr = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
+                        val = ir::Operand::imm(litExpr->value, derefInfo.type);
+                    } else {
+                        val = emitCast(rhsVal, derefInfo.type, derefInfo.isSigned);
+                    }
 
                     // Synthesize a global name for the absolute address
                     std::string addrName = "$" + [&]() {
