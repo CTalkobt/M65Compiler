@@ -1157,12 +1157,24 @@ void IRBuilder::visit(ExpressionStatement& node) {
 
 void IRBuilder::visit(ReturnStatement& node) {
     if (node.expression) {
-        node.expression->accept(*this);
-        auto val = lastValue_;
-        
-        // Ensure resultType matches function return type
         ir::Type retType = ir::Type::I16;
         if (currentFunc_) retType = currentFunc_->returnType;
+
+        // Optimize: return <integer_literal> → pass immediate directly, no vreg
+        if (auto* lit = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
+            if (lit->castType.empty()) {
+                ir::Inst ret;
+                ret.op = ir::Op::RET;
+                ret.src1 = ir::Operand::imm(lit->value, retType);
+                ret.resultType = retType;
+                ret.loc = loc(node);
+                emit(ret);
+                return;
+            }
+        }
+
+        node.expression->accept(*this);
+        auto val = lastValue_;
 
         IRTypeInfo info = getExprTypeInfo(node.expression.get());
         auto castVal = emitCast(val, retType, info.isSigned);

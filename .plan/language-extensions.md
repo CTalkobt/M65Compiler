@@ -250,6 +250,14 @@ indirect stores/loads through it with direct absolute addressing. Example:
 dereferencing through ZP indirect. Related: the vreg allocator also
 round-trips constants through ZP unnecessarily (store then immediate reload).
 
+### Unused return value elimination
+When a function call's return value is never used (e.g., `f();` as an
+expression statement), the caller still stores A:X to a vreg. The codegen
+should detect unused call results and skip the storeVreg. This requires
+liveness analysis or a simple check: if the dest vreg has no subsequent
+loads, omit the store. Would also benefit from interprocedural knowledge
+(if the callee is known to be void-returning, use CALL_VOID).
+
 ### Interprocedural register allocation
 Already emitting `.reg_clobbers` metadata (Phase 1 complete). The next step: if
 the linker knows `helper()` only clobbers A, then the caller doesn't need to
