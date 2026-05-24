@@ -404,6 +404,32 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         emit(ret);
     }
 
+    // Dead block elimination: remove trailing blocks after while(1) infinite loops.
+    // Conservative approach: only remove blocks that follow a block ending with an
+    // unconditional back-branch (BR to an earlier block) where no other block
+    // branches to the trailing blocks.
+    if (currentFunc_ && currentFunc_->blocks.size() > 1) {
+        // Find all referenced labels
+        std::set<std::string> referenced;
+        for (auto& blk : currentFunc_->blocks) {
+            for (auto& inst : blk.insts) {
+                if (inst.src1.kind == ir::OperandKind::LABEL) referenced.insert(inst.src1.name);
+                if (inst.src2.kind == ir::OperandKind::LABEL) referenced.insert(inst.src2.name);
+                if (inst.dest.kind == ir::OperandKind::LABEL) referenced.insert(inst.dest.name);
+                for (auto& sc : inst.switchCases) referenced.insert(sc.second);
+            }
+        }
+        // Remove trailing blocks that are never referenced by any branch
+        while (currentFunc_->blocks.size() > 1) {
+            auto& last = currentFunc_->blocks.back();
+            if (referenced.find(last.label) == referenced.end()) {
+                currentFunc_->blocks.pop_back();
+            } else {
+                break;
+            }
+        }
+    }
+
     // Dead vreg elimination: remove instructions that write to vregs that are
     // never read. Also removes STORE to local slots that are never loaded.
     // Iterates until stable (handles transitive dead chains).

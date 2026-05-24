@@ -1019,10 +1019,32 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             if (inst.resultType == ir::Type::I8) {
                 std::string src2 = src2MemOperand(inst.src2);
                 loadOperand(inst.src1);
-                if (inst.op == ir::Op::AND) emit("and " + src2);
-                else if (inst.op == ir::Op::OR) emit("ora " + src2);
-                else emit("eor " + src2);
-                if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+                if (inst.op == ir::Op::AND) emit("and " + src2, irDesc());
+                else if (inst.op == ir::Op::OR) emit("ora " + src2, irDesc());
+                else emit("eor " + src2, irDesc());
+
+                // Fuse with following BR_COND: AND/OR/XOR sets Z flag directly.
+                // If the result is only used by the next BR_COND, skip storeVreg
+                // and let BR_COND use bne/beq on the Z flag.
+                bool canFuse = false;
+                if (inst.dest.isVreg() && currentFn_) {
+                    auto& blk = currentFn_->blocks[currentBlockIdx_];
+                    size_t instIdx = &inst - &blk.insts[0];
+                    if (instIdx + 1 < blk.insts.size()) {
+                        const auto& next = blk.insts[instIdx + 1];
+                        if (next.op == ir::Op::BR_COND && next.src1.isVreg() &&
+                            next.src1.vregId == inst.dest.vregId) {
+                            canFuse = true;
+                        }
+                    }
+                }
+                if (canFuse) {
+                    // Record for BR_COND: treat as CMP_NE (nonzero = true)
+                    lastCmp_ = {ir::Op::CMP_NE, inst.dest.vregId, true};
+                } else {
+                    if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+                    lastCmp_.valid = false;
+                }
                 break;
             }
 
