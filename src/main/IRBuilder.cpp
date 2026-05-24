@@ -1084,11 +1084,12 @@ void IRBuilder::visit(BinaryOperation& node) {
     bool forceI8 = false;
     if (lhsInfo.type == ir::Type::I8 && rhsInfo.type == ir::Type::I8) {
         forceI8 = true;
-    } else if (lhsInfo.type == ir::Type::I8 && rhsInfo.type != ir::Type::I32 && rhsInfo.type != ir::Type::PTR) {
+    } else if (lhsInfo.type == ir::Type::I8 && ir::typeSize(rhsInfo.type) <= 2) {
+        // I8 op with I16/PTR literal — keep I8 if literal fits in 8 bits
         if (auto* rlit = dynamic_cast<IntegerLiteral*>(node.right.get())) {
             if (rlit->castType.empty() && rlit->value >= 0 && rlit->value <= 255) forceI8 = true;
         }
-    } else if (rhsInfo.type == ir::Type::I8 && lhsInfo.type != ir::Type::I32 && lhsInfo.type != ir::Type::PTR) {
+    } else if (rhsInfo.type == ir::Type::I8 && ir::typeSize(lhsInfo.type) <= 2) {
         if (auto* llit = dynamic_cast<IntegerLiteral*>(node.left.get())) {
             if (llit->castType.empty() && llit->value >= 0 && llit->value <= 255) forceI8 = true;
         }
