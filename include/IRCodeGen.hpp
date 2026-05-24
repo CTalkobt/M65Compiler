@@ -49,10 +49,14 @@ private:
     std::string vregDesc(uint32_t vregId);
     // Load a vReg value into A (I8) or A:X (I16) or A:X:Y:Z (I32)
     void loadVreg(uint32_t vregId);
+    // Load only A from an I8 vReg (no ldx #0 zero-extension). Falls back to loadVreg for non-I8.
+    void loadVregA(uint32_t vregId);
     // Store from A / A:X / A:X:Y:Z into a vReg frame slot
     void storeVreg(uint32_t vregId);
     // Load any operand into A:X
     void loadOperand(const ir::Operand& op);
+    // Load only A from an operand (I8 only, no ldx #0)
+    void loadOperandA(const ir::Operand& op);
     // Get a memory operand string for src2 in binary ops (for simulated ops like add.16)
     // Returns "#imm" for immediates, "$ZZ" for ZP vRegs, "symbol, s" for frame vRegs.
     // If the vReg is in A:X, spills it to __zp_scratch first and returns the ZP addr.

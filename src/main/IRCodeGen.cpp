@@ -161,6 +161,28 @@ void IRCodeGen::loadVreg(uint32_t vregId) {
     }
 }
 
+void IRCodeGen::loadVregA(uint32_t vregId) {
+    auto alloc = alloc_.getAlloc(vregId);
+    if (alloc.type != ir::Type::I8) { loadVreg(vregId); return; }
+    std::string r = "loadVregA " + vregDesc(vregId);
+    switch (alloc.loc) {
+        case VRegAllocator::IN_AX:
+            if (alloc_.isInAX(vregId, currentInstIdx_)) return;
+            if (vregOffset_.count(vregId))
+                emit("lda.fp " + std::to_string(vregOffset_[vregId]), r);
+            break;
+        case VRegAllocator::IN_ZP: {
+            std::stringstream ss;
+            ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << alloc.offset;
+            emit("lda " + ss.str(), r);
+            break;
+        }
+        case VRegAllocator::IN_FRAME:
+            emit("lda.fp __vr" + std::to_string(vregId), r);
+            break;
+    }
+}
+
 void IRCodeGen::storeVreg(uint32_t vregId) {
     auto alloc = alloc_.getAlloc(vregId);
     std::string r = "storeVreg " + vregDesc(vregId);
@@ -199,6 +221,21 @@ void IRCodeGen::storeVreg(uint32_t vregId) {
             }
             break;
         }
+    }
+}
+
+// Load only A from an operand (no X/Y/Z). For I8 use only.
+void IRCodeGen::loadOperandA(const ir::Operand& op) {
+    switch (op.kind) {
+        case ir::OperandKind::VREG:
+            loadVregA(op.vregId);
+            break;
+        case ir::OperandKind::IMM:
+            emit("lda #" + std::to_string((int)(op.immVal & 0xFF)));
+            break;
+        default:
+            loadOperand(op); // fallback
+            break;
     }
 }
 
@@ -952,7 +989,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 // Check for inc a / dec a optimization
                 bool isInc = (inst.op == ir::Op::ADD && inst.src2.isImm() && inst.src2.immVal == 1);
                 bool isDec = (inst.op == ir::Op::SUB && inst.src2.isImm() && inst.src2.immVal == 1);
-                loadOperand(inst.src1);
+                loadOperandA(inst.src1);
                 if (isInc) {
                     emit("inc a");
                 } else if (isDec) {
@@ -1073,7 +1110,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
                 // General I8 bitwise op
                 std::string src2 = src2MemOperand(inst.src2);
-                loadOperand(inst.src1);
+                loadOperandA(inst.src1);
                 if (inst.op == ir::Op::AND) emit("and " + src2, irDesc());
                 else if (inst.op == ir::Op::OR) emit("ora " + src2, irDesc());
                 else emit("eor " + src2, irDesc());
@@ -1687,22 +1724,22 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 break;
             }
 
-            loadOperand(inst.src1);
-            // loadOperand loads A then X. After ldx, Z reflects X.
-            // I8: lda was last → Z reflects A → branch directly.
-            // I16: ldx was last → Z reflects X → test X first (free), then A.
+            // Load and test the condition value
             if (inst.src1.isVreg()) {
                 auto alloc = alloc_.getAlloc(inst.src1.vregId);
                 if (alloc.type == ir::Type::I8) {
-                    // Z already set from lda — just branch
+                    // I8: load A only (no ldx #0), Z set from lda — branch directly
+                    loadOperandA(inst.src1);
                     if (!trueTarget.empty()) emit("bne " + trueTarget);
                 } else {
-                    // Z reflects X (high byte) from ldx
+                    // I16: loadOperand loads A then X. Z reflects X from ldx.
+                    loadOperand(inst.src1);
                     if (!trueTarget.empty()) emit("bne " + trueTarget); // X != 0
-                    emit("cmp #$00"); // now test A (low byte)
+                    emit("cmp #$00"); // test A (low byte)
                     if (!trueTarget.empty()) emit("bne " + trueTarget); // A != 0
                 }
             } else {
+                loadOperand(inst.src1);
                 emit("cmp #$00");
                 if (!trueTarget.empty()) emit("bne " + trueTarget);
             }
