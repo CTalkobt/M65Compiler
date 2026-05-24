@@ -1017,15 +1017,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         case ir::Op::XOR: {
             // I8 fast path: use native 8-bit bitwise ops
             if (inst.resultType == ir::Type::I8) {
-                std::string src2 = src2MemOperand(inst.src2);
-                loadOperand(inst.src1);
-                if (inst.op == ir::Op::AND) emit("and " + src2, irDesc());
-                else if (inst.op == ir::Op::OR) emit("ora " + src2, irDesc());
-                else emit("eor " + src2, irDesc());
-
-                // Fuse with following BR_COND: AND/OR/XOR sets Z flag directly.
-                // If the result is only used by the next BR_COND, skip storeVreg
-                // and let BR_COND use bne/beq on the Z flag.
+                // Check for single-bit AND test fused with BR_COND → BBS/BBR
                 bool canFuse = false;
                 if (inst.dest.isVreg() && currentFn_) {
                     auto& blk = currentFn_->blocks[currentBlockIdx_];
@@ -1038,6 +1030,54 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         }
                     }
                 }
+
+                // Single-bit AND with fused branch: use BBS/BBR if source is in ZP
+                // Check both immediate operands and vreg operands holding known constants
+                int64_t andMask = -1;
+                if (inst.src2.isImm()) {
+                    andMask = inst.src2.immVal;
+                } else if (inst.src2.isVreg()) {
+                    // Check if the vreg was defined by a CONST in this block
+                    auto& blk = currentFn_->blocks[currentBlockIdx_];
+                    size_t instIdx = &inst - &blk.insts[0];
+                    for (size_t k = 0; k < instIdx; k++) {
+                        auto& prev = blk.insts[k];
+                        if (prev.op == ir::Op::CONST && prev.dest.isVreg() &&
+                            prev.dest.vregId == inst.src2.vregId) {
+                            andMask = prev.src1.immVal;
+                        }
+                    }
+                }
+                if (canFuse && inst.op == ir::Op::AND && andMask >= 0) {
+                    int64_t mask = andMask;
+                    int bitN = -1;
+                    if (mask > 0 && (mask & (mask - 1)) == 0) {
+                        // Power of 2 — find bit number
+                        for (int b = 0; b < 8; b++) {
+                            if (mask == (1 << b)) { bitN = b; break; }
+                        }
+                    }
+                    if (bitN >= 0 && inst.src1.isVreg()) {
+                        auto srcAlloc = alloc_.getAlloc(inst.src1.vregId);
+                        if (srcAlloc.loc == VRegAllocator::IN_ZP) {
+                            // BBS/BBR: test bit directly in ZP, branch without touching registers
+                            std::string zpAddr = "$" + hex8((uint8_t)srcAlloc.offset);
+                            // Record for BR_COND to emit bbs/bbr
+                            lastCmp_ = {ir::Op::CMP_NE, inst.dest.vregId, true};
+                            lastCmp_.bbsZpAddr = zpAddr;
+                            lastCmp_.bbsBitN = bitN;
+                            break;
+                        }
+                    }
+                }
+
+                // General I8 bitwise op
+                std::string src2 = src2MemOperand(inst.src2);
+                loadOperand(inst.src1);
+                if (inst.op == ir::Op::AND) emit("and " + src2, irDesc());
+                else if (inst.op == ir::Op::OR) emit("ora " + src2, irDesc());
+                else emit("eor " + src2, irDesc());
+
                 if (canFuse) {
                     // Record for BR_COND: treat as CMP_NE (nonzero = true)
                     lastCmp_ = {ir::Op::CMP_NE, inst.dest.vregId, true};
@@ -1595,6 +1635,21 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             // Fused compare-and-branch: if the condition is from a CMP that just set flags,
             // branch directly using the comparison flags instead of materializing a boolean.
             if (lastCmp_.valid && inst.src1.isVreg() && inst.src1.vregId == lastCmp_.destVreg) {
+                // BBS/BBR single-bit test: branch directly on ZP bit, no register usage
+                if (!lastCmp_.bbsZpAddr.empty() && lastCmp_.bbsBitN >= 0) {
+                    std::string bitStr = std::to_string(lastCmp_.bbsBitN);
+                    // CMP_NE means "bit set = true", so bbs = true target, bbr = false target
+                    emit("bbs" + bitStr + " " + lastCmp_.bbsZpAddr + ", " + trueTarget,
+                         "single-bit test: bit " + bitStr);
+                    if (!falseFallsThrough && !falseTarget.empty()) {
+                        emit("bra " + falseTarget);
+                    }
+                    lastCmp_.valid = false;
+                    lastCmp_.bbsZpAddr.clear();
+                    lastCmp_.bbsBitN = -1;
+                    break;
+                }
+
                 switch (lastCmp_.op) {
                     case ir::Op::CMP_EQ:
                         emit("beq " + trueTarget);

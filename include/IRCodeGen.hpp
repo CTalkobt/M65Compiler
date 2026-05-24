@@ -94,6 +94,9 @@ private:
         ir::Op op = ir::Op::NOP;
         uint32_t destVreg = 0;
         bool valid = false;
+        // For BBS/BBR single-bit branch optimization
+        std::string bbsZpAddr;  // non-empty = use BBS/BBR instead of flags
+        int bbsBitN = -1;       // bit number (0-7)
     } lastCmp_;
 
     // Current function and block index for peephole lookahead
