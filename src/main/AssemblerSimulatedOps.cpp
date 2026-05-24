@@ -2350,7 +2350,10 @@ void AssemblerSimulatedOps::emitCMP32Code(AssemblerParser* parser, M65Emitter& e
     if (SRC1 == ".AXYZ" || SRC1 == ".Q") {
         // Compare high-to-low: Z (byte 3), Y (byte 2), X (byte 1), A (byte 0)
         // Early exit on inequality — the flags from the first unequal byte determine the result
+        // Save A (byte 0) to scratch since TZA/TYA/TXA will clobber it
         size_t br0, br1, br2;
+        uint8_t zpScratch = e.getZP(0); // __zp_scratch ($08)
+        e.sta_zp(zpScratch);
         if (isImmediate && src2Ast->isConstant(parser)) {
             uint32_t val = src2Ast->getValue(parser);
             e.tza(); e.cmp_imm((val >> 24) & 0xFF);
@@ -2359,7 +2362,7 @@ void AssemblerSimulatedOps::emitCMP32Code(AssemblerParser* parser, M65Emitter& e
             br1 = e.emitBranchPlaceholder(0xD0); // BNE
             e.txa(); e.cmp_imm((val >> 8) & 0xFF);
             br2 = e.emitBranchPlaceholder(0xD0); // BNE
-            e.cmp_imm(val & 0xFF);
+            e.lda_zp(zpScratch); e.cmp_imm(val & 0xFF);
         } else {
             uint32_t addr = 0;
             try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
@@ -2375,7 +2378,7 @@ void AssemblerSimulatedOps::emitCMP32Code(AssemblerParser* parser, M65Emitter& e
             br1 = e.emitBranchPlaceholder(0xD0); // BNE
             e.txa(); e.cmp_abs(addr + 1);
             br2 = e.emitBranchPlaceholder(0xD0); // BNE
-            e.cmp_abs(addr);
+            e.lda_zp(zpScratch); e.cmp_abs(addr);
         }
         e.patchBranchTarget(br0);
         e.patchBranchTarget(br1);
@@ -2397,7 +2400,10 @@ void AssemblerSimulatedOps::emitCMP_S32Code(AssemblerParser* parser, M65Emitter&
     std::transform(SRC1.begin(), SRC1.end(), SRC1.begin(), ::toupper);
     if (SRC1 == ".AXYZ" || SRC1 == ".Q") {
         // Signed compare high-to-low: Z^$80 (byte 3, sign-flipped), Y (byte 2), X (byte 1), A (byte 0)
+        // Save A (byte 0) to scratch since TZA/TYA/TXA will clobber it
         size_t br0, br1, br2;
+        uint8_t zpScratch = e.getZP(0); // __zp_scratch ($08)
+        e.sta_zp(zpScratch);
         if (isImmediate && src2Ast->isConstant(parser)) {
             uint32_t val = src2Ast->getValue(parser);
             e.tza(); e.eor_imm(0x80); e.cmp_imm(((val >> 24) & 0xFF) ^ 0x80);
@@ -2406,7 +2412,7 @@ void AssemblerSimulatedOps::emitCMP_S32Code(AssemblerParser* parser, M65Emitter&
             br1 = e.emitBranchPlaceholder(0xD0); // BNE
             e.txa(); e.cmp_imm((val >> 8) & 0xFF);
             br2 = e.emitBranchPlaceholder(0xD0); // BNE
-            e.cmp_imm(val & 0xFF);
+            e.lda_zp(zpScratch); e.cmp_imm(val & 0xFF);
         } else {
             uint32_t addr = 0;
             try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
@@ -2416,6 +2422,7 @@ void AssemblerSimulatedOps::emitCMP_S32Code(AssemblerParser* parser, M65Emitter&
                 Symbol* sym = parser->resolveSymbol(src, scopePrefix);
                 if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(src); } catch(...) { addr = 0; } }
             }
+            e.sta_zp(zpScratch + 1); // save A to scratch+1 (scratch used by sign-flip below)
             e.tza(); e.eor_imm(0x80); e.sta_scratch();
             e.lda_abs(addr + 3); e.eor_imm(0x80); e.cmp_scratch();
             br0 = e.emitBranchPlaceholder(0xD0); // BNE
@@ -2423,7 +2430,7 @@ void AssemblerSimulatedOps::emitCMP_S32Code(AssemblerParser* parser, M65Emitter&
             br1 = e.emitBranchPlaceholder(0xD0); // BNE
             e.txa(); e.cmp_abs(addr + 1);
             br2 = e.emitBranchPlaceholder(0xD0); // BNE
-            e.cmp_abs(addr);
+            e.lda_zp(zpScratch + 1); e.cmp_abs(addr);
         }
         e.patchBranchTarget(br0);
         e.patchBranchTarget(br1);

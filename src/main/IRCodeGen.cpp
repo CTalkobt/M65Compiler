@@ -1631,6 +1631,11 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             if (inst.src1.type == ir::Type::I8) {
                 emit("ldx #0"); // zero-extend: clear high byte
             }
+            if (inst.resultType == ir::Type::I32 && inst.src1.type != ir::Type::I32) {
+                if (inst.src1.type == ir::Type::I8) emit("ldx #0");
+                emit("ldy #0");
+                emit("ldz #0");
+            }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }

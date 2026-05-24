@@ -37,6 +37,7 @@ TEST_FILES=(
     "src/test-resources/test_packed_struct.c"
     "src/test-resources/test_interrupt.c"
     "src/test-resources/test_naked.c"
+    "src/test-resources/test_i8_arith.c"
     "src/test-resources/test_global_vars.c"
     "src/test-resources/test_anon_struct.c"
     "src/test-resources/test_union.c"

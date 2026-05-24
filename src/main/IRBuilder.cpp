@@ -79,7 +79,7 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
     if (auto* lit = dynamic_cast<IntegerLiteral*>(expr)) {
         ir::Type t = ir::Type::I16;
         std::string tn = "int";
-        bool isSigned = true;
+        bool isSigned = false;  // cc45 defaults to unsigned
         if (!lit->castType.empty()) {
             tn = lit->castType;
             t = mapType(lit->castType, lit->castPointerLevel);
@@ -223,8 +223,18 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             return {ir::Type::PTR, sub.typeName + "*", false, sub.type, 2};
         }
     }
-    
-    return {ir::Type::I16, "int", true, ir::Type::VOID, 2};
+
+    if (auto* call = dynamic_cast<FunctionCall*>(expr)) {
+        auto it = functionReturnTypes_.find(call->name);
+        if (it != functionReturnTypes_.end()) {
+            bool sig = false; // unsigned by default
+            auto sit = functionParamSigned_.find(call->name);
+            // Return signedness tracked via first entry convention (return = index -1)
+            return {it->second, "", sig, ir::Type::VOID, ir::typeSize(it->second)};
+        }
+    }
+
+    return {ir::Type::I16, "int", false, ir::Type::VOID, 2};
 }
 
 ir::Operand IRBuilder::emitCast(ir::Operand src, ir::Type targetType, bool isSigned) {
@@ -744,7 +754,42 @@ void IRBuilder::visit(Assignment& node) {
     }
     auto rhs = lastValue_;
 
-    // 2.5 Handle CPU register/flag writes
+    // 2.5 Handle compound assignment (+=, -=, &=, |=, ^=, <<=, >>=, *=, /=, %=)
+    if (node.op != "=") {
+        // Load current LHS value
+        node.target->accept(*this);
+        auto lhsVal = lastValue_;
+
+        // Determine the operation
+        ir::Op binOp = ir::Op::NOP;
+        if (node.op == "+=") binOp = ir::Op::ADD;
+        else if (node.op == "-=") binOp = ir::Op::SUB;
+        else if (node.op == "*=") binOp = ir::Op::MUL;
+        else if (node.op == "/=") binOp = ir::Op::DIV;
+        else if (node.op == "%=") binOp = ir::Op::MOD;
+        else if (node.op == "&=") binOp = ir::Op::AND;
+        else if (node.op == "|=") binOp = ir::Op::OR;
+        else if (node.op == "^=") binOp = ir::Op::XOR;
+        else if (node.op == "<<=") binOp = ir::Op::SHL;
+        else if (node.op == ">>=") binOp = ir::Op::SHR;
+
+        if (binOp != ir::Op::NOP) {
+            ir::Type opType = lhsVal.type;
+            auto castRhs = emitCast(rhs, opType, false);
+            auto dest = allocVreg(opType);
+            ir::Inst inst;
+            inst.op = binOp;
+            inst.dest = dest;
+            inst.resultType = opType;
+            inst.src1 = lhsVal;
+            inst.src2 = castRhs;
+            inst.loc = loc(node);
+            emit(inst);
+            rhs = dest;
+        }
+    }
+
+    // 2.6 Handle CPU register/flag writes
     if (auto* cra = dynamic_cast<CpuRegisterAccess*>(node.target.get())) {
         ir::Inst inst;
         inst.op = ir::Op::CPU_REG_WRITE;
@@ -864,15 +909,16 @@ void IRBuilder::visit(BinaryOperation& node) {
     IRTypeInfo rhsInfo = getExprTypeInfo(node.right.get());
 
     // Pre-determine if we can keep this operation at I8 (char width).
-    // Check BEFORE visiting operands so literals can be emitted at the right width.
+    // Only when BOTH operands are I8, or one is I8 and the other is a small
+    // literal with no explicit wider type. Never narrow a wider operand to I8.
     bool forceI8 = false;
-    if (lhsInfo.type == ir::Type::I8) {
+    if (lhsInfo.type == ir::Type::I8 && rhsInfo.type == ir::Type::I8) {
+        forceI8 = true;
+    } else if (lhsInfo.type == ir::Type::I8 && rhsInfo.type != ir::Type::I32 && rhsInfo.type != ir::Type::PTR) {
         if (auto* rlit = dynamic_cast<IntegerLiteral*>(node.right.get())) {
             if (rlit->castType.empty() && rlit->value >= 0 && rlit->value <= 255) forceI8 = true;
-        } else if (rhsInfo.type == ir::Type::I8) {
-            forceI8 = true;
         }
-    } else if (rhsInfo.type == ir::Type::I8) {
+    } else if (rhsInfo.type == ir::Type::I8 && lhsInfo.type != ir::Type::I32 && lhsInfo.type != ir::Type::PTR) {
         if (auto* llit = dynamic_cast<IntegerLiteral*>(node.left.get())) {
             if (llit->castType.empty() && llit->value >= 0 && llit->value <= 255) forceI8 = true;
         }

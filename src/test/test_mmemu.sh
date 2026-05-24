@@ -231,6 +231,7 @@ VALIDATION_TESTS=(
     "test_case_range"
     "test_packed_struct"
     "test_naked"
+    "test_i8_arith"
     "test_goto_sizeof"
     "test_signed_cc"
     "test_sub"
