@@ -404,6 +404,69 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         emit(ret);
     }
 
+    // Dead vreg elimination: remove instructions that write to vregs that are
+    // never read. Also removes STORE to local slots that are never loaded.
+    // Iterates until stable (handles transitive dead chains).
+    if (currentFunc_) {
+        bool changed = true;
+        while (changed) {
+            changed = false;
+
+            // Pass 1: find local slot vregs that are only written, never read as values.
+            // A STORE to a local slot (src2 = local vreg) is a write.
+            // A LOAD/use of the local vreg (in src1/src2 of non-STORE, or in args) is a read.
+            std::set<uint32_t> readVregs;
+            std::set<uint32_t> writtenLocalSlots;
+            for (auto& blk : currentFunc_->blocks) {
+                for (auto& inst : blk.insts) {
+                    if (inst.op == ir::Op::NOP) continue;
+                    // Track reads
+                    if (inst.src1.isVreg()) readVregs.insert(inst.src1.vregId);
+                    // For STORE: src2 is the target. If it's a local slot, it's a write not a read.
+                    if (inst.op == ir::Op::STORE && inst.src2.isVreg() &&
+                        currentFunc_->localSlotVregs.count(inst.src2.vregId)) {
+                        writtenLocalSlots.insert(inst.src2.vregId);
+                    } else if (inst.src2.isVreg()) {
+                        readVregs.insert(inst.src2.vregId);
+                    }
+                    for (auto& a : inst.args)
+                        if (a.isVreg()) readVregs.insert(a.vregId);
+                }
+            }
+
+            // Pass 2: eliminate dead local slot stores and dead vreg writes
+            for (auto& blk : currentFunc_->blocks) {
+                for (auto& inst : blk.insts) {
+                    if (inst.op == ir::Op::NOP) continue;
+
+                    // Eliminate STORE to local slot that is never read
+                    if (inst.op == ir::Op::STORE && inst.src2.isVreg() &&
+                        currentFunc_->localSlotVregs.count(inst.src2.vregId) &&
+                        !currentFunc_->memoryVregs.count(inst.src2.vregId) &&
+                        readVregs.find(inst.src2.vregId) == readVregs.end()) {
+                        inst.op = ir::Op::NOP;
+                        changed = true;
+                        continue;
+                    }
+
+                    // Eliminate instructions that write to dead temp vregs
+                    if (!inst.dest.isVreg()) continue;
+                    if (inst.op == ir::Op::STORE || inst.op == ir::Op::STORE_ZP) continue;
+                    if (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID || inst.op == ir::Op::CALL_INDIRECT) continue;
+                    if (inst.op == ir::Op::BR || inst.op == ir::Op::BR_COND) continue;
+                    if (inst.op == ir::Op::RET || inst.op == ir::Op::RET_VOID) continue;
+                    if (inst.op == ir::Op::ASM_INLINE) continue;
+                    if (inst.op == ir::Op::CPU_REG_WRITE || inst.op == ir::Op::CPU_FLAG_WRITE) continue;
+                    if (currentFunc_->memoryVregs.count(inst.dest.vregId)) continue;
+                    if (readVregs.find(inst.dest.vregId) == readVregs.end()) {
+                        inst.op = ir::Op::NOP;
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+
     currentFunc_ = nullptr;
     currentBlock_ = nullptr;
 }
