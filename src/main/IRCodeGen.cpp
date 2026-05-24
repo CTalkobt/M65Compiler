@@ -867,13 +867,37 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
         case ir::Op::ADD:
         case ir::Op::SUB: {
+            // I8 fast path: use native 8-bit add/sub
+            if (inst.resultType == ir::Type::I8) {
+                // Check for inc a / dec a optimization
+                bool isInc = (inst.op == ir::Op::ADD && inst.src2.isImm() && inst.src2.immVal == 1);
+                bool isDec = (inst.op == ir::Op::SUB && inst.src2.isImm() && inst.src2.immVal == 1);
+                loadOperand(inst.src1);
+                if (isInc) {
+                    emit("inc a");
+                } else if (isDec) {
+                    emit("dec a");
+                } else {
+                    std::string src2 = src2MemOperand(inst.src2);
+                    if (inst.op == ir::Op::ADD) {
+                        emit("clc");
+                        emit("adc " + src2);
+                    } else {
+                        emit("sec");
+                        emit("sbc " + src2);
+                    }
+                }
+                if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+                break;
+            }
+
             // For commutative ADD: if src1 is in frame (would clobber scratch),
             // swap operands — load src1 as memory, src2 into AX
             bool src1InFrame = inst.src1.isVreg() &&
                 alloc_.getAlloc(inst.src1.vregId).loc == VRegAllocator::IN_FRAME;
             bool src2InFrame = inst.src2.isVreg() &&
                 alloc_.getAlloc(inst.src2.vregId).loc == VRegAllocator::IN_FRAME;
-            
+
             std::string mn;
             if (inst.resultType == ir::Type::I32) {
                 mn = (inst.op == ir::Op::ADD) ? "add.32" : "sub.32";
@@ -911,12 +935,23 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         case ir::Op::AND:
         case ir::Op::OR:
         case ir::Op::XOR: {
+            // I8 fast path: use native 8-bit bitwise ops
+            if (inst.resultType == ir::Type::I8) {
+                std::string src2 = src2MemOperand(inst.src2);
+                loadOperand(inst.src1);
+                if (inst.op == ir::Op::AND) emit("and " + src2);
+                else if (inst.op == ir::Op::OR) emit("ora " + src2);
+                else emit("eor " + src2);
+                if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+                break;
+            }
+
             // Commutative: if src2 is in frame, swap to avoid scratch conflict
             bool src2InFrame = inst.src2.isVreg() &&
                 alloc_.getAlloc(inst.src2.vregId).loc == VRegAllocator::IN_FRAME;
             bool src1InFrame = inst.src1.isVreg() &&
                 alloc_.getAlloc(inst.src1.vregId).loc == VRegAllocator::IN_FRAME;
-            
+
             std::string mn;
             if (inst.resultType == ir::Type::I32) {
                 if (inst.op == ir::Op::AND) mn = "and.32";

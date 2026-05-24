@@ -807,18 +807,46 @@ void IRBuilder::visit(Assignment& node) {
         }
     }
 
-    // 4. Standard assignment: evaluate LHS as an address and store RHS
+    // 4. Standard assignment
+    IRTypeInfo lhsInfo = getExprTypeInfo(node.target.get());
+    ir::Type storeType = lhsInfo.type;
+    auto rhsVal = emitCast(rhs, storeType, lhsInfo.isSigned);
+
+    // Fast path: simple local or global variable → direct vreg/global store
+    if (auto* ref = dynamic_cast<VariableReference*>(node.target.get())) {
+        auto lit = locals_.find(ref->name);
+        if (lit != locals_.end()) {
+            // Direct store to local vreg
+            ir::Inst store;
+            store.op = ir::Op::STORE;
+            store.resultType = storeType;
+            store.src1 = rhsVal;
+            store.src2 = lit->second;  // vreg directly, not ADDR_LOCAL
+            store.loc = loc(node);
+            emit(store);
+            lastValue_ = rhsVal;
+            return;
+        }
+        // Check global
+        auto git = globalTypes_.find(ref->name);
+        if (git != globalTypes_.end()) {
+            ir::Inst store;
+            store.op = ir::Op::STORE;
+            store.resultType = storeType;
+            store.src1 = rhsVal;
+            store.src2 = ir::Operand::global("_" + ref->name);
+            store.loc = loc(node);
+            emit(store);
+            lastValue_ = rhsVal;
+            return;
+        }
+    }
+
+    // General path: evaluate LHS as an address and store through it
     computeAddressOnly_ = true;
     node.target->accept(*this);
     auto lhsAddr = lastValue_;
     computeAddressOnly_ = false;
-
-    // Use LHS type for store width
-    IRTypeInfo lhsInfo = getExprTypeInfo(node.target.get());
-    ir::Type storeType = lhsInfo.type;
-
-    // Ensure RHS matches store width
-    auto rhsVal = emitCast(rhs, storeType, lhsInfo.isSigned);
 
     ir::Inst store;
     store.op = ir::Op::STORE;
@@ -833,16 +861,47 @@ void IRBuilder::visit(Assignment& node) {
 
 void IRBuilder::visit(BinaryOperation& node) {
     IRTypeInfo lhsInfo = getExprTypeInfo(node.left.get());
+    IRTypeInfo rhsInfo = getExprTypeInfo(node.right.get());
+
+    // Pre-determine if we can keep this operation at I8 (char width).
+    // Check BEFORE visiting operands so literals can be emitted at the right width.
+    bool forceI8 = false;
+    if (lhsInfo.type == ir::Type::I8) {
+        if (auto* rlit = dynamic_cast<IntegerLiteral*>(node.right.get())) {
+            if (rlit->castType.empty() && rlit->value >= 0 && rlit->value <= 255) forceI8 = true;
+        } else if (rhsInfo.type == ir::Type::I8) {
+            forceI8 = true;
+        }
+    } else if (rhsInfo.type == ir::Type::I8) {
+        if (auto* llit = dynamic_cast<IntegerLiteral*>(node.left.get())) {
+            if (llit->castType.empty() && llit->value >= 0 && llit->value <= 255) forceI8 = true;
+        }
+    }
+
+    // Visit LHS
     node.left->accept(*this);
     auto lhs = lastValue_;
-    
-    IRTypeInfo rhsInfo = getExprTypeInfo(node.right.get());
-    node.right->accept(*this);
+
+    // Visit RHS — emit literal at I8 width if forceI8
+    if (forceI8 && dynamic_cast<IntegerLiteral*>(node.right.get())) {
+        auto* rlit = dynamic_cast<IntegerLiteral*>(node.right.get());
+        auto dest = allocVreg(ir::Type::I8);
+        ir::Inst inst;
+        inst.op = ir::Op::CONST;
+        inst.dest = dest;
+        inst.resultType = ir::Type::I8;
+        inst.src1 = ir::Operand::imm(rlit->value & 0xFF, ir::Type::I8);
+        inst.loc = loc(node);
+        emit(inst);
+        lastValue_ = dest;
+    } else {
+        node.right->accept(*this);
+    }
     auto rhs = lastValue_;
 
     // Determine result type
-    ir::Type resultType = lhs.type;
-    if (ir::typeSize(rhs.type) > ir::typeSize(resultType)) resultType = rhs.type;
+    ir::Type resultType = forceI8 ? ir::Type::I8 : lhs.type;
+    if (!forceI8 && ir::typeSize(rhs.type) > ir::typeSize(resultType)) resultType = rhs.type;
 
     // Cast operands to result type
     auto lhsVal = emitCast(lhs, resultType, lhsInfo.isSigned);
@@ -983,21 +1042,13 @@ void IRBuilder::visit(UnaryOperation& node) {
         bool isPost = (node.op.find("_POST") != std::string::npos);
         std::string baseOp = isPost ? node.op.substr(0, 2) : node.op;
 
-        auto one = allocVreg(src.type);
-        ir::Inst ci;
-        ci.op = ir::Op::CONST;
-        ci.dest = one;
-        ci.resultType = src.type;
-        ci.src1 = ir::Operand::imm(1, src.type);
-        emit(ci);
-
         auto dest = allocVreg(src.type);
         ir::Inst inst;
         inst.op = (baseOp == "++") ? ir::Op::ADD : ir::Op::SUB;
         inst.dest = dest;
         inst.resultType = src.type;
         inst.src1 = src;
-        inst.src2 = one;
+        inst.src2 = ir::Operand::imm(1, src.type);
         inst.loc = loc(node);
         emit(inst);
 
