@@ -1,5 +1,6 @@
 #include "IRBuilder.hpp"
 #include <algorithm>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 
@@ -84,6 +85,9 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             tn = lit->castType;
             t = mapType(lit->castType, lit->castPointerLevel);
             isSigned = lit->castIsSigned;
+        } else if (lit->value > 65535 || lit->value < -32768) {
+            t = ir::Type::I32;
+            tn = "long";
         }
         return {t, tn, isSigned, (t == ir::Type::PTR) ? ir::Type::I16 : ir::Type::VOID, ir::typeSize(t)};
     }
@@ -464,7 +468,19 @@ void IRBuilder::visit(VariableDeclaration& node) {
     localSigned_[node.name] = node.isSigned;
     localConst_[node.name] = node.isConst && node.pointerLevel == 0;
     localPointsToConst_[node.name] = node.isConst && node.pointerLevel > 0;
-    if (node.pointerLevel > 0) localPointedToType_[node.name] = mapType(node.type, 0);
+    if (node.pointerLevel > 0) {
+        localPointedToType_[node.name] = mapType(node.type, 0);
+        // Track constant pointer initializer for propagation
+        if (node.initializer) {
+            if (auto* intLit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
+                localConstPtrValue_[node.name] = intLit->value;
+            } else if (auto* castExpr = dynamic_cast<CastExpression*>(node.initializer.get())) {
+                if (auto* intLit2 = dynamic_cast<IntegerLiteral*>(castExpr->expression.get())) {
+                    localConstPtrValue_[node.name] = intLit2->value;
+                }
+            }
+        }
+    }
     if (node.isVolatile && currentFunc_) currentFunc_->memoryVregs.insert(vreg.vregId);
     if (currentFunc_) currentFunc_->localSlotVregs.insert(vreg.vregId);
     if (!node.arrayDims.empty()) {
@@ -622,6 +638,15 @@ void IRBuilder::visit(VariableDeclaration& node) {
 void IRBuilder::visit(IntegerLiteral& node) {
     ir::Type t = ir::Type::I16;
     if (!node.castType.empty()) t = mapType(node.castType, node.castPointerLevel);
+    // Auto-promote to long if value exceeds 16-bit range
+    if (t == ir::Type::I16 && node.castType.empty() && (node.value > 65535 || node.value < -32768)) {
+        t = ir::Type::I32;
+        std::stringstream ss;
+        ss << "warning: integer literal " << node.value << " exceeds 16-bit range, promoted to long";
+        ir::SourceLoc sl = loc(node);
+        if (sl.valid()) ss << " at " << sl.file << ":" << sl.line;
+        warnings_.push_back(ss.str());
+    }
     auto dest = allocVreg(t);
     ir::Inst inst;
     inst.op = ir::Op::CONST;
@@ -861,6 +886,20 @@ void IRBuilder::visit(Assignment& node) {
     if (auto* ref = dynamic_cast<VariableReference*>(node.target.get())) {
         auto lit = locals_.find(ref->name);
         if (lit != locals_.end()) {
+            // Track constant pointer assignments for propagation
+            if (storeType == ir::Type::PTR || localPointedToType_.count(ref->name)) {
+                bool tracked = false;
+                if (auto* intLit = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
+                    localConstPtrValue_[ref->name] = intLit->value;
+                    tracked = true;
+                } else if (auto* castExpr = dynamic_cast<CastExpression*>(node.expression.get())) {
+                    if (auto* intLit2 = dynamic_cast<IntegerLiteral*>(castExpr->expression.get())) {
+                        localConstPtrValue_[ref->name] = intLit2->value;
+                        tracked = true;
+                    }
+                }
+                if (!tracked) localConstPtrValue_.erase(ref->name);
+            }
             // Direct store to local vreg
             ir::Inst store;
             store.op = ir::Op::STORE;
@@ -884,6 +923,38 @@ void IRBuilder::visit(Assignment& node) {
             emit(store);
             lastValue_ = rhsVal;
             return;
+        }
+    }
+
+    // Pointer constant propagation: *ptr = val where ptr holds a known constant address
+    // Emit direct absolute store instead of loading the pointer and doing indirect store.
+    if (auto* deref = dynamic_cast<UnaryOperation*>(node.target.get())) {
+        if (deref->op == "*") {
+            if (auto* ref = dynamic_cast<VariableReference*>(deref->operand.get())) {
+                auto cit = localConstPtrValue_.find(ref->name);
+                if (cit != localConstPtrValue_.end()) {
+                    IRTypeInfo derefInfo = getExprTypeInfo(node.target.get());
+                    auto val = emitCast(rhsVal, derefInfo.type, derefInfo.isSigned);
+
+                    // Synthesize a global name for the absolute address
+                    std::string addrName = "$" + [&]() {
+                        std::stringstream ss;
+                        ss << std::hex << std::uppercase << std::setfill('0')
+                           << std::setw(4) << (uint16_t)cit->second;
+                        return ss.str();
+                    }();
+
+                    ir::Inst store;
+                    store.op = ir::Op::STORE;
+                    store.resultType = derefInfo.type;
+                    store.src1 = val;
+                    store.src2 = ir::Operand::global(addrName);
+                    store.loc = loc(node);
+                    emit(store);
+                    lastValue_ = val;
+                    return;
+                }
+            }
         }
     }
 
