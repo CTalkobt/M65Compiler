@@ -23,7 +23,12 @@ int char_eq(char a, char b) { return a == b; }
 
 int int_plus_char(int a, char b) { return a + b; }
 
-// Long arithmetic tested via local operations (no cross-function param issues)
+// Widening: long + char across function call
+long long_plus_char(long l, char c) {
+    l += c;
+    return l;
+}
+
 long long_add_const() {
     long l = 257;
     l += 20;
@@ -77,9 +82,12 @@ int main() {
     if (int_plus_char(1000, 5) != 1005) return 21;
     if (int_plus_char(256, 1) != 257) return 22;
 
-    // TODO: long function calls in standalone mode have a pre-existing
-    // stack cleanup issue. Tested separately in linked mode.
-    // if (long_add_const() != 277) return 23;
+    // Widening: long + char (must not truncate to 8-bit)
+    if (long_plus_char(256, 1) != 257) return 23;
+    if (long_plus_char(1000, 234) != 1234) return 24;
+
+    // Long constant arithmetic
+    if (long_add_const() != 277) return 25;
 
     return 0;
 }

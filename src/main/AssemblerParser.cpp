@@ -962,7 +962,9 @@ void AssemblerParser::pass1() {
                     symbolTable[pN] = {pc, true, 2, false, false, pc, false, 0, false, 0, currentSegment->name};
                     auto ctx = std::make_shared<ProcContext>();
                     ctx->name = pN; ctx->totalParamSize = 0;
-                    std::vector<std::pair<std::string, int>> args;
+                    // args: {name, accessSize, stackSize}
+                    struct ProcArg { std::string name; int accessSize; int stackSize; };
+                    std::vector<ProcArg> args;
                     while (match(AssemblerTokenType::COMMA)) {
                         int pSize = 2; // default: word
                         if (peek().type == AssemblerTokenType::IDENTIFIER && (peek().value == "B" || peek().value == "W" || peek().value == "D")) {
@@ -971,20 +973,23 @@ void AssemblerParser::pass1() {
                             else if (sizeSpec == "D") pSize = 4;
                             match(AssemblerTokenType::HASH);
                         }
-                        args.push_back({advance().value, pSize});
-                        ctx->totalParamSize += args.back().second;
+                        // C calling convention promotes char (B#) to 16-bit on the stack.
+                        // Stack size is always at least 2 bytes; access size stays 1 for B#.
+                        int stackSize = (pSize < 2) ? 2 : pSize;
+                        args.push_back({advance().value, pSize, stackSize});
+                        ctx->totalParamSize += args.back().stackSize;
                     }
                     scopeStack.push_back(pN); stmt->scopePrefix = currentScopePrefix();
                     // Stack-relative offsets: past 2-byte return addr
                     int sOff = 2;
                     for (int i = (int)args.size() - 1; i >= 0; --i) {
-                        std::string scA = stmt->scopePrefix + args[i].first;
+                        std::string scA = stmt->scopePrefix + args[i].name;
                         std::string scAN = stmt->scopePrefix + "ARG" + std::to_string(i + 1);
-                        ctx->localArgs[args[i].first] = sOff; ctx->localArgs["ARG" + std::to_string(i + 1)] = sOff;
-                        Symbol pSym = {(uint32_t)sOff, false, args[i].second, true, false, (uint32_t)sOff, true, sOff, false, 0, ""};
+                        ctx->localArgs[args[i].name] = sOff; ctx->localArgs["ARG" + std::to_string(i + 1)] = sOff;
+                        Symbol pSym = {(uint32_t)sOff, false, args[i].accessSize, true, false, (uint32_t)sOff, true, sOff, false, 0, ""};
                         symbolTable[scA] = pSym;
                         symbolTable[scAN] = pSym;
-                        sOff += args[i].second;
+                        sOff += args[i].stackSize;
                     }
                     procedures[pc] = ctx; pass1ProcStack.push_back(currentProc);
                     currentProc = ctx; stmt->procCtx = ctx; stmt->size = 0;
