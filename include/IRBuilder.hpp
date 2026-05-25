@@ -49,6 +49,7 @@ public:
     void visit(WhileStatement& node) override;
     void visit(DoWhileStatement& node) override;
     void visit(ForStatement& node) override;
+    void visit(RepeatStatement& node) override;
     void visit(SwitchStatement& node) override;
     void visit(CaseStatement& node) override;
     void visit(DefaultStatement& node) override;

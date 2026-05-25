@@ -578,6 +578,7 @@ public:
     void visit(WhileStatement& n) override { n.condition->accept(*this); n.body->accept(*this); }
     void visit(DoWhileStatement& n) override { n.body->accept(*this); n.condition->accept(*this); }
     void visit(ForStatement& n) override { if (n.initializer) n.initializer->accept(*this); if (n.condition) n.condition->accept(*this); if (n.increment) n.increment->accept(*this); n.body->accept(*this); }
+    void visit(RepeatStatement& n) override { n.body->accept(*this); }
     void visit(SwitchStatement& n) override { n.expression->accept(*this); n.body->accept(*this); }
     void visit(CaseStatement& n) override { n.value->accept(*this); if (n.rangeEnd) n.rangeEnd->accept(*this); }
     void visit(DefaultStatement&) override {}
@@ -639,6 +640,7 @@ public:
     void visit(WhileStatement& n) override { n.condition->accept(*this); n.body->accept(*this); }
     void visit(DoWhileStatement& n) override { n.body->accept(*this); n.condition->accept(*this); }
     void visit(ForStatement& n) override { if (n.initializer) n.initializer->accept(*this); if (n.condition) n.condition->accept(*this); if (n.increment) n.increment->accept(*this); n.body->accept(*this); }
+    void visit(RepeatStatement& n) override { n.body->accept(*this); }
     void visit(SwitchStatement& n) override { n.expression->accept(*this); n.body->accept(*this); }
     void visit(CaseStatement& n) override { n.value->accept(*this); if (n.rangeEnd) n.rangeEnd->accept(*this); }
     void visit(DefaultStatement&) override {}
@@ -830,6 +832,7 @@ public:
         if (n.increment) n.increment->accept(*this);
         n.body->accept(*this);
     }
+    void visit(RepeatStatement& n) override { n.body->accept(*this); }
     void visit(SwitchStatement& n) override { n.expression->accept(*this); n.body->accept(*this); }
     void visit(CaseStatement& n) override { if (n.value) n.value->accept(*this); if (n.rangeEnd) n.rangeEnd->accept(*this); }
     void visit(DefaultStatement&) override {}
@@ -3980,9 +3983,20 @@ void CodeGenerator::visit(DoWhileStatement& node) {
     invalidateRegs();
 }
 
+void CodeGenerator::visit(RepeatStatement& node) {
+    // Validator: declare the loop variable if present, then validate body
+    if (!node.varName.empty()) {
+        std::string lName = "_l_" + node.varName;
+        variableTypes[lName] = {node.varType, 0, node.varSigned, false, false, false, {}};
+    }
+    for (int i = 0; i < node.count; i++) {
+        node.body->accept(*this);
+    }
+}
+
 void CodeGenerator::visit(ForStatement& node) {
     embedSource(node);
-    
+
     // Scoping for for-loop initializer variables
     auto oldVars = currentVars;
     auto oldVarTypes = variableTypes;
@@ -4101,6 +4115,7 @@ void CodeGenerator::visit(SwitchStatement& node) {
         if (node.increment) node.increment->accept(*this);
         node.body->accept(*this);
     }
+        void visit(RepeatStatement& node) override { node.body->accept(*this); }
         void visit(SwitchStatement&) override {}
         void visit(CaseStatement& node) override {
             uint32_t val = 0; if (auto* lit = dynamic_cast<IntegerLiteral*>(node.value.get())) val = lit->value;
@@ -5627,6 +5642,7 @@ public:
         if (node.increment) node.increment->accept(*this);
         node.body->accept(*this);
     }
+    void visit(RepeatStatement& node) override { node.body->accept(*this); }
     void visit(SwitchStatement& node) override { node.expression->accept(*this); node.body->accept(*this); }
     void visit(CaseStatement& node) override { node.value->accept(*this); if (node.rangeEnd) node.rangeEnd->accept(*this); }
     void visit(DefaultStatement&) override {}

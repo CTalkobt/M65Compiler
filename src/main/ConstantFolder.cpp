@@ -53,6 +53,15 @@ void ConstantFolder::visit(DoWhileStatement& node) {
     lastStmt = copyPos(std::make_unique<DoWhileStatement>(fold(std::move(node.body)), fold(std::move(node.condition))), node);
 }
 
+void ConstantFolder::visit(RepeatStatement& node) {
+    auto body = fold(std::move(node.body));
+    auto rep = std::make_unique<RepeatStatement>(node.count, std::move(body));
+    rep->varName = node.varName;
+    rep->varType = node.varType;
+    rep->varSigned = node.varSigned;
+    lastStmt = copyPos(std::move(rep), node);
+}
+
 void ConstantFolder::visit(ForStatement& node) {
     auto initializer = fold(std::move(node.initializer));
     knownConstants.clear(); // Clear before condition/body/increment

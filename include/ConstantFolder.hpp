@@ -452,6 +452,7 @@ public:
     void visit(WhileStatement& node) override;
     void visit(DoWhileStatement& node) override;
     void visit(ForStatement& node) override;
+    void visit(RepeatStatement& node) override;
 
     void visit(SwitchStatement& node) override {
         auto expression = fold(std::move(node.expression));

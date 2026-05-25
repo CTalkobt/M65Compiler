@@ -1722,6 +1722,51 @@ void IRBuilder::visit(DoWhileStatement& node) {
     startBlock(endLabel);
 }
 
+void IRBuilder::visit(RepeatStatement& node) {
+    if (node.count <= 0) return; // repeat(0) = no-op
+
+    if (node.varName.empty()) {
+        // Simple repeat(N) { body } — unroll N times
+        for (int i = 0; i < node.count; i++) {
+            node.body->accept(*this);
+        }
+    } else {
+        // repeat(type var, N) { body } — unroll with var = 1..N
+        ir::Type varType = mapType(node.varType, 0);
+        auto vreg = allocVreg(varType);
+        locals_[node.varName] = vreg;
+        localTypes_[node.varName] = varType;
+        localTypeNames_[node.varName] = node.varType;
+        localSigned_[node.varName] = node.varSigned;
+        if (currentFunc_) {
+            currentFunc_->localNames[node.varName] = vreg.vregId;
+            currentFunc_->localSlotVregs.insert(vreg.vregId);
+        }
+
+        for (int i = 1; i <= node.count; i++) {
+            // Set var = i as a constant
+            ir::Inst constInst;
+            constInst.op = ir::Op::CONST;
+            constInst.dest = vreg;
+            constInst.resultType = varType;
+            constInst.src1 = ir::Operand::imm(i, varType);
+            constInst.loc = loc(node);
+            emit(constInst);
+
+            // Store to the vreg slot
+            ir::Inst store;
+            store.op = ir::Op::STORE;
+            store.resultType = varType;
+            store.src1 = ir::Operand::imm(i, varType);
+            store.src2 = vreg;
+            store.loc = loc(node);
+            emit(store);
+
+            node.body->accept(*this);
+        }
+    }
+}
+
 void IRBuilder::visit(ForStatement& node) {
     std::string condLabel = newLabel("for_cond");
     std::string bodyLabel = newLabel("for_body");
@@ -2230,6 +2275,7 @@ public:
         if (node.increment) node.increment->accept(*this);
         if (node.body) node.body->accept(*this);
     }
+    void visit(RepeatStatement& node) override { if (node.body) node.body->accept(*this); }
     void visit(SwitchStatement& node) override {
         if (node.expression) node.expression->accept(*this);
         // Do NOT visit body to avoid collecting cases from nested switches

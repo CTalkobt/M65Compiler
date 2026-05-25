@@ -709,6 +709,62 @@ std::unique_ptr<Statement> Parser::parseStatement() {
         return setPos(std::make_unique<ForStatement>(std::move(initializer), std::move(condition), std::move(increment), std::move(body)), startToken);
     }
 
+    if (match(TokenType::REPEAT)) {
+        const Token& startToken = tokens[pos-1];
+        expect(TokenType::OPEN_PAREN, "Expected '(' after 'repeat'");
+        // Check for optional variable declaration: repeat(type var, count)
+        // vs simple: repeat(count)
+        std::string varType, varName;
+        bool varSigned = false;
+        int count = 0;
+        // Lookahead: if next tokens are type + identifier + comma, it's the var form
+        bool hasVar = false;
+        {
+            size_t saved = pos;
+            if (peek().type == TokenType::UNSIGNED || peek().type == TokenType::SIGNED ||
+                peek().type == TokenType::CHAR || peek().type == TokenType::INT ||
+                peek().type == TokenType::SHORT || peek().type == TokenType::LONG) {
+                // Could be a type — check if followed by identifier then comma
+                size_t look = pos;
+                if (tokens[look].type == TokenType::UNSIGNED || tokens[look].type == TokenType::SIGNED) look++;
+                if (tokens[look].type == TokenType::CHAR || tokens[look].type == TokenType::INT ||
+                    tokens[look].type == TokenType::SHORT || tokens[look].type == TokenType::LONG) look++;
+                if (look < tokens.size() && tokens[look].type == TokenType::IDENTIFIER &&
+                    look + 1 < tokens.size() && tokens[look + 1].type == TokenType::COMMA) {
+                    hasVar = true;
+                }
+            }
+            pos = saved;
+        }
+        if (hasVar) {
+            if (match(TokenType::SIGNED)) varSigned = true;
+            else match(TokenType::UNSIGNED);
+            if (match(TokenType::CHAR)) varType = "char";
+            else if (match(TokenType::INT) || match(TokenType::SHORT)) varType = "int";
+            else if (match(TokenType::LONG)) varType = "long";
+            else { varType = "int"; }
+            varName = expect(TokenType::IDENTIFIER, "Expected variable name in repeat").value;
+            expect(TokenType::COMMA, "Expected ',' after repeat variable");
+        }
+        auto countExpr = parseExpression();
+        expect(TokenType::CLOSE_PAREN, "Expected ')' after repeat count");
+        // Count must be a constant integer literal
+        if (auto* lit = dynamic_cast<IntegerLiteral*>(countExpr.get())) {
+            count = (int)lit->value;
+        } else {
+            throw std::runtime_error("repeat count must be a compile-time constant");
+        }
+        if (count < 0 || count > 1024) {
+            throw std::runtime_error("repeat count must be between 0 and 1024");
+        }
+        auto body = parseStatement();
+        auto rep = setPos(std::make_unique<RepeatStatement>(count, std::move(body)), startToken);
+        rep->varName = varName;
+        rep->varType = varType;
+        rep->varSigned = varSigned;
+        return rep;
+    }
+
     if (match(TokenType::SWITCH)) {
         const Token& startToken = tokens[pos-1];
         expect(TokenType::OPEN_PAREN, "Expected '(' after 'switch'");

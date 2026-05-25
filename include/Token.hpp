@@ -46,6 +46,7 @@ enum class TokenType {
     INTERRUPT, // __interrupt (ISR function attribute)
     NAKED,     // __naked (no prologue/epilogue)
     UNPACKED,  // __unpacked (opt-in alignment padding for structs)
+    REPEAT,    // repeat (compile-time loop unrolling)
 
     // Variadic
     ELLIPSIS,  // ...
@@ -159,6 +160,7 @@ struct Token {
             case TokenType::INTERRUPT: return "INTERRUPT";
             case TokenType::NAKED: return "NAKED";
             case TokenType::UNPACKED: return "UNPACKED";
+            case TokenType::REPEAT: return "REPEAT";
             case TokenType::ELLIPSIS: return "ELLIPSIS";
             case TokenType::IDENTIFIER: return "IDENTIFIER";
             case TokenType::INTEGER_LITERAL: return "INTEGER_LITERAL";

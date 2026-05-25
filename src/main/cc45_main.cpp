@@ -275,6 +275,12 @@ public:
         node.body->accept(*this);
         indent--;
     }
+    void visit(RepeatStatement& node) override {
+        printIndent(); std::cout << "RepeatStatement: count=" << node.count;
+        if (!node.varName.empty()) std::cout << " var=" << node.varType << " " << node.varName;
+        std::cout << std::endl;
+        indent++; node.body->accept(*this); indent--;
+    }
     void visit(SwitchStatement& node) override {
         printIndent(); std::cout << "SwitchStatement" << std::endl;
         indent++;

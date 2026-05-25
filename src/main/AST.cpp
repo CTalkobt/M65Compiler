@@ -28,6 +28,7 @@ void IfStatement::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void WhileStatement::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void DoWhileStatement::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void ForStatement::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void RepeatStatement::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void SwitchStatement::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void CaseStatement::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void DefaultStatement::accept(ASTVisitor& visitor) { visitor.visit(*this); }

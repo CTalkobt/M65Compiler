@@ -231,6 +231,7 @@ Token Lexer::lexIdentifierOrKeyword() {
         {"__naked__", TokenType::NAKED},
         {"__unpacked", TokenType::UNPACKED},
         {"__unpacked__", TokenType::UNPACKED},
+        {"repeat", TokenType::REPEAT},
         };
 
     auto it = keywords.find(value);

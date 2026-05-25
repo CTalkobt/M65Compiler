@@ -307,6 +307,18 @@ public:
     void accept(ASTVisitor& visitor) override;
 };
 
+class RepeatStatement : public Statement {
+public:
+    int count;                              // compile-time repeat count
+    std::string varName;                    // optional loop variable name (empty if none)
+    std::string varType;                    // optional loop variable type (e.g., "char")
+    bool varSigned = false;
+    std::unique_ptr<Statement> body;
+    RepeatStatement(int n, std::unique_ptr<Statement> b)
+        : count(n), body(std::move(b)) {}
+    void accept(ASTVisitor& visitor) override;
+};
+
 class SwitchStatement : public Statement {
 public:
     std::unique_ptr<Expression> expression;
@@ -496,6 +508,7 @@ public:
     virtual void visit(WhileStatement& node) = 0;
     virtual void visit(DoWhileStatement& node) = 0;
     virtual void visit(ForStatement& node) = 0;
+    virtual void visit(RepeatStatement& node) = 0;
     virtual void visit(SwitchStatement& node) = 0;
     virtual void visit(CaseStatement& node) = 0;
     virtual void visit(DefaultStatement& node) = 0;
