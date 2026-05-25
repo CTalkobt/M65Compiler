@@ -403,6 +403,49 @@ void AssemblerParser::pass1() {
             stmt->type = Statement::DIRECTIVE;
             stmt->dir.name = tokens[pos-1].value;
 
+            // .repeat N / .endrepeat — compile-time loop unrolling
+            if (stmt->dir.name == "repeat") {
+                int repeatCount = (int)evaluateExpressionAt((int)pos, currentScopePrefix());
+                while (pos < tokens.size() && tokens[pos].type != AssemblerTokenType::NEWLINE &&
+                       tokens[pos].type != AssemblerTokenType::END_OF_FILE) pos++;
+                if (pos < tokens.size() && tokens[pos].type == AssemblerTokenType::NEWLINE) pos++;
+
+                // Collect tokens until .endrepeat
+                size_t bodyStart = pos;
+                int depth = 1;
+                while (pos < tokens.size() && depth > 0) {
+                    if (tokens[pos].type == AssemblerTokenType::DIRECTIVE) {
+                        if (tokens[pos].value == "repeat") depth++;
+                        else if (tokens[pos].value == "endrepeat") {
+                            depth--;
+                            if (depth == 0) break;
+                        }
+                    }
+                    pos++;
+                }
+                size_t bodyEnd = pos;
+                if (pos < tokens.size()) pos++; // skip .endrepeat
+                // Skip trailing newline
+                if (pos < tokens.size() && tokens[pos].type == AssemblerTokenType::NEWLINE) pos++;
+
+                // Splice N copies of the body tokens into the token stream
+                if (repeatCount > 0 && bodyEnd > bodyStart) {
+                    std::vector<AssemblerToken> bodyTokens(tokens.begin() + bodyStart, tokens.begin() + bodyEnd);
+                    std::vector<AssemblerToken> expanded;
+                    for (int r = 0; r < repeatCount; r++) {
+                        for (auto& t : bodyTokens) expanded.push_back(t);
+                    }
+                    tokens.insert(tokens.begin() + pos, expanded.begin(), expanded.end());
+                }
+                continue;
+            }
+
+            if (stmt->dir.name == "endrepeat") {
+                // Stray .endrepeat without matching .repeat — skip
+                while (pos < tokens.size() && tokens[pos].type != AssemblerTokenType::NEWLINE) pos++;
+                continue;
+            }
+
             if (stmt->dir.name == "segment" || stmt->dir.name == "code" || stmt->dir.name == "data" || stmt->dir.name == "bss") {
                     std::string newSeg;
                     if (stmt->dir.name == "segment") {
