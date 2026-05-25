@@ -378,11 +378,11 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     // Emit string data
     emitStrings(mod);
 
-    // Emit ZP save buffer at end of program (BSS)
+    // ZP save buffer: label at end of program, no .res needed.
+    // The 248 bytes after the program are unused RAM — written before read.
     if (mod.saveZP) {
         emitBlank();
         emitLabel("__zp_save_buf");
-        emit(".res 248");
     }
 }
 
