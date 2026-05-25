@@ -1359,6 +1359,115 @@ void IRBuilder::visit(CastExpression& node) {
 }
 
 void IRBuilder::visit(FunctionCall& node) {
+    // DMA intrinsics: __dma_copy(dst, src, len), __dma_fill(dst, len, val)
+    if (node.name == "__dma_copy" && node.arguments.size() == 3) {
+        // Evaluate args: dst (ptr), src (ptr), len (int)
+        node.arguments[0]->accept(*this); auto dst = lastValue_;
+        node.arguments[1]->accept(*this); auto src = lastValue_;
+        node.arguments[2]->accept(*this); auto len = lastValue_;
+
+        // Build DMA copy job inline via assembly:
+        // Store src/dst/len to ZP scratch area, then build 12-byte job on stack
+        auto emitAsm = [&](const std::string& line) {
+            ir::Inst a; a.op = ir::Op::ASM_INLINE; a.asmText = line; a.loc = loc(node); emit(a);
+        };
+
+        // Save args to ZP $02-$07 (scratch area, safe for DMA setup)
+        ir::Inst storeSrc; storeSrc.op = ir::Op::STORE; storeSrc.resultType = ir::Type::I16;
+        storeSrc.src1 = src; storeSrc.src2 = ir::Operand::global("$02"); storeSrc.loc = loc(node); emit(storeSrc);
+        ir::Inst storeDst; storeDst.op = ir::Op::STORE; storeDst.resultType = ir::Type::I16;
+        storeDst.src1 = dst; storeDst.src2 = ir::Operand::global("$04"); storeDst.loc = loc(node); emit(storeDst);
+        ir::Inst storeLen; storeLen.op = ir::Op::STORE; storeLen.resultType = ir::Type::I16;
+        storeLen.src1 = len; storeLen.src2 = ir::Operand::global("$06"); storeLen.loc = loc(node); emit(storeLen);
+
+        // Build 12-byte F018B DMA job on stack and trigger
+        emitAsm("pha");                          // save A
+        emitAsm("lda #0");    emitAsm("pha");    // modulo MSB
+        emitAsm("pha");                          // modulo LSB
+        emitAsm("pha");                          // command MSB
+        emitAsm("pha");                          // dest bank
+        emitAsm("lda $05");   emitAsm("pha");    // dest addr hi
+        emitAsm("lda $04");   emitAsm("pha");    // dest addr lo
+        emitAsm("lda #0");    emitAsm("pha");    // src bank
+        emitAsm("lda $03");   emitAsm("pha");    // src addr hi
+        emitAsm("lda $02");   emitAsm("pha");    // src addr lo
+        emitAsm("lda $07");   emitAsm("pha");    // length hi
+        emitAsm("lda $06");   emitAsm("pha");    // length lo
+        emitAsm("lda #$00");  emitAsm("pha");    // command: copy=0x00
+        // Trigger: point DMA controller at stack
+        emitAsm("tsx");
+        emitAsm("txa");
+        emitAsm("clc");
+        emitAsm("adc #1");                       // SP+1 = job start
+        emitAsm("sta $D701");                    // DMA addr lo
+        emitAsm("lda #$01");                     // stack page = $01
+        emitAsm("sta $D702");                    // DMA addr mi
+        emitAsm("stz $D703");                    // DMA addr hi
+        emitAsm("stz $D700");                    // trigger DMA
+        // Clean up stack (13 bytes pushed)
+        emitAsm("tsx");
+        emitAsm("txa");
+        emitAsm("clc");
+        emitAsm("adc #13");
+        emitAsm("tax");
+        emitAsm("txs");
+        emitAsm("pla");                          // restore A
+        return;
+    }
+
+    if (node.name == "__dma_fill" && node.arguments.size() == 3) {
+        // Evaluate args: dst (ptr), len (int), val (char)
+        node.arguments[0]->accept(*this); auto dst = lastValue_;
+        node.arguments[1]->accept(*this); auto len = lastValue_;
+        node.arguments[2]->accept(*this); auto val = lastValue_;
+
+        auto emitAsm = [&](const std::string& line) {
+            ir::Inst a; a.op = ir::Op::ASM_INLINE; a.asmText = line; a.loc = loc(node); emit(a);
+        };
+
+        // Save args to ZP $02-$06
+        ir::Inst storeDst; storeDst.op = ir::Op::STORE; storeDst.resultType = ir::Type::I16;
+        storeDst.src1 = dst; storeDst.src2 = ir::Operand::global("$04"); storeDst.loc = loc(node); emit(storeDst);
+        ir::Inst storeLen; storeLen.op = ir::Op::STORE; storeLen.resultType = ir::Type::I16;
+        storeLen.src1 = len; storeLen.src2 = ir::Operand::global("$06"); storeLen.loc = loc(node); emit(storeLen);
+        ir::Inst storeVal; storeVal.op = ir::Op::STORE; storeVal.resultType = ir::Type::I8;
+        storeVal.src1 = val; storeVal.src2 = ir::Operand::global("$02"); storeVal.loc = loc(node); emit(storeVal);
+
+        // Build 12-byte F018B DMA fill job on stack and trigger
+        emitAsm("pha");                          // save A
+        emitAsm("lda #0");    emitAsm("pha");    // modulo MSB
+        emitAsm("pha");                          // modulo LSB
+        emitAsm("pha");                          // command MSB
+        emitAsm("pha");                          // dest bank
+        emitAsm("lda $05");   emitAsm("pha");    // dest addr hi
+        emitAsm("lda $04");   emitAsm("pha");    // dest addr lo
+        emitAsm("lda #0");    emitAsm("pha");    // src bank (ignored for fill)
+        emitAsm("lda $02");   emitAsm("pha");    // fill value (in src addr lo)
+        emitAsm("lda #0");    emitAsm("pha");    // fill value hi (ignored)
+        emitAsm("lda $07");   emitAsm("pha");    // length hi
+        emitAsm("lda $06");   emitAsm("pha");    // length lo
+        emitAsm("lda #$03");  emitAsm("pha");    // command: fill=0x03
+        // Trigger DMA
+        emitAsm("tsx");
+        emitAsm("txa");
+        emitAsm("clc");
+        emitAsm("adc #1");
+        emitAsm("sta $D701");
+        emitAsm("lda #$01");
+        emitAsm("sta $D702");
+        emitAsm("stz $D703");
+        emitAsm("stz $D700");
+        // Clean up stack
+        emitAsm("tsx");
+        emitAsm("txa");
+        emitAsm("clc");
+        emitAsm("adc #13");
+        emitAsm("tax");
+        emitAsm("txs");
+        emitAsm("pla");                          // restore A
+        return;
+    }
+
     // Check for passing &const_var to non-const pointer parameter
     auto pit = funcParamInfo_.find(node.name);
     if (pit != funcParamInfo_.end()) {

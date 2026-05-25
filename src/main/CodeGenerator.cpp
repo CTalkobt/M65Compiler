@@ -929,6 +929,9 @@ void CodeGenerator::visit(TranslationUnit& node) {
 
     // Collect all known function names (definitions + prototypes) for call validation
     knownFunctions.clear();
+    // DMA intrinsics are always available
+    knownFunctions.insert("__dma_copy");
+    knownFunctions.insert("__dma_fill");
     variadicFunctions.clear();
     structReturningFunctions.clear();
     functionReturnTypes.clear();
