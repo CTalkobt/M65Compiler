@@ -281,16 +281,67 @@ against the ZP address. Constants should be inlined: `cmp.16 .AX, #10`.
 Code after `while(1)` (e.g., `return 0`) is unreachable but still emitted.
 The IR should detect blocks with no predecessors and omit them entirely.
 
-### BSS not occupying PRG space
-The `__zp_save_buf` (248 bytes) is in BSS but emitted as zeros in the linked
-PRG. For programs using `-basic`, BSS should be placed after the binary with
-only the BSS start/end symbols emitted, not zero-filled data.
+### Standalone mode CRT BSS in code segment
+The standalone (non-linked) CRT emits `__zp_save_buf` as `.res 248` in the
+code segment, placing 248 zero bytes in the PRG. This does NOT affect linked
+mode — the linker correctly omits BSS from the output. Fix: the standalone
+CRT should emit the save buffer in a BSS segment, or use a fixed RAM
+address outside the program's code range.
 
 ### Interprocedural register allocation
 Already emitting `.reg_clobbers` metadata (Phase 1 complete). The next step: if
 the linker knows `helper()` only clobbers A, then the caller doesn't need to
 save X/Y across the call. This is the Phase 2-5 roadmap -- the single
 highest-impact optimization for call-heavy code.
+
+### String literal strength reduction
+When a `const char*` traces back to a string literal, the compiler knows its
+length at compile time. Stdlib calls on such pointers can be strength-reduced:
+- `strlen("hello")` → constant `5` (LDA #5, no JSR)
+- `strcmp(ptr, "AB")` → inline comparison sequence for known length
+- `strcpy(dst, literal)` / `memcpy(dst, literal, strlen(literal))` → MOVE simop
+  with compile-time length, or unrolled stores for short strings
+- `strcmp(literal, literal)` → constant result (0 or ±1)
+
+Implementation: the constant propagation pass already tracks literal origins.
+Add pattern matching in the optimizer for recognized stdlib calls whose
+arguments resolve to literals. Falls back to normal library call when the
+pointer can't be traced to a literal. Zero runtime overhead — strictly replaces
+runtime work with compile-time knowledge. Net code size reduction in constant
+cases (inlined constant smaller than JSR + loop).
+
+### Multi-string comparison intrinsic (`equals1Of`)
+Check a string against several candidates in one call, returning the 1-based
+index of the match (0 = no match). Usable as a `switch` discriminator:
+```c
+switch (equals1Of(cmd, "load", "save", "quit", NULL)) {
+    case 1: do_load(); break;
+    case 2: do_save(); break;
+    case 3: do_quit(); break;
+    default: printf("unknown command\n");
+}
+```
+
+**Phase 1 — Library function:** Variadic `int equals1Of(const char *needle, ...)`
+with NULL sentinel. va_arg loop calling `strcmp`, returns 1-based index on first
+match, 0 when NULL reached. ~60 bytes library code, ~30 bytes per call site.
+Works with runtime strings.
+
+**Phase 2 — Compiler intrinsic with trie optimization:** When all candidates
+are string literals, the compiler builds a trie at compile time and emits inline
+character-by-character comparison code. Common prefixes are compared once.
+Example for `equals1Of(str, "substring", "substance", "summary", "substrate")`:
+```
+s-u─┬─b-s-t─┬─r─┬─i-n-g\0     → 1
+    │       │   └─a-t-e\0     → 4
+    │       └─a-n-c-e\0       → 2
+    └─m-m-a-r-y\0             → 3
+```
+Each character test: `iny; lda ($02),y; cmp #imm; bne @no_match` (7 bytes,
+~12 cycles). At branch points: cascaded `cmp/beq` pairs. ~146 cycles best case
+vs ~190 for the library version. ~31 cycles for early mismatch (first char
+rejects). Falls back to library call when any argument is non-literal. Follows
+existing `__dma_copy` intrinsic pattern in `IRBuilder.cpp` (~line 1362).
 
 ---
 
@@ -308,6 +359,7 @@ highest-impact optimization for call-heavy code.
 | DMA intrinsics | -- | very high | medium |
 | `__near`/`__far` pointers | high | medium | high |
 | Bank placement | high | medium | high |
+| String literal strength reduction | medium | high | low |
 
 Low-hanging fruit: `__interrupt`, case ranges, `__packed`, and tail-call
 optimization -- all relatively contained changes that deliver immediate,
