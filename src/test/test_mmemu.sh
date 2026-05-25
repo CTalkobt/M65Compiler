@@ -232,6 +232,8 @@ VALIDATION_TESTS=(
     "test_packed_struct"
     "test_naked"
     "test_i8_arith"
+    "test_optimizations"
+    "test_literal_promotion"
     "test_goto_sizeof"
     "test_signed_cc"
     "test_sub"
