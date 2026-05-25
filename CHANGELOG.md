@@ -7,6 +7,8 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 ### Added
 - **`repeat()` Loop Unrolling**: Compile-time loop unrolling via `repeat(N) { body }` and `repeat(type var, N) { body }` with optional loop variable (1..N). Zero loop overhead — body is duplicated N times.
 - **DMA Intrinsics**: `__dma_copy(dst, src, len)` and `__dma_fill(dst, len, val)` for MEGA65's F018B DMA controller (~40MB/s). Compiler builtins, no library needed.
+- **`__regparm` Function Attribute**: First parameter passed in A (char) or AX (int/pointer) register instead of ZP/stack. Saves 2–4 bytes and 3–6 cycles per call. Remaining parameters use normal convention.
+- **`.repeat N` / `.endrepeat` Assembler Directive**: Compile-time loop unrolling in assembly. Supports nesting and expression counts.
 - **`__interrupt` / `__naked` Function Attributes**: `__interrupt` emits PHA/PHX/PHY/PHZ + RTI; `__naked` suppresses all prologue/epilogue.
 - **Case Ranges**: GCC-style `case 'A' ... 'Z':` syntax for matching value ranges in switch statements.
 - **Packed Structs by Default**: All structs packed (no alignment padding). `__unpacked` keyword opts into traditional C alignment.

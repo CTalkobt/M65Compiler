@@ -155,6 +155,16 @@ For tiny hand-optimized routines where the compiler's prologue/epilogue overhead
 is unacceptable. The function body is 100% inline assembly -- the compiler just
 provides the label and `endproc`.
 
+### `__regparm` function attribute -- IMPLEMENTED (v1.0-rc3)
+```c
+__regparm char toupper(char c);    // c passed in A
+__regparm int abs(int x);          // x passed in AX
+__regparm int add(int a, int b);   // a in AX, b via ZP/stack
+```
+First parameter passed in A (I8) or AX (I16) register instead of ZP param
+block or stack. Saves 2-4 bytes and 3-6 cycles per call. Remaining params
+use normal convention. Callee receives value directly in register at entry.
+
 ### DMA intrinsics -- IMPLEMENTED (v1.0-rc3)
 ```c
 __dma_copy(dst, src, len);   // DMA memory copy (~40MB/s)
@@ -276,6 +286,12 @@ Variables declared as `unsigned char` are widened to 16-bit for all operations
 `level & 16` generates 50 bytes of 16-bit AND + chknonzero instead of
 `lda level; and #16; beq` (6 bytes). The IR should track char-width variables
 and use I8 operations where safe.
+
+### `volatile` in cast expressions
+Cast expressions like `(volatile vic4_t *)0xD020` fail to parse because the
+cast grammar doesn't accept type qualifiers (`volatile`, `const`) inside the
+parenthesized type. The parser should allow any valid type specifier/qualifier
+combination in cast expressions, matching standard C behavior.
 
 ### Inline constant comparison operands
 `cmp.16 .AX, $0024` loads the comparison constant to ZP first, then compares
