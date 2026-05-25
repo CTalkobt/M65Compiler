@@ -234,6 +234,8 @@ VALIDATION_TESTS=(
     "test_i8_arith"
     "test_optimizations"
     "test_literal_promotion"
+    "test_shift_edge"
+    "test_compound_types"
     "test_goto_sizeof"
     "test_signed_cc"
     "test_sub"

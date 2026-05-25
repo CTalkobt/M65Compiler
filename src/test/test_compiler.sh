@@ -41,6 +41,8 @@ TEST_FILES=(
     "src/test-resources/test_optimizations.c"
     "src/test-resources/test_dma.c"
     "src/test-resources/test_literal_promotion.c"
+    "src/test-resources/test_shift_edge.c"
+    "src/test-resources/test_compound_types.c"
     "src/test-resources/test_global_vars.c"
     "src/test-resources/test_anon_struct.c"
     "src/test-resources/test_union.c"
