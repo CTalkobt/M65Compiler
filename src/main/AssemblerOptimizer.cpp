@@ -213,6 +213,70 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
         }
     }
 
+    // --- Pass 1d: JMP→BRA conversion when target is within ±127 bytes ---
+    // Uses addresses from the previous assembler pass (available after pass 1).
+    for (size_t i = 0; i < parser->statements.size(); ++i) {
+        auto* s = parser->statements[i].get();
+        if (s->deleted) continue;
+        if (s->type != AssemblerParser::Statement::INSTRUCTION) continue;
+
+        std::string m = s->instr.mnemonic;
+        std::transform(m.begin(), m.end(), m.begin(), ::toupper);
+
+        if ((m == "JMP" || m == "JSR") && s->instr.mode == AddressingMode::ABSOLUTE) {
+            // Resolve the target address
+            uint32_t targetAddr = 0;
+            bool resolved = false;
+            if (s->instr.operandTokenIndex >= 0) {
+                try {
+                    targetAddr = parser->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
+                    resolved = true;
+                } catch (...) {}
+            }
+            if (!resolved) continue;
+
+            if (m == "JMP") {
+                // JMP (3 bytes) → BRA (2 bytes) when target within ±127
+                // BRA offset computed from PC+2 (after 2-byte instruction)
+                uint32_t braPC = s->address + 2;
+                int32_t offset = (int32_t)targetAddr - (int32_t)braPC;
+                if (offset >= -128 && offset <= 127) {
+                    s->instr.mnemonic = "bra";
+                    s->instr.mode = AddressingMode::RELATIVE;
+                    s->size = 2;
+                    changed = true;
+                }
+            } else {
+                // JSR (3 bytes) → BSR (3 bytes, relative16) for position-independent code
+                // Only convert when operand is a symbolic label (not a bare numeric address).
+                // Skip for extern/relocatable symbols — their addresses aren't final.
+                bool canBSR = resolved;
+                if (canBSR && s->instr.operandTokenIndex >= 0) {
+                    std::string operand = s->instr.operand;
+                    if (operand.empty() && s->instr.operandTokenIndex < (int)parser->tokens.size())
+                        operand = parser->tokens[s->instr.operandTokenIndex].value;
+                    // Skip bare numeric addresses (user explicitly chose JSR $addr)
+                    if (operand.empty() || operand[0] == '$' || operand[0] == '%' ||
+                        (operand[0] >= '0' && operand[0] <= '9'))
+                        canBSR = false;
+                    // Skip extern/relocatable symbols
+                    if (canBSR && (parser->isRelocatableSymbol(operand) ||
+                        parser->isRelocatableSymbol(s->scopePrefix + operand)))
+                        canBSR = false;
+                }
+                if (canBSR) {
+                    uint32_t bsrPC = s->address + 3;
+                    int32_t offset = (int32_t)targetAddr - (int32_t)bsrPC;
+                    if (offset >= -32768 && offset <= 32767) {
+                        s->instr.mnemonic = "bsr";
+                        s->instr.mode = AddressingMode::RELATIVE16;
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+
     // --- Pass 2: Register tracking and redundant load elimination ---
     for (size_t i = 0; i < parser->statements.size(); ++i) {
         auto* s = parser->statements[i].get();

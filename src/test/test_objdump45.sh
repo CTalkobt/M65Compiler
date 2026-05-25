@@ -365,8 +365,8 @@ if [ $? -eq 0 ]; then
     assert_contains "sta abs has <_counter>" "$OUT" "<_counter>"
     assert_contains "lda abs,x has <_table>" "$OUT" "<_table>"
     assert_contains "lda abs,y has <_table>" "$OUT" "<_table>"
-    assert_contains "jmp annotated with <_main>" "$OUT" "jmp"
-    assert_contains "jmp has <_main>" "$OUT" "<_main>"
+    # jmp may be optimized to bra — check for either
+    assert_contains "branch to _main" "$OUT" "<_main>"
     assert_contains "_main label" "$OUT" "<_main>:"
     assert_contains "_counter label" "$OUT" "<_counter>:"
     assert_contains "_table label" "$OUT" "<_table>:"

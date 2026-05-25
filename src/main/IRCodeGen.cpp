@@ -333,9 +333,12 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         if (hasMain) {
             emit("jsr _main");
         }
-        
+
         // Halt or exit
         if (mod.saveZP) {
+            // Save return value to $02/$03 (below save/restore range $08-$FF)
+            emit("sta $02");
+            emit("stx $03");
             emitComment("Restore ZP $08-$FF from BSS buffer");
             emit("ldx #0");
             emitLabel("@__zp_restore_loop");
@@ -344,6 +347,9 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
             emit("inx");
             emit("cpx #248");
             emit("bne @__zp_restore_loop");
+            // Reload return value
+            emit("lda $02");
+            emit("ldx $03");
         }
         emitLabel("__halt");
         emit("jmp __halt");
