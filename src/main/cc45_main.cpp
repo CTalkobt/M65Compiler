@@ -383,7 +383,6 @@ int main(int argc, char** argv) {
     uint32_t zeroPageStart = 0x08;
     bool zpCallMode = false;
     bool emitIR = false;
-    bool codegenIR = true;
     bool emitReasons = false;
     uint32_t zeroPageAvail = 9;
     std::string defineFlag = "";
@@ -445,10 +444,6 @@ int main(int argc, char** argv) {
             zpCallMode = false;
         } else if (arg == "--emit-ir") {
             emitIR = true;
-        } else if (arg == "--codegen-ir") {
-            codegenIR = true; emitIR = true;
-        } else if (arg == "--legacy-codegen") {
-            codegenIR = false;
         } else if (arg == "-Rcodegen") {
             emitReasons = true;
         } else if (arg == "-O0") {
@@ -596,79 +591,62 @@ int main(int argc, char** argv) {
 
         if (verboseLevel >= 1) std::cout << "Code generation..." << std::endl;
 
-        if (codegenIR) {
-            // Run legacy CodeGenerator for validation (error detection only)
-            // Catches struct errors, type errors, etc. that IRBuilder doesn't validate.
-            {
-                std::ostringstream nullOut;
-                CodeGenerator validator(nullOut);
-                validator.zeroPageStart = zeroPageStart;
-                validator.zeroPageAvail = zeroPageAvail;
-                validator.relocMode = assemble;
-                validator.zpCallMode = zpCallMode;
-                validator.setSourceInfo(input_file, sourceLines);
-                try {
-                    validator.generate(*ast);
-                } catch (const std::exception& e) {
-                    std::cerr << "Compile Error: " << e.what() << std::endl;
-                    return 1;
-                }
-            }
-
-            irBuilder.generate(*ast);
-
-            // Write IR text dump if requested
-            if (emitIR) {
-                std::string irFile = asmFile;
-                size_t dotPos = irFile.rfind('.');
-                if (dotPos != std::string::npos) irFile = irFile.substr(0, dotPos);
-                irFile += ".ir";
-                std::ofstream irOut(irFile);
-                if (irOut.is_open()) {
-                    ir::Printer::print(irOut, irBuilder.getModule());
-                    irOut.close();
-                    if (verboseLevel >= 1) std::cout << "Generated IR in " << irFile << std::endl;
-                }
-            }
-
-            // Emit warnings
-            for (const auto& warn : irBuilder.getWarnings()) {
-                std::cerr << input_file << ":" << warn << std::endl;
-            }
-
-            // Check for IR errors (const violations, etc.)
-            if (irBuilder.hasErrors()) {
-                for (const auto& err : irBuilder.getErrors()) {
-                    std::cerr << input_file << ":" << err << std::endl;
-                }
+        // Run legacy CodeGenerator for validation (error detection only)
+        // Catches struct errors, type errors, etc. that IRBuilder doesn't validate.
+        {
+            std::ostringstream nullOut;
+            CodeGenerator validator(nullOut);
+            validator.zeroPageStart = zeroPageStart;
+            validator.zeroPageAvail = zeroPageAvail;
+            validator.relocMode = assemble;
+            validator.zpCallMode = zpCallMode;
+            validator.setSourceInfo(input_file, sourceLines);
+            try {
+                validator.generate(*ast);
+            } catch (const std::exception& e) {
+                std::cerr << "Compile Error: " << e.what() << std::endl;
                 return 1;
             }
-
-            // Emit assembly from IR
-            std::ofstream asmOut(asmFile);
-            if (!asmOut.is_open()) {
-                std::cerr << "Failed to open output file for assembly: " << asmFile << std::endl;
-                return 1;
-            }
-            IRCodeGen irCodeGen(asmOut);
-            irCodeGen.generate(irBuilder.getModule(), zeroPageStart, assemble, zpCallMode, emitReasons);
-            asmOut.close();
-        } else {
-            // Legacy path: AST → CodeGenerator → assembly
-            std::ofstream asmOut(asmFile);
-            if (!asmOut.is_open()) {
-                std::cerr << "Failed to open output file for assembly: " << asmFile << std::endl;
-                return 1;
-            }
-            CodeGenerator codegen(asmOut);
-            codegen.zeroPageStart = zeroPageStart;
-            codegen.zeroPageAvail = zeroPageAvail;
-            codegen.relocMode = assemble;
-            codegen.zpCallMode = zpCallMode;
-            codegen.setSourceInfo(input_file, sourceLines);
-            codegen.generate(*ast);
-            asmOut.close();
         }
+
+        irBuilder.generate(*ast);
+
+        // Write IR text dump if requested
+        if (emitIR) {
+            std::string irFile = asmFile;
+            size_t dotPos = irFile.rfind('.');
+            if (dotPos != std::string::npos) irFile = irFile.substr(0, dotPos);
+            irFile += ".ir";
+            std::ofstream irOut(irFile);
+            if (irOut.is_open()) {
+                ir::Printer::print(irOut, irBuilder.getModule());
+                irOut.close();
+                if (verboseLevel >= 1) std::cout << "Generated IR in " << irFile << std::endl;
+            }
+        }
+
+        // Emit warnings
+        for (const auto& warn : irBuilder.getWarnings()) {
+            std::cerr << input_file << ":" << warn << std::endl;
+        }
+
+        // Check for IR errors (const violations, etc.)
+        if (irBuilder.hasErrors()) {
+            for (const auto& err : irBuilder.getErrors()) {
+                std::cerr << input_file << ":" << err << std::endl;
+            }
+            return 1;
+        }
+
+        // Emit assembly from IR
+        std::ofstream asmOut(asmFile);
+        if (!asmOut.is_open()) {
+            std::cerr << "Failed to open output file for assembly: " << asmFile << std::endl;
+            return 1;
+        }
+        IRCodeGen irCodeGen(asmOut);
+        irCodeGen.generate(irBuilder.getModule(), zeroPageStart, assemble, zpCallMode, emitReasons);
+        asmOut.close();
 
         if (verboseLevel >= 1) {
             std::cout << "Generated assembly in " << asmFile << std::endl;
