@@ -237,6 +237,7 @@ VALIDATION_TESTS=(
     "test_shift_edge"
     "test_compound_types"
     "test_repeat"
+    "test_regparm"
     "test_goto_sizeof"
     "test_signed_cc"
     "test_sub"

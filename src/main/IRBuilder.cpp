@@ -328,6 +328,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         functionParamSigned_[node.name] = psigned;
         functionReturnTypes_[node.name] = mapType(node.returnType, node.returnPointerLevel);
         if (node.isVariadic) variadicFunctions_.insert(node.name);
+        if (node.isRegparm) regparmFunctions_.insert(node.name);
     }
     if (node.isPrototype || !node.body) return;
 
@@ -340,6 +341,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     fn.isStatic = node.isStatic;
     fn.isInterrupt = node.isInterrupt;
     fn.isNaked = node.isNaked;
+    fn.isRegparm = node.isRegparm;
 
     for (const auto& p : node.parameters) {
         fn.paramTypes.push_back(mapType(p.type, p.pointerLevel));
@@ -1509,6 +1511,7 @@ void IRBuilder::visit(FunctionCall& node) {
     // Determine calling convention
     bool isVariadic = variadicFunctions_.count(node.name) > 0;
     inst.callConv = (zpCallMode && !isVariadic) ? ir::CallConv::ZP : ir::CallConv::STACK;
+    inst.isRegparm = regparmFunctions_.count(node.name) > 0;
 
     std::vector<ir::Operand> castArgs;
     auto const& pTypes = functionParamTypes_[node.name];

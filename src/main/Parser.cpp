@@ -91,6 +91,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
         bool isFC = false;
         bool isInterrupt = false;
         bool isNaked = false;
+        bool isRegparm = false;
 
         if (tokens[look].type == TokenType::EXTERN) {
             isExtern = true;
@@ -114,6 +115,10 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
         }
         if (tokens[look].type == TokenType::NAKED) {
             isNaked = true;
+            look++;
+        }
+        if (tokens[look].type == TokenType::REGPARM) {
+            isRegparm = true;
             look++;
         }
 
@@ -217,12 +222,14 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     if (isFC) match(TokenType::FASTCALL);
                     if (isInterrupt) match(TokenType::INTERRUPT);
                     if (isNaked) match(TokenType::NAKED);
-                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
+                    if (isRegparm) match(TokenType::REGPARM);
+                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
                     auto decl = parseFunctionDeclaration();
                     decl->isNoreturn = isNR;
                     decl->isFastcall = isFC;
                     decl->isInterrupt = isInterrupt;
                     decl->isNaked = isNaked;
+                    decl->isRegparm = isRegparm;
                     decl->isStatic = isStatic;
                     // extern functions are always prototypes (no body)
                     if (isExtern) decl->isPrototype = true;
@@ -235,7 +242,8 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     if (isFC) match(TokenType::FASTCALL);
                     if (isInterrupt) match(TokenType::INTERRUPT);
                     if (isNaked) match(TokenType::NAKED);
-                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
+                    if (isRegparm) match(TokenType::REGPARM);
+                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
                     auto decl = parseVariableDeclaration(isVol, isConst);
                     if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                         vd->isGlobal = true;
@@ -251,12 +259,14 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 if (isFC) match(TokenType::FASTCALL);
                 if (isInterrupt) match(TokenType::INTERRUPT);
                 if (isNaked) match(TokenType::NAKED);
+                    if (isRegparm) match(TokenType::REGPARM);
                 while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
                 auto decl = parseFunctionDeclaration();
                 decl->isNoreturn = isNR;
                 decl->isFastcall = isFC;
                 decl->isInterrupt = isInterrupt;
                 decl->isNaked = isNaked;
+                    decl->isRegparm = isRegparm;
                 flushPending(*unit);
                 unit->topLevelDecls.push_back(std::move(decl));
             }
@@ -265,12 +275,14 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             if (isFC) match(TokenType::FASTCALL);
             if (isInterrupt) match(TokenType::INTERRUPT);
             if (isNaked) match(TokenType::NAKED);
+                    if (isRegparm) match(TokenType::REGPARM);
             while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
             auto decl = parseFunctionDeclaration();
             decl->isNoreturn = isNR;
             decl->isFastcall = isFC;
             decl->isInterrupt = isInterrupt;
             decl->isNaked = isNaked;
+                    decl->isRegparm = isRegparm;
             flushPending(*unit);
             unit->topLevelDecls.push_back(std::unique_ptr<Statement>(std::move(decl)));
         }
@@ -284,6 +296,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     bool isFC = match(TokenType::FASTCALL);
     bool isInterrupt = match(TokenType::INTERRUPT);
     bool isNaked = match(TokenType::NAKED);
+    bool isRegparm = match(TokenType::REGPARM);
     std::string returnType;
     bool isSigned = false;
     int basePtrLevel = 0;
@@ -464,6 +477,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         func->isFastcall = isFC;
         func->isInterrupt = isInterrupt;
         func->isNaked = isNaked;
+    func->isRegparm = isRegparm;
         func->isPrototype = true;
         func->isVariadic = isVariadic;
         return func;
@@ -482,6 +496,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     func->isFastcall = isFC;
     func->isInterrupt = isInterrupt;
     func->isNaked = isNaked;
+    func->isRegparm = isRegparm;
     func->isVariadic = isVariadic;
     return func;
 }

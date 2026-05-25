@@ -44,6 +44,7 @@ TEST_FILES=(
     "src/test-resources/test_shift_edge.c"
     "src/test-resources/test_compound_types.c"
     "src/test-resources/test_repeat.c"
+    "src/test-resources/test_regparm.c"
     "src/test-resources/test_global_vars.c"
     "src/test-resources/test_anon_struct.c"
     "src/test-resources/test_union.c"

@@ -152,6 +152,7 @@ private:
     std::map<std::string, std::vector<ir::Type>> functionParamTypes_;
     std::map<std::string, std::vector<bool>> functionParamSigned_;
     std::set<std::string> variadicFunctions_;
+    std::set<std::string> regparmFunctions_;
 
     // Track function parameter info for const-qualification warnings
     struct ParamInfo { bool isConst = false; int pointerLevel = 0; };

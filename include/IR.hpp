@@ -202,6 +202,7 @@ struct Inst {
     // For CALL/CALL_INDIRECT: argument list and convention
     std::vector<Operand> args;
     CallConv callConv = CallConv::STACK;
+    bool isRegparm = false;  // first param passed in A/AX
 
     // For SWITCH: case values and labels
     std::vector<std::pair<int64_t, std::string>> switchCases;
@@ -239,6 +240,7 @@ struct Function {
     bool isStatic = false;
     bool isInterrupt = false;
     bool isNaked = false;
+    bool isRegparm = false;
 
     std::vector<Block> blocks;
     uint32_t nextVreg = 0;             // counter for allocating vRegs

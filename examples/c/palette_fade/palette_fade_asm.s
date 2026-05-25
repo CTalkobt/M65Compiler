@@ -71,10 +71,11 @@ _restore_palette:
 
 
 ; _apply_fade(unsigned char level) — Scale palette by fade level
-; ZP calling convention: level parameter at $10
+; __regparm: level parameter passed in A register
 ; Reads from BSS buffer (palette_buffer)
-; Uses ZP: $10 (parameter), $04-$07 (temp storage)
+; Uses ZP: $10 (saved level), $04-$07 (temp storage)
 _apply_fade:
+    sta $10                   ; save level from A to ZP for loop use
     ldx #0
 @fade_loop:
     ; Process RED

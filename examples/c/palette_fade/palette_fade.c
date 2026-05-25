@@ -10,7 +10,7 @@
 void unlock_viciv(void);
 void save_palette(void);
 void restore_palette(void);
-void apply_fade(unsigned char level);
+__regparm void apply_fade(unsigned char level);
 
 // Delay to make fade visible
 void delay_frame(void) {

@@ -701,14 +701,15 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     }
 
     // proc directive with parameter specs
+    // For regparm, first param is in A/AX — not on stack, not in proc line
     std::string procLine = "proc " + fn.name;
     for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+        if (fn.isRegparm && i == 0) continue; // first param in register
         procLine += ", ";
         int pSize = ir::typeSize(fn.paramTypes[i]);
         if (pSize == 1) procLine += "B";
         else if (pSize == 4) procLine += "D";
         else procLine += "W";
-        // Parameter name
         if (i < fn.paramNames.size() && !fn.paramNames[i].empty()) {
             procLine += "#@_p_" + fn.paramNames[i];
         } else {
@@ -812,6 +813,11 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     if (useStackParams) {
         // Stack convention: params are on the stack, copy to ZP temps
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+            if (fn.isRegparm && i == 0) {
+                // First param already in A (I8) or AX (I16) — just store
+                storeVreg((uint32_t)i);
+                continue;
+            }
             std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
                 ? fn.paramNames[i] : std::to_string(i);
             if (fn.paramTypes[i] == ir::Type::I32) {
@@ -824,6 +830,11 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     } else {
         // ZP call convention: params already in ZP block, copy to vReg slots
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+            if (fn.isRegparm && i == 0) {
+                // First param already in A (I8) or AX (I16) — just store
+                storeVreg((uint32_t)i);
+                continue;
+            }
             std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
                 ? fn.paramNames[i] : std::to_string(i);
             // ZP params are at $10 + offset; load from the .var @_p_ location
@@ -1771,7 +1782,14 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             if (inst.callConv == ir::CallConv::ZP) {
                 // ZP convention: store args to ZP param block (past scratch)
                 int zpOff = (int)zeroPageStart_ + 8; // 8 bytes of scratch
-                for (const auto& arg : inst.args) {
+                for (size_t argIdx = 0; argIdx < inst.args.size(); argIdx++) {
+                    const auto& arg = inst.args[argIdx];
+                    if (inst.isRegparm && argIdx == 0) {
+                        // First param: leave in A/AX, skip ZP store
+                        loadOperand(arg);
+                        zpOff += ir::typeSize(arg.type);
+                        continue;
+                    }
                     loadOperand(arg);
                     int ps = ir::typeSize(arg.type);
                     std::stringstream ss;
@@ -1821,8 +1839,11 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     }
                 }
                 // Phase 2: push from ZP slots (same order — already right-to-left)
+                // For regparm, skip the first arg (it goes in A/AX, not on stack)
                 for (int i = 0; i < nArgs; i++) {
-                    const auto& arg = inst.args[nArgs - 1 - i]; // original arg (to get type)
+                    int origIdx = nArgs - 1 - i; // original arg index
+                    if (inst.isRegparm && origIdx == 0) continue; // skip first arg
+                    const auto& arg = inst.args[origIdx];
                     int ps = ir::typeSize(arg.type);
                     if (ps < 2) ps = 2;
                     emit("lda " + zpSlotAddr(i, 0));
@@ -1836,6 +1857,13 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     }
                     argBytes += ps;
                     emit(".var _fp = _fp + " + std::to_string(ps));
+                }
+                // For regparm: load first arg into A/AX last (live at JSR)
+                if (inst.isRegparm && nArgs > 0) {
+                    int slot0 = nArgs - 1; // slot for arg 0
+                    emit("lda " + zpSlotAddr(slot0, 0));
+                    if (inst.args[0].type != ir::Type::I8)
+                        emit("ldx " + zpSlotAddr(slot0, 1));
                 }
                 
                 // JSR
