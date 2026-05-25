@@ -79,7 +79,7 @@ Avoids the common `goto found;` pattern or flag variables that waste both memory
 and cycles. Eliminating a flag variable and its associated branch is meaningful
 when every byte counts.
 
-### `repeat(n)` loop
+### `repeat(n)` loop -- IMPLEMENTED (v1.0-rc3)
 ```c
 repeat(8) {
     *dst++ = *src++;  // Unrolled 8 times by the compiler
@@ -155,16 +155,20 @@ For tiny hand-optimized routines where the compiler's prologue/epilogue overhead
 is unacceptable. The function body is 100% inline assembly -- the compiler just
 provides the label and `endproc`.
 
-### Intrinsic functions for 45GS02 / MEGA65 features
+### DMA intrinsics -- IMPLEMENTED (v1.0-rc3)
 ```c
-__builtin_dma_copy(src, dst, len);          // Emit MEGA65 DMA transfer
+__dma_copy(dst, src, len);   // DMA memory copy (~40MB/s)
+__dma_fill(dst, len, val);   // DMA memory fill (~40MB/s)
+```
+Compiler builtins that emit inline F018B DMA jobs on the hardware stack.
+No library linkage needed. `#include <dma.h>` for declarations.
+
+### Other intrinsic ideas (not yet implemented)
+```c
 __builtin_swap(a, b);                       // 45GS02 hardware swap
 unsigned char old = __builtin_irq_disable(); // SEI, return old P
 __builtin_irq_restore(old);                  // Restore from saved P
 ```
-The MEGA65 has a DMA controller that can copy/fill memory at ~40MB/s (vs ~1MB/s
-for CPU loops). An intrinsic that emits the DMA job structure inline would be
-enormously useful -- it's the single biggest performance feature of the hardware.
 
 ---
 
@@ -242,7 +246,7 @@ another function (or itself). Saves 2 bytes of stack per call depth and 12
 cycles (JSR+RTS -> JMP). Critical for recursive algorithms on a 256-byte stack.
 Implemented as an assembler optimizer pass (JSR absolute + RTS implied -> JMP).
 
-### Pointer constant propagation
+### Pointer constant propagation -- IMPLEMENTED (v1.0-rc3)
 When a pointer is assigned a constant address and never reassigned, replace
 indirect stores/loads through it with direct absolute addressing. Example:
 `unsigned char *p = (unsigned char *)0xD020; *p = 2;` should emit
@@ -258,7 +262,7 @@ liveness analysis or a simple check: if the dest vreg has no subsequent
 loads, omit the store. Would also benefit from interprocedural knowledge
 (if the callee is known to be void-returning, use CALL_VOID).
 
-### Direct local variable store (avoid ADDR_LOCAL + STORE)
+### Direct local variable store (avoid ADDR_LOCAL + STORE) -- IMPLEMENTED (v1.0-rc3)
 The IR generates `ADDR_LOCAL var` + `STORE` for local variable assignments,
 computing the stack address and storing through it indirectly. For simple
 local vreg assignments, emit a direct vreg-to-vreg copy instead. This is the
@@ -266,7 +270,7 @@ single biggest codegen issue — adds ~20 bytes per local variable assignment.
 Every `*ptr = val` also triggers this: the pointer is loaded from a frame slot
 via ADDR_LOCAL + LOAD instead of a direct vreg read.
 
-### 8-bit arithmetic for char variables
+### 8-bit arithmetic for char variables -- IMPLEMENTED (v1.0-rc3)
 Variables declared as `unsigned char` are widened to 16-bit for all operations
 (AND, ADD, CMP, etc.) even when the operation could stay 8-bit. Example:
 `level & 16` generates 50 bytes of 16-bit AND + chknonzero instead of
@@ -277,7 +281,7 @@ and use I8 operations where safe.
 `cmp.16 .AX, $0024` loads the comparison constant to ZP first, then compares
 against the ZP address. Constants should be inlined: `cmp.16 .AX, #10`.
 
-### Dead code elimination after infinite loops
+### Dead code elimination after infinite loops -- IMPLEMENTED (v1.0-rc3)
 Code after `while(1)` (e.g., `return 0`) is unreachable but still emitted.
 The IR should detect blocks with no predecessors and omit them entirely.
 
@@ -354,9 +358,9 @@ existing `__dma_copy` intrinsic pattern in `IRBuilder.cpp` (~line 1362).
 | `__zp` globals | medium | high | medium |
 | Tail-call optimization | medium | high | **DONE** |
 | Packed-by-default / `__unpacked` | medium | -- | **DONE** |
-| `repeat(n)` unrolling | high (trades size) | high | low |
+| `repeat(n)` unrolling | high (trades size) | high | **DONE** |
 | Fixed-point types | high | high | high |
-| DMA intrinsics | -- | very high | medium |
+| DMA intrinsics | -- | very high | **DONE** |
 | `__near`/`__far` pointers | high | medium | high |
 | Bank placement | high | medium | high |
 | String literal strength reduction | medium | high | low |

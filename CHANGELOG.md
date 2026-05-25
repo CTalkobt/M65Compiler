@@ -2,6 +2,44 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
+## [Unreleased] - 2026-05-25
+
+### Added
+- **`repeat()` Loop Unrolling**: Compile-time loop unrolling via `repeat(N) { body }` and `repeat(type var, N) { body }` with optional loop variable (1..N). Zero loop overhead — body is duplicated N times.
+- **DMA Intrinsics**: `__dma_copy(dst, src, len)` and `__dma_fill(dst, len, val)` for MEGA65's F018B DMA controller (~40MB/s). Compiler builtins, no library needed.
+- **`__interrupt` / `__naked` Function Attributes**: `__interrupt` emits PHA/PHX/PHY/PHZ + RTI; `__naked` suppresses all prologue/epilogue.
+- **Case Ranges**: GCC-style `case 'A' ... 'Z':` syntax for matching value ranges in switch statements.
+- **Packed Structs by Default**: All structs packed (no alignment padding). `__unpacked` keyword opts into traditional C alignment.
+- **`-Rcodegen` Flag**: Annotates assembly output with codegen reasoning comments showing which IR instruction generated each line.
+- **objdump45 Enhancements**: Auto-discovers `.map` files for PRG symbol annotation; interleaves source line comments in disassembly; linker map includes Source Lines section.
+- **Integer Literal Auto-Promotion**: Literals > 65535 automatically promoted to `long` with compiler warning.
+
+### Optimizations
+- **palette_fade.prg: 2151 → 1003 bytes (53% reduction)** across all optimizations below:
+- **Fused Compare-and-Branch**: CMP/AND/OR result + BR_COND → direct branch on flags, skipping boolean materialization.
+- **BBS/BBR Single-Bit Tests**: `if (var & power_of_2)` on ZP variables emits 3-byte BBS/BBR instruction.
+- **Branch Inversion**: `Bcc +2; BRA target` → `B!cc target`, saves 2 bytes per occurrence.
+- **Pointer Constant Propagation**: `*p = val` where p holds constant address → `sta $ADDR` directly.
+- **Dead Local Variable Elimination**: IR pass removes unread vregs and dead stores.
+- **8-bit Char Arithmetic**: Native `and`/`ora`/`eor`/`adc`/`sbc`/`cmp`/`inc a`/`dec a` for char operations.
+- **Bidirectional Store/Load Tracking**: Assembler eliminates `lda $ZP` after `sta $ZP` when A still holds the value.
+- **Tail-Call Optimization**: `JSR + RTS` → `JMP` in assembler optimizer.
+- **32-bit Shift Byte-Shuffle**: Immediate shifts of 8/16/24 bits use register shuffling instead of loops.
+- **`while(1)` Constant Loop**: Detected at IR level, emits single unconditional back-branch.
+- **Dead Trailing Block Elimination**: Unreachable code after infinite loops removed.
+- **Void Call Cleanup**: `CALL_VOID` for void functions prevents spurious return value stores.
+- **Return Constant**: `return N` emits immediate load directly, no vreg round-trip.
+- **`chknonzero.8` Elimination**: Redundant `cmp #$00` removed when Z flag already set from load.
+- **`loadVregA`/`loadOperandA`**: I8-only load paths skip `ldx #0` zero-extension.
+
+### Fixed
+- **`rts #N` Stack Mismatch**: `B#` (char) parameters counted as 1 byte for stack cleanup but caller pushes 2 bytes (C promotion). Fixed to use promoted size.
+- **`cmp.32` A-Clobber**: 32-bit comparison clobbered A (byte 0) before final byte comparison. Fixed by saving A to ZP scratch.
+- **ZEXT I8→I32**: Zero-extension from 8-bit to 32-bit now clears Y and Z registers.
+- **Signedness Defaults**: Integer literals and function returns default to unsigned, matching cc45's type system.
+- **CRT ZP Save/Restore**: `crt0.o45` and `crt0_zp.o45` now save/restore ZP $08-$FF using `move` pseudo-op.
+- **Legacy Codegen Removed**: `--legacy-codegen` flag removed; all compilation uses IR pipeline.
+
 ## [Unreleased] - 2026-05-22
 
 ### Added
