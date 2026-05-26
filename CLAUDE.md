@@ -166,6 +166,9 @@ make clean && make test  # Clean rebuild and test
 - **`stddef.h`**: `size_t`, `ptrdiff_t`, `NULL`, `offsetof`
 - **`assert.h`**: `assert(expr)` macro
 - **`math.h`**: `abs`, `labs`, `div`, `ldiv`, `min`, `max`, `gcd`, `lcm`
+- **`errno.h`**: `errno`, `_errnoc`, `ERANGE`, `ENOMEM`, `EINVAL`, `EDOM`
+- **`setjmp.h`**: `jmp_buf`, `setjmp`, `longjmp`
+- **`dma.h`**: `dma_copy`, `dma_fill` (MEGA65 F018B DMA controller macros)
 
 ### Calling Convention Support
 

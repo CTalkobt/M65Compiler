@@ -1,12 +1,12 @@
-/* dma.h — MEGA65 DMA intrinsics for cc45
+/* dma.h — MEGA65 DMA operations for cc45
  *
- * Provides compiler-intrinsic DMA copy and fill operations using the
- * MEGA65's F018B DMA controller (~40MB/s vs ~1MB/s for CPU loops).
+ * Provides DMA copy and fill operations using the MEGA65's F018B DMA
+ * controller (~40MB/s vs ~1MB/s for CPU loops).
  *
  * Usage:
  *   #include <dma.h>
- *   __dma_copy(dst, src, len);   // DMA memory copy
- *   __dma_fill(dst, len, val);   // DMA memory fill
+ *   dma_copy(dst, src, len);   // DMA memory copy
+ *   dma_fill(dst, len, val);   // DMA memory fill
  *
  * These are compiler builtins — no library linkage needed.
  * The DMA job is built on the hardware stack and triggered inline.
@@ -22,7 +22,11 @@
 #ifndef _DMA_H
 #define _DMA_H
 
-/* These are compiler builtins — declarations for IDE/linter use only */
+/* Public API */
+#define dma_copy(dst, src, len)  __dma_copy((dst), (src), (len))
+#define dma_fill(dst, len, val)  __dma_fill((dst), (len), (val))
+
+/* Internal compiler builtins — prefer the macros above */
 void __dma_copy(void *dst, const void *src, unsigned int len);
 void __dma_fill(void *dst, unsigned int len, unsigned char val);
 

@@ -188,7 +188,57 @@ int putchar(int c) {
 
 Alternatively, these can be pure assembly (`.s` files) assembled with `ca45`.
 
-## 7. Runtime Startup (`crt0.s`)
+## 7. Error Handling (`errno.h`)
+
+Global error number set by library functions on failure.
+
+- **`extern int errno`**: Global error variable. Set by `strtol`, `strtoul`, `malloc`, etc. on error. Not cleared on success — only meaningful immediately after a function that documents setting it. **Implemented.**
+- **`extern char _errnoc`**: CBM KERNAL status byte (`$90`). Reflects the most recent KERNAL I/O operation (serial bus, tape, RS-232). Library routines wrapping KERNAL calls may propagate `_errnoc` into `errno`. **Implemented.**
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `ERANGE` | 1 | Result out of range (`strtol`/`strtoul` overflow) |
+| `ENOMEM` | 2 | Not enough memory (`malloc` failure) |
+| `EINVAL` | 3 | Invalid argument |
+| `EDOM` | 4 | Math argument out of domain (reserved for future math functions) |
+
+## 8. Non-Local Jumps (`setjmp.h`)
+
+Save and restore execution context for non-local control flow (error recovery, co-routines).
+
+- **`jmp_buf`**: Typedef for `char[4]` — stores return address (2 bytes) and stack pointer (2 bytes). **Implemented.**
+- **`setjmp(jmp_buf env)`**: Saves the current PC and SP into `env`. Returns 0 on initial call. When `longjmp` restores this context, `setjmp` returns the value passed to `longjmp` (or 1 if that value was 0, per C standard). **Implemented.**
+- **`longjmp(jmp_buf env, int val)`**: Restores the execution context saved in `env`, causing the corresponding `setjmp` to return `val`. Does not return. **Implemented.**
+
+Both functions are hand-written 45GS02 assembly (`lib/stdlib/setjmp.s`).
+
+## 9. DMA Operations (`dma.h`)
+
+Compiler builtins for the MEGA65's F018B DMA controller (~40MB/s vs ~1MB/s for CPU loops). No library linkage needed — these are expanded inline by the compiler.
+
+- **`dma_copy(dst, src, len)`**: DMA memory copy. Macro wrapping the `__dma_copy` compiler builtin. Builds a DMA job on the hardware stack and triggers it. All registers preserved. **Implemented.**
+- **`dma_fill(dst, len, val)`**: DMA memory fill. Macro wrapping `__dma_fill`. Same mechanism as copy. **Implemented.**
+
+### Limitations
+
+- `src`/`dst` must be 16-bit addresses (bank 0 only)
+- `len` is 16-bit (max 65535 bytes per call)
+- `val` is 8-bit fill value
+- Not safe inside interrupts (uses hardware stack for DMA job)
+
+### Example
+
+```c
+#include <dma.h>
+
+// Clear 1000 bytes of screen RAM
+dma_fill((void *)0x0800, 1000, 0x20);
+
+// Copy 1000 bytes from source to screen
+dma_copy((void *)0x0800, (void *)src_data, 1000);
+```
+
+## 10. Runtime Startup (`crt0.s`)
 
 The assembly entry point that prepares the environment for `main()`.
 
@@ -204,7 +254,7 @@ The assembly entry point that prepares the environment for `main()`.
 
 The `ca45` assembler supports `.org` and segment directives (`.segment code/data/bss`). The `crt0.s` startup should use equates for segment boundaries that are resolved at assemble/link time. The proposed `ln45` linker (see `doc/ln45.md`) will handle final address resolution when multiple object files are combined.
 
-## 8. Source Tree Placement
+## 11. Source Tree Placement
 
 The stdlib lives within the existing `ccomp` source tree. No separate repository is needed at this stage.
 
@@ -283,7 +333,7 @@ ln45 -prg main.o45 -l c45_zp.lib -o program.prg
 ln45 -basic main.o45 -l c45.lib -o program.prg
 ```
 
-## 9. Test Framework & Suggested Tests
+## 12. Test Framework & Suggested Tests
 
 ### Existing Test Infrastructure
 
@@ -371,7 +421,7 @@ test-stdlib: all lib
 
 The `test-stdlib` target is included in the main `test` dependency list.
 
-## 10. Implementation Status
+## 13. Implementation Status
 
 All phases are complete:
 
@@ -385,7 +435,7 @@ All phases are complete:
 | 6. Formatted I/O | `printf`, `sprintf`, `sscanf` (C implementations) | Complete |
 | 7. CBM interface | `cbm.h` KERNAL wrappers (see [stdcbm.md](stdcbm.md)) | Complete |
 
-## 11. Compiler Prerequisites
+## 14. Compiler Prerequisites
 
 All `cc45` features required by the standard library are implemented:
 
