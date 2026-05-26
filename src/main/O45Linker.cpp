@@ -795,10 +795,8 @@ void O45Linker::emitDiagnostics() {
 
             if (thunkMode_ == THUNK_ERROR) {
                 convErrors_.push_back(msg);
-            } else {
-                if (thunkMode_ == THUNK_WARN && warnStream_) {
-                    *warnStream_ << "ln45: warning: " << msg << " (generating thunk)" << std::endl;
-                }
+            } else if (warnStream_) {
+                *warnStream_ << "ln45: warning: " << msg << " (generating thunk)" << std::endl;
             }
         }
     }
