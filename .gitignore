@@ -16,3 +16,5 @@ man/
 *.debug.json
 .claude
 .gemini/settings.json
+
+o_examples/

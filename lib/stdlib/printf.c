@@ -13,39 +13,10 @@ int itoa(int value, char *str, int base);
 char *ltoa(long value, char *str, int base);
 int putchar(int c);
 
-static int emit_itoa_pc(int val, int base) {
-    char tmp[18];
-    itoa(val, tmp, base);
+static int emit_buf(char *buf, int skip_minus) {
     int i = 0; int c = 0;
-    while (tmp[i]) { putchar(tmp[i]); c = c + 1; i = i + 1; }
-    return c;
-}
-
-static int emit_ltoa_pc(long val, int base) {
-    char tmp[34];
-    ltoa(val, tmp, base);
-    int i = 0; int c = 0;
-    while (tmp[i]) { putchar(tmp[i]); c = c + 1; i = i + 1; }
-    return c;
-}
-
-static int emit_utoa_pc(unsigned int val, int base) {
-    char tmp[18];
-    itoa(val, tmp, base);
-    int i = 0; int c = 0;
-    while (tmp[i]) {
-        if (tmp[i] != '-') { putchar(tmp[i]); c = c + 1; }
-        i = i + 1;
-    }
-    return c;
-}
-
-static int emit_lutoa_pc(unsigned long val, int base) {
-    char tmp[34];
-    ltoa(val, tmp, base);
-    int i = 0; int c = 0;
-    while (tmp[i]) {
-        if (tmp[i] != '-') { putchar(tmp[i]); c = c + 1; }
+    while (buf[i]) {
+        if (!skip_minus || buf[i] != '-') { putchar(buf[i]); c = c + 1; }
         i = i + 1;
     }
     return c;
@@ -70,28 +41,41 @@ int printf(char *fmt, ...) {
         }
 
         if (*fmt == 'L' || *fmt == 'l') {
+            char tmp[34];
             fmt = fmt + 1;
             if (*fmt == 'D' || *fmt == 'd') {
-                count = count + emit_ltoa_pc(va_arg(ap, long), 10);
+                ltoa(va_arg(ap, long), tmp, 10);
+                count = count + emit_buf(tmp, 0);
             } else if (*fmt == 'U' || *fmt == 'u') {
-                count = count + emit_lutoa_pc(va_arg(ap, long), 10);
+                ltoa(va_arg(ap, long), tmp, 10);
+                count = count + emit_buf(tmp, 1);
             } else if (*fmt == 'X' || *fmt == 'x') {
-                count = count + emit_ltoa_pc(va_arg(ap, long), 16);
+                ltoa(va_arg(ap, long), tmp, 16);
+                count = count + emit_buf(tmp, 0);
             } else if (*fmt == 'O' || *fmt == 'o') {
-                count = count + emit_ltoa_pc(va_arg(ap, long), 8);
+                ltoa(va_arg(ap, long), tmp, 8);
+                count = count + emit_buf(tmp, 0);
             }
             fmt = fmt + 1;
             continue;
         }
 
         if (*fmt == 'D' || *fmt == 'd') {
-            count = count + emit_itoa_pc(va_arg(ap, int), 10);
+            char tmp[18];
+            itoa(va_arg(ap, int), tmp, 10);
+            count = count + emit_buf(tmp, 0);
         } else if (*fmt == 'U' || *fmt == 'u') {
-            count = count + emit_utoa_pc(va_arg(ap, int), 10);
+            char tmp[18];
+            itoa(va_arg(ap, int), tmp, 10);
+            count = count + emit_buf(tmp, 1);
         } else if (*fmt == 'X' || *fmt == 'x') {
-            count = count + emit_itoa_pc(va_arg(ap, int), 16);
+            char tmp[18];
+            itoa(va_arg(ap, int), tmp, 16);
+            count = count + emit_buf(tmp, 0);
         } else if (*fmt == 'O' || *fmt == 'o') {
-            count = count + emit_itoa_pc(va_arg(ap, int), 8);
+            char tmp[18];
+            itoa(va_arg(ap, int), tmp, 8);
+            count = count + emit_buf(tmp, 0);
         } else if (*fmt == 'S' || *fmt == 's') {
             char *s = (char *)va_arg(ap, int);
             while (*s) { putchar(*s); count = count + 1; s = s + 1; }

@@ -54,6 +54,10 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             continue;
         }
 
+        if (peek().type == TokenType::FLOAT || peek().type == TokenType::DOUBLE) {
+            throw std::runtime_error("'" + peek().value + "' type is not yet implemented (no FPU; use fixed-point integer arithmetic)");
+        }
+
         if (peek().type == TokenType::STRUCT || peek().type == TokenType::UNION || peek().type == TokenType::ENUM) {
             bool isUnion = peek().type == TokenType::UNION;
             bool isEnum = peek().type == TokenType::ENUM;
@@ -336,6 +340,9 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         isSigned = typedefs[alias].isSigned;
         basePtrLevel = typedefs[alias].pointerLevel;
     }
+    else if (peek().type == TokenType::FLOAT || peek().type == TokenType::DOUBLE) {
+        throw std::runtime_error("'" + peek().value + "' type is not yet implemented (no FPU; use fixed-point integer arithmetic)");
+    }
     else {
         std::string foundStr = peek().value.empty() ? peek().typeToString() : peek().value;
         throw std::runtime_error("Syntax Error at " + std::to_string(peek().line) + ":" + std::to_string(peek().column) + ": Expected return type (int, char, void, struct, union) for function declaration. Found '" + foundStr + "' instead.");
@@ -556,6 +563,9 @@ std::unique_ptr<Statement> Parser::parseStatement() {
             // consumed; inline is a hint only (no-op for now)
         } else if (match(TokenType::FASTCALL)) {
             // consumed; handled at function declaration level
+        } else if (peek().type == TokenType::FLOAT || peek().type == TokenType::DOUBLE) {
+            std::string ft = peek().value;
+            throw std::runtime_error("'" + ft + "' type is not yet implemented (no FPU; use fixed-point integer arithmetic)");
         } else {
             break;
         }
@@ -1347,6 +1357,14 @@ std::unique_ptr<Expression> Parser::parseUnary() {
         bool castSigned = false;
         int castPtrLevel = 0;
 
+        // Skip type qualifiers in cast expressions (volatile, const, restrict)
+        bool castVolatile = false, castConst = false;
+        while (peek().type == TokenType::VOLATILE || peek().type == TokenType::CONST || peek().type == TokenType::RESTRICT) {
+            if (peek().type == TokenType::VOLATILE) castVolatile = true;
+            if (peek().type == TokenType::CONST) castConst = true;
+            advance();
+        }
+
         if (peek().type == TokenType::INT || peek().type == TokenType::SHORT || peek().type == TokenType::LONG || peek().type == TokenType::CHAR || peek().type == TokenType::BOOL ||
             peek().type == TokenType::VOID ||
             peek().type == TokenType::STRUCT || peek().type == TokenType::UNION || peek().type == TokenType::ENUM ||
@@ -1376,12 +1394,19 @@ std::unique_ptr<Expression> Parser::parseUnary() {
                 castPtrLevel = typedefs[alias].pointerLevel;
             }
 
+            // Skip trailing qualifiers (e.g., int volatile *, char const *)
+            while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT)) {}
             while (match(TokenType::STAR)) castPtrLevel++;
+            // Skip qualifiers after stars (e.g., char * const)
+            while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT)) {}
 
             if (peek().type == TokenType::CLOSE_PAREN) {
                 advance(); // consume ')'
                 isCast = true;
             }
+        } else if (castVolatile || castConst) {
+            // Had qualifiers but no type — backtrack
+            pos = savedPos;
         }
 
         if (isCast) {

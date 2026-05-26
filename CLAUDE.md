@@ -165,6 +165,7 @@ make clean && make test  # Clean rebuild and test
 - **`limits.h`**: `CHAR_BIT`, `INT_MAX`, `LONG_MAX`, `UINT_MAX`, `ULONG_MAX`, etc.
 - **`stddef.h`**: `size_t`, `ptrdiff_t`, `NULL`, `offsetof`
 - **`assert.h`**: `assert(expr)` macro
+- **`math.h`**: `abs`, `labs`, `div`, `ldiv`, `min`, `max`, `gcd`, `lcm`
 
 ### Calling Convention Support
 

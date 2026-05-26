@@ -10,8 +10,8 @@
 ROOT = ../../..
 CC45 = $(ROOT)/bin/cc45
 LN45 = $(ROOT)/bin/ln45
-CRT0 = $(ROOT)/lib/build/crt0.o45
-STDLIB = $(ROOT)/lib/build/c45.lib
+CRT0 = $(ROOT)/lib/build/crt0_zp.o45
+STDLIB = $(ROOT)/lib/build/c45_zp.lib
 INCLUDES = -I$(ROOT)/lib/include
 
 TARGET = convert.prg

@@ -98,7 +98,8 @@ All character classification and conversion functions are implemented in hand-wr
 
 ## 5. General Utilities (`stdlib.h`)
 
-- **`abs(int j)`**: Absolute value. Returns `|j|` via two's complement negation if negative. **Implemented.**
+- **`abs(int j)`**: Absolute value. Returns `|j|` via two's complement negation if negative. Default is an inline macro; define `__NOMACRO_ABS` to use the function version. **Implemented.**
+- **`labs(long j)`**: Long absolute value. Returns `|j|` for 32-bit signed long. Default is an inline macro; define `__NOMACRO_LABS` to use the function version. **Implemented.**
 - **`atoi(const char *nptr)`**: Convert string to integer. Handles optional leading sign and decimal digits. **Implemented.**
 - **`itoa(int value, char *str, int base)`**: Convert 16-bit integer to string in given base (2-36). Handles negative values for base 10. Uses MEGA65 hardware divider. **Implemented.**
 - **`ltoa(long value, char *str, int base)`**: Convert 32-bit long to string in given base (2-36). Handles negative values for base 10. Uses MEGA65 hardware divider's full 32-bit dividend/divisor. **Implemented.**
@@ -107,6 +108,19 @@ All character classification and conversion functions are implemented in hand-wr
 - **`strtol(char *nptr, char **endptr, int base)`**: Convert string to signed `long` (32-bit). Handles optional leading sign. Delegates to `strtoul` for digit parsing. **Implemented.**
 - **`strtoul(char *nptr, char **endptr, int base)`**: Convert string to unsigned `long` (32-bit). Supports base 0 (auto-detect from prefix), 8, 10, 16. Handles `0x`/`0X` hex prefix and PETSCII letter ranges for bases > 10. **Implemented.**
 - **`exit(int status)`**: Terminate program execution. Loads the status code into `.AX` and jumps to the `__exit` label emitted by the CRT startup. The exit behavior depends on the `#pragma crt exit_*` mode: `exit_rts` (default) restores the caller's SP and returns, `exit_halt` enters an infinite loop, `exit_brk` triggers a BRK. **Implemented.**
+
+## 5b. Integer Math (`math.h`)
+
+Includes `stdlib.h` and adds integer math operations. All functions are implemented in C (`lib/stdlib/*.c`) and compiled via `cc45`. Each function is in a separate translation unit for selective linking.
+
+- **`abs(int j)`**: Absolute value (re-exported from `stdlib.h`). **Implemented.**
+- **`labs(long j)`**: Long absolute value (re-exported from `stdlib.h`). **Implemented.**
+- **`div(int numer, int denom)`**: Integer division returning `div_t { int quot; int rem; }`. Uses MEGA65 hardware divider. **Implemented.**
+- **`ldiv(long numer, long denom)`**: Long division returning `ldiv_t { long quot; long rem; }`. Uses MEGA65 hardware divider. **Implemented.**
+- **`min(int a, int b)`**: Returns the smaller of two integers. **Implemented.**
+- **`max(int a, int b)`**: Returns the larger of two integers. **Implemented.**
+- **`gcd(int a, int b)`**: Greatest common divisor via Euclidean algorithm. Handles negative inputs. **Implemented.**
+- **`lcm(int a, int b)`**: Least common multiple. Computed as `|a / gcd(a,b) * b|` to avoid overflow. **Implemented.**
 
 ## 6. I/O (`stdio.h`)
 

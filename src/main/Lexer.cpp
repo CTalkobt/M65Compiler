@@ -232,6 +232,8 @@ Token Lexer::lexIdentifierOrKeyword() {
         {"__unpacked", TokenType::UNPACKED},
         {"__unpacked__", TokenType::UNPACKED},
         {"repeat", TokenType::REPEAT},
+        {"float", TokenType::FLOAT},
+        {"double", TokenType::DOUBLE},
         {"__regparm", TokenType::REGPARM},
         {"__regparm__", TokenType::REGPARM},
         };

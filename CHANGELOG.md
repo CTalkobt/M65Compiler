@@ -2,9 +2,11 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
-## [Unreleased] - 2026-05-25
+## [Unreleased] - 2026-05-26
 
 ### Added
+- **`math.h` Integer Functions**: `min(a,b)`, `max(a,b)`, `gcd(a,b)`, `lcm(a,b)` — each in a separate translation unit for selective linking. Both stack and ZP calling convention variants.
+- **`abs`/`labs` Macros**: `abs` and `labs` default to inline macros in `stdlib.h`, eliminating call overhead. Define `__NOMACRO_ABS` or `__NOMACRO_LABS` to use the function versions instead.
 - **`repeat()` Loop Unrolling**: Compile-time loop unrolling via `repeat(N) { body }` and `repeat(type var, N) { body }` with optional loop variable (1..N). Zero loop overhead — body is duplicated N times.
 - **DMA Intrinsics**: `__dma_copy(dst, src, len)` and `__dma_fill(dst, len, val)` for MEGA65's F018B DMA controller (~40MB/s). Compiler builtins, no library needed.
 - **`__regparm` Function Attribute**: First parameter passed in A (char) or AX (int/pointer) register instead of ZP/stack. Saves 2–4 bytes and 3–6 cycles per call. Remaining parameters use normal convention.

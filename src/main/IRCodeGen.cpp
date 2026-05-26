@@ -1368,7 +1368,26 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         case ir::Op::CMP_GEU: {
             // Load src1, compare with src2, set result to 0 or 1
             {
-            std::string src2 = src2MemOperand(inst.src2);
+            // Check if src2 is a vreg holding a known constant — use immediate directly
+            std::string src2;
+            bool src2IsConst = false;
+            int64_t src2ConstVal = 0;
+            if (inst.src2.isVreg() && currentFn_) {
+                for (const auto& blk : currentFn_->blocks) {
+                    for (const auto& ii : blk.insts) {
+                        if (ii.op == ir::Op::CONST && ii.dest.isVreg() &&
+                            ii.dest.vregId == inst.src2.vregId) {
+                            src2IsConst = true;
+                            src2ConstVal = ii.src1.immVal;
+                        }
+                    }
+                }
+            }
+            if (src2IsConst) {
+                src2 = "#" + std::to_string((int)src2ConstVal);
+            } else {
+                src2 = src2MemOperand(inst.src2);
+            }
             loadOperand(inst.src1);
 
             bool isSigned = (inst.op == ir::Op::CMP_LT || inst.op == ir::Op::CMP_LE ||
@@ -1899,8 +1918,25 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             }
 
             // Return value is in A,X,Y,Z (for 32-bit) or A:X (for 16-bit)
+            // Skip storeVreg if the return value is never used (dead vreg).
             if (inst.op != ir::Op::CALL_VOID && inst.dest.isVreg()) {
-                storeVreg(inst.dest.vregId);
+                bool isUsed = false;
+                if (currentFn_) {
+                    for (const auto& blk : currentFn_->blocks) {
+                        for (const auto& ii : blk.insts) {
+                            if (&ii == &inst) continue;
+                            if (ii.src1.isVreg() && ii.src1.vregId == inst.dest.vregId) { isUsed = true; break; }
+                            if (ii.src2.isVreg() && ii.src2.vregId == inst.dest.vregId) { isUsed = true; break; }
+                            for (const auto& a : ii.args)
+                                if (a.isVreg() && a.vregId == inst.dest.vregId) { isUsed = true; break; }
+                            if (isUsed) break;
+                        }
+                        if (isUsed) break;
+                    }
+                } else {
+                    isUsed = true; // conservative: assume used if no function context
+                }
+                if (isUsed) storeVreg(inst.dest.vregId);
             }
             break;
         }

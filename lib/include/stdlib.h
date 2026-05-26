@@ -17,8 +17,16 @@ char *ltoa(long value, char *str, int base);
 long strtol(char *nptr, char **endptr, int base);
 unsigned long strtoul(char *nptr, char **endptr, int base);
 
+#ifndef __NOMACRO_ABS
+#define abs(x) ((x)<0?-(x):(x))
+#else
 int abs(int value);
+#endif
+#ifndef __NOMACRO_LABS
+#define labs(x) ((long)((x)<0?-(x):(x)))
+#else
 long labs(long value);
+#endif
 int rand(void);
 void srand(unsigned int seed);
 

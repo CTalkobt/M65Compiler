@@ -15,36 +15,10 @@
 int itoa(int value, char *str, int base);
 char *ltoa(long value, char *str, int base);
 
-static void emit_itoa(char **out, int val, int base) {
-    char tmp[18];
-    itoa(val, tmp, base);
+static void emit_buf(char **out, char *buf, int skip_minus) {
     int i = 0;
-    while (tmp[i]) { **out = tmp[i]; *out = *out + 1; i = i + 1; }
-}
-
-static void emit_ltoa(char **out, long val, int base) {
-    char tmp[34];
-    ltoa(val, tmp, base);
-    int i = 0;
-    while (tmp[i]) { **out = tmp[i]; *out = *out + 1; i = i + 1; }
-}
-
-static void emit_utoa(char **out, unsigned int val, int base) {
-    char tmp[18];
-    itoa(val, tmp, base);
-    int i = 0;
-    while (tmp[i]) {
-        if (tmp[i] != '-') { **out = tmp[i]; *out = *out + 1; }
-        i = i + 1;
-    }
-}
-
-static void emit_lutoa(char **out, unsigned long val, int base) {
-    char tmp[34];
-    ltoa(val, tmp, base);
-    int i = 0;
-    while (tmp[i]) {
-        if (tmp[i] != '-') { **out = tmp[i]; *out = *out + 1; }
+    while (buf[i]) {
+        if (!skip_minus || buf[i] != '-') { **out = buf[i]; *out = *out + 1; }
         i = i + 1;
     }
 }
@@ -69,35 +43,53 @@ int sprintf(char *buf, char *fmt, ...) {
 
         /* Check for 'l' length modifier followed by specifier */
         if (*fmt == 'L' || *fmt == 'l') {
+            char tmp[34];
             fmt = fmt + 1;
             if (*fmt == 'D' || *fmt == 'd') {
-                emit_ltoa(&out, va_arg(ap, long), 10);
+                ltoa(va_arg(ap, long), tmp, 10);
+                emit_buf(&out, tmp, 0);
             } else if (*fmt == 'U' || *fmt == 'u') {
-                emit_lutoa(&out, va_arg(ap, long), 10);
+                ltoa(va_arg(ap, long), tmp, 10);
+                emit_buf(&out, tmp, 1);
             } else if (*fmt == 'X' || *fmt == 'x') {
-                emit_ltoa(&out, va_arg(ap, long), 16);
+                ltoa(va_arg(ap, long), tmp, 16);
+                emit_buf(&out, tmp, 0);
             } else if (*fmt == 'O' || *fmt == 'o') {
-                emit_ltoa(&out, va_arg(ap, long), 8);
+                ltoa(va_arg(ap, long), tmp, 8);
+                emit_buf(&out, tmp, 0);
             } else if (*fmt == 'B' || *fmt == 'b') {
-                emit_ltoa(&out, va_arg(ap, long), 2);
+                ltoa(va_arg(ap, long), tmp, 2);
+                emit_buf(&out, tmp, 0);
             }
             fmt = fmt + 1;
             continue;
         }
 
         if (*fmt == 'D' || *fmt == 'd') {
-            emit_itoa(&out, va_arg(ap, int), 10);
+            char tmp[18];
+            itoa(va_arg(ap, int), tmp, 10);
+            emit_buf(&out, tmp, 0);
         } else if (*fmt == 'U' || *fmt == 'u') {
-            emit_utoa(&out, va_arg(ap, int), 10);
+            char tmp[18];
+            itoa(va_arg(ap, int), tmp, 10);
+            emit_buf(&out, tmp, 1);
         } else if (*fmt == 'X' || *fmt == 'x') {
-            emit_itoa(&out, va_arg(ap, int), 16);
+            char tmp[18];
+            itoa(va_arg(ap, int), tmp, 16);
+            emit_buf(&out, tmp, 0);
         } else if (*fmt == 'O' || *fmt == 'o') {
-            emit_itoa(&out, va_arg(ap, int), 8);
+            char tmp[18];
+            itoa(va_arg(ap, int), tmp, 8);
+            emit_buf(&out, tmp, 0);
         } else if (*fmt == 'B' || *fmt == 'b') {
-            emit_itoa(&out, va_arg(ap, int), 2);
+            char tmp[18];
+            itoa(va_arg(ap, int), tmp, 2);
+            emit_buf(&out, tmp, 0);
         } else if (*fmt == 'P' || *fmt == 'p') {
+            char tmp[18];
             *out = '$'; out = out + 1;
-            emit_itoa(&out, va_arg(ap, int), 16);
+            itoa(va_arg(ap, int), tmp, 16);
+            emit_buf(&out, tmp, 0);
         } else if (*fmt == 'S' || *fmt == 's') {
             char *s = (char *)va_arg(ap, int);
             while (*s) { *out = *s; out = out + 1; s = s + 1; }

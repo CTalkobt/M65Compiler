@@ -392,6 +392,48 @@ static void printSectionContents(const O45File& obj) {
     hexDump(obj.dataBody, obj.dbase, "DATA");
 }
 
+// ─── BASIC SYS stub detection ───────────────────────────────────────────────
+
+// Detect a BASIC SYS stub at the start of a PRG body.
+// Format: next-line-ptr(2) + line-number(2) + $9E(SYS) + ASCII digits + $00 + $00 $00
+// Returns the stub size in bytes (0 if no stub detected), and fills sysAddr
+// with the parsed SYS target address.
+static size_t detectBasicStub(const std::vector<uint8_t>& body, uint32_t base,
+                               uint32_t& sysAddr) {
+    // Minimum stub: 2(next) + 2(line#) + 1($9E) + 1(digit) + 1(NUL) + 2(end) = 9
+    if (body.size() < 9) return 0;
+    // BASIC SYS token must be at offset 4
+    if (body[4] != 0x9E) return 0;
+
+    // Extract ASCII digits after the SYS token
+    size_t i = 5;
+    // Skip optional space after SYS token
+    if (i < body.size() && body[i] == 0x20) i++;
+    size_t digitStart = i;
+    while (i < body.size() && body[i] >= '0' && body[i] <= '9') i++;
+    if (i == digitStart) return 0;  // no digits found
+
+    // Must be followed by $00 (end of BASIC line)
+    if (i >= body.size() || body[i] != 0x00) return 0;
+    i++;
+    // Must be followed by $00 $00 (end of BASIC program)
+    if (i + 1 >= body.size() || body[i] != 0x00 || body[i + 1] != 0x00) return 0;
+    size_t stubSize = i + 2;
+
+    // Verify next-line pointer is consistent (points to end-of-program marker)
+    uint16_t nextLine = body[0] | (body[1] << 8);
+    if (nextLine != base + stubSize - 2) return 0;
+
+    // Parse the SYS address
+    std::string digits(body.begin() + digitStart, body.begin() + digitStart + (i - 1 - digitStart));
+    try {
+        sysAddr = (uint32_t)std::stoul(digits);
+    } catch (...) {
+        return 0;
+    }
+    return stubSize;
+}
+
 // ─── Disassembly ────────────────────────────────────────────────────────────
 
 // Build symbol map: address → name (for branch/call target annotation)
@@ -864,7 +906,29 @@ int main(int argc, char** argv) {
                     prgSymbols = loadMapSymbols(effectiveMap);
                     srcLines = loadMapSourceLines(effectiveMap);
                 }
-                disassembleSection(body, base, isPrg ? "PRG" : "BIN",
+                // Detect and render BASIC SYS stub before disassembly
+                size_t stubSkip = 0;
+                if (isPrg) {
+                    uint32_t sysTarget = 0;
+                    size_t stubSize = detectBasicStub(body, base, sysTarget);
+                    if (stubSize > 0) {
+                        stubSkip = stubSize;
+                        std::cout << std::endl;
+                        printf("Disassembly of section PRG (%s):\n", filename.c_str());
+                        printf("\n%08x <BASIC stub>:\n", base);
+                        // Show raw bytes
+                        printf("    %04x:\t", base);
+                        for (size_t b = 0; b < stubSize; b++)
+                            printf("%02x ", body[b]);
+                        uint16_t lineNum = body[2] | (body[3] << 8);
+                        printf("\t; %u SYS %u ($%04X)\n", lineNum, sysTarget, sysTarget);
+                    }
+                }
+
+                std::vector<uint8_t> codeBody(body.begin() + stubSkip, body.end());
+                uint32_t codeBase = base + (uint32_t)stubSkip;
+                disassembleSection(codeBody, codeBase,
+                                 stubSkip ? "code" : (isPrg ? "PRG" : "BIN"),
                                  opcodeTable, prgSymbols, filename, srcLines);
             }
             // -h, -t, -r silently produce no output for raw binaries
