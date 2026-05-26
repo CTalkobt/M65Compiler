@@ -1,10 +1,21 @@
 #include "AssemblerOptimizer.hpp"
 #include "AssemblerParser.hpp"
 #include <algorithm>
+#include <iostream>
 #include <map>
 
-bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
+bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
     bool changed = false;
+
+    // Report helper: emits optimization action to stderr when verbose
+    auto report = [&](const char* pass, const AssemblerParser::Statement* s, const std::string& action) {
+        if (!verbose) return;
+        std::cerr << "opt: ";
+        if (!s->sourceFile.empty()) std::cerr << s->sourceFile << ":";
+        if (s->sourceLine > 0) std::cerr << s->sourceLine << ": ";
+        else if (s->line > 0) std::cerr << "asm:" << s->line << ": ";
+        std::cerr << "[" << pass << "] " << action << std::endl;
+    };
     struct RegState {
         bool known = false;
         std::string var;
@@ -84,8 +95,8 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
 
             // Only plain RTS/RTN (IMPLIED mode, no stack cleanup operand)
             if ((nm == "RTS" || nm == "RTN") && next->instr.mode == AddressingMode::IMPLIED) {
+                report("tail-call", s, "JSR " + s->instr.operand + " + RTS → JMP (saved 1 byte)");
                 s->instr.mnemonic = "jmp";
-                // operand and mode (ABSOLUTE) stay the same; size stays 3 bytes
                 next->deleted = true;
                 next->size = 0;
                 changed = true;
@@ -128,6 +139,7 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
                     }
                 }
                 if (match) {
+                    report("no-op-bra", s, "BRA to next instruction eliminated (saved 2 bytes)");
                     s->deleted = true;
                     s->size = 0;
                     changed = true;
@@ -202,6 +214,7 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
             if (!match) continue;
 
             // Invert: replace conditional branch with inverted condition + BRA's target
+            report("branch-invert", s, std::string(s->instr.mnemonic) + " + BRA → " + inv + " (saved 2 bytes)");
             s->instr.mnemonic = inv;
             s->instr.operand = next->instr.operand;
             s->instr.operandTokenIndex = next->instr.operandTokenIndex;
@@ -241,6 +254,7 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
                 uint32_t braPC = s->address + 2;
                 int32_t offset = (int32_t)targetAddr - (int32_t)braPC;
                 if (offset >= -128 && offset <= 127) {
+                    report("jmp-bra", s, "JMP → BRA (saved 1 byte, offset " + std::to_string(offset) + ")");
                     s->instr.mnemonic = "bra";
                     s->instr.mode = AddressingMode::RELATIVE;
                     s->size = 2;
@@ -268,6 +282,7 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
                     uint32_t bsrPC = s->address + 3;
                     int32_t offset = (int32_t)targetAddr - (int32_t)bsrPC;
                     if (offset >= -32768 && offset <= 32767) {
+                        report("jsr-bsr", s, "JSR " + s->instr.operand + " → BSR (position-independent)");
                         s->instr.mnemonic = "bsr";
                         s->instr.mode = AddressingMode::RELATIVE16;
                         changed = true;
@@ -298,6 +313,7 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
             std::string varName = parser->tokens[s->exprTokenIndex].value;
 
             if (stackVarLastValue.count(varName) && stackVarLastValue[varName] == immediateValue) {
+                report("dead-store", s, "redundant STW.SP " + varName + " eliminated");
                 s->deleted = true; s->size = 0; changed = true; continue;
             } else {
                 stackVarLastValue[varName] = immediateValue;
@@ -381,7 +397,10 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
                         }
                     }
                 }
-                if (redundant) { s->deleted = true; s->size = 0; changed = true; continue; }
+                if (redundant) {
+                    report("redundant-load", s, "LDA " + op + " eliminated (A already holds value)");
+                    s->deleted = true; s->size = 0; changed = true; continue;
+                }
             }
             if (m == "LDX") {
                 bool redundant = (regX.known && regX.mode == mode && regX.var == op) ||
@@ -397,17 +416,26 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser) {
                         }
                     }
                 }
-                if (redundant) { s->deleted = true; s->size = 0; changed = true; continue; }
+                if (redundant) {
+                    report("redundant-load", s, "LDX " + op + " eliminated (X already holds value)");
+                    s->deleted = true; s->size = 0; changed = true; continue;
+                }
             }
             if (m == "LDY") {
                 bool redundant = (regY.known && regY.mode == mode && regY.var == op) ||
                                  (mode == AddressingMode::IMMEDIATE && regY.imm == op);
-                if (redundant) { s->deleted = true; s->size = 0; changed = true; continue; }
+                if (redundant) {
+                    report("redundant-load", s, "LDY " + op + " eliminated (Y already holds value)");
+                    s->deleted = true; s->size = 0; changed = true; continue;
+                }
             }
             if (m == "LDZ") {
                 bool redundant = (regZ.known && regZ.mode == mode && regZ.var == op) ||
                                  (mode == AddressingMode::IMMEDIATE && regZ.imm == op);
-                if (redundant) { s->deleted = true; s->size = 0; changed = true; continue; }
+                if (redundant) {
+                    report("redundant-load", s, "LDZ " + op + " eliminated (Z already holds value)");
+                    s->deleted = true; s->size = 0; changed = true; continue;
+                }
             }
 
             // --- Register state tracking ---

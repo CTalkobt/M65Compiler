@@ -452,6 +452,9 @@ int main(int argc, char** argv) {
             emitIR = true;
         } else if (arg == "-Rcodegen") {
             emitReasons = true;
+        } else if (arg == "-Roptimizer") {
+            emitReasons = true; // also enable codegen reasons for context
+            // Flag will be passed to ca45 subprocess below
         } else if (arg == "-O0") {
             optimize = false;
         } else if (arg == "-vv") {
@@ -703,7 +706,11 @@ int main(int argc, char** argv) {
         if (lastSep != std::string::npos) {
             ca45Path = cc45Path.substr(0, lastSep + 1) + "ca45";
         }
-        std::string command = ca45Path + " -c " + defineFlag + " -o " + output_file + " " + asmFile;
+        std::string rOptFlag;
+        for (int ai = 1; ai < argc; ai++) {
+            if (std::string(argv[ai]) == "-Roptimizer") { rOptFlag = " -Roptimizer"; break; }
+        }
+        std::string command = ca45Path + " -c " + defineFlag + rOptFlag + " -o " + output_file + " " + asmFile;
         int ret = std::system(command.c_str());
         if (ret != 0) {
             std::cerr << "Assembler failed with return code " << ret << std::endl;

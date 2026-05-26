@@ -32,6 +32,7 @@ int main(int argc, char** argv) {
     std::string output_file;
     bool outputSet = false;
     bool relocMode = false;
+    bool verboseOptimizer = false;
     int verboseLevel = 0;
     int listingLevel = 1;
     std::map<std::string, uint32_t> predefinedSymbols;
@@ -65,6 +66,7 @@ int main(int argc, char** argv) {
             std::cout << "  -vv            Extra verbose output (token dumps)" << std::endl;
             std::cout << "  -Dname=val     Define a symbol (e.g., -Dcc45.zeroPageStart=$10)" << std::endl;
             std::cout << "  -I<path>       Add include search path" << std::endl;
+            std::cout << "  -Roptimizer    Report optimizer actions to stderr" << std::endl;
             std::cout << "  -?             Display this help message" << std::endl;
             return 0;
         } else if (arg == "-c") {
@@ -74,6 +76,8 @@ int main(int argc, char** argv) {
             outputSet = true;
         } else if (arg == "-l" && i + 1 < argc) {
             listingLevel = std::stoi(argv[++i]);
+        } else if (arg == "-Roptimizer") {
+            verboseOptimizer = true;
         } else if (arg == "-vv") {
             verboseLevel = 2;
         } else if (arg == "-v") {
@@ -155,6 +159,7 @@ int main(int argc, char** argv) {
     }
 
     AssemblerParser parser(tokens, predefinedSymbols);
+    parser.verboseOptimizer = verboseOptimizer;
     try {
         parser.pass1();
 

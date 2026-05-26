@@ -41,6 +41,7 @@ public:
     AssemblerParser(const std::vector<AssemblerToken>& tokens, const std::map<std::string, uint32_t>& predefinedSymbols);
     void pass1();
     bool optimize();
+    bool verboseOptimizer = false;
     std::vector<uint8_t> pass2(bool isPrg = false);
     uint32_t getZPStart() const;
     uint16_t getSpBase() const;
