@@ -1,6 +1,6 @@
-// Test: #pragma crt heap compiles and assembles correctly.
+// Test: #pragma cc45 heap compiles and assembles correctly.
 // Verifies the heap pragma is recognized and stdlib.h declarations work.
-#pragma crt heap
+#pragma cc45 heap
 #include <stdlib.h>
 
 void main() {

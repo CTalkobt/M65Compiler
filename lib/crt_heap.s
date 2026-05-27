@@ -1,6 +1,6 @@
 ; crt_heap.s — CRT module for heap support
 ;
-; This module is pulled in by #pragma crt heap.
+; This module is pulled in by #pragma cc45 heap.
 ; It ensures the heap is initialized at startup.
 
 .global _init_heap_crt

@@ -1,9 +1,9 @@
 // test_malloc: validate malloc/free
 // Returns 0 (A=$00) on success, non-zero on failure.
 //
-// Requires: #pragma crt heap
+// Requires: #pragma cc45 heap
 
-#pragma crt heap
+#pragma cc45 heap
 
 #include <stdlib.h>
 #include <string.h>

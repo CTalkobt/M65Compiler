@@ -9,6 +9,7 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - **`abs`/`labs` Macros**: `abs` and `labs` default to inline macros in `stdlib.h`, eliminating call overhead. Define `__NOMACRO_ABS` or `__NOMACRO_LABS` to use the function versions instead.
 - **Thunk Warning by Default**: The linker now always warns when generating calling convention bridge thunks, not just with `-Wthunk`. Use `--no-thunks` to error instead.
 - **`time.h`**: `clock()`, `time()`, `difftime()`, `CLOCKS_PER_SEC` (60Hz jiffy clock). Both stack and ZP calling convention variants.
+- **`#pragma cc45` Namespace**: All compiler pragmas now use the `#pragma cc45 <option>` prefix (e.g., `#pragma cc45 heap`, `#pragma cc45 no_bssinit`). **Breaking change**: `#pragma crt <option>` is no longer accepted. `#pragma once` and `#pragma weak` remain unchanged.
 - **Inline Function Expansion**: `inline` keyword now triggers function body inlining at call sites. `-finline-functions` flag enables auto-inlining of small functions (≤20 statements) even without the `inline` keyword. Eliminates JSR/RTS overhead for small leaf functions. Recursive, variadic, interrupt, and naked functions are excluded.
 - **`repeat()` Loop Unrolling**: Compile-time loop unrolling via `repeat(N) { body }` and `repeat(type var, N) { body }` with optional loop variable (1..N). Zero loop overhead — body is duplicated N times.
 - **DMA Intrinsics**: `__dma_copy(dst, src, len)` and `__dma_fill(dst, len, val)` for MEGA65's F018B DMA controller (~40MB/s). Compiler builtins, no library needed.

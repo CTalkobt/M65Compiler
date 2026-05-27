@@ -27,7 +27,7 @@ typedef uint16_t     size_t;
 
 ## 2. Memory Management (`stdlib.h`)
 
-Dynamic memory allocation using a sorted free-list allocator. Enabled via `#pragma crt heap`. All functions are hand-written 45GS02 assembly in `lib/stdlib/malloc.s`.
+Dynamic memory allocation using a sorted free-list allocator. Enabled via `#pragma cc45 heap`. All functions are hand-written 45GS02 assembly in `lib/stdlib/malloc.s`.
 
 - **`malloc(size_t size)`**: First-fit allocation from sorted free list. Block splitting when remainder >= 4 bytes. Returns NULL for `malloc(0)`. Auto-initializes heap on first call. **Implemented.**
 - **`free(void *ptr)`**: Returns block to sorted free list. Coalesces adjacent free blocks (both forward and backward). `free(NULL)` is a no-op. **Implemented.**
@@ -40,7 +40,7 @@ Dynamic memory allocation using a sorted free-list allocator. Enabled via `#prag
 - **Minimum allocation**: 4 bytes (2-byte header + 2-byte minimum payload), 2-byte aligned.
 - **Heap region**: `__heap_start` (default: `__bss_end`) to `__heap_end` (default: `$D000`). Both are weak symbols, overridable at link time.
 - **Initialization**: `_heap_init` creates a single free block spanning the entire heap. Called automatically by `crt_heap.o45` during CRT startup, or lazily on first `malloc` call.
-- **CRT integration**: `#pragma crt heap` links `crt_heap.o45` from `c45.lib`, which calls `_init_heap_crt` → `_heap_init` during the startup sequence (after BSS init, before `_init_features`).
+- **CRT integration**: `#pragma cc45 heap` links `crt_heap.o45` from `c45.lib`, which calls `_init_heap_crt` → `_heap_init` during the startup sequence (after BSS init, before `_init_features`).
 
 ## 3. String & Memory Operations (`string.h`)
 
@@ -107,7 +107,7 @@ All character classification and conversion functions are implemented in hand-wr
 - **`srand(unsigned int seed)`**: No-op stub for C compatibility (MEGA65 hardware RNG is autonomous). **Implemented.**
 - **`strtol(char *nptr, char **endptr, int base)`**: Convert string to signed `long` (32-bit). Handles optional leading sign. Delegates to `strtoul` for digit parsing. **Implemented.**
 - **`strtoul(char *nptr, char **endptr, int base)`**: Convert string to unsigned `long` (32-bit). Supports base 0 (auto-detect from prefix), 8, 10, 16. Handles `0x`/`0X` hex prefix and PETSCII letter ranges for bases > 10. **Implemented.**
-- **`exit(int status)`**: Terminate program execution. Loads the status code into `.AX` and jumps to the `__exit` label emitted by the CRT startup. The exit behavior depends on the `#pragma crt exit_*` mode: `exit_rts` (default) restores the caller's SP and returns, `exit_halt` enters an infinite loop, `exit_brk` triggers a BRK. **Implemented.**
+- **`exit(int status)`**: Terminate program execution. Loads the status code into `.AX` and jumps to the `__exit` label emitted by the CRT startup. The exit behavior depends on the `#pragma cc45 exit_*` mode: `exit_rts` (default) restores the caller's SP and returns, `exit_halt` enters an infinite loop, `exit_brk` triggers a BRK. **Implemented.**
 
 ## 5b. Integer Math (`math.h`)
 
@@ -448,7 +448,7 @@ All phases are complete:
 | 2. Core runtime | `crt0.s`, `putchar`, `puts`, `exit`, CRT pragmas | Complete |
 | 3. String/memory | 18 functions in `string.h` (12 asm + 6 C) | Complete |
 | 4. Utilities | `ctype.h` (13 functions), `abs`, `atoi`, `itoa`, `ltoa`, `rand`, `srand`, `strtol`, `strtoul` | Complete |
-| 5. Heap | `malloc`, `free`, `calloc`, `realloc` with `#pragma crt heap` | Complete |
+| 5. Heap | `malloc`, `free`, `calloc`, `realloc` with `#pragma cc45 heap` | Complete |
 | 6. Formatted I/O | `printf`, `sprintf`, `sscanf` (C implementations) | Complete |
 | 7. CBM interface | `cbm.h` KERNAL wrappers (see [stdcbm.md](stdcbm.md)) | Complete |
 

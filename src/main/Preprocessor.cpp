@@ -759,25 +759,29 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                     output << "\n";
                 } else if (isCompiler && pragmaArg == "weak") {
                     output << "__asm__(\".weak_next\");\n";
-                } else if (isCompiler && pragmaArg == "crt") {
-                    std::string crtArg;
-                    ss >> crtArg;
-                    if (crtArg == "no_0100_stack") {
+                } else if (isCompiler && pragmaArg == "no_zp_save") {
+                    output << "__asm__(\".no_zp_save\");\n";
+                } else if (isCompiler && pragmaArg == "cc45") {
+                    std::string cc45Arg;
+                    ss >> cc45Arg;
+                    if (cc45Arg == "no_0100_stack") {
                         output << "__asm__(\".crt_no_0100_stack\");\n";
-                    } else if (crtArg == "exit_halt") {
+                    } else if (cc45Arg == "exit_halt") {
                         output << "__asm__(\".crt_exit_halt\");\n";
-                    } else if (crtArg == "exit_rts") {
+                    } else if (cc45Arg == "exit_rts") {
                         output << "__asm__(\".crt_exit_rts\");\n";
-                    } else if (crtArg == "exit_brk") {
+                    } else if (cc45Arg == "exit_brk") {
                         output << "__asm__(\".crt_exit_brk\");\n";
-                    } else if (crtArg == "no_bssinit") {
+                    } else if (cc45Arg == "no_bssinit") {
                         output << "__asm__(\".crt_no_bssinit\");\n";
-                    } else if (crtArg == "heap") {
+                    } else if (cc45Arg == "heap") {
                         output << "__asm__(\".crt_heap\");\n";
-                    } else if (crtArg == "stdio") {
+                    } else if (cc45Arg == "stdio") {
                         output << "__asm__(\".crt_stdio\");\n";
-                    } else if (isCompiler && pragmaArg == "no_zp_save") {
+                    } else if (cc45Arg == "no_zp_save") {
                         output << "__asm__(\".no_zp_save\");\n";
+                    } else if (cc45Arg == "weak") {
+                        output << "__asm__(\".weak_next\");\n";
                     } else {
                         output << "\n";
                     }
@@ -830,16 +834,20 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         if (!currentFile.empty()) onceFiles.insert(currentFile);
                     } else if (isCompiler && pragmaArg == "weak") {
                         output << "__asm__(\".weak_next\");\n";
-                    } else if (isCompiler && pragmaArg == "crt") {
-                        std::string crtArg;
-                        ps >> crtArg;
-                        if (crtArg == "no_0100_stack") output << "__asm__(\".crt_no_0100_stack\");\n";
-                        else if (crtArg == "exit_halt") output << "__asm__(\".crt_exit_halt\");\n";
-                        else if (crtArg == "exit_rts") output << "__asm__(\".crt_exit_rts\");\n";
-                        else if (crtArg == "exit_brk") output << "__asm__(\".crt_exit_brk\");\n";
-                        else if (crtArg == "no_bssinit") output << "__asm__(\".crt_no_bssinit\");\n";
-                        else if (crtArg == "heap") output << "__asm__(\".crt_heap\");\n";
-                        else if (crtArg == "stdio") output << "__asm__(\".crt_stdio\");\n";
+                    } else if (isCompiler && pragmaArg == "no_zp_save") {
+                        output << "__asm__(\".no_zp_save\");\n";
+                    } else if (isCompiler && pragmaArg == "cc45") {
+                        std::string cc45Arg;
+                        ps >> cc45Arg;
+                        if (cc45Arg == "no_0100_stack") output << "__asm__(\".crt_no_0100_stack\");\n";
+                        else if (cc45Arg == "exit_halt") output << "__asm__(\".crt_exit_halt\");\n";
+                        else if (cc45Arg == "exit_rts") output << "__asm__(\".crt_exit_rts\");\n";
+                        else if (cc45Arg == "exit_brk") output << "__asm__(\".crt_exit_brk\");\n";
+                        else if (cc45Arg == "no_bssinit") output << "__asm__(\".crt_no_bssinit\");\n";
+                        else if (cc45Arg == "heap") output << "__asm__(\".crt_heap\");\n";
+                        else if (cc45Arg == "stdio") output << "__asm__(\".crt_stdio\");\n";
+                        else if (cc45Arg == "no_zp_save") output << "__asm__(\".no_zp_save\");\n";
+                        else if (cc45Arg == "weak") output << "__asm__(\".weak_next\");\n";
                     }
                 }
                 pendingPragmas_.clear();

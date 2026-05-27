@@ -244,11 +244,11 @@ public:
     std::set<std::string> weakGlobals; // global vars marked with #pragma weak
     std::set<std::string> staticGlobals; // global vars/funcs with static linkage
     std::set<std::string> staticFunctions; // functions with static linkage
-    bool crtNoPageOneStack = false; // #pragma crt no_0100_stack
+    bool crtNoPageOneStack = false; // #pragma cc45 no_0100_stack
     enum class CrtExit { HALT, RTS, BRK } crtExit = CrtExit::RTS;
-    bool crtNoBssInit = false; // #pragma crt no_bssinit
-    bool crtHeap = false;      // #pragma crt heap
-    bool crtStdio = false;     // #pragma crt stdio
+    bool crtNoBssInit = false; // #pragma cc45 no_bssinit
+    bool crtHeap = false;      // #pragma cc45 heap
+    bool crtStdio = false;     // #pragma cc45 stdio
     std::set<std::string> knownFunctions; // defined + prototyped function names
     std::set<std::string> variadicFunctions; // functions declared with ...
     std::set<std::string> fastcallFunctions; // functions declared with __fastcall__
