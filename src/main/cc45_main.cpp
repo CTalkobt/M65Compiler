@@ -395,6 +395,7 @@ int main(int argc, char** argv) {
     std::string defineFlag = "";
     std::map<std::string, std::string> initialSymbols;
     std::vector<std::string> includePaths;
+    std::vector<std::string> cliPragmas;
 
     // Add paths from CC45_INCLUDE environment variable
     if (const char* envInc = std::getenv("CC45_INCLUDE")) {
@@ -432,6 +433,7 @@ int main(int argc, char** argv) {
             std::cout << "  -fzpcall       Use ZP parameter block calling convention" << std::endl;
             std::cout << "  -fno-zpcall    Use stack-based calling convention (default)" << std::endl;
             std::cout << "  -finline-functions  Inline small functions at call sites" << std::endl;
+            std::cout << "  --pragma \"...\"  Inject a #pragma directive (e.g., --pragma \"cc45 heap\")" << std::endl;
             std::cout << "  -Dname=val     Define a symbol (e.g., -Dcc45.zeroPageStart=$10)" << std::endl;
             std::cout << "  -I<path>       Add include search path" << std::endl;
             std::cout << "  -Rcodegen      Annotate assembly output with codegen reasoning comments" << std::endl;
@@ -454,6 +456,8 @@ int main(int argc, char** argv) {
             inlineFunctions = true;
         } else if (arg == "-fno-inline-functions") {
             inlineFunctions = false;
+        } else if (arg == "--pragma" && i + 1 < argc) {
+            cliPragmas.push_back(argv[++i]);
         } else if (arg == "--emit-ir") {
             emitIR = true;
         } else if (arg == "-Rcodegen") {
@@ -513,6 +517,15 @@ int main(int argc, char** argv) {
 
     if (verboseLevel >= 1) {
         std::cout << "Preprocessing " << input_file << "..." << std::endl;
+    }
+
+    // Inject --pragma arguments as #pragma lines before source
+    if (!cliPragmas.empty()) {
+        std::string prefix;
+        for (const auto& p : cliPragmas) {
+            prefix += "#pragma " + p + "\n";
+        }
+        sourceRaw = prefix + sourceRaw;
     }
 
     Preprocessor preprocessor(true);
