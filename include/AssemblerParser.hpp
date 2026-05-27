@@ -200,6 +200,7 @@ public:
         int sourceLine = 0;
 
         bool deleted = false;
+        std::vector<uint8_t> bytes; // Captured machine code for listing
 
         // Simulated op dispatch: set at parse time, used for both sizing and emission
         using SimOpEmitFn = void(*)(AssemblerParser*, M65Emitter&, Statement*);

@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <iostream>
 #include <iomanip>
+#include <fstream>
 #include <algorithm>
 #include <memory>
 #include <cmath>
@@ -1485,6 +1486,32 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
         uint32_t align = parseNumericLiteral(dir.arguments[0]);
         if (align == 0) return 0;
         return (align - (currentAddr % align)) % align;
+    }
+    if (dir.name == "fillto") {
+        if (dir.arguments.empty()) return 0;
+        uint32_t target = evaluateExpressionAt(dir.tokenIndex, "");
+        if (target < currentAddr) {
+            if (isPass1_) errors.push_back("Error: .fillto target address $" + std::to_string(target) + " is before current PC $" + std::to_string(currentAddr));
+            return 0;
+        }
+        return (int)(target - currentAddr);
+    }
+    if (dir.name == "import" || dir.name == "incbin") {
+        if (dir.arguments.empty()) return 0;
+        std::string filename;
+        if (dir.name == "import") {
+            if (dir.arguments.size() < 2 || dir.arguments[0] != "binary") return 0;
+            filename = dir.arguments[1];
+        } else {
+            filename = dir.arguments[0];
+        }
+        // Remove quotes if present
+        if (filename.size() >= 2 && filename.front() == '"' && filename.back() == '"') {
+            filename = filename.substr(1, filename.size() - 2);
+        }
+        std::ifstream file(filename, std::ios::binary | std::ios::ate);
+        if (!file) return 0;
+        return (int)file.tellg();
     }
     return 0;
 }

@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <cmath>
 #include <iostream>
+#include <fstream>
 
 // Forward declarations for helper functions if they are static in AssemblerParser.cpp
 // or just re-implement them if they are simple enough and used here.
@@ -90,6 +91,9 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
             parser->pc = stmt->address; // Update parser pc for .PC evaluations
             parser->currentLocalScope_ = stmt->localLabelScope; // Restore auto-scope for @ labels
             if (stmt->deleted) continue; 
+            
+            std::vector<uint8_t>* binaryPtr = e.getBinary();
+            size_t binaryStartIdx = binaryPtr ? binaryPtr->size() : 0;
           try {
             if (!stmt->label.empty()) {
                 isDeadCode = false;
@@ -99,6 +103,7 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
             // Unified simulated op emission via emitFn dispatch
             if (stmt->isSimulatedOp()) {
                 if (!isDeadCode) stmt->emitFn(parser, e, stmt.get());
+                if (binaryPtr) stmt->bytes.assign(binaryPtr->begin() + binaryStartIdx, binaryPtr->end());
                 continue;
             }
 
@@ -302,7 +307,29 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                         if (stmt->dir.arguments.size() > 1) fill = (uint8_t)parseNumericLiteral(stmt->dir.arguments[1]);
                         for (int i = 0; i < stmt->size; ++i) e.emitByte(fill);
                     }
+                    else if (stmt->dir.name == "fillto") {
+                        uint8_t fill = 0;
+                        if (stmt->dir.arguments.size() > 1) fill = (uint8_t)parseNumericLiteral(stmt->dir.arguments[1]);
+                        for (int i = 0; i < stmt->size; ++i) e.emitByte(fill);
+                    }
+                    else if (stmt->dir.name == "import" || stmt->dir.name == "incbin") {
+                        std::string filename;
+                        if (stmt->dir.name == "import" && stmt->dir.arguments.size() >= 2) filename = stmt->dir.arguments[1];
+                        else if (stmt->dir.arguments.size() >= 1) filename = stmt->dir.arguments[0];
+                        if (filename.size() >= 2 && filename.front() == '"' && filename.back() == '"') filename = filename.substr(1, filename.size() - 2);
+                        std::ifstream file(filename, std::ios::binary);
+                        if (file) {
+                            char buffer[1024];
+                            while (file.read(buffer, sizeof(buffer))) {
+                                for (int i = 0; i < (int)file.gcount(); ++i) e.emitByte((uint8_t)buffer[i]);
+                            }
+                            for (int i = 0; i < (int)file.gcount(); ++i) e.emitByte((uint8_t)buffer[i]);
+                        }
+                    }
                 }
+            }
+            if (binaryPtr) {
+                stmt->bytes.assign(binaryPtr->begin() + binaryStartIdx, binaryPtr->end());
             }
           } catch (const std::runtime_error& ex) {
             throw std::runtime_error("line " + std::to_string(stmt->line) + ": " + ex.what());

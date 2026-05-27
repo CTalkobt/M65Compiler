@@ -237,6 +237,7 @@ public:
     size_t pos() const { return binary ? binary->size() : 0; }
     size_t emitBranchPlaceholder(uint8_t opcode);
     void patchBranchTarget(size_t branchPos);
+    std::vector<uint8_t>* getBinary() { return binary; }
 
     // --- High-level Helpers (16-bit) ---
     void add_16_imm(uint16_t val);

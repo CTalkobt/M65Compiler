@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
+#include <iomanip>
 #include "AssemblerLexer.hpp"
 #include "AssemblerParser.hpp"
 #include "Preprocessor.hpp"
@@ -27,9 +28,78 @@ static void writeLineMapJson(const std::string& jsonFile, const std::vector<Asse
     jout << "]\n";
 }
 
+static void writeListing(const std::string& filename, const AssemblerParser& parser, const std::string& source) {
+    std::ofstream out(filename);
+    if (!out.is_open()) return;
+
+    std::vector<std::string> sourceLines;
+    std::stringstream ss(source);
+    std::string line;
+    while (std::getline(ss, line)) sourceLines.push_back(line);
+
+    out << "ca45 Assembly Listing\n";
+    out << "====================\n\n";
+
+    for (const auto& stmt : parser.statements) {
+        if (stmt->deleted) continue;
+        
+        // Address
+        if (stmt->type == AssemblerParser::Statement::DIRECTIVE && (stmt->dir.name == "segment" || stmt->dir.name == "code" || stmt->dir.name == "data" || stmt->dir.name == "bss")) {
+            out << "\nSegment: " << stmt->segmentName << "\n";
+        }
+
+        out << std::hex << std::setw(8) << std::setfill('0') << stmt->address << ": ";
+
+        // Bytes (up to 4 bytes per line to match common listing formats)
+        size_t byteCount = stmt->bytes.size();
+        for (size_t i = 0; i < 4; ++i) {
+            if (i < byteCount) {
+                out << std::hex << std::setw(2) << std::setfill('0') << (int)stmt->bytes[i] << " ";
+            } else {
+                out << "   ";
+            }
+        }
+
+        // Source line
+        if (stmt->line > 0 && stmt->line <= (int)sourceLines.size()) {
+            out << "  " << sourceLines[stmt->line - 1];
+        }
+        out << "\n";
+
+        // Extra bytes
+        if (byteCount > 4) {
+            for (size_t i = 4; i < byteCount; i += 4) {
+                out << "          "; // indentation (8 hex chars + ": ")
+                for (size_t j = 0; j < 4; ++j) {
+                    if (i + j < byteCount) {
+                        out << std::hex << std::setw(2) << std::setfill('0') << (int)stmt->bytes[i + j] << " ";
+                    } else {
+                        out << "   ";
+                    }
+                }
+                out << "\n";
+            }
+        }
+    }
+
+    out << "\nSymbol Table\n";
+    out << "============\n";
+    // Sort symbols by name for consistent output
+    std::map<std::string, Symbol> sortedSymbols = parser.getSymbolTable();
+    for (const auto& [name, sym] : sortedSymbols) {
+        out << std::setw(32) << std::left << std::setfill(' ') << name << " ";
+        out << std::hex << std::setw(8) << std::right << std::setfill('0') << sym.value;
+        if (sym.isConstant) out << " (CONST)";
+        else if (sym.isVariable) out << " (VAR)";
+        else if (sym.isAddress) out << " (ADDR)";
+        out << "\n";
+    }
+}
+
 int main(int argc, char** argv) {
     std::string input_file;
     std::string output_file;
+    std::string listing_file;
     bool outputSet = false;
     bool relocMode = false;
     bool verboseOptimizer = false;
@@ -61,6 +131,7 @@ int main(int argc, char** argv) {
             std::cout << "  -c             Produce relocatable .o45 object file instead of binary" << std::endl;
             std::cout << "  -o <filename>  Specify output filename (default: out.bin, or out.o45 with -c)" << std::endl;
             std::cout << "                 If filename ends in .prg, a 2-byte load address header is added." << std::endl;
+            std::cout << "  -L <filename>  Generate assembly listing file" << std::endl;
             std::cout << "  -l <level>     Listing level: 1=Binary (default), 2=Expanded Assembly" << std::endl;
             std::cout << "  -v             Enable verbose output (phase info)" << std::endl;
             std::cout << "  -vv            Extra verbose output (token dumps)" << std::endl;
@@ -74,6 +145,8 @@ int main(int argc, char** argv) {
         } else if (arg == "-o" && i + 1 < argc) {
             output_file = argv[++i];
             outputSet = true;
+        } else if (arg == "-L" && i + 1 < argc) {
+            listing_file = argv[++i];
         } else if (arg == "-l" && i + 1 < argc) {
             listingLevel = std::stoi(argv[++i]);
         } else if (arg == "-Roptimizer") {
@@ -178,6 +251,10 @@ int main(int argc, char** argv) {
                 std::ofstream out(output_file, std::ios::binary);
                 out.write(reinterpret_cast<const char*>(o45.data()), o45.size());
                 std::cout << "Object file: " << output_file << " (" << o45.size() << " bytes)" << std::endl;
+                if (!listing_file.empty()) {
+                    writeListing(listing_file, parser, source);
+                    std::cout << "Listing generated to " << listing_file << std::endl;
+                }
             }
         } else if (listingLevel == 2) {
             parser.pass2(false); // Run optimizer and resolve addresses
@@ -196,6 +273,10 @@ int main(int argc, char** argv) {
                 out.write(reinterpret_cast<const char*>(binary.data()), binary.size());
                 std::cout << "Assembled to " << output_file << " (" << binary.size() << " bytes)" << std::endl;
                 writeLineMapJson(output_file + ".debug.json", parser.getLineMap());
+                if (!listing_file.empty()) {
+                    writeListing(listing_file, parser, source);
+                    std::cout << "Listing generated to " << listing_file << std::endl;
+                }
             }
         }
     } catch (const std::exception& e) {
