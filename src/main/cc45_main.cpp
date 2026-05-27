@@ -388,6 +388,7 @@ int main(int argc, char** argv) {
     int listingLevel = 1;
     uint32_t zeroPageStart = 0x08;
     bool zpCallMode = false;
+    bool inlineFunctions = false;
     bool emitIR = false;
     bool emitReasons = false;
     uint32_t zeroPageAvail = 9;
@@ -430,6 +431,7 @@ int main(int argc, char** argv) {
             std::cout << "  -vv            Extra verbose output (token dumps, AST)" << std::endl;
             std::cout << "  -fzpcall       Use ZP parameter block calling convention" << std::endl;
             std::cout << "  -fno-zpcall    Use stack-based calling convention (default)" << std::endl;
+            std::cout << "  -finline-functions  Inline small functions at call sites" << std::endl;
             std::cout << "  -Dname=val     Define a symbol (e.g., -Dcc45.zeroPageStart=$10)" << std::endl;
             std::cout << "  -I<path>       Add include search path" << std::endl;
             std::cout << "  -Rcodegen      Annotate assembly output with codegen reasoning comments" << std::endl;
@@ -448,6 +450,10 @@ int main(int argc, char** argv) {
             zpCallMode = true;
         } else if (arg == "-fno-zpcall") {
             zpCallMode = false;
+        } else if (arg == "-finline-functions") {
+            inlineFunctions = true;
+        } else if (arg == "-fno-inline-functions") {
+            inlineFunctions = false;
         } else if (arg == "--emit-ir") {
             emitIR = true;
         } else if (arg == "-Rcodegen") {
@@ -583,6 +589,7 @@ int main(int argc, char** argv) {
         // IR pipeline: AST → IRBuilder → IR → IRCodeGen → assembly
         IRBuilder irBuilder;
         irBuilder.zpCallMode = zpCallMode;
+        irBuilder.inlineFunctions = inlineFunctions;
         irBuilder.setSourceInfo(input_file);
 
         if (optimize) {

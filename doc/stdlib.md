@@ -238,6 +238,23 @@ dma_fill((void *)0x0800, 1000, 0x20);
 dma_copy((void *)0x0800, (void *)src_data, 1000);
 ```
 
+## 9b. Timing (`time.h`)
+
+Minimal timing functions based on the MEGA65 jiffy clock (KERNAL RDTIM, 60Hz).
+
+- **`CLOCKS_PER_SEC`**: Defined as `60` (jiffy clock rate). **Implemented.**
+- **`clock_t`**: Typedef for `int` (16-bit, wraps every ~18 minutes). **Implemented.**
+- **`time_t`**: Typedef for `long` (32-bit, wraps every ~2.3 years). **Implemented.**
+- **`clock()`**: Returns low 16 bits of the jiffy clock as `clock_t`. Hand-written assembly calling KERNAL RDTIM. **Implemented.**
+- **`time(time_t *tp)`**: Returns jiffy clock as 32-bit `time_t`. If `tp` is non-NULL, stores the result at `*tp`. **Implemented.**
+- **`difftime(time_t t2, time_t t1)`**: Returns `t2 - t1` as `long`. **Implemented.**
+
+### Limitations
+
+- No real-time clock — values are elapsed ticks since power-on, not wall-clock time
+- `clock()` wraps at 65535 ticks (~18 minutes at 60Hz)
+- PAL systems run at ~50Hz but `CLOCKS_PER_SEC` is defined as 60 (NTSC)
+
 ## 10. Runtime Startup (`crt0.s`)
 
 The assembly entry point that prepares the environment for `main()`.

@@ -19,6 +19,7 @@ public:
     const std::vector<std::string>& getWarnings() const { return warnings_; }
 
     bool zpCallMode = false;
+    bool inlineFunctions = false;
 
     // ASTVisitor interface
     void visit(IntegerLiteral& node) override;
@@ -153,6 +154,13 @@ private:
     std::map<std::string, std::vector<bool>> functionParamSigned_;
     std::set<std::string> variadicFunctions_;
     std::set<std::string> regparmFunctions_;
+
+    // Inline function support: store AST nodes for inline-eligible functions
+    std::map<std::string, FunctionDeclaration*> inlineCandidates_;
+    std::set<std::string> inlineExpansionStack_;  // recursion guard
+    static constexpr int INLINE_MAX_STMTS = 20;   // max body statements for auto-inline
+    ir::Operand inlineReturnTarget_;               // vreg for inlined return value
+    std::string inlineReturnLabel_;                // merge label for inlined returns
 
     // Track function parameter info for const-qualification warnings
     struct ParamInfo { bool isConst = false; int pointerLevel = 0; };

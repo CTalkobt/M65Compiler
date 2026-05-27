@@ -96,6 +96,11 @@ echo "--- math.h ---"
 run_test "test_min_max"
 run_test "test_gcd_lcm"
 
+# time.h tests
+echo ""
+echo "--- time.h ---"
+run_test "test_time"
+
 echo ""
 echo "========================================"
 echo "Stdlib tests: $passed passed, $failed failed, $skipped skipped"

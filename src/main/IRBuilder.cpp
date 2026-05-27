@@ -343,6 +343,17 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     fn.isNaked = node.isNaked;
     fn.isRegparm = node.isRegparm;
 
+    // Register inline candidate if marked inline or -finline-functions
+    if (!node.isVariadic && !node.isInterrupt && !node.isNaked) {
+        if (node.isInline || inlineFunctions) {
+            // Count statements in body to check size
+            int stmtCount = node.body ? (int)node.body->statements.size() : 0;
+            if (stmtCount <= INLINE_MAX_STMTS) {
+                inlineCandidates_[node.name] = &node;
+            }
+        }
+    }
+
     for (const auto& p : node.parameters) {
         fn.paramTypes.push_back(mapType(p.type, p.pointerLevel));
         fn.paramNames.push_back(p.name);
@@ -1540,25 +1551,112 @@ void IRBuilder::visit(FunctionCall& node) {
         emit(inst);
         lastValue_ = dest;
     } else {
-        std::string mangledName = "_" + node.name;
-        calledFunctions_.insert(mangledName);
-        inst.src1 = ir::Operand::global(mangledName);
-        
-        ir::Type retType = ir::Type::I16;
-        auto it = functionReturnTypes_.find(node.name);
-        if (it != functionReturnTypes_.end()) retType = it->second;
+        // Check for inline expansion
+        auto inlineIt = inlineCandidates_.find(node.name);
+        if (inlineIt != inlineCandidates_.end() &&
+            inlineExpansionStack_.find(node.name) == inlineExpansionStack_.end()) {
 
-        if (retType == ir::Type::VOID) {
-            inst.op = ir::Op::CALL_VOID;
-            inst.resultType = ir::Type::VOID;
-            emit(inst);
+            FunctionDeclaration* inlineFunc = inlineIt->second;
+
+            // Guard against recursion
+            inlineExpansionStack_.insert(node.name);
+
+            // Save caller's local state
+            auto savedLocals = locals_;
+            auto savedLocalTypes = localTypes_;
+            auto savedLocalSigned = localSigned_;
+            auto savedLocalConst = localConst_;
+            auto savedLocalTypeNames = localTypeNames_;
+            auto savedLocalPointsToConst = localPointsToConst_;
+            auto savedLocalPointedToType = localPointedToType_;
+
+            // Map parameters to argument vregs
+            for (size_t i = 0; i < inlineFunc->parameters.size() && i < args.size(); i++) {
+                const auto& p = inlineFunc->parameters[i];
+                ir::Type pt = mapType(p.type, p.pointerLevel);
+                auto argOp = (i < castArgs.size()) ? castArgs[i] : args[i];
+
+                // Create a local vreg for the parameter and copy the arg into it
+                auto paramVreg = allocVreg(pt);
+                ir::Inst copy;
+                copy.op = ir::Op::COPY;
+                copy.dest = paramVreg;
+                copy.src1 = argOp;
+                copy.resultType = pt;
+                copy.loc = loc(node);
+                emit(copy);
+
+                locals_[p.name] = paramVreg;
+                localTypes_[p.name] = pt;
+                localTypeNames_[p.name] = p.type;
+                localSigned_[p.name] = p.isSigned;
+                localConst_[p.name] = (p.pointerLevel == 0 && p.isConst);
+                if (p.pointerLevel > 0) localPointedToType_[p.name] = mapType(p.type, 0);
+            }
+
+            // Create a result vreg for the return value
+            ir::Type retType = ir::Type::I16;
+            auto retIt = functionReturnTypes_.find(node.name);
+            if (retIt != functionReturnTypes_.end()) retType = retIt->second;
+
+            ir::Operand resultVreg;
+            if (retType != ir::Type::VOID) {
+                resultVreg = allocVreg(retType);
+            }
+
+            // Create merge label for return statements
+            std::string mergeLabel = newLabel("inline_end");
+
+            // Save and set inline return context
+            auto savedInlineReturnTarget = inlineReturnTarget_;
+            auto savedInlineReturnLabel = inlineReturnLabel_;
+            inlineReturnTarget_ = resultVreg;
+            inlineReturnLabel_ = mergeLabel;
+
+            // Visit the inlined function body
+            inlineFunc->body->accept(*this);
+
+            // Emit merge block
+            startBlock(mergeLabel);
+
+            // Restore caller state
+            inlineReturnTarget_ = savedInlineReturnTarget;
+            inlineReturnLabel_ = savedInlineReturnLabel;
+            locals_ = savedLocals;
+            localTypes_ = savedLocalTypes;
+            localSigned_ = savedLocalSigned;
+            localConst_ = savedLocalConst;
+            localTypeNames_ = savedLocalTypeNames;
+            localPointsToConst_ = savedLocalPointsToConst;
+            localPointedToType_ = savedLocalPointedToType;
+
+            inlineExpansionStack_.erase(node.name);
+
+            if (retType != ir::Type::VOID) {
+                lastValue_ = resultVreg;
+            }
         } else {
-            auto dest = allocVreg(retType);
-            inst.op = ir::Op::CALL;
-            inst.dest = dest;
-            inst.resultType = retType;
-            emit(inst);
-            lastValue_ = dest;
+            // Normal call path
+            std::string mangledName = "_" + node.name;
+            calledFunctions_.insert(mangledName);
+            inst.src1 = ir::Operand::global(mangledName);
+
+            ir::Type retType = ir::Type::I16;
+            auto it = functionReturnTypes_.find(node.name);
+            if (it != functionReturnTypes_.end()) retType = it->second;
+
+            if (retType == ir::Type::VOID) {
+                inst.op = ir::Op::CALL_VOID;
+                inst.resultType = ir::Type::VOID;
+                emit(inst);
+            } else {
+                auto dest = allocVreg(retType);
+                inst.op = ir::Op::CALL;
+                inst.dest = dest;
+                inst.resultType = retType;
+                emit(inst);
+                lastValue_ = dest;
+            }
         }
     }
 }
@@ -1572,6 +1670,37 @@ void IRBuilder::visit(ExpressionStatement& node) {
 // ============================================================================
 
 void IRBuilder::visit(ReturnStatement& node) {
+    // Inline expansion: return stores to inline result vreg and branches to merge
+    if (!inlineReturnLabel_.empty()) {
+        if (node.expression) {
+            node.expression->accept(*this);
+            auto val = lastValue_;
+
+            ir::Type retType = ir::Type::I16;
+            auto retIt = functionReturnTypes_.find(currentFunc_ ? currentFunc_->name.substr(1) : "");
+            if (currentFunc_) retType = currentFunc_->returnType;
+
+            IRTypeInfo info = getExprTypeInfo(node.expression.get());
+            auto castVal = emitCast(val, retType, info.isSigned);
+
+            ir::Inst copy;
+            copy.op = ir::Op::COPY;
+            copy.dest = inlineReturnTarget_;
+            copy.src1 = castVal;
+            copy.resultType = retType;
+            copy.loc = loc(node);
+            emit(copy);
+        }
+        ir::Inst br;
+        br.op = ir::Op::BR;
+        br.src1 = ir::Operand::label(inlineReturnLabel_);
+        br.loc = loc(node);
+        emit(br);
+        // Start a new block for any code after this return (dead, but keeps IR well-formed)
+        startBlock(newLabel("inline_after_ret"));
+        return;
+    }
+
     if (node.expression) {
         ir::Type retType = ir::Type::I16;
         if (currentFunc_) retType = currentFunc_->returnType;

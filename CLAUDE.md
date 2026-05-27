@@ -151,7 +151,7 @@ make clean && make test  # Clean rebuild and test
 ### Not Implemented (v1.0 Won't-Fix)
 
 - `float`, `double` (no FPU; software float is post-1.0)
-- `inline` function expansion (accepted as keyword, calls normally)
+- `inline` function expansion limited to single-TU, ≤20-statement functions (Phase 1)
 - `_Bool` and `_Complex` types
 
 ## Standard Library
@@ -169,6 +169,7 @@ make clean && make test  # Clean rebuild and test
 - **`errno.h`**: `errno`, `_errnoc`, `ERANGE`, `ENOMEM`, `EINVAL`, `EDOM`
 - **`setjmp.h`**: `jmp_buf`, `setjmp`, `longjmp`
 - **`dma.h`**: `dma_copy`, `dma_fill` (MEGA65 F018B DMA controller macros)
+- **`time.h`**: `clock`, `time`, `difftime`, `CLOCKS_PER_SEC` (jiffy clock, 60Hz)
 
 ### Calling Convention Support
 

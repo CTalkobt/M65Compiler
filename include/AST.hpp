@@ -427,6 +427,7 @@ public:
     bool isInterrupt = false;
     bool isNaked = false;
     bool isRegparm = false;
+    bool isInline = false;
     FunctionDeclaration(const std::string& n, const std::string& rt) : name(n), returnType(rt) {}
     void accept(ASTVisitor& visitor) override;
 };

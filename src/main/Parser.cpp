@@ -96,6 +96,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
         bool isInterrupt = false;
         bool isNaked = false;
         bool isRegparm = false;
+        bool isInlineFunc = false;
 
         if (tokens[look].type == TokenType::EXTERN) {
             isExtern = true;
@@ -123,6 +124,10 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
         }
         if (tokens[look].type == TokenType::REGPARM) {
             isRegparm = true;
+            look++;
+        }
+        if (tokens[look].type == TokenType::INLINE) {
+            isInlineFunc = true;
             look++;
         }
 
@@ -234,6 +239,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     decl->isInterrupt = isInterrupt;
                     decl->isNaked = isNaked;
                     decl->isRegparm = isRegparm;
+                    decl->isInline = isInlineFunc;
                     decl->isStatic = isStatic;
                     // extern functions are always prototypes (no body)
                     if (isExtern) decl->isPrototype = true;
@@ -271,6 +277,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 decl->isInterrupt = isInterrupt;
                 decl->isNaked = isNaked;
                     decl->isRegparm = isRegparm;
+                    decl->isInline = isInlineFunc;
                 flushPending(*unit);
                 unit->topLevelDecls.push_back(std::move(decl));
             }
@@ -287,6 +294,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             decl->isInterrupt = isInterrupt;
             decl->isNaked = isNaked;
                     decl->isRegparm = isRegparm;
+                    decl->isInline = isInlineFunc;
             flushPending(*unit);
             unit->topLevelDecls.push_back(std::unique_ptr<Statement>(std::move(decl)));
         }
@@ -546,6 +554,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
     bool isAuto = false;
     bool isStatic = false;
     bool isRegister = false;
+    bool isInline = false;
     while (true) {
         if (match(TokenType::VOLATILE)) {
             isVolatile = true;
@@ -560,7 +569,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
         } else if (match(TokenType::RESTRICT)) {
             // consumed; restrict is a hint only
         } else if (match(TokenType::INLINE)) {
-            // consumed; inline is a hint only (no-op for now)
+            isInline = true;
         } else if (match(TokenType::FASTCALL)) {
             // consumed; handled at function declaration level
         } else if (peek().type == TokenType::FLOAT || peek().type == TokenType::DOUBLE) {
