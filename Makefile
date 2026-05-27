@@ -32,7 +32,7 @@ LIBDIR ?= $(PREFIX)/lib/cc45
 INCDIR ?= $(PREFIX)/include/cc45
 MANDIR ?= $(PREFIX)/share/man/man1
 
-.PHONY: all clean test man test-mmemu test-stdlib test-zpcall test-integration lib install install_local uninstall cppcheck coverage coverage-build coverage-clean coverage-report
+.PHONY: all clean test man test-mmemu test-stdlib test-zpcall test-integration bench bench-save lib install install_local uninstall cppcheck coverage coverage-build coverage-clean coverage-report
 
 cppcheck:
 	cppcheck --enable=warning,performance,portability --inline-suppr -I include/ src/main/
@@ -173,6 +173,14 @@ test-stdlib: all lib
 
 test-zpcall: all
 	@bash src/test/test_zpcall.sh
+
+bench: all lib
+	@bash src/test/bench.sh
+
+bench-save: all lib
+	@bash src/test/bench.sh
+	@cp build/test/bench_results.json src/test/bench_baseline.json
+	@echo "Baseline saved to src/test/bench_baseline.json"
 
 test-objdump45: all
 	@bash src/test/test_objdump45.sh

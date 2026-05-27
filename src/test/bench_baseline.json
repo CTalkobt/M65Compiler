@@ -1,0 +1,92 @@
+{
+    "optimizations": {
+        "compile_ms": 801,
+        "link_ms": 13,
+        "obj_size": 9357,
+        "prg_size": 2612
+    },
+    "compound_types": {
+        "compile_ms": 668,
+        "link_ms": 13,
+        "obj_size": 9229,
+        "prg_size": 3142
+    },
+    "i8_arith": {
+        "compile_ms": 899,
+        "link_ms": 14,
+        "obj_size": 11798,
+        "prg_size": 3350
+    },
+    "shift_edge": {
+        "compile_ms": 994,
+        "link_ms": 14,
+        "obj_size": 14221,
+        "prg_size": 4975
+    },
+    "bool": {
+        "compile_ms": 180,
+        "link_ms": 12,
+        "obj_size": 2307,
+        "prg_size": 902
+    },
+    "many_params": {
+        "compile_ms": 875,
+        "link_ms": 14,
+        "obj_size": 12023,
+        "prg_size": 3961
+    },
+    "variadic": {
+        "compile_ms": 675,
+        "link_ms": 13,
+        "obj_size": 9260,
+        "prg_size": 3077
+    },
+    "stdlib_strlen": {
+        "compile_ms": 97,
+        "link_ms": 15,
+        "obj_size": 1262,
+        "prg_size": 589
+    },
+    "stdlib_strcmp": {
+        "compile_ms": 258,
+        "link_ms": 11,
+        "obj_size": 3596,
+        "prg_size": 1353
+    },
+    "stdlib_memcpy": {
+        "compile_ms": 190,
+        "link_ms": 13,
+        "obj_size": 2752,
+        "prg_size": 1171
+    },
+    "stdlib_atoi": {
+        "compile_ms": 175,
+        "link_ms": 11,
+        "obj_size": 2281,
+        "prg_size": 1015
+    },
+    "stdlib_itoa": {
+        "compile_ms": 273,
+        "link_ms": 13,
+        "obj_size": 3763,
+        "prg_size": 1696
+    },
+    "stdlib_ctype": {
+        "compile_ms": 340,
+        "link_ms": 11,
+        "obj_size": 4316,
+        "prg_size": 1690
+    },
+    "stdlib_malloc": {
+        "compile_ms": 224,
+        "link_ms": 12,
+        "obj_size": 3017,
+        "prg_size": 2388
+    },
+    "stdlib_gcd_lcm": {
+        "compile_ms": 364,
+        "link_ms": 11,
+        "obj_size": 4947,
+        "prg_size": 2321
+    }
+}
