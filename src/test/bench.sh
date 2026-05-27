@@ -2,8 +2,9 @@
 
 # bench.sh — Performance microbenchmark suite for cc45 toolchain
 #
-# Measures compile time, link time, and binary size for a set of
-# benchmark programs. Results are compared against a saved baseline.
+# Measures compile time, link time, binary size, and execution cycles
+# (via mmemu-cli) for a set of benchmark programs. Results are compared
+# against a saved baseline.
 #
 # Usage:
 #   make bench              Run benchmarks, compare against baseline
@@ -16,6 +17,7 @@ set -e
 
 CC="./bin/cc45"
 LD="./bin/ln45"
+MMEMU="mmemu-cli"
 LIB="lib/build/c45.lib"
 BUILDDIR="build/test/bench"
 BASELINE="src/test/bench_baseline.json"
@@ -24,7 +26,13 @@ THRESHOLD="0.10"  # 10% deviation threshold
 
 mkdir -p "$BUILDDIR"
 
-# Benchmark programs: name, source file, needs_stdlib (0/1)
+# Check for mmemu-cli
+HAS_MMEMU=0
+if command -v "$MMEMU" &>/dev/null; then
+    HAS_MMEMU=1
+fi
+
+# Benchmark programs: name|source|needs_stdlib
 BENCHMARKS=(
     # Compiler stress tests
     "optimizations|src/test-resources/test_optimizations.c|1"
@@ -56,18 +64,53 @@ time_ms() {
     return $rc
 }
 
+# Run a PRG in mmemu-cli, return cycle count.
+# Entry point is $200D for -basic mode PRGs.
+# Returns 0 if mmemu-cli is not available.
+get_cycles() {
+    local prg="$1"
+    if [ "$HAS_MMEMU" != "1" ] || [ ! -f "$prg" ]; then
+        echo 0
+        return
+    fi
+
+    local output
+    output=$($MMEMU -m rawMega65 2>/dev/null <<MMEOF
+load $prg
+setpc \$200D
+step 50000
+regs
+q
+MMEOF
+)
+
+    # Extract last Cycles: line
+    local cycles
+    cycles=$(echo "$output" | grep "^Cycles:" | tail -1 | sed 's/Cycles: //')
+    if [ -z "$cycles" ]; then
+        echo 0
+    else
+        echo "$cycles"
+    fi
+}
+
 passed=0
 failed=0
-regressions=0
 results="{"
 
 echo "========================================"
 echo "Performance Microbenchmarks"
 echo "========================================"
+
+if [ "$HAS_MMEMU" = "1" ]; then
+    echo "(mmemu-cli found — cycle counts enabled)"
+else
+    echo "(mmemu-cli not found — cycle counts skipped)"
+fi
 echo ""
 
-printf "%-20s %8s %8s %8s %8s\n" "Benchmark" "Compile" "Link" "ObjSize" "PrgSize"
-printf "%-20s %8s %8s %8s %8s\n" "---------" "-------" "----" "-------" "-------"
+printf "%-20s %8s %8s %8s %8s %8s\n" "Benchmark" "Compile" "Link" "ObjSize" "PrgSize" "Cycles"
+printf "%-20s %8s %8s %8s %8s %8s\n" "---------" "-------" "----" "-------" "-------" "------"
 
 for entry in "${BENCHMARKS[@]}"; do
     IFS='|' read -r name src needs_stdlib <<< "$entry"
@@ -103,11 +146,18 @@ for entry in "${BENCHMARKS[@]}"; do
         prg_size=$(stat -c%s "$prg" 2>/dev/null || stat -f%z "$prg" 2>/dev/null)
     fi
 
-    printf "%-20s %6dms %6dms %7d %7d\n" "$name" "$compile_ms" "$link_ms" "$obj_size" "$prg_size"
+    # Execution cycles (mmemu-cli)
+    cycles=$(get_cycles "$prg")
 
-    # Append to JSON results (obj_size and prg_size are the stable metrics)
+    if [ "$cycles" != "0" ]; then
+        printf "%-20s %6dms %6dms %7d %7d %8d\n" "$name" "$compile_ms" "$link_ms" "$obj_size" "$prg_size" "$cycles"
+    else
+        printf "%-20s %6dms %6dms %7d %7d %8s\n" "$name" "$compile_ms" "$link_ms" "$obj_size" "$prg_size" "-"
+    fi
+
+    # Append to JSON results
     if [ "$results" != "{" ]; then results="$results,"; fi
-    results="$results\"$name\":{\"compile_ms\":$compile_ms,\"link_ms\":$link_ms,\"obj_size\":$obj_size,\"prg_size\":$prg_size}"
+    results="$results\"$name\":{\"compile_ms\":$compile_ms,\"link_ms\":$link_ms,\"obj_size\":$obj_size,\"prg_size\":$prg_size,\"cycles\":$cycles}"
 
     passed=$((passed + 1))
 done
@@ -128,7 +178,6 @@ if [ -f "$BASELINE" ]; then
     echo "========================================"
     echo ""
 
-    # Use python3 for JSON comparison
     python3 - "$BASELINE" "$RESULTS" "$THRESHOLD" <<'PYEOF'
 import json, sys
 
@@ -143,8 +192,8 @@ with open(results_path) as f:
 regressions = 0
 improvements = 0
 
-# Only compare size metrics (stable); timing varies by machine load
-size_metrics = ["obj_size", "prg_size"]
+# Compare size and cycle metrics (deterministic); timing varies by machine
+stable_metrics = ["obj_size", "prg_size", "cycles"]
 
 for name in sorted(results.keys()):
     if name not in baseline:
@@ -154,7 +203,7 @@ for name in sorted(results.keys()):
     b = baseline[name]
     r = results[name]
 
-    for metric in size_metrics:
+    for metric in stable_metrics:
         if metric not in b or metric not in r:
             continue
         bv = b[metric]
@@ -164,10 +213,16 @@ for name in sorted(results.keys()):
 
         pct = (rv - bv) / bv
         if pct > threshold:
-            print(f"  REGRESSION: {name}.{metric}: {bv} -> {rv} (+{pct*100:.1f}%)")
+            label = "REGRESSION"
+            if metric == "cycles":
+                label = "SLOWER"
+            print(f"  {label:12s} {name}.{metric}: {bv} -> {rv} (+{pct*100:.1f}%)")
             regressions += 1
         elif pct < -threshold:
-            print(f"  IMPROVED:   {name}.{metric}: {bv} -> {rv} ({pct*100:.1f}%)")
+            label = "IMPROVED"
+            if metric == "cycles":
+                label = "FASTER"
+            print(f"  {label:12s} {name}.{metric}: {bv} -> {rv} ({pct*100:.1f}%)")
             improvements += 1
 
 for name in sorted(baseline.keys()):
@@ -187,7 +242,7 @@ PYEOF
     bench_rc=$?
     if [ $bench_rc -ne 0 ]; then
         echo ""
-        echo "FAIL: Size regressions detected (>${THRESHOLD} threshold)"
+        echo "FAIL: Regressions detected (>${THRESHOLD} threshold)"
         exit 1
     fi
 else

@@ -1,92 +1,107 @@
 {
     "optimizations": {
-        "compile_ms": 801,
-        "link_ms": 13,
+        "compile_ms": 746,
+        "link_ms": 12,
         "obj_size": 9357,
-        "prg_size": 2612
+        "prg_size": 2612,
+        "cycles": 3878
     },
     "compound_types": {
-        "compile_ms": 668,
-        "link_ms": 13,
+        "compile_ms": 655,
+        "link_ms": 12,
         "obj_size": 9229,
-        "prg_size": 3142
+        "prg_size": 3142,
+        "cycles": 719
     },
     "i8_arith": {
-        "compile_ms": 899,
-        "link_ms": 14,
+        "compile_ms": 919,
+        "link_ms": 13,
         "obj_size": 11798,
-        "prg_size": 3350
+        "prg_size": 3350,
+        "cycles": 4802
     },
     "shift_edge": {
-        "compile_ms": 994,
-        "link_ms": 14,
+        "compile_ms": 1026,
+        "link_ms": 13,
         "obj_size": 14221,
-        "prg_size": 4975
+        "prg_size": 4975,
+        "cycles": 3659
     },
     "bool": {
-        "compile_ms": 180,
+        "compile_ms": 183,
         "link_ms": 12,
         "obj_size": 2307,
-        "prg_size": 902
+        "prg_size": 902,
+        "cycles": 489
     },
     "many_params": {
-        "compile_ms": 875,
-        "link_ms": 14,
+        "compile_ms": 882,
+        "link_ms": 13,
         "obj_size": 12023,
-        "prg_size": 3961
+        "prg_size": 3961,
+        "cycles": 2400
     },
     "variadic": {
-        "compile_ms": 675,
-        "link_ms": 13,
+        "compile_ms": 681,
+        "link_ms": 12,
         "obj_size": 9260,
-        "prg_size": 3077
+        "prg_size": 3077,
+        "cycles": 6100
     },
     "stdlib_strlen": {
-        "compile_ms": 97,
-        "link_ms": 15,
+        "compile_ms": 98,
+        "link_ms": 11,
         "obj_size": 1262,
-        "prg_size": 589
+        "prg_size": 589,
+        "cycles": 870
     },
     "stdlib_strcmp": {
-        "compile_ms": 258,
-        "link_ms": 11,
+        "compile_ms": 265,
+        "link_ms": 12,
         "obj_size": 3596,
-        "prg_size": 1353
+        "prg_size": 1353,
+        "cycles": 472
     },
     "stdlib_memcpy": {
-        "compile_ms": 190,
-        "link_ms": 13,
+        "compile_ms": 194,
+        "link_ms": 11,
         "obj_size": 2752,
-        "prg_size": 1171
+        "prg_size": 1171,
+        "cycles": 3536
     },
     "stdlib_atoi": {
         "compile_ms": 175,
         "link_ms": 11,
         "obj_size": 2281,
-        "prg_size": 1015
+        "prg_size": 1015,
+        "cycles": 568
     },
     "stdlib_itoa": {
-        "compile_ms": 273,
-        "link_ms": 13,
+        "compile_ms": 276,
+        "link_ms": 12,
         "obj_size": 3763,
-        "prg_size": 1696
+        "prg_size": 1696,
+        "cycles": 874
     },
     "stdlib_ctype": {
-        "compile_ms": 340,
+        "compile_ms": 348,
         "link_ms": 11,
         "obj_size": 4316,
-        "prg_size": 1690
+        "prg_size": 1690,
+        "cycles": 1896
     },
     "stdlib_malloc": {
-        "compile_ms": 224,
+        "compile_ms": 229,
         "link_ms": 12,
         "obj_size": 3017,
-        "prg_size": 2388
+        "prg_size": 2388,
+        "cycles": 620
     },
     "stdlib_gcd_lcm": {
-        "compile_ms": 364,
+        "compile_ms": 369,
         "link_ms": 11,
         "obj_size": 4947,
-        "prg_size": 2321
+        "prg_size": 2321,
+        "cycles": 3949
     }
 }
