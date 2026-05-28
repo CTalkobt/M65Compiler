@@ -456,6 +456,27 @@ static std::map<uint32_t, std::string> buildSymbolMap(const O45File& obj) {
 // Parse symbols from a linker map file (ln45 -M output).
 // Looks for the "Symbols (by address)" section and parses lines like:
 //   $200D  _main                          main_jmp.o45  [uses:- clob:- ...]
+// Parse TEXT segment end address from map file Memory Layout section
+static uint32_t loadMapTextEnd(const std::string& mapFile) {
+    std::ifstream in(mapFile);
+    if (!in.is_open()) return 0;
+    std::string line;
+    while (std::getline(in, line)) {
+        // Look for: "  TEXT   $XXXX - $YYYY  (N bytes)"
+        if (line.find("TEXT") != std::string::npos && line.find('$') != std::string::npos) {
+            size_t dash = line.find('-');
+            if (dash == std::string::npos) continue;
+            size_t dollar = line.find('$', dash);
+            if (dollar == std::string::npos) continue;
+            try {
+                uint32_t endAddr = (uint32_t)std::stoul(line.substr(dollar + 1), nullptr, 16);
+                return endAddr + 1; // end is inclusive, return exclusive
+            } catch (...) {}
+        }
+    }
+    return 0;
+}
+
 static std::map<uint32_t, std::string> loadMapSymbols(const std::string& mapFile) {
     std::map<uint32_t, std::string> syms;
     std::ifstream in(mapFile);
@@ -902,9 +923,11 @@ int main(int argc, char** argv) {
                     }
                 }
                 SourceLineMap srcLines;
+                uint32_t textEnd = 0;
                 if (!effectiveMap.empty()) {
                     prgSymbols = loadMapSymbols(effectiveMap);
                     srcLines = loadMapSourceLines(effectiveMap);
+                    textEnd = loadMapTextEnd(effectiveMap);
                 }
                 // Detect and render BASIC SYS stub before disassembly
                 size_t stubSkip = 0;
@@ -925,7 +948,13 @@ int main(int argc, char** argv) {
                     }
                 }
 
-                std::vector<uint8_t> codeBody(body.begin() + stubSkip, body.end());
+                // Limit disassembly to TEXT segment if map provides boundary
+                size_t codeLen = body.size() - stubSkip;
+                if (textEnd > 0 && textEnd > base + stubSkip) {
+                    size_t textSize = textEnd - (base + stubSkip);
+                    if (textSize < codeLen) codeLen = textSize;
+                }
+                std::vector<uint8_t> codeBody(body.begin() + stubSkip, body.begin() + stubSkip + codeLen);
                 uint32_t codeBase = base + (uint32_t)stubSkip;
                 disassembleSection(codeBody, codeBase,
                                  stubSkip ? "code" : (isPrg ? "PRG" : "BIN"),
