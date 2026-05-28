@@ -12,6 +12,31 @@ void IRBuilder::setSourceInfo(const std::string& filename) {
 
 void IRBuilder::generate(TranslationUnit& unit) {
     unit.accept(*this);
+    // Eliminate unused static functions (iterative — handles call chains)
+    {
+        bool changed = true;
+        while (changed) {
+            // Rebuild called set from surviving functions only
+            std::set<std::string> usedFuncs;
+            for (const auto& fn : module_.functions) {
+                for (const auto& blk : fn.blocks) {
+                    for (const auto& inst : blk.insts) {
+                        if ((inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) &&
+                            inst.src1.kind == ir::OperandKind::GLOBAL) {
+                            usedFuncs.insert(inst.src1.name);
+                        }
+                    }
+                }
+            }
+            auto it = std::remove_if(module_.functions.begin(), module_.functions.end(),
+                [&usedFuncs](const ir::Function& fn) {
+                    return fn.isStatic && fn.name != "_main" &&
+                           !usedFuncs.count(fn.name);
+                });
+            changed = (it != module_.functions.end());
+            module_.functions.erase(it, module_.functions.end());
+        }
+    }
     // Compute extern symbols: called but not defined in this module
     for (const auto& name : calledFunctions_) {
         if (!definedFunctions_.count(name)) {
