@@ -82,6 +82,9 @@ run_test "test_deep_calls"
 echo "--- Issue #83: cast-pointer store width ---"
 run_test "test_issue83_cast_ptr_width"
 
+echo "--- Issue #84: nested struct array member access ---"
+run_test "test_issue84_nested_struct_array"
+
 echo ""
 echo "========================================"
 echo "Regression tests: $passed passed, $failed failed"

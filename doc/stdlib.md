@@ -214,7 +214,7 @@ Both functions are hand-written 45GS02 assembly (`lib/stdlib/setjmp.s`).
 
 ## 9. MEGA65 Hardware (`mega65.h`)
 
-Memory-mapped I/O register struct overlays for the MEGA65's VIC-IV video controller.
+Memory-mapped I/O register struct overlays for the MEGA65's VIC-IV, SID, and CIA chips.
 
 ### VIC-IV Register Struct
 
@@ -255,6 +255,53 @@ Available defines: `VREG_BORDER`, `VREG_BG0`-`VREG_BG3`, `VREG_CTRL1`, `VREG_CTR
 **Control bits:** `VIC4_DEN`, `VIC4_BMM`, `VIC4_ECM`, `VIC4_MCM`, `VIC4_FAST`, `VIC4_H640`, `VIC4_FCM`, `VIC4_CHR16`, etc.
 
 **VIC-III key:** `VIC3_KEY1` (0xA5), `VIC3_KEY2` (0x96).
+
+### SID Sound Chips
+
+Four SID instances at $D400, $D420, $D440, $D460:
+
+```c
+// Play a note on SID 1, voice 1
+SID1_VOICE(0)->freq_lo = 0x0C;
+SID1_VOICE(0)->freq_hi = 0x11;
+SID1_VOICE(0)->attack_decay = 0x09;
+SID1_VOICE(0)->sustain_release = 0xA0;
+SID1_VOICE(0)->ctrl = SID_TRIANGLE | SID_GATE;
+sid1->volume = 0x0F;
+```
+
+**Struct pointers:** `sid1`, `sid2`, `sid3`, `sid4` — access filter, volume, pots, and oscillator readback.
+
+**Voice helpers:** `SID1_VOICE(n)` through `SID4_VOICE(n)` — typed access to individual voice registers (frequency, pulse width, waveform control, ADSR envelope).
+
+**Waveform bits:** `SID_TRIANGLE`, `SID_SAWTOOTH`, `SID_PULSE`, `SID_NOISE`, `SID_GATE`, `SID_SYNC`, `SID_RINGMOD`.
+
+**Filter:** `SID_FILT1`-`SID_FILT3`, `SID_FILT_EXT`, `SID_LP`, `SID_BP`, `SID_HP`, `SID_MUTE3`.
+
+### CIA Interface Chips
+
+Two CIA instances at $DC00 (CIA 1) and $DD00 (CIA 2):
+
+```c
+// Read joystick 1
+unsigned char j = joy1_read();
+if (j & JOY_FIRE) { /* fire pressed */ }
+
+// Start CIA 1 timer A (one-shot, 1000 cycles)
+cia1->timer_a_lo = 0xE8;
+cia1->timer_a_hi = 0x03;
+cia1->cra = CIA_CRA_START | CIA_CRA_ONESHOT;
+```
+
+**Struct pointers:** `cia1`, `cia2` — ports A/B, data direction, timers A/B, TOD clock, serial data, interrupt control, control registers.
+
+**Convenience:** `joy1_read()`, `joy2_read()` — read joystick with active-low inversion.
+
+**Joystick bits:** `JOY_UP`, `JOY_DOWN`, `JOY_LEFT`, `JOY_RIGHT`, `JOY_FIRE`.
+
+**ICR bits:** `CIA_ICR_TA`, `CIA_ICR_TB`, `CIA_ICR_ALRM`, `CIA_ICR_SP`, `CIA_ICR_FLAG`, `CIA_ICR_SET`.
+
+**Control bits:** `CIA_CRA_START`, `CIA_CRA_ONESHOT`, `CIA_CRA_LOAD`, `CIA_CRB_START`, `CIA_CRB_ALARM`, etc.
 
 ## 9b. DMA Operations (`dma.h`)
 

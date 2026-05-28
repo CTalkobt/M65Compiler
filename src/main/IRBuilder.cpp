@@ -2108,6 +2108,18 @@ void IRBuilder::visit(ArrayAccess& node) {
         } else {
             elemSize = ir::typeSize(baseType);
         }
+    } else if (auto* ma = dynamic_cast<MemberAccess*>(root)) {
+        // Array member of a struct (e.g., sid1->voice[1], vic4->sprite[0])
+        // Look up the member's element type from struct info
+        IRTypeInfo parentInfo = getExprTypeInfo(ma->structExpr.get());
+        std::string parentName = getAggregateName(parentInfo.typeName);
+        auto psit = structs_.find(parentName);
+        if (psit != structs_.end()) {
+            auto pmit = psit->second.members.find(ma->memberName);
+            if (pmit != psit->second.members.end()) {
+                elemSize = getTypeSize(pmit->second.type, pmit->second.pointerLevel);
+            }
+        }
     }
 
     // addr = base + index * elemSize
@@ -2173,6 +2185,8 @@ void IRBuilder::visit(MemberAccess& node) {
     int memberOffset = 0;
     int bitWidth = 0;
     int bitOffset = 0;
+    bool memberIsArray = false;
+    bool memberIsStruct = false;
 
     IRTypeInfo baseInfo = getExprTypeInfo(node.structExpr.get());
     std::string sName = getAggregateName(baseInfo.typeName);
@@ -2184,6 +2198,8 @@ void IRBuilder::visit(MemberAccess& node) {
             memberOffset = mit->second.offset;
             bitWidth = mit->second.bitWidth;
             bitOffset = mit->second.bitOffset;
+            memberIsArray = !mit->second.arrayDims.empty();
+            memberIsStruct = structs_.count(mit->second.type) > 0;
         }
     } else {
         // Fallback: search all structs (fragile but handles some cases)
@@ -2193,6 +2209,8 @@ void IRBuilder::visit(MemberAccess& node) {
                 memberOffset = mit->second.offset;
                 bitWidth = mit->second.bitWidth;
                 bitOffset = mit->second.bitOffset;
+                memberIsArray = !mit->second.arrayDims.empty();
+                memberIsStruct = structs_.count(mit->second.type) > 0;
                 break;
             }
         }
@@ -2209,7 +2227,8 @@ void IRBuilder::visit(MemberAccess& node) {
     add.loc = loc(node);
     emit(add);
 
-    if (computeAddressOnly_) {
+    // Array/struct members decay to their address (no LOAD needed)
+    if (computeAddressOnly_ || memberIsArray || memberIsStruct) {
         lastValue_ = addr;
         return;
     }
