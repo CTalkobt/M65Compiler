@@ -612,18 +612,19 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
             printf("%08x <%s>:\n", pc, symIt->second.c_str());
         }
 
-        // Print source line comment when location changes
+        // Print source line comment when location changes (range-based lookup)
         if (!sourceLines.empty()) {
-            auto slIt = sourceLines.find(pc);
-            if (slIt != sourceLines.end() &&
-                (slIt->second.line != lastSourceLine || slIt->second.file != lastSourceFile)) {
-                lastSourceFile = slIt->second.file;
-                lastSourceLine = slIt->second.line;
-                std::string srcText = getSourceLine(lastSourceFile, lastSourceLine);
-                // Trim leading whitespace
-                size_t start = srcText.find_first_not_of(" \t");
-                if (start != std::string::npos) srcText = srcText.substr(start);
-                printf("; %s:%d  %s\n", lastSourceFile.c_str(), lastSourceLine, srcText.c_str());
+            auto slIt = sourceLines.upper_bound(pc);
+            if (slIt != sourceLines.begin()) {
+                --slIt; // most recent entry at or before pc
+                if (slIt->second.line != lastSourceLine || slIt->second.file != lastSourceFile) {
+                    lastSourceFile = slIt->second.file;
+                    lastSourceLine = slIt->second.line;
+                    std::string srcText = getSourceLine(lastSourceFile, lastSourceLine);
+                    size_t start = srcText.find_first_not_of(" \t");
+                    if (start != std::string::npos) srcText = srcText.substr(start);
+                    printf("; %s:%d  %s\n", lastSourceFile.c_str(), lastSourceLine, srcText.c_str());
+                }
             }
         }
 
