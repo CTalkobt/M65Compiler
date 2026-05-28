@@ -736,6 +736,19 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // Frame pointer variable
     emit(".var _fp = 0");
 
+    // Emit .loc for function entry (before prologue, so the frame setup
+    // is attributed to the function's first source line, not the previous function's last line)
+    if (!fn.blocks.empty()) {
+        for (const auto& inst : fn.blocks[0].insts) {
+            if (!inst.loc.file.empty() && inst.loc.line > 0) {
+                emit(".loc \"" + inst.loc.file + "\", " + std::to_string(inst.loc.line));
+                lastLocFile_ = inst.loc.file;
+                lastLocLine_ = inst.loc.line;
+                break;
+            }
+        }
+    }
+
     // Allocate frame only for frame-allocated vRegs
     int localFrameSize = frameSize_;
     localFrameSize_ = localFrameSize;  // save for RET cleanup
