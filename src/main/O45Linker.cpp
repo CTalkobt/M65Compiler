@@ -987,15 +987,25 @@ void O45Linker::mergeLineMaps() {
 
 void O45Linker::writeLineMap(std::ostream& out) const {
     if (mergedLineMap_.empty()) return;
+    // Only emit entries where file or line changes from the previous entry.
+    // Readers infer that an address belongs to the most recent entry with
+    // a lower or equal address (range-based lookup).
     out << "[\n";
+    std::string prevFile;
+    int prevLine = -1;
+    bool first = true;
     for (size_t i = 0; i < mergedLineMap_.size(); i++) {
-        out << "  {\"addr\":" << mergedLineMap_[i].address
-            << ",\"file\":\"" << mergedLineMap_[i].file
-            << "\",\"line\":" << mergedLineMap_[i].line << "}";
-        if (i + 1 < mergedLineMap_.size()) out << ",";
-        out << "\n";
+        const auto& e = mergedLineMap_[i];
+        if (e.file == prevFile && e.line == prevLine) continue;
+        if (!first) out << ",\n";
+        out << "  {\"addr\":" << e.address
+            << ",\"file\":\"" << e.file
+            << "\",\"line\":" << e.line << "}";
+        prevFile = e.file;
+        prevLine = e.line;
+        first = false;
     }
-    out << "]\n";
+    out << "\n]\n";
 }
 
 // =============================================================================

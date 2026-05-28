@@ -17,15 +17,23 @@ static void writeLineMapJson(const std::string& jsonFile, const std::vector<Asse
     if (lineMap.empty()) return;
     std::ofstream jout(jsonFile);
     if (!jout.is_open()) return;
+    // Only emit entries where file or line changes (range-based lookup).
     jout << "[\n";
+    std::string prevFile;
+    int prevLine = -1;
+    bool first = true;
     for (size_t i = 0; i < lineMap.size(); i++) {
-        jout << "  {\"addr\":" << lineMap[i].address
-             << ",\"file\":\"" << lineMap[i].file
-             << "\",\"line\":" << lineMap[i].line << "}";
-        if (i + 1 < lineMap.size()) jout << ",";
-        jout << "\n";
+        const auto& e = lineMap[i];
+        if (e.file == prevFile && e.line == prevLine) continue;
+        if (!first) jout << ",\n";
+        jout << "  {\"addr\":" << e.address
+             << ",\"file\":\"" << e.file
+             << "\",\"line\":" << e.line << "}";
+        prevFile = e.file;
+        prevLine = e.line;
+        first = false;
     }
-    jout << "]\n";
+    jout << "\n]\n";
 }
 
 static void writeListing(const std::string& filename, const AssemblerParser& parser, const std::string& source) {
