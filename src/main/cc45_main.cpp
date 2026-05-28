@@ -2,6 +2,9 @@
 #include <string>
 #include <vector>
 #include <cstdlib>
+#ifdef __linux__
+#include <unistd.h>
+#endif
 #include <fstream>
 #include <sstream>
 #include <sstream>
@@ -408,9 +411,21 @@ int main(int argc, char** argv) {
         if (pos < s.size()) includePaths.push_back(s.substr(pos));
     }
 
-    // Add default system include path relative to the binary location
+    // Add default system include path relative to the resolved binary location.
+    // Uses /proc/self/exe (Linux) or realpath(argv[0]) to handle symlinks,
+    // PATH lookups, and invocation from any working directory.
     {
-        std::string exePath = argv[0];
+        std::string exePath;
+#ifdef __linux__
+        char buf[4096];
+        ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+        if (len > 0) { buf[len] = '\0'; exePath = buf; }
+#endif
+        if (exePath.empty()) {
+            char* resolved = realpath(argv[0], nullptr);
+            if (resolved) { exePath = resolved; free(resolved); }
+            else exePath = argv[0];
+        }
         size_t sep = exePath.find_last_of("/\\");
         std::string baseDir = (sep != std::string::npos) ? exePath.substr(0, sep + 1) : "";
         includePaths.push_back(baseDir + "../lib/include");
