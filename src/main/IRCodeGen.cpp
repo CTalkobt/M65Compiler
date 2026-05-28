@@ -691,33 +691,44 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                     constDefs[inst.dest.vregId] = inst.src1.immVal;
             }
         }
-        // Pass 2: for each CONST vreg, check all uses. If it's only used as
-        // src2 of STORE (address operand) and never read elsewhere, suppress it.
+        // Pass 2: for each CONST vreg, check if it can be suppressed.
+        // Suppressible if ONLY used as:
+        //   (a) src2 of STORE (address operand, not local slot), OR
+        //   (b) src1 of STORE where src2 is also a known-constant address
         for (auto& [vid, val] : constDefs) {
-            bool onlyStoreAddr = true;
+            bool canSuppress = true;
             bool hasUse = false;
             for (const auto& blk : fn.blocks) {
                 for (const auto& inst : blk.insts) {
                     if (inst.op == ir::Op::NOP) continue;
-                    // Check if this vreg appears as src1 or in args (= real read)
-                    if (inst.src1.isVreg() && inst.src1.vregId == vid) { onlyStoreAddr = false; break; }
+                    // Check args — any use in args = not suppressible
                     for (const auto& a : inst.args)
-                        if (a.isVreg() && a.vregId == vid) { onlyStoreAddr = false; break; }
-                    if (!onlyStoreAddr) break;
-                    // Check src2: only OK if it's a STORE address
+                        if (a.isVreg() && a.vregId == vid) { canSuppress = false; break; }
+                    if (!canSuppress) break;
+                    // Check src1: OK if it's STORE with a const address
+                    if (inst.src1.isVreg() && inst.src1.vregId == vid) {
+                        if (inst.op == ir::Op::STORE && inst.src2.isVreg() &&
+                            constDefs.count(inst.src2.vregId) &&
+                            !fn.localSlotVregs.count(inst.src2.vregId)) {
+                            hasUse = true; // value of const-addr store — OK
+                        } else {
+                            canSuppress = false; break;
+                        }
+                    }
+                    // Check src2: OK if it's STORE address (not local slot)
                     if (inst.src2.isVreg() && inst.src2.vregId == vid) {
                         if (inst.op == ir::Op::STORE && !fn.localSlotVregs.count(vid)) {
-                            hasUse = true; // used as store address — OK
+                            hasUse = true; // address of store — OK
                         } else {
-                            onlyStoreAddr = false; break;
+                            canSuppress = false; break;
                         }
                     }
                 }
-                if (!onlyStoreAddr) break;
+                if (!canSuppress) break;
             }
-            if (onlyStoreAddr && hasUse) {
+            if (canSuppress && hasUse) {
                 suppressedVregs_.insert(vid);
-                vregConstVal_[vid] = val; // pre-populate for STORE handler
+                vregConstVal_[vid] = val;
             }
         }
     }
@@ -1627,14 +1638,30 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 if (constIt != vregConstVal_.end() &&
                     !localSlotVregs_.count(inst.src2.vregId)) {
                     std::string addr = "$" + hex16((uint16_t)constIt->second);
-                    if (inst.resultType == ir::Type::I8) {
-                        if (inst.src1.isImm()) {
-                            emit("lda #" + std::to_string((int)(inst.src1.immVal & 0xFF)));
-                        } else if (inst.src1.isVreg()) {
-                            loadVregA(inst.src1.vregId);
-                        } else {
-                            loadOperand(inst.src1);
+                    // Load value — use constant directly if available
+                    auto valConst = (inst.src1.isVreg()) ? vregConstVal_.find(inst.src1.vregId) : vregConstVal_.end();
+                    if (inst.src1.isImm()) {
+                        int v = (int)inst.src1.immVal;
+                        emit("lda #" + std::to_string(v & 0xFF));
+                        if (inst.resultType == ir::Type::I32) {
+                            emit("ldx #" + std::to_string((v >> 8) & 0xFF));
+                            emit("ldy #" + std::to_string((v >> 16) & 0xFF));
+                            emit("ldz #" + std::to_string((v >> 24) & 0xFF));
+                        } else if (inst.resultType != ir::Type::I8) {
+                            emit("ldx #" + std::to_string((v >> 8) & 0xFF));
                         }
+                    } else if (valConst != vregConstVal_.end()) {
+                        int v = (int)valConst->second;
+                        emit("lda #" + std::to_string(v & 0xFF));
+                        if (inst.resultType == ir::Type::I32) {
+                            emit("ldx #" + std::to_string((v >> 8) & 0xFF));
+                            emit("ldy #" + std::to_string((v >> 16) & 0xFF));
+                            emit("ldz #" + std::to_string((v >> 24) & 0xFF));
+                        } else if (inst.resultType != ir::Type::I8) {
+                            emit("ldx #" + std::to_string((v >> 8) & 0xFF));
+                        }
+                    } else if (inst.resultType == ir::Type::I8 && inst.src1.isVreg()) {
+                        loadVregA(inst.src1.vregId);
                     } else {
                         loadOperand(inst.src1);
                     }
