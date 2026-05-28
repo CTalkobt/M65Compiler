@@ -875,6 +875,29 @@ else
     fi
 fi
 
+# --- Keyboard matrix scan test ---
+echo "Testing key_pressed() keyboard matrix scan (mega65.h)..."
+
+compile_link_test "src/test-resources/test_keyboard_mmemu.c" "build/test/test_keyboard_mmemu.prg"
+if [ $? -ne 0 ]; then
+    echo "FAIL: Compilation/linking failed for test_keyboard_mmemu.c"
+    failed=$((failed + 1))
+else
+    OUTPUT=$(echo -e "load build/test/test_keyboard_mmemu.prg\nsetpc \$2000\nstep 5000000\nm \$4000 11\nq" | $MMEMU -m rawMega65 2>/dev/null)
+
+    # Expected: 27 08 11 20 3F 00 00 01 00 01 00
+    EXPECTED_KEY="27 08 11 20 3F 00 00 01 00 01 00"
+
+    if echo "$OUTPUT" | grep -qi "4000:.*$EXPECTED_KEY"; then
+        echo "SUCCESS: key_pressed() keyboard matrix scan tests passed."
+    else
+        echo "FAIL: Keyboard scan tests mismatch"
+        echo "Expected: $EXPECTED_KEY"
+        echo "Actual:"; echo "$OUTPUT" | grep "4000:"
+        failed=$((failed + 1))
+    fi
+fi
+
 echo "Testing CPU and flag intrinsics (__cpu.R, __flags.F)..."
 $CC src/test-resources/test_cpu_intrinsics.c -o build/test/test_cpu_intrinsics.s
 if [ $? -eq 0 ]; then

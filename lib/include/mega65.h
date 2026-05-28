@@ -337,6 +337,107 @@ static unsigned char joy2_read(void) {
     return cia1->pra ^ 0x1F;
 }
 
+/* ===== Keyboard Matrix Scan ===== */
+/* Key codes: (column << 3) | row for the C64/MEGA65 8x8 keyboard matrix.
+ * Use with key_pressed() for direct hardware scanning (multi-key capable).
+ * For buffered single-key input, use cbm_getin() from <cbm.h> instead.
+ *
+ *      Col0    Col1    Col2    Col3    Col4    Col5    Col6    Col7
+ * R0   DEL     RETURN  C-RT    F7      F1      F3      F5      C-DN
+ * R1   3       W       A       4       Z       S       E       LSHIFT
+ * R2   5       R       D       6       C       F       T       X
+ * R3   7       Y       G       8       B       H       U       V
+ * R4   9       I       J       0       M       K       O       N
+ * R5   +       P       L       -       .       :       @       ,
+ * R6   POUND   *       ;       HOME    RSHIFT  =       UP-ARW  /
+ * R7   1       <-      CTRL    2       SPACE   C=      Q       STOP
+ */
+
+/* Row 0 */
+#define KEY_DELETE   0x00  /* col 0, row 0 */
+#define KEY_RETURN   0x08  /* col 1, row 0 */
+#define KEY_RIGHT    0x10  /* col 2, row 0 */
+#define KEY_F7       0x18  /* col 3, row 0 */
+#define KEY_F1       0x20  /* col 4, row 0 */
+#define KEY_F3       0x28  /* col 5, row 0 */
+#define KEY_F5       0x30  /* col 6, row 0 */
+#define KEY_DOWN     0x38  /* col 7, row 0 */
+
+/* Row 1 */
+#define KEY_3        0x01  /* col 0, row 1 */
+#define KEY_W        0x09  /* col 1, row 1 */
+#define KEY_A        0x11  /* col 2, row 1 */
+#define KEY_4        0x19  /* col 3, row 1 */
+#define KEY_Z        0x21  /* col 4, row 1 */
+#define KEY_S        0x29  /* col 5, row 1 */
+#define KEY_E        0x31  /* col 6, row 1 */
+#define KEY_LSHIFT   0x39  /* col 7, row 1 */
+
+/* Row 2 */
+#define KEY_5        0x02  /* col 0, row 2 */
+#define KEY_R        0x0A  /* col 1, row 2 */
+#define KEY_D        0x12  /* col 2, row 2 */
+#define KEY_6        0x1A  /* col 3, row 2 */
+#define KEY_C        0x22  /* col 4, row 2 */
+#define KEY_F        0x2A  /* col 5, row 2 */
+#define KEY_T        0x32  /* col 6, row 2 */
+#define KEY_X        0x3A  /* col 7, row 2 */
+
+/* Row 3 */
+#define KEY_7        0x03  /* col 0, row 3 */
+#define KEY_Y        0x0B  /* col 1, row 3 */
+#define KEY_G        0x13  /* col 2, row 3 */
+#define KEY_8        0x1B  /* col 3, row 3 */
+#define KEY_B        0x23  /* col 4, row 3 */
+#define KEY_H        0x2B  /* col 5, row 3 */
+#define KEY_U        0x33  /* col 6, row 3 */
+#define KEY_V        0x3B  /* col 7, row 3 */
+
+/* Row 4 */
+#define KEY_9        0x04  /* col 0, row 4 */
+#define KEY_I        0x0C  /* col 1, row 4 */
+#define KEY_J        0x14  /* col 2, row 4 */
+#define KEY_0        0x1C  /* col 3, row 4 */
+#define KEY_M        0x24  /* col 4, row 4 */
+#define KEY_K        0x2C  /* col 5, row 4 */
+#define KEY_O        0x34  /* col 6, row 4 */
+#define KEY_N        0x3C  /* col 7, row 4 */
+
+/* Row 5 */
+#define KEY_PLUS     0x05  /* col 0, row 5 */
+#define KEY_P        0x0D  /* col 1, row 5 */
+#define KEY_L        0x15  /* col 2, row 5 */
+#define KEY_MINUS    0x1D  /* col 3, row 5 */
+#define KEY_PERIOD   0x25  /* col 4, row 5 */
+#define KEY_COLON    0x2D  /* col 5, row 5 */
+#define KEY_AT       0x35  /* col 6, row 5 */
+#define KEY_COMMA    0x3D  /* col 7, row 5 */
+
+/* Row 6 */
+#define KEY_POUND    0x06  /* col 0, row 6 */
+#define KEY_STAR     0x0E  /* col 1, row 6 */
+#define KEY_SEMI     0x16  /* col 2, row 6 */
+#define KEY_HOME     0x1E  /* col 3, row 6 */
+#define KEY_RSHIFT   0x26  /* col 4, row 6 */
+#define KEY_EQUALS   0x2E  /* col 5, row 6 */
+#define KEY_UPARROW  0x36  /* col 6, row 6 */
+#define KEY_SLASH    0x3E  /* col 7, row 6 */
+
+/* Row 7 */
+#define KEY_1        0x07  /* col 0, row 7 */
+#define KEY_LARROW   0x0F  /* col 1, row 7 */
+#define KEY_CTRL     0x17  /* col 2, row 7 */
+#define KEY_2        0x1F  /* col 3, row 7 */
+#define KEY_SPACE    0x27  /* col 4, row 7 */
+#define KEY_CBM      0x2F  /* col 5, row 7 */
+#define KEY_Q        0x37  /* col 6, row 7 */
+#define KEY_STOP     0x3F  /* col 7, row 7 */
+
+/* Direct keyboard matrix scan — returns 1 if key pressed, 0 if not.
+ * Scans CIA1 hardware directly; supports simultaneous multi-key detection.
+ * Requires linking with c45.lib (or c45_zp.lib). */
+__regparm unsigned char key_pressed(unsigned char keycode);
+
 /* ===== Memory Pointers ===== */
 
 #define SCREEN_RAM  ((volatile unsigned char *)0x0800)

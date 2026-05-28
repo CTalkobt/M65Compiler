@@ -16,6 +16,7 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - **SD Card Controller Struct**: `sd` ($D680) with sector address, command, buffer address, and read data. SD command/status constants.
 - **Ethernet Controller Struct**: `eth` ($D6E0) with control, TX frame size, MAC address. ETH control bit constants.
 - **Hypervisor Trap Struct**: `hyper` ($D640) with 64-byte trap register array and common trap constants.
+- **`key_pressed()` Keyboard Scanner**: `__regparm` library function for direct CIA1 matrix scan. Supports simultaneous multi-key detection. 66 `KEY_*` constants for the full C64/MEGA65 keyboard matrix. Both stack and ZP calling convention variants in `c45.lib`/`c45_zp.lib`.
 
 ### Fixed
 - **Cast-Pointer Dereference Store Width (Issue #83)**: `*(volatile unsigned char *)ADDR = val` was generating 16-bit stores, clobbering the adjacent byte. `IRBuilder::getExprTypeInfo()` now derives the correct pointee type from cast expressions (not just variable references), producing proper 8-bit stores.
