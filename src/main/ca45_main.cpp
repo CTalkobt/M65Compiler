@@ -17,7 +17,6 @@ static void writeLineMapJson(const std::string& jsonFile, const std::vector<Asse
     if (lineMap.empty()) return;
     std::ofstream jout(jsonFile);
     if (!jout.is_open()) return;
-    // Only emit entries where file or line changes (range-based lookup).
     jout << "[\n";
     std::string prevFile;
     int prevLine = -1;

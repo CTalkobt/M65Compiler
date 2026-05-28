@@ -90,7 +90,13 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
 
     uint32_t globalBase = parser.getFirstOrgAddress();
     if (globalBase == 0xFFFFFFFF) globalBase = 0;
-    uint32_t genStart = globalBase; // Used for line map offset
+    // For line map offsets, use the code segment's start address (not global base).
+    // In .o45 mode, data may precede code in the assembler's address space,
+    // but line offsets in the .o45 must be relative to the text segment start.
+    uint32_t genStart = globalBase;
+    if (segBodies.count("code")) {
+        genStart = segBodies["code"].base;
+    }
 
 
 
