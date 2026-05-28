@@ -86,6 +86,9 @@ private:
     // STORE to a non-slot = indirect write through pointer.
     std::set<uint32_t> localSlotVregs_;
 
+    // Track vregs defined by CONST instructions (for direct-address store optimization)
+    std::map<uint32_t, int64_t> vregConstVal_;
+
     // Source location tracking for .loc directives
     int lastLocLine_ = -1;
     std::string lastLocFile_;

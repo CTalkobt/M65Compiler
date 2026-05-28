@@ -675,6 +675,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     // Copy local slot info from IR function
     localSlotVregs_ = fn.localSlotVregs;
+    vregConstVal_.clear();
     vregSizes_ = fn.vregSizes;
 
     // Prescan for frame-allocated vRegs only
@@ -999,6 +1000,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
         case ir::Op::CONST: {
             int val = (int)inst.src1.immVal;
+            if (inst.dest.isVreg()) vregConstVal_[inst.dest.vregId] = val;
             std::string r = irDesc("val=" + std::to_string(val));
             emit("lda #" + std::to_string(val & 0xFF), r);
             if (inst.resultType == ir::Type::I32) {
@@ -1572,6 +1574,34 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     emit("stx " + inst.src2.name + "+1", storeR);
                 }
             } else if (inst.src2.isVreg()) {
+                // Optimization: if the address vreg is a known constant,
+                // emit direct absolute store instead of indirect.
+                auto constIt = vregConstVal_.find(inst.src2.vregId);
+                if (constIt != vregConstVal_.end() &&
+                    !localSlotVregs_.count(inst.src2.vregId)) {
+                    std::string addr = "$" + hex16((uint16_t)constIt->second);
+                    if (inst.resultType == ir::Type::I8) {
+                        if (inst.src1.isImm()) {
+                            emit("lda #" + std::to_string((int)(inst.src1.immVal & 0xFF)));
+                        } else if (inst.src1.isVreg()) {
+                            loadVregA(inst.src1.vregId);
+                        } else {
+                            loadOperand(inst.src1);
+                        }
+                    } else {
+                        loadOperand(inst.src1);
+                    }
+                    emit("sta " + addr);
+                    if (inst.resultType == ir::Type::I32) {
+                        emit("stx " + addr + "+1");
+                        emit("sty " + addr + "+2");
+                        emit("stz " + addr + "+3");
+                    } else if (inst.resultType != ir::Type::I8) {
+                        emit("stx " + addr + "+1");
+                    }
+                    break;
+                }
+
                 // Is the target a local variable slot (direct write)
                 // or a computed address (indirect write through pointer)?
                 bool isLocalSlot = localSlotVregs_.count(inst.src2.vregId) > 0;
