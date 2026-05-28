@@ -24,9 +24,9 @@ char grid[HEIGHT][WIDTH];
 char next[HEIGHT][WIDTH];
 
 /* Screen RAM pointer (default C64/MEGA65 location) */
-char *screen = 0x0400;
+volatile char *screen = (char *)0x0400;
 /* Color RAM */
-char *color = 0xD800;
+volatile char *color = (char *)0xD800;
 
 static void clear_grid() {
     memset(grid, 0, WIDTH * HEIGHT);

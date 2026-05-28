@@ -471,6 +471,8 @@ int main(int argc, char** argv) {
             verboseLevel = 2;
         } else if (arg == "-v") {
             verboseLevel = 1;
+        } else if (arg == "-I" && i + 1 < argc) {
+            includePaths.push_back(argv[++i]);
         } else if (arg.substr(0, 2) == "-I") {
             includePaths.push_back(arg.substr(2));
         } else if (arg.substr(0, 2) == "-D") {
