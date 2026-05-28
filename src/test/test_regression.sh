@@ -79,6 +79,9 @@ run_test "test_bitfield"
 echo "--- Deep call chains ---"
 run_test "test_deep_calls"
 
+echo "--- Issue #83: cast-pointer store width ---"
+run_test "test_issue83_cast_ptr_width"
+
 echo ""
 echo "========================================"
 echo "Regression tests: $passed passed, $failed failed"

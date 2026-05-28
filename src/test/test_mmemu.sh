@@ -741,6 +741,43 @@ else
     fi
 fi
 
+# --- VIC-IV struct overlay and VREG test ---
+echo "Testing VIC-IV struct overlay and VREG direct access (mega65.h)..."
+
+compile_link_test "src/test-resources/test_vic4_mmemu.c" "build/test/test_vic4_mmemu.prg"
+if [ $? -ne 0 ]; then
+    echo "FAIL: Compilation/linking failed for test_vic4_mmemu.c"
+    failed=$((failed + 1))
+else
+    OUTPUT=$(echo -e "load build/test/test_vic4_mmemu.prg\nsetpc \$2000\nstep 5000000\nm \$4000 19\nq" | $MMEMU -m rawMega65 2>/dev/null)
+
+    # Expected at $4000 (19 bytes):
+    # AA BB CC DD 0F 11 22 E1 FF E3 C1 99 C3 00 06 0F
+    # 10 40 04
+    EXPECTED_VIC4="AA BB CC DD 0F 11 22 E1 FF E3 C1 99 C3 00 06 0F"
+    EXPECTED_VIC4B="10 40 04"
+
+    ok=true
+    if ! echo "$OUTPUT" | grep -qi "4000:.*$EXPECTED_VIC4"; then
+        echo "FAIL: VIC-IV struct/VREG tests 0-15 mismatch"
+        echo "Expected: $EXPECTED_VIC4"
+        echo "Actual:"; echo "$OUTPUT" | grep "4000:"
+        ok=false
+    fi
+    if ! echo "$OUTPUT" | grep -qi "4010:.*$EXPECTED_VIC4B"; then
+        echo "FAIL: VIC-IV constant tests mismatch"
+        echo "Expected: $EXPECTED_VIC4B"
+        echo "Actual:"; echo "$OUTPUT" | grep "4010:"
+        ok=false
+    fi
+    if $ok; then
+        echo "SUCCESS: VIC-IV struct overlay and VREG tests passed."
+    fi
+    if ! $ok; then
+        failed=$((failed + 1))
+    fi
+fi
+
 echo "Testing CPU and flag intrinsics (__cpu.R, __flags.F)..."
 $CC src/test-resources/test_cpu_intrinsics.c -o build/test/test_cpu_intrinsics.s
 if [ $? -eq 0 ]; then

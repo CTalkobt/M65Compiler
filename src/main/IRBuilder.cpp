@@ -221,6 +221,12 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
                 auto gpit = globalPointedToType_.find(ref->name);
                 if (gpit != globalPointedToType_.end()) return {gpit->second, "TODO", true, ir::Type::VOID, ir::typeSize(gpit->second)};
             }
+            // General case: derive pointee type from operand expression
+            // Handles *(cast_expr), *(ptr + offset), etc.
+            IRTypeInfo operandInfo = getExprTypeInfo(deref->operand.get());
+            if (operandInfo.type == ir::Type::PTR && operandInfo.pointedToType != ir::Type::VOID) {
+                return {operandInfo.pointedToType, operandInfo.typeName, operandInfo.isSigned, ir::Type::VOID, ir::typeSize(operandInfo.pointedToType)};
+            }
         }
         if (deref->op == "&") {
             IRTypeInfo sub = getExprTypeInfo(deref->operand.get());

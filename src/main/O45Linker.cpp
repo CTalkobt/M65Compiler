@@ -375,8 +375,8 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
     if (warnStream_) {
         for (const auto& [name, addr] : globalSymbols_) {
             (void)addr;
-            if (name != "_main" && name != "__main" && name != "__bss_start" && name != "__bss_end" &&
-                name != "__sp_base" && name != "__fill_dma_buf" && name != "__move_dma_buf" &&
+            if (name != "_main" &&
+                !(name.size() >= 2 && name[0] == '_' && name[1] == '_') &&
                 importedSymbols.find(name) == importedSymbols.end() &&
                 symbolSource_[name] != "<linker>") {
                 *warnStream_ << "ln45: warning: unused global symbol '" << name << "' (defined in " << symbolSource_[name] << ")" << std::endl;

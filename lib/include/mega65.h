@@ -206,3 +206,24 @@ static void vic4_sprite_pos(unsigned char n, int xpos, unsigned char ypos) {
     else
         vic4->sprite_x_msb &= ~(1 << n);
 }
+
+/* ===== Direct register access (optimal codegen) ===== */
+/* These emit direct sta/lda $D0xx via pointer constant propagation. */
+
+#define VREG_BORDER      (*(volatile unsigned char *)0xD020)
+#define VREG_BG0         (*(volatile unsigned char *)0xD021)
+#define VREG_BG1         (*(volatile unsigned char *)0xD022)
+#define VREG_BG2         (*(volatile unsigned char *)0xD023)
+#define VREG_BG3         (*(volatile unsigned char *)0xD024)
+#define VREG_CTRL1       (*(volatile unsigned char *)0xD011)
+#define VREG_CTRL2       (*(volatile unsigned char *)0xD016)
+#define VREG_RASTER      (*(volatile unsigned char *)0xD012)
+#define VREG_SPR_ENABLE  (*(volatile unsigned char *)0xD015)
+#define VREG_SPR_XMSB    (*(volatile unsigned char *)0xD010)
+#define VREG_MEMPTR      (*(volatile unsigned char *)0xD018)
+#define VREG_IRQ_STATUS  (*(volatile unsigned char *)0xD019)
+#define VREG_IRQ_ENABLE  (*(volatile unsigned char *)0xD01A)
+#define VREG_KEY         (*(volatile unsigned char *)0xD02F)
+#define VREG_CTRL_A      (*(volatile unsigned char *)0xD030)
+#define VREG_CTRL_B      (*(volatile unsigned char *)0xD031)
+#define VREG_CTRL_C      (*(volatile unsigned char *)0xD054)
