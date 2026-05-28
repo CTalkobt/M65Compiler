@@ -18,6 +18,10 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - **Hypervisor Trap Struct**: `hyper` ($D640) with 64-byte trap register array and common trap constants.
 - **`key_pressed()` Keyboard Scanner**: `__regparm` library function for direct CIA1 matrix scan. Supports simultaneous multi-key detection. 66 `KEY_*` constants for the full C64/MEGA65 keyboard matrix. Both stack and ZP calling convention variants in `c45.lib`/`c45_zp.lib`.
 
+### Optimizations
+- **Constant-Address Direct Store**: `*(volatile unsigned char *)0xD020 = val` now emits `lda #val; sta $D020` instead of loading the address into a ZP pair and using indirect addressing. Tracks vreg constant values through the IR to detect constant addresses at STORE time.
+- **Unused Static Function Elimination**: Static functions never called by any surviving function are removed at compile time. Handles transitive call chains. game_of_life with mega65.h: 7037 → 6401 bytes (9% saved).
+
 ### Fixed
 - **Cast-Pointer Dereference Store Width (Issue #83)**: `*(volatile unsigned char *)ADDR = val` was generating 16-bit stores, clobbering the adjacent byte. `IRBuilder::getExprTypeInfo()` now derives the correct pointee type from cast expressions (not just variable references), producing proper 8-bit stores.
 - **Nested Struct Array Member Access (Issue #84)**: `ptr->array_member[n].field` was generating a spurious dereference (loading from the address instead of using it) and using wrong element stride. Two fixes in `IRBuilder`: (1) array/struct-typed members now decay to address instead of generating a LOAD; (2) `ArrayAccess` now derives element size from struct member info when the array base is a `MemberAccess`. Enables `vic4->sprite[n].x`, `sid1->voice[n].freq_lo` etc.
@@ -30,7 +34,9 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - **`.o45` Line Map Offsets (Issue #87)**: Line map entries in `.o45` files were offset by the data segment size, causing wrong source line attribution in `objdump45` and `debug.json` after linking. Fixed by computing offsets relative to the code segment start instead of global base 0.
 - **`.loc` Before Function Prologue**: Function prologues (`phw` frame setup) were attributed to the previous function's last source line. Now emits `.loc` before the prologue so `objdump45` shows the correct function entry line.
 - **objdump45 TEXT/DATA Boundary**: Disassembly now stops at the TEXT segment end when a map file is available, preventing DATA arrays from being shown as `brk` instructions.
-- **Unused Static Function Elimination**: Static functions that are never called are removed at compile time. Handles transitive call chains. game_of_life with mega65.h: 7037 → 6401 bytes (9% saved).
+- **objdump45 Source Line Lookup**: Source line interleaving now uses range-based lookup (`upper_bound`) instead of exact match, working correctly with deduplicated debug entries.
+- **cc45 Binary Path Resolution**: System include path (`lib/include`) now resolved via `/proc/self/exe` or `realpath()` instead of `argv[0]`, fixing include search when invoked from any directory.
+- **Removed `.debug.json` Generation**: `ln45` and `ca45` no longer emit `.debug.json` files. Use `-M` flag for map file output which contains correct line info.
 - **ln45 Unused Symbol Warnings**: Suppressed "unused global symbol" warnings for `__`-prefixed internal symbols (CRT internals like `__exit`, `__init`, `__sp_base`). Only user-facing symbols are reported.
 
 ## [Unreleased] - 2026-05-26
