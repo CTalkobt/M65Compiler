@@ -212,7 +212,51 @@ Save and restore execution context for non-local control flow (error recovery, c
 
 Both functions are hand-written 45GS02 assembly (`lib/stdlib/setjmp.s`).
 
-## 9. DMA Operations (`dma.h`)
+## 9. MEGA65 Hardware (`mega65.h`)
+
+Memory-mapped I/O register struct overlays for the MEGA65's VIC-IV video controller.
+
+### VIC-IV Register Struct
+
+```c
+#include <mega65.h>
+
+vic4->border = COLOR_BLACK;        // struct access ($D020)
+vic4->bg0 = COLOR_BLUE;            // struct access ($D021)
+vic4->sprite_enable = 0x01;        // enable sprite 0
+vic4->sprite[0].x = 100;           // nested sprite position struct
+vic4->sprite[0].y = 150;
+```
+
+The `vic4` macro expands to `((volatile struct vic4_regs *)0xD000)`, providing type-safe access to all 128 VIC-IV registers ($D000-$D07F).
+
+### Direct Register Defines
+
+For single-register access, `VREG_*` defines provide an alternative syntax:
+
+```c
+VREG_BORDER = COLOR_BLACK;         // *(volatile unsigned char *)0xD020
+VREG_BG0 = COLOR_BLUE;             // *(volatile unsigned char *)0xD021
+VREG_CTRL_B |= VIC4_FAST;          // enable 40 MHz
+```
+
+Available defines: `VREG_BORDER`, `VREG_BG0`-`VREG_BG3`, `VREG_CTRL1`, `VREG_CTRL2`, `VREG_RASTER`, `VREG_SPR_ENABLE`, `VREG_SPR_XMSB`, `VREG_MEMPTR`, `VREG_IRQ_STATUS`, `VREG_IRQ_ENABLE`, `VREG_KEY`, `VREG_CTRL_A`, `VREG_CTRL_B`, `VREG_CTRL_C`.
+
+### Convenience Functions
+
+- **`vic4_unlock()`**: Writes VIC-III key sequence ($A5, $96) to enable extended registers.
+- **`vic4_fast()`**: Unlocks VIC-III/IV and enables 40 MHz CPU speed.
+- **`vic4_sprite_pos(n, x, y)`**: Sets sprite position with X > 255 MSB handling.
+
+### Constants
+
+**Colours:** `COLOR_BLACK` (0) through `COLOR_LGREY` (15).
+
+**Control bits:** `VIC4_DEN`, `VIC4_BMM`, `VIC4_ECM`, `VIC4_MCM`, `VIC4_FAST`, `VIC4_H640`, `VIC4_FCM`, `VIC4_CHR16`, etc.
+
+**VIC-III key:** `VIC3_KEY1` (0xA5), `VIC3_KEY2` (0x96).
+
+## 9b. DMA Operations (`dma.h`)
 
 Compiler builtins for the MEGA65's F018B DMA controller (~40MB/s vs ~1MB/s for CPU loops). No library linkage needed — these are expanded inline by the compiler.
 
@@ -238,7 +282,7 @@ dma_fill((void *)0x0800, 1000, 0x20);
 dma_copy((void *)0x0800, (void *)src_data, 1000);
 ```
 
-## 9b. Timing (`time.h`)
+## 9c. Timing (`time.h`)
 
 Minimal timing functions based on the MEGA65 jiffy clock (KERNAL RDTIM, 60Hz).
 
@@ -295,7 +339,8 @@ ccomp/
 │   │   ├── stdlib.h
 │   │   ├── stdio.h
 │   │   ├── ctype.h
-│   │   └── cbm.h       # CBM KERNAL interface (see doc/stdcbm.md)
+│   │   ├── cbm.h       # CBM KERNAL interface (see doc/stdcbm.md)
+│   │   └── mega65.h    # MEGA65 hardware registers (VIC-IV struct overlay)
 │   ├── stdlib/          # Library function implementations
 │   │   ├── strlen.s     # Hand-written 45GS02 assembly (29 files)
 │   │   ├── strcpy.s

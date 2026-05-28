@@ -169,6 +169,7 @@ make clean && make test  # Clean rebuild and test
 - **`errno.h`**: `errno`, `_errnoc`, `ERANGE`, `ENOMEM`, `EINVAL`, `EDOM`
 - **`setjmp.h`**: `jmp_buf`, `setjmp`, `longjmp`
 - **`dma.h`**: `dma_copy`, `dma_fill` (MEGA65 F018B DMA controller macros)
+- **`mega65.h`**: VIC-IV register struct overlay (`vic4->border`, `VREG_*` defines), colour/bit constants, `vic4_unlock()`, `vic4_fast()`
 - **`time.h`**: `clock`, `time`, `difftime`, `CLOCKS_PER_SEC` (jiffy clock, 60Hz)
 
 ### Calling Convention Support
