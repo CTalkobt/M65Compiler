@@ -406,6 +406,105 @@ struct audio_mixer_regs {
 #define AUDIO_RIGHT(vol)  ((vol) & 0x0F)
 #define AUDIO_BOTH(vol)   (((vol) << 4) | ((vol) & 0x0F))
 
+/* ===== Floppy Disk Controller ($D080-$D09F) ===== */
+
+struct fdc_regs {
+    unsigned char control;         /* $D080: FDC control / status */
+    unsigned char command;         /* $D081: FDC command register */
+    unsigned char stat2;           /* $D082: FDC status 2 */
+    unsigned char swap;            /* $D083: FDC swap (side/density) */
+    unsigned char track;           /* $D084: current track */
+    unsigned char sector;          /* $D085: current sector */
+    unsigned char side;            /* $D086: current side */
+    unsigned char data;            /* $D087: data register */
+    unsigned char clock;           /* $D088: clock divider */
+    unsigned char step;            /* $D089: step rate */
+    unsigned char _reserved[6];    /* $D08A-$D08F */
+};
+
+#define fdc ((volatile struct fdc_regs *)0xD080)
+
+/* FDC commands */
+#define FDC_CMD_READ    0x40  /* Read sector */
+#define FDC_CMD_WRITE   0xA0  /* Write sector */
+#define FDC_CMD_STEP_IN  0x18 /* Step in (toward center) */
+#define FDC_CMD_STEP_OUT 0x10 /* Step out (toward edge) */
+#define FDC_CMD_RESTORE  0x08 /* Seek to track 0 */
+
+/* FDC status bits ($D080 read) */
+#define FDC_BUSY      0x80  /* Command in progress */
+#define FDC_DRQ       0x40  /* Data request (byte ready) */
+#define FDC_EQ        0x20  /* Equal (sector found) */
+#define FDC_RNF       0x10  /* Record not found */
+#define FDC_WRPROT    0x04  /* Write protect */
+#define FDC_TK0       0x02  /* Track 0 */
+
+/* ===== Hypervisor Traps ($D640-$D67F) ===== */
+
+struct hyper_regs {
+    unsigned char trap[64];        /* $D640-$D67F: hypervisor trap registers */
+};
+
+#define hyper ((volatile struct hyper_regs *)0xD640)
+
+/* Common hypervisor trap calls (write to $D640+n to trigger) */
+#define HTRAP_SETNAME  0x2E  /* Set current filename for next load/save */
+#define HTRAP_LOADFILE 0x36  /* Load file to address */
+
+/* ===== SD Card Controller ($D680-$D6A0) ===== */
+
+struct sd_regs {
+    unsigned char status;          /* $D680: SD status / bus select */
+    unsigned char command;         /* $D681: SD command */
+    unsigned char addr0;           /* $D682: sector address byte 0 (LSB) */
+    unsigned char addr1;           /* $D683: sector address byte 1 */
+    unsigned char addr2;           /* $D684: sector address byte 2 */
+    unsigned char addr3;           /* $D685: sector address byte 3 (MSB) */
+    unsigned char _reserved[2];    /* $D686-$D687 */
+    unsigned char buf_addr_lo;     /* $D688: buffer address low (within SD sector buffer) */
+    unsigned char buf_addr_hi;     /* $D689: buffer address high */
+    unsigned char _reserved2[6];   /* $D68A-$D68F */
+    unsigned char rdata;           /* $D690: read data (from sector buffer) */
+};
+
+#define sd ((volatile struct sd_regs *)0xD680)
+
+/* SD status bits ($D680) */
+#define SD_BUSY       0x80  /* Controller busy */
+#define SD_RESET      0x40  /* Card reset state */
+#define SD_ERROR      0x20  /* Last command had error */
+#define SD_SDHC       0x10  /* SDHC card detected */
+
+/* SD commands ($D681) */
+#define SD_CMD_RESET  0x00  /* Reset SD card */
+#define SD_CMD_READ   0x01  /* Read sector to buffer */
+#define SD_CMD_WRITE  0x02  /* Write buffer to sector */
+#define SD_CMD_FLUSH  0x03  /* Flush write cache */
+
+/* ===== Ethernet Controller ($D6E0-$D6FF) ===== */
+
+struct eth_regs {
+    unsigned char ctrl;            /* $D6E0: Ethernet control */
+    unsigned char txszlo;          /* $D6E1: TX frame size low */
+    unsigned char txszhi;          /* $D6E2: TX frame size high */
+    unsigned char _reserved1[5];   /* $D6E3-$D6E7 */
+    unsigned char mac[6];          /* $D6E9-$D6ED: MAC address (note: starts at +8, gap at +3..+7) */
+    unsigned char _reserved2;      /* $D6EE */
+    unsigned char miimlo;          /* $D6EF: MIIM register low */
+    unsigned char _reserved3[8];   /* $D6F0-$D6F7 */
+    unsigned char rxbuf;           /* $D6E8: RX buffer read port */
+    unsigned char txbuf;           /* $D6E9: TX buffer write port */
+};
+
+#define eth ((volatile struct eth_regs *)0xD6E0)
+
+/* Ethernet control bits ($D6E0) */
+#define ETH_RST       0x01  /* Reset ethernet controller */
+#define ETH_TXEN      0x02  /* Enable TX */
+#define ETH_RXEN      0x04  /* Enable RX */
+#define ETH_RXIRQ     0x10  /* RX interrupt pending (read) */
+#define ETH_TXDONE    0x20  /* TX complete (read) */
+
 /* ===== Direct register access (optimal codegen) ===== */
 /* These emit direct sta/lda $D0xx via pointer constant propagation. */
 

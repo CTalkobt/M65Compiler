@@ -852,6 +852,29 @@ else
     fi
 fi
 
+# --- FDC, SD, Ethernet, Hypervisor struct test ---
+echo "Testing FDC, SD card, Ethernet, Hypervisor (mega65.h)..."
+
+compile_link_test "src/test-resources/test_devices_mmemu.c" "build/test/test_devices_mmemu.prg"
+if [ $? -ne 0 ]; then
+    echo "FAIL: Compilation/linking failed for test_devices_mmemu.c"
+    failed=$((failed + 1))
+else
+    OUTPUT=$(echo -e "load build/test/test_devices_mmemu.prg\nsetpc \$2000\nstep 5000000\nm \$4000 16\nq" | $MMEMU -m rawMega65 2>/dev/null)
+
+    # Expected: 0A 05 01 CC 10 20 30 40 01 06 5A 00 42 40 01 06
+    EXPECTED_DEV="0A 05 01 CC 10 20 30 40 01 06 5A 00 42 40 01 06"
+
+    if echo "$OUTPUT" | grep -qi "4000:.*$EXPECTED_DEV"; then
+        echo "SUCCESS: FDC, SD card, Ethernet, Hypervisor tests passed."
+    else
+        echo "FAIL: Device struct tests mismatch"
+        echo "Expected: $EXPECTED_DEV"
+        echo "Actual:"; echo "$OUTPUT" | grep "4000:"
+        failed=$((failed + 1))
+    fi
+fi
+
 echo "Testing CPU and flag intrinsics (__cpu.R, __flags.F)..."
 $CC src/test-resources/test_cpu_intrinsics.c -o build/test/test_cpu_intrinsics.s
 if [ $? -eq 0 ]; then
