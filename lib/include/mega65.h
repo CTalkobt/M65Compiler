@@ -337,6 +337,75 @@ static unsigned char joy2_read(void) {
     return cia1->pra ^ 0x1F;
 }
 
+/* ===== Memory Pointers ===== */
+
+#define SCREEN_RAM  ((volatile unsigned char *)0x0800)
+#define COLOUR_RAM  ((volatile unsigned char *)0xD800)
+
+/* ===== F018B DMA Controller ($D700-$D705) ===== */
+
+struct dma_regs {
+    unsigned char control;         /* $D700: DMA trigger (write 0 to execute) */
+    unsigned char addr_lo;         /* $D701: DMA list address low */
+    unsigned char addr_mid;        /* $D702: DMA list address mid */
+    unsigned char addr_hi;         /* $D703: DMA list address high */
+    unsigned char addr_bank;       /* $D704: DMA list address bank */
+    unsigned char etrig;           /* $D705: enhanced trigger */
+};
+
+#define dma ((volatile struct dma_regs *)0xD700)
+
+/* DMA command bytes (for DMA job lists) */
+#define DMA_CMD_COPY   0x00
+#define DMA_CMD_FILL   0x03
+#define DMA_CMD_SWAP   0x04
+#define DMA_CMD_MIX    0x04  /* with sub-command */
+
+/* ===== MEGA65 Math Accelerator ($D760-$D77F) ===== */
+
+struct math_divider {
+    unsigned char arg1[4];         /* $D760: dividend (32-bit) */
+    unsigned char arg2[4];         /* $D764: divisor (32-bit) */
+    unsigned char quotient[4];     /* $D768: quotient result (32-bit) */
+    unsigned char _reserved[2];    /* $D76C-$D76D */
+    unsigned char sign;            /* $D76E: sign scratch byte */
+    unsigned char _reserved2;      /* $D76F */
+};
+
+struct math_multiplier {
+    unsigned char arg1[4];         /* $D770: multiplicand (32-bit) */
+    unsigned char arg2[4];         /* $D774: multiplier (32-bit) */
+    unsigned char result[4];       /* $D778: product result (32-bit) */
+    unsigned char _reserved[4];    /* $D77C-$D77F */
+};
+
+#define math_div ((volatile struct math_divider *)0xD760)
+#define math_mul ((volatile struct math_multiplier *)0xD770)
+
+/* Math accelerator status */
+#define MATH_BUSY  (*(volatile unsigned char *)0xD70F)
+#define MATH_BUSY_BIT  0x80  /* Bit 7 of $D70F: set while computing */
+
+/* Hardware RNG */
+#define HW_RANDOM  (*(volatile unsigned char *)0xD7EF)
+#define HW_RNG_READY (*(volatile unsigned char *)0xD7FE)
+
+/* ===== Audio Mixer ($D63C-$D63F) ===== */
+
+struct audio_mixer_regs {
+    unsigned char sid1_vol;        /* $D63C: SID 1 left/right volume */
+    unsigned char sid2_vol;        /* $D63D: SID 2 left/right volume */
+    unsigned char sid3_vol;        /* $D63E: SID 3 left/right volume */
+    unsigned char sid4_vol;        /* $D63F: SID 4 left/right volume */
+};
+
+#define audio_mixer ((volatile struct audio_mixer_regs *)0xD63C)
+
+/* Audio mixer volume nybbles: high = left channel, low = right channel */
+#define AUDIO_LEFT(vol)   ((vol) << 4)
+#define AUDIO_RIGHT(vol)  ((vol) & 0x0F)
+#define AUDIO_BOTH(vol)   (((vol) << 4) | ((vol) & 0x0F))
+
 /* ===== Direct register access (optimal codegen) ===== */
 /* These emit direct sta/lda $D0xx via pointer constant propagation. */
 

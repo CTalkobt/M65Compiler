@@ -815,6 +815,43 @@ else
     fi
 fi
 
+# --- DMA, math accelerator, audio mixer, colour/screen RAM test ---
+echo "Testing DMA, math, audio mixer, colour/screen RAM (mega65.h)..."
+
+compile_link_test "src/test-resources/test_hw_extra_mmemu.c" "build/test/test_hw_extra_mmemu.prg"
+if [ $? -ne 0 ]; then
+    echo "FAIL: Compilation/linking failed for test_hw_extra_mmemu.c"
+    failed=$((failed + 1))
+else
+    OUTPUT=$(echo -e "load build/test/test_hw_extra_mmemu.prg\nsetpc \$2000\nstep 5000000\nm \$4000 18\nq" | $MMEMU -m rawMega65 2>/dev/null)
+
+    # Expected at $4000 (18 bytes):
+    # 01 06 41 44 10 20 30 AA 64 07 01 0A 05 FF A0 00
+    # 03 80
+    EXPECTED_HW="01 06 41 44 10 20 30 AA 64 07 01 0A 05 FF A0 00"
+    EXPECTED_HW2="03 80"
+
+    ok=true
+    if ! echo "$OUTPUT" | grep -qi "4000:.*$EXPECTED_HW"; then
+        echo "FAIL: DMA/math/audio/RAM tests 0-15 mismatch"
+        echo "Expected: $EXPECTED_HW"
+        echo "Actual:"; echo "$OUTPUT" | grep "4000:"
+        ok=false
+    fi
+    if ! echo "$OUTPUT" | grep -qi "4010:.*$EXPECTED_HW2"; then
+        echo "FAIL: DMA/math constants mismatch"
+        echo "Expected: $EXPECTED_HW2"
+        echo "Actual:"; echo "$OUTPUT" | grep "4010:"
+        ok=false
+    fi
+    if $ok; then
+        echo "SUCCESS: DMA, math, audio mixer, colour/screen RAM tests passed."
+    fi
+    if ! $ok; then
+        failed=$((failed + 1))
+    fi
+fi
+
 echo "Testing CPU and flag intrinsics (__cpu.R, __flags.F)..."
 $CC src/test-resources/test_cpu_intrinsics.c -o build/test/test_cpu_intrinsics.s
 if [ $? -eq 0 ]; then

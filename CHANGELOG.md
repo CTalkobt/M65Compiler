@@ -8,10 +8,15 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - **`mega65.h` Hardware Register Header**: VIC-IV register struct overlay (`vic4->border = 0`) mapping all 128 registers ($D000-$D07F). Includes nested sprite position struct, `VREG_*` direct register defines, bit/colour constants, and convenience functions (`vic4_unlock`, `vic4_fast`, `vic4_sprite_pos`).
 - **SID Struct Overlay**: 4 SID instances (`sid1`-`sid4` at $D400/$D420/$D440/$D460) with voice struct (frequency, pulse width, waveform, ADSR), filter, volume. `SIDn_VOICE(n)` helpers for voice access. Waveform, filter routing, and filter mode constants.
 - **CIA Struct Overlay**: 2 CIA instances (`cia1`/$DC00, `cia2`/$DD00) with ports, data direction, timers A/B, TOD clock, serial data, interrupt control, and control registers. ICR/CRA/CRB bit constants, joystick direction constants, `joy1_read()`/`joy2_read()` convenience functions.
+- **DMA Controller Struct**: `dma` at $D700 with control, address, and enhanced trigger registers. DMA command constants.
+- **Math Accelerator Structs**: `math_div` ($D760) and `math_mul` ($D770) for hardware 32-bit divide and multiply. `MATH_BUSY`, `HW_RANDOM` direct access defines.
+- **Audio Mixer Struct**: `audio_mixer` ($D63C) for SID left/right volume panning. `AUDIO_LEFT()`, `AUDIO_RIGHT()`, `AUDIO_BOTH()` helper macros.
+- **Memory Pointers**: `SCREEN_RAM` ($0800) and `COLOUR_RAM` ($D800) convenience pointers.
 
 ### Fixed
 - **Cast-Pointer Dereference Store Width (Issue #83)**: `*(volatile unsigned char *)ADDR = val` was generating 16-bit stores, clobbering the adjacent byte. `IRBuilder::getExprTypeInfo()` now derives the correct pointee type from cast expressions (not just variable references), producing proper 8-bit stores.
 - **Nested Struct Array Member Access (Issue #84)**: `ptr->array_member[n].field` was generating a spurious dereference (loading from the address instead of using it) and using wrong element stride. Two fixes in `IRBuilder`: (1) array/struct-typed members now decay to address instead of generating a LOAD; (2) `ArrayAccess` now derives element size from struct member info when the array base is a `MemberAccess`. Enables `vic4->sprite[n].x`, `sid1->voice[n].freq_lo` etc.
+- **Cast-Pointer Subscript Element Size**: `((unsigned char *)ADDR)[n]` was using stride 2 (int) instead of 1 (char). `ArrayAccess` now derives element size from the expression's pointed-to type when the root is not a variable or struct member.
 - **ln45 Unused Symbol Warnings**: Suppressed "unused global symbol" warnings for `__`-prefixed internal symbols (CRT internals like `__exit`, `__init`, `__sp_base`). Only user-facing symbols are reported.
 
 ## [Unreleased] - 2026-05-26

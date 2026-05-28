@@ -303,6 +303,59 @@ cia1->cra = CIA_CRA_START | CIA_CRA_ONESHOT;
 
 **Control bits:** `CIA_CRA_START`, `CIA_CRA_ONESHOT`, `CIA_CRA_LOAD`, `CIA_CRB_START`, `CIA_CRB_ALARM`, etc.
 
+### DMA Controller (Direct Register Access)
+
+For advanced DMA operations beyond `dma_copy`/`dma_fill` (chained jobs, fractional stepping):
+
+```c
+dma->addr_lo = job_addr & 0xFF;
+dma->addr_mid = job_addr >> 8;
+dma->addr_hi = 0;
+dma->control = 0;  // trigger DMA execution
+```
+
+**Struct pointer:** `dma` ($D700) — control, address (lo/mid/hi/bank), enhanced trigger.
+
+**Command constants:** `DMA_CMD_COPY` (0), `DMA_CMD_FILL` (3), `DMA_CMD_SWAP` (4).
+
+### Math Accelerator
+
+Hardware 32-bit multiply and divide:
+
+```c
+math_mul->arg1[0] = 10;  // multiplicand (32-bit, little-endian)
+math_mul->arg2[0] = 5;   // multiplier
+// result available in math_mul->result[] after ~6 cycles
+
+math_div->arg1[0] = 100; // dividend
+math_div->arg2[0] = 7;   // divisor
+// quotient in math_div->quotient[], remainder shares with mul->arg1
+```
+
+**Struct pointers:** `math_div` ($D760), `math_mul` ($D770).
+
+**Status:** `MATH_BUSY` ($D70F) — bit 7 set while computing. `HW_RANDOM` ($D7EF) — hardware RNG byte.
+
+### Audio Mixer
+
+Per-SID left/right volume control:
+
+```c
+audio_mixer->sid1_vol = AUDIO_BOTH(15);   // full volume both channels
+audio_mixer->sid2_vol = AUDIO_LEFT(10);    // left only, volume 10
+```
+
+**Struct pointer:** `audio_mixer` ($D63C) — volume for SID 1-4.
+
+**Macros:** `AUDIO_LEFT(vol)`, `AUDIO_RIGHT(vol)`, `AUDIO_BOTH(vol)` — pack volume nybbles.
+
+### Memory Pointers
+
+```c
+SCREEN_RAM[0] = 'A';       // write to default screen at $0800
+COLOUR_RAM[0] = COLOR_WHITE; // write to colour RAM at $D800
+```
+
 ## 9b. DMA Operations (`dma.h`)
 
 Compiler builtins for the MEGA65's F018B DMA controller (~40MB/s vs ~1MB/s for CPU loops). No library linkage needed — these are expanded inline by the compiler.

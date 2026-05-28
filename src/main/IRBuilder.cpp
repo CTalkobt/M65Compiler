@@ -2120,6 +2120,13 @@ void IRBuilder::visit(ArrayAccess& node) {
                 elemSize = getTypeSize(pmit->second.type, pmit->second.pointerLevel);
             }
         }
+    } else {
+        // General case: derive element size from expression type info
+        // Handles cast-pointer subscript: ((unsigned char *)0xD800)[n]
+        IRTypeInfo arrInfo = getExprTypeInfo(node.arrayExpr.get());
+        if (arrInfo.type == ir::Type::PTR && arrInfo.pointedToType != ir::Type::VOID) {
+            elemSize = ir::typeSize(arrInfo.pointedToType);
+        }
     }
 
     // addr = base + index * elemSize
