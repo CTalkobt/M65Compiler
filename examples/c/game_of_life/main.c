@@ -13,6 +13,7 @@
  */
 
 #include <string.h>
+#include <mega65.h>
 
 #define WIDTH  40
 #define HEIGHT 25
@@ -130,21 +131,30 @@ static void seed_glider(int row, int col) {
 int main() {
     int gen;
 
+    VREG_BORDER=COLOR_BLACK;
     clear_grid();
+    VREG_BORDER=COLOR_RED;
 
     /* Place some patterns */
+    VREG_BORDER=COLOR_CYAN;
     seed_r_pentomino(10, 18);
+    VREG_BORDER=COLOR_PURPLE;
     seed_glider(2, 2);
+    VREG_BORDER=COLOR_GREEN;
     seed_glider(3, 30);
+    VREG_BORDER=COLOR_BLUE;
 
     /* Set all color RAM to green */
-    memset(color, (char)5, WIDTH * HEIGHT);
 
+    memset(color, (char)5, WIDTH * HEIGHT);
+    VREG_BORDER=COLOR_YELLOW;
     for (gen = 0; gen < 500; gen++) {
+    VREG_BORDER=COLOR_ORANGE;
         draw();
         delay();
         step();
     }
+    VREG_BORDER=COLOR_BROWN;
 
     return 0;
 }
