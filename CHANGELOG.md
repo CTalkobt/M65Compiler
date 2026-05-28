@@ -16,6 +16,7 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 ### Fixed
 - **Cast-Pointer Dereference Store Width (Issue #83)**: `*(volatile unsigned char *)ADDR = val` was generating 16-bit stores, clobbering the adjacent byte. `IRBuilder::getExprTypeInfo()` now derives the correct pointee type from cast expressions (not just variable references), producing proper 8-bit stores.
 - **Nested Struct Array Member Access (Issue #84)**: `ptr->array_member[n].field` was generating a spurious dereference (loading from the address instead of using it) and using wrong element stride. Two fixes in `IRBuilder`: (1) array/struct-typed members now decay to address instead of generating a LOAD; (2) `ArrayAccess` now derives element size from struct member info when the array base is a `MemberAccess`. Enables `vic4->sprite[n].x`, `sid1->voice[n].freq_lo` etc.
+- **Empty-Parameter Function-Like Macros**: `#define FOO() body` was not expanding when invoked as `FOO()`. The preprocessor now correctly handles zero-parameter function-like macros in both definition parsing and expansion.
 - **Cast-Pointer Subscript Element Size**: `((unsigned char *)ADDR)[n]` was using stride 2 (int) instead of 1 (char). `ArrayAccess` now derives element size from the expression's pointed-to type when the root is not a variable or struct member.
 - **ln45 Unused Symbol Warnings**: Suppressed "unused global symbol" warnings for `__`-prefixed internal symbols (CRT internals like `__exit`, `__init`, `__sp_base`). Only user-facing symbols are reported.
 
