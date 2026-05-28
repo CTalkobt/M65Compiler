@@ -20,6 +20,7 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ### Optimizations
 - **Constant-Address Direct Store**: `*(volatile unsigned char *)0xD020 = val` now emits `lda #val; sta $D020` instead of loading the address into a ZP pair and using indirect addressing. Tracks vreg constant values through the IR to detect constant addresses at STORE time.
+- **Constant-Arg Function Call Push**: When all arguments are simple (constants, globals), pushes inline with `phw #imm16` (3 bytes) instead of round-tripping through ZP temp slots (~100 bytes → ~15 bytes for `memset(grid, 0, 1000)`). 32-bit constants use two `phw`. Falls back to two-phase ZP temps for complex args.
 - **Unused Static Function Elimination**: Static functions never called by any surviving function are removed at compile time. Handles transitive call chains. game_of_life with mega65.h: 7037 → 6401 bytes (9% saved).
 
 ### Fixed
