@@ -132,6 +132,31 @@ for f in "${TEST_FILES[@]}"; do
     echo "SUCCESS: $f"
 done
 
+# --- Test -I flag with space-separated path ---
+echo "Testing -I flag (space-separated)..."
+$CC -v -I lib/include src/test-resources/test_include_flag.c -o build/test/test_include_flag.s
+if [ $? -ne 0 ]; then
+    echo "FAIL: -I lib/include (space) failed"
+    failed=$((failed + 1))
+else
+    $AS build/test/test_include_flag.s -o build/test/test_include_flag.bin
+    if [ $? -ne 0 ]; then
+        echo "FAIL: Assembly failed for test_include_flag.s (-I space)"
+        failed=$((failed + 1))
+    else
+        echo "SUCCESS: -I flag (space-separated)"
+    fi
+fi
+
+echo "Testing -I flag (no space)..."
+$CC -v -Ilib/include src/test-resources/test_include_flag.c -o build/test/test_include_flag_nospace.s
+if [ $? -ne 0 ]; then
+    echo "FAIL: -Ilib/include (no space) failed"
+    failed=$((failed + 1))
+else
+    echo "SUCCESS: -I flag (no space)"
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All tests passed!"
     exit 0
