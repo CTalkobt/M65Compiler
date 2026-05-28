@@ -1883,55 +1883,124 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 }
             } else {
                 // STACK convention: Push arguments right-to-left (C convention).
-                // Phase 1: Load all args into ZP temp slots BEFORE any pushes,
-                // so frame-relative loads aren't affected by SP/fp changes.
-                // Phase 2: Push from ZP temps right-to-left.
+                //
+                // "Simple" args (immediates, known constants, globals) can be
+                // pushed directly without ZP temp round-trip.  "Complex" args
+                // (vregs from computation that may reference the stack frame)
+                // still use the two-phase ZP temp approach to avoid _fp corruption.
                 int argBytes = 0;
                 int nArgs = (int)inst.args.size();
-                auto zpSlotAddr = [&](int idx, int byteOff) {
-                    std::stringstream ss;
-                    ss << "$" << std::hex << std::uppercase << std::setfill('0')
-                       << std::setw(2) << ((int)zeroPageStart_ + 0x20 + idx * 4 + byteOff);
-                    return ss.str();
+
+                // Classify args: true = simple (can push inline)
+                auto isSimpleArg = [&](const ir::Operand& arg) -> bool {
+                    if (arg.isImm()) return true;
+                    if (arg.kind == ir::OperandKind::GLOBAL) return true;
+                    if (arg.isVreg() && vregConstVal_.count(arg.vregId)) return true;
+                    return false;
                 };
-                // Phase 1: load all args (right-to-left) into ZP scratch slots
-                for (int ai = nArgs - 1; ai >= 0; ai--) {
-                    const auto& arg = inst.args[ai];
-                    loadOperand(arg);
-                    int slot = nArgs - 1 - ai;
-                    emit("sta " + zpSlotAddr(slot, 0));
-                    emit("stx " + zpSlotAddr(slot, 1));
-                    if (arg.type == ir::Type::I32) {
-                        emit("sty " + zpSlotAddr(slot, 2));
-                        emit("stz " + zpSlotAddr(slot, 3));
-                    }
+
+                // Check if ALL args are simple — if so, skip ZP temps entirely
+                bool allSimple = true;
+                for (int ai = 0; ai < nArgs; ai++) {
+                    if (!isSimpleArg(inst.args[ai])) { allSimple = false; break; }
                 }
-                // Phase 2: push from ZP slots (same order — already right-to-left)
-                // For regparm, skip the first arg (it goes in A/AX, not on stack)
-                for (int i = 0; i < nArgs; i++) {
-                    int origIdx = nArgs - 1 - i; // original arg index
-                    if (inst.isRegparm && origIdx == 0) continue; // skip first arg
-                    const auto& arg = inst.args[origIdx];
-                    int ps = ir::typeSize(arg.type);
-                    if (ps < 2) ps = 2;
-                    emit("lda " + zpSlotAddr(i, 0));
-                    emit("ldx " + zpSlotAddr(i, 1));
-                    if (arg.type == ir::Type::I32) {
-                        emit("ldy " + zpSlotAddr(i, 2));
-                        emit("ldz " + zpSlotAddr(i, 3));
-                        emit("push .axyz");
-                    } else {
-                        emit("push .ax");
+
+                if (allSimple) {
+                    // Fast path: push all args inline right-to-left
+                    // Use phw #imm16 for constant 16-bit args (3 bytes vs 6)
+                    for (int ai = nArgs - 1; ai >= 0; ai--) {
+                        if (inst.isRegparm && ai == 0) continue;
+                        const auto& arg = inst.args[ai];
+                        int ps = ir::typeSize(arg.type);
+                        if (ps < 2) ps = 2;
+
+                        // Get constant value if available
+                        bool hasConst = false;
+                        int constVal = 0;
+                        if (arg.isImm()) { hasConst = true; constVal = (int)arg.immVal; }
+                        else if (arg.isVreg() && vregConstVal_.count(arg.vregId)) {
+                            hasConst = true; constVal = (int)vregConstVal_[arg.vregId];
+                        }
+
+                        if (hasConst && arg.type == ir::Type::I32) {
+                            // I32: two phw for high word then low word (stack is big-endian push)
+                            emit("phw #" + std::to_string((constVal >> 16) & 0xFFFF));
+                            emit("phw #" + std::to_string(constVal & 0xFFFF));
+                        } else if (hasConst) {
+                            // phw #imm16: push 16-bit constant in 3 bytes
+                            emit("phw #" + std::to_string(constVal & 0xFFFF));
+                        } else {
+                            // Global address — load and push
+                            loadOperand(arg);
+                            emit("push .ax");
+                        }
+                        argBytes += ps;
+                        emit(".var _fp = _fp + " + std::to_string(ps));
                     }
-                    argBytes += ps;
-                    emit(".var _fp = _fp + " + std::to_string(ps));
-                }
-                // For regparm: load first arg into A/AX last (live at JSR)
-                if (inst.isRegparm && nArgs > 0) {
-                    int slot0 = nArgs - 1; // slot for arg 0
-                    emit("lda " + zpSlotAddr(slot0, 0));
-                    if (inst.args[0].type != ir::Type::I8)
-                        emit("ldx " + zpSlotAddr(slot0, 1));
+                    // For regparm: load first arg into A/AX last
+                    if (inst.isRegparm && nArgs > 0) {
+                        const auto& arg0 = inst.args[0];
+                        if (arg0.isImm()) {
+                            int val = (int)arg0.immVal;
+                            emit("lda #" + std::to_string(val & 0xFF));
+                            if (arg0.type != ir::Type::I8)
+                                emit("ldx #" + std::to_string((val >> 8) & 0xFF));
+                        } else if (arg0.isVreg() && vregConstVal_.count(arg0.vregId)) {
+                            int val = (int)vregConstVal_[arg0.vregId];
+                            emit("lda #" + std::to_string(val & 0xFF));
+                            if (arg0.type != ir::Type::I8)
+                                emit("ldx #" + std::to_string((val >> 8) & 0xFF));
+                        } else {
+                            loadOperand(arg0);
+                        }
+                    }
+                } else {
+                    // Two-phase path: load all args into ZP temp slots BEFORE any pushes,
+                    // so frame-relative loads aren't affected by SP/fp changes.
+                    auto zpSlotAddr = [&](int idx, int byteOff) {
+                        std::stringstream ss;
+                        ss << "$" << std::hex << std::uppercase << std::setfill('0')
+                           << std::setw(2) << ((int)zeroPageStart_ + 0x20 + idx * 4 + byteOff);
+                        return ss.str();
+                    };
+                    // Phase 1: load all args (right-to-left) into ZP scratch slots
+                    for (int ai = nArgs - 1; ai >= 0; ai--) {
+                        const auto& arg = inst.args[ai];
+                        loadOperand(arg);
+                        int slot = nArgs - 1 - ai;
+                        emit("sta " + zpSlotAddr(slot, 0));
+                        emit("stx " + zpSlotAddr(slot, 1));
+                        if (arg.type == ir::Type::I32) {
+                            emit("sty " + zpSlotAddr(slot, 2));
+                            emit("stz " + zpSlotAddr(slot, 3));
+                        }
+                    }
+                    // Phase 2: push from ZP slots (same order — already right-to-left)
+                    for (int i = 0; i < nArgs; i++) {
+                        int origIdx = nArgs - 1 - i;
+                        if (inst.isRegparm && origIdx == 0) continue;
+                        const auto& arg = inst.args[origIdx];
+                        int ps = ir::typeSize(arg.type);
+                        if (ps < 2) ps = 2;
+                        emit("lda " + zpSlotAddr(i, 0));
+                        emit("ldx " + zpSlotAddr(i, 1));
+                        if (arg.type == ir::Type::I32) {
+                            emit("ldy " + zpSlotAddr(i, 2));
+                            emit("ldz " + zpSlotAddr(i, 3));
+                            emit("push .axyz");
+                        } else {
+                            emit("push .ax");
+                        }
+                        argBytes += ps;
+                        emit(".var _fp = _fp + " + std::to_string(ps));
+                    }
+                    // For regparm: load first arg into A/AX last
+                    if (inst.isRegparm && nArgs > 0) {
+                        int slot0 = nArgs - 1;
+                        emit("lda " + zpSlotAddr(slot0, 0));
+                        if (inst.args[0].type != ir::Type::I8)
+                            emit("ldx " + zpSlotAddr(slot0, 1));
+                    }
                 }
                 
                 // JSR
