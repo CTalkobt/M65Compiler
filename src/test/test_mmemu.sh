@@ -778,6 +778,43 @@ else
     fi
 fi
 
+# --- SID and CIA struct overlay test ---
+echo "Testing SID and CIA struct overlays (mega65.h)..."
+
+compile_link_test "src/test-resources/test_sid_cia_mmemu.c" "build/test/test_sid_cia_mmemu.prg"
+if [ $? -ne 0 ]; then
+    echo "FAIL: Compilation/linking failed for test_sid_cia_mmemu.c"
+    failed=$((failed + 1))
+else
+    OUTPUT=$(echo -e "load build/test/test_sid_cia_mmemu.prg\nsetpc \$2000\nstep 5000000\nm \$4000 18\nq" | $MMEMU -m rawMega65 2>/dev/null)
+
+    # Expected at $4000 (18 bytes):
+    # 0C 11 11 09 0F AA BB 80 05 FF E8 03 09 03 55 11
+    # 11 01
+    EXPECTED_SC="0C 11 11 09 0F AA BB 80 05 FF E8 03 09 03 55 11"
+    EXPECTED_SC2="11 01"
+
+    ok=true
+    if ! echo "$OUTPUT" | grep -qi "4000:.*$EXPECTED_SC"; then
+        echo "FAIL: SID/CIA tests 0-15 mismatch"
+        echo "Expected: $EXPECTED_SC"
+        echo "Actual:"; echo "$OUTPUT" | grep "4000:"
+        ok=false
+    fi
+    if ! echo "$OUTPUT" | grep -qi "4010:.*$EXPECTED_SC2"; then
+        echo "FAIL: SID/CIA constant tests mismatch"
+        echo "Expected: $EXPECTED_SC2"
+        echo "Actual:"; echo "$OUTPUT" | grep "4010:"
+        ok=false
+    fi
+    if $ok; then
+        echo "SUCCESS: SID and CIA struct overlay tests passed."
+    fi
+    if ! $ok; then
+        failed=$((failed + 1))
+    fi
+fi
+
 echo "Testing CPU and flag intrinsics (__cpu.R, __flags.F)..."
 $CC src/test-resources/test_cpu_intrinsics.c -o build/test/test_cpu_intrinsics.s
 if [ $? -eq 0 ]; then

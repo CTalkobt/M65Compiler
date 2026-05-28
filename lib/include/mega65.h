@@ -115,6 +115,9 @@ struct vic4_regs {
 /* Pointer to VIC-IV register block at $D000 */
 #define vic4 ((volatile struct vic4_regs *)0xD000)
 
+/* Sprite position helper (workaround for issue #84: nested struct array access) */
+#define VIC4_SPRITE(n) ((volatile struct vic4_sprite_pos *)(0xD000 + (n) * 2))
+
 /* ===== $D011 (ctrl1) bits ===== */
 #define VIC4_RST8     0x80  /* Raster bit 8 */
 #define VIC4_ECM      0x40  /* Extended colour mode */
@@ -205,6 +208,133 @@ static void vic4_sprite_pos(unsigned char n, int xpos, unsigned char ypos) {
         vic4->sprite_x_msb |= (1 << n);
     else
         vic4->sprite_x_msb &= ~(1 << n);
+}
+
+/* ===== SID Registers ($D400 / $D420) ===== */
+
+struct sid_voice {
+    unsigned char freq_lo;         /* +$00: frequency low */
+    unsigned char freq_hi;         /* +$01: frequency high */
+    unsigned char pw_lo;           /* +$02: pulse width low */
+    unsigned char pw_hi;           /* +$03: pulse width high (bits 3:0) */
+    unsigned char ctrl;            /* +$04: waveform/gate control */
+    unsigned char attack_decay;    /* +$05: attack (hi nybble) / decay (lo nybble) */
+    unsigned char sustain_release; /* +$06: sustain (hi nybble) / release (lo nybble) */
+};
+
+struct sid_regs {
+    struct sid_voice voice[3];     /* $00-$14: 3 voices (7 bytes each) */
+    unsigned char filter_lo;       /* $15: filter cutoff low (bits 2:0) */
+    unsigned char filter_hi;       /* $16: filter cutoff high */
+    unsigned char filter_ctrl;     /* $17: filter routing / resonance */
+    unsigned char volume;          /* $18: volume / filter mode */
+    unsigned char pot_x;           /* $19: paddle X (read only) */
+    unsigned char pot_y;           /* $1A: paddle Y (read only) */
+    unsigned char osc3;            /* $1B: oscillator 3 output (read only) */
+    unsigned char env3;            /* $1C: envelope 3 output (read only) */
+};
+
+/* Pointers to SID register blocks */
+#define sid1 ((volatile struct sid_regs *)0xD400)
+#define sid2 ((volatile struct sid_regs *)0xD420)
+#define sid3 ((volatile struct sid_regs *)0xD440)
+#define sid4 ((volatile struct sid_regs *)0xD460)
+
+/* Voice access helpers (workaround for issue #84: nested struct array access) */
+#define SID1_VOICE(n) ((volatile struct sid_voice *)(0xD400 + (n) * 7))
+#define SID2_VOICE(n) ((volatile struct sid_voice *)(0xD420 + (n) * 7))
+#define SID3_VOICE(n) ((volatile struct sid_voice *)(0xD440 + (n) * 7))
+#define SID4_VOICE(n) ((volatile struct sid_voice *)(0xD460 + (n) * 7))
+
+/* SID voice control bits ($D404/$D40B/$D412) */
+#define SID_GATE      0x01  /* Gate (start/release) */
+#define SID_SYNC      0x02  /* Sync with preceding voice */
+#define SID_RINGMOD   0x04  /* Ring modulation */
+#define SID_TEST      0x08  /* Test bit (resets oscillator) */
+#define SID_TRIANGLE  0x10  /* Triangle waveform */
+#define SID_SAWTOOTH  0x20  /* Sawtooth waveform */
+#define SID_PULSE     0x40  /* Pulse/square waveform */
+#define SID_NOISE     0x80  /* Noise waveform */
+
+/* SID filter control bits ($D417) */
+#define SID_FILT1     0x01  /* Route voice 1 through filter */
+#define SID_FILT2     0x02  /* Route voice 2 through filter */
+#define SID_FILT3     0x04  /* Route voice 3 through filter */
+#define SID_FILT_EXT  0x08  /* Route external audio through filter */
+
+/* SID volume/filter mode bits ($D418) */
+#define SID_LP        0x10  /* Low-pass filter */
+#define SID_BP        0x20  /* Band-pass filter */
+#define SID_HP        0x40  /* High-pass filter */
+#define SID_MUTE3     0x80  /* Mute voice 3 output */
+
+/* ===== CIA 1 Registers ($DC00-$DC0F) ===== */
+
+struct cia_regs {
+    unsigned char pra;             /* $00: port A data (keyboard col / joy 2) */
+    unsigned char prb;             /* $01: port B data (keyboard row / joy 1) */
+    unsigned char ddra;            /* $02: port A data direction */
+    unsigned char ddrb;            /* $03: port B data direction */
+    unsigned char timer_a_lo;      /* $04: timer A low byte */
+    unsigned char timer_a_hi;      /* $05: timer A high byte */
+    unsigned char timer_b_lo;      /* $06: timer B low byte */
+    unsigned char timer_b_hi;      /* $07: timer B high byte */
+    unsigned char tod_10ths;       /* $08: TOD tenths of seconds */
+    unsigned char tod_sec;         /* $09: TOD seconds */
+    unsigned char tod_min;         /* $0A: TOD minutes */
+    unsigned char tod_hr;          /* $0B: TOD hours */
+    unsigned char sdr;             /* $0C: serial data register */
+    unsigned char icr;             /* $0D: interrupt control (read: status, write: mask) */
+    unsigned char cra;             /* $0E: control register A */
+    unsigned char crb;             /* $0F: control register B */
+};
+
+/* Pointers to CIA register blocks */
+#define cia1 ((volatile struct cia_regs *)0xDC00)
+#define cia2 ((volatile struct cia_regs *)0xDD00)
+
+/* CIA interrupt control bits ($DC0D/$DD0D) */
+#define CIA_ICR_TA    0x01  /* Timer A underflow */
+#define CIA_ICR_TB    0x02  /* Timer B underflow */
+#define CIA_ICR_ALRM  0x04  /* TOD alarm */
+#define CIA_ICR_SP    0x08  /* Serial port full/empty */
+#define CIA_ICR_FLAG  0x10  /* FLAG pin edge */
+#define CIA_ICR_SET   0x80  /* Write: 1=set bits, 0=clear bits */
+
+/* CIA control register A bits ($DC0E/$DD0E) */
+#define CIA_CRA_START  0x01  /* Start timer A */
+#define CIA_CRA_PBON   0x02  /* Timer A output on PB6 */
+#define CIA_CRA_TOGGLE 0x04  /* PB6 toggle (vs pulse) */
+#define CIA_CRA_ONESHOT 0x08 /* One-shot (vs continuous) */
+#define CIA_CRA_LOAD   0x10  /* Force-load timer A latch */
+#define CIA_CRA_INMODE 0x20  /* Count CNT pin (vs phi2) */
+#define CIA_CRA_SPOUT  0x40  /* Serial port output mode */
+#define CIA_CRA_TODIN  0x80  /* TOD 50Hz input (vs 60Hz) */
+
+/* CIA control register B bits ($DC0F/$DD0F) */
+#define CIA_CRB_START  0x01  /* Start timer B */
+#define CIA_CRB_PBON   0x02  /* Timer B output on PB7 */
+#define CIA_CRB_TOGGLE 0x04  /* PB7 toggle (vs pulse) */
+#define CIA_CRB_ONESHOT 0x08 /* One-shot (vs continuous) */
+#define CIA_CRB_LOAD   0x10  /* Force-load timer B latch */
+#define CIA_CRB_INMODE0 0x20 /* Timer B input: 00=phi2, 01=CNT */
+#define CIA_CRB_INMODE1 0x40 /*   10=timer A underflow, 11=TA underflow+CNT */
+#define CIA_CRB_ALARM  0x80  /* TOD write sets alarm (vs clock) */
+
+/* Joystick direction bits (CIA1 PRA/PRB) */
+#define JOY_UP        0x01
+#define JOY_DOWN      0x02
+#define JOY_LEFT      0x04
+#define JOY_RIGHT     0x08
+#define JOY_FIRE      0x10
+
+/* Read joystick: bits are active-LOW, invert for natural reading */
+static unsigned char joy1_read(void) {
+    return cia1->prb ^ 0x1F;
+}
+
+static unsigned char joy2_read(void) {
+    return cia1->pra ^ 0x1F;
 }
 
 /* ===== Direct register access (optimal codegen) ===== */
