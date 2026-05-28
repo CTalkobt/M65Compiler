@@ -88,6 +88,8 @@ private:
 
     // Track vregs defined by CONST instructions (for direct-address store optimization)
     std::map<uint32_t, int64_t> vregConstVal_;
+    // CONST vregs only used as STORE addresses — skip emission and frame allocation
+    std::set<uint32_t> suppressedVregs_;
 
     // Source location tracking for .loc directives
     int lastLocLine_ = -1;

@@ -678,12 +678,57 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     vregConstVal_.clear();
     vregSizes_ = fn.vregSizes;
 
+    // Pre-scan: identify CONST vregs and detect which are only used as
+    // STORE addresses. These can be suppressed (no emit, no frame slot)
+    // because the codegen uses the constant value directly for sta $ADDR.
+    suppressedVregs_.clear();
+    {
+        // Pass 1: collect all CONST vreg values
+        std::map<uint32_t, int64_t> constDefs;
+        for (const auto& blk : fn.blocks) {
+            for (const auto& inst : blk.insts) {
+                if (inst.op == ir::Op::CONST && inst.dest.isVreg())
+                    constDefs[inst.dest.vregId] = inst.src1.immVal;
+            }
+        }
+        // Pass 2: for each CONST vreg, check all uses. If it's only used as
+        // src2 of STORE (address operand) and never read elsewhere, suppress it.
+        for (auto& [vid, val] : constDefs) {
+            bool onlyStoreAddr = true;
+            bool hasUse = false;
+            for (const auto& blk : fn.blocks) {
+                for (const auto& inst : blk.insts) {
+                    if (inst.op == ir::Op::NOP) continue;
+                    // Check if this vreg appears as src1 or in args (= real read)
+                    if (inst.src1.isVreg() && inst.src1.vregId == vid) { onlyStoreAddr = false; break; }
+                    for (const auto& a : inst.args)
+                        if (a.isVreg() && a.vregId == vid) { onlyStoreAddr = false; break; }
+                    if (!onlyStoreAddr) break;
+                    // Check src2: only OK if it's a STORE address
+                    if (inst.src2.isVreg() && inst.src2.vregId == vid) {
+                        if (inst.op == ir::Op::STORE && !fn.localSlotVregs.count(vid)) {
+                            hasUse = true; // used as store address — OK
+                        } else {
+                            onlyStoreAddr = false; break;
+                        }
+                    }
+                }
+                if (!onlyStoreAddr) break;
+            }
+            if (onlyStoreAddr && hasUse) {
+                suppressedVregs_.insert(vid);
+                vregConstVal_[vid] = val; // pre-populate for STORE handler
+            }
+        }
+    }
+
     // Prescan for frame-allocated vRegs only
     prescanFunction(fn);
 
     // Override: only allocate frame slots for vRegs assigned to frame by allocator
     resetFrame();
     for (const auto& lr : alloc_.liveRanges()) {
+        if (suppressedVregs_.count(lr.vregId)) continue; // skip address-only CONSTs
         auto alloc = alloc_.getAlloc(lr.vregId);
         if (alloc.loc == VRegAllocator::IN_FRAME) {
             allocSlot(lr.vregId, lr.type);
@@ -1001,6 +1046,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         case ir::Op::CONST: {
             int val = (int)inst.src1.immVal;
             if (inst.dest.isVreg()) vregConstVal_[inst.dest.vregId] = val;
+            // Skip emission for suppressed CONST vregs (address-only, used by direct store)
+            if (inst.dest.isVreg() && suppressedVregs_.count(inst.dest.vregId)) break;
             std::string r = irDesc("val=" + std::to_string(val));
             emit("lda #" + std::to_string(val & 0xFF), r);
             if (inst.resultType == ir::Type::I32) {
