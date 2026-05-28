@@ -349,6 +349,18 @@ audio_mixer->sid2_vol = AUDIO_LEFT(10);    // left only, volume 10
 
 **Macros:** `AUDIO_LEFT(vol)`, `AUDIO_RIGHT(vol)`, `AUDIO_BOTH(vol)` — pack volume nybbles.
 
+### Keyboard Matrix Scanner
+
+Direct CIA1 hardware keyboard scanning with multi-key support:
+
+```c
+if (key_pressed(KEY_SPACE)) { /* fire */ }
+if (key_pressed(KEY_W))     { /* move up */ }
+```
+
+- **`key_pressed(keycode)`**: `__regparm` library function. Returns 1 if pressed, 0 if not. Scans CIA1 matrix directly — supports simultaneous multi-key detection (unlike KERNAL `cbm_getin()`). Requires `c45.lib`.
+- **`KEY_*` constants**: 66 named constants for the full 8x8 keyboard matrix (`KEY_A`-`KEY_Z`, `KEY_0`-`KEY_9`, `KEY_SPACE`, `KEY_RETURN`, `KEY_F1`-`KEY_F7`, `KEY_LSHIFT`, `KEY_CTRL`, `KEY_STOP`, etc.).
+
 ### Floppy Disk Controller
 
 Direct access to the internal 3.5" floppy drive:

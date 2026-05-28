@@ -169,7 +169,7 @@ make clean && make test  # Clean rebuild and test
 - **`errno.h`**: `errno`, `_errnoc`, `ERANGE`, `ENOMEM`, `EINVAL`, `EDOM`
 - **`setjmp.h`**: `jmp_buf`, `setjmp`, `longjmp`
 - **`dma.h`**: `dma_copy`, `dma_fill` (MEGA65 F018B DMA controller macros)
-- **`mega65.h`**: Hardware register struct overlays — VIC-IV, SID x4, CIA x2, DMA, math accelerator, audio mixer, FDC, SD card, Ethernet, Hypervisor, `SCREEN_RAM`/`COLOUR_RAM`
+- **`mega65.h`**: Hardware register struct overlays — VIC-IV, SID x4, CIA x2, DMA, math accelerator, audio mixer, FDC, SD card, Ethernet, Hypervisor, `SCREEN_RAM`/`COLOUR_RAM`, `key_pressed()` + 66 `KEY_*` constants
 - **`time.h`**: `clock`, `time`, `difftime`, `CLOCKS_PER_SEC` (jiffy clock, 60Hz)
 
 ### Calling Convention Support
