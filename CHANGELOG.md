@@ -25,6 +25,8 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - **`-I` Flag Space-Separated Path**: `cc45 -I dir` was treating `dir` as the source file instead of an include path. Now handles both `-Idir` and `-I dir` forms.
 - **debug.json Bloat (Issue #85)**: `.debug.json` line map files now only emit entries when file or line changes, using range-based lookup. ~94% size reduction. Fixed in both `ln45` and `ca45`.
 - **Cast-Pointer Subscript Element Size**: `((unsigned char *)ADDR)[n]` was using stride 2 (int) instead of 1 (char). `ArrayAccess` now derives element size from the expression's pointed-to type when the root is not a variable or struct member.
+- **Undeclared Identifier Diagnostic**: `map::at` crash on undeclared variables replaced with proper `"file:line: error: use of undeclared identifier 'name'"` message via `lookupVar()` helper in CodeGenerator.
+- **Error Line Numbers After `#include`**: Preprocessor now emits `#line` directives after includes; lexer consumes them to restore original source line numbering. Error messages and `.loc` debug info now report original source lines instead of preprocessed line numbers.
 - **ln45 Unused Symbol Warnings**: Suppressed "unused global symbol" warnings for `__`-prefixed internal symbols (CRT internals like `__exit`, `__init`, `__sp_base`). Only user-facing symbols are reported.
 
 ## [Unreleased] - 2026-05-26
