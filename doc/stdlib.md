@@ -349,6 +349,51 @@ audio_mixer->sid2_vol = AUDIO_LEFT(10);    // left only, volume 10
 
 **Macros:** `AUDIO_LEFT(vol)`, `AUDIO_RIGHT(vol)`, `AUDIO_BOTH(vol)` — pack volume nybbles.
 
+### Floppy Disk Controller
+
+Direct access to the internal 3.5" floppy drive:
+
+**Struct pointer:** `fdc` ($D080) — control, command, track, sector, side, data, clock, step rate.
+
+**Commands:** `FDC_CMD_READ`, `FDC_CMD_WRITE`, `FDC_CMD_STEP_IN`, `FDC_CMD_STEP_OUT`, `FDC_CMD_RESTORE`.
+
+**Status bits:** `FDC_BUSY`, `FDC_DRQ`, `FDC_EQ`, `FDC_RNF`, `FDC_WRPROT`, `FDC_TK0`.
+
+### SD Card Controller
+
+Direct sector-level access to the SD card (bypassing KERNAL):
+
+```c
+sd->addr0 = sector & 0xFF;       // set sector address (32-bit)
+sd->addr1 = (sector >> 8) & 0xFF;
+sd->addr2 = (sector >> 16) & 0xFF;
+sd->addr3 = (sector >> 24) & 0xFF;
+sd->command = SD_CMD_READ;        // read sector into buffer
+while (sd->status & SD_BUSY) {}   // wait for completion
+```
+
+**Struct pointer:** `sd` ($D680) — status, command, 4-byte sector address, buffer address, read data port.
+
+**Commands:** `SD_CMD_RESET`, `SD_CMD_READ`, `SD_CMD_WRITE`, `SD_CMD_FLUSH`.
+
+**Status bits:** `SD_BUSY`, `SD_RESET`, `SD_ERROR`, `SD_SDHC`.
+
+### Ethernet Controller
+
+Network frame send/receive:
+
+**Struct pointer:** `eth` ($D6E0) — control, TX frame size, MAC address.
+
+**Control bits:** `ETH_RST`, `ETH_TXEN`, `ETH_RXEN`, `ETH_RXIRQ`, `ETH_TXDONE`.
+
+### Hypervisor Traps
+
+MEGA65 hypervisor system calls:
+
+**Struct pointer:** `hyper` ($D640) — 64-byte trap register array.
+
+**Trap constants:** `HTRAP_SETNAME`, `HTRAP_LOADFILE`.
+
 ### Memory Pointers
 
 ```c
