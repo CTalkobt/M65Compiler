@@ -157,6 +157,23 @@ std::string CodeGenerator::resolveVarName(const std::string& name) {
     return name;
 }
 
+CodeGenerator::VarInfo& CodeGenerator::lookupVar(const std::string& rName, ASTNode* node) {
+    auto it = variableTypes.find(rName);
+    if (it != variableTypes.end()) return it->second;
+    auto git = globalVariableTypes.find(rName);
+    if (git != globalVariableTypes.end()) return git->second;
+    // Strip prefixes for the error message
+    std::string displayName = rName;
+    if (displayName.substr(0, 3) == "_p_" || displayName.substr(0, 3) == "_l_")
+        displayName = displayName.substr(3);
+    else if (!displayName.empty() && displayName[0] == '_')
+        displayName = displayName.substr(1);
+    std::string loc = sourceFilename.empty() ? "" : sourceFilename + ":";
+    if (node && node->line > 0) loc += std::to_string(node->line) + ": ";
+    else if (!loc.empty()) loc += " ";
+    throw std::runtime_error(loc + "error: use of undeclared identifier '" + displayName + "'");
+}
+
 std::string CodeGenerator::getLocalOffsetSymbol(int offset) {
     for (const auto& [name, varOffset] : frameLocals_) {
         if (varOffset == offset) {
@@ -2444,6 +2461,7 @@ void CodeGenerator::visit(Assignment& node) {
 
     if (auto* ref = dynamic_cast<VariableReference*>(node.target.get())) {
         std::string rName = resolveVarName(ref->name);
+        ASTNode* refNode = ref;  // Use ref for line info (more accurate than Assignment node)
 
         // ZP calling convention: spilled params (address-taken) live in frame
         if (isZpSpilledParam(rName)) {
@@ -2664,7 +2682,7 @@ void CodeGenerator::visit(Assignment& node) {
         // Optimization: x = x;
         if (auto* rhsRef = dynamic_cast<VariableReference*>(node.expression.get())) {
             if (resolveVarName(rhsRef->name) == rName) {
-                VarInfo vi = variableTypes.count(rName) ? variableTypes.at(rName) : globalVariableTypes.at(rName);
+                VarInfo vi = lookupVar(rName, refNode);
                 if (!vi.isVolatile) {
                     if (resultNeeded) node.target->accept(*this);
                     return;
@@ -2677,7 +2695,7 @@ void CodeGenerator::visit(Assignment& node) {
                 if (auto* leftRef = dynamic_cast<VariableReference*>(bin->left.get())) {
                     if (auto* rightLit = dynamic_cast<IntegerLiteral*>(bin->right.get())) {
                         if (resolveVarName(leftRef->name) == rName && rightLit->value == 1) {
-                            VarInfo vi = variableTypes.count(rName) ? variableTypes.at(rName) : globalVariableTypes.at(rName);
+                            VarInfo vi = lookupVar(rName, refNode);
                             bool is16 = (vi.pointerLevel > 0 || vi.type == "int");
                             if (isStruct(vi.type)) {
                                 std::string sName = getAggregateName(vi.type);
@@ -2719,7 +2737,7 @@ void CodeGenerator::visit(Assignment& node) {
         }
 
         if (auto* lit = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
-            VarInfo vi = variableTypes.count(rName) ? variableTypes.at(rName) : globalVariableTypes.at(rName);
+            VarInfo vi = lookupVar(rName, refNode);
             bool is32 = is32BitType(vi.type) && vi.pointerLevel == 0;
             bool is16 = !is32 && (vi.pointerLevel > 0 || vi.type == "int");
             if (!is32 && isStruct(vi.type)) {
@@ -2766,7 +2784,7 @@ void CodeGenerator::visit(Assignment& node) {
             return;
         }
 
-        VarInfo vi = variableTypes.count(rName) ? variableTypes.at(rName) : globalVariableTypes.at(rName);
+        VarInfo vi = lookupVar(rName, refNode);
         if (isStruct(vi.type)) {
             std::string sName = getAggregateName(vi.type);
             if (structs.count(sName)) {
@@ -3529,7 +3547,7 @@ void CodeGenerator::visit(UnaryOperation& node) {
         bool isPost = (node.op.find("_POST") != std::string::npos);
         if (auto* ref = dynamic_cast<VariableReference*>(node.operand.get())) {
             std::string rName = resolveVarName(ref->name);
-            VarInfo vi = variableTypes.count(rName) ? variableTypes.at(rName) : globalVariableTypes.at(rName);
+            VarInfo vi = lookupVar(rName, &node);
             if (vi.isConst) throw std::runtime_error("Compile Error: Increment/decrement of read-only variable '" + ref->name + "'");
             bool is32Bit = is32BitType(vi.type) && vi.pointerLevel == 0;
             bool is16Bit = !is32Bit && (vi.pointerLevel > 0 || vi.type == "int");
@@ -4532,7 +4550,7 @@ void CodeGenerator::visit(VariableReference& node) {
 
     bool isGlobal = globalVariableTypes.count(rName);
     std::string suffix = isGlobal ? "" : ", s";
-    VarInfo vi = variableTypes.count(rName) ? variableTypes.at(rName) : globalVariableTypes.at(rName);
+    VarInfo vi = lookupVar(rName, &node);
 
     if (vi.arraySize() >= 0) {
         emitAddress(&node); // This will put address in AX
@@ -4603,7 +4621,7 @@ void CodeGenerator::visit(FunctionCall& node) {
         // Name might be a function pointer variable
         std::string rName = resolveVarName(node.name);
         if (variableTypes.count(rName) || globalVariableTypes.count(rName)) {
-            VarInfo vi = variableTypes.count(rName) ? variableTypes.at(rName) : globalVariableTypes.at(rName);
+            VarInfo vi = lookupVar(rName, &node);
             if (vi.isFunctionPointer || vi.pointerLevel > 0) {
                 isIndirect = true;
             }
@@ -4648,7 +4666,7 @@ void CodeGenerator::visit(FunctionCall& node) {
                 if (!variableTypes.count(rName) && !globalVariableTypes.count(rName)) {
                     arg->accept(*this); emitter->push_ax();
                 } else {
-                    VarInfo vi = variableTypes.count(rName) ? variableTypes.at(rName) : globalVariableTypes.at(rName);
+                    VarInfo vi = lookupVar(rName, &node);
                     bool is16Bit = (vi.pointerLevel > 0 || vi.type == "int");
                     if (isStruct(vi.type)) {
                         std::string sName = getAggregateName(vi.type);

@@ -124,6 +124,7 @@ public:
     bool isEnum(const std::string& type);
     std::string resolveVarName(const std::string& name);
     std::string getAggregateName(const std::string& type);
+    VarInfo& lookupVar(const std::string& rName, ASTNode* node = nullptr);
     static bool matchType(const ExpressionType& t1, const std::string& t2Name, int t2Ptr);
 
     // Per-function clobber tracking (Phase 1 of fine-grained invalidation)

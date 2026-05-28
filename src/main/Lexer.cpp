@@ -61,6 +61,19 @@ void Lexer::skipWhitespace() {
                 get(); // skip *
                 get(); // skip /
             }
+        } else if (peek() == '#' && pos + 5 < source.length() && source.substr(pos, 5) == "#line") {
+            // #line N "file" — preprocessor line directive
+            pos += 5; column += 5; // skip "#line"
+            while (pos < source.length() && source[pos] == ' ') { pos++; column++; }
+            // Parse line number
+            int newLine = 0;
+            while (pos < source.length() && std::isdigit(source[pos])) {
+                newLine = newLine * 10 + (source[pos] - '0');
+                pos++; column++;
+            }
+            if (newLine > 0) line = newLine - 1; // -1: the \n at end of directive will increment
+            // Skip rest of directive (optional filename)
+            while (pos < source.length() && source[pos] != '\n') { pos++; column++; }
         } else {
             break;
         }

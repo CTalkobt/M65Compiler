@@ -125,13 +125,8 @@ std::string Preprocessor::expandMacros(const std::string& line) {
                             }
                             args.push_back(trim(currentArg));
 
-                            // Zero-param macro: FOO() → args=[""], treat as zero args
-                            if (m.params.empty() && args.size() == 1 && args[0].empty()) {
-                                args.clear();
-                            }
-
                             // Handle arguments
-                            if ((!m.isVariadic && args.size() == m.params.size()) ||
+                            if ((!m.isVariadic && args.size() == m.params.size()) || 
                                 (m.isVariadic && args.size() >= m.params.size())) {
                                 
                                 std::string body = m.body;
@@ -611,7 +606,6 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         std::string p;
                         while (std::getline(pss, p, ',')) {
                             p = trim(p);
-                            if (p.empty()) continue; // skip empty (e.g., #define FOO())
                             if (p == "...") {
                                 m.isVariadic = true;
                             } else {
@@ -726,6 +720,8 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                     std::stringstream buffer;
                     buffer << includeFile.rdbuf();
                     output << processInternal(buffer.str(), fullPath, depth + 1);
+                    // Restore line numbering after include
+                    output << "#line " << (lineNum + 1) << " \"" << currentFile << "\"\n";
                 } else {
                     output << "\n";
                 }
