@@ -29,11 +29,11 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - **TSX Caching**: `lda_stack` skips redundant `tsx` when X already holds SP within a simulated op expansion. Saves one `tsx` per `ldax.fp` param load.
 - **`ldax.fp` pha/plx**: 16-bit stack param loads use `pha/plx` to transfer hi byte instead of ZP scratch temp `$02`. No ZP clobber.
 - **Short-Circuit `&&` / `||`**: Logical AND/OR now use short-circuit branching — LHS evaluated first, RHS skipped if result already determined. Matches C standard semantics.
-- **ORA Zero-Test**: `x == 0` / `x != 0` for 16-bit values uses `stx scratch; ora scratch` (4 bytes) instead of `cmp.16 .AX, #0` (~12 bytes). Sets Z flag directly.
+- **ORA Zero-Test**: `x == 0` / `x != 0` for ZP-allocated 16-bit values uses `lda zp_lo; ora zp_hi` (5 bytes) instead of `cmp.16 .AX, #0` (~12 bytes). Sets Z flag directly.
 - **CONST Suppression for CMP Operands**: CONST vregs used only as CMP src2 are suppressed — the comparison already reads the constant value directly.
-- **CONST `tax` When lo==hi**: `lda #N; tax` (3 bytes) instead of `lda #N; ldx #N` (4 bytes) for constants like 0x0000, 0xFFFF. `storeVreg` uses `sta` for hi byte when A==X.
+- **Boolean Materialization Elimination**: `if`/`while` with `&&`/`||`/`!` conditions use `emitConditionBranches()` to chain branches directly to true/false targets without materializing intermediate boolean vregs.
 - **Unused Static Function Elimination**: Static functions never called by any surviving function are removed at compile time. Handles transitive call chains.
-- game_of_life with mega65.h: **7037 → 5345 bytes (24% total reduction)**.
+- game_of_life with mega65.h: **7037 → 5301 bytes (25% total reduction)**.
 
 ### Improved
 - **Function Declaration `.loc`**: Prologue and parameter loading code attributed to the function declaration line (e.g., `int foo(int a)`) instead of the first statement. Makes `objdump45 -d` source interleaving more readable.
