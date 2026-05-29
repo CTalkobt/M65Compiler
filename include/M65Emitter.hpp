@@ -299,5 +299,9 @@ private:
     uint8_t framePointerZP_ = 0; // 0 = disabled; when set, stack ops use ($FP),Y
     uint32_t currentAddress = 0;
     bool addressSet = false;
+    bool xHoldsSP_ = false; // TSX caching: true when X is known to hold SP
     void emitText(const std::string& mnemonic, const std::string& operand = "");
+public:
+    void invalidateXSP(); // Call when X may have been modified externally
+    void tsxCached();     // Emit TSX only if X doesn't already hold SP
 };

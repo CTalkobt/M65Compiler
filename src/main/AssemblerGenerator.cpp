@@ -94,6 +94,7 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
             
             std::vector<uint8_t>* binaryPtr = e.getBinary();
             size_t binaryStartIdx = binaryPtr ? binaryPtr->size() : 0;
+            e.invalidateXSP(); // Can't assume X=SP across statement boundaries
           try {
             if (!stmt->label.empty()) {
                 isDeadCode = false;

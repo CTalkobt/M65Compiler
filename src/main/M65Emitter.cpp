@@ -202,10 +202,10 @@ void M65Emitter::emitInstruction(const std::string& mnemonic, AddressingMode amo
 }
 
 void M65Emitter::lda_imm(uint8_t val) { emitInstruction("lda", AddressingMode::IMMEDIATE, val, true); }
-void M65Emitter::ldx_imm(uint8_t val) { emitInstruction("ldx", AddressingMode::IMMEDIATE, val, true); }
+void M65Emitter::ldx_imm(uint8_t val) { xHoldsSP_ = false; emitInstruction("ldx", AddressingMode::IMMEDIATE, val, true); }
 void M65Emitter::ldy_imm(uint8_t val) { emitInstruction("ldy", AddressingMode::IMMEDIATE, val, true); }
 void M65Emitter::ldz_imm(uint8_t val) { emitInstruction("ldz", AddressingMode::IMMEDIATE, val, true); }
-void M65Emitter::phw_imm(uint16_t val) { emitInstruction("phw", AddressingMode::IMMEDIATE16, val, true); }
+void M65Emitter::phw_imm(uint16_t val) { xHoldsSP_ = false; emitInstruction("phw", AddressingMode::IMMEDIATE16, val, true); }
 void M65Emitter::adc_imm(uint8_t val) { emitInstruction("adc", AddressingMode::IMMEDIATE, val, true); }
 void M65Emitter::sbc_imm(uint8_t val) { emitInstruction("sbc", AddressingMode::IMMEDIATE, val, true); }
 void M65Emitter::and_imm(uint8_t val) { emitInstruction("and", AddressingMode::IMMEDIATE, val, true); }
@@ -217,7 +217,7 @@ void M65Emitter::cpy_imm(uint8_t val) { emitInstruction("cpy", AddressingMode::I
 
 // --- Absolute Mode ---
 void M65Emitter::lda_abs(uint16_t addr) { emitInstruction("lda", AddressingMode::ABSOLUTE, addr, true); }
-void M65Emitter::ldx_abs(uint16_t addr) { emitInstruction("ldx", AddressingMode::ABSOLUTE, addr, true); }
+void M65Emitter::ldx_abs(uint16_t addr) { xHoldsSP_ = false; emitInstruction("ldx", AddressingMode::ABSOLUTE, addr, true); }
 void M65Emitter::ldy_abs(uint16_t addr) { emitInstruction("ldy", AddressingMode::ABSOLUTE, addr, true); }
 void M65Emitter::ldz_abs(uint16_t addr) { emitInstruction("ldz", AddressingMode::ABSOLUTE, addr, true); }
 void M65Emitter::sta_abs(uint16_t addr) { emitInstruction("sta", AddressingMode::ABSOLUTE, addr, true); }
@@ -247,7 +247,7 @@ void M65Emitter::row_abs(uint16_t addr) { emitInstruction("row", AddressingMode:
 
 // --- Zero Page Mode ---
 void M65Emitter::lda_zp(uint8_t addr) { emitInstruction("lda", AddressingMode::BASE_PAGE, addr, true); }
-void M65Emitter::ldx_zp(uint8_t addr) { emitInstruction("ldx", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::ldx_zp(uint8_t addr) { xHoldsSP_ = false; emitInstruction("ldx", AddressingMode::BASE_PAGE, addr, true); }
 void M65Emitter::ldy_zp(uint8_t addr) { emitInstruction("ldy", AddressingMode::BASE_PAGE, addr, true); }
 void M65Emitter::ldz_zp(uint8_t addr) { emitInstruction("ldz", AddressingMode::ABSOLUTE, addr, true); }
 void M65Emitter::sta_zp(uint8_t addr) { emitInstruction("sta", AddressingMode::BASE_PAGE, addr, true); }
@@ -341,8 +341,8 @@ void M65Emitter::lda_stack(uint8_t offset) {
         ldy_imm(offset);
         emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
     } else {
-        // Legacy: TSX; LDA __sp_base+offset,X
-        tsx();
+        // TSX (cached); LDA __sp_base+offset,X
+        tsxCached();
         recordSpBaseReloc(offset);
         emitInstruction("lda", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
     }
@@ -356,6 +356,7 @@ void M65Emitter::ldx_stack(uint8_t offset) {
         recordSpBaseReloc(offset);
         emitInstruction("ldx", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
     }
+    xHoldsSP_ = false;
 }
 void M65Emitter::ldy_stack(uint8_t offset) {
     if (hasFramePointer()) {
@@ -455,18 +456,31 @@ void M65Emitter::sta_ind_z(uint8_t addr, bool flat) {
 }
 
 // --- Register Transfers ---
-void M65Emitter::tax() { emitInstruction("tax", AddressingMode::IMPLIED); }
+void M65Emitter::tax() { xHoldsSP_ = false; emitInstruction("tax", AddressingMode::IMPLIED); }
 void M65Emitter::txa() { emitInstruction("txa", AddressingMode::IMPLIED); }
 void M65Emitter::tay() { emitInstruction("tay", AddressingMode::IMPLIED); }
 void M65Emitter::tya() { emitInstruction("tya", AddressingMode::IMPLIED); }
 void M65Emitter::taz() { emitInstruction("taz", AddressingMode::IMPLIED); }
 void M65Emitter::tza() { emitInstruction("tza", AddressingMode::IMPLIED); }
-void M65Emitter::tsx() { emitInstruction("tsx", AddressingMode::IMPLIED); }
+void M65Emitter::tsx() {
+    emitInstruction("tsx", AddressingMode::IMPLIED);
+    xHoldsSP_ = true;
+}
+
+void M65Emitter::invalidateXSP() { xHoldsSP_ = false; }
+
+void M65Emitter::tsxCached() {
+    // Only emit TSX if X doesn't already hold SP
+    if (!xHoldsSP_) {
+        emitInstruction("tsx", AddressingMode::IMPLIED);
+        xHoldsSP_ = true;
+    }
+}
 void M65Emitter::txs() { emitInstruction("txs", AddressingMode::IMPLIED); }
 void M65Emitter::tsy() { emitInstruction("tsy", AddressingMode::IMPLIED); }
 void M65Emitter::tys() { emitInstruction("tys", AddressingMode::IMPLIED); }
-void M65Emitter::inx() { emitInstruction("inx", AddressingMode::IMPLIED); }
-void M65Emitter::dex() { emitInstruction("dex", AddressingMode::IMPLIED); }
+void M65Emitter::inx() { xHoldsSP_ = false; emitInstruction("inx", AddressingMode::IMPLIED); }
+void M65Emitter::dex() { xHoldsSP_ = false; emitInstruction("dex", AddressingMode::IMPLIED); }
 void M65Emitter::iny() { emitInstruction("iny", AddressingMode::IMPLIED); }
 void M65Emitter::dey() { emitInstruction("dey", AddressingMode::IMPLIED); }
 void M65Emitter::inz() { emitInstruction("inz", AddressingMode::IMPLIED); }
@@ -505,14 +519,15 @@ void M65Emitter::pop(const std::string& reg) {
     }
 }
 
-void M65Emitter::pha() { emitInstruction("pha", AddressingMode::IMPLIED); }
-void M65Emitter::pla() { emitInstruction("pla", AddressingMode::IMPLIED); }
-void M65Emitter::phx() { emitInstruction("phx", AddressingMode::IMPLIED); }
-void M65Emitter::plx() { emitInstruction("plx", AddressingMode::IMPLIED); }
-void M65Emitter::phy() { emitInstruction("phy", AddressingMode::IMPLIED); }
-void M65Emitter::ply() { emitInstruction("ply", AddressingMode::IMPLIED); }
-void M65Emitter::phz() { emitInstruction("phz", AddressingMode::IMPLIED); }
-void M65Emitter::plz() { emitInstruction("plz", AddressingMode::IMPLIED); }
+// All push/pull change SP, so X no longer holds SP after any of them
+void M65Emitter::pha() { xHoldsSP_ = false; emitInstruction("pha", AddressingMode::IMPLIED); }
+void M65Emitter::pla() { xHoldsSP_ = false; emitInstruction("pla", AddressingMode::IMPLIED); }
+void M65Emitter::phx() { xHoldsSP_ = false; emitInstruction("phx", AddressingMode::IMPLIED); }
+void M65Emitter::plx() { xHoldsSP_ = false; emitInstruction("plx", AddressingMode::IMPLIED); }
+void M65Emitter::phy() { xHoldsSP_ = false; emitInstruction("phy", AddressingMode::IMPLIED); }
+void M65Emitter::ply() { xHoldsSP_ = false; emitInstruction("ply", AddressingMode::IMPLIED); }
+void M65Emitter::phz() { xHoldsSP_ = false; emitInstruction("phz", AddressingMode::IMPLIED); }
+void M65Emitter::plz() { xHoldsSP_ = false; emitInstruction("plz", AddressingMode::IMPLIED); }
 
 // --- ALU & Branching ---
 void M65Emitter::clc() { emitInstruction("clc", AddressingMode::IMPLIED); }
