@@ -2052,8 +2052,11 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         } else if (hasConst) {
                             // phw #imm16: push 16-bit constant in 3 bytes
                             emit("phw #" + std::to_string(constVal & 0xFFFF));
+                        } else if (arg.kind == ir::OperandKind::GLOBAL && arg.type != ir::Type::I32) {
+                            // Global symbol — phw #symbol (linker resolves)
+                            emit("phw #" + arg.name);
                         } else {
-                            // Global address — load and push
+                            // Complex operand — load and push
                             loadOperand(arg);
                             emit("push .ax");
                         }
