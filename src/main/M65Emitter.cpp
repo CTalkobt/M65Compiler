@@ -206,14 +206,106 @@ void M65Emitter::ldx_imm(uint8_t val) { ms_.setConst(REG_X, val); emitInstructio
 void M65Emitter::ldy_imm(uint8_t val) { ms_.setConst(REG_Y, val); emitInstruction("ldy", AddressingMode::IMMEDIATE, val, true); }
 void M65Emitter::ldz_imm(uint8_t val) { ms_.setConst(REG_Z, val); emitInstruction("ldz", AddressingMode::IMMEDIATE, val, true); }
 void M65Emitter::phw_imm(uint16_t val) { ms_.spModified(); emitInstruction("phw", AddressingMode::IMMEDIATE16, val, true); }
-void M65Emitter::adc_imm(uint8_t val) { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); emitInstruction("adc", AddressingMode::IMMEDIATE, val, true); }
-void M65Emitter::sbc_imm(uint8_t val) { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); emitInstruction("sbc", AddressingMode::IMMEDIATE, val, true); }
-void M65Emitter::and_imm(uint8_t val) { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); emitInstruction("and", AddressingMode::IMMEDIATE, val, true); }
-void M65Emitter::ora_imm(uint8_t val) { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); emitInstruction("ora", AddressingMode::IMMEDIATE, val, true); }
-void M65Emitter::eor_imm(uint8_t val) { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); emitInstruction("eor", AddressingMode::IMMEDIATE, val, true); }
-void M65Emitter::cmp_imm(uint8_t val) { ms_.flags.invalidate(); emitInstruction("cmp", AddressingMode::IMMEDIATE, val, true); }
-void M65Emitter::cpx_imm(uint8_t val) { ms_.flags.invalidate(); emitInstruction("cpx", AddressingMode::IMMEDIATE, val, true); }
-void M65Emitter::cpy_imm(uint8_t val) { ms_.flags.invalidate(); emitInstruction("cpy", AddressingMode::IMMEDIATE, val, true); }
+void M65Emitter::adc_imm(uint8_t val) {
+    // ADC depends on carry, so only propagate if both A and C are known
+    if (ms_.reg[REG_A].isConst() && ms_.flags.c != FlagState::F_UNKNOWN) {
+        int carry = (ms_.flags.c == FlagState::F_SET) ? 1 : 0;
+        int result = (int)(ms_.reg[REG_A].constVal & 0xFF) + val + carry;
+        ms_.setConst(REG_A, result & 0xFF);
+        ms_.flags.setCarry(result > 0xFF);
+        // V flag is complex; leave as unknown. setConst already set N/Z.
+        ms_.flags.v = FlagState::F_UNKNOWN;
+    } else {
+        ms_.invalidateReg(REG_A); ms_.flags.invalidate();
+    }
+    emitInstruction("adc", AddressingMode::IMMEDIATE, val, true);
+}
+void M65Emitter::sbc_imm(uint8_t val) {
+    if (ms_.reg[REG_A].isConst() && ms_.flags.c != FlagState::F_UNKNOWN) {
+        int borrow = (ms_.flags.c == FlagState::F_SET) ? 0 : 1;
+        int result = (int)(ms_.reg[REG_A].constVal & 0xFF) - val - borrow;
+        ms_.setConst(REG_A, result & 0xFF);
+        ms_.flags.setCarry(result >= 0);
+        ms_.flags.v = FlagState::F_UNKNOWN;
+    } else {
+        ms_.invalidateReg(REG_A); ms_.flags.invalidate();
+    }
+    emitInstruction("sbc", AddressingMode::IMMEDIATE, val, true);
+}
+void M65Emitter::and_imm(uint8_t val) {
+    if (ms_.reg[REG_A].isConst()) {
+        ms_.setConst(REG_A, (ms_.reg[REG_A].constVal & 0xFF) & val);
+    } else if (val == 0) {
+        ms_.setConst(REG_A, 0);
+    } else {
+        ms_.invalidateReg(REG_A);
+        // AND preserves nonzero only if both operands have overlapping set bits
+        ms_.flags.setNZ(REG_A);
+    }
+    emitInstruction("and", AddressingMode::IMMEDIATE, val, true);
+}
+void M65Emitter::ora_imm(uint8_t val) {
+    if (ms_.reg[REG_A].isConst()) {
+        ms_.setConst(REG_A, (ms_.reg[REG_A].constVal & 0xFF) | val);
+    } else if (val != 0) {
+        // ORA with non-zero always produces non-zero
+        ms_.invalidateMirrorsOfPub(REG_A);
+        ms_.reg[REG_A] = ValueInfo::nonZero();
+        ms_.flags.setNZFromValue(ms_.reg[REG_A], (int8_t)REG_A);
+    } else {
+        // ORA #0 is a no-op on A value, but sets N/Z flags
+        ms_.flags.setNZFromValue(ms_.reg[REG_A], (int8_t)REG_A);
+    }
+    emitInstruction("ora", AddressingMode::IMMEDIATE, val, true);
+}
+void M65Emitter::eor_imm(uint8_t val) {
+    if (ms_.reg[REG_A].isConst()) {
+        ms_.setConst(REG_A, ((ms_.reg[REG_A].constVal & 0xFF) ^ val));
+    } else {
+        ms_.invalidateReg(REG_A); ms_.flags.setNZ(REG_A);
+    }
+    emitInstruction("eor", AddressingMode::IMMEDIATE, val, true);
+}
+void M65Emitter::cmp_imm(uint8_t val) {
+    // CMP sets N/Z/C but doesn't modify A
+    if (ms_.reg[REG_A].isConst()) {
+        uint8_t a = (uint8_t)(ms_.reg[REG_A].constVal & 0xFF);
+        ms_.flags.z = (a == val) ? FlagState::F_SET : FlagState::F_CLEAR;
+        ms_.flags.c = (a >= val) ? FlagState::F_SET : FlagState::F_CLEAR;
+        uint8_t diff = a - val;
+        ms_.flags.n = (diff & 0x80) ? FlagState::F_SET : FlagState::F_CLEAR;
+        ms_.flags.nzSourceReg = -1; // CMP result, not a register load
+    } else {
+        ms_.flags.invalidate();
+    }
+    emitInstruction("cmp", AddressingMode::IMMEDIATE, val, true);
+}
+void M65Emitter::cpx_imm(uint8_t val) {
+    if (ms_.reg[REG_X].isConst()) {
+        uint8_t x = (uint8_t)(ms_.reg[REG_X].constVal & 0xFF);
+        ms_.flags.z = (x == val) ? FlagState::F_SET : FlagState::F_CLEAR;
+        ms_.flags.c = (x >= val) ? FlagState::F_SET : FlagState::F_CLEAR;
+        uint8_t diff = x - val;
+        ms_.flags.n = (diff & 0x80) ? FlagState::F_SET : FlagState::F_CLEAR;
+        ms_.flags.nzSourceReg = -1;
+    } else {
+        ms_.flags.invalidate();
+    }
+    emitInstruction("cpx", AddressingMode::IMMEDIATE, val, true);
+}
+void M65Emitter::cpy_imm(uint8_t val) {
+    if (ms_.reg[REG_Y].isConst()) {
+        uint8_t y = (uint8_t)(ms_.reg[REG_Y].constVal & 0xFF);
+        ms_.flags.z = (y == val) ? FlagState::F_SET : FlagState::F_CLEAR;
+        ms_.flags.c = (y >= val) ? FlagState::F_SET : FlagState::F_CLEAR;
+        uint8_t diff = y - val;
+        ms_.flags.n = (diff & 0x80) ? FlagState::F_SET : FlagState::F_CLEAR;
+        ms_.flags.nzSourceReg = -1;
+    } else {
+        ms_.flags.invalidate();
+    }
+    emitInstruction("cpy", AddressingMode::IMMEDIATE, val, true);
+}
 
 // --- Absolute Mode ---
 void M65Emitter::lda_abs(uint16_t addr) { ms_.invalidateReg(REG_A); emitInstruction("lda", AddressingMode::ABSOLUTE, addr, true); }
@@ -503,12 +595,36 @@ void M65Emitter::tsxCached() {
 void M65Emitter::txs() { ms_.setTransfer(REG_SP, REG_X); emitInstruction("txs", AddressingMode::IMPLIED); }
 void M65Emitter::tsy() { ms_.setTransfer(REG_Y, REG_SP); emitInstruction("tsy", AddressingMode::IMPLIED); }
 void M65Emitter::tys() { ms_.setTransfer(REG_SP, REG_Y); emitInstruction("tys", AddressingMode::IMPLIED); }
-void M65Emitter::inx() { ms_.invalidateReg(REG_X); emitInstruction("inx", AddressingMode::IMPLIED); }
-void M65Emitter::dex() { ms_.invalidateReg(REG_X); emitInstruction("dex", AddressingMode::IMPLIED); }
-void M65Emitter::iny() { ms_.invalidateReg(REG_Y); emitInstruction("iny", AddressingMode::IMPLIED); }
-void M65Emitter::dey() { ms_.invalidateReg(REG_Y); emitInstruction("dey", AddressingMode::IMPLIED); }
-void M65Emitter::inz() { ms_.invalidateReg(REG_Z); emitInstruction("inz", AddressingMode::IMPLIED); }
-void M65Emitter::dez() { ms_.invalidateReg(REG_Z); emitInstruction("dez", AddressingMode::IMPLIED); }
+void M65Emitter::inx() {
+    if (ms_.reg[REG_X].isConst()) ms_.setConst(REG_X, ((ms_.reg[REG_X].constVal & 0xFF) + 1) & 0xFF);
+    else { ms_.invalidateReg(REG_X); ms_.flags.setNZ(REG_X); }
+    emitInstruction("inx", AddressingMode::IMPLIED);
+}
+void M65Emitter::dex() {
+    if (ms_.reg[REG_X].isConst()) ms_.setConst(REG_X, ((ms_.reg[REG_X].constVal & 0xFF) - 1) & 0xFF);
+    else { ms_.invalidateReg(REG_X); ms_.flags.setNZ(REG_X); }
+    emitInstruction("dex", AddressingMode::IMPLIED);
+}
+void M65Emitter::iny() {
+    if (ms_.reg[REG_Y].isConst()) ms_.setConst(REG_Y, ((ms_.reg[REG_Y].constVal & 0xFF) + 1) & 0xFF);
+    else { ms_.invalidateReg(REG_Y); ms_.flags.setNZ(REG_Y); }
+    emitInstruction("iny", AddressingMode::IMPLIED);
+}
+void M65Emitter::dey() {
+    if (ms_.reg[REG_Y].isConst()) ms_.setConst(REG_Y, ((ms_.reg[REG_Y].constVal & 0xFF) - 1) & 0xFF);
+    else { ms_.invalidateReg(REG_Y); ms_.flags.setNZ(REG_Y); }
+    emitInstruction("dey", AddressingMode::IMPLIED);
+}
+void M65Emitter::inz() {
+    if (ms_.reg[REG_Z].isConst()) ms_.setConst(REG_Z, ((ms_.reg[REG_Z].constVal & 0xFF) + 1) & 0xFF);
+    else { ms_.invalidateReg(REG_Z); ms_.flags.setNZ(REG_Z); }
+    emitInstruction("inz", AddressingMode::IMPLIED);
+}
+void M65Emitter::dez() {
+    if (ms_.reg[REG_Z].isConst()) ms_.setConst(REG_Z, ((ms_.reg[REG_Z].constVal & 0xFF) - 1) & 0xFF);
+    else { ms_.invalidateReg(REG_Z); ms_.flags.setNZ(REG_Z); }
+    emitInstruction("dez", AddressingMode::IMPLIED);
+}
 
 // --- Stack Operations ---
 void M65Emitter::push(const std::string& reg) {
@@ -561,13 +677,42 @@ void M65Emitter::cla() { lda_imm(0); }
 void M65Emitter::clx() { ldx_imm(0); }
 void M65Emitter::cly() { ldy_imm(0); }
 void M65Emitter::clz() { ldz_imm(0); }
-void M65Emitter::neg_a() { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); emitInstruction("neg", AddressingMode::ACCUMULATOR); }
-void M65Emitter::asl_a() { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); emitInstruction("asl", AddressingMode::ACCUMULATOR); }
+void M65Emitter::neg_a() {
+    if (ms_.reg[REG_A].isConst()) {
+        ms_.setConst(REG_A, (-(ms_.reg[REG_A].constVal & 0xFF)) & 0xFF);
+    } else { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); }
+    emitInstruction("neg", AddressingMode::ACCUMULATOR);
+}
+void M65Emitter::asl_a() {
+    if (ms_.reg[REG_A].isConst()) {
+        uint8_t a = (uint8_t)(ms_.reg[REG_A].constVal & 0xFF);
+        ms_.flags.setCarry(a & 0x80);
+        ms_.setConst(REG_A, (a << 1) & 0xFF);
+    } else { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); }
+    emitInstruction("asl", AddressingMode::ACCUMULATOR);
+}
 void M65Emitter::rol_a() { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); emitInstruction("rol", AddressingMode::ACCUMULATOR); }
-void M65Emitter::lsr_a() { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); emitInstruction("lsr", AddressingMode::ACCUMULATOR); }
+void M65Emitter::lsr_a() {
+    if (ms_.reg[REG_A].isConst()) {
+        uint8_t a = (uint8_t)(ms_.reg[REG_A].constVal & 0xFF);
+        ms_.flags.setCarry(a & 0x01);
+        ms_.setConst(REG_A, a >> 1);
+    } else { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); }
+    emitInstruction("lsr", AddressingMode::ACCUMULATOR);
+}
 void M65Emitter::ror_a() { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); emitInstruction("ror", AddressingMode::ACCUMULATOR); }
-void M65Emitter::inc_a() { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); emitInstruction("inc", AddressingMode::ACCUMULATOR); }
-void M65Emitter::dec_a() { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); emitInstruction("dec", AddressingMode::ACCUMULATOR); }
+void M65Emitter::inc_a() {
+    if (ms_.reg[REG_A].isConst()) {
+        ms_.setConst(REG_A, ((ms_.reg[REG_A].constVal & 0xFF) + 1) & 0xFF);
+    } else { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); }
+    emitInstruction("inc", AddressingMode::ACCUMULATOR);
+}
+void M65Emitter::dec_a() {
+    if (ms_.reg[REG_A].isConst()) {
+        ms_.setConst(REG_A, ((ms_.reg[REG_A].constVal & 0xFF) - 1) & 0xFF);
+    } else { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); }
+    emitInstruction("dec", AddressingMode::ACCUMULATOR);
+}
 void M65Emitter::eom() { emitInstruction("eom", AddressingMode::IMPLIED); }
 
 void M65Emitter::bra(int8_t offset) { emitInstruction("bra", AddressingMode::RELATIVE, (uint32_t)offset, true); }

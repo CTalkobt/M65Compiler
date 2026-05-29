@@ -2,9 +2,9 @@
 #include <cstdint>
 #include <array>
 
-// Register & Memory Value Tracking Framework — Phase 1+2
-// Tracks what is known about CPU register values and memory contents
-// during code emission.
+// Register & Memory Value Tracking Framework — Phase 1+2+3
+// Tracks what is known about CPU register values, memory contents,
+// and CPU flags during code emission.
 // Replaces ad-hoc flags (xHoldsSP_, aEqualsX_) with unified state.
 
 enum RegId : uint8_t {
@@ -22,11 +22,15 @@ struct ValueInfo {
         CONSTANT,       // known exact value
         SAME_AS_REG,    // mirrors another register (e.g., A==X after tax)
         SAME_AS_MEM,    // mirrors a memory location (e.g., A == [$20] after lda $20)
+        NONZERO,        // known to be != 0 (but exact value unknown)
+        RANGE,          // bounded range [rangeLo..rangeHi]
     };
     Kind kind = UNKNOWN;
     int64_t constVal = 0;       // for CONSTANT
     uint8_t mirrorReg = 0;      // for SAME_AS_REG (RegId)
     uint16_t mirrorAddr = 0;    // for SAME_AS_MEM
+    int64_t rangeLo = 0;        // for RANGE
+    int64_t rangeHi = 0;        // for RANGE
 
     bool isUnknown() const { return kind == UNKNOWN; }
     bool isConst() const { return kind == CONSTANT; }
@@ -35,10 +39,27 @@ struct ValueInfo {
     bool isSameAs(RegId r) const { return kind == SAME_AS_REG && mirrorReg == r; }
     bool isSameAsMem(uint16_t addr) const { return kind == SAME_AS_MEM && mirrorAddr == addr; }
 
+    // True if the value is known to be non-zero.
+    bool isNonZero() const {
+        if (kind == NONZERO) return true;
+        if (kind == CONSTANT) return constVal != 0;
+        if (kind == RANGE) return (rangeLo > 0) || (rangeHi < 0);
+        return false;
+    }
+
+    // True if the value is known to be within [lo..hi].
+    bool isInRange(int64_t lo, int64_t hi) const {
+        if (kind == CONSTANT) return constVal >= lo && constVal <= hi;
+        if (kind == RANGE) return rangeLo >= lo && rangeHi <= hi;
+        return false;
+    }
+
     static ValueInfo unknown() { return {}; }
-    static ValueInfo constant(int64_t v) { return {CONSTANT, v, 0, 0}; }
-    static ValueInfo sameAs(RegId r) { return {SAME_AS_REG, 0, (uint8_t)r, 0}; }
-    static ValueInfo sameAsMem(uint16_t addr) { return {SAME_AS_MEM, 0, 0, addr}; }
+    static ValueInfo constant(int64_t v) { ValueInfo vi; vi.kind = CONSTANT; vi.constVal = v; return vi; }
+    static ValueInfo sameAs(RegId r) { ValueInfo vi; vi.kind = SAME_AS_REG; vi.mirrorReg = (uint8_t)r; return vi; }
+    static ValueInfo sameAsMem(uint16_t addr) { ValueInfo vi; vi.kind = SAME_AS_MEM; vi.mirrorAddr = addr; return vi; }
+    static ValueInfo nonZero() { ValueInfo vi; vi.kind = NONZERO; return vi; }
+    static ValueInfo range(int64_t lo, int64_t hi) { ValueInfo vi; vi.kind = RANGE; vi.rangeLo = lo; vi.rangeHi = hi; return vi; }
 };
 
 struct FlagState {
@@ -52,8 +73,44 @@ struct FlagState {
     int8_t nzSourceReg = -1;
 
     void invalidate() { n = z = c = v = F_UNKNOWN; nzSourceReg = -1; }
+
+    // Record that N/Z flags were set from a value with known properties.
+    // If the value is a known constant, derive exact N/Z.
+    // If NONZERO, Z is known CLEAR.
+    void setNZFromValue(const ValueInfo& val, int8_t srcReg) {
+        nzSourceReg = srcReg;
+        if (val.isConst()) {
+            uint8_t byte = (uint8_t)(val.constVal & 0xFF);
+            z = (byte == 0) ? F_SET : F_CLEAR;
+            n = (byte & 0x80) ? F_SET : F_CLEAR;
+        } else if (val.kind == ValueInfo::RANGE) {
+            // Derive what we can from the range
+            uint8_t lo = (uint8_t)(val.rangeLo & 0xFF);
+            uint8_t hi = (uint8_t)(val.rangeHi & 0xFF);
+            z = (val.rangeLo > 0 || val.rangeHi < 0) ? F_CLEAR : F_UNKNOWN;
+            // If entire range has bit 7 set, N is SET; if none do, N is CLEAR
+            n = (lo >= 0x80 && hi >= 0x80) ? F_SET :
+                (hi < 0x80) ? F_CLEAR : F_UNKNOWN;
+        } else if (val.isNonZero()) {
+            z = F_CLEAR;
+            n = F_UNKNOWN;
+        } else {
+            z = F_UNKNOWN;
+            n = F_UNKNOWN;
+        }
+    }
+
+    // Simple setNZ when only the register ID is known (no value info).
     void setNZ(RegId src) { n = F_UNKNOWN; z = F_UNKNOWN; nzSourceReg = (int8_t)src; }
+
     void setCarry(bool set) { c = set ? F_SET : F_CLEAR; }
+
+    // True if N/Z flags currently reflect the given register's value.
+    bool flagsReflect(RegId r) const { return nzSourceReg == (int8_t)r; }
+
+    // True if we know the Z flag state (either SET or CLEAR).
+    bool zKnown() const { return z != F_UNKNOWN; }
+    bool nKnown() const { return n != F_UNKNOWN; }
 };
 
 // ============================================================================
@@ -126,6 +183,7 @@ struct MachineState {
     void setConst(RegId r, int64_t val) {
         invalidateMirrorsOf(r);
         reg[r] = ValueInfo::constant(val);
+        flags.setNZFromValue(reg[r], (int8_t)r);
     }
 
     // Set a register to mirror another (e.g., tax → X = SAME_AS(A)).
@@ -138,7 +196,7 @@ struct MachineState {
             reg[dst] = ValueInfo::sameAs(src);
         }
         // Transfer instructions set N/Z from the transferred value
-        flags.setNZ(dst);
+        flags.setNZFromValue(reg[dst], (int8_t)dst);
     }
 
     // Set a register from a load from memory. If the memory value is known,
@@ -151,7 +209,7 @@ struct MachineState {
         } else {
             reg[r] = ValueInfo::sameAsMem(zpAddr);
         }
-        flags.setNZ(r);
+        flags.setNZFromValue(reg[r], (int8_t)r);
     }
 
     // Mark a register as unknown (e.g., after an instruction clobbers it).
@@ -242,6 +300,25 @@ struct MachineState {
         for (auto& e : memCache) e.valid = false;
         memAge_ = 0;
     }
+
+    // --- Register value updates (non-standard) ---
+
+    // Set a register to NONZERO (known != 0 but exact value unknown).
+    void setNonZero(RegId r) {
+        invalidateMirrorsOf(r);
+        reg[r] = ValueInfo::nonZero();
+        flags.setNZFromValue(reg[r], (int8_t)r);
+    }
+
+    // Set a register to a known range [lo..hi].
+    void setRange(RegId r, int64_t lo, int64_t hi) {
+        invalidateMirrorsOf(r);
+        reg[r] = ValueInfo::range(lo, hi);
+        flags.setNZFromValue(reg[r], (int8_t)r);
+    }
+
+    // Public mirror invalidation for callers that update reg[] directly.
+    void invalidateMirrorsOfPub(RegId r) { invalidateMirrorsOf(r); }
 
     // --- Stack pointer tracking ---
 
