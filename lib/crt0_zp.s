@@ -20,25 +20,27 @@ __init:
     tsy
     sty __saved_sph + 1
 
-    ; Save ZP $08-$FF to BSS buffer (preserve KERNAL/BASIC state)
-    ldx #248
-    ldy #0
-    move $08, __zp_save_buf
+    ; Save ZP $08-$FF to BSS buffer via static DMA job
+    lda #>__dma_save
+    sta $D702
+    stz $D703
+    lda #<__dma_save
+    sta $D701
+    stz $D700
 
     jsr _init_features
     jsr _main
 
     ; Fall through to __exit
 __exit:
-    ; Restore ZP $08-$FF from BSS buffer
-    ldx #248
-    ldy #0
-    move __zp_save_buf, $08
+    ; Restore ZP $08-$FF from BSS buffer via static DMA job
+    lda #>__dma_restore
+    sta $D702
+    stz $D703
+    lda #<__dma_restore
+    sta $D701
+    stz $D700
 
-    ; Restore caller's stack pointer and return.
-    ; Clear Z register — the MEGA65 kernal/BASIC may use Z as part of
-    ; the return address banking; a stale Z causes PC corruption on RTS.
-    ldz #$00
 __saved_spl:
     ldx #$FF
     txs
@@ -50,6 +52,27 @@ __saved_sph:
 ; Default init_features — does nothing. Override with a strong definition.
 _init_features:
     rts
+
+.segment "data"
+__dma_save:
+    .byte $00
+    .word 248
+    .word $08
+    .byte $00
+    .word __zp_save_buf
+    .byte $00
+    .byte $00
+    .byte $00
+
+__dma_restore:
+    .byte $00
+    .word 248
+    .word __zp_save_buf
+    .byte $00
+    .word $08
+    .byte $00
+    .byte $00
+    .byte $00
 
 .segment "bss"
 __zp_save_buf:

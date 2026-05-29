@@ -279,6 +279,7 @@ public:
         uint8_t extra = 0;        // low byte for R_HIGH carry correction
     };
     const std::vector<SymbolReloc>& symbolRelocs() const { return symbolRelocs_; }
+    void emitWordReloc(const std::string& symbolName, uint16_t value = 0);
     void recordSymbolReloc(const std::string& name);
     void recordSymbolRelocLo(const std::string& name);
     void recordSymbolRelocHi(const std::string& name, uint8_t lowByte);

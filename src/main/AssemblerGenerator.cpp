@@ -287,7 +287,18 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                     }
                     else if (stmt->dir.name == "cleanup") { if (currentPass2Proc) currentPass2Proc->totalParamSize += parser->evaluateExpressionAt(stmt->dir.tokenIndex, stmt->scopePrefix); }
                     else if (stmt->dir.name == "byte") for (const auto& a : stmt->dir.arguments) e.emitByte((uint8_t)parseNumericLiteral(a));
-                    else if (stmt->dir.name == "word") for (const auto& a : stmt->dir.arguments) e.emitWord((uint16_t)parseNumericLiteral(a));
+                    else if (stmt->dir.name == "word") {
+                        for (const auto& a : stmt->dir.arguments) {
+                            // Try numeric first, fall back to symbol with relocation
+                            try {
+                                e.emitWord((uint16_t)parseNumericLiteral(a));
+                            } catch (...) {
+                                Symbol* sym = parser->resolveSymbol(a, stmt->scopePrefix);
+                                uint16_t val = sym ? (uint16_t)sym->value : 0;
+                                e.emitWordReloc(a, val);
+                            }
+                        }
+                    }
                     else if (stmt->dir.name == "dword" || stmt->dir.name == "long") for (const auto& a : stmt->dir.arguments) { uint32_t v = parseNumericLiteral(a); e.emitWord(v & 0xFFFF); e.emitWord(v >> 16); }
                     else if (stmt->dir.name == "float") for (const auto& a : stmt->dir.arguments) { double v = std::stod(a); std::vector<uint8_t> enc = encodeFloat(v); for (uint8_t eb : enc) e.emitByte(eb); }
                     else if (stmt->dir.name == "text") { if (!stmt->dir.arguments.empty()) for (char c : stmt->dir.arguments[0]) e.emitByte(toPetscii(c)); }

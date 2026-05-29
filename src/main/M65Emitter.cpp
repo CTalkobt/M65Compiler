@@ -66,6 +66,16 @@ void M65Emitter::emitWord(uint16_t w) {
     else emitText(".word", hex16(w));
 }
 
+void M65Emitter::emitWordReloc(const std::string& symbolName, uint16_t value) {
+    if (mode == Mode::BINARY) {
+        symbolRelocs_.push_back({currentAddress, symbolName, 0x80, 0}); // R_WORD at current pos
+        binary->push_back(value & 0xFF);
+        binary->push_back(value >> 8);
+        currentAddress += 2;
+    }
+    else emitText(".word", symbolName);
+}
+
 void M65Emitter::setAddress(uint32_t addr) {
     if (!addressSet) {
         currentAddress = addr;
