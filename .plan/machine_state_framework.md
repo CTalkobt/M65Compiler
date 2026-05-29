@@ -18,9 +18,10 @@ struct ValueInfo {
         SAME_AS_REG,    // mirrors another register (e.g., A==X after tax)
         SAME_AS_MEM,    // mirrors a memory location (e.g., A == [$20] after lda $20)
         RANGE,          // bounded range (e.g., 0..24 for a loop counter)
-        NONZERO,        // known to be != 0
-        ZERO,           // known to be == 0
+        NONZERO,        // known to be != 0 (but exact value unknown)
     };
+    // Note: ZERO is not needed — use CONSTANT(0) instead.
+    // Helper: bool isZero() const { return kind == CONSTANT && constVal == 0; }
     Kind kind = UNKNOWN;
     int64_t constVal = 0;           // for CONSTANT
     uint8_t mirrorReg = 0;          // for SAME_AS_REG (register ID)
@@ -29,29 +30,58 @@ struct ValueInfo {
 };
 ```
 
-### Register State (6 entries)
+### Register State (5 entries + CPU flags)
 
 ```cpp
+enum RegId { REG_A=0, REG_X=1, REG_Y=2, REG_Z=3, REG_SP=4, REG_COUNT=5 };
+
+// CPU flag tracking — individual flags since instructions affect them independently
+struct FlagState {
+    enum FlagVal { F_UNKNOWN, F_SET, F_CLEAR };
+    FlagVal n = F_UNKNOWN;   // Negative
+    FlagVal z = F_UNKNOWN;   // Zero
+    FlagVal c = F_UNKNOWN;   // Carry
+    FlagVal v = F_UNKNOWN;   // Overflow
+    // Which register (or NONE) was the last to set N/Z flags?
+    // Enables compare elimination: if flags already reflect a register's value,
+    // a subsequent cmp #0 or redundant load-for-flags can be skipped.
+    int nzSourceReg = -1;    // -1 = unknown, else RegId
+};
+
 struct MachineState {
-    ValueInfo reg[6];  // A, X, Y, Z, SP, Flags
-    // Indexed by enum: REG_A=0, REG_X=1, REG_Y=2, REG_Z=3, REG_SP=4, REG_FLAGS=5
+    ValueInfo reg[REG_COUNT];  // A, X, Y, Z, SP
+    FlagState flags;           // CPU flags (N, Z, C, V) tracked individually
 };
 ```
 
-### Memory Cache (ring buffer)
+### Memory Tracking
 
-Track the N most recently accessed memory locations:
+Three tiers of memory state, covering the full working set:
 
 ```cpp
+// Tier 1: Zero page — full coverage (256 bytes)
+// Every ZP location is tracked directly by address.
+ValueInfo zpState[256];
+
+// Tier 2: Stack — full coverage (256 bytes)
+// Indexed by stack offset (SP-relative). Tracks pushed values,
+// locals, and arguments currently on the hardware stack.
+ValueInfo stackState[256];
+
+// Tier 3: General memory — ring buffer (512 entries, LRU eviction)
+// Covers absolute addresses outside ZP/stack: I/O registers,
+// global variables, heap pointers, etc.
 struct MemEntry {
-    uint16_t addr;      // memory address (ZP or absolute)
+    uint16_t addr;      // memory address (absolute)
     ValueInfo info;     // what's known about this location
     uint32_t age;       // access counter for LRU eviction
 };
-
-// Ring buffer of ~32 entries — covers typical ZP working set
-std::array<MemEntry, 32> memCache;
+std::array<MemEntry, 512> memCache;
 ```
+
+This gives full visibility into ZP (where scratch regs and locals live)
+and the stack (where arguments and frame data live), plus a generous
+ring buffer for frequently accessed absolute addresses.
 
 ### State Transitions
 
@@ -111,6 +141,6 @@ Each emitted instruction updates the state:
 ### Implementation Phases
 
 1. **Phase 1**: Core MachineState struct + register tracking (CONSTANT, SAME_AS_REG, UNKNOWN). Replace `xHoldsSP_` and `aEqualsX_`.
-2. **Phase 2**: Memory cache (ring buffer). Enable redundant load elimination and store forwarding.
-3. **Phase 3**: Range tracking and NONZERO/ZERO states. Enable compare elimination and smart branching.
+2. **Phase 2**: Three-tier memory tracking (ZP full, stack full, 512-entry ring buffer). Enable redundant load elimination and store forwarding.
+3. **Phase 3**: Range tracking and NONZERO state. Enable compare elimination and smart branching.
 4. **Phase 4**: Integration with AssemblerOptimizer for cross-statement peephole optimization.

@@ -1,6 +1,7 @@
 #pragma once
 #include "IR.hpp"
 #include "VRegAllocator.hpp"
+#include "MachineState.hpp"
 #include <ostream>
 #include <map>
 #include <string>
@@ -95,7 +96,7 @@ private:
     int lastLocLine_ = -1;
     std::string lastLocFile_;
     std::string sourceFile_; // module source file for function declaration .loc
-    bool aEqualsX_ = false;  // true when A is known to equal X (for sta-instead-of-stx)
+    MachineState ms_;        // register/flag value tracking for codegen optimizations
 
     // Next block label for no-op branch elimination
     std::string nextBlockLabel_;

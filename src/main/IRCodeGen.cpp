@@ -198,7 +198,7 @@ void IRCodeGen::storeVreg(uint32_t vregId) {
             } else if (alloc.type == ir::Type::I32) {
                 emit("sta " + zpAddr);
                 ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 1);
-                emit(aEqualsX_ ? "sta " + ss.str() : "stx " + ss.str());
+                emit(ms_.regsEqual(REG_A, REG_X) ? "sta " + ss.str() : "stx " + ss.str());
                 ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 2);
                 emit("sty " + ss.str());
                 ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 3);
@@ -206,7 +206,7 @@ void IRCodeGen::storeVreg(uint32_t vregId) {
             } else {
                 emit("sta " + zpAddr);
                 ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 1);
-                emit(aEqualsX_ ? "sta " + ss.str() : "stx " + ss.str());
+                emit(ms_.regsEqual(REG_A, REG_X) ? "sta " + ss.str() : "stx " + ss.str());
             }
             break;
         }
@@ -1112,17 +1112,17 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             uint8_t b1 = (val >> 8) & 0xFF;
             uint8_t b2 = (val >> 16) & 0xFF;
             uint8_t b3 = (val >> 24) & 0xFF;
-            aEqualsX_ = false;
+            ms_.setConst(REG_A, b0);
             emit("lda #" + std::to_string((int)b0), r);
             if (inst.resultType == ir::Type::I32) {
-                if (b1 == b0) { emit("tax", r); aEqualsX_ = true; } else emit("ldx #" + std::to_string((int)b1), r);
-                if (b2 == b0) emit("tay", r); else emit("ldy #" + std::to_string((int)b2), r);
-                if (b3 == b0) emit("taz", r); else emit("ldz #" + std::to_string((int)b3), r);
+                if (b1 == b0) { emit("tax", r); ms_.setTransfer(REG_X, REG_A); } else { emit("ldx #" + std::to_string((int)b1), r); ms_.setConst(REG_X, b1); }
+                if (b2 == b0) { emit("tay", r); ms_.setTransfer(REG_Y, REG_A); } else { emit("ldy #" + std::to_string((int)b2), r); ms_.setConst(REG_Y, b2); }
+                if (b3 == b0) { emit("taz", r); ms_.setTransfer(REG_Z, REG_A); } else { emit("ldz #" + std::to_string((int)b3), r); ms_.setConst(REG_Z, b3); }
             } else if (inst.resultType != ir::Type::I8) {
-                if (b1 == b0) { emit("tax", r); aEqualsX_ = true; } else emit("ldx #" + std::to_string((int)b1), r);
+                if (b1 == b0) { emit("tax", r); ms_.setTransfer(REG_X, REG_A); } else { emit("ldx #" + std::to_string((int)b1), r); ms_.setConst(REG_X, b1); }
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
-            aEqualsX_ = false;
+            ms_.invalidateAll();
             break;
         }
 
