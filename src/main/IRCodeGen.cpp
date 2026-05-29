@@ -691,34 +691,74 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                     constDefs[inst.dest.vregId] = inst.src1.immVal;
             }
         }
-        // Pass 2: for each CONST vreg, check if it can be suppressed.
+        // Pass 2: identify CALL instructions where all args are simple
+        // (const vregs or immediates). Mark those args' local slot vregs as dead.
+        auto isSimpleArg = [&](const ir::Operand& arg) -> bool {
+            if (arg.isImm()) return true;
+            if (arg.kind == ir::OperandKind::GLOBAL) return true;
+            if (arg.isVreg() && constDefs.count(arg.vregId)) return true;
+            return false;
+        };
+        std::set<uint32_t> deadCallArgSlots; // local slots only used by phw-eligible calls
+        for (const auto& blk : fn.blocks) {
+            for (const auto& inst : blk.insts) {
+                if (inst.op != ir::Op::CALL && inst.op != ir::Op::CALL_VOID) continue;
+                if (inst.callConv == ir::CallConv::ZP) continue;
+                bool allSimple = true;
+                for (const auto& a : inst.args)
+                    if (!isSimpleArg(a)) { allSimple = false; break; }
+                if (allSimple) {
+                    for (const auto& a : inst.args)
+                        if (a.isVreg()) deadCallArgSlots.insert(a.vregId);
+                }
+            }
+        }
+
+        // Pass 3: for each CONST vreg, check if it can be suppressed.
         // Suppressible if ONLY used as:
         //   (a) src2 of STORE (address operand, not local slot), OR
-        //   (b) src1 of STORE where src2 is also a known-constant address
+        //   (b) src1 of STORE where src2 is a known-constant address, OR
+        //   (c) arg of an all-simple CALL (phw path), OR
+        //   (d) src1 of STORE to a local slot that is a dead call arg slot
         for (auto& [vid, val] : constDefs) {
             bool canSuppress = true;
             bool hasUse = false;
             for (const auto& blk : fn.blocks) {
                 for (const auto& inst : blk.insts) {
                     if (inst.op == ir::Op::NOP) continue;
-                    // Check args — any use in args = not suppressible
-                    for (const auto& a : inst.args)
-                        if (a.isVreg() && a.vregId == vid) { canSuppress = false; break; }
+                    // Check args: OK if CALL with all-simple args
+                    for (const auto& a : inst.args) {
+                        if (a.isVreg() && a.vregId == vid) {
+                            if ((inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) &&
+                                deadCallArgSlots.count(vid)) {
+                                hasUse = true;
+                            } else {
+                                canSuppress = false;
+                            }
+                            break;
+                        }
+                    }
                     if (!canSuppress) break;
-                    // Check src1: OK if it's STORE with a const address
+                    // Check src1
                     if (inst.src1.isVreg() && inst.src1.vregId == vid) {
-                        if (inst.op == ir::Op::STORE && inst.src2.isVreg() &&
-                            constDefs.count(inst.src2.vregId) &&
-                            !fn.localSlotVregs.count(inst.src2.vregId)) {
-                            hasUse = true; // value of const-addr store — OK
+                        if (inst.op == ir::Op::STORE && inst.src2.isVreg()) {
+                            if (constDefs.count(inst.src2.vregId) &&
+                                !fn.localSlotVregs.count(inst.src2.vregId)) {
+                                hasUse = true; // value of const-addr store
+                            } else if (fn.localSlotVregs.count(inst.src2.vregId) &&
+                                       deadCallArgSlots.count(inst.src2.vregId)) {
+                                hasUse = true; // store to dead call arg slot
+                            } else {
+                                canSuppress = false; break;
+                            }
                         } else {
                             canSuppress = false; break;
                         }
                     }
-                    // Check src2: OK if it's STORE address (not local slot)
+                    // Check src2: OK if STORE address (not local slot)
                     if (inst.src2.isVreg() && inst.src2.vregId == vid) {
                         if (inst.op == ir::Op::STORE && !fn.localSlotVregs.count(vid)) {
-                            hasUse = true; // address of store — OK
+                            hasUse = true;
                         } else {
                             canSuppress = false; break;
                         }
@@ -729,6 +769,12 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             if (canSuppress && hasUse) {
                 suppressedVregs_.insert(vid);
                 vregConstVal_[vid] = val;
+            }
+        }
+        // Also suppress the dead call arg LOCAL SLOT vregs themselves
+        for (uint32_t slotId : deadCallArgSlots) {
+            if (fn.localSlotVregs.count(slotId)) {
+                suppressedVregs_.insert(slotId);
             }
         }
     }
@@ -1675,6 +1721,9 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     }
                     break;
                 }
+
+                // Skip STORE to suppressed vregs (dead call arg slots)
+                if (suppressedVregs_.count(inst.src2.vregId)) break;
 
                 // Is the target a local variable slot (direct write)
                 // or a computed address (indirect write through pointer)?
