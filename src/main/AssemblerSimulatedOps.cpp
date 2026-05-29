@@ -342,14 +342,15 @@ void AssemblerSimulatedOps::emitCMP16Code(AssemblerParser* parser, M65Emitter& e
     if (SRC1 == ".AX") {
         if (isImmediate && src2Ast->isConstant(parser)) {
             uint32_t val = src2Ast->getValue(parser);
-            e.cmp_imm(val & 0xFF); auto br341 = e.emitBranchPlaceholder(0xD0); e.txa(); e.cmp_imm((val >> 8) & 0xFF); e.patchBranchTarget(br341);
+            // Use CPX for hi byte — avoids TXA, preserves A, saves 1 byte
+            e.cmp_imm(val & 0xFF); auto br = e.emitBranchPlaceholder(0xD0); e.cpx_imm((val >> 8) & 0xFF); e.patchBranchTarget(br);
         } else {
             std::string src2 = parser->tokens[tokenIndex].value;
             if (parser->tokens[tokenIndex].type == AssemblerTokenType::REGISTER) src2 = "." + src2;
             else if (!src2.empty() && src2[0] != '.' && (src2=="A"||src2=="X"||src2=="Y"||src2=="Z"||src2=="a"||src2=="x"||src2=="y"||src2=="z")) src2 = "." + src2;
             Symbol* sym = parser->resolveSymbol(src2, scopePrefix);
             uint32_t addr = 0; if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(src2); } catch(...) { addr = 0; } }
-            e.cmp_addr(addr); auto br348 = e.emitBranchPlaceholder(0xD0); e.txa(); e.cmp_addr(addr + 1); e.patchBranchTarget(br348);
+            e.cmp_addr(addr); auto br = e.emitBranchPlaceholder(0xD0); e.cpx_addr(addr + 1); e.patchBranchTarget(br);
         }
     } else throw std::runtime_error("Simulated CMP.16 only supports .AX as first operand");
 }

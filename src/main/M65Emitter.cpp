@@ -301,6 +301,8 @@ void M65Emitter::cpx_imm(uint8_t val) {
     }
     emitInstruction("cpx", AddressingMode::IMMEDIATE, val, true);
 }
+void M65Emitter::cpx_zp(uint8_t addr) { ms_.flags.invalidate(); emitInstruction("cpx", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::cpx_abs(uint16_t addr) { ms_.flags.invalidate(); emitInstruction("cpx", AddressingMode::ABSOLUTE, addr, true); }
 void M65Emitter::cpy_imm(uint8_t val) {
     if (ms_.reg[REG_Y].isConst()) {
         uint8_t y = (uint8_t)(ms_.reg[REG_Y].constVal & 0xFF);

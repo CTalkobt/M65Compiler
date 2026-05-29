@@ -77,6 +77,8 @@ public:
     void eor_imm(uint8_t val);
     void cmp_imm(uint8_t val);
     void cpx_imm(uint8_t val);
+    void cpx_zp(uint8_t addr);
+    void cpx_abs(uint16_t addr);
     void cpy_imm(uint8_t val);
 
     // --- Absolute Mode ---
@@ -169,6 +171,7 @@ public:
     void ora_addr(uint16_t a) { addrReadHelper(a, [&](uint8_t v){ ora_imm(v); }, [&](uint8_t z){ ora_zp(z); }, [&](uint16_t ab){ ora_abs(ab); }); }
     void eor_addr(uint16_t a) { addrReadHelper(a, [&](uint8_t v){ eor_imm(v); }, [&](uint8_t z){ eor_zp(z); }, [&](uint16_t ab){ eor_abs(ab); }); }
     void cmp_addr(uint16_t a) { addrReadHelper(a, [&](uint8_t v){ cmp_imm(v); }, [&](uint8_t z){ cmp_zp(z); }, [&](uint16_t ab){ cmp_abs(ab); }); }
+    void cpx_addr(uint16_t a) { addrReadHelper(a, [&](uint8_t v){ cpx_imm(v); }, [&](uint8_t z){ cpx_zp(z); }, [&](uint16_t ab){ cpx_abs(ab); }); }
     // Store and RMW ops: no forwarding (they write to memory)
     void sta_addr(uint16_t a) { if (a < 256) sta_zp((uint8_t)a); else sta_abs(a); }
     void stx_addr(uint16_t a) { if (a < 256) stx_zp((uint8_t)a); else stx_abs(a); }
