@@ -22,8 +22,11 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - **Constant-Address Direct Store**: `*(volatile unsigned char *)0xD020 = val` now emits `lda #val; sta $D020` instead of loading the address into a ZP pair and using indirect addressing. Tracks vreg constant values through the IR to detect constant addresses at STORE time.
 - **Constant-Arg Function Call Push**: When all arguments are simple (constants, globals), pushes inline with `phw #imm16` (3 bytes) instead of round-tripping through ZP temp slots (~100 bytes → ~15 bytes for `memset(grid, 0, 1000)`). 32-bit constants use two `phw`. Falls back to two-phase ZP temps for complex args.
 - **CONST Vreg Suppression**: Pre-scan identifies CONST vregs only used in constant-address STOREs or as args to all-simple CALL sites. Suppresses emission, frame slot allocation, and STORE-to-local-slot. `VREG_BORDER = 0` → `lda #0; sta $D020` (2 instructions). Dead call-arg local slots eliminated.
+- **Global Address `phw` in Calls**: `phw #_symbol` for global address args (3 bytes, linker-resolved) instead of `ldax #_symbol; push .ax` (5 bytes).
+- **PLZ Frame Cleanup**: Function epilogues use `plz` to pop frame slots instead of `pla`. PLZ doesn't clobber A/X/Y, eliminating return value save/restore (4-6 instructions saved per function). I32 returns save Z to scratch.
+- **Stdlib Single-TSX Param Load**: `memset`, `memcpy`, `memmove` load all stack params with a single `tsx` instead of one per param. `pha/plx` for Y→X transfer avoids ZP temp.
 - **Unused Static Function Elimination**: Static functions never called by any surviving function are removed at compile time. Handles transitive call chains.
-- game_of_life with mega65.h: **7037 → 5803 bytes (18% total reduction)**.
+- game_of_life with mega65.h: **7037 → 5732 bytes (19% total reduction)**.
 
 ### Fixed
 - **Cast-Pointer Dereference Store Width (Issue #83)**: `*(volatile unsigned char *)ADDR = val` was generating 16-bit stores, clobbering the adjacent byte. `IRBuilder::getExprTypeInfo()` now derives the correct pointee type from cast expressions (not just variable references), producing proper 8-bit stores.
