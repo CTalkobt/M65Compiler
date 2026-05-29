@@ -25,8 +25,9 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - **Global Address `phw` in Calls**: `phw #_symbol` for global address args (3 bytes, linker-resolved) instead of `ldax #_symbol; push .ax` (5 bytes).
 - **PLZ Frame Cleanup**: Function epilogues use `plz` to pop frame slots instead of `pla`. PLZ doesn't clobber A/X/Y, eliminating return value save/restore (4-6 instructions saved per function). I32 returns save Z to scratch.
 - **Stdlib Single-TSX Param Load**: `memset`, `memcpy`, `memmove` load all stack params with a single `tsx` instead of one per param. `pha/plx` for Y→X transfer avoids ZP temp.
+- **Static DMA Jobs in CRT**: ZP save/restore uses static 12-byte DMA command blocks in data segment instead of runtime-built jobs (~40 bytes each). `__exit`: 95 → 23 bytes.
 - **Unused Static Function Elimination**: Static functions never called by any surviving function are removed at compile time. Handles transitive call chains.
-- game_of_life with mega65.h: **7037 → 5732 bytes (19% total reduction)**.
+- game_of_life with mega65.h: **7037 → 5612 bytes (20% total reduction)**.
 
 ### Fixed
 - **Cast-Pointer Dereference Store Width (Issue #83)**: `*(volatile unsigned char *)ADDR = val` was generating 16-bit stores, clobbering the adjacent byte. `IRBuilder::getExprTypeInfo()` now derives the correct pointee type from cast expressions (not just variable references), producing proper 8-bit stores.
@@ -43,6 +44,7 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - **objdump45 Source Line Lookup**: Source line interleaving now uses range-based lookup (`upper_bound`) instead of exact match, working correctly with deduplicated debug entries.
 - **cc45 Binary Path Resolution**: System include path (`lib/include`) now resolved via `/proc/self/exe` or `realpath()` instead of `argv[0]`, fixing include search when invoked from any directory.
 - **Removed `.debug.json` Generation**: `ln45` and `ca45` no longer emit `.debug.json` files. Use `-M` flag for map file output which contains correct line info.
+- **`.word` Symbol References (Issue #88)**: `.word` directive now supports symbol operands with relocations, enabling static data tables with linker-resolved addresses.
 - **ln45 Unused Symbol Warnings**: Suppressed "unused global symbol" warnings for `__`-prefixed internal symbols (CRT internals like `__exit`, `__init`, `__sp_base`). Only user-facing symbols are reported.
 
 ## [Unreleased] - 2026-05-26
