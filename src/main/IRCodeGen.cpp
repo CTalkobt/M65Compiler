@@ -23,6 +23,14 @@ static std::string hex32(uint32_t val) {
 
 IRCodeGen::IRCodeGen(std::ostream& out) : out_(out) {}
 
+const ir::Inst* IRCodeGen::peekNextInst() const {
+    if (!currentFn_) return nullptr;
+    const auto& block = currentFn_->blocks[currentBlockIdx_];
+    if (currentInstInBlock_ + 1 < block.insts.size())
+        return &block.insts[currentInstInBlock_ + 1];
+    return nullptr;
+}
+
 void IRCodeGen::emit(const std::string& line, const std::string& reason) {
     out_ << "    " << line;
     if (emitReasons_ && !reason.empty()) {
@@ -977,8 +985,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         // Track the next block's label for no-op branch elimination
         nextBlockLabel_ = (bi + 1 < fn.blocks.size()) ? fn.blocks[bi + 1].label : "__return";
         emitLabel("@" + block.label);
-        for (const auto& inst : block.insts) {
-            emitInst(inst);
+        for (size_t ii = 0; ii < block.insts.size(); ii++) {
+            currentInstInBlock_ = ii;
+            emitInst(block.insts[ii]);
             currentInstIdx_++;
         }
     }
@@ -1098,6 +1107,11 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         return s;
     };
 
+    // Reset store-forwarding state unless this is a STORE that will consume it
+    if (inst.op != ir::Op::STORE && resultInAX_ != -1) {
+        resultInAX_ = -1;
+    }
+
     switch (inst.op) {
         case ir::Op::NOP:
             break;
@@ -1107,6 +1121,41 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             if (inst.dest.isVreg()) vregConstVal_[inst.dest.vregId] = val;
             // Skip emission for suppressed CONST vregs (address-only, used by direct store)
             if (inst.dest.isVreg() && suppressedVregs_.count(inst.dest.vregId)) break;
+
+            // --- CONST direct store optimization ---
+            // If the next instruction is STORE of this CONST's result to a ZP local,
+            // store directly to the local's ZP address without round-tripping through temp.
+            if (inst.dest.isVreg() && (inst.resultType == ir::Type::I16 || inst.resultType == ir::Type::I8)) {
+                auto* nextInst = peekNextInst();
+                if (nextInst && nextInst->op == ir::Op::STORE &&
+                    nextInst->src1.isVreg() && nextInst->src1.vregId == inst.dest.vregId &&
+                    nextInst->src2.isVreg() && localSlotVregs_.count(nextInst->src2.vregId)) {
+                    auto destAlloc = alloc_.getAlloc(nextInst->src2.vregId);
+                    if (destAlloc.loc == VRegAllocator::IN_ZP) {
+                        std::string r = irDesc("val=" + std::to_string(val) + " → direct store");
+                        uint8_t b0 = val & 0xFF;
+                        uint8_t b1 = (val >> 8) & 0xFF;
+                        std::stringstream ss;
+                        ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << destAlloc.offset;
+                        emit("lda #" + std::to_string((int)b0), r);
+                        emit("sta " + ss.str());
+                        if (inst.resultType != ir::Type::I8) {
+                            ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (destAlloc.offset + 1);
+                            if (b1 == b0) {
+                                emit("sta " + ss.str());
+                            } else {
+                                emit("ldx #" + std::to_string((int)b1));
+                                emit("stx " + ss.str());
+                            }
+                        }
+                        // Mark that the next STORE should be skipped
+                        resultInAX_ = -2; // special: means "next STORE already handled"
+                        ms_.invalidateAll();
+                        break;
+                    }
+                }
+            }
+
             std::string r = irDesc("val=" + std::to_string(val));
             uint8_t b0 = val & 0xFF;
             uint8_t b1 = (val >> 8) & 0xFF;
@@ -1127,12 +1176,53 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 if (b1 == b0 && canSkipTransfer) { ms_.setConst(REG_X, b1); } else if (b1 == b0) { emit("tax", r); ms_.setTransfer(REG_X, REG_A); } else { emit("ldx #" + std::to_string((int)b1), r); ms_.setConst(REG_X, b1); }
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+            resultInAX_ = inst.dest.isVreg() ? (int32_t)inst.dest.vregId : -1;
             ms_.invalidateAll(); // conservative: reset after CONST+store
             break;
         }
 
         case ir::Op::ADD:
         case ir::Op::SUB: {
+            // --- I16 INC/DEC peephole for local += 1 / local -= 1 ---
+            // Pattern: %n = add/sub i16 %local, 1; store %n, %local
+            // Emit: inc $ZP; bne +2; inc $ZP+1 (or dec variant)
+            // Check if src2 is immediate 1, or a CONST vreg holding 1
+            bool src2IsOne = (inst.src2.isImm() && inst.src2.immVal == 1);
+            if (!src2IsOne && inst.src2.isVreg()) {
+                auto cit = vregConstVal_.find(inst.src2.vregId);
+                if (cit != vregConstVal_.end() && cit->second == 1) src2IsOne = true;
+            }
+            if (inst.resultType == ir::Type::I16 && src2IsOne &&
+                inst.src1.isVreg() && inst.dest.isVreg()) {
+                auto* nextInst = peekNextInst();
+                if (nextInst && nextInst->op == ir::Op::STORE &&
+                    nextInst->src1.isVreg() && nextInst->src1.vregId == inst.dest.vregId &&
+                    nextInst->src2.isVreg() && nextInst->src2.vregId == inst.src1.vregId &&
+                    localSlotVregs_.count(nextInst->src2.vregId)) {
+                    auto srcAlloc = alloc_.getAlloc(inst.src1.vregId);
+                    if (srcAlloc.loc == VRegAllocator::IN_ZP) {
+                        std::stringstream lo, hi;
+                        lo << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << srcAlloc.offset;
+                        hi << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (srcAlloc.offset + 1);
+                        std::string r = irDesc(inst.op == ir::Op::ADD ? "inc16 ZP" : "dec16 ZP");
+                        if (inst.op == ir::Op::ADD) {
+                            emit("inc " + lo.str(), r);
+                            emit("bne *+4");
+                            emit("inc " + hi.str());
+                        } else {
+                            // dec16: if lo==0 before dec, borrow into hi
+                            emit("lda " + lo.str(), r);
+                            emit("bne *+4");
+                            emit("dec " + hi.str());
+                            emit("dec " + lo.str());
+                        }
+                        resultInAX_ = -2; // next STORE already handled
+                        ms_.invalidateAll();
+                        break;
+                    }
+                }
+            }
+
             // I8 fast path: use native 8-bit add/sub
             if (inst.resultType == ir::Type::I8) {
                 // Check for inc a / dec a optimization
@@ -1154,6 +1244,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     }
                 }
                 if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+                resultInAX_ = inst.dest.isVreg() ? (int32_t)inst.dest.vregId : -1;
                 break;
             }
 
@@ -1195,6 +1286,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 emit(mn + " " + reg + ", " + src2mem);
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+            resultInAX_ = inst.dest.isVreg() ? (int32_t)inst.dest.vregId : -1;
             break;
         }
 
@@ -1769,9 +1861,19 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 // or a computed address (indirect write through pointer)?
                 bool isLocalSlot = localSlotVregs_.count(inst.src2.vregId) > 0;
                 if (isLocalSlot) {
-                    // Direct vReg-to-vReg copy (local variable assignment)
-                    loadOperand(inst.src1);
-                    storeVreg(inst.src2.vregId);
+                    // Check if previous instruction already handled this STORE
+                    if (resultInAX_ == -2) {
+                        resultInAX_ = -1;
+                        break;
+                    }
+                    // Store-forwarding: if src1 result is still in A:X, skip reload
+                    if (inst.src1.isVreg() && (int32_t)inst.src1.vregId == resultInAX_) {
+                        // Result already in A:X from previous instruction — store directly
+                        storeVreg(inst.src2.vregId);
+                    } else {
+                        loadOperand(inst.src1);
+                        storeVreg(inst.src2.vregId);
+                    }
                 } else {
                     // Indirect store: write value through pointer address
                     auto addrAlloc = alloc_.getAlloc(inst.src2.vregId);

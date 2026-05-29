@@ -75,22 +75,12 @@ _color:
 @entry:
     .loc "main.c", 45
     lda #0
-    tax
-    sta $24
-    sta $25
-    lda $24
-    ldx $25
     sta $2E
-    stx $2F
+    sta $2F
     .loc "main.c", 46
     lda #255
-    tax
-    sta $24
-    sta $25
-    lda $24
-    ldx $25
     sta $2C
-    stx $2D
+    sta $2D
 @for_cond3:
     lda $2C
     ldx $2D
@@ -101,13 +91,8 @@ _color:
 @for_body4:
     .loc "main.c", 47
     lda #255
-    tax
-    sta $24
-    sta $25
-    lda $24
-    ldx $25
     sta $2A
-    stx $2B
+    sta $2B
 @for_cond7:
     lda $2A
     ldx $2B
@@ -135,8 +120,6 @@ _color:
     add.16 .AX, $2C
     sta $24
     stx $25
-    lda $24
-    ldx $25
     sta $28
     stx $29
     .loc "main.c", 50
@@ -145,8 +128,6 @@ _color:
     add.16 .AX, $2A
     sta $24
     stx $25
-    lda $24
-    ldx $25
     sta $26
     stx $27
     .loc "main.c", 52
@@ -157,12 +138,8 @@ _color:
     bra @if_end17
 @if_then15:
     lda #24
-    ldx #0
-    sta $24
-    stx $25
-    lda $24
-    ldx $25
     sta $28
+    ldx #0
     stx $29
 @if_end17:
     .loc "main.c", 53
@@ -173,13 +150,8 @@ _color:
     bra @if_end20
 @if_then18:
     lda #0
-    tax
-    sta $24
-    sta $25
-    lda $24
-    ldx $25
     sta $28
-    stx $29
+    sta $29
 @if_end20:
     .loc "main.c", 54
     lda $26
@@ -189,12 +161,8 @@ _color:
     bra @if_end23
 @if_then21:
     lda #39
-    ldx #0
-    sta $24
-    stx $25
-    lda $24
-    ldx $25
     sta $26
+    ldx #0
     stx $27
 @if_end23:
     .loc "main.c", 55
@@ -205,13 +173,8 @@ _color:
     bra @if_end26
 @if_then24:
     lda #0
-    tax
-    sta $24
-    sta $25
-    lda $24
-    ldx $25
     sta $26
-    stx $27
+    sta $27
 @if_end26:
     .loc "main.c", 56
     lda #<_grid
@@ -237,40 +200,22 @@ _color:
     bne @if_then27
     bra @if_end29
 @if_then27:
-    lda $2E
-    ldx $2F
-    add.16 .AX, #1
-    sta $24
-    stx $25
-    lda $24
-    ldx $25
-    sta $2E
-    stx $2F
+    inc $2E
+    bne *+4
+    inc $2F
 @if_end29:
 @for_inc9:
     .loc "main.c", 47
-    lda $2A
-    ldx $2B
-    add.16 .AX, #1
-    sta $24
-    stx $25
-    lda $24
-    ldx $25
-    sta $2A
-    stx $2B
+    inc $2A
+    bne *+4
+    inc $2B
     bra @for_cond7
 @for_end10:
 @for_inc5:
     .loc "main.c", 46
-    lda $2C
-    ldx $2D
-    add.16 .AX, #1
-    sta $24
-    stx $25
-    lda $24
-    ldx $25
-    sta $2C
-    stx $2D
+    inc $2C
+    bne *+4
+    inc $2D
     bra @for_cond3
 @for_end6:
     .loc "main.c", 59
@@ -300,11 +245,8 @@ _color:
 @entry:
     .loc "main.c", 67
     lda #0
-    tax
     sta $20
     sta $21
-    lda $20
-    ldx $21
     stax.fp __vr0
 @for_cond30:
     ldax.fp __vr0
@@ -314,11 +256,8 @@ _color:
 @for_body31:
     .loc "main.c", 68
     lda #0
-    tax
     sta $20
     sta $21
-    lda $20
-    ldx $21
     stax.fp __vr1
 @for_cond34:
     ldax.fp __vr1
@@ -477,8 +416,6 @@ _color:
     add.16 .AX, #1
     sta $20
     stx $21
-    lda $20
-    ldx $21
     stax.fp __vr1
     bra @for_cond34
 @for_end37:
@@ -488,8 +425,6 @@ _color:
     add.16 .AX, #1
     sta $20
     stx $21
-    lda $20
-    ldx $21
     stax.fp __vr0
     bra @for_cond30
 @for_end33:
@@ -525,13 +460,8 @@ _color:
 @entry:
     .loc "main.c", 95
     lda #0
-    tax
-    sta $24
-    sta $25
-    lda $24
-    ldx $25
     sta $26
-    stx $27
+    sta $27
 @for_cond48:
     lda $26
     ldx $27
@@ -541,13 +471,8 @@ _color:
 @for_body49:
     .loc "main.c", 96
     lda #0
-    tax
-    sta $24
-    sta $25
-    lda $24
-    ldx $25
     sta $20
-    stx $21
+    sta $21
 @for_cond52:
     lda $20
     ldx $21
@@ -570,8 +495,6 @@ _color:
     add.16 .AX, $20
     sta $24
     stx $25
-    lda $24
-    ldx $25
     sta $22
     stx $23
     .loc "main.c", 98
@@ -633,28 +556,16 @@ _color:
 @if_end58:
 @for_inc54:
     .loc "main.c", 96
-    lda $20
-    ldx $21
-    add.16 .AX, #1
-    sta $24
-    stx $25
-    lda $24
-    ldx $25
-    sta $20
-    stx $21
+    inc $20
+    bne *+4
+    inc $21
     bra @for_cond52
 @for_end55:
 @for_inc50:
     .loc "main.c", 95
-    lda $26
-    ldx $27
-    add.16 .AX, #1
-    sta $24
-    stx $25
-    lda $24
-    ldx $25
-    sta $26
-    stx $27
+    inc $26
+    bne *+4
+    inc $27
     bra @for_cond48
 @for_end51:
 @__return:
@@ -672,13 +583,8 @@ _color:
 @entry:
     .loc "main.c", 108
     lda #0
-    tax
-    sta $22
-    sta $23
-    lda $22
-    ldx $23
     sta $20
-    stx $21
+    sta $21
 @for_cond59:
     lda $20
     ldx $21
@@ -687,15 +593,9 @@ _color:
     bra @for_end62
 @for_body60:
 @for_inc61:
-    lda $20
-    ldx $21
-    add.16 .AX, #1
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
-    sta $20
-    stx $21
+    inc $20
+    bne *+4
+    inc $21
     bra @for_cond59
 @for_end62:
 @__return:
@@ -1187,11 +1087,8 @@ _color:
     sta $D020
     .loc "main.c", 151
     lda #0
-    tax
     sta $20
     sta $21
-    lda $20
-    ldx $21
     stax.fp __vr0
 @for_cond63:
     ldax.fp __vr0
@@ -1214,8 +1111,6 @@ _color:
     add.16 .AX, #1
     sta $20
     stx $21
-    lda $20
-    ldx $21
     stax.fp __vr0
     bra @for_cond63
 @for_end66:

@@ -98,6 +98,10 @@ private:
     std::string sourceFile_; // module source file for function declaration .loc
     MachineState ms_;        // register/flag value tracking for codegen optimizations
 
+    // Store-forwarding: track which vreg's result is currently live in A:X
+    // from the most recent instruction. -1 = unknown/not in AX.
+    int32_t resultInAX_ = -1;
+
     // Next block label for no-op branch elimination
     std::string nextBlockLabel_;
 
@@ -111,9 +115,13 @@ private:
         int bbsBitN = -1;       // bit number (0-7)
     } lastCmp_;
 
-    // Current function and block index for peephole lookahead
+    // Current function, block, and instruction index for peephole lookahead
     const ir::Function* currentFn_ = nullptr;
     size_t currentBlockIdx_ = 0;
+    size_t currentInstInBlock_ = 0; // index within current block's inst vector
+
+    // Peek at the next instruction in the current block (or null if at end)
+    const ir::Inst* peekNextInst() const;
 
     // Per-function clobber analysis
     struct FuncClobbers {
