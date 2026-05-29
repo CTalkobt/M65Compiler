@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <array>
+#include <string>
 
 // Register & Memory Value Tracking Framework — Phase 1+2+3
 // Tracks what is known about CPU register values, memory contents,
@@ -24,13 +25,19 @@ struct ValueInfo {
         SAME_AS_MEM,    // mirrors a memory location (e.g., A == [$20] after lda $20)
         NONZERO,        // known to be != 0 (but exact value unknown)
         RANGE,          // bounded range [rangeLo..rangeHi]
+        RELOC_CONST,    // relocatable symbol byte (lo or hi), resolved at link time
     };
+    // Byte selector for RELOC_CONST
+    enum RelocByte : uint8_t { RELOC_LO = 0, RELOC_HI = 1 };
+
     Kind kind = UNKNOWN;
-    int64_t constVal = 0;       // for CONSTANT
+    int64_t constVal = 0;       // for CONSTANT (also assembly-time value for RELOC_CONST)
     uint8_t mirrorReg = 0;      // for SAME_AS_REG (RegId)
     uint16_t mirrorAddr = 0;    // for SAME_AS_MEM
     int64_t rangeLo = 0;        // for RANGE
     int64_t rangeHi = 0;        // for RANGE
+    std::string relocSymbol;    // for RELOC_CONST: symbol name
+    RelocByte relocByte = RELOC_LO; // for RELOC_CONST: lo or hi byte
 
     bool isUnknown() const { return kind == UNKNOWN; }
     bool isConst() const { return kind == CONSTANT; }
@@ -38,6 +45,7 @@ struct ValueInfo {
     bool isZero() const { return isConst(0); }
     bool isSameAs(RegId r) const { return kind == SAME_AS_REG && mirrorReg == r; }
     bool isSameAsMem(uint16_t addr) const { return kind == SAME_AS_MEM && mirrorAddr == addr; }
+    bool isReloc() const { return kind == RELOC_CONST; }
 
     // True if the value is known to be non-zero.
     bool isNonZero() const {
@@ -54,12 +62,20 @@ struct ValueInfo {
         return false;
     }
 
+    // True if the value is a known constant OR a relocatable constant
+    // (both can be used for immediate-mode forwarding).
+    bool isConstOrReloc() const { return kind == CONSTANT || kind == RELOC_CONST; }
+
     static ValueInfo unknown() { return {}; }
     static ValueInfo constant(int64_t v) { ValueInfo vi; vi.kind = CONSTANT; vi.constVal = v; return vi; }
     static ValueInfo sameAs(RegId r) { ValueInfo vi; vi.kind = SAME_AS_REG; vi.mirrorReg = (uint8_t)r; return vi; }
     static ValueInfo sameAsMem(uint16_t addr) { ValueInfo vi; vi.kind = SAME_AS_MEM; vi.mirrorAddr = addr; return vi; }
     static ValueInfo nonZero() { ValueInfo vi; vi.kind = NONZERO; return vi; }
     static ValueInfo range(int64_t lo, int64_t hi) { ValueInfo vi; vi.kind = RANGE; vi.rangeLo = lo; vi.rangeHi = hi; return vi; }
+    static ValueInfo reloc(const std::string& sym, RelocByte byte, int64_t asmVal = 0) {
+        ValueInfo vi; vi.kind = RELOC_CONST; vi.relocSymbol = sym;
+        vi.relocByte = byte; vi.constVal = asmVal; return vi;
+    }
 };
 
 struct FlagState {
@@ -186,12 +202,19 @@ struct MachineState {
         flags.setNZFromValue(reg[r], (int8_t)r);
     }
 
+    // Set a register to a relocatable constant (symbol lo/hi byte).
+    void setReloc(RegId r, const std::string& sym, ValueInfo::RelocByte byte, int64_t asmVal = 0) {
+        invalidateMirrorsOf(r);
+        reg[r] = ValueInfo::reloc(sym, byte, asmVal);
+        flags.setNZFromValue(reg[r], (int8_t)r);
+    }
+
     // Set a register to mirror another (e.g., tax → X = SAME_AS(A)).
-    // If the source is a known constant, propagate it instead.
+    // If the source is a known constant or reloc, propagate it instead.
     void setTransfer(RegId dst, RegId src) {
         invalidateMirrorsOf(dst);
-        if (reg[src].isConst()) {
-            reg[dst] = reg[src]; // propagate constant
+        if (reg[src].isConst() || reg[src].isReloc()) {
+            reg[dst] = reg[src]; // propagate constant or reloc
         } else {
             reg[dst] = ValueInfo::sameAs(src);
         }
@@ -232,7 +255,7 @@ struct MachineState {
     // Record a store to ZP: the memory location now holds what the register holds.
     void storeZP(uint8_t zpAddr, RegId srcReg) {
         invalidateMemMirrorsOf(zpAddr);
-        if (reg[srcReg].isConst()) {
+        if (reg[srcReg].isConst() || reg[srcReg].isReloc()) {
             zpMem[zpAddr] = reg[srcReg];  // propagate constant
         } else {
             zpMem[zpAddr] = ValueInfo::sameAs(srcReg);

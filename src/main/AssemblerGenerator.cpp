@@ -94,17 +94,20 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
             
             std::vector<uint8_t>* binaryPtr = e.getBinary();
             size_t binaryStartIdx = binaryPtr ? binaryPtr->size() : 0;
-            // At statement boundaries: invalidate registers and flags (simulated ops
-            // may clobber any register), but preserve memory state — ZP values are
-            // stable across statements unless explicitly modified by a store/RMW.
-            // Labels invalidate everything (branch merge points).
+            // At statement boundaries: labels invalidate everything (branch merge points).
+            // Simulated ops invalidate registers (they're multi-instruction expansions).
+            // Regular instructions: only invalidate what they actually modify — the
+            // LDA/STA tracking below handles register + memory state correctly.
             if (!stmt->label.empty()) {
                 e.machineState().invalidateAll();
-            } else {
+            } else if (stmt->isSimulatedOp()) {
                 for (int r = 0; r < REG_COUNT; r++)
                     e.machineState().invalidateReg((RegId)r);
                 e.machineState().flags.invalidate();
             }
+            // Regular instructions: don't pre-invalidate — let the typed methods
+            // (lda_imm/sta_zp via emitInstruction) and our post-emission tracking
+            // handle state updates accurately.
           try {
             if (!stmt->label.empty()) {
                 isDeadCode = false;
@@ -261,6 +264,157 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                                     }
                                 }
                                 e.emitInstruction(stmt->instr.mnemonic, resolvedMode, val, hasValue);
+
+                                // Update MachineState for regular instructions
+                                // (emitInstruction doesn't go through typed methods)
+                                if (hasValue) {
+                                    std::string mn2 = stmt->instr.mnemonic;
+                                    std::transform(mn2.begin(), mn2.end(), mn2.begin(), ::toupper);
+                                    if (resolvedMode == AddressingMode::IMMEDIATE) {
+                                        // LDA #imm → setConst (setReloc handled below for </>sym)
+                                        if (mn2 == "LDA") e.machineState().setConst(REG_A, val & 0xFF);
+                                        else if (mn2 == "LDX") e.machineState().setConst(REG_X, val & 0xFF);
+                                        else if (mn2 == "LDY") e.machineState().setConst(REG_Y, val & 0xFF);
+                                        else if (mn2 == "LDZ") e.machineState().setConst(REG_Z, val & 0xFF);
+                                        // ALU imm: clobbers A and flags
+                                        else if (mn2 == "ADC" || mn2 == "SBC" || mn2 == "AND" ||
+                                                 mn2 == "ORA" || mn2 == "EOR") {
+                                            e.machineState().invalidateReg(REG_A);
+                                            e.machineState().flags.invalidate();
+                                        }
+                                        // CMP/CPX/CPY: flags only
+                                        else if (mn2 == "CMP" || mn2 == "CPX" || mn2 == "CPY") {
+                                            e.machineState().flags.invalidate();
+                                        }
+                                    } else if (resolvedMode == AddressingMode::BASE_PAGE) {
+                                        // Stores: propagate register value to ZP memory
+                                        if (mn2 == "STA") e.machineState().storeZP((uint8_t)val, REG_A);
+                                        else if (mn2 == "STX") e.machineState().storeZP((uint8_t)val, REG_X);
+                                        else if (mn2 == "STY") e.machineState().storeZP((uint8_t)val, REG_Y);
+                                        else if (mn2 == "STZ") e.machineState().storeZP((uint8_t)val, REG_Z);
+                                        // Loads: propagate ZP memory to register
+                                        else if (mn2 == "LDA") e.machineState().setRegFromZP(REG_A, (uint8_t)val);
+                                        else if (mn2 == "LDX") e.machineState().setRegFromZP(REG_X, (uint8_t)val);
+                                        else if (mn2 == "LDY") e.machineState().setRegFromZP(REG_Y, (uint8_t)val);
+                                        else if (mn2 == "LDZ") e.machineState().setRegFromZP(REG_Z, (uint8_t)val);
+                                        // ALU from ZP: clobbers A and flags
+                                        else if (mn2 == "ADC" || mn2 == "SBC" || mn2 == "AND" ||
+                                                 mn2 == "ORA" || mn2 == "EOR") {
+                                            e.machineState().invalidateReg(REG_A);
+                                            e.machineState().flags.invalidate();
+                                        }
+                                        // RMW on ZP: invalidate memory + flags
+                                        else if (mn2 == "INC" || mn2 == "DEC" || mn2 == "ASL" ||
+                                                 mn2 == "LSR" || mn2 == "ROL" || mn2 == "ROR") {
+                                            e.machineState().invalidateZP((uint8_t)val);
+                                            e.machineState().flags.invalidate();
+                                        }
+                                    } else if (resolvedMode == AddressingMode::ACCUMULATOR ||
+                                               resolvedMode == AddressingMode::IMPLIED) {
+                                        // Accumulator ALU
+                                        if (mn2 == "ASL" || mn2 == "LSR" || mn2 == "ROL" ||
+                                            mn2 == "ROR" || mn2 == "INC" || mn2 == "DEC" || mn2 == "NEG") {
+                                            e.machineState().invalidateReg(REG_A);
+                                            e.machineState().flags.invalidate();
+                                        }
+                                        // Transfers
+                                        else if (mn2 == "TAX") e.machineState().setTransfer(REG_X, REG_A);
+                                        else if (mn2 == "TXA") e.machineState().setTransfer(REG_A, REG_X);
+                                        else if (mn2 == "TAY") e.machineState().setTransfer(REG_Y, REG_A);
+                                        else if (mn2 == "TYA") e.machineState().setTransfer(REG_A, REG_Y);
+                                        else if (mn2 == "TAZ") e.machineState().setTransfer(REG_Z, REG_A);
+                                        else if (mn2 == "TZA") e.machineState().setTransfer(REG_A, REG_Z);
+                                        else if (mn2 == "TSX") e.machineState().setTransfer(REG_X, REG_SP);
+                                        else if (mn2 == "INX" || mn2 == "DEX") { e.machineState().invalidateReg(REG_X); e.machineState().flags.invalidate(); }
+                                        else if (mn2 == "INY" || mn2 == "DEY") { e.machineState().invalidateReg(REG_Y); e.machineState().flags.invalidate(); }
+                                        else if (mn2 == "INZ" || mn2 == "DEZ") { e.machineState().invalidateReg(REG_Z); e.machineState().flags.invalidate(); }
+                                        // Push/pull
+                                        else if (mn2 == "PHA" || mn2 == "PHX" || mn2 == "PHY" || mn2 == "PHZ") e.machineState().spModified();
+                                        else if (mn2 == "PLA") { e.machineState().spModified(); e.machineState().invalidateReg(REG_A); }
+                                        else if (mn2 == "PLX") { e.machineState().spModified(); e.machineState().invalidateReg(REG_X); }
+                                        else if (mn2 == "PLY") { e.machineState().spModified(); e.machineState().invalidateReg(REG_Y); }
+                                        else if (mn2 == "PLZ") { e.machineState().spModified(); e.machineState().invalidateReg(REG_Z); }
+                                        // Carry
+                                        else if (mn2 == "CLC") e.machineState().flags.setCarry(false);
+                                        else if (mn2 == "SEC") e.machineState().flags.setCarry(true);
+                                        // JSR/JMP: invalidate all
+                                        else if (mn2 == "JSR" || mn2 == "JMP" || mn2 == "RTS" || mn2 == "RTI") e.machineState().invalidateAll();
+                                    } else if (resolvedMode == AddressingMode::ABSOLUTE) {
+                                        // Loads from absolute: unknown register value
+                                        if (mn2 == "LDA") { e.machineState().invalidateReg(REG_A); e.machineState().flags.setNZ(REG_A); }
+                                        else if (mn2 == "LDX") { e.machineState().invalidateReg(REG_X); e.machineState().flags.setNZ(REG_X); }
+                                        else if (mn2 == "LDY") { e.machineState().invalidateReg(REG_Y); e.machineState().flags.setNZ(REG_Y); }
+                                        else if (mn2 == "LDZ") { e.machineState().invalidateReg(REG_Z); e.machineState().flags.setNZ(REG_Z); }
+                                        // ALU from abs: clobbers A + flags
+                                        else if (mn2 == "ADC" || mn2 == "SBC" || mn2 == "AND" ||
+                                                 mn2 == "ORA" || mn2 == "EOR") {
+                                            e.machineState().invalidateReg(REG_A);
+                                            e.machineState().flags.invalidate();
+                                        }
+                                        // JSR absolute: invalidate all
+                                        else if (mn2 == "JSR") e.machineState().invalidateAll();
+                                    }
+                                } else {
+                                    // No value — check implied/accumulator mode instructions
+                                    std::string mn2 = stmt->instr.mnemonic;
+                                    std::transform(mn2.begin(), mn2.end(), mn2.begin(), ::toupper);
+                                    if (mn2 == "TAX") e.machineState().setTransfer(REG_X, REG_A);
+                                    else if (mn2 == "TXA") e.machineState().setTransfer(REG_A, REG_X);
+                                    else if (mn2 == "TAY") e.machineState().setTransfer(REG_Y, REG_A);
+                                    else if (mn2 == "TYA") e.machineState().setTransfer(REG_A, REG_Y);
+                                    else if (mn2 == "TAZ") e.machineState().setTransfer(REG_Z, REG_A);
+                                    else if (mn2 == "TZA") e.machineState().setTransfer(REG_A, REG_Z);
+                                    else if (mn2 == "TSX") e.machineState().setTransfer(REG_X, REG_SP);
+                                    else if (mn2 == "PHA" || mn2 == "PHX" || mn2 == "PHY" || mn2 == "PHZ") e.machineState().spModified();
+                                    else if (mn2 == "PLA") { e.machineState().spModified(); e.machineState().invalidateReg(REG_A); }
+                                    else if (mn2 == "PLX") { e.machineState().spModified(); e.machineState().invalidateReg(REG_X); }
+                                    else if (mn2 == "PLY") { e.machineState().spModified(); e.machineState().invalidateReg(REG_Y); }
+                                    else if (mn2 == "PLZ") { e.machineState().spModified(); e.machineState().invalidateReg(REG_Z); }
+                                    else if (mn2 == "CLC") e.machineState().flags.setCarry(false);
+                                    else if (mn2 == "SEC") e.machineState().flags.setCarry(true);
+                                    else if (mn2 == "INX" || mn2 == "DEX") { e.machineState().invalidateReg(REG_X); e.machineState().flags.invalidate(); }
+                                    else if (mn2 == "INY" || mn2 == "DEY") { e.machineState().invalidateReg(REG_Y); e.machineState().flags.invalidate(); }
+                                    else if (mn2 == "INZ" || mn2 == "DEZ") { e.machineState().invalidateReg(REG_Z); e.machineState().flags.invalidate(); }
+                                    else if (mn2 == "RTS" || mn2 == "RTI" || mn2 == "JMP") e.machineState().invalidateAll();
+                                }
+
+                                // Track relocatable symbol bytes in MachineState
+                                // for constant-memory forwarding (RELOC_CONST).
+                                // Pattern: LDA #<sym / LDX #>sym with relocatable symbol
+                                if (hasValue && resolvedMode == AddressingMode::IMMEDIATE &&
+                                    stmt->instr.operandTokenIndex >= 0) {
+                                    std::string mn = stmt->instr.mnemonic;
+                                    std::transform(mn.begin(), mn.end(), mn.begin(), ::toupper);
+                                    RegId targetReg = REG_A;
+                                    bool isLoad = false;
+                                    if (mn == "LDA") { targetReg = REG_A; isLoad = true; }
+                                    else if (mn == "LDX") { targetReg = REG_X; isLoad = true; }
+                                    else if (mn == "LDY") { targetReg = REG_Y; isLoad = true; }
+                                    else if (mn == "LDZ") { targetReg = REG_Z; isLoad = true; }
+                                    if (isLoad) {
+                                        int ti = stmt->instr.operandTokenIndex;
+                                        // Skip # token
+                                        if (ti < (int)parser->tokens.size() &&
+                                            parser->tokens[ti].type == AssemblerTokenType::HASH) ti++;
+                                        // Check for < or > prefix (lo/hi byte operator)
+                                        if (ti < (int)parser->tokens.size() &&
+                                            (parser->tokens[ti].type == AssemblerTokenType::LESS_THAN ||
+                                             parser->tokens[ti].type == AssemblerTokenType::GREATER_THAN)) {
+                                            bool isLo = (parser->tokens[ti].type == AssemblerTokenType::LESS_THAN);
+                                            ti++;
+                                            if (ti < (int)parser->tokens.size() &&
+                                                parser->tokens[ti].type == AssemblerTokenType::IDENTIFIER) {
+                                                std::string symName = parser->tokens[ti].value;
+                                                Symbol* sym = parser->resolveSymbol(symName, stmt->scopePrefix);
+                                                if (sym) {
+                                                    e.machineState().setReloc(targetReg, symName,
+                                                        isLo ? ValueInfo::RELOC_LO : ValueInfo::RELOC_HI,
+                                                        val);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             } else { // Branch instructions
                                 uint32_t t = parser->evaluateExpressionAt(stmt->instr.operandTokenIndex, stmt->scopePrefix);
                                 if (stmt->instr.mnemonic == "bsr") {

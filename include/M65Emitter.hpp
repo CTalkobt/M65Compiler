@@ -132,50 +132,43 @@ public:
     void dec_zp(uint8_t addr);
 
 
-    // --- Auto-selecting ZP/Absolute with constant-memory forwarding ---
-    // For read-type ops: if MachineState knows the ZP location holds a constant,
-    // use immediate mode instead (saves 0-1 bytes, removes memory dependency).
-    // For store/RMW ops: just select ZP vs absolute based on address.
-    void lda_addr(uint16_t a) {
-        if (a < 256 && ms_.getZP((uint8_t)a).isConst()) lda_imm((uint8_t)(ms_.getZP((uint8_t)a).constVal & 0xFF));
-        else if (a < 256) lda_zp((uint8_t)a); else lda_abs(a);
+    // --- Auto-selecting ZP/Absolute with constant/reloc-memory forwarding ---
+    // For read-type ops: if MachineState knows the ZP location holds a constant
+    // or a relocatable symbol byte, use immediate mode instead.
+    // For RELOC_CONST, emit immediate + record the appropriate relocation.
+private:
+    // Helper: emit an immediate load/ALU with relocation if the value is RELOC_CONST.
+    // 'emitImm' is the immediate emitter (e.g., lda_imm), 'emitZP'/'emitAbs' are fallbacks.
+    template<typename FnImm, typename FnZP, typename FnAbs>
+    void addrReadHelper(uint16_t a, FnImm emitImm, FnZP emitZP, FnAbs emitAbs) {
+        if (a < 256) {
+            const auto& zv = ms_.getZP((uint8_t)a);
+            if (zv.isConst()) { emitImm((uint8_t)(zv.constVal & 0xFF)); return; }
+            if (zv.isReloc()) {
+                // Emit immediate mode with a relocation record
+                if (zv.relocByte == ValueInfo::RELOC_LO)
+                    recordSymbolRelocLo(zv.relocSymbol);
+                else
+                    recordSymbolRelocHi(zv.relocSymbol, (uint8_t)(zv.constVal & 0xFF));
+                emitImm((uint8_t)(zv.constVal & 0xFF));
+                return;
+            }
+            emitZP((uint8_t)a);
+        } else {
+            emitAbs(a);
+        }
     }
-    void ldx_addr(uint16_t a) {
-        if (a < 256 && ms_.getZP((uint8_t)a).isConst()) ldx_imm((uint8_t)(ms_.getZP((uint8_t)a).constVal & 0xFF));
-        else if (a < 256) ldx_zp((uint8_t)a); else ldx_abs(a);
-    }
-    void ldy_addr(uint16_t a) {
-        if (a < 256 && ms_.getZP((uint8_t)a).isConst()) ldy_imm((uint8_t)(ms_.getZP((uint8_t)a).constVal & 0xFF));
-        else if (a < 256) ldy_zp((uint8_t)a); else ldy_abs(a);
-    }
-    void ldz_addr(uint16_t a) {
-        if (a < 256 && ms_.getZP((uint8_t)a).isConst()) ldz_imm((uint8_t)(ms_.getZP((uint8_t)a).constVal & 0xFF));
-        else if (a < 256) ldz_zp((uint8_t)a); else ldz_abs(a);
-    }
-    void adc_addr(uint16_t a) {
-        if (a < 256 && ms_.getZP((uint8_t)a).isConst()) adc_imm((uint8_t)(ms_.getZP((uint8_t)a).constVal & 0xFF));
-        else if (a < 256) adc_zp((uint8_t)a); else adc_abs(a);
-    }
-    void sbc_addr(uint16_t a) {
-        if (a < 256 && ms_.getZP((uint8_t)a).isConst()) sbc_imm((uint8_t)(ms_.getZP((uint8_t)a).constVal & 0xFF));
-        else if (a < 256) sbc_zp((uint8_t)a); else sbc_abs(a);
-    }
-    void and_addr(uint16_t a) {
-        if (a < 256 && ms_.getZP((uint8_t)a).isConst()) and_imm((uint8_t)(ms_.getZP((uint8_t)a).constVal & 0xFF));
-        else if (a < 256) and_zp((uint8_t)a); else and_abs(a);
-    }
-    void ora_addr(uint16_t a) {
-        if (a < 256 && ms_.getZP((uint8_t)a).isConst()) ora_imm((uint8_t)(ms_.getZP((uint8_t)a).constVal & 0xFF));
-        else if (a < 256) ora_zp((uint8_t)a); else ora_abs(a);
-    }
-    void eor_addr(uint16_t a) {
-        if (a < 256 && ms_.getZP((uint8_t)a).isConst()) eor_imm((uint8_t)(ms_.getZP((uint8_t)a).constVal & 0xFF));
-        else if (a < 256) eor_zp((uint8_t)a); else eor_abs(a);
-    }
-    void cmp_addr(uint16_t a) {
-        if (a < 256 && ms_.getZP((uint8_t)a).isConst()) cmp_imm((uint8_t)(ms_.getZP((uint8_t)a).constVal & 0xFF));
-        else if (a < 256) cmp_zp((uint8_t)a); else cmp_abs(a);
-    }
+public:
+    void lda_addr(uint16_t a) { addrReadHelper(a, [&](uint8_t v){ lda_imm(v); }, [&](uint8_t z){ lda_zp(z); }, [&](uint16_t ab){ lda_abs(ab); }); }
+    void ldx_addr(uint16_t a) { addrReadHelper(a, [&](uint8_t v){ ldx_imm(v); }, [&](uint8_t z){ ldx_zp(z); }, [&](uint16_t ab){ ldx_abs(ab); }); }
+    void ldy_addr(uint16_t a) { addrReadHelper(a, [&](uint8_t v){ ldy_imm(v); }, [&](uint8_t z){ ldy_zp(z); }, [&](uint16_t ab){ ldy_abs(ab); }); }
+    void ldz_addr(uint16_t a) { addrReadHelper(a, [&](uint8_t v){ ldz_imm(v); }, [&](uint8_t z){ ldz_zp(z); }, [&](uint16_t ab){ ldz_abs(ab); }); }
+    void adc_addr(uint16_t a) { addrReadHelper(a, [&](uint8_t v){ adc_imm(v); }, [&](uint8_t z){ adc_zp(z); }, [&](uint16_t ab){ adc_abs(ab); }); }
+    void sbc_addr(uint16_t a) { addrReadHelper(a, [&](uint8_t v){ sbc_imm(v); }, [&](uint8_t z){ sbc_zp(z); }, [&](uint16_t ab){ sbc_abs(ab); }); }
+    void and_addr(uint16_t a) { addrReadHelper(a, [&](uint8_t v){ and_imm(v); }, [&](uint8_t z){ and_zp(z); }, [&](uint16_t ab){ and_abs(ab); }); }
+    void ora_addr(uint16_t a) { addrReadHelper(a, [&](uint8_t v){ ora_imm(v); }, [&](uint8_t z){ ora_zp(z); }, [&](uint16_t ab){ ora_abs(ab); }); }
+    void eor_addr(uint16_t a) { addrReadHelper(a, [&](uint8_t v){ eor_imm(v); }, [&](uint8_t z){ eor_zp(z); }, [&](uint16_t ab){ eor_abs(ab); }); }
+    void cmp_addr(uint16_t a) { addrReadHelper(a, [&](uint8_t v){ cmp_imm(v); }, [&](uint8_t z){ cmp_zp(z); }, [&](uint16_t ab){ cmp_abs(ab); }); }
     // Store and RMW ops: no forwarding (they write to memory)
     void sta_addr(uint16_t a) { if (a < 256) sta_zp((uint8_t)a); else sta_abs(a); }
     void stx_addr(uint16_t a) { if (a < 256) stx_zp((uint8_t)a); else stx_abs(a); }
