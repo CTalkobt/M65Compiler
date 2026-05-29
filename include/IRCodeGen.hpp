@@ -94,6 +94,7 @@ private:
     // Source location tracking for .loc directives
     int lastLocLine_ = -1;
     std::string lastLocFile_;
+    std::string sourceFile_; // module source file for function declaration .loc
 
     // Next block label for no-op branch elimination
     std::string nextBlockLabel_;

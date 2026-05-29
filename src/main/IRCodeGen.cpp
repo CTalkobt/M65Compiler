@@ -305,6 +305,7 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     relocMode_ = relocMode;
     zpCallMode_ = zpCallMode;
     zeroPageStart_ = zpStart;
+    sourceFile_ = mod.sourceFile;
 
     if (relocMode) {
         emit(".o45");
@@ -839,17 +840,12 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // Frame pointer variable
     emit(".var _fp = 0");
 
-    // Emit .loc for function entry (before prologue, so the frame setup
-    // is attributed to the function's first source line, not the previous function's last line)
-    if (!fn.blocks.empty()) {
-        for (const auto& inst : fn.blocks[0].insts) {
-            if (!inst.loc.file.empty() && inst.loc.line > 0) {
-                emit(".loc \"" + inst.loc.file + "\", " + std::to_string(inst.loc.line));
-                lastLocFile_ = inst.loc.file;
-                lastLocLine_ = inst.loc.line;
-                break;
-            }
-        }
+    // Emit .loc for function declaration line (before prologue and param loading,
+    // so objdump attributes setup code to the function signature, not the first statement)
+    if (fn.declLine > 0 && !sourceFile_.empty()) {
+        emit(".loc \"" + sourceFile_ + "\", " + std::to_string(fn.declLine));
+        lastLocFile_ = sourceFile_;
+        lastLocLine_ = fn.declLine;
     }
 
     // Allocate frame only for frame-allocated vRegs

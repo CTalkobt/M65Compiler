@@ -241,6 +241,7 @@ struct Function {
     bool isInterrupt = false;
     bool isNaked = false;
     bool isRegparm = false;
+    int declLine = 0;                   // source line of function declaration
 
     std::vector<Block> blocks;
     uint32_t nextVreg = 0;             // counter for allocating vRegs

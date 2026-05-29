@@ -371,6 +371,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     fn.isVariadic = node.isVariadic;
     fn.isStatic = node.isStatic;
     fn.isInterrupt = node.isInterrupt;
+    fn.declLine = node.line;
     fn.isNaked = node.isNaked;
     fn.isRegparm = node.isRegparm;
 
