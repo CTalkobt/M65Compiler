@@ -94,7 +94,17 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
             
             std::vector<uint8_t>* binaryPtr = e.getBinary();
             size_t binaryStartIdx = binaryPtr ? binaryPtr->size() : 0;
-            e.machineState().invalidateAll(); // Can't assume anything across statement boundaries
+            // At statement boundaries: invalidate registers and flags (simulated ops
+            // may clobber any register), but preserve memory state — ZP values are
+            // stable across statements unless explicitly modified by a store/RMW.
+            // Labels invalidate everything (branch merge points).
+            if (!stmt->label.empty()) {
+                e.machineState().invalidateAll();
+            } else {
+                for (int r = 0; r < REG_COUNT; r++)
+                    e.machineState().invalidateReg((RegId)r);
+                e.machineState().flags.invalidate();
+            }
           try {
             if (!stmt->label.empty()) {
                 isDeadCode = false;

@@ -132,21 +132,55 @@ public:
     void dec_zp(uint8_t addr);
 
 
-    // --- Auto-selecting ZP/Absolute (picks ZP when addr < 256, else absolute) ---
-    void lda_addr(uint16_t a) { if (a < 256) lda_zp((uint8_t)a); else lda_abs(a); }
-    void ldx_addr(uint16_t a) { if (a < 256) ldx_zp((uint8_t)a); else ldx_abs(a); }
-    void ldy_addr(uint16_t a) { if (a < 256) ldy_zp((uint8_t)a); else ldy_abs(a); }
-    void ldz_addr(uint16_t a) { if (a < 256) ldz_zp((uint8_t)a); else ldz_abs(a); }
+    // --- Auto-selecting ZP/Absolute with constant-memory forwarding ---
+    // For read-type ops: if MachineState knows the ZP location holds a constant,
+    // use immediate mode instead (saves 0-1 bytes, removes memory dependency).
+    // For store/RMW ops: just select ZP vs absolute based on address.
+    void lda_addr(uint16_t a) {
+        if (a < 256 && ms_.getZP((uint8_t)a).isConst()) lda_imm((uint8_t)(ms_.getZP((uint8_t)a).constVal & 0xFF));
+        else if (a < 256) lda_zp((uint8_t)a); else lda_abs(a);
+    }
+    void ldx_addr(uint16_t a) {
+        if (a < 256 && ms_.getZP((uint8_t)a).isConst()) ldx_imm((uint8_t)(ms_.getZP((uint8_t)a).constVal & 0xFF));
+        else if (a < 256) ldx_zp((uint8_t)a); else ldx_abs(a);
+    }
+    void ldy_addr(uint16_t a) {
+        if (a < 256 && ms_.getZP((uint8_t)a).isConst()) ldy_imm((uint8_t)(ms_.getZP((uint8_t)a).constVal & 0xFF));
+        else if (a < 256) ldy_zp((uint8_t)a); else ldy_abs(a);
+    }
+    void ldz_addr(uint16_t a) {
+        if (a < 256 && ms_.getZP((uint8_t)a).isConst()) ldz_imm((uint8_t)(ms_.getZP((uint8_t)a).constVal & 0xFF));
+        else if (a < 256) ldz_zp((uint8_t)a); else ldz_abs(a);
+    }
+    void adc_addr(uint16_t a) {
+        if (a < 256 && ms_.getZP((uint8_t)a).isConst()) adc_imm((uint8_t)(ms_.getZP((uint8_t)a).constVal & 0xFF));
+        else if (a < 256) adc_zp((uint8_t)a); else adc_abs(a);
+    }
+    void sbc_addr(uint16_t a) {
+        if (a < 256 && ms_.getZP((uint8_t)a).isConst()) sbc_imm((uint8_t)(ms_.getZP((uint8_t)a).constVal & 0xFF));
+        else if (a < 256) sbc_zp((uint8_t)a); else sbc_abs(a);
+    }
+    void and_addr(uint16_t a) {
+        if (a < 256 && ms_.getZP((uint8_t)a).isConst()) and_imm((uint8_t)(ms_.getZP((uint8_t)a).constVal & 0xFF));
+        else if (a < 256) and_zp((uint8_t)a); else and_abs(a);
+    }
+    void ora_addr(uint16_t a) {
+        if (a < 256 && ms_.getZP((uint8_t)a).isConst()) ora_imm((uint8_t)(ms_.getZP((uint8_t)a).constVal & 0xFF));
+        else if (a < 256) ora_zp((uint8_t)a); else ora_abs(a);
+    }
+    void eor_addr(uint16_t a) {
+        if (a < 256 && ms_.getZP((uint8_t)a).isConst()) eor_imm((uint8_t)(ms_.getZP((uint8_t)a).constVal & 0xFF));
+        else if (a < 256) eor_zp((uint8_t)a); else eor_abs(a);
+    }
+    void cmp_addr(uint16_t a) {
+        if (a < 256 && ms_.getZP((uint8_t)a).isConst()) cmp_imm((uint8_t)(ms_.getZP((uint8_t)a).constVal & 0xFF));
+        else if (a < 256) cmp_zp((uint8_t)a); else cmp_abs(a);
+    }
+    // Store and RMW ops: no forwarding (they write to memory)
     void sta_addr(uint16_t a) { if (a < 256) sta_zp((uint8_t)a); else sta_abs(a); }
     void stx_addr(uint16_t a) { if (a < 256) stx_zp((uint8_t)a); else stx_abs(a); }
     void sty_addr(uint16_t a) { if (a < 256) sty_zp((uint8_t)a); else sty_abs(a); }
     void stz_addr(uint16_t a) { if (a < 256) stz_zp((uint8_t)a); else stz_abs(a); }
-    void adc_addr(uint16_t a) { if (a < 256) adc_zp((uint8_t)a); else adc_abs(a); }
-    void sbc_addr(uint16_t a) { if (a < 256) sbc_zp((uint8_t)a); else sbc_abs(a); }
-    void and_addr(uint16_t a) { if (a < 256) and_zp((uint8_t)a); else and_abs(a); }
-    void ora_addr(uint16_t a) { if (a < 256) ora_zp((uint8_t)a); else ora_abs(a); }
-    void eor_addr(uint16_t a) { if (a < 256) eor_zp((uint8_t)a); else eor_abs(a); }
-    void cmp_addr(uint16_t a) { if (a < 256) cmp_zp((uint8_t)a); else cmp_abs(a); }
     void inc_addr(uint16_t a) { if (a < 256) inc_zp((uint8_t)a); else inc_abs(a); }
     void dec_addr(uint16_t a) { if (a < 256) dec_zp((uint8_t)a); else dec_abs(a); }
     void asl_addr(uint16_t a) { if (a < 256) asl_zp((uint8_t)a); else asl_abs(a); }
