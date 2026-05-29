@@ -756,10 +756,16 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                             canSuppress = false; break;
                         }
                     }
-                    // Check src2: OK if STORE address (not local slot)
+                    // Check src2: OK if STORE address (not local slot) or CMP operand
                     if (inst.src2.isVreg() && inst.src2.vregId == vid) {
                         if (inst.op == ir::Op::STORE && !fn.localSlotVregs.count(vid)) {
                             hasUse = true;
+                        } else if (inst.op == ir::Op::CMP_EQ || inst.op == ir::Op::CMP_NE ||
+                                   inst.op == ir::Op::CMP_LT || inst.op == ir::Op::CMP_LE ||
+                                   inst.op == ir::Op::CMP_GT || inst.op == ir::Op::CMP_GE ||
+                                   inst.op == ir::Op::CMP_LTU || inst.op == ir::Op::CMP_LEU ||
+                                   inst.op == ir::Op::CMP_GTU || inst.op == ir::Op::CMP_GEU) {
+                            hasUse = true; // CMP already uses vregConstVal_ for immediate
                         } else {
                             canSuppress = false; break;
                         }
@@ -1514,7 +1520,20 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             bool isSigned = (inst.op == ir::Op::CMP_LT || inst.op == ir::Op::CMP_LE ||
                              inst.op == ir::Op::CMP_GT || inst.op == ir::Op::CMP_GE);
 
-            if (inst.src1.type == ir::Type::I32) {
+            // Optimization: CMP_EQ/CMP_NE with 0 → use ORA to test zero
+            // For I16: A=lo, X=hi → stx scratch; ora scratch → Z flag set if both zero
+            // For I8: just cmp #0 (or test A directly)
+            if (src2IsConst && src2ConstVal == 0 &&
+                (inst.op == ir::Op::CMP_EQ || inst.op == ir::Op::CMP_NE) &&
+                inst.src1.type != ir::Type::I32) {
+                if (inst.src1.type == ir::Type::I8) {
+                    emit("cmp #0");
+                } else {
+                    // I16: lo in A, hi in X → ora to test both
+                    emit("stx __zp_scratch");
+                    emit("ora __zp_scratch");
+                }
+            } else if (inst.src1.type == ir::Type::I32) {
                 emit(std::string(isSigned ? "cmp.s32" : "cmp.32") + " .AXYZ, " + src2);
             } else if (inst.src1.type == ir::Type::I8) {
                 emit("cmp " + src2);

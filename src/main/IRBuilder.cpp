@@ -1146,6 +1146,79 @@ void IRBuilder::visit(Assignment& node) {
 }
 
 void IRBuilder::visit(BinaryOperation& node) {
+    // Short-circuit evaluation for && and ||
+    // C guarantees left-to-right evaluation with short-circuit.
+    // Emit: evaluate LHS → branch on result → evaluate RHS → merge
+    if (node.op == "&&" || node.op == "||") {
+        std::string mergeLabel = newLabel("sc_merge");
+        std::string shortLabel = newLabel("sc_short");
+
+        // Evaluate LHS
+        node.left->accept(*this);
+        auto lhs = lastValue_;
+
+        // Branch: for &&, skip RHS if LHS is false; for ||, skip if true
+        // BR_COND: src1=condition, dest=true label, src2=false label
+        {
+            ir::Inst br;
+            br.op = ir::Op::BR_COND;
+            br.src1 = lhs;
+            if (node.op == "&&") {
+                // LHS true → continue to RHS (merge), LHS false → short-circuit
+                br.dest = ir::Operand::label(mergeLabel);
+                br.src2 = ir::Operand::label(shortLabel);
+            } else {
+                // LHS true → short-circuit, LHS false → continue to RHS (merge)
+                br.dest = ir::Operand::label(shortLabel);
+                br.src2 = ir::Operand::label(mergeLabel);
+            }
+            br.loc = loc(node);
+            emit(br);
+        }
+
+        // RHS evaluation block (merge)
+        startBlock(mergeLabel);
+        node.right->accept(*this);
+        auto rhs = lastValue_;
+
+        // Jump to done
+        std::string doneLabel = newLabel("sc_done");
+        {
+            ir::Inst br;
+            br.op = ir::Op::BR;
+            br.src1 = ir::Operand::label(doneLabel);
+            br.loc = loc(node);
+            emit(br);
+        }
+
+        // Short-circuit block: result is 0 for &&, 1 for ||
+        startBlock(shortLabel);
+        auto shortVal = allocVreg(ir::Type::I8);
+        {
+            ir::Inst c;
+            c.op = ir::Op::CONST;
+            c.dest = shortVal;
+            c.resultType = ir::Type::I8;
+            c.src1 = ir::Operand::imm(node.op == "&&" ? 0 : 1, ir::Type::I8);
+            c.loc = loc(node);
+            emit(c);
+        }
+        {
+            ir::Inst br;
+            br.op = ir::Op::BR;
+            br.src1 = ir::Operand::label(doneLabel);
+            br.loc = loc(node);
+            emit(br);
+        }
+
+        // Done block — use RHS result directly (no extra CMP_NE wrapper).
+        // For if-conditions, the BR_COND fusion will use the RHS comparison
+        // result's flags directly.
+        startBlock(doneLabel);
+        lastValue_ = rhs;
+        return;
+    }
+
     IRTypeInfo lhsInfo = getExprTypeInfo(node.left.get());
     IRTypeInfo rhsInfo = getExprTypeInfo(node.right.get());
 
