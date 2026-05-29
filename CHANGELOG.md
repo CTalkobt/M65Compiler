@@ -21,8 +21,9 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 ### Optimizations
 - **Constant-Address Direct Store**: `*(volatile unsigned char *)0xD020 = val` now emits `lda #val; sta $D020` instead of loading the address into a ZP pair and using indirect addressing. Tracks vreg constant values through the IR to detect constant addresses at STORE time.
 - **Constant-Arg Function Call Push**: When all arguments are simple (constants, globals), pushes inline with `phw #imm16` (3 bytes) instead of round-tripping through ZP temp slots (~100 bytes → ~15 bytes for `memset(grid, 0, 1000)`). 32-bit constants use two `phw`. Falls back to two-phase ZP temps for complex args.
-- **Address-Only CONST Vreg Elimination**: CONST vregs used only as STORE address operands are suppressed — no emission, no frame slot allocation. Eliminates dead ZP pair loading and reduces prologue `phw` count.
-- **Unused Static Function Elimination**: Static functions never called by any surviving function are removed at compile time. Handles transitive call chains. game_of_life with mega65.h: 7037 → 6067 bytes (14% saved across all optimizations).
+- **CONST Vreg Suppression**: Pre-scan identifies CONST vregs only used in constant-address STOREs or as args to all-simple CALL sites. Suppresses emission, frame slot allocation, and STORE-to-local-slot. `VREG_BORDER = 0` → `lda #0; sta $D020` (2 instructions). Dead call-arg local slots eliminated.
+- **Unused Static Function Elimination**: Static functions never called by any surviving function are removed at compile time. Handles transitive call chains.
+- game_of_life with mega65.h: **7037 → 5803 bytes (18% total reduction)**.
 
 ### Fixed
 - **Cast-Pointer Dereference Store Width (Issue #83)**: `*(volatile unsigned char *)ADDR = val` was generating 16-bit stores, clobbering the adjacent byte. `IRBuilder::getExprTypeInfo()` now derives the correct pointee type from cast expressions (not just variable references), producing proper 8-bit stores.
