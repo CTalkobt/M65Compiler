@@ -132,6 +132,29 @@ public:
     void dec_zp(uint8_t addr);
 
 
+    // --- Auto-selecting ZP/Absolute (picks ZP when addr < 256, else absolute) ---
+    void lda_addr(uint16_t a) { if (a < 256) lda_zp((uint8_t)a); else lda_abs(a); }
+    void ldx_addr(uint16_t a) { if (a < 256) ldx_zp((uint8_t)a); else ldx_abs(a); }
+    void ldy_addr(uint16_t a) { if (a < 256) ldy_zp((uint8_t)a); else ldy_abs(a); }
+    void ldz_addr(uint16_t a) { if (a < 256) ldz_zp((uint8_t)a); else ldz_abs(a); }
+    void sta_addr(uint16_t a) { if (a < 256) sta_zp((uint8_t)a); else sta_abs(a); }
+    void stx_addr(uint16_t a) { if (a < 256) stx_zp((uint8_t)a); else stx_abs(a); }
+    void sty_addr(uint16_t a) { if (a < 256) sty_zp((uint8_t)a); else sty_abs(a); }
+    void stz_addr(uint16_t a) { if (a < 256) stz_zp((uint8_t)a); else stz_abs(a); }
+    void adc_addr(uint16_t a) { if (a < 256) adc_zp((uint8_t)a); else adc_abs(a); }
+    void sbc_addr(uint16_t a) { if (a < 256) sbc_zp((uint8_t)a); else sbc_abs(a); }
+    void and_addr(uint16_t a) { if (a < 256) and_zp((uint8_t)a); else and_abs(a); }
+    void ora_addr(uint16_t a) { if (a < 256) ora_zp((uint8_t)a); else ora_abs(a); }
+    void eor_addr(uint16_t a) { if (a < 256) eor_zp((uint8_t)a); else eor_abs(a); }
+    void cmp_addr(uint16_t a) { if (a < 256) cmp_zp((uint8_t)a); else cmp_abs(a); }
+    void inc_addr(uint16_t a) { if (a < 256) inc_zp((uint8_t)a); else inc_abs(a); }
+    void dec_addr(uint16_t a) { if (a < 256) dec_zp((uint8_t)a); else dec_abs(a); }
+    void asl_addr(uint16_t a) { if (a < 256) asl_zp((uint8_t)a); else asl_abs(a); }
+    void lsr_addr(uint16_t a) { if (a < 256) lsr_zp((uint8_t)a); else lsr_abs(a); }
+    void rol_addr(uint16_t a) { if (a < 256) rol_zp((uint8_t)a); else rol_abs(a); }
+    void ror_addr(uint16_t a) { if (a < 256) ror_zp((uint8_t)a); else ror_abs(a); }
+    void bit_addr(uint16_t a) { if (a < 256) bit_zp((uint8_t)a); else bit_abs(a); }
+
     // --- Scratchpad (Relative to zeroPageStart) ---
     void lda_s(uint8_t index) { lda_zp(getZP(index)); }
     void sta_s(uint8_t index) { sta_zp(getZP(index)); }

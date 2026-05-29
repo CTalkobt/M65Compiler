@@ -120,9 +120,17 @@ void M65Emitter::emitInstruction(const std::string& mnemonic, AddressingMode amo
                 case AddressingMode::BASE_PAGE: operand = hex8((uint8_t)value); break;
                 case AddressingMode::BASE_PAGE_X: operand = hex8((uint8_t)value) + ",x"; break;
                 case AddressingMode::BASE_PAGE_Y: operand = hex8((uint8_t)value) + ",y"; break;
-                case AddressingMode::ABSOLUTE: operand = hex16((uint16_t)value); break;
-                case AddressingMode::ABSOLUTE_X: operand = hex16((uint16_t)value) + ",x"; break;
-                case AddressingMode::ABSOLUTE_Y: operand = hex16((uint16_t)value) + ",y"; break;
+                case AddressingMode::ABSOLUTE:
+                    // Emit ZP-range addresses as 2-digit hex so the assembler
+                    // can select base-page addressing (saves 1 byte per instruction)
+                    operand = (value < 256) ? hex8((uint8_t)value) : hex16((uint16_t)value);
+                    break;
+                case AddressingMode::ABSOLUTE_X:
+                    operand = ((value < 256) ? hex8((uint8_t)value) : hex16((uint16_t)value)) + ",x";
+                    break;
+                case AddressingMode::ABSOLUTE_Y:
+                    operand = ((value < 256) ? hex8((uint8_t)value) : hex16((uint16_t)value)) + ",y";
+                    break;
                 case AddressingMode::INDIRECT: operand = "(" + hex8((uint8_t)value) + ")"; break;
                 case AddressingMode::BASE_PAGE_X_INDIRECT: operand = "(" + hex8((uint8_t)value) + ",x)"; break;
                 case AddressingMode::BASE_PAGE_INDIRECT_Y: operand = "(" + hex8((uint8_t)value) + "),y"; break;
