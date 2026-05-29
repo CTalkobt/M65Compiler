@@ -30,10 +30,10 @@ void AssemblerSimulatedOps::emitExpressionCode(AssemblerParser* parser, M65Emitt
     if (target[0] != '.') {
         Symbol* sym = parser->resolveSymbol(target, scopePrefix);
         uint32_t addr = 0; if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(target); } catch(...) { addr = 0; } }
-        e.sta_abs(addr);
+        e.sta_addr(addr);
         if (width >= 16) {
             e.txa();
-            e.sta_abs(addr + 1);
+            e.sta_addr(addr + 1);
         }
     }
 }
@@ -48,14 +48,14 @@ void AssemblerSimulatedOps::emitMulCode(AssemblerParser* parser, M65Emitter& e, 
     auto srcAst = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
     if (!srcAst) return;
     auto storeMath = [&](uint16_t regBase, int i, const std::string& src) {
-        if (src == ".A") e.sta_abs(regBase + i);
-        else if (src == ".X") { e.txa(); e.sta_abs(regBase + i); }
-        else if (src == ".Y") { e.tya(); e.sta_abs(regBase + i); }
-        else if (src == ".Z") { e.tza(); e.sta_abs(regBase + i); }
+        if (src == ".A") e.sta_addr(regBase + i);
+        else if (src == ".X") { e.txa(); e.sta_addr(regBase + i); }
+        else if (src == ".Y") { e.tya(); e.sta_addr(regBase + i); }
+        else if (src == ".Z") { e.tza(); e.sta_addr(regBase + i); }
         else {
             Symbol* sym = parser->resolveSymbol(src, scopePrefix);
             uint32_t addr = i; if (sym) addr += sym->value; else { try { addr += parseNumericLiteral(src); } catch(...) { addr += 0; } }
-            e.lda_abs(addr); e.sta_abs(regBase + i);
+            e.lda_addr(addr); e.sta_addr(regBase + i);
         }
     };
     if (dest == ".A" || dest == ".AX" || dest == ".AXY" || dest == ".AXYZ" || dest == ".Q") {
@@ -69,7 +69,7 @@ void AssemblerSimulatedOps::emitMulCode(AssemblerParser* parser, M65Emitter& e, 
         uint32_t val = srcAst->getValue(parser);
         for (int i = 0; i < bytes; ++i) {
             e.lda_imm((val >> (i * 8)) & 0xFF);
-            e.sta_abs(m65::MULT_ARG2 + i);
+            e.sta_addr(m65::MULT_ARG2 + i);
         }
     } else {
         int srcTokenIdx = isImmediate ? tokenIndex + 1 : tokenIndex;
@@ -85,16 +85,16 @@ void AssemblerSimulatedOps::emitMulCode(AssemblerParser* parser, M65Emitter& e, 
     if (dest == ".A" || dest == ".AX" || dest == ".AXY" || dest == ".AXYZ" || dest == ".Q") {
         // Read result into registers: load high bytes first into their
         // target registers, then load the low byte into A last
-        if (bytes >= 4) { e.lda_abs(m65::MULT_RES + 3); e.taz(); }
-        if (bytes >= 3) { e.lda_abs(m65::MULT_RES + 2); e.tay(); }
-        if (bytes >= 2) { e.lda_abs(m65::MULT_RES + 1); e.tax(); }
-        e.lda_abs(m65::MULT_RES);
+        if (bytes >= 4) { e.lda_addr(m65::MULT_RES + 3); e.taz(); }
+        if (bytes >= 3) { e.lda_addr(m65::MULT_RES + 2); e.tay(); }
+        if (bytes >= 2) { e.lda_addr(m65::MULT_RES + 1); e.tax(); }
+        e.lda_addr(m65::MULT_RES);
     } else {
         for (int i = 0; i < bytes; ++i) {
-            e.lda_abs(m65::MULT_RES + i);
+            e.lda_addr(m65::MULT_RES + i);
             Symbol* sym = parser->resolveSymbol(dest, scopePrefix);
             uint32_t addr = 0; if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } }
-            e.sta_abs(addr + i);
+            e.sta_addr(addr + i);
         }
     }
 }
@@ -109,14 +109,14 @@ void AssemblerSimulatedOps::emitDivCode(AssemblerParser* parser, M65Emitter& e, 
     auto srcAst = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
     if (!srcAst) return;
     auto storeMath = [&](uint16_t regBase, int i, const std::string& src) {
-        if (src == ".A") e.sta_abs(regBase + i);
-        else if (src == ".X") { e.txa(); e.sta_abs(regBase + i); }
-        else if (src == ".Y") { e.tya(); e.sta_abs(regBase + i); }
-        else if (src == ".Z") { e.tza(); e.sta_abs(regBase + i); }
+        if (src == ".A") e.sta_addr(regBase + i);
+        else if (src == ".X") { e.txa(); e.sta_addr(regBase + i); }
+        else if (src == ".Y") { e.tya(); e.sta_addr(regBase + i); }
+        else if (src == ".Z") { e.tza(); e.sta_addr(regBase + i); }
         else {
             Symbol* sym = parser->resolveSymbol(src, scopePrefix);
             uint32_t addr = i; if (sym) addr += sym->value; else { try { addr += parseNumericLiteral(src); } catch(...) { addr += 0; } }
-            e.lda_abs(addr); e.sta_abs(regBase + i);
+            e.lda_addr(addr); e.sta_addr(regBase + i);
         }
     };
     if (dest == ".A" || dest == ".AX" || dest == ".AXY" || dest == ".AXYZ" || dest == ".Q") {
@@ -131,7 +131,7 @@ void AssemblerSimulatedOps::emitDivCode(AssemblerParser* parser, M65Emitter& e, 
         if (val == 0) throw std::runtime_error("Division by zero at line " + std::to_string(parser->tokens[tokenIndex].line));
         for (int i = 0; i < bytes; ++i) {
             e.lda_imm((val >> (i * 8)) & 0xFF);
-            e.sta_abs(m65::DIV_ARG2 + i);
+            e.sta_addr(m65::DIV_ARG2 + i);
         }
     } else {
         int srcTokenIdx = isImmediate ? tokenIndex + 1 : tokenIndex;
@@ -144,18 +144,18 @@ void AssemblerSimulatedOps::emitDivCode(AssemblerParser* parser, M65Emitter& e, 
             if (bytes >= 4) storeMath(m65::DIV_ARG2, 3, ".Z");
         } else for (int i = 0; i < bytes; ++i) storeMath(m65::DIV_ARG2, i, srcName);
     }
-    e.bit_abs(m65::MATH_BUSY_STATUS); e.bne(-5);
+    e.bit_addr(m65::MATH_BUSY_STATUS); e.bne(-5);
     if (dest == ".A" || dest == ".AX" || dest == ".AXY" || dest == ".AXYZ" || dest == ".Q") {
-        if (bytes >= 4) { e.lda_abs(m65::DIV_RES + 3); e.taz(); }
-        if (bytes >= 3) { e.lda_abs(m65::DIV_RES + 2); e.tay(); }
-        if (bytes >= 2) { e.lda_abs(m65::DIV_RES + 1); e.tax(); }
-        e.lda_abs(m65::DIV_RES);
+        if (bytes >= 4) { e.lda_addr(m65::DIV_RES + 3); e.taz(); }
+        if (bytes >= 3) { e.lda_addr(m65::DIV_RES + 2); e.tay(); }
+        if (bytes >= 2) { e.lda_addr(m65::DIV_RES + 1); e.tax(); }
+        e.lda_addr(m65::DIV_RES);
     } else {
         for (int i = 0; i < bytes; ++i) {
-            e.lda_abs(m65::DIV_RES + i);
+            e.lda_addr(m65::DIV_RES + i);
             Symbol* sym = parser->resolveSymbol(dest, scopePrefix);
             uint32_t addr = 0; if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } }
-            e.sta_abs(addr + i);
+            e.sta_addr(addr + i);
         }
     }
 }
@@ -180,19 +180,21 @@ void AssemblerSimulatedOps::emitStackIncDecCode(AssemblerParser* parser, M65Emit
                 e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, fp, true);
                 e.clc(); e.adc_imm(1);
                 e.emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, fp, true);
-                e.bne(0x07); // skip hi byte increment (LDY+LDA+ADC+STA = 7 bytes)
+                auto br183 = e.emitBranchPlaceholder(0xD0); // BNE: skip hi byte increment
                 e.ldy_imm(offset + 1);
                 e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, fp, true);
                 e.adc_imm(0);
                 e.emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, fp, true);
+                e.patchBranchTarget(br183);
             } else {
                 e.ldy_imm(offset);
                 e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, fp, true);
-                e.bne(0x07); // if lo != 0, skip hi decrement
+                auto br191 = e.emitBranchPlaceholder(0xD0); // BNE: if lo != 0, skip hi decrement
                 e.ldy_imm(offset + 1);
                 e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, fp, true);
                 e.sec(); e.sbc_imm(1);
                 e.emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, fp, true);
+                e.patchBranchTarget(br191);
                 e.ldy_imm(offset);
                 e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, fp, true);
                 e.sec(); e.sbc_imm(1);
@@ -203,12 +205,14 @@ void AssemblerSimulatedOps::emitStackIncDecCode(AssemblerParser* parser, M65Emit
             e.tsx();
             if (isInc) {
                 e.recordSpBaseReloc(offset); e.inc_abs_x(sb + offset);
-                e.bne(0x03);
+                auto br206 = e.emitBranchPlaceholder(0xD0); // BNE: skip hi byte increment
                 e.recordSpBaseReloc(offset + 1); e.inc_abs_x(sb + offset + 1);
+                e.patchBranchTarget(br206);
             } else {
                 e.recordSpBaseReloc(offset); e.lda_abs_x(sb + offset);
-                e.bne(0x03);
+                auto br210 = e.emitBranchPlaceholder(0xD0); // BNE: if lo != 0, skip hi decrement
                 e.recordSpBaseReloc(offset + 1); e.dec_abs_x(sb + offset + 1);
+                e.patchBranchTarget(br210);
                 e.recordSpBaseReloc(offset); e.dec_abs_x(sb + offset);
             }
         }
@@ -261,9 +265,9 @@ void AssemblerSimulatedOps::emitAddSub16Code(AssemblerParser* parser, M65Emitter
                      Symbol* sym = parser->resolveSymbol(src, scopePrefix);
                      if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(src); } catch(...) { addr = 0; } }
                 }
-                if (isAdd) e.adc_abs(addr); else e.sbc_abs(addr);
+                if (isAdd) e.adc_addr(addr); else e.sbc_addr(addr);
                 e.pha(); if (reg2 == 'X') e.txa(); else if (reg2 == 'Y') e.tya(); else if (reg2 == 'Z') e.tza();
-                if (isAdd) e.adc_abs(addr + 1); else e.sbc_abs(addr + 1);
+                if (isAdd) e.adc_addr(addr + 1); else e.sbc_addr(addr + 1);
                 if (reg2 == 'X') e.tax(); else if (reg2 == 'Y') e.tay(); else if (reg2 == 'Z') e.taz();
                 e.pla();
             }
@@ -274,8 +278,8 @@ void AssemblerSimulatedOps::emitAddSub16Code(AssemblerParser* parser, M65Emitter
             if (isAdd) e.clc(); else e.sec();
             if (isImmediate && srcAst->isConstant(parser)) {
                 uint32_t val = srcAst->getValue(parser);
-                e.lda_abs(dAddr); if (isAdd) e.adc_imm(val & 0xFF); else e.sbc_imm(val & 0xFF); e.sta_abs(dAddr);
-                e.lda_abs(dAddr+1); if (isAdd) e.adc_imm((val >> 8) & 0xFF); else e.sbc_imm((val >> 8) & 0xFF); e.sta_abs(dAddr+1);
+                e.lda_addr(dAddr); if (isAdd) e.adc_imm(val & 0xFF); else e.sbc_imm(val & 0xFF); e.sta_addr(dAddr);
+                e.lda_addr(dAddr+1); if (isAdd) e.adc_imm((val >> 8) & 0xFF); else e.sbc_imm((val >> 8) & 0xFF); e.sta_addr(dAddr+1);
             } else {
                 uint32_t sAddr = 0;
                 try { sAddr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
@@ -285,8 +289,8 @@ void AssemblerSimulatedOps::emitAddSub16Code(AssemblerParser* parser, M65Emitter
                      Symbol* symS = parser->resolveSymbol(src, scopePrefix);
                      if (symS) sAddr = symS->value; else { try { sAddr = parseNumericLiteral(src); } catch(...) { sAddr = 0; } }
                 }
-                e.lda_abs(dAddr); if (isAdd) e.adc_abs(sAddr); else e.sbc_abs(sAddr); e.sta_abs(dAddr);
-                e.lda_abs(dAddr+1); if (isAdd) e.adc_abs(sAddr+1); else e.sbc_abs(sAddr+1); e.sta_abs(dAddr+1);
+                e.lda_addr(dAddr); if (isAdd) e.adc_addr(sAddr); else e.sbc_addr(sAddr); e.sta_addr(dAddr);
+                e.lda_addr(dAddr+1); if (isAdd) e.adc_addr(sAddr+1); else e.sbc_addr(sAddr+1); e.sta_addr(dAddr+1);
             }
         }
     };
@@ -317,9 +321,9 @@ void AssemblerSimulatedOps::emitBitwise16Code(AssemblerParser* parser, M65Emitte
             else if (!src.empty() && src[0] != '.' && (src=="A"||src=="X"||src=="Y"||src=="Z"||src=="a"||src=="x"||src=="y"||src=="z")) src = "." + src;
             Symbol* sym = parser->resolveSymbol(src, scopePrefix);
             uint32_t addr = 0; if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(src); } catch(...) { addr = 0; } }
-            if (M == "AND.16") e.and_abs(addr); else if (M == "ORA.16") e.ora_abs(addr); else if (M == "EOR.16") e.eor_abs(addr);
+            if (M == "AND.16") e.and_addr(addr); else if (M == "ORA.16") e.ora_addr(addr); else if (M == "EOR.16") e.eor_addr(addr);
             e.pha(); e.txa();
-            if (M == "AND.16") e.and_abs(addr + 1); else if (M == "ORA.16") e.ora_abs(addr + 1); else if (M == "EOR.16") e.eor_abs(addr + 1);
+            if (M == "AND.16") e.and_addr(addr + 1); else if (M == "ORA.16") e.ora_addr(addr + 1); else if (M == "EOR.16") e.eor_addr(addr + 1);
             e.tax(); e.pla();
         }
     } else throw std::runtime_error("Simulated bitwise 16-bit only supports .AX destination");
@@ -338,14 +342,14 @@ void AssemblerSimulatedOps::emitCMP16Code(AssemblerParser* parser, M65Emitter& e
     if (SRC1 == ".AX") {
         if (isImmediate && src2Ast->isConstant(parser)) {
             uint32_t val = src2Ast->getValue(parser);
-            e.cmp_imm(val & 0xFF); e.bne(0x03); e.txa(); e.cmp_imm((val >> 8) & 0xFF);
+            e.cmp_imm(val & 0xFF); auto br341 = e.emitBranchPlaceholder(0xD0); e.txa(); e.cmp_imm((val >> 8) & 0xFF); e.patchBranchTarget(br341);
         } else {
             std::string src2 = parser->tokens[tokenIndex].value;
             if (parser->tokens[tokenIndex].type == AssemblerTokenType::REGISTER) src2 = "." + src2;
             else if (!src2.empty() && src2[0] != '.' && (src2=="A"||src2=="X"||src2=="Y"||src2=="Z"||src2=="a"||src2=="x"||src2=="y"||src2=="z")) src2 = "." + src2;
             Symbol* sym = parser->resolveSymbol(src2, scopePrefix);
             uint32_t addr = 0; if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(src2); } catch(...) { addr = 0; } }
-            e.cmp_abs(addr); e.bne(0x04); e.txa(); e.cmp_abs(addr + 1);
+            e.cmp_addr(addr); auto br348 = e.emitBranchPlaceholder(0xD0); e.txa(); e.cmp_addr(addr + 1); e.patchBranchTarget(br348);
         }
     } else throw std::runtime_error("Simulated CMP.16 only supports .AX as first operand");
 }
@@ -363,7 +367,7 @@ void AssemblerSimulatedOps::emitCMP_S16Code(AssemblerParser* parser, M65Emitter&
     if (SRC1 == ".AX") {
         if (isImmediate && src2Ast->isConstant(parser)) {
             uint32_t val = src2Ast->getValue(parser);
-            e.cmp_imm(val & 0xFF); e.bne(0x06); e.txa(); e.eor_imm(0x80); e.cmp_imm(((val >> 8) & 0xFF) ^ 0x80);
+            e.cmp_imm(val & 0xFF); auto br366 = e.emitBranchPlaceholder(0xD0); e.txa(); e.eor_imm(0x80); e.cmp_imm(((val >> 8) & 0xFF) ^ 0x80); e.patchBranchTarget(br366);
         } else {
             uint32_t addr = 0;
             try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
@@ -373,7 +377,7 @@ void AssemblerSimulatedOps::emitCMP_S16Code(AssemblerParser* parser, M65Emitter&
                 Symbol* sym = parser->resolveSymbol(src2, scopePrefix);
                 if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(src2); } catch(...) { addr = 0; } }
             }
-            e.cmp_abs(addr); e.bne(0x07); e.txa(); e.eor_imm(0x80); e.pha(); e.lda_abs(addr + 1); e.eor_imm(0x80); e.sta_scratch(); e.pla(); e.cmp_scratch();
+            e.cmp_addr(addr); auto br376 = e.emitBranchPlaceholder(0xD0); e.txa(); e.eor_imm(0x80); e.pha(); e.lda_addr(addr + 1); e.patchBranchTarget(br376); e.eor_imm(0x80); e.sta_scratch(); e.pla(); e.cmp_scratch();
             // This is getting complex, maybe just use a simpler signed high-byte cmp.
             // Simplified: CMP low, BNE done, TXA EOR #$80, STA temp, LDA high EOR #$80, CMP temp
             // Actually: CMP low, BNE +7, TXA, EOR #$80, STA temp, LDA high, EOR #$80, CMP temp
@@ -399,7 +403,7 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
                     e.lda_stack(totalOff); e.ldx_scratch();
                 } else if (reg2 == 'Y') {
                     e.lda_stack(totalOff + 1); e.sta_scratch();
-                    e.lda_stack(totalOff); e.ldy_abs(0);
+                    e.lda_stack(totalOff); e.ldy_addr(0);
                 } else { // Z
                     e.lda_stack(totalOff + 1); e.taz();
                     e.lda_stack(totalOff);
@@ -412,7 +416,7 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
                 e.lda_stack(offset + 1); e.sta_scratch(); // save hi to ZP $00
                 e.lda_stack(offset); // A = lo byte
                 if (reg2 == 'X') e.ldx_scratch();
-                else if (reg2 == 'Y') e.ldy_abs(0);
+                else if (reg2 == 'Y') e.ldy_addr(0);
             }
         }
         else {
@@ -441,10 +445,10 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
                 std::string symName = parser->tokens[tokenIndex].value;
                 Symbol* relSym = parser->resolveSymbol(symName, scopePrefix);
                 if (relSym && relSym->isAddress) { e.recordSymbolReloc(symName); }
-                e.lda_abs(addr);
+                e.lda_addr(addr);
                 uint32_t addr2 = addr + 1;
                 if (relSym && relSym->isAddress) { e.recordSymbolReloc(symName); }
-                if (reg2 == 'X') e.ldx_abs(addr2); else if (reg2 == 'Y') e.ldy_abs(addr2); else if (reg2 == 'Z') e.ldz_abs(addr2);
+                if (reg2 == 'X') e.ldx_addr(addr2); else if (reg2 == 'Y') e.ldy_addr(addr2); else if (reg2 == 'Z') e.ldz_addr(addr2);
             }
         }
     } else if (DEST == ".XY") {
@@ -473,7 +477,7 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
                     Symbol* sym = parser->resolveSymbol(parser->tokens[tokenIndex].value, scopePrefix);
                     if (sym) addr = sym->value;
                 }
-                e.ldx_abs(addr); e.ldy_abs(addr + 1);
+                e.ldx_addr(addr); e.ldy_addr(addr + 1);
             }
         }
     } else throw std::runtime_error("Simulated LDW only supports .AX, .AY, .AZ, .XY");
@@ -516,7 +520,7 @@ void AssemblerSimulatedOps::emitSTWCode(AssemblerParser* parser, M65Emitter& e, 
                     }
                 }
             }
-            e.lda_imm(low); e.sta_abs(addr); if (high == 0) e.stz_abs(addr + 1); else { e.lda_imm(high); e.sta_abs(addr + 1); }
+            e.lda_imm(low); e.sta_addr(addr); if (high == 0) e.stz_addr(addr + 1); else { e.lda_imm(high); e.sta_addr(addr + 1); }
         }
         return;
     }
@@ -542,9 +546,9 @@ void AssemblerSimulatedOps::emitSTWCode(AssemblerParser* parser, M65Emitter& e, 
             else if (!dest.empty() && dest[0] != '.' && (dest=="A"||dest=="X"||dest=="Y"||dest=="Z"||dest=="a"||dest=="x"||dest=="y"||dest=="z")) dest = "." + dest;
             Symbol* sym = parser->resolveSymbol(dest, scopePrefix); uint32_t addr = 0; if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } }
             if (sym && sym->isAddress) { e.recordSymbolReloc(dest); }
-            e.sta_abs(addr); uint32_t addr2 = addr + 1;
+            e.sta_addr(addr); uint32_t addr2 = addr + 1;
             if (sym && sym->isAddress) { e.recordSymbolReloc(dest); }
-            if (reg2 == 'X') e.stx_abs(addr2); else if (reg2 == 'Y') e.sty_abs(addr2); else if (reg2 == 'Z') e.stz_abs(addr2);
+            if (reg2 == 'X') e.stx_addr(addr2); else if (reg2 == 'Y') e.sty_addr(addr2); else if (reg2 == 'Z') e.stz_addr(addr2);
         }
     } else if (SRC == ".XY") {
         // Store X(lo)/Y(hi) to memory
@@ -563,7 +567,7 @@ void AssemblerSimulatedOps::emitSTWCode(AssemblerParser* parser, M65Emitter& e, 
                 Symbol* sym = parser->resolveSymbol(parser->tokens[tokenIndex].value, scopePrefix);
                 if (sym) addr = sym->value;
             }
-            e.stx_abs(addr); e.sty_abs(addr + 1);
+            e.stx_addr(addr); e.sty_addr(addr + 1);
         }
     } else throw std::runtime_error("Simulated STW only supports .AX, .AY, .AZ, .XY");
 }
@@ -709,45 +713,48 @@ void AssemblerSimulatedOps::emitNegNot16Code(AssemblerParser* parser, M65Emitter
         uint32_t addr = 0;
         try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
         catch(...) { Symbol* sym = parser->resolveSymbol(operand, scopePrefix); if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(operand); } catch(...) { addr = 0; } } }
-        if (isNeg) { e.lda_abs(addr); e.eor_imm(0xFF); e.sec(); e.adc_imm(1); e.sta_abs(addr); e.lda_abs(addr + 1); e.eor_imm(0xFF); e.adc_imm(0); e.sta_abs(addr + 1); }
-        else { e.lda_abs(addr); e.eor_imm(0xFF); e.sta_abs(addr); e.lda_abs(addr + 1); e.eor_imm(0xFF); e.sta_abs(addr + 1); }
+        if (isNeg) { e.lda_addr(addr); e.eor_imm(0xFF); e.sec(); e.adc_imm(1); e.sta_addr(addr); e.lda_addr(addr + 1); e.eor_imm(0xFF); e.adc_imm(0); e.sta_addr(addr + 1); }
+        else { e.lda_addr(addr); e.eor_imm(0xFF); e.sta_addr(addr); e.lda_addr(addr + 1); e.eor_imm(0xFF); e.sta_addr(addr + 1); }
     }
 }
 
 void AssemblerSimulatedOps::emitABS16Code(AssemblerParser* parser, M65Emitter& e, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
     std::string DEST = dest; if (!DEST.empty() && DEST[0] != '.') DEST = "." + DEST;
     std::transform(DEST.begin(), DEST.end(), DEST.begin(), ::toupper);
-    if (DEST == ".AX" || DEST == "") { e.txa(); e.bpl(0x02); e.neg_16(); return; }
+    if (DEST == ".AX" || DEST == "") { e.txa(); auto br720 = e.emitBranchPlaceholder(0x10); e.neg_16(); e.patchBranchTarget(br720); return; }
     uint32_t offset = 0;
     if (parser->isStackRelativeOperand(tokenIndex, offset, scopePrefix)) {
         auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
         if (fa.isFrame) {
-            e.lda_frame(fa.fpOff, fa.yOff + 1); e.bpl(0x0D);
+            e.lda_frame(fa.fpOff, fa.yOff + 1); auto br725 = e.emitBranchPlaceholder(0x10); // BPL: skip negation
             e.lda_frame(fa.fpOff, fa.yOff); e.eor_imm(0xFF); e.sec(); e.adc_imm(1); e.sta_frame(fa.fpOff, fa.yOff);
             e.lda_frame(fa.fpOff, fa.yOff + 1); e.eor_imm(0xFF); e.adc_imm(0); e.sta_frame(fa.fpOff, fa.yOff + 1);
+            e.patchBranchTarget(br725);
         } else {
             uint16_t sb = e.spBase();
             e.tsx();
-            e.recordSpBaseReloc(offset + 1); e.lda_abs_x(sb + offset + 1); e.bpl(0x0D);
+            e.recordSpBaseReloc(offset + 1); e.lda_abs_x(sb + offset + 1); auto br731 = e.emitBranchPlaceholder(0x10); // BPL: skip negation
             e.recordSpBaseReloc(offset); e.lda_abs_x(sb + offset); e.eor_imm(0xFF); e.sec(); e.adc_imm(1);
             e.recordSpBaseReloc(offset); e.sta_abs_x(sb + offset);
             e.recordSpBaseReloc(offset + 1); e.lda_abs_x(sb + offset + 1); e.eor_imm(0xFF); e.adc_imm(0);
             e.recordSpBaseReloc(offset + 1); e.sta_abs_x(sb + offset + 1);
+            e.patchBranchTarget(br731);
         }
     } else {
         uint32_t addr = 0;
         try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
         catch(...) { Symbol* sym = parser->resolveSymbol(dest, scopePrefix); if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } } }
-        e.lda_abs(addr + 1); e.bpl(0x0D);
-        e.lda_abs(addr); e.eor_imm(0xFF); e.sec(); e.adc_imm(1); e.sta_abs(addr);
-        e.lda_abs(addr + 1); e.eor_imm(0xFF); e.adc_imm(0); e.sta_abs(addr + 1);
+        e.lda_addr(addr + 1); auto br741 = e.emitBranchPlaceholder(0x10); // BPL: skip negation
+        e.lda_addr(addr); e.eor_imm(0xFF); e.sec(); e.adc_imm(1); e.sta_addr(addr);
+        e.lda_addr(addr + 1); e.eor_imm(0xFF); e.adc_imm(0); e.sta_addr(addr + 1);
+        e.patchBranchTarget(br741);
     }
 }
 
 void AssemblerSimulatedOps::emitChkZeroCode(AssemblerParser* /*parser*/, M65Emitter& e, bool is16, bool isInverse, int, const std::string&) {
-    if (is16) { e.cmp_imm(0); e.bne(0x01); e.txa(); } else e.cmp_imm(0);
-    if (isInverse) { e.bne(0x04); e.lda_imm(0); e.bra(0x02); e.lda_imm(1); }
-    else { e.beq(0x04); e.lda_imm(0); e.bra(0x02); e.lda_imm(1); }
+    if (is16) { e.cmp_imm(0); auto br755 = e.emitBranchPlaceholder(0xD0); e.txa(); e.patchBranchTarget(br755); } else e.cmp_imm(0);
+    if (isInverse) { auto brCond = e.emitBranchPlaceholder(0xD0); e.lda_imm(0); auto brSkip = e.emitBranchPlaceholder(0x80); e.patchBranchTarget(brCond); e.lda_imm(1); e.patchBranchTarget(brSkip); }
+    else { auto brCond = e.emitBranchPlaceholder(0xF0); e.lda_imm(0); auto brSkip = e.emitBranchPlaceholder(0x80); e.patchBranchTarget(brCond); e.lda_imm(1); e.patchBranchTarget(brSkip); }
 }
 
 void AssemblerSimulatedOps::emitBranch16Code(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string&) {
@@ -766,7 +773,7 @@ void AssemblerSimulatedOps::emitSelectCode(AssemblerParser* parser, M65Emitter& 
     if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) idx++;
     auto val2Ast = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
     if (!val1Ast || !val2Ast) return;
-    e.bne(0x04); e.lda_imm(val2Ast->getValue(parser)); e.bra(0x02); e.lda_imm(val1Ast->getValue(parser));
+    auto brCond769 = e.emitBranchPlaceholder(0xD0); e.lda_imm(val2Ast->getValue(parser)); auto brSkip769 = e.emitBranchPlaceholder(0x80); e.patchBranchTarget(brCond769); e.lda_imm(val1Ast->getValue(parser)); e.patchBranchTarget(brSkip769);
 }
 
 // Helper: compute effective address of a stack variable into AX.
@@ -1162,11 +1169,11 @@ void AssemblerSimulatedOps::emitFillCode(AssemblerParser* parser, M65Emitter& e,
 
     // Trigger DMA
     e.lda_zp(bufAddrZP + 1);
-    e.sta_abs(m65::DMA_ADDR_MI);
-    e.stz_abs(m65::DMA_ADDR_HI);
+    e.sta_addr(m65::DMA_ADDR_MI);
+    e.stz_addr(m65::DMA_ADDR_HI);
     e.lda_zp(bufAddrZP);
-    e.sta_abs(m65::DMA_ADDR_LO);
-    e.stz_abs(m65::DMA_CONTROL);
+    e.sta_addr(m65::DMA_ADDR_LO);
+    e.stz_addr(m65::DMA_CONTROL);
 }
 
 void AssemblerSimulatedOps::emitMoveCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix, bool forceStack) {
@@ -1532,20 +1539,20 @@ void AssemblerSimulatedOps::emitMoveCode(AssemblerParser* parser, M65Emitter& e,
 
     // Trigger DMA - load buffer address and pass to DMA controller
     e.lda_zp(bufAddrZP + 1);  // hi byte
-    e.sta_abs(m65::DMA_ADDR_MI);
-    e.stz_abs(m65::DMA_ADDR_HI);
+    e.sta_addr(m65::DMA_ADDR_MI);
+    e.stz_addr(m65::DMA_ADDR_HI);
     e.lda_zp(bufAddrZP);      // lo byte
-    e.sta_abs(m65::DMA_ADDR_LO);
-    e.stz_abs(m65::DMA_CONTROL);        // Triggers DMA
+    e.sta_addr(m65::DMA_ADDR_LO);
+    e.stz_addr(m65::DMA_CONTROL);        // Triggers DMA
 }
 
 void AssemblerSimulatedOps::emitFlatMemoryCode(AssemblerParser* parser, M65Emitter& e, const std::string& mnemonic, int tokenIndex, const std::string& scopePrefix) {
     std::string op = parser->tokens[tokenIndex].value;
     Symbol* sym = parser->resolveSymbol(op, scopePrefix); uint32_t addr = 0; if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(op); } catch(...) { addr = 0; } }
     e.eom();
-    if (mnemonic == "LDW.F") { e.lda_abs(addr); e.eom(); e.ldx_abs(addr + 1); }
-    else if (mnemonic == "STW.F") { e.sta_abs(addr); e.eom(); e.stx_abs(addr + 1); }
-    else if (mnemonic == "INC.F") e.inc_abs(addr); else if (mnemonic == "DEC.F") e.dec_abs(addr);
+    if (mnemonic == "LDW.F") { e.lda_addr(addr); e.eom(); e.ldx_addr(addr + 1); }
+    else if (mnemonic == "STW.F") { e.sta_addr(addr); e.eom(); e.stx_addr(addr + 1); }
+    else if (mnemonic == "INC.F") e.inc_addr(addr); else if (mnemonic == "DEC.F") e.dec_addr(addr);
 }
 
 void AssemblerSimulatedOps::emitPHWStackCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
@@ -1599,7 +1606,7 @@ void AssemblerSimulatedOps::emitLSL16Code(AssemblerParser* parser, M65Emitter& e
         uint32_t addr = 0;
         try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
         catch(...) { Symbol* sym = parser->resolveSymbol(dest, scopePrefix); if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } } }
-        e.asl_abs(addr); e.rol_abs(addr + 1);
+        e.asl_addr(addr); e.rol_addr(addr + 1);
     }
 }
 
@@ -1612,7 +1619,7 @@ void AssemblerSimulatedOps::emitLSR16Code(AssemblerParser* parser, M65Emitter& e
         uint32_t addr = 0;
         try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
         catch(...) { Symbol* sym = parser->resolveSymbol(dest, scopePrefix); if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } } }
-        e.lsr_abs(addr + 1); e.ror_abs(addr);
+        e.lsr_addr(addr + 1); e.ror_addr(addr);
     }
 }
 
@@ -1625,7 +1632,7 @@ void AssemblerSimulatedOps::emitROL16Code(AssemblerParser* parser, M65Emitter& e
         uint32_t addr = 0;
         try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
         catch(...) { Symbol* sym = parser->resolveSymbol(dest, scopePrefix); if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } } }
-        e.rol_abs(addr); e.rol_abs(addr + 1);
+        e.rol_addr(addr); e.rol_addr(addr + 1);
     }
 }
 
@@ -1638,7 +1645,7 @@ void AssemblerSimulatedOps::emitROR16Code(AssemblerParser* parser, M65Emitter& e
         uint32_t addr = 0;
         try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
         catch(...) { Symbol* sym = parser->resolveSymbol(dest, scopePrefix); if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } } }
-        e.ror_abs(addr + 1); e.ror_abs(addr);
+        e.ror_addr(addr + 1); e.ror_addr(addr);
     }
 }
 
@@ -1651,12 +1658,12 @@ void AssemblerSimulatedOps::emitASR16Code(AssemblerParser* parser, M65Emitter& e
         uint32_t addr = 0;
         try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
         catch(...) { Symbol* sym = parser->resolveSymbol(dest, scopePrefix); if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } } }
-        e.lda_abs(addr + 1); e.cmp_imm(0x80); e.ror_abs(addr + 1); e.ror_abs(addr);
+        e.lda_addr(addr + 1); e.cmp_imm(0x80); e.ror_addr(addr + 1); e.ror_addr(addr);
     }
 }
 
 void AssemblerSimulatedOps::emitSXT8Code(AssemblerParser*, M65Emitter& e, int, const std::string&) {
-    e.pha(); e.cmp_imm(0x80); e.lda_imm(0); e.bcc(0x02); e.lda_imm(0xFF); e.tax(); e.pla();
+    e.pha(); e.cmp_imm(0x80); e.lda_imm(0); auto br1659 = e.emitBranchPlaceholder(0x90); e.lda_imm(0xFF); e.patchBranchTarget(br1659); e.tax(); e.pla();
 }
 
 static std::vector<std::string> getRegistersFromMnemonic(std::string reg) {
@@ -1734,63 +1741,64 @@ void AssemblerSimulatedOps::emitSignedMathOp(AssemblerParser* parser, M65Emitter
     // --- Step 1: Save sign info ---
     // For mul/div: need XOR of both signs. For mod: need left sign only.
     e.txa();                         // A = left high byte (has sign in bit 7)
-    e.sta_abs(SIGN);                 // save left_high to SIGN
+    e.sta_addr(SIGN);                 // save left_high to SIGN
 
     bool srcIsConst = isImmediate && srcAst->isConstant(parser);
     if (op != 2 && !srcIsConst) {
         uint32_t srcAddr = resolveAbsAddr(parser, tokenIndex, scopePrefix);
-        e.lda_abs(srcAddr + 1);      // right high byte
-        e.eor_abs(SIGN);             // XOR signs
-        e.sta_abs(SIGN);             // SIGN = left_high ^ right_high
+        e.lda_addr(srcAddr + 1);      // right high byte
+        e.eor_addr(SIGN);             // XOR signs
+        e.sta_addr(SIGN);             // SIGN = left_high ^ right_high
     } else if (op != 2 && srcIsConst) {
         int32_t val = (int32_t)(int16_t)srcAst->getValue(parser);
         if (val < 0) {
-            e.lda_abs(SIGN);
+            e.lda_addr(SIGN);
             e.eor_imm(0x80);
-            e.sta_abs(SIGN);
+            e.sta_addr(SIGN);
         }
     }
 
     // --- Step 2: abs(left) into .AX ---
     // txa(1) bpl(2) neg_16(13) → bpl skips 13 bytes
-    e.txa(); e.bpl(13); e.neg_16();
+    e.txa(); auto br1756 = e.emitBranchPlaceholder(0x10); e.neg_16(); e.patchBranchTarget(br1756);
 
     // --- Step 3: Store abs(left) in hardware regs ---
-    e.sta_abs(leftBase);
+    e.sta_addr(leftBase);
     e.txa();
-    e.sta_abs(leftBase + 1);
+    e.sta_addr(leftBase + 1);
 
     // --- Step 4: Store abs(right) in hardware regs ---
     if (srcIsConst) {
         int32_t val = (int32_t)(int16_t)srcAst->getValue(parser);
         if (val < 0) val = -val;
-        e.lda_imm(val & 0xFF);        e.sta_abs(rightBase);
-        e.lda_imm((val >> 8) & 0xFF); e.sta_abs(rightBase + 1);
+        e.lda_imm(val & 0xFF);        e.sta_addr(rightBase);
+        e.lda_imm((val >> 8) & 0xFF); e.sta_addr(rightBase + 1);
     } else {
         uint32_t srcAddr = resolveAbsAddr(parser, tokenIndex, scopePrefix);
         // Load source low/high into hw regs
-        e.lda_abs(srcAddr);       e.sta_abs(rightBase);       // 3+3=6
-        e.lda_abs(srcAddr + 1);   e.sta_abs(rightBase + 1);   // 3+3=6
+        e.lda_addr(srcAddr);       e.sta_addr(rightBase);       // 3+3=6
+        e.lda_addr(srcAddr + 1);   e.sta_addr(rightBase + 1);   // 3+3=6
         // If source negative, negate the stored 16-bit value in hw regs
         // Check sign: lda_abs already loaded high byte and set N flag
         // Negation block: lda(3)+eor(2)+sec(1)+adc(2)+sta(3)+lda(3)+eor(2)+adc(2)+sta(3) = 21 bytes
-        e.bpl(21);                                             // 2
-        e.lda_abs(rightBase);     e.eor_imm(0xFF); e.sec(); e.adc_imm(1); e.sta_abs(rightBase);      // 11
-        e.lda_abs(rightBase + 1); e.eor_imm(0xFF);            e.adc_imm(0); e.sta_abs(rightBase + 1); // 10
+        auto br1784 = e.emitBranchPlaceholder(0x10);              // BPL: skip negation
+        e.lda_addr(rightBase);     e.eor_imm(0xFF); e.sec(); e.adc_imm(1); e.sta_addr(rightBase);      // 11
+        e.lda_addr(rightBase + 1); e.eor_imm(0xFF);            e.adc_imm(0); e.sta_addr(rightBase + 1); // 10
+        e.patchBranchTarget(br1784);
     }
 
     // --- Step 5: Wait for hardware (div/mod only) ---
     if (op != 0) {
-        e.bit_abs(m65::MATH_BUSY_STATUS); e.bne(-5);
+        e.bit_addr(m65::MATH_BUSY_STATUS); e.bne(-5);
     }
 
     // --- Step 6: Read result ---
     if (op == 0) {
-        e.lda_abs(m65::MULT_RES); e.ldx_abs(m65::MULT_RES + 1);
+        e.lda_addr(m65::MULT_RES); e.ldx_addr(m65::MULT_RES + 1);
     } else if (op == 1) {
-        e.lda_abs(m65::DIV_RES); e.ldx_abs(m65::DIV_RES + 1);
+        e.lda_addr(m65::DIV_RES); e.ldx_addr(m65::DIV_RES + 1);
     } else {
-        e.lda_abs(m65::DIV_REM); e.ldx_abs(m65::DIV_REM + 1);
+        e.lda_addr(m65::DIV_REM); e.ldx_addr(m65::DIV_REM + 1);
     }
 
     // --- Step 7: Sign correction ---
@@ -1798,12 +1806,14 @@ void AssemblerSimulatedOps::emitSignedMathOp(AssemblerParser* parser, M65Emitter
     // Sequence: pha(1) lda_abs(3) bpl(2) pla(1) neg_16(13) bra(2) pla(1) = 23 total
     // bpl skips: pla(1)+neg_16(13)+bra(2) = 16 bytes
     e.pha();
-    e.lda_abs(SIGN);
-    e.bpl(16);
+    e.lda_addr(SIGN);
+    auto br1810 = e.emitBranchPlaceholder(0x10); // BPL: skip sign correction
     e.pla();
     e.neg_16();
-    e.bra(1);
+    auto br1813 = e.emitBranchPlaceholder(0x80); // BRA: skip positive-path pla
+    e.patchBranchTarget(br1810);
     e.pla();
+    e.patchBranchTarget(br1813);
 }
 
 // mul.s16 .ax, src — Signed 16-bit multiply
@@ -1826,8 +1836,8 @@ void AssemblerSimulatedOps::emitMod16Code(AssemblerParser* parser, M65Emitter& e
         // (The div hardware leaves the remainder there after any division.)
         emitDivCode(parser, e, 16, dest, tokenIndex, scopePrefix);
         // divCode loaded quotient into .AX from $D768. Override with remainder:
-        e.lda_abs(m65::DIV_REM);
-        e.ldx_abs(m65::DIV_REM + 1);
+        e.lda_addr(m65::DIV_REM);
+        e.ldx_addr(m65::DIV_REM + 1);
     }
 }
 
@@ -1981,9 +1991,9 @@ void AssemblerSimulatedOps::emitMOVE_FPCode(AssemblerParser* parser, M65Emitter&
     e.lda_imm(0x00); e.pha();
     // Trigger DMA
     e.tsx(); e.txa(); e.clc(); e.adc_imm(sb & 0xFF);
-    e.sta_abs(m65::DMA_ADDR_LO);
-    e.lda_imm(sb >> 8); e.sta_abs(m65::DMA_ADDR_MI);
-    e.stz_abs(m65::DMA_ADDR_HI); e.stz_abs(m65::DMA_CONTROL);
+    e.sta_addr(m65::DMA_ADDR_LO);
+    e.lda_imm(sb >> 8); e.sta_addr(m65::DMA_ADDR_MI);
+    e.stz_addr(m65::DMA_ADDR_HI); e.stz_addr(m65::DMA_CONTROL);
     // Clean up stack
     e.tsx(); e.txa(); e.clc(); e.adc_imm(12); e.tax(); e.txs();
     e.pla();
@@ -2112,7 +2122,7 @@ void AssemblerSimulatedOps::emitBFInsCode(AssemblerParser* parser, M65Emitter& e
                 e.lda_scratch();
                 e.emitInstruction("tsb", AddressingMode::BASE_PAGE, addr, true);
             } else {
-                e.lda_abs(addr); e.and_imm(~shiftedMask16 & 0xFF); e.ora_zp(e.scratchZP()); e.sta_abs(addr);
+                e.lda_addr(addr); e.and_imm(~shiftedMask16 & 0xFF); e.ora_zp(e.scratchZP()); e.sta_addr(addr);
             }
         }
 
@@ -2133,7 +2143,7 @@ void AssemblerSimulatedOps::emitBFInsCode(AssemblerParser* parser, M65Emitter& e
                 e.lda_scratch();
                 e.emitInstruction("tsb", AddressingMode::BASE_PAGE, addr + 1, true);
             } else {
-                e.lda_abs(addr + 1); e.and_imm((~shiftedMask16 >> 8) & 0xFF); e.ora_zp(e.scratchZP()); e.sta_abs(addr + 1);
+                e.lda_addr(addr + 1); e.and_imm((~shiftedMask16 >> 8) & 0xFF); e.ora_zp(e.scratchZP()); e.sta_addr(addr + 1);
             }
         }
         return;
@@ -2218,8 +2228,9 @@ void AssemblerSimulatedOps::emitSXT16Code(AssemblerParser*, M65Emitter& e, int, 
     e.txa();             // A = high byte of 16-bit value
     e.cmp_imm(0x80);     // test sign bit → carry set if negative
     e.lda_imm(0);
-    e.bcc(0x02);
+    auto br2231 = e.emitBranchPlaceholder(0x90); // BCC: skip sign fill
     e.lda_imm(0xFF);     // A = sign extension byte
+    e.patchBranchTarget(br2231);
     e.tay();             // Y = sign
     e.taz();             // Z = sign
     e.pla();             // restore A (lo byte)
@@ -2267,13 +2278,13 @@ void AssemblerSimulatedOps::emitAddSub32Code(AssemblerParser* parser, M65Emitter
                 Symbol* sym = parser->resolveSymbol(src, scopePrefix);
                 if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(src); } catch(...) { addr = 0; } }
             }
-            if (isAdd) e.adc_abs(addr); else e.sbc_abs(addr);
+            if (isAdd) e.adc_addr(addr); else e.sbc_addr(addr);
             e.pha(); e.txa();
-            if (isAdd) e.adc_abs(addr + 1); else e.sbc_abs(addr + 1);
+            if (isAdd) e.adc_addr(addr + 1); else e.sbc_addr(addr + 1);
             e.tax(); e.tya();
-            if (isAdd) e.adc_abs(addr + 2); else e.sbc_abs(addr + 2);
+            if (isAdd) e.adc_addr(addr + 2); else e.sbc_addr(addr + 2);
             e.tay(); e.tza();
-            if (isAdd) e.adc_abs(addr + 3); else e.sbc_abs(addr + 3);
+            if (isAdd) e.adc_addr(addr + 3); else e.sbc_addr(addr + 3);
             e.taz(); e.pla();
         }
     } else {
@@ -2283,10 +2294,10 @@ void AssemblerSimulatedOps::emitAddSub32Code(AssemblerParser* parser, M65Emitter
         if (isAdd) e.clc(); else e.sec();
         if (isImmediate && srcAst->isConstant(parser)) {
             uint32_t val = srcAst->getValue(parser);
-            e.lda_abs(dAddr);   if (isAdd) e.adc_imm(val & 0xFF);         else e.sbc_imm(val & 0xFF);         e.sta_abs(dAddr);
-            e.lda_abs(dAddr+1); if (isAdd) e.adc_imm((val >> 8) & 0xFF);  else e.sbc_imm((val >> 8) & 0xFF);  e.sta_abs(dAddr+1);
-            e.lda_abs(dAddr+2); if (isAdd) e.adc_imm((val >> 16) & 0xFF); else e.sbc_imm((val >> 16) & 0xFF); e.sta_abs(dAddr+2);
-            e.lda_abs(dAddr+3); if (isAdd) e.adc_imm((val >> 24) & 0xFF); else e.sbc_imm((val >> 24) & 0xFF); e.sta_abs(dAddr+3);
+            e.lda_addr(dAddr);   if (isAdd) e.adc_imm(val & 0xFF);         else e.sbc_imm(val & 0xFF);         e.sta_addr(dAddr);
+            e.lda_addr(dAddr+1); if (isAdd) e.adc_imm((val >> 8) & 0xFF);  else e.sbc_imm((val >> 8) & 0xFF);  e.sta_addr(dAddr+1);
+            e.lda_addr(dAddr+2); if (isAdd) e.adc_imm((val >> 16) & 0xFF); else e.sbc_imm((val >> 16) & 0xFF); e.sta_addr(dAddr+2);
+            e.lda_addr(dAddr+3); if (isAdd) e.adc_imm((val >> 24) & 0xFF); else e.sbc_imm((val >> 24) & 0xFF); e.sta_addr(dAddr+3);
         } else {
             uint32_t sAddr = 0;
             try { sAddr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
@@ -2296,10 +2307,10 @@ void AssemblerSimulatedOps::emitAddSub32Code(AssemblerParser* parser, M65Emitter
                 Symbol* symS = parser->resolveSymbol(src, scopePrefix);
                 if (symS) sAddr = symS->value; else { try { sAddr = parseNumericLiteral(src); } catch(...) { sAddr = 0; } }
             }
-            e.lda_abs(dAddr);   if (isAdd) e.adc_abs(sAddr);   else e.sbc_abs(sAddr);   e.sta_abs(dAddr);
-            e.lda_abs(dAddr+1); if (isAdd) e.adc_abs(sAddr+1); else e.sbc_abs(sAddr+1); e.sta_abs(dAddr+1);
-            e.lda_abs(dAddr+2); if (isAdd) e.adc_abs(sAddr+2); else e.sbc_abs(sAddr+2); e.sta_abs(dAddr+2);
-            e.lda_abs(dAddr+3); if (isAdd) e.adc_abs(sAddr+3); else e.sbc_abs(sAddr+3); e.sta_abs(dAddr+3);
+            e.lda_addr(dAddr);   if (isAdd) e.adc_addr(sAddr);   else e.sbc_addr(sAddr);   e.sta_addr(dAddr);
+            e.lda_addr(dAddr+1); if (isAdd) e.adc_addr(sAddr+1); else e.sbc_addr(sAddr+1); e.sta_addr(dAddr+1);
+            e.lda_addr(dAddr+2); if (isAdd) e.adc_addr(sAddr+2); else e.sbc_addr(sAddr+2); e.sta_addr(dAddr+2);
+            e.lda_addr(dAddr+3); if (isAdd) e.adc_addr(sAddr+3); else e.sbc_addr(sAddr+3); e.sta_addr(dAddr+3);
         }
     }
 }
@@ -2338,9 +2349,9 @@ void AssemblerSimulatedOps::emitBitwise32Code(AssemblerParser* parser, M65Emitte
         } else throw std::runtime_error("Simulated bitwise 32-bit only supports .AXYZ destination");
     };
 
-    if (M == "AND" || M == "AND.32") doOp([&](uint8_t v){ e.and_imm(v); }, [&](uint16_t a){ e.and_abs(a); });
-    else if (M == "ORA" || M == "ORA.32") doOp([&](uint8_t v){ e.ora_imm(v); }, [&](uint16_t a){ e.ora_abs(a); });
-    else if (M == "EOR" || M == "EOR.32") doOp([&](uint8_t v){ e.eor_imm(v); }, [&](uint16_t a){ e.eor_abs(a); });
+    if (M == "AND" || M == "AND.32") doOp([&](uint8_t v){ e.and_imm(v); }, [&](uint16_t a){ e.and_addr(a); });
+    else if (M == "ORA" || M == "ORA.32") doOp([&](uint8_t v){ e.ora_imm(v); }, [&](uint16_t a){ e.ora_addr(a); });
+    else if (M == "EOR" || M == "EOR.32") doOp([&](uint8_t v){ e.eor_imm(v); }, [&](uint16_t a){ e.eor_addr(a); });
 }
 
 // CMP.32 — 32-bit unsigned comparison (.AXYZ vs immediate or memory)
@@ -2381,13 +2392,13 @@ void AssemblerSimulatedOps::emitCMP32Code(AssemblerParser* parser, M65Emitter& e
                 Symbol* sym = parser->resolveSymbol(src, scopePrefix);
                 if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(src); } catch(...) { addr = 0; } }
             }
-            e.tza(); e.cmp_abs(addr + 3);
+            e.tza(); e.cmp_addr(addr + 3);
             br0 = e.emitBranchPlaceholder(0xD0); // BNE
-            e.tya(); e.cmp_abs(addr + 2);
+            e.tya(); e.cmp_addr(addr + 2);
             br1 = e.emitBranchPlaceholder(0xD0); // BNE
-            e.txa(); e.cmp_abs(addr + 1);
+            e.txa(); e.cmp_addr(addr + 1);
             br2 = e.emitBranchPlaceholder(0xD0); // BNE
-            e.lda_zp(zpScratch); e.cmp_abs(addr);
+            e.lda_zp(zpScratch); e.cmp_addr(addr);
         }
         e.patchBranchTarget(br0);
         e.patchBranchTarget(br1);
@@ -2433,13 +2444,13 @@ void AssemblerSimulatedOps::emitCMP_S32Code(AssemblerParser* parser, M65Emitter&
             }
             e.sta_zp(zpScratch + 1); // save A to scratch+1 (scratch used by sign-flip below)
             e.tza(); e.eor_imm(0x80); e.sta_scratch();
-            e.lda_abs(addr + 3); e.eor_imm(0x80); e.cmp_scratch();
+            e.lda_addr(addr + 3); e.eor_imm(0x80); e.cmp_scratch();
             br0 = e.emitBranchPlaceholder(0xD0); // BNE
-            e.tya(); e.cmp_abs(addr + 2);
+            e.tya(); e.cmp_addr(addr + 2);
             br1 = e.emitBranchPlaceholder(0xD0); // BNE
-            e.txa(); e.cmp_abs(addr + 1);
+            e.txa(); e.cmp_addr(addr + 1);
             br2 = e.emitBranchPlaceholder(0xD0); // BNE
-            e.lda_zp(zpScratch + 1); e.cmp_abs(addr);
+            e.lda_zp(zpScratch + 1); e.cmp_addr(addr);
         }
         e.patchBranchTarget(br0);
         e.patchBranchTarget(br1);
@@ -2471,15 +2482,15 @@ void AssemblerSimulatedOps::emitNegNot32Code(AssemblerParser* parser, M65Emitter
         try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
         catch(...) { Symbol* sym = parser->resolveSymbol(operand, scopePrefix); if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(operand); } catch(...) { addr = 0; } } }
         if (isNeg) {
-            e.lda_abs(addr);   e.eor_imm(0xFF); e.clc(); e.adc_imm(1); e.sta_abs(addr);
-            e.lda_abs(addr+1); e.eor_imm(0xFF); e.adc_imm(0); e.sta_abs(addr+1);
-            e.lda_abs(addr+2); e.eor_imm(0xFF); e.adc_imm(0); e.sta_abs(addr+2);
-            e.lda_abs(addr+3); e.eor_imm(0xFF); e.adc_imm(0); e.sta_abs(addr+3);
+            e.lda_addr(addr);   e.eor_imm(0xFF); e.clc(); e.adc_imm(1); e.sta_addr(addr);
+            e.lda_addr(addr+1); e.eor_imm(0xFF); e.adc_imm(0); e.sta_addr(addr+1);
+            e.lda_addr(addr+2); e.eor_imm(0xFF); e.adc_imm(0); e.sta_addr(addr+2);
+            e.lda_addr(addr+3); e.eor_imm(0xFF); e.adc_imm(0); e.sta_addr(addr+3);
         } else {
-            e.lda_abs(addr);   e.eor_imm(0xFF); e.sta_abs(addr);
-            e.lda_abs(addr+1); e.eor_imm(0xFF); e.sta_abs(addr+1);
-            e.lda_abs(addr+2); e.eor_imm(0xFF); e.sta_abs(addr+2);
-            e.lda_abs(addr+3); e.eor_imm(0xFF); e.sta_abs(addr+3);
+            e.lda_addr(addr);   e.eor_imm(0xFF); e.sta_addr(addr);
+            e.lda_addr(addr+1); e.eor_imm(0xFF); e.sta_addr(addr+1);
+            e.lda_addr(addr+2); e.eor_imm(0xFF); e.sta_addr(addr+2);
+            e.lda_addr(addr+3); e.eor_imm(0xFF); e.sta_addr(addr+3);
         }
     }
 }
@@ -2508,12 +2519,12 @@ void AssemblerSimulatedOps::emitABS32Code(AssemblerParser* parser, M65Emitter& e
         uint32_t addr = 0;
         try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
         catch(...) { Symbol* sym = parser->resolveSymbol(dest, scopePrefix); if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } } }
-        e.lda_abs(addr + 3);
+        e.lda_addr(addr + 3);
         size_t brSkip = e.emitBranchPlaceholder(0x10); // BPL → skip
-        e.lda_abs(addr);   e.eor_imm(0xFF); e.clc(); e.adc_imm(1); e.sta_abs(addr);
-        e.lda_abs(addr+1); e.eor_imm(0xFF); e.adc_imm(0); e.sta_abs(addr+1);
-        e.lda_abs(addr+2); e.eor_imm(0xFF); e.adc_imm(0); e.sta_abs(addr+2);
-        e.lda_abs(addr+3); e.eor_imm(0xFF); e.adc_imm(0); e.sta_abs(addr+3);
+        e.lda_addr(addr);   e.eor_imm(0xFF); e.clc(); e.adc_imm(1); e.sta_addr(addr);
+        e.lda_addr(addr+1); e.eor_imm(0xFF); e.adc_imm(0); e.sta_addr(addr+1);
+        e.lda_addr(addr+2); e.eor_imm(0xFF); e.adc_imm(0); e.sta_addr(addr+2);
+        e.lda_addr(addr+3); e.eor_imm(0xFF); e.adc_imm(0); e.sta_addr(addr+3);
         e.patchBranchTarget(brSkip);
     }
 }
@@ -2533,7 +2544,7 @@ void AssemblerSimulatedOps::emitLSL32Code(AssemblerParser* parser, M65Emitter& e
         uint32_t addr = 0;
         try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
         catch(...) { Symbol* sym = parser->resolveSymbol(dest, scopePrefix); if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } } }
-        e.asl_abs(addr); e.rol_abs(addr + 1); e.rol_abs(addr + 2); e.rol_abs(addr + 3);
+        e.asl_addr(addr); e.rol_addr(addr + 1); e.rol_addr(addr + 2); e.rol_addr(addr + 3);
     }
 }
 
@@ -2551,7 +2562,7 @@ void AssemblerSimulatedOps::emitLSR32Code(AssemblerParser* parser, M65Emitter& e
         uint32_t addr = 0;
         try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
         catch(...) { Symbol* sym = parser->resolveSymbol(dest, scopePrefix); if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } } }
-        e.lsr_abs(addr + 3); e.ror_abs(addr + 2); e.ror_abs(addr + 1); e.ror_abs(addr);
+        e.lsr_addr(addr + 3); e.ror_addr(addr + 2); e.ror_addr(addr + 1); e.ror_addr(addr);
     }
 }
 
@@ -2569,7 +2580,7 @@ void AssemblerSimulatedOps::emitROL32Code(AssemblerParser* parser, M65Emitter& e
         uint32_t addr = 0;
         try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
         catch(...) { Symbol* sym = parser->resolveSymbol(dest, scopePrefix); if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } } }
-        e.rol_abs(addr); e.rol_abs(addr + 1); e.rol_abs(addr + 2); e.rol_abs(addr + 3);
+        e.rol_addr(addr); e.rol_addr(addr + 1); e.rol_addr(addr + 2); e.rol_addr(addr + 3);
     }
 }
 
@@ -2586,7 +2597,7 @@ void AssemblerSimulatedOps::emitROR32Code(AssemblerParser* parser, M65Emitter& e
         uint32_t addr = 0;
         try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
         catch(...) { Symbol* sym = parser->resolveSymbol(dest, scopePrefix); if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } } }
-        e.ror_abs(addr + 3); e.ror_abs(addr + 2); e.ror_abs(addr + 1); e.ror_abs(addr);
+        e.ror_addr(addr + 3); e.ror_addr(addr + 2); e.ror_addr(addr + 1); e.ror_addr(addr);
     }
 }
 
@@ -2604,8 +2615,8 @@ void AssemblerSimulatedOps::emitASR32Code(AssemblerParser* parser, M65Emitter& e
         uint32_t addr = 0;
         try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
         catch(...) { Symbol* sym = parser->resolveSymbol(dest, scopePrefix); if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } } }
-        e.lda_abs(addr + 3); e.cmp_imm(0x80);
-        e.ror_abs(addr + 3); e.ror_abs(addr + 2); e.ror_abs(addr + 1); e.ror_abs(addr);
+        e.lda_addr(addr + 3); e.cmp_imm(0x80);
+        e.ror_addr(addr + 3); e.ror_addr(addr + 2); e.ror_addr(addr + 1); e.ror_addr(addr);
     }
 }
 
@@ -2834,16 +2845,16 @@ void AssemblerSimulatedOps::emitMod32Code(AssemblerParser* parser, M65Emitter& e
         std::string DEST = dest; if (!DEST.empty() && DEST[0] != '.') DEST = "." + DEST;
         std::transform(DEST.begin(), DEST.end(), DEST.begin(), ::toupper);
         if (DEST == ".Q" || DEST == ".AXYZ") {
-            e.lda_abs(m65::DIV_REM + 3); e.taz();
-            e.lda_abs(m65::DIV_REM + 2); e.tay();
-            e.lda_abs(m65::DIV_REM + 1); e.tax();
-            e.lda_abs(m65::DIV_REM);
+            e.lda_addr(m65::DIV_REM + 3); e.taz();
+            e.lda_addr(m65::DIV_REM + 2); e.tay();
+            e.lda_addr(m65::DIV_REM + 1); e.tax();
+            e.lda_addr(m65::DIV_REM);
         } else {
             for (int i = 0; i < 4; ++i) {
-                e.lda_abs(m65::DIV_REM + i);
+                e.lda_addr(m65::DIV_REM + i);
                 Symbol* sym = parser->resolveSymbol(dest, scopePrefix);
                 uint32_t addr = 0; if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } }
-                e.sta_abs(addr + i);
+                e.sta_addr(addr + i);
             }
         }
     }
