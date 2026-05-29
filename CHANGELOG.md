@@ -21,7 +21,8 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - **ZP Addressing in Binary Mode**: Simulated ops converted from hardcoded branch offsets to `emitBranchPlaceholder`/`patchBranchTarget` (20 forward branches). All 141 memory-access calls changed from `_abs` to `_addr`, auto-selecting base-page for ZP-range addresses in binary mode.
 - **Constant-Memory Forwarding**: M65Emitter `_addr` read-type methods (lda/ldx/ldy/ldz/adc/sbc/and/ora/eor/cmp) check MachineState for ZP locations holding known constants and emit immediate mode instead of memory read. Assembler generator preserves memory state across non-label statement boundaries to enable cross-statement forwarding.
 - **Relocatable Constant Forwarding (RELOC_CONST)**: When `lda #<_symbol; sta $ZP` stores a relocatable symbol's lo/hi byte to a ZP scratch location, subsequent reads from that ZP location (`adc $ZP`) are forwarded to immediate mode (`adc #<_symbol`) with proper R_LOW/R_HIGH relocation records. Eliminates ZP memory round-trip for global address arithmetic in relocatable objects. Enabled by per-instruction MachineState tracking in the assembler generator — no blanket register invalidation at statement boundaries.
-- game_of_life.prg: **5301 → 5096 bytes** (further reduction from MachineState-enabled optimizations).
+- **CPX for Unsigned 16-bit Compare**: `cmp.16` now uses `cpx #hi` for the high byte instead of `txa; cmp #hi`, saving 1 byte per unsigned comparison and preserving A. Applies to both immediate and memory operand paths. Signed `cmp.s16` unchanged (needs EOR #$80).
+- game_of_life.prg: **5301 → 5081 bytes** (further reduction from MachineState-enabled optimizations).
 
 ## [Unreleased] - 2026-05-27
 
