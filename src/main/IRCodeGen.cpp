@@ -1255,6 +1255,46 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             bool src2InFrame = inst.src2.isVreg() &&
                 alloc_.getAlloc(inst.src2.vregId).loc == VRegAllocator::IN_FRAME;
 
+            // --- I16 add/sub store-fused peephole ---
+            // When result is immediately stored to a ZP local, avoid pha/txa/adc/tax/pla
+            // by storing lo byte first, then computing hi byte directly:
+            //   clc; adc src_lo; sta dest_lo; txa; adc src_hi; sta dest_hi
+            if (inst.resultType == ir::Type::I16 && inst.dest.isVreg() && !src1InFrame && !src2InFrame) {
+                auto* nextInst = peekNextInst();
+                if (nextInst && nextInst->op == ir::Op::STORE &&
+                    nextInst->src1.isVreg() && nextInst->src1.vregId == inst.dest.vregId &&
+                    nextInst->src2.isVreg() && localSlotVregs_.count(nextInst->src2.vregId)) {
+                    auto destAlloc = alloc_.getAlloc(nextInst->src2.vregId);
+                    if (destAlloc.loc == VRegAllocator::IN_ZP) {
+                        std::string r = irDesc("store-fused add/sub.16");
+                        std::string src2mem = src2MemOperand(inst.src2);
+                        loadOperand(inst.src1);
+                        std::stringstream dlo, dhi;
+                        dlo << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << destAlloc.offset;
+                        dhi << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (destAlloc.offset + 1);
+                        emit(inst.op == ir::Op::ADD ? "clc" : "sec", r);
+                        emit(inst.op == ir::Op::ADD ? "adc " + src2mem : "sbc " + src2mem);
+                        emit("sta " + dlo.str());
+                        emit("txa");
+                        // Hi byte: src2mem+1 for ZP operands, #imm for immediates
+                        if (src2mem[0] == '#') {
+                            // Immediate: parse value and use hi byte
+                            int64_t immVal = 0;
+                            try { immVal = std::stol(src2mem.substr(1)); } catch (...) {}
+                            emit(inst.op == ir::Op::ADD ?
+                                "adc #" + std::to_string((int)((immVal >> 8) & 0xFF)) :
+                                "sbc #" + std::to_string((int)((immVal >> 8) & 0xFF)));
+                        } else {
+                            emit(inst.op == ir::Op::ADD ? "adc " + src2mem + "+1" : "sbc " + src2mem + "+1");
+                        }
+                        emit("sta " + dhi.str());
+                        resultInAX_ = -2; // next STORE already handled
+                        ms_.invalidateAll();
+                        break;
+                    }
+                }
+            }
+
             std::string mn;
             if (inst.resultType == ir::Type::I32) {
                 mn = (inst.op == ir::Op::ADD) ? "add.32" : "sub.32";
