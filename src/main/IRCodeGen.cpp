@@ -985,16 +985,16 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // Common return point — clean up frame, then endproc emits rts
     emitLabel("@__return");
     if (localFrameSize > 0) {
-        // Preserve return value in A,X,Y,Z while popping frame
-        emit("sta __zp_scratch");
-        emit("stx __zp_scratch+1");
-        emit("sty __zp_scratch3");
-        emit("stz __zp_scratch3+1");
-        for (int i = 0; i < localFrameSize; i++) emit("pla");
-        emit("lda __zp_scratch");
-        emit("ldx __zp_scratch+1");
-        emit("ldy __zp_scratch3");
-        emit("ldz __zp_scratch3+1");
+        int retSize = ir::typeSize(fn.returnType);
+        if (retSize >= 4) {
+            // I32: return value in A/X/Y/Z — Z carries byte 3, save it
+            emit("stz __zp_scratch3+1");
+            for (int i = 0; i < localFrameSize; i++) emit("plz");
+            emit("ldz __zp_scratch3+1");
+        } else {
+            // VOID/I8/I16: PLZ doesn't clobber A, X, or Y
+            for (int i = 0; i < localFrameSize; i++) emit("plz");
+        }
     }
 
     // __interrupt: restore registers and return with RTI
