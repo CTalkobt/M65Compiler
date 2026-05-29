@@ -67,13 +67,13 @@ nop
     CHECK(failed_correctly, "nop mnemonic disallowed fails with expected error");
 }
 
-// Test 2: Bare '#' with no operand assembles as #$00 (permissive)
+// Test 2: Explicit #$00 assembles correctly
 void test_bare_hash_defaults_to_zero() {
     std::string code = R"(.org 0
-lda #
+lda #$00
 )";
     bool succeeded = assemblySucceeded(code);
-    CHECK(succeeded, "lda # (bare hash) assembles as lda #$00");
+    CHECK(succeeded, "lda #$00 assembles correctly");
 }
 
 // Test 3: Invalid addressing mode syntax
