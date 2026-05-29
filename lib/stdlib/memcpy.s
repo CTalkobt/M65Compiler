@@ -17,8 +17,11 @@ proc _memcpy, W#_p_dest, W#_p_src, W#_p_n
     lda $03
     pha
 
-    ldax _p_dest+2, s
-    stax $02
+    tsx
+    lda __sp_base+_p_dest+2, x
+    sta $02
+    lda __sp_base+_p_dest+3, x
+    sta $03
     ldy #0
 @loop:
     lda _p_n+2, s
@@ -47,6 +50,10 @@ proc _memcpy, W#_p_dest, W#_p_src, W#_p_n
     stz $03
     plz
     stz $02
-    ldax _p_dest+2, s     ; memcpy returns dest
+    tsx
+    lda __sp_base+_p_dest+2, x     ; memcpy returns dest (lo)
+    ldy __sp_base+_p_dest+3, x     ; hi
+    sty $08
+    ldx $08
     rts
     endproc

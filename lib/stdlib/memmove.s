@@ -11,16 +11,22 @@
 
 proc _memmove, W#_p_dest, W#_p_src, W#_p_n
     .var _fp = 0
-    ldax _p_n, s
-    stax $06            ; $06/$07 = count
-    lda $06
-    ora $07
+    ; Load all three params with a single TSX
+    tsx
+    lda __sp_base+_p_n, x
+    sta $06
+    lda __sp_base+_p_n+1, x
+    sta $07             ; $06/$07 = count
+    ora $06
     beq @done           ; n == 0, nothing to do
-
-    ldax _p_dest, s
-    stax $02
-    ldax _p_src, s
-    stax $04
+    lda __sp_base+_p_dest, x
+    sta $02
+    lda __sp_base+_p_dest+1, x
+    sta $03             ; $02/$03 = dest
+    lda __sp_base+_p_src, x
+    sta $04
+    lda __sp_base+_p_src+1, x
+    sta $05             ; $04/$05 = src
 
     ; Compare dest vs src to decide direction
     ; If dest > src, copy backwards to handle overlap
@@ -103,6 +109,10 @@ proc _memmove, W#_p_dest, W#_p_src, W#_p_n
     dec $06
     bra @fwd_loop
 @done:
-    ldax _p_dest, s
+    tsx
+    lda __sp_base+_p_dest, x
+    ldy __sp_base+_p_dest+1, x
+    sty $08
+    ldx $08
     rtn #0
     endproc

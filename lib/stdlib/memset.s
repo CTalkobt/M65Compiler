@@ -11,15 +11,18 @@
 
 proc _memset, W#_p_s, W#_p_c, W#_p_n
     .var _fp = 0
-    ; Load destination pointer into ZP
-    ldax _p_s, s
-    stax $02            ; $02/$03 = dest pointer
-    ; Load fill byte
-    lda.sp _p_c
-    sta $04             ; $04 = fill byte
-    ; Load count
-    ldax _p_n, s
-    stax $05            ; $05/$06 = count
+    ; Load all three params with a single TSX
+    tsx
+    lda __sp_base+_p_s, x      ; dest lo
+    sta $02
+    lda __sp_base+_p_s+1, x    ; dest hi
+    sta $03
+    lda __sp_base+_p_c, x      ; fill byte
+    sta $04
+    lda __sp_base+_p_n, x      ; count lo
+    sta $05
+    lda __sp_base+_p_n+1, x    ; count hi
+    sta $06
 
     ldy #0
     lda $04
@@ -42,7 +45,11 @@ proc _memset, W#_p_s, W#_p_c, W#_p_n
     lda $04
     bra @loop
 @done:
-    ; return s
-    ldax _p_s, s
+    ; return s (lo in A, hi in X)
+    tsx
+    lda __sp_base+_p_s, x
+    ldy __sp_base+_p_s+1, x
+    sty $08
+    ldx $08
     rtn #0
     endproc
