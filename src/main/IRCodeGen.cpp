@@ -1515,30 +1515,44 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             } else {
                 src2 = src2MemOperand(inst.src2);
             }
-            loadOperand(inst.src1);
-
             bool isSigned = (inst.op == ir::Op::CMP_LT || inst.op == ir::Op::CMP_LE ||
                              inst.op == ir::Op::CMP_GT || inst.op == ir::Op::CMP_GE);
 
             // Optimization: CMP_EQ/CMP_NE with 0 → use ORA to test zero
-            // For I16: A=lo, X=hi → stx scratch; ora scratch → Z flag set if both zero
-            // For I8: just cmp #0 (or test A directly)
+            // For ZP-allocated I16: lda zp_lo; ora zp_hi (3 instructions, 5 bytes)
+            // For other I16: loadOperand then stx scratch; ora scratch
             if (src2IsConst && src2ConstVal == 0 &&
                 (inst.op == ir::Op::CMP_EQ || inst.op == ir::Op::CMP_NE) &&
                 inst.src1.type != ir::Type::I32) {
                 if (inst.src1.type == ir::Type::I8) {
+                    loadOperand(inst.src1);
                     emit("cmp #0");
+                } else if (inst.src1.isVreg()) {
+                    auto alloc = alloc_.getAlloc(inst.src1.vregId);
+                    if (alloc.loc == VRegAllocator::IN_ZP) {
+                        std::string lo = "$" + hex8(alloc.offset);
+                        std::string hi = "$" + hex8(alloc.offset + 1);
+                        emit("lda " + lo);
+                        emit("ora " + hi);
+                    } else {
+                        loadOperand(inst.src1);
+                        emit("stx __zp_scratch");
+                        emit("ora __zp_scratch");
+                    }
                 } else {
-                    // I16: lo in A, hi in X → ora to test both
+                    loadOperand(inst.src1);
                     emit("stx __zp_scratch");
                     emit("ora __zp_scratch");
                 }
-            } else if (inst.src1.type == ir::Type::I32) {
-                emit(std::string(isSigned ? "cmp.s32" : "cmp.32") + " .AXYZ, " + src2);
-            } else if (inst.src1.type == ir::Type::I8) {
-                emit("cmp " + src2);
             } else {
-                emit(std::string(isSigned ? "cmp.s16" : "cmp.16") + " .AX, " + src2);
+                loadOperand(inst.src1);
+                if (inst.src1.type == ir::Type::I32) {
+                    emit(std::string(isSigned ? "cmp.s32" : "cmp.32") + " .AXYZ, " + src2);
+                } else if (inst.src1.type == ir::Type::I8) {
+                    emit("cmp " + src2);
+                } else {
+                    emit(std::string(isSigned ? "cmp.s16" : "cmp.16") + " .AX, " + src2);
+                }
             }
             } // end src2/signed scope
 
