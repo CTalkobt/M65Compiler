@@ -66,6 +66,8 @@ public:
     void visit(CpuFlagAccess& node) override;
     void visit(TranslationUnit& node) override;
 
+    void emitConditionBranches(Expression* cond, const std::string& trueLabel,
+                               const std::string& falseLabel, ir::SourceLoc sl);
 private:
     ir::Module module_;
     ir::Function* currentFunc_ = nullptr;

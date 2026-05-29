@@ -1843,21 +1843,59 @@ void IRBuilder::visit(ReturnStatement& node) {
     }
 }
 
-void IRBuilder::visit(IfStatement& node) {
-    node.condition->accept(*this);
-    auto cond = lastValue_;
+// Emit condition branches for if/while — chains && and || directly
+// without boolean materialization. For simple conditions, evaluates
+// and emits BR_COND.
+void IRBuilder::emitConditionBranches(Expression* cond, const std::string& trueLabel,
+                                      const std::string& falseLabel, ir::SourceLoc sl) {
+    // Check for && / ||
+    if (auto* bin = dynamic_cast<BinaryOperation*>(cond)) {
+        if (bin->op == "&&") {
+            // A && B: if A is false → falseLabel; else test B
+            std::string rhsLabel = newLabel("and_rhs");
+            emitConditionBranches(bin->left.get(), rhsLabel, falseLabel, sl);
+            startBlock(rhsLabel);
+            emitConditionBranches(bin->right.get(), trueLabel, falseLabel, sl);
+            return;
+        }
+        if (bin->op == "||") {
+            // A || B: if A is true → trueLabel; else test B
+            std::string rhsLabel = newLabel("or_rhs");
+            emitConditionBranches(bin->left.get(), trueLabel, rhsLabel, sl);
+            startBlock(rhsLabel);
+            emitConditionBranches(bin->right.get(), trueLabel, falseLabel, sl);
+            return;
+        }
+    }
+    // Check for !cond — swap targets
+    if (auto* unary = dynamic_cast<UnaryOperation*>(cond)) {
+        if (unary->op == "!") {
+            emitConditionBranches(unary->operand.get(), falseLabel, trueLabel, sl);
+            return;
+        }
+    }
 
+    // Simple condition — evaluate and branch
+    cond->accept(*this);
+    auto val = lastValue_;
+    ir::Inst br;
+    br.op = ir::Op::BR_COND;
+    br.src1 = val;
+    br.dest = ir::Operand::label(trueLabel);
+    br.src2 = ir::Operand::label(falseLabel);
+    br.loc = sl;
+    emit(br);
+}
+
+void IRBuilder::visit(IfStatement& node) {
     std::string thenLabel = newLabel("if_then");
     std::string elseLabel = newLabel("if_else");
     std::string endLabel = newLabel("if_end");
+    std::string falseTarget = node.elseBranch ? elseLabel : endLabel;
 
-    ir::Inst br;
-    br.op = ir::Op::BR_COND;
-    br.src1 = cond;
-    br.dest = ir::Operand::label(thenLabel);
-    br.src2 = ir::Operand::label(node.elseBranch ? elseLabel : endLabel);
-    br.loc = loc(node);
-    emit(br);
+    // Optimization: for && and || conditions, emit chained branches directly
+    // to the if's true/false targets — no boolean materialization.
+    emitConditionBranches(node.condition.get(), thenLabel, falseTarget, loc(node));
 
     startBlock(thenLabel);
     node.thenBranch->accept(*this);
@@ -1912,13 +1950,7 @@ void IRBuilder::visit(WhileStatement& node) {
     emit(brCond);
 
     startBlock(condLabel);
-    node.condition->accept(*this);
-    ir::Inst br;
-    br.op = ir::Op::BR_COND;
-    br.src1 = lastValue_;
-    br.dest = ir::Operand::label(bodyLabel);
-    br.src2 = ir::Operand::label(endLabel);
-    emit(br);
+    emitConditionBranches(node.condition.get(), bodyLabel, endLabel, loc(node));
 
     startBlock(bodyLabel);
     node.body->accept(*this);
