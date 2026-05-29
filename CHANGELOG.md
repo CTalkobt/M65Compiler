@@ -18,7 +18,9 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - **I16 INC/DEC Peephole**: `local += 1` / `local -= 1` for ZP-allocated I16 locals emits `inc $ZP; bne *+4; inc $ZP+1` (5 bytes) instead of full load + add.16 + store + reload + store (~20 bytes). Handles both immediate operands and CONST vregs.
 - **Skip TAX/TAY/TAZ for Duplicate CONST Bytes**: When a CONST instruction has identical high/low bytes (e.g., -1 = 0xFFFF) and the destination is ZP-allocated, skip the transfer instruction since storeVreg uses `sta` via `regsEqual()`. Also use `sta` instead of `sty`/`stz` for I32 ZP stores when Y==A or Z==A.
 - **ZP Addressing in Text Mode**: Simulated op text emission uses 2-digit hex for addresses < 256, allowing the assembler to select base-page mode (saves 1 byte per instruction).
-- game_of_life.prg: **5301 → 5206 bytes** (further reduction from MachineState-enabled optimizations).
+- **ZP Addressing in Binary Mode**: Simulated ops converted from hardcoded branch offsets to `emitBranchPlaceholder`/`patchBranchTarget` (20 forward branches). All 141 memory-access calls changed from `_abs` to `_addr`, auto-selecting base-page for ZP-range addresses in binary mode.
+- **Constant-Memory Forwarding**: M65Emitter `_addr` read-type methods (lda/ldx/ldy/ldz/adc/sbc/and/ora/eor/cmp) check MachineState for ZP locations holding known constants and emit immediate mode instead of memory read. Assembler generator preserves memory state across non-label statement boundaries to enable cross-statement forwarding.
+- game_of_life.prg: **5301 → 5096 bytes** (further reduction from MachineState-enabled optimizations).
 
 ## [Unreleased] - 2026-05-27
 
