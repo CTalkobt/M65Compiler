@@ -27,8 +27,12 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - **Stdlib Single-TSX Param Load**: `memset`, `memcpy`, `memmove` load all stack params with a single `tsx` instead of one per param. `pha/plx` for Y→X transfer avoids ZP temp.
 - **Static DMA Jobs in CRT**: ZP save/restore uses static 12-byte DMA command blocks in data segment instead of runtime-built jobs (~40 bytes each). `__exit`: 95 → 23 bytes.
 - **TSX Caching**: `lda_stack` skips redundant `tsx` when X already holds SP within a simulated op expansion. Saves one `tsx` per `ldax.fp` param load.
+- **`ldax.fp` pha/plx**: 16-bit stack param loads use `pha/plx` to transfer hi byte instead of ZP scratch temp `$02`. No ZP clobber.
 - **Unused Static Function Elimination**: Static functions never called by any surviving function are removed at compile time. Handles transitive call chains.
-- game_of_life with mega65.h: **7037 → 5582 bytes (21% total reduction)**.
+- game_of_life with mega65.h: **7037 → 5522 bytes (22% total reduction)**.
+
+### Improved
+- **Function Declaration `.loc`**: Prologue and parameter loading code attributed to the function declaration line (e.g., `int foo(int a)`) instead of the first statement. Makes `objdump45 -d` source interleaving more readable.
 
 ### Fixed
 - **Cast-Pointer Dereference Store Width (Issue #83)**: `*(volatile unsigned char *)ADDR = val` was generating 16-bit stores, clobbering the adjacent byte. `IRBuilder::getExprTypeInfo()` now derives the correct pointee type from cast expressions (not just variable references), producing proper 8-bit stores.
