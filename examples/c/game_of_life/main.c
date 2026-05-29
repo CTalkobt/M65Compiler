@@ -21,8 +21,8 @@
 #define DEAD   0x20   /* ' ' in PETSCII */
 
 /* Double buffer: current and next generation */
-char grid[HEIGHT][WIDTH];
-char next[HEIGHT][WIDTH];
+static char grid[HEIGHT][WIDTH];
+static char next[HEIGHT][WIDTH];
 
 /* Screen RAM pointer (default C64/MEGA65 location) */
 volatile char *screen = (char *)0x0400;
