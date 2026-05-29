@@ -343,9 +343,14 @@ void M65Emitter::lda_stack(uint8_t offset) {
     } else {
         // TSX (cached); LDA __sp_base+offset,X
         tsxCached();
-        recordSpBaseReloc(offset);
-        emitInstruction("lda", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
+        lda_stack_noTSX(offset);
     }
+}
+
+void M65Emitter::lda_stack_noTSX(uint8_t offset) {
+    // LDA __sp_base+offset,X — caller must ensure X holds SP
+    recordSpBaseReloc(offset);
+    emitInstruction("lda", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
 }
 void M65Emitter::ldx_stack(uint8_t offset) {
     if (hasFramePointer()) {

@@ -1856,11 +1856,20 @@ void AssemblerSimulatedOps::emitLDAX_FPCode(AssemblerParser* parser, M65Emitter&
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     uint8_t totalOff = fpOff + yOff;
-    // Load hi byte first into scratch, then lo byte into A, move hi to X
-    e.lda_stack(totalOff + 1);
-    e.sta_scratch();
-    e.lda_stack(totalOff);
-    e.ldx_scratch();
+    if (e.hasFramePointer()) {
+        e.lda_stack(totalOff + 1);
+        e.sta_scratch();
+        e.lda_stack(totalOff);
+        e.ldx_scratch();
+    } else {
+        // Single TSX: hi → push → lo → plx. X holds old SP throughout;
+        // pha changes hardware SP but X still valid for stack-relative loads.
+        e.tsx();
+        e.lda_stack_noTSX(totalOff + 1);  // A = hi byte
+        e.pha();                           // push hi (SP changes but X unchanged)
+        e.lda_stack_noTSX(totalOff);       // A = lo byte (X still = old SP)
+        e.plx();                           // X = hi byte
+    }
 }
 
 // stax.fp varOffset — Store AX (16-bit) to frame-relative offset

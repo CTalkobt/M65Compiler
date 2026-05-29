@@ -150,6 +150,7 @@ public:
 
     // --- Other Addressing Modes ---
     void lda_stack(uint8_t offset);
+    void lda_stack_noTSX(uint8_t offset); // LDA __sp_base+offset,X without tsx
     void ldx_stack(uint8_t offset);
     void ldy_stack(uint8_t offset);
     void ldz_stack(uint8_t offset);
