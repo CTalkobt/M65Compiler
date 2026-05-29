@@ -220,40 +220,53 @@ void M65Emitter::lda_abs(uint16_t addr) { ms_.invalidateReg(REG_A); emitInstruct
 void M65Emitter::ldx_abs(uint16_t addr) { ms_.invalidateReg(REG_X); emitInstruction("ldx", AddressingMode::ABSOLUTE, addr, true); }
 void M65Emitter::ldy_abs(uint16_t addr) { ms_.invalidateReg(REG_Y); emitInstruction("ldy", AddressingMode::ABSOLUTE, addr, true); }
 void M65Emitter::ldz_abs(uint16_t addr) { ms_.invalidateReg(REG_Z); emitInstruction("ldz", AddressingMode::ABSOLUTE, addr, true); }
-void M65Emitter::sta_abs(uint16_t addr) { emitInstruction("sta", AddressingMode::ABSOLUTE, addr, true); }
-void M65Emitter::stx_abs(uint16_t addr) { emitInstruction("stx", AddressingMode::ABSOLUTE, addr, true); }
-void M65Emitter::sty_abs(uint16_t addr) { emitInstruction("sty", AddressingMode::ABSOLUTE, addr, true); }
-void M65Emitter::stz_abs(uint16_t addr) { emitInstruction("stz", AddressingMode::ABSOLUTE, addr, true); }
+void M65Emitter::sta_abs(uint16_t addr) { ms_.storeAbs(addr, REG_A); emitInstruction("sta", AddressingMode::ABSOLUTE, addr, true); }
+void M65Emitter::stx_abs(uint16_t addr) { ms_.storeAbs(addr, REG_X); emitInstruction("stx", AddressingMode::ABSOLUTE, addr, true); }
+void M65Emitter::sty_abs(uint16_t addr) { ms_.storeAbs(addr, REG_Y); emitInstruction("sty", AddressingMode::ABSOLUTE, addr, true); }
+void M65Emitter::stz_abs(uint16_t addr) { ms_.storeAbs(addr, REG_Z); emitInstruction("stz", AddressingMode::ABSOLUTE, addr, true); }
 void M65Emitter::lda_abs_x(uint16_t addr) { ms_.invalidateReg(REG_A); emitInstruction("lda", AddressingMode::ABSOLUTE_X, addr, true); }
-void M65Emitter::sta_abs_x(uint16_t addr) { emitInstruction("sta", AddressingMode::ABSOLUTE_X, addr, true); }
-void M65Emitter::stz_abs_x(uint16_t addr) { emitInstruction("stz", AddressingMode::ABSOLUTE_X, addr, true); }
+void M65Emitter::sta_abs_x(uint16_t addr) {
+    // Indexed store — if X is a known constant, track the exact target address
+    if (ms_.reg[REG_X].isConst()) {
+        uint16_t target = addr + (uint16_t)(ms_.reg[REG_X].constVal & 0xFF);
+        ms_.storeAbs(target, REG_A);
+    }
+    emitInstruction("sta", AddressingMode::ABSOLUTE_X, addr, true);
+}
+void M65Emitter::stz_abs_x(uint16_t addr) {
+    if (ms_.reg[REG_X].isConst()) {
+        uint16_t target = addr + (uint16_t)(ms_.reg[REG_X].constVal & 0xFF);
+        ms_.storeAbs(target, REG_Z);
+    }
+    emitInstruction("stz", AddressingMode::ABSOLUTE_X, addr, true);
+}
 void M65Emitter::adc_abs(uint16_t addr) { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); emitInstruction("adc", AddressingMode::ABSOLUTE, addr, true); }
 void M65Emitter::sbc_abs(uint16_t addr) { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); emitInstruction("sbc", AddressingMode::ABSOLUTE, addr, true); }
 void M65Emitter::and_abs(uint16_t addr) { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); emitInstruction("and", AddressingMode::ABSOLUTE, addr, true); }
 void M65Emitter::ora_abs(uint16_t addr) { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); emitInstruction("ora", AddressingMode::ABSOLUTE, addr, true); }
 void M65Emitter::eor_abs(uint16_t addr) { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); emitInstruction("eor", AddressingMode::ABSOLUTE, addr, true); }
 void M65Emitter::cmp_abs(uint16_t addr) { ms_.flags.invalidate(); emitInstruction("cmp", AddressingMode::ABSOLUTE, addr, true); }
-void M65Emitter::asl_abs(uint16_t addr) { ms_.flags.invalidate(); emitInstruction("asl", AddressingMode::ABSOLUTE, addr, true); }
-void M65Emitter::rol_abs(uint16_t addr) { ms_.flags.invalidate(); emitInstruction("rol", AddressingMode::ABSOLUTE, addr, true); }
-void M65Emitter::lsr_abs(uint16_t addr) { ms_.flags.invalidate(); emitInstruction("lsr", AddressingMode::ABSOLUTE, addr, true); }
-void M65Emitter::ror_abs(uint16_t addr) { ms_.flags.invalidate(); emitInstruction("ror", AddressingMode::ABSOLUTE, addr, true); }
-void M65Emitter::inc_abs(uint16_t addr) { ms_.flags.invalidate(); emitInstruction("inc", AddressingMode::ABSOLUTE, addr, true); }
-void M65Emitter::dec_abs(uint16_t addr) { ms_.flags.invalidate(); emitInstruction("dec", AddressingMode::ABSOLUTE, addr, true); }
-void M65Emitter::inc_abs_x(uint16_t addr) { ms_.flags.invalidate(); emitInstruction("inc", AddressingMode::ABSOLUTE_X, addr, true); }
-void M65Emitter::dec_abs_x(uint16_t addr) { ms_.flags.invalidate(); emitInstruction("dec", AddressingMode::ABSOLUTE_X, addr, true); }
+void M65Emitter::asl_abs(uint16_t addr) { ms_.invalidateAbs(addr); ms_.flags.invalidate(); emitInstruction("asl", AddressingMode::ABSOLUTE, addr, true); }
+void M65Emitter::rol_abs(uint16_t addr) { ms_.invalidateAbs(addr); ms_.flags.invalidate(); emitInstruction("rol", AddressingMode::ABSOLUTE, addr, true); }
+void M65Emitter::lsr_abs(uint16_t addr) { ms_.invalidateAbs(addr); ms_.flags.invalidate(); emitInstruction("lsr", AddressingMode::ABSOLUTE, addr, true); }
+void M65Emitter::ror_abs(uint16_t addr) { ms_.invalidateAbs(addr); ms_.flags.invalidate(); emitInstruction("ror", AddressingMode::ABSOLUTE, addr, true); }
+void M65Emitter::inc_abs(uint16_t addr) { ms_.invalidateAbs(addr); ms_.flags.invalidate(); emitInstruction("inc", AddressingMode::ABSOLUTE, addr, true); }
+void M65Emitter::dec_abs(uint16_t addr) { ms_.invalidateAbs(addr); ms_.flags.invalidate(); emitInstruction("dec", AddressingMode::ABSOLUTE, addr, true); }
+void M65Emitter::inc_abs_x(uint16_t addr) { ms_.invalidateAbs(addr); ms_.flags.invalidate(); emitInstruction("inc", AddressingMode::ABSOLUTE_X, addr, true); }
+void M65Emitter::dec_abs_x(uint16_t addr) { ms_.invalidateAbs(addr); ms_.flags.invalidate(); emitInstruction("dec", AddressingMode::ABSOLUTE_X, addr, true); }
 void M65Emitter::bit_abs(uint16_t addr) { ms_.flags.invalidate(); emitInstruction("bit", AddressingMode::ABSOLUTE, addr, true); }
-void M65Emitter::asw_abs(uint16_t addr) { ms_.flags.invalidate(); emitInstruction("asw", AddressingMode::ABSOLUTE, addr, true); }
-void M65Emitter::row_abs(uint16_t addr) { ms_.flags.invalidate(); emitInstruction("row", AddressingMode::ABSOLUTE, addr, true); }
+void M65Emitter::asw_abs(uint16_t addr) { ms_.invalidateAbs(addr); ms_.invalidateAbs(addr+1); ms_.flags.invalidate(); emitInstruction("asw", AddressingMode::ABSOLUTE, addr, true); }
+void M65Emitter::row_abs(uint16_t addr) { ms_.invalidateAbs(addr); ms_.invalidateAbs(addr+1); ms_.flags.invalidate(); emitInstruction("row", AddressingMode::ABSOLUTE, addr, true); }
 
 // --- Zero Page Mode ---
-void M65Emitter::lda_zp(uint8_t addr) { ms_.invalidateReg(REG_A); emitInstruction("lda", AddressingMode::BASE_PAGE, addr, true); }
-void M65Emitter::ldx_zp(uint8_t addr) { ms_.invalidateReg(REG_X); emitInstruction("ldx", AddressingMode::BASE_PAGE, addr, true); }
-void M65Emitter::ldy_zp(uint8_t addr) { ms_.invalidateReg(REG_Y); emitInstruction("ldy", AddressingMode::BASE_PAGE, addr, true); }
-void M65Emitter::ldz_zp(uint8_t addr) { ms_.invalidateReg(REG_Z); emitInstruction("ldz", AddressingMode::ABSOLUTE, addr, true); }
-void M65Emitter::sta_zp(uint8_t addr) { emitInstruction("sta", AddressingMode::BASE_PAGE, addr, true); }
-void M65Emitter::stx_zp(uint8_t addr) { emitInstruction("stx", AddressingMode::BASE_PAGE, addr, true); }
-void M65Emitter::sty_zp(uint8_t addr) { emitInstruction("sty", AddressingMode::BASE_PAGE, addr, true); }
-void M65Emitter::stz_zp(uint8_t addr) { emitInstruction("stz", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::lda_zp(uint8_t addr) { ms_.setRegFromZP(REG_A, addr); emitInstruction("lda", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::ldx_zp(uint8_t addr) { ms_.setRegFromZP(REG_X, addr); emitInstruction("ldx", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::ldy_zp(uint8_t addr) { ms_.setRegFromZP(REG_Y, addr); emitInstruction("ldy", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::ldz_zp(uint8_t addr) { ms_.setRegFromZP(REG_Z, addr); emitInstruction("ldz", AddressingMode::ABSOLUTE, addr, true); }
+void M65Emitter::sta_zp(uint8_t addr) { ms_.storeZP(addr, REG_A); emitInstruction("sta", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::stx_zp(uint8_t addr) { ms_.storeZP(addr, REG_X); emitInstruction("stx", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::sty_zp(uint8_t addr) { ms_.storeZP(addr, REG_Y); emitInstruction("sty", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::stz_zp(uint8_t addr) { ms_.storeZP(addr, REG_Z); emitInstruction("stz", AddressingMode::BASE_PAGE, addr, true); }
 void M65Emitter::adc_zp(uint8_t addr) { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); emitInstruction("adc", AddressingMode::BASE_PAGE, addr, true); }
 void M65Emitter::sbc_zp(uint8_t addr) { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); emitInstruction("sbc", AddressingMode::BASE_PAGE, addr, true); }
 void M65Emitter::and_zp(uint8_t addr) { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); emitInstruction("and", AddressingMode::BASE_PAGE, addr, true); }
@@ -261,12 +274,12 @@ void M65Emitter::ora_zp(uint8_t addr) { ms_.invalidateReg(REG_A); ms_.flags.inva
 void M65Emitter::eor_zp(uint8_t addr) { ms_.invalidateReg(REG_A); ms_.flags.invalidate(); emitInstruction("eor", AddressingMode::BASE_PAGE, addr, true); }
 void M65Emitter::cmp_zp(uint8_t addr) { ms_.flags.invalidate(); emitInstruction("cmp", AddressingMode::BASE_PAGE, addr, true); }
 void M65Emitter::bit_zp(uint8_t addr) { ms_.flags.invalidate(); emitInstruction("bit", AddressingMode::BASE_PAGE, addr, true); }
-void M65Emitter::asl_zp(uint8_t addr) { ms_.flags.invalidate(); emitInstruction("asl", AddressingMode::BASE_PAGE, addr, true); }
-void M65Emitter::lsr_zp(uint8_t addr) { ms_.flags.invalidate(); emitInstruction("lsr", AddressingMode::BASE_PAGE, addr, true); }
-void M65Emitter::rol_zp(uint8_t addr) { ms_.flags.invalidate(); emitInstruction("rol", AddressingMode::BASE_PAGE, addr, true); }
-void M65Emitter::ror_zp(uint8_t addr) { ms_.flags.invalidate(); emitInstruction("ror", AddressingMode::BASE_PAGE, addr, true); }
-void M65Emitter::inc_zp(uint8_t addr) { ms_.flags.invalidate(); emitInstruction("inc", AddressingMode::BASE_PAGE, addr, true); }
-void M65Emitter::dec_zp(uint8_t addr) { ms_.flags.invalidate(); emitInstruction("dec", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::asl_zp(uint8_t addr) { ms_.invalidateZP(addr); ms_.flags.invalidate(); emitInstruction("asl", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::lsr_zp(uint8_t addr) { ms_.invalidateZP(addr); ms_.flags.invalidate(); emitInstruction("lsr", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::rol_zp(uint8_t addr) { ms_.invalidateZP(addr); ms_.flags.invalidate(); emitInstruction("rol", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::ror_zp(uint8_t addr) { ms_.invalidateZP(addr); ms_.flags.invalidate(); emitInstruction("ror", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::inc_zp(uint8_t addr) { ms_.invalidateZP(addr); ms_.flags.invalidate(); emitInstruction("inc", AddressingMode::BASE_PAGE, addr, true); }
+void M65Emitter::dec_zp(uint8_t addr) { ms_.invalidateZP(addr); ms_.flags.invalidate(); emitInstruction("dec", AddressingMode::BASE_PAGE, addr, true); }
 
 // --- Other Addressing Modes ---
 void M65Emitter::recordSpBaseReloc(uint16_t addend) {
@@ -387,6 +400,7 @@ void M65Emitter::ldz_stack(uint8_t offset) {
     }
 }
 void M65Emitter::sta_stack(uint8_t offset) {
+    ms_.storeStack(offset, REG_A);
     if (hasFramePointer()) {
         ldy_imm(offset);
         emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
@@ -397,6 +411,7 @@ void M65Emitter::sta_stack(uint8_t offset) {
     }
 }
 void M65Emitter::stx_stack(uint8_t offset) {
+    ms_.storeStack(offset, REG_X);
     if (hasFramePointer()) {
         ldy_imm(offset);
         emitInstruction("stx", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
@@ -407,6 +422,7 @@ void M65Emitter::stx_stack(uint8_t offset) {
     }
 }
 void M65Emitter::sty_stack(uint8_t offset) {
+    ms_.storeStack(offset, REG_Y);
     if (hasFramePointer()) {
         // Special case: we need Y for indirect offset.
         // We must save Y to scratch first, or use a temporary ZP pair.
@@ -423,6 +439,7 @@ void M65Emitter::sty_stack(uint8_t offset) {
     }
 }
 void M65Emitter::stz_stack(uint8_t offset) {
+    ms_.storeStack(offset, REG_Z);
     if (hasFramePointer()) {
         ldy_imm(offset);
         emitInstruction("stz", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);

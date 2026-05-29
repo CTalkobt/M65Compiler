@@ -75,6 +75,7 @@ _color:
 @entry:
     .loc "main.c", 45
     lda #0
+    tax
     sta $24
     sta $25
     lda $24
@@ -83,6 +84,7 @@ _color:
     stx $2F
     .loc "main.c", 46
     lda #255
+    tax
     sta $24
     sta $25
     lda $24
@@ -99,6 +101,7 @@ _color:
 @for_body4:
     .loc "main.c", 47
     lda #255
+    tax
     sta $24
     sta $25
     lda $24
@@ -170,6 +173,7 @@ _color:
     bra @if_end20
 @if_then18:
     lda #0
+    tax
     sta $24
     sta $25
     lda $24
@@ -201,6 +205,7 @@ _color:
     bra @if_end26
 @if_then24:
     lda #0
+    tax
     sta $24
     sta $25
     lda $24
@@ -295,6 +300,7 @@ _color:
 @entry:
     .loc "main.c", 67
     lda #0
+    tax
     sta $20
     sta $21
     lda $20
@@ -308,6 +314,7 @@ _color:
 @for_body31:
     .loc "main.c", 68
     lda #0
+    tax
     sta $20
     sta $21
     lda $20
@@ -518,6 +525,7 @@ _color:
 @entry:
     .loc "main.c", 95
     lda #0
+    tax
     sta $24
     sta $25
     lda $24
@@ -533,6 +541,7 @@ _color:
 @for_body49:
     .loc "main.c", 96
     lda #0
+    tax
     sta $24
     sta $25
     lda $24
@@ -663,6 +672,7 @@ _color:
 @entry:
     .loc "main.c", 108
     lda #0
+    tax
     sta $22
     sta $23
     lda $22
@@ -1177,6 +1187,7 @@ _color:
     sta $D020
     .loc "main.c", 151
     lda #0
+    tax
     sta $20
     sta $21
     lda $20
