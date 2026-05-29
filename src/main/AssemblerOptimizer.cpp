@@ -1,5 +1,6 @@
 #include "AssemblerOptimizer.hpp"
 #include "AssemblerParser.hpp"
+#include "MachineState.hpp"
 #include <algorithm>
 #include <iostream>
 #include <map>
@@ -29,6 +30,31 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
         }
     };
     RegState regA, regX, regY, regZ;
+
+    // MachineState for value-aware optimizations (constant propagation, flag tracking)
+    MachineState ms;
+
+    // Parse an immediate operand string to a numeric value.
+    // Returns true if parseable, fills 'val'. Handles decimal, $hex, %binary.
+    auto parseImm = [](const std::string& op, int64_t& val) -> bool {
+        if (op.empty()) return false;
+        try {
+            if (op[0] == '$') {
+                val = std::stol(op.substr(1), nullptr, 16);
+                return true;
+            } else if (op[0] == '%') {
+                val = std::stol(op.substr(1), nullptr, 2);
+                return true;
+            } else if (op[0] >= '0' && op[0] <= '9') {
+                val = std::stol(op, nullptr, 10);
+                return true;
+            } else if (op[0] == '-' && op.size() > 1) {
+                val = std::stol(op, nullptr, 10);
+                return true;
+            }
+        } catch (...) {}
+        return false;
+    };
 
     std::map<std::string, std::string> stackVarLastValue;
 
@@ -302,6 +328,7 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
             invalidate(regA); invalidate(regX); invalidate(regY); invalidate(regZ);
             stackVarLastValue.clear();
             invalidateMem();
+            ms.invalidateAll();
         }
 
         bool isStackStoreOptimizationCandidate = false;
@@ -380,6 +407,37 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
 
             if (s->type == AssemblerParser::Statement::STW) continue;
 
+            // Parse immediate operand to numeric value for MachineState
+            int64_t immVal = 0;
+            bool hasImmVal = (mode == AddressingMode::IMMEDIATE) && parseImm(op, immVal);
+
+            // --- CMP #0 elimination (MachineState flag-aware) ---
+            // After a load instruction (LDA/LDX/LDY/LDZ), N/Z flags already reflect the
+            // loaded value. A subsequent CMP #0 is redundant — it produces identical N/Z
+            // (and always sets C=1). Eliminate if only BEQ/BNE/BMI/BPL follow.
+            if (m == "CMP" && mode == AddressingMode::IMMEDIATE && hasImmVal && immVal == 0) {
+                // CMP #0 is redundant if N/Z flags already reflect A's value
+                if (ms.flags.flagsReflect(REG_A)) {
+                    // Verify the branch following only tests N/Z (not C)
+                    size_t j = i + 1;
+                    while (j < parser->statements.size() && parser->statements[j]->deleted) ++j;
+                    bool safeToElim = true;
+                    if (j < parser->statements.size()) {
+                        auto* next = parser->statements[j].get();
+                        if (next->type == AssemblerParser::Statement::INSTRUCTION) {
+                            std::string nm = next->instr.mnemonic;
+                            std::transform(nm.begin(), nm.end(), nm.begin(), ::toupper);
+                            // BCC/BCS test carry — CMP #0 sets C=1 which they may depend on
+                            if (nm == "BCC" || nm == "BCS") safeToElim = false;
+                        }
+                    }
+                    if (safeToElim) {
+                        report("cmp-elim", s, "CMP #0 eliminated (flags already set from load)");
+                        s->deleted = true; s->size = 0; changed = true; continue;
+                    }
+                }
+            }
+
             // --- Redundant load elimination ---
             // Check 1: register already holds the value (same source)
             // Check 2: register holds the value that was last stored to this address (bidirectional)
@@ -438,73 +496,67 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
                 }
             }
 
-            // --- Register state tracking ---
+            // --- Register state tracking (string-based + MachineState) ---
             if (m == "LDA") {
                 regA.known = true; regA.mode = mode; regA.var = op;
                 regA.imm = (mode == AddressingMode::IMMEDIATE) ? op : "";
+                if (hasImmVal) ms.setConst(REG_A, immVal & 0xFF);
+                else { ms.invalidateReg(REG_A); ms.flags.setNZ(REG_A); }
             }
             else if (m == "STA") {
-                // A still holds its value — don't invalidate.
-                // Record what was stored so subsequent LDA from same addr can be eliminated.
                 std::string key = makeMemKey(mode, op);
                 if (!key.empty()) {
                     if (regA.known) {
                         memTrack[key] = {regA};
                     } else {
-                        // A holds an unknown value, but after STA $addr, A and $addr
-                        // are guaranteed to hold the same value. Track A as "loaded from addr"
-                        // so a subsequent LDA $addr is recognized as redundant.
-                        regA.known = true;
-                        regA.mode = mode;
-                        regA.var = op;
-                        regA.imm = "";
+                        regA.known = true; regA.mode = mode; regA.var = op; regA.imm = "";
                         memTrack[key] = {regA};
                     }
                 }
+                // MachineState: STA doesn't modify A or flags
             }
             else if (m == "LDX") {
                 regX.known = true; regX.mode = mode; regX.var = op;
                 regX.imm = (mode == AddressingMode::IMMEDIATE) ? op : "";
+                if (hasImmVal) ms.setConst(REG_X, immVal & 0xFF);
+                else { ms.invalidateReg(REG_X); ms.flags.setNZ(REG_X); }
             }
             else if (m == "STX") {
-                // X unchanged. Record store for bidirectional tracking.
                 std::string key = makeMemKey(mode, op);
                 if (!key.empty()) {
-                    if (regX.known) {
-                        memTrack[key] = {regX};
-                    } else {
-                        regX.known = true;
-                        regX.mode = mode;
-                        regX.var = op;
-                        regX.imm = "";
-                        memTrack[key] = {regX};
-                    }
+                    if (regX.known) { memTrack[key] = {regX}; }
+                    else { regX.known = true; regX.mode = mode; regX.var = op; regX.imm = ""; memTrack[key] = {regX}; }
                 }
             }
             else if (m == "LDY") {
                 regY.known = true; regY.mode = mode; regY.var = op;
                 regY.imm = (mode == AddressingMode::IMMEDIATE) ? op : "";
+                if (hasImmVal) ms.setConst(REG_Y, immVal & 0xFF);
+                else { ms.invalidateReg(REG_Y); ms.flags.setNZ(REG_Y); }
             }
             else if (m == "STY") { /* Y unchanged */ }
             else if (m == "LDZ") {
                 regZ.known = true; regZ.mode = mode; regZ.var = op;
                 regZ.imm = (mode == AddressingMode::IMMEDIATE) ? op : "";
+                if (hasImmVal) ms.setConst(REG_Z, immVal & 0xFF);
+                else { ms.invalidateReg(REG_Z); ms.flags.setNZ(REG_Z); }
             }
             else if (m == "STZ") { /* Z unchanged */ }
 
             // --- Transfer instructions ---
-            else if (m == "TAX") { regX = regA; }
-            else if (m == "TXA") { regA = regX; }
-            else if (m == "TAY") { regY = regA; }
-            else if (m == "TYA") { regA = regY; }
-            else if (m == "TAZ") { regZ = regA; }
-            else if (m == "TZA") { regA = regZ; }
-            else if (m == "TSX") { invalidate(regX); }
+            else if (m == "TAX") { regX = regA; ms.setTransfer(REG_X, REG_A); }
+            else if (m == "TXA") { regA = regX; ms.setTransfer(REG_A, REG_X); }
+            else if (m == "TAY") { regY = regA; ms.setTransfer(REG_Y, REG_A); }
+            else if (m == "TYA") { regA = regY; ms.setTransfer(REG_A, REG_Y); }
+            else if (m == "TAZ") { regZ = regA; ms.setTransfer(REG_Z, REG_A); }
+            else if (m == "TZA") { regA = regZ; ms.setTransfer(REG_A, REG_Z); }
+            else if (m == "TSX") { invalidate(regX); ms.setTransfer(REG_X, REG_SP); }
 
             // --- Control flow ---
             else if (m == "JMP") {
                 invalidate(regA); invalidate(regX); invalidate(regY); invalidate(regZ);
                 invalidateMem();
+                ms.invalidateAll();
             }
 
             // --- JSR: Phase 2 selective invalidation ---
@@ -512,56 +564,64 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
                 auto it = procClobbers.find(op);
                 if (it != procClobbers.end() && it->second.known) {
                     uint8_t mask = it->second.regMask;
-                    if (mask & 0x01) invalidate(regA);
-                    if (mask & 0x02) invalidate(regX);
-                    if (mask & 0x04) invalidate(regY);
-                    if (mask & 0x08) invalidate(regZ);
+                    if (mask & 0x01) { invalidate(regA); ms.invalidateReg(REG_A); }
+                    if (mask & 0x02) { invalidate(regX); ms.invalidateReg(REG_X); }
+                    if (mask & 0x04) { invalidate(regY); ms.invalidateReg(REG_Y); }
+                    if (mask & 0x08) { invalidate(regZ); ms.invalidateReg(REG_Z); }
                 } else {
                     invalidate(regA); invalidate(regX); invalidate(regY); invalidate(regZ);
+                    ms.invalidateAll();
                 }
-                invalidateMem(); // callee may modify memory
+                invalidateMem();
+                ms.flags.invalidate();
+                ms.invalidateAllMem();
             }
             else if (m == "JSR") {
-                // Indirect JSR — invalidate all
                 invalidate(regA); invalidate(regX); invalidate(regY); invalidate(regZ);
                 invalidateMem();
+                ms.invalidateAll();
             }
             else if (m == "CALL" || m == "BSR") {
                 invalidate(regA); invalidate(regX); invalidate(regY); invalidate(regZ);
                 invalidateMem();
+                ms.invalidateAll();
             }
 
             // --- Push: does NOT modify any register ---
             else if (m == "PHA" || m == "PHX" || m == "PHY" || m == "PHZ" || m == "PHW") {
-                // Push reads a register but doesn't change it — no invalidation
+                ms.spModified();
             }
 
             // --- Pull: modifies ONLY the target register ---
-            else if (m == "PLA") { invalidate(regA); }
-            else if (m == "PLX") { invalidate(regX); }
-            else if (m == "PLY") { invalidate(regY); }
-            else if (m == "PLZ") { invalidate(regZ); }
+            else if (m == "PLA") { invalidate(regA); ms.spModified(); ms.invalidateReg(REG_A); }
+            else if (m == "PLX") { invalidate(regX); ms.spModified(); ms.invalidateReg(REG_X); }
+            else if (m == "PLY") { invalidate(regY); ms.spModified(); ms.invalidateReg(REG_Y); }
+            else if (m == "PLZ") { invalidate(regZ); ms.spModified(); ms.invalidateReg(REG_Z); }
 
-            // --- RTS/RTN/RTI: function exit, no optimization across ---
+            // --- RTS/RTN/RTI: function exit ---
             else if (m == "RTS" || m == "RTN" || m == "RTI") {
-                // Nothing after this is reachable (until next label resets state)
+                ms.invalidateAll();
             }
 
             // --- ALU: modifies A and flags ---
             else if (m == "ADC" || m == "SBC" || m == "AND" || m == "ORA" || m == "EOR") {
                 invalidate(regA);
+                ms.invalidateReg(REG_A);
+                ms.flags.invalidate();
             }
             else if (m == "ASL" || m == "LSR" || m == "ROL" || m == "ROR") {
                 if (mode == AddressingMode::ACCUMULATOR || mode == AddressingMode::IMPLIED) {
                     invalidate(regA);
+                    ms.invalidateReg(REG_A);
                 }
-                // Memory-mode shifts don't affect registers
+                ms.flags.invalidate();
             }
             else if (m == "INC" || m == "DEC") {
                 if (mode == AddressingMode::ACCUMULATOR || mode == AddressingMode::IMPLIED) {
                     invalidate(regA);
+                    ms.invalidateReg(REG_A);
                 }
-                // Memory-mode inc/dec don't affect A
+                ms.flags.invalidate();
             }
             else if (m == "INX" || m == "DEX") {
                 invalidate(regX);
@@ -570,38 +630,69 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
                     invalidate(regA);
                 if (regY.known && (regY.mode == AddressingMode::ABSOLUTE_X || regY.mode == AddressingMode::BASE_PAGE_X))
                     invalidate(regY);
+                ms.invalidateReg(REG_X);
+                ms.flags.invalidate();
             }
             else if (m == "INY" || m == "DEY") {
                 invalidate(regY);
-                // Also invalidate registers loaded via Y-indexed addressing
                 if (regA.known && (regA.mode == AddressingMode::BASE_PAGE_INDIRECT_Y ||
                     regA.mode == AddressingMode::ABSOLUTE_Y || regA.mode == AddressingMode::BASE_PAGE_Y))
                     invalidate(regA);
                 if (regX.known && (regX.mode == AddressingMode::BASE_PAGE_INDIRECT_Y ||
                     regX.mode == AddressingMode::ABSOLUTE_Y || regX.mode == AddressingMode::BASE_PAGE_Y))
                     invalidate(regX);
+                ms.invalidateReg(REG_Y);
+                ms.flags.invalidate();
             }
-            else if (m == "INZ" || m == "DEZ") { invalidate(regZ); }
+            else if (m == "INZ" || m == "DEZ") { invalidate(regZ); ms.invalidateReg(REG_Z); ms.flags.invalidate(); }
 
             // --- Compare: does not modify registers (only flags) ---
             else if (m == "CMP" || m == "CPX" || m == "CPY" || m == "CPZ") {
-                // No register invalidation — only flags change
+                // String-based: no register invalidation — only flags change
+                // MachineState: update flags
+                if (m == "CMP" && hasImmVal) {
+                    if (ms.reg[REG_A].isConst()) {
+                        uint8_t a = (uint8_t)(ms.reg[REG_A].constVal & 0xFF);
+                        uint8_t v = (uint8_t)(immVal & 0xFF);
+                        ms.flags.z = (a == v) ? FlagState::F_SET : FlagState::F_CLEAR;
+                        ms.flags.c = (a >= v) ? FlagState::F_SET : FlagState::F_CLEAR;
+                        uint8_t diff = a - v;
+                        ms.flags.n = (diff & 0x80) ? FlagState::F_SET : FlagState::F_CLEAR;
+                        ms.flags.nzSourceReg = -1;
+                    } else {
+                        ms.flags.invalidate();
+                    }
+                } else {
+                    ms.flags.invalidate();
+                }
             }
 
             // --- Clear: sets register to 0 ---
-            else if (m == "CLA") { regA.known = true; regA.imm = "#$00"; regA.var = ""; regA.mode = AddressingMode::IMMEDIATE; }
-            else if (m == "CLX") { regX.known = true; regX.imm = "#$00"; regX.var = ""; regX.mode = AddressingMode::IMMEDIATE; }
-            else if (m == "CLY") { regY.known = true; regY.imm = "#$00"; regY.var = ""; regY.mode = AddressingMode::IMMEDIATE; }
-            else if (m == "CLZ") { regZ.known = true; regZ.imm = "#$00"; regZ.var = ""; regZ.mode = AddressingMode::IMMEDIATE; }
+            else if (m == "CLA") { regA.known = true; regA.imm = "#$00"; regA.var = ""; regA.mode = AddressingMode::IMMEDIATE; ms.setConst(REG_A, 0); }
+            else if (m == "CLX") { regX.known = true; regX.imm = "#$00"; regX.var = ""; regX.mode = AddressingMode::IMMEDIATE; ms.setConst(REG_X, 0); }
+            else if (m == "CLY") { regY.known = true; regY.imm = "#$00"; regY.var = ""; regY.mode = AddressingMode::IMMEDIATE; ms.setConst(REG_Y, 0); }
+            else if (m == "CLZ") { regZ.known = true; regZ.imm = "#$00"; regZ.var = ""; regZ.mode = AddressingMode::IMMEDIATE; ms.setConst(REG_Z, 0); }
 
-            // --- Anything else: conservatively invalidate A ---
+            // --- CLC/SEC: carry flag ---
+            else if (m == "CLC") { ms.flags.setCarry(false); }
+            else if (m == "SEC") { ms.flags.setCarry(true); }
+
+            // --- Branches: conservative — invalidate all at branch targets ---
+            else if (m == "BRA" || m == "BEQ" || m == "BNE" || m == "BCC" || m == "BCS" ||
+                     m == "BMI" || m == "BPL" || m == "BVC" || m == "BVS") {
+                // Flags and registers are still valid *after* a non-taken branch.
+                // But we can't know if the target merges different state, so
+                // we leave state unchanged for fall-through. Labels already reset state.
+            }
+
+            // --- Anything else: conservatively invalidate MachineState ---
             // (branches, bit tests, etc. — safe to not invalidate since they don't modify regs)
-            // Only truly unknown instructions should invalidate.
         } else if (s->isSimulatedOp()) {
             // Simulated ops are complex multi-instruction expansions.
             // Conservatively invalidate everything.
             invalidate(regA); invalidate(regX); invalidate(regY); invalidate(regZ);
             stackVarLastValue.clear();
+            ms.invalidateAll();
         }
     }
     return changed;

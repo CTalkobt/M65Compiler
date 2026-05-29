@@ -143,4 +143,4 @@ Each emitted instruction updates the state:
 1. **Phase 1**: Core MachineState struct + register tracking (CONSTANT, SAME_AS_REG, UNKNOWN). Replace `xHoldsSP_` and `aEqualsX_`.
 2. **Phase 2**: Three-tier memory tracking (ZP full, stack full, 512-entry ring buffer). Enable redundant load elimination and store forwarding.
 3. **Phase 3**: Range tracking and NONZERO state. Enable compare elimination and smart branching.
-4. **Phase 4**: Integration with AssemblerOptimizer for cross-statement peephole optimization.
+4. **Phase 4**: Integration with AssemblerOptimizer for cross-statement peephole optimization. CMP #0 elimination when flags already set.
