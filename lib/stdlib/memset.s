@@ -47,9 +47,9 @@ proc _memset, W#_p_s, W#_p_c, W#_p_n
 @done:
     ; return s (lo in A, hi in X)
     tsx
-    lda __sp_base+_p_s, x
-    ldy __sp_base+_p_s+1, x
-    sty $08
-    ldx $08
+    lda __sp_base+_p_s+1, x    ; hi
+    pha
+    lda __sp_base+_p_s, x      ; lo
+    plx                         ; X = hi
     rtn #0
     endproc

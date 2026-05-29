@@ -51,9 +51,9 @@ proc _memcpy, W#_p_dest, W#_p_src, W#_p_n
     plz
     stz $02
     tsx
-    lda __sp_base+_p_dest+2, x     ; memcpy returns dest (lo)
-    ldy __sp_base+_p_dest+3, x     ; hi
-    sty $08
-    ldx $08
+    lda __sp_base+_p_dest+3, x     ; hi
+    pha
+    lda __sp_base+_p_dest+2, x     ; lo
+    plx                             ; X = hi
     rts
     endproc

@@ -110,9 +110,9 @@ proc _memmove, W#_p_dest, W#_p_src, W#_p_n
     bra @fwd_loop
 @done:
     tsx
-    lda __sp_base+_p_dest, x
-    ldy __sp_base+_p_dest+1, x
-    sty $08
-    ldx $08
+    lda __sp_base+_p_dest+1, x   ; hi byte
+    pha
+    lda __sp_base+_p_dest, x     ; lo byte
+    plx                           ; X = hi
     rtn #0
     endproc
