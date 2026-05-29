@@ -2,6 +2,24 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
+## [Unreleased] - 2026-05-29
+
+### Added
+- **MachineState Register & Memory Tracking Framework**: Unified value tracking for CPU registers (A/X/Y/Z/SP), CPU flags (N/Z/C/V), and three-tier memory (ZP full, stack full, 512-entry ring buffer for absolute addresses). Replaces ad-hoc `xHoldsSP_`, `aEqualsX_`, and string-based `RegState` in the assembler optimizer. Enables constant propagation, flag-derived optimizations, and store-forwarding across the entire toolchain.
+  - Phase 1: Register tracking (CONSTANT, SAME_AS_REG, UNKNOWN). All M65Emitter instruction methods update state.
+  - Phase 2: Three-tier memory tracking. Stores propagate register values to memory; ZP loads propagate known values back.
+  - Phase 3: RANGE/NONZERO value kinds. FlagState derives exact N/Z from known constants. ALU immediate ops propagate constants through and/ora/eor/adc/sbc/asl/lsr/neg/inc/dec. Compare instructions derive exact N/Z/C.
+  - Phase 4: AssemblerOptimizer integration. MachineState replaces ad-hoc RegState for redundant load elimination and memory tracking.
+
+### Optimizations
+- **CMP #0 Elimination**: Assembler optimizer detects redundant `cmp #0` when N/Z flags already reflect the accumulator from a prior load instruction. Safe when only BEQ/BNE/BMI/BPL follow (not BCC/BCS).
+- **Store-Forwarding in IR Codegen**: When a STORE's source vreg was produced by the immediately preceding instruction, skip the redundant ZP reload — the result is still in A:X.
+- **CONST Direct Store**: When a CONST is immediately followed by STORE to a ZP local, store constant bytes directly to the local's ZP address without round-tripping through a temp vreg.
+- **I16 INC/DEC Peephole**: `local += 1` / `local -= 1` for ZP-allocated I16 locals emits `inc $ZP; bne *+4; inc $ZP+1` (5 bytes) instead of full load + add.16 + store + reload + store (~20 bytes). Handles both immediate operands and CONST vregs.
+- **Skip TAX/TAY/TAZ for Duplicate CONST Bytes**: When a CONST instruction has identical high/low bytes (e.g., -1 = 0xFFFF) and the destination is ZP-allocated, skip the transfer instruction since storeVreg uses `sta` via `regsEqual()`. Also use `sta` instead of `sty`/`stz` for I32 ZP stores when Y==A or Z==A.
+- **ZP Addressing in Text Mode**: Simulated op text emission uses 2-digit hex for addresses < 256, allowing the assembler to select base-page mode (saves 1 byte per instruction).
+- game_of_life.prg: **5301 → 5206 bytes** (further reduction from MachineState-enabled optimizations).
+
 ## [Unreleased] - 2026-05-27
 
 ### Added
