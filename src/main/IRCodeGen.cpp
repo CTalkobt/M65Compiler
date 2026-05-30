@@ -2059,10 +2059,25 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 emit("mul.16 .AX, #" + std::to_string(elemSize));
             }
             
-            // Step 4: add base address
-            emit("add.16 .AX, " + baseMem);
-            
-            if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+            // Step 4: add base address — store-fused when dest is ZP
+            if (inst.dest.isVreg()) {
+                auto destAlloc = alloc_.getAlloc(inst.dest.vregId);
+                if (destAlloc.loc == VRegAllocator::IN_ZP) {
+                    // Store-fused: clc; adc lo; sta $ZP; lda src_hi; adc hi; sta $ZP+1
+                    std::stringstream dlo, dhi;
+                    dlo << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << destAlloc.offset;
+                    dhi << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (destAlloc.offset + 1);
+                    emit("clc");
+                    emit("adc " + baseMem);
+                    emit("sta " + dlo.str());
+                    emit("txa");
+                    emit("adc " + baseMem + "+1");
+                    emit("sta " + dhi.str());
+                } else {
+                    emit("add.16 .AX, " + baseMem);
+                    storeVreg(inst.dest.vregId);
+                }
+            }
             break;
         }
 
