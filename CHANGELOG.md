@@ -29,7 +29,9 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - **Per-Simulated-Op Clobber Tracking**: Assembler optimizer no longer blanket-invalidates all state for simulated ops. Each op type declares what it clobbers: `add.16`/`sub.16` etc. clobber A/X/flags but preserve Y/Z/memory; `stax.fp` preserves registers but invalidates memory; `inc.16f` clobbers A/flags/stack.
 - **Store-Fused ADDR_ELEM**: Array indexing (`base + index * stride`) emits inline add instead of `add.16` simulated op when result stored to ZP. Eliminates `pha/pla` overhead for every array index computation.
 - **Extended Store-Fused Add/Sub**: Store-fused peephole now fires for any ZP-allocated result vreg, not just when followed by an explicit STORE instruction. Catches ADD results that feed into ADDR_ELEM or other ops. Zero `pha/txa/tax/pla` patterns remain in game_of_life.
-- game_of_life.prg: **5301 → 4770 bytes** (further reduction from MachineState-enabled optimizations).
+- **CONST Suppression for ADD/SUB src2**: CONST vregs used only as ADD/SUB src2 operands are now suppressed — no emission, no frame slot. The store-fused ADD and `src2MemOperand` use immediate mode via `vregConstVal_`. Eliminates `lda #N; ldx #0; sta $ZP; stx $ZP+1` for small constant operands.
+- **Parameter Narrowing Advisory**: Compiler emits `note:` when a static function's `int` parameter could be `char` — detected by checking all call sites pass values 0-255. Guides user to change signature for I8 codegen benefits.
+- game_of_life.prg: **5301 → 4656 bytes** (further reduction from MachineState-enabled optimizations).
 
 ## [Unreleased] - 2026-05-27
 

@@ -37,6 +37,98 @@ void IRBuilder::generate(TranslationUnit& unit) {
             module_.functions.erase(it, module_.functions.end());
         }
     }
+    // Parameter narrowing analysis: detect static functions where all call sites
+    // pass values fitting in char for int parameters. Emit advisory warning.
+    {
+        // Build map of function name → param types
+        std::map<std::string, std::vector<ir::Type>> funcParams;
+        std::map<std::string, int> funcDeclLines;
+        for (const auto& fn : module_.functions) {
+            if (fn.isStatic && fn.name != "_main") {
+                funcParams[fn.name] = fn.paramTypes;
+                funcDeclLines[fn.name] = fn.declLine;
+            }
+        }
+        // Build CONST vreg map for each function (to resolve CONST vreg args)
+        std::map<std::string, std::vector<int64_t>> paramMaxVals;
+        std::map<std::string, std::vector<bool>> paramAllConst;   // all values 0-255
+        std::map<std::string, std::vector<bool>> paramAllNonNeg;  // all values >= 0
+        for (const auto& fn : module_.functions) {
+            // Collect CONST definitions in this function
+            std::map<uint32_t, int64_t> constDefs;
+            for (const auto& blk : fn.blocks) {
+                for (const auto& inst : blk.insts) {
+                    if (inst.op == ir::Op::CONST && inst.dest.isVreg())
+                        constDefs[inst.dest.vregId] = inst.src1.immVal;
+                }
+            }
+            // Check call sites
+            for (const auto& blk : fn.blocks) {
+                for (const auto& inst : blk.insts) {
+                    if ((inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) &&
+                        inst.src1.kind == ir::OperandKind::GLOBAL &&
+                        funcParams.count(inst.src1.name)) {
+                        auto& maxVals = paramMaxVals[inst.src1.name];
+                        auto& allConst = paramAllConst[inst.src1.name];
+                        auto& allNonNeg = paramAllNonNeg[inst.src1.name];
+                        if (maxVals.empty()) {
+                            maxVals.resize(inst.args.size(), 0);
+                            allConst.resize(inst.args.size(), true);
+                            allNonNeg.resize(inst.args.size(), true);
+                        }
+                        for (size_t i = 0; i < inst.args.size() && i < maxVals.size(); i++) {
+                            int64_t v = -1;
+                            bool known = false;
+                            if (inst.args[i].isImm()) {
+                                v = inst.args[i].immVal;
+                                known = true;
+                            } else if (inst.args[i].isVreg()) {
+                                auto cit = constDefs.find(inst.args[i].vregId);
+                                if (cit != constDefs.end()) { v = cit->second; known = true; }
+                            }
+                            if (known && v >= 0 && v <= 255) {
+                                if (v > maxVals[i]) maxVals[i] = v;
+                            } else if (known && v >= 0) {
+                                allConst[i] = false;
+                                if (v > maxVals[i]) maxVals[i] = v;
+                            } else {
+                                allConst[i] = false;
+                                allNonNeg[i] = false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Emit warnings for narrowable parameters
+        for (const auto& [name, params] : funcParams) {
+            auto acIt = paramAllConst.find(name);
+            if (acIt == paramAllConst.end()) continue;
+            const auto& allConst = acIt->second;
+            auto nnIt = paramAllNonNeg.find(name);
+            const auto* allNonNegPtr = (nnIt != paramAllNonNeg.end()) ? &nnIt->second : nullptr;
+            for (size_t i = 0; i < params.size() && i < allConst.size(); i++) {
+                std::string cleanName = (name.size() > 1 && name[0] == '_') ? name.substr(1) : name;
+                if (params[i] == ir::Type::I16 && allConst[i]) {
+                    // All values fit in unsigned char
+                    std::stringstream ss;
+                    ss << funcDeclLines[name] << ": note: parameter " << (i + 1)
+                       << " of '" << cleanName
+                       << "' could be 'unsigned char' (all call sites pass 0-255)";
+                    warnings_.push_back(ss.str());
+                } else if (params[i] == ir::Type::I16 && !allConst[i] &&
+                           allNonNegPtr && i < allNonNegPtr->size() && (*allNonNegPtr)[i]) {
+                    // All values non-negative but some > 255 — suggest unsigned int
+                    std::stringstream ss;
+                    ss << funcDeclLines[name] << ": note: parameter " << (i + 1)
+                       << " of '" << cleanName
+                       << "' could be 'unsigned int' (all call sites pass non-negative values)";
+                    warnings_.push_back(ss.str());
+                }
+            }
+        }
+    }
+
     // Compute extern symbols: called but not defined in this module
     for (const auto& name : calledFunctions_) {
         if (!definedFunctions_.count(name)) {
