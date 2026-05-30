@@ -28,7 +28,8 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - **Reverse Store-Forwarding in Assembler Optimizer**: After `STA $ZP`, zpMem mirrors the register. A subsequent `LDA $ZP` is now detected as redundant when the register hasn't changed (memory mirrors register, not just register mirrors memory). 42 redundant loads eliminated in game_of_life.
 - **Per-Simulated-Op Clobber Tracking**: Assembler optimizer no longer blanket-invalidates all state for simulated ops. Each op type declares what it clobbers: `add.16`/`sub.16` etc. clobber A/X/flags but preserve Y/Z/memory; `stax.fp` preserves registers but invalidates memory; `inc.16f` clobbers A/flags/stack.
 - **Store-Fused ADDR_ELEM**: Array indexing (`base + index * stride`) emits inline add instead of `add.16` simulated op when result stored to ZP. Eliminates `pha/pla` overhead for every array index computation.
-- game_of_life.prg: **5301 → 4798 bytes** (further reduction from MachineState-enabled optimizations).
+- **Extended Store-Fused Add/Sub**: Store-fused peephole now fires for any ZP-allocated result vreg, not just when followed by an explicit STORE instruction. Catches ADD results that feed into ADDR_ELEM or other ops. Zero `pha/txa/tax/pla` patterns remain in game_of_life.
+- game_of_life.prg: **5301 → 4770 bytes** (further reduction from MachineState-enabled optimizations).
 
 ## [Unreleased] - 2026-05-27
 
