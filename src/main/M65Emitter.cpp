@@ -213,7 +213,7 @@ void M65Emitter::lda_imm(uint8_t val) { ms_.setConst(REG_A, val); emitInstructio
 void M65Emitter::ldx_imm(uint8_t val) { ms_.setConst(REG_X, val); emitInstruction("ldx", AddressingMode::IMMEDIATE, val, true); }
 void M65Emitter::ldy_imm(uint8_t val) { ms_.setConst(REG_Y, val); emitInstruction("ldy", AddressingMode::IMMEDIATE, val, true); }
 void M65Emitter::ldz_imm(uint8_t val) { ms_.setConst(REG_Z, val); emitInstruction("ldz", AddressingMode::IMMEDIATE, val, true); }
-void M65Emitter::phw_imm(uint16_t val) { ms_.spModified(); emitInstruction("phw", AddressingMode::IMMEDIATE16, val, true); }
+void M65Emitter::phw_imm(uint16_t val) { ms_.spModified(); emitInstruction("phw", AddressingMode::IMMEDIATE16, val, true); }  // PHW changes stack layout; resets push tracking
 void M65Emitter::adc_imm(uint8_t val) {
     // ADC depends on carry, so only propagate if both A and C are known
     if (ms_.reg[REG_A].isConst() && ms_.flags.c != FlagState::F_UNKNOWN) {
@@ -683,16 +683,15 @@ void M65Emitter::pop(const std::string& reg) {
     }
 }
 
-// All push/pull change SP, so X no longer holds SP after any of them.
-// Pull also clobbers the destination register.
-void M65Emitter::pha() { ms_.spModified(); emitInstruction("pha", AddressingMode::IMPLIED); }
-void M65Emitter::pla() { ms_.spModified(); ms_.invalidateReg(REG_A); emitInstruction("pla", AddressingMode::IMPLIED); }
-void M65Emitter::phx() { ms_.spModified(); emitInstruction("phx", AddressingMode::IMPLIED); }
-void M65Emitter::plx() { ms_.spModified(); ms_.invalidateReg(REG_X); emitInstruction("plx", AddressingMode::IMPLIED); }
-void M65Emitter::phy() { ms_.spModified(); emitInstruction("phy", AddressingMode::IMPLIED); }
-void M65Emitter::ply() { ms_.spModified(); ms_.invalidateReg(REG_Y); emitInstruction("ply", AddressingMode::IMPLIED); }
-void M65Emitter::phz() { ms_.spModified(); emitInstruction("phz", AddressingMode::IMPLIED); }
-void M65Emitter::plz() { ms_.spModified(); ms_.invalidateReg(REG_Z); emitInstruction("plz", AddressingMode::IMPLIED); }
+// Push/pull: track values through hardware stack so pha/plx etc. preserve knowledge.
+void M65Emitter::pha() { ms_.pushReg(REG_A); emitInstruction("pha", AddressingMode::IMPLIED); }
+void M65Emitter::pla() { ms_.pullReg(REG_A); emitInstruction("pla", AddressingMode::IMPLIED); }
+void M65Emitter::phx() { ms_.pushReg(REG_X); emitInstruction("phx", AddressingMode::IMPLIED); }
+void M65Emitter::plx() { ms_.pullReg(REG_X); emitInstruction("plx", AddressingMode::IMPLIED); }
+void M65Emitter::phy() { ms_.pushReg(REG_Y); emitInstruction("phy", AddressingMode::IMPLIED); }
+void M65Emitter::ply() { ms_.pullReg(REG_Y); emitInstruction("ply", AddressingMode::IMPLIED); }
+void M65Emitter::phz() { ms_.pushReg(REG_Z); emitInstruction("phz", AddressingMode::IMPLIED); }
+void M65Emitter::plz() { ms_.pullReg(REG_Z); emitInstruction("plz", AddressingMode::IMPLIED); }
 
 // --- ALU & Branching ---
 void M65Emitter::clc() { ms_.flags.setCarry(false); emitInstruction("clc", AddressingMode::IMPLIED); }

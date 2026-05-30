@@ -248,6 +248,7 @@ struct MachineState {
             reg[i] = ValueInfo::unknown();
         flags.invalidate();
         invalidateAllMem();
+        pushDepth_ = 0;
     }
 
     // --- Memory state updates ---
@@ -343,12 +344,46 @@ struct MachineState {
     // Public mirror invalidation for callers that update reg[] directly.
     void invalidateMirrorsOfPub(RegId r) { invalidateMirrorsOf(r); }
 
-    // --- Stack pointer tracking ---
+    // --- Hardware stack push/pull tracking ---
+    // Track a small push/pull stack so pha/pla (and cross-register pha/plx)
+    // can preserve register knowledge through the stack.
+    static constexpr int PUSH_STACK_SIZE = 8;
+    ValueInfo pushStack_[PUSH_STACK_SIZE];
+    int pushDepth_ = 0;
 
-    // SP was modified (push/pull). Invalidate SP and anything mirroring it.
+    // Push a register's value onto the tracking stack.
+    void pushReg(RegId r) {
+        if (pushDepth_ < PUSH_STACK_SIZE) {
+            pushStack_[pushDepth_++] = reg[r];
+        } else {
+            pushDepth_++; // overflow — track depth but lose value
+        }
+        invalidateMirrorsOf(REG_SP);
+        reg[REG_SP] = ValueInfo::unknown();
+    }
+
+    // Pull a value from the tracking stack into a register.
+    void pullReg(RegId r) {
+        invalidateMirrorsOf(r);
+        if (pushDepth_ > 0 && pushDepth_ <= PUSH_STACK_SIZE) {
+            reg[r] = pushStack_[--pushDepth_];
+            // N/Z flags set from the pulled value
+            flags.setNZFromValue(reg[r], (int8_t)r);
+        } else {
+            if (pushDepth_ > 0) pushDepth_--;
+            reg[r] = ValueInfo::unknown();
+            flags.setNZ(r);
+        }
+        invalidateMirrorsOf(REG_SP);
+        reg[REG_SP] = ValueInfo::unknown();
+    }
+
+    // SP was modified by something other than push/pull (e.g., txs).
+    // Invalidate SP and reset push tracking.
     void spModified() {
         invalidateMirrorsOf(REG_SP);
         reg[REG_SP] = ValueInfo::unknown();
+        pushDepth_ = 0; // can't trust stack contents
     }
 
 private:
