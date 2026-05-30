@@ -27,7 +27,8 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - **Push/Pull Value Tracking**: MachineState tracks register values through `pha/phx/phy/phz` and `pla/plx/ply/plz` via an 8-entry push stack. Cross-register patterns (`pha; plx`) correctly propagate values. The `add.16 .AX` simulated op's `pha/txa/adc/tax/pla` sequence now preserves knowledge that A holds the lo result after `pla`, enabling downstream forwarding through `sta $ZP`.
 - **Reverse Store-Forwarding in Assembler Optimizer**: After `STA $ZP`, zpMem mirrors the register. A subsequent `LDA $ZP` is now detected as redundant when the register hasn't changed (memory mirrors register, not just register mirrors memory). 42 redundant loads eliminated in game_of_life.
 - **Per-Simulated-Op Clobber Tracking**: Assembler optimizer no longer blanket-invalidates all state for simulated ops. Each op type declares what it clobbers: `add.16`/`sub.16` etc. clobber A/X/flags but preserve Y/Z/memory; `stax.fp` preserves registers but invalidates memory; `inc.16f` clobbers A/flags/stack.
-- game_of_life.prg: **5301 → 4906 bytes** (further reduction from MachineState-enabled optimizations).
+- **Store-Fused ADDR_ELEM**: Array indexing (`base + index * stride`) emits inline add instead of `add.16` simulated op when result stored to ZP. Eliminates `pha/pla` overhead for every array index computation.
+- game_of_life.prg: **5301 → 4798 bytes** (further reduction from MachineState-enabled optimizations).
 
 ## [Unreleased] - 2026-05-27
 
