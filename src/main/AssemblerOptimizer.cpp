@@ -392,6 +392,12 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
                     if (ms.reg[r].isSameAsMem(zpAddr)) {
                         redundant = true;
                     }
+                    // Check: memory mirrors this register (store-forwarding)?
+                    // After STA $24, zpMem[$24] = SAME_AS_REG(A). A subsequent LDA $24
+                    // is redundant because A still holds the value that was stored.
+                    else if (ms.getZP(zpAddr).isSameAs(r)) {
+                        redundant = true;
+                    }
                     // Check: both register and memory hold the same known constant?
                     else if (ms.reg[r].isConst() && ms.getZP(zpAddr).isConst()
                              && ms.reg[r].constVal == ms.getZP(zpAddr).constVal) {
@@ -402,12 +408,14 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
                     // For absolute addresses in ZP range, check zpMem
                     if (addr < 256) {
                         if (ms.reg[r].isSameAsMem((uint8_t)addr)) redundant = true;
+                        else if (ms.getZP((uint8_t)addr).isSameAs(r)) redundant = true;
                         else if (ms.reg[r].isConst() && ms.getZP((uint8_t)addr).isConst()
                                  && ms.reg[r].constVal == ms.getZP((uint8_t)addr).constVal)
                             redundant = true;
                     } else {
                         auto memInfo = ms.getAbsMem(addr);
-                        if (ms.reg[r].isConst() && memInfo.isConst()
+                        if (memInfo.isSameAs(r)) redundant = true;
+                        else if (ms.reg[r].isConst() && memInfo.isConst()
                             && ms.reg[r].constVal == memInfo.constVal)
                             redundant = true;
                     }
@@ -548,7 +556,48 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
             // Branches: flags/registers valid for fall-through. Labels handle merge points.
 
         } else if (s->isSimulatedOp()) {
-            ms.invalidateAll();
+            // Instead of blanket invalidateAll, track what each simulated op clobbers.
+            // Most 16-bit ops leave result in A:X and preserve Y/Z/memory.
+            using ST = AssemblerParser::Statement;
+            auto stype = s->type;
+            if (stype == ST::ADD16 || stype == ST::SUB16 || stype == ST::ADDS16 || stype == ST::SUBS16 ||
+                stype == ST::AND16 || stype == ST::ORA16 || stype == ST::EOR16 ||
+                stype == ST::NEG16 || stype == ST::NOT16 || stype == ST::ABS16 ||
+                stype == ST::MUL || stype == ST::DIV ||
+                stype == ST::LSL16 || stype == ST::LSR16 || stype == ST::ASR16 ||
+                stype == ST::ROL16 || stype == ST::ROR16 ||
+                stype == ST::CMP16 || stype == ST::CMP_S16 ||
+                stype == ST::CHKZERO8 || stype == ST::CHKZERO16 ||
+                stype == ST::CHKNONZERO8 || stype == ST::CHKNONZERO16 ||
+                stype == ST::SELECT || stype == ST::SXT8) {
+                // Result in A:X, Y/Z preserved, flags clobbered
+                ms.invalidateReg(REG_A);
+                ms.invalidateReg(REG_X);
+                ms.flags.invalidate();
+            } else if (stype == ST::LDW || stype == ST::LDAX || stype == ST::LDAX_FP) {
+                // Load into A:X (or A:Y/A:Z for variants)
+                ms.invalidateReg(REG_A);
+                ms.invalidateReg(REG_X);
+                ms.flags.invalidate();
+            } else if (stype == ST::STW || stype == ST::STAX || stype == ST::STAX_FP) {
+                // Store from A:X — doesn't clobber registers, but may modify memory
+                ms.invalidateAllMem();
+            } else if (stype == ST::INC_FP || stype == ST::DEC_FP ||
+                       stype == ST::INC16_FP || stype == ST::DEC16_FP) {
+                // Frame inc/dec: clobbers flags, may clobber A (dec.16f), preserves X/Y/Z
+                ms.invalidateReg(REG_A);
+                ms.flags.invalidate();
+                ms.invalidateAllStack();
+            } else if (stype == ST::STACK_INC || stype == ST::STACK_DEC ||
+                       stype == ST::STACK_INC8 || stype == ST::STACK_DEC8) {
+                // Stack inc/dec: clobbers A/X, flags
+                ms.invalidateReg(REG_A);
+                ms.invalidateReg(REG_X);
+                ms.flags.invalidate();
+            } else {
+                // Unknown simulated op — conservatively invalidate all
+                ms.invalidateAll();
+            }
             stackVarLastValue.clear();
         }
     }
