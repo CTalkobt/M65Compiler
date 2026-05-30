@@ -277,6 +277,11 @@ std::string IRCodeGen::src2MemOperand(const ir::Operand& op) {
         return "#" + std::to_string((int)op.immVal);
     }
     if (op.isVreg()) {
+        // Check for suppressed CONST vreg — use immediate instead of ZP
+        auto cit = vregConstVal_.find(op.vregId);
+        if (cit != vregConstVal_.end() && suppressedVregs_.count(op.vregId)) {
+            return "#" + std::to_string((int)(cit->second & 0xFFFF));
+        }
         auto alloc = alloc_.getAlloc(op.vregId);
         switch (alloc.loc) {
             case VRegAllocator::IN_ZP: {
@@ -764,7 +769,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                             canSuppress = false; break;
                         }
                     }
-                    // Check src2: OK if STORE address (not local slot) or CMP operand
+                    // Check src2: OK if STORE address (not local slot), CMP, or ADD/SUB operand
                     if (inst.src2.isVreg() && inst.src2.vregId == vid) {
                         if (inst.op == ir::Op::STORE && !fn.localSlotVregs.count(vid)) {
                             hasUse = true;
@@ -774,6 +779,8 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                                    inst.op == ir::Op::CMP_LTU || inst.op == ir::Op::CMP_LEU ||
                                    inst.op == ir::Op::CMP_GTU || inst.op == ir::Op::CMP_GEU) {
                             hasUse = true; // CMP already uses vregConstVal_ for immediate
+                        } else if (inst.op == ir::Op::ADD || inst.op == ir::Op::SUB) {
+                            hasUse = true; // store-fused ADD/SUB uses vregConstVal_ for immediate
                         } else {
                             canSuppress = false; break;
                         }
@@ -1302,7 +1309,18 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         }
                         if (!src1hi.empty()) {
                             std::string r = irDesc("store-fused add/sub.16");
-                            std::string src2mem = src2MemOperand(inst.src2);
+                            // Use immediate for CONST vreg src2
+                            std::string src2mem;
+                            if (inst.src2.isVreg()) {
+                                auto cit = vregConstVal_.find(inst.src2.vregId);
+                                if (cit != vregConstVal_.end()) {
+                                    src2mem = "#" + std::to_string((int)(cit->second & 0xFFFF));
+                                } else {
+                                    src2mem = src2MemOperand(inst.src2);
+                                }
+                            } else {
+                                src2mem = src2MemOperand(inst.src2);
+                            }
                             // Load only lo byte of src1 (no ldx for hi — we use lda src1hi later)
                             if (inst.src1.isImm()) {
                                 emit("lda #" + std::to_string((int)(inst.src1.immVal & 0xFF)), r);
