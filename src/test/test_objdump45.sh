@@ -279,7 +279,7 @@ if [ $? -eq 0 ]; then
     OUT=$($OD -d "$BUILD/objdump_accuracy.o45" 2>&1)
     assert_exit "accuracy test exits 0" $? 0
     assert_contains "clv" "$OUT" "clv"
-    assert_contains "lda #\$FF" "$OUT" '#$FF'
+    assert_contains "lda #\$ff" "$OUT" '#$ff'
     assert_contains "sta \$2000" "$OUT" '$2000'
     assert_contains "ldx zp,y" "$OUT" '$80,y'
     assert_contains "lda (zp,x)" "$OUT" '($10,x)'
@@ -288,7 +288,7 @@ if [ $? -eq 0 ]; then
     assert_contains "lda (zp,sp),y" "$OUT" '($40,sp),y'
     assert_contains "jmp (abs)" "$OUT" '($5000)'
     assert_contains "jsr (abs,x)" "$OUT" '($6000,x)'
-    assert_contains "phw #imm16" "$OUT" '#$ABCD'
+    assert_contains "phw #imm16" "$OUT" '#$abcd'
     assert_contains "rts #imm" "$OUT" '#$02'
 else
     fail "accuracy test — assembly failed"

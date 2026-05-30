@@ -153,84 +153,84 @@ static std::string formatOperand(AddressingMode mode, const uint8_t* bytes, int 
         case AddressingMode::ACCUMULATOR:
             return "a";
         case AddressingMode::IMMEDIATE:
-            snprintf(buf, sizeof(buf), "#$%02X", bytes[0]);
+            snprintf(buf, sizeof(buf), "#$%02x", bytes[0]);
             return buf;
         case AddressingMode::IMMEDIATE16:
-            snprintf(buf, sizeof(buf), "#$%04X", bytes[0] | (bytes[1] << 8));
+            snprintf(buf, sizeof(buf), "#$%04x", bytes[0] | (bytes[1] << 8));
             return buf;
         case AddressingMode::BASE_PAGE:
-            snprintf(buf, sizeof(buf), "$%02X", bytes[0]);
+            snprintf(buf, sizeof(buf), "$%02x", bytes[0]);
             return buf;
         case AddressingMode::BASE_PAGE_X:
-            snprintf(buf, sizeof(buf), "$%02X,x", bytes[0]);
+            snprintf(buf, sizeof(buf), "$%02x,x", bytes[0]);
             return buf;
         case AddressingMode::BASE_PAGE_Y:
-            snprintf(buf, sizeof(buf), "$%02X,y", bytes[0]);
+            snprintf(buf, sizeof(buf), "$%02x,y", bytes[0]);
             return buf;
         case AddressingMode::ABSOLUTE:
-            snprintf(buf, sizeof(buf), "$%04X", bytes[0] | (bytes[1] << 8));
+            snprintf(buf, sizeof(buf), "$%04x", bytes[0] | (bytes[1] << 8));
             return buf;
         case AddressingMode::ABSOLUTE_X:
-            snprintf(buf, sizeof(buf), "$%04X,x", bytes[0] | (bytes[1] << 8));
+            snprintf(buf, sizeof(buf), "$%04x,x", bytes[0] | (bytes[1] << 8));
             return buf;
         case AddressingMode::ABSOLUTE_Y:
-            snprintf(buf, sizeof(buf), "$%04X,y", bytes[0] | (bytes[1] << 8));
+            snprintf(buf, sizeof(buf), "$%04x,y", bytes[0] | (bytes[1] << 8));
             return buf;
         case AddressingMode::ABSOLUTE_INDIRECT:
-            snprintf(buf, sizeof(buf), "($%04X)", bytes[0] | (bytes[1] << 8));
+            snprintf(buf, sizeof(buf), "($%04x)", bytes[0] | (bytes[1] << 8));
             return buf;
         case AddressingMode::ABSOLUTE_X_INDIRECT:
-            snprintf(buf, sizeof(buf), "($%04X,x)", bytes[0] | (bytes[1] << 8));
+            snprintf(buf, sizeof(buf), "($%04x,x)", bytes[0] | (bytes[1] << 8));
             return buf;
         case AddressingMode::BASE_PAGE_X_INDIRECT:
-            snprintf(buf, sizeof(buf), "($%02X,x)", bytes[0]);
+            snprintf(buf, sizeof(buf), "($%02x,x)", bytes[0]);
             return buf;
         case AddressingMode::BASE_PAGE_INDIRECT_Y:
-            snprintf(buf, sizeof(buf), "($%02X),y", bytes[0]);
+            snprintf(buf, sizeof(buf), "($%02x),y", bytes[0]);
             return buf;
         case AddressingMode::BASE_PAGE_INDIRECT_Z:
-            snprintf(buf, sizeof(buf), "($%02X),z", bytes[0]);
+            snprintf(buf, sizeof(buf), "($%02x),z", bytes[0]);
             return buf;
         case AddressingMode::FLAT_INDIRECT_Z:
-            snprintf(buf, sizeof(buf), "[$%02X],z", bytes[0]);
+            snprintf(buf, sizeof(buf), "[$%02x],z", bytes[0]);
             return buf;
         case AddressingMode::BASE_PAGE_INDIRECT_SP_Y:
-            snprintf(buf, sizeof(buf), "($%02X,sp),y", bytes[0]);
+            snprintf(buf, sizeof(buf), "($%02x,sp),y", bytes[0]);
             return buf;
         case AddressingMode::RELATIVE: {
             int8_t offset = (int8_t)bytes[0];
             uint32_t target = pc + 2 + offset;
-            snprintf(buf, sizeof(buf), "$%04X", target & 0xFFFF);
+            snprintf(buf, sizeof(buf), "$%04x", target & 0xFFFF);
             return buf;
         }
         case AddressingMode::RELATIVE16: {
             int16_t offset = (int16_t)(bytes[0] | (bytes[1] << 8));
             uint32_t target = pc + 3 + offset;
-            snprintf(buf, sizeof(buf), "$%04X", target & 0xFFFF);
+            snprintf(buf, sizeof(buf), "$%04x", target & 0xFFFF);
             return buf;
         }
         case AddressingMode::BASE_PAGE_RELATIVE: {
             int8_t rel = (int8_t)bytes[1];
             uint32_t target = pc + 3 + rel;
-            snprintf(buf, sizeof(buf), "$%02X,$%04X", bytes[0], target & 0xFFFF);
+            snprintf(buf, sizeof(buf), "$%02x,$%04x", bytes[0], target & 0xFFFF);
             return buf;
         }
         case AddressingMode::STACK_RELATIVE:
-            snprintf(buf, sizeof(buf), "$%02X,s", bytes[0]);
+            snprintf(buf, sizeof(buf), "$%02x,s", bytes[0]);
             return buf;
         case AddressingMode::STACK_RELATIVE_INDIRECT_Y:
-            snprintf(buf, sizeof(buf), "($%02X,s),y", bytes[0]);
+            snprintf(buf, sizeof(buf), "($%02x,s),y", bytes[0]);
             return buf;
         case AddressingMode::LINEAR_ABSOLUTE:
-            snprintf(buf, sizeof(buf), "$%06X",
+            snprintf(buf, sizeof(buf), "$%06x",
                      bytes[0] | (bytes[1] << 8) | (bytes[2] << 16));
             return buf;
         case AddressingMode::LINEAR_ABSOLUTE_X:
-            snprintf(buf, sizeof(buf), "$%06X,x",
+            snprintf(buf, sizeof(buf), "$%06x,x",
                      bytes[0] | (bytes[1] << 8) | (bytes[2] << 16));
             return buf;
         case AddressingMode::LINEAR_ABSOLUTE_Y:
-            snprintf(buf, sizeof(buf), "$%06X,y",
+            snprintf(buf, sizeof(buf), "$%06x,y",
                      bytes[0] | (bytes[1] << 8) | (bytes[2] << 16));
             return buf;
         default:
@@ -253,7 +253,7 @@ static void printFileHeader(const O45File& obj, const std::string& filename) {
     if (obj.mode & O45_MODE_PAGED)   flags += ", PAGED";
     if (obj.mode & O45_MODE_CHAIN)   flags += ", CHAIN";
     if (obj.mode & O45_MODE_SIMPLE)  flags += ", SIMPLE";
-    printf("flags $%04X", obj.mode);
+    printf("flags $%04x", obj.mode);
     if (!flags.empty()) std::cout << " (" << flags.substr(2) << ")";
     std::cout << std::endl;
 
@@ -356,7 +356,7 @@ static void printRelocations(const O45File& obj, const std::string& filename) {
                 }
             }
             if (r.type == R_HIGH) {
-                printf("  extra=$%02X", r.extra);
+                printf("  extra=$%02x", r.extra);
             }
             std::cout << std::endl;
         }
@@ -633,7 +633,7 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
 
         if (it == opcodeTable.end()) {
             // Unknown opcode — emit as .byte
-            printf("    %04x:\t%02x          \t.byte\t$%02X\n", pc, opcode, opcode);
+            printf("    %04x:\t%02x          \t.byte\t$%02x\n", pc, opcode, opcode);
             i++;
             continue;
         }
@@ -646,7 +646,7 @@ static void disassembleSection(const std::vector<uint8_t>& body, uint32_t base,
         if (i + instrSize > body.size()) {
             // Not enough bytes — dump remainder as .byte
             for (size_t j = i; j < body.size(); j++) {
-                printf("    %04x:\t%02x          \t.byte\t$%02X\n",
+                printf("    %04x:\t%02x          \t.byte\t$%02x\n",
                        (unsigned)(base + j), body[j], body[j]);
             }
             break;
@@ -907,7 +907,7 @@ int main(int argc, char** argv) {
                 std::cout << std::endl;
                 std::cout << filename << ":     file format "
                           << (isPrg ? "prg" : "raw binary") << std::endl;
-                printf("base address: $%04X, size: %zu bytes\n", base, body.size());
+                printf("base address: $%04x, size: %zu bytes\n", base, body.size());
             }
             if (showContents) {
                 hexDump(body, base, isPrg ? "PRG" : "BIN");
@@ -945,7 +945,7 @@ int main(int argc, char** argv) {
                         for (size_t b = 0; b < stubSize; b++)
                             printf("%02x ", body[b]);
                         uint16_t lineNum = body[2] | (body[3] << 8);
-                        printf("\t; %u SYS %u ($%04X)\n", lineNum, sysTarget, sysTarget);
+                        printf("\t; %u SYS %u ($%04x)\n", lineNum, sysTarget, sysTarget);
                     }
                 }
 
