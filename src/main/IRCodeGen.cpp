@@ -1267,12 +1267,26 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             // Load only lo byte of src1, do lo add+store, then load hi byte of src1
             // directly (skip ldx + txa):
             //   lda src1_lo; clc; adc src2_lo; sta dest_lo; lda src1_hi; adc src2_hi; sta dest_hi
+            // Store-fused check: can we emit inline add and store directly to ZP?
+            bool addSubFused = false;
             if (inst.resultType == ir::Type::I16 && inst.dest.isVreg() && !src1InFrame && !src2InFrame) {
+                // Check 1: next instruction is STORE to a ZP local
                 auto* nextInst = peekNextInst();
-                if (nextInst && nextInst->op == ir::Op::STORE &&
+                bool storeToLocal = nextInst && nextInst->op == ir::Op::STORE &&
                     nextInst->src1.isVreg() && nextInst->src1.vregId == inst.dest.vregId &&
-                    nextInst->src2.isVreg() && localSlotVregs_.count(nextInst->src2.vregId)) {
-                    auto destAlloc = alloc_.getAlloc(nextInst->src2.vregId);
+                    nextInst->src2.isVreg() && localSlotVregs_.count(nextInst->src2.vregId) &&
+                    alloc_.getAlloc(nextInst->src2.vregId).loc == VRegAllocator::IN_ZP;
+                // Check 2: dest vreg itself is ZP-allocated (result stored to own slot)
+                bool destIsZP = alloc_.getAlloc(inst.dest.vregId).loc == VRegAllocator::IN_ZP;
+
+                VRegAllocator::Allocation destAlloc;
+                if (storeToLocal) {
+                    destAlloc = alloc_.getAlloc(nextInst->src2.vregId);
+                } else if (destIsZP) {
+                    destAlloc = alloc_.getAlloc(inst.dest.vregId);
+                }
+
+                if (storeToLocal || destIsZP) {
                     if (destAlloc.loc == VRegAllocator::IN_ZP) {
                         // Determine src1 hi byte source
                         std::string src1hi;
@@ -1322,13 +1336,14 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                                 emit(inst.op == ir::Op::ADD ? "adc " + src2mem + "+1" : "sbc " + src2mem + "+1");
                             }
                             emit("sta " + dhi.str());
-                            resultInAX_ = -2;
+                            if (storeToLocal) resultInAX_ = -2; // skip next STORE
                             ms_.invalidateAll();
-                            break;
+                            addSubFused = true;
                         }
                     }
                 }
             }
+            if (addSubFused) break;
 
             std::string mn;
             if (inst.resultType == ir::Type::I32) {

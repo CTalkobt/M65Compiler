@@ -3,23 +3,23 @@ Linker Map
 
 Memory Layout
 -------------
-  TEXT   $200D - $2AD2  (2758 bytes)
-  DATA   $2AD3 - $32BC  (2026 bytes)
-  BSS    $32BD - $33B4  (248 bytes)
+  TEXT   $200D - $2AB6  (2730 bytes)
+  DATA   $2AB7 - $32A0  (2026 bytes)
+  BSS    $32A1 - $3398  (248 bytes)
 
 Object Files
 ------------
   main.o45
-    TEXT  $2043 - $2A43  (2561 bytes)
-    DATA  $2AD3 - $32A6  (2004 bytes)
+    TEXT  $2043 - $2A27  (2533 bytes)
+    DATA  $2AB7 - $328A  (2004 bytes)
   ../../../lib/build/c45.lib(crt0.o45)
     TEXT  $200D - $2042  (54 bytes)
-    DATA  $32A7 - $32BC  (22 bytes)
-    BSS   $32BD - $33B4  (248 bytes)
+    DATA  $328B - $32A0  (22 bytes)
+    BSS   $32A1 - $3398  (248 bytes)
   ../../../lib/build/c45.lib(memcpy.o45)
-    TEXT  $2A44 - $2A8F  (76 bytes)
+    TEXT  $2A28 - $2A73  (76 bytes)
   ../../../lib/build/c45.lib(memset.o45)
-    TEXT  $2A90 - $2AD2  (67 bytes)
+    TEXT  $2A74 - $2AB6  (67 bytes)
 
 Symbols (by address)
 --------------------
@@ -27,13 +27,13 @@ Symbols (by address)
   $200D  __init                         ../../../lib/build/c45.lib(crt0.o45)
   $202B  __exit                         ../../../lib/build/c45.lib(crt0.o45)
   $2042  _init_features                 ../../../lib/build/c45.lib(crt0.o45) [weak]
-  $2937  _main                          main.o45  [uses:- clob:- rel:- regs:AXYZ]
-  $2A44  _memcpy                        ../../../lib/build/c45.lib(memcpy.o45)
-  $2A90  _memset                        ../../../lib/build/c45.lib(memset.o45)
-  $32A3  _screen                        main.o45
-  $32A5  _color                         main.o45
-  $32BD  __bss_start                    <linker>
-  $33B5  __bss_end                      <linker>
+  $291B  _main                          main.o45  [uses:- clob:- rel:- regs:AXYZ]
+  $2A28  _memcpy                        ../../../lib/build/c45.lib(memcpy.o45)
+  $2A74  _memset                        ../../../lib/build/c45.lib(memset.o45)
+  $3287  _screen                        main.o45
+  $3289  _color                         main.o45
+  $32A1  __bss_start                    <linker>
+  $3399  __bss_end                      <linker>
 
 Call Graph
 ----------
@@ -80,31 +80,31 @@ Source Lines
   $252C  main.c:115
   $2587  main.c:116
   $25DE  main.c:117
-  $2637  main.c:118
-  $26A5  main.c:119
-  $2717  main.c:123
-  $2731  main.c:124
-  $278C  main.c:125
-  $27FA  main.c:126
-  $2855  main.c:127
-  $28C5  main.c:128
-  $2937  main.c:131
-  $2943  main.c:134
-  $2948  main.c:135
-  $294B  main.c:136
-  $2950  main.c:139
-  $2955  main.c:140
-  $295E  main.c:141
-  $2963  main.c:142
-  $296C  main.c:143
-  $2971  main.c:144
-  $297A  main.c:145
-  $297F  main.c:149
-  $29F1  main.c:150
-  $29F6  main.c:151
-  $2A19  main.c:152
-  $2A1E  main.c:153
-  $2A21  main.c:154
-  $2A24  main.c:155
-  $2A32  main.c:157
-  $2A37  main.c:159
+  $2633  main.c:118
+  $269D  main.c:119
+  $270B  main.c:123
+  $2725  main.c:124
+  $2780  main.c:125
+  $27EA  main.c:126
+  $2841  main.c:127
+  $28AD  main.c:128
+  $291B  main.c:131
+  $2927  main.c:134
+  $292C  main.c:135
+  $292F  main.c:136
+  $2934  main.c:139
+  $2939  main.c:140
+  $2942  main.c:141
+  $2947  main.c:142
+  $2950  main.c:143
+  $2955  main.c:144
+  $295E  main.c:145
+  $2963  main.c:149
+  $29D5  main.c:150
+  $29DA  main.c:151
+  $29FD  main.c:152
+  $2A02  main.c:153
+  $2A05  main.c:154
+  $2A08  main.c:155
+  $2A16  main.c:157
+  $2A1B  main.c:159
