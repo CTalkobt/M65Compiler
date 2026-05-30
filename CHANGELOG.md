@@ -24,6 +24,7 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - **CPX for Unsigned 16-bit Compare**: `cmp.16` now uses `cpx #hi` for the high byte instead of `txa; cmp #hi`, saving 1 byte per unsigned comparison and preserving A. Applies to both immediate and memory operand paths. Signed `cmp.s16` unchanged (needs EOR #$80).
 - **Store-Fused I16 Add/Sub**: When an I16 add/sub result is immediately stored to a ZP local, emit `lda lo; clc; adc src; sta $ZP; lda hi; adc src+1; sta $ZP+1` — no ldx, txa, pha, or pla. Loads src1 hi byte directly instead of round-tripping through X.
 - **Frame INC/DEC Pseudo-Ops**: New `inc.fp`/`dec.fp` (8-bit) and `inc.16f`/`dec.16f` (16-bit) pseudo-ops for direct stack-relative increment/decrement. IRCodeGen I16 INC/DEC peephole extended to IN_FRAME variables. `gen++` on a stack variable: 25 bytes → 9 bytes.
+- **Push/Pull Value Tracking**: MachineState tracks register values through `pha/phx/phy/phz` and `pla/plx/ply/plz` via an 8-entry push stack. Cross-register patterns (`pha; plx`) correctly propagate values. The `add.16 .AX` simulated op's `pha/txa/adc/tax/pla` sequence now preserves knowledge that A holds the lo result after `pla`, enabling downstream forwarding through `sta $ZP`.
 - game_of_life.prg: **5301 → 4982 bytes** (further reduction from MachineState-enabled optimizations).
 
 ## [Unreleased] - 2026-05-27
