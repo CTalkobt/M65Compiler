@@ -25,7 +25,9 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 - **Store-Fused I16 Add/Sub**: When an I16 add/sub result is immediately stored to a ZP local, emit `lda lo; clc; adc src; sta $ZP; lda hi; adc src+1; sta $ZP+1` — no ldx, txa, pha, or pla. Loads src1 hi byte directly instead of round-tripping through X.
 - **Frame INC/DEC Pseudo-Ops**: New `inc.fp`/`dec.fp` (8-bit) and `inc.16f`/`dec.16f` (16-bit) pseudo-ops for direct stack-relative increment/decrement. IRCodeGen I16 INC/DEC peephole extended to IN_FRAME variables. `gen++` on a stack variable: 25 bytes → 9 bytes.
 - **Push/Pull Value Tracking**: MachineState tracks register values through `pha/phx/phy/phz` and `pla/plx/ply/plz` via an 8-entry push stack. Cross-register patterns (`pha; plx`) correctly propagate values. The `add.16 .AX` simulated op's `pha/txa/adc/tax/pla` sequence now preserves knowledge that A holds the lo result after `pla`, enabling downstream forwarding through `sta $ZP`.
-- game_of_life.prg: **5301 → 4982 bytes** (further reduction from MachineState-enabled optimizations).
+- **Reverse Store-Forwarding in Assembler Optimizer**: After `STA $ZP`, zpMem mirrors the register. A subsequent `LDA $ZP` is now detected as redundant when the register hasn't changed (memory mirrors register, not just register mirrors memory). 42 redundant loads eliminated in game_of_life.
+- **Per-Simulated-Op Clobber Tracking**: Assembler optimizer no longer blanket-invalidates all state for simulated ops. Each op type declares what it clobbers: `add.16`/`sub.16` etc. clobber A/X/flags but preserve Y/Z/memory; `stax.fp` preserves registers but invalidates memory; `inc.16f` clobbers A/flags/stack.
+- game_of_life.prg: **5301 → 4906 bytes** (further reduction from MachineState-enabled optimizations).
 
 ## [Unreleased] - 2026-05-27
 
