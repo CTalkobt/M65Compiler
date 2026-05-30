@@ -860,6 +860,10 @@ void AssemblerParser::pass1() {
             else if (fullMnemonic == "staxyz.fp") { SIMOP(STAXYZ_FP, dispatch_STAXYZ_FP); }
             else if (fullMnemonic == "leax.fp") { SIMOP(LEAX_FP, dispatch_LEAX_FP); }
             else if (fullMnemonic == "move.fp") { SIMOP(MOVE_FP, dispatch_MOVE_FP); }
+            else if (fullMnemonic == "inc.fp") { SIMOP(INC_FP, dispatch_INC_FP); }
+            else if (fullMnemonic == "dec.fp") { SIMOP(DEC_FP, dispatch_DEC_FP); }
+            else if (fullMnemonic == "inc.16f") { SIMOP(INC16_FP, dispatch_INC16_FP); }
+            else if (fullMnemonic == "dec.16f") { SIMOP(DEC16_FP, dispatch_DEC16_FP); }
             else if (fullMnemonic == "bfext") { SIMOP(BFEXT, dispatch_BFExt); }
             else if (fullMnemonic == "bfext16") { SIMOP(BFEXT16, dispatch_BFExt); }
             else if (fullMnemonic == "bfins") { SIMOP(BFINS, dispatch_BFIns); }

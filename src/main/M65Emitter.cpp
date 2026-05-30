@@ -551,6 +551,20 @@ void M65Emitter::stz_stack(uint8_t offset) {
         emitInstruction("stz", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
     }
 }
+void M65Emitter::inc_stack(uint8_t offset) {
+    ms_.invalidateStack(offset);
+    ms_.flags.invalidate();
+    tsxCached();
+    recordSpBaseReloc(offset);
+    emitInstruction("inc", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
+}
+void M65Emitter::dec_stack(uint8_t offset) {
+    ms_.invalidateStack(offset);
+    ms_.flags.invalidate();
+    tsxCached();
+    recordSpBaseReloc(offset);
+    emitInstruction("dec", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
+}
 void M65Emitter::lda_frame(uint8_t fpOff, uint8_t yOff) {
     uint8_t totalOff = fpOff + yOff;
     lda_stack(totalOff);

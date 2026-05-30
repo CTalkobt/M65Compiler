@@ -1210,13 +1210,20 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                             emit("bne *+4");
                             emit("inc " + hi.str());
                         } else {
-                            // dec16: if lo==0 before dec, borrow into hi
                             emit("lda " + lo.str(), r);
                             emit("bne *+4");
                             emit("dec " + hi.str());
                             emit("dec " + lo.str());
                         }
-                        resultInAX_ = -2; // next STORE already handled
+                        resultInAX_ = -2;
+                        ms_.invalidateAll();
+                        break;
+                    }
+                    if (srcAlloc.loc == VRegAllocator::IN_FRAME) {
+                        std::string sym = "__vr" + std::to_string(inst.src1.vregId);
+                        std::string r = irDesc(inst.op == ir::Op::ADD ? "inc16 frame" : "dec16 frame");
+                        emit(inst.op == ir::Op::ADD ? "inc.16f " + sym : "dec.16f " + sym, r);
+                        resultInAX_ = -2;
                         ms_.invalidateAll();
                         break;
                     }

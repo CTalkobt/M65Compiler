@@ -212,6 +212,8 @@ public:
     void stx_stack(uint8_t offset);
     void sty_stack(uint8_t offset);
     void stz_stack(uint8_t offset);
+    void inc_stack(uint8_t offset);
+    void dec_stack(uint8_t offset);
 
     // Frame-pointer-relative access via ($nn,SP),Y addressing
     void lda_frame(uint8_t fpOff, uint8_t yOff);

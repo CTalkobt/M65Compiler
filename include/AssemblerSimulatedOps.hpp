@@ -65,6 +65,10 @@ public:
     static void dispatch_STAXYZ_FP(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_LEAX_FP(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_MOVE_FP(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_INC_FP(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_DEC_FP(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_INC16_FP(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_DEC16_FP(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_BFExt(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_BFIns(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_MulS16(AssemblerParser* p, M65Emitter& e, Stmt* s);

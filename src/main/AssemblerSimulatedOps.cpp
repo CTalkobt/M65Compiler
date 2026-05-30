@@ -2811,6 +2811,41 @@ void AssemblerSimulatedOps::dispatch_LEAX_FP(AssemblerParser* p, M65Emitter& e, 
 void AssemblerSimulatedOps::dispatch_MOVE_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
     emitMOVE_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
 }
+// inc.fp / dec.fp — 8-bit increment/decrement of frame-relative variable
+void AssemblerSimulatedOps::dispatch_INC_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    Symbol* fpSym = p->resolveSymbol("_fp", s->scopePrefix);
+    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
+    uint8_t yOff = (uint8_t)p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
+    e.inc_stack(fpOff + yOff);
+}
+void AssemblerSimulatedOps::dispatch_DEC_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    Symbol* fpSym = p->resolveSymbol("_fp", s->scopePrefix);
+    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
+    uint8_t yOff = (uint8_t)p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
+    e.dec_stack(fpOff + yOff);
+}
+// inc.16fp / dec.16fp — 16-bit increment/decrement of frame-relative variable
+void AssemblerSimulatedOps::dispatch_INC16_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    Symbol* fpSym = p->resolveSymbol("_fp", s->scopePrefix);
+    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
+    uint8_t yOff = (uint8_t)p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
+    uint8_t off = fpOff + yOff;
+    e.inc_stack(off);
+    auto br = e.emitBranchPlaceholder(0xD0); // bne skip
+    e.inc_stack(off + 1);
+    e.patchBranchTarget(br);
+}
+void AssemblerSimulatedOps::dispatch_DEC16_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    Symbol* fpSym = p->resolveSymbol("_fp", s->scopePrefix);
+    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
+    uint8_t yOff = (uint8_t)p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
+    uint8_t off = fpOff + yOff;
+    e.lda_stack(off);                       // check lo byte for borrow
+    auto br = e.emitBranchPlaceholder(0xD0); // bne skip
+    e.dec_stack(off + 1);                   // borrow: dec hi
+    e.patchBranchTarget(br);
+    e.dec_stack(off);                       // dec lo
+}
 void AssemblerSimulatedOps::dispatch_BFExt(AssemblerParser* p, M65Emitter& e, Stmt* s) {
     emitBFExtCode(p, e, s->type == Stmt::BFEXT16, s->instr.operandTokenIndex, s->scopePrefix);
 }
