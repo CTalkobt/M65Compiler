@@ -11,7 +11,9 @@ static const char* opName(Op op) {
         case Op::SUB:          return "sub";
         case Op::MUL:          return "mul";
         case Op::DIV:          return "div";
+        case Op::DIV_U:        return "div_u";
         case Op::MOD:          return "mod";
+        case Op::MOD_U:        return "mod_u";
         case Op::NEG:          return "neg";
         case Op::AND:          return "and";
         case Op::OR:           return "or";

@@ -1062,14 +1062,17 @@ void IRBuilder::visit(Assignment& node) {
         // Load current LHS value
         node.target->accept(*this);
         auto lhsVal = lastValue_;
+        bool lhsSigned = lastValueSigned_;
+        auto rhsInfo = getExprTypeInfo(node.expression.get());
 
         // Determine the operation
         ir::Op binOp = ir::Op::NOP;
+        bool bothSigned = lhsSigned && rhsInfo.isSigned;
         if (node.op == "+=") binOp = ir::Op::ADD;
         else if (node.op == "-=") binOp = ir::Op::SUB;
         else if (node.op == "*=") binOp = ir::Op::MUL;
-        else if (node.op == "/=") binOp = ir::Op::DIV;
-        else if (node.op == "%=") binOp = ir::Op::MOD;
+        else if (node.op == "/=") binOp = bothSigned ? ir::Op::DIV : ir::Op::DIV_U;
+        else if (node.op == "%=") binOp = bothSigned ? ir::Op::MOD : ir::Op::MOD_U;
         else if (node.op == "&=") binOp = ir::Op::AND;
         else if (node.op == "|=") binOp = ir::Op::OR;
         else if (node.op == "^=") binOp = ir::Op::XOR;
@@ -1402,8 +1405,8 @@ void IRBuilder::visit(BinaryOperation& node) {
     if (node.op == "+") op = ir::Op::ADD;
     else if (node.op == "-") op = ir::Op::SUB;
     else if (node.op == "*") op = ir::Op::MUL;
-    else if (node.op == "/") op = ir::Op::DIV;
-    else if (node.op == "%") op = ir::Op::MOD;
+    else if (node.op == "/") op = bothSigned ? ir::Op::DIV : ir::Op::DIV_U;
+    else if (node.op == "%") op = bothSigned ? ir::Op::MOD : ir::Op::MOD_U;
     else if (node.op == "&") op = ir::Op::AND;
     else if (node.op == "|") op = ir::Op::OR;
     else if (node.op == "^") op = ir::Op::XOR;

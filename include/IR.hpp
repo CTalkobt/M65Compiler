@@ -68,8 +68,10 @@ enum class Op : uint8_t {
     ADD,
     SUB,
     MUL,
-    DIV,
-    MOD,
+    DIV,            // signed division
+    DIV_U,          // unsigned division
+    MOD,            // signed modulo
+    MOD_U,          // unsigned modulo
     NEG,            // unary: dest = -src1
 
     // Bitwise

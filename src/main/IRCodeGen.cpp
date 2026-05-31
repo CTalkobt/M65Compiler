@@ -529,7 +529,9 @@ IRCodeGen::FuncClobbers IRCodeGen::computeFuncClobbers(const ir::Function& fn) {
 
                 case ir::Op::MUL:
                 case ir::Op::DIV:
+                case ir::Op::DIV_U:
                 case ir::Op::MOD:
+                case ir::Op::MOD_U:
                     fc.regs |= A | X;    // hardware math, result in AX
                     fc.flags |= C | N | ZF | V;
                     if (inst.resultType == ir::Type::I32) fc.regs |= Y | Z;
@@ -1100,7 +1102,9 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             case ir::Op::SUB: name = "SUB"; break;
             case ir::Op::MUL: name = "MUL"; break;
             case ir::Op::DIV: name = "DIV"; break;
+            case ir::Op::DIV_U: name = "DIV_U"; break;
             case ir::Op::MOD: name = "MOD"; break;
+            case ir::Op::MOD_U: name = "MOD_U"; break;
             case ir::Op::AND: name = "AND"; break;
             case ir::Op::OR: name = "OR"; break;
             case ir::Op::XOR: name = "XOR"; break;
@@ -1696,6 +1700,18 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             std::string src2 = src2MemOperand(inst.src2);
             loadOperand(inst.src1);
             if (inst.resultType == ir::Type::I32) {
+                emit("div.s32 .AXYZ, " + src2);
+            } else {
+                emit("div.s16 .AX, " + src2);
+            }
+            if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+            break;
+        }
+
+        case ir::Op::DIV_U: {
+            std::string src2 = src2MemOperand(inst.src2);
+            loadOperand(inst.src1);
+            if (inst.resultType == ir::Type::I32) {
                 emit("div.32 .AXYZ, " + src2);
             } else {
                 emit("div.16 .AX, " + src2);
@@ -1705,6 +1721,18 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::MOD: {
+            std::string src2 = src2MemOperand(inst.src2);
+            loadOperand(inst.src1);
+            if (inst.resultType == ir::Type::I32) {
+                emit("mod.s32 .AXYZ, " + src2);
+            } else {
+                emit("mod.s16 .AX, " + src2);
+            }
+            if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+            break;
+        }
+
+        case ir::Op::MOD_U: {
             std::string src2 = src2MemOperand(inst.src2);
             loadOperand(inst.src1);
             if (inst.resultType == ir::Type::I32) {
