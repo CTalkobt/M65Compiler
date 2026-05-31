@@ -1,0 +1,59 @@
+# Docker build context exclusions
+
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Build artifacts
+obj/
+bin/
+build/
+lib/build/
+*.o
+*.o45
+*.o45.s
+*.prg
+*.lib
+
+# IDE/editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation (not needed in image)
+doc/
+docs/
+README.md
+CHANGELOG.md
+ROADMAP.md
+
+# Test resources (not needed in final image)
+src/test-resources/
+src/test/
+examples/
+
+# Development files
+.plan/
+.claude/
+.claude/plans/
+.claude/worktrees/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.circleci/
+
+# Docker-related (don't copy docker files into image)
+Dockerfile*
+docker-compose.yml
+.dockerignore
+
+# Misc
+*.tmp
+*.log
+*.bak
+node_modules/

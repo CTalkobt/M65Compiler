@@ -1,0 +1,70 @@
+version: '3.8'
+
+# Docker Compose for MEGA65 C Compiler development environment
+# Orchestrates compilation (builder) and run-time (emulator) services
+
+services:
+  # Builder service: compiles toolchain from source
+  builder:
+    build:
+      context: .
+      dockerfile: Dockerfile.build
+      args:
+        UBUNTU_VERSION: "22.04"
+        GCC_VERSION: "11"
+    image: m65compiler:builder
+    container_name: m65compiler_builder
+    volumes:
+      # Mount project root for compilation
+      - .:/src:ro
+      # Export compiled artifacts (optional)
+      - ./build/docker-export:/artifacts:rw
+    environment:
+      # Build configuration
+      CC45_VERBOSE: "1"
+    command: |
+      bash -c "
+      make clean &&
+      make all -j4 &&
+      mkdir -p /artifacts/bin /artifacts/lib /artifacts/include &&
+      cp bin/* /artifacts/bin/ &&
+      cp lib/build/*.lib /artifacts/lib/ &&
+      cp -r lib/include/* /artifacts/include/ &&
+      echo '✓ Build complete. Artifacts exported to /artifacts'
+      "
+
+  # Runtime service: emulator environment for testing (planned for #99)
+  # Uncomment when Dockerfile.runtime is available
+  #
+  # runtime:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.runtime
+  #   image: m65compiler:runtime
+  #   container_name: m65compiler_runtime
+  #   volumes:
+  #     # Mount work directory
+  #     - ${WORK_DIR:-.}:/work:rw
+  #     # Mount compiled artifacts from builder
+  #     - ./build/docker-export:/toolchain:ro
+  #   environment:
+  #     MMEMU: /usr/bin/mmemu-cli
+  #   depends_on:
+  #     - builder
+  #   command: /bin/bash
+  #
+  # # Development container with both builder and runtime
+  # dev:
+  #   image: m65compiler:builder
+  #   container_name: m65compiler_dev
+  #   volumes:
+  #     - .:/work:rw
+  #   environment:
+  #     CC45_ROOT: /work
+  #   working_dir: /work
+  #   command: /bin/bash
+
+# Named volumes (optional, for persistent artifact storage)
+volumes:
+  m65compiler-artifacts:
+    driver: local

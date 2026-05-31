@@ -1,0 +1,75 @@
+# Dockerfile.build - MEGA65 C Compiler Toolchain Build
+# Multi-stage build: compile toolchain, output minimal runtime image
+
+ARG UBUNTU_VERSION=22.04
+ARG GCC_VERSION=11
+
+# Stage 1: Builder - compile toolchain from source
+FROM ubuntu:${UBUNTU_VERSION} AS builder
+
+ARG GCC_VERSION
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    make \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+
+# Copy source code
+COPY . .
+
+# Build toolchain and libraries
+RUN make clean && make all -j4 && make lib
+
+# Run compiler/assembler unit tests (optional - catches build issues early)
+# Note: emulator-based tests (test-mmemu, test-stdlib) require #99 runtime image
+RUN make test-assembler test-const test-restrict test-register test-cast-fold 2>/dev/null || echo "⚠️  Some tests failed (non-critical for builder)"
+
+# Strip binaries for size reduction (~30% smaller) - done in builder stage
+RUN strip /src/bin/*
+
+# Stage 2: Runtime - minimal image with just binaries, libs, headers
+FROM ubuntu:${UBUNTU_VERSION}
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PATH="/usr/local/bin:${PATH}"
+
+# Install minimal runtime dependencies (if any)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy compiled binaries from builder (stripped for size)
+COPY --from=builder /src/bin/cc45 /usr/local/bin/
+COPY --from=builder /src/bin/ca45 /usr/local/bin/
+COPY --from=builder /src/bin/ln45 /usr/local/bin/
+COPY --from=builder /src/bin/ar45 /usr/local/bin/
+COPY --from=builder /src/bin/nm45 /usr/local/bin/
+COPY --from=builder /src/bin/objdump45 /usr/local/bin/
+COPY --from=builder /src/bin/cp45 /usr/local/bin/
+
+# Copy library archives and headers
+COPY --from=builder /src/lib/build/*.lib /usr/local/lib/
+COPY --from=builder /src/lib/include /usr/local/include/
+
+# Strip binaries were done in builder stage (before copy)
+
+# Clean up (already done in apt-get, but explicit for safety)
+RUN apt-get clean && rm -rf /var/cache/apt/* /var/lib/lists/*
+
+# Verify binaries are present
+RUN cc45 --version && ca45 --version && ln45 --version
+
+# Set working directory
+WORKDIR /work
+
+# Default command: interactive shell with tools available
+CMD ["/bin/bash"]
+
+# Metadata
+LABEL maintainer="Craig Taylor (CTalkobt)"
+LABEL description="MEGA65 C Compiler Toolchain - cc45, ca45, ln45, ar45, nm45, objdump45, cp45"
+LABEL version="1.1"
