@@ -311,10 +311,10 @@ void LoopOptimizer::visit(ForStatement& node) {
     // Find loop-invariant expressions that appear 2+ times
     int hoistCount = 0;
     for (const auto& exprInfo : collector.expressions) {
-        if (exprInfo.count < 2) continue;  // Skip expressions that appear < 2 times
+        if (exprInfo.count < 2) continue;
         if (!exprInfo.expr) continue;
 
-        // Check if this expression is loop-invariant
+        // Check if loop-invariant
         VarCollector varCollector;
         exprInfo.expr->accept(varCollector);
 
@@ -328,20 +328,15 @@ void LoopOptimizer::visit(ForStatement& node) {
 
         if (!isInvariant) continue;
 
-        // Skip trivial expressions (literals, single variable refs)
+        // Skip trivial expressions
         if (dynamic_cast<IntegerLiteral*>(exprInfo.expr)) continue;
         if (dynamic_cast<StringLiteral*>(exprInfo.expr)) continue;
         if (dynamic_cast<VariableReference*>(exprInfo.expr)) continue;
 
         hoistCount++;
-        // Note: Actual AST transformation (creating temp vars, replacing occurrences)
-        // would go here. This is deferred due to complexity of AST mutation.
-    }
-
-    // Log optimization opportunity (for debugging/metrics)
-    if (hoistCount > 0) {
-        // Potential optimization: hoist hoistCount expressions
-        // This would save approximately hoistCount * (expr_size - 2) bytes
+        // CSE transformation: expression could be hoisted
+        // Actual AST mutation (creating temp vars, replacing occurrences) deferred
+        // Requires: expression cloning, type inference, statement insertion, scope management
     }
 }
 
