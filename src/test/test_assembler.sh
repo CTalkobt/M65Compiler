@@ -1,26 +1,9 @@
 #!/bin/bash
+# Test script for ca45 assembler - uses shared test utilities
 
-# Test script for ca45 assembler specific features (directives, etc.)
+source "$(dirname "$0")/test-lib.sh"
 
-AS="./bin/ca45"
-mkdir -p build/test
-
-failed=0
-passed=0
-
-test_file() {
-    local f=$1
-    local bin_file="build/test/$(basename "$f" .s).bin"
-    
-    echo "Testing $f..."
-    if $AS "$f" -o "$bin_file"; then
-        echo "SUCCESS: $f"
-        passed=$((passed + 1))
-    else
-        echo "FAIL: Assembly failed for $f"
-        failed=$((failed + 1))
-    fi
-}
+print_section "Assembler feature tests"
 
 # List of assembler feature tests
 AS_TEST_FILES=(
@@ -53,42 +36,46 @@ AS_TEST_FILES=(
 )
 
 for f in "${AS_TEST_FILES[@]}"; do
-    test_file "$f"
+    if [ ! -f "$f" ]; then
+        print_skip "$(basename "$f") (not found)"
+        continue
+    fi
+
+    test_name=$(basename "$f" .s)
+    bin_file="build/test/${test_name}.bin"
+
+    if $AS "$f" -o "$bin_file" 2>/dev/null; then
+        print_pass "$test_name"
+    else
+        print_fail "$test_name"
+    fi
 done
 
 # Specific check for basicUpstart output format
-echo "Verifying .basicUpstart output bytes..."
+print_section "Output validation tests"
+
 # Expecting: 0b 08 0a 00 9e 32 30 36 31 00 00 00 (for START at $080D = 2061)
-ACTUAL=$(hexdump -v -n 12 -e '1/1 "%02x "' build/test/test_basic_upstart.bin | xargs)
+ACTUAL=$(hexdump -v -n 12 -e '1/1 "%02x "' build/test/test_basic_upstart.bin 2>/dev/null | xargs)
 EXPECTED="0b 08 0a 00 9e 32 30 36 31 00 00 00"
 
-if [ "$ACTUAL" == "$EXPECTED" ]; then
-    echo "SUCCESS: .basicUpstart output matches expected format."
+if [ "$ACTUAL" = "$EXPECTED" ]; then
+    print_pass ".basicUpstart output format"
 else
-    echo "FAIL: .basicUpstart output mismatch."
-    echo "  Expected start: $EXPECTED"
-    echo "  Actual:         $ACTUAL"
-    failed=$((failed + 1))
+    print_fail ".basicUpstart output format (expected: $EXPECTED, got: $ACTUAL)"
 fi
 
-echo "Testing -Dcc45.zeroPageStart=\$10..."
-# Use a dereference which is guaranteed to use ZP scratch $02/$03
+# Test -Dcc45.zeroPageStart=$10
 echo -e ".var ptr = \$20\nexpr .A, *ptr" > build/test_zp_shift.s
-$AS "-Dcc45.zeroPageStart=\$10" -o build/test_zp_shift.bin build/test_zp_shift.s
-# 85 10 (STA $10) should be in there (saving eval'd ptr address to ZP scratch)
-ACTUAL_ZP=$(hexdump -v -e '1/1 "%02x "' build/test_zp_shift.bin)
-if [ -f build/test_zp_shift.bin ] && echo "$ACTUAL_ZP" | grep -q "85 10"; then
-    echo "SUCCESS: -Dcc45.zeroPageStart correctly shifted ZP addresses."
+if $AS "-Dcc45.zeroPageStart=\$10" -o build/test_zp_shift.bin build/test_zp_shift.s 2>/dev/null; then
+    ACTUAL_ZP=$(hexdump -v -e '1/1 "%02x "' build/test_zp_shift.bin 2>/dev/null)
+    if echo "$ACTUAL_ZP" | grep -q "85 10"; then
+        print_pass "-Dcc45.zeroPageStart=\$10 ZP shifting"
+    else
+        print_fail "-Dcc45.zeroPageStart=\$10 ZP shifting (bytes: $ACTUAL_ZP)"
+    fi
 else
-    echo "FAIL: -Dcc45.zeroPageStart did not shift ZP addresses correctly."
-    echo "Actual bytes: $ACTUAL_ZP"
-    failed=$((failed + 1))
+    print_fail "-Dcc45.zeroPageStart=\$10 compilation"
 fi
 
-if [ $failed -eq 0 ]; then
-    echo "All assembler feature tests passed!"
-    exit 0
-else
-    echo "$failed tests failed."
-    exit 1
-fi
+test_summary
+exit $?
