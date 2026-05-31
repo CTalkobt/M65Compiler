@@ -743,6 +743,87 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
                 }
                 break;  // Only process one signature per pass
             }
+
+            // Suffix matching for function tails: if one tail is a suffix of another,
+            // the shorter one can jump into the middle of the longer one
+            std::vector<TailInfo> allTails;
+            for (auto& [sig, tailList] : tailsBySignature) {
+                for (auto& tail : tailList) {
+                    allTails.push_back(tail);
+                }
+            }
+
+            for (size_t i = 0; i < allTails.size(); ++i) {
+                for (size_t j = 0; j < allTails.size(); ++j) {
+                    if (i == j) continue;
+                    if (allTails[i].instrIndices.size() >= allTails[j].instrIndices.size()) continue;
+
+                    const auto& shortTail = allTails[i].instrIndices;
+                    const auto& longTail = allTails[j].instrIndices;
+
+                    if (longTail.size() < shortTail.size()) continue;
+
+                    // Check if short is suffix of long
+                    bool isSuffix = true;
+                    for (size_t k = 0; k < shortTail.size(); ++k) {
+                        auto* shortInstr = parser->statements[shortTail[k]].get();
+                        auto* longInstr = parser->statements[longTail[longTail.size() - shortTail.size() + k]].get();
+
+                        if (shortInstr->instr.mnemonic != longInstr->instr.mnemonic ||
+                            shortInstr->instr.mode != longInstr->instr.mode ||
+                            shortInstr->instr.operand != longInstr->instr.operand) {
+                            isSuffix = false;
+                            break;
+                        }
+                    }
+
+                    if (!isSuffix) continue;
+
+                    size_t savings = allTails[i].tailSize - 2;
+                    if (savings < 2) continue;
+
+                    std::string offsetLabel = "__tail_" + std::to_string(reinterpret_cast<uintptr_t>(&allTails[i])) + "_into";
+
+                    auto labelStmt = std::make_unique<AssemblerParser::Statement>();
+                    labelStmt->type = AssemblerParser::Statement::DIRECTIVE;
+                    labelStmt->label = offsetLabel;
+                    labelStmt->line = parser->statements[longTail[longTail.size() - shortTail.size()]]->line;
+
+                    size_t insertPos = longTail[longTail.size() - shortTail.size()];
+                    parser->statements.insert(
+                        parser->statements.begin() + insertPos,
+                        std::move(labelStmt)
+                    );
+
+                    auto* firstInstr = parser->statements[allTails[i].instrIndices.front()].get();
+                    auto braStmt = std::make_unique<AssemblerParser::Statement>();
+                    braStmt->type = AssemblerParser::Statement::INSTRUCTION;
+                    braStmt->instr.mnemonic = "bra";
+                    braStmt->instr.mode = AddressingMode::RELATIVE;
+                    braStmt->instr.operand = offsetLabel;
+                    braStmt->size = 2;
+                    braStmt->line = firstInstr->line;
+                    braStmt->sourceFile = firstInstr->sourceFile;
+                    braStmt->sourceLine = firstInstr->sourceLine;
+
+                    for (size_t idx : allTails[i].instrIndices) {
+                        parser->statements[idx]->deleted = true;
+                        parser->statements[idx]->size = 0;
+                    }
+
+                    parser->statements.insert(
+                        parser->statements.begin() + allTails[i].instrIndices.front(),
+                        std::move(braStmt)
+                    );
+
+                    report("tail-dedup-suffix", firstInstr,
+                           "tail → bra " + offsetLabel + " (suffix match, saved " + std::to_string(savings) + " bytes)");
+                    changed = true;
+                    tailDedupChanged = true;
+                    break;
+                }
+                if (tailDedupChanged) break;
+            }
         }
     }
 
