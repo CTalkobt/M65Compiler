@@ -58,5 +58,14 @@ run_stdlib_test "test_gcd_lcm"
 print_section "time.h"
 run_stdlib_test "test_time"
 
+print_section "setjmp.h"
+run_stdlib_test "test_setjmp"
+
+print_section "dma.h"
+run_stdlib_test "test_dma"
+
+print_section "assert.h"
+run_stdlib_test "test_assert"
+
 test_summary
 exit $?
