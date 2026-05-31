@@ -1,4 +1,5 @@
 #include "CodeGenerator.hpp"
+#include "TraversingVisitor.hpp"
 #include <iostream>
 #include <iomanip>
 #include <sstream>
@@ -577,61 +578,18 @@ void CodeGenerator::emitIndirectIncDec(UnaryOperation& node, bool isInc, bool is
 
 // Collect all FunctionCall names from an AST subtree.
 namespace {
-class CallCollector : public ASTVisitor {
+class CallCollector : public TraversingVisitor {
 public:
     std::set<std::string> calledFunctions;
     void visit(FunctionCall& node) override {
         calledFunctions.insert(node.name);
-        for (auto& arg : node.arguments) arg->accept(*this);
+        TraversingVisitor::visit(node);
     }
-    void visit(BuiltinVaStart& node) override { node.ap->accept(*this); }
-    void visit(BuiltinVaArg& node) override { node.ap->accept(*this); }
-    void visit(CpuRegisterAccess&) override {}
-    void visit(CpuFlagAccess&) override {}
-    // Walk all node types that can contain expressions
-    void visit(IntegerLiteral&) override {}
-    void visit(StringLiteral&) override {}
-    void visit(VariableReference&) override {}
-    void visit(Assignment& n) override { n.target->accept(*this); n.expression->accept(*this); }
-    void visit(BinaryOperation& n) override { n.left->accept(*this); n.right->accept(*this); }
-    void visit(UnaryOperation& n) override { n.operand->accept(*this); }
-    void visit(ConditionalExpression& n) override { n.condition->accept(*this); n.thenExpr->accept(*this); n.elseExpr->accept(*this); }
-    void visit(GenericSelection& n) override { n.control->accept(*this); for (auto& a : n.associations) a.result->accept(*this); }
-    void visit(InitializerList& n) override { for (auto& e : n.elements) e->accept(*this); }
-    void visit(ArrayAccess& n) override { n.arrayExpr->accept(*this); n.indexExpr->accept(*this); }
-    void visit(MemberAccess& n) override { n.structExpr->accept(*this); }
-    void visit(CastExpression& n) override { n.expression->accept(*this); }
-    void visit(CompoundLiteral& n) override { for (auto& e : n.initializer->elements) e->accept(*this); }
-    void visit(AlignofExpression&) override {}
-    void visit(SizeofExpression& n) override { if (n.expression) n.expression->accept(*this); }
-    void visit(VariableDeclaration& n) override { if (n.initializer) n.initializer->accept(*this); }
-    void visit(ReturnStatement& n) override { if (n.expression) n.expression->accept(*this); }
-    void visit(BreakStatement&) override {}
-    void visit(ContinueStatement&) override {}
-    void visit(SwitchContinueStatement& n) override { if (n.target) n.target->accept(*this); }
-    void visit(GotoStatement&) override {}
-    void visit(LabelledStatement& n) override { n.statement->accept(*this); }
-    void visit(ExpressionStatement& n) override { n.expression->accept(*this); }
-    void visit(IfStatement& n) override { n.condition->accept(*this); n.thenBranch->accept(*this); if (n.elseBranch) n.elseBranch->accept(*this); }
-    void visit(WhileStatement& n) override { n.condition->accept(*this); n.body->accept(*this); }
-    void visit(DoWhileStatement& n) override { n.body->accept(*this); n.condition->accept(*this); }
-    void visit(ForStatement& n) override { if (n.initializer) n.initializer->accept(*this); if (n.condition) n.condition->accept(*this); if (n.increment) n.increment->accept(*this); n.body->accept(*this); }
-    void visit(RepeatStatement& n) override { n.body->accept(*this); }
-    void visit(SwitchStatement& n) override { n.expression->accept(*this); n.body->accept(*this); }
-    void visit(CaseStatement& n) override { n.value->accept(*this); if (n.rangeEnd) n.rangeEnd->accept(*this); }
-    void visit(DefaultStatement&) override {}
-    void visit(AsmStatement&) override {}
-    void visit(StaticAssert&) override {}
-    void visit(EnumDefinition&) override {}
-    void visit(StructDefinition&) override {}
-    void visit(CompoundStatement& n) override { for (auto& s : n.statements) s->accept(*this); }
-    void visit(FunctionDeclaration& n) override { n.body->accept(*this); }
-    void visit(TranslationUnit& n) override { for (auto& d : n.topLevelDecls) d->accept(*this); }
 };
 
 // Collect parameter names whose address is taken (&param) in a function body.
 // Used in zpCall mode to identify params that must be spilled from ZP to the stack frame.
-class AddressOfParamCollector : public ASTVisitor {
+class AddressOfParamCollector : public TraversingVisitor {
 public:
     std::set<std::string> addressTakenParams; // _p_name entries
     const std::set<std::string>& paramNames_;  // set of _p_name for this function
@@ -645,50 +603,8 @@ public:
                 if (paramNames_.count(pName)) addressTakenParams.insert(pName);
             }
         }
-        n.operand->accept(*this);
+        TraversingVisitor::visit(n);
     }
-    void visit(IntegerLiteral&) override {}
-    void visit(StringLiteral&) override {}
-    void visit(VariableReference&) override {}
-    void visit(Assignment& n) override { n.target->accept(*this); n.expression->accept(*this); }
-    void visit(BinaryOperation& n) override { n.left->accept(*this); n.right->accept(*this); }
-    void visit(ConditionalExpression& n) override { n.condition->accept(*this); n.thenExpr->accept(*this); n.elseExpr->accept(*this); }
-    void visit(GenericSelection& n) override { n.control->accept(*this); for (auto& a : n.associations) a.result->accept(*this); }
-    void visit(InitializerList& n) override { for (auto& e : n.elements) e->accept(*this); }
-    void visit(ArrayAccess& n) override { n.arrayExpr->accept(*this); n.indexExpr->accept(*this); }
-    void visit(FunctionCall& n) override { for (auto& arg : n.arguments) arg->accept(*this); }
-    void visit(MemberAccess& n) override { n.structExpr->accept(*this); }
-    void visit(CastExpression& n) override { n.expression->accept(*this); }
-    void visit(CompoundLiteral& n) override { for (auto& e : n.initializer->elements) e->accept(*this); }
-    void visit(AlignofExpression&) override {}
-    void visit(SizeofExpression& n) override { if (n.expression) n.expression->accept(*this); }
-    void visit(BuiltinVaStart& n) override { n.ap->accept(*this); }
-    void visit(BuiltinVaArg& n) override { n.ap->accept(*this); }
-    void visit(CpuRegisterAccess&) override {}
-    void visit(CpuFlagAccess&) override {}
-    void visit(VariableDeclaration& n) override { if (n.initializer) n.initializer->accept(*this); }
-    void visit(ReturnStatement& n) override { if (n.expression) n.expression->accept(*this); }
-    void visit(BreakStatement&) override {}
-    void visit(ContinueStatement&) override {}
-    void visit(SwitchContinueStatement& n) override { if (n.target) n.target->accept(*this); }
-    void visit(GotoStatement&) override {}
-    void visit(LabelledStatement& n) override { n.statement->accept(*this); }
-    void visit(ExpressionStatement& n) override { if (n.expression) n.expression->accept(*this); }
-    void visit(IfStatement& n) override { n.condition->accept(*this); n.thenBranch->accept(*this); if (n.elseBranch) n.elseBranch->accept(*this); }
-    void visit(WhileStatement& n) override { n.condition->accept(*this); n.body->accept(*this); }
-    void visit(DoWhileStatement& n) override { n.body->accept(*this); n.condition->accept(*this); }
-    void visit(ForStatement& n) override { if (n.initializer) n.initializer->accept(*this); if (n.condition) n.condition->accept(*this); if (n.increment) n.increment->accept(*this); n.body->accept(*this); }
-    void visit(RepeatStatement& n) override { n.body->accept(*this); }
-    void visit(SwitchStatement& n) override { n.expression->accept(*this); n.body->accept(*this); }
-    void visit(CaseStatement& n) override { n.value->accept(*this); if (n.rangeEnd) n.rangeEnd->accept(*this); }
-    void visit(DefaultStatement&) override {}
-    void visit(AsmStatement&) override {}
-    void visit(StaticAssert&) override {}
-    void visit(EnumDefinition&) override {}
-    void visit(StructDefinition&) override {}
-    void visit(CompoundStatement& n) override { for (auto& s : n.statements) s->accept(*this); }
-    void visit(FunctionDeclaration& n) override { n.body->accept(*this); }
-    void visit(TranslationUnit& n) override { for (auto& d : n.topLevelDecls) d->accept(*this); }
 };
 
 // Try to extract a compile-time constant integer from an expression tree.
@@ -755,7 +671,7 @@ static int resolveAlignmentExpr(
 // Pre-scan a function body to compute frame layout.
 // Assigns a fixed frame offset to every local variable, with scope-aware slot reuse
 // for variables in non-overlapping scopes.
-class FrameScanner : public ASTVisitor {
+class FrameScanner : public TraversingVisitor {
 public:
     struct LocalInfo {
         std::string name;   // _l_name
@@ -842,15 +758,7 @@ public:
         // Walk initializer elements (they may contain nested compound literals)
         for (auto& e : n.initializer->elements) e->accept(*this);
     }
-    void visit(AlignofExpression&) override {}
-    void visit(SizeofExpression& n) override { if (n.expression) n.expression->accept(*this); }
-    void visit(ReturnStatement& n) override { if (n.expression) n.expression->accept(*this); }
-    void visit(BreakStatement&) override {}
-    void visit(ContinueStatement&) override {}
-    void visit(SwitchContinueStatement& n) override { if (n.target) n.target->accept(*this); }
-    void visit(GotoStatement&) override {}
-    void visit(LabelledStatement& n) override { n.statement->accept(*this); }
-    void visit(ExpressionStatement& n) override { if (n.expression) n.expression->accept(*this); }
+    // Custom IfStatement handling for scope-aware slot reuse (then/else are mutually exclusive)
     void visit(IfStatement& n) override {
         n.condition->accept(*this);
         // Then and else are separate scopes (mutually exclusive)
@@ -862,28 +770,6 @@ public:
         // Keep the higher water mark
         if (thenMax > currentOffset_) currentOffset_ = thenMax;
     }
-    void visit(WhileStatement& n) override { n.condition->accept(*this); n.body->accept(*this); }
-    void visit(DoWhileStatement& n) override { n.body->accept(*this); n.condition->accept(*this); }
-    void visit(ForStatement& n) override {
-        if (n.initializer) n.initializer->accept(*this);
-        if (n.condition) n.condition->accept(*this);
-        if (n.increment) n.increment->accept(*this);
-        n.body->accept(*this);
-    }
-    void visit(RepeatStatement& n) override { n.body->accept(*this); }
-    void visit(SwitchStatement& n) override { n.expression->accept(*this); n.body->accept(*this); }
-    void visit(CaseStatement& n) override { if (n.value) n.value->accept(*this); if (n.rangeEnd) n.rangeEnd->accept(*this); }
-    void visit(DefaultStatement&) override {}
-    void visit(AsmStatement&) override {}
-    void visit(StaticAssert&) override {}
-    void visit(EnumDefinition&) override {}
-    void visit(StructDefinition&) override {}
-    void visit(FunctionDeclaration& n) override { if (n.body) n.body->accept(*this); }
-    void visit(BuiltinVaStart& n) override { n.ap->accept(*this); }
-    void visit(BuiltinVaArg& n) override { n.ap->accept(*this); }
-    void visit(CpuRegisterAccess&) override {}
-    void visit(CpuFlagAccess&) override {}
-    void visit(TranslationUnit& n) override { for (auto& d : n.topLevelDecls) d->accept(*this); }
 
 private:
     const std::map<std::string, std::shared_ptr<CodeGenerator::StructInfo>>& structs_;
