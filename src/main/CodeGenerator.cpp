@@ -4489,7 +4489,6 @@ void CodeGenerator::visit(IntegerLiteral& node) {
 
 void CodeGenerator::visit(StringLiteral& node) {
     if (!resultNeeded) return;
-    // String pool key: prefix marker for ASCII (\x01) and screencode (\x02), PETSCII uses no prefix
     std::string poolKey;
     if (node.isAscii) {
         poolKey = std::string("\x01") + node.value;  // explicit @"..." always ASCII
@@ -5531,11 +5530,11 @@ void CodeGenerator::emitData() {
     for (const auto& entry : stringPool) {
         out << entry.second << ":" << std::endl;
         if (screencodeStrings.count(entry.first)) {
-            // Screencode string: strip the \x02 prefix key marker, emit .screencode
-            out << "    .screencode \"" << entry.first.substr(1) << "\"" << std::endl;
+            std::string content = entry.first.substr(1);
+            out << "    .screencode \"" << content << "\"" << std::endl;
         } else if (asciiStrings.count(entry.first)) {
-            // ASCII string: strip the \x01 prefix key marker, emit .ascii
-            out << "    .ascii \"" << entry.first.substr(1) << "\"" << std::endl;
+            std::string content = entry.first.substr(1);
+            out << "    .ascii \"" << content << "\"" << std::endl;
         } else {
             out << "    .text \"" << entry.first << "\"" << std::endl;
         }
