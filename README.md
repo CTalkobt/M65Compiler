@@ -76,6 +76,8 @@ For a full list of command-line options, use the `-?` flag:
 
 ## Installation
 
+### Option 1: Local Installation
+
 Install the toolchain binaries, standard library, C headers, and man pages:
 
 ```bash
@@ -95,6 +97,48 @@ The install targets build everything (including `lib`) automatically. Installed 
 | Man pages | `$(PREFIX)/share/man/man1/` |
 
 After `make install_local`, ensure `~/.local/bin` is on your `PATH`.
+
+### Option 2: Docker (Recommended for cross-platform)
+
+Use Docker to build and compile without installing dependencies locally. Works on macOS, Linux, and Windows (WSL2).
+
+#### Build the Docker image
+
+```bash
+docker build -f Dockerfile.build -t m65compiler:builder .
+```
+
+This creates a 92MB image with all toolchain binaries, libraries, and headers.
+
+#### Compile C code using wrapper scripts
+
+The `scripts/cc45-docker.sh` wrapper handles volume mounting automatically:
+
+```bash
+# Simple compilation
+./scripts/cc45-docker.sh myprogram.c          # Creates myprogram.s
+
+# With custom options
+./scripts/cc45-docker.sh myprogram.c -c       # Creates myprogram.o45 (object file)
+
+# Custom toolchain root or work directory
+CC45_ROOT=/opt/m65compiler ./scripts/cc45-docker.sh program.c
+WORK_DIR=./src OUTPUT_DIR=./build ./scripts/cc45-docker.sh program.c
+```
+
+#### Full workflow example
+
+```bash
+# Compile to object files
+./scripts/cc45-docker.sh src/main.c -c -o build/main.o45
+./scripts/cc45-docker.sh src/lib.c -c -o build/lib.o45
+
+# Link into PRG
+./scripts/ln45-docker.sh -basic -o build/program.prg \
+  build/main.o45 build/lib.o45 /opt/m65/lib/c45.lib
+```
+
+For complete Docker documentation, examples, and troubleshooting, see [docs/DOCKER.md](docs/DOCKER.md).
 
 ## Documentation
 In addition to the Markdown files in the `doc/` directory, you can generate and view standard Unix man pages for both tools:

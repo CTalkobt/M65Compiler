@@ -188,35 +188,155 @@ int main() {
 }
 EOF
 
-# Compile
+# Compile to assembly
 ./scripts/cc45-docker.sh hello.c
+# Output: hello.s
 
-# Link (if separate .o45 file)
-./scripts/ln45-docker.sh -basic -o hello.prg hello.o45
+# Assemble to object file
+./scripts/cc45-docker.sh hello.c -c
+# Output: hello.o45
+
+# Compile and link to PRG in one go (requires linking)
+./scripts/cc45-docker.sh hello.c -o hello.prg
 ```
 
-### Example 2: Multiple files with Makefile
+### Example 2: Multi-file project with Makefile
 
-```bash
-# Traditional Makefile (runs on host)
-all:
-	@echo "Building with Docker..."
-	@mkdir -p build
-	./scripts/cc45-docker.sh src/main.c -c -o build/main.o45
-	./scripts/cc45-docker.sh src/lib.c -c -o build/lib.o45
-	./scripts/ln45-docker.sh -basic -o build/program.prg \
-		build/main.o45 build/lib.o45 /opt/m65/lib/c45.lib
+Create a `Makefile` that uses the Docker wrapper scripts:
+
+```makefile
+CC45 = ./scripts/cc45-docker.sh
+LN45 = ./scripts/ln45-docker.sh
+
+SRCDIR = src
+BUILDDIR = build
+SOURCES = $(SRCDIR)/main.c $(SRCDIR)/lib.c $(SRCDIR)/math.c
+OBJECTS = $(BUILDDIR)/main.o45 $(BUILDDIR)/lib.o45 $(BUILDDIR)/math.o45
+
+all: $(BUILDDIR)/program.prg
+
+$(BUILDDIR):
+	mkdir -p $(BUILDDIR)
+
+$(BUILDDIR)/%.o45: $(SRCDIR)/%.c | $(BUILDDIR)
+	$(CC45) $< -c -o $@
+
+$(BUILDDIR)/program.prg: $(OBJECTS)
+	$(LN45) -basic -o $@ $(OBJECTS) /opt/m65/lib/c45.lib
+
+clean:
+	rm -rf $(BUILDDIR)
+
+.PHONY: all clean
 ```
 
-### Example 3: Custom output directory
+Usage:
+```bash
+make              # Build program.prg
+make clean        # Remove build artifacts
+```
+
+### Example 3: Separate compilation and linking workflow
 
 ```bash
-# Build artifacts go to ./build/
-mkdir -p build
-WORK_DIR=./build OUTPUT_DIR=./build ./scripts/cc45-docker.sh ../src/program.c
+#!/bin/bash
+# build.sh - Manual build script for Docker
 
-# Output is in ./build/program.s or ./build/program.prg
-ls -lh build/program.*
+WORK_DIR=./work
+BUILD_DIR=./build
+CC45_ROOT=$(pwd)
+
+mkdir -p $BUILD_DIR
+
+echo "=== Compiling to object files ==="
+CC45_ROOT=$CC45_ROOT WORK_DIR=$WORK_DIR ./scripts/cc45-docker.sh work/main.c -c -o $BUILD_DIR/main.o45
+CC45_ROOT=$CC45_ROOT WORK_DIR=$WORK_DIR ./scripts/cc45-docker.sh work/utils.c -c -o $BUILD_DIR/utils.o45
+
+echo "=== Inspecting symbols ==="
+docker run --rm -v $(pwd)/lib:/opt/m65/lib:ro -v $(pwd)/$BUILD_DIR:/work m65compiler:builder \
+  nm45 /work/main.o45
+
+echo "=== Linking to PRG ==="
+CC45_ROOT=$CC45_ROOT WORK_DIR=$BUILD_DIR ./scripts/ln45-docker.sh \
+  -basic -o $BUILD_DIR/program.prg \
+  $BUILD_DIR/main.o45 $BUILD_DIR/utils.o45 /opt/m65/lib/c45.lib
+
+echo "✓ Build complete: $BUILD_DIR/program.prg"
+```
+
+### Example 4: Custom output directory with absolute paths
+
+```bash
+# Compile source in one location, output to another
+SRC_DIR=$(pwd)/source
+BUILD_DIR=$(pwd)/build
+CC45_ROOT=$(pwd)
+
+mkdir -p $BUILD_DIR
+
+# Compile and place output in build directory
+WORK_DIR=$BUILD_DIR ./scripts/cc45-docker.sh $SRC_DIR/myprogram.c
+
+# Output is in $BUILD_DIR/myprogram.s
+```
+
+### Example 5: Iterative development with Docker shell
+
+```bash
+# Open an interactive bash shell in the container with tools available
+docker run --rm -it \
+  -v $(pwd)/lib:/opt/m65/lib:ro \
+  -v $(pwd)/bin:/opt/m65/bin:ro \
+  -v $(pwd):/work:rw \
+  m65compiler:builder bash
+
+# Inside container, you can run commands manually:
+/work# cc45 -I/opt/m65/lib/include /work/myprogram.c -o /work/myprogram.s
+/work# ca45 /work/myprogram.s -o /work/myprogram.prg
+/work# nm45 /work/myprogram.o45
+/work# objdump45 -d /work/myprogram.o45
+/work# exit
+```
+
+### Example 6: Using different library variants
+
+```bash
+#!/bin/bash
+# Compile for both stack and ZP calling conventions
+
+BUILD_DIR=build
+CFLAGS="-I/opt/m65/lib/include"
+
+# Stack convention (default)
+echo "Building stack convention..."
+./scripts/cc45-docker.sh program.c -c -o $BUILD_DIR/program_stack.o45
+./scripts/ln45-docker.sh -basic -o $BUILD_DIR/program_stack.prg \
+  $BUILD_DIR/program_stack.o45 /opt/m65/lib/c45.lib
+
+# ZP convention (faster, more complex)
+echo "Building ZP convention..."
+CC45_ARGS="-fzpcall" ./scripts/cc45-docker.sh program.c -c -o $BUILD_DIR/program_zp.o45
+./scripts/ln45-docker.sh -basic -o $BUILD_DIR/program_zp.prg \
+  $BUILD_DIR/program_zp.o45 /opt/m65/lib/c45_zp.lib
+```
+
+### Example 7: Debugging with objdump45
+
+```bash
+# Generate relocatable object
+./scripts/cc45-docker.sh myprogram.c -c -o build/myprogram.o45
+
+# Inspect symbols (what functions/variables are defined)
+docker run --rm -v $(pwd)/build:/work m65compiler:builder \
+  nm45 /work/myprogram.o45
+
+# Disassemble with symbolic annotation
+docker run --rm -v $(pwd)/build:/work m65compiler:builder \
+  objdump45 -d /work/myprogram.o45
+
+# Show relocations (external references)
+docker run --rm -v $(pwd)/build:/work m65compiler:builder \
+  objdump45 -r /work/myprogram.o45
 ```
 
 ---
