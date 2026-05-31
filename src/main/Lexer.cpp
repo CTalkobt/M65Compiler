@@ -264,7 +264,7 @@ Token Lexer::lexIdentifierOrKeyword() {
 
     auto it = keywords.find(value);
     if (it != keywords.end()) {
-        return {it->second, value, startLine, startCol};
+        return {it->second, value, startLine, startCol, sourceFile};
     }
 
     return {TokenType::IDENTIFIER, value, startLine, startCol, sourceFile};
