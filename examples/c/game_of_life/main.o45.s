@@ -28,7 +28,7 @@ _color:
 ; function _clear_grid
     proc _clear_grid
     .var _fp = 0
-    .loc "main.c", 32
+    .loc "/home/duck/m65/inpg/m65compiler/bin/../lib/include/string.h", 18
 
 @entry:
     .loc "main.c", 33
@@ -58,7 +58,7 @@ _color:
 ; function _count_neighbors
     proc _count_neighbors, W#@_p_row, W#@_p_col
     .var _fp = 0
-    .loc "main.c", 38
+    .loc "/home/duck/m65/inpg/m65compiler/bin/../lib/include/string.h", 24
     .var @_l_c = $2A
     .var @_l_count = $2E
     .var @_l_nc = $26
@@ -237,7 +237,7 @@ _color:
 ; function _step
     proc _step
     .var _fp = 0
-    .loc "main.c", 62
+    .loc "/home/duck/m65/inpg/m65compiler/bin/../lib/include/mega65.h", 21
 ; frame: 6 bytes (frame-allocated vRegs only)
     phw #0
     phw #0
@@ -481,7 +481,7 @@ _color:
 ; function _draw
     proc _draw
     .var _fp = 0
-    .loc "main.c", 90
+    .loc "/home/duck/m65/inpg/m65compiler/bin/../lib/include/mega65.h", 49
     .var @_l_c = $20
     .var @_l_offset = $22
     .var @_l_r = $26
@@ -618,7 +618,7 @@ _color:
 ; function _delay
     proc _delay
     .var _fp = 0
-    .loc "main.c", 106
+    .loc "/home/duck/m65/inpg/m65compiler/bin/../lib/include/mega65.h", 65
     .var @_l_i = $20
 
 @entry:
@@ -648,7 +648,7 @@ _color:
 ; function _seed_r_pentomino
     proc _seed_r_pentomino, W#@_p_row, W#@_p_col
     .var _fp = 0
-    .loc "main.c", 114
+    .loc "/home/duck/m65/inpg/m65compiler/bin/../lib/include/mega65.h", 73
     .var @_p_row = 2
     .var @_p_col = 4
 
@@ -852,7 +852,7 @@ _color:
 ; function _seed_glider
     proc _seed_glider, W#@_p_row, W#@_p_col
     .var _fp = 0
-    .loc "main.c", 123
+    .loc "/home/duck/m65/inpg/m65compiler/bin/../lib/include/mega65.h", 82
     .var @_p_row = 2
     .var @_p_col = 4
 
@@ -1063,7 +1063,7 @@ _color:
 ; function _main
     proc _main
     .var _fp = 0
-    .loc "main.c", 131
+    .loc "/home/duck/m65/inpg/m65compiler/bin/../lib/include/mega65.h", 90
 ; frame: 8 bytes (frame-allocated vRegs only)
     phw #0
     phw #0

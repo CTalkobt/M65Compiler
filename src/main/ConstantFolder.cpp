@@ -135,7 +135,7 @@ void ConstantFolder::visit(GenericSelection& node) {
 
 void ConstantFolder::visit(SizeofExpression& node) {
     if (node.isType) {
-        int size = CodeGenerator::getTypeSize(node.typeName, node.pointerLevel, -1, structs);
+        int size = getTypeSize(node.typeName, node.pointerLevel, -1, structs);
         lastExpr = copyPos(std::make_unique<IntegerLiteral>(size), node);
     } else {
         // We need to resolve the type of the expression to get its size.

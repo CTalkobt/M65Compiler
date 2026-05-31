@@ -45,7 +45,7 @@ Source Lines
 ------------
   $2043  main.c:33
   $204F  main.c:34
-  $205C  main.c:38
+  $205C  /home/duck/m65/inpg/m65compiler/bin/../lib/include/string.h:24
   $2076  main.c:45
   $207C  main.c:46
   $2091  main.c:47
@@ -58,7 +58,7 @@ Source Lines
   $2109  main.c:55
   $211B  main.c:56
   $2177  main.c:59
-  $217D  main.c:62
+  $217D  /home/duck/m65/inpg/m65compiler/bin/../lib/include/mega65.h:21
   $2186  main.c:67
   $21A9  main.c:68
   $21CC  main.c:69
@@ -77,19 +77,19 @@ Source Lines
   $2492  main.c:99
   $24B6  main.c:101
   $24EB  main.c:108
-  $2506  main.c:114
+  $2506  /home/duck/m65/inpg/m65compiler/bin/../lib/include/mega65.h:73
   $2520  main.c:115
   $2573  main.c:116
   $25C2  main.c:117
   $2611  main.c:118
   $266D  main.c:119
-  $26CB  main.c:123
+  $26CB  /home/duck/m65/inpg/m65compiler/bin/../lib/include/mega65.h:82
   $26E5  main.c:124
   $2738  main.c:125
   $2794  main.c:126
   $27E3  main.c:127
   $283F  main.c:128
-  $289D  main.c:131
+  $289D  /home/duck/m65/inpg/m65compiler/bin/../lib/include/mega65.h:90
   $28A9  main.c:134
   $28AE  main.c:135
   $28B1  main.c:136

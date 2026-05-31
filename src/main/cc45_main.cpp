@@ -650,8 +650,8 @@ int main(int argc, char** argv) {
 
         if (verboseLevel >= 1) std::cout << "Code generation..." << std::endl;
 
-        // Run legacy CodeGenerator for validation (error detection only)
-        // Catches struct errors, type errors, etc. that IRBuilder doesn't validate.
+        // Run CodeGenerator for validation (error detection only, output not used)
+        // Catches struct errors, type errors, etc.
         {
             std::ostringstream nullOut;
             CodeGenerator validator(nullOut);
@@ -669,6 +669,7 @@ int main(int argc, char** argv) {
             }
         }
 
+        // Generate IR from AST (actual code generation)
         irBuilder.generate(*ast);
 
         // Write IR text dump if requested

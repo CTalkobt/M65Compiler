@@ -1,10 +1,62 @@
 #pragma once
 #include "AST.hpp"
-#include "CodeGenerator.hpp"
 #include <memory>
 #include <map>
 #include <set>
 #include <iostream>
+
+// Type information structures (moved from legacy CodeGenerator)
+struct VarInfo {
+    std::string type;
+    int pointerLevel;
+    bool isSigned = false;
+    bool isVolatile = false;
+    bool isConst = false;
+    bool isPointerConst = false;
+    bool isRegister = false;
+    std::vector<int> arrayDims;
+    int arraySize() const { if (arrayDims.empty()) return -1; int s=1; for (int d:arrayDims) s*=d; return s; }
+    bool isFunctionPointer = false;
+    std::shared_ptr<FuncPtrSignature> funcPtrSig;
+};
+
+struct MemberInfo {
+    std::string type;
+    int pointerLevel;
+    bool isSigned = false;
+    bool isConst = false;
+    int offset;
+    int alignment = 1;
+    std::vector<int> arrayDims;
+    int arraySize() const { if (arrayDims.empty()) return -1; int s=1; for (int d:arrayDims) s*=d; return s; }
+    int bitWidth = 0;
+    int bitOffset = 0;
+};
+
+struct StructInfo {
+    std::string name;
+    std::map<std::string, MemberInfo> members;
+    int totalSize;
+    int alignment = 1;
+};
+
+// Utility function for calculating type sizes
+inline int getTypeSize(const std::string& type, int ptrLevel, int arraySize, const std::map<std::string, std::shared_ptr<StructInfo>>& structs) {
+    int size = 0;
+    if (ptrLevel > 0) size = 2;
+    else if (type == "char") size = 1;
+    else if (type == "_Bool") size = 1;
+    else if (type == "int") size = 2;
+    else if (type == "long") size = 4;
+    else if (type.length() >= 5 && type.substr(0, 5) == "enum ") size = 2;
+    else if (type.substr(0, 7) == "struct " || type.substr(0, 6) == "union ") {
+        std::string sName = type.substr(type.find(' ') + 1);
+        if (structs.count(sName)) size = structs.at(sName)->totalSize;
+        else throw std::runtime_error("Unknown struct/union type: " + sName);
+    }
+    if (arraySize >= 0) size *= arraySize;
+    return size;
+}
 
 class ConstantFolder : public ASTVisitor {
 public:
@@ -18,13 +70,13 @@ public:
         bool isSigned = false;
     };
     std::map<std::string, ConstantInfo> knownConstants;
-    std::map<std::string, CodeGenerator::VarInfo> variableTypes;
+    std::map<std::string, VarInfo> variableTypes;
     std::set<std::string> addressEscapedVars; // variables whose address was taken (non-const)
     std::set<std::string> volatileVars;
     std::set<std::string> constVars;        // non-pointer const vars (prevents x = ...)
     std::set<std::string> constPointerVars;  // pointer-const vars (prevents p = ...)
     std::set<std::string> boolVars;
-    std::map<std::string, std::shared_ptr<CodeGenerator::StructInfo>> structs;
+    std::map<std::string, std::shared_ptr<StructInfo>> structs;
     std::set<std::string> usedVars_;
 
     std::unique_ptr<Expression> fold(std::unique_ptr<Expression> expr) {
@@ -328,7 +380,7 @@ public:
 
     void visit(VariableDeclaration& node) override {
         // Track the variable's type even if it's not currently constant
-        CodeGenerator::VarInfo vi;
+        VarInfo vi;
         vi.type = node.type;
         vi.pointerLevel = node.pointerLevel;
         vi.isSigned = node.isSigned;
@@ -499,7 +551,7 @@ public:
         int currentOffset = 0;
         int maxAlignment = 1;
 
-        auto sInfo = std::make_shared<CodeGenerator::StructInfo>();
+        auto sInfo = std::make_shared<StructInfo>();
         sInfo->name = node.name;
 
         for (auto& m : node.members) {
@@ -511,7 +563,7 @@ public:
                 }
             }
 
-            int mSize = CodeGenerator::getTypeSize(m.type, m.pointerLevel, m.arraySize(), structs);
+            int mSize = getTypeSize(m.type, m.pointerLevel, m.arraySize(), structs);
             int mAlign = alignment; // Simplification, should ideally check type alignment too
             if (mAlign > maxAlignment) maxAlignment = mAlign;
 
@@ -519,7 +571,7 @@ public:
                 if (currentOffset % mAlign != 0) currentOffset += mAlign - (currentOffset % mAlign);
             }
 
-            CodeGenerator::MemberInfo mi;
+            MemberInfo mi;
             mi.type = m.type; mi.pointerLevel = m.pointerLevel; mi.isSigned = m.isSigned;
             mi.isConst = m.isConst; mi.offset = currentOffset; mi.alignment = mAlign; mi.arrayDims = m.arrayDims;
             sInfo->members[m.name] = mi;
@@ -597,7 +649,7 @@ public:
         boolVars.clear();
         // Record parameter types
         for (const auto& param : node.parameters) {
-            CodeGenerator::VarInfo vi;
+            VarInfo vi;
             vi.type = param.type;
             vi.pointerLevel = param.pointerLevel;
             vi.isSigned = param.isSigned;
