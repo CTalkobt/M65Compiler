@@ -753,7 +753,7 @@ int main(int argc, char** argv) {
         for (int ai = 1; ai < argc; ai++) {
             if (std::string(argv[ai]) == "-Roptimizer") { rOptFlag = " -Roptimizer"; break; }
         }
-        std::string command = ca45Path + " -c " + defineFlag + rOptFlag + " -o " + output_file + " " + asmFile;
+        std::string command = ca45Path + " -c -opt " + defineFlag + rOptFlag + " -o " + output_file + " " + asmFile;
         int ret = std::system(command.c_str());
         if (ret != 0) {
             std::cerr << "Assembler failed with return code " << ret << std::endl;

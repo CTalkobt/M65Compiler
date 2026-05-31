@@ -529,7 +529,15 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
             else if (m == "TYA") { ms.setTransfer(REG_A, REG_Y); }
             else if (m == "TAZ") { ms.setTransfer(REG_Z, REG_A); }
             else if (m == "TZA") { ms.setTransfer(REG_A, REG_Z); }
-            else if (m == "TSX") { ms.setTransfer(REG_X, REG_SP); }
+            else if (m == "TSX") {
+                // Redundant TSX elimination: skip if X already holds SP
+                if (ms.xHoldsSP()) {
+                    report("tsx-redundant", s, "TSX eliminated (X already holds SP)");
+                    s->deleted = true; s->size = 0; changed = true;
+                } else {
+                    ms.setTransfer(REG_X, REG_SP);
+                }
+            }
 
             // --- Control flow ---
             else if (m == "JMP") { ms.invalidateAll(); }
