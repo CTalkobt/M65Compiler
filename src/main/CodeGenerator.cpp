@@ -1,5 +1,6 @@
 #include "CodeGenerator.hpp"
 #include "TraversingVisitor.hpp"
+#include "ExpressionUtils.hpp"
 #include <iostream>
 #include <iomanip>
 #include <sstream>
@@ -620,24 +621,24 @@ static bool tryEvalConstInt(Expression* expr, int& result) {
     if (auto* unary = dynamic_cast<UnaryOperation*>(expr)) {
         int val;
         if (!tryEvalConstInt(unary->operand.get(), val)) return false;
-        if (unary->op == "-") { result = -val; return true; }
-        if (unary->op == "~") { result = ~val; return true; }
-        return false;
+        try {
+            uint32_t evalResult = ExpressionUtils::evaluateUnaryOp(unary->op, (uint32_t)val);
+            result = (int)evalResult;
+            return true;
+        } catch(...) {
+            return false;
+        }
     }
     if (auto* bin = dynamic_cast<BinaryOperation*>(expr)) {
         int l, r;
         if (!tryEvalConstInt(bin->left.get(), l) || !tryEvalConstInt(bin->right.get(), r)) return false;
-        if (bin->op == "+") { result = l + r; return true; }
-        if (bin->op == "-") { result = l - r; return true; }
-        if (bin->op == "*") { result = l * r; return true; }
-        if (bin->op == "/" && r != 0) { result = l / r; return true; }
-        if (bin->op == "%" && r != 0) { result = l % r; return true; }
-        if (bin->op == "&") { result = l & r; return true; }
-        if (bin->op == "|") { result = l | r; return true; }
-        if (bin->op == "^") { result = l ^ r; return true; }
-        if (bin->op == "<<") { result = l << r; return true; }
-        if (bin->op == ">>") { result = l >> r; return true; }
-        return false;
+        try {
+            uint32_t evalResult = ExpressionUtils::evaluateBinaryOp(bin->op, (uint32_t)l, (uint32_t)r);
+            result = (int)evalResult;
+            return true;
+        } catch(...) {
+            return false;
+        }
     }
     return false;
 }
