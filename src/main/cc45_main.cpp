@@ -705,6 +705,7 @@ int main(int argc, char** argv) {
             return 1;
         }
         IRCodeGen irCodeGen(asmOut);
+        irCodeGen.setLineToFileMap(lineToFileMap);
         irCodeGen.generate(irBuilder.getModule(), zeroPageStart, assemble, zpCallMode, emitReasons);
         asmOut.close();
 

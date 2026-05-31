@@ -873,9 +873,26 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // Emit .loc for function declaration line (before prologue and param loading,
     // so objdump attributes setup code to the function signature, not the first statement)
     if (fn.declLine > 0 && !sourceFile_.empty()) {
-        emit(".loc \"" + sourceFile_ + "\", " + std::to_string(fn.declLine));
-        lastLocFile_ = sourceFile_;
-        lastLocLine_ = fn.declLine;
+        // Use line mapping if available to find correct source file for this line
+        std::string locFile = sourceFile_;
+        int displayLine = fn.declLine;
+
+        if (!lineToFileMap_.empty()) {
+            // Find the context that applies to this line
+            for (auto it = lineToFileMap_.rbegin(); it != lineToFileMap_.rend(); ++it) {
+                if (it->first <= fn.declLine) {
+                    const auto& context = it->second;
+                    locFile = context.first;
+                    // Convert absolute line to file-relative line
+                    displayLine = context.second + (fn.declLine - it->first);
+                    break;
+                }
+            }
+        }
+
+        emit(".loc \"" + locFile + "\", " + std::to_string(displayLine));
+        lastLocFile_ = locFile;
+        lastLocLine_ = displayLine;
     }
 
     // Allocate frame only for frame-allocated vRegs

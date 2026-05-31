@@ -16,6 +16,11 @@ public:
     //            false = PRG (emit .org $2000 + startup stub)
     void generate(const ir::Module& mod, uint32_t zpStart = 0x08, bool relocMode = false, bool zpCallMode = false, bool emitReasons = false);
 
+    // Set the line-to-file mapping from Lexer for proper source file attribution in .loc directives
+    void setLineToFileMap(const std::map<int, std::pair<std::string, int>>& map) {
+        lineToFileMap_ = map;
+    }
+
 private:
     std::ostream& out_;
     uint32_t zeroPageStart_ = 0x08;
@@ -96,6 +101,7 @@ private:
     int lastLocLine_ = -1;
     std::string lastLocFile_;
     std::string sourceFile_; // module source file for function declaration .loc
+    std::map<int, std::pair<std::string, int>> lineToFileMap_; // Maps abs line to (filename, lineOffset)
     MachineState ms_;        // register/flag value tracking for codegen optimizations
 
     // Store-forwarding: track which vreg's result is currently live in A:X
