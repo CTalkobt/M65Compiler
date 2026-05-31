@@ -38,6 +38,11 @@
 
 | Task | Category | Status |
 |------|----------|--------|
+| Add `div_t`/`ldiv_t` typedef definitions to `stdlib.h` | stdlib | **done** (2026-05-31) |
+| Remove unused `__zp_scratch` extern from `lib/stdlib/div.s` | stdlib | **done** (2026-05-31) |
+| Add extended string function tests (strncpy, strncmp, strtok, strpbrk, strspn, strcspn) | test | **done** (2026-05-31) |
+| Add I/O and math utility tests (test_io, test_sscanf, test_division) | test | **done** (2026-05-31) |
+| Stdlib function test coverage: 34% → 75% (50 of 66 functions) | test | **done** (2026-05-31) |
 | Regression test validation (diverse 45GS02 patterns) | test | todo |
 | Performance microbenchmarks | test | todo |
 | Documentation cleanup (remove stale .tmp/, consolidate todo.md) | doc | todo |

@@ -9,7 +9,6 @@
 
 .global _div
 .extern __sp_base
-.extern __zp_scratch
 
 .segment "code"
 
