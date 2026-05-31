@@ -278,6 +278,47 @@ void test_combined_directives() {
     CHECK(bin.size() == 9, "Combined directives produce correct total size");
 }
 
+// Helper: write arbitrary binary data to disk
+static void writeBinaryData(const std::string& path, const std::vector<uint8_t>& data) {
+    system("mkdir -p build");
+    std::ofstream f(path, std::ios::binary);
+    f.write(reinterpret_cast<const char*>(data.data()), data.size());
+}
+
+void test_import_binary_basic() {
+    writeBinaryData("build/test_import_binary.bin", {0xDE, 0xAD, 0xBE, 0xEF, 0x42});
+    bool ok = assemblySucceeded(".import binary \"build/test_import_binary.bin\"\n");
+    CHECK(ok, ".import binary assembles successfully");
+    auto bin = readBinaryFile("build/test_validation_directives_temp.bin");
+    CHECK(bin.size() == 5, ".import binary produces correct byte count");
+    if (bin.size() == 5)
+        CHECK(bin[0]==0xDE && bin[1]==0xAD && bin[2]==0xBE && bin[3]==0xEF && bin[4]==0x42,
+              ".import binary produces correct byte values");
+}
+
+void test_incbin_basic() {
+    writeBinaryData("build/test_incbin.bin", {0x01, 0x02, 0x03});
+    bool ok = assemblySucceeded(".incbin \"build/test_incbin.bin\"\n");
+    CHECK(ok, ".incbin assembles successfully");
+    auto bin = readBinaryFile("build/test_validation_directives_temp.bin");
+    CHECK(bin.size() == 3, ".incbin produces correct byte count");
+    if (bin.size() == 3)
+        CHECK(bin[0]==0x01 && bin[1]==0x02 && bin[2]==0x03, ".incbin produces correct byte values");
+}
+
+void test_import_binary_file_not_found() {
+    bool failed = assemblyFailedWithError(".import binary \"build/no_such_file_xyz.bin\"\n",
+                                          "cannot open binary file");
+    CHECK(failed, ".import binary gives error for missing file");
+}
+
+void test_import_binary_missing_keyword() {
+    writeBinaryData("build/test_import_binary.bin", {0x00});
+    bool failed = assemblyFailedWithError(".import \"build/test_import_binary.bin\"\n",
+                                          "binary");
+    CHECK(failed, ".import without 'binary' keyword gives error");
+}
+
 int main() {
     printf("Testing data directives validation...\n\n");
 
@@ -302,6 +343,12 @@ int main() {
 
     // Combined test
     test_combined_directives();
+
+    // Binary import tests
+    test_import_binary_basic();
+    test_incbin_basic();
+    test_import_binary_file_not_found();
+    test_import_binary_missing_keyword();
 
     printf("\nData Directives Validation Tests: %d passed, %d failed\n", tests_passed, tests_failed);
     return tests_failed > 0 ? 1 : 0;

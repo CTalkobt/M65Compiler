@@ -1504,7 +1504,10 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
         if (dir.arguments.empty()) return 0;
         std::string filename;
         if (dir.name == "import") {
-            if (dir.arguments.size() < 2 || dir.arguments[0] != "binary") return 0;
+            if (dir.arguments.size() < 2 || dir.arguments[0] != "binary") {
+                if (isPass1_) errors.push_back("Error: .import requires 'binary' keyword: .import binary \"filename\"");
+                return 0;
+            }
             filename = dir.arguments[1];
         } else {
             filename = dir.arguments[0];
@@ -1514,7 +1517,10 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
             filename = filename.substr(1, filename.size() - 2);
         }
         std::ifstream file(filename, std::ios::binary | std::ios::ate);
-        if (!file) return 0;
+        if (!file) {
+            if (isPass1_) errors.push_back("Error: cannot open binary file '" + filename + "'");
+            return 0;
+        }
         return (int)file.tellg();
     }
     return 0;

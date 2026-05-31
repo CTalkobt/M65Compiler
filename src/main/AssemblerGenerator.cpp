@@ -504,17 +504,23 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                     }
                     else if (stmt->dir.name == "import" || stmt->dir.name == "incbin") {
                         std::string filename;
-                        if (stmt->dir.name == "import" && stmt->dir.arguments.size() >= 2) filename = stmt->dir.arguments[1];
-                        else if (stmt->dir.arguments.size() >= 1) filename = stmt->dir.arguments[0];
-                        if (filename.size() >= 2 && filename.front() == '"' && filename.back() == '"') filename = filename.substr(1, filename.size() - 2);
+                        if (stmt->dir.name == "import") {
+                            if (stmt->dir.arguments.size() < 2 || stmt->dir.arguments[0] != "binary")
+                                throw std::runtime_error(".import requires 'binary' keyword");
+                            filename = stmt->dir.arguments[1];
+                        } else if (stmt->dir.arguments.size() >= 1) {
+                            filename = stmt->dir.arguments[0];
+                        }
+                        if (filename.size() >= 2 && filename.front() == '"' && filename.back() == '"')
+                            filename = filename.substr(1, filename.size() - 2);
                         std::ifstream file(filename, std::ios::binary);
-                        if (file) {
-                            char buffer[1024];
-                            while (file.read(buffer, sizeof(buffer))) {
-                                for (int i = 0; i < (int)file.gcount(); ++i) e.emitByte((uint8_t)buffer[i]);
-                            }
+                        if (!file)
+                            throw std::runtime_error("cannot open binary file '" + filename + "'");
+                        char buffer[1024];
+                        while (file.read(buffer, sizeof(buffer))) {
                             for (int i = 0; i < (int)file.gcount(); ++i) e.emitByte((uint8_t)buffer[i]);
                         }
+                        for (int i = 0; i < (int)file.gcount(); ++i) e.emitByte((uint8_t)buffer[i]);
                     }
                 }
             }
