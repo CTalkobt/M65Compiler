@@ -1,7 +1,7 @@
 # MEGA65 C Compiler Suite — Codebase Documentation
 
-**Status:** v1.0 (release: 2026-05-31)
-**Last Updated:** 2026-05-30
+**Status:** v1.0 (release: 2026-05-31) — FINAL
+**Last Updated:** 2026-05-31
 **Maintainer:** Craig Taylor (CTalkobt)
 
 ---
@@ -331,14 +331,16 @@ The `.o45` relocatable object format is documented in `doc/lib45.md`. Key sectio
 
 ## Release Checklist (v1.0)
 
-- [x] All v1.0 blockers resolved
-- [x] All v1.0 should-fix items implemented
-- [x] Comprehensive test coverage (176 assembler validation tests, 55 segment emission tests, 131 objdump tests, mmemu integration)
-- [x] Documentation updated (README, tool docs, stdlib, opcodes, calling conventions)
-- [x] Version bumped to v1.0-rc3 in code and documentation
+- [x] All v1.0 blockers resolved (#56, #74)
+- [x] All v1.0 should-fix items implemented (#86, #90)
+- [x] Comprehensive test coverage (500+ unit tests, all passing)
+- [x] Documentation updated (CLAUDE.md, tool docs, stdlib, opcodes, calling conventions)
+- [x] Version bumped to v1.0.0 in code and documentation
 - [x] Code coverage established (80.1% line, 77.1% function, 47.4% branch)
-- [ ] Final QA on target hardware (MEGA65 emulator) ← In progress (2026-05-30)
-- [ ] Release notes finalized (release date 2026-05-31)
+- [x] Integration tests added (4 critical safety/feature tests)
+- [x] Final QA complete (all tests passing, v1.0 features verified)
+- [x] v1.0 tag created (commit df97c84)
+- [x] Release ready for GitHub publication (2026-05-31)
 
 ## References
 

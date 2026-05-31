@@ -2,7 +2,7 @@
 #include <string>
 
 #ifndef SUITE_VERSION
-#define SUITE_VERSION "1.0.0.rc3"
+#define SUITE_VERSION "1.0.0"
 #endif
 
 #ifndef GIT_HASH
