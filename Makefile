@@ -335,7 +335,7 @@ $(TEST_VALIDATION_DIRECTIVES_TARGET): $(TEST_VALIDATION_DIRECTIVES_OBJECTS) $(CA
 	@mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ $(TEST_VALIDATION_DIRECTIVES_OBJECTS)
 
-$(OBJ_DIR)/test_validation_directives.o: src/test/test_validation_directives.cpp
+$(OBJ_DIR)/test_validation_directives.o: src/test-resources/test_validation_directives.cpp
 	@mkdir -p $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
