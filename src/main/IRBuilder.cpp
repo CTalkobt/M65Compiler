@@ -426,6 +426,15 @@ ir::SourceLoc IRBuilder::loc(ASTNode& node) {
 // ============================================================================
 
 void IRBuilder::visit(TranslationUnit& node) {
+    // Pre-scan for encoding pragma directives to set state before visiting strings
+    for (auto& decl : node.topLevelDecls) {
+        if (auto* as = dynamic_cast<AsmStatement*>(decl.get())) {
+            if (as->code == ".encoding ascii") currentStringEncoding_ = StringEncoding::ASCII;
+            if (as->code == ".encoding petscii") currentStringEncoding_ = StringEncoding::PETSCII;
+            if (as->code == ".encoding screencode") currentStringEncoding_ = StringEncoding::SCREENCODE;
+        }
+    }
+    // Now visit all declarations
     for (auto& decl : node.topLevelDecls) {
         decl->accept(*this);
     }
@@ -887,8 +896,22 @@ void IRBuilder::visit(IntegerLiteral& node) {
 
 void IRBuilder::visit(StringLiteral& node) {
     std::string name = "__str_" + std::to_string(nextLabel_++);
+    // Determine encoding: explicit @"..." forces ASCII, otherwise use pragma state
+    int encoding = 0;  // PETSCII default
+    if (node.isAscii) {
+        encoding = 1;  // ASCII
+    } else if (currentStringEncoding_ == StringEncoding::ASCII) {
+        encoding = 1;  // ASCII via pragma
+    } else if (currentStringEncoding_ == StringEncoding::SCREENCODE) {
+        encoding = 2;  // SCREENCODE via pragma
+    }
     // Record the string literal in the module for data section emission
-    module_.strings.push_back({name, node.value, node.isAscii});
+    ir::Module::StringLiteral sl;
+    sl.label = name;
+    sl.value = node.value;
+    sl.isAscii = (encoding == 1);
+    sl.encoding = encoding;
+    module_.strings.push_back(sl);
     auto dest = allocVreg(ir::Type::PTR);
     ir::Inst inst;
     inst.op = ir::Op::ADDR_GLOBAL;
@@ -2857,6 +2880,18 @@ void IRBuilder::visit(LabelledStatement& node) {
 void IRBuilder::visit(AsmStatement& node) {
     if (node.code == ".no_zp_save") {
         module_.saveZP = false;
+        return;
+    }
+    if (node.code == ".encoding ascii") {
+        currentStringEncoding_ = StringEncoding::ASCII;
+        return;
+    }
+    if (node.code == ".encoding petscii") {
+        currentStringEncoding_ = StringEncoding::PETSCII;
+        return;
+    }
+    if (node.code == ".encoding screencode") {
+        currentStringEncoding_ = StringEncoding::SCREENCODE;
         return;
     }
     // Scan inline asm for parameter/local references (@_p_name, @_l_name)

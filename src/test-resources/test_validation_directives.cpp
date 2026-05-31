@@ -323,9 +323,12 @@ void test_import_binary_missing_keyword() {
 void test_encoding_pragma_screencode() {
     // Write C code with pragma encoding(screencode)
     std::string cCode = R"(
+#include <stdio.h>
 #pragma encoding(screencode)
-const char hello[] = "HELLO";
-int main() { return 0; }
+int main() {
+    printf("HELLO");
+    return 0;
+}
 )";
     std::ofstream cf("build/test_encoding_screencode.c");
     cf << cCode;
@@ -345,9 +348,12 @@ int main() { return 0; }
 
 void test_encoding_pragma_ascii() {
     std::string cCode = R"(
+#include <stdio.h>
 #pragma encoding(ascii)
-const char hello[] = "hello";
-int main() { return 0; }
+int main() {
+    printf("hello");
+    return 0;
+}
 )";
     std::ofstream cf("build/test_encoding_ascii.c");
     cf << cCode;
@@ -365,9 +371,12 @@ int main() { return 0; }
 
 void test_encoding_pragma_petscii() {
     std::string cCode = R"(
+#include <stdio.h>
 #pragma encoding(petscii)
-const char hello[] = "hello";
-int main() { return 0; }
+int main() {
+    printf("hello");
+    return 0;
+}
 )";
     std::ofstream cf("build/test_encoding_petscii.c");
     cf << cCode;

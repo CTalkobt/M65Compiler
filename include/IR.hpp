@@ -282,6 +282,7 @@ struct Module {
         std::string label;
         std::string value;
         bool isAscii = false;
+        int encoding = 0;  // 0=PETSCII, 1=ASCII, 2=SCREENCODE
     };
     std::vector<StringLiteral> strings;
 

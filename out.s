@@ -8,6 +8,7 @@
     inx
     cpx #248
     bne @__zp_save_loop
+    jsr _main
     sta $02
     stx $03
 ; Restore ZP $08-$FF from BSS buffer
@@ -27,28 +28,44 @@ __halt:
     __zp_scratch3 = $0C
     __zp_scratch4 = $0E
 
+    .extern _printf
 
-; function _get_string
-    proc _get_string
+
+; function _main
+    proc _main
     .var _fp = 0
-    .loc "/tmp/test_enc3.c", 2
+    .loc "/home/duck/m65/inpg/m65compiler/bin/../lib/include/stdio.h", 3
+; frame: 2 bytes (frame-allocated vRegs only)
+    phw #0
+    .local __vr0 = 0
 
 @entry:
-    .loc "/tmp/test_enc3.c", 3
+    .loc "/tmp/test_debug_enc2.c", 4
     ldax #__str_0
-    sta $20
-    stx $21
-    lda $20
-    ldx $21
+    stax.fp __vr0
+    ldax.fp __vr0
+    sta $28
+    stx $29
+    lda $28
+    ldx $29
+    push .ax
+    .var _fp = _fp + 2
+    jsr _printf
+    .var _fp = _fp - 2
+    .loc "/tmp/test_debug_enc2.c", 5
+    lda #0
+    ldx #0
 @__return:
-    .func_flags stack_call, leaf
-    .reg_clobbers A, X
-    .flag_clobbers N, Z
+    plz
+    plz
+    .func_flags stack_call
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
     endproc
 
 
 __str_0:
-    .text "HELLO"
+    .text "TEST"
     .byte 0
 
 __zp_save_buf:

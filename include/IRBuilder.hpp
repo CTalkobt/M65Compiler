@@ -100,6 +100,10 @@ private:
     // Track signedness of last expression result (for comparison op selection)
     bool lastValueSigned_ = false;
 
+    // String encoding pragma support
+    enum class StringEncoding { PETSCII = 0, ASCII = 1, SCREENCODE = 2 };
+    StringEncoding currentStringEncoding_ = StringEncoding::PETSCII;
+
     // Struct layout tracking
     struct IRMemberInfo {
         std::string type;

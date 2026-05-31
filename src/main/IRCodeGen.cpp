@@ -483,8 +483,10 @@ void IRCodeGen::emitStrings(const ir::Module& mod) {
     if (relocMode_) emit(".segment \"data\"");
     for (const auto& sl : mod.strings) {
         emitLabel(sl.label);
-        if (sl.isAscii) {
+        if (sl.encoding == 1) {
             emit(".ascii \"" + sl.value + "\"");
+        } else if (sl.encoding == 2) {
+            emit(".screencode \"" + sl.value + "\"");
         } else {
             emit(".text \"" + sl.value + "\"");
         }
