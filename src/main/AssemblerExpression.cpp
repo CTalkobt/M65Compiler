@@ -2,6 +2,7 @@
 #include "AssemblerParser.hpp"
 #include "M65Emitter.hpp"
 #include "Mega65Registers.hpp"
+#include "ExpressionUtils.hpp"
 #include <stdexcept>
 #include <algorithm>
 #include <iostream>
@@ -138,9 +139,13 @@ void VariableNode::emit(M65Emitter& e, AssemblerParser* parser, int width, const
 // UnaryExpr
 uint32_t UnaryExpr::getValue(AssemblerParser* parser) const {
     uint32_t val = operand ? operand->getValue(parser) : 0;
-    if (op == "!") return val == 0 ? 1 : 0;
-    if (op == "~") return ~val;
-    if (op == "-") return -val;
+
+    // Common unary operators (shared with compiler via ExpressionUtils)
+    if (op == "!" || op == "~" || op == "-") {
+        return ExpressionUtils::evaluateUnaryOp(op, val);
+    }
+
+    // Assembler-specific unary operators
     if (op == "<" || op == "lo") return val & 0xFF;
     if (op == ">" || op == "hi") return (val >> 8) & 0xFF;
     if (op == "bank") return (val >> 16) & 0xFF;
@@ -214,27 +219,8 @@ void DereferenceNode::emit(M65Emitter& e, AssemblerParser* parser, int width, co
 uint32_t BinaryExpr::getValue(AssemblerParser* parser) const {
     uint32_t l = left ? left->getValue(parser) : 0;
     uint32_t r = right ? right->getValue(parser) : 0;
-    if (op == "+") return l + r;
-    if (op == "-") return l - r;
-    if (op == "*") return l * r;
-    if (op == "/") {
-        if (r == 0) throw std::runtime_error("Division by zero in expression");
-        return l / r;
-    }
-    if (op == "&") return l & r;
-    if (op == "|") return l | r;
-    if (op == "^") return l ^ r;
-    if (op == "<<") return l << r;
-    if (op == ">>") return l >> r;
-    if (op == "==") return l == r;
-    if (op == "!=") return l != r;
-    if (op == "<") return l < r;
-    if (op == ">") return l > r;
-    if (op == "<=") return l <= r;
-    if (op == ">=") return l >= r;
-    if (op == "&&") return l && r;
-    if (op == "||") return l || r;
-    return 0;
+    // Use shared expression evaluator to reduce code duplication
+    return ExpressionUtils::evaluateBinaryOp(op, l, r);
 }
 bool BinaryExpr::isConstant(AssemblerParser* parser) const {
     return (left ? left->isConstant(parser) : true) && (right ? right->isConstant(parser) : true);
