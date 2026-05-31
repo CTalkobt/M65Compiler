@@ -3,24 +3,24 @@ Linker Map
 
 Memory Layout
 -------------
-  TEXT   $200D - $29B6  (2474 bytes)
-  DATA   $29B7 - $29D0  (26 bytes)
-  BSS    $29D1 - $3298  (2248 bytes)
+  TEXT   $200D - $29AF  (2467 bytes)
+  DATA   $29B0 - $29C9  (26 bytes)
+  BSS    $29CA - $3291  (2248 bytes)
 
 Object Files
 ------------
   main.o45
-    TEXT  $2043 - $2927  (2277 bytes)
-    DATA  $29B7 - $29BA  (4 bytes)
-    BSS   $29D1 - $31A0  (2000 bytes)
+    TEXT  $2043 - $2920  (2270 bytes)
+    DATA  $29B0 - $29B3  (4 bytes)
+    BSS   $29CA - $3199  (2000 bytes)
   ../../../lib/build/c45.lib(crt0.o45)
     TEXT  $200D - $2042  (54 bytes)
-    DATA  $29BB - $29D0  (22 bytes)
-    BSS   $31A1 - $3298  (248 bytes)
+    DATA  $29B4 - $29C9  (22 bytes)
+    BSS   $319A - $3291  (248 bytes)
   ../../../lib/build/c45.lib(memcpy.o45)
-    TEXT  $2928 - $2973  (76 bytes)
+    TEXT  $2921 - $296C  (76 bytes)
   ../../../lib/build/c45.lib(memset.o45)
-    TEXT  $2974 - $29B6  (67 bytes)
+    TEXT  $296D - $29AF  (67 bytes)
 
 Symbols (by address)
 --------------------
@@ -28,13 +28,13 @@ Symbols (by address)
   $200D  __init                         ../../../lib/build/c45.lib(crt0.o45)
   $202B  __exit                         ../../../lib/build/c45.lib(crt0.o45)
   $2042  _init_features                 ../../../lib/build/c45.lib(crt0.o45) [weak]
-  $27CB  _main                          main.o45  [uses:- clob:- rel:- regs:AXYZ]
-  $2928  _memcpy                        ../../../lib/build/c45.lib(memcpy.o45)
-  $2974  _memset                        ../../../lib/build/c45.lib(memset.o45)
-  $29B7  _screen                        main.o45
-  $29B9  _color                         main.o45
-  $29D1  __bss_start                    <linker>
-  $3299  __bss_end                      <linker>
+  $27C8  _main                          main.o45  [uses:- clob:- rel:- regs:AXYZ]
+  $2921  _memcpy                        ../../../lib/build/c45.lib(memcpy.o45)
+  $296D  _memset                        ../../../lib/build/c45.lib(memset.o45)
+  $29B0  _screen                        main.o45
+  $29B2  _color                         main.o45
+  $29CA  __bss_start                    <linker>
+  $3292  __bss_end                      <linker>
 
 Call Graph
 ----------
@@ -60,52 +60,52 @@ Source Lines
   $2172  main.c:59
   $2178  main.c:62
   $2181  main.c:67
-  $21A5  main.c:68
-  $21C9  main.c:69
-  $2205  main.c:70
-  $224E  main.c:72
-  $2270  main.c:73
-  $22BD  main.c:75
-  $230C  main.c:78
-  $231D  main.c:79
-  $236B  main.c:81
-  $23CF  main.c:87
-  $23DF  main.c:95
-  $23F2  main.c:96
-  $2405  main.c:97
-  $2433  main.c:98
-  $2477  main.c:99
-  $249B  main.c:101
-  $24D0  main.c:108
-  $24EB  main.c:114
-  $2505  main.c:115
-  $254F  main.c:116
-  $2597  main.c:117
-  $25DB  main.c:118
-  $2622  main.c:119
-  $2658  main.c:123
-  $2672  main.c:124
-  $26A3  main.c:125
-  $26F3  main.c:126
-  $2731  main.c:127
-  $277A  main.c:128
-  $27CB  main.c:131
-  $27D7  main.c:134
-  $27DC  main.c:135
-  $27DF  main.c:136
-  $27E4  main.c:139
-  $27E9  main.c:140
-  $27F2  main.c:141
-  $27F7  main.c:142
-  $2800  main.c:143
-  $2805  main.c:144
-  $280E  main.c:145
-  $2813  main.c:149
-  $2885  main.c:150
-  $288A  main.c:151
-  $28AD  main.c:152
-  $28B2  main.c:153
-  $28B5  main.c:154
-  $28B8  main.c:155
-  $28C6  main.c:157
-  $28CB  main.c:159
+  $21A4  main.c:68
+  $21C7  main.c:69
+  $2202  main.c:70
+  $224B  main.c:72
+  $226D  main.c:73
+  $22BA  main.c:75
+  $2309  main.c:78
+  $231A  main.c:79
+  $2368  main.c:81
+  $23CC  main.c:87
+  $23DC  main.c:95
+  $23EF  main.c:96
+  $2402  main.c:97
+  $2430  main.c:98
+  $2474  main.c:99
+  $2498  main.c:101
+  $24CD  main.c:108
+  $24E8  main.c:114
+  $2502  main.c:115
+  $254C  main.c:116
+  $2594  main.c:117
+  $25D8  main.c:118
+  $261F  main.c:119
+  $2655  main.c:123
+  $266F  main.c:124
+  $26A0  main.c:125
+  $26F0  main.c:126
+  $272E  main.c:127
+  $2777  main.c:128
+  $27C8  main.c:131
+  $27D4  main.c:134
+  $27D9  main.c:135
+  $27DC  main.c:136
+  $27E1  main.c:139
+  $27E6  main.c:140
+  $27EF  main.c:141
+  $27F4  main.c:142
+  $27FD  main.c:143
+  $2802  main.c:144
+  $280B  main.c:145
+  $2810  main.c:149
+  $287F  main.c:150
+  $2884  main.c:151
+  $28A6  main.c:152
+  $28AB  main.c:153
+  $28AE  main.c:154
+  $28B1  main.c:155
+  $28BF  main.c:157
+  $28C4  main.c:159

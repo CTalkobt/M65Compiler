@@ -507,7 +507,7 @@ void M65Emitter::sta_stack(uint8_t offset) {
         ldy_imm(offset);
         emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
     } else {
-        tsx();
+        tsxCached();
         recordSpBaseReloc(offset);
         emitInstruction("sta", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
     }

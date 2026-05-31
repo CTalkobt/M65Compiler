@@ -95,15 +95,29 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
             std::vector<uint8_t>* binaryPtr = e.getBinary();
             size_t binaryStartIdx = binaryPtr ? binaryPtr->size() : 0;
             // At statement boundaries: labels invalidate everything (branch merge points).
-            // Simulated ops invalidate registers (they're multi-instruction expansions).
+            // Simulated ops: .fp ops don't need pre-invalidation (M65Emitter tracks state
+            // through every instruction they emit). Non-.fp ops invalidate registers.
             // Regular instructions: only invalidate what they actually modify — the
             // LDA/STA tracking below handles register + memory state correctly.
             if (!stmt->label.empty()) {
                 e.machineState().invalidateAll();
             } else if (stmt->isSimulatedOp()) {
-                for (int r = 0; r < REG_COUNT; r++)
-                    e.machineState().invalidateReg((RegId)r);
-                e.machineState().flags.invalidate();
+                using ST = AssemblerParser::Statement;
+                auto t = stmt->type;
+                bool isFpOp = (t == ST::LDA_FP    || t == ST::STA_FP     ||
+                               t == ST::LDAX_FP   || t == ST::STAX_FP    ||
+                               t == ST::LDAXYZ_FP || t == ST::STAXYZ_FP  ||
+                               t == ST::LEAX_FP   || t == ST::MOVE_FP    ||
+                               t == ST::INC_FP    || t == ST::DEC_FP);
+                if (!isFpOp) {
+                    // Non-.fp simulated ops: conservative full invalidation
+                    for (int r = 0; r < REG_COUNT; r++)
+                        e.machineState().invalidateReg((RegId)r);
+                    e.machineState().flags.invalidate();
+                }
+                // .fp ops: no pre-invalidation — M65Emitter methods track state correctly
+                // through every instruction they emit, enabling tsxCached() to work
+                // across consecutive .fp op boundaries.
             }
             // Regular instructions: don't pre-invalidate — let the typed methods
             // (lda_imm/sta_zp via emitInstruction) and our post-emission tracking

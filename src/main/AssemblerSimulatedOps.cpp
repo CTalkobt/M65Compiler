@@ -1873,9 +1873,9 @@ void AssemblerSimulatedOps::emitLDAX_FPCode(AssemblerParser* parser, M65Emitter&
         e.lda_stack(totalOff);
         e.ldx_scratch();
     } else {
-        // Single TSX: hi → push → lo → plx. X holds old SP throughout;
+        // Single TSX (cached): hi → push → lo → plx. X holds old SP throughout;
         // pha changes hardware SP but X still valid for stack-relative loads.
-        e.tsx();
+        e.tsxCached();
         e.lda_stack_noTSX(totalOff + 1);  // A = hi byte
         e.pha();                           // push hi (SP changes but X unchanged)
         e.lda_stack_noTSX(totalOff);       // A = lo byte (X still = old SP)
