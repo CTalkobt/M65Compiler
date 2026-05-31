@@ -420,13 +420,15 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
 
     // Emit data section for initialized globals
     bool hasData = false;
+    bool hasBss = false;
     for (const auto& g : mod.globals) {
-        if (!hasData) {
-            if (relocMode) emit(".segment \"data\"");
-            hasData = true;
-        }
-        emitLabel(g.name);
         if (g.hasInitValue) {
+            // Initialized global: goes to data segment
+            if (!hasData) {
+                if (relocMode) emit(".segment \"data\"");
+                hasData = true;
+            }
+            emitLabel(g.name);
             if (!g.initList.empty()) {
                 // Array initializer
                 for (size_t i = 0; i < g.initList.size(); i++) {
@@ -448,7 +450,7 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
                 } else {
                     emit(".word " + std::to_string((int)(g.initValue & 0xFFFF)));
                 }
-                // Scalar might be larger than its type if it's an array init to zero? 
+                // Scalar might be larger than its type if it's an array init to zero?
                 // e.g. char a[10] = 0;
                 int typeSz = ir::typeSize(g.type);
                 if (typeSz < g.size) {
@@ -456,10 +458,17 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
                 }
             }
         } else {
+            // Uninitialized global: goes to bss segment
+            if (!hasBss) {
+                if (hasData) emitBlank();
+                if (relocMode) emit(".segment \"bss\"");
+                hasBss = true;
+            }
+            emitLabel(g.name);
             emit(".res " + std::to_string(g.size > 0 ? g.size : ir::typeSize(g.type)));
         }
     }
-    if (hasData) emitBlank();
+    if (hasData || hasBss) emitBlank();
 
     // Switch to code segment (only in reloc mode; PRG mode is linear)
     if (relocMode) {
