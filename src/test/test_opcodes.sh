@@ -1,6 +1,9 @@
 #!/bin/bash
+# Test 45GS02 opcodes - uses shared test utilities
 
-CA="./bin/ca45"
+source "$(dirname "$0")/test-lib.sh"
+
+CA="${CA:-./bin/ca45}"
 TEST_S="build/full_opcode_test.s"
 TEST_BIN="build/full_opcode_test.bin"
 META_FILE="build/full_opcode_meta.txt"
@@ -94,15 +97,10 @@ with open('build/full_opcode_test.s', 'w') as f_s, open('build/full_opcode_meta.
             f_m.write(f"{op['mnemonic']}|{op['mode']}|{' '.join(op['bytes'])}\n")
 EOF
 
-# 2. Compile each instruction one by one for validation (to match test_opcodes.py behavior)
-# This is slow but ensures we are testing the same thing.
-passed=0
-failed=0
-total=0
+print_section "45GS02 opcode validation"
 
+# Compile each instruction one by one for validation
 while IFS='|' read -r mnemonic mode expected_bytes; do
-    total=$((total + 1))
-    
     asm_code=""
     case $mode in
         "imp") asm_code="${mnemonic}" ;;
@@ -129,39 +127,25 @@ while IFS='|' read -r mnemonic mode expected_bytes; do
 
     echo ".org \$2000" > build/single_op.s
     printf '%b\n' "$asm_code" >> build/single_op.s
-    
+
     $CA -o build/single_op.bin build/single_op.s > /dev/null 2>&1
     if [ $? -ne 0 ]; then
-        echo "FAIL (Assemble): $mnemonic $mode"
-        failed=$((failed + 1))
+        print_fail "$mnemonic $mode (assemble)"
         continue
     fi
-    
-    # Extract actual bytes
+
     actual_bytes=$(hexdump -v -e '1/1 "%02x " ' build/single_op.bin)
-    # Standardize spaces and case
     expected_bytes_lower=$(echo "$expected_bytes" | tr '[:upper:]' '[:lower:]' | xargs)
     actual_bytes_clean=$(echo "$actual_bytes" | tr '[:upper:]' '[:lower:]' | xargs)
-    
-    # We only care about the first few bytes (the opcode and prefix)
     count=$(echo "$expected_bytes" | wc -w)
     actual_bytes_truncated=$(echo "$actual_bytes_clean" | cut -d' ' -f1-"$count")
 
     if [ "$actual_bytes_truncated" == "$expected_bytes_lower" ]; then
-        passed=$((passed + 1))
+        print_pass "$mnemonic $mode"
     else
-        echo "FAIL (Bytes): $mnemonic $mode"
-        echo "  Expected: $expected_bytes_lower"
-        echo "  Actual:   $actual_bytes_truncated"
-        failed=$((failed + 1))
+        print_fail "$mnemonic $mode"
     fi
 done < "$META_FILE"
 
-echo ""
-echo "Summary: $passed passed, $failed failed, 0 skipped."
-
-if [ $failed -eq 0 ]; then
-    exit 0
-else
-    exit 1
-fi
+test_summary
+exit $?

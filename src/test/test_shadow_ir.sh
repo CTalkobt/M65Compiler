@@ -1,108 +1,39 @@
 #!/bin/bash
-# Shadow comparison test: compile programs through both legacy CodeGenerator
-# and IR codegen paths, verify both assemble successfully.
-# When mmemu is available, also compare execution results.
-#
-# Tests that the IR pipeline (IRBuilder → IRCodeGen) produces assembly
-# that is accepted by ca45 and structurally correct.
+# Shadow comparison test: IR vs legacy codegen - uses shared test utilities
 
-CC=./bin/cc45
-AS=./bin/ca45
-MMEMU=mmemu-cli
+source "$(dirname "$0")/test-lib.sh"
 
-failed=0
-passed=0
-skipped=0
+AS="${AS:-./bin/ca45}"
+MMEMU="${MMEMU:-mmemu-cli}"
 
 mkdir -p build/test/shadow
 
-# Check if mmemu can run (rawMega65 machine type)
 MMEMU_OK=0
 if command -v $MMEMU &>/dev/null; then
     MTEST=$(echo -e "q" | timeout 5 $MMEMU -m rawMega65 2>&1)
-    if echo "$MTEST" | grep -q "^>"; then
-        MMEMU_OK=1
-    fi
-fi
-if [ "$MMEMU_OK" = "1" ]; then
-    echo "(mmemu available — will compare execution results)"
-else
-    echo "(mmemu not available — assembly-only validation)"
+    [ $(echo "$MTEST" | grep -c "^>") -gt 0 ] && MMEMU_OK=1
 fi
 
-run_mmemu() {
-    local prg="$1"
-    echo -e "load $prg\nsetpc \$2000\nstep 5000\nregs\nq" | timeout 10 $MMEMU -m rawMega65 2>/dev/null
-}
+run_mmemu() { echo -e "load $1\nsetpc \$2000\nstep 5000\nregs\nq" | timeout 10 $MMEMU -m rawMega65 2>/dev/null; }
+get_a_reg() { echo "$1" | grep -oP 'A:\s*\$\K[0-9A-Fa-f]+' | tail -1; }
 
-get_a_reg() {
-    echo "$1" | grep -oP 'A:\s*\$\K[0-9A-Fa-f]+' | tail -1
-}
-
-# Test a C source file through both paths
 shadow_test() {
-    local name="$1"
-    local src="$2"
-    local legacy_s="build/test/shadow/${name}_legacy.s"
-    local legacy_prg="build/test/shadow/${name}_legacy.prg"
-    local ir_prg="build/test/shadow/${name}_ir.prg"
+    local name="$1" src="$2" legacy_s="build/test/shadow/${name}_legacy.s" legacy_prg="build/test/shadow/${name}_legacy.prg" ir_s="build/test/shadow/${name}_ir.s" ir_prg="build/test/shadow/${name}_ir.prg"
+    $CC "$src" -o "$legacy_s" 2>/dev/null || { print_skip "$name (legacy compile failed)"; return; }
+    $AS "$legacy_s" -o "$legacy_prg" 2>/dev/null || { print_skip "$name (legacy assemble failed)"; return; }
+    $CC "$src" -o "$ir_s" 2>/dev/null || { print_skip "$name (IR compile failed)"; return; }
+    $AS "$ir_s" -o "$ir_prg" 2>/dev/null || { print_fail "$name (IR assemble failed)"; return; }
 
-    # Legacy path: cc45 → .s → ca45 → .prg
-    $CC "$src" -o "$legacy_s" 2>/dev/null
-    if [ $? -ne 0 ]; then
-        echo "SKIP: $name (legacy compilation failed)"
-        skipped=$((skipped + 1))
-        return
-    fi
-    $AS "$legacy_s" -o "$legacy_prg" 2>/dev/null
-    if [ $? -ne 0 ]; then
-        echo "SKIP: $name (legacy assembly failed)"
-        skipped=$((skipped + 1))
-        return
-    fi
-
-    # IR path: cc45 (IR is default) → .s → ca45 → .prg
-    $CC "$src" -o "build/test/shadow/${name}_ir.s" 2>/dev/null
-    if [ $? -ne 0 ]; then
-        echo "SKIP: $name (IR compilation failed)"
-        skipped=$((skipped + 1))
-        return
-    fi
-
-    $AS "build/test/shadow/${name}_ir.s" -o "$ir_prg" 2>/dev/null
-    if [ $? -ne 0 ]; then
-        echo "FAIL: $name (IR assembly failed)"
-        echo "  IR assembly file: $ir_s"
-        failed=$((failed + 1))
-        return
-    fi
-
-    # Both paths assembled successfully
     if [ "$MMEMU_OK" = "1" ]; then
-        # Run both on mmemu and compare A register
-        LEGACY_OUT=$(run_mmemu "$legacy_prg")
-        LEGACY_A=$(get_a_reg "$LEGACY_OUT")
-        IR_OUT=$(run_mmemu "$ir_prg")
-        IR_A=$(get_a_reg "$IR_OUT")
-
-        if [ "$LEGACY_A" = "$IR_A" ]; then
-            echo "PASS: $name (legacy A=\$$LEGACY_A, IR A=\$$IR_A)"
-        else
-            echo "FAIL: $name (legacy A=\$$LEGACY_A, IR A=\$$IR_A)"
-            failed=$((failed + 1))
-            return
-        fi
+        LEGACY_A=$(get_a_reg "$(run_mmemu "$legacy_prg")")
+        IR_A=$(get_a_reg "$(run_mmemu "$ir_prg")")
+        [ "$LEGACY_A" = "$IR_A" ] && print_pass "$name" || print_fail "$name"
     else
-        # No mmemu — just verify both assembled
-        local legacy_size=$(wc -c < "$legacy_prg")
-        local ir_size=$(wc -c < "$ir_prg")
-        echo "PASS: $name (both assembled: legacy=${legacy_size}B, ir=${ir_size}B)"
+        print_pass "$name"
     fi
-    passed=$((passed + 1))
 }
 
-echo "Running IR shadow comparison tests..."
-echo ""
+print_section "IR shadow comparison tests"
 
 # Write inline test programs to temp files and test them
 # Each program is self-contained (no stdlib) and returns a value in A
@@ -427,9 +358,5 @@ int main() { return fib(8); }
 EOF
 shadow_test "fibonacci" "build/test/shadow/t_fib.c"
 
-echo ""
-echo "========================================"
-echo "Shadow IR tests: $passed passed, $failed failed, $skipped skipped"
-echo "========================================"
-
-exit $failed
+test_summary
+exit $?
