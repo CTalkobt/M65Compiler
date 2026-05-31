@@ -67,7 +67,8 @@ enum class Op : uint8_t {
     // Arithmetic (binary: dest = src1 op src2)
     ADD,
     SUB,
-    MUL,
+    MUL,            // signed multiply
+    MUL_U,          // unsigned multiply
     DIV,            // signed division
     DIV_U,          // unsigned division
     MOD,            // signed modulo

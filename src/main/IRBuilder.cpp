@@ -1070,14 +1070,14 @@ void IRBuilder::visit(Assignment& node) {
         bool bothSigned = lhsSigned && rhsInfo.isSigned;
         if (node.op == "+=") binOp = ir::Op::ADD;
         else if (node.op == "-=") binOp = ir::Op::SUB;
-        else if (node.op == "*=") binOp = ir::Op::MUL;
+        else if (node.op == "*=") binOp = bothSigned ? ir::Op::MUL : ir::Op::MUL_U;
         else if (node.op == "/=") binOp = bothSigned ? ir::Op::DIV : ir::Op::DIV_U;
         else if (node.op == "%=") binOp = bothSigned ? ir::Op::MOD : ir::Op::MOD_U;
         else if (node.op == "&=") binOp = ir::Op::AND;
         else if (node.op == "|=") binOp = ir::Op::OR;
         else if (node.op == "^=") binOp = ir::Op::XOR;
         else if (node.op == "<<=") binOp = ir::Op::SHL;
-        else if (node.op == ">>=") binOp = ir::Op::SHR;
+        else if (node.op == ">>=") binOp = bothSigned ? ir::Op::ASR : ir::Op::SHR;
 
         if (binOp != ir::Op::NOP) {
             ir::Type opType = lhsVal.type;
@@ -1404,14 +1404,14 @@ void IRBuilder::visit(BinaryOperation& node) {
 
     if (node.op == "+") op = ir::Op::ADD;
     else if (node.op == "-") op = ir::Op::SUB;
-    else if (node.op == "*") op = ir::Op::MUL;
+    else if (node.op == "*") op = bothSigned ? ir::Op::MUL : ir::Op::MUL_U;
     else if (node.op == "/") op = bothSigned ? ir::Op::DIV : ir::Op::DIV_U;
     else if (node.op == "%") op = bothSigned ? ir::Op::MOD : ir::Op::MOD_U;
     else if (node.op == "&") op = ir::Op::AND;
     else if (node.op == "|") op = ir::Op::OR;
     else if (node.op == "^") op = ir::Op::XOR;
     else if (node.op == "<<") op = ir::Op::SHL;
-    else if (node.op == ">>") op = ir::Op::SHR;
+    else if (node.op == ">>") op = bothSigned ? ir::Op::ASR : ir::Op::SHR;
     else if (node.op == "==") { op = ir::Op::CMP_EQ; finalResultType = ir::Type::I8; }
     else if (node.op == "!=") { op = ir::Op::CMP_NE; finalResultType = ir::Type::I8; }
     else if (node.op == "<") { op = bothSigned ? ir::Op::CMP_LT : ir::Op::CMP_LTU; finalResultType = ir::Type::I8; }

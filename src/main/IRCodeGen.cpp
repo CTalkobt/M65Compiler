@@ -528,6 +528,7 @@ IRCodeGen::FuncClobbers IRCodeGen::computeFuncClobbers(const ir::Function& fn) {
                     break;
 
                 case ir::Op::MUL:
+                case ir::Op::MUL_U:
                 case ir::Op::DIV:
                 case ir::Op::DIV_U:
                 case ir::Op::MOD:
@@ -1101,6 +1102,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             case ir::Op::ADD: name = "ADD"; break;
             case ir::Op::SUB: name = "SUB"; break;
             case ir::Op::MUL: name = "MUL"; break;
+            case ir::Op::MUL_U: name = "MUL_U"; break;
             case ir::Op::DIV: name = "DIV"; break;
             case ir::Op::DIV_U: name = "DIV_U"; break;
             case ir::Op::MOD: name = "MOD"; break;
@@ -1685,6 +1687,18 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::MUL: {
+            std::string src2 = src2MemOperand(inst.src2);
+            loadOperand(inst.src1);
+            if (inst.resultType == ir::Type::I32) {
+                emit("mul.s32 .AXYZ, " + src2);
+            } else {
+                emit("mul.s16 .AX, " + src2);
+            }
+            if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+            break;
+        }
+
+        case ir::Op::MUL_U: {
             std::string src2 = src2MemOperand(inst.src2);
             loadOperand(inst.src1);
             if (inst.resultType == ir::Type::I32) {
