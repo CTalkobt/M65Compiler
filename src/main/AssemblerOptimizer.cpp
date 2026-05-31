@@ -483,11 +483,14 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
                                         afterNm == "BCS" || afterNm == "BCC" || afterNm == "BVS" || afterNm == "BVC") {
                                         // Found the pattern: STA $zp; LDA $zp; Bxx
                                         // Eliminate the store and load (keep the branch)
+                                        int s_size = s->size;
+                                        int n_size = next->size;
                                         s->deleted = true; s->size = 0;
                                         next->deleted = true; next->size = 0;
                                         report("store-load-pair", s,
                                                "STA/LDA $" + std::string(1, '0' + (zpAddr >> 4)) + std::string(1, "0123456789ABCDEF"[zpAddr & 0xF]) +
-                                               " pair eliminated before " + afterNm + " (saved 4 bytes)");
+                                               " pair eliminated before " + afterNm + " (saved " + std::to_string(s_size + n_size) + " bytes, was: " +
+                                               std::to_string(s_size) + "+" + std::to_string(n_size) + ")");
                                         changed = true;
                                     }
                                 }
@@ -842,10 +845,13 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
                         braStmt->sourceFile = firstInstr->sourceFile;
                         braStmt->sourceLine = firstInstr->sourceLine;
 
+                        int totalSaved = 0;
                         for (size_t idx : tail.instrIndices) {
+                            totalSaved += parser->statements[idx]->size;
                             parser->statements[idx]->deleted = true;
                             parser->statements[idx]->size = 0;
                         }
+                        report("tail-dedup-suffix", firstInstr, "tail → bra " + sharedLabel + " (suffix match, saved " + std::to_string(totalSaved) + " bytes)");
 
                         parser->statements.insert(
                             parser->statements.begin() + tail.startIdx,
@@ -1057,10 +1063,14 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
             bsr->sourceFile = firstStmt->sourceFile;
             bsr->sourceLine = firstStmt->sourceLine;
 
+            int deleted_total = 0;
             for (size_t idx : match.instrIndices) {
+                deleted_total += parser->statements[idx]->size;
                 parser->statements[idx]->deleted = true;
                 parser->statements[idx]->size = 0;
             }
+            int bsr_size = 3;
+            int actual_savings_per_call = deleted_total - bsr_size;
 
             parser->statements.insert(
                 parser->statements.begin() + match.instrIndices.front(),
@@ -1068,7 +1078,7 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
             );
 
             report("seq-extract", firstStmt,
-                   "sequence → bsr " + routineName + " (saved " + std::to_string(savings) + " bytes)");
+                   "sequence → bsr " + routineName + " (saved " + std::to_string(actual_savings_per_call) + " bytes)");
             changed = true;
         }
     }
