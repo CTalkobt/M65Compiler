@@ -796,6 +796,18 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                     } else {
                         output << "\n";
                     }
+                } else if (isCompiler && pragmaArg.substr(0, 9) == "encoding(") {
+                    std::string enc = pragmaArg.substr(9);
+                    if (!enc.empty() && enc.back() == ')') enc.pop_back();
+                    if (enc == "ascii" || enc == "petscii" || enc == "screencode")
+                        output << "__asm__(\".encoding " + enc + "\");\n";
+                    else output << "\n";
+                } else if (isCompiler && pragmaArg == "encoding") {
+                    std::string enc;
+                    ss >> enc;
+                    if (enc == "ascii" || enc == "petscii" || enc == "screencode")
+                        output << "__asm__(\".encoding " + enc + "\");\n";
+                    else output << "\n";
                 } else {
                     output << "\n";
                 }
@@ -859,6 +871,16 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         else if (cc45Arg == "stdio") output << "__asm__(\".crt_stdio\");\n";
                         else if (cc45Arg == "no_zp_save") output << "__asm__(\".no_zp_save\");\n";
                         else if (cc45Arg == "weak") output << "__asm__(\".weak_next\");\n";
+                    } else if (isCompiler && pragmaArg.substr(0, 9) == "encoding(") {
+                        std::string enc = pragmaArg.substr(9);
+                        if (!enc.empty() && enc.back() == ')') enc.pop_back();
+                        if (enc == "ascii" || enc == "petscii" || enc == "screencode")
+                            output << "__asm__(\".encoding " + enc + "\");\n";
+                    } else if (isCompiler && pragmaArg == "encoding") {
+                        std::string enc;
+                        ps >> enc;
+                        if (enc == "ascii" || enc == "petscii" || enc == "screencode")
+                            output << "__asm__(\".encoding " + enc + "\");\n";
                     }
                 }
                 pendingPragmas_.clear();

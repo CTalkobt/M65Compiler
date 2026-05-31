@@ -319,6 +319,70 @@ void test_import_binary_missing_keyword() {
     CHECK(failed, ".import without 'binary' keyword gives error");
 }
 
+// Test C compiler pragma encoding directive with .screencode assembler directive
+void test_encoding_pragma_screencode() {
+    // Write C code with pragma encoding(screencode)
+    std::string cCode = R"(
+#pragma encoding(screencode)
+const char hello[] = "HELLO";
+int main() { return 0; }
+)";
+    std::ofstream cf("build/test_encoding_screencode.c");
+    cf << cCode;
+    cf.close();
+
+    // Compile with -S to get assembly
+    int ret = system("./bin/cc45 -S build/test_encoding_screencode.c -o build/test_encoding_screencode.s 2>/dev/null");
+    CHECK(ret == 0, "pragma encoding(screencode) C code compiles");
+
+    // Check that assembly contains .screencode directive
+    std::ifstream asmFile("build/test_encoding_screencode.s");
+    std::string asmContent((std::istreambuf_iterator<char>(asmFile)),
+                           std::istreambuf_iterator<char>());
+    bool hasScreencode = asmContent.find(".screencode") != std::string::npos;
+    CHECK(hasScreencode, "pragma encoding(screencode) generates .screencode directive");
+}
+
+void test_encoding_pragma_ascii() {
+    std::string cCode = R"(
+#pragma encoding(ascii)
+const char hello[] = "hello";
+int main() { return 0; }
+)";
+    std::ofstream cf("build/test_encoding_ascii.c");
+    cf << cCode;
+    cf.close();
+
+    int ret = system("./bin/cc45 -S build/test_encoding_ascii.c -o build/test_encoding_ascii.s 2>/dev/null");
+    CHECK(ret == 0, "pragma encoding(ascii) C code compiles");
+
+    std::ifstream asmFile("build/test_encoding_ascii.s");
+    std::string asmContent((std::istreambuf_iterator<char>(asmFile)),
+                           std::istreambuf_iterator<char>());
+    bool hasAscii = asmContent.find(".ascii") != std::string::npos;
+    CHECK(hasAscii, "pragma encoding(ascii) generates .ascii directive");
+}
+
+void test_encoding_pragma_petscii() {
+    std::string cCode = R"(
+#pragma encoding(petscii)
+const char hello[] = "hello";
+int main() { return 0; }
+)";
+    std::ofstream cf("build/test_encoding_petscii.c");
+    cf << cCode;
+    cf.close();
+
+    int ret = system("./bin/cc45 -S build/test_encoding_petscii.c -o build/test_encoding_petscii.s 2>/dev/null");
+    CHECK(ret == 0, "pragma encoding(petscii) C code compiles");
+
+    std::ifstream asmFile("build/test_encoding_petscii.s");
+    std::string asmContent((std::istreambuf_iterator<char>(asmFile)),
+                           std::istreambuf_iterator<char>());
+    bool hasText = asmContent.find(".text") != std::string::npos;
+    CHECK(hasText, "pragma encoding(petscii) generates .text directive");
+}
+
 int main() {
     printf("Testing data directives validation...\n\n");
 
@@ -349,6 +413,11 @@ int main() {
     test_incbin_basic();
     test_import_binary_file_not_found();
     test_import_binary_missing_keyword();
+
+    // Encoding pragma tests
+    test_encoding_pragma_screencode();
+    test_encoding_pragma_ascii();
+    test_encoding_pragma_petscii();
 
     printf("\nData Directives Validation Tests: %d passed, %d failed\n", tests_passed, tests_failed);
     return tests_failed > 0 ? 1 : 0;

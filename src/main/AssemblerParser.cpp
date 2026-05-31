@@ -1473,7 +1473,7 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
     if (dir.name == "word") return (int)dir.arguments.size() * 2;
     if (dir.name == "dword" || dir.name == "long") return (int)dir.arguments.size() * 4;
     if (dir.name == "float") return (int)dir.arguments.size() * 5;
-    if (dir.name == "text" || dir.name == "ascii") {
+    if (dir.name == "text" || dir.name == "ascii" || dir.name == "screencode") {
         if (dir.arguments.empty()) return 0;
         return (int)dir.arguments[0].size();
     }

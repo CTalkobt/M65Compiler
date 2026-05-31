@@ -19,6 +19,15 @@ static uint8_t toPetscii(char c) {
     return (uint8_t)c;
 }
 
+static uint8_t toScreencode(char c) {
+    uint8_t u = (uint8_t)c;
+    if (u == 0x40) return 0x00;             // @ → 0
+    if (u >= 0x41 && u <= 0x5A) return u - 0x40;  // A-Z → 1-26
+    if (u >= 0x5B && u <= 0x5F) return u - 0x40;  // [\]^_ → 27-31
+    if (u >= 0x61 && u <= 0x7A) return u - 0x60;  // a-z → 1-26
+    return u;                               // space, digits, punctuation unchanged
+}
+
 static std::vector<uint8_t> encodeFloat(double val) {
     std::vector<uint8_t> result(5);
     if (val == 0.0) { std::fill(result.begin(), result.end(), 0); return result; }
@@ -482,6 +491,7 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                     else if (stmt->dir.name == "float") for (const auto& a : stmt->dir.arguments) { double v = std::stod(a); std::vector<uint8_t> enc = encodeFloat(v); for (uint8_t eb : enc) e.emitByte(eb); }
                     else if (stmt->dir.name == "text") { if (!stmt->dir.arguments.empty()) for (char c : stmt->dir.arguments[0]) e.emitByte(toPetscii(c)); }
                     else if (stmt->dir.name == "ascii") { if (!stmt->dir.arguments.empty()) for (char c : stmt->dir.arguments[0]) e.emitByte((uint8_t)c); }
+                    else if (stmt->dir.name == "screencode") { if (!stmt->dir.arguments.empty()) for (char c : stmt->dir.arguments[0]) e.emitByte(toScreencode(c)); }
                     else if (stmt->dir.name == "res") {
                         uint32_t count = parser->evaluateExpressionAt(stmt->dir.tokenIndex, stmt->scopePrefix);
                         uint8_t fill = 0;

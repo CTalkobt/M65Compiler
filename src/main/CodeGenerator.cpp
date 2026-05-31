@@ -1021,6 +1021,9 @@ void CodeGenerator::visit(TranslationUnit& node) {
             if (as->code == ".crt_no_bssinit") crtNoBssInit = true;
             if (as->code == ".crt_heap") crtHeap = true;
             if (as->code == ".crt_stdio") crtStdio = true;
+            if (as->code == ".encoding ascii") currentStringEncoding_ = StringEncoding::ASCII;
+            if (as->code == ".encoding petscii") currentStringEncoding_ = StringEncoding::PETSCII;
+            if (as->code == ".encoding screencode") currentStringEncoding_ = StringEncoding::SCREENCODE;
         }
         nextIsWeak = false;
     }
@@ -3750,6 +3753,18 @@ void CodeGenerator::visit(AsmStatement& node) {
         crtStdio = true;
         return;
     }
+    if (node.code == ".encoding ascii") {
+        currentStringEncoding_ = StringEncoding::ASCII;
+        return;
+    }
+    if (node.code == ".encoding petscii") {
+        currentStringEncoding_ = StringEncoding::PETSCII;
+        return;
+    }
+    if (node.code == ".encoding screencode") {
+        currentStringEncoding_ = StringEncoding::SCREENCODE;
+        return;
+    }
     embedSource(node);
     emit(node.code);
     invalidateRegs();
@@ -4474,11 +4489,21 @@ void CodeGenerator::visit(IntegerLiteral& node) {
 
 void CodeGenerator::visit(StringLiteral& node) {
     if (!resultNeeded) return;
-    // ASCII strings use a "\x01" prefix in the pool key to distinguish from PETSCII
-    std::string poolKey = node.isAscii ? std::string("\x01") + node.value : node.value;
+    // String pool key: prefix marker for ASCII (\x01) and screencode (\x02), PETSCII uses no prefix
+    std::string poolKey;
+    if (node.isAscii) {
+        poolKey = std::string("\x01") + node.value;  // explicit @"..." always ASCII
+    } else if (currentStringEncoding_ == StringEncoding::SCREENCODE) {
+        poolKey = std::string("\x02") + node.value;
+    } else if (currentStringEncoding_ == StringEncoding::ASCII) {
+        poolKey = std::string("\x01") + node.value;
+    } else {
+        poolKey = node.value;  // PETSCII default
+    }
     if (stringPool.find(poolKey) == stringPool.end()) {
         stringPool[poolKey] = "STR" + std::to_string(stringCount++);
-        if (node.isAscii) asciiStrings.insert(poolKey);
+        if (!poolKey.empty() && poolKey[0] == '\x01') asciiStrings.insert(poolKey);
+        if (!poolKey.empty() && poolKey[0] == '\x02') screencodeStrings.insert(poolKey);
     }
     std::string label = stringPool[poolKey];
     emit("ldax #" + label); invalidateRegs();
@@ -5505,7 +5530,10 @@ void CodeGenerator::emitData() {
     out << std::endl << ".data" << std::endl;
     for (const auto& entry : stringPool) {
         out << entry.second << ":" << std::endl;
-        if (asciiStrings.count(entry.first)) {
+        if (screencodeStrings.count(entry.first)) {
+            // Screencode string: strip the \x02 prefix key marker, emit .screencode
+            out << "    .screencode \"" << entry.first.substr(1) << "\"" << std::endl;
+        } else if (asciiStrings.count(entry.first)) {
             // ASCII string: strip the \x01 prefix key marker, emit .ascii
             out << "    .ascii \"" << entry.first.substr(1) << "\"" << std::endl;
         } else {

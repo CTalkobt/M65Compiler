@@ -197,6 +197,9 @@ public:
     int labelCount = 0;
     std::map<std::string, std::string> stringPool;
     std::set<std::string> asciiStrings;  // pool keys for @"..." strings
+    enum class StringEncoding { PETSCII, ASCII, SCREENCODE };
+    StringEncoding currentStringEncoding_ = StringEncoding::PETSCII;
+    std::set<std::string> screencodeStrings;  // pool keys for screencode strings
     std::vector<std::string> currentVars;
     std::string sourceFilename;
     std::vector<std::string> sourceLines;
