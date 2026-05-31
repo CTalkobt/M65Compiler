@@ -1896,10 +1896,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     emit("iny");
                     emit("lda (" + zpPair + "),y"); // byte 3
                     emit("taz");
-                    emit("pla");
-                    emit("tay");
-                    emit("pla");
-                    emit("tax");
+                    emit("ply");
+                    emit("plx");
                     emit("pla");
                 } else {
                     emit("lda (" + zpPair + "),y"); // lo
