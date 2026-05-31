@@ -602,22 +602,28 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
         }
     }
 
-    // --- Pass 3: Tail sequence deduplication ---
-    // Identify identical tail sequences (e.g., multiple "plz plz plz rts" blocks)
-    // and replace them with branches to a shared common_tail label.
-    // Also handles suffix matching: if one tail is a suffix of another,
-    // the shorter one can jump into the middle of the longer one.
+    // --- Pass 3: Function tail deduplication (with re-scanning for convergence) ---
+    // Iteratively find and eliminate duplicate instruction sequences at function tails.
+    // Re-scans after each pass because earlier optimizations may:
+    // - Enable new deduplication opportunities
+    // - Change branch sizes, affecting which sequences are worth extracting
     {
-        struct TailInfo {
-            size_t startIdx;     // Index of first instruction in tail
-            size_t endIdx;       // Index of endproc/label
-            std::vector<size_t> instrIndices;  // Indices of instructions in tail
-            std::string sig;     // Signature: concatenated (mnemonic,mode,operand)
-            size_t tailSize;     // Sum of instruction sizes
-            int procLine = 0;    // Source line for reporting
-            std::string procFile;
-        };
-        std::map<std::string, std::vector<TailInfo>> tailsBySignature;
+        bool tailDedupChanged = true;
+        int dedupPass = 0;
+        const int MAX_DEDUP_PASSES = 10;
+
+        while (tailDedupChanged && dedupPass < MAX_DEDUP_PASSES) {
+            tailDedupChanged = false;
+            dedupPass++;
+
+            struct TailInfo {
+                size_t startIdx;
+                size_t endIdx;
+                std::vector<size_t> instrIndices;
+                std::string sig;
+                size_t tailSize;
+            };
+            std::map<std::string, std::vector<TailInfo>> tailsBySignature;
 
         // Find all procedure end points and extract tail sequences
         for (size_t i = 0; i < parser->statements.size(); ++i) {
@@ -681,192 +687,61 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
                 tailSize += instr->size;
             }
 
-            TailInfo info;
-            info.startIdx = tailIndices.front();
-            info.endIdx = i;
-            info.instrIndices = tailIndices;
-            info.sig = sig;
-            info.tailSize = tailSize;
-            info.procLine = parser->statements[i]->sourceLine;
-            info.procFile = parser->statements[i]->sourceFile;
+            TailInfo info{tailIndices.front(), i, tailIndices, sig, tailSize};
             tailsBySignature[sig].push_back(info);
-        }
-
-        // Collect all tails into a single list for multi-match analysis
-        struct TailGroup {
-            std::vector<size_t> tailIndices;  // Indices into allTails
-            std::string sharedLabel;
-            size_t referenceSize;  // Size of the reference tail (usually longest)
-        };
-        std::vector<TailInfo> allTails;
-        std::map<std::string, size_t> sigToCanonicalIdx;
-
-        for (auto& [sig, tailList] : tailsBySignature) {
-            for (auto& tail : tailList) {
-                sigToCanonicalIdx[sig] = allTails.size();
-                allTails.push_back(tail);
             }
-        }
 
-        // For exact signature matches with 2+ occurrences, deduplicate
-        for (auto& [sig, tails] : tailsBySignature) {
-            if (tails.size() < 2) continue;
+            // Deduplicate exact matches (one signature per pass)
+            for (auto& [sig, tails] : tailsBySignature) {
+                if (tails.size() < 2) continue;
+                if (tails[0].tailSize < 3) continue;
 
-            // Only deduplicate if we save significant bytes
-            // BRA instruction is 2 bytes. So:
-            // - Replace tailSize bytes with 2 bytes (BRA)
-            // - Savings per dup = tailSize - 2
-            // - Total savings = (tailSize - 2) * (count - 1)
-            if (tails[0].tailSize < 3) continue;  // Minimum tail size to bother
+                size_t savedBytes = (tails[0].tailSize - 2) * (tails.size() - 1);
+                if (savedBytes < 2) continue;
 
-            size_t savedBytes = (tails[0].tailSize - 2) * (tails.size() - 1);
-            if (savedBytes < 2) continue;  // Only deduplicate if we save at least 2 bytes
+                std::string sharedLabel = "__tail_" + std::to_string(reinterpret_cast<uintptr_t>(&sig));
+                bool isFirst = true;
 
-            // Create shared tail name and mark first occurrence as the shared version
-            std::string sharedLabel = "__tail_" + std::to_string(reinterpret_cast<uintptr_t>(&sig));
+                for (auto& tail : tails) {
+                    if (isFirst) {
+                        auto labelStmt = std::make_unique<AssemblerParser::Statement>();
+                        labelStmt->type = AssemblerParser::Statement::DIRECTIVE;
+                        labelStmt->label = sharedLabel;
+                        labelStmt->line = parser->statements[tail.startIdx]->line;
+                        parser->statements.insert(
+                            parser->statements.begin() + tail.startIdx,
+                            std::move(labelStmt)
+                        );
+                        isFirst = false;
+                    } else {
+                        auto* firstInstr = parser->statements[tail.startIdx].get();
+                        auto braStmt = std::make_unique<AssemblerParser::Statement>();
+                        braStmt->type = AssemblerParser::Statement::INSTRUCTION;
+                        braStmt->instr.mnemonic = "bra";
+                        braStmt->instr.mode = AddressingMode::RELATIVE;
+                        braStmt->instr.operand = sharedLabel;
+                        braStmt->size = 2;
+                        braStmt->line = firstInstr->line;
+                        braStmt->sourceFile = firstInstr->sourceFile;
+                        braStmt->sourceLine = firstInstr->sourceLine;
 
-            bool isFirst = true;
-
-            for (auto& tail : tails) {
-                if (isFirst) {
-                    // Mark canonical tail location with a label before it
-                    auto labelStmt = std::make_unique<AssemblerParser::Statement>();
-                    labelStmt->type = AssemblerParser::Statement::DIRECTIVE;
-                    labelStmt->label = sharedLabel;
-                    labelStmt->line = parser->statements[tail.startIdx]->line;
-                    parser->statements.insert(
-                        parser->statements.begin() + tail.startIdx,
-                        std::move(labelStmt)
-                    );
-                    // Adjust indices after insertion
-                    for (auto& t : tails) {
-                        if (&t != &tail) {
-                            t.startIdx++;
-                            t.endIdx++;
+                        for (size_t idx : tail.instrIndices) {
+                            parser->statements[idx]->deleted = true;
+                            parser->statements[idx]->size = 0;
                         }
-                    }
-                    isFirst = false;
-                } else {
-                    // Replace this tail occurrence with BRA sharedLabel
-                    auto* firstInstr = parser->statements[tail.startIdx].get();
 
-                    // Create BRA instruction
-                    auto braStmt = std::make_unique<AssemblerParser::Statement>();
-                    braStmt->type = AssemblerParser::Statement::INSTRUCTION;
-                    braStmt->instr.mnemonic = "bra";
-                    braStmt->instr.mode = AddressingMode::RELATIVE;
-                    braStmt->instr.operand = sharedLabel;
-                    braStmt->size = 2;
-                    braStmt->line = firstInstr->line;
-                    braStmt->sourceFile = firstInstr->sourceFile;
-                    braStmt->sourceLine = firstInstr->sourceLine;
+                        parser->statements.insert(
+                            parser->statements.begin() + tail.startIdx,
+                            std::move(braStmt)
+                        );
 
-                    // Delete all instructions in this tail
-                    for (size_t idx = tail.startIdx; idx < tail.endIdx; ++idx) {
-                        auto* instr = parser->statements[idx].get();
-                        if (instr->type == AssemblerParser::Statement::INSTRUCTION) {
-                            instr->deleted = true;
-                            instr->size = 0;
-                        }
-                    }
-
-                    // Insert BRA before the deleted region
-                    parser->statements.insert(
-                        parser->statements.begin() + tail.startIdx,
-                        std::move(braStmt)
-                    );
-
-                    // Report
-                    report("tail-dedup", parser->statements[tail.startIdx].get(),
-                           "tail sequence → bra " + sharedLabel + " (saved " +
-                           std::to_string(tails[0].tailSize - 2) + " bytes)");
-                    changed = true;
-                }
-            }
-        }
-
-        // Suffix matching: find cases where shorter tails are suffixes of longer tails
-        // Example: if we have "plz plz plz plz" and "plz plz plz rts",
-        // the shorter "plz plz plz" can jump into the middle of the longer one
-        for (size_t i = 0; i < allTails.size(); ++i) {
-            for (size_t j = 0; j < allTails.size(); ++j) {
-                if (i == j) continue;
-                if (allTails[i].instrIndices.size() >= allTails[j].instrIndices.size()) continue;
-
-                // Check if tail i is a suffix of tail j
-                const auto& shortTail = allTails[i].instrIndices;
-                const auto& longTail = allTails[j].instrIndices;
-
-                if (longTail.size() < shortTail.size()) continue;
-
-                bool isSuffix = true;
-                for (size_t k = 0; k < shortTail.size(); ++k) {
-                    auto* shortInstr = parser->statements[shortTail[k]].get();
-                    auto* longInstr = parser->statements[longTail[longTail.size() - shortTail.size() + k]].get();
-
-                    if (shortInstr->instr.mnemonic != longInstr->instr.mnemonic ||
-                        shortInstr->instr.mode != longInstr->instr.mode ||
-                        shortInstr->instr.operand != longInstr->instr.operand) {
-                        isSuffix = false;
-                        break;
+                        report("tail-dedup", parser->statements[tail.startIdx].get(),
+                               "tail → bra " + sharedLabel + " (saved " + std::to_string(tails[0].tailSize - 2) + " bytes)");
+                        changed = true;
+                        tailDedupChanged = true;
                     }
                 }
-
-                if (!isSuffix) continue;
-
-                // Calculate savings: replace short tail with BRA to offset in long tail
-                size_t savings = allTails[i].tailSize - 2;
-                if (savings < 2) continue;  // Not worth it
-
-                // Create a label at the offset point in the long tail
-                std::string offsetLabel = "__tail_" + std::to_string(reinterpret_cast<uintptr_t>(&allTails[i])) + "_into";
-
-                // Mark the offset point in the long tail with a label
-                auto labelStmt = std::make_unique<AssemblerParser::Statement>();
-                labelStmt->type = AssemblerParser::Statement::DIRECTIVE;
-                labelStmt->label = offsetLabel;
-                labelStmt->line = parser->statements[longTail[longTail.size() - shortTail.size()]]->line;
-
-                size_t insertPos = longTail[longTail.size() - shortTail.size()];
-                parser->statements.insert(
-                    parser->statements.begin() + insertPos,
-                    std::move(labelStmt)
-                );
-
-                // Replace short tail with BRA to offset label
-                auto* firstInstr = parser->statements[allTails[i].instrIndices.front()].get();
-
-                auto braStmt = std::make_unique<AssemblerParser::Statement>();
-                braStmt->type = AssemblerParser::Statement::INSTRUCTION;
-                braStmt->instr.mnemonic = "bra";
-                braStmt->instr.mode = AddressingMode::RELATIVE;
-                braStmt->instr.operand = offsetLabel;
-                braStmt->size = 2;
-                braStmt->line = firstInstr->line;
-                braStmt->sourceFile = firstInstr->sourceFile;
-                braStmt->sourceLine = firstInstr->sourceLine;
-
-                // Delete all instructions in short tail
-                for (size_t idx : allTails[i].instrIndices) {
-                    auto* instr = parser->statements[idx].get();
-                    if (instr->type == AssemblerParser::Statement::INSTRUCTION) {
-                        instr->deleted = true;
-                        instr->size = 0;
-                    }
-                }
-
-                // Insert BRA
-                parser->statements.insert(
-                    parser->statements.begin() + allTails[i].instrIndices.front(),
-                    std::move(braStmt)
-                );
-
-                report("tail-dedup-suffix", firstInstr,
-                       "tail sequence → bra " + offsetLabel + " (suffix match, saved " +
-                       std::to_string(savings) + " bytes)");
-                changed = true;
-
-                break;  // Only process each tail once
+                break;  // Only process one signature per pass
             }
         }
     }
