@@ -4,17 +4,18 @@ Linker Map
 Memory Layout
 -------------
   TEXT   $200D - $29B6  (2474 bytes)
-  DATA   $29B7 - $31A0  (2026 bytes)
-  BSS    $31A1 - $3298  (248 bytes)
+  DATA   $29B7 - $29D0  (26 bytes)
+  BSS    $29D1 - $3298  (2248 bytes)
 
 Object Files
 ------------
   main.o45
     TEXT  $2043 - $2927  (2277 bytes)
-    DATA  $29B7 - $318A  (2004 bytes)
+    DATA  $29B7 - $29BA  (4 bytes)
+    BSS   $29D1 - $31A0  (2000 bytes)
   ../../../lib/build/c45.lib(crt0.o45)
     TEXT  $200D - $2042  (54 bytes)
-    DATA  $318B - $31A0  (22 bytes)
+    DATA  $29BB - $29D0  (22 bytes)
     BSS   $31A1 - $3298  (248 bytes)
   ../../../lib/build/c45.lib(memcpy.o45)
     TEXT  $2928 - $2973  (76 bytes)
@@ -30,9 +31,9 @@ Symbols (by address)
   $27CB  _main                          main.o45  [uses:- clob:- rel:- regs:AXYZ]
   $2928  _memcpy                        ../../../lib/build/c45.lib(memcpy.o45)
   $2974  _memset                        ../../../lib/build/c45.lib(memset.o45)
-  $3187  _screen                        main.o45
-  $3189  _color                         main.o45
-  $31A1  __bss_start                    <linker>
+  $29B7  _screen                        main.o45
+  $29B9  _color                         main.o45
+  $29D1  __bss_start                    <linker>
   $3299  __bss_end                      <linker>
 
 Call Graph

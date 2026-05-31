@@ -12,11 +12,12 @@
     .global _color
     .global _main
 
-    .segment "data"
+    .segment "bss"
 _grid:
     .res 1000
 _next:
     .res 1000
+    .segment "data"
 _screen:
     .word 1024
 _color:
