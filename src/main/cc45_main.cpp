@@ -13,6 +13,7 @@
 #include "AST.hpp"
 #include "CodeGenerator.hpp"
 #include "ConstantFolder.hpp"
+#include "LoopOptimizer.hpp"
 #include "Preprocessor.hpp"
 #include "AssemblerLexer.hpp"
 #include "AssemblerParser.hpp"
@@ -628,6 +629,11 @@ int main(int argc, char** argv) {
             ast = folder.foldTranslationUnit(std::move(ast));
             if (verboseLevel >= 1) std::cout << "Constant folding complete." << std::endl;
             irBuilder.setExternalUsedVars(folder.usedVars_);
+
+            if (verboseLevel >= 1) std::cout << "Loop optimization..." << std::endl;
+            LoopOptimizer loopOpt;
+            loopOpt.optimizeTranslationUnit(*ast);
+            if (verboseLevel >= 1) std::cout << "Loop optimization complete." << std::endl;
         }
 
         if (verboseLevel >= 2 && listingLevel >= 1) {
