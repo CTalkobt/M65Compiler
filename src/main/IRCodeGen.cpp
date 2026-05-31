@@ -1884,6 +1884,23 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 if (inst.resultType == ir::Type::I8) {
                     emit("lda (" + zpPair + "),y");
                     emit("ldx #0");
+                } else if (inst.resultType == ir::Type::I32) {
+                    emit("lda (" + zpPair + "),y"); // byte 0
+                    emit("pha");
+                    emit("iny");
+                    emit("lda (" + zpPair + "),y"); // byte 1
+                    emit("pha");
+                    emit("iny");
+                    emit("lda (" + zpPair + "),y"); // byte 2
+                    emit("pha");
+                    emit("iny");
+                    emit("lda (" + zpPair + "),y"); // byte 3
+                    emit("taz");
+                    emit("pla");
+                    emit("tay");
+                    emit("pla");
+                    emit("tax");
+                    emit("pla");
                 } else {
                     emit("lda (" + zpPair + "),y"); // lo
                     emit("pha");
