@@ -215,9 +215,11 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
         off += fw;
 
         // Check for function attribute record ($FA marker)
-        // Supports both old (16 byte) and new (17 byte, with paramSize) formats
+        // Supports variable-length format based on FUNC_FLAG_ZP_SHORT flag:
+        // - If ZP_SHORT set: zpUses/zpClobbers/zpRelease are 2 bytes each (total 11 bytes after marker)
+        // - If ZP_SHORT not set: zpUses/zpClobbers/zpRelease are 4 bytes each (total 15 bytes after marker)
         if (off < data.size() && data[off] == O45_FUNCATTR_MARKER) {
-            if (off + 16 > data.size()) {  // minimum 16 bytes (old format)
+            if (off + 11 > data.size()) {  // minimum 11 bytes (short format: marker + 3 + 2+2+2 + 1)
                 errorMsg = "truncated function attribute record";
                 return false;
             }
@@ -226,10 +228,23 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
             exp.funcAttr.flags = data[off++];
             exp.funcAttr.regClobbers = data[off++];
             exp.funcAttr.flagClobbers = data[off++];
-            exp.funcAttr.zpUses = readU32(&data[off]); off += 4;
-            exp.funcAttr.zpClobbers = readU32(&data[off]); off += 4;
-            exp.funcAttr.zpRelease = readU32(&data[off]); off += 4;
-            // paramSize byte (always present in current format)
+
+            if (exp.funcAttr.flags & FUNC_FLAG_ZP_SHORT) {
+                // Short format: 2-byte ZP fields
+                exp.funcAttr.zpUses = readU16(&data[off]); off += 2;
+                exp.funcAttr.zpClobbers = readU16(&data[off]); off += 2;
+                exp.funcAttr.zpRelease = readU16(&data[off]); off += 2;
+            } else {
+                // Long format: 4-byte ZP fields
+                if (off + 12 > data.size()) {  // need 12 more bytes for 3x 4-byte fields
+                    errorMsg = "truncated function attribute record (long format)";
+                    return false;
+                }
+                exp.funcAttr.zpUses = readU32(&data[off]); off += 4;
+                exp.funcAttr.zpClobbers = readU32(&data[off]); off += 4;
+                exp.funcAttr.zpRelease = readU32(&data[off]); off += 4;
+            }
+            // paramSize byte (always present)
             if (off < data.size()) {
                 exp.funcAttr.paramSize = data[off++];
             }

@@ -113,6 +113,7 @@ constexpr uint8_t OPT_LINEINFO        = 0x11;  // debug line info table
 constexpr uint8_t FUNC_FLAG_LEAF      = 0x01;  // no calls to other functions
 constexpr uint8_t FUNC_FLAG_REENTRANT = 0x02;  // re-entrant safe (no global state, stack-only locals)
 constexpr uint8_t FUNC_FLAG_ZP_CONV   = 0x04;  // ZP calling convention (0 = stack-based)
+constexpr uint8_t FUNC_FLAG_ZP_SHORT  = 0x08;  // ZP metadata uses 2-byte bitmasks (not 4-byte)
 
 // --- Patch sizes per relocation type ---
 constexpr int o45RelocPatchSize(uint8_t rtype) {

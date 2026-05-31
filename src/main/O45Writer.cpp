@@ -262,14 +262,26 @@ void O45Writer::emitExports(std::vector<uint8_t>& out) const {
         // Emit function attribute record if present
         auto it = funcAttrs_.find(exp.name);
         if (it != funcAttrs_.end()) {
-            const auto& fa = it->second;
+            auto fa = it->second;
             out.push_back(O45_FUNCATTR_MARKER);  // $FA marker
+
+            // Check if ZP metadata fits in 2-byte format
+            bool zpShort = (fa.zpUses <= 0xFFFF) && (fa.zpClobbers <= 0xFFFF) && (fa.zpRelease <= 0xFFFF);
+            if (zpShort) fa.flags |= FUNC_FLAG_ZP_SHORT;
+
             out.push_back(fa.flags);
             out.push_back(fa.regClobbers);
             out.push_back(fa.flagClobbers);
-            writeU32(out, fa.zpUses);
-            writeU32(out, fa.zpClobbers);
-            writeU32(out, fa.zpRelease);
+
+            if (zpShort) {
+                writeU16(out, (uint16_t)fa.zpUses);
+                writeU16(out, (uint16_t)fa.zpClobbers);
+                writeU16(out, (uint16_t)fa.zpRelease);
+            } else {
+                writeU32(out, fa.zpUses);
+                writeU32(out, fa.zpClobbers);
+                writeU32(out, fa.zpRelease);
+            }
             out.push_back(fa.paramSize);
         }
     }
