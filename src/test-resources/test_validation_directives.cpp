@@ -44,7 +44,7 @@ static std::vector<uint8_t> readBinaryFile(const std::string& filename) {
 // Test helper: assemble code using ca45 and return stderr or stdout
 static std::string assembleCode(const std::string& asmCode) {
     writeAssemblyFile(asmCode);
-    system("../.../../bin/ca45 build/test_validation_directives_temp.s -o build/test_validation_directives_temp.bin 2>build/test_validation_directives_temp.err 1>build/test_validation_directives_temp.out");
+    system("./bin/ca45 build/test_validation_directives_temp.s -o build/test_validation_directives_temp.bin 2>build/test_validation_directives_temp.err 1>build/test_validation_directives_temp.out");
 
     // Try stderr first, fall back to stdout if empty
     std::string error_output = readFile("build/test_validation_directives_temp.err");
@@ -63,7 +63,7 @@ static bool assemblyFailedWithError(const std::string& asmCode, const std::strin
 // Test helper: check if assembly succeeded
 static bool assemblySucceeded(const std::string& asmCode) {
     writeAssemblyFile(asmCode);
-    int ret = system("../../bin/ca45 build/test_validation_directives_temp.s -o build/test_validation_directives_temp.bin 2>&1 >/dev/null");
+    int ret = system("./bin/ca45 build/test_validation_directives_temp.s -o build/test_validation_directives_temp.bin 2>&1 >/dev/null");
     return ret == 0;
 }
 
@@ -335,7 +335,7 @@ int main() {
     cf.close();
 
     // Compile with -S to get assembly
-    int ret = system("../../bin/cc45 -S build/test_encoding_screencode.c -o build/test_encoding_screencode.s 2>/dev/null");
+    int ret = system("./bin/cc45 -S build/test_encoding_screencode.c -o build/test_encoding_screencode.s 2>/dev/null");
     CHECK(ret == 0, "pragma encoding(screencode) C code compiles");
 
     // Check that assembly contains .screencode directive
@@ -359,7 +359,7 @@ int main() {
     cf << cCode;
     cf.close();
 
-    int ret = system("../../bin/cc45 -S build/test_encoding_ascii.c -o build/test_encoding_ascii.s 2>/dev/null");
+    int ret = system("./bin/cc45 -S build/test_encoding_ascii.c -o build/test_encoding_ascii.s 2>/dev/null");
     CHECK(ret == 0, "pragma encoding(ascii) C code compiles");
 
     std::ifstream asmFile("build/test_encoding_ascii.s");
@@ -382,7 +382,7 @@ int main() {
     cf << cCode;
     cf.close();
 
-    int ret = system("../../bin/cc45 -S build/test_encoding_petscii.c -o build/test_encoding_petscii.s 2>/dev/null");
+    int ret = system("./bin/cc45 -S build/test_encoding_petscii.c -o build/test_encoding_petscii.s 2>/dev/null");
     CHECK(ret == 0, "pragma encoding(petscii) C code compiles");
 
     std::ifstream asmFile("build/test_encoding_petscii.s");
