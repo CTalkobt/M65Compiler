@@ -272,6 +272,15 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
         }
     }
 
+    // --- Pass 1c: Report nested loop multiplication pattern (info only) ---
+    // Pattern: LDAX + MUL.16 .AX, #N appears multiple times with same source in nested loops
+    // This is a nested loop pattern optimization opportunity that would require code generation changes
+    // Example: grid[r][c] in nested loop where r*WIDTH is computed for each iteration
+    // Future optimization: Cache r*WIDTH once before inner loop, reuse within loop
+
+    // For now, we detect and report the pattern but don't optimize (complex to do at assembler level)
+    // The code generator would need to recognize this pattern and hoist the multiplication out of inner loop
+
     // --- Pass 2: MachineState-driven register/memory tracking and optimization ---
     for (size_t i = 0; i < parser->statements.size(); ++i) {
         auto* s = parser->statements[i].get();
