@@ -427,6 +427,68 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
                 }
             }
 
+            // --- Store-load pair elimination ---
+            // Pattern: STA $zp; ...; LDA $zp when the value is only used for testing
+            // If LDA $zp is immediately followed by a branch (BNE, BEQ, etc.) and
+            // the stored ZP location is not modified between store and load, eliminate both.
+            if (m == "STA" && isZP && hasNumVal) {
+                uint8_t zpAddr = (uint8_t)(numVal & 0xFF);
+                size_t j = i + 1;
+                bool foundLoad = false;
+                bool zpModified = false;
+
+                // Scan ahead for LDA $zp within next 3-5 instructions
+                for (size_t k = 0; k < 5 && j < parser->statements.size(); ++k, ++j) {
+                    auto* next = parser->statements[j].get();
+                    if (next->deleted) { ++k; continue; }
+                    if (next->type != AssemblerParser::Statement::INSTRUCTION) break;
+
+                    std::string nm = next->instr.mnemonic;
+                    std::transform(nm.begin(), nm.end(), nm.begin(), ::toupper);
+
+                    // Check if this instruction modifies our ZP address
+                    if ((nm == "STA" || nm == "STX" || nm == "STY" || nm == "STZ") &&
+                        next->instr.mode == AddressingMode::BASE_PAGE) {
+                        int64_t modAddr = 0;
+                        if (parseNum(next->instr.operand, modAddr) && (uint8_t)(modAddr & 0xFF) == zpAddr) {
+                            zpModified = true;
+                            break;
+                        }
+                    }
+
+                    // Check if this is LDA $zp (same address)
+                    if (nm == "LDA" && next->instr.mode == AddressingMode::BASE_PAGE) {
+                        int64_t loadAddr = 0;
+                        if (parseNum(next->instr.operand, loadAddr) && (uint8_t)(loadAddr & 0xFF) == zpAddr) {
+                            foundLoad = true;
+                            // Check if next-next instruction is a test branch
+                            size_t m_idx = j + 1;
+                            while (m_idx < parser->statements.size() && parser->statements[m_idx]->deleted) ++m_idx;
+                            if (m_idx < parser->statements.size()) {
+                                auto* afterLoad = parser->statements[m_idx].get();
+                                if (afterLoad->type == AssemblerParser::Statement::INSTRUCTION) {
+                                    std::string afterNm = afterLoad->instr.mnemonic;
+                                    std::transform(afterNm.begin(), afterNm.end(), afterNm.begin(), ::toupper);
+                                    // Only optimize if followed by a branch that tests the loaded value
+                                    if (afterNm == "BNE" || afterNm == "BEQ" || afterNm == "BMI" || afterNm == "BPL" ||
+                                        afterNm == "BCS" || afterNm == "BCC" || afterNm == "BVS" || afterNm == "BVC") {
+                                        // Found the pattern: STA $zp; LDA $zp; Bxx
+                                        // Eliminate the store and load (keep the branch)
+                                        s->deleted = true; s->size = 0;
+                                        next->deleted = true; next->size = 0;
+                                        report("store-load-pair", s,
+                                               "STA/LDA $" + std::string(1, '0' + (zpAddr >> 4)) + std::string(1, "0123456789ABCDEF"[zpAddr & 0xF]) +
+                                               " pair eliminated before " + afterNm + " (saved 4 bytes)");
+                                        changed = true;
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+
             // --- MachineState updates ---
             if (m == "LDA" || m == "LDX" || m == "LDY" || m == "LDZ") {
                 RegId r = loadRegId(m);
