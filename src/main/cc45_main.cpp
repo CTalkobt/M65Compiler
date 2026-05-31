@@ -597,6 +597,13 @@ int main(int argc, char** argv) {
 
     Lexer lexer(source);
     std::vector<Token> tokens = lexer.tokenize();
+    auto lexerLineMap = lexer.getLineToFileMap();
+
+    // Convert Lexer's FileContext map to CodeGenerator's expected format
+    std::map<int, std::pair<std::string, int>> lineToFileMap;
+    for (const auto& entry : lexerLineMap) {
+        lineToFileMap[entry.first] = {entry.second.filename, entry.second.lineOffset};
+    }
 
     if (verboseLevel >= 2) {
         for (const auto& token : tokens) {
@@ -653,6 +660,7 @@ int main(int argc, char** argv) {
             validator.relocMode = assemble;
             validator.zpCallMode = zpCallMode;
             validator.setSourceInfo(input_file, sourceLines);
+            validator.setLineToFileMap(lineToFileMap);
             try {
                 validator.generate(*ast);
             } catch (const std::exception& e) {

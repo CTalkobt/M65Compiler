@@ -41,8 +41,28 @@ void CodeGenerator::embedSource(ASTNode& node) {
     if (node.line == lastEmbeddedLine) return;
     lastEmbeddedLine = node.line;
     std::string locFile = node.sourceFile.empty() ? sourceFilename : node.sourceFile;
-    out << "; [" << locFile << ":" << node.line << "] " << sourceLines[node.line - 1] << std::endl;
-    out << ".loc \"" << locFile << "\", " << node.line << std::endl;
+
+    // If we have a line mapping, use it to find the context for this line
+    int displayLine = node.line;
+    if (!lineToFileMap.empty()) {
+        // Find the context that applies to this line
+        // lineToFileMap stores the starting absolute line → (filename, lineOffset)
+        // We need to find the most recent context that is <= our line
+        for (auto it = lineToFileMap.rbegin(); it != lineToFileMap.rend(); ++it) {
+            if (it->first <= node.line) {
+                const auto& context = it->second;
+                locFile = context.first;
+                // Convert absolute line to file-relative line
+                displayLine = context.second + (node.line - it->first);
+                break;
+            }
+        }
+    }
+
+    if (displayLine > 0 && displayLine <= (int)sourceLines.size()) {
+        out << "; [" << locFile << ":" << displayLine << "] " << sourceLines[displayLine - 1] << std::endl;
+    }
+    out << ".loc \"" << locFile << "\", " << displayLine << std::endl;
 }
 
 void CodeGenerator::emitNarrowingWarning(ASTNode& node, const std::string& fromType, int fromPtr, const std::string& toType, int toPtr) {

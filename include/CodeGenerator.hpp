@@ -1,6 +1,7 @@
 #pragma once
 #include "AST.hpp"
 #include "M65Emitter.hpp"
+#include <iostream>
 #include <ostream>
 #include <vector>
 #include <string>
@@ -16,6 +17,11 @@ public:
     CodeGenerator(std::ostream& out);
     void generate(TranslationUnit& unit);
     void setSourceInfo(const std::string& filename, const std::vector<std::string>& lines);
+
+    // Set the line-to-file mapping from Lexer for proper source file attribution
+    void setLineToFileMap(const std::map<int, std::pair<std::string, int>>& map) {
+        lineToFileMap = map;
+    }
 
     struct VarInfo {
         std::string type;
@@ -194,6 +200,7 @@ public:
     std::vector<std::string> currentVars;
     std::string sourceFilename;
     std::vector<std::string> sourceLines;
+    std::map<int, std::pair<std::string, int>> lineToFileMap;  // Maps abs line to (filename, line_offset)
     int lastEmbeddedLine = -1;
     bool resultNeeded = true;
 

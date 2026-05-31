@@ -4,7 +4,14 @@
 #include <cstdint>
 #include <iostream>
 
-Lexer::Lexer(const std::string& source) : source(source), pos(0), line(1), column(1), sourceFile("") {}
+Lexer::Lexer(const std::string& source) : source(source), pos(0), line(1), column(1), absLine(1), sourceFile("") {
+    // Initialize with the main file context
+    FileContext mainContext;
+    mainContext.filename = "";  // Will be set by CodeGenerator
+    mainContext.lineOffset = 1;
+    mainContext.startAbsLine = 1;
+    fileContextStack.push(mainContext);
+}
 
 std::vector<Token> Lexer::tokenize() {
     std::vector<Token> tokens;
@@ -44,7 +51,8 @@ char Lexer::get() {
 void Lexer::skipWhitespace() {
     while (true) {
         if (std::isspace(peek())) {
-            get();
+            char c = get();
+            if (c == '\n') absLine++;
         } else if (peek() == '/' && pos + 1 < source.length() && source[pos + 1] == '/') {
             // Single-line comment
             while (peek() != '\n' && peek() != '\0') {
@@ -55,7 +63,8 @@ void Lexer::skipWhitespace() {
             get(); // skip /
             get(); // skip *
             while (peek() != '\0' && !(peek() == '*' && pos + 1 < source.length() && source[pos + 1] == '/')) {
-                get();
+                char c = get();
+                if (c == '\n') absLine++;
             }
             if (peek() == '*') {
                 get(); // skip *
@@ -71,20 +80,31 @@ void Lexer::skipWhitespace() {
                 newLine = newLine * 10 + (source[pos] - '0');
                 pos++; column++;
             }
-            if (newLine > 0) line = newLine - 1; // -1: the \n at end of directive will increment
             // Parse filename (optional)
+            std::string newFile = sourceFile;
             while (pos < source.length() && source[pos] == ' ') { pos++; column++; }
             if (pos < source.length() && source[pos] == '"') {
                 pos++; column++; // skip opening quote
-                sourceFile.clear();
+                newFile.clear();
                 while (pos < source.length() && source[pos] != '"') {
-                    sourceFile += source[pos++];
+                    newFile += source[pos++];
                     column++;
                 }
                 if (pos < source.length()) { pos++; column++; } // skip closing quote
             }
             // Skip rest of directive
             while (pos < source.length() && source[pos] != '\n') { pos++; column++; }
+
+            // Record this file context mapping
+            if (newLine > 0) {
+                FileContext ctx;
+                ctx.filename = newFile;
+                ctx.lineOffset = newLine;
+                ctx.startAbsLine = absLine;
+                lineToFileMap[absLine] = ctx;
+
+                handleLineDirective(newLine, newFile);
+            }
         } else {
             break;
         }
@@ -363,4 +383,24 @@ Token Lexer::lexChar(bool ascii) {
     }
     // ASCII mode: preserve raw byte value
     return {TokenType::INTEGER_LITERAL, std::to_string((int)(uint8_t)c), startLine, startCol, sourceFile};
+}
+
+void Lexer::handleLineDirective(int newLine, const std::string& newFile) {
+    // When we encounter a #line directive, we need to:
+    // 1. Record the current context (for returning from includes)
+    // 2. Update to the new file/line context
+
+    // Check if we're returning to a previous file (newLine == 2 or similar after include)
+    // or starting a new include (newLine == 1 with a different file)
+
+    FileContext currentContext;
+    currentContext.filename = newFile;
+    currentContext.lineOffset = newLine;
+    currentContext.startAbsLine = absLine;
+
+    // Record this mapping for all lines in this context
+    // When we encounter the next #line directive, we'll know this context is done
+
+    sourceFile = newFile;
+    line = newLine - 1;  // -1 because the next newline will increment it
 }
