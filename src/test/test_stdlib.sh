@@ -11,7 +11,10 @@ SRCDIR="src/test-resources/stdlib"
 mkdir -p build/test/stdlib
 
 run_stdlib_test() {
-    local name="$1" src="$SRCDIR/${name}.c" o45="build/test/stdlib/${name}.o45" prg="build/test/stdlib/${name}.prg"
+    local name="$1"
+    local src="$SRCDIR/${name}.c"
+    local o45="build/test/stdlib/${name}.o45"
+    local prg="build/test/stdlib/${name}.prg"
     [ ! -f "$src" ] && print_skip "$name (source not found)" && return
     $CC -c "$src" -o "$o45" 2>/dev/null || { print_fail "$name (compile error)"; return; }
     $LN -basic -o "$prg" "$o45" "$LIB" 2>/dev/null || { print_fail "$name (link error)"; return; }
