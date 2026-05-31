@@ -624,6 +624,7 @@ private:
     std::unique_ptr<T> copyPos(std::unique_ptr<T> newNode, const U& oldNode) {
         newNode->line = oldNode.line;
         newNode->column = oldNode.column;
+        newNode->sourceFile = oldNode.sourceFile;
         return newNode;
     }
 };
