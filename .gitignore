@@ -11,6 +11,8 @@ bin/
 man/
 *.swp
 .gemini/*
+*.o45
+*.o45.s
 
 .mcp.json
 *.debug.json
