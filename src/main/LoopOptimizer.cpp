@@ -1,63 +1,17 @@
 #include "LoopOptimizer.hpp"
+#include "TraversingVisitor.hpp"
 #include <algorithm>
 #include <memory>
 
 namespace {
     // Helper: collect all variable names referenced in an expression
-    class VarCollector : public ASTVisitor {
+    class VarCollector : public TraversingVisitor {
     public:
         std::set<std::string> vars;
 
-        void visit(VariableReference& n) override { vars.insert(n.name); }
-        void visit(ArrayAccess& n) override { n.arrayExpr->accept(*this); n.indexExpr->accept(*this); }
-        void visit(MemberAccess& n) override { n.structExpr->accept(*this); }
-        void visit(BinaryOperation& n) override { n.left->accept(*this); n.right->accept(*this); }
-        void visit(UnaryOperation& n) override { n.operand->accept(*this); }
-        void visit(ConditionalExpression& n) override {
-            n.condition->accept(*this); n.thenExpr->accept(*this); n.elseExpr->accept(*this);
+        void visit(VariableReference& n) override {
+            vars.insert(n.name);
         }
-        void visit(FunctionCall& n) override { for (auto& arg : n.arguments) arg->accept(*this); }
-        void visit(CastExpression& n) override { n.expression->accept(*this); }
-        void visit(SizeofExpression& n) override { if (n.expression) n.expression->accept(*this); }
-        void visit(GenericSelection& n) override {
-            n.control->accept(*this);
-            for (auto& a : n.associations) a.result->accept(*this);
-        }
-        void visit(InitializerList& n) override { for (auto& e : n.elements) e->accept(*this); }
-        void visit(CompoundLiteral& n) override { for (auto& e : n.initializer->elements) e->accept(*this); }
-        void visit(BuiltinVaStart& n) override { n.ap->accept(*this); }
-        void visit(BuiltinVaArg& n) override { n.ap->accept(*this); }
-
-        // No-ops for non-expressions
-        void visit(IntegerLiteral&) override {}
-        void visit(StringLiteral&) override {}
-        void visit(AlignofExpression&) override {}
-        void visit(CpuRegisterAccess&) override {}
-        void visit(CpuFlagAccess&) override {}
-        void visit(IfStatement&) override {}
-        void visit(ExpressionStatement&) override {}
-        void visit(ReturnStatement&) override {}
-        void visit(BreakStatement&) override {}
-        void visit(ContinueStatement&) override {}
-        void visit(SwitchStatement&) override {}
-        void visit(CaseStatement&) override {}
-        void visit(DefaultStatement&) override {}
-        void visit(LabelledStatement&) override {}
-        void visit(GotoStatement&) override {}
-        void visit(SwitchContinueStatement&) override {}
-        void visit(RepeatStatement&) override {}
-        void visit(VariableDeclaration&) override {}
-        void visit(FunctionDeclaration&) override {}
-        void visit(AsmStatement&) override {}
-        void visit(StaticAssert&) override {}
-        void visit(StructDefinition&) override {}
-        void visit(EnumDefinition&) override {}
-        void visit(CompoundStatement&) override {}
-        void visit(WhileStatement&) override {}
-        void visit(DoWhileStatement&) override {}
-        void visit(TranslationUnit&) override {}
-        void visit(Assignment&) override {}
-        void visit(ForStatement&) override {}
     };
 
     // Check if two expressions are structurally equal

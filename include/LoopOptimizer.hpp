@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AST.hpp"
+#include "TraversingVisitor.hpp"
 #include <set>
 #include <string>
 #include <memory>
@@ -10,7 +11,7 @@
 // Example: for(r=0; r<H; r++) { for(c=0; c<W; c++) { grid[r*40+c] } }
 // Transforms to: for(r=0; r<H; r++) { int tmp=r*40; for(c=0; c<W; c++) { grid[tmp+c] } }
 
-class LoopOptimizer : public ASTVisitor {
+class LoopOptimizer : public TraversingVisitor {
 public:
     void optimizeTranslationUnit(TranslationUnit& unit);
 
@@ -63,60 +64,13 @@ public:
 
 private:
     // Collect all variables referenced by an expression
-    class VariableCollector : public ASTVisitor {
+    class VariableCollector : public TraversingVisitor {
     public:
         std::set<std::string> variables;
 
-        void visit(VariableReference& node) override { variables.insert(node.name); }
-        void visit(ArrayAccess& node) override { node.arrayExpr->accept(*this); node.indexExpr->accept(*this); }
-        void visit(MemberAccess& node) override { node.structExpr->accept(*this); }
-        void visit(BinaryOperation& node) override { node.left->accept(*this); node.right->accept(*this); }
-        void visit(UnaryOperation& node) override { node.operand->accept(*this); }
-        void visit(ConditionalExpression& node) override {
-            node.condition->accept(*this);
-            node.thenExpr->accept(*this);
-            node.elseExpr->accept(*this);
+        void visit(VariableReference& node) override {
+            variables.insert(node.name);
         }
-        void visit(FunctionCall& node) override {
-            for (auto& arg : node.arguments) arg->accept(*this);
-        }
-        void visit(CastExpression& node) override { node.expression->accept(*this); }
-        void visit(Assignment& node) override { node.target->accept(*this); node.expression->accept(*this); }
-        void visit(InitializerList& node) override { for (auto& e : node.elements) e->accept(*this); }
-        void visit(CompoundLiteral& node) override { for (auto& e : node.initializer->elements) e->accept(*this); }
-        void visit(GenericSelection& node) override {
-            node.control->accept(*this);
-            for (auto& a : node.associations) a.result->accept(*this);
-        }
-        void visit(BuiltinVaStart& node) override { node.ap->accept(*this); }
-        void visit(BuiltinVaArg& node) override { node.ap->accept(*this); }
-        void visit(SizeofExpression& node) override { if (node.expression) node.expression->accept(*this); }
-
-        // All other visits are no-ops
-        void visit(IntegerLiteral&) override {}
-        void visit(StringLiteral&) override {}
-        void visit(AlignofExpression&) override {}
-        void visit(CpuRegisterAccess&) override {}
-        void visit(CpuFlagAccess&) override {}
-        void visit(IfStatement&) override {}
-        void visit(ExpressionStatement&) override {}
-        void visit(ReturnStatement&) override {}
-        void visit(BreakStatement&) override {}
-        void visit(ContinueStatement&) override {}
-        void visit(SwitchStatement&) override {}
-        void visit(CaseStatement&) override {}
-        void visit(DefaultStatement&) override {}
-        void visit(LabelledStatement&) override {}
-        void visit(GotoStatement&) override {}
-        void visit(SwitchContinueStatement&) override {}
-        void visit(RepeatStatement&) override {}
-        void visit(VariableDeclaration&) override {}
-        void visit(FunctionDeclaration&) override {}
-        void visit(AsmStatement&) override {}
-        void visit(StaticAssert&) override {}
-        void visit(StructDefinition&) override {}
-        void visit(EnumDefinition&) override {}
-        void visit(CompoundStatement&) override {}
         void visit(WhileStatement&) override {}
         void visit(DoWhileStatement&) override {}
         void visit(TranslationUnit&) override {}
