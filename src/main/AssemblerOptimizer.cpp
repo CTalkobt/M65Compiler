@@ -951,7 +951,7 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
     }
 
     // --- Pass 4: In-method sequence jumping (extract duplicate sequences) ---
-    // DISABLED due to size accounting bug causing null bytes in code (issue #XXX)
+    // EXPERIMENTAL - DISABLED by default due to size accounting bug causing null bytes in code (issue #89)
     // Find duplicate instruction sequences and create shared routines.
     // Conservative: only extract 8+ byte sequences appearing 2+ times with 4+ byte savings.
 
@@ -965,7 +965,7 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
     std::set<size_t> processed;  // Already-processed instruction indices
     std::map<std::string, std::vector<SeqMatch>> seqsBySignature;
 
-    if (false) for (size_t i = 0; i < parser->statements.size(); ++i) {
+    if (parser->enableExperimental) for (size_t i = 0; i < parser->statements.size(); ++i) {
         auto* stmt = parser->statements[i].get();
         if (stmt->deleted || processed.count(i) || !stmt->label.empty()) continue;
         if (stmt->type != AssemblerParser::Statement::INSTRUCTION) continue;

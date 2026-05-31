@@ -88,6 +88,7 @@ int main(int argc, char** argv) {
     bool outputSet = false;
     bool relocMode = false;
     bool verboseOptimizer = false;
+    bool enableExperimental = false;
     int verboseLevel = 0;
     int listingLevel = 1;
     std::map<std::string, uint32_t> predefinedSymbols;
@@ -123,6 +124,7 @@ int main(int argc, char** argv) {
             std::cout << "  -Dname=val     Define a symbol (e.g., -Dcc45.zeroPageStart=$10)" << std::endl;
             std::cout << "  -I<path>       Add include search path" << std::endl;
             std::cout << "  -Roptimizer    Report optimizer actions to stderr" << std::endl;
+            std::cout << "  --experimental Enable experimental optimizations (HIGHLY UNSTABLE, likely to break code)" << std::endl;
             std::cout << "  -?             Display this help message" << std::endl;
             return 0;
         } else if (arg == "-c") {
@@ -136,6 +138,8 @@ int main(int argc, char** argv) {
             listingLevel = std::stoi(argv[++i]);
         } else if (arg == "-Roptimizer") {
             verboseOptimizer = true;
+        } else if (arg == "--experimental") {
+            enableExperimental = true;
         } else if (arg == "-vv") {
             verboseLevel = 2;
         } else if (arg == "-v") {
@@ -218,6 +222,7 @@ int main(int argc, char** argv) {
 
     AssemblerParser parser(tokens, predefinedSymbols);
     parser.verboseOptimizer = verboseOptimizer;
+    parser.enableExperimental = enableExperimental;
     try {
         parser.pass1();
 
