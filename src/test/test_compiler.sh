@@ -1,9 +1,7 @@
 #!/bin/bash
+# Test script for cc45 compiler - uses shared test utilities
 
-# Simple test script for cc45 compiler
-
-CC="./bin/cc45"
-AS="./bin/ca45"
+source "$(dirname "$0")/test-lib.sh"
 
 TEST_FILES=(
     "src/test-resources/hello.c"
@@ -97,70 +95,33 @@ TEST_FILES=(
     "src/test-resources/test_expr_reentrant.c"
 )
 
-mkdir -p build/test
+print_section "Compiler unit tests"
 
-failed=0
-
+# Test each file
 for f in "${TEST_FILES[@]}"; do
     if [ ! -f "$f" ]; then
-        echo "Skip $f (not found)"
+        print_skip "$(basename "$f") (not found)"
         continue
     fi
-    
-    filename=$(basename "$f")
-    s_file="build/test/${filename%.c}.s"
-    bin_file="build/test/${filename%.c}.bin"
-    
-    echo "Testing $f..."
-    
-    # 1. Compile
-    $CC -v "$f" -o "$s_file"
-    if [ $? -ne 0 ]; then
-        echo "FAIL: Compilation failed for $f"
-        failed=$((failed + 1))
-        continue
-    fi
-    
-    # 2. Assemble
-    $AS "$s_file" -o "$bin_file"
-    if [ $? -ne 0 ]; then
-        echo "FAIL: Assembly failed for $f"
-        failed=$((failed + 1))
-        continue
-    fi
-    
-    echo "SUCCESS: $f"
+
+    test_name=$(basename "$f" .c)
+    test_batch "$test_name" "$f"
 done
 
-# --- Test -I flag with space-separated path ---
-echo "Testing -I flag (space-separated)..."
-$CC -v -I lib/include src/test-resources/test_include_flag.c -o build/test/test_include_flag.s
-if [ $? -ne 0 ]; then
-    echo "FAIL: -I lib/include (space) failed"
-    failed=$((failed + 1))
+# Test -I flag with space-separated path
+print_section "Include path tests"
+
+if compile_and_assemble "src/test-resources/test_include_flag.c" "build/test/test_include_flag" "-I lib/include"; then
+    print_pass "-I flag (space-separated)"
 else
-    $AS build/test/test_include_flag.s -o build/test/test_include_flag.bin
-    if [ $? -ne 0 ]; then
-        echo "FAIL: Assembly failed for test_include_flag.s (-I space)"
-        failed=$((failed + 1))
-    else
-        echo "SUCCESS: -I flag (space-separated)"
-    fi
+    print_fail "-I flag (space-separated)"
 fi
 
-echo "Testing -I flag (no space)..."
-$CC -v -Ilib/include src/test-resources/test_include_flag.c -o build/test/test_include_flag_nospace.s
-if [ $? -ne 0 ]; then
-    echo "FAIL: -Ilib/include (no space) failed"
-    failed=$((failed + 1))
+if compile_and_assemble "src/test-resources/test_include_flag.c" "build/test/test_include_flag_nospace" "-Ilib/include"; then
+    print_pass "-I flag (no space)"
 else
-    echo "SUCCESS: -I flag (no space)"
+    print_fail "-I flag (no space)"
 fi
 
-if [ $failed -eq 0 ]; then
-    echo "All tests passed!"
-    exit 0
-else
-    echo "$failed tests failed."
-    exit 1
-fi
+test_summary
+exit $?
