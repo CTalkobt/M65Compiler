@@ -23,13 +23,13 @@ AR="${AR:-./bin/ar45}"
 print_pass() {
     local msg="$1"
     echo -e "${GREEN}✓${NC} ${msg}"
-    ((TESTS_PASSED++))
+    ((++TESTS_PASSED))
 }
 
 print_fail() {
     local msg="$1"
     echo -e "${RED}✗${NC} ${msg}"
-    ((TESTS_FAILED++))
+    ((++TESTS_FAILED))
 }
 
 print_skip() {
@@ -50,7 +50,7 @@ compile_c() {
     local output="$2"
     local opts="${3:-}"
 
-    $CC $opts -v "$source" -o "$output" 2>/dev/null
+    $CC $opts "$source" -o "$output" 2>&1
 }
 
 assemble_s() {

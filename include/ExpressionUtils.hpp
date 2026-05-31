@@ -85,4 +85,49 @@ inline uint32_t evaluateTernary(uint32_t condition, uint32_t trueVal, uint32_t f
     return (condition != 0) ? trueVal : falseVal;
 }
 
+/**
+ * Evaluate a binary operation on two 32-bit signed integers.
+ * Used by ConstantFolder for C integer constant expression evaluation.
+ * Preserves signed semantics: signed comparison, signed division.
+ * Throws on division/modulo by zero (caller handles passthrough).
+ */
+inline int32_t evaluateSignedBinaryOp(const std::string& op, int32_t left, int32_t right) {
+    if (op == "+")  return left + right;
+    if (op == "-")  return left - right;
+    if (op == "*")  return left * right;
+    if (op == "/") {
+        if (right == 0) throw std::runtime_error("Division by zero in constant expression");
+        return left / right;
+    }
+    if (op == "%") {
+        if (right == 0) throw std::runtime_error("Modulo by zero in constant expression");
+        return left % right;
+    }
+    if (op == "&")  return left & right;
+    if (op == "|")  return left | right;
+    if (op == "^")  return left ^ right;
+    if (op == "<<") return left << (right & 31);
+    if (op == ">>") return left >> (right & 31);
+    if (op == "==") return (left == right) ? 1 : 0;
+    if (op == "!=") return (left != right) ? 1 : 0;
+    if (op == "<")  return (left <  right) ? 1 : 0;
+    if (op == "<=") return (left <= right) ? 1 : 0;
+    if (op == ">")  return (left >  right) ? 1 : 0;
+    if (op == ">=") return (left >= right) ? 1 : 0;
+    if (op == "&&") return ((left != 0) && (right != 0)) ? 1 : 0;
+    if (op == "||") return ((left != 0) || (right != 0)) ? 1 : 0;
+    throw std::runtime_error("Unknown binary operator: " + op);
+}
+
+/**
+ * Evaluate a unary operation on a 32-bit signed integer.
+ * Preserves signed semantics for proper C constant folding.
+ */
+inline int32_t evaluateSignedUnaryOp(const std::string& op, int32_t operand) {
+    if (op == "~") return ~operand;
+    if (op == "!") return (operand == 0) ? 1 : 0;
+    if (op == "-") return -operand;
+    throw std::runtime_error("Unknown unary operator: " + op);
+}
+
 } // namespace ExpressionUtils

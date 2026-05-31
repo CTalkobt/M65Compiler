@@ -229,7 +229,7 @@ _color:
     lda $2E
     ldx $2F
 @__return:
-    .func_flags stack_call, leaf
+    .func_flags stack_call, leaf, reentrant
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z, V
     endproc
@@ -610,7 +610,7 @@ _color:
     bra @for_cond48
 @for_end51:
 @__return:
-    .func_flags stack_call, leaf
+    .func_flags stack_call, leaf, reentrant
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z, V
     endproc
@@ -640,7 +640,7 @@ _color:
     bra @for_cond59
 @for_end62:
 @__return:
-    .func_flags stack_call, leaf
+    .func_flags stack_call, leaf, reentrant
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z, V
     endproc
@@ -844,7 +844,7 @@ _color:
     ldy #0
     sta ($28),y
 @__return:
-    .func_flags stack_call, leaf
+    .func_flags stack_call, leaf, reentrant
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z, V
     endproc
@@ -1055,7 +1055,7 @@ _color:
     ldy #0
     sta ($28),y
 @__return:
-    .func_flags stack_call, leaf
+    .func_flags stack_call, leaf, reentrant
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z, V
     endproc

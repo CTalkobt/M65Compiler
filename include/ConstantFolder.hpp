@@ -1,6 +1,7 @@
 #pragma once
 #include "AST.hpp"
 #include "TraversingVisitor.hpp"
+#include "ExpressionUtils.hpp"
 #include <memory>
 #include <map>
 #include <set>
@@ -169,45 +170,24 @@ public:
 
         if (leftLit && rightLit) {
             int result = 0;
-            if (node.op == "+") result = leftLit->value + rightLit->value;
-            else if (node.op == "-") result = leftLit->value - rightLit->value;
-            else if (node.op == "*") result = leftLit->value * rightLit->value;
-            else if (node.op == "/") {
-                if (rightLit->value != 0) {
-                    bool isSignedResult = leftLit->castIsSigned && rightLit->castIsSigned;
-                    if (isSignedResult) result = leftLit->value / rightLit->value;
-                    else result = (int)((uint32_t)leftLit->value / (uint32_t)rightLit->value);
-                } else {
+            if (node.op == "/" || node.op == "%") {
+                // Handle div/mod: by-zero passthrough, signed vs unsigned branch
+                if (rightLit->value == 0) {
                     lastExpr = copyPos(std::make_unique<BinaryOperation>(node.op, std::move(left), std::move(right)), node);
                     return;
                 }
-            }
-            else if (node.op == "%") {
-                if (rightLit->value != 0) {
-                    bool isSignedResult = leftLit->castIsSigned && rightLit->castIsSigned;
-                    if (isSignedResult) result = leftLit->value % rightLit->value;
-                    else result = (int)((uint32_t)leftLit->value % (uint32_t)rightLit->value);
-                } else {
+                bool isSignedResult = leftLit->castIsSigned && rightLit->castIsSigned;
+                if (isSignedResult)
+                    result = ExpressionUtils::evaluateSignedBinaryOp(node.op, leftLit->value, rightLit->value);
+                else
+                    result = (int)ExpressionUtils::evaluateBinaryOp(node.op, (uint32_t)leftLit->value, (uint32_t)rightLit->value);
+            } else {
+                try {
+                    result = ExpressionUtils::evaluateSignedBinaryOp(node.op, leftLit->value, rightLit->value);
+                } catch (const std::runtime_error&) {
                     lastExpr = copyPos(std::make_unique<BinaryOperation>(node.op, std::move(left), std::move(right)), node);
                     return;
                 }
-            }
-            else if (node.op == "&") result = leftLit->value & rightLit->value;
-            else if (node.op == "|") result = leftLit->value | rightLit->value;
-            else if (node.op == "^") result = leftLit->value ^ rightLit->value;
-            else if (node.op == "<<") result = leftLit->value << rightLit->value;
-            else if (node.op == ">>") result = leftLit->value >> rightLit->value;
-            else if (node.op == "==") result = leftLit->value == rightLit->value;
-            else if (node.op == "!=") result = leftLit->value != rightLit->value;
-            else if (node.op == "<") result = leftLit->value < rightLit->value;
-            else if (node.op == ">") result = leftLit->value > rightLit->value;
-            else if (node.op == "<=") result = leftLit->value <= rightLit->value;
-            else if (node.op == ">=") result = leftLit->value >= rightLit->value;
-            else if (node.op == "&&") result = leftLit->value && rightLit->value;
-            else if (node.op == "||") result = leftLit->value || rightLit->value;
-            else {
-                lastExpr = copyPos(std::make_unique<BinaryOperation>(node.op, std::move(left), std::move(right)), node);
-                return;
             }
 
             auto lit = std::make_unique<IntegerLiteral>(result);
@@ -231,7 +211,7 @@ public:
                 lit->castType = rightLit->castType;
                 lit->castIsSigned = rightLit->castIsSigned;
             }
-            
+
             lastExpr = copyPos(std::move(lit), node);
             return;
         } else {
@@ -270,10 +250,9 @@ public:
 
         if (lit) {
             int result = 0;
-            if (node.op == "-") result = -lit->value;
-            else if (node.op == "!") result = !lit->value;
-            else if (node.op == "~") result = ~lit->value;
-            else {
+            try {
+                result = ExpressionUtils::evaluateSignedUnaryOp(node.op, lit->value);
+            } catch (const std::runtime_error&) {
                 lastExpr = copyPos(std::make_unique<UnaryOperation>(node.op, std::move(operand)), node);
                 return;
             }
