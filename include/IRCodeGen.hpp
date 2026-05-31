@@ -134,6 +134,7 @@ private:
         uint8_t regs = 0;   // bit 0=A, 1=X, 2=Y, 3=Z
         uint8_t flags = 0;  // bit 0=C, 1=N, 2=Z, 3=V
         bool isLeaf = true;
+        bool isReentrant = false;  // leaf with no param addr taken
     };
     FuncClobbers computeFuncClobbers(const ir::Function& fn);
 };

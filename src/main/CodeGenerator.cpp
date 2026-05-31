@@ -1287,8 +1287,14 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
             }());
         }
 
+        // Detect reentrant property: leaf functions with no address-taken params
+        bool isReentrant = isLeaf && addrCollector.addressTakenParams.empty();
+
         // Emit function flags
-        emit(isLeaf ? ".func_flags zp_call, leaf" : ".func_flags zp_call");
+        std::string funcFlags = "zp_call";
+        if (isLeaf) funcFlags += ", leaf";
+        if (isReentrant) funcFlags += ", reentrant";
+        emit(".func_flags " + funcFlags);
 
         // Emit actual reg/flag clobbers from tracking (always, not just when ZP params present)
         {
@@ -1416,12 +1422,18 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
             }
         }
     }
-    // Detect leaf functions for stack path (ZP path did this at line 1169)
+    // Detect leaf functions and reentrant property for stack path
     {
         CallCollector stackCallChecker;
         node.body->accept(stackCallChecker);
         bool isLeaf = stackCallChecker.calledFunctions.empty();
-        emit(isLeaf ? ".func_flags stack_call, leaf" : ".func_flags stack_call");
+        // For stack-based convention, reentrant means leaf function
+        // (stack params don't need special handling like ZP does)
+        bool isReentrant = isLeaf;
+        std::string funcFlags = "stack_call";
+        if (isLeaf) funcFlags += ", leaf";
+        if (isReentrant) funcFlags += ", reentrant";
+        emit(".func_flags " + funcFlags);
     }
     // Emit reg/flag clobbers from tracking
     {

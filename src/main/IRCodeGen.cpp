@@ -689,6 +689,9 @@ IRCodeGen::FuncClobbers IRCodeGen::computeFuncClobbers(const ir::Function& fn) {
         }
     }
 
+    // Set reentrant flag for leaf functions (safe to call recursively)
+    fc.isReentrant = fc.isLeaf;
+
     return fc;
 }
 
@@ -1054,6 +1057,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     {
         std::string funcFlags = (zpCallMode_ && !fn.isVariadic) ? "zp_call" : "stack_call";
         if (fc.isLeaf) funcFlags += ", leaf";
+        if (fc.isReentrant) funcFlags += ", reentrant";
         emit(".func_flags " + funcFlags);
     }
     {
