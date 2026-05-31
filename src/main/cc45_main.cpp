@@ -11,6 +11,7 @@
 #include "Lexer.hpp"
 #include "Parser.hpp"
 #include "AST.hpp"
+#include "TraversingVisitor.hpp"
 #include "CodeGenerator.hpp"
 #include "ConstantFolder.hpp"
 #include "LoopOptimizer.hpp"
@@ -23,7 +24,7 @@
 #include "IRCodeGen.hpp"
 #include "Version.hpp"
 
-class ASTPrinter : public ASTVisitor {
+class ASTPrinter : public TraversingVisitor {
 public:
     int indent = 0;
     void printIndent() { for (int i = 0; i < indent; i++) std::cout << "  "; }

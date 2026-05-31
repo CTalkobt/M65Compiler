@@ -1,4 +1,5 @@
 #include "IRBuilder.hpp"
+#include "TraversingVisitor.hpp"
 #include <algorithm>
 #include <iomanip>
 #include <iostream>
@@ -2625,71 +2626,18 @@ void IRBuilder::visit(SizeofExpression& node) {
     lastValue_ = dest;
 }
 
-class CaseCollector : public ASTVisitor {
+class CaseCollector : public TraversingVisitor {
 public:
     IRBuilder::SwitchCtx& ctx;
     IRBuilder& builder;
     CaseCollector(IRBuilder::SwitchCtx& c, IRBuilder& b) : ctx(c), builder(b) {}
 
-    void visit(IntegerLiteral&) override {}
-    void visit(StringLiteral&) override {}
-    void visit(VariableReference&) override {}
-    void visit(Assignment& node) override { if (node.expression) node.expression->accept(*this); }
-    void visit(BinaryOperation& node) override { if (node.left) node.left->accept(*this); if (node.right) node.right->accept(*this); }
-    void visit(UnaryOperation& node) override { if (node.operand) node.operand->accept(*this); }
-    void visit(FunctionCall& node) override { for (auto& arg : node.arguments) arg->accept(*this); }
-    void visit(BuiltinVaStart& node) override { if (node.ap) node.ap->accept(*this); }
-    void visit(BuiltinVaArg& node) override { if (node.ap) node.ap->accept(*this); }
-    void visit(CpuRegisterAccess&) override {}
-    void visit(CpuFlagAccess&) override {}
-    void visit(MemberAccess& node) override { if (node.structExpr) node.structExpr->accept(*this); }
-    void visit(ConditionalExpression& node) override {
-        if (node.condition) node.condition->accept(*this);
-        if (node.thenExpr) node.thenExpr->accept(*this);
-        if (node.elseExpr) node.elseExpr->accept(*this);
-    }
-    void visit(GenericSelection& node) override {
-        if (node.control) node.control->accept(*this);
-        for (auto& assoc : node.associations) if (assoc.result) assoc.result->accept(*this);
-    }
-    void visit(InitializerList& node) override { for (auto& elem : node.elements) if (elem) elem->accept(*this); }
-    void visit(ArrayAccess& node) override { if (node.arrayExpr) node.arrayExpr->accept(*this); if (node.indexExpr) node.indexExpr->accept(*this); }
-    void visit(CastExpression& node) override { if (node.expression) node.expression->accept(*this); }
-    void visit(CompoundLiteral& node) override { if (node.initializer) node.initializer->accept(*this); }
-    void visit(AlignofExpression&) override {}
-    void visit(SizeofExpression& node) override { if (!node.isType && node.expression) node.expression->accept(*this); }
-    void visit(VariableDeclaration& node) override { if (node.initializer) node.initializer->accept(*this); }
-    void visit(ReturnStatement& node) override { if (node.expression) node.expression->accept(*this); }
-    void visit(BreakStatement&) override {}
-    void visit(ContinueStatement&) override {}
-    void visit(SwitchContinueStatement& node) override { if (node.target) node.target->accept(*this); }
-    void visit(GotoStatement&) override {}
-    void visit(LabelledStatement& node) override { if (node.statement) node.statement->accept(*this); }
-    void visit(ExpressionStatement& node) override { if (node.expression) node.expression->accept(*this); }
-    void visit(IfStatement& node) override {
-        if (node.condition) node.condition->accept(*this);
-        if (node.thenBranch) node.thenBranch->accept(*this);
-        if (node.elseBranch) node.elseBranch->accept(*this);
-    }
-    void visit(WhileStatement& node) override {
-        if (node.condition) node.condition->accept(*this);
-        if (node.body) node.body->accept(*this);
-    }
-    void visit(DoWhileStatement& node) override {
-        if (node.body) node.body->accept(*this);
-        if (node.condition) node.condition->accept(*this);
-    }
-    void visit(ForStatement& node) override {
-        if (node.initializer) node.initializer->accept(*this);
-        if (node.condition) node.condition->accept(*this);
-        if (node.increment) node.increment->accept(*this);
-        if (node.body) node.body->accept(*this);
-    }
-    void visit(RepeatStatement& node) override { if (node.body) node.body->accept(*this); }
+    // Custom handling for switch statements - don't visit nested switches
     void visit(SwitchStatement& node) override {
-        if (node.expression) node.expression->accept(*this);
+        node.expression->accept(*this);
         // Do NOT visit body to avoid collecting cases from nested switches
     }
+
     void visit(CaseStatement& node) override {
         int64_t val = 0;
         if (auto* lit = dynamic_cast<IntegerLiteral*>(node.value.get())) val = lit->value;
@@ -2702,18 +2650,12 @@ public:
         node.label = builder.newLabel("case");
         ctx.cases.push_back({val, endVal, isRange, node.label});
     }
+
     void visit(DefaultStatement& node) override {
         node.label = builder.newLabel("default");
         ctx.defaultLabel = node.label;
         ctx.hasDefault = true;
     }
-    void visit(AsmStatement&) override {}
-    void visit(StaticAssert&) override {}
-    void visit(EnumDefinition&) override {}
-    void visit(StructDefinition&) override {}
-    void visit(CompoundStatement& node) override { for (auto& s : node.statements) if (s) s->accept(*this); }
-    void visit(FunctionDeclaration&) override {}
-    void visit(TranslationUnit&) override {}
 };
 
 void IRBuilder::visit(SwitchStatement& node) {

@@ -15,7 +15,7 @@ namespace {
     };
 
     // Check if two expressions are structurally equal
-    class ExpressionComparator : public ASTVisitor {
+    class ExpressionComparator : public TraversingVisitor {
     public:
         Expression* target = nullptr;
         bool equal = false;
@@ -72,48 +72,10 @@ namespace {
                 equal = cmp.equal;
             }
         }
-
-        // Simplified - just return false for other types
-        void visit(Assignment&) override {}
-        void visit(ConditionalExpression&) override {}
-        void visit(FunctionCall&) override {}
-        void visit(MemberAccess&) override {}
-        void visit(SizeofExpression&) override {}
-        void visit(AlignofExpression&) override {}
-        void visit(GenericSelection&) override {}
-        void visit(InitializerList&) override {}
-        void visit(CompoundLiteral&) override {}
-        void visit(BuiltinVaStart&) override {}
-        void visit(BuiltinVaArg&) override {}
-        void visit(CpuRegisterAccess&) override {}
-        void visit(CpuFlagAccess&) override {}
-        void visit(IfStatement&) override {}
-        void visit(ExpressionStatement&) override {}
-        void visit(ReturnStatement&) override {}
-        void visit(BreakStatement&) override {}
-        void visit(ContinueStatement&) override {}
-        void visit(SwitchStatement&) override {}
-        void visit(CaseStatement&) override {}
-        void visit(DefaultStatement&) override {}
-        void visit(LabelledStatement&) override {}
-        void visit(GotoStatement&) override {}
-        void visit(SwitchContinueStatement&) override {}
-        void visit(RepeatStatement&) override {}
-        void visit(VariableDeclaration&) override {}
-        void visit(FunctionDeclaration&) override {}
-        void visit(AsmStatement&) override {}
-        void visit(StaticAssert&) override {}
-        void visit(StructDefinition&) override {}
-        void visit(EnumDefinition&) override {}
-        void visit(CompoundStatement&) override {}
-        void visit(WhileStatement&) override {}
-        void visit(DoWhileStatement&) override {}
-        void visit(TranslationUnit&) override {}
-        void visit(ForStatement&) override {}
     };
 
     // Collect all expressions from a statement subtree
-    class ExpressionCollector : public ASTVisitor {
+    class ExpressionCollector : public TraversingVisitor {
     public:
         struct ExprInfo {
             Expression* expr;
@@ -124,102 +86,20 @@ namespace {
 
         void visit(BinaryOperation& n) override {
             addExpr(&n);
-            n.left->accept(*this);
-            n.right->accept(*this);
+            TraversingVisitor::visit(n);
         }
         void visit(UnaryOperation& n) override {
             addExpr(&n);
-            n.operand->accept(*this);
+            TraversingVisitor::visit(n);
         }
         void visit(ArrayAccess& n) override {
             addExpr(&n);
-            n.arrayExpr->accept(*this);
-            n.indexExpr->accept(*this);
+            TraversingVisitor::visit(n);
         }
         void visit(CastExpression& n) override {
             addExpr(&n);
-            n.expression->accept(*this);
+            TraversingVisitor::visit(n);
         }
-        void visit(Assignment& n) override {
-            n.target->accept(*this);
-            n.expression->accept(*this);
-        }
-        void visit(ConditionalExpression& n) override {
-            n.condition->accept(*this);
-            n.thenExpr->accept(*this);
-            n.elseExpr->accept(*this);
-        }
-        void visit(FunctionCall& n) override {
-            for (auto& arg : n.arguments) arg->accept(*this);
-        }
-
-        // Statement traversal
-        void visit(CompoundStatement& n) override {
-            for (auto& stmt : n.statements) if (stmt) stmt->accept(*this);
-        }
-        void visit(IfStatement& n) override {
-            if (n.condition) n.condition->accept(*this);
-            if (n.thenBranch) n.thenBranch->accept(*this);
-            if (n.elseBranch) n.elseBranch->accept(*this);
-        }
-        void visit(ForStatement& n) override {
-            if (n.initializer) n.initializer->accept(*this);
-            if (n.condition) n.condition->accept(*this);
-            if (n.increment) n.increment->accept(*this);
-            if (n.body) n.body->accept(*this);
-        }
-        void visit(WhileStatement& n) override {
-            if (n.condition) n.condition->accept(*this);
-            if (n.body) n.body->accept(*this);
-        }
-        void visit(DoWhileStatement& n) override {
-            if (n.condition) n.condition->accept(*this);
-            if (n.body) n.body->accept(*this);
-        }
-        void visit(ExpressionStatement& n) override {
-            if (n.expression) n.expression->accept(*this);
-        }
-        void visit(ReturnStatement& n) override {
-            if (n.expression) n.expression->accept(*this);
-        }
-        void visit(SwitchStatement& n) override {
-            if (n.expression) n.expression->accept(*this);
-            if (n.body) n.body->accept(*this);
-        }
-        void visit(SwitchContinueStatement& n) override {
-            if (n.target) n.target->accept(*this);
-        }
-        void visit(LabelledStatement& n) override {
-            if (n.statement) n.statement->accept(*this);
-        }
-
-        // No-ops
-        void visit(IntegerLiteral&) override {}
-        void visit(StringLiteral&) override {}
-        void visit(VariableReference&) override {}
-        void visit(MemberAccess&) override {}
-        void visit(SizeofExpression&) override {}
-        void visit(AlignofExpression&) override {}
-        void visit(GenericSelection&) override {}
-        void visit(InitializerList&) override {}
-        void visit(CompoundLiteral&) override {}
-        void visit(BuiltinVaStart&) override {}
-        void visit(BuiltinVaArg&) override {}
-        void visit(CpuRegisterAccess&) override {}
-        void visit(CpuFlagAccess&) override {}
-        void visit(BreakStatement&) override {}
-        void visit(ContinueStatement&) override {}
-        void visit(CaseStatement&) override {}
-        void visit(DefaultStatement&) override {}
-        void visit(GotoStatement&) override {}
-        void visit(RepeatStatement&) override {}
-        void visit(VariableDeclaration&) override {}
-        void visit(FunctionDeclaration&) override {}
-        void visit(AsmStatement&) override {}
-        void visit(StaticAssert&) override {}
-        void visit(StructDefinition&) override {}
-        void visit(EnumDefinition&) override {}
-        void visit(TranslationUnit&) override {}
 
     private:
         void addExpr(Expression* expr) {

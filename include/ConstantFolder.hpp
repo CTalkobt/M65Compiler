@@ -1,5 +1,6 @@
 #pragma once
 #include "AST.hpp"
+#include "TraversingVisitor.hpp"
 #include <memory>
 #include <map>
 #include <set>
@@ -58,7 +59,7 @@ inline int getTypeSize(const std::string& type, int ptrLevel, int arraySize, con
     return size;
 }
 
-class ConstantFolder : public ASTVisitor {
+class ConstantFolder : public TraversingVisitor {
 public:
     ConstantFolder();
     std::unique_ptr<Expression> lastExpr;
