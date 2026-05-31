@@ -13,6 +13,7 @@ private:
     size_t pos;
     int line;
     int column;
+    std::string sourceFile;  // Current source file from #line directives
 
     char peek() const;
     char peekNext() const;

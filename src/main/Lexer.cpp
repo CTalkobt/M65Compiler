@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <iostream>
 
-Lexer::Lexer(const std::string& source) : source(source), pos(0), line(1), column(1) {}
+Lexer::Lexer(const std::string& source) : source(source), pos(0), line(1), column(1), sourceFile("") {}
 
 std::vector<Token> Lexer::tokenize() {
     std::vector<Token> tokens;
@@ -72,7 +72,18 @@ void Lexer::skipWhitespace() {
                 pos++; column++;
             }
             if (newLine > 0) line = newLine - 1; // -1: the \n at end of directive will increment
-            // Skip rest of directive (optional filename)
+            // Parse filename (optional)
+            while (pos < source.length() && source[pos] == ' ') { pos++; column++; }
+            if (pos < source.length() && source[pos] == '"') {
+                pos++; column++; // skip opening quote
+                sourceFile.clear();
+                while (pos < source.length() && source[pos] != '"') {
+                    sourceFile += source[pos++];
+                    column++;
+                }
+                if (pos < source.length()) { pos++; column++; } // skip closing quote
+            }
+            // Skip rest of directive
             while (pos < source.length() && source[pos] != '\n') { pos++; column++; }
         } else {
             break;
@@ -83,7 +94,7 @@ void Lexer::skipWhitespace() {
 Token Lexer::nextToken() {
     char c = peek();
     if (c == '\0') {
-        return {TokenType::END_OF_FILE, "", line, column};
+        return {TokenType::END_OF_FILE, "", line, column, sourceFile};
     }
 
     if (std::isalpha(c) || c == '_') {
@@ -113,74 +124,74 @@ Token Lexer::nextToken() {
     get();
 
     switch (c) {
-        case '(': return {TokenType::OPEN_PAREN, "(", startLine, startCol};
-        case ')': return {TokenType::CLOSE_PAREN, ")", startLine, startCol};
-        case '{': return {TokenType::OPEN_BRACE, "{", startLine, startCol};
-        case '}': return {TokenType::CLOSE_BRACE, "}", startLine, startCol};
-        case '[': return {TokenType::OPEN_SQUARE, "[", startLine, startCol};
-        case ']': return {TokenType::CLOSE_SQUARE, "]", startLine, startCol};
-        case ';': return {TokenType::SEMICOLON, ";", startLine, startCol};
-        case ':': return {TokenType::COLON, ":", startLine, startCol};
-        case '?': return {TokenType::QUESTION_MARK, "?", startLine, startCol};
-        case ',': return {TokenType::COMMA, ",", startLine, startCol};
+        case '(': return {TokenType::OPEN_PAREN, "(", startLine, startCol, sourceFile};
+        case ')': return {TokenType::CLOSE_PAREN, ")", startLine, startCol, sourceFile};
+        case '{': return {TokenType::OPEN_BRACE, "{", startLine, startCol, sourceFile};
+        case '}': return {TokenType::CLOSE_BRACE, "}", startLine, startCol, sourceFile};
+        case '[': return {TokenType::OPEN_SQUARE, "[", startLine, startCol, sourceFile};
+        case ']': return {TokenType::CLOSE_SQUARE, "]", startLine, startCol, sourceFile};
+        case ';': return {TokenType::SEMICOLON, ";", startLine, startCol, sourceFile};
+        case ':': return {TokenType::COLON, ":", startLine, startCol, sourceFile};
+        case '?': return {TokenType::QUESTION_MARK, "?", startLine, startCol, sourceFile};
+        case ',': return {TokenType::COMMA, ",", startLine, startCol, sourceFile};
         case '.':
             if (peek() == '.' && pos + 1 < source.length() && source[pos + 1] == '.') {
-                get(); get(); return {TokenType::ELLIPSIS, "...", startLine, startCol};
+                get(); get(); return {TokenType::ELLIPSIS, "...", startLine, startCol, sourceFile};
             }
-            return {TokenType::DOT, ".", startLine, startCol};
+            return {TokenType::DOT, ".", startLine, startCol, sourceFile};
         case '=': 
-            if (peek() == '=') { get(); return {TokenType::EQUALS_EQUALS, "==", startLine, startCol}; }
-            return {TokenType::EQUALS, "=", startLine, startCol};
+            if (peek() == '=') { get(); return {TokenType::EQUALS_EQUALS, "==", startLine, startCol, sourceFile}; }
+            return {TokenType::EQUALS, "=", startLine, startCol, sourceFile};
         case '+': 
-            if (peek() == '+') { get(); return {TokenType::PLUS_PLUS, "++", startLine, startCol}; }
-            if (peek() == '=') { get(); return {TokenType::PLUS_EQUALS, "+=", startLine, startCol}; }
-            return {TokenType::PLUS, "+", startLine, startCol};
+            if (peek() == '+') { get(); return {TokenType::PLUS_PLUS, "++", startLine, startCol, sourceFile}; }
+            if (peek() == '=') { get(); return {TokenType::PLUS_EQUALS, "+=", startLine, startCol, sourceFile}; }
+            return {TokenType::PLUS, "+", startLine, startCol, sourceFile};
         case '-': 
-            if (peek() == '>') { get(); return {TokenType::ARROW, "->", startLine, startCol}; }
-            if (peek() == '-') { get(); return {TokenType::MINUS_MINUS, "--", startLine, startCol}; }
-            if (peek() == '=') { get(); return {TokenType::MINUS_EQUALS, "-=", startLine, startCol}; }
-            return {TokenType::MINUS, "-", startLine, startCol};
+            if (peek() == '>') { get(); return {TokenType::ARROW, "->", startLine, startCol, sourceFile}; }
+            if (peek() == '-') { get(); return {TokenType::MINUS_MINUS, "--", startLine, startCol, sourceFile}; }
+            if (peek() == '=') { get(); return {TokenType::MINUS_EQUALS, "-=", startLine, startCol, sourceFile}; }
+            return {TokenType::MINUS, "-", startLine, startCol, sourceFile};
         case '*':
-            if (peek() == '=') { get(); return {TokenType::STAR_EQUALS, "*=", startLine, startCol}; }
-            return {TokenType::STAR, "*", startLine, startCol};
+            if (peek() == '=') { get(); return {TokenType::STAR_EQUALS, "*=", startLine, startCol, sourceFile}; }
+            return {TokenType::STAR, "*", startLine, startCol, sourceFile};
         case '/':
-            if (peek() == '=') { get(); return {TokenType::SLASH_EQUALS, "/=", startLine, startCol}; }
-            return {TokenType::SLASH, "/", startLine, startCol};
+            if (peek() == '=') { get(); return {TokenType::SLASH_EQUALS, "/=", startLine, startCol, sourceFile}; }
+            return {TokenType::SLASH, "/", startLine, startCol, sourceFile};
         case '%':
-            if (peek() == '=') { get(); return {TokenType::PERCENT_EQUALS, "%=", startLine, startCol}; }
-            return {TokenType::PERCENT, "%", startLine, startCol};
+            if (peek() == '=') { get(); return {TokenType::PERCENT_EQUALS, "%=", startLine, startCol, sourceFile}; }
+            return {TokenType::PERCENT, "%", startLine, startCol, sourceFile};
         case '<':
-            if (peek() == '=') { get(); return {TokenType::LESS_EQUAL, "<=", startLine, startCol}; }
+            if (peek() == '=') { get(); return {TokenType::LESS_EQUAL, "<=", startLine, startCol, sourceFile}; }
             if (peek() == '<') {
                 get();
-                if (peek() == '=') { get(); return {TokenType::LSHIFT_EQUALS, "<<=", startLine, startCol}; }
-                return {TokenType::LSHIFT, "<<", startLine, startCol};
+                if (peek() == '=') { get(); return {TokenType::LSHIFT_EQUALS, "<<=", startLine, startCol, sourceFile}; }
+                return {TokenType::LSHIFT, "<<", startLine, startCol, sourceFile};
             }
-            return {TokenType::LESS_THAN, "<", startLine, startCol};
+            return {TokenType::LESS_THAN, "<", startLine, startCol, sourceFile};
         case '>':
-            if (peek() == '=') { get(); return {TokenType::GREATER_EQUAL, ">=", startLine, startCol}; }
+            if (peek() == '=') { get(); return {TokenType::GREATER_EQUAL, ">=", startLine, startCol, sourceFile}; }
             if (peek() == '>') {
                 get();
-                if (peek() == '=') { get(); return {TokenType::RSHIFT_EQUALS, ">>=", startLine, startCol}; }
-                return {TokenType::RSHIFT, ">>", startLine, startCol};
+                if (peek() == '=') { get(); return {TokenType::RSHIFT_EQUALS, ">>=", startLine, startCol, sourceFile}; }
+                return {TokenType::RSHIFT, ">>", startLine, startCol, sourceFile};
             }
-            return {TokenType::GREATER_THAN, ">", startLine, startCol};
+            return {TokenType::GREATER_THAN, ">", startLine, startCol, sourceFile};
         case '!':
-            if (peek() == '=') { get(); return {TokenType::NOT_EQUALS, "!=", startLine, startCol}; }
-            return {TokenType::BANG, "!", startLine, startCol};
+            if (peek() == '=') { get(); return {TokenType::NOT_EQUALS, "!=", startLine, startCol, sourceFile}; }
+            return {TokenType::BANG, "!", startLine, startCol, sourceFile};
         case '&':
-            if (peek() == '&') { get(); return {TokenType::AND, "&&", startLine, startCol}; }
-            if (peek() == '=') { get(); return {TokenType::AMPERSAND_EQUALS, "&=", startLine, startCol}; }
-            return {TokenType::AMPERSAND, "&", startLine, startCol};
+            if (peek() == '&') { get(); return {TokenType::AND, "&&", startLine, startCol, sourceFile}; }
+            if (peek() == '=') { get(); return {TokenType::AMPERSAND_EQUALS, "&=", startLine, startCol, sourceFile}; }
+            return {TokenType::AMPERSAND, "&", startLine, startCol, sourceFile};
         case '|':
-            if (peek() == '|') { get(); return {TokenType::OR, "||", startLine, startCol}; }
-            if (peek() == '=') { get(); return {TokenType::PIPE_EQUALS, "|=", startLine, startCol}; }
-            return {TokenType::PIPE, "|", startLine, startCol};
+            if (peek() == '|') { get(); return {TokenType::OR, "||", startLine, startCol, sourceFile}; }
+            if (peek() == '=') { get(); return {TokenType::PIPE_EQUALS, "|=", startLine, startCol, sourceFile}; }
+            return {TokenType::PIPE, "|", startLine, startCol, sourceFile};
         case '^':
-            if (peek() == '=') { get(); return {TokenType::CARET_EQUALS, "^=", startLine, startCol}; }
-            return {TokenType::CARET, "^", startLine, startCol};
-        case '~': return {TokenType::TILDE, "~", startLine, startCol};
-        default: return {TokenType::UNKNOWN, std::string(1, c), startLine, startCol};
+            if (peek() == '=') { get(); return {TokenType::CARET_EQUALS, "^=", startLine, startCol, sourceFile}; }
+            return {TokenType::CARET, "^", startLine, startCol, sourceFile};
+        case '~': return {TokenType::TILDE, "~", startLine, startCol, sourceFile};
+        default: return {TokenType::UNKNOWN, std::string(1, c), startLine, startCol, sourceFile};
     }
 }
 
@@ -256,7 +267,7 @@ Token Lexer::lexIdentifierOrKeyword() {
         return {it->second, value, startLine, startCol};
     }
 
-    return {TokenType::IDENTIFIER, value, startLine, startCol};
+    return {TokenType::IDENTIFIER, value, startLine, startCol, sourceFile};
 }
 
 Token Lexer::lexNumber() {
@@ -280,7 +291,7 @@ Token Lexer::lexNumber() {
             }
             // Consume optional L/l/U/u suffixes
             while (peek() == 'L' || peek() == 'l' || peek() == 'U' || peek() == 'u') get();
-            return {TokenType::INTEGER_LITERAL, std::to_string(val), startLine, startCol};
+            return {TokenType::INTEGER_LITERAL, std::to_string(val), startLine, startCol, sourceFile};
         }
     }
     while (std::isdigit(peek())) {
@@ -297,7 +308,7 @@ Token Lexer::lexNumber() {
     }
     // Consume optional L/l/U/u suffixes
     while (peek() == 'L' || peek() == 'l' || peek() == 'U' || peek() == 'u') get();
-    return {TokenType::INTEGER_LITERAL, value, startLine, startCol};
+    return {TokenType::INTEGER_LITERAL, value, startLine, startCol, sourceFile};
 }
 
 Token Lexer::lexString(bool ascii) {
@@ -320,8 +331,8 @@ Token Lexer::lexString(bool ascii) {
         }
     }
     if (peek() == '"') get(); // skip closing quote
-    if (ascii) return {TokenType::ASCII_STRING_LITERAL, value, startLine, startCol};
-    return {TokenType::STRING_LITERAL, value, startLine, startCol};
+    if (ascii) return {TokenType::ASCII_STRING_LITERAL, value, startLine, startCol, sourceFile};
+    return {TokenType::STRING_LITERAL, value, startLine, startCol, sourceFile};
 }
 
 Token Lexer::lexChar(bool ascii) {
@@ -348,8 +359,8 @@ Token Lexer::lexChar(bool ascii) {
         uint8_t petscii = (uint8_t)c;
         if (c >= 'a' && c <= 'z') petscii = c - 32;
         else if (c >= 'A' && c <= 'Z') petscii = c + 32;
-        return {TokenType::INTEGER_LITERAL, std::to_string((int)petscii), startLine, startCol};
+        return {TokenType::INTEGER_LITERAL, std::to_string((int)petscii), startLine, startCol, sourceFile};
     }
     // ASCII mode: preserve raw byte value
-    return {TokenType::INTEGER_LITERAL, std::to_string((int)(uint8_t)c), startLine, startCol};
+    return {TokenType::INTEGER_LITERAL, std::to_string((int)(uint8_t)c), startLine, startCol, sourceFile};
 }

@@ -24,6 +24,7 @@ private:
     std::unique_ptr<T> setPos(std::unique_ptr<T> node, const Token& token) {
         node->line = token.line;
         node->column = token.column;
+        node->sourceFile = token.sourceFile;
         return node;
     }
 

@@ -22,6 +22,7 @@ class ASTNode {
 public:
     int line = 0;
     int column = 0;
+    std::string sourceFile;  // Source file from #line directive
     virtual ~ASTNode() = default;
     virtual void accept(ASTVisitor& visitor) = 0;
 };

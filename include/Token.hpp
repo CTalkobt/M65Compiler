@@ -117,6 +117,7 @@ struct Token {
     std::string value;
     int line;
     int column;
+    std::string sourceFile;  // Filename from #line directive, if any
 
     std::string typeToString() const {
         switch (type) {

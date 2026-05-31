@@ -719,6 +719,8 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                     
                     std::stringstream buffer;
                     buffer << includeFile.rdbuf();
+                    // Emit #line directive to mark the start of the included file
+                    output << "#line 1 \"" << fullPath << "\"\n";
                     output << processInternal(buffer.str(), fullPath, depth + 1);
                     // Restore line numbering after include
                     output << "#line " << (lineNum + 1) << " \"" << currentFile << "\"\n";
@@ -736,9 +738,16 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                                 reportedFile = newFile.substr(1, newFile.size() - 2);
                             }
                         }
+                        // Pass through #line directive to output for lexer to process
+                        output << "#line " << newLineNum;
+                        if (!newFile.empty()) output << " " << newFile;
+                        output << "\n";
+                    } else {
+                        output << "\n";
                     }
+                } else {
+                    output << "\n";
                 }
-                output << "\n";
             } else if (cmd == "#error") {
                 if (isConditionTrue()) {
                     std::string msg;
