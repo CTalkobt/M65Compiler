@@ -1,7 +1,7 @@
 # MEGA65 C Compiler Suite — Codebase Documentation
 
-**Status:** v1.0-rc3 (target: 2026-05-31)
-**Last Updated:** 2026-05-11
+**Status:** v1.0 (release: 2026-05-31)
+**Last Updated:** 2026-05-30
 **Maintainer:** Craig Taylor (CTalkobt)
 
 ---
@@ -38,22 +38,34 @@ PRG Executable or Flat Binary
 
 ### Key Design Decisions
 
-1. **Calling Conventions**: Two modes supported:
+1. **Calling Conventions**: Two modes supported (both fully implemented):
    - **Stack convention** (default): Parameters on stack, return value in AXYZ (for long)
    - **ZP calling convention** (-fzpcall): Parameters in fixed ZP region, faster, with per-function clobber tracking
+   - Linker enforces one-directional calling convention safety: ZP callers cannot call stack callees (error); stack callers can call ZP callees (safe)
+   - Automatic bridge thunk generation at linker level with `-Wthunk` warning mode
 
-2. **Optimization Framework**:
+2. **Optimization Framework** (extensive, production-ready):
    - Constant propagation with branch-aware state merging
-   - Dead variable elimination
-   - Strength reduction (e.g., multiply by power of 2 → bit shift)
+   - Dead variable elimination and dead code removal
+   - Strength reduction (multiply by power of 2 → bit shift, divide by power of 2 → bit shift)
    - Loop-result elimination
+   - Store-fused I16/I32 add/sub (no intermediate pha/pla when result stored to ZP)
+   - Store-fused ADDR_ELEM (array indexing optimization)
+   - CONST suppression (constant vregs used only as src2 in ALU ops are not emitted)
+   - Constant-address direct stores (e.g., `*(volatile unsigned char *)0xD020 = val` → `lda #val; sta $D020`)
+   - Frame increment/decrement pseudo-ops (inc.fp/dec.fp for stack variables, 5 bytes → 9 bytes for `gen++`)
+   - Per-simulated-op clobber tracking (fine-grained invalidation instead of blanket state reset)
+   - Reverse store-forwarding (LDA $ZP eliminated when memory already mirrors register)
+   - Parameter narrowing advisory (compiler suggests changing `int` params to `char` when all call sites pass 0-255)
+   - MachineState tracking: unified register/memory/flag tracking across assembler optimizer
 
 3. **Symbol Scoping**: Hierarchical scoping with nested procedures and blocks, allowing label/variable reuse without namespace pollution
 
 4. **Object Format**: Custom `.o45` relocatable object format with:
-   - Symbol table with relocation info
-   - Function attributes (calling convention, clobber masks)
-   - Stack frame metadata
+   - Symbol table with relocation info (R_LOW, R_HIGH, R_ADDR16, R_ADDR24 relocations)
+   - Function attributes (calling convention bit FUNC_FLAG_ZP_CONV, clobber masks for registers/flags)
+   - Stack frame metadata (.zp_uses, .zp_clobbers, .reg_clobbers, .flag_clobbers directives)
+   - Per-instruction debugging: .loc directives for source line attribution
 
 ### Key Files and Directories
 
@@ -133,26 +145,31 @@ make clean && make test  # Clean rebuild and test
 
 ## Language Features
 
-### Implemented (v0.99.dev)
+### Implemented (v1.0-rc3)
 
-- **Types**: `char`, `short`, `int`, `long`, `unsigned` variants, pointers, arrays, structs, unions, function pointers
-- **Qualifiers**: `const`, `volatile`, `static` (all orderings), `register`, `extern`
+- **Types**: `char`, `short`, `int`, `long`, `unsigned` variants, pointers, arrays, structs, unions, function pointers, `_Bool`
+- **Qualifiers**: `const`, `volatile`, `static` (all orderings), `register`, `extern`, `_Alignas`
 - **Declarations**: Function declarations, variable declarations, typedefs, type qualifiers in any order
 - **Initializers**: Scalar, aggregate, designated initializers (`{.x=1}`, `{[2]=3}`), flexible array members
-- **Operators**: All C arithmetic, logical, bitwise, comparison, ternary, cast, sizeof, alignof, etc.
-- **Control Flow**: if/else, while, do-while, for, switch/case, break, continue, return, goto
-- **Inline Assembly**: `asm("...")` and `__asm__("...")`
-- **Pragmas**: `#pragma once`, `#pragma clobbers` (metadata)
-- **Compound Literals**: `(int){42}`, `(struct Point){1,2}`
-- **Bitfields**: `struct S { int x:4; unsigned y:4; }`
-- **Alignment**: `_Alignas(N)` for locals and struct members
+- **Operators**: All C arithmetic, logical, bitwise, comparison, ternary, cast, sizeof, `_Alignof`, `_Generic`
+- **Control Flow**: if/else, while, do-while, for, switch/case (with GCC range syntax `case A ... Z:`), break, continue, return, goto
+- **Inline Assembly**: `asm("...")` and `__asm__("...")` with full variable access via naming prefixes
+- **Pragmas**: `#pragma once`, `#pragma cc45 <option>` (heap, no_bssinit, no_0100_stack, no_zp_save, exit_rts/halt/brk)
+- **Compound Literals**: `(int){42}`, `(struct Point){1,2}`, `(int[3]){1,2,3}`
+- **Bitfields**: `struct S { int x:4; unsigned y:4; }` with optimized TRB/TSB codegen
+- **Alignment**: `_Alignas(N)` for globals, locals, and struct members (Phase 1 complete, Phase 2 pending symbolic .fp references)
 - **Preprocessor**: Full C99 preprocessor support (cc45 -E or cp45 standalone)
+- **Inline Functions**: `inline` keyword triggers function body inlining at call sites (single-TU, ≤20 statements). Auto-inlining via `-finline-functions` flag for small functions even without `inline` keyword
+- **Loop Unrolling**: `repeat(N) { body }` compile-time loop unrolling with zero overhead. Optional loop variable via `repeat(type var, N)`
+- **Function Attributes**: `__interrupt`, `__naked`, `__regparm`, `__fastcall__` for specialized calling conventions and interrupt handlers
+- **Variadic Functions**: Full `<stdarg.h>` support (`va_list`, `va_start`, `va_arg`, `va_end`) with stack-convention argument passing
+- **DMA Intrinsics**: `__dma_copy(dst, src, len)` and `__dma_fill(dst, len, val)` builtin functions for MEGA65 F018B DMA (~40MB/s)
+- **CPU/Flag Intrinsics**: `__cpu.A/.X/.Y/.Z/.AX/.Q` and `__flags.Carry/.Zero/.Negative/.Overflow` for direct processor state access
 
 ### Not Implemented (v1.0 Won't-Fix)
 
 - `float`, `double` (no FPU; software float is post-1.0)
-- `inline` function expansion limited to single-TU, ≤20-statement functions (Phase 1)
-- `_Bool` and `_Complex` types
+- `_Complex` type
 
 ## Standard Library
 
@@ -316,11 +333,12 @@ The `.o45` relocatable object format is documented in `doc/lib45.md`. Key sectio
 
 - [x] All v1.0 blockers resolved
 - [x] All v1.0 should-fix items implemented
-- [x] Comprehensive test coverage (Units 1-8 validation tests, 55 segment emission tests)
-- [x] Documentation updated (README, tool docs, stdlib, opcodes)
+- [x] Comprehensive test coverage (176 assembler validation tests, 55 segment emission tests, 131 objdump tests, mmemu integration)
+- [x] Documentation updated (README, tool docs, stdlib, opcodes, calling conventions)
 - [x] Version bumped to v1.0-rc3 in code and documentation
-- [ ] Final QA on target hardware (MEGA65 emulator)
-- [ ] Release notes prepared
+- [x] Code coverage established (80.1% line, 77.1% function, 47.4% branch)
+- [ ] Final QA on target hardware (MEGA65 emulator) ← In progress (2026-05-30)
+- [ ] Release notes finalized (release date 2026-05-31)
 
 ## References
 

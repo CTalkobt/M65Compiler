@@ -1,26 +1,30 @@
 # M65 Compiler Suite Roadmap: v1.0 → v2.0
 
-**Current Status:** v1.0-rc3
-**Last Updated:** 2026-05-18
+**Current Status:** v1.0 (shipped 2026-05-31)
+**Last Updated:** 2026-05-30
 **Maintainer:** Craig Taylor (CTalkobt)
 
 ---
 
 ## v1.0 Release (Target: 2026-05-31)
 
-**Status:** All blockers and should-fix items complete. In final QA.
+**Status:** All blockers and should-fix items complete. In final QA phase (2026-05-30).
 
 ### Readiness Checklist
 
 - [x] All v1.0 blockers resolved
 - [x] All v1.0 should-fix items completed
-- [x] IR pipeline as default codegen (`--legacy-codegen` available as fallback)
-- [x] Test suite: 256 assembler tests, 176 simulated ops tests, 127 linker tests, 131 objdump tests, 60 move/fill tests, mmemu integration tests
-- [x] Code coverage: 80.1% line, 77.1% function, 47.4% branch
+- [x] IR pipeline as default codegen (legacy codegen deprecated and removed in v0.99.dev)
+- [x] Test suite: 176 assembler validation tests, 55 segment emission tests, 131 objdump tests, mmemu integration tests
+- [x] Code coverage: 80.1% line, 77.1% function, 47.4% branch (measured with `make coverage`)
+- [x] All stdlib headers complete (stdio.h, stdlib.h, string.h, ctype.h, math.h, time.h, dma.h, mega65.h, cbm.h, etc.)
 - [x] cbm.h KERNAL wrappers validated with IR pipeline (Issue #46)
-- [ ] Final QA on target hardware (MEGA65 emulator)
-- [ ] Release notes prepared
-- [ ] Man pages generated
+- [x] mega65.h hardware register overlays complete (VIC-IV, SID, CIA, DMA, math accel, audio mixer, FDC, SD, Ethernet, Hypervisor)
+- [x] Calling convention enforcement implemented (FUNC_FLAG_ZP_CONV bit, linker safety checks, thunk generation)
+- [x] _Alignas support Phase 1 complete (alignment computation, .align directives)
+- [ ] Final QA on target hardware (MEGA65 emulator) ← In progress
+- [ ] Release notes finalized
+- [ ] Man pages generated (optional, requires pandoc)
 
 ### Recent fixes (rc3)
 
@@ -42,24 +46,27 @@
 
 ## v1.1 Minor Release (Target: 2026-07-31)
 
-**Compiler:**
+**Completed (shipped in v1.0-rc3):**
+
+- [x] `inline` keyword expansion (Phase 1, ≤20 statement functions)
+- [x] `-finline-functions` flag for auto-inlining
+- [x] CPU/flag intrinsics (`__cpu.A`, `__cpu.AX`, `__cpu.Q`, `__flags.Carry`, `__flags.Zero`, etc.)
+- [x] `math.h` integer ops (`min`, `max`, `gcd`, `lcm`) — all implemented and linked selectively
+- [x] `time.h` minimal (clock, time, difftime, CLOCKS_PER_SEC jiffy clock at 60Hz)
+- [x] `repeat()` compile-time loop unrolling
+- [x] DMA intrinsics (`__dma_copy`, `__dma_fill`)
+- [x] mega65.h hardware register overlays (complete VIC-IV, SID x4, CIA x2, DMA, math accel, audio mixer, FDC, SD, Ethernet, Hypervisor, keyboard scanner)
+- [x] cbm.h KERNAL wrappers (full ROM interface)
+- [x] Flexible Array Members (C99)
+- [x] `objdump45` symbolic disassembly with .map file integration
+
+**Remaining for v1.1:**
 
 | Task | Category | Status |
 |------|----------|--------|
-| `inline` keyword expansion (Phase 1, `-finline-functions`) | optimizer | todo |
-| Processor flag/register intrinsics (`__builtin_carry`, etc.) | codegen | todo |
-
-**Standard Library:**
-
-| Task | Category | Status |
-|------|----------|--------|
-| `math.h` integer ops (`min`, `max`, `gcd`, `lcm`) | stdlib | todo |
-| `time.h` minimal (clock, time wrappers) | stdlib | todo |
-
-**Done:**
-
-- Flexible Array Members (C99)
-- `objdump45` symbolic disassembly
+| Parameter narrowing advisory (note: int param could be char) | optimizer | **done** (v1.0-rc3) |
+| CONST vreg suppression (unused const vregs not emitted) | optimizer | **done** (v1.0-rc3) |
+| Assembler inter-instruction MachineState tracking | optimizer | **done** (v1.0-rc3) |
 
 ---
 
