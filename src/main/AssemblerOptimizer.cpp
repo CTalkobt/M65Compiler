@@ -951,7 +951,8 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
     }
 
     // --- Pass 4: In-method sequence jumping (extract duplicate sequences) ---
-    // EXPERIMENTAL - DISABLED by default due to size accounting bug causing null bytes in code (issue #89)
+    // EXPERIMENTAL - Fixed in v1.1 (issue #89): Index shifting bug corrected.
+    // Still behind enableExperimental flag pending thorough testing on real programs.
     // Find duplicate instruction sequences and create shared routines.
     // Conservative: only extract 8+ byte sequences appearing 2+ times with 4+ byte savings.
 
@@ -1067,16 +1068,27 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
             int deleted_total = 0;
             for (size_t idx : match.instrIndices) {
                 deleted_total += parser->statements[idx]->size;
-                parser->statements[idx]->deleted = true;
-                parser->statements[idx]->size = 0;
             }
             int bsr_size = 3;
             int actual_savings_per_call = deleted_total - bsr_size;
 
+            // FIX: Insert BSR first, then delete the replaced instructions in reverse order to avoid index shifting
+            size_t insertPos = match.instrIndices.front();
             parser->statements.insert(
-                parser->statements.begin() + match.instrIndices.front(),
+                parser->statements.begin() + insertPos,
                 std::move(bsr)
             );
+
+            // After insert, the original instruction indices have shifted by 1.
+            // Delete them in reverse order (highest index first) to avoid further shifts
+            for (auto it = match.instrIndices.rbegin(); it != match.instrIndices.rend(); ++it) {
+                size_t idx = *it;
+                // The index has shifted by 1 due to the insert at insertPos
+                // Only if idx > insertPos, because insertPos has the BSR now
+                size_t actualIdx = (idx > insertPos) ? idx + 1 : idx;
+                parser->statements[actualIdx]->deleted = true;
+                parser->statements[actualIdx]->size = 0;
+            }
 
             report("seq-extract", firstStmt,
                    "sequence → bsr " + routineName + " (saved " + std::to_string(actual_savings_per_call) + " bytes)");
