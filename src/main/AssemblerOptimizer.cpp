@@ -498,6 +498,44 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
                 }
             }
 
+            // --- Preserve X=SP optimization: convert LDX #imm / STX zp to LDA #imm / STA zp ---
+            // When X holds SP (for stack-relative addressing), avoid clobbering it with
+            // temporary loads. If we're loading a small immediate into X just to save it to
+            // a scratch ZP, use A instead to keep X = SP for upcoming stack operations.
+            if (m == "LDX" && isImm && hasNumVal && ms.xHoldsSP()) {
+                uint8_t immVal = (uint8_t)(numVal & 0xFF);
+                size_t j = i + 1;
+                while (j < parser->statements.size() && parser->statements[j]->deleted) ++j;
+                if (j < parser->statements.size()) {
+                    auto* next = parser->statements[j].get();
+                    if (next->type == AssemblerParser::Statement::INSTRUCTION && next->label.empty()) {
+                        std::string nextM = next->instr.mnemonic;
+                        std::transform(nextM.begin(), nextM.end(), nextM.begin(), ::toupper);
+                        int64_t stxAddr = 0;
+                        if (nextM == "STX" && next->instr.mode == AddressingMode::BASE_PAGE &&
+                            parseNum(next->instr.operand, stxAddr)) {
+                            uint8_t zpAddr = (uint8_t)(stxAddr & 0xFF);
+                            // Safe to convert LDX #imm / STX zp to LDA #imm / STA zp if:
+                            // 1. Nothing between LDX and STX modifies X (just checked: only STX)
+                            // 2. STX is to a scratch ZP that won't interfere with future stack ops
+                            // Common scratch ZP locations: $02, $03, $04, etc. (typically < $20)
+                            if (zpAddr < 0x20) {
+                                // Convert: LDX #imm → LDA #imm, STX zp → STA zp
+                                s->instr.mnemonic = "LDA";
+                                next->instr.mnemonic = "STA";
+                                // Update MachineState: A holds the immediate, X still = SP
+                                ms.setConst(REG_A, immVal);
+                                report("preserve-x-sp", s, "LDX #" + op + " / STX → LDA/STA (preserve X=SP)");
+                                changed = true;
+                                // Don't process MachineState updates for this instruction;
+                                // we've manually set the state above
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+
             // --- MachineState updates ---
             if (m == "LDA" || m == "LDX" || m == "LDY" || m == "LDZ") {
                 RegId r = loadRegId(m);
