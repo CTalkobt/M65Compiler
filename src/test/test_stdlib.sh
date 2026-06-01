@@ -12,6 +12,22 @@ MMEMU="mmemu-cli"
 LIB="lib/build/c45.lib"
 SRCDIR="src/test-resources/stdlib"
 
+# ── mmemu-cli availability check ──────────────────────────────────────
+if ! command -v "$MMEMU" &>/dev/null; then
+    echo ""
+    echo "╔══════════════════════════════════════════════════════════════╗"
+    echo "║  WARNING: mmemu-cli is not installed or not on PATH         ║"
+    echo "║                                                             ║"
+    echo "║  Stdlib execution tests CANNOT run without it.              ║"
+    echo "║  These tests verify runtime correctness of the standard     ║"
+    echo "║  library and are REQUIRED for release builds.               ║"
+    echo "║                                                             ║"
+    echo "║  Install from: https://github.com/CTalkobt/mmsim           ║"
+    echo "╚══════════════════════════════════════════════════════════════╝"
+    echo ""
+    exit 1
+fi
+
 mkdir -p build/test/stdlib
 
 passed=0

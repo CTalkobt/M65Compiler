@@ -206,7 +206,7 @@ AssemblerToken AssemblerLexer::lexIdentifierOrInstruction() {
         "ADCQ", "SBCQ", "ANDQ", "ORAQ", "EORQ", "CMPQ", "INCQ", "DECQ",
         "ASLQ", "LSRQ", "ROLQ", "RORQ", "NEGQ",
         "CALL", "PROC", "ENDPROC", "RTN", "EXPR", "MUL", "MUL.8", "MUL.16", "MUL.24", "MUL.32", "DIV", "DIV.8", "DIV.16", "DIV.24", "DIV.32",
-        "MUL.S16", "DIV.S16", "MOD.16", "MOD.S16",
+        "MUL.S16", "MUL.S32", "DIV.S16", "DIV.S32", "MOD.16", "MOD.S16", "MOD.32", "MOD.S32",
         "LDAX", "LDAY", "LDAZ", "STAX", "STAY", "STAZ",
         "ADD.16", "SUB.16", "AND.16", "ORA.16", "EOR.16", "NEG.16", "NOT.16", "CMP.16", "ABS.16", "CPW", "LDW", "STW", "SWAP", "ZERO",
         "ADD.S16", "SUB.S16", "CMP.S16", "NEG.S16", "ABS.S16", "ASR.S16", "LSL.S16", "LSR.S16", "ROL.S16", "ROR.S16", "SXT.8",

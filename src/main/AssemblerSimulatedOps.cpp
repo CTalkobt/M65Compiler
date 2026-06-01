@@ -1739,17 +1739,32 @@ void AssemblerSimulatedOps::emitSignedMathOp(AssemblerParser* parser, M65Emitter
     uint16_t leftBase  = (op == 0) ? m65::MULT_ARG1 : m65::DIV_ARG1;
     uint16_t rightBase = (op == 0) ? m65::MULT_ARG2 : m65::DIV_ARG2;
 
-    // --- Step 1: Save sign info ---
-    // For mul/div: need XOR of both signs. For mod: need left sign only.
-    e.txa();                         // A = left high byte (has sign in bit 7)
-    e.sta_addr(SIGN);                 // save left_high to SIGN
-
     bool srcIsConst = isImmediate && srcAst->isConstant(parser);
+
+    // --- Step 1: Save sign of left operand and compute abs(left) ---
+    // Must preserve AX intact for neg_16, so save A before using it.
+    e.pha();                              // save original A (byte 0)
+    e.txa();                              // A = X = byte 1 (sign byte)
+    e.sta_addr(SIGN);                     // SIGN = left sign byte
+    auto brPos = e.emitBranchPlaceholder(0x10); // BPL: left is positive
+    e.pla();                              // restore A for neg_16
+    e.neg_16();                           // AX = abs(left)
+    auto brDone = e.emitBranchPlaceholder(0x80); // BRA: skip positive-path pla
+    e.patchBranchTarget(brPos);
+    e.pla();                              // restore A (positive case)
+    e.patchBranchTarget(brDone);
+
+    // --- Step 2: Store abs(left) in hardware regs ---
+    e.sta_addr(leftBase);
+    e.txa();
+    e.sta_addr(leftBase + 1);
+
+    // --- Step 3: Compute result sign (XOR of operand signs for mul/div) ---
     if (op != 2 && !srcIsConst) {
         uint32_t srcAddr = resolveAbsAddr(parser, tokenIndex, scopePrefix);
         e.lda_addr(srcAddr + 1);      // right high byte
         e.eor_addr(SIGN);             // XOR signs
-        e.sta_addr(SIGN);             // SIGN = left_high ^ right_high
+        e.sta_addr(SIGN);             // SIGN = left_sign ^ right_sign
     } else if (op != 2 && srcIsConst) {
         int32_t val = (int32_t)(int16_t)srcAst->getValue(parser);
         if (val < 0) {
@@ -1758,15 +1773,6 @@ void AssemblerSimulatedOps::emitSignedMathOp(AssemblerParser* parser, M65Emitter
             e.sta_addr(SIGN);
         }
     }
-
-    // --- Step 2: abs(left) into .AX ---
-    // txa(1) bpl(2) neg_16(13) → bpl skips 13 bytes
-    e.txa(); auto br1756 = e.emitBranchPlaceholder(0x10); e.neg_16(); e.patchBranchTarget(br1756);
-
-    // --- Step 3: Store abs(left) in hardware regs ---
-    e.sta_addr(leftBase);
-    e.txa();
-    e.sta_addr(leftBase + 1);
 
     // --- Step 4: Store abs(right) in hardware regs ---
     if (srcIsConst) {
@@ -1815,6 +1821,116 @@ void AssemblerSimulatedOps::emitSignedMathOp(AssemblerParser* parser, M65Emitter
     e.patchBranchTarget(br1810);
     e.pla();
     e.patchBranchTarget(br1813);
+}
+
+// emitSignedMathOp32 — 32-bit signed mul/div/mod via abs→unsigned hw→sign fixup
+// op: 0=mul, 1=div, 2=mod
+// Assumes .AXYZ holds left operand; src2 from operand token.
+void AssemblerSimulatedOps::emitSignedMathOp32(AssemblerParser* parser, M65Emitter& e, int op,
+                             const std::string& /*dest*/, int tokenIndex, const std::string& scopePrefix) {
+    int idx = tokenIndex;
+    bool isImmediate = (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH);
+    if (isImmediate) idx++;
+    auto srcAst = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
+    if (!srcAst) return;
+
+    const uint16_t SIGN = m65::MATH_SIGN;
+    uint16_t leftBase  = (op == 0) ? m65::MULT_ARG1 : m65::DIV_ARG1;
+    uint16_t rightBase = (op == 0) ? m65::MULT_ARG2 : m65::DIV_ARG2;
+    bool srcIsConst = isImmediate && srcAst->isConstant(parser);
+
+    // --- Step 1: Save sign of left operand and compute abs(left) ---
+    // Must preserve AXYZ intact for neg_32, so save A before using it.
+    e.pha();                              // save original A (byte 0)
+    e.tza();                              // A = Z = byte 3 (sign byte)
+    e.sta_addr(SIGN);                     // SIGN = left sign byte
+    auto brPos = e.emitBranchPlaceholder(0x10); // BPL: left is positive, skip neg
+    e.pla();                              // restore A for neg_32
+    e.neg_32();                           // AXYZ = abs(left)
+    auto brDone = e.emitBranchPlaceholder(0x80); // BRA: skip positive-path pla
+    e.patchBranchTarget(brPos);
+    e.pla();                              // restore A (positive case)
+    e.patchBranchTarget(brDone);
+
+    // --- Step 2: Store abs(left) in hardware regs ---
+    e.sta_addr(leftBase);
+    e.txa(); e.sta_addr(leftBase + 1);
+    e.tya(); e.sta_addr(leftBase + 2);
+    e.tza(); e.sta_addr(leftBase + 3);
+
+    // --- Step 3: Compute result sign (XOR of operand signs for mul/div) ---
+    if (op != 2 && !srcIsConst) {
+        uint32_t srcAddr = resolveAbsAddr(parser, tokenIndex, scopePrefix);
+        e.lda_addr(srcAddr + 3);          // right high byte (byte 3)
+        e.eor_addr(SIGN);                 // XOR signs
+        e.sta_addr(SIGN);                 // SIGN = left_sign ^ right_sign
+    } else if (op != 2 && srcIsConst) {
+        int64_t val = (int64_t)(int32_t)srcAst->getValue(parser);
+        if (val < 0) {
+            e.lda_addr(SIGN);
+            e.eor_imm(0x80);
+            e.sta_addr(SIGN);
+        }
+    }
+
+    // --- Step 4: Store abs(right) in hardware regs ---
+    if (srcIsConst) {
+        int64_t val = (int64_t)(int32_t)srcAst->getValue(parser);
+        if (val < 0) val = -val;
+        for (int i = 0; i < 4; ++i) {
+            e.lda_imm((val >> (i * 8)) & 0xFF);
+            e.sta_addr(rightBase + i);
+        }
+    } else {
+        uint32_t srcAddr = resolveAbsAddr(parser, tokenIndex, scopePrefix);
+        for (int i = 0; i < 4; ++i) {
+            e.lda_addr(srcAddr + i);
+            e.sta_addr(rightBase + i);
+        }
+        // If source negative, negate the stored 32-bit value in hw regs
+        // Last lda loaded byte 3 (sign byte) — N flag is set if negative
+        auto br2 = e.emitBranchPlaceholder(0x10); // BPL: skip negation
+        e.lda_addr(rightBase);     e.eor_imm(0xFF); e.sec(); e.adc_imm(0); e.sta_addr(rightBase);
+        e.lda_addr(rightBase + 1); e.eor_imm(0xFF); e.adc_imm(0); e.sta_addr(rightBase + 1);
+        e.lda_addr(rightBase + 2); e.eor_imm(0xFF); e.adc_imm(0); e.sta_addr(rightBase + 2);
+        e.lda_addr(rightBase + 3); e.eor_imm(0xFF); e.adc_imm(0); e.sta_addr(rightBase + 3);
+        e.patchBranchTarget(br2);
+    }
+
+    // --- Step 5: Wait for hardware (div/mod only) ---
+    if (op != 0) {
+        e.bit_addr(m65::MATH_BUSY_STATUS); e.bne(-5);
+    }
+
+    // --- Step 6: Read result into .AXYZ ---
+    if (op == 0) {
+        e.lda_addr(m65::MULT_RES + 3); e.taz();
+        e.lda_addr(m65::MULT_RES + 2); e.tay();
+        e.lda_addr(m65::MULT_RES + 1); e.tax();
+        e.lda_addr(m65::MULT_RES);
+    } else if (op == 1) {
+        e.lda_addr(m65::DIV_RES + 3); e.taz();
+        e.lda_addr(m65::DIV_RES + 2); e.tay();
+        e.lda_addr(m65::DIV_RES + 1); e.tax();
+        e.lda_addr(m65::DIV_RES);
+    } else {
+        e.lda_addr(m65::DIV_REM + 3); e.taz();
+        e.lda_addr(m65::DIV_REM + 2); e.tay();
+        e.lda_addr(m65::DIV_REM + 1); e.tax();
+        e.lda_addr(m65::DIV_REM);
+    }
+
+    // --- Step 7: Sign correction ---
+    // If SIGN bit 7 set, negate .AXYZ
+    e.pha();
+    e.lda_addr(SIGN);
+    auto br3 = e.emitBranchPlaceholder(0x10); // BPL: skip sign correction
+    e.pla();
+    e.neg_32();
+    auto br4 = e.emitBranchPlaceholder(0x80); // BRA: skip positive-path pla
+    e.patchBranchTarget(br3);
+    e.pla();
+    e.patchBranchTarget(br4);
 }
 
 // mul.s16 .ax, src — Signed 16-bit multiply
@@ -2866,14 +2982,20 @@ void AssemblerSimulatedOps::dispatch_Mod16(AssemblerParser* p, M65Emitter& e, St
     emitMod16Code(p, e, s->type == Stmt::MOD_S16, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
 }
 
+void AssemblerSimulatedOps::dispatch_MulS32(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSignedMathOp32(p, e, 0, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_DivS32(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSignedMathOp32(p, e, 1, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
+}
 void AssemblerSimulatedOps::dispatch_Mod32(AssemblerParser* p, M65Emitter& e, Stmt* s) {
     emitMod32Code(p, e, s->type == Stmt::MOD_S32, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
 }
 void AssemblerSimulatedOps::emitMod32Code(AssemblerParser* parser, M65Emitter& e, bool isSigned, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
     if (isSigned) {
-        // Signed 32-bit modulo not yet fully implemented with sign fixup,
-        // fallback to unsigned for now but emit a warning if we could.
-        emitDivCode(parser, e, 32, dest, tokenIndex, scopePrefix);
+        // Signed 32-bit modulo: abs→unsigned div→read remainder→sign fixup
+        emitSignedMathOp32(parser, e, 2, dest, tokenIndex, scopePrefix);
+        return;
     } else {
         // Unsigned mod: perform div.32, then read remainder from $D76C-$D76F
         emitDivCode(parser, e, 32, dest, tokenIndex, scopePrefix);

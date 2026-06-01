@@ -41,7 +41,7 @@ Confirm all 7 tools build without errors: `cc45`, `ca45`, `ln45`, `ar45`, `nm45`
 make test
 ```
 
-This runs all unit, validation, and integration tests:
+This runs all unit, validation, integration, and emulator tests:
 - Compiler, assembler, linker, objdump unit tests
 - Const expression, register tracking, restrict, clobber, cast/fold tests
 - 14 validation suites (parser, semantic, assembler, linker, segments, symbols, structs, preprocessor, directives, simops, simops-extended, addressing, const, proc)
@@ -49,24 +49,22 @@ This runs all unit, validation, and integration tests:
 - O45 format and move/fill tests
 - ZP calling convention tests
 - Shadow IR tests
-- mmemu integration tests (if available)
+- mmemu execution tests (full test_mmemu.sh suite — **requires mmemu-cli**)
 - objdump45 tests (129 tests)
 
-**Gate: all tests must pass.**
+**Gate: all tests must pass. mmemu-cli must be installed and on PATH.**
 
 ---
 
-## 3. Emulator Validation (requires mmemu-cli)
+## 3. Stdlib Validation (requires mmemu-cli)
 
 ```bash
-make test-mmemu
 make test-stdlib
 ```
 
-- `test-mmemu`: Full compiler + assembler execution tests via mmemu-cli
-- `test-stdlib`: 13 stdlib tests (string.h, stdlib.h, ctype.h, math.h, time.h)
+- 13 stdlib execution tests (string.h, stdlib.h, ctype.h, math.h, time.h)
 
-**Gate: all tests must pass. Skip only if mmemu-cli is unavailable.**
+**Gate: all tests must pass.**
 
 ---
 
@@ -187,8 +185,10 @@ Or create via GitHub UI with release notes extracted from CHANGELOG.md.
 
 ## Quick Reference: One-Command Validation
 
-For a fast pre-release sanity check:
+Full pre-release validation (requires mmemu-cli):
 
 ```bash
-make clean && make all && make lib && make test && make bench && make test-stdlib
+make clean && make all && make lib && make test && make test-stdlib && make bench
 ```
+
+**All steps must exit 0. Any test failure blocks the release.**

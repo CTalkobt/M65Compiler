@@ -72,7 +72,9 @@ public:
     static void dispatch_BFExt(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_BFIns(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_MulS16(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_MulS32(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_DivS16(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_DivS32(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_Mod16(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_Mod32(AssemblerParser* p, M65Emitter& e, Stmt* s);
 
@@ -152,6 +154,7 @@ public:
     static void emitSTAXYZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
     static void emitLEAX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
     static void emitMOVE_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
+    static void emitSignedMathOp32(AssemblerParser* parser, M65Emitter& e, int op, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
 private:
     static uint32_t resolveAbsAddr(AssemblerParser* parser, int tokenIndex, const std::string& scopePrefix);
     static void emitSignedMathOp(AssemblerParser* parser, M65Emitter& e, int op, const std::string& dest, int tokenIndex, const std::string& scopePrefix);

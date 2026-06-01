@@ -109,7 +109,7 @@ test: all lib
 	@echo "Running clobber tracking tests..."
 	@bash src/test/test_clobber.sh
 	@echo "Validating mmemu-cli integration..."
-	-@bash src/test/test_mmemu.sh
+	@bash src/test/test_mmemu.sh
 	@echo "Running parser syntax error validation tests..."
 	@$(MAKE) test-validation-parser
 	@echo "Running struct/union semantic error validation tests..."

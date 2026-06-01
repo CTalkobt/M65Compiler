@@ -111,22 +111,15 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
             if (!stmt->label.empty()) {
                 e.machineState().invalidateAll();
             } else if (stmt->isSimulatedOp()) {
-                using ST = AssemblerParser::Statement;
-                auto t = stmt->type;
-                bool isFpOp = (t == ST::LDA_FP    || t == ST::STA_FP     ||
-                               t == ST::LDAX_FP   || t == ST::STAX_FP    ||
-                               t == ST::LDAXYZ_FP || t == ST::STAXYZ_FP  ||
-                               t == ST::LEAX_FP   || t == ST::MOVE_FP    ||
-                               t == ST::INC_FP    || t == ST::DEC_FP);
-                if (!isFpOp) {
-                    // Non-.fp simulated ops: conservative full invalidation
-                    for (int r = 0; r < REG_COUNT; r++)
-                        e.machineState().invalidateReg((RegId)r);
-                    e.machineState().flags.invalidate();
-                }
-                // .fp ops: no pre-invalidation — M65Emitter methods track state correctly
-                // through every instruction they emit, enabling tsxCached() to work
-                // across consecutive .fp op boundaries.
+                // All simulated ops: invalidate registers and flags before emission.
+                // Pass2 sizing uses a fresh M65Emitter per op, so tsxCached() always
+                // emits TSX. The generator must match by resetting state here —
+                // otherwise tsxCached() may skip TSX (fewer bytes than predicted),
+                // causing gap bytes ($00/BRK) in the binary.
+                // tsxCached() still optimizes within a single op's expansion.
+                for (int r = 0; r < REG_COUNT; r++)
+                    e.machineState().invalidateReg((RegId)r);
+                e.machineState().flags.invalidate();
             }
             // Regular instructions: don't pre-invalidate — let the typed methods
             // (lda_imm/sta_zp via emitInstruction) and our post-emission tracking
@@ -309,6 +302,9 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                                         else if (mn2 == "CMP" || mn2 == "CPX" || mn2 == "CPY") {
                                             e.machineState().flags.invalidate();
                                         }
+                                    } else if (resolvedMode == AddressingMode::IMMEDIATE16) {
+                                        // PHW #imm16: pushes 2 bytes, modifies SP
+                                        if (mn2 == "PHW") e.machineState().spModified();
                                     } else if (resolvedMode == AddressingMode::BASE_PAGE) {
                                         // Stores: propagate register value to ZP memory
                                         if (mn2 == "STA") e.machineState().storeZP((uint8_t)val, REG_A);
@@ -376,6 +372,8 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                                         }
                                         // JSR absolute: invalidate all
                                         else if (mn2 == "JSR") e.machineState().invalidateAll();
+                                        // PHW abs: pushes 2 bytes, modifies SP
+                                        else if (mn2 == "PHW") e.machineState().spModified();
                                     }
                                 } else {
                                     // No value — check implied/accumulator mode instructions
@@ -443,6 +441,8 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                                 if (stmt->instr.mnemonic == "bsr") {
                                     int32_t off = (int32_t)t - (int32_t)(stmt->address + 3);
                                     e.emitInstruction("bsr", AddressingMode::RELATIVE16, (uint32_t)(uint16_t)(int16_t)off, true);
+                                    // BSR is a subroutine call (like JSR) — invalidate all state
+                                    e.machineState().invalidateAll();
                                 } else if (stmt->size == 2) {
                                     int32_t off2 = (int32_t)t - (int32_t)(stmt->address + 2);
                                     e.emitInstruction(stmt->instr.mnemonic, AddressingMode::RELATIVE, (uint32_t)(uint8_t)(int8_t)off2, true);
