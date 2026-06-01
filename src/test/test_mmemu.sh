@@ -8,6 +8,22 @@ LD="./bin/ln45"
 MMEMU="mmemu-cli"
 mkdir -p build/test
 
+# ── mmemu-cli availability check ──────────────────────────────────────
+if ! command -v "$MMEMU" &>/dev/null; then
+    echo ""
+    echo "╔══════════════════════════════════════════════════════════════╗"
+    echo "║  WARNING: mmemu-cli is not installed or not on PATH         ║"
+    echo "║                                                             ║"
+    echo "║  Emulator-based execution tests CANNOT run without it.      ║"
+    echo "║  These tests verify runtime correctness of generated code   ║"
+    echo "║  and are REQUIRED for release builds.                       ║"
+    echo "║                                                             ║"
+    echo "║  Install from: https://github.com/CTalkobt/mmsim           ║"
+    echo "╚══════════════════════════════════════════════════════════════╝"
+    echo ""
+    exit 1
+fi
+
 failed=0
 
 # Helper function: compile, assemble, and link with stdlib (for tests using assert.h)
