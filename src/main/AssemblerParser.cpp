@@ -886,12 +886,18 @@ void AssemblerParser::pass1() {
                 stmt->size = d.size();
             }
             else if (stmt->instr.mnemonic == "mul.s16" || stmt->instr.mnemonic == "div.s16" ||
-                     stmt->instr.mnemonic == "mod.16" || stmt->instr.mnemonic == "mod.s16") {
+                     stmt->instr.mnemonic == "mod.16" || stmt->instr.mnemonic == "mod.s16" ||
+                     stmt->instr.mnemonic == "mul.s32" || stmt->instr.mnemonic == "div.s32" ||
+                     stmt->instr.mnemonic == "mod.32" || stmt->instr.mnemonic == "mod.s32") {
                 std::string m = stmt->instr.mnemonic;
                 if (m == "mul.s16") { stmt->type = Statement::MUL_S16; stmt->emitFn = AssemblerSimulatedOps::dispatch_MulS16; }
+                else if (m == "mul.s32") { stmt->type = Statement::MUL_S32; stmt->emitFn = AssemblerSimulatedOps::dispatch_MulS32; }
                 else if (m == "div.s16") { stmt->type = Statement::DIV_S16; stmt->emitFn = AssemblerSimulatedOps::dispatch_DivS16; }
+                else if (m == "div.s32") { stmt->type = Statement::DIV_S32; stmt->emitFn = AssemblerSimulatedOps::dispatch_DivS32; }
                 else if (m == "mod.16") { stmt->type = Statement::MOD16; stmt->emitFn = AssemblerSimulatedOps::dispatch_Mod16; }
-                else { stmt->type = Statement::MOD_S16; stmt->emitFn = AssemblerSimulatedOps::dispatch_Mod16; }
+                else if (m == "mod.s16") { stmt->type = Statement::MOD_S16; stmt->emitFn = AssemblerSimulatedOps::dispatch_Mod16; }
+                else if (m == "mod.32") { stmt->type = Statement::MOD32; stmt->emitFn = AssemblerSimulatedOps::dispatch_Mod32; }
+                else { stmt->type = Statement::MOD_S32; stmt->emitFn = AssemblerSimulatedOps::dispatch_Mod32; }
                 const auto& dst = advance();
                 stmt->instr.operand = (dst.type == AssemblerTokenType::REGISTER ? "." : "") + dst.value;
                 expect(AssemblerTokenType::COMMA, "Expected , after destination");
@@ -899,8 +905,11 @@ void AssemblerParser::pass1() {
                 while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
                 std::vector<uint8_t> d;
                 if (stmt->type == Statement::MUL_S16) emitMulS16Code(d, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::MUL_S32) emitMulS32Code(d, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
                 else if (stmt->type == Statement::DIV_S16) emitDivS16Code(d, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
-                else emitMod16Code(d, stmt->type == Statement::MOD_S16, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::DIV_S32) emitDivS32Code(d, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
+                else if (stmt->type == Statement::MOD16 || stmt->type == Statement::MOD_S16) emitMod16Code(d, stmt->type == Statement::MOD_S16, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
+                else emitMod32Code(d, stmt->type == Statement::MOD_S32, stmt->instr.operand, stmt->exprTokenIndex, stmt->scopePrefix);
                 stmt->size = d.size();
             }
             else if (stmt->instr.mnemonic.substr(0, 3) == "mul" || stmt->instr.mnemonic.substr(0, 3) == "div") {
@@ -1317,14 +1326,29 @@ void AssemblerParser::emitMulS16Code(std::vector<uint8_t>& binary, const std::st
     AssemblerSimulatedOps::emitMulS16Code(this, e, dest, tokenIndex, scopePrefix);
 }
 
+void AssemblerParser::emitMulS32Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    AssemblerSimulatedOps::emitSignedMathOp32(this, e, 0, dest, tokenIndex, scopePrefix);
+}
+
 void AssemblerParser::emitDivS16Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
     M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitDivS16Code(this, e, dest, tokenIndex, scopePrefix);
 }
 
+void AssemblerParser::emitDivS32Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    AssemblerSimulatedOps::emitSignedMathOp32(this, e, 1, dest, tokenIndex, scopePrefix);
+}
+
 void AssemblerParser::emitMod16Code(std::vector<uint8_t>& binary, bool isSigned, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
     M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitMod16Code(this, e, isSigned, dest, tokenIndex, scopePrefix);
+}
+
+void AssemblerParser::emitMod32Code(std::vector<uint8_t>& binary, bool isSigned, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    AssemblerSimulatedOps::emitMod32Code(this, e, isSigned, dest, tokenIndex, scopePrefix);
 }
 
 void AssemblerParser::emitLDA_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
