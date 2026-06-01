@@ -2,6 +2,27 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
+## [v1.0.1] - 2026-06-01
+
+Bug fix release addressing assembler code generation crashes and missing signed 32-bit math operations.
+
+### Bug Fixes
+
+- **Fix assembler simulated op size mismatch causing BRK crashes** — The generator's MachineState tracking diverged from pass2 sizing predictions, causing `tsxCached()` to skip TSX instructions and produce fewer bytes than allocated. Gap bytes (`$00`/BRK) corrupted the binary at runtime. Affected any program with function calls between stack-frame operations (e.g., `stax.fp` followed by `ldax.fp` across a `jsr`).
+- **Fix BSR MachineState tracking** — The assembler optimizer converts JSR→BSR for position-independence, but BSR had no MachineState invalidation in the generator's branch instruction path, allowing stale X=SP assumptions to persist across subroutine calls.
+- **Fix PHW MachineState tracking** — `phw #imm16` and `phw abs` modify SP but didn't call `spModified()`, leaving the TSX cache stale after push-word operations.
+- **Fix #101: Add missing 32-bit signed mul/div/mod assembler ops** — `mul.s32`, `div.s32`, `mod.32`, `mod.s32` were emitted by IRCodeGen for `long` arithmetic but not recognized by the assembler lexer/parser. `mul.s32`/`div.s32` crashed with a `stoi` exception; `mod.32`/`mod.s32` produced "Unknown instruction" errors.
+- **Fix signed math register-clobber bug** — Both 16-bit (`emitSignedMathOp`) and 32-bit signed math ops destroyed register A during sign detection before `neg_16`/`neg_32` could negate the full operand. Fixed by saving A via PHA before sign detection.
+- **Fix signed `mod.s32`** — Was falling back to unsigned division; now uses proper sign-corrected remainder.
+
+### Release Process
+
+- `make test` now enforces mmemu execution tests (removed `-@` error suppression)
+- `test_mmemu.sh` and `test_stdlib.sh` detect missing mmemu-cli with a prominent warning and non-zero exit
+- Updated `RELEASE-STEPS.md` to require mmemu-cli and all tests passing for release
+
+---
+
 ## [v1.0] - 2026-05-31
 
 Final release of the MEGA65 C Compiler Suite. All v1.0 blockers resolved, comprehensive test coverage, production-ready optimizations.
