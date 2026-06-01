@@ -2,9 +2,11 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
-## [v1.0.1] - 2026-06-01
+## [v1.0.1] - 2026-06-01 — Release Notes
 
 Bug fix release addressing assembler code generation crashes and missing signed 32-bit math operations.
+
+See also: [GitHub Release](https://github.com/CTalkobt/M65Compiler/releases/tag/v1.0.1)
 
 ### Bug Fixes
 
