@@ -31,13 +31,14 @@ __init:
     sty __saved_sph + 1
 
     ; Save ZP $08-$FF to BSS buffer via static DMA job
-    ldz #0              ; Z must be 0 for stz clears below
+    ldz #0              ; Z must be 0 for stz bank clears below
+    lda #$01
+    sta $D703           ; EN018B = 1 (F018B enhanced DMA list format)
+    stz $D702           ; bank = 0
     lda #>__dma_save
-    sta $D702
-    stz $D703
+    sta $D701           ; DMA list address MSB
     lda #<__dma_save
-    sta $D701
-    stz $D700           ; trigger DMA
+    sta $D700           ; DMA list address LSB — triggers DMA
 
     jsr _init_features
     jsr _main
@@ -45,12 +46,11 @@ __init:
     ; Fall through to __exit
 __exit:
     ; Restore ZP $08-$FF from BSS buffer via static DMA job
+    stz $D702           ; bank = 0 (Z still 0 from __init)
     lda #>__dma_restore
-    sta $D702
-    stz $D703
+    sta $D701           ; DMA list address MSB
     lda #<__dma_restore
-    sta $D701
-    stz $D700           ; trigger DMA
+    sta $D700           ; DMA list address LSB — triggers DMA
 
     ; Restore caller's stack pointer and return.
 __saved_spl:
