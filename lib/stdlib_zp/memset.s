@@ -20,7 +20,7 @@ proc _memset
 @loop:
     ldx $08
     bne @do
-    cpy $07
+    ldx $07
     beq @done
 @do:
     sta ($03),y
