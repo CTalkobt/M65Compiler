@@ -824,10 +824,14 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
 
                 for (auto& tail : tails) {
                     if (isFirst) {
+                        auto* refStmt = parser->statements[tail.startIdx].get();
                         auto labelStmt = std::make_unique<AssemblerParser::Statement>();
                         labelStmt->type = AssemblerParser::Statement::DIRECTIVE;
                         labelStmt->label = sharedLabel;
-                        labelStmt->line = parser->statements[tail.startIdx]->line;
+                        labelStmt->line = refStmt->line;
+                        labelStmt->segmentName = refStmt->segmentName;
+                        labelStmt->localLabelScope = refStmt->localLabelScope;
+                        labelStmt->scopePrefix = refStmt->scopePrefix;
                         parser->statements.insert(
                             parser->statements.begin() + tail.startIdx,
                             std::move(labelStmt)
@@ -844,6 +848,9 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
                         braStmt->line = firstInstr->line;
                         braStmt->sourceFile = firstInstr->sourceFile;
                         braStmt->sourceLine = firstInstr->sourceLine;
+                        braStmt->segmentName = firstInstr->segmentName;
+                        braStmt->localLabelScope = firstInstr->localLabelScope;
+                        braStmt->scopePrefix = firstInstr->scopePrefix;
 
                         int totalSaved = 0;
                         for (size_t idx : tail.instrIndices) {
@@ -907,12 +914,15 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
 
                     std::string offsetLabel = "__tail_" + std::to_string(reinterpret_cast<uintptr_t>(&allTails[i])) + "_into";
 
+                    size_t insertPos = longTail[longTail.size() - shortTail.size()];
+                    auto* refStmt = parser->statements[insertPos].get();
                     auto labelStmt = std::make_unique<AssemblerParser::Statement>();
                     labelStmt->type = AssemblerParser::Statement::DIRECTIVE;
                     labelStmt->label = offsetLabel;
-                    labelStmt->line = parser->statements[longTail[longTail.size() - shortTail.size()]]->line;
-
-                    size_t insertPos = longTail[longTail.size() - shortTail.size()];
+                    labelStmt->line = refStmt->line;
+                    labelStmt->segmentName = refStmt->segmentName;
+                    labelStmt->localLabelScope = refStmt->localLabelScope;
+                    labelStmt->scopePrefix = refStmt->scopePrefix;
                     parser->statements.insert(
                         parser->statements.begin() + insertPos,
                         std::move(labelStmt)
@@ -928,6 +938,9 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
                     braStmt->line = firstInstr->line;
                     braStmt->sourceFile = firstInstr->sourceFile;
                     braStmt->sourceLine = firstInstr->sourceLine;
+                    braStmt->segmentName = firstInstr->segmentName;
+                    braStmt->localLabelScope = firstInstr->localLabelScope;
+                    braStmt->scopePrefix = firstInstr->scopePrefix;
 
                     for (size_t idx : allTails[i].instrIndices) {
                         parser->statements[idx]->deleted = true;
@@ -1045,6 +1058,7 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
         rts->instr.mnemonic = "rts";
         rts->instr.mode = AddressingMode::IMPLIED;
         rts->size = 1;
+        rts->segmentName = parser->statements[matches[0].instrIndices[0]]->segmentName;
         sharedRoutines.push_back(std::move(rts));
 
         // Replace occurrences (reverse order)
@@ -1063,6 +1077,9 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
             bsr->line = firstStmt->line;
             bsr->sourceFile = firstStmt->sourceFile;
             bsr->sourceLine = firstStmt->sourceLine;
+            bsr->segmentName = firstStmt->segmentName;
+            bsr->localLabelScope = firstStmt->localLabelScope;
+            bsr->scopePrefix = firstStmt->scopePrefix;
 
             int deleted_total = 0;
             for (size_t idx : match.instrIndices) {
@@ -1088,6 +1105,7 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
         auto label = std::make_unique<AssemblerParser::Statement>();
         label->type = AssemblerParser::Statement::DIRECTIVE;
         label->label = "__shared_routines";
+        label->segmentName = sharedRoutines[0]->segmentName;
         parser->statements.push_back(std::move(label));
 
         for (auto& routine : sharedRoutines) {

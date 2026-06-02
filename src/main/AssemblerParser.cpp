@@ -1038,8 +1038,10 @@ void AssemblerParser::pass1() {
                     }
                     scopeStack.push_back(pN); stmt->scopePrefix = currentScopePrefix();
                     // Stack-relative offsets: past 2-byte return addr
+                    // Iterate forward — first declared param (leftmost in C) is pushed last
+                    // by the compiler (right-to-left push), so it's closest to SP (lowest offset).
                     int sOff = 2;
-                    for (int i = (int)args.size() - 1; i >= 0; --i) {
+                    for (int i = 0; i < (int)args.size(); ++i) {
                         std::string scA = stmt->scopePrefix + args[i].name;
                         std::string scAN = stmt->scopePrefix + "ARG" + std::to_string(i + 1);
                         ctx->localArgs[args[i].name] = sOff; ctx->localArgs["ARG" + std::to_string(i + 1)] = sOff;
@@ -1448,7 +1450,14 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
 
     if (instr.mnemonic == "beq" || instr.mnemonic == "bne" || instr.mnemonic == "bra" || instr.mnemonic == "bcc" || instr.mnemonic == "bcs" || instr.mnemonic == "bpl" || instr.mnemonic == "bmi" || instr.mnemonic == "bvc" || instr.mnemonic == "bvs") {
         try {
-            uint32_t target = evaluateExpressionAt(instr.operandTokenIndex, scopePrefix);
+            uint32_t target;
+            if (instr.operandTokenIndex >= 0) {
+                target = evaluateExpressionAt(instr.operandTokenIndex, scopePrefix);
+            } else if (!instr.operand.empty() && symbolTable.count(instr.operand)) {
+                target = symbolTable.at(instr.operand).value;
+            } else {
+                return 3; // Can't resolve yet — assume worst case (16-bit relative)
+            }
             int32_t diff = (int32_t)target - (int32_t)(currentAddr + 2);
             if (diff >= -128 && diff <= 127) return 2;
         } catch (...) {}
@@ -1472,14 +1481,16 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
     }
 
     if (instr.mnemonic == "rtn") {
-        // rtn #0 optimizes to just RTS (1 byte); rtn #N is RTS + immediate (2 bytes)
+        // rtn #N auto-adds proc param size for callee stack cleanup.
+        // rtn #0 in a proc with no params → RTS (1 byte); otherwise RTS #N (2 bytes).
+        uint32_t v = 0;
         if (!instr.operand.empty()) {
             Symbol* sym = resolveSymbol(instr.operand, scopePrefix);
-            uint32_t v = sym ? sym->value : 0;
+            v = sym ? sym->value : 0;
             if (!sym) { try { v = std::stoul(instr.operand); } catch(...) { v = 0; } }
-            if (v == 0) return 1;
         }
-        return 2;
+        if (currentProc) v += currentProc->totalParamSize;
+        return (v == 0) ? 1 : 2;
     }
 
     switch (resolvedMode) {
@@ -1627,10 +1638,11 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                 s->address = cP;
             }
             int oS = s->size;
-            if (s->type == Statement::INSTRUCTION && s->instr.mnemonic == "proc") s->size = 0;
+            if (s->type == Statement::INSTRUCTION && s->instr.mnemonic == "proc") { s->size = 0; if (s->procCtx) currentProc = s->procCtx; }
             else if (s->type == Statement::INSTRUCTION && s->instr.mnemonic == "endproc") {
                 if (isDeadCode) s->size = 0; else s->size = (s->instr.procParamSize == 0) ? 1 : 2;
                 isDeadCode = false;
+                currentProc = nullptr;
             } else if (isDeadCode && s->type != Statement::DIRECTIVE && s->type != Statement::BASIC_UPSTART) s->size = 0;
             else {
                 if (s->type == Statement::INSTRUCTION) s->size = calculateInstructionSize(s->instr, cP, s->scopePrefix);

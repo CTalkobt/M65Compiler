@@ -31,6 +31,9 @@ palette_fade.o45: palette_fade.c
 palette_fade_asm.o45: palette_fade_asm.s
 	$(CA45) -c palette_fade_asm.s -o palette_fade_asm.o45
 
+$(CRT0) $(STDLIB):
+	$(MAKE) -C $(ROOT)/lib
+
 $(TARGET): palette_fade.o45 palette_fade_asm.o45 $(CRT0) $(STDLIB)
 	$(LN45) -basic -M palette_fade.map -o $(TARGET) $(CRT0) palette_fade.o45 palette_fade_asm.o45 $(STDLIB)
 

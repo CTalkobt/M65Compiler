@@ -250,6 +250,8 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                                     v = parser->evaluateExpressionAt(stmt->instr.operandTokenIndex, stmt->scopePrefix);
                                 }
                             }
+                            // Auto-add proc parameter size so callee cleans up stack params
+                            if (currentPass2Proc) v += currentPass2Proc->totalParamSize;
                             if (v == 0) e.emitInstruction("rts", AddressingMode::IMPLIED);
                             else e.emitInstruction("rts", AddressingMode::IMMEDIATE, v, true);
                         } else { // Handle generic instructions and their operands
@@ -437,7 +439,14 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                                     }
                                 }
                             } else { // Branch instructions
-                                uint32_t t = parser->evaluateExpressionAt(stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                                uint32_t t;
+                                if (stmt->instr.operandTokenIndex >= 0) {
+                                    t = parser->evaluateExpressionAt(stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                                } else if (!stmt->instr.operand.empty() && parser->symbolTable.count(stmt->instr.operand)) {
+                                    t = parser->symbolTable.at(stmt->instr.operand).value;
+                                } else {
+                                    t = stmt->address; // fallback: branch to self
+                                }
                                 if (stmt->instr.mnemonic == "bsr") {
                                     int32_t off = (int32_t)t - (int32_t)(stmt->address + 3);
                                     e.emitInstruction("bsr", AddressingMode::RELATIVE16, (uint32_t)(uint16_t)(int16_t)off, true);
