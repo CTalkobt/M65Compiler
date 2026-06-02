@@ -31,6 +31,7 @@ __init:
     sty __saved_sph + 1
 
     ; Save ZP $08-$FF to BSS buffer via static DMA job
+    ldz #0              ; Z must be 0 for stz clears below
     lda #>__dma_save
     sta $D702
     stz $D703
