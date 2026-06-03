@@ -2492,8 +2492,12 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     emit("jsr (__zp_scratch)");
                 }
 
-                // Restore _fp after callee cleaned params (rts #N popped argBytes)
+                // Caller-side stack cleanup: pop argBytes with PLZ instructions
+                // (RTS #N opcode $62 is unreliable on some hardware)
                 if (argBytes > 0) {
+                    for (int i = 0; i < argBytes; i++) {
+                        emit("plz");
+                    }
                     emit(".var _fp = _fp - " + std::to_string(argBytes));
                 }
             }

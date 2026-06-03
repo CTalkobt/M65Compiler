@@ -160,8 +160,9 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                     continue;
                 } else if (stmt->instr.mnemonic == "endproc") {
                     if (!isDeadCode) {
-                        if (stmt->instr.procParamSize == 0) e.emitInstruction("rts", AddressingMode::IMPLIED);
-                        else e.emitInstruction("rts", AddressingMode::IMMEDIATE, stmt->instr.procParamSize, true);
+                        // Always emit plain RTS — caller handles stack cleanup via PLZ
+                        // (RTS #N opcode $62 is unreliable on some 45GS02 hardware)
+                        e.emitInstruction("rts", AddressingMode::IMPLIED);
                     }
                     currentPass2Proc = pass2ProcStack.empty() ? nullptr : pass2ProcStack.back();
                     if (!pass2ProcStack.empty()) pass2ProcStack.pop_back();
@@ -250,8 +251,6 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                                     v = parser->evaluateExpressionAt(stmt->instr.operandTokenIndex, stmt->scopePrefix);
                                 }
                             }
-                            // Auto-add proc parameter size so callee cleans up stack params
-                            if (currentPass2Proc) v += currentPass2Proc->totalParamSize;
                             if (v == 0) e.emitInstruction("rts", AddressingMode::IMPLIED);
                             else e.emitInstruction("rts", AddressingMode::IMMEDIATE, v, true);
                         } else { // Handle generic instructions and their operands

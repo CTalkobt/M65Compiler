@@ -58,5 +58,5 @@ proc _memcpy, W#_p_dest, W#_p_src, W#_p_n
     pha
     lda __sp_base+_p_dest, x       ; lo
     plx                             ; X = hi
-    rtn #0
+    rts
     endproc

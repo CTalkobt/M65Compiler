@@ -1062,8 +1062,8 @@ void AssemblerParser::pass1() {
                         addError("Error: 'endproc' outside of procedure scope");
                     }
                     if (!scopeStack.empty()) scopeStack.pop_back();
-                    // RTS (1 byte) or RTS #n (2 bytes)
-                    stmt->size = (stmt->instr.procParamSize == 0) ? 1 : 2;
+                    // Always plain RTS (1 byte) — caller handles stack cleanup
+                    stmt->size = 1;
                 }
                 else if (stmt->instr.mnemonic == "call") {
                     stmt->instr.operand = advance().value;
@@ -1396,7 +1396,7 @@ void AssemblerParser::emitBFInsCode(std::vector<uint8_t>& binary, bool is16, int
 
 int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t currentAddr, const std::string& scopePrefix) {
     if (instr.mnemonic == "proc") return 0;
-    if (instr.mnemonic == "endproc") return (instr.procParamSize == 0) ? 1 : 2;
+    if (instr.mnemonic == "endproc") return 1; // always plain RTS
     if (instr.mnemonic == "push" || instr.mnemonic == "pop") {
         return AssemblerSimulatedOps::getPushPopSize(this, instr.mnemonic == "push", instr.operand, instr.operandTokenIndex, scopePrefix);
     }
@@ -1481,16 +1481,14 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
     }
 
     if (instr.mnemonic == "rtn") {
-        // rtn #N auto-adds proc param size for callee stack cleanup.
-        // rtn #0 in a proc with no params → RTS (1 byte); otherwise RTS #N (2 bytes).
-        uint32_t v = 0;
+        // rtn #0 optimizes to just RTS (1 byte); rtn #N is RTS + immediate (2 bytes)
         if (!instr.operand.empty()) {
             Symbol* sym = resolveSymbol(instr.operand, scopePrefix);
-            v = sym ? sym->value : 0;
+            uint32_t v = sym ? sym->value : 0;
             if (!sym) { try { v = std::stoul(instr.operand); } catch(...) { v = 0; } }
+            if (v == 0) return 1;
         }
-        if (currentProc) v += currentProc->totalParamSize;
-        return (v == 0) ? 1 : 2;
+        return 2;
     }
 
     switch (resolvedMode) {
@@ -1638,11 +1636,10 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                 s->address = cP;
             }
             int oS = s->size;
-            if (s->type == Statement::INSTRUCTION && s->instr.mnemonic == "proc") { s->size = 0; if (s->procCtx) currentProc = s->procCtx; }
+            if (s->type == Statement::INSTRUCTION && s->instr.mnemonic == "proc") s->size = 0;
             else if (s->type == Statement::INSTRUCTION && s->instr.mnemonic == "endproc") {
-                if (isDeadCode) s->size = 0; else s->size = (s->instr.procParamSize == 0) ? 1 : 2;
+                if (isDeadCode) s->size = 0; else s->size = 1; // always plain RTS
                 isDeadCode = false;
-                currentProc = nullptr;
             } else if (isDeadCode && s->type != Statement::DIRECTIVE && s->type != Statement::BASIC_UPSTART) s->size = 0;
             else {
                 if (s->type == Statement::INSTRUCTION) s->size = calculateInstructionSize(s->instr, cP, s->scopePrefix);
