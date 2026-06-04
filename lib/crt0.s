@@ -30,10 +30,15 @@ __init:
     tsy
     sty __saved_sph + 1
 
+    ; Enable MEGA65 I/O before DMA — GS knock must precede $D700 access
+    lda #$47            ; 'G'
+    sta $D02F
+    lda #$53            ; 'S'
+    sta $D02F
+
     ; Save ZP $08-$FF to BSS buffer via static DMA job
     ldz #0              ; Z must be 0 for stz bank clears below
-    lda #$01
-    sta $D703           ; EN018B = 1 (F018B enhanced DMA list format)
+    stz $D704           ; megabyte bank = 0 (clear stale KERNAL value)
     stz $D702           ; bank = 0
     lda #>__dma_save
     sta $D701           ; DMA list address MSB
@@ -46,7 +51,9 @@ __init:
     ; Fall through to __exit
 __exit:
     ; Restore ZP $08-$FF from BSS buffer via static DMA job
-    stz $D702           ; bank = 0 (Z still 0 from __init)
+    ldz #0              ; Z may have changed during program execution
+    stz $D704           ; megabyte bank = 0
+    stz $D702           ; bank = 0
     lda #>__dma_restore
     sta $D701           ; DMA list address MSB
     lda #<__dma_restore

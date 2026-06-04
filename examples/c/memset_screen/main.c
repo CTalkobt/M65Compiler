@@ -14,12 +14,16 @@ int main() {
 
     VREG_BORDER = COLOR_BLUE;
     VREG_BG0 = COLOR_BLACK;
+    __asm__("sei"); 
 
     while (1) {
+//    VREG_BG0 = COLOR_BLACK;
         for (ch = 0; ; ch++) {
+//    VREG_BORDER = ch;
             memset(SCREEN, ch, SCRSIZE);
-            if (ch == 255) break;
+            if (ch >= 255) break;
         }
+// VREG_BG0=COLOR_RED;
     }
 
     return 0;

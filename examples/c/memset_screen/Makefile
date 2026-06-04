@@ -23,3 +23,6 @@ clean:
 
 run: $(TARGET)
 	xemu-xmega65 -prg $(TARGET)
+
+inspect: $(TARGET)
+	../../../bin/objdump45 -d *.prg

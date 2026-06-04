@@ -13,17 +13,10 @@
 .segment "init"
 
 _init_features:
-    ; Enable MEGA65 I/O
-    lda #$47        ; 'G'
-    sta $D02F
-    lda #$53        ; 'S'
-    sta $D02F
+    ; GS knock already done in crt0.s (before DMA)
 
     ; Set CPU speed to 40 MHz
     lda #$40
     sta $D054
-
-    ; Ensure 8-bit stack mode on page $01 (SEE)
-    ; (Use CLE for 16-bit stack if desired)
 
     rts

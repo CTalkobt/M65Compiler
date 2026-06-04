@@ -7,11 +7,7 @@
 .segment "init"
 
 _init_features:
-    ; Enable MEGA65 I/O
-    lda #$47        ; 'G'
-    sta $D02F
-    lda #$53        ; 'S'
-    sta $D02F
+    ; GS knock already done in crt0_zp.s (before DMA)
 
     ; Set CPU speed to 40 MHz
     lda #$40
