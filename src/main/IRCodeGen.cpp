@@ -224,8 +224,13 @@ void IRCodeGen::storeVreg(uint32_t vregId) {
                 emit("staxyz.fp " + sym);
             } else if (alloc.type == ir::Type::I8) {
                 emit("sta.fp " + sym);
+            } else if (!ms_.reg[REG_Z].isUnknown()) {
+                // Hi byte already in Z (e.g. from ldz #imm) — use staz.fp directly
+                emit("staz.fp " + sym);
             } else {
-                emit("stax.fp " + sym);
+                // Hi byte in X — transfer to Z for IRQ-safe frame store
+                emit("pha"); emit("txa"); emit("taz"); emit("pla");
+                emit("staz.fp " + sym);
             }
             break;
         }
@@ -1205,16 +1210,25 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             ms_.setConst(REG_A, b0);
             emit("lda #" + std::to_string((int)b0), r);
             // Can skip tax/tay/taz when byte matches A only if storeVreg
-            // uses per-byte stores (IN_ZP). Frame stores use stax.fp/staxyz.fp
-            // which require actual register values in X/Y/Z.
+            // uses per-byte stores (IN_ZP). Frame stores use staz.fp/staxyz.fp
+            // which require actual register values in Z (or X/Y/Z for I32).
             bool canSkipTransfer = inst.dest.isVreg() &&
                 alloc_.getAlloc(inst.dest.vregId).loc == VRegAllocator::IN_ZP;
+            bool destInFrame = inst.dest.isVreg() &&
+                alloc_.getAlloc(inst.dest.vregId).loc == VRegAllocator::IN_FRAME;
             if (inst.resultType == ir::Type::I32) {
                 if (b1 == b0 && canSkipTransfer) { ms_.setConst(REG_X, b1); } else if (b1 == b0) { emit("tax", r); ms_.setTransfer(REG_X, REG_A); } else { emit("ldx #" + std::to_string((int)b1), r); ms_.setConst(REG_X, b1); }
                 if (b2 == b0 && canSkipTransfer) { ms_.setConst(REG_Y, b2); } else if (b2 == b0) { emit("tay", r); ms_.setTransfer(REG_Y, REG_A); } else { emit("ldy #" + std::to_string((int)b2), r); ms_.setConst(REG_Y, b2); }
                 if (b3 == b0 && canSkipTransfer) { ms_.setConst(REG_Z, b3); } else if (b3 == b0) { emit("taz", r); ms_.setTransfer(REG_Z, REG_A); } else { emit("ldz #" + std::to_string((int)b3), r); ms_.setConst(REG_Z, b3); }
             } else if (inst.resultType != ir::Type::I8) {
-                if (b1 == b0 && canSkipTransfer) { ms_.setConst(REG_X, b1); } else if (b1 == b0) { emit("tax", r); ms_.setTransfer(REG_X, REG_A); } else { emit("ldx #" + std::to_string((int)b1), r); ms_.setConst(REG_X, b1); }
+                if (destInFrame) {
+                    // Load hi byte into Z for IRQ-safe frame store via staz.fp
+                    if (b1 == b0) { emit("taz", r); ms_.setTransfer(REG_Z, REG_A); } else { emit("ldz #" + std::to_string((int)b1), r); ms_.setConst(REG_Z, b1); }
+                } else if (canSkipTransfer) {
+                    ms_.setConst(REG_X, b1);
+                } else {
+                    if (b1 == b0) { emit("tax", r); ms_.setTransfer(REG_X, REG_A); } else { emit("ldx #" + std::to_string((int)b1), r); ms_.setConst(REG_X, b1); }
+                }
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             resultInAX_ = inst.dest.isVreg() ? (int32_t)inst.dest.vregId : -1;

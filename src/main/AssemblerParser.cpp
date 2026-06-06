@@ -856,6 +856,8 @@ void AssemblerParser::pass1() {
             else if (fullMnemonic == "sta.fp") { SIMOP(STA_FP, dispatch_STA_FP); }
             else if (fullMnemonic == "ldax.fp") { SIMOP(LDAX_FP, dispatch_LDAX_FP); }
             else if (fullMnemonic == "stax.fp") { SIMOP(STAX_FP, dispatch_STAX_FP); }
+            else if (fullMnemonic == "ldaz.fp") { SIMOP(LDAZ_FP, dispatch_LDAZ_FP); }
+            else if (fullMnemonic == "staz.fp") { SIMOP(STAZ_FP, dispatch_STAZ_FP); }
             else if (fullMnemonic == "ldaxyz.fp") { SIMOP(LDAXYZ_FP, dispatch_LDAXYZ_FP); }
             else if (fullMnemonic == "staxyz.fp") { SIMOP(STAXYZ_FP, dispatch_STAXYZ_FP); }
             else if (fullMnemonic == "leax.fp") { SIMOP(LEAX_FP, dispatch_LEAX_FP); }
@@ -1368,6 +1370,14 @@ void AssemblerParser::emitLDAX_FPCode(std::vector<uint8_t>& binary, int tokenInd
 void AssemblerParser::emitSTAX_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
     M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitSTAX_FPCode(this, e, tokenIndex, scopePrefix);
+}
+void AssemblerParser::emitLDAZ_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    AssemblerSimulatedOps::emitLDAZ_FPCode(this, e, tokenIndex, scopePrefix);
+}
+void AssemblerParser::emitSTAZ_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    AssemblerSimulatedOps::emitSTAZ_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitLDAXYZ_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
     M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
