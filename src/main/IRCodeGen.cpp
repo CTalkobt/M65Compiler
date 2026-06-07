@@ -224,13 +224,12 @@ void IRCodeGen::storeVreg(uint32_t vregId) {
                 emit("staxyz.fp " + sym);
             } else if (alloc.type == ir::Type::I8) {
                 emit("sta.fp " + sym);
-            } else if (!ms_.reg[REG_Z].isUnknown()) {
-                // Hi byte already in Z (e.g. from ldz #imm) — use staz.fp directly
+            } else if (valueByte_[1] == REG_Z) {
+                // Hi byte already in Z — use staz.fp directly (no transfer needed)
                 emit("staz.fp " + sym);
             } else {
-                // Hi byte in X — transfer to Z for IRQ-safe frame store
-                emit("pha"); emit("txa"); emit("taz"); emit("pla");
-                emit("staz.fp " + sym);
+                // Hi byte in X (standard AX convention) — stax.fp handles X→Z internally
+                emit("stax.fp " + sym);
             }
             break;
         }
@@ -1090,6 +1089,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 // ============================================================================
 
 void IRCodeGen::emitInst(const ir::Inst& inst) {
+    // Reset value-role tracking for each new instruction
+    clearValueRoles();
+
     // Emit .loc directive when source location changes
     if (inst.loc.valid() && (inst.loc.line != lastLocLine_ || inst.loc.file != lastLocFile_)) {
         lastLocLine_ = inst.loc.line;
@@ -1209,25 +1211,27 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             uint8_t b3 = (val >> 24) & 0xFF;
             ms_.setConst(REG_A, b0);
             emit("lda #" + std::to_string((int)b0), r);
+            valueByte_[0] = REG_A;
             // Can skip tax/tay/taz when byte matches A only if storeVreg
-            // uses per-byte stores (IN_ZP). Frame stores use staz.fp/staxyz.fp
-            // which require actual register values in Z (or X/Y/Z for I32).
+            // uses per-byte stores (IN_ZP). Frame stores use stax.fp/staxyz.fp
+            // which require actual register values in X (or X/Y/Z for I32).
             bool canSkipTransfer = inst.dest.isVreg() &&
                 alloc_.getAlloc(inst.dest.vregId).loc == VRegAllocator::IN_ZP;
-            bool destInFrame = inst.dest.isVreg() &&
-                alloc_.getAlloc(inst.dest.vregId).loc == VRegAllocator::IN_FRAME;
             if (inst.resultType == ir::Type::I32) {
-                if (b1 == b0 && canSkipTransfer) { ms_.setConst(REG_X, b1); } else if (b1 == b0) { emit("tax", r); ms_.setTransfer(REG_X, REG_A); } else { emit("ldx #" + std::to_string((int)b1), r); ms_.setConst(REG_X, b1); }
-                if (b2 == b0 && canSkipTransfer) { ms_.setConst(REG_Y, b2); } else if (b2 == b0) { emit("tay", r); ms_.setTransfer(REG_Y, REG_A); } else { emit("ldy #" + std::to_string((int)b2), r); ms_.setConst(REG_Y, b2); }
-                if (b3 == b0 && canSkipTransfer) { ms_.setConst(REG_Z, b3); } else if (b3 == b0) { emit("taz", r); ms_.setTransfer(REG_Z, REG_A); } else { emit("ldz #" + std::to_string((int)b3), r); ms_.setConst(REG_Z, b3); }
+                if (b1 == b0 && canSkipTransfer) { ms_.setConst(REG_X, b1); } else if (b1 == b0) { emit("tax", r); ms_.setTransfer(REG_X, REG_A); valueByte_[1] = REG_X; } else { emit("ldx #" + std::to_string((int)b1), r); ms_.setConst(REG_X, b1); valueByte_[1] = REG_X; }
+                if (b2 == b0 && canSkipTransfer) { ms_.setConst(REG_Y, b2); } else if (b2 == b0) { emit("tay", r); ms_.setTransfer(REG_Y, REG_A); valueByte_[2] = REG_Y; } else { emit("ldy #" + std::to_string((int)b2), r); ms_.setConst(REG_Y, b2); valueByte_[2] = REG_Y; }
+                if (b3 == b0 && canSkipTransfer) { ms_.setConst(REG_Z, b3); } else if (b3 == b0) { emit("taz", r); ms_.setTransfer(REG_Z, REG_A); valueByte_[3] = REG_Z; } else { emit("ldz #" + std::to_string((int)b3), r); ms_.setConst(REG_Z, b3); valueByte_[3] = REG_Z; }
             } else if (inst.resultType != ir::Type::I8) {
-                if (destInFrame) {
-                    // Load hi byte into Z for IRQ-safe frame store via staz.fp
-                    if (b1 == b0) { emit("taz", r); ms_.setTransfer(REG_Z, REG_A); } else { emit("ldz #" + std::to_string((int)b1), r); ms_.setConst(REG_Z, b1); }
-                } else if (canSkipTransfer) {
+                if (b1 == b0 && canSkipTransfer) {
                     ms_.setConst(REG_X, b1);
+                    // X not actually loaded — valueByte_[1] stays VB_NONE
+                    // storeVreg for IN_ZP uses sta for both bytes when A==X
+                } else if (b1 == b0) {
+                    emit("tax", r); ms_.setTransfer(REG_X, REG_A);
+                    valueByte_[1] = REG_X;
                 } else {
-                    if (b1 == b0) { emit("tax", r); ms_.setTransfer(REG_X, REG_A); } else { emit("ldx #" + std::to_string((int)b1), r); ms_.setConst(REG_X, b1); }
+                    emit("ldx #" + std::to_string((int)b1), r); ms_.setConst(REG_X, b1);
+                    valueByte_[1] = REG_X;
                 }
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);

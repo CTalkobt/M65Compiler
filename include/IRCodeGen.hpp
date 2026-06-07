@@ -104,6 +104,13 @@ private:
     std::map<int, std::pair<std::string, int>> lineToFileMap_; // Maps abs line to (filename, lineOffset)
     MachineState ms_;        // register/flag value tracking for codegen optimizations
 
+    // Value-role tracking: which register holds each byte of the current
+    // multi-byte value being constructed. Set by CONST/load/ALU emitters,
+    // read by storeVreg to pick the right frame store op (stax.fp vs staz.fp).
+    static constexpr int8_t VB_NONE = -1;
+    int8_t valueByte_[4] = { VB_NONE, VB_NONE, VB_NONE, VB_NONE };
+    void clearValueRoles() { valueByte_[0] = valueByte_[1] = valueByte_[2] = valueByte_[3] = VB_NONE; }
+
     // Store-forwarding: track which vreg's result is currently live in A:X
     // from the most recent instruction. -1 = unknown/not in AX.
     int32_t resultInAX_ = -1;
