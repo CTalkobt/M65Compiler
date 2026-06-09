@@ -26,6 +26,23 @@ fi
 
 failed=0
 
+# Helper function: direct compile + assemble (inline startup, no DMA-based crt0)
+# Usage: compile_direct_test "test_name.c" "output.prg" [extra_cc_flags]
+compile_direct_test() {
+    local src="$1"
+    local prg_out="$2"
+    local flags="${3:-}"
+    local s_file="${prg_out%.prg}.s"
+
+    $CC $flags "$src" -o "$s_file" 2>/dev/null
+    if [ $? -ne 0 ]; then return 1; fi
+
+    $AS "$s_file" -o "$prg_out"
+    if [ $? -ne 0 ]; then return 2; fi
+
+    return 0
+}
+
 # Helper function: compile, assemble, and link with stdlib (for tests using assert.h)
 # Usage: compile_link_test "test_name.c" "output.prg" ["-fzpcall"]
 compile_link_test() {
@@ -760,7 +777,7 @@ fi
 # --- VIC-IV struct overlay and VREG test ---
 echo "Testing VIC-IV struct overlay and VREG direct access (mega65.h)..."
 
-compile_link_test "src/test-resources/test_vic4_mmemu.c" "build/test/test_vic4_mmemu.prg"
+compile_direct_test "src/test-resources/test_vic4_mmemu.c" "build/test/test_vic4_mmemu.prg"
 if [ $? -ne 0 ]; then
     echo "FAIL: Compilation/linking failed for test_vic4_mmemu.c"
     failed=$((failed + 1))
@@ -797,7 +814,7 @@ fi
 # --- SID and CIA struct overlay test ---
 echo "Testing SID and CIA struct overlays (mega65.h)..."
 
-compile_link_test "src/test-resources/test_sid_cia_mmemu.c" "build/test/test_sid_cia_mmemu.prg"
+compile_direct_test "src/test-resources/test_sid_cia_mmemu.c" "build/test/test_sid_cia_mmemu.prg"
 if [ $? -ne 0 ]; then
     echo "FAIL: Compilation/linking failed for test_sid_cia_mmemu.c"
     failed=$((failed + 1))
@@ -834,7 +851,7 @@ fi
 # --- DMA, math accelerator, audio mixer, colour/screen RAM test ---
 echo "Testing DMA, math, audio mixer, colour/screen RAM (mega65.h)..."
 
-compile_link_test "src/test-resources/test_hw_extra_mmemu.c" "build/test/test_hw_extra_mmemu.prg"
+compile_direct_test "src/test-resources/test_hw_extra_mmemu.c" "build/test/test_hw_extra_mmemu.prg"
 if [ $? -ne 0 ]; then
     echo "FAIL: Compilation/linking failed for test_hw_extra_mmemu.c"
     failed=$((failed + 1))
@@ -871,7 +888,7 @@ fi
 # --- FDC, SD, Ethernet, Hypervisor struct test ---
 echo "Testing FDC, SD card, Ethernet, Hypervisor (mega65.h)..."
 
-compile_link_test "src/test-resources/test_devices_mmemu.c" "build/test/test_devices_mmemu.prg"
+compile_direct_test "src/test-resources/test_devices_mmemu.c" "build/test/test_devices_mmemu.prg"
 if [ $? -ne 0 ]; then
     echo "FAIL: Compilation/linking failed for test_devices_mmemu.c"
     failed=$((failed + 1))
@@ -894,7 +911,7 @@ fi
 # --- Keyboard matrix scan test ---
 echo "Testing key_pressed() keyboard matrix scan (mega65.h)..."
 
-compile_link_test "src/test-resources/test_keyboard_mmemu.c" "build/test/test_keyboard_mmemu.prg"
+compile_direct_test "src/test-resources/test_keyboard_mmemu.c" "build/test/test_keyboard_mmemu.prg"
 if [ $? -ne 0 ]; then
     echo "FAIL: Compilation/linking failed for test_keyboard_mmemu.c"
     failed=$((failed + 1))

@@ -74,7 +74,10 @@ _init_features:
     rts
 
 ; Static DMA command blocks (12 bytes each, linker patches BSS address)
+; Align to 16 bytes so the 12-byte job never spans a page boundary
+; (mmemu DMA handler malfunctions when list addr lo byte >= $F9)
 .segment "data"
+    .align 16
 __dma_save:
     .byte $00                           ; command: COPY
     .word 248                           ; count
