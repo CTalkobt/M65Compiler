@@ -169,7 +169,7 @@ public:
                     STX_STACK, STY_STACK, STZ_STACK,
                     LDAX, LDAY, LDAZ, STAX, STAY, STAZ, FILL, COPY, PUSH, POP,
                     MUL_S16, MUL_S32, DIV_S16, DIV_S32, MOD16, MOD_S16, MOD32, MOD_S32,
-                    LDA_FP, STA_FP, LDAX_FP, STAX_FP, LDAZ_FP, STAZ_FP, LDAXYZ_FP, STAXYZ_FP, LEAX_FP, MOVE_FP, INC_FP, DEC_FP, INC16_FP, DEC16_FP,
+                    LDA_FP, STA_FP, LDAX_FP, STAX_FP, LDAY_FP, STAY_FP, LDAZ_FP, STAZ_FP, LDAXYZ_FP, STAXYZ_FP, LEAX_FP, MOVE_FP, INC_FP, DEC_FP, INC16_FP, DEC16_FP,
                     BFEXT, BFEXT16, BFINS, BFINS_SP, BFINS_IND, BFINS16, BFINS16_SP, BFINS16_IND,
                     ADD32, SUB32, AND32, ORA32, EOR32, CMP32, NEG32, NOT32, ABS32,
                     LSL32, LSR32, ROL32, ROR32, ASR32, SXT16,
@@ -304,6 +304,8 @@ private:
     void emitSTA_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");
     void emitLDAX_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");
     void emitSTAX_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");
+    void emitLDAY_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");
+    void emitSTAY_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");
     void emitLDAZ_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");
     void emitSTAZ_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");
     void emitLDAXYZ_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");

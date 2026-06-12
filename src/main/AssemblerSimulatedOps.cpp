@@ -1999,6 +1999,28 @@ void AssemblerSimulatedOps::emitLDAX_FPCode(AssemblerParser* parser, M65Emitter&
     }
 }
 
+// lday.fp varOffset — Load 16-bit value from frame into AY (lo in A, hi in Y)
+// Use when Z must be preserved (e.g., loop counter).
+void AssemblerSimulatedOps::emitLDAY_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
+    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
+    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    uint8_t totalOff = fpOff + yOff;
+    e.ldy_stack(totalOff + 1);       // Y = hi byte
+    e.lda_stack(totalOff);           // A = lo byte
+}
+
+// stay.fp varOffset — Store AY (lo=A, hi=Y) to frame-relative offset
+// Use when Z must be preserved (e.g., loop counter).
+void AssemblerSimulatedOps::emitSTAY_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
+    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
+    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    uint8_t totalOff = fpOff + yOff;
+    e.sta_stack(totalOff);           // TSX + STA abs,X (lo byte)
+    e.sty_stack(totalOff + 1);       // TSX + STY abs,X (hi byte)
+}
+
 // ldaz.fp varOffset — Load 16-bit value from frame into AZ (lo in A, hi in Z)
 // Preferred over ldax.fp: leaves X free for TSX, no scratch needed.
 void AssemblerSimulatedOps::emitLDAZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
@@ -2937,6 +2959,12 @@ void AssemblerSimulatedOps::dispatch_LDAX_FP(AssemblerParser* p, M65Emitter& e, 
 }
 void AssemblerSimulatedOps::dispatch_STAX_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
     emitSTAX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDAY_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDAY_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STAY_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTAY_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
 }
 void AssemblerSimulatedOps::dispatch_LDAZ_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
     emitLDAZ_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
