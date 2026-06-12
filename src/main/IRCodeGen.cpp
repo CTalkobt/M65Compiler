@@ -1201,6 +1201,23 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         ms_.invalidateAll();
                         break;
                     }
+                    if (destAlloc.loc == VRegAllocator::IN_FRAME && inst.resultType == ir::Type::I16) {
+                        // Direct store to frame via staz.fp — load hi into Z, skip X entirely
+                        std::string r = irDesc("val=" + std::to_string(val) + " → direct frame store");
+                        std::string sym = "__vr" + std::to_string(nextInst->src2.vregId);
+                        uint8_t b0 = val & 0xFF;
+                        uint8_t b1 = (val >> 8) & 0xFF;
+                        emit("lda #" + std::to_string((int)b0), r);
+                        if (b1 == b0) {
+                            emit("taz", r);
+                        } else {
+                            emit("ldz #" + std::to_string((int)b1), r);
+                        }
+                        emit("staz.fp " + sym, r);
+                        resultInAX_ = -2;
+                        ms_.invalidateAll();
+                        break;
+                    }
                 }
             }
 
@@ -2080,9 +2097,13 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     // Store-forwarding: if src1 result is still in A:X, skip reload
                     if (inst.src1.isVreg() && (int32_t)inst.src1.vregId == resultInAX_) {
                         // Result already in A:X from previous instruction — store directly
+                        valueByte_[0] = REG_A;
+                        valueByte_[1] = REG_X;
                         storeVreg(inst.src2.vregId);
                     } else {
                         loadOperand(inst.src1);
+                        valueByte_[0] = REG_A;
+                        valueByte_[1] = REG_X;
                         storeVreg(inst.src2.vregId);
                     }
                 } else {
