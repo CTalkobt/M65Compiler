@@ -1677,15 +1677,33 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     // I32 >> 8 unsigned: A=X, X=Y, Y=Z, Z=0
                     emit("txa"); emit("pha"); emit("tya"); emit("tax");
                     emit("tza"); emit("tay"); emit("ldz #0"); emit("pla");
+                } else if (shiftCount == 8 && is32 && isASR) {
+                    // I32 >> 8 signed: A=X, X=Y, Y=Z, Z=sign_ext(Z)
+                    emit("txa"); emit("pha"); emit("tya"); emit("tax");
+                    emit("tza"); emit("tay");             // Y = old Z (byte 3)
+                    emit("cmp #$80"); emit("lda #0"); emit("sbc #0"); // sign extend
+                    emit("taz"); emit("pla");             // Z = sign, A = old X
                 } else if (shiftCount == 16 && is32 && !isASR) {
                     // I32 >> 16 unsigned: A=Y, X=Z, Y=Z=0
-                    // Must save Y before TZA clobbers A
-                    emit("tza"); emit("tax");  // X = old Z (byte 3)
-                    emit("tya");               // A = old Y (byte 2)
+                    emit("tza"); emit("tax");
+                    emit("tya");
                     emit("ldy #0"); emit("ldz #0");
+                } else if (shiftCount == 16 && is32 && isASR) {
+                    // I32 >> 16 signed: A=Y, X=Z, Y=Z=sign_ext(Z)
+                    emit("tya"); emit("pha");             // save Y (new byte 0)
+                    emit("tza"); emit("tax");             // X = old Z (new byte 1)
+                    emit("cmp #$80"); emit("lda #0"); emit("sbc #0"); // sign extend
+                    emit("tay"); emit("taz");             // Y=Z=sign
+                    emit("pla");                          // A = old Y (byte 0)
                 } else if (shiftCount == 24 && is32 && !isASR) {
                     // I32 >> 24 unsigned: A=Z, X=Y=Z=0
                     emit("tza"); emit("ldx #0"); emit("ldy #0"); emit("ldz #0");
+                } else if (shiftCount == 24 && is32 && isASR) {
+                    // I32 >> 24 signed: A=Z, X=Y=Z=sign_ext(Z)
+                    emit("tza"); emit("cmp #$80"); emit("pha"); // save Z, set sign
+                    emit("lda #0"); emit("sbc #0");       // A = sign
+                    emit("tax"); emit("tay"); emit("taz"); // X=Y=Z=sign
+                    emit("pla");                           // A = old Z (byte 0)
                 } else {
                     // General case: loop of single-bit shifts
                     int maxBits = is32 ? 32 : 16;
