@@ -164,6 +164,10 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
 
         // Expire ZP slots for temporaries whose live ranges have ended.
         // Only expire non-local-variable vRegs (temporaries are safe to reuse).
+        // NOTE: This is O(N * Z * N) where N = vregs, Z = active ZP allocs (≤64).
+        // Could be optimized to O(N * Z) with a vregId→LiveRange index map, but
+        // in practice N rarely exceeds 200 and Z ≤ 64, so the total iterations
+        // are ~12K at worst — more theoretical than practical concern.
         {
             std::vector<uint32_t> expired;
             for (auto& [vid, zpAddr] : zpAllocMap) {
