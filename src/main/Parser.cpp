@@ -214,6 +214,14 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                     vd->isGlobal = true;
                     vd->isExtern = isExtern;
+                } else if (auto* cs = dynamic_cast<CompoundStatement*>(decl.get())) {
+                    for (auto& s : cs->statements) {
+                        if (auto* vd2 = dynamic_cast<VariableDeclaration*>(s.get())) {
+                            vd2->isGlobal = true;
+                            vd2->isExtern = isExtern;
+                            vd2->isStatic = isStatic;
+                        }
+                    }
                 }
                 flushPending(*unit);
                 unit->topLevelDecls.push_back(std::move(decl));
@@ -260,6 +268,15 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                         vd->isSigned = isSig;
                         vd->isExtern = isExtern;
                         vd->isStatic = isStatic;
+                    } else if (auto* cs = dynamic_cast<CompoundStatement*>(decl.get())) {
+                        for (auto& s : cs->statements) {
+                            if (auto* vd2 = dynamic_cast<VariableDeclaration*>(s.get())) {
+                                vd2->isGlobal = true;
+                                vd2->isSigned = isSig;
+                                vd2->isExtern = isExtern;
+                                vd2->isStatic = isStatic;
+                            }
+                        }
                     }
                     flushPending(*unit);
                     unit->topLevelDecls.push_back(std::move(decl));
@@ -1021,6 +1038,62 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         } else if (auto* initList = dynamic_cast<InitializerList*>(decl->initializer.get())) {
             decl->arrayDims[0] = (int)initList->elements.size();
         }
+    }
+
+    // --- Multi-variable declarations: int a, b = 3, *c, d[4]; ---
+    if (peek().type == TokenType::COMMA) {
+        auto compound = setPos(std::make_unique<CompoundStatement>(), typeToken);
+        compound->statements.push_back(std::move(decl));
+
+        while (match(TokenType::COMMA)) {
+            // Parse additional declarators reusing the same base type
+            int extraPtr = basePtrLevel;
+            while (match(TokenType::STAR)) extraPtr++;
+            // Handle const/volatile after * for additional declarators
+            bool extraPtrConst = false;
+            while (peek().type == TokenType::CONST || peek().type == TokenType::VOLATILE || peek().type == TokenType::RESTRICT) {
+                if (match(TokenType::CONST)) extraPtrConst = true;
+                else if (!match(TokenType::VOLATILE)) match(TokenType::RESTRICT);
+            }
+            std::string extraName = expect(TokenType::IDENTIFIER, "Expected variable name").value;
+            std::vector<int> extraDims;
+            bool extraUnsized = false;
+            while (match(TokenType::OPEN_SQUARE)) {
+                if (peek().type == TokenType::CLOSE_SQUARE) {
+                    extraDims.push_back(0);
+                    extraUnsized = true;
+                } else {
+                    const Token& st = expect(TokenType::INTEGER_LITERAL, "Expected integer literal for array size");
+                    extraDims.push_back((int)std::stol(st.value));
+                }
+                expect(TokenType::CLOSE_SQUARE, "Expected ']' after array size");
+            }
+            auto extraDecl = setPos(std::make_unique<VariableDeclaration>(type, extraName, extraPtr), typeToken);
+            extraDecl->isSigned = isSigned;
+            extraDecl->isVolatile = isVolatile;
+            extraDecl->isConst = isConst;
+            extraDecl->isStatic = isStatic;
+            extraDecl->isRegister = isRegister;
+            extraDecl->isPointerConst = extraPtrConst;
+            extraDecl->arrayDims = extraDims;
+            if (match(TokenType::EQUALS)) {
+                if (peek().type == TokenType::OPEN_BRACE) {
+                    extraDecl->initializer = parseInitializerList();
+                } else {
+                    extraDecl->initializer = parseExpression();
+                }
+            }
+            if (extraUnsized && extraDecl->initializer && !extraDecl->arrayDims.empty() && extraDecl->arrayDims[0] == 0) {
+                if (auto* sl = dynamic_cast<StringLiteral*>(extraDecl->initializer.get()))
+                    extraDecl->arrayDims[0] = (int)sl->value.length() + 1;
+                else if (auto* il = dynamic_cast<InitializerList*>(extraDecl->initializer.get()))
+                    extraDecl->arrayDims[0] = (int)il->elements.size();
+            }
+            compound->statements.push_back(std::move(extraDecl));
+        }
+
+        expect(TokenType::SEMICOLON, "Expected ';'");
+        return compound;
     }
 
     expect(TokenType::SEMICOLON, "Expected ';'");
