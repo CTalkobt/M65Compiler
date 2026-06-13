@@ -1,28 +1,16 @@
 // testfwk.h — GCC Torture Test Framework adapter for cc45/mmemu
 //
-// Maps abort()/exit() to memory-mapped result reporting:
-//   $4000 = 0xAA on success (exit(0))
-//   $4000 = 0xFF on failure (abort())
+// Provides standard headers needed by GTE tests. abort() and exit()
+// are real library functions from <stdlib.h> — no macro overrides.
 //
-// Tests are compiled with: cc45 -DTESTFWK test.c -o test.s
-// and run in mmemu, checking $4000 for 0xAA.
+// Tests are compiled with: cc45 -c -Isrc/test-resources/gte test.c
+// linked with: ln45 test.o45 lib/build/c45.lib -o test.prg
+// and run in mmemu, checking exit behavior (BRK for abort, RTS for exit).
 
 #ifndef TESTFWK_H
 #define TESTFWK_H
 
-// Result reporting address
-#define RESULT_ADDR ((volatile unsigned char *)0x4000)
-
-// Replace abort() — test failure
-#define abort() do { *RESULT_ADDR = 0xFF; __asm__("brk"); } while(0)
-
-// Replace exit() — test success (only exit(0) means pass)
-#define exit(code) do { *RESULT_ADDR = ((code) == 0) ? 0xAA : 0xFF; __asm__("brk"); } while(0)
-
-// Suppress string.h include — provide minimal stubs
-#ifndef _STRING_H
-#define _STRING_H
-// cc45 provides these via <string.h>, but include guard prevents double-include
-#endif
+#include <stdlib.h>
+#include <string.h>
 
 #endif // TESTFWK_H
