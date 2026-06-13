@@ -149,6 +149,34 @@ disk45 rename game.d81 "README" "DOCS"
 disk45 mv game.d64 "OLD" "NEW"
 ```
 
+### lock
+
+```
+disk45 lock <image> <cbm_name>
+```
+
+Lock a file to prevent accidental deletion (scratch). Sets bit 6 of the directory entry's file type byte. Locked files display with a `<` suffix in directory listings (matching CBM convention).
+
+**Example:**
+```bash
+disk45 lock game.d81 "GAME"
+disk45 list game.d81
+# 42   "GAME"        PRG<
+```
+
+### unlock
+
+```
+disk45 unlock <image> <cbm_name>
+```
+
+Remove the lock from a file, allowing it to be deleted.
+
+**Example:**
+```bash
+disk45 unlock game.d81 "GAME"
+```
+
 ### label
 
 ```
@@ -392,6 +420,8 @@ auto prg = disk->readFile("GAME");
 | `extract` | `read` | Extract file (with optional `-p` PETSCII conversion) |
 | `remove` | `delete`, `rm` | Delete file from image |
 | `rename` | `mv` | Rename file in directory |
+| `lock` | — | Lock file (prevent scratch) |
+| `unlock` | — | Unlock file |
 | `label` | — | Change disk name / ID |
 | `validate` | `check` | Check BAM consistency |
 | `bam` | `map` | Visual sector allocation map |
