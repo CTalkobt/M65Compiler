@@ -17,8 +17,8 @@ static void usage() {
               << "  disk45 create <image> [-n name] [-i id]   Create empty disk image\n"
               << "  disk45 list <image>                       List directory\n"
               << "  disk45 info <image>                       Show disk info\n"
-              << "  disk45 add <image> <file> [cbm_name]      Add file to image\n"
-              << "  disk45 extract <image> <cbm_name> <file>  Extract file from image\n"
+              << "  disk45 add <image> <file> [cbm_name] [-p]  Add file to image\n"
+              << "  disk45 extract <image> <cbm_name> <file> [-p]  Extract file\n"
               << "  disk45 remove <image> <cbm_name>          Delete file from image\n"
               << "  disk45 rename <image> <old> <new>         Rename file in image\n"
               << "  disk45 label <image> [-n name] [-i id]    Change disk name/ID\n"
@@ -35,6 +35,10 @@ static void usage() {
               << "  .arc  ARC archive (stored/RLE/Huffman/LZW)\n"
               << "  .sda  Self-Dissolving ARC archive\n"
               << "  .lnx  Lynx archive (block-aligned, uncompressed)\n"
+              << "\n"
+              << "Flags:\n"
+              << "  -p, --petscii   Convert SEQ content: ASCII→PETSCII (add) or\n"
+              << "                  PETSCII→ASCII (extract). Swaps case, LF↔CR.\n"
               << "\n"
               << "GZ compression: append .gz to any format (e.g. .d81.gz)\n";
 }
@@ -58,6 +62,53 @@ static const char* formatStr(DiskFormat f) {
         case DiskFormat::D65: return "D65 (MEGA65)";
     }
     return "???";
+}
+
+// --- PETSCII ↔ ASCII content conversion for SEQ files ---
+
+static std::vector<uint8_t> asciiToPetsciiContent(const std::vector<uint8_t>& data) {
+    std::vector<uint8_t> out;
+    out.reserve(data.size());
+    for (uint8_t c : data) {
+        if (c == '\n') out.push_back(0x0D);            // LF → CR
+        else if (c == '\r') continue;                   // strip CR (handle CRLF)
+        else if (c >= 'a' && c <= 'z') out.push_back(c - 32);  // lowercase → PETSCII $41-$5A
+        else if (c >= 'A' && c <= 'Z') out.push_back(c + 128); // uppercase → PETSCII $C1-$DA
+        else if (c == '~') out.push_back(0xA8);         // tilde → pi
+        else if (c == '|') out.push_back(0x7D);         // pipe → bar
+        else if (c == '\\') out.push_back(0x5C);        // backslash → pound
+        else out.push_back(c);
+    }
+    return out;
+}
+
+static std::vector<uint8_t> petsciiToAsciiContent(const std::vector<uint8_t>& data) {
+    std::vector<uint8_t> out;
+    out.reserve(data.size());
+    for (uint8_t c : data) {
+        if (c == 0x0D) out.push_back('\n');             // CR → LF
+        else if (c >= 0x41 && c <= 0x5A) out.push_back(c + 32);  // PETSCII $41-$5A → lowercase
+        else if (c >= 0xC1 && c <= 0xDA) out.push_back(c - 128); // PETSCII $C1-$DA → uppercase
+        else if (c >= 0x20 && c < 0x7F) out.push_back(c);  // printable ASCII range
+        else if (c == 0xA8) out.push_back('~');         // pi → tilde
+        else if (c == 0x7D) out.push_back('|');         // bar → pipe
+        else if (c == 0x00) break;                      // null terminator
+        else out.push_back(c);                          // pass through
+    }
+    return out;
+}
+
+// Check if -p or --petscii flag is present, remove it from args
+static bool extractPetsciiFlag(int& argc, char**& argv) {
+    for (int i = 0; i < argc; i++) {
+        if (std::string(argv[i]) == "-p" || std::string(argv[i]) == "--petscii") {
+            // Shift remaining args down
+            for (int j = i; j < argc - 1; j++) argv[j] = argv[j + 1];
+            argc--;
+            return true;
+        }
+    }
+    return false;
 }
 
 static CbmFileType typeFromExtension(const std::string& path) {
@@ -140,6 +191,7 @@ static int cmdInfo(int argc, char** argv) {
 }
 
 static int cmdAdd(int argc, char** argv) {
+    bool petscii = extractPetsciiFlag(argc, argv);
     if (argc < 2) { usage(); return 1; }
     std::string imagePath = argv[0];
     std::string hostFile = argv[1];
@@ -158,6 +210,12 @@ static int cmdAdd(int argc, char** argv) {
 
     CbmFileType ftype = typeFromExtension(hostFile);
 
+    // Convert ASCII → PETSCII for SEQ file content
+    if (petscii && ftype == CbmFileType::SEQ) {
+        data = asciiToPetsciiContent(data);
+        std::cout << "(converted ASCII → PETSCII)\n";
+    }
+
     if (!img->addFile(cbmName, ftype, data)) {
         std::cerr << "Error: failed to add \"" << cbmName << "\" (disk full or duplicate?)\n";
         return 1;
@@ -172,6 +230,7 @@ static int cmdAdd(int argc, char** argv) {
 }
 
 static int cmdExtract(int argc, char** argv) {
+    bool petscii = extractPetsciiFlag(argc, argv);
     if (argc < 3) { usage(); return 1; }
     std::string imagePath = argv[0];
     std::string cbmName = argv[1];
@@ -184,6 +243,12 @@ static int cmdExtract(int argc, char** argv) {
     if (data.empty() && !img->fileExists(cbmName)) {
         std::cerr << "Error: file \"" << cbmName << "\" not found\n";
         return 1;
+    }
+
+    // Convert PETSCII → ASCII for SEQ file content
+    if (petscii) {
+        data = petsciiToAsciiContent(data);
+        std::cout << "(converted PETSCII → ASCII)\n";
     }
 
     std::ofstream f(hostFile, std::ios::binary);
