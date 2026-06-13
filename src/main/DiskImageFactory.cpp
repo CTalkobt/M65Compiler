@@ -5,6 +5,7 @@
 #include "D65Image.hpp"
 #include "ArkImage.hpp"
 #include "ArcImage.hpp"
+#include "LnxImage.hpp"
 #include "GzipHelper.hpp"
 #include <algorithm>
 #include <cctype>
@@ -30,6 +31,7 @@ std::unique_ptr<DiskImage> DiskImage::createFromExtension(const std::string& pat
     }
     if (ext == ".ark") return std::make_unique<ArkImage>();
     if (ext == ".arc" || ext == ".sda") return std::make_unique<ArcImage>();
+    if (ext == ".lnx") return std::make_unique<LnxImage>();
     return create(formatFromExtension(path));
 }
 

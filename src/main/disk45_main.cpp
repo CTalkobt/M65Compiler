@@ -5,6 +5,7 @@
 #include "D65Image.hpp"
 #include <iostream>
 #include <fstream>
+#include <iomanip>
 #include <cstring>
 #include <algorithm>
 
@@ -19,6 +20,7 @@ static void usage() {
               << "  disk45 add <image> <file> [cbm_name]      Add file to image\n"
               << "  disk45 extract <image> <cbm_name> <file>  Extract file from image\n"
               << "  disk45 remove <image> <cbm_name>          Delete file from image\n"
+              << "  disk45 dump <image> [track] [sector]      Hex dump sector(s)\n"
               << "\n"
               << "Supported formats (auto-detected from extension):\n"
               << "  .d64  C64 1541 (170KB, 35 tracks)\n"
@@ -28,6 +30,7 @@ static void usage() {
               << "  .ark  Arkive (uncompressed archive)\n"
               << "  .arc  ARC archive (stored/RLE/Huffman/LZW)\n"
               << "  .sda  Self-Dissolving ARC archive\n"
+              << "  .lnx  Lynx archive (block-aligned, uncompressed)\n"
               << "\n"
               << "GZ compression: append .gz to any format (e.g. .d81.gz)\n";
 }
@@ -206,6 +209,75 @@ static int cmdRemove(int argc, char** argv) {
     return 0;
 }
 
+static void hexDumpSector(const uint8_t* data, int track, int sector) {
+    std::cout << "Track " << track << ", Sector " << sector << ":\n";
+    for (int row = 0; row < 16; row++) {
+        std::cout << std::hex << std::uppercase << std::setfill('0');
+        std::cout << std::setw(2) << (row * 16) << ": ";
+        for (int col = 0; col < 16; col++) {
+            std::cout << std::setw(2) << (int)data[row * 16 + col];
+            if (col == 7) std::cout << "  "; else std::cout << " ";
+        }
+        std::cout << " |";
+        for (int col = 0; col < 16; col++) {
+            uint8_t c = data[row * 16 + col];
+            std::cout << (char)((c >= 0x20 && c < 0x7F) ? c : '.');
+        }
+        std::cout << "|\n";
+    }
+    std::cout << std::dec;
+}
+
+static int cmdDump(int argc, char** argv) {
+    if (argc < 1) { usage(); return 1; }
+    std::string imagePath = argv[0];
+
+    auto img = DiskImage::load(imagePath);
+    if (!img) { std::cerr << "Error: failed to load " << imagePath << "\n"; return 1; }
+
+    if (img->totalTracks() == 0) {
+        // Archive format — just raw hex dump
+        std::cerr << "Error: dump requires a disk image (D64/D71/D81/D65), not an archive\n";
+        return 1;
+    }
+
+    if (argc >= 3) {
+        // Dump specific track/sector
+        int track = std::atoi(argv[1]);
+        int sector = std::atoi(argv[2]);
+        const uint8_t* data = img->sectorData(track, sector);
+        if (!data) {
+            std::cerr << "Error: invalid track " << track << " sector " << sector << "\n";
+            return 1;
+        }
+        hexDumpSector(data, track, sector);
+    } else if (argc == 2) {
+        // Dump all sectors on a track
+        int track = std::atoi(argv[1]);
+        int spt = img->sectorsOnTrack(track);
+        if (spt == 0) {
+            std::cerr << "Error: invalid track " << track << "\n";
+            return 1;
+        }
+        for (int s = 0; s < spt; s++) {
+            const uint8_t* data = img->sectorData(track, s);
+            if (data) {
+                hexDumpSector(data, track, s);
+                std::cout << "\n";
+            }
+        }
+    } else {
+        // No track/sector: dump BAM/header (directory track, sector 0)
+        int dirT = img->totalTracks() > 40 ? 40 : 18; // D81/D65 vs D64/D71
+        const uint8_t* data = img->sectorData(dirT, 0);
+        if (data) {
+            std::cout << "BAM / Header:\n";
+            hexDumpSector(data, dirT, 0);
+        }
+    }
+    return 0;
+}
+
 // ============================================================================
 // Main
 // ============================================================================
@@ -227,6 +299,8 @@ int main(int argc, char** argv) {
                           return cmdExtract(subArgc, subArgv);
     if (cmd == "remove" || cmd == "delete" || cmd == "rm")
                           return cmdRemove(subArgc, subArgv);
+    if (cmd == "dump" || cmd == "hex")
+                          return cmdDump(subArgc, subArgv);
     if (cmd == "--version" || cmd == "-v") {
         std::cout << "disk45 v" << VERSION << "\n";
         return 0;
