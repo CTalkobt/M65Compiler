@@ -1,0 +1,19 @@
+// Adapted from SDCC GCC torture test: pr34982.c
+// Original: gcc/testsuite/gcc.c-torture/execute/
+#include "testfwk.h"
+
+extern void abort (void);
+
+static void something();
+
+int main()
+{
+  something(-1);
+  return 0;
+}
+
+static void something(int i)
+{
+  if (i != -1)
+    abort ();
+}

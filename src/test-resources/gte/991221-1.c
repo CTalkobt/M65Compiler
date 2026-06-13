@@ -1,0 +1,17 @@
+// Adapted from SDCC GCC torture test: 991221-1.c
+// Original: gcc/testsuite/gcc.c-torture/execute/
+#include "testfwk.h"
+
+int main( void )
+{
+   unsigned long totalsize = 80;
+   unsigned long msize = 64;
+
+   if (sizeof(long) != 4)
+     exit(0);
+   
+   if ( totalsize > (2147483647L   * 2UL + 1)  
+        || (msize != 0 && ((msize - 1) > (2147483647L   * 2UL + 1) )))
+      abort();
+   exit( 0 );
+}
