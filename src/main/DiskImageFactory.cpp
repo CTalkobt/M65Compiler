@@ -3,6 +3,10 @@
 #include "D71Image.hpp"
 #include "D81Image.hpp"
 #include "D65Image.hpp"
+#include "ArkImage.hpp"
+#include "GzipHelper.hpp"
+#include <algorithm>
+#include <cctype>
 
 std::unique_ptr<DiskImage> DiskImage::create(DiskFormat fmt) {
     switch (fmt) {
@@ -15,6 +19,15 @@ std::unique_ptr<DiskImage> DiskImage::create(DiskFormat fmt) {
 }
 
 std::unique_ptr<DiskImage> DiskImage::createFromExtension(const std::string& path) {
+    // Strip .gz for format detection
+    std::string p = gzip::hasGzExtension(path) ? gzip::stripGzExtension(path) : path;
+    std::string ext;
+    auto dot = p.rfind('.');
+    if (dot != std::string::npos) {
+        ext = p.substr(dot);
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+    }
+    if (ext == ".ark") return std::make_unique<ArkImage>();
     return create(formatFromExtension(path));
 }
 

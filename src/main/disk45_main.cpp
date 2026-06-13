@@ -24,7 +24,10 @@ static void usage() {
               << "  .d64  C64 1541 (170KB, 35 tracks)\n"
               << "  .d71  C128 1571 (340KB, 70 tracks)\n"
               << "  .d81  C65/MEGA65 1581 (800KB, 80 tracks)\n"
-              << "  .d65  MEGA65 native (1.6MB, 162 tracks)\n";
+              << "  .d65  MEGA65 native (1.6MB, 162 tracks)\n"
+              << "  .ark  Arkive (uncompressed archive)\n"
+              << "\n"
+              << "GZ compression: append .gz to any format (e.g. .d81.gz)\n";
 }
 
 static const char* fileTypeStr(CbmFileType t) {

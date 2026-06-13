@@ -1,4 +1,5 @@
 #include "DiskImage.hpp"
+#include "GzipHelper.hpp"
 #include <fstream>
 #include <algorithm>
 #include <cctype>
@@ -46,10 +47,12 @@ void DiskImage::padPetsciiName(char* dest, const std::string& name, int len) {
 }
 
 DiskFormat DiskImage::formatFromExtension(const std::string& path) {
+    // Strip .gz to get the actual disk format extension
+    std::string p = gzip::hasGzExtension(path) ? gzip::stripGzExtension(path) : path;
     std::string ext;
-    auto dot = path.rfind('.');
+    auto dot = p.rfind('.');
     if (dot != std::string::npos) {
-        ext = path.substr(dot);
+        ext = p.substr(dot);
         std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
     }
     if (ext == ".d64") return DiskFormat::D64;
@@ -137,12 +140,29 @@ bool DiskImage::loadFromFile(const std::string& path) {
     if (!f) return false;
     auto size = f.tellg();
     f.seekg(0);
-    image_.resize((size_t)size);
-    f.read(reinterpret_cast<char*>(image_.data()), size);
-    return f.good();
+    std::vector<uint8_t> raw((size_t)size);
+    f.read(reinterpret_cast<char*>(raw.data()), size);
+    if (!f.good()) return false;
+
+    // Transparent gzip decompression
+    if (gzip::isGzipped(raw)) {
+        image_ = gzip::decompress(raw);
+        return !image_.empty();
+    }
+    image_ = std::move(raw);
+    return true;
 }
 
 bool DiskImage::saveToFile(const std::string& path) const {
+    // Transparent gzip compression if path ends in .gz
+    if (gzip::hasGzExtension(path)) {
+        auto compressed = gzip::compress(image_);
+        if (compressed.empty()) return false;
+        std::ofstream f(path, std::ios::binary);
+        if (!f) return false;
+        f.write(reinterpret_cast<const char*>(compressed.data()), compressed.size());
+        return f.good();
+    }
     std::ofstream f(path, std::ios::binary);
     if (!f) return false;
     f.write(reinterpret_cast<const char*>(image_.data()), image_.size());
