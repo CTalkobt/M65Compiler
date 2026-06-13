@@ -165,11 +165,37 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 }
             }
         }
-        
+
+        // Skip __attribute__((...)) in lookahead
+        while (look < tokens.size() && tokens[look].type == TokenType::ATTRIBUTE) {
+            look++;
+            if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
+                look++;
+                int parens = 1;
+                while (look < tokens.size() && parens > 0) {
+                    if (tokens[look].type == TokenType::OPEN_PAREN) parens++;
+                    else if (tokens[look].type == TokenType::CLOSE_PAREN) parens--;
+                    look++;
+                }
+            }
+        }
+
         bool isSig = false;
 
         while (tokens[look].type == TokenType::VOLATILE || tokens[look].type == TokenType::CONST || tokens[look].type == TokenType::RESTRICT || tokens[look].type == TokenType::AUTO || tokens[look].type == TokenType::REGISTER || tokens[look].type == TokenType::INLINE || tokens[look].type == TokenType::FASTCALL ||
-               tokens[look].type == TokenType::SIGNED || tokens[look].type == TokenType::UNSIGNED) {
+               tokens[look].type == TokenType::SIGNED || tokens[look].type == TokenType::UNSIGNED || tokens[look].type == TokenType::ATTRIBUTE) {
+            if (tokens[look].type == TokenType::ATTRIBUTE) {
+                look++; // skip __attribute__
+                if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
+                    look++; int p = 1;
+                    while (look < tokens.size() && p > 0) {
+                        if (tokens[look].type == TokenType::OPEN_PAREN) p++;
+                        else if (tokens[look].type == TokenType::CLOSE_PAREN) p--;
+                        look++;
+                    }
+                }
+                continue;
+            }
             if (tokens[look].type == TokenType::VOLATILE) isVol = true;
             else if (tokens[look].type == TokenType::CONST) isConst = true;
             else if (tokens[look].type == TokenType::SIGNED) isSig = true;
@@ -231,7 +257,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 if (isStatic) match(TokenType::STATIC);
                 if (isNR) match(TokenType::NORETURN);
                 if (isFC) match(TokenType::FASTCALL);
-                while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
+                while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute());
                 auto decl = parseVariableDeclaration(isVol, isConst, isStatic);
                 if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                     vd->isGlobal = true;
@@ -262,7 +288,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     if (isInterrupt) match(TokenType::INTERRUPT);
                     if (isNaked) match(TokenType::NAKED);
                     if (isRegparm) match(TokenType::REGPARM);
-                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
+                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute());
                     auto decl = parseFunctionDeclaration();
                     decl->isNoreturn = isNR;
                     decl->isFastcall = isFC;
@@ -283,7 +309,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     if (isInterrupt) match(TokenType::INTERRUPT);
                     if (isNaked) match(TokenType::NAKED);
                     if (isRegparm) match(TokenType::REGPARM);
-                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
+                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute());
                     auto decl = parseVariableDeclaration(isVol, isConst);
                     if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                         vd->isGlobal = true;
@@ -309,7 +335,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 if (isInterrupt) match(TokenType::INTERRUPT);
                 if (isNaked) match(TokenType::NAKED);
                     if (isRegparm) match(TokenType::REGPARM);
-                while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
+                while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute());
                 auto decl = parseFunctionDeclaration();
                 decl->isNoreturn = isNR;
                 decl->isFastcall = isFC;
@@ -329,7 +355,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             if (isNaked) match(TokenType::NAKED);
             if (isRegparm) match(TokenType::REGPARM);
             if (isInlineFunc) match(TokenType::INLINE);
-            while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
+            while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute());
             auto decl = parseFunctionDeclaration();
             decl->isNoreturn = isNR;
             decl->isFastcall = isFC;
@@ -595,6 +621,9 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         } while (match(TokenType::COMMA));
         expect(TokenType::SEMICOLON, "Expected ';' after K&R parameter declaration");
     }
+
+    // Skip any __attribute__((...)) after parameter list / K&R declarations
+    while (tryParseAttribute()) {}
 
     // Forward declaration (prototype): ends with ';' instead of '{'
     if (match(TokenType::SEMICOLON)) {
@@ -1894,6 +1923,78 @@ std::unique_ptr<Expression> Parser::parseInitializerList() {
     if (!hasDesignators) initList->designators.clear();
     expect(TokenType::CLOSE_BRACE, "Expected '}'");
     return initList;
+}
+
+// Parse __attribute__((...)) — returns true if an attribute was consumed.
+// Recognized attributes: noinline, noclone, packed (silently accepted).
+// Unrecognized attributes: warned and skipped.
+bool Parser::tryParseAttribute() {
+    if (!match(TokenType::ATTRIBUTE)) return false;
+
+    // Expect (( ... ))
+    if (!match(TokenType::OPEN_PAREN)) return true;
+    if (!match(TokenType::OPEN_PAREN)) return true;
+
+    // Parse comma-separated attribute list until ))
+    while (peek().type != TokenType::CLOSE_PAREN && peek().type != TokenType::END_OF_FILE) {
+        if (peek().type == TokenType::IDENTIFIER) {
+            std::string attr = advance().value;
+            // Strip leading/trailing underscores for canonical form
+            std::string canonical = attr;
+            if (canonical.size() > 4 && canonical.substr(0, 2) == "__" &&
+                canonical.substr(canonical.size() - 2) == "__")
+                canonical = canonical.substr(2, canonical.size() - 4);
+
+            // Recognized — silently accept
+            if (canonical == "noinline" || canonical == "noclone" || canonical == "packed") {
+                // Skip optional parenthesized argument
+                if (peek().type == TokenType::OPEN_PAREN) {
+                    int depth = 1; advance();
+                    while (depth > 0 && peek().type != TokenType::END_OF_FILE) {
+                        if (match(TokenType::OPEN_PAREN)) depth++;
+                        else if (match(TokenType::CLOSE_PAREN)) depth--;
+                        else advance();
+                    }
+                }
+            }
+            // Warn-and-skip (#110-#114)
+            else if (canonical == "noipa" || canonical == "aligned" ||
+                     canonical == "mode" || canonical == "vector_size" ||
+                     canonical == "may_alias") {
+                std::cerr << tokens[pos-1].line << ": warning: __attribute__(("
+                          << attr << ")) ignored\n";
+                // Skip parenthesized argument if present
+                if (peek().type == TokenType::OPEN_PAREN) {
+                    int depth = 1; advance();
+                    while (depth > 0 && peek().type != TokenType::END_OF_FILE) {
+                        if (match(TokenType::OPEN_PAREN)) depth++;
+                        else if (match(TokenType::CLOSE_PAREN)) depth--;
+                        else advance();
+                    }
+                }
+            }
+            // Unknown — warn and skip
+            else {
+                std::cerr << tokens[pos-1].line << ": warning: unknown __attribute__(("
+                          << attr << ")) ignored\n";
+                if (peek().type == TokenType::OPEN_PAREN) {
+                    int depth = 1; advance();
+                    while (depth > 0 && peek().type != TokenType::END_OF_FILE) {
+                        if (match(TokenType::OPEN_PAREN)) depth++;
+                        else if (match(TokenType::CLOSE_PAREN)) depth--;
+                        else advance();
+                    }
+                }
+            }
+        } else {
+            advance(); // skip unexpected token
+        }
+        match(TokenType::COMMA); // optional comma between attributes
+    }
+
+    match(TokenType::CLOSE_PAREN); // inner )
+    match(TokenType::CLOSE_PAREN); // outer )
+    return true;
 }
 
 void Parser::parseTypedef() {

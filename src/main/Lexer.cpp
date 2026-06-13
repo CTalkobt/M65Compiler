@@ -246,6 +246,8 @@ Token Lexer::lexIdentifierOrKeyword() {
         {"_Alignas", TokenType::ALIGNAS},
         {"_Alignof", TokenType::ALIGNOF},
         {"_Noreturn", TokenType::NORETURN},
+        {"__attribute__", TokenType::ATTRIBUTE},
+        {"__attribute", TokenType::ATTRIBUTE},
         {"break", TokenType::BREAK},
         {"continue", TokenType::CONTINUE},
         {"switch", TokenType::SWITCH},

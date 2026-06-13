@@ -52,6 +52,7 @@ private:
     std::unique_ptr<Expression> parseGenericSelection();
     std::unique_ptr<Expression> parseInitializerList();
     void parseTypedef();
+    bool tryParseAttribute();  // parse __attribute__((...)), returns true if found
     std::shared_ptr<FuncPtrSignature> parseFuncPtrParams(const std::string& returnType, int returnPtrLevel, bool returnIsSigned);
 
     struct TypeAlias {

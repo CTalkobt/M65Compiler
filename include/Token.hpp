@@ -24,6 +24,7 @@ enum class TokenType {
     ALIGNAS,
     ALIGNOF,
     NORETURN,
+    ATTRIBUTE,  // __attribute__
     BREAK,
     CONTINUE,
     SWITCH,
@@ -142,6 +143,7 @@ struct Token {
             case TokenType::ALIGNAS: return "ALIGNAS";
             case TokenType::ALIGNOF: return "ALIGNOF";
             case TokenType::NORETURN: return "NORETURN";
+            case TokenType::ATTRIBUTE: return "ATTRIBUTE";
             case TokenType::BREAK: return "BREAK";
             case TokenType::CONTINUE: return "CONTINUE";
             case TokenType::SWITCH: return "SWITCH";
