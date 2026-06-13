@@ -7,6 +7,15 @@
 _Noreturn void exit(int status);
 _Noreturn void _exit(int status);
 _Noreturn void abort(void);
+_Noreturn void __builtin_trap(void);
+_Noreturn void __builtin_unreachable(void);
+int __builtin_abs(int x);
+long __builtin_labs(long x);
+int __builtin_ffs(int x);
+int __builtin_clz(unsigned int x);
+int __builtin_ctz(unsigned int x);
+int __builtin_popcount(unsigned int x);
+unsigned int __builtin_bswap16(unsigned int x);
 
 int atoi(char *s);
 char *itoa(int value, char *str, int base);

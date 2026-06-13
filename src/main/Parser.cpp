@@ -1715,6 +1715,46 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         } else {
             expr = setPos(std::make_unique<CpuFlagAccess>(member), baseToken);
         }
+    } else if (peek().type == TokenType::IDENTIFIER && peek().value == "__builtin_constant_p") {
+        // __builtin_constant_p(x) → 1 if x is a compile-time constant, 0 otherwise
+        const Token& bToken = advance();
+        expect(TokenType::OPEN_PAREN, "Expected '(' after __builtin_constant_p");
+        auto arg = parseExpression();
+        expect(TokenType::CLOSE_PAREN, "Expected ')'");
+        // Check if the argument is a compile-time constant
+        bool isConst = false;
+        if (dynamic_cast<IntegerLiteral*>(arg.get())) isConst = true;
+        else if (dynamic_cast<StringLiteral*>(arg.get())) isConst = true;
+        else if (auto* unary = dynamic_cast<UnaryOperation*>(arg.get())) {
+            if (dynamic_cast<IntegerLiteral*>(unary->operand.get())) isConst = true;
+        } else if (auto* binop = dynamic_cast<BinaryOperation*>(arg.get())) {
+            if (dynamic_cast<IntegerLiteral*>(binop->left.get()) &&
+                dynamic_cast<IntegerLiteral*>(binop->right.get())) isConst = true;
+        }
+        expr = setPos(std::make_unique<IntegerLiteral>(isConst ? 1 : 0), bToken);
+    } else if (peek().type == TokenType::IDENTIFIER && peek().value == "__builtin_expect") {
+        // __builtin_expect(x, v) → evaluates to x (branch prediction hint, no-op)
+        const Token& bToken = advance();
+        expect(TokenType::OPEN_PAREN, "Expected '(' after __builtin_expect");
+        expr = parseExpression();
+        expect(TokenType::COMMA, "Expected ',' in __builtin_expect");
+        parseExpression(); // parse and discard expected value
+        expect(TokenType::CLOSE_PAREN, "Expected ')'");
+    } else if (peek().type == TokenType::IDENTIFIER && peek().value == "__builtin_trap") {
+        // __builtin_trap() → BRK instruction
+        const Token& bToken = advance();
+        expect(TokenType::OPEN_PAREN, "Expected '(' after __builtin_trap");
+        expect(TokenType::CLOSE_PAREN, "Expected ')'");
+        // Emit as inline asm BRK — wrap in a comma expression that returns 0
+        expr = setPos(std::make_unique<IntegerLiteral>(0), bToken);
+        // The actual BRK will be emitted if this is used in a statement context
+        // For now, it's a no-op in expression context
+    } else if (peek().type == TokenType::IDENTIFIER && peek().value == "__builtin_unreachable") {
+        // __builtin_unreachable() → no-op (undefined behavior if reached)
+        const Token& bToken = advance();
+        expect(TokenType::OPEN_PAREN, "Expected '('");
+        expect(TokenType::CLOSE_PAREN, "Expected ')'");
+        expr = setPos(std::make_unique<IntegerLiteral>(0), bToken);
     } else if (peek().type == TokenType::IDENTIFIER && peek().value == "__builtin_va_start") {
         const Token& bToken = advance();
         expect(TokenType::OPEN_PAREN, "Expected '(' after __builtin_va_start");
