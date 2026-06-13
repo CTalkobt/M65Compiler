@@ -92,6 +92,7 @@ public:
     virtual bool addFile(const std::string& name, CbmFileType type,
                          const std::vector<uint8_t>& data) = 0;
     virtual bool removeFile(const std::string& name) = 0;
+    virtual bool renameFile(const std::string& oldName, const std::string& newName);
     virtual std::vector<uint8_t> readFile(const std::string& name) const = 0;
     virtual bool fileExists(const std::string& name) const = 0;
 
@@ -99,11 +100,27 @@ public:
     virtual DiskFormat diskFormat() const = 0;
     virtual std::string diskName() const = 0;
     virtual std::string diskId() const = 0;
+    virtual bool setDiskName(const std::string& name);
+    virtual bool setDiskId(const std::string& id);
     virtual int totalTracks() const = 0;
     virtual int sectorsOnTrack(int track) const = 0;
     virtual int totalSectors() const = 0;
     virtual int freeSectors() const = 0;
     virtual int totalBytes() const { return totalSectors() * 256; }
+
+    // --- Validation ---
+    struct ValidateResult {
+        int filesFound = 0;
+        int sectorsUsedByFiles = 0;
+        int sectorsMarkedUsed = 0;
+        int freeSectorsInBAM = 0;
+        int crossLinked = 0;        // sectors claimed by multiple files
+        int orphanedSectors = 0;    // marked used but not in any file chain
+        int brokenChains = 0;       // chains pointing to invalid track/sector
+        std::vector<std::string> errors;
+        bool ok() const { return errors.empty(); }
+    };
+    virtual ValidateResult validate() const;
 
     // --- Raw sector access ---
     uint8_t* sectorData(int track, int sector);
@@ -122,9 +139,11 @@ protected:
     virtual int sectorOffset(int track, int sector) const = 0;
 
     // --- BAM operations (implemented by subclass) ---
+public:
+    virtual bool isSectorFree(int track, int sector) const = 0;
+protected:
     virtual bool allocateSector(int track, int sector) = 0;
     virtual bool freeSector(int track, int sector) = 0;
-    virtual bool isSectorFree(int track, int sector) const = 0;
     virtual TrackSector allocateNextFree(int nearTrack = -1) = 0;
 
     // --- Directory helpers (common logic, uses virtual BAM/sector methods) ---

@@ -20,6 +20,10 @@ static void usage() {
               << "  disk45 add <image> <file> [cbm_name]      Add file to image\n"
               << "  disk45 extract <image> <cbm_name> <file>  Extract file from image\n"
               << "  disk45 remove <image> <cbm_name>          Delete file from image\n"
+              << "  disk45 rename <image> <old> <new>         Rename file in image\n"
+              << "  disk45 label <image> [-n name] [-i id]    Change disk name/ID\n"
+              << "  disk45 validate <image>                   Check BAM consistency\n"
+              << "  disk45 bam <image>                        Visual BAM sector map\n"
               << "  disk45 dump <image> [track] [sector]      Hex dump sector(s)\n"
               << "\n"
               << "Supported formats (auto-detected from extension):\n"
@@ -209,6 +213,143 @@ static int cmdRemove(int argc, char** argv) {
     return 0;
 }
 
+static int cmdRename(int argc, char** argv) {
+    if (argc < 3) { usage(); return 1; }
+    std::string imagePath = argv[0];
+    std::string oldName = argv[1];
+    std::string newName = argv[2];
+
+    auto img = DiskImage::load(imagePath);
+    if (!img) { std::cerr << "Error: failed to load " << imagePath << "\n"; return 1; }
+
+    if (!img->renameFile(oldName, newName)) {
+        std::cerr << "Error: rename failed (file not found or target name exists)\n";
+        return 1;
+    }
+    if (!img->saveToFile(imagePath)) {
+        std::cerr << "Error: failed to write " << imagePath << "\n";
+        return 1;
+    }
+    std::cout << "Renamed \"" << oldName << "\" → \"" << newName << "\"\n";
+    return 0;
+}
+
+static int cmdLabel(int argc, char** argv) {
+    if (argc < 1) { usage(); return 1; }
+    std::string imagePath = argv[0];
+    std::string diskName, diskId;
+    bool setName = false, setId = false;
+
+    for (int i = 1; i < argc; i++) {
+        if (std::string(argv[i]) == "-n" && i + 1 < argc) { diskName = argv[++i]; setName = true; }
+        else if (std::string(argv[i]) == "-i" && i + 1 < argc) { diskId = argv[++i]; setId = true; }
+    }
+
+    if (!setName && !setId) {
+        std::cerr << "Usage: disk45 label <image> [-n name] [-i id]\n";
+        return 1;
+    }
+
+    auto img = DiskImage::load(imagePath);
+    if (!img) { std::cerr << "Error: failed to load " << imagePath << "\n"; return 1; }
+
+    if (setName && !img->setDiskName(diskName)) {
+        std::cerr << "Error: cannot set disk name (format may not support it)\n";
+        return 1;
+    }
+    if (setId && !img->setDiskId(diskId)) {
+        std::cerr << "Error: cannot set disk ID (format may not support it)\n";
+        return 1;
+    }
+    if (!img->saveToFile(imagePath)) {
+        std::cerr << "Error: failed to write " << imagePath << "\n";
+        return 1;
+    }
+    std::cout << "Disk label updated";
+    if (setName) std::cout << " name=\"" << diskName << "\"";
+    if (setId) std::cout << " id=\"" << diskId << "\"";
+    std::cout << "\n";
+    return 0;
+}
+
+static int cmdValidate(int argc, char** argv) {
+    if (argc < 1) { usage(); return 1; }
+    auto img = DiskImage::load(argv[0]);
+    if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
+
+    auto r = img->validate();
+
+    std::cout << "Disk: \"" << img->diskName() << "\" " << img->diskId() << "\n"
+              << "Files found:           " << r.filesFound << "\n"
+              << "Sectors used by files: " << r.sectorsUsedByFiles << "\n"
+              << "Sectors marked used:   " << r.sectorsMarkedUsed << "\n"
+              << "Free sectors (BAM):    " << r.freeSectorsInBAM << "\n";
+
+    if (r.crossLinked)
+        std::cout << "CROSS-LINKED sectors:  " << r.crossLinked << "\n";
+    if (r.orphanedSectors)
+        std::cout << "Orphaned sectors:      " << r.orphanedSectors << "\n";
+    if (r.brokenChains)
+        std::cout << "Broken chains:         " << r.brokenChains << "\n";
+
+    if (r.errors.empty()) {
+        std::cout << "Status: OK\n";
+    } else {
+        std::cout << "\nErrors:\n";
+        for (auto& e : r.errors)
+            std::cout << "  - " << e << "\n";
+    }
+    return r.ok() ? 0 : 1;
+}
+
+static int cmdBAM(int argc, char** argv) {
+    if (argc < 1) { usage(); return 1; }
+    auto img = DiskImage::load(argv[0]);
+    if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
+
+    if (img->totalTracks() == 0) {
+        std::cerr << "Error: BAM map requires a disk image, not an archive\n";
+        return 1;
+    }
+
+    std::cout << "BAM: \"" << img->diskName() << "\" " << img->diskId()
+              << "  (" << img->freeSectors() << " blocks free)\n\n";
+
+    // Header
+    int maxSpt = 0;
+    for (int t = 1; t <= img->totalTracks(); t++)
+        maxSpt = std::max(maxSpt, img->sectorsOnTrack(t));
+
+    std::cout << "Track  ";
+    for (int s = 0; s < maxSpt; s++) {
+        if (s % 10 == 0) std::cout << (s / 10);
+        else std::cout << " ";
+    }
+    std::cout << "\n       ";
+    for (int s = 0; s < maxSpt; s++)
+        std::cout << (s % 10);
+    std::cout << "\n";
+
+    // Map
+    for (int t = 1; t <= img->totalTracks(); t++) {
+        int spt = img->sectorsOnTrack(t);
+        std::cout << std::setw(4) << t << "   ";
+        int free = 0;
+        for (int s = 0; s < spt; s++) {
+            bool f = img->isSectorFree(t, s);
+            if (f) free++;
+            std::cout << (f ? '.' : '#');
+        }
+        // Pad short tracks
+        for (int s = spt; s < maxSpt; s++)
+            std::cout << ' ';
+        std::cout << "  " << std::setw(2) << free << "/" << spt << "\n";
+    }
+
+    std::cout << "\nLegend: . = free, # = allocated\n";
+    return 0;
+}
+
 static void hexDumpSector(const uint8_t* data, int track, int sector) {
     std::cout << "Track " << track << ", Sector " << sector << ":\n";
     for (int row = 0; row < 16; row++) {
@@ -299,6 +440,13 @@ int main(int argc, char** argv) {
                           return cmdExtract(subArgc, subArgv);
     if (cmd == "remove" || cmd == "delete" || cmd == "rm")
                           return cmdRemove(subArgc, subArgv);
+    if (cmd == "rename" || cmd == "mv")
+                          return cmdRename(subArgc, subArgv);
+    if (cmd == "label")   return cmdLabel(subArgc, subArgv);
+    if (cmd == "validate" || cmd == "check")
+                          return cmdValidate(subArgc, subArgv);
+    if (cmd == "bam" || cmd == "map")
+                          return cmdBAM(subArgc, subArgv);
     if (cmd == "dump" || cmd == "hex")
                           return cmdDump(subArgc, subArgv);
     if (cmd == "--version" || cmd == "-v") {

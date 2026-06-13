@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <map>
 #include <stdexcept>
 
 // Forward declarations for format-specific subclasses
@@ -292,6 +293,126 @@ TrackSector DiskImage::allocDirectoryEntry(DirEntry& entry) {
     // Write entry in first slot
     entry.toSector(newSec, 0);
     return newDir;
+}
+
+// ============================================================================
+// Rename a file in the directory
+// ============================================================================
+
+bool DiskImage::renameFile(const std::string& oldName, const std::string& newName) {
+    TrackSector dirTS;
+    int entryIdx;
+    if (!findFileEntry(oldName, dirTS, entryIdx)) return false;
+    if (fileExists(newName)) return false; // target name already exists
+
+    uint8_t* sec = sectorData(dirTS.track, dirTS.sector);
+    if (!sec) return false;
+
+    DirEntry e = DirEntry::fromSector(sec, entryIdx);
+    padPetsciiName(e.filename, newName);
+    e.toSector(sec, entryIdx);
+    return true;
+}
+
+// ============================================================================
+// Set disk name / ID (default: modifies header sector)
+// ============================================================================
+
+bool DiskImage::setDiskName(const std::string&) { return false; }
+bool DiskImage::setDiskId(const std::string&) { return false; }
+
+// ============================================================================
+// Validate disk image integrity
+// ============================================================================
+
+DiskImage::ValidateResult DiskImage::validate() const {
+    ValidateResult r;
+    if (totalTracks() == 0) {
+        r.errors.push_back("Validation not supported for archive formats");
+        return r;
+    }
+
+    // Build a usage map: track×sector → count of files claiming each sector
+    int maxTrack = totalTracks();
+    std::map<uint64_t, int> usageCount;
+    auto key = [](int t, int s) -> uint64_t { return ((uint64_t)t << 16) | s; };
+
+    // Count directory sectors as used
+    int dirTrack_ = directoryTrack();
+    const uint8_t* hdr = sectorData(dirTrack_, 0);
+    if (!hdr) {
+        r.errors.push_back("Cannot read header sector");
+        return r;
+    }
+
+    // Walk directory and trace all file chains
+    TrackSector ts = {hdr[0], hdr[1]};
+    while (ts.track != 0) {
+        usageCount[key(ts.track, ts.sector)]++; // directory sector itself
+        const uint8_t* sec = sectorData(ts.track, ts.sector);
+        if (!sec) {
+            r.errors.push_back("Broken directory chain at T" +
+                std::to_string(ts.track) + " S" + std::to_string(ts.sector));
+            r.brokenChains++;
+            break;
+        }
+        for (int i = 0; i < 8; i++) {
+            DirEntry e = DirEntry::fromSector(sec, i);
+            if (!e.isValid()) continue;
+            r.filesFound++;
+
+            auto chain = getFileChain(e.firstDataTS);
+            for (auto& cs : chain) {
+                r.sectorsUsedByFiles++;
+                auto k = key(cs.track, cs.sector);
+                usageCount[k]++;
+                if (usageCount[k] > 1) {
+                    r.crossLinked++;
+                    r.errors.push_back("Cross-linked sector T" +
+                        std::to_string(cs.track) + " S" + std::to_string(cs.sector));
+                }
+            }
+            // Verify chain endpoint
+            if (!chain.empty()) {
+                auto& last = chain.back();
+                const uint8_t* lastSec = sectorData(last.track, last.sector);
+                if (!lastSec) {
+                    r.brokenChains++;
+                    std::string fn = petsciiToAscii(std::string(e.filename, 16));
+                    r.errors.push_back("Broken chain for \"" + fn + "\"");
+                }
+            }
+        }
+        uint8_t nextT = sec[0], nextS = sec[1];
+        if (nextT == 0) break;
+        ts = {nextT, nextS};
+    }
+
+    // Also count BAM/header sector itself
+    usageCount[key(dirTrack_, 0)]++;
+
+    // Compare BAM vs actual usage
+    r.freeSectorsInBAM = freeSectors();
+    int totalUsedInBAM = 0;
+    for (int t = 1; t <= maxTrack; t++) {
+        int spt = sectorsOnTrack(t);
+        for (int s = 0; s < spt; s++) {
+            bool bamFree = isSectorFree(t, s);
+            bool fileUsed = usageCount.count(key(t, s)) > 0;
+            if (!bamFree) totalUsedInBAM++;
+
+            if (bamFree && fileUsed) {
+                r.errors.push_back("Sector T" + std::to_string(t) +
+                    " S" + std::to_string(s) + " used by file but marked free in BAM");
+            }
+            if (!bamFree && !fileUsed) {
+                r.orphanedSectors++;
+            }
+        }
+    }
+    r.sectorsMarkedUsed = totalUsedInBAM;
+
+    return r;
 }
 
 // ============================================================================

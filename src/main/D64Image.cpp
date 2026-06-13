@@ -292,3 +292,18 @@ bool D64Image::removeFile(const std::string& name) {
     e.toSector(dirSec, entryIdx);
     return true;
 }
+
+bool D64Image::setDiskName(const std::string& name) {
+    uint8_t* bam = sectorData(DIR_TRACK, BAM_SECTOR);
+    if (!bam) return false;
+    padPetsciiName(reinterpret_cast<char*>(bam + 0x90), name);
+    return true;
+}
+
+bool D64Image::setDiskId(const std::string& id) {
+    uint8_t* bam = sectorData(DIR_TRACK, BAM_SECTOR);
+    if (!bam) return false;
+    bam[0xA2] = id.size() > 0 ? (uint8_t)id[0] : ' ';
+    bam[0xA3] = id.size() > 1 ? (uint8_t)id[1] : ' ';
+    return true;
+}

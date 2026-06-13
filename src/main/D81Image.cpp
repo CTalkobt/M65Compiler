@@ -319,3 +319,23 @@ bool D81Image::removeFile(const std::string& name) {
     e.toSector(dirSec, entryIdx);
     return true;
 }
+
+bool D81Image::setDiskName(const std::string& name) {
+    uint8_t* hdr = sectorData(DIR_TRACK, HEADER_SECTOR);
+    if (!hdr) return false;
+    padPetsciiName(reinterpret_cast<char*>(hdr + 4), name);
+    return true;
+}
+
+bool D81Image::setDiskId(const std::string& id) {
+    uint8_t* hdr = sectorData(DIR_TRACK, HEADER_SECTOR);
+    if (!hdr) return false;
+    hdr[0x16] = id.size() > 0 ? (uint8_t)id[0] : ' ';
+    hdr[0x17] = id.size() > 1 ? (uint8_t)id[1] : ' ';
+    // Also update BAM copies
+    for (int bs = BAM_SECTOR_1; bs <= BAM_SECTOR_2; bs++) {
+        uint8_t* bam = sectorData(DIR_TRACK, bs);
+        if (bam) { bam[4] = hdr[0x16]; bam[5] = hdr[0x17]; }
+    }
+    return true;
+}

@@ -32,6 +32,8 @@ public:
     DiskFormat diskFormat() const override { return DiskFormat::D71; }
     std::string diskName() const override;
     std::string diskId() const override;
+    bool setDiskName(const std::string& name) override;
+    bool setDiskId(const std::string& id) override;
     int totalTracks() const override { return TRACKS; }
     int sectorsOnTrack(int track) const override;
     int totalSectors() const override { return TOTAL_SECTORS; }
