@@ -15,6 +15,7 @@
 
 .global __init
 .global __exit
+.global __abort
 .global __sp_base
 .weak _init_features
 .extern _main
@@ -72,6 +73,12 @@ __saved_sph:
 ; to set up hardware (16-bit stack, I/O mapping, DMA, etc.)
 _init_features:
     rts
+
+; __abort — abnormal termination. Non-overridable core implementation.
+; abort() (weak) calls this. Users override abort() for pre-abort hooks,
+; then call __abort for the actual termination.
+__abort:
+    brk
 
 ; Static DMA command blocks (12 bytes each, linker patches BSS address)
 ; Align to 16 bytes so the 12-byte job never spans a page boundary

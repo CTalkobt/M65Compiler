@@ -5,6 +5,8 @@
 #include <stddef.h>
 
 _Noreturn void exit(int status);
+_Noreturn void _exit(int status);
+_Noreturn void abort(void);
 
 int atoi(char *s);
 char *itoa(int value, char *str, int base);
