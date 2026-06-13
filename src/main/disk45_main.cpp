@@ -26,6 +26,8 @@ static void usage() {
               << "  .d81  C65/MEGA65 1581 (800KB, 80 tracks)\n"
               << "  .d65  MEGA65 native (1.6MB, 162 tracks)\n"
               << "  .ark  Arkive (uncompressed archive)\n"
+              << "  .arc  ARC archive (stored/RLE/Huffman/LZW)\n"
+              << "  .sda  Self-Dissolving ARC archive\n"
               << "\n"
               << "GZ compression: append .gz to any format (e.g. .d81.gz)\n";
 }
