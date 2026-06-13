@@ -315,6 +315,27 @@ bool DiskImage::renameFile(const std::string& oldName, const std::string& newNam
 }
 
 // ============================================================================
+// Lock / unlock a file (bit 6 of file type byte)
+// ============================================================================
+
+bool DiskImage::lockFile(const std::string& name, bool locked) {
+    TrackSector dirTS;
+    int entryIdx;
+    if (!findFileEntry(name, dirTS, entryIdx)) return false;
+
+    uint8_t* sec = sectorData(dirTS.track, dirTS.sector);
+    if (!sec) return false;
+
+    DirEntry e = DirEntry::fromSector(sec, entryIdx);
+    if (locked)
+        e.fileType |= 0x40;
+    else
+        e.fileType &= ~0x40;
+    e.toSector(sec, entryIdx);
+    return true;
+}
+
+// ============================================================================
 // Set disk name / ID (default: modifies header sector)
 // ============================================================================
 

@@ -93,6 +93,7 @@ public:
                          const std::vector<uint8_t>& data) = 0;
     virtual bool removeFile(const std::string& name) = 0;
     virtual bool renameFile(const std::string& oldName, const std::string& newName);
+    virtual bool lockFile(const std::string& name, bool locked);
     virtual std::vector<uint8_t> readFile(const std::string& name) const = 0;
     virtual bool fileExists(const std::string& name) const = 0;
 

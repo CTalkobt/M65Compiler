@@ -21,6 +21,8 @@ static void usage() {
               << "  disk45 extract <image> <cbm_name> <file> [-p]  Extract file\n"
               << "  disk45 remove <image> <cbm_name>          Delete file from image\n"
               << "  disk45 rename <image> <old> <new>         Rename file in image\n"
+              << "  disk45 lock <image> <cbm_name>            Lock file (prevent delete)\n"
+              << "  disk45 unlock <image> <cbm_name>          Unlock file\n"
               << "  disk45 label <image> [-n name] [-i id]    Change disk name/ID\n"
               << "  disk45 validate <image>                   Check BAM consistency\n"
               << "  disk45 bam <image>                        Visual BAM sector map\n"
@@ -299,6 +301,26 @@ static int cmdRename(int argc, char** argv) {
     return 0;
 }
 
+static int cmdLock(int argc, char** argv, bool lock) {
+    if (argc < 2) { usage(); return 1; }
+    std::string imagePath = argv[0];
+    std::string cbmName = argv[1];
+
+    auto img = DiskImage::load(imagePath);
+    if (!img) { std::cerr << "Error: failed to load " << imagePath << "\n"; return 1; }
+
+    if (!img->lockFile(cbmName, lock)) {
+        std::cerr << "Error: file \"" << cbmName << "\" not found\n";
+        return 1;
+    }
+    if (!img->saveToFile(imagePath)) {
+        std::cerr << "Error: failed to write " << imagePath << "\n";
+        return 1;
+    }
+    std::cout << (lock ? "Locked" : "Unlocked") << " \"" << cbmName << "\"\n";
+    return 0;
+}
+
 static int cmdLabel(int argc, char** argv) {
     if (argc < 1) { usage(); return 1; }
     std::string imagePath = argv[0];
@@ -507,6 +529,8 @@ int main(int argc, char** argv) {
                           return cmdRemove(subArgc, subArgv);
     if (cmd == "rename" || cmd == "mv")
                           return cmdRename(subArgc, subArgv);
+    if (cmd == "lock")    return cmdLock(subArgc, subArgv, true);
+    if (cmd == "unlock")  return cmdLock(subArgc, subArgv, false);
     if (cmd == "label")   return cmdLabel(subArgc, subArgv);
     if (cmd == "validate" || cmd == "check")
                           return cmdValidate(subArgc, subArgv);
