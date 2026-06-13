@@ -299,19 +299,23 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 unit->topLevelDecls.push_back(std::move(decl));
             }
         } else {
+            if (isExtern) match(TokenType::EXTERN);
+            if (isStatic) match(TokenType::STATIC);
             if (isNR) match(TokenType::NORETURN);
             if (isFC) match(TokenType::FASTCALL);
             if (isInterrupt) match(TokenType::INTERRUPT);
             if (isNaked) match(TokenType::NAKED);
-                    if (isRegparm) match(TokenType::REGPARM);
+            if (isRegparm) match(TokenType::REGPARM);
+            if (isInlineFunc) match(TokenType::INLINE);
             while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED));
             auto decl = parseFunctionDeclaration();
             decl->isNoreturn = isNR;
             decl->isFastcall = isFC;
             decl->isInterrupt = isInterrupt;
             decl->isNaked = isNaked;
-                    decl->isRegparm = isRegparm;
-                    decl->isInline = isInlineFunc;
+            decl->isRegparm = isRegparm;
+            decl->isInline = isInlineFunc;
+            decl->isStatic = isStatic;
             flushPending(*unit);
             unit->topLevelDecls.push_back(std::unique_ptr<Statement>(std::move(decl)));
         }
@@ -367,6 +371,10 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     }
     else if (peek().type == TokenType::FLOAT || peek().type == TokenType::DOUBLE) {
         throw std::runtime_error("'" + peek().value + "' type is not yet implemented (no FPU; use fixed-point integer arithmetic)");
+    }
+    else if (peek().type == TokenType::IDENTIFIER) {
+        // C89 implicit int: function declared without return type defaults to int
+        returnType = "int";
     }
     else {
         std::string foundStr = peek().value.empty() ? peek().typeToString() : peek().value;
@@ -451,6 +459,12 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                     continue;
                 }
             }
+            else if (peek().type == TokenType::IDENTIFIER) {
+                // K&R style: parameter is just a name, type declared after ')'
+                std::string pName = advance().value;
+                params.push_back({"int", 0, false, pName, pIsVolatile, pIsConst, false});
+                continue; // skip the pointer/name parsing below
+            }
             else {
                 std::string foundStr = peek().value.empty() ? peek().typeToString() : peek().value;
                 throw std::runtime_error("Syntax Error at " + std::to_string(peek().line) + ":" + std::to_string(peek().column) + ": Expected parameter type (int, char, struct, union). Found '" + foundStr + "' instead.");
@@ -496,6 +510,69 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     }
     bool isVariadic = match(TokenType::ELLIPSIS);
     expect(TokenType::CLOSE_PAREN, "Expected ')'");
+
+    // --- K&R parameter type declarations after ')' ---
+    // Pattern: int foo(a, b) int a; char *b; { ... }
+    // If next token is a type keyword (not '{' or ';'), parse K&R declarations
+    while (peek().type == TokenType::INT || peek().type == TokenType::CHAR ||
+           peek().type == TokenType::LONG || peek().type == TokenType::SHORT ||
+           peek().type == TokenType::VOID || peek().type == TokenType::UNSIGNED ||
+           peek().type == TokenType::SIGNED || peek().type == TokenType::STRUCT ||
+           peek().type == TokenType::UNION || peek().type == TokenType::ENUM ||
+           peek().type == TokenType::CONST || peek().type == TokenType::VOLATILE ||
+           (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value))) {
+        // Parse type specifier
+        std::string krType;
+        bool krSigned = false;
+        bool krIsConst = false, krIsVol = false;
+        while (match(TokenType::CONST) || match(TokenType::VOLATILE) || match(TokenType::RESTRICT)) {
+            if (tokens[pos-1].type == TokenType::CONST) krIsConst = true;
+            if (tokens[pos-1].type == TokenType::VOLATILE) krIsVol = true;
+        }
+        if (match(TokenType::SIGNED)) {
+            krSigned = true;
+            if (match(TokenType::LONG)) { krType = "long"; match(TokenType::INT); }
+            else if (match(TokenType::SHORT)) { krType = "int"; match(TokenType::INT); }
+            else if (match(TokenType::INT)) krType = "int";
+            else if (match(TokenType::CHAR)) krType = "char";
+            else krType = "int";
+        } else if (match(TokenType::UNSIGNED)) {
+            if (match(TokenType::LONG)) { krType = "long"; match(TokenType::INT); }
+            else if (match(TokenType::SHORT)) { krType = "int"; match(TokenType::INT); }
+            else if (match(TokenType::INT)) krType = "int";
+            else if (match(TokenType::CHAR)) krType = "char";
+            else krType = "int";
+        } else if (match(TokenType::LONG)) { krType = "long"; match(TokenType::INT); }
+        else if (match(TokenType::SHORT)) { krType = "int"; match(TokenType::INT); }
+        else if (match(TokenType::INT)) krType = "int";
+        else if (match(TokenType::CHAR)) krType = "char";
+        else if (match(TokenType::VOID)) krType = "void";
+        else if (match(TokenType::STRUCT) || match(TokenType::UNION)) {
+            bool isU = tokens[pos-1].type == TokenType::UNION;
+            krType = (isU ? "union " : "struct ") + expect(TokenType::IDENTIFIER, "Expected struct name").value;
+        } else if (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value)) {
+            krType = typedefs[advance().value].baseType;
+        } else break;
+
+        // Parse declarator(s) for this type: int a; or int a, b;
+        do {
+            int krPtr = 0;
+            while (match(TokenType::STAR)) krPtr++;
+            std::string krName = expect(TokenType::IDENTIFIER, "Expected parameter name in K&R declaration").value;
+            // Update matching parameter
+            for (auto& p : params) {
+                if (p.name == krName) {
+                    p.type = krType;
+                    p.pointerLevel = krPtr;
+                    p.isSigned = krSigned;
+                    p.isConst = krIsConst;
+                    p.isVolatile = krIsVol;
+                    break;
+                }
+            }
+        } while (match(TokenType::COMMA));
+        expect(TokenType::SEMICOLON, "Expected ';' after K&R parameter declaration");
+    }
 
     // Forward declaration (prototype): ends with ';' instead of '{'
     if (match(TokenType::SEMICOLON)) {
