@@ -552,7 +552,13 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                 else if (!match(TokenType::VOLATILE)) match(TokenType::RESTRICT);
             }
 
-            std::string pName = expect(TokenType::IDENTIFIER, "Expected parameter name").value;
+            std::string pName;
+            if (peek().type == TokenType::IDENTIFIER) {
+                pName = advance().value;
+            } else {
+                // Unnamed parameter (valid in prototypes): void foo(int, char *)
+                pName = "__unnamed_" + std::to_string(pos);
+            }
             params.push_back({pType, pPtrLevel, pIsSigned, pName, pIsVolatile, pIsConst, pIsPointerConst});
         } while (match(TokenType::COMMA) && peek().type != TokenType::ELLIPSIS);
     }
@@ -1373,6 +1379,30 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         sm.alignmentExpr = std::move(mAlignmentExpr); sm.isAnonymous = false;
         sm.arrayDims = memberArrayDims; sm.bitWidth = memberBitWidth;
         def->members.push_back(std::move(sm));
+
+        // Multi-member declarations: long p_x, p_y;
+        while (match(TokenType::COMMA)) {
+            int extraPtr = 0;
+            while (match(TokenType::STAR)) extraPtr++;
+            std::string extraName = expect(TokenType::IDENTIFIER, "Expected member name").value;
+            std::vector<int> extraDims;
+            while (match(TokenType::OPEN_SQUARE)) {
+                if (match(TokenType::CLOSE_SQUARE)) { extraDims.push_back(0); }
+                else {
+                    extraDims.push_back(std::stoi(expect(TokenType::INTEGER_LITERAL, "Expected array size").value));
+                    expect(TokenType::CLOSE_SQUARE, "Expected ']'");
+                }
+            }
+            int extraBitWidth = 0;
+            if (match(TokenType::COLON)) {
+                extraBitWidth = std::stoi(expect(TokenType::INTEGER_LITERAL, "Expected bitfield width").value);
+            }
+            StructMember esm;
+            esm.type = type; esm.pointerLevel = extraPtr; esm.isSigned = mIsSigned;
+            esm.name = extraName; esm.isConst = mIsConst;
+            esm.arrayDims = extraDims; esm.bitWidth = extraBitWidth;
+            def->members.push_back(std::move(esm));
+        }
         expect(TokenType::SEMICOLON, "Expected ';'");
     }
     expect(TokenType::CLOSE_BRACE, "Expected '}'");
