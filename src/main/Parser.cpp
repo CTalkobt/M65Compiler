@@ -435,8 +435,11 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     int returnPtrLevel = basePtrLevel;
     while (match(TokenType::STAR)) returnPtrLevel++;
 
+    // Skip __attribute__ between return type and function name
+    while (tryParseAttribute()) {}
+
     std::string name = expect(TokenType::IDENTIFIER, "Expected function name").value;
-    
+
     expect(TokenType::OPEN_PAREN, "Expected '('");
     std::vector<Parameter> params;
     // Handle (void) as empty parameter list
@@ -1189,6 +1192,9 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         }
     }
 
+    // Skip __attribute__ after variable declaration: int x __attribute__((unused));
+    while (tryParseAttribute()) {}
+
     // --- Multi-variable declarations: int a, b = 3, *c, d[4]; ---
     if (peek().type == TokenType::COMMA) {
         auto compound = setPos(std::make_unique<CompoundStatement>(), typeToken);
@@ -1263,6 +1269,8 @@ std::unique_ptr<StaticAssert> Parser::parseStaticAssert() {
 std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
     const Token& startToken = tokens[pos-1]; // 'struct' or 'union'
     bool isUnpacked = match(TokenType::UNPACKED);
+    // Skip __attribute__ after struct/union keyword: struct __attribute__((packed)) S { }
+    while (tryParseAttribute()) {}
     std::string name;
     if (peek().type == TokenType::IDENTIFIER) {
         name = advance().value;
@@ -1340,9 +1348,15 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             } else {
                 if (peek().type == TokenType::IDENTIFIER && (pos+1>=tokens.size() || tokens[pos+1].type != TokenType::OPEN_BRACE)) { type = (isU ? "union " : "struct ") + advance().value; } else { auto _sd = parseStructDefinition(isU); type = (isU ? "union " : "struct ") + _sd->name; pendingDefinitions.push_back(std::move(_sd)); }
             }
+        } else if (peek().type == TokenType::ATTRIBUTE) {
+            // __attribute__ as member type prefix — skip and retry
+            while (tryParseAttribute()) {}
+            continue; // re-enter the member parsing loop
         } else {
             throw std::runtime_error("Expected member type");
         }
+        // Skip __attribute__ after type, before pointer/name
+        while (tryParseAttribute()) {}
         int ptrLevel = 0;
         while (match(TokenType::STAR)) ptrLevel++;
         std::string memberName = expect(TokenType::IDENTIFIER, "Expected member name").value;
@@ -2121,6 +2135,8 @@ void Parser::parseTypedef() {
 
     // Skip qualifiers after type keyword (e.g., typedef int volatile ivol)
     skipTdQuals();
+    // Skip __attribute__ after type: typedef short __attribute__((...)) T;
+    while (tryParseAttribute()) {}
 
     int ptrLevel = basePtrLevel;
 
@@ -2144,7 +2160,12 @@ void Parser::parseTypedef() {
 
     while (match(TokenType::STAR)) ptrLevel++;
 
+    // Skip __attribute__ before alias name: typedef int __attribute__((aligned)) T;
+    while (tryParseAttribute()) {}
+
     std::string newName = expect(TokenType::IDENTIFIER, "Expected alias name in typedef").value;
+    // Skip __attribute__ after alias: typedef int T __attribute__((unused));
+    while (tryParseAttribute()) {}
     expect(TokenType::SEMICOLON, "Expected ';' after typedef");
 
     typedefs[newName] = {baseType, ptrLevel, isSigned};
