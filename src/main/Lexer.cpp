@@ -248,6 +248,7 @@ Token Lexer::lexIdentifierOrKeyword() {
         {"_Noreturn", TokenType::NORETURN},
         {"__attribute__", TokenType::ATTRIBUTE},
         {"__attribute", TokenType::ATTRIBUTE},
+        {"__extension__", TokenType::EXTENSION},
         {"break", TokenType::BREAK},
         {"continue", TokenType::CONTINUE},
         {"switch", TokenType::SWITCH},
