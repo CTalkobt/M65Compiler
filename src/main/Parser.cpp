@@ -39,8 +39,21 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
         }
         if (peek().type == TokenType::ASM) {
             advance();
+            match(TokenType::VOLATILE); // optional volatile
+            if (peek().type == TokenType::IDENTIFIER && peek().value == "goto") advance();
             expect(TokenType::OPEN_PAREN, "Expected '(' after asm");
             std::string code = expect(TokenType::STRING_LITERAL, "Expected string literal for asm code").value;
+            // Skip extended asm constraint sections
+            for (int section = 0; section < 3 && match(TokenType::COLON); section++) {
+                if (peek().type == TokenType::CLOSE_PAREN || peek().type == TokenType::COLON) continue;
+                do {
+                    if (peek().type == TokenType::OPEN_SQUARE) { advance(); while (peek().type != TokenType::CLOSE_SQUARE && peek().type != TokenType::END_OF_FILE) advance(); match(TokenType::CLOSE_SQUARE); }
+                    if (peek().type == TokenType::STRING_LITERAL) {
+                        advance();
+                        if (match(TokenType::OPEN_PAREN)) { int d=1; while (d>0 && peek().type!=TokenType::END_OF_FILE) { if (match(TokenType::OPEN_PAREN)) d++; else if (peek().type==TokenType::CLOSE_PAREN) { d--; if(d>0) advance(); } else advance(); } match(TokenType::CLOSE_PAREN); }
+                    } else break;
+                } while (match(TokenType::COMMA));
+            }
             expect(TokenType::CLOSE_PAREN, "Expected ')' after asm code");
             expect(TokenType::SEMICOLON, "Expected ';'");
             flushPending(*unit);
@@ -988,9 +1001,43 @@ std::unique_ptr<Statement> Parser::parseStatement() {
 
     if (match(TokenType::ASM)) {
         const Token& startToken = tokens[pos-1];
+        // Skip optional volatile/goto qualifiers
+        match(TokenType::VOLATILE);
+        if (peek().type == TokenType::IDENTIFIER && peek().value == "goto") advance();
         expect(TokenType::OPEN_PAREN, "Expected '(' after asm");
         std::string code = expect(TokenType::STRING_LITERAL, "Expected string literal for asm code").value;
-        expect(TokenType::CLOSE_PAREN, "Expected ')' after asm code");
+        // Extended asm: "template" : outputs : inputs : clobbers
+        // Parse and discard constraint sections (template is still emitted)
+        for (int section = 0; section < 3 && match(TokenType::COLON); section++) {
+            // Each section is comma-separated: "constraint" (expr) or just "string"
+            if (peek().type == TokenType::CLOSE_PAREN || peek().type == TokenType::COLON)
+                continue; // empty section
+            do {
+                // Skip optional constraint name [name]
+                if (peek().type == TokenType::OPEN_SQUARE) {
+                    advance();
+                    while (peek().type != TokenType::CLOSE_SQUARE && peek().type != TokenType::END_OF_FILE)
+                        advance();
+                    match(TokenType::CLOSE_SQUARE);
+                }
+                if (peek().type == TokenType::STRING_LITERAL) {
+                    advance(); // constraint string
+                    if (match(TokenType::OPEN_PAREN)) {
+                        // Parse and discard the operand expression
+                        int depth = 1;
+                        while (depth > 0 && peek().type != TokenType::END_OF_FILE) {
+                            if (match(TokenType::OPEN_PAREN)) depth++;
+                            else if (peek().type == TokenType::CLOSE_PAREN) { depth--; if (depth > 0) advance(); }
+                            else advance();
+                        }
+                        match(TokenType::CLOSE_PAREN);
+                    }
+                } else {
+                    break; // not a constraint
+                }
+            } while (match(TokenType::COMMA));
+        }
+        expect(TokenType::CLOSE_PAREN, "Expected ')' after asm");
         expect(TokenType::SEMICOLON, "Expected ';'");
         return setPos(std::make_unique<AsmStatement>(code), startToken);
     }
