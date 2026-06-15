@@ -1162,8 +1162,19 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             arrayDims.push_back(0);
             unsizedArray = true;
         } else {
-            const Token& sizeToken = expect(TokenType::INTEGER_LITERAL, "Expected integer literal for array size");
-            arrayDims.push_back((int)std::stol(sizeToken.value));
+            auto sizeExpr = parseExpression();
+            // Evaluate constant array size: integer literals, sizeof, constant expressions
+            int arrSize = 0;
+            if (auto* lit = dynamic_cast<IntegerLiteral*>(sizeExpr.get())) arrSize = (int)lit->value;
+            else if (auto* szExpr = dynamic_cast<SizeofExpression*>(sizeExpr.get())) {
+                if (szExpr->typeName == "int" || szExpr->typeName == "short") arrSize = 2;
+                else if (szExpr->typeName == "long") arrSize = 4;
+                else if (szExpr->typeName == "char") arrSize = 1;
+                else arrSize = 2; // default
+                for (int _p = 0; _p < szExpr->pointerLevel; _p++) arrSize = 2;
+            }
+            else arrSize = 1; // fallback for non-constant expressions
+            arrayDims.push_back(arrSize);
         }
         expect(TokenType::CLOSE_SQUARE, "Expected ']' after array size");
     }
@@ -1220,8 +1231,11 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
                     extraDims.push_back(0);
                     extraUnsized = true;
                 } else {
-                    const Token& st = expect(TokenType::INTEGER_LITERAL, "Expected integer literal for array size");
-                    extraDims.push_back((int)std::stol(st.value));
+                    auto stExpr = parseExpression();
+                    int estSize = 0;
+                    if (auto* lit = dynamic_cast<IntegerLiteral*>(stExpr.get())) estSize = (int)lit->value;
+                    else estSize = 1;
+                    extraDims.push_back(estSize);
                 }
                 expect(TokenType::CLOSE_SQUARE, "Expected ']' after array size");
             }
@@ -1340,17 +1354,28 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         else if (match(TokenType::LONG)) { type = "long"; match(TokenType::INT); } else if (match(TokenType::SHORT)) { type = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) type = "int";
         else if (match(TokenType::CHAR)) type = "char";
         else if (match(TokenType::BOOL)) type = "_Bool";
+        else if (match(TokenType::VOID)) type = "void";
+        else if (match(TokenType::ENUM)) {
+            if (peek().type == TokenType::IDENTIFIER) type = "enum " + advance().value;
+            else {
+                auto def = parseEnumDefinition();
+                type = "enum " + def->name;
+            }
+        }
         else if (match(TokenType::STRUCT) || match(TokenType::UNION)) {
             bool isU = tokens[pos-1].type == TokenType::UNION;
             if (peek().type == TokenType::OPEN_BRACE) {
-                // Inline definition: struct { ... } var;
                 auto nestedDef = parseStructDefinition(isU);
                 type = (isU ? "union " : "struct ") + nestedDef->name;
                 pendingDefinitions.push_back(std::move(nestedDef));
             } else {
                 if (peek().type == TokenType::IDENTIFIER && (pos+1>=tokens.size() || tokens[pos+1].type != TokenType::OPEN_BRACE)) { type = (isU ? "union " : "struct ") + advance().value; } else { auto _sd = parseStructDefinition(isU); type = (isU ? "union " : "struct ") + _sd->name; pendingDefinitions.push_back(std::move(_sd)); }
             }
-        } else if (peek().type == TokenType::ATTRIBUTE) {
+        }
+        else if (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value)) {
+            type = typedefs[advance().value].baseType;
+        }
+        else if (peek().type == TokenType::ATTRIBUTE) {
             // __attribute__ as member type prefix — skip and retry
             while (tryParseAttribute()) {}
             continue; // re-enter the member parsing loop
@@ -1370,8 +1395,11 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
                 isFlexArray = true;
                 memberArrayDims.push_back(0);
             } else {
-                const Token& sizeToken = expect(TokenType::INTEGER_LITERAL, "Expected integer literal for array size");
-                memberArrayDims.push_back(std::stoi(sizeToken.value));
+                auto mSizeExpr = parseExpression();
+                int mArrSize = 0;
+                if (auto* lit = dynamic_cast<IntegerLiteral*>(mSizeExpr.get())) mArrSize = (int)lit->value;
+                else mArrSize = 1;
+                memberArrayDims.push_back(mArrSize);
                 expect(TokenType::CLOSE_SQUARE, "Expected ']' after array size");
             }
         }

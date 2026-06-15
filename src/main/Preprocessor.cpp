@@ -27,7 +27,24 @@ Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
     // Standard predefined macros
     macros["__STDC__"] = Macro{false, false, {}, "1"};
     macros["__STDC_VERSION__"] = Macro{false, false, {}, "201112L"};
-    macros["__STDC_HOSTED__"] = Macro{false, false, {}, "0"}; 
+    macros["__STDC_HOSTED__"] = Macro{false, false, {}, "0"};
+
+    // GCC-compatible predefined macros for target (45GS02: 8-bit char, 16-bit int/short, 32-bit long)
+    macros["__CHAR_BIT__"] = Macro{false, false, {}, "8"};
+    macros["__SIZEOF_CHAR__"] = Macro{false, false, {}, "1"};
+    macros["__SIZEOF_SHORT__"] = Macro{false, false, {}, "2"};
+    macros["__SIZEOF_INT__"] = Macro{false, false, {}, "2"};
+    macros["__SIZEOF_LONG__"] = Macro{false, false, {}, "4"};
+    macros["__SIZEOF_LONG_LONG__"] = Macro{false, false, {}, "0"}; // not supported
+    macros["__SIZEOF_POINTER__"] = Macro{false, false, {}, "2"};
+    macros["__INT_MAX__"] = Macro{false, false, {}, "32767"};
+    macros["__LONG_MAX__"] = Macro{false, false, {}, "2147483647L"};
+    macros["__CHAR_MAX__"] = Macro{false, false, {}, "127"};
+    macros["__SCHAR_MAX__"] = Macro{false, false, {}, "127"};
+    macros["__SHRT_MAX__"] = Macro{false, false, {}, "32767"};
+    macros["__LONG_LONG_MAX__"] = Macro{false, false, {}, "0"}; // not supported
+    macros["__ORDER_LITTLE_ENDIAN__"] = Macro{false, false, {}, "1234"};
+    macros["__BYTE_ORDER__"] = Macro{false, false, {}, "1234"}; // little-endian (6502)
 }
 
 std::string Preprocessor::expandMacros(const std::string& line) {
