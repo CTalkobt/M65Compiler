@@ -160,8 +160,9 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                     continue;
                 } else if (stmt->instr.mnemonic == "endproc") {
                     if (!isDeadCode) {
-                        if (stmt->instr.procParamSize == 0) e.emitInstruction("rts", AddressingMode::IMPLIED);
-                        else e.emitInstruction("rts", AddressingMode::IMMEDIATE, stmt->instr.procParamSize, true);
+                        // Always emit plain RTS — caller handles stack cleanup via PLZ
+                        // (RTS #N opcode $62 is unreliable on some 45GS02 hardware)
+                        e.emitInstruction("rts", AddressingMode::IMPLIED);
                     }
                     currentPass2Proc = pass2ProcStack.empty() ? nullptr : pass2ProcStack.back();
                     if (!pass2ProcStack.empty()) pass2ProcStack.pop_back();
@@ -437,7 +438,14 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                                     }
                                 }
                             } else { // Branch instructions
-                                uint32_t t = parser->evaluateExpressionAt(stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                                uint32_t t;
+                                if (stmt->instr.operandTokenIndex >= 0) {
+                                    t = parser->evaluateExpressionAt(stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                                } else if (!stmt->instr.operand.empty() && parser->symbolTable.count(stmt->instr.operand)) {
+                                    t = parser->symbolTable.at(stmt->instr.operand).value;
+                                } else {
+                                    t = stmt->address; // fallback: branch to self
+                                }
                                 if (stmt->instr.mnemonic == "bsr") {
                                     int32_t off = (int32_t)t - (int32_t)(stmt->address + 3);
                                     e.emitInstruction("bsr", AddressingMode::RELATIVE16, (uint32_t)(uint16_t)(int16_t)off, true);

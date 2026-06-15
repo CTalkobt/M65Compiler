@@ -29,7 +29,7 @@ proc _memset, W#_p_s, W#_p_c, W#_p_n
 @loop:
     ldx $06
     bne @do
-    cpy $05
+    ldx $05
     beq @done
 @do:
     sta ($02),y

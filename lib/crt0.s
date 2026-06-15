@@ -15,6 +15,7 @@
 
 .global __init
 .global __exit
+.global __abort
 .global __sp_base
 .weak _init_features
 .extern _main
@@ -30,13 +31,20 @@ __init:
     tsy
     sty __saved_sph + 1
 
+    ; Enable MEGA65 I/O before DMA — GS knock must precede $D700 access
+    lda #$47            ; 'G'
+    sta $D02F
+    lda #$53            ; 'S'
+    sta $D02F
+
     ; Save ZP $08-$FF to BSS buffer via static DMA job
+    ldz #0              ; Z must be 0 for stz bank clears below
+    stz $D704           ; megabyte bank = 0 (clear stale KERNAL value)
+    stz $D702           ; bank = 0
     lda #>__dma_save
-    sta $D702
-    stz $D703
+    sta $D701           ; DMA list address MSB
     lda #<__dma_save
-    sta $D701
-    stz $D700           ; trigger DMA
+    sta $D700           ; DMA list address LSB — triggers DMA
 
     jsr _init_features
     jsr _main
@@ -44,12 +52,13 @@ __init:
     ; Fall through to __exit
 __exit:
     ; Restore ZP $08-$FF from BSS buffer via static DMA job
+    ldz #0              ; Z may have changed during program execution
+    stz $D704           ; megabyte bank = 0
+    stz $D702           ; bank = 0
     lda #>__dma_restore
-    sta $D702
-    stz $D703
+    sta $D701           ; DMA list address MSB
     lda #<__dma_restore
-    sta $D701
-    stz $D700           ; trigger DMA
+    sta $D700           ; DMA list address LSB — triggers DMA
 
     ; Restore caller's stack pointer and return.
 __saved_spl:
@@ -65,8 +74,17 @@ __saved_sph:
 _init_features:
     rts
 
+; __abort — abnormal termination. Non-overridable core implementation.
+; abort() (weak) calls this. Users override abort() for pre-abort hooks,
+; then call __abort for the actual termination.
+__abort:
+    brk
+
 ; Static DMA command blocks (12 bytes each, linker patches BSS address)
+; Align to 16 bytes so the 12-byte job never spans a page boundary
+; (mmemu DMA handler malfunctions when list addr lo byte >= $F9)
 .segment "data"
+    .align 16
 __dma_save:
     .byte $00                           ; command: COPY
     .word 248                           ; count

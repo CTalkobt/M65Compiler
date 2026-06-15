@@ -4795,7 +4795,9 @@ void CodeGenerator::visit(FunctionCall& node) {
     if (!knownFunctions.count(node.name)) {
         std::string loc = sourceFilename.empty() ? "" : sourceFilename + ":";
         if (node.line > 0) loc += std::to_string(node.line) + ":" + std::to_string(node.column) + ": ";
-        throw std::runtime_error(loc + "error: implicit declaration of function '" + node.name + "' (missing #include or prototype)");
+        // C89 implicit declaration: warn and treat as int func()
+        std::cerr << loc << "warning: implicit declaration of function '" << node.name << "'\n";
+        knownFunctions.insert(node.name);
     }
 
     // Warn on const-correctness violations (passing const pointer to non-const parameter)

@@ -11,12 +11,13 @@
 
 proc _memcpy, W#_p_dest, W#_p_src, W#_p_n
     .var _fp = 0
-    ; Save ZP $02-$03 to stack
+    ; Save ZP $02-$03 to stack (+2 bytes on stack)
     lda $02
     pha
     lda $03
     pha
 
+    ; Load dest into ZP $02/$03 (offsets +2 for the PHA saves)
     tsx
     lda __sp_base+_p_dest+2, x
     sta $02
@@ -24,6 +25,7 @@ proc _memcpy, W#_p_dest, W#_p_src, W#_p_n
     sta $03
     ldy #0
 @loop:
+    ; S-relative offsets include +2 for the PHA saves (assembler adds +1 internally)
     lda _p_n+2, s
     bne @do_copy
     lda _p_n+3, s
@@ -45,15 +47,16 @@ proc _memcpy, W#_p_dest, W#_p_src, W#_p_n
     dec _p_n+2, s
     bra @loop
 @done:
-    ; Restore ZP
+    ; Restore ZP (pops the 2 PHA saves)
     plz
     stz $03
     plz
     stz $02
+    ; Return dest — no +2 adjustment needed here, PHA saves are gone
     tsx
-    lda __sp_base+_p_dest+3, x     ; hi
+    lda __sp_base+_p_dest+1, x     ; hi
     pha
-    lda __sp_base+_p_dest+2, x     ; lo
+    lda __sp_base+_p_dest, x       ; lo
     plx                             ; X = hi
     rts
     endproc

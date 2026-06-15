@@ -17,6 +17,7 @@ The MEGA65 C Compiler Suite is a modern toolchain for developing 6502-compatible
 - **nm45** — Symbol table inspector for `.o45` and `.o65` object files
 - **objdump45** — Object file disassembler with symbolic annotation
 - **cp45** — C preprocessor
+- **disk45** — CBM disk image utility supporting D64, D71, D81, D65 disk images, ARK/ARC archives, and GZ compression
 
 ## Architecture
 
@@ -328,6 +329,68 @@ The `.o45` relocatable object format is documented in `doc/lib45.md`. Key sectio
 - Symbol table (name, address, scope, type)
 - Relocation table (address, type, symbol reference, addend)
 - Text/data/zero-page sections with code/data bytes
+
+## Disk Image Utility (disk45)
+
+**disk45** creates, reads, and manipulates Commodore disk images and archive files.
+
+### Supported Formats
+
+| Extension | Format | Capacity | Notes |
+|-----------|--------|----------|-------|
+| `.d64` | C64 1541 | 170 KB | 35 tracks, variable sectors/track |
+| `.d71` | C128 1571 | 340 KB | Double-sided D64 (70 tracks) |
+| `.d81` | C65/MEGA65 1581 | 800 KB | 80×40 uniform. **Recommended for MEGA65** |
+| `.d65` | MEGA65 native | 1.6 MB | 162 tracks, double-sided D81 |
+| `.ark` | Arkive | Variable | Uncompressed CBM file archive |
+| `.arc`/`.sda` | ARC/SDA | Variable | Compressed archive (RLE/Huffman/LZW) |
+| `.gz` | GZ wrapper | — | Append to any format (e.g., `.d81.gz`) |
+
+### Commands
+
+```bash
+disk45 create <image> [-n name] [-i id]   # Create empty disk/archive
+disk45 list <image>                       # List directory
+disk45 info <image>                       # Show disk info
+disk45 add <image> <file> [cbm_name]      # Add file to image
+disk45 extract <image> <cbm_name> <file>  # Extract file from image
+disk45 remove <image> <cbm_name>          # Delete file from image
+```
+
+### Usage Examples
+
+```bash
+# Create a D81 and add a compiled program
+disk45 create game.d81 -n "MY GAME" -i "MG"
+disk45 add game.d81 build/main.prg "GAME"
+disk45 add game.d81 assets/sprites.bin "SPRITES"
+disk45 list game.d81
+
+# Compressed distribution
+disk45 create release.d81.gz -n "MY GAME"
+disk45 add release.d81.gz build/main.prg "GAME"
+
+# Extract from an ARC archive (auto-decompresses RLE/Huffman/LZW)
+disk45 extract old_archive.arc "PROGRAM" ./program.prg
+```
+
+### Library API
+
+The disk image library can be used from C++ via the `DiskImage` base class:
+
+```cpp
+#include "DiskImage.hpp"
+auto img = DiskImage::create(DiskFormat::D81);
+img->format("MY DISK", "MD");
+img->addFile("GAME", CbmFileType::PRG, data);
+img->saveToFile("game.d81.gz");  // transparent GZ compression
+
+auto disk = DiskImage::load("game.d81.gz");  // transparent decompression
+auto files = disk->listFiles();
+auto prg = disk->readFile("GAME");
+```
+
+Full documentation: `doc/disk45.md`
 
 ## Release Checklist (v1.0)
 

@@ -23,3 +23,12 @@ void *memcpy(void *dest, void *src, int n);
 void *memmove(void *dest, void *src, int n);
 void *memset(void *s, int c, int n);
 int memcmp(void *s1, void *s2, int n);
+
+/* GCC __builtin_* equivalents */
+void *__builtin_memcpy(void *dest, void *src, unsigned int n);
+void *__builtin_memset(void *dest, int c, unsigned int n);
+void *__builtin_memmove(void *dest, void *src, unsigned int n);
+int __builtin_memcmp(void *s1, void *s2, unsigned int n);
+unsigned int __builtin_strlen(char *s);
+char *__builtin_strcpy(char *dest, char *src);
+int __builtin_strcmp(char *s1, char *s2);

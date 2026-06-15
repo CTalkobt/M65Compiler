@@ -224,7 +224,11 @@ void IRCodeGen::storeVreg(uint32_t vregId) {
                 emit("staxyz.fp " + sym);
             } else if (alloc.type == ir::Type::I8) {
                 emit("sta.fp " + sym);
+            } else if (valueByte_[1] == REG_Z) {
+                // Hi byte already in Z — use staz.fp directly (no transfer needed)
+                emit("staz.fp " + sym);
             } else {
+                // Hi byte in X (standard AX convention) — stax.fp handles X→Z internally
                 emit("stax.fp " + sym);
             }
             break;
@@ -1085,6 +1089,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 // ============================================================================
 
 void IRCodeGen::emitInst(const ir::Inst& inst) {
+    // Reset value-role tracking for each new instruction
+    clearValueRoles();
+
     // Emit .loc directive when source location changes
     if (inst.loc.valid() && (inst.loc.line != lastLocLine_ || inst.loc.file != lastLocFile_)) {
         lastLocLine_ = inst.loc.line;
@@ -1194,6 +1201,23 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         ms_.invalidateAll();
                         break;
                     }
+                    if (destAlloc.loc == VRegAllocator::IN_FRAME && inst.resultType == ir::Type::I16) {
+                        // Direct store to frame via staz.fp — load hi into Z, skip X entirely
+                        std::string r = irDesc("val=" + std::to_string(val) + " → direct frame store");
+                        std::string sym = "__vr" + std::to_string(nextInst->src2.vregId);
+                        uint8_t b0 = val & 0xFF;
+                        uint8_t b1 = (val >> 8) & 0xFF;
+                        emit("lda #" + std::to_string((int)b0), r);
+                        if (b1 == b0) {
+                            emit("taz", r);
+                        } else {
+                            emit("ldz #" + std::to_string((int)b1), r);
+                        }
+                        emit("staz.fp " + sym, r);
+                        resultInAX_ = -2;
+                        ms_.invalidateAll();
+                        break;
+                    }
                 }
             }
 
@@ -1204,17 +1228,28 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             uint8_t b3 = (val >> 24) & 0xFF;
             ms_.setConst(REG_A, b0);
             emit("lda #" + std::to_string((int)b0), r);
+            valueByte_[0] = REG_A;
             // Can skip tax/tay/taz when byte matches A only if storeVreg
             // uses per-byte stores (IN_ZP). Frame stores use stax.fp/staxyz.fp
-            // which require actual register values in X/Y/Z.
+            // which require actual register values in X (or X/Y/Z for I32).
             bool canSkipTransfer = inst.dest.isVreg() &&
                 alloc_.getAlloc(inst.dest.vregId).loc == VRegAllocator::IN_ZP;
             if (inst.resultType == ir::Type::I32) {
-                if (b1 == b0 && canSkipTransfer) { ms_.setConst(REG_X, b1); } else if (b1 == b0) { emit("tax", r); ms_.setTransfer(REG_X, REG_A); } else { emit("ldx #" + std::to_string((int)b1), r); ms_.setConst(REG_X, b1); }
-                if (b2 == b0 && canSkipTransfer) { ms_.setConst(REG_Y, b2); } else if (b2 == b0) { emit("tay", r); ms_.setTransfer(REG_Y, REG_A); } else { emit("ldy #" + std::to_string((int)b2), r); ms_.setConst(REG_Y, b2); }
-                if (b3 == b0 && canSkipTransfer) { ms_.setConst(REG_Z, b3); } else if (b3 == b0) { emit("taz", r); ms_.setTransfer(REG_Z, REG_A); } else { emit("ldz #" + std::to_string((int)b3), r); ms_.setConst(REG_Z, b3); }
+                if (b1 == b0 && canSkipTransfer) { ms_.setConst(REG_X, b1); } else if (b1 == b0) { emit("tax", r); ms_.setTransfer(REG_X, REG_A); valueByte_[1] = REG_X; } else { emit("ldx #" + std::to_string((int)b1), r); ms_.setConst(REG_X, b1); valueByte_[1] = REG_X; }
+                if (b2 == b0 && canSkipTransfer) { ms_.setConst(REG_Y, b2); } else if (b2 == b0) { emit("tay", r); ms_.setTransfer(REG_Y, REG_A); valueByte_[2] = REG_Y; } else { emit("ldy #" + std::to_string((int)b2), r); ms_.setConst(REG_Y, b2); valueByte_[2] = REG_Y; }
+                if (b3 == b0 && canSkipTransfer) { ms_.setConst(REG_Z, b3); } else if (b3 == b0) { emit("taz", r); ms_.setTransfer(REG_Z, REG_A); valueByte_[3] = REG_Z; } else { emit("ldz #" + std::to_string((int)b3), r); ms_.setConst(REG_Z, b3); valueByte_[3] = REG_Z; }
             } else if (inst.resultType != ir::Type::I8) {
-                if (b1 == b0 && canSkipTransfer) { ms_.setConst(REG_X, b1); } else if (b1 == b0) { emit("tax", r); ms_.setTransfer(REG_X, REG_A); } else { emit("ldx #" + std::to_string((int)b1), r); ms_.setConst(REG_X, b1); }
+                if (b1 == b0 && canSkipTransfer) {
+                    ms_.setConst(REG_X, b1);
+                    // X not actually loaded — valueByte_[1] stays VB_NONE
+                    // storeVreg for IN_ZP uses sta for both bytes when A==X
+                } else if (b1 == b0) {
+                    emit("tax", r); ms_.setTransfer(REG_X, REG_A);
+                    valueByte_[1] = REG_X;
+                } else {
+                    emit("ldx #" + std::to_string((int)b1), r); ms_.setConst(REG_X, b1);
+                    valueByte_[1] = REG_X;
+                }
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             resultInAX_ = inst.dest.isVreg() ? (int32_t)inst.dest.vregId : -1;
@@ -1642,15 +1677,33 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     // I32 >> 8 unsigned: A=X, X=Y, Y=Z, Z=0
                     emit("txa"); emit("pha"); emit("tya"); emit("tax");
                     emit("tza"); emit("tay"); emit("ldz #0"); emit("pla");
+                } else if (shiftCount == 8 && is32 && isASR) {
+                    // I32 >> 8 signed: A=X, X=Y, Y=Z, Z=sign_ext(Z)
+                    emit("txa"); emit("pha"); emit("tya"); emit("tax");
+                    emit("tza"); emit("tay");             // Y = old Z (byte 3)
+                    emit("cmp #$80"); emit("lda #0"); emit("sbc #0"); // sign extend
+                    emit("taz"); emit("pla");             // Z = sign, A = old X
                 } else if (shiftCount == 16 && is32 && !isASR) {
                     // I32 >> 16 unsigned: A=Y, X=Z, Y=Z=0
-                    // Must save Y before TZA clobbers A
-                    emit("tza"); emit("tax");  // X = old Z (byte 3)
-                    emit("tya");               // A = old Y (byte 2)
+                    emit("tza"); emit("tax");
+                    emit("tya");
                     emit("ldy #0"); emit("ldz #0");
+                } else if (shiftCount == 16 && is32 && isASR) {
+                    // I32 >> 16 signed: A=Y, X=Z, Y=Z=sign_ext(Z)
+                    emit("tya"); emit("pha");             // save Y (new byte 0)
+                    emit("tza"); emit("tax");             // X = old Z (new byte 1)
+                    emit("cmp #$80"); emit("lda #0"); emit("sbc #0"); // sign extend
+                    emit("tay"); emit("taz");             // Y=Z=sign
+                    emit("pla");                          // A = old Y (byte 0)
                 } else if (shiftCount == 24 && is32 && !isASR) {
                     // I32 >> 24 unsigned: A=Z, X=Y=Z=0
                     emit("tza"); emit("ldx #0"); emit("ldy #0"); emit("ldz #0");
+                } else if (shiftCount == 24 && is32 && isASR) {
+                    // I32 >> 24 signed: A=Z, X=Y=Z=sign_ext(Z)
+                    emit("tza"); emit("cmp #$80"); emit("pha"); // save Z, set sign
+                    emit("lda #0"); emit("sbc #0");       // A = sign
+                    emit("tax"); emit("tay"); emit("taz"); // X=Y=Z=sign
+                    emit("pla");                           // A = old Z (byte 0)
                 } else {
                     // General case: loop of single-bit shifts
                     int maxBits = is32 ? 32 : 16;
@@ -2062,9 +2115,13 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     // Store-forwarding: if src1 result is still in A:X, skip reload
                     if (inst.src1.isVreg() && (int32_t)inst.src1.vregId == resultInAX_) {
                         // Result already in A:X from previous instruction — store directly
+                        valueByte_[0] = REG_A;
+                        valueByte_[1] = REG_X;
                         storeVreg(inst.src2.vregId);
                     } else {
                         loadOperand(inst.src1);
+                        valueByte_[0] = REG_A;
+                        valueByte_[1] = REG_X;
                         storeVreg(inst.src2.vregId);
                     }
                 } else {
@@ -2492,8 +2549,12 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     emit("jsr (__zp_scratch)");
                 }
 
-                // Restore _fp after callee cleaned params (rts #N popped argBytes)
+                // Caller-side stack cleanup: pop argBytes with PLZ instructions
+                // (RTS #N opcode $62 is unreliable on some hardware)
                 if (argBytes > 0) {
+                    for (int i = 0; i < argBytes; i++) {
+                        emit("plz");
+                    }
                     emit(".var _fp = _fp - " + std::to_string(argBytes));
                 }
             }

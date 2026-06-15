@@ -26,6 +26,23 @@ fi
 
 failed=0
 
+# Helper function: direct compile + assemble (inline startup, no DMA-based crt0)
+# Usage: compile_direct_test "test_name.c" "output.prg" [extra_cc_flags]
+compile_direct_test() {
+    local src="$1"
+    local prg_out="$2"
+    local flags="${3:-}"
+    local s_file="${prg_out%.prg}.s"
+
+    $CC $flags "$src" -o "$s_file" 2>/dev/null
+    if [ $? -ne 0 ]; then return 1; fi
+
+    $AS "$s_file" -o "$prg_out"
+    if [ $? -ne 0 ]; then return 2; fi
+
+    return 0
+}
+
 # Helper function: compile, assemble, and link with stdlib (for tests using assert.h)
 # Usage: compile_link_test "test_name.c" "output.prg" ["-fzpcall"]
 compile_link_test() {

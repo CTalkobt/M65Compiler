@@ -27,7 +27,35 @@ Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
     // Standard predefined macros
     macros["__STDC__"] = Macro{false, false, {}, "1"};
     macros["__STDC_VERSION__"] = Macro{false, false, {}, "201112L"};
-    macros["__STDC_HOSTED__"] = Macro{false, false, {}, "0"}; 
+    macros["__STDC_HOSTED__"] = Macro{false, false, {}, "0"};
+
+    // GCC-compatible predefined macros for target (45GS02: 8-bit char, 16-bit int/short, 32-bit long)
+    macros["__CHAR_BIT__"] = Macro{false, false, {}, "8"};
+    macros["__SIZEOF_CHAR__"] = Macro{false, false, {}, "1"};
+    macros["__SIZEOF_SHORT__"] = Macro{false, false, {}, "2"};
+    macros["__SIZEOF_INT__"] = Macro{false, false, {}, "2"};
+    macros["__SIZEOF_LONG__"] = Macro{false, false, {}, "4"};
+    macros["__SIZEOF_LONG_LONG__"] = Macro{false, false, {}, "0"}; // not supported
+    macros["__SIZEOF_POINTER__"] = Macro{false, false, {}, "2"};
+    macros["__INT_MAX__"] = Macro{false, false, {}, "32767"};
+    macros["__LONG_MAX__"] = Macro{false, false, {}, "2147483647L"};
+    macros["__CHAR_MAX__"] = Macro{false, false, {}, "127"};
+    macros["__SCHAR_MAX__"] = Macro{false, false, {}, "127"};
+    macros["__SHRT_MAX__"] = Macro{false, false, {}, "32767"};
+    macros["__LONG_LONG_MAX__"] = Macro{false, false, {}, "0"}; // not supported
+    macros["__ORDER_LITTLE_ENDIAN__"] = Macro{false, false, {}, "1234"};
+    // GCC type macros — map to cc45 native types
+    macros["__SIZE_TYPE__"] = Macro{false, false, {}, "unsigned int"};
+    macros["__PTRDIFF_TYPE__"] = Macro{false, false, {}, "int"};
+    macros["__INTPTR_TYPE__"] = Macro{false, false, {}, "int"};
+    macros["__UINTPTR_TYPE__"] = Macro{false, false, {}, "unsigned int"};
+    macros["__INT8_TYPE__"] = Macro{false, false, {}, "signed char"};
+    macros["__UINT8_TYPE__"] = Macro{false, false, {}, "unsigned char"};
+    macros["__INT16_TYPE__"] = Macro{false, false, {}, "int"};
+    macros["__UINT16_TYPE__"] = Macro{false, false, {}, "unsigned int"};
+    macros["__INT32_TYPE__"] = Macro{false, false, {}, "long"};
+    macros["__UINT32_TYPE__"] = Macro{false, false, {}, "unsigned long"};
+    macros["__BYTE_ORDER__"] = Macro{false, false, {}, "1234"}; // little-endian (6502)
 }
 
 std::string Preprocessor::expandMacros(const std::string& line) {
@@ -403,7 +431,12 @@ std::string Preprocessor::process(const std::string& source,
                                   const std::map<std::string, std::string>& initialSymbols,
                                   const std::vector<std::string>& includePaths,
                                   const std::string& currentFile) {
+    // Preserve predefined macros from constructor, then add initialSymbols
+    std::map<std::string, Macro> saved = std::move(this->macros);
     this->macros.clear();
+    // Restore predefined macros
+    for (auto& [k, v] : saved) this->macros[k] = std::move(v);
+    // Add/override with initialSymbols
     for (const auto& pair : initialSymbols) {
         this->macros[pair.first] = Macro{false, false, {}, pair.second};
     }
@@ -411,8 +444,6 @@ std::string Preprocessor::process(const std::string& source,
     this->includedFiles.clear();
     this->onceFiles.clear();
     this->stateStack.clear();
-    
-    // Standard predefined macros are set in constructor
     
     // Default initial state: everything is active.
     stateStack.push_back({true, true, false});

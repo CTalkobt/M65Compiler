@@ -24,6 +24,9 @@ enum class TokenType {
     ALIGNAS,
     ALIGNOF,
     NORETURN,
+    ATTRIBUTE,  // __attribute__
+    EXTENSION,  // __extension__ (GCC, skip silently)
+    TYPEOF,     // typeof / __typeof__ (GCC)
     BREAK,
     CONTINUE,
     SWITCH,
@@ -142,6 +145,9 @@ struct Token {
             case TokenType::ALIGNAS: return "ALIGNAS";
             case TokenType::ALIGNOF: return "ALIGNOF";
             case TokenType::NORETURN: return "NORETURN";
+            case TokenType::ATTRIBUTE: return "ATTRIBUTE";
+            case TokenType::TYPEOF: return "TYPEOF";
+            case TokenType::EXTENSION: return "EXTENSION";
             case TokenType::BREAK: return "BREAK";
             case TokenType::CONTINUE: return "CONTINUE";
             case TokenType::SWITCH: return "SWITCH";

@@ -856,6 +856,10 @@ void AssemblerParser::pass1() {
             else if (fullMnemonic == "sta.fp") { SIMOP(STA_FP, dispatch_STA_FP); }
             else if (fullMnemonic == "ldax.fp") { SIMOP(LDAX_FP, dispatch_LDAX_FP); }
             else if (fullMnemonic == "stax.fp") { SIMOP(STAX_FP, dispatch_STAX_FP); }
+            else if (fullMnemonic == "lday.fp") { SIMOP(LDAY_FP, dispatch_LDAY_FP); }
+            else if (fullMnemonic == "stay.fp") { SIMOP(STAY_FP, dispatch_STAY_FP); }
+            else if (fullMnemonic == "ldaz.fp") { SIMOP(LDAZ_FP, dispatch_LDAZ_FP); }
+            else if (fullMnemonic == "staz.fp") { SIMOP(STAZ_FP, dispatch_STAZ_FP); }
             else if (fullMnemonic == "ldaxyz.fp") { SIMOP(LDAXYZ_FP, dispatch_LDAXYZ_FP); }
             else if (fullMnemonic == "staxyz.fp") { SIMOP(STAXYZ_FP, dispatch_STAXYZ_FP); }
             else if (fullMnemonic == "leax.fp") { SIMOP(LEAX_FP, dispatch_LEAX_FP); }
@@ -1038,8 +1042,10 @@ void AssemblerParser::pass1() {
                     }
                     scopeStack.push_back(pN); stmt->scopePrefix = currentScopePrefix();
                     // Stack-relative offsets: past 2-byte return addr
+                    // Iterate forward — first declared param (leftmost in C) is pushed last
+                    // by the compiler (right-to-left push), so it's closest to SP (lowest offset).
                     int sOff = 2;
-                    for (int i = (int)args.size() - 1; i >= 0; --i) {
+                    for (int i = 0; i < (int)args.size(); ++i) {
                         std::string scA = stmt->scopePrefix + args[i].name;
                         std::string scAN = stmt->scopePrefix + "ARG" + std::to_string(i + 1);
                         ctx->localArgs[args[i].name] = sOff; ctx->localArgs["ARG" + std::to_string(i + 1)] = sOff;
@@ -1060,8 +1066,8 @@ void AssemblerParser::pass1() {
                         addError("Error: 'endproc' outside of procedure scope");
                     }
                     if (!scopeStack.empty()) scopeStack.pop_back();
-                    // RTS (1 byte) or RTS #n (2 bytes)
-                    stmt->size = (stmt->instr.procParamSize == 0) ? 1 : 2;
+                    // Always plain RTS (1 byte) — caller handles stack cleanup
+                    stmt->size = 1;
                 }
                 else if (stmt->instr.mnemonic == "call") {
                     stmt->instr.operand = advance().value;
@@ -1367,6 +1373,22 @@ void AssemblerParser::emitSTAX_FPCode(std::vector<uint8_t>& binary, int tokenInd
     M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitSTAX_FPCode(this, e, tokenIndex, scopePrefix);
 }
+void AssemblerParser::emitLDAY_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    AssemblerSimulatedOps::emitLDAY_FPCode(this, e, tokenIndex, scopePrefix);
+}
+void AssemblerParser::emitSTAY_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    AssemblerSimulatedOps::emitSTAY_FPCode(this, e, tokenIndex, scopePrefix);
+}
+void AssemblerParser::emitLDAZ_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    AssemblerSimulatedOps::emitLDAZ_FPCode(this, e, tokenIndex, scopePrefix);
+}
+void AssemblerParser::emitSTAZ_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    AssemblerSimulatedOps::emitSTAZ_FPCode(this, e, tokenIndex, scopePrefix);
+}
 void AssemblerParser::emitLDAXYZ_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
     M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
     AssemblerSimulatedOps::emitLDAXYZ_FPCode(this, e, tokenIndex, scopePrefix);
@@ -1394,7 +1416,7 @@ void AssemblerParser::emitBFInsCode(std::vector<uint8_t>& binary, bool is16, int
 
 int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t currentAddr, const std::string& scopePrefix) {
     if (instr.mnemonic == "proc") return 0;
-    if (instr.mnemonic == "endproc") return (instr.procParamSize == 0) ? 1 : 2;
+    if (instr.mnemonic == "endproc") return 1; // always plain RTS
     if (instr.mnemonic == "push" || instr.mnemonic == "pop") {
         return AssemblerSimulatedOps::getPushPopSize(this, instr.mnemonic == "push", instr.operand, instr.operandTokenIndex, scopePrefix);
     }
@@ -1448,7 +1470,14 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
 
     if (instr.mnemonic == "beq" || instr.mnemonic == "bne" || instr.mnemonic == "bra" || instr.mnemonic == "bcc" || instr.mnemonic == "bcs" || instr.mnemonic == "bpl" || instr.mnemonic == "bmi" || instr.mnemonic == "bvc" || instr.mnemonic == "bvs") {
         try {
-            uint32_t target = evaluateExpressionAt(instr.operandTokenIndex, scopePrefix);
+            uint32_t target;
+            if (instr.operandTokenIndex >= 0) {
+                target = evaluateExpressionAt(instr.operandTokenIndex, scopePrefix);
+            } else if (!instr.operand.empty() && symbolTable.count(instr.operand)) {
+                target = symbolTable.at(instr.operand).value;
+            } else {
+                return 3; // Can't resolve yet — assume worst case (16-bit relative)
+            }
             int32_t diff = (int32_t)target - (int32_t)(currentAddr + 2);
             if (diff >= -128 && diff <= 127) return 2;
         } catch (...) {}
@@ -1629,7 +1658,7 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
             int oS = s->size;
             if (s->type == Statement::INSTRUCTION && s->instr.mnemonic == "proc") s->size = 0;
             else if (s->type == Statement::INSTRUCTION && s->instr.mnemonic == "endproc") {
-                if (isDeadCode) s->size = 0; else s->size = (s->instr.procParamSize == 0) ? 1 : 2;
+                if (isDeadCode) s->size = 0; else s->size = 1; // always plain RTS
                 isDeadCode = false;
             } else if (isDeadCode && s->type != Statement::DIRECTIVE && s->type != Statement::BASIC_UPSTART) s->size = 0;
             else {

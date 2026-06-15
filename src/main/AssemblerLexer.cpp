@@ -219,7 +219,7 @@ AssemblerToken AssemblerLexer::lexIdentifierOrInstruction() {
         "PTRSTACK", "PTRDEREF", "LDW.F", "STW.F", "INC.F", "DEC.F",
         "PUSH", "POP",
         "LDXY", "STXY",
-        "LDA.FP", "STA.FP", "LDAX.FP", "STAX.FP", "LDAXYZ.FP", "STAXYZ.FP", "LEAX.FP", "MOVE.FP", "INC.FP", "DEC.FP", "INC.16F", "DEC.16F",
+        "LDA.FP", "STA.FP", "LDAX.FP", "STAX.FP", "LDAY.FP", "STAY.FP", "LDAZ.FP", "STAZ.FP", "LDAXYZ.FP", "STAXYZ.FP", "LEAX.FP", "MOVE.FP", "INC.FP", "DEC.FP", "INC.16F", "DEC.16F",
         "BFEXT", "BFEXT16", "BFINS", "BFINS.SP", "BFINS.IND", "BFINS16", "BFINS16.SP", "BFINS16.IND"
     };
 
