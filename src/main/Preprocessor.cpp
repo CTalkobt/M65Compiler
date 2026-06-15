@@ -44,6 +44,17 @@ Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
     macros["__SHRT_MAX__"] = Macro{false, false, {}, "32767"};
     macros["__LONG_LONG_MAX__"] = Macro{false, false, {}, "0"}; // not supported
     macros["__ORDER_LITTLE_ENDIAN__"] = Macro{false, false, {}, "1234"};
+    // GCC type macros — map to cc45 native types
+    macros["__SIZE_TYPE__"] = Macro{false, false, {}, "unsigned int"};
+    macros["__PTRDIFF_TYPE__"] = Macro{false, false, {}, "int"};
+    macros["__INTPTR_TYPE__"] = Macro{false, false, {}, "int"};
+    macros["__UINTPTR_TYPE__"] = Macro{false, false, {}, "unsigned int"};
+    macros["__INT8_TYPE__"] = Macro{false, false, {}, "signed char"};
+    macros["__UINT8_TYPE__"] = Macro{false, false, {}, "unsigned char"};
+    macros["__INT16_TYPE__"] = Macro{false, false, {}, "int"};
+    macros["__UINT16_TYPE__"] = Macro{false, false, {}, "unsigned int"};
+    macros["__INT32_TYPE__"] = Macro{false, false, {}, "long"};
+    macros["__UINT32_TYPE__"] = Macro{false, false, {}, "unsigned long"};
     macros["__BYTE_ORDER__"] = Macro{false, false, {}, "1234"}; // little-endian (6502)
 }
 
@@ -420,7 +431,12 @@ std::string Preprocessor::process(const std::string& source,
                                   const std::map<std::string, std::string>& initialSymbols,
                                   const std::vector<std::string>& includePaths,
                                   const std::string& currentFile) {
+    // Preserve predefined macros from constructor, then add initialSymbols
+    std::map<std::string, Macro> saved = std::move(this->macros);
     this->macros.clear();
+    // Restore predefined macros
+    for (auto& [k, v] : saved) this->macros[k] = std::move(v);
+    // Add/override with initialSymbols
     for (const auto& pair : initialSymbols) {
         this->macros[pair.first] = Macro{false, false, {}, pair.second};
     }
@@ -428,8 +444,6 @@ std::string Preprocessor::process(const std::string& source,
     this->includedFiles.clear();
     this->onceFiles.clear();
     this->stateStack.clear();
-    
-    // Standard predefined macros are set in constructor
     
     // Default initial state: everything is active.
     stateStack.push_back({true, true, false});

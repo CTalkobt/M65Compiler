@@ -83,9 +83,18 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 continue;
             }
             {
-                // Check for struct/union definition: struct [__unpacked] name { ... };
+                // Check for struct/union forward declaration: struct Name;
                 size_t sLook = pos + 1;
                 if (sLook < tokens.size() && tokens[sLook].type == TokenType::UNPACKED) sLook++;
+                if (sLook < tokens.size() && tokens[sLook].type == TokenType::IDENTIFIER &&
+                    sLook + 1 < tokens.size() && tokens[sLook+1].type == TokenType::SEMICOLON) {
+                    advance(); // struct/union
+                    std::string fwdName = advance().value; // name
+                    advance(); // semicolon
+                    // Forward declaration — just register the name, no definition needed
+                    continue;
+                }
+                // Check for struct/union definition: struct [__unpacked] name { ... };
                 if (sLook < tokens.size() && tokens[sLook].type == TokenType::IDENTIFIER &&
                     sLook + 1 < tokens.size() && tokens[sLook+1].type == TokenType::OPEN_BRACE) {
                     advance(); // struct/union
@@ -2265,6 +2274,14 @@ void Parser::parseTypedef() {
             // Currently parseStructDefinition has match(TokenType::SEMICOLON) which is optional.
         } else {
             if (peek().type == TokenType::IDENTIFIER && (pos+1>=tokens.size() || tokens[pos+1].type != TokenType::OPEN_BRACE)) { baseType = (isU ? "union " : "struct ") + advance().value; } else { auto _sd = parseStructDefinition(isU); baseType = (isU ? "union " : "struct ") + _sd->name; pendingDefinitions.push_back(std::move(_sd)); }
+        }
+    }
+    else if (match(TokenType::ENUM)) {
+        if (peek().type == TokenType::IDENTIFIER && (pos+1>=tokens.size() || tokens[pos+1].type != TokenType::OPEN_BRACE)) {
+            baseType = "enum " + advance().value;
+        } else {
+            auto def = parseEnumDefinition();
+            baseType = "enum " + def->name;
         }
     }
     else if (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value)) {
