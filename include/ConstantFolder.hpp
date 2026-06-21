@@ -259,6 +259,10 @@ public:
         lastExpr = copyPos(std::make_unique<CpuFlagAccess>(node.flagName), node);
     }
 
+    void visit(LabelAddressExpression& node) override {
+        lastExpr = copyPos(std::make_unique<LabelAddressExpression>(node.label), node);
+    }
+
     void visit(ConditionalExpression& node) override {
         auto condition = fold(std::move(node.condition));
         auto* lit = dynamic_cast<IntegerLiteral*>(condition.get());
@@ -402,7 +406,8 @@ public:
     }
 
     void visit(GotoStatement& node) override {
-        lastStmt = copyPos(std::make_unique<GotoStatement>(node.label), node);
+        auto target = node.target ? fold(std::move(node.target)) : nullptr;
+        lastStmt = copyPos(std::make_unique<GotoStatement>(node.label, std::move(target)), node);
     }
 
     void visit(LabelledStatement& node) override {
@@ -610,7 +615,7 @@ public:
         }
         // The body is a CompoundStatement, which is modified in-place by its visit method.
         // We just need to call accept on it directly, not fold it via the helper.
-        node.body->accept(*this);
+        if (node.body) node.body->accept(*this);
         // We don't set lastStmt here, as FunctionDeclaration is modified in place
     }
 

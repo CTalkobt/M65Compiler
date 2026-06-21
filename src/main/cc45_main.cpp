@@ -7,7 +7,6 @@
 #endif
 #include <fstream>
 #include <sstream>
-#include <sstream>
 #include "Lexer.hpp"
 #include "Parser.hpp"
 #include "AST.hpp"
@@ -182,7 +181,12 @@ public:
         }
     }
     void visit(GotoStatement& node) override {
-        printIndent(); std::cout << "GotoStatement: " << node.label << std::endl;
+        printIndent(); std::cout << "GotoStatement: " << node.label;
+        if (node.target) {
+            std::cout << " *";
+            indent++; node.target->accept(*this); indent--;
+        }
+        std::cout << std::endl;
     }
     void visit(LabelledStatement& node) override {
         printIndent(); std::cout << "Label: " << node.label << ":" << std::endl;
@@ -355,10 +359,14 @@ public:
     void visit(CpuFlagAccess& node) override {
         printIndent(); std::cout << "CpuFlagAccess: " << node.flagName << std::endl;
     }
+    void visit(LabelAddressExpression& node) override {
+        printIndent(); std::cout << "LabelAddressExpression: &&" << node.label << std::endl;
+    }
     void visit(FunctionDeclaration& node) override {
         printIndent(); std::cout << "FunctionDeclaration: " << node.name << " (" << (node.isSigned ? "signed " : "") << node.returnType << ")";
         if (node.isNoreturn) std::cout << " [noreturn]";
         if (node.isVariadic) std::cout << " [variadic]";
+        if (node.isNested) std::cout << " [nested]";
         std::cout << std::endl;
         indent++;
         for (const auto& param : node.parameters) {
@@ -366,13 +374,13 @@ public:
             for (int i = 0; i < param.pointerLevel; i++) ptrs += "*";
             printIndent(); std::cout << "Parameter: " << param.name << " (" << (param.isSigned ? "signed " : "") << param.type << ptrs << ")" << std::endl;
         }
-        node.body->accept(*this);
+        if (node.body) node.body->accept(*this);
         indent--;
     }
     void visit(TranslationUnit& node) override {
         printIndent(); std::cout << "TranslationUnit" << std::endl;
         indent++;
-        for (auto& decl : node.topLevelDecls) decl->accept(*this);
+        for (auto& decl : node.topLevelDecls) if (decl) decl->accept(*this);
         indent--;
     }
 };

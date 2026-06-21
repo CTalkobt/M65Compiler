@@ -1,13 +1,13 @@
 #pragma once
-// IR.hpp — Intermediate Representation for cc45
-//
-// Linear three-address code with basic blocks and virtual registers.
-// This is the data structure definition only; no compiler integration yet.
+
+// IR (Intermediate Representation) for cc45.
+// Simple 3-address code with virtual registers.
 // See doc/ir.md for the human-readable text format specification.
 
 #include <cstdint>
 #include <map>
 #include <set>
+#include <list>
 #include <string>
 #include <vector>
 #include <memory>
@@ -20,11 +20,11 @@ namespace ir {
 // ============================================================================
 
 enum class Type : uint8_t {
-    VOID = 0,
-    I8   = 1,   // char (1 byte)
-    I16  = 2,   // int, pointer (2 bytes)
-    I32  = 4,   // long (4 bytes)
-    PTR  = 2,   // alias for I16 on 45GS02 (16-bit address space)
+    VOID,
+    I8,
+    I16,
+    I32,
+    PTR,
 };
 
 inline int typeSize(Type t) {
@@ -33,70 +33,24 @@ inline int typeSize(Type t) {
         case Type::I8:   return 1;
         case Type::I16:  return 2;
         case Type::I32:  return 4;
-        default:         return 2;
+        case Type::PTR:  return 2;
     }
+    return 0;
 }
-
-inline const char* typeName(Type t) {
-    switch (t) {
-        case Type::VOID: return "void";
-        case Type::I8:   return "i8";
-        case Type::I16:  return "i16";
-        case Type::I32:  return "i32";
-        default:         return "i16";
-    }
-}
-
-// ============================================================================
-// Calling convention
-// ============================================================================
-
-enum class CallConv : uint8_t {
-    STACK = 0,   // Parameters on hardware stack (default)
-    ZP    = 1,   // Parameters in zero-page block ($03+)
-};
 
 // ============================================================================
 // Opcodes
 // ============================================================================
 
 enum class Op : uint8_t {
-    // Constants
-    CONST,          // %d = const <type> <imm>
-
-    // Arithmetic (binary: dest = src1 op src2)
-    ADD,
-    SUB,
-    MUL,            // signed multiply
-    MUL_U,          // unsigned multiply
-    DIV,            // signed division
-    DIV_U,          // unsigned division
-    MOD,            // signed modulo
-    MOD_U,          // unsigned modulo
-    NEG,            // unary: dest = -src1
-
-    // Bitwise
-    AND,
-    OR,
-    XOR,
-    NOT,            // unary: dest = ~src1
-    SHL,
-    SHR,            // logical shift right
-    ASR,            // arithmetic shift right
-
-    // Comparison (dest = src1 cmp src2, result is I8 boolean)
-    CMP_EQ,
-    CMP_NE,
-    CMP_LT,         // signed <
-    CMP_LE,         // signed <=
-    CMP_GT,         // signed >
-    CMP_GE,         // signed >=
-    CMP_LTU,        // unsigned <
-    CMP_LEU,        // unsigned <=
-    CMP_GTU,        // unsigned >
-    CMP_GEU,        // unsigned >=
-
-    // Memory
+    CONST,          // %d = const <type> <val>
+    ADD, SUB, MUL, DIV, MOD, // binary arithmetic
+    MUL_U, DIV_U, MOD_U,
+    AND, OR, XOR, LSL, LSR, ASR, // binary bitwise
+    SHL, SHR,
+    NEG, NOT,       // unary
+    CMP_EQ, CMP_NE, CMP_LT, CMP_LE, CMP_GT, CMP_GE, // comparison (signed)
+    CMP_LTU, CMP_LEU, CMP_GTU, CMP_GEU,             // comparison (unsigned)
     LOAD,           // %d = load <type> <addr>
     STORE,          // store <type> <val>, <addr>
     LOAD_ZP,        // %d = load_zp <type> <zpAddr>
@@ -105,6 +59,8 @@ enum class Op : uint8_t {
     // Address computation
     ADDR_GLOBAL,    // %d = addr_global @name        (address of global/static)
     ADDR_LOCAL,     // %d = addr_local <frameOffset>  (address of stack local)
+    ADDR_LABEL,     // %d = addr_label @label         (address of local label)
+    ADDR_UPLEVEL,   // %d = addr_uplevel <levels>, <frameOffset> (access parent frame)
     ADDR_ELEM,      // %d = addr_elem <base>, <index>, <elemSize>
 
     // Type conversion
@@ -112,16 +68,17 @@ enum class Op : uint8_t {
     ZEXT,           // %d = zext <srcType> <src> to <destType>  (zero-extend)
     TRUNC,          // %d = trunc <srcType> <src> to <destType> (truncate)
 
-    // Bitfield operations
-    BFEXT,          // %d = bfext <type> <src>, <bitOffset>, <bitWidth>  (extract)
-    BFINS,          // bfins <type> <val>, <addr>, <bitOffset>, <bitWidth> (insert RMW)
+    // Bitfield access
+    BFEXT,          // %d = bfext <src>, offset, width
+    BFINS,          // %d = bfins <dest>, <src>, offset, width
 
-    // Assignment/Move
+    // Register/memory movement
     COPY,           // %d = copy <type> <src>
 
     // Control flow
     BR,             // br <label>
     BR_COND,        // br_cond <cond>, <trueLabel>, <falseLabel>
+    BR_INDIRECT,    // br_indirect <funcPtr>  (computed goto)
     SWITCH,         // switch <val>, <defaultLabel>, [case1: label1, ...]
     RET,            // ret <val>  (or ret void)
     RET_VOID,       // ret void
@@ -134,11 +91,13 @@ enum class Op : uint8_t {
     // Special
     ASM_INLINE,     // asm("...")
     VA_START,       // %d = va_start(lastParamName) — compute stack addr past last named param
+    TRAMPOLINE,     // %d = trampoline <target>, <link>
     CPU_REG_READ,   // %d = cpu_reg_read <regName>
     CPU_REG_WRITE,  // cpu_reg_write <regName>, <val>
     CPU_FLAG_READ,  // %d = cpu_flag_read <flagName>
     CPU_FLAG_WRITE, // cpu_flag_write <flagName>, <val>
     PHI,            // %d = phi [<val1>, <label1>], [<val2>, <label2>], ...
+    GET_FP,         // %d = get_fp
     NOP,
 };
 
@@ -152,29 +111,21 @@ enum class OperandKind : uint8_t {
     IMM,        // immediate constant
     GLOBAL,     // global symbol: @name
     LABEL,      // block label: .label
+    FRAME_RELATIVE, // offset relative to a frame pointer
 };
 
 struct Operand {
     OperandKind kind = OperandKind::NONE;
     Type type = Type::VOID;
+    uint32_t vregId = 0;
+    int64_t immVal = 0;
+    std::string name;
 
-    uint32_t vregId = 0;        // for VREG
-    int64_t immVal = 0;         // for IMM
-    std::string name;           // for GLOBAL or LABEL
-
-    static Operand vreg(uint32_t id, Type t) {
-        Operand o; o.kind = OperandKind::VREG; o.vregId = id; o.type = t; return o;
-    }
-    static Operand imm(int64_t val, Type t) {
-        Operand o; o.kind = OperandKind::IMM; o.immVal = val; o.type = t; return o;
-    }
-    static Operand global(const std::string& n) {
-        Operand o; o.kind = OperandKind::GLOBAL; o.name = n; o.type = Type::PTR; return o;
-    }
-    static Operand label(const std::string& n) {
-        Operand o; o.kind = OperandKind::LABEL; o.name = n; return o;
-    }
-    static Operand none() { return Operand{}; }
+    static Operand none() { return {}; }
+    static Operand vreg(uint32_t id, Type t) { Operand o; o.kind = OperandKind::VREG; o.vregId = id; o.type = t; return o; }
+    static Operand imm(int64_t val, Type t) { Operand o; o.kind = OperandKind::IMM; o.immVal = val; o.type = t; return o; }
+    static Operand global(const std::string& name) { Operand o; o.kind = OperandKind::GLOBAL; o.name = name; o.type = Type::PTR; return o; }
+    static Operand label(const std::string& name) { Operand o; o.kind = OperandKind::LABEL; o.name = name; o.type = Type::PTR; return o; }
 
     bool isNone() const { return kind == OperandKind::NONE; }
     bool isVreg() const { return kind == OperandKind::VREG; }
@@ -182,18 +133,21 @@ struct Operand {
 };
 
 // ============================================================================
-// Source location (for future debug info)
+// Instruction
 // ============================================================================
 
 struct SourceLoc {
     std::string file;
     int line = 0;
+    int column = 0;
+
     bool valid() const { return line > 0; }
 };
 
-// ============================================================================
-// Instruction
-// ============================================================================
+enum class CallConv : uint8_t {
+    STACK,      // standard right-to-left push
+    ZP,         // parameters in zero-page block
+};
 
 struct Inst {
     Op op = Op::NOP;
@@ -216,12 +170,11 @@ struct Inst {
     // For ASM_INLINE: raw assembly string
     std::string asmText;
 
-    // Source location annotation
     SourceLoc loc;
 };
 
 // ============================================================================
-// Basic Block
+// Function and Module
 // ============================================================================
 
 struct Block {
@@ -229,26 +182,25 @@ struct Block {
     std::vector<Inst> insts;
 };
 
-// ============================================================================
-// Function
-// ============================================================================
-
 struct Function {
-    std::string name;                   // mangled name (e.g. "_main")
-    CallConv conv = CallConv::STACK;
+    std::string name;
     Type returnType = Type::VOID;
+    CallConv conv = CallConv::STACK;
     std::vector<Type> paramTypes;
-    std::vector<std::string> paramNames; // optional, for debug info
+    std::vector<std::string> paramNames;
     bool isVariadic = false;
     bool isStatic = false;
     bool isInterrupt = false;
     bool isNaked = false;
     bool isRegparm = false;
+    bool isNested = false;
+    int staticLinkVreg = -1; // vreg holding the static link to parent frame
     int declLine = 0;                   // source line of function declaration
 
     std::vector<Block> blocks;
     uint32_t nextVreg = 0;             // counter for allocating vRegs
     std::set<uint32_t> localSlotVregs; // vRegs that are direct local/param slots
+    std::map<uint32_t, int> vregOffsets; // vregId -> final frame offset
     std::map<uint32_t, Type> vregTypes;
     std::map<uint32_t, int> vregSizes;
  // override sizes for array vRegs (bytes)
@@ -256,16 +208,19 @@ struct Function {
     std::set<uint32_t> memoryVregs;    // vRegs that MUST be in memory (e.g. volatile or address-taken)
 
     uint32_t allocVreg() { return nextVreg++; }
-};
 
-// ============================================================================
-// Module (translation unit)
-// ============================================================================
+    struct VarInfo {
+        std::string name;
+        Type type;
+        int size = 0;
+    };
+};
 
 struct Module {
     std::string sourceFile;
     bool saveZP = true;
-    std::vector<Function> functions;
+    std::list<Function> functions;
+    std::vector<std::string> externs;
 
     // Global variable declarations (for ADDR_GLOBAL references)
     struct GlobalVar {
@@ -275,34 +230,29 @@ struct Module {
         bool isConst = false;
         bool isStatic = false;
         bool hasInitValue = false;
-        int64_t initValue = 0;  // scalar initial value (for simple int/char globals)
-        std::vector<int64_t> initList; // for array initializers
+        int64_t initValue = 0;
+        std::vector<int64_t> initList;
     };
     std::vector<GlobalVar> globals;
 
-    // String literals: label → content
     struct StringLiteral {
         std::string label;
         std::string value;
+        int encoding = 0;
         bool isAscii = false;
-        int encoding = 0;  // 0=PETSCII, 1=ASCII, 2=SCREENCODE
     };
     std::vector<StringLiteral> strings;
-
-    // External symbol references (stdlib functions, etc.)
-    std::vector<std::string> externs;
 };
-
-// ============================================================================
-// Text format printer
-// ============================================================================
 
 class Printer {
 public:
-    static void print(std::ostream& out, const Module& mod);
-    static void print(std::ostream& out, const Function& fn);
-    static void print(std::ostream& out, const Inst& inst);
     static std::string operandStr(const Operand& op);
+    static void print(std::ostream& out, const Inst& inst);
+    static void print(std::ostream& out, const Function& fn);
+    static void print(std::ostream& out, const Module& mod);
 };
+
+const char* opName(Op op);
+const char* typeName(Type t);
 
 } // namespace ir

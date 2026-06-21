@@ -5,6 +5,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include <deque>
 
 class IRBuilder : public ASTVisitor {
 public:
@@ -64,11 +65,28 @@ public:
     void visit(BuiltinVaArg& node) override;
     void visit(CpuRegisterAccess& node) override;
     void visit(CpuFlagAccess& node) override;
+    void visit(LabelAddressExpression& node) override;
     void visit(TranslationUnit& node) override;
 
     void emitConditionBranches(Expression* cond, const std::string& trueLabel,
                                const std::string& falseLabel, ir::SourceLoc sl);
 private:
+    struct FunctionScope {
+        ir::Function* func = nullptr;
+        ir::Block* block = nullptr;
+        std::map<std::string, ir::Operand> locals;
+        std::map<std::string, ir::Type> localTypes;
+        std::map<std::string, std::string> localTypeNames;
+        std::map<std::string, bool> localSigned;
+        std::map<std::string, bool> localConst;
+        std::map<std::string, bool> localPointsToConst;
+        std::map<std::string, ir::Type> localPointedToType;
+        std::map<std::string, std::vector<int>> localArrayDims;
+        std::set<uint32_t> usedVregs;
+        std::map<std::string, ir::SourceLoc> localDeclLocs;
+    };
+    std::deque<FunctionScope> functionStack_;
+
     ir::Module module_;
     ir::Function* currentFunc_ = nullptr;
     ir::Block* currentBlock_ = nullptr;
@@ -163,6 +181,7 @@ private:
 
     // Inline function support: store AST nodes for inline-eligible functions
     std::map<std::string, FunctionDeclaration*> inlineCandidates_;
+    std::map<std::string, FunctionDeclaration*> allFunctions_;
     std::set<std::string> inlineExpansionStack_;  // recursion guard
     static constexpr int INLINE_MAX_STMTS = 20;   // max body statements for auto-inline
     ir::Operand inlineReturnTarget_;               // vreg for inlined return value

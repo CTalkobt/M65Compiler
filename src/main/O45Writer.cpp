@@ -1,4 +1,5 @@
 #include "O45Writer.hpp"
+#include <stdexcept>
 // =============================================================================
 // O45RelocEncoder — converts high-level relocation entries into .o65/.o45
 // delta-offset byte stream.
@@ -221,6 +222,9 @@ void O45Writer::emitHeader(std::vector<uint8_t>& out) const {
 
 void O45Writer::emitOptions(std::vector<uint8_t>& out) const {
     for (const auto& opt : options_) {
+        if (opt.data.size() > 253) {
+            throw std::runtime_error("O45Writer Error: Option payload size " + std::to_string(opt.data.size()) + " exceeds maximum 253 bytes");
+        }
         uint8_t len = (uint8_t)(2 + opt.data.size()); // length byte + type byte + payload
         out.push_back(len);
         out.push_back(opt.type);

@@ -60,6 +60,7 @@ public:
     void visit(BuiltinVaArg& node) override {}
     void visit(CpuRegisterAccess& node) override {}
     void visit(CpuFlagAccess& node) override {}
+    void visit(LabelAddressExpression& node) override {}
 
 private:
     // Collect all variables referenced by an expression

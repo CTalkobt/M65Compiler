@@ -43,3 +43,5 @@ void BuiltinVaArg::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void CpuRegisterAccess::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void CpuFlagAccess::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void TranslationUnit::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+
+void LabelAddressExpression::accept(ASTVisitor& visitor) { visitor.visit(*this); }

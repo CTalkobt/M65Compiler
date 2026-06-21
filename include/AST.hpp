@@ -248,7 +248,15 @@ public:
 class GotoStatement : public Statement {
 public:
     std::string label;
-    GotoStatement(const std::string& l) : label(l) {}
+    std::unique_ptr<Expression> target; // GCC extension: goto *expr
+    GotoStatement(const std::string& l, std::unique_ptr<Expression> t = nullptr) : label(l), target(std::move(t)) {}
+    void accept(ASTVisitor& visitor) override;
+};
+
+class LabelAddressExpression : public Expression {
+public:
+    std::string label;
+    LabelAddressExpression(const std::string& l) : label(l) {}
     void accept(ASTVisitor& visitor) override;
 };
 
@@ -267,6 +275,7 @@ public:
     std::string typeName;                   // For sizeof(type)
     int pointerLevel = 0;
     bool isType = false;
+    std::vector<int> arrayDims;
     SizeofExpression(std::unique_ptr<Expression> e) : expression(std::move(e)), isType(false) {}
     SizeofExpression(const std::string& t, int p = 0) : typeName(t), pointerLevel(p), isType(true) {}
     void accept(ASTVisitor& visitor) override;
@@ -429,6 +438,11 @@ public:
     bool isNaked = false;
     bool isRegparm = false;
     bool isInline = false;
+
+    // Nested function support
+    bool isNested = false;
+    FunctionDeclaration* parentFunc = nullptr;
+    
     FunctionDeclaration(const std::string& n, const std::string& rt) : name(n), returnType(rt) {}
     void accept(ASTVisitor& visitor) override;
 };
@@ -525,5 +539,6 @@ public:
     virtual void visit(BuiltinVaArg& node) = 0;
     virtual void visit(CpuRegisterAccess& node) = 0;
     virtual void visit(CpuFlagAccess& node) = 0;
+    virtual void visit(LabelAddressExpression& node) = 0;
     virtual void visit(TranslationUnit& node) = 0;
 };

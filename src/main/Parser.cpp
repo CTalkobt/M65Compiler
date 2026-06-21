@@ -85,7 +85,24 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             {
                 // Check for struct/union forward declaration: struct Name;
                 size_t sLook = pos + 1;
-                if (sLook < tokens.size() && tokens[sLook].type == TokenType::UNPACKED) sLook++;
+                while (sLook < tokens.size()) {
+                    if (tokens[sLook].type == TokenType::UNPACKED) {
+                        sLook++;
+                    } else if (tokens[sLook].type == TokenType::ATTRIBUTE) {
+                        sLook++;
+                        if (sLook < tokens.size() && tokens[sLook].type == TokenType::OPEN_PAREN) {
+                            sLook++;
+                            int parens = 1;
+                            while (sLook < tokens.size() && parens > 0) {
+                                if (tokens[sLook].type == TokenType::OPEN_PAREN) parens++;
+                                else if (tokens[sLook].type == TokenType::CLOSE_PAREN) parens--;
+                                sLook++;
+                            }
+                        }
+                    } else {
+                        break;
+                    }
+                }
                 if (sLook < tokens.size() && tokens[sLook].type == TokenType::IDENTIFIER &&
                     sLook + 1 < tokens.size() && tokens[sLook+1].type == TokenType::SEMICOLON) {
                     advance(); // struct/union
@@ -189,7 +206,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
         }
 
         // Skip __attribute__((...)) in lookahead
-        while (look < tokens.size() && tokens[look].type == TokenType::ATTRIBUTE || tokens[look].type == TokenType::EXTENSION) {
+        while (look < tokens.size() && (tokens[look].type == TokenType::ATTRIBUTE || tokens[look].type == TokenType::EXTENSION)) {
             look++;
             if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
                 look++;
@@ -204,8 +221,8 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
 
         bool isSig = false;
 
-        while (tokens[look].type == TokenType::VOLATILE || tokens[look].type == TokenType::CONST || tokens[look].type == TokenType::RESTRICT || tokens[look].type == TokenType::AUTO || tokens[look].type == TokenType::REGISTER || tokens[look].type == TokenType::INLINE || tokens[look].type == TokenType::FASTCALL ||
-               tokens[look].type == TokenType::SIGNED || tokens[look].type == TokenType::UNSIGNED || tokens[look].type == TokenType::ATTRIBUTE) {
+        while (look < tokens.size() && (tokens[look].type == TokenType::VOLATILE || tokens[look].type == TokenType::CONST || tokens[look].type == TokenType::RESTRICT || tokens[look].type == TokenType::AUTO || tokens[look].type == TokenType::REGISTER || tokens[look].type == TokenType::INLINE || tokens[look].type == TokenType::FASTCALL ||
+               tokens[look].type == TokenType::SIGNED || tokens[look].type == TokenType::UNSIGNED || tokens[look].type == TokenType::ATTRIBUTE || tokens[look].type == TokenType::EXTENSION)) {
             if (tokens[look].type == TokenType::ATTRIBUTE) {
                 look++; // skip __attribute__
                 if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
@@ -216,6 +233,10 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                         look++;
                     }
                 }
+                continue;
+            }
+            if (tokens[look].type == TokenType::EXTENSION) {
+                look++;
                 continue;
             }
             if (tokens[look].type == TokenType::VOLATILE) isVol = true;
@@ -265,16 +286,52 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
 
             // Skip qualifiers that may appear after the type keyword (e.g., int volatile x)
             while (look < tokens.size() && (tokens[look].type == TokenType::VOLATILE || tokens[look].type == TokenType::CONST ||
-                   tokens[look].type == TokenType::RESTRICT || tokens[look].type == TokenType::SIGNED || tokens[look].type == TokenType::UNSIGNED)) {
+                   tokens[look].type == TokenType::RESTRICT || tokens[look].type == TokenType::SIGNED || tokens[look].type == TokenType::UNSIGNED ||
+                   tokens[look].type == TokenType::ATTRIBUTE || tokens[look].type == TokenType::EXTENSION)) {
+                if (tokens[look].type == TokenType::ATTRIBUTE) {
+                    look++;
+                    if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
+                        look++; int p = 1;
+                        while (look < tokens.size() && p > 0) {
+                            if (tokens[look].type == TokenType::OPEN_PAREN) p++;
+                            else if (tokens[look].type == TokenType::CLOSE_PAREN) p--;
+                            look++;
+                        }
+                    }
+                    continue;
+                }
+                if (tokens[look].type == TokenType::EXTENSION) {
+                    look++;
+                    continue;
+                }
                 if (tokens[look].type == TokenType::VOLATILE) isVol = true;
                 else if (tokens[look].type == TokenType::CONST) isConst = true;
                 else if (tokens[look].type == TokenType::SIGNED) isSig = true;
                 look++;
             }
 
-            // Check for function pointer: type (*name)(params) — treat as variable
-            if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN &&
-                look + 1 < tokens.size() && tokens[look + 1].type == TokenType::STAR) {
+            // Skip pointers, qualifiers, and attributes interleaved
+            while (look < tokens.size()) {
+                if (tokens[look].type == TokenType::STAR) {
+                    look++;
+                } else if (tokens[look].type == TokenType::CONST || tokens[look].type == TokenType::VOLATILE ||
+                           tokens[look].type == TokenType::RESTRICT || tokens[look].type == TokenType::EXTENSION) {
+                    look++;
+                } else if (tokens[look].type == TokenType::ATTRIBUTE) {
+                    look++;
+                    if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
+                        look++; int p = 1;
+                        while (look < tokens.size() && p > 0) {
+                            if (tokens[look].type == TokenType::OPEN_PAREN) p++;
+                            else if (tokens[look].type == TokenType::CLOSE_PAREN) p--;
+                            look++;
+                        }
+                    }
+                } else break;
+            }
+
+            // Check for parenthesized declarator (e.g., function pointer: type (*name)(params)) — treat as variable
+            if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
                 if (isExtern) match(TokenType::EXTERN);
                 if (isStatic) match(TokenType::STATIC);
                 if (isNR) match(TokenType::NORETURN);
@@ -297,8 +354,6 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 unit->topLevelDecls.push_back(std::move(decl));
                 continue;
             }
-
-            while (look < tokens.size() && tokens[look].type == TokenType::STAR) look++;
 
             if (look < tokens.size() && tokens[look].type == TokenType::IDENTIFIER) {
                 look++;
@@ -400,14 +455,16 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     bool isInterrupt = match(TokenType::INTERRUPT);
     bool isNaked = match(TokenType::NAKED);
     bool isRegparm = match(TokenType::REGPARM);
+    bool isInlineFunc = match(TokenType::INLINE);
+    bool isStatic = match(TokenType::STATIC);
     std::string returnType;
     bool isSigned = false;
     int basePtrLevel = 0;
 
     // Helper: skip qualifiers between type specifiers (e.g., signed volatile int)
     auto skipRetQuals = [&]() {
-        while (peek().type == TokenType::VOLATILE || peek().type == TokenType::CONST || peek().type == TokenType::RESTRICT) {
-            match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT);
+        while (peek().type == TokenType::VOLATILE || peek().type == TokenType::CONST || peek().type == TokenType::RESTRICT || peek().type == TokenType::INLINE || peek().type == TokenType::STATIC) {
+            match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::INLINE) || match(TokenType::STATIC);
         }
     };
     if (match(TokenType::SIGNED)) {
@@ -455,10 +512,19 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     skipRetQuals();
 
     int returnPtrLevel = basePtrLevel;
-    while (match(TokenType::STAR)) returnPtrLevel++;
-
-    // Skip __attribute__ between return type and function name
-    while (tryParseAttribute()) {}
+    while (true) {
+        if (tryParseAttribute() || match(TokenType::EXTENSION)) {
+            continue;
+        }
+        if (match(TokenType::STAR)) {
+            returnPtrLevel++;
+            while (peek().type == TokenType::CONST || peek().type == TokenType::VOLATILE || peek().type == TokenType::RESTRICT) {
+                match(TokenType::CONST) || match(TokenType::VOLATILE) || match(TokenType::RESTRICT);
+            }
+            continue;
+        }
+        break;
+    }
 
     std::string name = expect(TokenType::IDENTIFIER, "Expected function name").value;
 
@@ -516,6 +582,9 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                 pType = ta.baseType;
                 pIsSigned = ta.isSigned;
                 pBasePtrLevel = ta.pointerLevel;
+                if (!ta.arrayDims.empty()) {
+                    pBasePtrLevel++;
+                }
                 if (ta.isFunctionPointer) {
                     // Typedef'd function pointer parameter
                     std::string pName = expect(TokenType::IDENTIFIER, "Expected parameter name").value;
@@ -535,7 +604,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             else if (peek().type == TokenType::IDENTIFIER) {
                 // K&R style: parameter is just a name, type declared after ')'
                 std::string pName = advance().value;
-                params.push_back({"int", 0, false, pName, pIsVolatile, pIsConst, false});
+                params.push_back({"int", 0, false, pName, pIsVolatile, pIsConst, false, false, nullptr});
                 continue; // skip the pointer/name parsing below
             }
             else {
@@ -584,7 +653,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                 // Unnamed parameter (valid in prototypes): void foo(int, char *)
                 pName = "__unnamed_" + std::to_string(pos);
             }
-            params.push_back({pType, pPtrLevel, pIsSigned, pName, pIsVolatile, pIsConst, pIsPointerConst});
+            params.push_back({pType, pPtrLevel, pIsSigned, pName, pIsVolatile, pIsConst, pIsPointerConst, false, nullptr});
         } while (match(TokenType::COMMA) && peek().type != TokenType::ELLIPSIS);
     }
     bool isVariadic = match(TokenType::ELLIPSIS);
@@ -599,12 +668,14 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
            peek().type == TokenType::SIGNED || peek().type == TokenType::STRUCT ||
            peek().type == TokenType::UNION || peek().type == TokenType::ENUM ||
            peek().type == TokenType::CONST || peek().type == TokenType::VOLATILE ||
+           peek().type == TokenType::REGISTER || peek().type == TokenType::AUTO ||
            (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value))) {
         // Parse type specifier
         std::string krType;
         bool krSigned = false;
         bool krIsConst = false, krIsVol = false;
-        while (match(TokenType::CONST) || match(TokenType::VOLATILE) || match(TokenType::RESTRICT)) {
+        while (match(TokenType::CONST) || match(TokenType::VOLATILE) || match(TokenType::RESTRICT) ||
+               match(TokenType::REGISTER) || match(TokenType::AUTO)) {
             if (tokens[pos-1].type == TokenType::CONST) krIsConst = true;
             if (tokens[pos-1].type == TokenType::VOLATILE) krIsVol = true;
         }
@@ -656,39 +727,59 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     // Skip any __attribute__((...)) after parameter list / K&R declarations
     while (tryParseAttribute()) {}
 
-    // Forward declaration (prototype): ends with ';' instead of '{'
+    // Check for prototype
+    bool isInline = isInlineFunc;
     if (match(TokenType::SEMICOLON)) {
-        // Create a function declaration with an empty body
         auto func = setPos(std::make_unique<FunctionDeclaration>(name, returnType), startToken);
         func->returnPointerLevel = returnPtrLevel;
         func->isSigned = isSigned;
         func->parameters = std::move(params);
-        func->body = std::make_unique<CompoundStatement>();
         func->isNoreturn = isNR;
         func->isFastcall = isFC;
         func->isInterrupt = isInterrupt;
         func->isNaked = isNaked;
-    func->isRegparm = isRegparm;
+        func->isRegparm = isRegparm;
         func->isPrototype = true;
         func->isVariadic = isVariadic;
         return func;
     }
 
-    std::string savedFunctionName = currentFunctionName;
-    currentFunctionName = name;
-    auto body = parseCompoundStatement();
-    currentFunctionName = savedFunctionName;
-    auto func = setPos(std::make_unique<FunctionDeclaration>(name, returnType), startToken);
+    std::string fullName = name;
+    if (currentFunction) {
+        fullName = currentFunctionName + "_" + name;
+        nestedFunctionMap[name] = fullName;
+    }
+
+    auto func = setPos(std::make_unique<FunctionDeclaration>(fullName, returnType), startToken);
     func->returnPointerLevel = returnPtrLevel;
     func->isSigned = isSigned;
     func->parameters = std::move(params);
-    func->body = std::move(body);
     func->isNoreturn = isNR;
     func->isFastcall = isFC;
     func->isInterrupt = isInterrupt;
     func->isNaked = isNaked;
     func->isRegparm = isRegparm;
     func->isVariadic = isVariadic;
+    func->isInline = isInline;
+    func->isStatic = isStatic;
+
+    if (currentFunction) {
+        func->isNested = true;
+        func->parentFunc = currentFunction;
+    }
+
+    std::string savedFunctionName = currentFunctionName;
+    FunctionDeclaration* savedFunction = currentFunction;
+    auto savedNestedMap = nestedFunctionMap;
+    
+    currentFunctionName = fullName;
+    currentFunction = func.get();
+
+    func->body = parseCompoundStatement();
+
+    currentFunctionName = savedFunctionName;
+    currentFunction = savedFunction;
+    nestedFunctionMap = savedNestedMap;
     return func;
 }
 
@@ -720,8 +811,13 @@ std::unique_ptr<Statement> Parser::parseStatement() {
 
     if (match(TokenType::GOTO)) {
         const Token& startToken = tokens[pos-1];
-        std::string label = expect(TokenType::IDENTIFIER, "Expected label name after 'goto'").value;
-        expect(TokenType::SEMICOLON, "Expected ';' after goto label");
+        if (match(TokenType::STAR)) {
+            auto target = parseExpression();
+            expect(TokenType::SEMICOLON, "Expected ';' after computed goto");
+            return setPos(std::make_unique<GotoStatement>("", std::move(target)), startToken);
+        }
+        std::string label = expect(TokenType::IDENTIFIER, "Expected label name after goto").value;
+        expect(TokenType::SEMICOLON, "Expected ';' after goto");
         return setPos(std::make_unique<GotoStatement>(label), startToken);
     }
 
@@ -810,6 +906,9 @@ std::unique_ptr<Statement> Parser::parseStatement() {
         peek().type == TokenType::VOID || peek().type == TokenType::TYPEOF ||
         peek().type == TokenType::UNSIGNED || peek().type == TokenType::SIGNED ||
         (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value))) {
+        if (isFunctionDeclaration()) {
+            return parseFunctionDeclaration();
+        }
         return parseVariableDeclaration(isVolatile, isConst, isStatic, isRegister);
     }
 
@@ -1088,6 +1187,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     std::string type;
     bool isSigned = false;
     int basePtrLevel = 0;
+    std::vector<int> typedefArrayDims;
     // Helper: skip qualifiers that may appear between specifiers (e.g., signed volatile int)
     auto skipQualifiers = [&]() {
         while (peek().type == TokenType::VOLATILE || peek().type == TokenType::CONST || peek().type == TokenType::RESTRICT) {
@@ -1180,6 +1280,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         type = ta.baseType;
         isSigned = ta.isSigned;
         basePtrLevel = ta.pointerLevel;
+        typedefArrayDims = ta.arrayDims;
         if (ta.isFunctionPointer) {
             // Typedef is a function pointer type — create decl directly
             std::string fpName = expect(TokenType::IDENTIFIER, "Expected variable name").value;
@@ -1207,7 +1308,9 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     // Consume any qualifiers that appear after the type keyword (e.g., int volatile x)
     while (peek().type == TokenType::VOLATILE || peek().type == TokenType::CONST ||
            peek().type == TokenType::RESTRICT || peek().type == TokenType::SIGNED ||
-           peek().type == TokenType::UNSIGNED) {
+           peek().type == TokenType::UNSIGNED || peek().type == TokenType::ATTRIBUTE ||
+           peek().type == TokenType::EXTENSION) {
+        if (tryParseAttribute() || match(TokenType::EXTENSION)) continue;
         if (match(TokenType::VOLATILE)) isVolatile = true;
         else if (match(TokenType::CONST)) isConst = true;
         else if (match(TokenType::SIGNED)) isSigned = true;
@@ -1215,11 +1318,39 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         else match(TokenType::RESTRICT);
     }
 
-    // Check for function pointer declaration: type (*name)(params)
+    bool isPointerConst = false;
+    while (true) {
+        if (tryParseAttribute() || match(TokenType::EXTENSION)) {
+            continue;
+        }
+        if (match(TokenType::STAR)) {
+            ptrLevel++;
+            while (peek().type == TokenType::CONST || peek().type == TokenType::VOLATILE || peek().type == TokenType::RESTRICT) {
+                if (match(TokenType::CONST)) isPointerConst = true;
+                else if (!match(TokenType::VOLATILE)) match(TokenType::RESTRICT);
+            }
+            continue;
+        }
+        break;
+    }
+
+    // Check for function pointer declaration: type (*name)(params) or type (*name[size])(params)
     if (peek().type == TokenType::OPEN_PAREN && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::STAR) {
         advance(); // consume '('
         advance(); // consume '*'
         std::string fpName = expect(TokenType::IDENTIFIER, "Expected function pointer name").value;
+        std::vector<int> fpArrayDims;
+        while (match(TokenType::OPEN_SQUARE)) {
+            if (peek().type == TokenType::CLOSE_SQUARE) {
+                fpArrayDims.push_back(0);
+            } else {
+                auto szExpr = parseExpression();
+                int arrSize = 1;
+                if (auto* lit = dynamic_cast<IntegerLiteral*>(szExpr.get())) arrSize = (int)lit->value;
+                fpArrayDims.push_back(arrSize);
+                expect(TokenType::CLOSE_SQUARE, "Expected ']'");
+            }
+        }
         expect(TokenType::CLOSE_PAREN, "Expected ')' after function pointer name");
         auto fpSig = parseFuncPtrParams(type, ptrLevel, isSigned);
         auto decl = setPos(std::make_unique<VariableDeclaration>("void", fpName, 1), typeToken);
@@ -1231,20 +1362,16 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         decl->isFunctionPointer = true;
         decl->funcPtrSig = fpSig;
         decl->alignmentExpr = std::move(alignmentExpr);
+        decl->arrayDims = fpArrayDims;
         if (match(TokenType::EQUALS)) {
-            decl->initializer = parseExpression();
+            if (peek().type == TokenType::OPEN_BRACE) {
+                decl->initializer = parseInitializerList();
+            } else {
+                decl->initializer = parseExpression();
+            }
         }
         expect(TokenType::SEMICOLON, "Expected ';'");
         return decl;
-    }
-
-    while (match(TokenType::STAR)) ptrLevel++;
-
-    // Handle const/volatile after * (qualifies the pointer itself)
-    bool isPointerConst = false;
-    while (peek().type == TokenType::CONST || peek().type == TokenType::VOLATILE || peek().type == TokenType::RESTRICT) {
-        if (match(TokenType::CONST)) isPointerConst = true;
-        else if (!match(TokenType::VOLATILE)) match(TokenType::RESTRICT);
     }
 
     std::string name = expect(TokenType::IDENTIFIER, "Expected variable name").value;
@@ -1272,6 +1399,8 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         }
         expect(TokenType::CLOSE_SQUARE, "Expected ']' after array size");
     }
+    // Append typedef array dimensions
+    arrayDims.insert(arrayDims.end(), typedefArrayDims.begin(), typedefArrayDims.end());
     auto decl = setPos(std::make_unique<VariableDeclaration>(type, name, ptrLevel), typeToken);
     decl->isSigned = isSigned;
     decl->isVolatile = isVolatile;
@@ -1333,6 +1462,8 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
                 }
                 expect(TokenType::CLOSE_SQUARE, "Expected ']' after array size");
             }
+            // Append typedef array dimensions
+            extraDims.insert(extraDims.end(), typedefArrayDims.begin(), typedefArrayDims.end());
             auto extraDecl = setPos(std::make_unique<VariableDeclaration>(type, extraName, extraPtr), typeToken);
             extraDecl->isSigned = isSigned;
             extraDecl->isVolatile = isVolatile;
@@ -1416,14 +1547,40 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         if (peek().type == TokenType::STRUCT || peek().type == TokenType::UNION) {
             bool isNestedUnion = peek().type == TokenType::UNION;
             if (pos + 1 < tokens.size() && tokens[pos+1].type == TokenType::OPEN_BRACE) {
-                // Anonymous nested struct/union
-                advance(); // struct/union
-                auto nestedDef = parseStructDefinition(isNestedUnion);
-                std::string nestedTypeName = (isNestedUnion ? "union " : "struct ") + nestedDef->name;
-                { StructMember sm; sm.type = nestedTypeName; sm.isAnonymous = true; def->members.push_back(std::move(sm)); }
-                pendingDefinitions.push_back(std::move(nestedDef));
-                match(TokenType::SEMICOLON); // consume optional semicolon
-                continue; 
+                // Determine if this is an anonymous nested struct (no member name)
+                size_t scan = pos + 2;
+                int braceCount = 1;
+                while (scan < tokens.size() && braceCount > 0) {
+                    if (tokens[scan].type == TokenType::OPEN_BRACE) braceCount++;
+                    else if (tokens[scan].type == TokenType::CLOSE_BRACE) braceCount--;
+                    scan++;
+                }
+                while (scan < tokens.size()) {
+                    if (tokens[scan].type == TokenType::ATTRIBUTE) {
+                        scan++;
+                        if (scan < tokens.size() && tokens[scan].type == TokenType::OPEN_PAREN) {
+                            scan++;
+                            int parens = 1;
+                            while (scan < tokens.size() && parens > 0) {
+                                if (tokens[scan].type == TokenType::OPEN_PAREN) parens++;
+                                else if (tokens[scan].type == TokenType::CLOSE_PAREN) parens--;
+                                scan++;
+                            }
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                if (scan < tokens.size() && tokens[scan].type == TokenType::SEMICOLON) {
+                    advance(); // struct/union
+                    auto nestedDef = parseStructDefinition(isNestedUnion);
+                    std::string nestedTypeName = (isNestedUnion ? "union " : "struct ") + nestedDef->name;
+                    { StructMember sm; sm.type = nestedTypeName; sm.pointerLevel = 0; sm.isAnonymous = true; def->members.push_back(std::move(sm)); }
+                    pendingDefinitions.push_back(std::move(nestedDef));
+                    while (tryParseAttribute()) {}
+                    match(TokenType::SEMICOLON); // consume optional semicolon
+                    continue; 
+                }
             }
         }
 
@@ -1434,6 +1591,8 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
 
         std::string type;
         bool mIsSigned = false;
+        int basePtrLevel = 0;
+        std::vector<int> typedefArrayDims;
         if (match(TokenType::SIGNED)) {
             mIsSigned = true;
             if (match(TokenType::LONG)) { type = "long"; match(TokenType::INT); } else if (match(TokenType::SHORT)) { type = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) type = "int";
@@ -1467,7 +1626,12 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             }
         }
         else if (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value)) {
-            type = typedefs[advance().value].baseType;
+            std::string alias = advance().value;
+            auto& ta = typedefs[alias];
+            type = ta.baseType;
+            mIsSigned = ta.isSigned;
+            basePtrLevel = ta.pointerLevel;
+            typedefArrayDims = ta.arrayDims;
         }
         else if (peek().type == TokenType::ATTRIBUTE) {
             // __attribute__ as member type prefix — skip and retry
@@ -1478,8 +1642,11 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         }
         // Skip __attribute__ after type, before pointer/name
         while (tryParseAttribute()) {}
-        int ptrLevel = 0;
-        while (match(TokenType::STAR)) ptrLevel++;
+        int ptrLevel = basePtrLevel;
+        while (match(TokenType::STAR)) {
+            ptrLevel++;
+            while (match(TokenType::CONST) || match(TokenType::VOLATILE) || match(TokenType::RESTRICT) || tryParseAttribute() || match(TokenType::EXTENSION));
+        }
         std::string memberName = expect(TokenType::IDENTIFIER, "Expected member name").value;
         std::vector<int> memberArrayDims;
         bool isFlexArray = false;
@@ -1497,6 +1664,8 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
                 expect(TokenType::CLOSE_SQUARE, "Expected ']' after array size");
             }
         }
+        // Append typedef array dimensions
+        memberArrayDims.insert(memberArrayDims.end(), typedefArrayDims.begin(), typedefArrayDims.end());
         if (isFlexArray && memberArrayDims.size() > 1)
             throw std::runtime_error("Flexible array member '" + memberName + "' cannot be multi-dimensional");
         int memberBitWidth = 0;
@@ -1511,6 +1680,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             if (memberBitWidth < 1 || memberBitWidth > maxBits)
                 throw std::runtime_error("Bitfield width " + std::to_string(memberBitWidth) + " out of range for type '" + type + "'");
         }
+        while (tryParseAttribute()) {}
         StructMember sm;
         sm.type = type; sm.pointerLevel = ptrLevel; sm.isSigned = mIsSigned;
         sm.name = memberName; sm.isConst = mIsConst; sm.alignment = 0;
@@ -1520,7 +1690,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
 
         // Multi-member declarations: long p_x, p_y;
         while (match(TokenType::COMMA)) {
-            int extraPtr = 0;
+            int extraPtr = basePtrLevel;
             while (match(TokenType::STAR)) extraPtr++;
             std::string extraName = expect(TokenType::IDENTIFIER, "Expected member name").value;
             std::vector<int> extraDims;
@@ -1531,16 +1701,20 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
                     expect(TokenType::CLOSE_SQUARE, "Expected ']'");
                 }
             }
+            // Append typedef array dimensions
+            extraDims.insert(extraDims.end(), typedefArrayDims.begin(), typedefArrayDims.end());
             int extraBitWidth = 0;
             if (match(TokenType::COLON)) {
                 extraBitWidth = std::stoi(expect(TokenType::INTEGER_LITERAL, "Expected bitfield width").value);
             }
+            while (tryParseAttribute()) {}
             StructMember esm;
             esm.type = type; esm.pointerLevel = extraPtr; esm.isSigned = mIsSigned;
             esm.name = extraName; esm.isConst = mIsConst;
             esm.arrayDims = extraDims; esm.bitWidth = extraBitWidth;
             def->members.push_back(std::move(esm));
         }
+        while (tryParseAttribute()) {}
         expect(TokenType::SEMICOLON, "Expected ';'");
     }
     expect(TokenType::CLOSE_BRACE, "Expected '}'");
@@ -1716,17 +1890,20 @@ std::unique_ptr<Expression> Parser::parseUnary() {
                     }
                 }
 
-                else if (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value)) {
+                std::vector<int> sizeofArrayDims;
+                if (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value)) {
                     std::string sAlias = advance().value;
                     type = typedefs[sAlias].baseType;
                     sIsSigned = typedefs[sAlias].isSigned;
                     sBasePtrLevel = typedefs[sAlias].pointerLevel;
+                    sizeofArrayDims = typedefs[sAlias].arrayDims;
                 }
 
                 int ptrLevel = sBasePtrLevel;
                 while (match(TokenType::STAR)) ptrLevel++;
                 expect(TokenType::CLOSE_PAREN, "Expected ')' after type in sizeof");
                 auto node = std::make_unique<SizeofExpression>(type, ptrLevel);
+                node->arrayDims = sizeofArrayDims;
                 // SizeofExpression doesn't currently store isSigned, but it's used for getTypeSize
                 return setPos(std::move(node), startToken);
             }
@@ -1849,19 +2026,29 @@ std::unique_ptr<Expression> Parser::parseUnary() {
         }
     }
 
-    if (match(TokenType::BANG) || match(TokenType::TILDE) || match(TokenType::MINUS) || match(TokenType::STAR) || match(TokenType::AMPERSAND) ||
+    if (match(TokenType::AND)) {
+        // GCC Extension: &&label (address of label)
+        std::string label = expect(TokenType::IDENTIFIER, "Expected label name after &&").value;
+        return setPos(std::make_unique<LabelAddressExpression>(label), tokens[pos-2]);
+    }
+    if (match(TokenType::AMPERSAND)) {
+        const Token& opToken = tokens[pos-1];
+        std::string op = opToken.value;
+        auto operand = parseUnary();
+        if (dynamic_cast<CpuRegisterAccess*>(operand.get())) {
+            throw std::runtime_error("Error at " + std::to_string(opToken.line) + ":" + std::to_string(opToken.column) + ": Cannot take address of CPU register");
+        }
+        if (dynamic_cast<CpuFlagAccess*>(operand.get())) {
+            throw std::runtime_error("Error at " + std::to_string(opToken.line) + ":" + std::to_string(opToken.column) + ": Cannot take address of CPU flag");
+        }
+        return setPos(std::make_unique<UnaryOperation>(op, std::move(operand)), opToken);
+    }
+
+    if (match(TokenType::BANG) || match(TokenType::TILDE) || match(TokenType::MINUS) || match(TokenType::STAR) ||
         match(TokenType::PLUS_PLUS) || match(TokenType::MINUS_MINUS)) {
         const Token& opToken = tokens[pos-1];
         std::string op = opToken.value;
         auto operand = parseUnary();
-        if (op == "&") {
-            if (dynamic_cast<CpuRegisterAccess*>(operand.get())) {
-                throw std::runtime_error("Error at " + std::to_string(opToken.line) + ":" + std::to_string(opToken.column) + ": Cannot take address of CPU register");
-            }
-            if (dynamic_cast<CpuFlagAccess*>(operand.get())) {
-                throw std::runtime_error("Error at " + std::to_string(opToken.line) + ":" + std::to_string(opToken.column) + ": Cannot take address of CPU flag");
-            }
-        }
         return setPos(std::make_unique<UnaryOperation>(op, std::move(operand)), opToken);
     }
     return parsePrimary();
@@ -2003,13 +2190,19 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         const Token& nameToken = advance();
         std::string name = nameToken.value;
 
+        // Resolve nested function name
+        std::string actualName = name;
+        if (nestedFunctionMap.count(name)) {
+            actualName = nestedFunctionMap.at(name);
+        }
+
         auto enumIt = enumConstants.find(name);
         if (enumIt != enumConstants.end()) {
             return setPos(std::make_unique<IntegerLiteral>(enumIt->second), nameToken);
         }
 
         if (match(TokenType::OPEN_PAREN)) {
-            auto call = setPos(std::make_unique<FunctionCall>(name), nameToken);
+            auto call = setPos(std::make_unique<FunctionCall>(actualName), nameToken);
             if (peek().type != TokenType::CLOSE_PAREN) {
                 do {
                     call->arguments.push_back(parseExpression());
@@ -2018,7 +2211,7 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
             expect(TokenType::CLOSE_PAREN, "Expected ')'");
             expr = std::move(call);
         } else {
-            expr = setPos(std::make_unique<VariableReference>(name), nameToken);
+            expr = setPos(std::make_unique<VariableReference>(actualName), nameToken);
         }
     } else if (peek().type == TokenType::INTEGER_LITERAL) {
         const Token& litToken = advance();
@@ -2238,6 +2431,7 @@ void Parser::parseTypedef() {
     std::string baseType;
     bool isSigned = false;
     int basePtrLevel = 0;
+    std::vector<int> typedefArrayDims;
 
     // Skip leading qualifiers (e.g., typedef volatile int vint)
     while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT)) {}
@@ -2289,6 +2483,7 @@ void Parser::parseTypedef() {
         baseType = typedefs[alias].baseType;
         isSigned = typedefs[alias].isSigned;
         basePtrLevel = typedefs[alias].pointerLevel;
+        typedefArrayDims = typedefs[alias].arrayDims;
     }
     else {
         throw std::runtime_error("Expected type in typedef");
@@ -2325,11 +2520,23 @@ void Parser::parseTypedef() {
     while (tryParseAttribute()) {}
 
     std::string newName = expect(TokenType::IDENTIFIER, "Expected alias name in typedef").value;
+    std::vector<int> arrayDims = typedefArrayDims;
+    while (match(TokenType::OPEN_SQUARE)) {
+        if (match(TokenType::CLOSE_SQUARE)) {
+            arrayDims.push_back(0);
+        } else {
+            auto szExpr = parseExpression();
+            int arrSize = 1;
+            if (auto* lit = dynamic_cast<IntegerLiteral*>(szExpr.get())) arrSize = (int)lit->value;
+            arrayDims.push_back(arrSize);
+            expect(TokenType::CLOSE_SQUARE, "Expected ']'");
+        }
+    }
     // Skip __attribute__ after alias: typedef int T __attribute__((unused));
     while (tryParseAttribute()) {}
     expect(TokenType::SEMICOLON, "Expected ';' after typedef");
 
-    typedefs[newName] = {baseType, ptrLevel, isSigned};
+    typedefs[newName] = {baseType, ptrLevel, isSigned, false, nullptr, arrayDims};
 }
 
 bool Parser::isTypedef(const std::string& name) const {
@@ -2412,4 +2619,72 @@ std::unique_ptr<EnumDefinition> Parser::parseEnumDefinition() {
         return def;
     }
     return setPos(std::make_unique<EnumDefinition>(name), startToken);
+}
+
+bool Parser::isFunctionDeclaration() {
+    size_t look = pos;
+    // Skip common leading keywords/qualifiers
+    while (look < tokens.size()) {
+        TokenType t = tokens[look].type;
+        if (t == TokenType::STATIC || t == TokenType::INLINE || t == TokenType::VOLATILE ||
+            t == TokenType::CONST || t == TokenType::EXTERN || t == TokenType::NORETURN ||
+            t == TokenType::FASTCALL || t == TokenType::INTERRUPT || t == TokenType::NAKED ||
+            t == TokenType::REGPARM || t == TokenType::RESTRICT || t == TokenType::AUTO ||
+            t == TokenType::REGISTER || t == TokenType::EXTENSION) {
+            look++;
+        } else if (t == TokenType::ATTRIBUTE) {
+            look++;
+            if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
+                look++;
+                int parens = 1;
+                while (look < tokens.size() && parens > 0) {
+                    if (tokens[look].type == TokenType::OPEN_PAREN) parens++;
+                    else if (tokens[look].type == TokenType::CLOSE_PAREN) parens--;
+                    look++;
+                }
+            }
+        } else break;
+    }
+
+    if (look >= tokens.size()) return false;
+    TokenType t = tokens[look].type;
+    if (t == TokenType::INT || t == TokenType::CHAR || t == TokenType::LONG ||
+        t == TokenType::SHORT || t == TokenType::VOID || t == TokenType::BOOL ||
+        t == TokenType::STRUCT || t == TokenType::UNION || t == TokenType::ENUM ||
+        (t == TokenType::IDENTIFIER && isTypedef(tokens[look].value))) {
+        
+        look++;
+        // Skip struct/union/enum name
+        if (t == TokenType::STRUCT || t == TokenType::UNION || t == TokenType::ENUM) {
+            if (look < tokens.size() && tokens[look].type == TokenType::IDENTIFIER) look++;
+        }
+        
+        // Skip any pointers, qualifiers, and attributes interleaved
+        while (look < tokens.size()) {
+            if (tokens[look].type == TokenType::STAR) {
+                look++;
+            } else if (tokens[look].type == TokenType::CONST || tokens[look].type == TokenType::VOLATILE ||
+                       tokens[look].type == TokenType::RESTRICT || tokens[look].type == TokenType::EXTENSION) {
+                look++;
+            } else if (tokens[look].type == TokenType::ATTRIBUTE) {
+                look++;
+                if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
+                    look++;
+                    int parens = 1;
+                    while (look < tokens.size() && parens > 0) {
+                        if (tokens[look].type == TokenType::OPEN_PAREN) parens++;
+                        else if (tokens[look].type == TokenType::CLOSE_PAREN) parens--;
+                        look++;
+                    }
+                }
+            } else break;
+        }
+        
+        // Check for identifier followed by (
+        if (look + 1 < tokens.size() && tokens[look].type == TokenType::IDENTIFIER && 
+            tokens[look+1].type == TokenType::OPEN_PAREN) {
+            return true;
+        }
+    }
+    return false;
 }

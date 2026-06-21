@@ -658,13 +658,40 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
     // Emit debug line info option (OPT_LINEINFO)
     auto& lineMap = parser.getLineMap();
     if (!lineMap.empty()) {
-        // Build file string table (dedup filenames)
+        // Build file string table (dedup filenames) with safe path shortening and length limits
         std::vector<std::string> fileTable;
         std::map<std::string, uint16_t> fileIndex;
+        size_t currentFileTableBytes = 0;
         for (const auto& entry : lineMap) {
+            std::string shortFile = entry.file;
+            // Shorten path
+            std::string prefix = "/home/duck/m65/in_devel/ccomp/";
+            if (shortFile.rfind(prefix, 0) == 0) {
+                shortFile = shortFile.substr(prefix.length());
+            }
+            size_t idx;
+            while ((idx = shortFile.find("bin/../")) != std::string::npos) {
+                shortFile.replace(idx, 7, "");
+            }
+            
             if (!fileIndex.count(entry.file)) {
-                fileIndex[entry.file] = (uint16_t)fileTable.size();
-                fileTable.push_back(entry.file);
+                // Limit file table size to prevent option payload overflow (>253 bytes)
+                if (currentFileTableBytes + shortFile.length() + 1 > 220) {
+                    // Fall back to basename
+                    size_t lastSlash = shortFile.find_last_of("/\\");
+                    if (lastSlash != std::string::npos) {
+                        shortFile = shortFile.substr(lastSlash + 1);
+                    }
+                }
+                
+                if (currentFileTableBytes + shortFile.length() + 1 > 220 && !fileTable.empty()) {
+                    // Drop/map to first file to prevent overflow
+                    fileIndex[entry.file] = 0;
+                } else {
+                    fileIndex[entry.file] = (uint16_t)fileTable.size();
+                    fileTable.push_back(shortFile);
+                    currentFileTableBytes += shortFile.length() + 1;
+                }
             }
         }
         // First option: file string table

@@ -84,15 +84,37 @@ int IRCodeGen::slotOf(uint32_t vregId) {
 
 void IRCodeGen::prescanFunction(const ir::Function& fn) {
     resetFrame();
-    // Allocate slots for parameters first
-    for (size_t i = 0; i < fn.paramTypes.size(); i++) {
-        allocSlot((uint32_t)i, fn.paramTypes[i]);
+    ir::Function& mutableFn = const_cast<ir::Function&>(fn);
+    mutableFn.vregOffsets.clear();
+
+    // 1. Allocate static link first if it exists
+    if (fn.isNested && fn.staticLinkVreg != -1) {
+        int off = allocSlot(fn.staticLinkVreg, ir::Type::PTR);
+        mutableFn.vregOffsets[fn.staticLinkVreg] = off;
     }
-    // Scan all instructions for vReg definitions
+
+    // 2. Allocate all named variables (locals and parameters)
+    for (const auto& [name, vid] : fn.localNames) {
+        if (mutableFn.vregOffsets.count(vid)) continue;
+        
+        ir::Type t = ir::Type::I16;
+        if (fn.vregTypes.count(vid)) {
+            t = fn.vregTypes.at(vid);
+        }
+        
+        int off = allocSlot(vid, t);
+        mutableFn.vregOffsets[vid] = off;
+    }
+
+    // 3. Scan all instructions for any other vReg definitions (temporaries)
     for (const auto& block : fn.blocks) {
         for (const auto& inst : block.insts) {
             if (inst.dest.isVreg()) {
-                allocSlot(inst.dest.vregId, inst.resultType != ir::Type::VOID ? inst.resultType : ir::Type::I16);
+                uint32_t vid = inst.dest.vregId;
+                if (mutableFn.vregOffsets.count(vid)) continue;
+                
+                int off = allocSlot(vid, inst.resultType != ir::Type::VOID ? inst.resultType : ir::Type::I16);
+                mutableFn.vregOffsets[vid] = off;
             }
         }
     }
@@ -324,6 +346,14 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     zeroPageStart_ = zpStart;
     sourceFile_ = mod.sourceFile;
 
+    // Pre-scan all functions to compute frame offsets (needed for capture)
+    std::map<std::string, const ir::Function*> funcMap;
+    for (const auto& fn : mod.functions) {
+        prescanFunction(fn);
+        funcMap[fn.name] = &fn;
+    }
+    setFunctionMap(&funcMap);
+
     if (relocMode) {
         emit(".o45");
         emit(".extern __sp_base");
@@ -379,6 +409,12 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         return ss.str();
     };
 
+    emit(".global __static_chain");
+    emit(".global __zp_scratch");
+    emit(".global __zp_scratch2");
+    emit(".global __zp_scratch3");
+    emit(".global __zp_scratch4");
+    emit("__static_chain = " + hex8(zeroPageStart_ - 2));
     emit("__zp_scratch = " + hex8(zeroPageStart_));
     emit("__zp_scratch2 = " + hex8(zeroPageStart_ + 2));
     emit("__zp_scratch3 = " + hex8(zeroPageStart_ + 4));
@@ -987,9 +1023,14 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     if (useStackParams) {
         // Stack convention: params are on the stack, copy to ZP temps
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+            uint32_t vid = (uint32_t)i;
+            if (fn.isNested && i == fn.paramTypes.size() - 1 && fn.staticLinkVreg != -1) {
+                // vid = (uint32_t)fn.staticLinkVreg; // Wait! No more hidden param!
+            }
+
             if (fn.isRegparm && i == 0) {
                 // First param already in A (I8) or AX (I16) — just store
-                storeVreg((uint32_t)i);
+                storeVreg(vid);
                 continue;
             }
             std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
@@ -999,14 +1040,15 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             } else {
                 emit("ldax.fp @_p_" + pName);
             }
-            storeVreg((uint32_t)i);
+            storeVreg(vid);
         }
     } else {
         // ZP call convention: params already in ZP block, copy to vReg slots
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+            uint32_t vid = (uint32_t)i;
             if (fn.isRegparm && i == 0) {
                 // First param already in A (I8) or AX (I16) — just store
-                storeVreg((uint32_t)i);
+                storeVreg(vid);
                 continue;
             }
             std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
@@ -1014,7 +1056,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             // ZP params are at $10 + offset; load from the .var @_p_ location
             emit("lda @_p_" + pName);
             emit("ldx @_p_" + pName + "+1");
-            storeVreg((uint32_t)i);
+            storeVreg(vid);
         }
     }
 
@@ -2186,9 +2228,147 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             }
             break;
         }
+
+        case ir::Op::LOAD_ZP: {
+            std::string addr = inst.src1.name;
+            emit("lda " + addr);
+            emit("ldx " + addr + "+1");
+            storeVreg(inst.dest.vregId);
+            break;
+        }
+
+        case ir::Op::STORE_ZP: {
+            loadVreg(inst.src1.vregId);
+            std::string addr = inst.src2.name; // target ZP name
+            emit("sta " + addr);
+            emit("stx " + addr + "+1");
+            break;
+        }
+
+        case ir::Op::TRAMPOLINE: {
+            // src1 = target func, src2 = link, args[0] = buffer vreg
+            uint32_t bufVregId = inst.args[0].vregId;
+
+            // Step 1: Get address of buffer on stack into scratch $08/$09
+            emit("leax.fp " + std::to_string(vregOffset_.at(bufVregId)));
+            emit("sta $08");
+            emit("stx $09");
+
+            // Step 2: Initialize trampoline code (11 bytes)
+            // 0: $A9 <lo_link, 2: $85 <chain, 4: $A9 <hi_link, 6: $85 <chain+1, 8: $4C <lo_tgt >hi_tgt
+
+            // Load link into AX
+            loadOperand(inst.src2);
+
+            // link lo (A)
+            emit("pha");
+            emit("ldy #0");
+            emit("lda #$A9"); // lda #lo
+            emit("sta ($08),y");
+            emit("pla");
+            emit("iny");
+            emit("sta ($08),y");
+
+            // sta __static_chain
+            emit("iny");
+            emit("lda #$85");
+            emit("sta ($08),y");
+            emit("iny");
+            emit("lda #<__static_chain");
+            emit("sta ($08),y");
+
+            // link hi (X)
+            emit("txa");
+            emit("pha");
+            emit("iny");
+            emit("lda #$A9"); // lda #hi
+            emit("sta ($08),y");
+            emit("pla");
+            emit("iny");
+            emit("sta ($08),y");
+
+            // sta __static_chain+1
+            emit("iny");
+            emit("lda #$85");
+            emit("sta ($08),y");
+            emit("iny");
+            emit("lda #<(__static_chain+1)");
+            emit("sta ($08),y");
+
+            // jmp _target
+            emit("iny");
+            emit("lda #$4C"); // jmp abs
+            emit("sta ($08),y");
+            emit("iny");
+            emit("lda #<" + inst.src1.name);
+            emit("sta ($08),y");
+            emit("iny");
+            emit("lda #>" + inst.src1.name);
+            emit("sta ($08),y");
+
+            // Result: A:X = address of trampoline
+            emit("lda $08");
+            emit("ldx $09");
+            storeVreg(inst.dest.vregId);
+            break;
+        }
+
         case ir::Op::ADDR_GLOBAL: {
-            emit("ldax #" + inst.src1.name);
+            emit("ldax #_" + inst.src1.name);
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+            break;
+        }
+
+        case ir::Op::ADDR_LABEL: {
+            emit("ldax #@" + inst.src1.name);
+            if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+            break;
+        }
+
+        case ir::Op::ADDR_UPLEVEL: {
+            int levels = (int)inst.args[1].immVal;
+            const ir::Operand& targetVar = inst.args[0];
+            int targetOffset = 0;
+            if (targetVar.vregId != 0xFFFFFFFF) {
+                if (functionMap_) {
+                    if (functionMap_->count(targetVar.name)) {
+                        const auto* targetFn = functionMap_->at(targetVar.name);
+                        if (targetFn->vregOffsets.count(targetVar.vregId)) {
+                            targetOffset = targetFn->vregOffsets.at(targetVar.vregId);
+                        }
+                    }
+                }
+            }
+
+            // Start by loading the static link (pointer to direct parent frame)
+            loadVreg(inst.src1.vregId);
+
+            // Follow static chain if target is higher than direct parent
+            for (int i = 0; i < levels - 1; i++) {
+                emit("sta $08");
+                emit("stx $09");
+                // Static link is always at offset 0 in every nested frame
+                emit("ldy #0");
+                emit("lda ($08),y");
+                emit("pha");
+                emit("iny");
+                emit("lda ($08),y");
+                emit("tax");
+                emit("pla");
+                // Result in AX
+            }
+
+            if (targetOffset != 0) {
+                emit("clc");
+                emit("adc #" + std::to_string(targetOffset & 0xFF));
+                emit("pha");
+                emit("txa");
+                emit("adc #" + std::to_string((targetOffset >> 8) & 0xFF));
+                emit("tax");
+                emit("pla");
+            }
+
+            storeVreg(inst.dest.vregId);
             break;
         }
 
@@ -2197,7 +2377,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 // Address of a local vReg — resolve by allocation
                 auto alloc = alloc_.getAlloc(inst.src1.vregId);
                 if (alloc.loc == VRegAllocator::IN_FRAME) {
-                    emit("leax.fp __vr" + std::to_string(inst.src1.vregId));
+                    emit("leax.fp " + std::to_string(alloc.offset));
                 } else if (alloc.loc == VRegAllocator::IN_ZP) {
                     // ZP address: load the ZP address as a 16-bit value
                     emit("lda #" + std::to_string(alloc.offset));
@@ -2208,6 +2388,21 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 emit("leax.fp " + std::to_string(offset));
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+            break;
+        }
+
+        case ir::Op::BR_INDIRECT: {
+            loadVreg(inst.src1.vregId);
+            emit("sta $0008");
+            emit("stx $0009");
+            emit("jmp ($0008)");
+            break;
+        }
+
+        case ir::Op::GET_FP: {
+            emit("lda $FD");
+            emit("ldx $FE");
+            storeVreg(inst.dest.vregId);
             break;
         }
 

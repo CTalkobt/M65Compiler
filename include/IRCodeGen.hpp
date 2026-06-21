@@ -20,6 +20,9 @@ public:
     void setLineToFileMap(const std::map<int, std::pair<std::string, int>>& map) {
         lineToFileMap_ = map;
     }
+    void setFunctionMap(const std::map<std::string, const ir::Function*>* map) {
+        functionMap_ = map;
+    }
 
 private:
     std::ostream& out_;
@@ -102,6 +105,7 @@ private:
     std::string lastLocFile_;
     std::string sourceFile_; // module source file for function declaration .loc
     std::map<int, std::pair<std::string, int>> lineToFileMap_; // Maps abs line to (filename, lineOffset)
+    const std::map<std::string, const ir::Function*>* functionMap_ = nullptr;
     MachineState ms_;        // register/flag value tracking for codegen optimizations
 
     // Value-role tracking: which register holds each byte of the current

@@ -4,6 +4,7 @@
 #include <iostream>
 #include <ostream>
 #include <vector>
+#include <deque>
 #include <string>
 #include <map>
 #include <set>
@@ -117,6 +118,7 @@ public:
     void visit(BuiltinVaArg& node) override;
     void visit(CpuRegisterAccess& node) override;
     void visit(CpuFlagAccess& node) override;
+    void visit(LabelAddressExpression& node) override;
     void visit(TranslationUnit& node) override;
     void emitAddress(Expression* expr);
     void emitIndirectIncDec(UnaryOperation& node, bool isInc, bool isPost);
@@ -130,7 +132,7 @@ public:
     bool isEnum(const std::string& type);
     std::string resolveVarName(const std::string& name);
     std::string getAggregateName(const std::string& type);
-    VarInfo& lookupVar(const std::string& rName, ASTNode* node = nullptr);
+    VarInfo lookupVar(const std::string& rName, ASTNode* node = nullptr);
     static bool matchType(const ExpressionType& t1, const std::string& t2Name, int t2Ptr);
 
     // Per-function clobber tracking (Phase 1 of fine-grained invalidation)
@@ -151,6 +153,31 @@ public:
     };
     std::map<std::string, FuncClobberInfo> funcClobbers_;
     FuncClobberInfo* currentClobbers_ = nullptr;
+
+    struct RegisterVarInfo {
+        int zpIndex;
+        int size;
+    };
+    struct ZpParamInfo {
+        uint8_t zpAddr;   // absolute ZP address (e.g., $03)
+        int size;          // 1, 2, or 4 bytes
+    };
+    struct ZpSpillInfo {
+        int frameOffset;  // offset within frame (for .local / sta.fp / leax.fp)
+        int size;         // 1, 2, or 4 bytes
+    };
+
+    struct FunctionScope {
+        FunctionDeclaration* func;
+        std::map<std::string, VarInfo> variableTypes;
+        std::map<std::string, RegisterVarInfo> registerVars;
+        std::map<std::string, int> frameLocals;
+        int frameSize;
+        bool useZpCall;
+        std::map<std::string, ZpParamInfo> zpParams;
+        std::map<std::string, ZpSpillInfo> zpSpilledParams;
+    };
+    std::deque<FunctionScope> functionStack_;
 
     void clobberReg(uint8_t mask);
     void clobberFlag(uint8_t mask);
@@ -244,10 +271,6 @@ public:
         bool inUse = false;
     };
     std::vector<ZPReg> zpRegs;
-    struct RegisterVarInfo {
-        int zpIndex;
-        int size;
-    };
     std::map<std::string, RegisterVarInfo> registerVars; // resolved name → ZP allocation
     void freeRegisterVars();
 
@@ -280,10 +303,6 @@ public:
     std::string getLocalOffsetSymbol(int offset); // Convert frame offset to symbolic name (e.g., _l_x or _l_x+1)
 
     // ZP calling convention (zpCallMode)
-    struct ZpParamInfo {
-        uint8_t zpAddr;   // absolute ZP address (e.g., $03)
-        int size;          // 1, 2, or 4 bytes
-    };
     std::map<std::string, ZpParamInfo> zpParams_; // _p_name → ZP location (current function)
     int zpParamTotalBytes_ = 0;   // total param bytes in ZP block
     bool useZpCall_ = false; // true when current function uses ZP calling (zpCallMode or __fastcall__)
@@ -291,10 +310,6 @@ public:
     std::string zpHex(uint8_t addr) const;  // format as "$XX"
     int zpCallerSaveSize_ = 0;  // frame bytes reserved for caller-save of ZP params
     // Params whose address is taken — spilled from ZP to frame
-    struct ZpSpillInfo {
-        int frameOffset;  // offset within frame (for .local / sta.fp / leax.fp)
-        int size;         // 1, 2, or 4 bytes
-    };
     std::map<std::string, ZpSpillInfo> zpSpilledParams_; // _p_name → frame location
     bool isZpSpilledParam(const std::string& rName) const { return useZpCall_ && zpSpilledParams_.count(rName) > 0; }
 };

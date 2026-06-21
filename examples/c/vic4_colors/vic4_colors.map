@@ -1,0 +1,50 @@
+Linker Map
+==========
+
+Memory Layout
+-------------
+  TEXT   $200D - $20FC  (240 bytes)
+  DATA   $20FD - $211A  (30 bytes)
+  BSS    $211B - $2212  (248 bytes)
+
+Object Files
+------------
+  main.o45
+    TEXT  $2051 - $20C5  (117 bytes)
+    DATA  $20FD - $2104  (8 bytes)
+  ../../../lib/build/c45.lib(crt0.o45)
+    TEXT  $200D - $2050  (68 bytes)
+    DATA  $2105 - $211A  (22 bytes)
+    BSS   $211B - $2212  (248 bytes)
+  ../../../lib/build/c45.lib(puts.o45)
+    TEXT  $20C6 - $20FC  (55 bytes)
+
+Symbols (by address)
+--------------------
+  $0101  __sp_base                      ../../../lib/build/c45.lib(crt0.o45)
+  $200D  __init                         ../../../lib/build/c45.lib(crt0.o45)
+  $2037  __exit                         ../../../lib/build/c45.lib(crt0.o45)
+  $2050  _init_features                 ../../../lib/build/c45.lib(crt0.o45) [weak]
+  $205C  _main                          main.o45  [uses:- clob:- rel:- regs:AXYZ]
+  $20C6  _puts                          ../../../lib/build/c45.lib(puts.o45)
+  $20FD  _VIC4                          main.o45
+  $211B  __bss_start                    <linker>
+  $2213  __bss_end                      <linker>
+
+Call Graph
+----------
+  __init -> __exit _main
+  _main -> _puts
+
+Source Lines
+------------
+  $2051  main.c:22
+  $2051  main.c:36
+  $2053  main.c:23
+  $2056  main.c:24
+  $2058  main.c:25
+  $205C  main.c:15
+  $205F  main.c:29
+  $2062  main.c:32
+  $2081  main.c:33
+  $209C  main.c:35

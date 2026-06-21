@@ -61,6 +61,7 @@ private:
         bool isSigned;
         bool isFunctionPointer = false;
         std::shared_ptr<FuncPtrSignature> funcPtrSig;
+        std::vector<int> arrayDims;
     };
     std::map<std::string, TypeAlias> typedefs;
     std::map<std::string, int> enumConstants;
@@ -69,6 +70,9 @@ private:
 
     int anonymousAggregateCount = 0;
     std::string currentFunctionName;
+    FunctionDeclaration* currentFunction = nullptr;
+    std::map<std::string, std::string> nestedFunctionMap;
     std::vector<std::unique_ptr<StructDefinition>> pendingDefinitions;
     void flushPending(TranslationUnit& unit);
+    bool isFunctionDeclaration();
 };

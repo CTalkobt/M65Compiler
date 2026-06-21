@@ -356,7 +356,9 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         if (it != functionReturnTypes_.end()) {
             bool sig = false; // unsigned by default
             auto sit = functionParamSigned_.find(call->name);
-            // Return signedness tracked via first entry convention (return = index -1)
+            if (sit != functionParamSigned_.end() && !sit->second.empty()) {
+                sig = sit->second[0]; // TODO: use a proper convention for return type signedness
+            }
             return {it->second, "", sig, ir::Type::VOID, ir::typeSize(it->second)};
         }
     }
@@ -461,6 +463,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         functionReturnTypes_[node.name] = mapType(node.returnType, node.returnPointerLevel);
         if (node.isVariadic) variadicFunctions_.insert(node.name);
         if (node.isRegparm) regparmFunctions_.insert(node.name);
+        allFunctions_[node.name] = &node;
     }
     if (node.isPrototype || !node.body) return;
 
@@ -475,6 +478,13 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     fn.declLine = node.line;
     fn.isNaked = node.isNaked;
     fn.isRegparm = node.isRegparm;
+    fn.isNested = node.isNested;
+
+    if (node.isNested) {
+        ir::Type pt = ir::Type::PTR;
+        auto vreg = allocVreg(pt);
+        fn.staticLinkVreg = vreg.vregId;
+    }
 
     // Register inline candidate if marked inline or -finline-functions
     if (!node.isVariadic && !node.isInterrupt && !node.isNaked) {
@@ -493,17 +503,61 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     }
 
     module_.functions.push_back(std::move(fn));
-    currentFunc_ = &module_.functions.back();
-    locals_.clear();
-    localTypes_.clear();
-    localSigned_.clear();
-    localConst_.clear();
-    usedVregs_.clear();
-    localDeclLocs_.clear();
+    ir::Function* fnPtr = &module_.functions.back();
 
+    // Save current scope if we are nesting
+    if (currentFunc_) {
+        FunctionScope scope;
+        scope.func = currentFunc_;
+        scope.block = currentBlock_;
+        scope.locals = std::move(locals_);
+        scope.localTypes = std::move(localTypes_);
+        scope.localTypeNames = std::move(localTypeNames_);
+        scope.localSigned = std::move(localSigned_);
+        scope.localConst = std::move(localConst_);
+        scope.localPointsToConst = std::move(localPointsToConst_);
+        scope.localPointedToType = std::move(localPointedToType_);
+        scope.localArrayDims = std::move(localArrayDims_);
+        scope.usedVregs = std::move(usedVregs_);
+        scope.localDeclLocs = std::move(localDeclLocs_);
+        functionStack_.push_back(std::move(scope));
+
+        // Reset state for new function
+        locals_.clear();
+        localTypes_.clear();
+        localTypeNames_.clear();
+        localSigned_.clear();
+        localConst_.clear();
+        localPointsToConst_.clear();
+        localPointedToType_.clear();
+        localArrayDims_.clear();
+        usedVregs_.clear();
+        localDeclLocs_.clear();
+    }
+
+    currentFunc_ = fnPtr;
     startBlock("entry");
 
-    // Create vRegs for parameters
+    // Load static link from ZP if nested
+    if (fnPtr->isNested) {
+        ir::Type pt = ir::Type::PTR;
+        auto vreg = ir::Operand::vreg(fnPtr->staticLinkVreg, pt);
+        locals_["__static_link"] = vreg;
+        localTypes_["__static_link"] = pt;
+        localTypeNames_["__static_link"] = "void*";
+        localSigned_["__static_link"] = false;
+        localConst_["__static_link"] = true;
+        currentFunc_->localNames["__static_link"] = vreg.vregId;
+        currentFunc_->localSlotVregs.insert(vreg.vregId);
+
+        ir::Inst loadSl;
+        loadSl.op = ir::Op::LOAD_ZP;
+        loadSl.dest = vreg;
+        loadSl.resultType = pt;
+        loadSl.src1 = ir::Operand::global("__static_chain");
+        loadSl.loc = loc(node);
+        emit(loadSl);
+    }
     for (const auto& p : node.parameters) {
         ir::Type pt = mapType(p.type, p.pointerLevel);
         auto vreg = allocVreg(pt);
@@ -639,8 +693,26 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         }
     }
 
-    currentFunc_ = nullptr;
-    currentBlock_ = nullptr;
+    // Restore previous scope if we nested
+    if (!functionStack_.empty()) {
+        FunctionScope& scope = functionStack_.back();
+        currentFunc_ = scope.func;
+        currentBlock_ = scope.block;
+        locals_ = std::move(scope.locals);
+        localTypes_ = std::move(scope.localTypes);
+        localTypeNames_ = std::move(scope.localTypeNames);
+        localSigned_ = std::move(scope.localSigned);
+        localConst_ = std::move(scope.localConst);
+        localPointsToConst_ = std::move(scope.localPointsToConst);
+        localPointedToType_ = std::move(scope.localPointedToType);
+        localArrayDims_ = std::move(scope.localArrayDims);
+        usedVregs_ = std::move(scope.usedVregs);
+        localDeclLocs_ = std::move(scope.localDeclLocs);
+        functionStack_.pop_back();
+    } else {
+        currentFunc_ = nullptr;
+        currentBlock_ = nullptr;
+    }
 }
 
 void IRBuilder::visit(CompoundStatement& node) {
@@ -924,6 +996,62 @@ void IRBuilder::visit(StringLiteral& node) {
 }
 
 void IRBuilder::visit(VariableReference& node) {
+    // Check if this is a function name used as a value (function pointer)
+    auto fit = allFunctions_.find(node.name);
+    if (fit != allFunctions_.end()) {
+        auto* fn = fit->second;
+        if (fn->isNested) {
+            // WE NEED A TRAMPOLINE!
+            // 1. Allocate an 11-byte buffer on the frame for the trampoline
+            auto bufVreg = allocVreg(ir::Type::PTR);
+            currentFunc_->vregSizes[bufVreg.vregId] = 11;
+            currentFunc_->memoryVregs.insert(bufVreg.vregId);
+            
+            // 2. Get the static link to pass to the nested function.
+            // (Same logic as direct FunctionCall: if callee is our direct child, SL=our FP).
+            ir::Operand sl;
+            FunctionDeclaration* calleeParent = fn->parentFunc;
+            if (currentFunc_ && "_" + calleeParent->name == currentFunc_->name) {
+                sl = allocVreg(ir::Type::PTR);
+                ir::Inst getFp;
+                getFp.op = ir::Op::GET_FP;
+                getFp.dest = sl;
+                getFp.resultType = ir::Type::PTR;
+                getFp.loc = loc(node);
+                emit(getFp);
+            } else {
+                // ... follow static chain ... (simplified for now: assume direct parent)
+                if (currentFunc_ && currentFunc_->isNested) {
+                     sl = ir::Operand::vreg(currentFunc_->staticLinkVreg, ir::Type::PTR);
+                } else {
+                     sl = ir::Operand::imm(0, ir::Type::PTR);
+                }
+            }
+
+            // 3. Emit TRAMPOLINE opcode to initialize the buffer
+            // dest = result (address of trampoline), src1 = target func, src2 = link, args[0] = buffer vreg
+            auto result = allocVreg(ir::Type::PTR);
+            ir::Inst tramp;
+            tramp.op = ir::Op::TRAMPOLINE;
+            tramp.dest = result;
+            tramp.resultType = ir::Type::PTR;
+            tramp.src1 = ir::Operand::global("_" + node.name);
+            tramp.src2 = sl;
+            tramp.args = { bufVreg };
+            tramp.loc = loc(node);
+            emit(tramp);
+            
+            lastValue_ = result;
+            lastValueSigned_ = false;
+            return;
+        } else {
+            // Global function pointer
+            lastValue_ = ir::Operand::global("_" + node.name);
+            lastValueSigned_ = false;
+            return;
+        }
+    }
+
     auto it = locals_.find(node.name);
     if (it != locals_.end()) {
         if (!computeAddressOnly_) {
@@ -945,9 +1073,56 @@ void IRBuilder::visit(VariableReference& node) {
         }
         auto sit = localSigned_.find(node.name);
         lastValueSigned_ = (sit != localSigned_.end()) ? sit->second : false;
-    } else {
-        // Global variable
-        if (computeAddressOnly_) {
+        return;
+    }
+
+    // Search parent scopes
+    for (int i = (int)functionStack_.size() - 1; i >= 0; i--) {
+        auto& scope = functionStack_[i];
+        auto pit = scope.locals.find(node.name);
+        if (pit != scope.locals.end()) {
+            // Found in parent frame!
+            // Mark as escaped/captured in the parent function
+            scope.func->memoryVregs.insert(pit->second.vregId);
+            scope.usedVregs.insert(pit->second.vregId);
+
+            // Use ADDR_UPLEVEL to get its address
+            int levels = (int)functionStack_.size() - i;
+            auto addr = allocVreg(ir::Type::PTR);
+            ir::Inst addrInst;
+            addrInst.op = ir::Op::ADDR_UPLEVEL;
+            addrInst.dest = addr;
+            addrInst.resultType = ir::Type::PTR;
+            addrInst.src1 = ir::Operand::vreg(currentFunc_->staticLinkVreg, ir::Type::PTR);
+            // Pack metadata into args: [0]=parent_vreg, [1]=imm(levels)
+            ir::Operand parentVreg = pit->second;
+            parentVreg.name = scope.func->name;
+            addrInst.args = { parentVreg, ir::Operand::imm(levels, ir::Type::I16) };
+            addrInst.loc = loc(node);
+            emit(addrInst);
+
+            if (computeAddressOnly_) {
+                lastValue_ = addr;
+            } else {
+                // Load the value from the captured address
+                ir::Type t = scope.localTypes.at(node.name);
+                auto val = allocVreg(t);
+                ir::Inst loadInst;
+                loadInst.op = ir::Op::LOAD;
+                loadInst.dest = val;
+                loadInst.resultType = t;
+                loadInst.src1 = addr;
+                loadInst.loc = loc(node);
+                emit(loadInst);
+                lastValue_ = val;
+            }
+            lastValueSigned_ = scope.localSigned.at(node.name);
+            return;
+        }
+    }
+
+    // Global variable
+    if (computeAddressOnly_) {
             lastValue_ = ir::Operand::global("_" + node.name);
             return;
         }
@@ -971,7 +1146,6 @@ void IRBuilder::visit(VariableReference& node) {
         inst.loc = loc(node);
         emit(inst);
         lastValue_ = dest;
-    }
 }
 
 void IRBuilder::visit(Assignment& node) {
@@ -1760,6 +1934,71 @@ void IRBuilder::visit(FunctionCall& node) {
             castArgs.push_back(args[i]);
         }
     }
+    // Handle nested function static link
+    auto fit = allFunctions_.find(node.name);
+    if (fit != allFunctions_.end() && fit->second->isNested) {
+        FunctionDeclaration* calleeParent = fit->second->parentFunc;
+        ir::Operand sl;
+
+        if (currentFunc_ && "_" + calleeParent->name == currentFunc_->name) {
+            // Case 1: Calling a direct child. SL = current FP.
+            sl = allocVreg(ir::Type::PTR);
+            ir::Inst getFp;
+            getFp.op = ir::Op::GET_FP;
+            getFp.dest = sl;
+            getFp.resultType = ir::Type::PTR;
+            getFp.loc = loc(node);
+            emit(getFp);
+        } else {
+            // Case 2: Sibling or ancestor's child. 
+            // Follow static chain from current function's SL.
+            if (currentFunc_ && currentFunc_->isNested) {
+                ir::Operand currentSL;
+                currentSL.kind = ir::OperandKind::VREG;
+                currentSL.vregId = currentFunc_->staticLinkVreg;
+                currentSL.type = ir::Type::PTR;
+
+                // How many levels up to go?
+                // We need to go from currentFunc_->parent to calleeParent.
+                int levels = 0;
+                auto cit = allFunctions_.find(currentFunc_->name.substr(1));
+                FunctionDeclaration* curr = (cit != allFunctions_.end()) ? cit->second->parentFunc : nullptr;
+                while (curr && curr != calleeParent) {
+                    curr = curr->parentFunc;
+                    levels++;
+                }
+
+                if (levels == 0) {
+                    // Sibling: just use our own SL
+                    sl = currentSL;
+                } else {
+                    // Ancestor: go up 'levels' times
+                    sl = allocVreg(ir::Type::PTR);
+                    ir::Inst addrUp;
+                    addrUp.op = ir::Op::ADDR_UPLEVEL;
+                    addrUp.dest = sl;
+                    addrUp.resultType = ir::Type::PTR;
+                    addrUp.src1 = currentSL;
+                    // Pack levels. In this case, we just want the frame base, so vregId is -1
+                    addrUp.args = { ir::Operand::vreg(0xFFFFFFFF, ir::Type::PTR), ir::Operand::imm(levels, ir::Type::I16) };
+                    addrUp.loc = loc(node);
+                    emit(addrUp);
+                }
+            } else {
+                // Should not happen for valid C: global calling nested without pointer
+                sl = ir::Operand::imm(0, ir::Type::PTR);
+            }
+        }
+        
+        // Pass via __static_chain ZP register
+        ir::Inst storeSl;
+        storeSl.op = ir::Op::STORE_ZP;
+        storeSl.src1 = sl;
+        storeSl.src2 = ir::Operand::global("__static_chain");
+        storeSl.loc = loc(node);
+        emit(storeSl);
+    }
+
     inst.args = castArgs;
 
     if (node.callExpr) {
@@ -1900,7 +2139,6 @@ void IRBuilder::visit(ReturnStatement& node) {
             auto val = lastValue_;
 
             ir::Type retType = ir::Type::I16;
-            auto retIt = functionReturnTypes_.find(currentFunc_ ? currentFunc_->name.substr(1) : "");
             if (currentFunc_) retType = currentFunc_->returnType;
 
             IRTypeInfo info = getExprTypeInfo(node.expression.get());
@@ -2612,6 +2850,11 @@ void IRBuilder::visit(SizeofExpression& node) {
     int sz = 2;
     if (node.isType) {
         sz = getTypeSize(node.typeName, node.pointerLevel);
+        if (node.pointerLevel == 0) {
+            for (int d : node.arrayDims) {
+                if (d > 0) sz *= d;
+            }
+        }
     } else if (node.expression) {
         // sizeof(expr) — evaluate type of expression
         IRTypeInfo info = getExprTypeInfo(node.expression.get());
@@ -2716,6 +2959,7 @@ public:
     void visit(StructDefinition&) override {}
     void visit(CompoundStatement& node) override { for (auto& s : node.statements) if (s) s->accept(*this); }
     void visit(FunctionDeclaration&) override {}
+    void visit(LabelAddressExpression&) override {}
     void visit(TranslationUnit&) override {}
 };
 
@@ -2868,6 +3112,16 @@ void IRBuilder::visit(SwitchContinueStatement&) {
 }
 
 void IRBuilder::visit(GotoStatement& node) {
+    if (node.target) {
+        // Computed goto: goto *expr
+        node.target->accept(*this);
+        ir::Inst inst;
+        inst.op = ir::Op::BR_INDIRECT;
+        inst.src1 = lastValue_;
+        inst.loc = loc(node);
+        emit(inst);
+        return;
+    }
     ir::Inst br;
     br.op = ir::Op::BR;
     br.src1 = ir::Operand::label(node.label);
@@ -3106,3 +3360,13 @@ void IRBuilder::visit(CpuFlagAccess& node) {
     lastValueSigned_ = false;
 }
 
+
+void IRBuilder::visit(LabelAddressExpression& node) {
+    ir::Inst addr;
+    addr.op = ir::Op::ADDR_LABEL;
+    addr.dest = allocVreg(ir::Type::I16);
+    addr.src1 = ir::Operand::label(node.label);
+    addr.loc = loc(node);
+    emit(addr);
+    lastValue_ = addr.dest;
+}
