@@ -2478,8 +2478,14 @@ void IRBuilder::visit(ConditionalExpression& node) {
     emit(br);
     
     startBlock(thenLabel);
-    node.thenExpr->accept(*this);
-    auto thenVal = lastValue_;
+    ir::Operand thenVal;
+    if (node.thenExpr) {
+        node.thenExpr->accept(*this);
+        thenVal = lastValue_;
+    } else {
+        // Elvis operator (expr ?: default): use condition value as then-result
+        thenVal = cond;
+    }
     
     ir::Inst copyThen;
     copyThen.op = ir::Op::COPY;

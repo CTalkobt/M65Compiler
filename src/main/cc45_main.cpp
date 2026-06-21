@@ -70,7 +70,8 @@ public:
         indent--;
         printIndent(); std::cout << "Then:" << std::endl;
         indent++;
-        node.thenExpr->accept(*this);
+        if (node.thenExpr) node.thenExpr->accept(*this);
+        else { printIndent(); std::cout << "(elvis: condition)" << std::endl; }
         indent--;
         printIndent(); std::cout << "Else:" << std::endl;
         indent++;

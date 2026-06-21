@@ -809,6 +809,16 @@ std::unique_ptr<Statement> Parser::parseStatement() {
         return setPos(std::make_unique<CompoundStatement>(), tokens[pos-1]); // Dummy empty statement
     }
 
+    // GCC __label__ local label declaration: __label__ lbl1, lbl2, ...;
+    if (peek().type == TokenType::IDENTIFIER && peek().value == "__label__") {
+        const Token& startToken = advance();
+        do {
+            expect(TokenType::IDENTIFIER, "Expected label name after __label__");
+        } while (match(TokenType::COMMA));
+        expect(TokenType::SEMICOLON, "Expected ';' after __label__ declaration");
+        return setPos(std::make_unique<CompoundStatement>(), startToken); // no-op
+    }
+
     if (match(TokenType::GOTO)) {
         const Token& startToken = tokens[pos-1];
         if (match(TokenType::STAR)) {
@@ -1738,7 +1748,13 @@ std::unique_ptr<Expression> Parser::parseConditional() {
     auto expr = parseLogicalOr();
     if (match(TokenType::QUESTION_MARK)) {
         const Token& opToken = tokens[pos-1];
-        auto thenExpr = parseExpression();
+        std::unique_ptr<Expression> thenExpr;
+        if (peek().type == TokenType::COLON) {
+            // GCC Elvis operator: expr ?: default — thenExpr is null (use condition value)
+            thenExpr = nullptr;
+        } else {
+            thenExpr = parseExpression();
+        }
         expect(TokenType::COLON, "Expected ':' in conditional expression");
         auto elseExpr = parseConditional();
         return setPos(std::make_unique<ConditionalExpression>(std::move(expr), std::move(thenExpr), std::move(elseExpr)), opToken);

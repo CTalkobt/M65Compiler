@@ -215,7 +215,7 @@ namespace {
         void visit(StringLiteral&) override {}
 
         void visit(ConditionalExpression& n) override {
-            n.condition->accept(*this); n.thenExpr->accept(*this); n.elseExpr->accept(*this);
+            n.condition->accept(*this); if (n.thenExpr) n.thenExpr->accept(*this); n.elseExpr->accept(*this);
         }
         void visit(FunctionCall& n) override {
             for (auto& arg : n.arguments) arg->accept(*this);
