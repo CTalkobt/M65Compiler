@@ -363,6 +363,13 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         }
     }
 
+    // Comma operator: type is the type of the right operand
+    if (auto* bin = dynamic_cast<BinaryOperation*>(expr)) {
+        if (bin->op == ",") {
+            return getExprTypeInfo(bin->right.get());
+        }
+    }
+
     return {ir::Type::I16, "int", false, ir::Type::VOID, 2};
 }
 
@@ -1438,6 +1445,15 @@ void IRBuilder::visit(Assignment& node) {
 }
 
 void IRBuilder::visit(BinaryOperation& node) {
+    // Comma operator: evaluate left for side effects, discard, return right
+    if (node.op == ",") {
+        node.left->accept(*this);
+        // Discard left result
+        node.right->accept(*this);
+        // lastValue_ is now the right-hand result
+        return;
+    }
+
     // Short-circuit evaluation for && and ||
     // C guarantees left-to-right evaluation with short-circuit.
     // Emit: evaluate LHS → branch on result → evaluate RHS → merge

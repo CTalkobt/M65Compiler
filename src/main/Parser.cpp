@@ -2196,6 +2196,38 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
             actualName = nestedFunctionMap.at(name);
         }
 
+        // Map __builtin_X → X for known stdlib-equivalent builtins
+        if (actualName.rfind("__builtin_", 0) == 0) {
+            static const std::map<std::string, std::string> builtinAliases = {
+                {"__builtin_abort", "abort"},
+                {"__builtin_printf", "printf"},
+                {"__builtin_sprintf", "sprintf"},
+                {"__builtin_puts", "puts"},
+                {"__builtin_putchar", "putchar"},
+                {"__builtin_malloc", "malloc"},
+                {"__builtin_free", "free"},
+                {"__builtin_calloc", "calloc"},
+                {"__builtin_strlen", "strlen"},
+                {"__builtin_strcmp", "strcmp"},
+                {"__builtin_strcpy", "strcpy"},
+                {"__builtin_strncpy", "strncpy"},
+                {"__builtin_strcat", "strcat"},
+                {"__builtin_strchr", "strchr"},
+                {"__builtin_strstr", "strstr"},
+                {"__builtin_memcpy", "memcpy"},
+                {"__builtin_memset", "memset"},
+                {"__builtin_memmove", "memmove"},
+                {"__builtin_memcmp", "memcmp"},
+                {"__builtin_abs", "abs"},
+                {"__builtin_labs", "labs"},
+                {"__builtin_exit", "exit"},
+            };
+            auto it = builtinAliases.find(actualName);
+            if (it != builtinAliases.end()) {
+                actualName = it->second;
+            }
+        }
+
         auto enumIt = enumConstants.find(name);
         if (enumIt != enumConstants.end()) {
             return setPos(std::make_unique<IntegerLiteral>(enumIt->second), nameToken);
@@ -2241,7 +2273,14 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         const Token& litToken = advance();
         expr = setPos(std::make_unique<StringLiteral>(litToken.value, isAscii), litToken);
     } else if (match(TokenType::OPEN_PAREN)) {
+        const Token& parenToken = tokens[pos-1];
         expr = parseExpression();
+        // Handle comma operator inside parenthesized expressions: (expr, expr, ...)
+        while (match(TokenType::COMMA)) {
+            const Token& commaToken = tokens[pos-1];
+            auto right = parseExpression();
+            expr = setPos(std::make_unique<BinaryOperation>(",", std::move(expr), std::move(right)), commaToken);
+        }
         expect(TokenType::CLOSE_PAREN, "Expected ')'");
     } else {
         std::string foundStr = peek().value.empty() ? peek().typeToString() : peek().value;
