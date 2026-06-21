@@ -83,9 +83,12 @@ void VRegAllocator::computeLiveRanges(const ir::Function& fn) {
     for (auto& [id, lr] : map) {
         ranges_.push_back(lr);
     }
-    // Sort by firstDef for linear scan
+    // Sort by firstDef for linear scan, then by vregId for deterministic ordering
     std::sort(ranges_.begin(), ranges_.end(),
-              [](const LiveRange& a, const LiveRange& b) { return a.firstDef < b.firstDef; });
+              [](const LiveRange& a, const LiveRange& b) {
+                  if (a.firstDef != b.firstDef) return a.firstDef < b.firstDef;
+                  return a.vregId < b.vregId;
+              });
 }
 
 // ============================================================================

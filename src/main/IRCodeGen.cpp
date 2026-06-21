@@ -3,6 +3,7 @@
 #include <sstream>
 #include <algorithm>
 
+
 static std::string hex8(uint8_t val) {
     std::stringstream ss;
     ss << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)val;
@@ -84,6 +85,7 @@ int IRCodeGen::slotOf(uint32_t vregId) {
 
 void IRCodeGen::prescanFunction(const ir::Function& fn) {
     resetFrame();
+    vregSizes_ = fn.vregSizes; // Must set before allocSlot calls (struct/array size overrides)
     ir::Function& mutableFn = const_cast<ir::Function&>(fn);
     mutableFn.vregOffsets.clear();
 
@@ -96,12 +98,12 @@ void IRCodeGen::prescanFunction(const ir::Function& fn) {
     // 2. Allocate all named variables (locals and parameters)
     for (const auto& [name, vid] : fn.localNames) {
         if (mutableFn.vregOffsets.count(vid)) continue;
-        
+
         ir::Type t = ir::Type::I16;
         if (fn.vregTypes.count(vid)) {
             t = fn.vregTypes.at(vid);
         }
-        
+
         int off = allocSlot(vid, t);
         mutableFn.vregOffsets[vid] = off;
     }
@@ -745,6 +747,9 @@ IRCodeGen::FuncClobbers IRCodeGen::computeFuncClobbers(const ir::Function& fn) {
 void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMainWithZPSave) {
     emitComment("function " + fn.name);
 
+    // Re-run prescan to restore vregOffset_ for this function
+    prescanFunction(fn);
+
     // Run register allocator
     alloc_.analyze(fn);
 
@@ -862,13 +867,24 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         }
     }
 
-    // Prescan for frame-allocated vRegs only
+    // Prescan to compute vregSizes_ and initial frame layout
     prescanFunction(fn);
 
-    // Override: only allocate frame slots for vRegs assigned to frame by allocator
+    // Override: only allocate frame slots for vRegs assigned to frame by allocator.
+    // Use prescanFunction's localNames order (alphabetical) for deterministic offsets.
     resetFrame();
+    // First: allocate named locals that are in frame, in localNames order (deterministic)
+    for (const auto& [name, vid] : fn.localNames) {
+        if (suppressedVregs_.count(vid)) continue;
+        auto alloc = alloc_.getAlloc(vid);
+        if (alloc.loc == VRegAllocator::IN_FRAME) {
+            allocSlot(vid, alloc.type);
+        }
+    }
+    // Then: allocate remaining frame vRegs (temporaries) in live-range order
     for (const auto& lr : alloc_.liveRanges()) {
-        if (suppressedVregs_.count(lr.vregId)) continue; // skip address-only CONSTs
+        if (suppressedVregs_.count(lr.vregId)) continue;
+        if (vregOffset_.count(lr.vregId)) continue; // already allocated above
         auto alloc = alloc_.getAlloc(lr.vregId);
         if (alloc.loc == VRegAllocator::IN_FRAME) {
             allocSlot(lr.vregId, lr.type);
@@ -2381,14 +2397,20 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
         case ir::Op::ADDR_LOCAL: {
             if (inst.src1.isVreg()) {
-                // Address of a local vReg — resolve by allocation
-                auto alloc = alloc_.getAlloc(inst.src1.vregId);
-                if (alloc.loc == VRegAllocator::IN_FRAME) {
-                    emit("leax.fp " + std::to_string(alloc.offset));
-                } else if (alloc.loc == VRegAllocator::IN_ZP) {
-                    // ZP address: load the ZP address as a 16-bit value
-                    emit("lda #" + std::to_string(alloc.offset));
-                    emit("ldx #0");
+                // Use vregOffset_ (consistent with storeVreg/loadVreg frame offsets)
+                auto vit = vregOffset_.find(inst.src1.vregId);
+                if (vit != vregOffset_.end()) {
+                    emit("leax.fp " + std::to_string(vit->second));
+                } else {
+                    // Fallback: allocate now (ensures consistency for first-use)
+                    auto alloc = alloc_.getAlloc(inst.src1.vregId);
+                    if (alloc.loc == VRegAllocator::IN_ZP) {
+                        emit("lda #" + std::to_string(alloc.offset));
+                        emit("ldx #0");
+                    } else {
+                        int offset = allocSlot(inst.src1.vregId, alloc.type);
+                        emit("leax.fp " + std::to_string(offset));
+                    }
                 }
             } else {
                 int offset = (int)inst.src1.immVal;
