@@ -822,6 +822,10 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         output << "__asm__(\".crt_stdio\");\n";
                     } else if (cc45Arg == "no_zp_save") {
                         output << "__asm__(\".no_zp_save\");\n";
+                    } else if (cc45Arg == "set_bp") {
+                        std::string bpVal;
+                        ss >> bpVal;
+                        output << "__asm__(\".set_bp " + bpVal + "\");\n";
                     } else if (cc45Arg == "weak") {
                         output << "__asm__(\".weak_next\");\n";
                     } else {
@@ -901,6 +905,7 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         else if (cc45Arg == "heap") output << "__asm__(\".crt_heap\");\n";
                         else if (cc45Arg == "stdio") output << "__asm__(\".crt_stdio\");\n";
                         else if (cc45Arg == "no_zp_save") output << "__asm__(\".no_zp_save\");\n";
+                        else if (cc45Arg == "set_bp") { std::string bv; ps >> bv; output << "__asm__(\".set_bp " + bv + "\");\n"; }
                         else if (cc45Arg == "weak") output << "__asm__(\".weak_next\");\n";
                     } else if (isCompiler && pragmaArg.substr(0, 9) == "encoding(") {
                         std::string enc = pragmaArg.substr(9);

@@ -366,6 +366,13 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         out_ << "* = $2000\n";
         emit("__sp_base = $0101");
 
+        // --- Set Base Page register ---
+        if (mod.setBP >= 0) {
+            emitComment("Set B (base page) register to " + std::to_string(mod.setBP));
+            emit("lda #" + std::to_string(mod.setBP));
+            emit("tab");
+        }
+
         // --- ZP Save ---
         if (mod.saveZP) {
             emitComment("Save ZP $08-$FF to BSS buffer");

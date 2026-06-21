@@ -219,6 +219,7 @@ struct Function {
 struct Module {
     std::string sourceFile;
     bool saveZP = true;
+    int setBP = -1;  // -1 = don't emit; 0-255 = emit LDA #N; TAB in startup
     std::list<Function> functions;
     std::vector<std::string> externs;
 

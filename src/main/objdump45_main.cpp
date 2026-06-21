@@ -205,7 +205,7 @@ static std::string formatOperand(AddressingMode mode, const uint8_t* bytes, int 
         }
         case AddressingMode::RELATIVE16: {
             int16_t offset = (int16_t)(bytes[0] | (bytes[1] << 8));
-            uint32_t target = pc + 3 + offset;
+            uint32_t target = pc + 2 + offset;
             snprintf(buf, sizeof(buf), "$%04x", target & 0xFFFF);
             return buf;
         }

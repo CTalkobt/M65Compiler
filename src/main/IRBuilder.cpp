@@ -3161,6 +3161,10 @@ void IRBuilder::visit(AsmStatement& node) {
         module_.saveZP = false;
         return;
     }
+    if (node.code.rfind(".set_bp ", 0) == 0) {
+        module_.setBP = std::stoi(node.code.substr(8));
+        return;
+    }
     if (node.code == ".encoding ascii") {
         currentStringEncoding_ = StringEncoding::ASCII;
         return;

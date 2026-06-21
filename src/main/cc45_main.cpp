@@ -481,6 +481,8 @@ int main(int argc, char** argv) {
             inlineFunctions = true;
         } else if (arg == "-fno-inline-functions") {
             inlineFunctions = false;
+        } else if (arg.rfind("-fset-bp=", 0) == 0) {
+            cliPragmas.push_back("cc45 set_bp " + arg.substr(9));
         } else if (arg == "--pragma" && i + 1 < argc) {
             cliPragmas.push_back(argv[++i]);
         } else if (arg == "--emit-ir") {

@@ -447,7 +447,7 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                                     t = stmt->address; // fallback: branch to self
                                 }
                                 if (stmt->instr.mnemonic == "bsr") {
-                                    int32_t off = (int32_t)t - (int32_t)(stmt->address + 3);
+                                    int32_t off = (int32_t)t - (int32_t)(stmt->address + 2);
                                     e.emitInstruction("bsr", AddressingMode::RELATIVE16, (uint32_t)(uint16_t)(int16_t)off, true);
                                     // BSR is a subroutine call (like JSR) — invalidate all state
                                     e.machineState().invalidateAll();
@@ -455,7 +455,8 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                                     int32_t off2 = (int32_t)t - (int32_t)(stmt->address + 2);
                                     e.emitInstruction(stmt->instr.mnemonic, AddressingMode::RELATIVE, (uint32_t)(uint8_t)(int8_t)off2, true);
                                 } else {
-                                    int32_t off3 = (int32_t)t - (int32_t)(stmt->address + 3);
+                                    // 16-bit relative: offset from PC+2 per MEGA65 book
+                                    int32_t off3 = (int32_t)t - (int32_t)(stmt->address + 2);
                                     e.emitInstruction(stmt->instr.mnemonic, AddressingMode::RELATIVE16, (uint32_t)(uint16_t)(int16_t)off3, true);
                                 }
                             }
