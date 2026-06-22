@@ -434,13 +434,14 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             }
         } else {
             // Implicit int: if we have qualifiers but no type keyword, and next
-            // is IDENTIFIER followed by ; or = or , → treat as "int" declaration
+            // is IDENTIFIER followed by ; or = or , or [ → treat as "int" declaration
             if (look < tokens.size() && tokens[look].type == TokenType::IDENTIFIER &&
                 !isTypedef(tokens[look].value) &&
                 look + 1 < tokens.size() &&
                 (tokens[look+1].type == TokenType::SEMICOLON ||
                  tokens[look+1].type == TokenType::EQUALS ||
-                 tokens[look+1].type == TokenType::COMMA)) {
+                 tokens[look+1].type == TokenType::COMMA ||
+                 tokens[look+1].type == TokenType::OPEN_SQUARE)) {
                 if (isExtern) match(TokenType::EXTERN);
                 if (isStatic) match(TokenType::STATIC);
                 while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
@@ -683,6 +684,37 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                 // Unnamed parameter (valid in prototypes): void foo(int, char *)
                 pName = "__unnamed_" + std::to_string(pos);
             }
+
+            // Array parameters: int a[], int a[N], int a[][M], int a[expr]
+            // These decay to pointers per C semantics
+            if (peek().type == TokenType::OPEN_SQUARE) {
+                pPtrLevel++; // first [] decays to pointer
+                advance(); // consume '['
+                // Skip the dimension expression (may be empty for [])
+                if (peek().type != TokenType::CLOSE_SQUARE) {
+                    int depth = 1;
+                    while (depth > 0 && peek().type != TokenType::END_OF_FILE) {
+                        if (peek().type == TokenType::OPEN_SQUARE) depth++;
+                        else if (peek().type == TokenType::CLOSE_SQUARE) { depth--; if (depth > 0) advance(); else break; }
+                        else advance();
+                    }
+                }
+                expect(TokenType::CLOSE_SQUARE, "Expected ']' in array parameter");
+                // Additional dimensions: int a[][M], int a[2][3]
+                while (peek().type == TokenType::OPEN_SQUARE) {
+                    advance(); // consume '['
+                    if (peek().type != TokenType::CLOSE_SQUARE) {
+                        int depth2 = 1;
+                        while (depth2 > 0 && peek().type != TokenType::END_OF_FILE) {
+                            if (peek().type == TokenType::OPEN_SQUARE) depth2++;
+                            else if (peek().type == TokenType::CLOSE_SQUARE) { depth2--; if (depth2 > 0) advance(); else break; }
+                            else advance();
+                        }
+                    }
+                    expect(TokenType::CLOSE_SQUARE, "Expected ']' in array parameter");
+                }
+            }
+
             params.push_back({pType, pPtrLevel, pIsSigned, pName, pIsVolatile, pIsConst, pIsPointerConst, false, nullptr});
         } while (match(TokenType::COMMA) && peek().type != TokenType::ELLIPSIS);
     }
