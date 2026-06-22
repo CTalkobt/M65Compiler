@@ -363,7 +363,10 @@ void AssemblerParser::pass1() {
             }
             advance();
             if (symbolTable.count(stmt->label) && symbolTable[stmt->label].isAddress) {
-                errors.push_back("Error: Duplicate label '" + stmt->label + "' at line " + std::to_string(stmt->line));
+                // Allow label to resolve an earlier .extern declaration
+                if (symbolTable[stmt->label].segment != "__extern__") {
+                    errors.push_back("Error: Duplicate label '" + stmt->label + "' at line " + std::to_string(stmt->line));
+                }
             }
             symbolTable[stmt->label] = {pc, true, 2, false, false, pc, false, 0, false, 0, currentSegment->name};
         }

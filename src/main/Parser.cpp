@@ -116,6 +116,8 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     sLook + 1 < tokens.size() && tokens[sLook+1].type == TokenType::OPEN_BRACE) {
                     advance(); // struct/union
                     auto def = parseStructDefinition(isUnion);
+                    // Skip __attribute__ after struct/union definition
+                    while (tryParseAttribute()) {}
                     if (peek().type == TokenType::SEMICOLON) {
                         advance(); // consume ';'
                         flushPending(*unit);
@@ -125,8 +127,8 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                         std::string sType = (isUnion ? "union " : "struct ") + def->name;
                         unit->topLevelDecls.push_back(std::move(def));
                         // Parse the variable declaration using the struct type
-                        // Put struct type tokens back conceptually — just parse var decl directly
                         int ptrLevel = 0;
+                        while (tryParseAttribute()) {} // skip attributes before pointer/name
                         while (match(TokenType::STAR)) ptrLevel++;
                         std::string vName = expect(TokenType::IDENTIFIER, "Expected variable name after struct definition").value;
                         auto vDecl = std::make_unique<VariableDeclaration>(sType, vName, ptrLevel);
@@ -2251,7 +2253,23 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         } else if (match(TokenType::LONG)) { vaType = "long"; match(TokenType::INT); } else if (match(TokenType::SHORT)) { vaType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) vaType = "int";
         else if (match(TokenType::CHAR)) vaType = "char";
         else if (match(TokenType::VOID)) vaType = "void";
-        else if (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value)) {
+        else if (match(TokenType::STRUCT) || match(TokenType::UNION)) {
+            bool isU = tokens[pos-1].type == TokenType::UNION;
+            vaType = (isU ? "union " : "struct ") + expect(TokenType::IDENTIFIER, "Expected struct/union name in va_arg").value;
+        } else if (match(TokenType::ENUM)) {
+            vaType = "enum " + expect(TokenType::IDENTIFIER, "Expected enum name in va_arg").value;
+        } else if (match(TokenType::TYPEOF)) {
+            // typeof(expr) in va_arg — resolve to int (best effort)
+            expect(TokenType::OPEN_PAREN, "Expected '(' after typeof");
+            int depth = 1;
+            while (depth > 0 && peek().type != TokenType::END_OF_FILE) {
+                if (match(TokenType::OPEN_PAREN)) depth++;
+                else if (peek().type == TokenType::CLOSE_PAREN) { depth--; if (depth > 0) advance(); }
+                else advance();
+            }
+            expect(TokenType::CLOSE_PAREN, "Expected ')' after typeof");
+            vaType = "int"; // best effort: typeof in va_arg usually resolves to the arg type
+        } else if (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value)) {
             std::string alias = advance().value;
             vaType = typedefs[alias].baseType;
             vaSigned = typedefs[alias].isSigned;

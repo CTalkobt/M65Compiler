@@ -456,10 +456,16 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
 }
 
 void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
+    // Deduplicate globals: extern decl + definition → keep definition only
+    std::set<std::string> emittedGlobals;
+
     // Emit .global directives for non-static globals and functions
     if (relocMode) {
         for (const auto& g : mod.globals) {
-            if (!g.isStatic) emit(".global " + g.name);
+            if (!g.isStatic && !emittedGlobals.count(g.name)) {
+                emit(".global " + g.name);
+                emittedGlobals.insert(g.name);
+            }
         }
         for (const auto& fn : mod.functions) {
             if (!fn.isStatic) emit(".global " + fn.name);
@@ -467,10 +473,19 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
         emitBlank();
     }
 
+    // Deduplicate globals for data/bss emission: if a name appears multiple times
+    // (extern decl + definition), keep the last occurrence (the definition).
+    std::map<std::string, size_t> globalLastIdx;
+    for (size_t i = 0; i < mod.globals.size(); i++) {
+        globalLastIdx[mod.globals[i].name] = i;
+    }
+
     // Emit data section for initialized globals
     bool hasData = false;
     bool hasBss = false;
-    for (const auto& g : mod.globals) {
+    for (size_t gi = 0; gi < mod.globals.size(); gi++) {
+        const auto& g = mod.globals[gi];
+        if (globalLastIdx[g.name] != gi) continue; // skip earlier duplicate
         if (g.hasInitValue) {
             // Initialized global: goes to data segment
             if (!hasData) {
