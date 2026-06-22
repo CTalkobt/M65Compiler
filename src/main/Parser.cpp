@@ -220,6 +220,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
         }
 
         bool isSig = false;
+        bool isUnsig = false;
 
         while (look < tokens.size() && (tokens[look].type == TokenType::VOLATILE || tokens[look].type == TokenType::CONST || tokens[look].type == TokenType::RESTRICT || tokens[look].type == TokenType::AUTO || tokens[look].type == TokenType::REGISTER || tokens[look].type == TokenType::INLINE || tokens[look].type == TokenType::FASTCALL ||
                tokens[look].type == TokenType::SIGNED || tokens[look].type == TokenType::UNSIGNED || tokens[look].type == TokenType::ATTRIBUTE || tokens[look].type == TokenType::EXTENSION)) {
@@ -241,7 +242,14 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             }
             if (tokens[look].type == TokenType::VOLATILE) isVol = true;
             else if (tokens[look].type == TokenType::CONST) isConst = true;
-            else if (tokens[look].type == TokenType::SIGNED) isSig = true;
+            else if (tokens[look].type == TokenType::SIGNED) {
+                if (isUnsig) throw std::runtime_error("Syntax Error at " + std::to_string(tokens[look].line) + ":" + std::to_string(tokens[look].column) + ": both 'signed' and 'unsigned' in declaration");
+                isSig = true;
+            }
+            else if (tokens[look].type == TokenType::UNSIGNED) {
+                if (isSig) throw std::runtime_error("Syntax Error at " + std::to_string(tokens[look].line) + ":" + std::to_string(tokens[look].column) + ": both 'signed' and 'unsigned' in declaration");
+                isUnsig = true;
+            }
             look++;
         }
 
@@ -341,6 +349,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                     vd->isGlobal = true;
                     vd->isExtern = isExtern;
+                    vd->isSigned = !isUnsig;
                 } else if (auto* cs = dynamic_cast<CompoundStatement*>(decl.get())) {
                     for (auto& s : cs->statements) {
                         if (auto* vd2 = dynamic_cast<VariableDeclaration*>(s.get())) {
@@ -390,7 +399,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     auto decl = parseVariableDeclaration(isVol, isConst);
                     if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                         vd->isGlobal = true;
-                        vd->isSigned = isSig;
+                        vd->isSigned = !isUnsig;
                         vd->isExtern = isExtern;
                         vd->isStatic = isStatic;
                     } else if (auto* cs = dynamic_cast<CompoundStatement*>(decl.get())) {
@@ -424,6 +433,27 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 unit->topLevelDecls.push_back(std::move(decl));
             }
         } else {
+            // Implicit int: if we have qualifiers but no type keyword, and next
+            // is IDENTIFIER followed by ; or = or , → treat as "int" declaration
+            if (look < tokens.size() && tokens[look].type == TokenType::IDENTIFIER &&
+                !isTypedef(tokens[look].value) &&
+                look + 1 < tokens.size() &&
+                (tokens[look+1].type == TokenType::SEMICOLON ||
+                 tokens[look+1].type == TokenType::EQUALS ||
+                 tokens[look+1].type == TokenType::COMMA)) {
+                if (isExtern) match(TokenType::EXTERN);
+                if (isStatic) match(TokenType::STATIC);
+                while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
+                auto decl = parseVariableDeclaration(isVol, isConst, isStatic);
+                if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
+                    vd->isGlobal = true;
+                    vd->isExtern = isExtern;
+                    vd->isSigned = !isUnsig; // implicit int: signed unless 'unsigned' was explicit
+                }
+                flushPending(*unit);
+                unit->topLevelDecls.push_back(std::move(decl));
+                continue;
+            }
             if (isExtern) match(TokenType::EXTERN);
             if (isStatic) match(TokenType::STATIC);
             if (isNR) match(TokenType::NORETURN);
@@ -1309,6 +1339,11 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             expect(TokenType::SEMICOLON, "Expected ';'");
             return decl;
         }
+    } else if (peek().type == TokenType::IDENTIFIER && !isTypedef(peek().value)) {
+        // Implicit int: "static max;", "unsigned d;" (where unsigned was consumed as qualifier)
+        // isSigned keeps its default (false) — caller is responsible for setting signedness
+        // if signed/unsigned was consumed before calling parseVariableDeclaration
+        type = "int";
     } else {
         throw std::runtime_error("Syntax Error at " + std::to_string(peek().line) + ":" + std::to_string(peek().column) + ": Expected type for variable declaration. Found '" + peek().typeToString() + "' instead.");
     }
