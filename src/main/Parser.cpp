@@ -654,7 +654,12 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             if (peek().type == TokenType::OPEN_PAREN && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::STAR) {
                 advance(); // consume '('
                 advance(); // consume '*'
-                std::string pName = expect(TokenType::IDENTIFIER, "Expected function pointer parameter name").value;
+                std::string pName;
+                if (peek().type == TokenType::IDENTIFIER) {
+                    pName = advance().value;
+                } else {
+                    pName = "__unnamed_fp_" + std::to_string(pos);
+                }
                 expect(TokenType::CLOSE_PAREN, "Expected ')' after function pointer name");
                 auto sig = parseFuncPtrParams(pType, pPtrLevel, pIsSigned);
                 Parameter p;
@@ -927,6 +932,10 @@ std::unique_ptr<Statement> Parser::parseStatement() {
     }
 
     if (peek().type == TokenType::STRUCT || peek().type == TokenType::UNION || peek().type == TokenType::ENUM) {
+        // Check for nested function with struct/enum return type: struct A foo() { ... }
+        if (isFunctionDeclaration()) {
+            return parseFunctionDeclaration();
+        }
         bool isUnion = peek().type == TokenType::UNION;
         bool isEnum = peek().type == TokenType::ENUM;
         

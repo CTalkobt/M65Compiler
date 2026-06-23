@@ -663,20 +663,39 @@ int main(int argc, char** argv) {
 
         // Run legacy CodeGenerator for validation (error detection only)
         // Catches struct errors, type errors, etc. that IRBuilder doesn't validate.
+        // Skip for files with nested functions — the legacy validator doesn't handle them.
         {
-            std::ostringstream nullOut;
-            CodeGenerator validator(nullOut);
-            validator.zeroPageStart = zeroPageStart;
-            validator.zeroPageAvail = zeroPageAvail;
-            validator.relocMode = assemble;
-            validator.zpCallMode = zpCallMode;
-            validator.setSourceInfo(input_file, sourceLines);
-            validator.setLineToFileMap(lineToFileMap);
-            try {
-                validator.generate(*ast);
-            } catch (const std::exception& e) {
-                std::cerr << "Compile Error: " << e.what() << std::endl;
-                return 1;
+            bool hasNestedFuncs = false;
+            for (const auto& decl : ast->topLevelDecls) {
+                if (auto* fd = dynamic_cast<FunctionDeclaration*>(decl.get())) {
+                    if (fd->body) {
+                        // Check if any statement in the body is a nested FunctionDeclaration
+                        // (they appear as statements in the compound body)
+                        for (const auto& stmt : fd->body->statements) {
+                            if (dynamic_cast<FunctionDeclaration*>(stmt.get())) {
+                                hasNestedFuncs = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (hasNestedFuncs) break;
+                }
+            }
+            if (!hasNestedFuncs) {
+                std::ostringstream nullOut;
+                CodeGenerator validator(nullOut);
+                validator.zeroPageStart = zeroPageStart;
+                validator.zeroPageAvail = zeroPageAvail;
+                validator.relocMode = assemble;
+                validator.zpCallMode = zpCallMode;
+                validator.setSourceInfo(input_file, sourceLines);
+                validator.setLineToFileMap(lineToFileMap);
+                try {
+                    validator.generate(*ast);
+                } catch (const std::exception& e) {
+                    std::cerr << "Compile Error: " << e.what() << std::endl;
+                    return 1;
+                }
             }
         }
 
