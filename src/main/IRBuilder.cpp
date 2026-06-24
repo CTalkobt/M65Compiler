@@ -43,6 +43,63 @@ void IRBuilder::generate(TranslationUnit& unit) {
             module_.functions.erase(it, module_.functions.end());
         }
     }
+    // Phase 4: Compiler-level devirtualization
+    // For each vtable slot, if only one implementation exists across all vtables,
+    // replace virtual CALL_INDIRECT with direct CALL.
+    {
+        // Build slot → set of implementations
+        std::map<int, std::set<std::string>> slotImpls;
+        for (const auto& g : module_.globals) {
+            for (int i = 0; i < (int)g.vtableMethodNames.size(); i++) {
+                if (!g.vtableMethodNames[i].empty()) {
+                    slotImpls[i].insert(g.vtableMethodNames[i]);
+                }
+            }
+        }
+
+        // Find slots with exactly one implementation
+        std::map<int, std::string> devirtTargets;
+        for (const auto& [slot, impls] : slotImpls) {
+            if (impls.size() == 1) {
+                devirtTargets[slot] = *impls.begin();
+            }
+        }
+
+        // Scan all functions for virtual call pattern:
+        // LOAD (vtable ptr) → ADD (slot offset) → LOAD (func ptr) → CALL_INDIRECT
+        // Replace with direct CALL if slot is devirtualizable
+        if (!devirtTargets.empty()) {
+            int devirtCount = 0;
+            for (auto& fn : module_.functions) {
+                for (auto& blk : fn.blocks) {
+                    for (size_t i = 0; i < blk.insts.size(); i++) {
+                        auto& inst = blk.insts[i];
+                        if (inst.op == ir::Op::CALL_INDIRECT && i >= 3) {
+                            // Check if preceded by vtable dispatch pattern
+                            auto& loadFp = blk.insts[i-1]; // LOAD func ptr
+                            auto& addSlot = blk.insts[i-2]; // ADD slot offset
+                            if (loadFp.op == ir::Op::LOAD && addSlot.op == ir::Op::ADD &&
+                                addSlot.src2.kind == ir::OperandKind::IMM) {
+                                int slotOffset = (int)addSlot.src2.immVal;
+                                int slot = slotOffset / 2;
+                                auto dit = devirtTargets.find(slot);
+                                if (dit != devirtTargets.end()) {
+                                    // Devirtualize: replace CALL_INDIRECT with direct CALL
+                                    inst.op = ir::Op::CALL;
+                                    inst.src1 = ir::Operand::global(dit->second);
+                                    devirtCount++;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (devirtCount > 0) {
+                warnings_.push_back("note: devirtualized " + std::to_string(devirtCount) + " virtual call(s)");
+            }
+        }
+    }
+
     // Parameter narrowing analysis: detect static functions where all call sites
     // pass values fitting in char for int parameters. Emit advisory warning.
     {

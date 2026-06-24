@@ -645,6 +645,12 @@ void AssemblerParser::pass1() {
                 }
                 stmt->size = 0;
             }
+            else if (stmt->dir.name == "vtable_entry") {
+                // .vtable_entry vtable_name, slot, function_name
+                // Phase 4: metadata for linker devirtualization (no bytes emitted)
+                while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
+                stmt->size = 0;
+            }
             else if (stmt->dir.name == "loc") {
                 // .loc "filename", line — source-level debug info marker
                 currentSourceFile_ = advance().value;

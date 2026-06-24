@@ -495,9 +495,14 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
             emitLabel(g.name);
             // Phase 3: Vtable — emit function address entries
             if (!g.vtableMethodNames.empty()) {
-                for (const auto& methodName : g.vtableMethodNames) {
+                for (size_t slot = 0; slot < g.vtableMethodNames.size(); slot++) {
+                    const auto& methodName = g.vtableMethodNames[slot];
                     if (!methodName.empty()) {
                         emit(".word " + methodName);
+                        // Phase 4: Emit .vtable_entry for linker devirtualization
+                        if (relocMode) {
+                            emit(".vtable_entry " + g.name + ", " + std::to_string(slot) + ", " + methodName);
+                        }
                     } else {
                         emit(".word 0"); // empty vtable slot
                     }
