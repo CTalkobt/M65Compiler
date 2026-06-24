@@ -114,7 +114,8 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 // Check for struct/union definition: struct [__unpacked] name { ... };
                 if (sLook < tokens.size() && tokens[sLook].type == TokenType::IDENTIFIER &&
                     sLook + 1 < tokens.size() && (tokens[sLook+1].type == TokenType::OPEN_BRACE ||
-                    tokens[sLook+1].type == TokenType::COLON)) { // Phase 3: inheritance
+                    tokens[sLook+1].type == TokenType::COLON ||
+                    (tokens[sLook+1].type == TokenType::IDENTIFIER && tokens[sLook+1].value == "final"))) {
                     advance(); // struct/union
                     auto def = parseStructDefinition(isUnion);
                     // Skip __attribute__ after struct/union definition
@@ -844,6 +845,12 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     FunctionDeclaration* savedFunction = currentFunction;
     auto savedNestedMap = nestedFunctionMap;
     
+    // 'final' keyword on methods: int speak() final { ... }
+    if (peek().type == TokenType::IDENTIFIER && peek().value == "final") {
+        advance();
+        func->isFinal = true;
+    }
+
     currentFunctionName = fullName;
     currentFunction = func.get();
 
@@ -1610,6 +1617,13 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         name = (isUnion ? "<anon_union_" : "<anon_struct_") + std::to_string(anonymousAggregateCount++) + ">";
     }
 
+    // 'final' keyword: struct Leaf final : Component { } or struct Leaf final { }
+    bool structIsFinal = false;
+    if (peek().type == TokenType::IDENTIFIER && peek().value == "final") {
+        advance();
+        structIsFinal = true;
+    }
+
     // Phase 3: Single inheritance — struct Dog : Animal { ... }
     std::string parentStruct;
     if (match(TokenType::COLON)) {
@@ -1627,7 +1641,13 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
     expect(TokenType::OPEN_BRACE, "Expected '{'");
     auto def = setPos(std::make_unique<StructDefinition>(name, isUnion), startToken);
     def->isUnpacked = isUnpacked;
+    def->isFinal = structIsFinal;
     def->parentStruct = parentStruct;
+
+    // Validate: cannot inherit from a final struct
+    if (!parentStruct.empty() && structs.count(parentStruct) && structs[parentStruct]->isFinal) {
+        throw std::runtime_error("Error: cannot inherit from final struct '" + parentStruct + "'");
+    }
 
     while (peek().type != TokenType::CLOSE_BRACE && peek().type != TokenType::END_OF_FILE) {
         // Check for struct method: type name(params) { body }
@@ -1886,6 +1906,10 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
                 if (!def->parentStruct.empty() && structs.count(def->parentStruct)) {
                     for (auto& pm : structs[def->parentStruct]->methods) {
                         if (pm->isVirtual && pm->name.substr(pm->name.rfind("__") + 2) == method->name.substr(method->name.rfind("__") + 2)) {
+                            // Validate: cannot override a final method
+                            if (pm->isFinal) {
+                                throw std::runtime_error("Error: cannot override final method '" + pm->name.substr(pm->name.rfind("__") + 2) + "' in struct '" + name + "'");
+                            }
                             method->vtableSlot = pm->vtableSlot;
                             isOverride = true;
                             break;

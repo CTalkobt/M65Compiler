@@ -1914,11 +1914,11 @@ void IRBuilder::visit(FunctionCall& node) {
 
                 auto retType = functionReturnTypes_[mangledName];
 
-                // Check if this is a virtual method
+                // Check if this is a virtual method (but final methods use direct call)
                 bool isVirtualCall = false;
                 int vtSlot = -1;
                 auto fit = allFunctions_.find(mangledName);
-                if (fit != allFunctions_.end() && fit->second->isVirtual) {
+                if (fit != allFunctions_.end() && fit->second->isVirtual && !fit->second->isFinal) {
                     isVirtualCall = true;
                     vtSlot = fit->second->vtableSlot;
                 }

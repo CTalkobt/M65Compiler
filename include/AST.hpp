@@ -409,6 +409,7 @@ public:
     std::vector<std::unique_ptr<FunctionDeclaration>> methods; // struct methods (Phase 2 OOP)
     std::string parentStruct;  // Phase 3: single inheritance (empty = no parent)
     bool hasVirtual = false;   // Phase 3: true if any method is virtual
+    bool isFinal = false;      // Phase 4: struct cannot be inherited from
     StructDefinition(const std::string& n, bool isUnion = false) : name(n), isUnion(isUnion) {}
     void accept(ASTVisitor& visitor) override;
 };
@@ -451,6 +452,7 @@ public:
     bool isMethod = false;
     std::string methodStructName; // "Point" for struct Point methods
     bool isVirtual = false;       // Phase 3: virtual method (dispatched via vtable)
+    bool isFinal = false;         // Phase 4: method cannot be overridden → direct call
     int vtableSlot = -1;          // Phase 3: slot index in vtable (-1 = not virtual)
 
     FunctionDeclaration(const std::string& n, const std::string& rt) : name(n), returnType(rt) {}
