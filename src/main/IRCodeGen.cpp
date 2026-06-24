@@ -493,7 +493,16 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
                 hasData = true;
             }
             emitLabel(g.name);
-            if (!g.initList.empty()) {
+            // Phase 3: Vtable — emit function address entries
+            if (!g.vtableMethodNames.empty()) {
+                for (const auto& methodName : g.vtableMethodNames) {
+                    if (!methodName.empty()) {
+                        emit(".word " + methodName);
+                    } else {
+                        emit(".word 0"); // empty vtable slot
+                    }
+                }
+            } else if (!g.initList.empty()) {
                 // Array initializer
                 for (size_t i = 0; i < g.initList.size(); i++) {
                     if (g.type == ir::Type::I8) emit(".byte " + std::to_string((int)(g.initList[i] & 0xFF)));

@@ -73,6 +73,7 @@ private:
     FunctionDeclaration* currentFunction = nullptr;
     std::map<std::string, std::string> nestedFunctionMap;
     std::vector<std::unique_ptr<StructDefinition>> pendingDefinitions;
+    std::map<std::string, StructDefinition*> structs; // Phase 3: track parsed struct defs for inheritance
     void flushPending(TranslationUnit& unit);
     bool isFunctionDeclaration();
 };

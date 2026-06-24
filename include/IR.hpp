@@ -233,6 +233,7 @@ struct Module {
         bool hasInitValue = false;
         int64_t initValue = 0;
         std::vector<int64_t> initList;
+        std::vector<std::string> vtableMethodNames; // Phase 3: function names for vtable entries
     };
     std::vector<GlobalVar> globals;
 

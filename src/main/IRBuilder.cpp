@@ -1796,23 +1796,16 @@ void IRBuilder::visit(FunctionCall& node) {
             std::string mangledName = sName + "__" + ma->memberName;
             std::string irName = "_" + mangledName;
             if (functionReturnTypes_.count(mangledName)) {
-                // Rewrite to direct call: StructName__method(&obj, args...)
                 // Compute 'this' pointer
                 bool oldAddrMode = computeAddressOnly_;
                 if (!ma->isArrow) {
-                    // p.method() → need &p
                     computeAddressOnly_ = true;
                 }
                 ma->structExpr->accept(*this);
                 computeAddressOnly_ = oldAddrMode;
                 auto thisPtr = lastValue_;
 
-                // Rewrite as direct call with this as first arg
-                node.name = mangledName;
-                node.callExpr.reset(); // no longer indirect
-                // Prepend this to arguments
-                // (we already evaluated it, so store and pass via the normal arg path)
-                // Re-visit with rewritten node
+                // Build argument list with 'this' prepended
                 std::vector<ir::Operand> args;
                 args.push_back(thisPtr);
                 for (auto& arg : node.arguments) {
@@ -1820,16 +1813,64 @@ void IRBuilder::visit(FunctionCall& node) {
                     args.push_back(lastValue_);
                 }
 
+                auto retType = functionReturnTypes_[mangledName];
+
+                // Check if this is a virtual method
+                bool isVirtualCall = false;
+                int vtSlot = -1;
+                auto fit = allFunctions_.find(mangledName);
+                if (fit != allFunctions_.end() && fit->second->isVirtual) {
+                    isVirtualCall = true;
+                    vtSlot = fit->second->vtableSlot;
+                }
+
                 ir::Inst inst;
                 inst.args = args;
                 inst.loc = loc(node);
                 inst.callConv = ir::CallConv::STACK;
-                std::vector<ir::Operand> castArgs;
-                for (auto& a : args) castArgs.push_back(a);
-                inst.args = castArgs;
-                inst.op = ir::Op::CALL;
-                inst.src1 = ir::Operand::global(irName);
-                auto retType = functionReturnTypes_.count(mangledName) ? functionReturnTypes_[mangledName] : ir::Type::I16;
+
+                if (isVirtualCall && vtSlot >= 0) {
+                    // Virtual dispatch: load vtable ptr from this->__vt, index by slot
+                    // this->__vt is at offset 0 of the struct
+                    auto vtAddr = allocVreg(ir::Type::PTR);
+                    ir::Inst loadVt;
+                    loadVt.op = ir::Op::LOAD;
+                    loadVt.dest = vtAddr;
+                    loadVt.resultType = ir::Type::PTR;
+                    loadVt.src1 = thisPtr; // __vt is at offset 0
+                    loadVt.loc = loc(node);
+                    emit(loadVt);
+
+                    // Index into vtable: vtable + slot * 2
+                    auto slotAddr = allocVreg(ir::Type::PTR);
+                    ir::Inst addSlot;
+                    addSlot.op = ir::Op::ADD;
+                    addSlot.dest = slotAddr;
+                    addSlot.resultType = ir::Type::PTR;
+                    addSlot.src1 = vtAddr;
+                    addSlot.src2 = ir::Operand::imm(vtSlot * 2, ir::Type::I16);
+                    addSlot.loc = loc(node);
+                    emit(addSlot);
+
+                    // Load function pointer from vtable slot
+                    auto funcPtr = allocVreg(ir::Type::PTR);
+                    ir::Inst loadFp;
+                    loadFp.op = ir::Op::LOAD;
+                    loadFp.dest = funcPtr;
+                    loadFp.resultType = ir::Type::PTR;
+                    loadFp.src1 = slotAddr;
+                    loadFp.loc = loc(node);
+                    emit(loadFp);
+
+                    // Indirect call through vtable entry
+                    inst.op = ir::Op::CALL_INDIRECT;
+                    inst.src1 = funcPtr;
+                } else {
+                    // Direct call (non-virtual method)
+                    inst.op = ir::Op::CALL;
+                    inst.src1 = ir::Operand::global(irName);
+                }
+
                 auto dest = allocVreg(retType);
                 inst.dest = dest;
                 inst.resultType = retType;
@@ -3259,6 +3300,19 @@ void IRBuilder::visit(StructDefinition& node) {
     info.isUnion = node.isUnion;
     int currentOffset = 0;
 
+    // Phase 3: Inherit parent struct members at offset 0
+    if (!node.parentStruct.empty()) {
+        auto pit = structs_.find(node.parentStruct);
+        if (pit != structs_.end()) {
+            const auto& parentInfo = pit->second;
+            for (const auto& pName : parentInfo.memberOrder) {
+                info.members[pName] = parentInfo.members.at(pName);
+                info.memberOrder.push_back(pName);
+            }
+            currentOffset = parentInfo.totalSize;
+        }
+    }
+
     // Bitfield packing state
     std::string bfUnitType;
     int bfUnitOffset = 0;
@@ -3340,6 +3394,65 @@ void IRBuilder::visit(StructDefinition& node) {
     // Emit struct methods as top-level functions
     for (auto& method : node.methods) {
         method->accept(*this);
+    }
+
+    // Phase 3: Generate vtable for structs with virtual methods
+    if (node.hasVirtual) {
+        // Collect vtable entries: slot → function name
+        int maxSlot = -1;
+        std::map<int, std::string> vtableEntries;
+
+        // First: inherit parent's vtable entries
+        if (!node.parentStruct.empty() && structs_.count(node.parentStruct)) {
+            // Look up parent's vtable entries from module globals
+            for (const auto& g : module_.globals) {
+                if (g.name == "_" + node.parentStruct + "_vtable") {
+                    // Copy parent vtable entries
+                    // (stored as function name references in vtableMethodNames)
+                    break;
+                }
+            }
+        }
+
+        // Then: fill in this struct's methods (overrides replace parent entries)
+        for (auto& method : node.methods) {
+            if (method->isVirtual && method->vtableSlot >= 0) {
+                vtableEntries[method->vtableSlot] = "_" + method->name;
+                if (method->vtableSlot > maxSlot) maxSlot = method->vtableSlot;
+            }
+        }
+
+        // Also inherit parent vtable entries that weren't overridden
+        if (!node.parentStruct.empty()) {
+            for (const auto& g : module_.globals) {
+                if (g.name == "_" + node.parentStruct + "_vtable" && !g.vtableMethodNames.empty()) {
+                    for (int i = 0; i < (int)g.vtableMethodNames.size(); i++) {
+                        if (!vtableEntries.count(i)) {
+                            vtableEntries[i] = g.vtableMethodNames[i];
+                            if (i > maxSlot) maxSlot = i;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (maxSlot >= 0) {
+            ir::Module::GlobalVar vtGlobal;
+            vtGlobal.name = "_" + node.name + "_vtable";
+            vtGlobal.type = ir::Type::I16;
+            vtGlobal.size = (maxSlot + 1) * 2; // 2 bytes per function pointer
+            vtGlobal.hasInitValue = true;
+            vtGlobal.isConst = true;
+            // Store method names for vtable entries (resolved by linker/codegen)
+            for (int i = 0; i <= maxSlot; i++) {
+                if (vtableEntries.count(i)) {
+                    vtGlobal.vtableMethodNames.push_back(vtableEntries[i]);
+                } else {
+                    vtGlobal.vtableMethodNames.push_back(""); // empty slot
+                }
+            }
+            module_.globals.push_back(vtGlobal);
+        }
     }
 }
 void IRBuilder::visit(BuiltinVaStart& node) {

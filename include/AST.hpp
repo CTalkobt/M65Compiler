@@ -407,6 +407,8 @@ public:
     bool isUnpacked = false;  // __unpacked — opt-in to alignment padding
     std::vector<StructMember> members;
     std::vector<std::unique_ptr<FunctionDeclaration>> methods; // struct methods (Phase 2 OOP)
+    std::string parentStruct;  // Phase 3: single inheritance (empty = no parent)
+    bool hasVirtual = false;   // Phase 3: true if any method is virtual
     StructDefinition(const std::string& n, bool isUnion = false) : name(n), isUnion(isUnion) {}
     void accept(ASTVisitor& visitor) override;
 };
@@ -445,9 +447,11 @@ public:
     bool isNested = false;
     FunctionDeclaration* parentFunc = nullptr;
 
-    // Struct method support (Phase 2 OOP)
+    // Struct method support (Phase 2/3 OOP)
     bool isMethod = false;
     std::string methodStructName; // "Point" for struct Point methods
+    bool isVirtual = false;       // Phase 3: virtual method (dispatched via vtable)
+    int vtableSlot = -1;          // Phase 3: slot index in vtable (-1 = not virtual)
 
     FunctionDeclaration(const std::string& n, const std::string& rt) : name(n), returnType(rt) {}
     void accept(ASTVisitor& visitor) override;
