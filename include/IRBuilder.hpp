@@ -182,6 +182,7 @@ private:
     // Inline function support: store AST nodes for inline-eligible functions
     std::map<std::string, FunctionDeclaration*> inlineCandidates_;
     std::map<std::string, FunctionDeclaration*> allFunctions_;
+    std::map<std::string, bool> parsedStructIsFinal_; // struct name → isFinal
     std::set<std::string> inlineExpansionStack_;  // recursion guard
     static constexpr int INLINE_MAX_STMTS = 20;   // max body statements for auto-inline
     ir::Operand inlineReturnTarget_;               // vreg for inlined return value

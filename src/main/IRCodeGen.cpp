@@ -2054,6 +2054,11 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::LOAD: {
+            // #4 Optimization: If source address = ADD(base, small_const),
+            // use Y-indexed addressing: LDY #const; LDA (base),Y
+            // instead of computing the ADD result as a separate address
+            // (Deferred — needs instruction lookaback which is complex in current codegen)
+
             if (inst.src1.kind == ir::OperandKind::GLOBAL) {
                 // Load directly from global address
                 emit("lda " + inst.src1.name);

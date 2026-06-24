@@ -556,14 +556,16 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         fn.staticLinkVreg = vreg.vregId;
     }
 
-    // Register inline candidate if marked inline or -finline-functions
+    // Register inline candidate if marked inline, -finline-functions, or trivial method
     if (!node.isVariadic && !node.isInterrupt && !node.isNaked) {
-        if (node.isInline || inlineFunctions) {
-            // Count statements in body to check size
-            int stmtCount = node.body ? (int)node.body->statements.size() : 0;
-            if (stmtCount <= INLINE_MAX_STMTS) {
-                inlineCandidates_[node.name] = &node;
-            }
+        int stmtCount = node.body ? (int)node.body->statements.size() : 0;
+        bool shouldInline = node.isInline || inlineFunctions;
+        // Auto-inline trivial methods (≤3 statements — getters, setters, simple computations)
+        if (!shouldInline && node.isMethod && stmtCount <= 3) {
+            shouldInline = true;
+        }
+        if (shouldInline && stmtCount <= INLINE_MAX_STMTS) {
+            inlineCandidates_[node.name] = &node;
         }
     }
 
@@ -1914,13 +1916,23 @@ void IRBuilder::visit(FunctionCall& node) {
 
                 auto retType = functionReturnTypes_[mangledName];
 
-                // Check if this is a virtual method (but final methods use direct call)
+                // Check if this is a virtual method
+                // Direct call if: method is final, struct is final, or hierarchy sealed
                 bool isVirtualCall = false;
                 int vtSlot = -1;
                 auto fit = allFunctions_.find(mangledName);
-                if (fit != allFunctions_.end() && fit->second->isVirtual && !fit->second->isFinal) {
-                    isVirtualCall = true;
-                    vtSlot = fit->second->vtableSlot;
+                if (fit != allFunctions_.end() && fit->second->isVirtual) {
+                    bool canDevirt = fit->second->isFinal;
+                    // #6: Final struct propagation
+                    if (!canDevirt && fit->second->isMethod &&
+                        parsedStructIsFinal_.count(fit->second->methodStructName) &&
+                        parsedStructIsFinal_[fit->second->methodStructName]) {
+                        canDevirt = true;
+                    }
+                    if (!canDevirt) {
+                        isVirtualCall = true;
+                        vtSlot = fit->second->vtableSlot;
+                    }
                 }
 
                 ir::Inst inst;
@@ -1965,7 +1977,44 @@ void IRBuilder::visit(FunctionCall& node) {
                     inst.op = ir::Op::CALL_INDIRECT;
                     inst.src1 = funcPtr;
                 } else {
-                    // Direct call (non-virtual method)
+                    // Direct call — check for inline expansion of trivial methods
+                    auto inlineIt = inlineCandidates_.find(mangledName);
+                    if (inlineIt != inlineCandidates_.end() &&
+                        inlineExpansionStack_.find(mangledName) == inlineExpansionStack_.end()) {
+                        // Inline expand: temporarily bind params to args
+                        FunctionDeclaration* inlineFunc = inlineIt->second;
+                        inlineExpansionStack_.insert(mangledName);
+                        auto savedLocals = locals_;
+                        auto savedLocalTypes = localTypes_;
+                        auto savedLocalTypeNames = localTypeNames_;
+                        auto savedLocalSigned = localSigned_;
+                        auto savedLocalConst = localConst_;
+
+                        // Bind this + args to param names
+                        for (size_t pi = 0; pi < inlineFunc->parameters.size() && pi < args.size(); pi++) {
+                            locals_[inlineFunc->parameters[pi].name] = args[pi];
+                            localTypes_[inlineFunc->parameters[pi].name] = args[pi].type;
+                            localTypeNames_[inlineFunc->parameters[pi].name] = inlineFunc->parameters[pi].type;
+                            localSigned_[inlineFunc->parameters[pi].name] = inlineFunc->parameters[pi].isSigned;
+                        }
+
+                        auto inlineResult = allocVreg(retType);
+                        inlineReturnTarget_ = inlineResult;
+                        inlineReturnLabel_ = newLabel("inline_ret");
+
+                        if (inlineFunc->body) inlineFunc->body->accept(*this);
+
+                        startBlock(inlineReturnLabel_);
+                        lastValue_ = inlineResult;
+
+                        locals_ = savedLocals;
+                        localTypes_ = savedLocalTypes;
+                        localTypeNames_ = savedLocalTypeNames;
+                        localSigned_ = savedLocalSigned;
+                        localConst_ = savedLocalConst;
+                        inlineExpansionStack_.erase(mangledName);
+                        return;
+                    }
                     inst.op = ir::Op::CALL;
                     inst.src1 = ir::Operand::global(irName);
                 }
@@ -3489,6 +3538,7 @@ void IRBuilder::visit(StructDefinition& node) {
             if (mi.size > info.totalSize) info.totalSize = mi.size;
     }
     structs_[node.name] = info;
+    parsedStructIsFinal_[node.name] = node.isFinal;
 
     // Emit struct methods as top-level functions
     for (auto& method : node.methods) {
