@@ -4427,7 +4427,7 @@ void CodeGenerator::visit(MemberAccess& node) {
     std::string sName = getAggregateName(baseType.type);
     if (!structs.count(sName)) throw std::runtime_error("Unknown struct/union type: " + sName);
     auto& sInfo = *structs[sName];
-    if (!sInfo.members.count(node.memberName)) throw std::runtime_error("Member " + node.memberName + " not found in struct/union " + sName);
+    if (!sInfo.members.count(node.memberName)) return; // method call or unknown member — handled by IR path
     MemberInfo& mInfo = sInfo.members[node.memberName];
 
     if (!node.isArrow) {

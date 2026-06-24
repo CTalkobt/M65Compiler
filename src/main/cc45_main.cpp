@@ -665,23 +665,29 @@ int main(int argc, char** argv) {
         // Catches struct errors, type errors, etc. that IRBuilder doesn't validate.
         // Skip for files with nested functions — the legacy validator doesn't handle them.
         {
-            bool hasNestedFuncs = false;
+            bool skipValidator = false;
             for (const auto& decl : ast->topLevelDecls) {
                 if (auto* fd = dynamic_cast<FunctionDeclaration*>(decl.get())) {
                     if (fd->body) {
-                        // Check if any statement in the body is a nested FunctionDeclaration
-                        // (they appear as statements in the compound body)
                         for (const auto& stmt : fd->body->statements) {
                             if (dynamic_cast<FunctionDeclaration*>(stmt.get())) {
-                                hasNestedFuncs = true;
+                                skipValidator = true; // nested functions
                                 break;
                             }
                         }
                     }
-                    if (hasNestedFuncs) break;
+                    if (skipValidator) break;
+                }
+                // Struct methods also need to skip validator
+                if (auto* sd = dynamic_cast<StructDefinition*>(decl.get())) {
+                    if (!sd->methods.empty()) { skipValidator = true; break; }
+                }
+                // Also check struct definitions inside function bodies
+                if (auto* fd2 = dynamic_cast<FunctionDeclaration*>(decl.get())) {
+                    if (fd2->isMethod) { skipValidator = true; break; }
                 }
             }
-            if (!hasNestedFuncs) {
+            if (!skipValidator) {
                 std::ostringstream nullOut;
                 CodeGenerator validator(nullOut);
                 validator.zeroPageStart = zeroPageStart;

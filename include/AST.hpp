@@ -4,6 +4,7 @@
 #include <memory>
 
 class ASTVisitor;
+class FunctionDeclaration; // forward declaration for StructDefinition::methods
 
 // Signature info for function pointer types
 struct FuncPtrSignature {
@@ -405,6 +406,7 @@ public:
     bool isUnion = false;
     bool isUnpacked = false;  // __unpacked — opt-in to alignment padding
     std::vector<StructMember> members;
+    std::vector<std::unique_ptr<FunctionDeclaration>> methods; // struct methods (Phase 2 OOP)
     StructDefinition(const std::string& n, bool isUnion = false) : name(n), isUnion(isUnion) {}
     void accept(ASTVisitor& visitor) override;
 };
@@ -442,7 +444,11 @@ public:
     // Nested function support
     bool isNested = false;
     FunctionDeclaration* parentFunc = nullptr;
-    
+
+    // Struct method support (Phase 2 OOP)
+    bool isMethod = false;
+    std::string methodStructName; // "Point" for struct Point methods
+
     FunctionDeclaration(const std::string& n, const std::string& rt) : name(n), returnType(rt) {}
     void accept(ASTVisitor& visitor) override;
 };

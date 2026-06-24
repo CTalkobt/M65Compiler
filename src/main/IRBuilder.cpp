@@ -1785,6 +1785,61 @@ void IRBuilder::visit(CastExpression& node) {
 }
 
 void IRBuilder::visit(FunctionCall& node) {
+    // Struct method call: p.method(args) or ptr->method(args)
+    // callExpr is MemberAccess, check if member is a known method
+    if (node.callExpr) {
+        if (auto* ma = dynamic_cast<MemberAccess*>(node.callExpr.get())) {
+            // Look up struct type of the LHS
+            IRTypeInfo baseInfo = getExprTypeInfo(ma->structExpr.get());
+            std::string sName = getAggregateName(baseInfo.typeName);
+            // Check if this member is a method (mangled name exists as a function)
+            std::string mangledName = sName + "__" + ma->memberName;
+            std::string irName = "_" + mangledName;
+            if (functionReturnTypes_.count(mangledName)) {
+                // Rewrite to direct call: StructName__method(&obj, args...)
+                // Compute 'this' pointer
+                bool oldAddrMode = computeAddressOnly_;
+                if (!ma->isArrow) {
+                    // p.method() → need &p
+                    computeAddressOnly_ = true;
+                }
+                ma->structExpr->accept(*this);
+                computeAddressOnly_ = oldAddrMode;
+                auto thisPtr = lastValue_;
+
+                // Rewrite as direct call with this as first arg
+                node.name = mangledName;
+                node.callExpr.reset(); // no longer indirect
+                // Prepend this to arguments
+                // (we already evaluated it, so store and pass via the normal arg path)
+                // Re-visit with rewritten node
+                std::vector<ir::Operand> args;
+                args.push_back(thisPtr);
+                for (auto& arg : node.arguments) {
+                    arg->accept(*this);
+                    args.push_back(lastValue_);
+                }
+
+                ir::Inst inst;
+                inst.args = args;
+                inst.loc = loc(node);
+                inst.callConv = ir::CallConv::STACK;
+                std::vector<ir::Operand> castArgs;
+                for (auto& a : args) castArgs.push_back(a);
+                inst.args = castArgs;
+                inst.op = ir::Op::CALL;
+                inst.src1 = ir::Operand::global(irName);
+                auto retType = functionReturnTypes_.count(mangledName) ? functionReturnTypes_[mangledName] : ir::Type::I16;
+                auto dest = allocVreg(retType);
+                inst.dest = dest;
+                inst.resultType = retType;
+                emit(inst);
+                lastValue_ = dest;
+                return;
+            }
+        }
+    }
+
     // DMA intrinsics: __dma_copy(dst, src, len), __dma_fill(dst, len, val)
     if (node.name == "__dma_copy" && node.arguments.size() == 3) {
         // Evaluate args: dst (ptr), src (ptr), len (int)
@@ -3281,6 +3336,11 @@ void IRBuilder::visit(StructDefinition& node) {
             if (mi.size > info.totalSize) info.totalSize = mi.size;
     }
     structs_[node.name] = info;
+
+    // Emit struct methods as top-level functions
+    for (auto& method : node.methods) {
+        method->accept(*this);
+    }
 }
 void IRBuilder::visit(BuiltinVaStart& node) {
     // va_start(ap, last_param): compute address past last named param

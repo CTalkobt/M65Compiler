@@ -118,10 +118,16 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     auto def = parseStructDefinition(isUnion);
                     // Skip __attribute__ after struct/union definition
                     while (tryParseAttribute()) {}
+                    // Extract methods before moving the struct def
+                    std::vector<std::unique_ptr<FunctionDeclaration>> liftedMethods;
+                    for (auto& m : def->methods) liftedMethods.push_back(std::move(m));
+                    def->methods.clear();
                     if (peek().type == TokenType::SEMICOLON) {
                         advance(); // consume ';'
                         flushPending(*unit);
                         unit->topLevelDecls.push_back(std::move(def));
+                        // Emit methods as top-level functions after struct definition
+                        for (auto& m : liftedMethods) unit->topLevelDecls.push_back(std::move(m));
                     } else {
                         // struct Name { ... } var; — inline definition + variable
                         std::string sType = (isUnion ? "union " : "struct ") + def->name;
@@ -1611,6 +1617,26 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
     auto def = setPos(std::make_unique<StructDefinition>(name, isUnion), startToken);
     def->isUnpacked = isUnpacked;
     while (peek().type != TokenType::CLOSE_BRACE && peek().type != TokenType::END_OF_FILE) {
+        // Check for struct method: type name(params) { body }
+        // Detect by lookahead: skip type keywords/pointers, find IDENTIFIER followed by (
+        if (!isUnion && isFunctionDeclaration()) {
+            auto method = parseFunctionDeclaration();
+            // Mangle name: StructName__methodName
+            std::string origName = method->name;
+            method->name = name + "__" + origName;
+            method->isMethod = true;
+            method->methodStructName = name;
+            // Add hidden 'this' parameter as first param
+            Parameter thisParam;
+            thisParam.type = "struct " + name;
+            thisParam.pointerLevel = 1;
+            thisParam.isSigned = false;
+            thisParam.name = "__this";
+            method->parameters.insert(method->parameters.begin(), thisParam);
+            def->methods.push_back(std::move(method));
+            continue;
+        }
+
         std::unique_ptr<Expression> mAlignmentExpr = nullptr;
         if (match(TokenType::ALIGNAS)) {
             expect(TokenType::OPEN_PAREN, "Expected '(' after '_Alignas'");
@@ -2304,6 +2330,11 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         std::string actualName = name;
         if (nestedFunctionMap.count(name)) {
             actualName = nestedFunctionMap.at(name);
+        }
+
+        // 'this' keyword in struct methods → hidden '__this' parameter
+        if (actualName == "this") {
+            actualName = "__this";
         }
 
         // Map __builtin_X → X for known stdlib-equivalent builtins
