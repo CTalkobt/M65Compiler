@@ -28,6 +28,12 @@ void IRBuilder::generate(TranslationUnit& unit) {
                     }
                 }
             }
+            // Phase 3: vtable-referenced functions are always used
+            for (const auto& g : module_.globals) {
+                for (const auto& methodName : g.vtableMethodNames) {
+                    if (!methodName.empty()) usedFuncs.insert(methodName);
+                }
+            }
             auto it = std::remove_if(module_.functions.begin(), module_.functions.end(),
                 [&usedFuncs](const ir::Function& fn) {
                     return fn.isStatic && fn.name != "_main" &&
@@ -810,6 +816,42 @@ void IRBuilder::visit(VariableDeclaration& node) {
         // Large aggregates must go to frame with correct byte size
         currentFunc_->memoryVregs.insert(vreg.vregId);
         currentFunc_->vregSizes[vreg.vregId] = getTypeSize(node.type, 0);
+    }
+
+    // Phase 3: Auto-initialize __vt pointer for structs with virtual methods
+    if (node.pointerLevel == 0 && currentFunc_) {
+        std::string sName = getAggregateName(node.type);
+        auto sit = structs_.find(sName);
+        if (sit != structs_.end() && sit->second.members.count("__vt")) {
+            // Find vtable global name
+            std::string vtableName = sName + "_vtable"; // ADDR_GLOBAL adds _ prefix
+            // Store vtable address to __vt member (offset 0)
+            auto baseAddr = allocVreg(ir::Type::PTR);
+            ir::Inst addr;
+            addr.op = ir::Op::ADDR_LOCAL;
+            addr.dest = baseAddr;
+            addr.resultType = ir::Type::PTR;
+            addr.src1 = vreg;
+            addr.loc = loc(node);
+            emit(addr);
+
+            auto vtAddr = allocVreg(ir::Type::PTR);
+            ir::Inst loadVt;
+            loadVt.op = ir::Op::ADDR_GLOBAL;
+            loadVt.dest = vtAddr;
+            loadVt.resultType = ir::Type::PTR;
+            loadVt.src1 = ir::Operand::global(vtableName);
+            loadVt.loc = loc(node);
+            emit(loadVt);
+
+            ir::Inst storeVt;
+            storeVt.op = ir::Op::STORE;
+            storeVt.resultType = ir::Type::I16;
+            storeVt.src1 = vtAddr;
+            storeVt.src2 = baseAddr;
+            storeVt.loc = loc(node);
+            emit(storeVt);
+        }
     }
 
     // Emit initializer

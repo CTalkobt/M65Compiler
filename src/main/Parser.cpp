@@ -119,16 +119,12 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     auto def = parseStructDefinition(isUnion);
                     // Skip __attribute__ after struct/union definition
                     while (tryParseAttribute()) {}
-                    // Extract methods before moving the struct def
-                    std::vector<std::unique_ptr<FunctionDeclaration>> liftedMethods;
-                    for (auto& m : def->methods) liftedMethods.push_back(std::move(m));
-                    def->methods.clear();
                     if (peek().type == TokenType::SEMICOLON) {
                         advance(); // consume ';'
                         flushPending(*unit);
+                        // Methods stay in def->methods — IRBuilder::visit(StructDefinition&)
+                        // will emit them as top-level functions and generate vtable data.
                         unit->topLevelDecls.push_back(std::move(def));
-                        // Emit methods as top-level functions after struct definition
-                        for (auto& m : liftedMethods) unit->topLevelDecls.push_back(std::move(m));
                     } else {
                         // struct Name { ... } var; — inline definition + variable
                         std::string sType = (isUnion ? "union " : "struct ") + def->name;

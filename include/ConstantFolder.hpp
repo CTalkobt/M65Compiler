@@ -547,6 +547,11 @@ public:
         sInfo->alignment = maxAlignment;
         structs[node.name] = sInfo;
 
+        // Preserve Phase 2/3 OOP fields
+        def->parentStruct = node.parentStruct;
+        def->hasVirtual = node.hasVirtual;
+        for (auto& m : node.methods) def->methods.push_back(std::move(m));
+
         lastStmt = std::move(def);
     }
 
