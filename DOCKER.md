@@ -4,15 +4,26 @@ This Dockerfile encapsulates the complete MEGA65 C Compiler Suite toolchain, all
 
 ## Building the Docker Image
 
+### Ubuntu Version (Default - Recommended)
+Larger but more feature-complete and stable:
+
 ```bash
 docker build -t mega65-cc45 .
+docker build -t mega65-cc45:ubuntu -f Dockerfile .
 ```
 
-Or with a specific version tag:
+**Size:** 97.1 MB | **Features:** Full shell, package manager, debugging tools
+
+### Alpine Version (Lightweight)
+Smaller footprint, good for production deployments:
 
 ```bash
-docker build -t mega65-cc45:v1.0.1 .
+docker build -t mega65-cc45:alpine -f Dockerfile.alpine .
 ```
+
+**Size:** 29.4 MB (70% smaller) | **Trade-off:** Minimal shell, fewer tools
+
+### Both versions are fully functional with all 8 tools included.
 
 ## Quick Start with Aliases
 
