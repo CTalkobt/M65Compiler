@@ -449,7 +449,26 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 (tokens[look+1].type == TokenType::SEMICOLON ||
                  tokens[look+1].type == TokenType::EQUALS ||
                  tokens[look+1].type == TokenType::COMMA ||
-                 tokens[look+1].type == TokenType::OPEN_SQUARE)) {
+                 tokens[look+1].type == TokenType::OPEN_SQUARE ||
+                 tokens[look+1].type == TokenType::OPEN_PAREN)) { // implicit int function
+                // Check if it's a function (IDENTIFIER followed by '(') or variable
+                if (tokens[look+1].type == TokenType::OPEN_PAREN) {
+                    // Implicit int function: static inline f(...) → static inline int f(...)
+                    if (isExtern) match(TokenType::EXTERN);
+                    if (isStatic) match(TokenType::STATIC);
+                    if (isNR) match(TokenType::NORETURN);
+                    if (isFC) match(TokenType::FASTCALL);
+                    if (isInterrupt) match(TokenType::INTERRUPT);
+                    if (isNaked) match(TokenType::NAKED);
+                    if (isRegparm) match(TokenType::REGPARM);
+                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
+                    auto decl = parseFunctionDeclaration();
+                    decl->isStatic = isStatic;
+                    decl->isInline = isInlineFunc;
+                    flushPending(*unit);
+                    unit->topLevelDecls.push_back(std::move(decl));
+                    continue;
+                }
                 if (isExtern) match(TokenType::EXTERN);
                 if (isStatic) match(TokenType::STATIC);
                 while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
@@ -1001,6 +1020,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
         } else if (pos + 1 < tokens.size() && tokens[pos+1].type == TokenType::IDENTIFIER && pos + 2 < tokens.size() && tokens[pos+2].type == TokenType::OPEN_BRACE) {
             advance(); // struct/union
             auto def = parseStructDefinition(isUnion);
+            while (tryParseAttribute()) {} // skip __attribute__ after struct def
             if (peek().type == TokenType::SEMICOLON) {
                 advance();
                 return def;
@@ -1271,6 +1291,12 @@ std::unique_ptr<Statement> Parser::parseStatement() {
     
     const Token& startToken = peek();
     auto expr = parseExpression();
+    // Handle comma operator in expression statements: i++, x--;
+    while (match(TokenType::COMMA)) {
+        const Token& commaToken = tokens[pos-1];
+        auto right = parseExpression();
+        expr = setPos(std::make_unique<BinaryOperation>(",", std::move(expr), std::move(right)), commaToken);
+    }
     expect(TokenType::SEMICOLON, "Expected ';'");
     return setPos(std::make_unique<ExpressionStatement>(std::move(expr)), startToken);
 }
@@ -2418,6 +2444,8 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         std::string vaType;
         bool vaSigned = false;
         int vaPtrLevel = 0;
+        // Skip leading qualifiers (const, volatile)
+        while (match(TokenType::CONST) || match(TokenType::VOLATILE) || match(TokenType::RESTRICT)) {}
         if (match(TokenType::SIGNED)) {
             vaSigned = true;
             if (match(TokenType::LONG)) { vaType = "long"; match(TokenType::INT); } else if (match(TokenType::SHORT)) { vaType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) vaType = "int";
@@ -2774,7 +2802,17 @@ void Parser::parseTypedef() {
         else if (match(TokenType::CHAR)) baseType = "char";
         else baseType = "int";
     }
-    else if (match(TokenType::LONG)) { baseType = "long"; match(TokenType::INT); } else if (match(TokenType::SHORT)) { baseType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) baseType = "int";
+    else if (match(TokenType::LONG)) {
+        baseType = "long";
+        if (match(TokenType::UNSIGNED)) { /* long unsigned */ }
+        else if (match(TokenType::SIGNED)) { isSigned = true; }
+        match(TokenType::INT);
+    } else if (match(TokenType::SHORT)) {
+        baseType = "int";
+        if (match(TokenType::UNSIGNED)) { /* short unsigned */ }
+        else if (match(TokenType::SIGNED)) { isSigned = true; }
+        match(TokenType::INT);
+    } else if (match(TokenType::INT)) baseType = "int";
     else if (match(TokenType::CHAR)) baseType = "char";
     else if (match(TokenType::BOOL)) baseType = "_Bool";
     else if (match(TokenType::VOID)) baseType = "void";

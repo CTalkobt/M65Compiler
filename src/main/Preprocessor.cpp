@@ -29,6 +29,9 @@ Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
     macros["__STDC_VERSION__"] = Macro{false, false, {}, "201112L"};
     macros["__STDC_HOSTED__"] = Macro{false, false, {}, "0"};
 
+    // GCC builtin types
+    macros["__builtin_va_list"] = Macro{false, false, {}, "void *"};
+
     // GCC keyword synonyms
     macros["__volatile"] = Macro{false, false, {}, "volatile"};
     macros["__volatile__"] = Macro{false, false, {}, "volatile"};
