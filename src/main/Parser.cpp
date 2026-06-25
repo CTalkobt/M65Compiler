@@ -603,7 +603,17 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                 else if (match(TokenType::CHAR)) pType = "char";
                 else pType = "int";
             }
-            else if (match(TokenType::LONG)) { pType = "long"; match(TokenType::INT); } else if (match(TokenType::SHORT)) { pType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) pType = "int";
+            else if (match(TokenType::LONG)) {
+                pType = "long";
+                if (match(TokenType::UNSIGNED)) { /* unsigned long */ }
+                else if (match(TokenType::SIGNED)) { pIsSigned = true; }
+                match(TokenType::INT);
+            } else if (match(TokenType::SHORT)) {
+                pType = "int";
+                if (match(TokenType::UNSIGNED)) { /* unsigned short */ }
+                else if (match(TokenType::SIGNED)) { pIsSigned = true; }
+                match(TokenType::INT);
+            } else if (match(TokenType::INT)) pType = "int";
             else if (match(TokenType::CHAR)) pType = "char";
             else if (match(TokenType::BOOL)) pType = "_Bool";
             else if (match(TokenType::VOID)) pType = "void";
@@ -696,6 +706,9 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                 pName = "__unnamed_" + std::to_string(pos);
             }
 
+            // Skip __attribute__ after parameter name
+            while (tryParseAttribute()) {}
+
             // Array parameters: int a[], int a[N], int a[][M], int a[expr]
             // These decay to pointers per C semantics
             if (peek().type == TokenType::OPEN_SQUARE) {
@@ -725,6 +738,9 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                     expect(TokenType::CLOSE_SQUARE, "Expected ']' in array parameter");
                 }
             }
+
+            // Skip __attribute__ after array params
+            while (tryParseAttribute()) {}
 
             params.push_back({pType, pPtrLevel, pIsSigned, pName, pIsVolatile, pIsConst, pIsPointerConst, false, nullptr});
         } while (match(TokenType::COMMA) && peek().type != TokenType::ELLIPSIS);
@@ -1802,6 +1818,21 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             ptrLevel++;
             while (match(TokenType::CONST) || match(TokenType::VOLATILE) || match(TokenType::RESTRICT) || tryParseAttribute() || match(TokenType::EXTENSION));
         }
+        // Unnamed bitfield: int : 6;  (no member name, colon follows type)
+        if (peek().type == TokenType::COLON) {
+            advance(); // consume ':'
+            const Token& bwTok = expect(TokenType::INTEGER_LITERAL, "Expected integer literal for bitfield width");
+            int bw = std::stoi(bwTok.value);
+            StructMember sm;
+            sm.type = type; sm.pointerLevel = ptrLevel; sm.isSigned = mIsSigned;
+            sm.name = "__unnamed_bf_" + std::to_string(def->members.size());
+            sm.bitWidth = bw;
+            while (tryParseAttribute()) {}
+            def->members.push_back(std::move(sm));
+            expect(TokenType::SEMICOLON, "Expected ';'");
+            continue;
+        }
+
         std::string memberName = expect(TokenType::IDENTIFIER, "Expected member name").value;
         std::vector<int> memberArrayDims;
         bool isFlexArray = false;
