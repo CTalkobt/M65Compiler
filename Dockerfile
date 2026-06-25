@@ -1,17 +1,16 @@
-# Multi-stage build for MEGA65 C Compiler Suite
+# Multi-stage build for MEGA65 C Compiler Suite using Alpine Linux
 # Stage 1: Build the compiler suite
-FROM ubuntu:24.04 AS builder
+FROM alpine:3.20 AS builder
 
 # Set working directory
 WORKDIR /build
 
 # Install build dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apk add --no-cache \
     g++ \
     make \
     git \
-    zlib1g-dev \
-    && rm -rf /var/lib/apt/lists/*
+    zlib-dev
 
 # Copy source code
 COPY . .
@@ -20,12 +19,11 @@ COPY . .
 RUN make clean && make all lib
 
 # Stage 2: Runtime image with just the binaries
-FROM ubuntu:24.04 AS runtime
+FROM alpine:3.20 AS runtime
 
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    zlib1g \
-    && rm -rf /var/lib/apt/lists/*
+# Install runtime dependencies and full glibc compatibility
+# Note: libc6-compat provides glibc compatibility for Alpine's musl
+RUN apk add --no-cache zlib libc6-compat
 
 # Create app directory structure
 WORKDIR /app
@@ -65,17 +63,6 @@ ENV PATH="/app/bin:$PATH"
 
 # Create /work directory for volume mounts
 WORKDIR /work
-
-# Create a helper script that will be available inside the container
-RUN cat > /app/bin/run_tool.sh << 'HELPER'
-#!/bin/bash
-# Helper script to run tools inside the container
-# Usage: /app/bin/run_tool.sh <tool_name> [args...]
-TOOL="${1:?Tool name required}"
-shift
-exec "/app/bin/$TOOL" "$@"
-HELPER
-chmod +x /app/bin/run_tool.sh
 
 # Default to cc45 compiler when no entrypoint override
 ENTRYPOINT ["/app/bin/cc45"]
