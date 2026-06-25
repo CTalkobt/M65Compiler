@@ -18,6 +18,46 @@ docker build -t mega65-cc45:v1.0.1 .
 
 **Image Size:** 29.4 MB | **All 8 tools included and fully functional**
 
+### Building from Source
+
+From the project root, use the Makefile:
+
+```bash
+make docker
+```
+
+This builds the image and exports it to `bin/mega65-cc45.tar`.
+
+### Or, Load Pre-built Image from GitHub
+
+Pre-built Docker images are available in GitHub releases. Download and load without building:
+
+```bash
+# Download the Docker image archive (example for v1.0.1)
+wget https://github.com/MEGA65/m65compiler/releases/download/v1.0.1/bin/mega65-cc45.tar
+
+# Load it into Docker
+docker load -i mega65-cc45.tar
+
+# Verify it's loaded
+docker images mega65-cc45
+```
+
+**Or use curl:**
+
+```bash
+curl -L https://github.com/MEGA65/m65compiler/releases/download/v1.0.1/bin/mega65-cc45.tar -o mega65-cc45.tar
+docker load -i mega65-cc45.tar
+```
+
+**Or load directly without saving to disk:**
+
+```bash
+curl -L https://github.com/MEGA65/m65compiler/releases/download/v1.0.1/bin/mega65-cc45.tar | docker load
+```
+
+This is faster than building from source and requires no build dependencies. Replace `v1.0.1` with the desired release version.
+
 ## Quick Start with Aliases
 
 For the easiest experience, source the provided alias script:
