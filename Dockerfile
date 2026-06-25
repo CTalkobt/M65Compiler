@@ -1,17 +1,16 @@
-# Multi-stage build for MEGA65 C Compiler Suite
+# Multi-stage build for MEGA65 C Compiler Suite using Alpine Linux
 # Stage 1: Build the compiler suite
-FROM ubuntu:24.04 AS builder
+FROM alpine:3.20 AS builder
 
 # Set working directory
 WORKDIR /build
 
 # Install build dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apk add --no-cache \
     g++ \
     make \
     git \
-    zlib1g-dev \
-    && rm -rf /var/lib/apt/lists/*
+    zlib-dev
 
 # Copy source code
 COPY . .
@@ -20,12 +19,11 @@ COPY . .
 RUN make clean && make all lib
 
 # Stage 2: Runtime image with just the binaries
-FROM ubuntu:24.04 AS runtime
+FROM alpine:3.20 AS runtime
 
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    zlib1g \
-    && rm -rf /var/lib/apt/lists/*
+# Install runtime dependencies and full glibc compatibility
+# Note: libc6-compat provides glibc, libstdc++ provides C++ runtime libraries
+RUN apk add --no-cache zlib libc6-compat libstdc++
 
 # Create app directory structure
 WORKDIR /app
