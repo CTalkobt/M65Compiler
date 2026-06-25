@@ -33,6 +33,8 @@ const Token& Parser::expect(TokenType type, const std::string& message) {
 std::unique_ptr<TranslationUnit> Parser::parse() {
     auto unit = setPos(std::make_unique<TranslationUnit>(), tokens[0]);
     while (peek().type != TokenType::END_OF_FILE) {
+        // Skip __extension__ at top level (GCC compatibility)
+        while (match(TokenType::EXTENSION)) {}
         if (match(TokenType::TYPEDEF)) {
             parseTypedef();
             continue;
@@ -1402,8 +1404,23 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             decl->isFunctionPointer = true;
             decl->funcPtrSig = ta.funcPtrSig;
             decl->alignmentExpr = std::move(alignmentExpr);
+            // Handle array of function pointers: frob f[] = {abort};
+            while (match(TokenType::OPEN_SQUARE)) {
+                if (match(TokenType::CLOSE_SQUARE)) {
+                    decl->arrayDims.push_back(0);
+                } else {
+                    auto szExpr = parseExpression();
+                    int sz = 1;
+                    if (auto* lit = dynamic_cast<IntegerLiteral*>(szExpr.get())) sz = (int)lit->value;
+                    decl->arrayDims.push_back(sz);
+                    expect(TokenType::CLOSE_SQUARE, "Expected ']'");
+                }
+            }
             if (match(TokenType::EQUALS)) {
-                decl->initializer = parseExpression();
+                if (peek().type == TokenType::OPEN_BRACE)
+                    decl->initializer = parseInitializerList();
+                else
+                    decl->initializer = parseExpression();
             }
             expect(TokenType::SEMICOLON, "Expected ';'");
             return decl;

@@ -29,6 +29,18 @@ Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
     macros["__STDC_VERSION__"] = Macro{false, false, {}, "201112L"};
     macros["__STDC_HOSTED__"] = Macro{false, false, {}, "0"};
 
+    // GCC keyword synonyms
+    macros["__volatile"] = Macro{false, false, {}, "volatile"};
+    macros["__volatile__"] = Macro{false, false, {}, "volatile"};
+    macros["__const"] = Macro{false, false, {}, "const"};
+    macros["__const__"] = Macro{false, false, {}, "const"};
+    macros["__restrict"] = Macro{false, false, {}, "restrict"};
+    macros["__restrict__"] = Macro{false, false, {}, "restrict"};
+    macros["__inline"] = Macro{false, false, {}, "inline"};
+    macros["__inline__"] = Macro{false, false, {}, "inline"};
+    macros["__signed"] = Macro{false, false, {}, "signed"};
+    macros["__signed__"] = Macro{false, false, {}, "signed"};
+
     // GCC-compatible predefined macros for target (45GS02: 8-bit char, 16-bit int/short, 32-bit long)
     macros["__CHAR_BIT__"] = Macro{false, false, {}, "8"};
     macros["__SIZEOF_CHAR__"] = Macro{false, false, {}, "1"};
