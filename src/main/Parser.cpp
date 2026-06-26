@@ -151,6 +151,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                                 expect(TokenType::CLOSE_SQUARE, "Expected ']'");
                             }
                         }
+                        while (tryParseAttribute()) {} // skip __attribute__ after var name
                         if (match(TokenType::EQUALS)) {
                             if (peek().type == TokenType::OPEN_BRACE)
                                 vDecl->initializer = parseInitializerList();
@@ -1084,6 +1085,8 @@ std::unique_ptr<Statement> Parser::parseStatement() {
                     expect(TokenType::CLOSE_SQUARE, "Expected ']'");
                 }
             }
+            // Skip __attribute__ after variable name
+            while (tryParseAttribute()) {}
             // Initializer for first variable
             if (match(TokenType::EQUALS)) {
                 if (peek().type == TokenType::OPEN_BRACE) vDecl->initializer = parseInitializerList();
@@ -1441,7 +1444,17 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         else if (match(TokenType::CHAR)) type = "char";
         else type = "int";
     }
-    else if (match(TokenType::LONG)) { type = "long"; match(TokenType::INT); } else if (match(TokenType::SHORT)) { type = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) type = "int";
+    else if (match(TokenType::LONG)) {
+        type = "long";
+        if (match(TokenType::UNSIGNED)) { /* long unsigned */ }
+        else if (match(TokenType::SIGNED)) { isSigned = true; }
+        match(TokenType::INT);
+    } else if (match(TokenType::SHORT)) {
+        type = "int";
+        if (match(TokenType::UNSIGNED)) { /* short unsigned */ }
+        else if (match(TokenType::SIGNED)) { isSigned = true; }
+        match(TokenType::INT);
+    } else if (match(TokenType::INT)) type = "int";
     else if (match(TokenType::CHAR)) type = "char";
     else if (match(TokenType::BOOL)) type = "_Bool";
     else if (match(TokenType::VOID)) type = "void";
