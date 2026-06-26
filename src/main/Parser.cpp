@@ -1084,6 +1084,11 @@ std::unique_ptr<Statement> Parser::parseStatement() {
                     expect(TokenType::CLOSE_SQUARE, "Expected ']'");
                 }
             }
+            // Initializer for first variable
+            if (match(TokenType::EQUALS)) {
+                if (peek().type == TokenType::OPEN_BRACE) vDecl->initializer = parseInitializerList();
+                else vDecl->initializer = parseExpression();
+            }
             // Multi-variable: struct S { } a, b;
             std::vector<std::unique_ptr<Statement>> extraVars;
             while (match(TokenType::COMMA)) {
@@ -1110,10 +1115,6 @@ std::unique_ptr<Statement> Parser::parseStatement() {
                     else ev->initializer = parseExpression();
                 }
                 extraVars.push_back(std::move(ev));
-            }
-            if (match(TokenType::EQUALS)) {
-                if (peek().type == TokenType::OPEN_BRACE) vDecl->initializer = parseInitializerList();
-                else vDecl->initializer = parseExpression();
             }
             expect(TokenType::SEMICOLON, "Expected ';'");
             if (extraVars.empty()) {
