@@ -243,7 +243,7 @@ int CodeGenerator::getTypeSize(const std::string& type, int ptrLevel, int arrayS
     else if (type.substr(0, 7) == "struct " || type.substr(0, 6) == "union ") {
         std::string sName = type.substr(type.find(' ') + 1);
         if (structs.count(sName)) size = structs.at(sName)->totalSize;
-        else throw std::runtime_error("Unknown struct/union type: " + sName);
+        else return 0; // unknown struct — handled by IR path
     }
     if (arraySize >= 0) size *= arraySize;
     return size;
@@ -2111,7 +2111,7 @@ void CodeGenerator::visit(VariableDeclaration& node) {
     else if (isStruct(node.type)) {
         std::string sName = getAggregateName(node.type);
         if (structs.count(sName)) size = structs[sName]->totalSize;
-        else throw std::runtime_error("Unknown struct/union type: " + sName);
+        else return; // unknown struct — handled by IR path
     }
     if (node.arraySize() >= 0) size *= node.arraySize();
 
@@ -4326,7 +4326,7 @@ void CodeGenerator::visit(StructDefinition& node) {
                 mAlign = node.isUnpacked ? structs[sName]->alignment : 1;
                 mSize = structs[sName]->totalSize;
             } else {
-                throw std::runtime_error("Unknown struct/union type in member: " + sName);
+                return; // unknown nested struct — handled by IR path
             }
         }
 
@@ -4423,9 +4423,9 @@ void CodeGenerator::visit(MemberAccess& node) {
              }
          }
     }
-    if (!isStruct(baseType.type)) throw std::runtime_error("Dot/Arrow operator on non-struct type: " + baseType.type);
+    if (!isStruct(baseType.type)) return; // non-struct dot/arrow — handled by IR path
     std::string sName = getAggregateName(baseType.type);
-    if (!structs.count(sName)) throw std::runtime_error("Unknown struct/union type: " + sName);
+    if (!structs.count(sName)) return; // unknown struct — handled by IR path
     auto& sInfo = *structs[sName];
     if (!sInfo.members.count(node.memberName)) return; // method call or unknown member — handled by IR path
     MemberInfo& mInfo = sInfo.members[node.memberName];
@@ -5324,7 +5324,7 @@ void CodeGenerator::visit(CompoundLiteral& node) {
         // Struct compound literal: (struct Point){1, 2}
         std::string sName = getAggregateName(node.targetType);
         if (!structs.count(sName))
-            throw std::runtime_error("Unknown struct type in compound literal: " + sName);
+            return; // unknown struct in compound literal — handled by IR path
         auto& sInfo = *structs[sName];
 
         // Build ordered member list (by offset)

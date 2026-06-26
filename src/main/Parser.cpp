@@ -78,8 +78,36 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             bool isEnum = peek().type == TokenType::ENUM;
             // Check if it's a definition: struct/union/enum name { ... };
             if (isEnum) {
+                // Check if this is enum as function return type: enum E foo(...)
+                // vs enum definition: enum E { ... };
+                size_t eLook = pos + 1; // after 'enum'
+                if (eLook < tokens.size() && tokens[eLook].type == TokenType::IDENTIFIER) {
+                    eLook++; // after enum name
+                    if (eLook < tokens.size() && tokens[eLook].type == TokenType::IDENTIFIER) {
+                        // enum Name FuncName — function with enum return
+                        auto decl = parseFunctionDeclaration();
+                        flushPending(*unit);
+                        unit->topLevelDecls.push_back(std::move(decl));
+                        continue;
+                    }
+                }
                 advance(); // enum
                 auto def = parseEnumDefinition();
+                while (tryParseAttribute()) {}
+                // enum E; or enum E { ... };
+                // Could also be enum E var; — check for identifier before ;
+                if (peek().type == TokenType::IDENTIFIER) {
+                    // enum E var; — variable with enum type
+                    std::string eType = "enum " + def->name;
+                    std::string eName = advance().value;
+                    auto vDecl = std::make_unique<VariableDeclaration>(eType, eName, 0);
+                    vDecl->isGlobal = true;
+                    if (match(TokenType::EQUALS)) vDecl->initializer = parseExpression();
+                    expect(TokenType::SEMICOLON, "Expected ';'");
+                    unit->topLevelDecls.push_back(std::move(def));
+                    unit->topLevelDecls.push_back(std::move(vDecl));
+                    continue;
+                }
                 expect(TokenType::SEMICOLON, "Expected ';' after enum definition");
                 unit->topLevelDecls.push_back(std::move(def));
                 continue;
@@ -2755,7 +2783,12 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
     } else if (peek().type == TokenType::STRING_LITERAL || peek().type == TokenType::ASCII_STRING_LITERAL) {
         bool isAscii = (peek().type == TokenType::ASCII_STRING_LITERAL);
         const Token& litToken = advance();
-        expr = setPos(std::make_unique<StringLiteral>(litToken.value, isAscii), litToken);
+        std::string concatStr = litToken.value;
+        // C string literal concatenation: "hello" " world" → "hello world"
+        while (peek().type == TokenType::STRING_LITERAL || peek().type == TokenType::ASCII_STRING_LITERAL) {
+            concatStr += advance().value;
+        }
+        expr = setPos(std::make_unique<StringLiteral>(concatStr, isAscii), litToken);
     } else if (match(TokenType::OPEN_PAREN)) {
         const Token& parenToken = tokens[pos-1];
         expr = parseExpression();
