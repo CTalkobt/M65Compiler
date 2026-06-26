@@ -628,7 +628,17 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
             std::stringstream ss(trimmed);
             std::string cmd;
             ss >> cmd;
-            
+
+            // Handle #if( without space: split #if from the expression
+            if (cmd.length() > 3 && cmd.substr(0, 3) == "#if" && cmd[3] == '(') {
+                std::string rest = cmd.substr(3);
+                std::string remaining;
+                std::getline(ss, remaining);
+                ss.clear();
+                ss.str(rest + remaining);
+                cmd = "#if";
+            }
+
             if (cmd == "#define") {
                 if (isConditionTrue()) {
                     std::string lineRest;
