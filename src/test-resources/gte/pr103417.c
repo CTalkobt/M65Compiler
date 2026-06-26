@@ -4,7 +4,7 @@
 
 /* PR tree-optimization/103417 */
 
-struct { int a : 8; int b : 24; } c = { 0, 1 };
+struct { long a : 8; long b : 24; } c = { 0, 1 };
 
 int
 main ()

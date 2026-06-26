@@ -7,8 +7,8 @@
 
 struct __attribute__((packed)) S
 {
-  int s : 1;
-  int t : 20;
+  long s : 1;
+  long t : 20;
 };
 
 int a, b, c;

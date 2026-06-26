@@ -5,7 +5,7 @@
 /* PR rtl-optimization/89195 */
 /* { dg-require-effective-target int32plus } */
 
-struct S { unsigned i : 24; };
+struct S { unsigned long i : 24; };
 
 volatile unsigned char x;
 

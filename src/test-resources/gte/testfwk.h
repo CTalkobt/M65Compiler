@@ -14,4 +14,12 @@
 #include <string.h>
 #include <limits.h>
 
+// cc45: int is 16-bit; GTE tests written for 32-bit int need long for
+// bitfields >16 bits. Define int32_bf as the 32-bit-backed bitfield type.
+#ifdef __cc45__
+typedef long int32_bf;
+#else
+typedef int int32_bf;
+#endif
+
 #endif // TESTFWK_H

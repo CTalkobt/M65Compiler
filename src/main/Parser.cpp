@@ -1905,7 +1905,9 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
                 throw std::runtime_error("Bitfield member '" + memberName + "' cannot be a pointer");
             const Token& bwTok = expect(TokenType::INTEGER_LITERAL, "Expected integer literal for bitfield width");
             memberBitWidth = std::stoi(bwTok.value);
-            int maxBits = (type == "int") ? 16 : 8;
+            // Max bitfield width: char=8, int=16, long=32
+            // Use long for bitfields >16 bits (with __int(N) for arbitrary widths)
+            int maxBits = (type == "long") ? 32 : (type == "char") ? 8 : 16;
             if (memberBitWidth < 1 || memberBitWidth > maxBits)
                 throw std::runtime_error("Bitfield width " + std::to_string(memberBitWidth) + " out of range for type '" + type + "'");
         }

@@ -17,10 +17,10 @@ struct S0
   int f2;
   int f3;
   int f4;
-  int f5:15;
-  int f6:17;
-  int f7:2;
-  int f8:30;
+  long f5 : 15;
+  long f6 : 17;
+  long f7 : 2;
+  long f8 : 30;
 } c;
 
 void fn1 ()

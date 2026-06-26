@@ -24,6 +24,9 @@ Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
     timeSS << "\"" << std::put_time(&tm, "%H:%M:%S") << "\"";
     preprocTime = timeSS.str();
 
+    // Compiler identification
+    macros["__cc45__"] = Macro{false, false, {}, "1"};
+
     // Standard predefined macros
     macros["__STDC__"] = Macro{false, false, {}, "1"};
     macros["__STDC_VERSION__"] = Macro{false, false, {}, "201112L"};

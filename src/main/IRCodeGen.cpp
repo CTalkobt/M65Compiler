@@ -2884,7 +2884,9 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             loadOperand(inst.src1);
             int offset = (int)inst.args[0].immVal;
             int width = (int)inst.args[1].immVal;
-            if (inst.src1.type == ir::Type::I16) {
+            if (inst.src1.type == ir::Type::I32) {
+                emit("bfext32 #" + std::to_string(offset) + ", #" + std::to_string(width));
+            } else if (inst.src1.type == ir::Type::I16) {
                 emit("bfext16 #" + std::to_string(offset) + ", #" + std::to_string(width));
             } else {
                 emit("bfext #" + std::to_string(offset) + ", #" + std::to_string(width));
@@ -2907,7 +2909,9 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             loadOperand(inst.src1); // AX = new value
             int offset = (int)inst.args[0].immVal;
             int width = (int)inst.args[1].immVal;
-            if (inst.resultType == ir::Type::I16) {
+            if (inst.resultType == ir::Type::I32) {
+                emit("bfins32 " + addrStr + ", #" + std::to_string(offset) + ", #" + std::to_string(width));
+            } else if (inst.resultType == ir::Type::I16) {
                 emit("bfins16 " + addrStr + ", #" + std::to_string(offset) + ", #" + std::to_string(width));
             } else {
                 emit("bfins " + addrStr + ", #" + std::to_string(offset) + ", #" + std::to_string(width));

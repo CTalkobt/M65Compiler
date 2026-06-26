@@ -7,8 +7,8 @@
 /* { dg-require-effective-target int32plus } */
 
 typedef struct _st {
-    int iIndex : 24;
-    int iIndex1 : 24;
+    long iIndex : 24;
+    long iIndex1 : 24;
 } st;
 st *next;
 void g(void)

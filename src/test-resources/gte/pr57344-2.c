@@ -7,14 +7,14 @@
 
 struct __attribute__((packed)) S
 {
-  int a : 27;
+  long a : 27;
 #if __SIZEOF_INT__ * __CHAR_BIT__ >= 32
-  int b : 22;
+  long b : 22;
 #else
-  int b : 13;
+  long b : 13;
 #endif
   char c;
-  int : 0;
+  long : 0;
 } s[2];
 int i;
 

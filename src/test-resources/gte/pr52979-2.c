@@ -13,7 +13,7 @@ foo (void)
 {
 }
 
-struct __attribute__((packed)) S { int g : 31; int h : 6; };
+struct __attribute__((packed)) S { long g : 31; long h : 6; };
 static struct S b = { 1 };
 struct S a = { 1 };
 

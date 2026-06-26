@@ -6,8 +6,8 @@
 #pragma pack(1)
 struct S
 {
-  int f0:15;
-  int f1:29;
+  long f0 : 15;
+  long f1 : 29;
 };
 
 int e = 1, i;

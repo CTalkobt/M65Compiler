@@ -5,7 +5,7 @@
 /* PR tree-optimization/97764 */
 /* { dg-require-effective-target int32plus } */
 
-struct S { int b : 3; int c : 28; int d : 1; };
+struct S { long b : 3; long c : 28; long d : 1; };
 
 int
 main ()

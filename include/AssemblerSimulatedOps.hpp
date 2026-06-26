@@ -145,8 +145,8 @@ public:
     static void emitMod32Code(AssemblerParser* parser, M65Emitter& e, bool isSigned, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
 
     // Bitfield pseudo-ops
-    static void emitBFExtCode(AssemblerParser* parser, M65Emitter& e, bool is16, int tokenIndex, const std::string& scopePrefix);
-    static void emitBFInsCode(AssemblerParser* parser, M65Emitter& e, bool is16, int mode, int tokenIndex, const std::string& scopePrefix);
+    static void emitBFExtCode(AssemblerParser* parser, M65Emitter& e, int unitWidth, int tokenIndex, const std::string& scopePrefix);
+    static void emitBFInsCode(AssemblerParser* parser, M65Emitter& e, int unitWidth, int mode, int tokenIndex, const std::string& scopePrefix);
     // mode: 0=absolute, 1=stack-relative, 2=indirect
 
     // Frame-pointer pseudo-ops

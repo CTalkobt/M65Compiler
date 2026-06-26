@@ -6,7 +6,7 @@
 union U
 {
   const int a;
-  unsigned b : 24;
+  unsigned long b : 24;
 };
 
 static union U u = { 0x12345678 };

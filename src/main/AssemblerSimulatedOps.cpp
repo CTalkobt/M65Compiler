@@ -2167,7 +2167,8 @@ void AssemblerSimulatedOps::emitMOVE_FPCode(AssemblerParser* parser, M65Emitter&
 
 // bfext #bitoff, #width — extract bitfield from A (8-bit) or AX (16-bit)
 // A (or AX) already contains the storage unit. Result in A with upper bits zeroed.
-void AssemblerSimulatedOps::emitBFExtCode(AssemblerParser* parser, M65Emitter& e, bool is16, int tokenIndex, const std::string& scopePrefix) {
+void AssemblerSimulatedOps::emitBFExtCode(AssemblerParser* parser, M65Emitter& e, int unitWidth, int tokenIndex, const std::string& scopePrefix) {
+    // unitWidth: 8, 16, or 32 (byte count of storage unit)
     // Parse: #bitoff, #width
     auto parseImm = [&](int& idx) -> uint32_t {
         if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) idx++;
@@ -2183,16 +2184,44 @@ void AssemblerSimulatedOps::emitBFExtCode(AssemblerParser* parser, M65Emitter& e
     skipComma(idx);
     uint32_t bitWidth = parseImm(idx);
 
-    if (is16) {
+    if (unitWidth == 32) {
+        // AXYZ contains 32-bit storage unit (A=byte0, X=byte1, Y=byte2, Z=byte3)
+        // Save all 4 bytes to scratch ZP area, shift right by bitOff, mask
+        uint8_t s0 = e.scratchZP();      // byte 0
+        uint8_t s1 = e.scratchZP() + 1;  // byte 1
+        uint8_t s2 = e.scratchZP() + 2;  // byte 2 (scratch2)
+        uint8_t s3 = e.scratchZP() + 3;  // byte 3 (scratch2+1)
+        e.sta_zp(s0);
+        e.stx_zp(s1);
+        e.sty_zp(s2);
+        e.stz_zp(s3);
+        for (uint32_t i = 0; i < bitOff; i++) {
+            e.emitInstruction("lsr", AddressingMode::BASE_PAGE, s3, true);
+            e.emitInstruction("ror", AddressingMode::BASE_PAGE, s2, true);
+            e.emitInstruction("ror", AddressingMode::BASE_PAGE, s1, true);
+            e.emitInstruction("ror", AddressingMode::BASE_PAGE, s0, true);
+        }
+        uint32_t mask = (bitWidth >= 32) ? 0xFFFFFFFF : ((1u << bitWidth) - 1);
+        e.lda_zp(s0);
+        e.and_imm(mask & 0xFF);
+        if (bitWidth > 8) {
+            e.pha();
+            e.lda_zp(s1);
+            e.and_imm((mask >> 8) & 0xFF);
+            e.tax();
+            e.pla();
+        } else {
+            e.ldx_imm(0);
+        }
+        e.ldy_imm(0);
+        e.ldz_imm(0);
+    } else if (unitWidth == 16) {
         // AX contains 16-bit storage unit (A=lo, X=hi)
-        // Combine into scratch area, shift right, mask
-        // Use scratch ZP for hi byte
         e.stx_scratch();
         for (uint32_t i = 0; i < bitOff; i++) {
-            e.emitInstruction("lsr", AddressingMode::BASE_PAGE, e.scratchZP(), true); // shift high byte right (into carry)
-            e.ror_a();                // rotate carry into A
+            e.emitInstruction("lsr", AddressingMode::BASE_PAGE, e.scratchZP(), true);
+            e.ror_a();
         }
-        // Mask to bitWidth bits
         uint16_t mask = (uint16_t)((1u << bitWidth) - 1);
         e.and_imm(mask & 0xFF);
         if (bitWidth > 8) {
@@ -2222,7 +2251,8 @@ void AssemblerSimulatedOps::emitBFExtCode(AssemblerParser* parser, M65Emitter& e
 //   - Single bit on ZP/abs: use SMBn/RMBn when value is constant 0 or 1
 //   - Multiple aligned bits on ZP: use multiple SMBn/RMBn when value is constant
 //   - Multi-bit on abs/ZP: use TRB+TSB
-void AssemblerSimulatedOps::emitBFInsCode(AssemblerParser* parser, M65Emitter& e, bool is16, int mode, int tokenIndex, const std::string& scopePrefix) {
+void AssemblerSimulatedOps::emitBFInsCode(AssemblerParser* parser, M65Emitter& e, int unitWidth, int mode, int tokenIndex, const std::string& scopePrefix) {
+    bool is16 = (unitWidth >= 16); // 16 and 32-bit both use the 16-bit RMW path for now
     auto parseImm = [&](int& idx) -> uint32_t {
         if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) idx++;
         auto ast = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
@@ -3020,14 +3050,16 @@ void AssemblerSimulatedOps::dispatch_DEC16_FP(AssemblerParser* p, M65Emitter& e,
     e.dec_stack(off);                       // dec lo
 }
 void AssemblerSimulatedOps::dispatch_BFExt(AssemblerParser* p, M65Emitter& e, Stmt* s) {
-    emitBFExtCode(p, e, s->type == Stmt::BFEXT16, s->instr.operandTokenIndex, s->scopePrefix);
+    int unitWidth = (s->type == Stmt::BFEXT32) ? 32 : (s->type == Stmt::BFEXT16) ? 16 : 8;
+    emitBFExtCode(p, e, unitWidth, s->instr.operandTokenIndex, s->scopePrefix);
 }
 void AssemblerSimulatedOps::dispatch_BFIns(AssemblerParser* p, M65Emitter& e, Stmt* s) {
     bool is16 = (s->type == Stmt::BFINS16 || s->type == Stmt::BFINS16_SP || s->type == Stmt::BFINS16_IND);
+    bool is32 = (s->type == Stmt::BFINS32);
     int mode = 0;
     if (s->type == Stmt::BFINS_SP || s->type == Stmt::BFINS16_SP) mode = 1;
     else if (s->type == Stmt::BFINS_IND || s->type == Stmt::BFINS16_IND) mode = 2;
-    emitBFInsCode(p, e, is16, mode, s->instr.operandTokenIndex, s->scopePrefix);
+    emitBFInsCode(p, e, is32 ? 32 : is16 ? 16 : 8, mode, s->instr.operandTokenIndex, s->scopePrefix);
 }
 void AssemblerSimulatedOps::dispatch_MulS16(AssemblerParser* p, M65Emitter& e, Stmt* s) {
     emitMulS16Code(p, e, s->instr.operand, s->exprTokenIndex, s->scopePrefix);

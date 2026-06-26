@@ -879,12 +879,14 @@ void AssemblerParser::pass1() {
             else if (fullMnemonic == "dec.16f") { SIMOP(DEC16_FP, dispatch_DEC16_FP); }
             else if (fullMnemonic == "bfext") { SIMOP(BFEXT, dispatch_BFExt); }
             else if (fullMnemonic == "bfext16") { SIMOP(BFEXT16, dispatch_BFExt); }
+            else if (fullMnemonic == "bfext32") { SIMOP(BFEXT32, dispatch_BFExt); }
             else if (fullMnemonic == "bfins") { SIMOP(BFINS, dispatch_BFIns); }
             else if (fullMnemonic == "bfins.sp") { SIMOP(BFINS_SP, dispatch_BFIns); }
             else if (fullMnemonic == "bfins.ind") { SIMOP(BFINS_IND, dispatch_BFIns); }
             else if (fullMnemonic == "bfins16") { SIMOP(BFINS16, dispatch_BFIns); }
             else if (fullMnemonic == "bfins16.sp") { SIMOP(BFINS16_SP, dispatch_BFIns); }
             else if (fullMnemonic == "bfins16.ind") { SIMOP(BFINS16_IND, dispatch_BFIns); }
+            else if (fullMnemonic == "bfins32") { SIMOP(BFINS32, dispatch_BFIns); }
             #undef SIMOP
 
             if (stmt->instr.mnemonic == "expr") {
