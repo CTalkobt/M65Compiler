@@ -2153,9 +2153,10 @@ std::unique_ptr<Expression> Parser::parseUnary() {
         if (match(TokenType::OPEN_PAREN)) {
             // Check if it's a type or an expression
             if (peek().type == TokenType::INT || peek().type == TokenType::SHORT || peek().type == TokenType::LONG || peek().type == TokenType::CHAR ||
-                peek().type == TokenType::BOOL ||
+                peek().type == TokenType::BOOL || peek().type == TokenType::VOID ||
                 peek().type == TokenType::STRUCT || peek().type == TokenType::UNION || peek().type == TokenType::ENUM ||
                 peek().type == TokenType::SIGNED || peek().type == TokenType::UNSIGNED ||
+                peek().type == TokenType::CONST || peek().type == TokenType::VOLATILE ||
                 (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value))) {
 
                 std::string type;
@@ -2170,6 +2171,19 @@ std::unique_ptr<Expression> Parser::parseUnary() {
                 else if (match(TokenType::LONG)) { type = "long"; match(TokenType::INT); } else if (match(TokenType::SHORT)) { type = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) type = "int";
                 else if (match(TokenType::CHAR)) type = "char";
                 else if (match(TokenType::BOOL)) type = "_Bool";
+                else if (match(TokenType::VOID)) type = "void";
+                else if (match(TokenType::CONST) || match(TokenType::VOLATILE)) {
+                    // const/volatile before type: sizeof(const int)
+                    if (match(TokenType::LONG)) { type = "long"; match(TokenType::INT); }
+                    else if (match(TokenType::INT)) type = "int";
+                    else if (match(TokenType::CHAR)) type = "char";
+                    else if (match(TokenType::VOID)) type = "void";
+                    else if (match(TokenType::STRUCT) || match(TokenType::UNION)) {
+                        bool isU2 = tokens[pos-1].type == TokenType::UNION;
+                        type = (isU2 ? "union " : "struct ") + expect(TokenType::IDENTIFIER, "Expected struct name").value;
+                    }
+                    else type = "int";
+                }
                 else if (match(TokenType::STRUCT) || match(TokenType::UNION) || match(TokenType::ENUM)) {
                     bool isU = tokens[pos-1].type == TokenType::UNION;
                     bool isE = tokens[pos-1].type == TokenType::ENUM;
@@ -2285,6 +2299,25 @@ std::unique_ptr<Expression> Parser::parseUnary() {
             while (match(TokenType::STAR)) castPtrLevel++;
             // Skip qualifiers after stars (e.g., char * const)
             while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT)) {}
+
+            // Function pointer cast: (return_type (*)(params))
+            if (peek().type == TokenType::OPEN_PAREN && pos + 1 < tokens.size() && tokens[pos+1].type == TokenType::STAR) {
+                // Skip (*) and parameter list
+                advance(); // (
+                advance(); // *
+                expect(TokenType::CLOSE_PAREN, "Expected ')' in function pointer cast");
+                // Skip parameter list: (type, type, ...)
+                if (match(TokenType::OPEN_PAREN)) {
+                    int depth = 1;
+                    while (depth > 0 && peek().type != TokenType::END_OF_FILE) {
+                        if (match(TokenType::OPEN_PAREN)) depth++;
+                        else if (peek().type == TokenType::CLOSE_PAREN) { depth--; if (depth > 0) advance(); }
+                        else advance();
+                    }
+                    expect(TokenType::CLOSE_PAREN, "Expected ')' after function pointer cast params");
+                }
+                castPtrLevel = 1; // function pointer is a pointer
+            }
 
             if (peek().type == TokenType::CLOSE_PAREN) {
                 advance(); // consume ')'
@@ -2406,6 +2439,36 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
                 dynamic_cast<IntegerLiteral*>(binop->right.get())) isConst = true;
         }
         expr = setPos(std::make_unique<IntegerLiteral>(isConst ? 1 : 0), bToken);
+    } else if (peek().type == TokenType::IDENTIFIER && peek().value == "__builtin_offsetof") {
+        // __builtin_offsetof(type, member) → compile-time offset
+        const Token& bToken = advance();
+        expect(TokenType::OPEN_PAREN, "Expected '(' after __builtin_offsetof");
+        // Parse type (struct/union name)
+        std::string ofType;
+        if (match(TokenType::STRUCT) || match(TokenType::UNION)) {
+            bool isU = tokens[pos-1].type == TokenType::UNION;
+            ofType = (isU ? "union " : "struct ") + expect(TokenType::IDENTIFIER, "Expected struct name").value;
+        } else if (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value)) {
+            ofType = typedefs[advance().value].baseType;
+        } else {
+            ofType = expect(TokenType::IDENTIFIER, "Expected type name").value;
+        }
+        expect(TokenType::COMMA, "Expected ',' in __builtin_offsetof");
+        // Parse member (may include array subscripts: member[i][j])
+        std::string memberName = expect(TokenType::IDENTIFIER, "Expected member name").value;
+        // Skip array subscripts if present
+        while (match(TokenType::OPEN_SQUARE)) {
+            while (peek().type != TokenType::CLOSE_SQUARE && peek().type != TokenType::END_OF_FILE) advance();
+            expect(TokenType::CLOSE_SQUARE, "Expected ']'");
+        }
+        // Skip nested member access (.submember)
+        while (match(TokenType::DOT)) {
+            expect(TokenType::IDENTIFIER, "Expected member name");
+        }
+        expect(TokenType::CLOSE_PAREN, "Expected ')' after __builtin_offsetof");
+        // For now, emit 0 as placeholder — the actual offset would need struct layout info
+        // which the parser doesn't have. The IRBuilder will resolve it.
+        expr = setPos(std::make_unique<IntegerLiteral>(0), bToken);
     } else if (peek().type == TokenType::IDENTIFIER && peek().value == "__builtin_expect") {
         // __builtin_expect(x, v) → evaluates to x (branch prediction hint, no-op)
         const Token& bToken = advance();
