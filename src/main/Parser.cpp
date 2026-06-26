@@ -139,15 +139,51 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                         std::string vName = expect(TokenType::IDENTIFIER, "Expected variable name after struct definition").value;
                         auto vDecl = std::make_unique<VariableDeclaration>(sType, vName, ptrLevel);
                         vDecl->isGlobal = true;
+                        // Array dimensions: struct S { } arr[2];
+                        while (match(TokenType::OPEN_SQUARE)) {
+                            if (match(TokenType::CLOSE_SQUARE)) {
+                                vDecl->arrayDims.push_back(0);
+                            } else {
+                                auto szExpr = parseExpression();
+                                int sz = 1;
+                                if (auto* lit = dynamic_cast<IntegerLiteral*>(szExpr.get())) sz = (int)lit->value;
+                                vDecl->arrayDims.push_back(sz);
+                                expect(TokenType::CLOSE_SQUARE, "Expected ']'");
+                            }
+                        }
                         if (match(TokenType::EQUALS)) {
                             if (peek().type == TokenType::OPEN_BRACE)
                                 vDecl->initializer = parseInitializerList();
                             else
                                 vDecl->initializer = parseExpression();
                         }
-                        expect(TokenType::SEMICOLON, "Expected ';'");
                         flushPending(*unit);
                         unit->topLevelDecls.push_back(std::move(vDecl));
+                        // Multi-variable: struct S { } a, b;
+                        while (match(TokenType::COMMA)) {
+                            while (tryParseAttribute()) {}
+                            int ep = 0;
+                            while (match(TokenType::STAR)) ep++;
+                            std::string en = expect(TokenType::IDENTIFIER, "Expected variable name").value;
+                            auto ev = std::make_unique<VariableDeclaration>(sType, en, ep);
+                            ev->isGlobal = true;
+                            while (match(TokenType::OPEN_SQUARE)) {
+                                if (match(TokenType::CLOSE_SQUARE)) ev->arrayDims.push_back(0);
+                                else {
+                                    auto se = parseExpression();
+                                    int ss = 1;
+                                    if (auto* lit = dynamic_cast<IntegerLiteral*>(se.get())) ss = (int)lit->value;
+                                    ev->arrayDims.push_back(ss);
+                                    expect(TokenType::CLOSE_SQUARE, "Expected ']'");
+                                }
+                            }
+                            if (match(TokenType::EQUALS)) {
+                                if (peek().type == TokenType::OPEN_BRACE) ev->initializer = parseInitializerList();
+                                else ev->initializer = parseExpression();
+                            }
+                            unit->topLevelDecls.push_back(std::move(ev));
+                        }
+                        expect(TokenType::SEMICOLON, "Expected ';'");
                     }
                     continue;
                 }
@@ -1025,10 +1061,68 @@ std::unique_ptr<Statement> Parser::parseStatement() {
                 advance();
                 return def;
             }
-            // struct Name { ... } var; — inline definition + variable in local scope
+            // struct Name { ... } var[N] = {...}; — inline definition + variable in local scope
+            std::string sType = (isUnion ? "union " : "struct ") + def->name;
             pendingDefinitions.push_back(std::move(def));
-            // Fall through to variable declaration parsing below
-            // (the struct type is now registered via pendingDefinitions)
+            while (tryParseAttribute()) {}
+            int ptrLevel = 0;
+            while (match(TokenType::STAR)) ptrLevel++;
+            std::string varName = expect(TokenType::IDENTIFIER, "Expected variable name after struct definition").value;
+            auto vDecl = std::make_unique<VariableDeclaration>(sType, varName, ptrLevel);
+            vDecl->isVolatile = isVolatile;
+            vDecl->isConst = isConst;
+            vDecl->isStatic = isStatic;
+            // Array dimensions
+            while (match(TokenType::OPEN_SQUARE)) {
+                if (match(TokenType::CLOSE_SQUARE)) {
+                    vDecl->arrayDims.push_back(0);
+                } else {
+                    auto szExpr = parseExpression();
+                    int sz = 1;
+                    if (auto* lit = dynamic_cast<IntegerLiteral*>(szExpr.get())) sz = (int)lit->value;
+                    vDecl->arrayDims.push_back(sz);
+                    expect(TokenType::CLOSE_SQUARE, "Expected ']'");
+                }
+            }
+            // Multi-variable: struct S { } a, b;
+            std::vector<std::unique_ptr<Statement>> extraVars;
+            while (match(TokenType::COMMA)) {
+                while (tryParseAttribute()) {}
+                int ep = 0;
+                while (match(TokenType::STAR)) ep++;
+                std::string en = expect(TokenType::IDENTIFIER, "Expected variable name").value;
+                auto ev = std::make_unique<VariableDeclaration>(sType, en, ep);
+                ev->isVolatile = isVolatile;
+                ev->isConst = isConst;
+                ev->isStatic = isStatic;
+                while (match(TokenType::OPEN_SQUARE)) {
+                    if (match(TokenType::CLOSE_SQUARE)) ev->arrayDims.push_back(0);
+                    else {
+                        auto se = parseExpression();
+                        int ss = 1;
+                        if (auto* lit = dynamic_cast<IntegerLiteral*>(se.get())) ss = (int)lit->value;
+                        ev->arrayDims.push_back(ss);
+                        expect(TokenType::CLOSE_SQUARE, "Expected ']'");
+                    }
+                }
+                if (match(TokenType::EQUALS)) {
+                    if (peek().type == TokenType::OPEN_BRACE) ev->initializer = parseInitializerList();
+                    else ev->initializer = parseExpression();
+                }
+                extraVars.push_back(std::move(ev));
+            }
+            if (match(TokenType::EQUALS)) {
+                if (peek().type == TokenType::OPEN_BRACE) vDecl->initializer = parseInitializerList();
+                else vDecl->initializer = parseExpression();
+            }
+            expect(TokenType::SEMICOLON, "Expected ';'");
+            if (extraVars.empty()) {
+                return vDecl;
+            }
+            auto compound = std::make_unique<CompoundStatement>();
+            compound->statements.push_back(std::move(vDecl));
+            for (auto& ev : extraVars) compound->statements.push_back(std::move(ev));
+            return compound;
         }
         return parseVariableDeclaration(isVolatile, isConst, isStatic, isRegister);
     }

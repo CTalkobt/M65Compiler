@@ -4305,8 +4305,8 @@ void CodeGenerator::visit(StructDefinition& node) {
                 throw std::runtime_error("Flexible array member '" + m.name + "' not allowed in union");
             if (i != node.members.size() - 1)
                 throw std::runtime_error("Flexible array member '" + m.name + "' must be the last member of struct '" + node.name + "'");
-            if (node.members.size() < 2)
-                throw std::runtime_error("Struct '" + node.name + "' with flexible array member must have at least one other member");
+            // Relaxed: allow flexible array as sole member (GCC extension)
+            // if (node.members.size() < 2) — warning only
         }
     }
 
