@@ -2,6 +2,88 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
+## [v1.0.3-dev] - 2026-06-27 — Development
+
+Major feature release: OOP system, operator overloading, GTE compatibility from 65.8% to 92.9%.
+
+### Object-Oriented Programming System
+
+- **Struct Methods**: Define methods inside struct bodies with implicit `this` pointer
+  ```c
+  struct Point { int x, y; int sum() { return this->x + this->y; } };
+  ```
+- **Single Inheritance**: `struct Dog : Animal { }` with parent member layout at offset 0
+- **Virtual Dispatch**: `virtual` keyword, vtable as global data, `__vt` pointer auto-initialized
+- **`final` Keyword**: Methods and structs — prevents override/inheritance, enables direct call
+- **Devirtualization**: Single-implementation vtable slots optimized to direct calls at compile time
+- **Auto-Inline Methods**: Methods ≤3 statements automatically inlined at call sites
+- **Final Struct Propagation**: All methods on `final` structs devirtualized
+- **Operator Overloading**: `operator+`, `operator*`, `operator==`, etc. for structs
+  - Binary: `+ - * / % == != < > <= >= << >> & | ^`
+  - Unary: `- ~ ! ++ --`
+  - Compound assignment: `+= -= *= /= %= &= |= ^= <<= >>=`
+
+### New Headers
+
+- **`<complex.h>`**: Integer complex number type via operator-overloaded struct (`_Complex_int`)
+
+### GTE Compatibility (316→446/480, 65.8%→92.9%)
+
+- **Nested Functions**: Closure conversion with static chain — all `nestfunc-*` tests pass
+- **32-bit Bitfields**: `long`-backed storage units, `bfext32`/`bfins32` simulated ops
+- **`__builtin_*` Aliases**: 22 GCC builtins mapped to stdlib (`__builtin_printf` → `printf`, etc.)
+- **`__builtin_offsetof`**: Parses `__builtin_offsetof(struct S, member)` with nested member/array support
+- **`sizeof(void *)`**: `void`, `const`, `volatile` types recognized in sizeof expressions
+- **Function Pointer Casts**: `(long (*)(int))expr` parsed correctly
+- **Array Cast Syntax**: `(int [])` and `(int [N])` in compound literal casts
+- **Comma Operator**: In parenthesized expressions AND statement-level (`i++, x--;`)
+- **Elvis Operator**: `expr ?: default` (GCC ternary shorthand)
+- **Computed Goto**: `&&label` (label address) and `goto *expr` (indirect jump)
+- **`__label__`**: Local label declarations parsed and skipped
+- **Implicit Int**: `static max;`, `unsigned d;`, `static inline f()` → implicit `int` type
+- **Array Parameters**: `int a[]`, `int *a[N]`, `int a[][M]` in function params (decay to pointer)
+- **Unnamed Function Pointer Params**: `int (*)(int, int)` in prototypes
+- **Unnamed Bitfields**: `int : 6;` (padding) in structs
+- **Type Order Flexibility**: `short unsigned int`, `long unsigned int` in params/typedefs/vars
+- **Typedef Function Pointer Arrays**: `typedef void (*frob)(); frob f[] = {abort};`
+- **String Literal Concatenation**: `"hello" " world"` → `"hello world"`
+- **Float Literal Truncation**: `0.0`, `1.5f` truncated to integer (no FPU)
+- **Enum Return Type**: `enum E foo(...)` at file scope
+- **Struct Def + Variable**: `struct S { } arr[2];` with array dims and multi-var comma at global and local scope
+- **Flexible Array Member**: Relaxed "must have at least one other member" check
+- **Function Pointer Struct Members**: `void (*p)();` in struct bodies
+- **K&R Function Support**: Stray `;` at top level, implicit int returns
+
+### Preprocessor Enhancements
+
+- **`__cc45__`**: Predefined compiler identification macro
+- **`__builtin_va_list`**: Predefined as `void *`
+- **GCC Keyword Synonyms**: `__volatile`, `__const`, `__inline`, `__restrict`, `__signed` as macros
+- **`#if(` without space**: `#if(__SIZEOF_INT__ >= 4)` now parsed correctly
+- **`__extension__`**: Skipped at top-level declaration context
+- **`va_arg`**: `const`/`volatile` qualifiers before type, `struct`/`union`/`enum`/`typeof` types
+
+### Assembler Fixes
+
+- **16-bit Branch Offsets**: All LBRA/LBCS/BSR use `PC+2+offset` per MEGA65 book (was `PC+3`)
+- **`bfext32`/`bfins32`**: 32-bit bitfield extraction/insertion simulated ops
+- **`.vtable_entry` Directive**: Metadata for future linker devirtualization
+- **Extern Label Resolution**: Labels can override earlier `.extern` declarations
+- **Global Dedup**: Extern declaration + definition → emit only the definition
+
+### Compiler Flags
+
+- **`-fset-bp=N`** / **`#pragma cc45 set_bp N`**: Set base page register in startup prologue
+
+### Bug Fixes
+
+- **neg.16 off-by-one**: Two's complement negation had `sec; adc #1` (adds ~val+2 instead of ~val+1). Fixed to `sec; adc #0`.
+- **Struct return frame allocation**: Deterministic vreg allocation order — named locals first (alphabetical), then temporaries. Fixed vregOffset_ vs alloc_ mismatch.
+- **Const-pointer increment**: `const char *p; p++` no longer falsely rejected as "read-only variable"
+- **Legacy validator false positives**: Unknown struct, dot/arrow non-struct, compound literal struct, const assignment made non-fatal
+
+---
+
 ## [v1.0.1] - 2026-06-01 — Release Notes
 
 Bug fix release addressing assembler code generation crashes and missing signed 32-bit math operations.

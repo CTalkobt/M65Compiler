@@ -1,7 +1,7 @@
 # MEGA65 C Compiler Suite — Codebase Documentation
 
-**Status:** v1.0.1 (release: 2026-06-01)
-**Last Updated:** 2026-05-31
+**Status:** v1.0.3-dev (branch: dev_v1.0.3)
+**Last Updated:** 2026-06-27
 **Maintainer:** Craig Taylor (CTalkobt)
 
 ---
@@ -146,31 +146,61 @@ make clean && make test  # Clean rebuild and test
 
 ## Language Features
 
-### Implemented (v1.0-rc3)
+### Implemented (v1.0.3-dev)
 
 - **Types**: `char`, `short`, `int`, `long`, `unsigned` variants, pointers, arrays, structs, unions, function pointers, `_Bool`
 - **Qualifiers**: `const`, `volatile`, `static` (all orderings), `register`, `extern`, `_Alignas`
-- **Declarations**: Function declarations, variable declarations, typedefs, type qualifiers in any order
-- **Initializers**: Scalar, aggregate, designated initializers (`{.x=1}`, `{[2]=3}`), flexible array members
-- **Operators**: All C arithmetic, logical, bitwise, comparison, ternary, cast, sizeof, `_Alignof`, `_Generic`
-- **Control Flow**: if/else, while, do-while, for, switch/case (with GCC range syntax `case A ... Z:`), break, continue, return, goto
+- **Declarations**: Function declarations, variable declarations, typedefs, type qualifiers in any order, implicit int (`static max;`, `unsigned d;`)
+- **Initializers**: Scalar, aggregate, designated initializers (`{.x=1}`, `{[2]=3}`), flexible array members, string literal concatenation
+- **Operators**: All C arithmetic, logical, bitwise, comparison, ternary, cast, sizeof, `_Alignof`, `_Generic`, comma operator, Elvis operator (`?:`)
+- **Control Flow**: if/else, while, do-while, for, switch/case (with GCC range syntax `case A ... Z:`), break, continue, return, goto, computed goto (`&&label`, `goto *expr`)
 - **Inline Assembly**: `asm("...")` and `__asm__("...")` with full variable access via naming prefixes
-- **Pragmas**: `#pragma once`, `#pragma cc45 <option>` (heap, no_bssinit, no_0100_stack, no_zp_save, exit_rts/halt/brk)
-- **Compound Literals**: `(int){42}`, `(struct Point){1,2}`, `(int[3]){1,2,3}`
-- **Bitfields**: `struct S { int x:4; unsigned y:4; }` with optimized TRB/TSB codegen
-- **Alignment**: `_Alignas(N)` for globals, locals, and struct members (Phase 1 complete, Phase 2 pending symbolic .fp references)
-- **Preprocessor**: Full C99 preprocessor support (cc45 -E or cp45 standalone)
-- **Inline Functions**: `inline` keyword triggers function body inlining at call sites (single-TU, ≤20 statements). Auto-inlining via `-finline-functions` flag for small functions even without `inline` keyword
-- **Loop Unrolling**: `repeat(N) { body }` compile-time loop unrolling with zero overhead. Optional loop variable via `repeat(type var, N)`
-- **Function Attributes**: `__interrupt`, `__naked`, `__regparm`, `__fastcall__` for specialized calling conventions and interrupt handlers
-- **Variadic Functions**: Full `<stdarg.h>` support (`va_list`, `va_start`, `va_arg`, `va_end`) with stack-convention argument passing
-- **DMA Intrinsics**: `__dma_copy(dst, src, len)` and `__dma_fill(dst, len, val)` builtin functions for MEGA65 F018B DMA (~40MB/s)
-- **CPU/Flag Intrinsics**: `__cpu.A/.X/.Y/.Z/.AX/.Q` and `__flags.Carry/.Zero/.Negative/.Overflow` for direct processor state access
+- **Pragmas**: `#pragma once`, `#pragma cc45 <option>` (heap, no_bssinit, no_0100_stack, no_zp_save, exit_rts/halt/brk, set_bp)
+- **Compound Literals**: `(int){42}`, `(struct Point){1,2}`, `(int[3]){1,2,3}`, `(int[]){...}` array casts
+- **Bitfields**: `struct S { int x:4; unsigned y:4; long z:24; }` with optimized TRB/TSB codegen, 32-bit storage units, unnamed bitfield padding
+- **Alignment**: `_Alignas(N)` for globals, locals, and struct members
+- **Preprocessor**: Full C99 preprocessor, `__cc45__` macro, `__builtin_va_list`, GCC keyword synonyms (`__volatile`, `__const`, `__inline`, `__restrict`, `__signed`)
+- **Inline Functions**: `inline` keyword, `-finline-functions` flag, auto-inline for trivial struct methods (≤3 statements)
+- **Loop Unrolling**: `repeat(N) { body }` compile-time loop unrolling
+- **Function Attributes**: `__interrupt`, `__naked`, `__regparm`, `__fastcall__`, `__attribute__` (parsed and skipped in all positions)
+- **Variadic Functions**: Full `<stdarg.h>` support with `struct`/`union`/`enum`/`typeof`/`const` types in `va_arg`
+- **DMA Intrinsics**: `__dma_copy(dst, src, len)` and `__dma_fill(dst, len, val)` for MEGA65 F018B DMA
+- **CPU/Flag Intrinsics**: `__cpu.A/.X/.Y/.Z/.AX/.Q` and `__flags.Carry/.Zero/.Negative/.Overflow`
+- **GCC Builtins**: `__builtin_printf`, `__builtin_abort`, `__builtin_strlen`, `__builtin_memcpy`, `__builtin_offsetof`, etc. (22 builtin→stdlib aliases)
+- **Nested Functions**: GCC extension with closure conversion, static chain, trampolines for function pointers
+- **Array Parameters**: `int a[]`, `int *a[N]`, `int a[][M]` in function parameters (decay to pointer)
 
-### Not Implemented (v1.0 Won't-Fix)
+### Object-Oriented Programming (v1.0.3)
+
+- **Struct Methods**: Functions defined inside struct bodies with hidden `this` pointer
+  ```c
+  struct Point {
+      int x, y;
+      int sum() { return this->x + this->y; }
+  };
+  int s = p.sum();  // → Point__sum(&p)
+  ```
+- **Single Inheritance**: `struct Dog : Animal { }` with parent layout at offset 0
+- **Virtual Dispatch**: `virtual` keyword, vtable as first member (`__vt`), indirect call through vtable
+- **`final` Keyword**: Prevents override (method) or inheritance (struct), enables direct call optimization
+- **Operator Overloading**: `operator+`, `operator*`, `operator==`, etc.
+  ```c
+  struct Vec2 {
+      int x, y;
+      struct Vec2 operator+(struct Vec2 o) { ... }
+      int operator==(struct Vec2 o) { ... }
+  };
+  struct Vec2 c = a + b;  // calls Vec2__operator_add(&a, b)
+  ```
+  Supported: binary (+,-,*,/,%,==,!=,<,>,<=,>=,<<,>>,&,|,^), unary (-,~,!,++,--), compound assignment (+=,-=,*=,/=,etc.)
+- **Devirtualization**: Compiler detects single-implementation vtable slots → direct call
+- **Auto-Inline**: Trivial methods (≤3 statements) inlined at call site; combined with `final`, zero overhead
+
+### Not Implemented
 
 - `float`, `double` (no FPU; software float is post-1.0)
-- `_Complex` type
+- `_Complex double/float` (integer complex via `<complex.h>` struct + operator overloading)
+- `long long` / `int64_t` (planned via `__int(N)` — see Issue #119)
 
 ## Standard Library
 
@@ -189,6 +219,7 @@ make clean && make test  # Clean rebuild and test
 - **`dma.h`**: `dma_copy`, `dma_fill` (MEGA65 F018B DMA controller macros)
 - **`mega65.h`**: Hardware register struct overlays — VIC-IV, SID x4, CIA x2, DMA, math accelerator, audio mixer, FDC, SD card, Ethernet, Hypervisor, `SCREEN_RAM`/`COLOUR_RAM`, `key_pressed()` + 66 `KEY_*` constants
 - **`time.h`**: `clock`, `time`, `difftime`, `CLOCKS_PER_SEC` (jiffy clock, 60Hz)
+- **`complex.h`**: `_Complex_int` struct with operator-overloaded arithmetic (`+`, `-`, `*`, `==`, `!=`)
 
 ### Calling Convention Support
 
@@ -410,6 +441,7 @@ Full documentation: `doc/disk45.md`
 - **MEGA65 Hardware**: https://github.com/MEGA65/mega65-core
 - **45GS02 CPU**: Extended 6502 with Q register (AXYZ) and 32-bit operations
 - **Test Coverage**: 176 assembler validation tests (Units 1-7), 55 segment emission tests, semantic/parser error tests
+- **GTE (GCC Torture Tests)**: 446/480 (92.9%) — comprehensive C language compatibility validation
 - **Standards**: C99 preprocessor, C89/C99 subset for language features
 
 ---
