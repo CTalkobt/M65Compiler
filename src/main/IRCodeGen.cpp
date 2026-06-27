@@ -2711,15 +2711,24 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         }
 
                         if (hasConst && arg.type == ir::Type::I32) {
-                            // I32: two phw for high word then low word (stack is big-endian push)
-                            emit("phw #" + std::to_string((constVal >> 16) & 0xFFFF));
-                            emit("phw #" + std::to_string(constVal & 0xFFFF));
+                            // I32: push high word then low word
+                            int hiWord = (constVal >> 16) & 0xFFFF;
+                            int loWord = constVal & 0xFFFF;
+                            emit("lda #" + std::to_string(hiWord & 0xFF));
+                            emit("ldx #" + std::to_string((hiWord >> 8) & 0xFF));
+                            emit("push .ax");
+                            emit("lda #" + std::to_string(loWord & 0xFF));
+                            emit("ldx #" + std::to_string((loWord >> 8) & 0xFF));
+                            emit("push .ax");
                         } else if (hasConst) {
-                            // phw #imm16: push 16-bit constant in 3 bytes
-                            emit("phw #" + std::to_string(constVal & 0xFFFF));
+                            // Push 16-bit constant via push .ax (little-endian on stack)
+                            emit("lda #" + std::to_string(constVal & 0xFF));
+                            emit("ldx #" + std::to_string((constVal >> 8) & 0xFF));
+                            emit("push .ax");
                         } else if (arg.kind == ir::OperandKind::GLOBAL && arg.type != ir::Type::I32) {
-                            // Global symbol — phw #symbol (linker resolves)
-                            emit("phw #" + arg.name);
+                            // Global symbol
+                            emit("ldax #" + arg.name);
+                            emit("push .ax");
                         } else {
                             // Complex operand — load and push
                             loadOperand(arg);
