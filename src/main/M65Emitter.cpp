@@ -784,7 +784,7 @@ void M65Emitter::sub_16_imm(uint16_t val) {
 
 void M65Emitter::neg_16() {
     if (mode == Mode::TEXT) emitText("neg.16");
-    else { eor_imm(0xFF); sec(); adc_imm(1); pha(); txa(); eor_imm(0xFF); adc_imm(0); tax(); pla(); }
+    else { eor_imm(0xFF); sec(); adc_imm(0); pha(); txa(); eor_imm(0xFF); adc_imm(0); tax(); pla(); }
 }
 void M65Emitter::not_16() {
     if (mode == Mode::TEXT) emitText("not.16");
