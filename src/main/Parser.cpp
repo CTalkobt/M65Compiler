@@ -1914,7 +1914,17 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
                 };
                 auto it = opNames.find(opSym);
                 if (it != opNames.end()) {
-                    origName = "operator_" + it->second;
+                    std::string baseName = it->second;
+                    // Distinguish unary from binary by parameter count
+                    // (before __this is added: 0 params = unary, 1+ params = binary)
+                    if (method->parameters.empty() && (opSym == "-" || opSym == "+" || opSym == "*" || opSym == "&")) {
+                        // Unary version of overloaded operator
+                        if (opSym == "-") baseName = "neg";
+                        else if (opSym == "+") baseName = "pos";
+                        else if (opSym == "*") baseName = "deref";
+                        else if (opSym == "&") baseName = "addr";
+                    }
+                    origName = "operator_" + baseName;
                     method->isOperator = true;
                 }
             }

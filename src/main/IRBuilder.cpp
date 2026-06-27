@@ -1257,6 +1257,50 @@ void IRBuilder::visit(VariableReference& node) {
 }
 
 void IRBuilder::visit(Assignment& node) {
+    // Compound assignment operator overload: a += b → a.operator_add_assign(b)
+    // Also plain assignment: a = b → a.operator_assign(b) if defined
+    if (node.op != "=") {
+        static const std::map<std::string, std::string> compoundOpNames = {
+            {"+=", "operator_add_assign"}, {"-=", "operator_sub_assign"},
+            {"*=", "operator_mul_assign"}, {"/=", "operator_div_assign"},
+            {"%=", "operator_mod_assign"},
+            {"&=", "operator_band_assign"}, {"|=", "operator_bor_assign"},
+            {"^=", "operator_bxor_assign"},
+            {"<<=", "operator_shl_assign"}, {">>=", "operator_shr_assign"},
+        };
+        auto opIt = compoundOpNames.find(node.op);
+        if (opIt != compoundOpNames.end()) {
+            IRTypeInfo lhsInfo = getExprTypeInfo(node.target.get());
+            std::string sName = getAggregateName(lhsInfo.typeName);
+            std::string mangledName = sName + "__" + opIt->second;
+            if (!sName.empty() && functionReturnTypes_.count(mangledName)) {
+                bool oldAddrMode = computeAddressOnly_;
+                computeAddressOnly_ = true;
+                node.target->accept(*this);
+                computeAddressOnly_ = oldAddrMode;
+                auto thisPtr = lastValue_;
+
+                node.expression->accept(*this);
+                auto rhs = lastValue_;
+
+                std::vector<ir::Operand> args = {thisPtr, rhs};
+                ir::Inst inst;
+                inst.args = args;
+                inst.loc = loc(node);
+                inst.callConv = ir::CallConv::STACK;
+                inst.op = ir::Op::CALL;
+                inst.src1 = ir::Operand::global("_" + mangledName);
+                auto retType = functionReturnTypes_[mangledName];
+                auto dest = allocVreg(retType);
+                inst.dest = dest;
+                inst.resultType = retType;
+                emit(inst);
+                lastValue_ = dest;
+                return;
+            }
+        }
+    }
+
     // 1. Semantic checks for constness
     if (auto* ma = dynamic_cast<MemberAccess*>(node.target.get())) {
         for (const auto& [sname, sinfo] : structs_) {
@@ -1768,6 +1812,44 @@ void IRBuilder::visit(BinaryOperation& node) {
 }
 
 void IRBuilder::visit(UnaryOperation& node) {
+    // Unary operator overload check
+    {
+        static const std::map<std::string, std::string> unaryOpNames = {
+            {"-", "operator_neg"}, {"~", "operator_bnot"}, {"!", "operator_lnot"},
+            {"++", "operator_inc"}, {"--", "operator_dec"},
+            {"++_POST", "operator_inc_post"}, {"--_POST", "operator_dec_post"},
+        };
+        auto opIt = unaryOpNames.find(node.op);
+        if (opIt != unaryOpNames.end()) {
+            IRTypeInfo opInfo = getExprTypeInfo(node.operand.get());
+            std::string sName = getAggregateName(opInfo.typeName);
+            std::string mangledName = sName + "__" + opIt->second;
+            if (!sName.empty() && functionReturnTypes_.count(mangledName)) {
+                // Rewrite: -a → StructName__operator_neg(&a)
+                bool oldAddrMode = computeAddressOnly_;
+                computeAddressOnly_ = true;
+                node.operand->accept(*this);
+                computeAddressOnly_ = oldAddrMode;
+                auto thisPtr = lastValue_;
+
+                std::vector<ir::Operand> args = {thisPtr};
+                ir::Inst inst;
+                inst.args = args;
+                inst.loc = loc(node);
+                inst.callConv = ir::CallConv::STACK;
+                inst.op = ir::Op::CALL;
+                inst.src1 = ir::Operand::global("_" + mangledName);
+                auto retType = functionReturnTypes_[mangledName];
+                auto dest = allocVreg(retType);
+                inst.dest = dest;
+                inst.resultType = retType;
+                emit(inst);
+                lastValue_ = dest;
+                return;
+            }
+        }
+    }
+
     node.operand->accept(*this);
     auto src = lastValue_;
 
