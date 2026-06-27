@@ -19,3 +19,13 @@ man/
 
 o_examples/
 .plan/
+DOCKER_BUILD_COMPLETE.md
+
+bin/ar45
+bin/ca45
+bin/cc45
+bin/cp45
+bin/disk45
+bin/ln45
+bin/nm45
+bin/objdump45

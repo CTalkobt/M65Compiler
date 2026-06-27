@@ -33,7 +33,7 @@ LIBDIR ?= $(PREFIX)/lib/cc45
 INCDIR ?= $(PREFIX)/include/cc45
 MANDIR ?= $(PREFIX)/share/man/man1
 
-.PHONY: all clean test man test-mmemu test-stdlib test-regression test-zpcall test-integration bench bench-save lib install install_local uninstall cppcheck coverage coverage-build coverage-clean coverage-report
+.PHONY: all clean test man test-mmemu test-stdlib test-regression test-zpcall test-integration bench bench-save lib install install_local uninstall cppcheck coverage coverage-build coverage-clean coverage-report docker
 
 cppcheck:
 	cppcheck --enable=warning,performance,portability --inline-suppr -I include/ src/main/
@@ -509,6 +509,15 @@ install: all lib
 
 install_local:
 	@$(MAKE) install PREFIX=$(HOME)/.local
+
+docker:
+	@echo "Building Docker image..."
+	@docker build -f src/Docker/Dockerfile -t mega65-cc45:latest .
+	@mkdir -p $(BIN_DIR)
+	@echo "Exporting Docker image to $(BIN_DIR)..."
+	@docker save mega65-cc45:latest -o $(BIN_DIR)/mega65-cc45.tar
+	@echo "✓ Docker image exported to $(BIN_DIR)/mega65-cc45.tar"
+	@ls -lh $(BIN_DIR)/mega65-cc45.tar
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/cc45 $(DESTDIR)$(BINDIR)/ca45 $(DESTDIR)$(BINDIR)/cp45
