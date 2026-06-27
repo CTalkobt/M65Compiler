@@ -434,11 +434,12 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         return ss.str();
     };
 
-    emit(".global __static_chain");
-    emit(".global __zp_scratch");
-    emit(".global __zp_scratch2");
-    emit(".global __zp_scratch3");
-    emit(".global __zp_scratch4");
+    std::string symDir = relocMode ? ".weak" : ".global";
+    emit(symDir + " __static_chain");
+    emit(symDir + " __zp_scratch");
+    emit(symDir + " __zp_scratch2");
+    emit(symDir + " __zp_scratch3");
+    emit(symDir + " __zp_scratch4");
     emit("__static_chain = " + hex8(zeroPageStart_ - 2));
     emit("__zp_scratch = " + hex8(zeroPageStart_));
     emit("__zp_scratch2 = " + hex8(zeroPageStart_ + 2));

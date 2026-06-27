@@ -819,6 +819,11 @@ void IRBuilder::visit(VariableDeclaration& node) {
     ir::Type t = mapType(node.type, node.pointerLevel);
 
     if (!currentFunc_) {
+        // Extern declaration: add to externs list, no BSS allocation
+        if (node.isExtern) {
+            module_.externs.push_back("_" + node.name);
+            return;
+        }
         // Global variable
         ir::Module::GlobalVar gv;
         gv.name = "_" + node.name;
