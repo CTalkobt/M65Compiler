@@ -1,7 +1,7 @@
-/* math.h — Integer math functions for cc45 / MEGA65
+/* math.h — Math functions for cc45 / MEGA65
  *
- * No floating-point support (no FPU on 45GS02).
- * Provides integer abs, labs, div, ldiv.
+ * Integer: abs, labs, div, ldiv, min, max, gcd, lcm
+ * Float: sin, cos, tan, atan, log, exp, sqrt, fabs (CBM 40-bit via ROM)
  */
 
 #pragma once
@@ -34,5 +34,22 @@ int max(int a, int b);
 int gcd(int a, int b);
 int lcm(int a, int b);
 
-/* TODO: future software-float functions (sqrt, sin, cos, etc.)
- * would go here with optional EDOM validation via errno */
+/* Floating-point math functions (CBM 40-bit float via BASIC 65 ROM) */
+float sinf(float x);
+float cosf(float x);
+float tanf(float x);
+float atanf(float x);
+float logf(float x);
+float expf(float x);
+float sqrtf(float x);
+float fabsf(float x);
+
+/* C89/C99 double aliases (downgraded to float on this target) */
+#define sin(x)   sinf(x)
+#define cos(x)   cosf(x)
+#define tan(x)   tanf(x)
+#define atan(x)  atanf(x)
+#define log(x)   logf(x)
+#define exp(x)   expf(x)
+#define sqrt(x)  sqrtf(x)
+#define fabs(x)  fabsf(x)

@@ -2091,6 +2091,32 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             // instead of computing the ADD result as a separate address
             // (Deferred — needs instruction lookaback which is complex in current codegen)
 
+            if (inst.resultType == ir::Type::F32 && inst.dest.isVreg()) {
+                // 5-byte float load: copy to dest vreg ZP
+                auto dAlloc = alloc_.getAlloc(inst.dest.vregId);
+                std::string da = "$" + hex8((uint8_t)dAlloc.offset);
+                if (inst.src1.kind == ir::OperandKind::GLOBAL) {
+                    for (int i = 0; i < 5; i++) {
+                        emit("lda " + inst.src1.name + "+" + std::to_string(i));
+                        emit("sta " + da + "+" + std::to_string(i));
+                    }
+                } else {
+                    // Indirect load via (ZP),Y
+                    std::string zpPair;
+                    if (inst.src1.isVreg()) {
+                        auto addrAlloc = alloc_.getAlloc(inst.src1.vregId);
+                        if (addrAlloc.loc == VRegAllocator::IN_ZP)
+                            zpPair = "$" + hex8((uint8_t)addrAlloc.offset);
+                        else { loadVreg(inst.src1.vregId); emit("sta __zp_scratch"); emit("stx __zp_scratch+1"); zpPair = "__zp_scratch"; }
+                    } else { loadOperand(inst.src1); emit("sta __zp_scratch"); emit("stx __zp_scratch+1"); zpPair = "__zp_scratch"; }
+                    for (int i = 0; i < 5; i++) {
+                        emit("ldy #" + std::to_string(i));
+                        emit("lda (" + zpPair + "),y");
+                        emit("sta " + da + "+" + std::to_string(i));
+                    }
+                }
+                break;
+            }
             if (inst.src1.kind == ir::OperandKind::GLOBAL) {
                 // Load directly from global address
                 emit("lda " + inst.src1.name);
@@ -2159,6 +2185,30 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
         case ir::Op::STORE: {
             std::string storeR = irDesc(inst.src2.kind == ir::OperandKind::GLOBAL ? "→ " + inst.src2.name : "");
+            if (inst.resultType == ir::Type::F32 && inst.src1.isVreg()) {
+                // 5-byte float store from src1 vreg ZP to dest address
+                auto sAlloc = alloc_.getAlloc(inst.src1.vregId);
+                std::string sa = "$" + hex8((uint8_t)sAlloc.offset);
+                if (inst.src2.kind == ir::OperandKind::GLOBAL) {
+                    for (int i = 0; i < 5; i++) {
+                        emit("lda " + sa + "+" + std::to_string(i));
+                        emit("sta " + inst.src2.name + "+" + std::to_string(i));
+                    }
+                } else if (inst.src2.isVreg()) {
+                    // Indirect store via (ZP),Y
+                    std::string zpPair;
+                    auto addrAlloc = alloc_.getAlloc(inst.src2.vregId);
+                    if (addrAlloc.loc == VRegAllocator::IN_ZP)
+                        zpPair = "$" + hex8((uint8_t)addrAlloc.offset);
+                    else { loadVreg(inst.src2.vregId); emit("sta __zp_scratch"); emit("stx __zp_scratch+1"); zpPair = "__zp_scratch"; }
+                    for (int i = 0; i < 5; i++) {
+                        emit("ldy #" + std::to_string(i));
+                        emit("lda " + sa + "+" + std::to_string(i));
+                        emit("sta (" + zpPair + "),y");
+                    }
+                }
+                break;
+            }
             if (inst.src2.kind == ir::OperandKind::GLOBAL) {
                 // Store directly to global address
                 if (inst.resultType == ir::Type::I8 && inst.src1.isVreg()) {
