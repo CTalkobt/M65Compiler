@@ -35,6 +35,8 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
     while (peek().type != TokenType::END_OF_FILE) {
         // Skip __extension__ at top level (GCC compatibility)
         while (match(TokenType::EXTENSION)) {}
+        // Skip stray semicolons at top level (e.g., }; after function)
+        if (match(TokenType::SEMICOLON)) continue;
         if (match(TokenType::TYPEDEF)) {
             parseTypedef();
             continue;
@@ -975,6 +977,9 @@ std::unique_ptr<CompoundStatement> Parser::parseCompoundStatement() {
 }
 
 std::unique_ptr<Statement> Parser::parseStatement() {
+    // Skip __attribute__ at statement level (e.g., before nested functions)
+    while (tryParseAttribute()) {}
+
     if (match(TokenType::SEMICOLON)) {
         return setPos(std::make_unique<CompoundStatement>(), tokens[pos-1]); // Null statement
     }
@@ -2012,6 +2017,41 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             continue;
         }
 
+        // Function pointer member: type (*name)(params);
+        if (peek().type == TokenType::OPEN_PAREN && pos + 1 < tokens.size() && tokens[pos+1].type == TokenType::STAR) {
+            advance(); // (
+            advance(); // *
+            std::string fpName = expect(TokenType::IDENTIFIER, "Expected function pointer member name").value;
+            // Skip array dims on fp name: void (*p[N])()
+            while (match(TokenType::OPEN_SQUARE)) {
+                int depth = 1;
+                while (depth > 0 && peek().type != TokenType::END_OF_FILE) {
+                    if (match(TokenType::OPEN_SQUARE)) depth++;
+                    else if (peek().type == TokenType::CLOSE_SQUARE) { depth--; if (depth > 0) advance(); }
+                    else advance();
+                }
+                expect(TokenType::CLOSE_SQUARE, "Expected ']'");
+            }
+            expect(TokenType::CLOSE_PAREN, "Expected ')' after function pointer name");
+            // Skip parameter list
+            if (match(TokenType::OPEN_PAREN)) {
+                int depth = 1;
+                while (depth > 0 && peek().type != TokenType::END_OF_FILE) {
+                    if (match(TokenType::OPEN_PAREN)) depth++;
+                    else if (peek().type == TokenType::CLOSE_PAREN) { depth--; if (depth > 0) advance(); }
+                    else advance();
+                }
+                expect(TokenType::CLOSE_PAREN, "Expected ')' after function pointer params");
+            }
+            while (tryParseAttribute()) {}
+            StructMember sm;
+            sm.type = "void"; sm.pointerLevel = 1; sm.isSigned = false;
+            sm.name = fpName;
+            def->members.push_back(std::move(sm));
+            expect(TokenType::SEMICOLON, "Expected ';'");
+            continue;
+        }
+
         std::string memberName = expect(TokenType::IDENTIFIER, "Expected member name").value;
         std::vector<int> memberArrayDims;
         bool isFlexArray = false;
@@ -2435,6 +2475,17 @@ std::unique_ptr<Expression> Parser::parseUnary() {
             while (match(TokenType::STAR)) castPtrLevel++;
             // Skip qualifiers after stars (e.g., char * const)
             while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT)) {}
+
+            // Array cast: (int []) or (int [N]) — array compound literal
+            while (peek().type == TokenType::OPEN_SQUARE) {
+                advance(); // [
+                if (peek().type != TokenType::CLOSE_SQUARE) {
+                    // Skip size expression
+                    while (peek().type != TokenType::CLOSE_SQUARE && peek().type != TokenType::END_OF_FILE) advance();
+                }
+                expect(TokenType::CLOSE_SQUARE, "Expected ']' in array cast");
+                castPtrLevel++; // array decays to pointer
+            }
 
             // Function pointer cast: (return_type (*)(params))
             if (peek().type == TokenType::OPEN_PAREN && pos + 1 < tokens.size() && tokens[pos+1].type == TokenType::STAR) {

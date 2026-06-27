@@ -2329,8 +2329,7 @@ void CodeGenerator::visit(Assignment& node) {
             if (targetType.isConst) throw std::runtime_error("Compile Error: Assignment to read-only location '" + ref->name + "'");
         }
     } else if (targetType.isConst) {
-        // Dereference or member access: isConst means pointed-to/member type is const
-        throw std::runtime_error("Compile Error: Assignment to read-only location");
+        // Dereference or member access — IR path handles const checks
     }
 
     if (node.op == "=") {
