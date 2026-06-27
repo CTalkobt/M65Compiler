@@ -453,6 +453,7 @@ public:
     std::string methodStructName; // "Point" for struct Point methods
     bool isVirtual = false;       // Phase 3: virtual method (dispatched via vtable)
     bool isFinal = false;         // Phase 4: method cannot be overridden → direct call
+    bool isOperator = false;      // Operator overload method
     int vtableSlot = -1;          // Phase 3: slot index in vtable (-1 = not virtual)
 
     FunctionDeclaration(const std::string& n, const std::string& rt) : name(n), returnType(rt) {}

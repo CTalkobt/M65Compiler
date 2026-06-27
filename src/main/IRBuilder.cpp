@@ -1549,10 +1549,53 @@ void IRBuilder::visit(BinaryOperation& node) {
     // Comma operator: evaluate left for side effects, discard, return right
     if (node.op == ",") {
         node.left->accept(*this);
-        // Discard left result
         node.right->accept(*this);
-        // lastValue_ is now the right-hand result
         return;
+    }
+
+    // Operator overload check: if LHS is a struct with an operator method
+    {
+        static const std::map<std::string, std::string> opMethodNames = {
+            {"+", "operator_add"}, {"-", "operator_sub"}, {"*", "operator_mul"},
+            {"/", "operator_div"}, {"%", "operator_mod"},
+            {"==", "operator_eq"}, {"!=", "operator_ne"},
+            {"<", "operator_lt"}, {">", "operator_gt"},
+            {"<=", "operator_le"}, {">=", "operator_ge"},
+            {"<<", "operator_shl"}, {">>", "operator_shr"},
+            {"&", "operator_band"}, {"|", "operator_bor"}, {"^", "operator_bxor"},
+        };
+        auto opIt = opMethodNames.find(node.op);
+        if (opIt != opMethodNames.end()) {
+            IRTypeInfo lhsInfo = getExprTypeInfo(node.left.get());
+            std::string sName = getAggregateName(lhsInfo.typeName);
+            std::string mangledName = sName + "__" + opIt->second;
+            if (!sName.empty() && functionReturnTypes_.count(mangledName)) {
+                // Rewrite: a + b → StructName__operator_add(&a, b)
+                bool oldAddrMode = computeAddressOnly_;
+                computeAddressOnly_ = true;
+                node.left->accept(*this);
+                computeAddressOnly_ = oldAddrMode;
+                auto thisPtr = lastValue_;
+
+                node.right->accept(*this);
+                auto rhs = lastValue_;
+
+                std::vector<ir::Operand> args = {thisPtr, rhs};
+                ir::Inst inst;
+                inst.args = args;
+                inst.loc = loc(node);
+                inst.callConv = ir::CallConv::STACK;
+                inst.op = ir::Op::CALL;
+                inst.src1 = ir::Operand::global("_" + mangledName);
+                auto retType = functionReturnTypes_[mangledName];
+                auto dest = allocVreg(retType);
+                inst.dest = dest;
+                inst.resultType = retType;
+                emit(inst);
+                lastValue_ = dest;
+                return;
+            }
+        }
     }
 
     // Short-circuit evaluation for && and ||

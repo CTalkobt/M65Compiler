@@ -651,7 +651,41 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         break;
     }
 
-    std::string name = expect(TokenType::IDENTIFIER, "Expected function name").value;
+    std::string name;
+    if (peek().type == TokenType::IDENTIFIER && peek().value == "operator") {
+        advance(); // consume 'operator'
+        // Collect operator symbol tokens
+        std::string opSym;
+        if (match(TokenType::PLUS)) opSym = "+";
+        else if (match(TokenType::MINUS)) opSym = "-";
+        else if (match(TokenType::STAR)) opSym = "*";
+        else if (match(TokenType::SLASH)) opSym = "/";
+        else if (match(TokenType::PERCENT)) opSym = "%";
+        else if (match(TokenType::EQUALS_EQUALS)) opSym = "==";
+        else if (match(TokenType::NOT_EQUALS)) opSym = "!=";
+        else if (match(TokenType::LESS_THAN)) opSym = "<";
+        else if (match(TokenType::GREATER_THAN)) opSym = ">";
+        else if (match(TokenType::LESS_EQUAL)) opSym = "<=";
+        else if (match(TokenType::GREATER_EQUAL)) opSym = ">=";
+        else if (match(TokenType::LSHIFT)) opSym = "<<";
+        else if (match(TokenType::RSHIFT)) opSym = ">>";
+        else if (match(TokenType::AMPERSAND)) opSym = "&";
+        else if (match(TokenType::PIPE)) opSym = "|";
+        else if (match(TokenType::CARET)) opSym = "^";
+        else if (match(TokenType::TILDE)) opSym = "~";
+        else if (match(TokenType::BANG)) opSym = "!";
+        else if (match(TokenType::PLUS_PLUS)) opSym = "++";
+        else if (match(TokenType::MINUS_MINUS)) opSym = "--";
+        else if (match(TokenType::EQUALS)) opSym = "=";
+        else if (match(TokenType::PLUS_EQUALS)) opSym = "+=";
+        else if (match(TokenType::MINUS_EQUALS)) opSym = "-=";
+        else if (match(TokenType::STAR_EQUALS)) opSym = "*=";
+        else if (match(TokenType::SLASH_EQUALS)) opSym = "/=";
+        else opSym = expect(TokenType::IDENTIFIER, "Expected operator symbol").value;
+        name = "operator" + opSym;
+    } else {
+        name = expect(TokenType::IDENTIFIER, "Expected function name").value;
+    }
 
     expect(TokenType::OPEN_PAREN, "Expected '('");
     std::vector<Parameter> params;
@@ -1864,6 +1898,26 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             method->isVirtual = methodIsVirtual;
             // Mangle name: StructName__methodName
             std::string origName = method->name;
+            // Check for operator method: name starts with "operator"
+            if (origName.rfind("operator", 0) == 0 && origName.length() > 8) {
+                // Extract operator symbol and create canonical name
+                std::string opSym = origName.substr(8);
+                // Map operator symbol to canonical name
+                static const std::map<std::string, std::string> opNames = {
+                    {"+", "add"}, {"-", "sub"}, {"*", "mul"}, {"/", "div"}, {"%", "mod"},
+                    {"==", "eq"}, {"!=", "ne"}, {"<", "lt"}, {">", "gt"},
+                    {"<=", "le"}, {">=", "ge"}, {"<<", "shl"}, {">>", "shr"},
+                    {"&", "band"}, {"|", "bor"}, {"^", "bxor"}, {"~", "bnot"},
+                    {"!", "lnot"}, {"++", "inc"}, {"--", "dec"}, {"=", "assign"},
+                    {"+=", "add_assign"}, {"-=", "sub_assign"}, {"*=", "mul_assign"},
+                    {"/=", "div_assign"},
+                };
+                auto it = opNames.find(opSym);
+                if (it != opNames.end()) {
+                    origName = "operator_" + it->second;
+                    method->isOperator = true;
+                }
+            }
             method->name = name + "__" + origName;
             method->isMethod = true;
             method->methodStructName = name;
@@ -3298,9 +3352,19 @@ bool Parser::isFunctionDeclaration() {
         }
         
         // Check for identifier followed by (
-        if (look + 1 < tokens.size() && tokens[look].type == TokenType::IDENTIFIER && 
+        if (look + 1 < tokens.size() && tokens[look].type == TokenType::IDENTIFIER &&
             tokens[look+1].type == TokenType::OPEN_PAREN) {
             return true;
+        }
+        // Check for operator method: type operator+(...)
+        if (look + 2 < tokens.size() && tokens[look].type == TokenType::IDENTIFIER &&
+            tokens[look].value == "operator") {
+            // Skip the operator symbol token(s), then check for (
+            size_t opLook = look + 1;
+            // Skip 1-2 operator tokens
+            if (opLook < tokens.size() && tokens[opLook].type != TokenType::OPEN_PAREN) opLook++;
+            if (opLook < tokens.size() && tokens[opLook].type != TokenType::OPEN_PAREN) opLook++;
+            if (opLook < tokens.size() && tokens[opLook].type == TokenType::OPEN_PAREN) return true;
         }
     }
     return false;
