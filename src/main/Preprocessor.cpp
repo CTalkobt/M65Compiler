@@ -154,12 +154,21 @@ std::string Preprocessor::expandMacros(const std::string& line) {
                             std::vector<std::string> args;
                             std::string currentArg;
                             int parenDepth = 0;
+                            bool inString = false;
+                            char strChar = 0;
                             while (peek < result.length()) {
-                                if (result[peek] == '(') parenDepth++;
-                                else if (result[peek] == ')') {
+                                char ch = result[peek];
+                                // Track string/char literal state
+                                if (!inString && (ch == '"' || ch == '\'')) {
+                                    inString = true; strChar = ch;
+                                } else if (inString && ch == strChar && (peek == 0 || result[peek-1] != '\\')) {
+                                    inString = false;
+                                }
+                                if (!inString && ch == '(') parenDepth++;
+                                else if (!inString && ch == ')') {
                                     if (parenDepth == 0) { peek++; break; }
                                     parenDepth--;
-                                } else if (result[peek] == ',' && parenDepth == 0) {
+                                } else if (!inString && ch == ',' && parenDepth == 0) {
                                     if (!m.isVariadic || args.size() < m.params.size()) {
                                         args.push_back(trim(currentArg));
                                         currentArg = "";
