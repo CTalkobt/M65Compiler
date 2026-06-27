@@ -72,7 +72,25 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
         }
 
         if (peek().type == TokenType::FLOAT || peek().type == TokenType::DOUBLE) {
-            throw std::runtime_error("'" + peek().value + "' type is not yet implemented (no FPU; use fixed-point integer arithmetic)");
+            // Float/double: handled as CBM 40-bit float via BASIC 65 ROM
+            // double is downgraded to float with a warning
+            if (peek().type == TokenType::DOUBLE) {
+                std::cerr << peek().line << ": warning: 'double' downgraded to 'float' (CBM 40-bit); double precision not supported" << std::endl;
+            }
+            // Treat as function or variable declaration
+            if (isFunctionDeclaration()) {
+                auto decl = parseFunctionDeclaration();
+                flushPending(*unit);
+                unit->topLevelDecls.push_back(std::move(decl));
+            } else {
+                auto decl = parseVariableDeclaration(false, false);
+                if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
+                    vd->isGlobal = true;
+                }
+                flushPending(*unit);
+                unit->topLevelDecls.push_back(std::move(decl));
+            }
+            continue;
         }
 
         if (peek().type == TokenType::STRUCT || peek().type == TokenType::UNION || peek().type == TokenType::ENUM) {
@@ -333,6 +351,8 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                                      tokens[look].type == TokenType::LONG ||
                                      tokens[look].type == TokenType::CHAR ||
                                      tokens[look].type == TokenType::BOOL ||
+                                     tokens[look].type == TokenType::FLOAT ||
+                                     tokens[look].type == TokenType::DOUBLE ||
                                      tokens[look].type == TokenType::UNSIGNED ||
                                      tokens[look].type == TokenType::SIGNED ||
                                      tokens[look].type == TokenType::VOID ||
@@ -621,8 +641,10 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         isSigned = typedefs[alias].isSigned;
         basePtrLevel = typedefs[alias].pointerLevel;
     }
-    else if (peek().type == TokenType::FLOAT || peek().type == TokenType::DOUBLE) {
-        throw std::runtime_error("'" + peek().value + "' type is not yet implemented (no FPU; use fixed-point integer arithmetic)");
+    else if (match(TokenType::FLOAT)) { returnType = "float"; }
+    else if (match(TokenType::DOUBLE)) {
+        returnType = "float"; // double downgraded to float
+        std::cerr << tokens[pos-1].line << ": warning: 'double' downgraded to 'float' (CBM 40-bit)" << std::endl;
     }
     else if (peek().type == TokenType::IDENTIFIER) {
         // C89 implicit int: function declared without return type defaults to int
@@ -738,6 +760,8 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             } else if (match(TokenType::INT)) pType = "int";
             else if (match(TokenType::CHAR)) pType = "char";
             else if (match(TokenType::BOOL)) pType = "_Bool";
+            else if (match(TokenType::FLOAT)) pType = "float";
+            else if (match(TokenType::DOUBLE)) { pType = "float"; std::cerr << tokens[pos-1].line << ": warning: 'double' downgraded to 'float'" << std::endl; }
             else if (match(TokenType::VOID)) pType = "void";
             else if (match(TokenType::STRUCT) || match(TokenType::UNION) || match(TokenType::ENUM)) {
                 bool isU = tokens[pos-1].type == TokenType::UNION;
@@ -1075,8 +1099,10 @@ std::unique_ptr<Statement> Parser::parseStatement() {
         } else if (match(TokenType::FASTCALL)) {
             // consumed; handled at function declaration level
         } else if (peek().type == TokenType::FLOAT || peek().type == TokenType::DOUBLE) {
-            std::string ft = peek().value;
-            throw std::runtime_error("'" + ft + "' type is not yet implemented (no FPU; use fixed-point integer arithmetic)");
+            if (peek().type == TokenType::DOUBLE) {
+                std::cerr << peek().line << ": warning: 'double' downgraded to 'float' (CBM 40-bit)" << std::endl;
+            }
+            break; // fall through to variable/function declaration handling
         } else {
             break;
         }
@@ -1201,6 +1227,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
     if (peek().type == TokenType::ALIGNAS || peek().type == TokenType::INT || peek().type == TokenType::SHORT || peek().type == TokenType::LONG || peek().type == TokenType::CHAR || peek().type == TokenType::BOOL ||
         peek().type == TokenType::VOID || peek().type == TokenType::TYPEOF ||
         peek().type == TokenType::UNSIGNED || peek().type == TokenType::SIGNED ||
+        peek().type == TokenType::FLOAT || peek().type == TokenType::DOUBLE ||
         (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value))) {
         if (isFunctionDeclaration()) {
             return parseFunctionDeclaration();
@@ -1524,6 +1551,11 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     } else if (match(TokenType::INT)) type = "int";
     else if (match(TokenType::CHAR)) type = "char";
     else if (match(TokenType::BOOL)) type = "_Bool";
+    else if (match(TokenType::FLOAT)) type = "float";
+    else if (match(TokenType::DOUBLE)) {
+        type = "float"; // double downgraded to float
+        std::cerr << tokens[pos-1].line << ": warning: 'double' downgraded to 'float' (CBM 40-bit)" << std::endl;
+    }
     else if (match(TokenType::VOID)) type = "void";
     else if (match(TokenType::TYPEOF)) {
         // typeof(expr) or typeof(type) — resolve to type name
@@ -3331,6 +3363,7 @@ bool Parser::isFunctionDeclaration() {
     TokenType t = tokens[look].type;
     if (t == TokenType::INT || t == TokenType::CHAR || t == TokenType::LONG ||
         t == TokenType::SHORT || t == TokenType::VOID || t == TokenType::BOOL ||
+        t == TokenType::FLOAT || t == TokenType::DOUBLE ||
         t == TokenType::STRUCT || t == TokenType::UNION || t == TokenType::ENUM ||
         (t == TokenType::IDENTIFIER && isTypedef(tokens[look].value))) {
         

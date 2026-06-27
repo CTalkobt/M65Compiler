@@ -25,6 +25,7 @@ enum class Type : uint8_t {
     I16,
     I32,
     PTR,
+    F32,    // CBM 40-bit float (5 bytes: exponent + 4-byte mantissa)
 };
 
 inline int typeSize(Type t) {
@@ -34,6 +35,7 @@ inline int typeSize(Type t) {
         case Type::I16:  return 2;
         case Type::I32:  return 4;
         case Type::PTR:  return 2;
+        case Type::F32:  return 5; // CBM 40-bit float
     }
     return 0;
 }
@@ -99,6 +101,17 @@ enum class Op : uint8_t {
     PHI,            // %d = phi [<val1>, <label1>], [<val2>, <label2>], ...
     GET_FP,         // %d = get_fp
     NOP,
+
+    // Float operations (CBM ROM via MAP)
+    FADD,           // %d = fadd %a, %b
+    FSUB,           // %d = fsub %a, %b
+    FMUL,           // %d = fmul %a, %b
+    FDIV,           // %d = fdiv %a, %b
+    FCMP,           // %d = fcmp %a, %b  (returns -1, 0, 1)
+    FNEG,           // %d = fneg %a
+    FTOI,           // %d = ftoi %a  (float → int)
+    ITOF,           // %d = itof %a  (int → float)
+    FCONST,         // %d = fconst <5-byte CBM float>
 };
 
 // ============================================================================

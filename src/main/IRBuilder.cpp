@@ -232,6 +232,7 @@ ir::Type IRBuilder::mapType(const std::string& typeName, int ptrLevel) {
     if (ptrLevel > 0) return ir::Type::PTR;
     if (typeName == "char" || typeName == "unsigned char") return ir::Type::I8;
     if (typeName == "long" || typeName == "unsigned long") return ir::Type::I32;
+    if (typeName == "float" || typeName == "double") return ir::Type::F32;
     if (typeName == "void") return ir::Type::VOID;
     
     // Check for 4-byte structs/unions
@@ -247,7 +248,8 @@ int IRBuilder::getTypeSize(const std::string& typeName, int ptrLevel) {
         typeName == "short" || typeName == "unsigned short" ||
         typeName == "unsigned") return 2;
     if (typeName == "long" || typeName == "unsigned long") return 4;
-    
+    if (typeName == "float" || typeName == "double") return 5; // CBM 40-bit float
+
     std::string sName = getAggregateName(typeName);
     auto it = structs_.find(sName);
     if (it != structs_.end()) return it->second.totalSize;
