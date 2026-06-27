@@ -1730,6 +1730,34 @@ void IRBuilder::visit(BinaryOperation& node) {
     auto lhsVal = emitCast(lhs, resultType, lhsInfo.isSigned);
     auto rhsVal = shiftImm ? rhs : emitCast(rhs, resultType, rhsInfo.isSigned);
 
+    // Pointer arithmetic: scale integer operand by pointed-to element size
+    if ((node.op == "+" || node.op == "-") && resultType == ir::Type::PTR) {
+        int elemSize = 1;
+        IRTypeInfo ptrInfo = (lhsInfo.type == ir::Type::PTR) ? lhsInfo : rhsInfo;
+        if (ptrInfo.pointedToType != ir::Type::VOID)
+            elemSize = ir::typeSize(ptrInfo.pointedToType);
+        // Check for struct/union with larger sizes
+        if (!ptrInfo.typeName.empty()) {
+            std::string sName = getAggregateName(ptrInfo.typeName);
+            auto sit = structs_.find(sName);
+            if (sit != structs_.end()) elemSize = sit->second.totalSize;
+        }
+        if (elemSize > 1) {
+            // Scale the non-pointer operand
+            auto& intOp = (lhsInfo.type != ir::Type::PTR) ? lhsVal : rhsVal;
+            auto scaled = allocVreg(ir::Type::PTR);
+            ir::Inst mul;
+            mul.op = ir::Op::MUL_U;
+            mul.dest = scaled;
+            mul.resultType = ir::Type::PTR;
+            mul.src1 = intOp;
+            mul.src2 = ir::Operand::imm(elemSize, ir::Type::PTR);
+            mul.loc = loc(node);
+            emit(mul);
+            intOp = scaled;
+        }
+    }
+
     // For comparison operators: use signed ops only if BOTH operands are signed.
     bool bothSigned = lhsInfo.isSigned && rhsInfo.isSigned;
 
@@ -1878,13 +1906,32 @@ void IRBuilder::visit(UnaryOperation& node) {
         bool isPost = (node.op.find("_POST") != std::string::npos);
         std::string baseOp = isPost ? node.op.substr(0, 2) : node.op;
 
+        // For pointer increment/decrement, scale by pointed-to element size
+        int incVal = 1;
+        if (src.type == ir::Type::PTR) {
+            auto info = getExprTypeInfo(node.operand.get());
+            if (info.pointedToType != ir::Type::VOID) {
+                incVal = ir::typeSize(info.pointedToType);
+            }
+            // Check for struct/union pointed-to types with larger sizes
+            if (!info.typeName.empty()) {
+                std::string ptName = info.typeName;
+                // Strip pointer suffix if present
+                std::string sName = getAggregateName(ptName);
+                auto sit = structs_.find(sName);
+                if (sit != structs_.end()) {
+                    incVal = sit->second.totalSize;
+                }
+            }
+        }
+
         auto dest = allocVreg(src.type);
         ir::Inst inst;
         inst.op = (baseOp == "++") ? ir::Op::ADD : ir::Op::SUB;
         inst.dest = dest;
         inst.resultType = src.type;
         inst.src1 = src;
-        inst.src2 = ir::Operand::imm(1, src.type);
+        inst.src2 = ir::Operand::imm(incVal, src.type);
         inst.loc = loc(node);
         emit(inst);
 
