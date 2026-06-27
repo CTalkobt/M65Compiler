@@ -1,5 +1,7 @@
 #include "IRBuilder.hpp"
 #include <algorithm>
+#include <cmath>
+#include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -233,7 +235,8 @@ ir::Type IRBuilder::mapType(const std::string& typeName, int ptrLevel) {
     if (typeName == "char" || typeName == "unsigned char") return ir::Type::I8;
     if (typeName == "long" || typeName == "unsigned long") return ir::Type::I32;
     if (typeName == "void") return ir::Type::VOID;
-    
+    if (typeName == "float" || typeName == "double") return ir::Type::F32;
+
     // Check for 4-byte structs/unions
     if (getTypeSize(typeName, 0) == 4) return ir::Type::I32;
 
@@ -247,7 +250,8 @@ int IRBuilder::getTypeSize(const std::string& typeName, int ptrLevel) {
         typeName == "short" || typeName == "unsigned short" ||
         typeName == "unsigned") return 2;
     if (typeName == "long" || typeName == "unsigned long") return 4;
-    
+    if (typeName == "float" || typeName == "double") return 5;
+
     std::string sName = getAggregateName(typeName);
     auto it = structs_.find(sName);
     if (it != structs_.end()) return it->second.totalSize;
@@ -438,6 +442,20 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
 
 ir::Operand IRBuilder::emitCast(ir::Operand src, ir::Type targetType, bool isSigned) {
     if (src.type == targetType) return src;
+
+    // Float conversions
+    if (src.type == ir::Type::F32 && targetType != ir::Type::F32) {
+        auto dest = allocVreg(targetType);
+        ir::Inst inst; inst.op = ir::Op::FTOI; inst.dest = dest;
+        inst.resultType = targetType; inst.src1 = src; emit(inst);
+        return dest;
+    }
+    if (targetType == ir::Type::F32 && src.type != ir::Type::F32) {
+        auto dest = allocVreg(ir::Type::F32);
+        ir::Inst inst; inst.op = ir::Op::ITOF; inst.dest = dest;
+        inst.resultType = ir::Type::F32; inst.src1 = src; emit(inst);
+        return dest;
+    }
 
     // Determine conversion type
     ir::Op op = ir::Op::NOP;
@@ -1074,6 +1092,22 @@ void IRBuilder::visit(IntegerLiteral& node) {
     lastValueSigned_ = node.castIsSigned;
 }
 
+void IRBuilder::visit(FloatLiteral& node) {
+    auto dest = allocVreg(ir::Type::F32);
+    ir::Inst inst;
+    inst.op = ir::Op::FCONST;
+    inst.dest = dest;
+    inst.resultType = ir::Type::F32;
+    int64_t bits = 0;
+    static_assert(sizeof(double) == sizeof(int64_t), "double must be 64-bit");
+    std::memcpy(&bits, &node.value, sizeof(double));
+    inst.src1 = ir::Operand::imm(bits, ir::Type::F32);
+    inst.loc = loc(node);
+    emit(inst);
+    lastValue_ = dest;
+    lastValueSigned_ = false;
+}
+
 void IRBuilder::visit(StringLiteral& node) {
     std::string name = "__str_" + std::to_string(nextLabel_++);
     // Determine encoding: explicit @"..." forces ASCII, otherwise use pragma state
@@ -1693,6 +1727,19 @@ void IRBuilder::visit(BinaryOperation& node) {
     ir::Op op = ir::Op::NOP;
     ir::Type finalResultType = resultType;
 
+    // Float binary operations
+    if (resultType == ir::Type::F32) {
+        if (node.op == "+") op = ir::Op::FADD;
+        else if (node.op == "-") op = ir::Op::FSUB;
+        else if (node.op == "*") op = ir::Op::FMUL;
+        else if (node.op == "/") op = ir::Op::FDIV;
+        else throw std::runtime_error("Unsupported operator '" + node.op + "' for float type");
+        auto dest = allocVreg(finalResultType);
+        ir::Inst inst; inst.op = op; inst.dest = dest; inst.resultType = finalResultType;
+        inst.src1 = lhsVal; inst.src2 = rhsVal; inst.loc = loc(node); emit(inst);
+        lastValue_ = dest; return;
+    }
+
     if (node.op == "+") op = ir::Op::ADD;
     else if (node.op == "-") op = ir::Op::SUB;
     else if (node.op == "*") op = bothSigned ? ir::Op::MUL : ir::Op::MUL_U;
@@ -1731,7 +1778,7 @@ void IRBuilder::visit(UnaryOperation& node) {
     if (node.op == "-") {
         auto dest = allocVreg(src.type);
         ir::Inst inst;
-        inst.op = ir::Op::NEG;
+        inst.op = (src.type == ir::Type::F32) ? ir::Op::FNEG : ir::Op::NEG;
         inst.dest = dest;
         inst.resultType = src.type;
         inst.src1 = src;
@@ -3144,6 +3191,7 @@ public:
     CaseCollector(IRBuilder::SwitchCtx& c, IRBuilder& b) : ctx(c), builder(b) {}
 
     void visit(IntegerLiteral&) override {}
+    void visit(FloatLiteral&) override {}
     void visit(StringLiteral&) override {}
     void visit(VariableReference&) override {}
     void visit(Assignment& node) override { if (node.expression) node.expression->accept(*this); }

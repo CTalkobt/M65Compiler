@@ -51,8 +51,8 @@ enum class TokenType {
     UNPACKED,  // __unpacked (opt-in alignment padding for structs)
     REPEAT,    // repeat (compile-time loop unrolling)
     REGPARM,   // __regparm (first param in A/AX register)
-    FLOAT,     // float (not implemented)
-    DOUBLE,    // double (not implemented)
+    FLOAT,     // float (CBM 40-bit)
+    DOUBLE,    // double (downgraded to float)
 
     // Variadic
     ELLIPSIS,  // ...
@@ -60,6 +60,7 @@ enum class TokenType {
     // Literals
     IDENTIFIER,
     INTEGER_LITERAL,
+    FLOAT_LITERAL,  // 1.5, 3.14f
     STRING_LITERAL,
     ASCII_STRING_LITERAL,  // @"..." — raw ASCII, no PETSCII conversion
     
@@ -177,6 +178,7 @@ struct Token {
             case TokenType::ELLIPSIS: return "ELLIPSIS";
             case TokenType::IDENTIFIER: return "IDENTIFIER";
             case TokenType::INTEGER_LITERAL: return "INTEGER_LITERAL";
+            case TokenType::FLOAT_LITERAL: return "FLOAT_LITERAL";
             case TokenType::STRING_LITERAL: return "STRING_LITERAL";
             case TokenType::ASCII_STRING_LITERAL: return "ASCII_STRING_LITERAL";
             case TokenType::OPEN_PAREN: return "OPEN_PAREN";

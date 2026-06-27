@@ -27,6 +27,7 @@ public:
     int indent = 0;
     void printIndent() { for (int i = 0; i < indent; i++) std::cout << "  "; }
     void visit(IntegerLiteral& node) override { printIndent(); std::cout << "IntegerLiteral: " << node.value << std::endl; }
+    void visit(FloatLiteral& node) override { printIndent(); std::cout << "FloatLiteral: " << node.value << std::endl; }
     void visit(StringLiteral& node) override { printIndent(); std::cout << "StringLiteral: \"" << node.value << "\"" << std::endl; }
     void visit(VariableReference& node) override { printIndent(); std::cout << "VariableReference: " << node.name << std::endl; }
     void visit(Assignment& node) override {

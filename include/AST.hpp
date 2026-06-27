@@ -42,6 +42,13 @@ public:
     void accept(ASTVisitor& visitor) override;
 };
 
+class FloatLiteral : public Expression {
+public:
+    double value;
+    FloatLiteral(double v) : value(v) {}
+    void accept(ASTVisitor& visitor) override;
+};
+
 class StringLiteral : public Expression {
 public:
     std::string value;
@@ -511,6 +518,7 @@ class ASTVisitor {
 public:
     virtual ~ASTVisitor() = default;
     virtual void visit(IntegerLiteral& node) = 0;
+    virtual void visit(FloatLiteral& node) = 0;
     virtual void visit(StringLiteral& node) = 0;
     virtual void visit(VariableReference& node) = 0;
     virtual void visit(Assignment& node) = 0;

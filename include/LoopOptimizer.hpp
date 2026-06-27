@@ -41,6 +41,7 @@ public:
 
     // Expression visitors (no-op for LICM)
     void visit(IntegerLiteral& node) override {}
+    void visit(FloatLiteral& node) override {}
     void visit(StringLiteral& node) override {}
     void visit(VariableReference& node) override {}
     void visit(ArrayAccess& node) override {}

@@ -1,7 +1,23 @@
 #include "IRCodeGen.hpp"
+#include <cmath>
+#include <cstring>
 #include <iomanip>
 #include <sstream>
 #include <algorithm>
+
+// Convert IEEE 754 double to CBM 40-bit float (5 bytes)
+static void doubleToCBM40(double val, uint8_t out[5]) {
+    if (val == 0.0) { out[0]=out[1]=out[2]=out[3]=out[4]=0; return; }
+    bool neg = val < 0; if (neg) val = -val;
+    int exp; double mant = std::frexp(val, &exp);
+    int cbmExp = exp + 128;
+    if (cbmExp < 0) cbmExp = 0; if (cbmExp > 255) cbmExp = 255;
+    out[0] = (uint8_t)cbmExp;
+    uint32_t m = (uint32_t)(mant * 4294967296.0);
+    out[1] = (uint8_t)(m >> 24); out[2] = (uint8_t)(m >> 16);
+    out[3] = (uint8_t)(m >> 8);  out[4] = (uint8_t)(m);
+    if (neg) out[1] |= 0x80; else out[1] &= 0x7F;
+}
 
 
 static std::string hex8(uint8_t val) {
@@ -3053,6 +3069,68 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             // PHI nodes are not directly executable in linear code.
             // For now, skip — the IRBuilder's control flow already sets
             // values before branching.
+            break;
+        }
+
+        // Float operations
+        case ir::Op::FCONST: {
+            int64_t bits = inst.src1.immVal; double val;
+            std::memcpy(&val, &bits, sizeof(double));
+            uint8_t cbm[5]; doubleToCBM40(val, cbm);
+            auto da = alloc_.getAlloc(inst.dest.vregId);
+            std::string d = "$" + hex8((uint8_t)da.offset);
+            for (int i = 0; i < 5; i++) {
+                emit("lda #$" + hex8(cbm[i]));
+                emit("sta " + d + "+" + std::to_string(i));
+            }
+            break;
+        }
+        case ir::Op::FADD: case ir::Op::FSUB:
+        case ir::Op::FMUL: case ir::Op::FDIV: {
+            auto s1 = alloc_.getAlloc(inst.src1.vregId);
+            auto s2 = alloc_.getAlloc(inst.src2.vregId);
+            emit("MOVE $" + hex8((uint8_t)s1.offset) + ", __float_a, 5");
+            emit("MOVE $" + hex8((uint8_t)s2.offset) + ", __float_b, 5");
+            if (inst.op == ir::Op::FADD) emit("jsr __float_add");
+            else if (inst.op == ir::Op::FSUB) emit("jsr __float_sub");
+            else if (inst.op == ir::Op::FMUL) emit("jsr __float_mul");
+            else emit("jsr __float_div");
+            auto da = alloc_.getAlloc(inst.dest.vregId);
+            emit("MOVE __float_a, $" + hex8((uint8_t)da.offset) + ", 5");
+            break;
+        }
+        case ir::Op::FNEG: {
+            auto s1 = alloc_.getAlloc(inst.src1.vregId);
+            emit("MOVE $" + hex8((uint8_t)s1.offset) + ", __float_a, 5");
+            emit("jsr __float_neg");
+            auto da = alloc_.getAlloc(inst.dest.vregId);
+            emit("MOVE __float_a, $" + hex8((uint8_t)da.offset) + ", 5");
+            break;
+        }
+        case ir::Op::FCMP: {
+            auto s1 = alloc_.getAlloc(inst.src1.vregId);
+            auto s2 = alloc_.getAlloc(inst.src2.vregId);
+            emit("MOVE $" + hex8((uint8_t)s1.offset) + ", __float_a, 5");
+            emit("MOVE $" + hex8((uint8_t)s2.offset) + ", __float_b, 5");
+            emit("jsr __float_cmp");
+            auto da = alloc_.getAlloc(inst.dest.vregId);
+            emit("sta $" + hex8((uint8_t)da.offset));
+            break;
+        }
+        case ir::Op::ITOF: {
+            loadOperand(inst.src1);
+            emit("jsr __float_itof");
+            auto da = alloc_.getAlloc(inst.dest.vregId);
+            emit("MOVE __float_a, $" + hex8((uint8_t)da.offset) + ", 5");
+            break;
+        }
+        case ir::Op::FTOI: {
+            auto s1 = alloc_.getAlloc(inst.src1.vregId);
+            emit("MOVE $" + hex8((uint8_t)s1.offset) + ", __float_a, 5");
+            emit("jsr __float_ftoi");
+            auto da = alloc_.getAlloc(inst.dest.vregId);
+            emit("sta $" + hex8((uint8_t)da.offset));
+            emit("stx $" + hex8((uint8_t)(da.offset + 1)));
             break;
         }
 

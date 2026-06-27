@@ -32,6 +32,7 @@ namespace {
 
         // No-ops for non-expressions or nodes without sub-expressions
         void visit(IntegerLiteral&) override {}
+        void visit(FloatLiteral&) override {}
         void visit(StringLiteral&) override {}
         void visit(AlignofExpression&) override {}
         void visit(CpuRegisterAccess&) override {}
@@ -77,6 +78,10 @@ namespace {
 
         void visit(IntegerLiteral& n) override {
             if (auto* t = dynamic_cast<IntegerLiteral*>(target))
+                equal = (n.value == t->value);
+        }
+        void visit(FloatLiteral& n) override {
+            if (auto* t = dynamic_cast<FloatLiteral*>(target))
                 equal = (n.value == t->value);
         }
         void visit(StringLiteral& n) override {
@@ -212,6 +217,7 @@ namespace {
             // (but simple ones are usually handled by register allocator)
         }
         void visit(IntegerLiteral&) override {}
+        void visit(FloatLiteral&) override {}
         void visit(StringLiteral&) override {}
 
         void visit(ConditionalExpression& n) override {

@@ -53,6 +53,9 @@ public:
         result->castIsSigned = node.castIsSigned;
         lastExpr = std::move(result);
     }
+    void visit(FloatLiteral& node) override {
+        lastExpr = copyPos(std::make_unique<FloatLiteral>(node.value), node);
+    }
 
     void visit(StringLiteral& node) override {
         lastExpr = copyPos(std::make_unique<StringLiteral>(node.value), node);
