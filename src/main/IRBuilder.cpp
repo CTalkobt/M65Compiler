@@ -828,7 +828,11 @@ void IRBuilder::visit(VariableDeclaration& node) {
         gv.isConst = node.isConst;
         gv.isStatic = node.isStatic;
         if (node.initializer) {
-            if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
+            if (auto* flit = dynamic_cast<FloatLiteral*>(node.initializer.get())) {
+                gv.hasInitValue = true;
+                // Store double bits in initValue for CBM conversion in IRCodeGen
+                std::memcpy(&gv.initValue, &flit->value, sizeof(double));
+            } else if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
                 gv.hasInitValue = true;
                 gv.initValue = lit->value;
             } else if (auto* cast = dynamic_cast<CastExpression*>(node.initializer.get())) {

@@ -537,7 +537,13 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
                 }
             } else {
                 // Scalar initializer
-                if (g.type == ir::Type::I8) {
+                if (g.type == ir::Type::F32) {
+                    // Convert stored double bits to CBM 40-bit float
+                    double val; std::memcpy(&val, &g.initValue, sizeof(double));
+                    uint8_t cbm[5]; doubleToCBM40(val, cbm);
+                    emit(".byte $" + hex8(cbm[0]) + ", $" + hex8(cbm[1]) + ", $" +
+                         hex8(cbm[2]) + ", $" + hex8(cbm[3]) + ", $" + hex8(cbm[4]));
+                } else if (g.type == ir::Type::I8) {
                     emit(".byte " + std::to_string((int)(g.initValue & 0xFF)));
                 } else if (g.type == ir::Type::I32) {
                     emit(".dword " + std::to_string((int)g.initValue));
@@ -1103,12 +1109,21 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             }
             std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
                 ? fn.paramNames[i] : std::to_string(i);
-            if (fn.paramTypes[i] == ir::Type::I32) {
+            if (fn.paramTypes[i] == ir::Type::F32) {
+                // 5-byte float: copy from stack frame to ZP vreg
+                auto alloc = alloc_.getAlloc(vid);
+                std::string za = "$" + hex8((uint8_t)alloc.offset);
+                for (int bi = 0; bi < 5; bi++) {
+                    emit("lda.fp @_p_" + pName + "+" + std::to_string(bi));
+                    emit("sta " + za + "+" + std::to_string(bi));
+                }
+            } else if (fn.paramTypes[i] == ir::Type::I32) {
                 emit("ldaxyz.fp @_p_" + pName);
+                storeVreg(vid);
             } else {
                 emit("ldax.fp @_p_" + pName);
+                storeVreg(vid);
             }
-            storeVreg(vid);
         }
     } else {
         // ZP call convention: params already in ZP block, copy to vReg slots
@@ -2745,6 +2760,14 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                             // Global symbol
                             emit("ldax #" + arg.name);
                             emit("push .ax");
+                        } else if (arg.type == ir::Type::F32 && arg.isVreg()) {
+                            // Float: push 5 bytes from ZP (push byte 4 first, byte 0 last)
+                            auto alloc = alloc_.getAlloc(arg.vregId);
+                            std::string za = "$" + hex8((uint8_t)alloc.offset);
+                            for (int bi = 4; bi >= 0; bi--) {
+                                emit("lda " + za + "+" + std::to_string(bi));
+                                emit("pha");
+                            }
                         } else {
                             // Complex operand — load and push
                             loadOperand(arg);
