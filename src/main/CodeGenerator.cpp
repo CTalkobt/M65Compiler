@@ -67,6 +67,7 @@ void CodeGenerator::embedSource(ASTNode& node) {
 
 void CodeGenerator::emitNarrowingWarning(ASTNode& node, const std::string& fromType, int fromPtr, const std::string& toType, int toPtr) {
     if (toType == "_Bool") return; // conversion to _Bool is always valid (C99)
+    if (toType == "float" || fromType == "float") return; // float handled by IRCodeGen
     int fromSize = (fromPtr > 0 || fromType == "int") ? 2 : 1;
     int toSize = (toPtr > 0 || toType == "int") ? 2 : 1;
     if (fromSize > toSize) {

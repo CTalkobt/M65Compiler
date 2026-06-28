@@ -1,15 +1,22 @@
 ; float_rom.s — CBM 40-bit float runtime via BASIC 65 ROM
 ;
-; Uses MAP instruction to bank in BASIC ROM at $2000-$7FFF,
-; calls float routines via jump table at $7F00, then restores MAP.
+; Uses JSRFAR ($FF6E) to call BASIC ROM float routines.
+; JSRFAR handles MAP banking automatically — no overlay conflicts.
+;
+; JSRFAR convention: Bank=$02, PCH=$03, PCL=$04
+; These ZP locations are scratch (used by DMA ops and startup code)
+; and are free at the point float routines are called.
 ;
 ; FAC (Floating Point Accumulator) at $63-$68
 ; ARG (secondary accumulator) at $6A-$6F
 ;
 ; Float values are 5 bytes: exponent (1) + mantissa (4), big-endian.
-; Stored in memory as: [exponent, mantissa_msb, ..., mantissa_lsb]
 
     .cpu 45gs02
+
+; KERNAL far-call entry
+JSRFAR      = $FF6E
+BASIC_BANK  = $03      ; BASIC ROM bank (C65 bank 3)
 
 ; BASIC 65 jump table addresses
 BJT_AYINT   = $7F00
@@ -41,6 +48,18 @@ FAC_M3 = $66
 FAC_M4 = $67
 FAC_SI = $68
 ARG_EX = $6A
+
+; ===========================================================================
+; Helper: call BASIC ROM routine via JSRFAR
+; Call with target address in AX (A=low, X=high)
+; ===========================================================================
+__jsrfar_basic:
+    sta $04             ; PCL
+    stx $03             ; PCH
+    lda #BASIC_BANK
+    sta $02             ; Bank
+    jsr JSRFAR
+    rts
 
 ; ===========================================================================
 ; Load 5-byte float from memory (AX = pointer) into FAC
@@ -138,19 +157,9 @@ __float_add:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_arg
-    ldz #$83
-    ldy #$00
-    ldx #$e0
-    lda #$00
-    map
-    eom
-    jsr BJT_FADDT
-    ldz #$b3
-    ldy #$00
-    ldx #$e3
-    lda #$00
-    map
-    eom
+    lda #<BJT_FADDT
+    ldx #>BJT_FADDT
+    jsr __jsrfar_basic
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -167,19 +176,9 @@ __float_sub:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_arg
-    ldz #$83
-    ldy #$00
-    ldx #$e0
-    lda #$00
-    map
-    eom
-    jsr BJT_FSUBT
-    ldz #$b3
-    ldy #$00
-    ldx #$e3
-    lda #$00
-    map
-    eom
+    lda #<BJT_FSUBT
+    ldx #>BJT_FSUBT
+    jsr __jsrfar_basic
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -196,19 +195,9 @@ __float_mul:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_arg
-    ldz #$83
-    ldy #$00
-    ldx #$e0
-    lda #$00
-    map
-    eom
-    jsr BJT_FMULTT
-    ldz #$b3
-    ldy #$00
-    ldx #$e3
-    lda #$00
-    map
-    eom
+    lda #<BJT_FMULTT
+    ldx #>BJT_FMULTT
+    jsr __jsrfar_basic
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -225,19 +214,9 @@ __float_div:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_arg
-    ldz #$83
-    ldy #$00
-    ldx #$e0
-    lda #$00
-    map
-    eom
-    jsr BJT_FDIVT
-    ldz #$b3
-    ldy #$00
-    ldx #$e3
-    lda #$00
-    map
-    eom
+    lda #<BJT_FDIVT
+    ldx #>BJT_FDIVT
+    jsr __jsrfar_basic
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -251,19 +230,9 @@ __float_neg:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
-    ldz #$83
-    ldy #$00
-    ldx #$e0
-    lda #$00
-    map
-    eom
-    jsr BJT_NEGOP
-    ldz #$b3
-    ldy #$00
-    ldx #$e3
-    lda #$00
-    map
-    eom
+    lda #<BJT_NEGOP
+    ldx #>BJT_NEGOP
+    jsr __jsrfar_basic
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -274,58 +243,47 @@ __float_neg:
 ; ===========================================================================
 .global __float_cmp
 __float_cmp:
-    ; Load b into FAC, a into ARG
-    lda #<__float_b
-    ldx #>__float_b
-    jsr __float_load_fac
+    ; Load a into FAC, b into ARG
     lda #<__float_a
     ldx #>__float_a
+    jsr __float_load_fac
+    lda #<__float_b
+    ldx #>__float_b
     jsr __float_load_arg
-    ; FCOMP compares ARG with FAC: A=$FF if ARG<FAC, $00 if equal, $01 if ARG>FAC
-    ; But FCOMP takes a memory pointer in AY, not ARG... use different approach:
-    ; Store FAC to temp, load a into FAC, then compare FAC with temp
-    ; Actually, BJT_FCOMP expects: compare mem (pointed by AY) with FAC
-    ; So: load b into FAC, then compare __float_a (mem) with FAC
-    ldz #$83
-    ldy #$00
-    ldx #$e0
-    lda #$00
-    map
-    eom
-    ; ARG already has 'a', FAC has 'b'
-    ; MOVFA: FAC = ARG (now FAC = a)
-    jsr BJT_MOVFA
-    ldz #$b3
-    ldy #$00
-    ldx #$e3
-    lda #$00
-    map
-    eom
-    ; Now FAC = a, we want to compare with b (in __float_b memory)
-    ; FCOMP(AY): compare FAC with memory at AY
-    ; Result: A = $FF if FAC < mem, $00 if equal, $01 if FAC > mem
+    ; FCOMP: compare MEM (AY) with FAC → A = -1/0/1
+    ; But we need FAC vs ARG. Use MOVFA to get a into FAC,
+    ; then compare FAC with __float_b in memory.
+    ; Actually: load b into FAC first, then a into ARG, then MOVFA (FAC=ARG=a)
+    ; Then FCOMP(__float_b) compares a(FAC) with b(mem)
+    lda #<BJT_MOVFA
+    ldx #>BJT_MOVFA
+    jsr __jsrfar_basic
+    ; Now FAC = a. Compare with __float_b in memory.
+    ; FCOMP takes pointer in AY, compares (AY) with FAC
+    ; Result: A=$FF if FAC < (AY), $00 if equal, $01 if FAC > (AY)
     lda #<__float_b
     ldy #>__float_b
-    ldz #$83
-    ldx #$e0
-    ; Need to preserve AY across MAP...
-    pha
-    phy
-    lda #$00
-    map
-    eom
-    ply
-    pla
-    jsr BJT_FCOMP
-    pha
-    ldz #$b3
-    ldy #$00
-    ldx #$e3
-    lda #$00
-    map
-    eom
-    pla
-    ; A = comparison result: $FF (<), $00 (=), $01 (>)
+    sta $04             ; PCL for FCOMP
+    sty $03             ; PCH
+    ; Wait — FCOMP takes MEM pointer in AY, not via JSRFAR
+    ; We need FCOMP to read from our RAM, but via JSRFAR it reads from ROM bank
+    ; Use direct FCOMP instead — but that needs BASIC ROM mapped in
+    ; For now: use subtraction and check sign
+    lda #<BJT_FSUBT
+    ldx #>BJT_FSUBT
+    jsr __jsrfar_basic
+    ; FAC = a - b. Check sign.
+    lda FAC_EX
+    beq @zero           ; exponent 0 = value is 0 (equal)
+    lda FAC_SI
+    bne @negative        ; sign byte nonzero = negative
+    lda #$01            ; positive: a > b
+    rts
+@negative:
+    lda #$FF            ; negative: a < b
+    rts
+@zero:
+    lda #$00            ; equal
     rts
 
 ; ===========================================================================
@@ -335,19 +293,26 @@ __float_cmp:
 __float_itof:
     tay             ; Y = low byte
     txa             ; A = high byte (GIVAYF wants A=high, Y=low)
-    ldz #$83
-    ldy #$00
-    ldx #$e0
-    lda #$00
-    map
-    eom
-    jsr BJT_GIVAYF
-    ldz #$b3
-    ldy #$00
-    ldx #$e3
-    lda #$00
-    map
-    eom
+    sta $06         ; save A (high) — JSRFAR uses $02-$04
+    sty $09         ; save Y (low)
+    lda #<BJT_GIVAYF
+    ldx #>BJT_GIVAYF
+    ; Set up JSRFAR: AC=$06, YR=$09 will be loaded by JSRFAR
+    lda $06
+    sta $06         ; AC register for JSRFAR
+    lda $09
+    sta $09         ; YR register for JSRFAR
+    ; Actually JSRFAR loads A/X/Y/Z from $06-$09 before calling
+    ; So we need: $06=A(high byte), $09=Y(low byte)
+    ; But we also need to set $02=bank, $03=PCH, $04=PCL
+    lda #BASIC_BANK
+    sta $02
+    lda #>BJT_GIVAYF
+    sta $03
+    lda #<BJT_GIVAYF
+    sta $04
+    jsr JSRFAR
+    ; FAC now has the float value
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -361,44 +326,24 @@ __float_ftoi:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
-    ldz #$83
-    ldy #$00
-    ldx #$e0
-    lda #$00
-    map
-    eom
-    jsr BJT_AYINT
-    ldz #$b3
-    ldy #$00
-    ldx #$e3
-    lda #$00
-    map
-    eom
+    lda #<BJT_AYINT
+    ldx #>BJT_AYINT
+    jsr __jsrfar_basic
     lda FAC_M3      ; low byte of result
     ldx FAC_M4      ; high byte
     rts
 
 ; ===========================================================================
-; Math: __float_sin, __float_cos, etc.
+; Math: unary float functions
 ; ===========================================================================
 .global __float_sin
 __float_sin:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
-    ldz #$83
-    ldy #$00
-    ldx #$e0
-    lda #$00
-    map
-    eom
-    jsr BJT_SIN
-    ldz #$b3
-    ldy #$00
-    ldx #$e3
-    lda #$00
-    map
-    eom
+    lda #<BJT_SIN
+    ldx #>BJT_SIN
+    jsr __jsrfar_basic
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -409,19 +354,9 @@ __float_cos:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
-    ldz #$83
-    ldy #$00
-    ldx #$e0
-    lda #$00
-    map
-    eom
-    jsr BJT_COS
-    ldz #$b3
-    ldy #$00
-    ldx #$e3
-    lda #$00
-    map
-    eom
+    lda #<BJT_COS
+    ldx #>BJT_COS
+    jsr __jsrfar_basic
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -432,19 +367,9 @@ __float_tan:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
-    ldz #$83
-    ldy #$00
-    ldx #$e0
-    lda #$00
-    map
-    eom
-    jsr BJT_TAN
-    ldz #$b3
-    ldy #$00
-    ldx #$e3
-    lda #$00
-    map
-    eom
+    lda #<BJT_TAN
+    ldx #>BJT_TAN
+    jsr __jsrfar_basic
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -455,19 +380,9 @@ __float_atn:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
-    ldz #$83
-    ldy #$00
-    ldx #$e0
-    lda #$00
-    map
-    eom
-    jsr BJT_ATN
-    ldz #$b3
-    ldy #$00
-    ldx #$e3
-    lda #$00
-    map
-    eom
+    lda #<BJT_ATN
+    ldx #>BJT_ATN
+    jsr __jsrfar_basic
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -478,19 +393,9 @@ __float_log:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
-    ldz #$83
-    ldy #$00
-    ldx #$e0
-    lda #$00
-    map
-    eom
-    jsr BJT_LOG
-    ldz #$b3
-    ldy #$00
-    ldx #$e3
-    lda #$00
-    map
-    eom
+    lda #<BJT_LOG
+    ldx #>BJT_LOG
+    jsr __jsrfar_basic
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -501,19 +406,9 @@ __float_exp:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
-    ldz #$83
-    ldy #$00
-    ldx #$e0
-    lda #$00
-    map
-    eom
-    jsr BJT_EXP
-    ldz #$b3
-    ldy #$00
-    ldx #$e3
-    lda #$00
-    map
-    eom
+    lda #<BJT_EXP
+    ldx #>BJT_EXP
+    jsr __jsrfar_basic
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -524,19 +419,9 @@ __float_sqr:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
-    ldz #$83
-    ldy #$00
-    ldx #$e0
-    lda #$00
-    map
-    eom
-    jsr BJT_SQR
-    ldz #$b3
-    ldy #$00
-    ldx #$e3
-    lda #$00
-    map
-    eom
+    lda #<BJT_SQR
+    ldx #>BJT_SQR
+    jsr __jsrfar_basic
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -547,19 +432,9 @@ __float_abs:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
-    ldz #$83
-    ldy #$00
-    ldx #$e0
-    lda #$00
-    map
-    eom
-    jsr BJT_ABS
-    ldz #$b3
-    ldy #$00
-    ldx #$e3
-    lda #$00
-    map
-    eom
+    lda #<BJT_ABS
+    ldx #>BJT_ABS
+    jsr __jsrfar_basic
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac

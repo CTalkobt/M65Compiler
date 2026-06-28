@@ -451,6 +451,35 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     for (const auto& ext : mod.externs) {
         emit(".extern " + ext);
     }
+
+    // Auto-emit float runtime externs if any float ops are used
+    if (relocMode) {
+        bool hasFloat = false;
+        for (const auto& fn : mod.functions) {
+            for (const auto& blk : fn.blocks) {
+                for (const auto& inst : blk.insts) {
+                    if (inst.op >= ir::Op::FADD && inst.op <= ir::Op::FCONST) {
+                        hasFloat = true; break;
+                    }
+                }
+                if (hasFloat) break;
+            }
+            if (hasFloat) break;
+        }
+        if (hasFloat) {
+            emit(".extern __float_a");
+            emit(".extern __float_b");
+            emit(".extern __float_add");
+            emit(".extern __float_sub");
+            emit(".extern __float_mul");
+            emit(".extern __float_div");
+            emit(".extern __float_neg");
+            emit(".extern __float_cmp");
+            emit(".extern __float_itof");
+            emit(".extern __float_ftoi");
+        }
+    }
+
     if (!mod.externs.empty()) emitBlank();
 
     // Emit global declarations (segment switching only in reloc mode)
