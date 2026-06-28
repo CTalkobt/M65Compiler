@@ -1150,6 +1150,118 @@ bool IROptimizer::canHoistToPreheader(const Inst& inst, const std::set<uint32_t>
            isLoopInvariant(inst, loopModifiedVregs, phiDefVregs);
 }
 
+std::string IROptimizer::findBlockPredecessor(const Block& block, const Function& fn) {
+    // Phase 2: Find the block that branches to this block
+    for (size_t i = 0; i < fn.blocks.size(); i++) {
+        const auto& b = fn.blocks[i];
+        if (b.insts.empty()) continue;
+
+        const auto& term = b.insts.back();
+
+        // Check if this block branches to target
+        if (term.op == Op::BR && term.src1.kind == OperandKind::LABEL) {
+            if (term.src1.name == block.label) {
+                return b.label;
+            }
+        } else if (term.op == Op::BR_COND) {
+            if ((term.dest.kind == OperandKind::LABEL && term.dest.name == block.label) ||
+                (term.src2.kind == OperandKind::LABEL && term.src2.name == block.label)) {
+                return b.label;
+            }
+        }
+    }
+    return "";  // No predecessor found
+}
+
+Operand IROptimizer::remapOperand(const Operand& op, const std::map<uint32_t, uint32_t>& vregMapping) {
+    // Phase 2: Remap operand if it's a vreg that was duplicated
+    if (!op.isVreg()) return op;
+
+    auto it = vregMapping.find(op.vregId);
+    if (it != vregMapping.end()) {
+        Operand remapped = op;
+        remapped.vregId = it->second;
+        return remapped;
+    }
+    return op;  // No remap needed
+}
+
+void IROptimizer::remapInstructionOperands(Inst& inst, const std::map<uint32_t, uint32_t>& vregMapping) {
+    // Phase 2: Remap both operands in an instruction
+    inst.src1 = remapOperand(inst.src1, vregMapping);
+    inst.src2 = remapOperand(inst.src2, vregMapping);
+}
+
+void IROptimizer::findDuplicatablePHIsAndCreate(Block& headerBlock, Block& preheaderBlock, Function& fn,
+                                                std::map<uint32_t, uint32_t>& vregMapping) {
+    // Phase 2: Duplicate PHI nodes from loop header into preheader
+    // Only duplicate PHIs that have an incoming edge from preheader
+
+    std::string preheaderLabel = preheaderBlock.label;
+    std::vector<Inst> phisToCreate;
+
+    for (const auto& phiInst : headerBlock.insts) {
+        if (phiInst.op != Op::PHI) continue;
+        if (!phiInst.dest.isVreg()) continue;
+
+        // Check if this PHI has an incoming edge from preheader
+        Operand preheaderValue;
+        bool hasPreheaderEdge = false;
+
+        for (const auto& [value, label] : phiInst.phiIncoming) {
+            if (label == preheaderLabel) {
+                preheaderValue = value;
+                hasPreheaderEdge = true;
+                break;
+            }
+        }
+
+        if (!hasPreheaderEdge) continue;  // Skip non-duplicatable PHIs
+
+        // Create new PHI in preheader with just the preheader value
+        Inst preheaderPhi;
+        preheaderPhi.op = Op::PHI;
+        preheaderPhi.dest = phiInst.dest;
+        preheaderPhi.dest.vregId = phiInst.dest.vregId + 10000;  // Allocate new vreg
+        preheaderPhi.phiIncoming.push_back({preheaderValue, preheaderLabel});
+
+        // Record the mapping: original PHI vreg → preheader PHI vreg
+        vregMapping[phiInst.dest.vregId] = preheaderPhi.dest.vregId;
+
+        phisToCreate.push_back(preheaderPhi);
+    }
+
+    // Insert duplicated PHIs at start of preheader
+    preheaderBlock.insts.insert(preheaderBlock.insts.begin(), phisToCreate.begin(), phisToCreate.end());
+}
+
+bool IROptimizer::isLoopInvariantWithPHIMapping(const Inst& inst, const std::set<uint32_t>& loopModifiedVregs,
+                                                const std::map<uint32_t, uint32_t>& vregMapping) {
+    // Phase 2: Extended invariance check with PHI mapping
+    // An instruction is invariant if its operands are either:
+    // 1. Not modified in loop, OR
+    // 2. Defined by a duplicatable PHI (in vregMapping)
+
+    auto isOperandInvariant = [&](const Operand& op) -> bool {
+        if (!op.isVreg()) return true;
+        if (loopModifiedVregs.count(op.vregId)) {
+            // Is this vreg in the mapping? (defined by duplicatable PHI)
+            return vregMapping.find(op.vregId) != vregMapping.end();
+        }
+        return true;
+    };
+
+    return isOperandInvariant(inst.src1) && isOperandInvariant(inst.src2);
+}
+
+bool IROptimizer::canHoistToPreheaderWithPHI(const Inst& inst, const std::set<uint32_t>& loopModifiedVregs,
+                                             const std::map<uint32_t, uint32_t>& vregMapping) {
+    // Phase 2: Can hoist if it's pure and invariant with PHI support
+    return inst.dest.isVreg() &&
+           isPureComputation(inst.op) &&
+           isLoopInvariantWithPHIMapping(inst, loopModifiedVregs, vregMapping);
+}
+
 bool IROptimizer::completeLoopHoisting(Function& fn) {
     if (fn.blocks.size() < 2) return false;
 
@@ -1189,7 +1301,7 @@ bool IROptimizer::completeLoopHoisting(Function& fn) {
         }
     }
 
-    // For each detected loop, hoist invariant instructions (Phase 1: simple hoisting)
+    // For each detected loop, hoist invariant instructions (Phase 1+2: simple + PHI duplication)
     for (auto& [headerIdx, bodyIndices] : loopMap) {
         if (headerIdx >= fn.blocks.size() || headerIdx == 0) continue;
 
@@ -1204,7 +1316,15 @@ bool IROptimizer::completeLoopHoisting(Function& fn) {
             }
         }
 
-        // Collect vregs defined by PHI nodes in loop header (Phase 1: avoid these)
+        // Find preheader (block before loop entry)
+        size_t preheaderIdx = headerIdx - 1;
+        if (preheaderIdx >= fn.blocks.size()) continue;
+
+        // Phase 2: Duplicate PHI nodes from loop header to preheader
+        std::map<uint32_t, uint32_t> vregMapping;  // Loop PHI vreg → preheader PHI vreg
+        findDuplicatablePHIsAndCreate(fn.blocks[headerIdx], fn.blocks[preheaderIdx], fn, vregMapping);
+
+        // Collect vregs defined by PHI nodes (for Phase 1 fallback)
         std::set<uint32_t> phiDefVregs;
         for (const auto& inst : fn.blocks[headerIdx].insts) {
             if (inst.op == Op::PHI && inst.dest.isVreg()) {
@@ -1212,11 +1332,7 @@ bool IROptimizer::completeLoopHoisting(Function& fn) {
             }
         }
 
-        // Find preheader (block before loop entry)
-        size_t preheaderIdx = headerIdx - 1;
-        if (preheaderIdx >= fn.blocks.size()) continue;
-
-        // Scan loop body for hoistable instructions
+        // Scan loop body for hoistable instructions (Phase 2: with PHI support)
         std::vector<std::pair<size_t, size_t>> instToHoist;  // (blockIdx, instIdx)
 
         for (size_t bodyIdx : bodyIndices) {
@@ -1226,9 +1342,14 @@ bool IROptimizer::completeLoopHoisting(Function& fn) {
             for (size_t instIdx = 0; instIdx < bodyBlock.insts.size(); instIdx++) {
                 const auto& inst = bodyBlock.insts[instIdx];
 
-                // Check if instruction can be hoisted
-                if (canHoistToPreheader(inst, loopModified, phiDefVregs)) {
+                // Phase 2: Use extended hoisting check with PHI mapping
+                if (canHoistToPreheaderWithPHI(inst, loopModified, vregMapping)) {
                     instToHoist.push_back({bodyIdx, instIdx});
+                } else if (!vregMapping.empty()) {
+                    // If Phase 2 didn't work, still try Phase 1 fallback for non-PHI dependencies
+                    if (canHoistToPreheader(inst, loopModified, phiDefVregs)) {
+                        instToHoist.push_back({bodyIdx, instIdx});
+                    }
                 }
             }
         }
@@ -1237,13 +1358,16 @@ bool IROptimizer::completeLoopHoisting(Function& fn) {
         if (!instToHoist.empty()) {
             changed = true;
 
-            // Collect instructions to move (process in reverse to preserve order)
+            // Collect instructions to move and remap operands (process in reverse to preserve order)
             std::vector<Inst> instsToMove;
             for (auto [blockIdx, instIdx] : instToHoist) {
                 if (blockIdx < fn.blocks.size()) {
                     auto& block = fn.blocks[blockIdx];
                     if (instIdx < block.insts.size()) {
-                        instsToMove.push_back(block.insts[instIdx]);
+                        Inst inst = block.insts[instIdx];
+                        // Phase 2: Remap operands if they depend on PHI
+                        remapInstructionOperands(inst, vregMapping);
+                        instsToMove.push_back(inst);
                     }
                 }
             }

@@ -3639,13 +3639,13 @@ bool IRCodeGen::canUseDirectMemIncrement(uint32_t vregId) const {
     // Phase 5c: Check if direct inc/dec at memory is safe and beneficial.
     // Requires: I8 type, ZP allocation, no flag-consuming next instruction
 
+    // Get allocation info (includes type from VRegAllocator)
+    auto alloc = alloc_.getAlloc(vregId);
+
     // Type check: only I8 can be directly incremented
-    if (vregType_.find(vregId) == vregType_.end()) return false;
-    ir::Type type = vregType_.at(vregId);
-    if (type != ir::Type::I8) return false;
+    if (alloc.type != ir::Type::I8) return false;
 
     // Location check: must be in ZP for direct addressing
-    auto alloc = alloc_.getAlloc(vregId);
     if (alloc.loc != VRegAllocator::IN_ZP) return false;
 
     // Flag check: next instruction must not consume flags
@@ -3682,13 +3682,13 @@ bool IRCodeGen::canUseDirectMemShift(uint32_t vregId, ir::Op shiftOp) const {
 
     (void)shiftOp;  // Shift operation type (handled by emitDirectMemShift)
 
+    // Get allocation info (includes type from VRegAllocator)
+    auto alloc = alloc_.getAlloc(vregId);
+
     // Type check: only I8 can be directly shifted (8-bit shifts only)
-    if (vregType_.find(vregId) == vregType_.end()) return false;
-    ir::Type type = vregType_.at(vregId);
-    if (type != ir::Type::I8) return false;
+    if (alloc.type != ir::Type::I8) return false;
 
     // Location check: must be in ZP for direct addressing
-    auto alloc = alloc_.getAlloc(vregId);
     if (alloc.loc != VRegAllocator::IN_ZP) return false;
 
     // Flag check: next instruction must not consume flags
