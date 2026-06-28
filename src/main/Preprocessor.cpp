@@ -445,7 +445,7 @@ long Preprocessor::evaluateExpression(const std::string& expr) {
     return parseOr();
 }
 
-std::string Preprocessor::process(const std::string& source, 
+std::string Preprocessor::process(const std::string& source,
                                   const std::map<std::string, std::string>& initialSymbols,
                                   const std::vector<std::string>& includePaths,
                                   const std::string& currentFile) {
@@ -856,6 +856,20 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         output << "__asm__(\".set_bp " + bpVal + "\");\n";
                     } else if (cc45Arg == "weak") {
                         output << "__asm__(\".weak_next\");\n";
+                    } else if (cc45Arg == "unroll") {
+                        std::string countStr;
+                        if (ss >> countStr) {
+                            output << "__asm__(\".crt_unroll " + countStr + "\");\n";
+                        } else {
+                            output << "__asm__(\".crt_unroll\");\n";
+                        }
+                    } else if (cc45Arg == "unroll_default") {
+                        std::string countStr;
+                        if (ss >> countStr) {
+                            output << "__asm__(\".crt_unroll_def " + countStr + "\");\n";
+                        } else {
+                            output << "\n";
+                        }
                     } else {
                         output << "\n";
                     }
