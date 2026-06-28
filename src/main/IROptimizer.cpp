@@ -1267,9 +1267,11 @@ bool IROptimizer::completeLoopHoisting(Function& fn) {
 
     bool changed = false;
 
-    // Detect loops via back-edges
-    std::map<size_t, std::vector<size_t>> loopMap;  // header_idx -> body_indices
+    // Detect loops via back-edges and compute proper loop body blocks
+    std::map<size_t, std::vector<size_t>> backEdges;  // header_idx -> [source_idx, ...]
+    std::map<size_t, std::vector<size_t>> loopMap;    // header_idx -> body_indices
 
+    // Phase 1: Find all back-edges
     for (size_t i = 0; i < fn.blocks.size(); i++) {
         const auto& block = fn.blocks[i];
         if (block.insts.empty()) continue;
@@ -1280,25 +1282,103 @@ bool IROptimizer::completeLoopHoisting(Function& fn) {
         if (term.op == Op::BR && term.src1.kind == OperandKind::LABEL) {
             for (size_t j = 0; j < fn.blocks.size(); j++) {
                 if (fn.blocks[j].label == term.src1.name && j < i) {
-                    loopMap[j].push_back(i);
+                    backEdges[j].push_back(i);
                 }
             }
         } else if (term.op == Op::BR_COND) {
             if (term.dest.kind == OperandKind::LABEL) {
                 for (size_t j = 0; j < fn.blocks.size(); j++) {
                     if (fn.blocks[j].label == term.dest.name && j < i) {
-                        loopMap[j].push_back(i);
+                        backEdges[j].push_back(i);
                     }
                 }
             }
             if (term.src2.kind == OperandKind::LABEL) {
                 for (size_t j = 0; j < fn.blocks.size(); j++) {
                     if (fn.blocks[j].label == term.src2.name && j < i) {
-                        loopMap[j].push_back(i);
+                        backEdges[j].push_back(i);
                     }
                 }
             }
         }
+    }
+
+    // Phase 2: For each back-edge, compute all blocks in the loop body
+    // Loop body = all blocks reachable from header within loop boundary
+    for (auto& [headerIdx, backEdgeSources] : backEdges) {
+        if (headerIdx >= fn.blocks.size()) continue;
+
+        // For each back-edge to this header, find all blocks in that loop
+        for (size_t backEdgeIdx : backEdgeSources) {
+            if (backEdgeIdx >= fn.blocks.size()) continue;
+
+            // Loop boundary: blocks from headerIdx to backEdgeIdx (inclusive)
+            // Use worklist algorithm to find all blocks in loop body
+            std::set<size_t> loopBlocks;
+            std::set<size_t> visited;
+            std::vector<size_t> worklist;
+
+            // Start with blocks that branch back to header
+            worklist.push_back(backEdgeIdx);
+            loopBlocks.insert(backEdgeIdx);
+
+            while (!worklist.empty()) {
+                size_t current = worklist.back();
+                worklist.pop_back();
+
+                if (visited.count(current)) continue;
+                visited.insert(current);
+
+                // Find predecessors of current block within loop boundary
+                for (size_t i = headerIdx; i <= backEdgeIdx && i < fn.blocks.size(); i++) {
+                    if (loopBlocks.count(i)) continue;  // Already in loop
+
+                    const auto& block = fn.blocks[i];
+                    if (block.insts.empty()) continue;
+
+                    const auto& term = block.insts.back();
+                    bool branchesToCurrent = false;
+
+                    // Check if block i branches to current
+                    if (term.op == Op::BR && term.src1.kind == OperandKind::LABEL) {
+                        if (fn.blocks[current].label == term.src1.name) {
+                            branchesToCurrent = true;
+                        }
+                    } else if (term.op == Op::BR_COND) {
+                        if ((term.dest.kind == OperandKind::LABEL && fn.blocks[current].label == term.dest.name) ||
+                            (term.src2.kind == OperandKind::LABEL && fn.blocks[current].label == term.src2.name)) {
+                            branchesToCurrent = true;
+                        }
+                    }
+                    // Also check fall-through (next sequential block)
+                    if (!branchesToCurrent && i + 1 == current &&
+                        (term.op != Op::BR && term.op != Op::BR_COND && term.op != Op::RET && term.op != Op::RET_VOID)) {
+                        branchesToCurrent = true;
+                    }
+
+                    if (branchesToCurrent) {
+                        loopBlocks.insert(i);
+                        worklist.push_back(i);
+                    }
+                }
+            }
+
+            // Add header to loop blocks if not already there
+            loopBlocks.insert(headerIdx);
+
+            // Store all blocks except header as body blocks
+            for (size_t blockIdx : loopBlocks) {
+                if (blockIdx != headerIdx) {
+                    loopMap[headerIdx].push_back(blockIdx);
+                }
+            }
+        }
+    }
+
+    // Deduplicate body blocks for each header
+    for (auto& [headerIdx, bodyIndices] : loopMap) {
+        std::sort(bodyIndices.begin(), bodyIndices.end());
+        bodyIndices.erase(std::unique(bodyIndices.begin(), bodyIndices.end()), bodyIndices.end());
     }
 
     // For each detected loop, hoist invariant instructions (Phase 1+2: simple + PHI duplication)
