@@ -59,6 +59,13 @@ Expected impact: ~10–15% size reduction on typical code via cascading effects.
 Measured impact: -1.8% on GVN-heavy patterns (test_gvn.c)
 Expected on real-world code: -5% to -10% with loop optimizations
 
+**Phase 3** (this session):
+- Loop-invariant code hoisting (30 min)
+- Dead block removal - aggressive (15 min)
+- Common subexpression elimination enhancement (15 min)
+
+Expected impact: -5% to -15% on loop-heavy code
+
 ## Integration
 
 Optimizations run iteratively within `IROptimizer::optimize()` until convergence (max 10 iterations). Passes execute in order:

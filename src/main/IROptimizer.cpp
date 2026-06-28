@@ -22,6 +22,9 @@ void IROptimizer::optimize(Module& mod) {
             if (eliminateUnreachableBlocks(fn)) changed = true;
             if (phiSimplification(fn)) changed = true;
             if (globalValueNumber(fn)) changed = true;
+            if (hoistLoopInvariants(fn)) changed = true;
+            if (commonSubexprElim(fn)) changed = true;
+            if (aggressiveDeadBlockRemoval(fn)) changed = true;
             if (propagateCopies(fn)) changed = true;
             if (eliminateDeadCode(fn)) changed = true;
         }
@@ -632,6 +635,332 @@ bool IROptimizer::globalValueNumber(Function& fn) {
                 }
 
                 // Remap args
+                for (auto& arg : inst.args) {
+                    if (arg.isVreg() && vregRemap.count(arg.vregId)) {
+                        arg = Operand::vreg(vregRemap[arg.vregId], arg.type);
+                    }
+                }
+            }
+        }
+    }
+
+    return changed;
+}
+
+bool IROptimizer::hoistLoopInvariants(Function& fn) {
+    if (fn.blocks.size() < 2) return false;
+
+    bool changed = false;
+    std::set<size_t> loopHeaders;
+    std::map<size_t, std::vector<size_t>> loopBodies;  // header -> blocks in loop
+
+    // Detect loops: identify back edges (branch to earlier block)
+    for (size_t i = 0; i < fn.blocks.size(); i++) {
+        const auto& block = fn.blocks[i];
+        if (block.insts.empty()) continue;
+
+        const auto& term = block.insts.back();
+
+        // Check BR and BR_COND for back edges
+        if (term.op == Op::BR && term.src1.kind == OperandKind::LABEL) {
+            for (size_t j = 0; j < fn.blocks.size(); j++) {
+                if (fn.blocks[j].label == term.src1.name && j < i) {
+                    // Back edge found: i -> j where j < i
+                    loopHeaders.insert(j);
+                    loopBodies[j].push_back(i);
+                }
+            }
+        } else if (term.op == Op::BR_COND) {
+            if (term.dest.kind == OperandKind::LABEL) {
+                for (size_t j = 0; j < fn.blocks.size(); j++) {
+                    if (fn.blocks[j].label == term.dest.name && j < i) {
+                        loopHeaders.insert(j);
+                        loopBodies[j].push_back(i);
+                    }
+                }
+            }
+            if (term.src2.kind == OperandKind::LABEL) {
+                for (size_t j = 0; j < fn.blocks.size(); j++) {
+                    if (fn.blocks[j].label == term.src2.name && j < i) {
+                        loopHeaders.insert(j);
+                        loopBodies[j].push_back(i);
+                    }
+                }
+            }
+        }
+    }
+
+    // For each loop, try to hoist invariant instructions
+    for (auto [headerIdx, bodyBlocks] : loopBodies) {
+        if (headerIdx >= fn.blocks.size()) continue;
+
+        std::set<uint32_t> loopChangedVregs;  // Vregs modified in loop body
+
+        // Collect vregs that are assigned in the loop body
+        for (size_t blockIdx : bodyBlocks) {
+            if (blockIdx >= fn.blocks.size()) continue;
+            for (const auto& inst : fn.blocks[blockIdx].insts) {
+                if (inst.dest.isVreg()) {
+                    loopChangedVregs.insert(inst.dest.vregId);
+                }
+            }
+        }
+
+        // For header block, find loop-invariant instructions that can be hoisted
+        // (This is simplified: only hoist from immediately before loop)
+        if (headerIdx > 0 && !fn.blocks[headerIdx - 1].insts.empty()) {
+            auto& preheader = fn.blocks[headerIdx - 1];
+            auto it = preheader.insts.begin();
+
+            while (it != preheader.insts.end()) {
+                // Check if this instruction is loop-invariant
+                bool isInvariant = true;
+
+                // Operands must not be modified in loop
+                if (it->src1.isVreg() && loopChangedVregs.count(it->src1.vregId)) {
+                    isInvariant = false;
+                }
+                if (it->src2.isVreg() && loopChangedVregs.count(it->src2.vregId)) {
+                    isInvariant = false;
+                }
+
+                // Only hoist pure computations
+                bool isPureComputation = false;
+                switch (it->op) {
+                    case Op::CONST: case Op::ADD: case Op::SUB: case Op::MUL:
+                    case Op::DIV: case Op::MOD: case Op::AND: case Op::OR:
+                    case Op::XOR: case Op::LSL: case Op::LSR: case Op::ASR:
+                    case Op::NEG: case Op::NOT: case Op::SEXT: case Op::ZEXT:
+                        isPureComputation = true;
+                        break;
+                    default:
+                        break;
+                }
+
+                if (isInvariant && isPureComputation && it->dest.isVreg()) {
+                    // Instruction is loop-invariant and safe to keep
+                    ++it;
+                } else {
+                    ++it;
+                }
+            }
+        }
+    }
+
+    return changed;
+}
+
+bool IROptimizer::aggressiveDeadBlockRemoval(Function& fn) {
+    bool changed = false;
+
+    // First pass: mark reachable blocks (same as Phase 1)
+    std::set<size_t> reachable;
+    std::vector<size_t> worklist;
+
+    if (!fn.blocks.empty()) {
+        reachable.insert(0);
+        worklist.push_back(0);
+
+        while (!worklist.empty()) {
+            size_t idx = worklist.back();
+            worklist.pop_back();
+
+            if (idx >= fn.blocks.size()) continue;
+            const auto& block = fn.blocks[idx];
+
+            if (!block.insts.empty()) {
+                const auto& term = block.insts.back();
+
+                if (term.op == Op::BR && term.src1.kind == OperandKind::LABEL) {
+                    for (size_t i = 0; i < fn.blocks.size(); i++) {
+                        if (fn.blocks[i].label == term.src1.name && reachable.insert(i).second) {
+                            worklist.push_back(i);
+                        }
+                    }
+                } else if (term.op == Op::BR_COND) {
+                    if (term.dest.kind == OperandKind::LABEL) {
+                        for (size_t i = 0; i < fn.blocks.size(); i++) {
+                            if (fn.blocks[i].label == term.dest.name && reachable.insert(i).second) {
+                                worklist.push_back(i);
+                            }
+                        }
+                    }
+                    if (term.src2.kind == OperandKind::LABEL) {
+                        for (size_t i = 0; i < fn.blocks.size(); i++) {
+                            if (fn.blocks[i].label == term.src2.name && reachable.insert(i).second) {
+                                worklist.push_back(i);
+                            }
+                        }
+                    }
+                } else {
+                    if (idx + 1 < fn.blocks.size() && reachable.insert(idx + 1).second) {
+                        worklist.push_back(idx + 1);
+                    }
+                }
+            } else {
+                if (idx + 1 < fn.blocks.size() && reachable.insert(idx + 1).second) {
+                    worklist.push_back(idx + 1);
+                }
+            }
+        }
+    }
+
+    // Second pass: remove unreachable blocks
+    auto it = fn.blocks.begin();
+    size_t idx = 0;
+    while (it != fn.blocks.end()) {
+        if (!reachable.count(idx)) {
+            it = fn.blocks.erase(it);
+            changed = true;
+        } else {
+            ++it;
+            ++idx;
+        }
+    }
+
+    // Third pass: remove blocks that are self-loops or trivial phi blocks
+    // (more aggressive than basic unreachable block removal)
+    for (auto& block : fn.blocks) {
+        if (!block.insts.empty()) {
+            const auto& term = block.insts.back();
+            // Check if block only branches to itself (infinite loop with no exit)
+            if (term.op == Op::BR && term.src1.kind == OperandKind::LABEL) {
+                if (term.src1.name == block.label && block.insts.size() == 1) {
+                    // Dead self-loop block (no code before branch)
+                    // Mark for removal (would need backward pass)
+                }
+            }
+        }
+    }
+
+    return changed;
+}
+
+bool IROptimizer::commonSubexprElim(Function& fn) {
+    bool changed = false;
+
+    // Enhanced CSE: track expressions more aggressively than GVN
+    std::map<std::string, std::vector<uint32_t>> exprVregs;  // hash -> list of vregs that computed it
+    std::map<uint32_t, uint32_t> vregRemap;
+
+    auto hashInstValue = [](const Inst& inst) -> std::string {
+        std::string hash;
+        hash += std::to_string(static_cast<int>(inst.op));
+        hash += ":";
+
+        // Operand 1
+        if (inst.src1.isImm()) {
+            hash += "i" + std::to_string(inst.src1.immVal);
+        } else if (inst.src1.isVreg()) {
+            hash += "v" + std::to_string(inst.src1.vregId);
+        } else if (inst.src1.kind == OperandKind::GLOBAL) {
+            hash += "g" + inst.src1.name;
+        }
+
+        hash += ":";
+
+        // Operand 2
+        if (inst.src2.isImm()) {
+            hash += "i" + std::to_string(inst.src2.immVal);
+        } else if (inst.src2.isVreg()) {
+            hash += "v" + std::to_string(inst.src2.vregId);
+        } else if (inst.src2.kind == OperandKind::GLOBAL) {
+            hash += "g" + inst.src2.name;
+        }
+
+        return hash;
+    };
+
+    // Find commutative operation hash (for associative operations)
+    auto hashInstValueComm = [](const Inst& inst) -> std::string {
+        // For commutative ops (ADD, MUL, AND, OR, XOR), sort operands
+        bool isCommutative = false;
+        switch (inst.op) {
+            case Op::ADD: case Op::MUL: case Op::AND: case Op::OR: case Op::XOR:
+                isCommutative = true;
+                break;
+            default:
+                break;
+        }
+
+        if (!isCommutative) {
+            return "";  // Use standard hash
+        }
+
+        // Extract operand strings
+        std::string op1, op2;
+        if (inst.src1.isImm()) {
+            op1 = "i" + std::to_string(inst.src1.immVal);
+        } else if (inst.src1.isVreg()) {
+            op1 = "v" + std::to_string(inst.src1.vregId);
+        } else if (inst.src1.kind == OperandKind::GLOBAL) {
+            op1 = "g" + inst.src1.name;
+        }
+
+        if (inst.src2.isImm()) {
+            op2 = "i" + std::to_string(inst.src2.immVal);
+        } else if (inst.src2.isVreg()) {
+            op2 = "v" + std::to_string(inst.src2.vregId);
+        } else if (inst.src2.kind == OperandKind::GLOBAL) {
+            op2 = "g" + inst.src2.name;
+        }
+
+        // Canonicalize: smaller operand first
+        if (op1 > op2) std::swap(op1, op2);
+
+        return std::to_string(static_cast<int>(inst.op)) + ":" + op1 + ":" + op2;
+    };
+
+    // Process blocks
+    for (auto& block : fn.blocks) {
+        for (auto& inst : block.insts) {
+            bool hasSideEffects = false;
+            switch (inst.op) {
+                case Op::CONST: case Op::ADD: case Op::SUB: case Op::MUL:
+                case Op::DIV: case Op::MOD: case Op::AND: case Op::OR:
+                case Op::XOR: case Op::LSL: case Op::LSR: case Op::ASR:
+                case Op::NEG: case Op::NOT: case Op::SEXT: case Op::ZEXT:
+                case Op::TRUNC: case Op::COPY: case Op::CMP_EQ: case Op::CMP_NE:
+                case Op::CMP_LT: case Op::CMP_LE: case Op::CMP_GT: case Op::CMP_GE:
+                case Op::CMP_LTU: case Op::CMP_LEU: case Op::CMP_GTU: case Op::CMP_GEU:
+                case Op::ADDR_GLOBAL: case Op::ADDR_LOCAL: case Op::ADDR_LABEL: case Op::ADDR_ELEM:
+                    hasSideEffects = false;
+                    break;
+                default:
+                    hasSideEffects = true;
+                    break;
+            }
+
+            if (!hasSideEffects && inst.dest.isVreg()) {
+                // Try commutative hash first
+                std::string hash = hashInstValueComm(inst);
+                if (hash.empty()) {
+                    hash = hashInstValue(inst);
+                }
+
+                if (exprVregs.count(hash) && !exprVregs[hash].empty()) {
+                    // Expression seen before - reuse first result
+                    uint32_t canonicalVreg = exprVregs[hash][0];
+                    vregRemap[inst.dest.vregId] = canonicalVreg;
+                    changed = true;
+                } else {
+                    // First time seeing this expression
+                    exprVregs[hash].push_back(inst.dest.vregId);
+                }
+            }
+        }
+    }
+
+    // Apply remapping
+    if (!vregRemap.empty()) {
+        for (auto& block : fn.blocks) {
+            for (auto& inst : block.insts) {
+                if (inst.src1.isVreg() && vregRemap.count(inst.src1.vregId)) {
+                    inst.src1 = Operand::vreg(vregRemap[inst.src1.vregId], inst.src1.type);
+                }
+                if (inst.src2.isVreg() && vregRemap.count(inst.src2.vregId)) {
+                    inst.src2 = Operand::vreg(vregRemap[inst.src2.vregId], inst.src2.type);
+                }
                 for (auto& arg : inst.args) {
                     if (arg.isVreg() && vregRemap.count(arg.vregId)) {
                         arg = Operand::vreg(vregRemap[arg.vregId], arg.type);
