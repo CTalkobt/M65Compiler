@@ -173,6 +173,7 @@ struct Inst {
     std::vector<Operand> args;
     CallConv callConv = CallConv::STACK;
     bool isRegparm = false;  // first param passed in A/AX
+    bool isTailCall = false; // tail call optimization (replace JSR with JMP)
 
     // For SWITCH: case values and labels
     std::vector<std::pair<int64_t, std::string>> switchCases;

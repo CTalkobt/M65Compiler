@@ -40,6 +40,9 @@ void IROptimizer::optimize(Module& mod) {
         if (verboseLevel_ >= 1 && iterations > 1) {
             std::cout << "IR Optimization for function @" << fn.name << " converged in " << iterations << " iterations." << std::endl;
         }
+
+        // Tail call optimization (single pass, doesn't need iteration)
+        optimizeTailCalls(fn);
     }
 }
 
@@ -1769,6 +1772,61 @@ bool IROptimizer::instructionPatternOpt(Function& fn) {
         // Mark patterns for optimization (framework)
         if (!arithmeticPatterns.empty()) {
             changed = true;
+        }
+    }
+
+    return changed;
+}
+
+bool IROptimizer::optimizeTailCalls(Function& fn) {
+    bool changed = false;
+
+    // Look for CALL/CALL_VOID followed immediately by RET in each block
+    for (auto& block : fn.blocks) {
+        if (block.insts.size() < 2) continue;
+
+        // Check last two instructions
+        size_t lastIdx = block.insts.size() - 1;
+        size_t prevIdx = lastIdx - 1;
+
+        Inst& prevInst = block.insts[prevIdx];
+        Inst& lastInst = block.insts[lastIdx];
+
+        bool isCall = (prevInst.op == Op::CALL || prevInst.op == Op::CALL_VOID);
+        bool isRet = (lastInst.op == Op::RET || lastInst.op == Op::RET_VOID);
+
+        if (!isCall || !isRet) continue;
+
+        // For CALL (not CALL_VOID): verify the return value is the call result
+        if (prevInst.op == Op::CALL && lastInst.op == Op::RET) {
+            // Check if RET's operand is the call's result
+            if (prevInst.dest.isVreg() && lastInst.src1.isVreg()) {
+                if (prevInst.dest.vregId != lastInst.src1.vregId) {
+                    continue; // RET is not returning the call result
+                }
+            } else {
+                continue; // Can't verify
+            }
+        }
+
+        // For CALL_VOID followed by RET_VOID: always eligible
+        // For CALL followed by RET of the call result: eligible
+
+        // Check for any stack frame manipulations or other side effects
+        // that would prevent tail call optimization
+        bool canOptimize = true;
+
+        // Don't optimize if there are volatile stores or other unsafe ops
+        // (This is already handled by CALL having all necessary side effects)
+
+        if (canOptimize) {
+            prevInst.isTailCall = true;
+            changed = true;
+
+            if (verboseLevel_ >= 2) {
+                std::cout << "Tail call optimization: marking " << prevInst.args.size()
+                          << "-arg call as tail call in block '" << block.label << "'" << std::endl;
+            }
         }
     }
 

@@ -2918,20 +2918,31 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     }
                 }
                 
-                // JSR
+                // JSR or JMP (for tail calls)
                 if (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) {
                     if (inst.src1.kind == ir::OperandKind::GLOBAL) {
-                        emit("jsr " + inst.src1.name);
+                        if (inst.isTailCall) {
+                            emit("jmp " + inst.src1.name);
+                        } else {
+                            emit("jsr " + inst.src1.name);
+                        }
                     }
                 } else {
                     // CALL_INDIRECT
                     loadOperand(inst.src1);
                     emit("sta __zp_scratch");
                     emit("stx __zp_scratch+1");
-                    emit("jsr (__zp_scratch)");
+                    if (inst.isTailCall) {
+                        emit("jmp (__zp_scratch)");
+                    } else {
+                        emit("jsr (__zp_scratch)");
+                    }
                 }
                 // Phase 2: Invalidate memory state after JSR (conservative: callee may modify)
-                ms_.invalidateAllStack();
+                // Skip for tail calls since we won't return here anyway
+                if (!inst.isTailCall) {
+                    ms_.invalidateAllStack();
+                }
 
                 // Caller-side stack cleanup: pop argBytes with PLZ instructions
                 // (RTS #N opcode $62 is unreliable on some hardware)
@@ -2943,12 +2954,16 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 }
             }
 
-            // If it's a direct call and we didn't jsr yet (ZP case)
+            // If it's a direct call and we didn't emit yet (ZP case)
             if (inst.callConv == ir::CallConv::ZP && (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID)) {
                 if (inst.src1.kind == ir::OperandKind::GLOBAL) {
-                    emit("jsr " + inst.src1.name);
-                    // Phase 2: Invalidate memory state after JSR
-                    ms_.invalidateAllStack();
+                    if (inst.isTailCall) {
+                        emit("jmp " + inst.src1.name);
+                    } else {
+                        emit("jsr " + inst.src1.name);
+                        // Phase 2: Invalidate memory state after JSR
+                        ms_.invalidateAllStack();
+                    }
                 }
             }
 
