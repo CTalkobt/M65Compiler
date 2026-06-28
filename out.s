@@ -8,6 +8,7 @@
     inx
     cpx #248
     bne @__zp_save_loop
+    jsr _main
     sta $02
     stx $03
 ; Restore ZP $08-$FF from BSS buffer
@@ -34,118 +35,110 @@ __halt:
     __zp_scratch4 = $0E
 
 
-; function _constant_propagation_test
-    proc _constant_propagation_test
+; function _test
+    proc _test, W#@_p_x, W#@_p_y
     .var _fp = 0
-    .loc "test_opt_ir.c", 6
-    .var @_l_x = $20
-    .var @_l_y = $22
+    .loc "/tmp/test_non_const.c", 2
+    .var @_l_i = $26
+    .var @_l_product = $28
+    .var @_l_sum = $24
+    .var @_p_x = 2
+    .var @_p_y = 4
 
-@entry:
-    .loc "test_opt_ir.c", 7
-    lda #42
-    ldx #0
+    ldax.fp @_p_x
     sta $20
     stx $21
-    .loc "test_opt_ir.c", 8
-    lda $20
-    clc
-    adc #8
+    ldax.fp @_p_y
     sta $22
-    lda $21
+    stx $23
+@entry:
+    .loc "/tmp/test_non_const.c", 3
+    lda #0
+    ldx #0
+    sta $24
+    stx $25
+    .loc "/tmp/test_non_const.c", 6
+    lda #0
+    ldx #0
+    sta $26
+    stx $27
+    lda $26
+    clc
+    adc #1
+    sta $2A
+    lda $27
     adc #0
-    sta $23
-    .loc "test_opt_ir.c", 9
-    lda $22
-    ldx $23
+    sta $2B
+@for_cond0:
+    lda $26
+    ldx $27
+    cmp.16 .AX, #5
+    bcc @for_body1
+    bra @for_end3
+@for_body1:
+    .loc "/tmp/test_non_const.c", 7
+    lda $20
+    ldx $21
+    mul.16 .AX, $22
+    sta $2C
+    stx $2D
+    lda $2C
+    ldx $2D
+    sta $28
+    stx $29
+    .loc "/tmp/test_non_const.c", 8
+    lda $24
+    clc
+    adc $28
+    sta $24
+    lda $25
+    adc $28+1
+    sta $25
+@for_inc2:
+    lda $2A
+    ldx $2B
+    sta $26
+    stx $27
+    bra @for_cond0
+@for_end3:
+    .loc "/tmp/test_non_const.c", 11
+    lda $24
+    ldx $25
 @__return:
     .func_flags stack_call, leaf
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z, V
     endproc
 
-; function _copy_propagation_test
-    proc _copy_propagation_test
+; function _main
+    proc _main
     .var _fp = 0
-    .loc "test_opt_ir.c", 12
-    .var @_l_a = $20
-    .var @_l_b = $22
-    .var @_l_c = $24
+    .loc "/tmp/test_non_const.c", 14
 
 @entry:
-    .loc "test_opt_ir.c", 13
-    lda #10
-    ldx #0
-    sta $20
-    stx $21
-    .loc "test_opt_ir.c", 14
-    lda $20
-    ldx $21
-    sta $22
-    stx $23
-    .loc "test_opt_ir.c", 15
-    lda $22
-    ldx $23
-    sta $24
-    stx $25
-    .loc "test_opt_ir.c", 16
-    lda $24
-    ldx $25
-@__return:
-    .func_flags stack_call, leaf
-    .reg_clobbers A, X, Y
-    .flag_clobbers N, Z
-    endproc
-
-; function _unreachable_code_test
-    proc _unreachable_code_test
-    .var _fp = 0
-    .loc "test_opt_ir.c", 19
-
-@entry:
-    .loc "test_opt_ir.c", 20
-@if_then0:
-    .loc "test_opt_ir.c", 21
-    lda #100
-    ldx #0
-    bra @if_end2
-@__return:
-    .func_flags stack_call, leaf
-    .reg_clobbers A, X
-    .flag_clobbers N, Z
-    endproc
-
-; function _mixed_test
-    proc _mixed_test
-    .var _fp = 0
-    .loc "test_opt_ir.c", 28
-    .var @_l_x = $20
-    .var @_l_y = $22
-    .var @_l_z = $24
-
-@entry:
-    .loc "test_opt_ir.c", 29
+    .loc "/tmp/test_non_const.c", 15
     lda #5
     ldx #0
+    push .ax
+    .var _fp = _fp + 2
+    lda #10
+    ldx #0
+    push .ax
+    .var _fp = _fp + 2
+    jsr _test
+    plz
+    plz
+    plz
+    plz
+    .var _fp = _fp - 4
     sta $20
     stx $21
-    .loc "test_opt_ir.c", 30
-; TODO: unimplemented IR op
-    lda $26
-    ldx $27
-    sta $22
-    stx $23
-    .loc "test_opt_ir.c", 31
-    lda $22
-    ldx $23
-    sta $24
-    stx $25
-    .loc "test_opt_ir.c", 32
-    bra @if_end5
+    lda $20
+    ldx $21
 @__return:
-    .func_flags stack_call, leaf
-    .reg_clobbers A, X, Y
-    .flag_clobbers N, Z
+    .func_flags stack_call
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
     endproc
 
 

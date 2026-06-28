@@ -1350,6 +1350,9 @@ bool IROptimizer::completeLoopHoisting(Function& fn) {
                     if (canHoistToPreheader(inst, loopModified, phiDefVregs)) {
                         instToHoist.push_back({bodyIdx, instIdx});
                     }
+                } else if (canHoistToPreheader(inst, loopModified, phiDefVregs)) {
+                    // Always try Phase 1 if no vregMapping
+                    instToHoist.push_back({bodyIdx, instIdx});
                 }
             }
         }
