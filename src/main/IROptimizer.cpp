@@ -34,6 +34,7 @@ void IROptimizer::optimize(Module& mod) {
             if (commonSubexprElim(fn)) changed = true;
             if (aggressiveDeadBlockRemoval(fn)) changed = true;
             if (propagateCopies(fn)) changed = true;
+            if (peepholeOptimize(fn)) changed = true;
             if (eliminateDeadCode(fn)) changed = true;
         }
 
@@ -1773,6 +1774,145 @@ bool IROptimizer::instructionPatternOpt(Function& fn) {
         if (!arithmeticPatterns.empty()) {
             changed = true;
         }
+    }
+
+    return changed;
+}
+
+bool IROptimizer::peepholeOptimize(Function& fn) {
+    bool changed = false;
+
+    for (auto& block : fn.blocks) {
+        for (size_t i = 0; i < block.insts.size(); i++) {
+            // Pattern 1: COPY followed by use of the same vreg → eliminate copy
+            if (i + 1 < block.insts.size() && block.insts[i].op == Op::COPY) {
+                Inst& copy = block.insts[i];
+                Inst& next = block.insts[i + 1];
+
+                // If next instruction uses the copy dest, replace with src
+                bool nextUsesDest = (next.src1.isVreg() && next.src1.vregId == copy.dest.vregId) ||
+                                   (next.src2.isVreg() && next.src2.vregId == copy.dest.vregId);
+
+                if (nextUsesDest && copy.src1.isVreg()) {
+                    // Replace copy dest with copy src in next instruction
+                    if (next.src1.isVreg() && next.src1.vregId == copy.dest.vregId) {
+                        next.src1 = copy.src1;
+                    }
+                    if (next.src2.isVreg() && next.src2.vregId == copy.dest.vregId) {
+                        next.src2 = copy.src1;
+                    }
+                    // Mark copy for deletion
+                    copy.op = Op::NOP;
+                    changed = true;
+                }
+            }
+
+            // Pattern 2: Store followed by load from same address → replace load with store value
+            if (i + 1 < block.insts.size() &&
+                block.insts[i].op == Op::STORE &&
+                (block.insts[i + 1].op == Op::LOAD || block.insts[i + 1].op == Op::LOAD_ZP)) {
+                Inst& store = block.insts[i];
+                Inst& load = block.insts[i + 1];
+
+                // Check if loading from same address
+                bool sameAddr = false;
+                if (store.op == Op::STORE && load.op == Op::LOAD) {
+                    sameAddr = store.src2.kind == load.src1.kind &&
+                              store.src2.vregId == load.src1.vregId;
+                } else if (store.op == Op::STORE_ZP && load.op == Op::LOAD_ZP) {
+                    sameAddr = store.src2.kind == load.src1.kind &&
+                              store.src2.immVal == load.src1.immVal;
+                }
+
+                if (sameAddr && store.resultType == load.resultType) {
+                    // Replace load with copy of stored value
+                    load.op = Op::COPY;
+                    load.src1 = store.src1;
+                    load.src2 = Operand::none();
+                    changed = true;
+                }
+            }
+
+            // Pattern 3: Redundant type conversions
+            if (i + 1 < block.insts.size()) {
+                Inst& inst1 = block.insts[i];
+                Inst& inst2 = block.insts[i + 1];
+
+                // ZEXT followed by ZEXT to same type → eliminate first
+                if (inst1.op == Op::ZEXT && inst2.op == Op::ZEXT &&
+                    inst1.dest.isVreg() && inst2.src1.vregId == inst1.dest.vregId &&
+                    inst1.resultType == inst2.resultType) {
+                    // Forward extend: replace second input
+                    inst2.src1 = inst1.src1;
+                    inst1.op = Op::NOP;
+                    changed = true;
+                }
+
+                // SEXT followed by SEXT to same type → eliminate first
+                if (inst1.op == Op::SEXT && inst2.op == Op::SEXT &&
+                    inst1.dest.isVreg() && inst2.src1.vregId == inst1.dest.vregId &&
+                    inst1.resultType == inst2.resultType) {
+                    inst2.src1 = inst1.src1;
+                    inst1.op = Op::NOP;
+                    changed = true;
+                }
+            }
+
+            // Pattern 4: Constant folding on shifts
+            if (block.insts[i].op == Op::SHL || block.insts[i].op == Op::SHR ||
+                block.insts[i].op == Op::ASR || block.insts[i].op == Op::LSL ||
+                block.insts[i].op == Op::LSR) {
+                Inst& shift = block.insts[i];
+                if (shift.src1.isImm() && shift.src2.isImm()) {
+                    int64_t val = shift.src1.immVal;
+                    int64_t amount = shift.src2.immVal;
+                    int64_t result = 0;
+
+                    switch (shift.op) {
+                        case Op::SHL:
+                        case Op::LSL: result = val << amount; break;
+                        case Op::LSR: result = (uint64_t)val >> amount; break;
+                        case Op::ASR:
+                        case Op::SHR: result = val >> amount; break;
+                        default: break;
+                    }
+
+                    shift.op = Op::CONST;
+                    shift.src1 = Operand::none();
+                    shift.src2 = Operand::none();
+                    shift.dest.immVal = result;
+                    changed = true;
+                }
+            }
+
+            // Pattern 5: AND with all-ones mask → eliminate AND
+            if (block.insts[i].op == Op::AND && block.insts[i].src2.isImm()) {
+                int64_t mask = block.insts[i].src2.immVal;
+                int size = ir::typeSize(block.insts[i].resultType);
+                int64_t allOnes = (size == 1) ? 0xFF : (size == 2) ? 0xFFFF : 0xFFFFFFFF;
+
+                if (mask == allOnes) {
+                    block.insts[i].op = Op::COPY;
+                    block.insts[i].src2 = Operand::none();
+                    changed = true;
+                }
+            }
+
+            // Pattern 6: OR with zero → eliminate OR (becomes COPY)
+            if (block.insts[i].op == Op::OR && block.insts[i].src2.isImm() &&
+                block.insts[i].src2.immVal == 0) {
+                block.insts[i].op = Op::COPY;
+                block.insts[i].src2 = Operand::none();
+                changed = true;
+            }
+        }
+
+        // Remove NOP instructions
+        block.insts.erase(
+            std::remove_if(block.insts.begin(), block.insts.end(),
+                         [](const Inst& inst) { return inst.op == Op::NOP; }),
+            block.insts.end()
+        );
     }
 
     return changed;
