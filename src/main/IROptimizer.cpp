@@ -1095,6 +1095,61 @@ bool IROptimizer::storeLoadForwarding(Function& fn) {
     return changed;
 }
 
+bool IROptimizer::isPureComputation(Op op) {
+    // Phase 1 loop hoisting: identify pure operations (no side effects)
+    switch (op) {
+        case Op::CONST:
+        case Op::ADD: case Op::SUB: case Op::MUL: case Op::DIV: case Op::MOD:
+        case Op::MUL_U: case Op::DIV_U: case Op::MOD_U:
+        case Op::AND: case Op::OR: case Op::XOR:
+        case Op::LSL: case Op::LSR: case Op::ASR:
+        case Op::SHL: case Op::SHR:
+        case Op::NEG: case Op::NOT:
+        case Op::SEXT: case Op::ZEXT: case Op::TRUNC:
+        case Op::CMP_EQ: case Op::CMP_NE: case Op::CMP_LT: case Op::CMP_LE:
+        case Op::CMP_GT: case Op::CMP_GE: case Op::CMP_LTU: case Op::CMP_LEU:
+        case Op::CMP_GTU: case Op::CMP_GEU:
+        case Op::ADDR_GLOBAL: case Op::ADDR_LOCAL: case Op::ADDR_LABEL:
+        case Op::BFEXT: case Op::COPY:
+            return true;
+        default:
+            return false;  // LOAD, STORE, CALL, etc. have side effects
+    }
+}
+
+bool IROptimizer::isLoopInvariant(const Inst& inst, const std::set<uint32_t>& loopModifiedVregs,
+                                  const std::set<uint32_t>& phiDefVregs) {
+    // Phase 1: instruction is loop-invariant if:
+    // 1. All operand vregs are not modified in loop
+    // 2. No operands come from PHI nodes (Phase 1 limitation: avoid PHI complexity)
+
+    // Check src1
+    if (inst.src1.isVreg()) {
+        if (loopModifiedVregs.count(inst.src1.vregId)) return false;
+        if (phiDefVregs.count(inst.src1.vregId)) return false;  // Phase 1: skip PHI deps
+    }
+
+    // Check src2
+    if (inst.src2.isVreg()) {
+        if (loopModifiedVregs.count(inst.src2.vregId)) return false;
+        if (phiDefVregs.count(inst.src2.vregId)) return false;  // Phase 1: skip PHI deps
+    }
+
+    return true;
+}
+
+bool IROptimizer::canHoistToPreheader(const Inst& inst, const std::set<uint32_t>& loopModifiedVregs,
+                                      const std::set<uint32_t>& phiDefVregs) {
+    // Phase 1: can hoist if:
+    // 1. Operation is pure (no side effects)
+    // 2. Instruction is loop-invariant
+    // 3. Destination is a vreg (produces a value)
+
+    return inst.dest.isVreg() &&
+           isPureComputation(inst.op) &&
+           isLoopInvariant(inst, loopModifiedVregs, phiDefVregs);
+}
+
 bool IROptimizer::completeLoopHoisting(Function& fn) {
     if (fn.blocks.size() < 2) return false;
 
@@ -1134,7 +1189,7 @@ bool IROptimizer::completeLoopHoisting(Function& fn) {
         }
     }
 
-    // For each detected loop, hoist invariant instructions
+    // For each detected loop, hoist invariant instructions (Phase 1: simple hoisting)
     for (auto& [headerIdx, bodyIndices] : loopMap) {
         if (headerIdx >= fn.blocks.size() || headerIdx == 0) continue;
 
@@ -1149,12 +1204,20 @@ bool IROptimizer::completeLoopHoisting(Function& fn) {
             }
         }
 
+        // Collect vregs defined by PHI nodes in loop header (Phase 1: avoid these)
+        std::set<uint32_t> phiDefVregs;
+        for (const auto& inst : fn.blocks[headerIdx].insts) {
+            if (inst.op == Op::PHI && inst.dest.isVreg()) {
+                phiDefVregs.insert(inst.dest.vregId);
+            }
+        }
+
         // Find preheader (block before loop entry)
         size_t preheaderIdx = headerIdx - 1;
         if (preheaderIdx >= fn.blocks.size()) continue;
 
-        // Scan loop body for invariant instructions
-        std::vector<size_t> instIndicesToHoist;
+        // Scan loop body for hoistable instructions
+        std::vector<std::pair<size_t, size_t>> instToHoist;  // (blockIdx, instIdx)
 
         for (size_t bodyIdx : bodyIndices) {
             if (bodyIdx >= fn.blocks.size()) continue;
@@ -1163,46 +1226,52 @@ bool IROptimizer::completeLoopHoisting(Function& fn) {
             for (size_t instIdx = 0; instIdx < bodyBlock.insts.size(); instIdx++) {
                 const auto& inst = bodyBlock.insts[instIdx];
 
-                // Check if instruction is loop-invariant
-                bool isInvariant = true;
-
-                // Operands must not be loop-modified
-                if (inst.src1.isVreg() && loopModified.count(inst.src1.vregId)) {
-                    isInvariant = false;
-                }
-                if (inst.src2.isVreg() && loopModified.count(inst.src2.vregId)) {
-                    isInvariant = false;
-                }
-
-                // Only hoist pure computations (side-effect free)
-                bool isPure = false;
-                switch (inst.op) {
-                    case Op::CONST: case Op::ADD: case Op::SUB: case Op::MUL:
-                    case Op::DIV: case Op::MOD: case Op::AND: case Op::OR:
-                    case Op::XOR: case Op::LSL: case Op::LSR: case Op::ASR:
-                    case Op::NEG: case Op::NOT: case Op::SEXT: case Op::ZEXT:
-                    case Op::CMP_EQ: case Op::CMP_NE: case Op::CMP_LT: case Op::CMP_LE:
-                    case Op::CMP_GT: case Op::CMP_GE: case Op::CMP_LTU: case Op::CMP_LEU:
-                    case Op::CMP_GTU: case Op::CMP_GEU: case Op::ADDR_GLOBAL: case Op::ADDR_LOCAL:
-                        isPure = true;
-                        break;
-                    default:
-                        break;
-                }
-
-                if (isInvariant && isPure && inst.dest.isVreg()) {
-                    // Safe to hoist: operands not loop-modified and operation is pure
-                    instIndicesToHoist.push_back(instIdx);
+                // Check if instruction can be hoisted
+                if (canHoistToPreheader(inst, loopModified, phiDefVregs)) {
+                    instToHoist.push_back({bodyIdx, instIdx});
                 }
             }
         }
 
-        // Hoist instructions (simplified: mark for hoisting, conservative approach)
-        if (!instIndicesToHoist.empty()) {
+        // Perform hoisting: move instructions to preheader
+        if (!instToHoist.empty()) {
             changed = true;
-            // Note: Actual hoisting would require careful phi node updates
-            // and tracking of hoisted vregs through loop iterations.
-            // Framework in place; conservative implementation prevents bugs.
+
+            // Collect instructions to move (process in reverse to preserve order)
+            std::vector<Inst> instsToMove;
+            for (auto [blockIdx, instIdx] : instToHoist) {
+                if (blockIdx < fn.blocks.size()) {
+                    auto& block = fn.blocks[blockIdx];
+                    if (instIdx < block.insts.size()) {
+                        instsToMove.push_back(block.insts[instIdx]);
+                    }
+                }
+            }
+
+            // Remove hoisted instructions from loop bodies (backward to preserve indices)
+            for (int i = (int)instToHoist.size() - 1; i >= 0; i--) {
+                auto [blockIdx, instIdx] = instToHoist[i];
+                if (blockIdx < fn.blocks.size()) {
+                    auto& block = fn.blocks[blockIdx];
+                    if (instIdx < block.insts.size()) {
+                        block.insts.erase(block.insts.begin() + instIdx);
+                    }
+                }
+            }
+
+            // Insert hoisted instructions into preheader (before terminator)
+            auto& preheader = fn.blocks[preheaderIdx];
+            size_t insertPos = preheader.insts.size();
+            if (!preheader.insts.empty() &&
+                (preheader.insts.back().op == Op::BR || preheader.insts.back().op == Op::BR_COND ||
+                 preheader.insts.back().op == Op::RET || preheader.insts.back().op == Op::RET_VOID)) {
+                insertPos = preheader.insts.size() - 1;  // Insert before terminator
+            }
+
+            for (const auto& inst : instsToMove) {
+                preheader.insts.insert(preheader.insts.begin() + insertPos, inst);
+                insertPos++;
+            }
         }
     }
 

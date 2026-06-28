@@ -44,6 +44,13 @@ private:
     bool foldInstruction(Inst& inst, const std::map<uint32_t, Operand>& constMap);
     Operand evaluateBinaryOp(Op op, Type type, int64_t v1, int64_t v2);
     Operand evaluateUnaryOp(Op op, Type type, int64_t val);
+
+    // Helper functions for loop hoisting (Phase 1 - simple hoisting)
+    bool isLoopInvariant(const Inst& inst, const std::set<uint32_t>& loopModifiedVregs,
+                         const std::set<uint32_t>& phiDefVregs);
+    bool isPureComputation(Op op);
+    bool canHoistToPreheader(const Inst& inst, const std::set<uint32_t>& loopModifiedVregs,
+                             const std::set<uint32_t>& phiDefVregs);
 };
 
 } // namespace ir
