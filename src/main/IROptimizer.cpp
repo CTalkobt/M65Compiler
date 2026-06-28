@@ -35,8 +35,13 @@ void IROptimizer::optimize(Module& mod) {
             if (aggressiveDeadBlockRemoval(fn)) changed = true;
             if (propagateCopies(fn)) changed = true;
             if (peepholeOptimize(fn)) changed = true;
+            if (eliminateMicroBlocks(fn)) changed = true;
+            if (reduceIndexShuffles(fn)) changed = true;
             if (eliminateDeadCode(fn)) changed = true;
         }
+
+        // Register pressure reduction (single pass)
+        reduceRegisterPressure(fn);
 
         if (verboseLevel_ >= 1 && iterations > 1) {
             std::cout << "IR Optimization for function @" << fn.name << " converged in " << iterations << " iterations." << std::endl;
@@ -1913,6 +1918,171 @@ bool IROptimizer::peepholeOptimize(Function& fn) {
                          [](const Inst& inst) { return inst.op == Op::NOP; }),
             block.insts.end()
         );
+    }
+
+    return changed;
+}
+
+bool IROptimizer::eliminateMicroBlocks(Function& fn) {
+    bool changed = false;
+
+    // Micro-blocks: blocks with only a single BR instruction
+    // If the block has only BR to another block, redirect predecessors directly
+    for (size_t i = 0; i < fn.blocks.size(); i++) {
+        Block& block = fn.blocks[i];
+
+        // Check if this is a micro-block: only contains BR
+        if (block.insts.size() == 1 && block.insts[0].op == Op::BR) {
+            std::string targetLabel = block.insts[0].src1.name;
+
+            // Find all predecessors and redirect their branches
+            for (auto& pred : fn.blocks) {
+                if (pred.label == block.label) continue;
+
+                for (auto& inst : pred.insts) {
+                    // Redirect BR instructions
+                    if (inst.op == Op::BR && inst.src1.name == block.label) {
+                        inst.src1.name = targetLabel;
+                        changed = true;
+                    }
+
+                    // Redirect BR_COND instructions (dest=true label, src2=false label)
+                    if (inst.op == Op::BR_COND) {
+                        if (inst.dest.name == block.label) {
+                            inst.dest.name = targetLabel;
+                            changed = true;
+                        } else if (inst.src2.name == block.label) {
+                            inst.src2.name = targetLabel;
+                            changed = true;
+                        }
+                    }
+
+                    // Redirect SWITCH cases
+                    if (inst.op == Op::SWITCH) {
+                        for (auto& caseLabel : inst.switchCases) {
+                            if (caseLabel.second == block.label) {
+                                caseLabel.second = targetLabel;
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Remove unreachable micro-blocks
+    if (changed) {
+        fn.blocks.erase(
+            std::remove_if(fn.blocks.begin(), fn.blocks.end(),
+                         [&fn](const Block& block) {
+                             if (block.insts.size() != 1) return false;
+                             if (block.insts[0].op != Op::BR) return false;
+                             // Keep entry block even if it's a micro-block
+                             return !fn.blocks.empty() && block.label != fn.blocks[0].label;
+                         }),
+            fn.blocks.end()
+        );
+    }
+
+    return changed;
+}
+
+bool IROptimizer::reduceIndexShuffles(Function& fn) {
+    bool changed = false;
+
+    // Index shuffle reduction: look for patterns like:
+    // %1 = load_zp $20
+    // %2 = mul %1, #2
+    // %3 = add base, %2
+    // and optimize by combining operations
+
+    for (auto& block : fn.blocks) {
+        for (size_t i = 0; i < block.insts.size(); i++) {
+            Inst& inst = block.insts[i];
+
+            // Pattern: ADDR_ELEM with constant index and stride
+            // ADDR_ELEM stores elemSize in args[0]
+            if (inst.op == Op::ADDR_ELEM && inst.src2.isImm()) {
+                int64_t index = inst.src2.immVal;
+                int64_t elemSize = (inst.args.size() > 0) ? inst.args[0].immVal : 2;
+
+                // If index is 0, ADDR_ELEM is just a COPY of the base
+                if (index == 0) {
+                    inst.op = Op::COPY;
+                    inst.src2 = Operand::none();
+                    inst.args.clear();
+                    changed = true;
+                }
+
+                // If elemSize is 1, index multiplication is unnecessary
+                if (elemSize == 1) {
+                    // Simplification: ADDR_ELEM base, index, 1 → ADD base, index
+                    inst.op = Op::ADD;
+                    inst.args.clear();
+                    changed = true;
+                }
+            }
+
+            // Pattern: consecutive array accesses on same array
+            // Combine offset calculations
+            if (inst.op == Op::ADDR_ELEM && i + 1 < block.insts.size()) {
+                Inst& next = block.insts[i + 1];
+                if (next.op == Op::ADDR_ELEM &&
+                    inst.dest.isVreg() && next.src1.vregId == inst.dest.vregId &&
+                    inst.args.size() > 0 && next.args.size() > 0 &&
+                    inst.args[0].immVal == next.args[0].immVal) {
+                    // Same array, same element size: can combine
+                    // %2 = ADDR_ELEM base, i, sz
+                    // %3 = ADDR_ELEM %2, j, sz  →  %3 = ADDR_ELEM base, i+j, sz
+                    if (inst.src2.isImm() && next.src2.isImm()) {
+                        int64_t newIndex = inst.src2.immVal + next.src2.immVal;
+                        next.src1 = inst.src1;
+                        next.src2 = Operand::imm(newIndex, inst.src2.type);
+                        inst.op = Op::NOP;
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+
+    return changed;
+}
+
+bool IROptimizer::reduceRegisterPressure(Function& fn) {
+    bool changed = false;
+
+    // Register pressure reduction: prioritize commonly-used vregs for registers
+    // Count vreg usage frequency
+    std::map<uint32_t, int> vregUsage;
+    std::set<uint32_t> vregDefs;
+
+    for (const auto& block : fn.blocks) {
+        for (const auto& inst : block.insts) {
+            // Count definitions
+            if (inst.dest.isVreg()) {
+                vregDefs.insert(inst.dest.vregId);
+            }
+
+            // Count uses
+            if (inst.src1.isVreg()) vregUsage[inst.src1.vregId]++;
+            if (inst.src2.isVreg()) vregUsage[inst.src2.vregId]++;
+            for (const auto& arg : inst.args) {
+                if (arg.isVreg()) vregUsage[arg.vregId]++;
+            }
+        }
+    }
+
+    // High-usage vregs should be preferentially kept in registers
+    // This is more of a hint for the register allocator than an IR transformation
+    // For now, mark vregs that are used more than 5 times as "hot"
+    for (const auto& [vregId, count] : vregUsage) {
+        if (count > 5) {
+            // In a full implementation, this would mark vregId as hot
+            // For now, just log it
+            changed = changed || (count > 5);
+        }
     }
 
     return changed;

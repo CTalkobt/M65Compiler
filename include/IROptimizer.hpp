@@ -41,6 +41,9 @@ private:
     bool propagateCopies(Function& fn);
     bool optimizeTailCalls(Function& fn);
     bool peepholeOptimize(Function& fn);
+    bool eliminateMicroBlocks(Function& fn);
+    bool reduceIndexShuffles(Function& fn);
+    bool reduceRegisterPressure(Function& fn);
 
     // Helper functions for constant folding
     bool foldInstruction(Inst& inst, const std::map<uint32_t, Operand>& constMap);
