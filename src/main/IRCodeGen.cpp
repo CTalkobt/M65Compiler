@@ -1430,6 +1430,39 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 // Check for inc a / dec a optimization
                 bool isInc = (inst.op == ir::Op::ADD && inst.src2.isImm() && inst.src2.immVal == 1);
                 bool isDec = (inst.op == ir::Op::SUB && inst.src2.isImm() && inst.src2.immVal == 1);
+
+                // Phase 5c: Check for direct memory increment optimization
+                // If src1 is a vreg that's in ZP and we're incrementing by 1,
+                // emit direct inc/dec at memory instead of load/inc/store
+                if (isInc && inst.src1.isVreg() && inst.dest.isVreg()) {
+                    uint32_t srcId = inst.src1.vregId;
+                    if (canUseDirectMemIncrement(srcId) && shouldPreferMemoryOp(srcId, inst.op)) {
+                        // Check if result goes back to same location (store to src1)
+                        auto* nextInst = peekNextInst();
+                        if (nextInst && nextInst->op == ir::Op::STORE &&
+                            nextInst->src1.isVreg() && nextInst->src1.vregId == inst.dest.vregId &&
+                            nextInst->src2.isVreg() && nextInst->src2.vregId == srcId) {
+                            // src1++ with result stored back to src1
+                            emitDirectMemIncrement(srcId, ir::Op::ADD);
+                            resultInAX_ = -1;  // Result not in AX anymore
+                            break;
+                        }
+                    }
+                } else if (isDec && inst.src1.isVreg() && inst.dest.isVreg()) {
+                    uint32_t srcId = inst.src1.vregId;
+                    if (canUseDirectMemIncrement(srcId) && shouldPreferMemoryOp(srcId, inst.op)) {
+                        auto* nextInst = peekNextInst();
+                        if (nextInst && nextInst->op == ir::Op::STORE &&
+                            nextInst->src1.isVreg() && nextInst->src1.vregId == inst.dest.vregId &&
+                            nextInst->src2.isVreg() && nextInst->src2.vregId == srcId) {
+                            // src1-- with result stored back to src1
+                            emitDirectMemIncrement(srcId, ir::Op::SUB);
+                            resultInAX_ = -1;  // Result not in AX anymore
+                            break;
+                        }
+                    }
+                }
+
                 loadOperandA(inst.src1);
                 if (isInc) {
                     emit("inc a");
@@ -3515,21 +3548,54 @@ RegId IRCodeGen::selectLoadDestinationReg(uint32_t vregId, ir::Type type) {
 }
 
 RegId IRCodeGen::findBestRegisterForLoad(uint32_t vregId, ir::Type type, const ir::Inst* nextOp) {
-    // Phase 5a: Smart register selection considering capabilities and state.
-    // Prefers Z for increment patterns (Phase 4 correction).
-    // For simplicity, stub implementation returns A; Phase 5b will enhance.
+    // Phase 5b: Smart register selection based on next operation and register state.
+    // Analyzes capabilities and cost to choose best register.
+    // Returns highest-priority capable register.
 
-    (void)vregId;    // Suppress unused parameter warnings
-    (void)type;
-    (void)nextOp;
+    if (!nextOp) return REG_A;  // No lookahead; default to A
 
-    // Phase 5a stub: return A for safe default behavior
-    // Phase 5b will implement full priority-based selection
-    return REG_A;
+    // Build candidate list: (score, RegId)
+    // Higher score = more preferred
+    std::vector<std::pair<int, RegId>> candidates;
+
+    // Evaluate each register
+    for (RegId r : {REG_A, REG_X, REG_Y, REG_Z}) {
+        // Skip if register can't perform next operation
+        if (!canRegPerformOp(r, nextOp->op)) {
+            candidates.push_back({-10000, r});
+            continue;
+        }
+
+        int score = 0;
+
+        // Bonus: if register already holds this vreg, no load needed (+100)
+        if (regHoldsVreg_[r] == (int)vregId) {
+            score += 100;
+        }
+
+        // Base priority: A most versatile
+        score += (10 - getRegisterSelectPriority(r)) * 10;
+
+        // Phase 4 correction: Z gets bonus for increment patterns
+        if ((nextOp->op == ir::Op::ADD || nextOp->op == ir::Op::SUB) && r == REG_Z) {
+            // Check if this is an increment pattern (src2 = 1)
+            if (nextOp->src2.isImm() && nextOp->src2.immVal == 1) {
+                score += 50;  // Strong preference for Z on increment
+            }
+        }
+
+        candidates.push_back({score, r});
+    }
+
+    // Sort by score (descending)
+    std::sort(candidates.rbegin(), candidates.rend());
+
+    // Return highest-scoring register
+    return candidates[0].second;
 }
 
 bool IRCodeGen::canUseDirectMemIncrement(uint32_t vregId) const {
-    // Phase 5a: Check if direct inc/dec at memory is safe.
+    // Phase 5c: Check if direct inc/dec at memory is safe and beneficial.
     // Requires: I8 type, ZP allocation, no flag-consuming next instruction
 
     // Type check: only I8 can be directly incremented
@@ -3538,8 +3604,35 @@ bool IRCodeGen::canUseDirectMemIncrement(uint32_t vregId) const {
     if (type != ir::Type::I8) return false;
 
     // Location check: must be in ZP for direct addressing
-    // (stub: return false until Phase 5b adds ZP allocation check)
-    return false;
+    auto alloc = alloc_.getAlloc(vregId);
+    if (alloc.loc != VRegAllocator::IN_ZP) return false;
+
+    // Flag check: next instruction must not consume flags
+    // inc/dec modifies N, Z, V flags; these are consumed by conditional branches and CMP
+    const ir::Inst* nextOp = peekNextInst();
+    if (nextOp) {
+        switch (nextOp->op) {
+            // Conditional branches that consume flags
+            case ir::Op::BR_COND:
+            // Comparisons that check flags
+            case ir::Op::CMP_EQ:
+            case ir::Op::CMP_NE:
+            case ir::Op::CMP_LT:
+            case ir::Op::CMP_LE:
+            case ir::Op::CMP_GT:
+            case ir::Op::CMP_GE:
+            case ir::Op::CMP_LTU:
+            case ir::Op::CMP_LEU:
+            case ir::Op::CMP_GTU:
+            case ir::Op::CMP_GEU:
+                // Would consume flags set by inc/dec
+                return false;
+            default:
+                break;
+        }
+    }
+
+    return true;  // Safe to use direct inc/dec
 }
 
 bool IRCodeGen::canUseDirectMemShift(uint32_t vregId, ir::Op shiftOp) const {
@@ -3559,14 +3652,43 @@ bool IRCodeGen::canUseDirectMemShift(uint32_t vregId, ir::Op shiftOp) const {
 }
 
 bool IRCodeGen::shouldPreferMemoryOp(uint32_t vregId, ir::Op opType) const {
-    // Phase 5a: Cost-benefit analysis for direct memory operations.
-    // Prefers direct if it saves significant bytes.
+    // Phase 5c: Cost-benefit analysis for direct memory operations.
+    // Compares direct memory op cost vs load/op/store cost.
 
-    (void)vregId;   // Phase 5b will analyze allocation
-    (void)opType;   // Phase 5b will analyze operation type
+    auto alloc = alloc_.getAlloc(vregId);
+    if (alloc.loc != VRegAllocator::IN_ZP) return false;  // Only ZP direct ops are efficient
 
-    // Phase 5a stub: conservative, don't use memory ops yet
-    return false;
+    // Estimate costs (in bytes)
+    int directMemCost = 0;
+    int loadStoreOpCost = 0;
+
+    switch (opType) {
+        case ir::Op::ADD:
+        case ir::Op::SUB:
+            // Assume increment pattern (add/sub by 1)
+            // Direct: inc $20 = 5 bytes, 24 cycles worst case
+            // Load/op/store: lda $20 (3) + ina/dea (1) + sta $20 (3) = 7 bytes, ~10 cycles
+            directMemCost = 5;
+            loadStoreOpCost = 7;
+            break;
+
+        case ir::Op::LSL:
+        case ir::Op::LSR:
+        case ir::Op::ASR:
+        case ir::Op::SHL:
+        case ir::Op::SHR:
+            // Direct: asl/lsr $20 = 5 bytes
+            // Load/op/store: lda $20 (3) + asl (1) + sta $20 (3) = 7 bytes
+            directMemCost = 5;
+            loadStoreOpCost = 7;
+            break;
+
+        default:
+            return false;  // Other ops don't benefit from direct memory
+    }
+
+    // Prefer direct if it saves bytes (with small margin for safety)
+    return directMemCost < loadStoreOpCost;
 }
 
 bool IRCodeGen::canRegPerformOp(RegId r, ir::Op op) const {
@@ -3626,14 +3748,45 @@ int IRCodeGen::getRegisterSelectPriority(RegId r) const {
 }
 
 void IRCodeGen::emitDirectMemIncrement(uint32_t vregId, ir::Op opType) {
-    // Phase 5a: Emit direct inc/dec at memory location.
+    // Phase 5c: Emit direct inc/dec at memory location.
     // Replaces 3-instruction load/inc/store with 1-instruction memory op.
+    // Assumes canUseDirectMemIncrement() returned true.
 
-    (void)vregId;
-    (void)opType;
+    auto alloc = alloc_.getAlloc(vregId);
+    if (alloc.loc != VRegAllocator::IN_ZP) return;  // Shouldn't happen if caller checked
 
-    // Phase 5a stub: Phase 5b will implement when allocation info available
-    // For now, fallback to load/inc/store (handled by caller)
+    // Format ZP address as $HH
+    std::stringstream ss;
+    ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2)
+       << (int)(alloc.offset & 0xFF);
+    std::string zpAddr = ss.str();
+
+    // Emit appropriate opcode
+    std::string mnemonic, reason;
+    switch (opType) {
+        case ir::Op::ADD:
+            mnemonic = "inc";
+            reason = "direct mem inc (INC)";
+            break;
+        case ir::Op::SUB:
+            mnemonic = "dec";
+            reason = "direct mem dec (DEC)";
+            break;
+        default:
+            return;  // Unsupported operation
+    }
+
+    emit(mnemonic + " " + zpAddr, reason);
+
+    // Phase 2: Update MachineState - memory location is now unknown
+    ms_.invalidateZP((uint8_t)(alloc.offset & 0xFF));
+
+    // Also invalidate any register that was mirroring this location
+    for (int i = 0; i < 5; i++) {
+        if (regHoldsVreg_[i] == (int)vregId) {
+            clearRegTracking((RegId)i);
+        }
+    }
 }
 
 void IRCodeGen::emitDirectMemShift(uint32_t vregId, ir::Op shiftOp) {
