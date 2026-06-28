@@ -898,8 +898,8 @@ void IRBuilder::visit(VariableDeclaration& node) {
         currentFunc_->memoryVregs.insert(vreg.vregId);
     }
     
-    if (getTypeSize(node.type, 0) > 2 && node.pointerLevel == 0) {
-        // Large aggregates must go to frame with correct byte size
+    if (getTypeSize(node.type, 0) > 2 && node.pointerLevel == 0 && node.arrayDims.empty()) {
+        // Large aggregates (non-array) must go to frame with correct byte size
         currentFunc_->memoryVregs.insert(vreg.vregId);
         currentFunc_->vregSizes[vreg.vregId] = getTypeSize(node.type, 0);
     }
@@ -1874,7 +1874,12 @@ void IRBuilder::visit(UnaryOperation& node) {
                 lastValue_ = dest;
             }
         } else {
-            lastValue_ = src;
+            // General case (e.g., &arr[i], &ptr->member):
+            // re-visit with computeAddressOnly_ to get the address
+            bool oldAddrMode = computeAddressOnly_;
+            computeAddressOnly_ = true;
+            node.operand->accept(*this);
+            computeAddressOnly_ = oldAddrMode;
         }
     } else if (node.op == "*") {
         // Dereference
