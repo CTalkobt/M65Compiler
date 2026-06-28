@@ -3391,13 +3391,14 @@ bool IRCodeGen::registerCanDoALU(RegId r) const {
 
 bool IRCodeGen::registerCanIncrement(RegId r) const {
     // Phase 4: Check if register can be incremented/decremented
-    // 45GS02 has: ina, dea, inx, dex, iny, dey (no inz/dez)
+    // 45GS02 has: ina, dea (A), inx, dex (X), iny, dey (Y), inz, dez (Z)
+    // Also supports memory-based: inc $addr, dec $addr
 
     switch (r) {
         case REG_A: return true;   // ina, dea available
         case REG_X: return true;   // inx, dex available
         case REG_Y: return true;   // iny, dey available
-        case REG_Z: return false;  // no inz/dez
+        case REG_Z: return true;   // inz, dez available (45GS02 extends 6502)
         case REG_SP: return false; // SP not directly incremented
         default: return false;
     }
@@ -3432,4 +3433,32 @@ int IRCodeGen::getRegisterPriority(RegId r) const {
         case REG_SP: return 0;    // Stack pointer - never prefer
         default: return 0;
     }
+}
+
+bool IRCodeGen::memLocationCanDirectIncrement(uint32_t vregId) const {
+    // Phase 5: Check if a memory location (ZP or absolute) can use direct inc/dec
+    // instead of load/inc/store sequence.
+    // Requirements:
+    // - Must be an I8 value (single byte)
+    // - Value must not be needed in a register immediately after (checked by caller)
+
+    if (vregType_.find(vregId) == vregType_.end()) return false;
+    ir::Type type = vregType_.at(vregId);
+
+    // Only I8 can be directly incremented (single byte)
+    return type == ir::Type::I8;
+}
+
+bool IRCodeGen::memLocationCanDirectShift(uint32_t vregId) const {
+    // Phase 5: Check if a memory location can use direct shift operations
+    // (asl $ZZ, lsr $ZZ, etc.) instead of load/shift/store sequence.
+    // Requirements:
+    // - Must be an I8 value (single byte, shifts only work on 8-bit)
+    // - Value must not be needed in A immediately after
+
+    if (vregType_.find(vregId) == vregType_.end()) return false;
+    ir::Type type = vregType_.at(vregId);
+
+    // Only I8 can be directly shifted (8-bit shifts)
+    return type == ir::Type::I8;
 }

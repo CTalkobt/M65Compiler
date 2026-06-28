@@ -146,6 +146,12 @@ private:
     // Get priority score for register (higher = prefer when equal cost)
     int getRegisterPriority(RegId r) const;
 
+    // Phase 5: Memory operation optimization helpers
+    // Check if a memory location can be directly incremented (inc $addr instead of load/inc/store)
+    bool memLocationCanDirectIncrement(uint32_t vregId) const;
+    // Check if a memory location can be directly shifted (asl $addr instead of load/asl/store)
+    bool memLocationCanDirectShift(uint32_t vregId) const;
+
     // Source location tracking for .loc directives
     int lastLocLine_ = -1;
     std::string lastLocFile_;
