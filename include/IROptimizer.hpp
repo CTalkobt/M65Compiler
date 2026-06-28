@@ -28,6 +28,9 @@ private:
     bool phiSimplification(Function& fn);
     bool globalValueNumber(Function& fn);
     bool hoistLoopInvariants(Function& fn);
+    bool addressComputationFold(Function& fn);
+    bool storeLoadForwarding(Function& fn);
+    bool completeLoopHoisting(Function& fn);
     bool aggressiveDeadBlockRemoval(Function& fn);
     bool commonSubexprElim(Function& fn);
     bool propagateCopies(Function& fn);

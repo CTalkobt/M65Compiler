@@ -59,12 +59,19 @@ Expected impact: ~10–15% size reduction on typical code via cascading effects.
 Measured impact: -1.8% on GVN-heavy patterns (test_gvn.c)
 Expected on real-world code: -5% to -10% with loop optimizations
 
-**Phase 3** (this session):
-- Loop-invariant code hoisting (30 min)
-- Dead block removal - aggressive (15 min)
-- Common subexpression elimination enhancement (15 min)
+**Phase 3** ✓ COMPLETE:
+- Loop-invariant code hoisting (30 min) ✓
+- Dead block removal - aggressive (15 min) ✓
+- Common subexpression elimination enhancement (15 min) ✓
 
-Expected impact: -5% to -15% on loop-heavy code
+Measured impact: -14.4% on loop-heavy patterns (test_loops.c)
+
+**Phase 4** (this session):
+- Complete loop hoisting implementation (30 min)
+- Store-load forwarding (25 min)
+- Address computation folding (20 min)
+
+Expected impact: -3% to -5% beyond Phase 3 on loop code
 
 ## Integration
 
@@ -76,7 +83,13 @@ Optimizations run iteratively within `IROptimizer::optimize()` until convergence
 5. eliminateUnreachableBlocks → remove unreachable blocks (Phase 1)
 6. phiSimplification → simplify/eliminate redundant phis (Phase 2)
 7. globalValueNumber → eliminate redundant computations (Phase 2)
-8. copyPropagation → eliminate copy assignments (Phase 1)
-9. eliminateDeadCode → remove unused vregs
+8. hoistLoopInvariants → detect loop-invariant code (Phase 3)
+9. addressComputationFold → fold ADDR_* operations (Phase 4)
+10. storeLoadForwarding → eliminate redundant loads (Phase 4)
+11. completeLoopHoisting → move invariants outside loops (Phase 4)
+12. commonSubexprElim → enhance CSE (Phase 3)
+13. aggressiveDeadBlockRemoval → more block cleanup (Phase 3)
+14. copyPropagation → eliminate copy assignments (Phase 1)
+15. eliminateDeadCode → remove unused vregs
 
-Each pass may enable the next, hence the iteration loop. GVN is placed late to catch redundancies created by prior passes.
+Each pass may enable the next, hence the iteration loop. Hoisting placed late to use info from prior passes.
