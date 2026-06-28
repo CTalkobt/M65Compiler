@@ -3369,3 +3369,67 @@ void IRCodeGen::updateRangeFromLoop(uint32_t vregId, int64_t lo, int64_t hi) {
     // For now, this is a hook for future loop analysis
     ms_.setRange(REG_A, lo, hi);  // Set detected range in A
 }
+
+// ============================================================================
+// MachineState Phase 4 Helper Methods: Register Capabilities
+// ============================================================================
+
+bool IRCodeGen::registerCanDoALU(RegId r) const {
+    // Phase 4: Check if register can perform ALU operations
+    // On 45GS02, only A can do ALU ops directly (add, sub, and, or, xor, etc.)
+    // X, Y, Z cannot do ALU operations
+
+    switch (r) {
+        case REG_A: return true;   // A can do all ALU ops
+        case REG_X:
+        case REG_Y:
+        case REG_Z:
+        case REG_SP: return false;  // Index registers can't do ALU
+        default: return false;
+    }
+}
+
+bool IRCodeGen::registerCanIncrement(RegId r) const {
+    // Phase 4: Check if register can be incremented/decremented
+    // 45GS02 has: ina, dea, inx, dex, iny, dey (no inz/dez)
+
+    switch (r) {
+        case REG_A: return true;   // ina, dea available
+        case REG_X: return true;   // inx, dex available
+        case REG_Y: return true;   // iny, dey available
+        case REG_Z: return false;  // no inz/dez
+        case REG_SP: return false; // SP not directly incremented
+        default: return false;
+    }
+}
+
+bool IRCodeGen::registerCanShift(RegId r) const {
+    // Phase 4: Check if register can do shift operations
+    // Only A has asl, lsr, rol, ror (work directly on A)
+
+    switch (r) {
+        case REG_A: return true;   // asl, lsr, rol, ror available
+        case REG_X:
+        case REG_Y:
+        case REG_Z:
+        case REG_SP: return false;  // Only A can shift
+        default: return false;
+    }
+}
+
+int IRCodeGen::getRegisterPriority(RegId r) const {
+    // Phase 4: Get priority score for register
+    // Higher = prefer when equal cost
+    // A (accumulator): highest priority
+    // X, Y (index registers): high priority
+    // Z (32-bit only): lower priority
+
+    switch (r) {
+        case REG_A: return 10;    // Accumulator - highest priority
+        case REG_X: return 8;     // Primary index register
+        case REG_Y: return 7;     // Secondary index register
+        case REG_Z: return 5;     // 32-bit extension only
+        case REG_SP: return 0;    // Stack pointer - never prefer
+        default: return 0;
+    }
+}

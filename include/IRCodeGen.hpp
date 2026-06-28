@@ -136,6 +136,16 @@ private:
     // Update range from detected loop bounds
     void updateRangeFromLoop(uint32_t vregId, int64_t lo, int64_t hi);
 
+    // Phase 4: Register capability tracking for smart register selection
+    // Query if a register can perform a specific operation
+    bool registerCanDoALU(RegId r) const;
+    // Query if a register can be incremented/decremented
+    bool registerCanIncrement(RegId r) const;
+    // Query if a register can do shift operations
+    bool registerCanShift(RegId r) const;
+    // Get priority score for register (higher = prefer when equal cost)
+    int getRegisterPriority(RegId r) const;
+
     // Source location tracking for .loc directives
     int lastLocLine_ = -1;
     std::string lastLocFile_;
