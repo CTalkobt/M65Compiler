@@ -306,9 +306,10 @@ std::string IRCodeGen::src2MemOperand(const ir::Operand& op) {
     }
     if (op.isVreg()) {
         // Check for suppressed CONST vreg — use immediate instead of ZP
-        auto cit = vregConstVal_.find(op.vregId);
-        if (cit != vregConstVal_.end() && suppressedVregs_.count(op.vregId)) {
-            return "#" + std::to_string((int)(cit->second & 0xFFFF));
+        // Phase 1: Query vregIsConst helper (unified with MachineState)
+        int64_t val;
+        if (vregIsConst(op.vregId, &val) && suppressedVregs_.count(op.vregId)) {
+            return "#" + std::to_string((int)(val & 0xFFFF));
         }
         auto alloc = alloc_.getAlloc(op.vregId);
         switch (alloc.loc) {
@@ -1359,8 +1360,9 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             // Check if src2 is immediate 1, or a CONST vreg holding 1
             bool src2IsOne = (inst.src2.isImm() && inst.src2.immVal == 1);
             if (!src2IsOne && inst.src2.isVreg()) {
-                auto cit = vregConstVal_.find(inst.src2.vregId);
-                if (cit != vregConstVal_.end() && cit->second == 1) src2IsOne = true;
+                // Phase 1: Query vregIsConst instead of vregConstVal_.find
+                int64_t val;
+                if (vregIsConst(inst.src2.vregId, &val) && val == 1) src2IsOne = true;
             }
             if (inst.resultType == ir::Type::I16 && src2IsOne &&
                 inst.src1.isVreg() && inst.dest.isVreg()) {
@@ -1475,9 +1477,10 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                             // Use immediate for CONST vreg src2
                             std::string src2mem;
                             if (inst.src2.isVreg()) {
-                                auto cit = vregConstVal_.find(inst.src2.vregId);
-                                if (cit != vregConstVal_.end()) {
-                                    src2mem = "#" + std::to_string((int)(cit->second & 0xFFFF));
+                                // Phase 1: Query vregIsConst for constant immediates
+                                int64_t val;
+                                if (vregIsConst(inst.src2.vregId, &val)) {
+                                    src2mem = "#" + std::to_string((int)(val & 0xFFFF));
                                 } else {
                                     src2mem = src2MemOperand(inst.src2);
                                 }
@@ -2157,12 +2160,14 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             } else if (inst.src2.isVreg()) {
                 // Optimization: if the address vreg is a known constant,
                 // emit direct absolute store instead of indirect.
-                auto constIt = vregConstVal_.find(inst.src2.vregId);
-                if (constIt != vregConstVal_.end() &&
+                // Phase 1: Query vregIsConst instead of vregConstVal_.find
+                int64_t addrVal;
+                if (vregIsConst(inst.src2.vregId, &addrVal) &&
                     !localSlotVregs_.count(inst.src2.vregId)) {
-                    std::string addr = "$" + hex16((uint16_t)constIt->second);
+                    std::string addr = "$" + hex16((uint16_t)addrVal);
                     // Load value — use constant directly if available
-                    auto valConst = (inst.src1.isVreg()) ? vregConstVal_.find(inst.src1.vregId) : vregConstVal_.end();
+                    int64_t srcVal;
+                    bool srcIsConst = inst.src1.isVreg() && vregIsConst(inst.src1.vregId, &srcVal);
                     if (inst.src1.isImm()) {
                         int v = (int)inst.src1.immVal;
                         emit("lda #" + std::to_string(v & 0xFF));
@@ -2173,8 +2178,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         } else if (inst.resultType != ir::Type::I8) {
                             emit("ldx #" + std::to_string((v >> 8) & 0xFF));
                         }
-                    } else if (valConst != vregConstVal_.end()) {
-                        int v = (int)valConst->second;
+                    } else if (srcIsConst) {
+                        int v = (int)srcVal;
                         emit("lda #" + std::to_string(v & 0xFF));
                         if (inst.resultType == ir::Type::I32) {
                             emit("ldx #" + std::to_string((v >> 8) & 0xFF));
@@ -2680,10 +2685,14 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 int nArgs = (int)inst.args.size();
 
                 // Classify args: true = simple (can push inline)
-                auto isSimpleArg = [&](const ir::Operand& arg) -> bool {
+                // Phase 1: Use vregIsConst helper instead of vregConstVal_.count
+                auto isSimpleArg = [this](const ir::Operand& arg) -> bool {
                     if (arg.isImm()) return true;
                     if (arg.kind == ir::OperandKind::GLOBAL) return true;
-                    if (arg.isVreg() && vregConstVal_.count(arg.vregId)) return true;
+                    if (arg.isVreg()) {
+                        int64_t val;
+                        if (vregIsConst(arg.vregId, &val)) return true;
+                    }
                     return false;
                 };
 
@@ -2703,11 +2712,15 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         if (ps < 2) ps = 2;
 
                         // Get constant value if available
+                        // Phase 1: Use vregIsConst helper
                         bool hasConst = false;
                         int constVal = 0;
                         if (arg.isImm()) { hasConst = true; constVal = (int)arg.immVal; }
-                        else if (arg.isVreg() && vregConstVal_.count(arg.vregId)) {
-                            hasConst = true; constVal = (int)vregConstVal_[arg.vregId];
+                        else if (arg.isVreg()) {
+                            int64_t val;
+                            if (vregIsConst(arg.vregId, &val)) {
+                                hasConst = true; constVal = (int)val;
+                            }
                         }
 
                         if (hasConst && arg.type == ir::Type::I32) {
@@ -2745,11 +2758,16 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                             emit("lda #" + std::to_string(val & 0xFF));
                             if (arg0.type != ir::Type::I8)
                                 emit("ldx #" + std::to_string((val >> 8) & 0xFF));
-                        } else if (arg0.isVreg() && vregConstVal_.count(arg0.vregId)) {
-                            int val = (int)vregConstVal_[arg0.vregId];
-                            emit("lda #" + std::to_string(val & 0xFF));
-                            if (arg0.type != ir::Type::I8)
-                                emit("ldx #" + std::to_string((val >> 8) & 0xFF));
+                        } else if (arg0.isVreg()) {
+                            // Phase 1: Use vregIsConst helper
+                            int64_t val;
+                            if (vregIsConst(arg0.vregId, &val)) {
+                                emit("lda #" + std::to_string((int)val & 0xFF));
+                                if (arg0.type != ir::Type::I8)
+                                    emit("ldx #" + std::to_string((val >> 8) & 0xFF));
+                            } else {
+                                loadOperand(arg0);
+                            }
                         } else {
                             loadOperand(arg0);
                         }
@@ -3059,5 +3077,47 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         default:
             emitComment("TODO: unimplemented IR op");
             break;
+    }
+}
+
+// ============================================================================
+// MachineState Phase 1 Helper Methods
+// ============================================================================
+
+bool IRCodeGen::vregIsConst(uint32_t vregId, int64_t* outVal) const {
+    // Phase 1: Query vregConstVal_ (backward compatible)
+    // Later phases will query MachineState directly
+    auto it = vregConstVal_.find(vregId);
+    if (it != vregConstVal_.end()) {
+        if (outVal) *outVal = it->second;
+        return true;
+    }
+    return false;
+}
+
+RegId IRCodeGen::findVregInRegister(uint32_t vregId) const {
+    // Check which register (if any) holds this vreg's constant value
+    int64_t val;
+    if (!vregIsConst(vregId, &val)) return (RegId)REG_COUNT; // not in a constant register
+
+    // Check which register holds this value
+    for (int i = 0; i < REG_COUNT; i++) {
+        RegId r = (RegId)i;
+        if (ms_.reg[i].isConst(val)) return r;
+    }
+    return (RegId)REG_COUNT; // value not currently in a register
+}
+
+void IRCodeGen::updateMachineStateForLoad(uint32_t vregId, RegId destReg) {
+    // If the vreg holds a known constant, update MachineState to reflect that
+    // the register now holds that constant
+    int64_t val;
+    if (vregIsConst(vregId, &val)) {
+        // Extract the appropriate byte for the destination register
+        uint8_t byte = (uint8_t)(val & 0xFF);
+        ms_.setConst(destReg, byte);
+    } else {
+        // Register now holds unknown value from this vreg
+        ms_.invalidateReg(destReg);
     }
 }

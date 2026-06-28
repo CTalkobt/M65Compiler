@@ -96,9 +96,18 @@ private:
     std::set<uint32_t> localSlotVregs_;
 
     // Track vregs defined by CONST instructions (for direct-address store optimization)
+    // Phase 1: Keep for backward compatibility; paralleled by MachineState tracking
     std::map<uint32_t, int64_t> vregConstVal_;
     // CONST vregs only used as STORE addresses — skip emission and frame allocation
     std::set<uint32_t> suppressedVregs_;
+
+    // Phase 1: MachineState-based helpers for constant queries
+    // Returns true if a vreg's value is a known constant and optionally retrieves it
+    bool vregIsConst(uint32_t vregId, int64_t* outVal = nullptr) const;
+    // Track which register holds a vreg's value (if it's a constant or in a register)
+    RegId findVregInRegister(uint32_t vregId) const;
+    // Update MachineState when a constant is loaded into a register
+    void updateMachineStateForLoad(uint32_t vregId, RegId destReg);
 
     // Source location tracking for .loc directives
     int lastLocLine_ = -1;
