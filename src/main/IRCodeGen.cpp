@@ -1748,6 +1748,26 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             if (inst.src2.isImm()) {
                 shiftCount = (int)(inst.src2.immVal & 0xFF);
             }
+
+            // Phase 5d: Check for direct memory shift optimization (I8 only)
+            if (!is32 && inst.resultType == ir::Type::I8 && shiftCount == 1) {
+                if (inst.src1.isVreg() && inst.dest.isVreg()) {
+                    uint32_t srcId = inst.src1.vregId;
+                    if (canUseDirectMemShift(srcId, ir::Op::SHL) && shouldPreferMemoryOp(srcId, ir::Op::SHL)) {
+                        // Check if result stores back to same location
+                        auto* nextInst = peekNextInst();
+                        if (nextInst && nextInst->op == ir::Op::STORE &&
+                            nextInst->src1.isVreg() && nextInst->src1.vregId == inst.dest.vregId &&
+                            nextInst->src2.isVreg() && nextInst->src2.vregId == srcId) {
+                            // src1 <<= 1 with result stored back to src1
+                            emitDirectMemShift(srcId, ir::Op::SHL);
+                            resultInAX_ = -1;  // Result not in AX anymore
+                            break;
+                        }
+                    }
+                }
+            }
+
             loadOperand(inst.src1);
             if (shiftCount >= 0) {
                 if (shiftCount == 8 && !is32) {
@@ -1808,6 +1828,27 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             if (inst.src2.isImm()) {
                 shiftCount = (int)(inst.src2.immVal & 0xFF);
             }
+
+            // Phase 5d: Check for direct memory shift optimization (I8 only, single-bit)
+            if (!is32 && inst.resultType == ir::Type::I8 && shiftCount == 1) {
+                if (inst.src1.isVreg() && inst.dest.isVreg()) {
+                    uint32_t srcId = inst.src1.vregId;
+                    ir::Op shiftOp = (inst.op == ir::Op::ASR) ? ir::Op::ASR : ir::Op::SHR;
+                    if (canUseDirectMemShift(srcId, shiftOp) && shouldPreferMemoryOp(srcId, shiftOp)) {
+                        // Check if result stores back to same location
+                        auto* nextInst = peekNextInst();
+                        if (nextInst && nextInst->op == ir::Op::STORE &&
+                            nextInst->src1.isVreg() && nextInst->src1.vregId == inst.dest.vregId &&
+                            nextInst->src2.isVreg() && nextInst->src2.vregId == srcId) {
+                            // src1 >>= 1 with result stored back to src1
+                            emitDirectMemShift(srcId, shiftOp);
+                            resultInAX_ = -1;  // Result not in AX anymore
+                            break;
+                        }
+                    }
+                }
+            }
+
             loadOperand(inst.src1);
             if (shiftCount >= 0) {
                 bool isASR = (inst.op == ir::Op::ASR);
@@ -3636,19 +3677,46 @@ bool IRCodeGen::canUseDirectMemIncrement(uint32_t vregId) const {
 }
 
 bool IRCodeGen::canUseDirectMemShift(uint32_t vregId, ir::Op shiftOp) const {
-    // Phase 5a: Check if direct shift at memory is safe.
-    // Requires: I8 type, ZP allocation, shift operation type
+    // Phase 5d: Check if direct shift at memory is safe and beneficial.
+    // Requires: I8 type, ZP allocation, no flag-consuming next instruction
 
-    (void)shiftOp;  // Phase 5b will use this
+    (void)shiftOp;  // Shift operation type (handled by emitDirectMemShift)
 
-    // Type check: only I8 can be directly shifted
+    // Type check: only I8 can be directly shifted (8-bit shifts only)
     if (vregType_.find(vregId) == vregType_.end()) return false;
     ir::Type type = vregType_.at(vregId);
     if (type != ir::Type::I8) return false;
 
-    // Location check: must be in ZP
-    // (stub: return false until Phase 5b)
-    return false;
+    // Location check: must be in ZP for direct addressing
+    auto alloc = alloc_.getAlloc(vregId);
+    if (alloc.loc != VRegAllocator::IN_ZP) return false;
+
+    // Flag check: next instruction must not consume flags
+    // Shift operations modify C, N, Z, V flags
+    const ir::Inst* nextOp = peekNextInst();
+    if (nextOp) {
+        switch (nextOp->op) {
+            // Conditional branches that consume flags
+            case ir::Op::BR_COND:
+            // Comparisons that check flags
+            case ir::Op::CMP_EQ:
+            case ir::Op::CMP_NE:
+            case ir::Op::CMP_LT:
+            case ir::Op::CMP_LE:
+            case ir::Op::CMP_GT:
+            case ir::Op::CMP_GE:
+            case ir::Op::CMP_LTU:
+            case ir::Op::CMP_LEU:
+            case ir::Op::CMP_GTU:
+            case ir::Op::CMP_GEU:
+                // Would consume flags set by shift
+                return false;
+            default:
+                break;
+        }
+    }
+
+    return true;  // Safe to use direct shift
 }
 
 bool IRCodeGen::shouldPreferMemoryOp(uint32_t vregId, ir::Op opType) const {
@@ -3790,13 +3858,50 @@ void IRCodeGen::emitDirectMemIncrement(uint32_t vregId, ir::Op opType) {
 }
 
 void IRCodeGen::emitDirectMemShift(uint32_t vregId, ir::Op shiftOp) {
-    // Phase 5a: Emit direct shift at memory location.
+    // Phase 5d: Emit direct shift at memory location.
     // Replaces 3-instruction load/shift/store with 1-instruction memory op.
+    // Assumes canUseDirectMemShift() returned true.
 
-    (void)vregId;
-    (void)shiftOp;
+    auto alloc = alloc_.getAlloc(vregId);
+    if (alloc.loc != VRegAllocator::IN_ZP) return;  // Shouldn't happen if caller checked
 
-    // Phase 5a stub: Phase 5b will implement when allocation info available
+    // Format ZP address as $HH
+    std::stringstream ss;
+    ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2)
+       << (int)(alloc.offset & 0xFF);
+    std::string zpAddr = ss.str();
+
+    // Map shift operation to 45GS02 memory shift opcode
+    std::string mnemonic, reason;
+    switch (shiftOp) {
+        case ir::Op::SHL:
+        case ir::Op::LSL:
+            mnemonic = "asl";
+            reason = "direct mem left shift (<<)";
+            break;
+        case ir::Op::SHR:
+            mnemonic = "lsr";
+            reason = "direct mem right shift unsigned (>>)";
+            break;
+        case ir::Op::ASR:
+            mnemonic = "asr";
+            reason = "direct mem right shift signed (>>)";
+            break;
+        default:
+            return;  // Unsupported shift operation
+    }
+
+    emit(mnemonic + " " + zpAddr, reason);
+
+    // Phase 2: Update MachineState - memory location is now unknown
+    ms_.invalidateZP((uint8_t)(alloc.offset & 0xFF));
+
+    // Also invalidate any register that was mirroring this location
+    for (int i = 0; i < 5; i++) {
+        if (regHoldsVreg_[i] == (int)vregId) {
+            clearRegTracking((RegId)i);
+        }
+    }
 }
 
 void IRCodeGen::updateMachineStateAfterMemOp(uint32_t vregId) {
