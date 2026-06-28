@@ -152,6 +152,32 @@ private:
     // Check if a memory location can be directly shifted (asl $addr instead of load/asl/store)
     bool memLocationCanDirectShift(uint32_t vregId) const;
 
+    // Phase 5a: Smart register selection and memory operation infrastructure
+    // Select best register to load a value based on next operation's requirements
+    RegId selectLoadDestinationReg(uint32_t vregId, ir::Type type);
+    // Find best register given next operation type (ALU/shift/inc/etc)
+    RegId findBestRegisterForLoad(uint32_t vregId, ir::Type type, const ir::Inst* nextOp);
+    // Check if direct inc/dec is safe and beneficial
+    bool canUseDirectMemIncrement(uint32_t vregId) const;
+    // Check if direct shift is safe and beneficial
+    bool canUseDirectMemShift(uint32_t vregId, ir::Op shiftOp) const;
+    // Cost-benefit: should we prefer direct memory operation?
+    bool shouldPreferMemoryOp(uint32_t vregId, ir::Op opType) const;
+    // Check if a register can perform a given operation
+    bool canRegPerformOp(RegId r, ir::Op op) const;
+    // Get register selection priority (lower = prefer)
+    int getRegisterSelectPriority(RegId r) const;
+    // Emit direct memory increment: inc/dec at vReg location
+    void emitDirectMemIncrement(uint32_t vregId, ir::Op opType);
+    // Emit direct memory shift: asl/lsr/etc at vReg location
+    void emitDirectMemShift(uint32_t vregId, ir::Op shiftOp);
+    // Update MachineState after direct memory operation
+    void updateMachineStateAfterMemOp(uint32_t vregId);
+    // Record which register holds a vreg's value (for store forwarding)
+    void recordVregInRegister(uint32_t vregId, RegId reg);
+    // Clear register tracking when clobbered
+    void clearRegTracking(RegId reg);
+
     // Source location tracking for .loc directives
     int lastLocLine_ = -1;
     std::string lastLocFile_;
@@ -170,6 +196,11 @@ private:
     // Store-forwarding: track which vreg's result is currently live in A:X
     // from the most recent instruction. -1 = unknown/not in AX.
     int32_t resultInAX_ = -1;
+
+    // Phase 5a: Track which vreg's value each register holds (for store forwarding)
+    // regHoldsVreg_[r] = vregId (-1 if unknown/multiple/clobbered)
+    // Indexed by RegId: 0=A, 1=X, 2=Y, 3=Z, 4=SP
+    int32_t regHoldsVreg_[5] = {-1, -1, -1, -1, -1};
 
     // Next block label for no-op branch elimination
     std::string nextBlockLabel_;

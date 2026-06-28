@@ -3462,3 +3462,221 @@ bool IRCodeGen::memLocationCanDirectShift(uint32_t vregId) const {
     // Only I8 can be directly shifted (8-bit shifts)
     return type == ir::Type::I8;
 }
+
+// ========================================================================
+// Phase 5a: Smart Register Selection & Memory Operation Infrastructure
+// ========================================================================
+
+RegId IRCodeGen::selectLoadDestinationReg(uint32_t vregId, ir::Type type) {
+    // Phase 5a: Select best register to load value into based on next operation.
+    // Examines nextOp to see if value will be used for ALU, shift, inc/dec, etc.
+    // Default: REG_A (always safe, most versatile)
+
+    const ir::Inst* nextOp = peekNextInst();
+    if (!nextOp) {
+        return REG_A;  // No lookahead; default to A
+    }
+
+    // Route based on next operation's requirements
+    switch (nextOp->op) {
+        case ir::Op::ADD:
+        case ir::Op::SUB:
+        case ir::Op::MUL:
+        case ir::Op::DIV:
+        case ir::Op::AND:
+        case ir::Op::OR:
+        case ir::Op::XOR:
+        case ir::Op::NEG:
+        case ir::Op::NOT:
+            return REG_A;  // ALU operations: A is required
+
+        case ir::Op::LSL:
+        case ir::Op::LSR:
+        case ir::Op::ASR:
+        case ir::Op::SHL:
+        case ir::Op::SHR:
+            return REG_A;  // Shifts: value must be in A
+
+        case ir::Op::CMP_EQ:
+        case ir::Op::CMP_NE:
+        case ir::Op::CMP_LT:
+        case ir::Op::CMP_LE:
+        case ir::Op::CMP_GT:
+        case ir::Op::CMP_GE:
+        case ir::Op::CMP_LTU:
+        case ir::Op::CMP_LEU:
+        case ir::Op::CMP_GTU:
+        case ir::Op::CMP_GEU:
+            return findBestRegisterForLoad(vregId, type, nextOp);
+
+        default:
+            return REG_A;  // Default to A for any other operation
+    }
+}
+
+RegId IRCodeGen::findBestRegisterForLoad(uint32_t vregId, ir::Type type, const ir::Inst* nextOp) {
+    // Phase 5a: Smart register selection considering capabilities and state.
+    // Prefers Z for increment patterns (Phase 4 correction).
+    // For simplicity, stub implementation returns A; Phase 5b will enhance.
+
+    (void)vregId;    // Suppress unused parameter warnings
+    (void)type;
+    (void)nextOp;
+
+    // Phase 5a stub: return A for safe default behavior
+    // Phase 5b will implement full priority-based selection
+    return REG_A;
+}
+
+bool IRCodeGen::canUseDirectMemIncrement(uint32_t vregId) const {
+    // Phase 5a: Check if direct inc/dec at memory is safe.
+    // Requires: I8 type, ZP allocation, no flag-consuming next instruction
+
+    // Type check: only I8 can be directly incremented
+    if (vregType_.find(vregId) == vregType_.end()) return false;
+    ir::Type type = vregType_.at(vregId);
+    if (type != ir::Type::I8) return false;
+
+    // Location check: must be in ZP for direct addressing
+    // (stub: return false until Phase 5b adds ZP allocation check)
+    return false;
+}
+
+bool IRCodeGen::canUseDirectMemShift(uint32_t vregId, ir::Op shiftOp) const {
+    // Phase 5a: Check if direct shift at memory is safe.
+    // Requires: I8 type, ZP allocation, shift operation type
+
+    (void)shiftOp;  // Phase 5b will use this
+
+    // Type check: only I8 can be directly shifted
+    if (vregType_.find(vregId) == vregType_.end()) return false;
+    ir::Type type = vregType_.at(vregId);
+    if (type != ir::Type::I8) return false;
+
+    // Location check: must be in ZP
+    // (stub: return false until Phase 5b)
+    return false;
+}
+
+bool IRCodeGen::shouldPreferMemoryOp(uint32_t vregId, ir::Op opType) const {
+    // Phase 5a: Cost-benefit analysis for direct memory operations.
+    // Prefers direct if it saves significant bytes.
+
+    (void)vregId;   // Phase 5b will analyze allocation
+    (void)opType;   // Phase 5b will analyze operation type
+
+    // Phase 5a stub: conservative, don't use memory ops yet
+    return false;
+}
+
+bool IRCodeGen::canRegPerformOp(RegId r, ir::Op op) const {
+    // Phase 5a: Check if register can perform given operation (Phase 4 capabilities)
+
+    switch (op) {
+        // ALU operations: only A
+        case ir::Op::ADD:
+        case ir::Op::SUB:
+        case ir::Op::MUL:
+        case ir::Op::DIV:
+        case ir::Op::AND:
+        case ir::Op::OR:
+        case ir::Op::XOR:
+        case ir::Op::NEG:
+        case ir::Op::NOT:
+            return r == REG_A;
+
+        // Shift operations: only A
+        case ir::Op::LSL:
+        case ir::Op::LSR:
+        case ir::Op::ASR:
+        case ir::Op::SHL:
+        case ir::Op::SHR:
+            return r == REG_A;
+
+        // Comparisons: any register, but A is primary
+        case ir::Op::CMP_EQ:
+        case ir::Op::CMP_NE:
+        case ir::Op::CMP_LT:
+        case ir::Op::CMP_LE:
+        case ir::Op::CMP_GT:
+        case ir::Op::CMP_GE:
+        case ir::Op::CMP_LTU:
+        case ir::Op::CMP_LEU:
+        case ir::Op::CMP_GTU:
+        case ir::Op::CMP_GEU:
+            return r == REG_A || r == REG_X || r == REG_Y || r == REG_Z;
+
+        default:
+            return false;
+    }
+}
+
+int IRCodeGen::getRegisterSelectPriority(RegId r) const {
+    // Phase 5a: Priority for register selection (lower = prefer).
+    // Base: A > X > Y > Z; Z gets bonus for increment patterns
+
+    switch (r) {
+        case REG_A: return 0;    // Highest priority (most versatile)
+        case REG_X: return 10;   // Index register
+        case REG_Y: return 15;   // Secondary index
+        case REG_Z: return 12;   // 32-bit, but Phase 4 bonus for inc (lower than Y)
+        case REG_SP: return 10000; // Never use SP
+        default: return 10000;
+    }
+}
+
+void IRCodeGen::emitDirectMemIncrement(uint32_t vregId, ir::Op opType) {
+    // Phase 5a: Emit direct inc/dec at memory location.
+    // Replaces 3-instruction load/inc/store with 1-instruction memory op.
+
+    (void)vregId;
+    (void)opType;
+
+    // Phase 5a stub: Phase 5b will implement when allocation info available
+    // For now, fallback to load/inc/store (handled by caller)
+}
+
+void IRCodeGen::emitDirectMemShift(uint32_t vregId, ir::Op shiftOp) {
+    // Phase 5a: Emit direct shift at memory location.
+    // Replaces 3-instruction load/shift/store with 1-instruction memory op.
+
+    (void)vregId;
+    (void)shiftOp;
+
+    // Phase 5a stub: Phase 5b will implement when allocation info available
+}
+
+void IRCodeGen::updateMachineStateAfterMemOp(uint32_t vregId) {
+    // Phase 5a: Invalidate memory/register state after direct memory operation.
+
+    (void)vregId;  // Will be used in Phase 5b
+
+    // Phase 5a stub: Will clear tracking in Phase 5b when direct ops are active
+}
+
+void IRCodeGen::recordVregInRegister(uint32_t vregId, RegId reg) {
+    // Phase 5a: Record which register holds which vreg's value.
+    // Used for store-forwarding (avoiding redundant loads).
+
+    int regIdx = (int)reg;
+    if (regIdx >= 5) return;  // Safety check (enum has limited range)
+
+    // Clear this vreg from any other register
+    for (int i = 0; i < 5; i++) {
+        if (i != regIdx && regHoldsVreg_[i] == (int)vregId) {
+            regHoldsVreg_[i] = -1;
+        }
+    }
+
+    // Record new location
+    regHoldsVreg_[regIdx] = (int)vregId;
+}
+
+void IRCodeGen::clearRegTracking(RegId reg) {
+    // Phase 5a: Clear tracking for a register (clobbered or transferred).
+
+    int regIdx = (int)reg;
+    if (regIdx >= 0 && regIdx < 5) {
+        regHoldsVreg_[regIdx] = -1;
+    }
+}
