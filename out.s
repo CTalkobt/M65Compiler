@@ -22,122 +22,130 @@
     ldx $03
 __halt:
     jmp __halt
+    .global __static_chain
+    .global __zp_scratch
+    .global __zp_scratch2
+    .global __zp_scratch3
+    .global __zp_scratch4
+    __static_chain = $06
     __zp_scratch = $08
     __zp_scratch2 = $0A
     __zp_scratch3 = $0C
     __zp_scratch4 = $0E
 
 
-; function _signed_div
-    proc _signed_div, W#@_p_a, W#@_p_b
+; function _constant_propagation_test
+    proc _constant_propagation_test
     .var _fp = 0
-    .loc "/tmp/test_div_signedness.c", 2
-    .var @_p_a = 2
-    .var @_p_b = 4
+    .loc "test_opt_ir.c", 6
+    .var @_l_x = $20
+    .var @_l_y = $22
 
-    ldax.fp @_p_a
+@entry:
+    .loc "test_opt_ir.c", 7
+    lda #42
+    ldx #0
     sta $20
     stx $21
-    ldax.fp @_p_b
-    sta $22
-    stx $23
-@entry:
-    .loc "/tmp/test_div_signedness.c", 3
+    .loc "test_opt_ir.c", 8
     lda $20
-    ldx $21
-    div.16 .AX, $22
-    sta $24
-    stx $25
-    lda $24
-    ldx $25
+    clc
+    adc #8
+    sta $22
+    lda $21
+    adc #0
+    sta $23
+    .loc "test_opt_ir.c", 9
+    lda $22
+    ldx $23
 @__return:
     .func_flags stack_call, leaf
-    .reg_clobbers A, X
+    .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z, V
     endproc
 
-; function _unsigned_div
-    proc _unsigned_div, W#@_p_a, W#@_p_b
+; function _copy_propagation_test
+    proc _copy_propagation_test
     .var _fp = 0
-    .loc "/tmp/test_div_signedness.c", 6
-    .var @_p_a = 2
-    .var @_p_b = 4
+    .loc "test_opt_ir.c", 12
+    .var @_l_a = $20
+    .var @_l_b = $22
+    .var @_l_c = $24
 
-    ldax.fp @_p_a
+@entry:
+    .loc "test_opt_ir.c", 13
+    lda #10
+    ldx #0
     sta $20
     stx $21
-    ldax.fp @_p_b
-    sta $22
-    stx $23
-@entry:
-    .loc "/tmp/test_div_signedness.c", 7
+    .loc "test_opt_ir.c", 14
     lda $20
     ldx $21
-    div.16 .AX, $22
+    sta $22
+    stx $23
+    .loc "test_opt_ir.c", 15
+    lda $22
+    ldx $23
     sta $24
     stx $25
+    .loc "test_opt_ir.c", 16
     lda $24
     ldx $25
 @__return:
     .func_flags stack_call, leaf
-    .reg_clobbers A, X
-    .flag_clobbers C, N, Z, V
+    .reg_clobbers A, X, Y
+    .flag_clobbers N, Z
     endproc
 
-; function _signed_mod
-    proc _signed_mod, W#@_p_a, W#@_p_b
+; function _unreachable_code_test
+    proc _unreachable_code_test
     .var _fp = 0
-    .loc "/tmp/test_div_signedness.c", 10
-    .var @_p_a = 2
-    .var @_p_b = 4
+    .loc "test_opt_ir.c", 19
 
-    ldax.fp @_p_a
-    sta $20
-    stx $21
-    ldax.fp @_p_b
-    sta $22
-    stx $23
 @entry:
-    .loc "/tmp/test_div_signedness.c", 11
-    lda $20
-    ldx $21
-    mod.16 .AX, $22
-    sta $24
-    stx $25
-    lda $24
-    ldx $25
+    .loc "test_opt_ir.c", 20
+@if_then0:
+    .loc "test_opt_ir.c", 21
+    lda #100
+    ldx #0
+    bra @if_end2
 @__return:
     .func_flags stack_call, leaf
     .reg_clobbers A, X
-    .flag_clobbers C, N, Z, V
+    .flag_clobbers N, Z
     endproc
 
-; function _unsigned_mod
-    proc _unsigned_mod, W#@_p_a, W#@_p_b
+; function _mixed_test
+    proc _mixed_test
     .var _fp = 0
-    .loc "/tmp/test_div_signedness.c", 14
-    .var @_p_a = 2
-    .var @_p_b = 4
+    .loc "test_opt_ir.c", 28
+    .var @_l_x = $20
+    .var @_l_y = $22
+    .var @_l_z = $24
 
-    ldax.fp @_p_a
+@entry:
+    .loc "test_opt_ir.c", 29
+    lda #5
+    ldx #0
     sta $20
     stx $21
-    ldax.fp @_p_b
+    .loc "test_opt_ir.c", 30
+; TODO: unimplemented IR op
+    lda $26
+    ldx $27
     sta $22
     stx $23
-@entry:
-    .loc "/tmp/test_div_signedness.c", 15
-    lda $20
-    ldx $21
-    mod.16 .AX, $22
+    .loc "test_opt_ir.c", 31
+    lda $22
+    ldx $23
     sta $24
     stx $25
-    lda $24
-    ldx $25
+    .loc "test_opt_ir.c", 32
+    bra @if_end5
 @__return:
     .func_flags stack_call, leaf
-    .reg_clobbers A, X
-    .flag_clobbers C, N, Z, V
+    .reg_clobbers A, X, Y
+    .flag_clobbers N, Z
     endproc
 
 

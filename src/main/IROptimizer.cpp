@@ -20,6 +20,8 @@ void IROptimizer::optimize(Module& mod) {
             if (reduceStrength(fn)) changed = true;
             if (simplifyControlFlow(fn)) changed = true;
             if (eliminateUnreachableBlocks(fn)) changed = true;
+            if (phiSimplification(fn)) changed = true;
+            if (globalValueNumber(fn)) changed = true;
             if (propagateCopies(fn)) changed = true;
             if (eliminateDeadCode(fn)) changed = true;
         }
@@ -491,6 +493,150 @@ bool IROptimizer::propagateCopies(Function& fn) {
                 changed = true;
             } else {
                 ++it;
+            }
+        }
+    }
+
+    return changed;
+}
+
+bool IROptimizer::phiSimplification(Function& fn) {
+    bool changed = false;
+
+    for (auto& block : fn.blocks) {
+        auto it = block.insts.begin();
+        while (it != block.insts.end()) {
+            if (it->op == Op::PHI && it->dest.isVreg()) {
+                // Case 1: All incoming values are identical
+                if (!it->phiIncoming.empty()) {
+                    bool allIdentical = true;
+                    Operand firstVal = it->phiIncoming[0].first;
+
+                    for (size_t i = 1; i < it->phiIncoming.size(); i++) {
+                        const auto& [val, _] = it->phiIncoming[i];
+                        if (val.kind != firstVal.kind || val.immVal != firstVal.immVal) {
+                            allIdentical = false;
+                            break;
+                        }
+                    }
+
+                    if (allIdentical) {
+                        // Replace phi with COPY or CONST
+                        it->op = (firstVal.isImm()) ? Op::CONST : Op::COPY;
+                        it->src1 = firstVal;
+                        it->phiIncoming.clear();
+                        changed = true;
+                    }
+                }
+
+                // Case 2: Only one predecessor (merge point from single source)
+                if (it->op == Op::PHI && it->phiIncoming.size() == 1) {
+                    const auto& [val, _] = it->phiIncoming[0];
+                    it->op = (val.isImm()) ? Op::CONST : Op::COPY;
+                    it->src1 = val;
+                    it->phiIncoming.clear();
+                    changed = true;
+                }
+            }
+
+            ++it;
+        }
+    }
+
+    return changed;
+}
+
+bool IROptimizer::globalValueNumber(Function& fn) {
+    bool changed = false;
+    std::map<std::string, uint32_t> valueNumbers;  // hash -> destination vreg
+    std::map<uint32_t, uint32_t> vregRemap;        // vreg -> canonical vreg
+
+    auto hashInst = [](const Inst& inst) -> std::string {
+        std::string hash;
+        hash += std::to_string(static_cast<int>(inst.op));
+        hash += ":";
+        hash += std::to_string(static_cast<int>(inst.resultType));
+        hash += ":";
+
+        if (inst.src1.isImm()) {
+            hash += "imm" + std::to_string(inst.src1.immVal);
+        } else if (inst.src1.isVreg()) {
+            hash += "vreg" + std::to_string(inst.src1.vregId);
+        } else if (inst.src1.kind == OperandKind::GLOBAL) {
+            hash += "global" + inst.src1.name;
+        }
+
+        hash += ":";
+
+        if (inst.src2.isImm()) {
+            hash += "imm" + std::to_string(inst.src2.immVal);
+        } else if (inst.src2.isVreg()) {
+            hash += "vreg" + std::to_string(inst.src2.vregId);
+        } else if (inst.src2.kind == OperandKind::GLOBAL) {
+            hash += "global" + inst.src2.name;
+        }
+
+        return hash;
+    };
+
+    // Process each block
+    for (auto& block : fn.blocks) {
+        for (auto& inst : block.insts) {
+            // Skip side-effect operations and non-valued operations
+            bool hasSideEffects = false;
+            switch (inst.op) {
+                case Op::CONST:
+                case Op::ADD: case Op::SUB: case Op::MUL: case Op::DIV: case Op::MOD:
+                case Op::MUL_U: case Op::DIV_U: case Op::MOD_U:
+                case Op::AND: case Op::OR: case Op::XOR: case Op::LSL: case Op::LSR: case Op::ASR:
+                case Op::SHL: case Op::SHR: case Op::NEG: case Op::NOT:
+                case Op::CMP_EQ: case Op::CMP_NE: case Op::CMP_LT: case Op::CMP_LE: case Op::CMP_GT: case Op::CMP_GE:
+                case Op::CMP_LTU: case Op::CMP_LEU: case Op::CMP_GTU: case Op::CMP_GEU:
+                case Op::SEXT: case Op::ZEXT: case Op::TRUNC: case Op::COPY:
+                case Op::ADDR_GLOBAL: case Op::ADDR_LOCAL: case Op::ADDR_LABEL: case Op::ADDR_ELEM:
+                    hasSideEffects = false;
+                    break;
+                default:
+                    hasSideEffects = true;
+                    break;
+            }
+
+            if (!hasSideEffects && inst.dest.isVreg()) {
+                std::string hash = hashInst(inst);
+
+                if (valueNumbers.count(hash)) {
+                    // We've seen this computation before - reuse the result
+                    uint32_t canonicalVreg = valueNumbers[hash];
+                    vregRemap[inst.dest.vregId] = canonicalVreg;
+                    changed = true;
+                } else {
+                    // First time seeing this computation - record it
+                    valueNumbers[hash] = inst.dest.vregId;
+                }
+            }
+        }
+    }
+
+    // Apply vreg remapping to all subsequent uses
+    if (!vregRemap.empty()) {
+        for (auto& block : fn.blocks) {
+            for (auto& inst : block.insts) {
+                // Remap src1
+                if (inst.src1.isVreg() && vregRemap.count(inst.src1.vregId)) {
+                    inst.src1 = Operand::vreg(vregRemap[inst.src1.vregId], inst.src1.type);
+                }
+
+                // Remap src2
+                if (inst.src2.isVreg() && vregRemap.count(inst.src2.vregId)) {
+                    inst.src2 = Operand::vreg(vregRemap[inst.src2.vregId], inst.src2.type);
+                }
+
+                // Remap args
+                for (auto& arg : inst.args) {
+                    if (arg.isVreg() && vregRemap.count(arg.vregId)) {
+                        arg = Operand::vreg(vregRemap[arg.vregId], arg.type);
+                    }
+                }
             }
         }
     }

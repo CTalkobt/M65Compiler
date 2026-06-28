@@ -25,6 +25,8 @@ private:
     bool reduceStrength(Function& fn);
     bool eliminateUnreachableBlocks(Function& fn);
     bool propagateConstants(Function& fn);
+    bool phiSimplification(Function& fn);
+    bool globalValueNumber(Function& fn);
     bool propagateCopies(Function& fn);
 
     // Helper functions for constant folding

@@ -52,20 +52,23 @@ Track vregs assigned only once from COPY ops, substitute them away.
 
 Expected impact: ~10–15% size reduction on typical code via cascading effects.
 
-**Phase 2** (future):
-- Phi simplification
-- Global Value Numbering
-- Loop optimization
+**Phase 2** (this session):
+- Phi node simplification (10 min)
+- Global Value Numbering/GVN (45 min)
+
+Expected impact: +10-15% beyond Phase 1 by eliminating redundant loads/stores and unnecessary phi nodes.
 
 ## Integration
 
 Optimizations run iteratively within `IROptimizer::optimize()` until convergence (max 10 iterations). Passes execute in order:
-1. foldConstants → constant propagation + folding
-2. reduceStrength → algebraic simplification
-3. simplifyControlFlow → branch folding
-4. eliminateDeadCode → remove unused vregs
-5. **eliminateUnreachableBlocks** (new)
-6. **copyPropagation** (new)
-7. **phiSimplification** (future)
+1. foldConstants → constant propagation + folding (Phase 1)
+2. propagateConstants → dataflow constant tracking (Phase 1)
+3. reduceStrength → algebraic simplification
+4. simplifyControlFlow → branch folding
+5. eliminateUnreachableBlocks → remove unreachable blocks (Phase 1)
+6. phiSimplification → simplify/eliminate redundant phis (Phase 2)
+7. globalValueNumber → eliminate redundant computations (Phase 2)
+8. copyPropagation → eliminate copy assignments (Phase 1)
+9. eliminateDeadCode → remove unused vregs
 
-Each pass may enable the next, hence the iteration loop.
+Each pass may enable the next, hence the iteration loop. GVN is placed late to catch redundancies created by prior passes.
