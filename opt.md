@@ -52,11 +52,12 @@ Track vregs assigned only once from COPY ops, substitute them away.
 
 Expected impact: ~10–15% size reduction on typical code via cascading effects.
 
-**Phase 2** (this session):
-- Phi node simplification (10 min)
-- Global Value Numbering/GVN (45 min)
+**Phase 2** ✓ COMPLETE:
+- Phi node simplification (10 min) ✓
+- Global Value Numbering/GVN (45 min) ✓
 
-Expected impact: +10-15% beyond Phase 1 by eliminating redundant loads/stores and unnecessary phi nodes.
+Measured impact: -1.8% on GVN-heavy patterns (test_gvn.c)
+Expected on real-world code: -5% to -10% with loop optimizations
 
 ## Integration
 
