@@ -1725,6 +1725,15 @@ void IRBuilder::visit(BinaryOperation& node) {
 }
 
 void IRBuilder::visit(UnaryOperation& node) {
+    if (node.op == "++" || node.op == "--" || node.op == "++_POST" || node.op == "--_POST") {
+        if (auto* vr = dynamic_cast<VariableReference*>(node.operand.get())) {
+            auto cit = localConst_.find(vr->name);
+            if (cit != localConst_.end() && cit->second) {
+                errors_.push_back("Compile Error: Increment/decrement of read-only location");
+                return;
+            }
+        }
+    }
     node.operand->accept(*this);
     auto src = lastValue_;
 

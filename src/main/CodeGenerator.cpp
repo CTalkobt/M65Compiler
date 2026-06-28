@@ -3598,7 +3598,7 @@ void CodeGenerator::visit(UnaryOperation& node) {
         if (auto* ref = dynamic_cast<VariableReference*>(node.operand.get())) {
             std::string rName = resolveVarName(ref->name);
             VarInfo vi = lookupVar(rName, &node);
-            if ((vi.isConst && vi.pointerLevel == 0) || vi.isPointerConst) throw std::runtime_error("Compile Error: Increment/decrement of read-only variable '" + ref->name + "'");
+            if ((vi.isConst && vi.pointerLevel == 0) || vi.isPointerConst) throw std::runtime_error("Increment/decrement of read-only location");
             bool is32Bit = is32BitType(vi.type) && vi.pointerLevel == 0;
             bool is16Bit = !is32Bit && (vi.pointerLevel > 0 || vi.type == "int");
             if (!is32Bit && isStruct(vi.type)) {

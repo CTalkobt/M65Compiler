@@ -15,6 +15,7 @@ public:
     void setSourceInfo(const std::string& filename);
     void setExternalUsedVars(const std::set<std::string>& vars) { externalUsedVars_ = vars; }
     const ir::Module& getModule() const { return module_; }
+    ir::Module& getModule() { return module_; }
     bool hasErrors() const { return !errors_.empty(); }
     const std::vector<std::string>& getErrors() const { return errors_; }
     const std::vector<std::string>& getWarnings() const { return warnings_; }

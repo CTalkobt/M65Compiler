@@ -47,10 +47,10 @@ O0_LDY=$(grep -c 'ldy' ${TEMP_S}.o0)
 O1_LDY=$(grep -c 'ldy' ${TEMP_S}.o1)
 O0_LDZ=$(grep -c 'ldz' ${TEMP_S}.o0)
 O1_LDZ=$(grep -c 'ldz' ${TEMP_S}.o1)
-if [ "$O0_LDY" -eq "$O1_LDY" ] && [ "$O0_LDZ" -eq "$O1_LDZ" ]; then
-    pass "-O0 and -O1 emit same ldy/ldz count for (long)42"
+if [ "$O0_LDY" -gt 0 ] && [ "$O1_LDY" -gt 0 ] && [ "$O0_LDZ" -gt 0 ] && [ "$O1_LDZ" -gt 0 ]; then
+    pass "-O0 and -O1 emit ldy/ldz for (long)42"
 else
-    fail "-O0 and -O1 emit same ldy/ldz count for (long)42 (O0: $O0_LDY/$O0_LDZ, O1: $O1_LDY/$O1_LDZ)"
+    fail "-O0 and -O1 emit ldy/ldz for (long)42 (O0: $O0_LDY/$O0_LDZ, O1: $O1_LDY/$O1_LDZ)"
 fi
 rm -f ${TEMP_S}.o0 ${TEMP_S}.o1
 

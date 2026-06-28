@@ -20,6 +20,7 @@
 #include "M65Emitter.hpp"
 #include "IRBuilder.hpp"
 #include "IRCodeGen.hpp"
+#include "IROptimizer.hpp"
 #include "Version.hpp"
 
 class ASTPrinter : public ASTVisitor {
@@ -641,19 +642,6 @@ int main(int argc, char** argv) {
         irBuilder.inlineFunctions = inlineFunctions;
         irBuilder.setSourceInfo(input_file);
 
-        if (optimize) {
-            if (verboseLevel >= 1) std::cout << "Constant folding..." << std::endl;
-            ConstantFolder folder;
-            ast = folder.foldTranslationUnit(std::move(ast));
-            if (verboseLevel >= 1) std::cout << "Constant folding complete." << std::endl;
-            irBuilder.setExternalUsedVars(folder.usedVars_);
-
-            if (verboseLevel >= 1) std::cout << "Loop optimization..." << std::endl;
-            LoopOptimizer loopOpt;
-            loopOpt.optimizeTranslationUnit(*ast);
-            if (verboseLevel >= 1) std::cout << "Loop optimization complete." << std::endl;
-        }
-
         if (verboseLevel >= 2 && listingLevel >= 1) {
             ASTPrinter printer;
             ast->accept(printer);
@@ -706,6 +694,13 @@ int main(int argc, char** argv) {
         }
 
         irBuilder.generate(*ast);
+
+        if (optimize) {
+            if (verboseLevel >= 1) std::cout << "IR Optimization..." << std::endl;
+            ir::IROptimizer optimizer(verboseLevel);
+            optimizer.optimize(irBuilder.getModule());
+            if (verboseLevel >= 1) std::cout << "IR Optimization complete." << std::endl;
+        }
 
         // Write IR text dump if requested
         if (emitIR) {
