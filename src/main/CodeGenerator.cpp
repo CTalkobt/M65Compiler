@@ -3779,6 +3779,23 @@ void CodeGenerator::visit(AsmStatement& node) {
         crtStdio = true;
         return;
     }
+    if (node.code.find(".crt_unroll_def ") == 0) {
+        try {
+            loopUnrollDefault = std::stoi(node.code.substr(16));
+        } catch (...) {}
+        return;
+    }
+    if (node.code == ".crt_unroll") {
+        loopUnrollNext = (loopUnrollDefault > 0) ? loopUnrollDefault : 4;
+        return;
+    }
+    if (node.code.find(".crt_unroll ") == 0) {
+        try {
+            std::string numStr = node.code.substr(12);
+            loopUnrollNext = std::stoi(numStr);
+        } catch (...) {}
+        return;
+    }
     if (node.code == ".encoding ascii") {
         currentStringEncoding_ = StringEncoding::ASCII;
         return;
@@ -4090,6 +4107,12 @@ void CodeGenerator::visit(RepeatStatement& node) {
 void CodeGenerator::visit(ForStatement& node) {
     embedSource(node);
 
+    LoopUnrollInfo unrollInfo = analyzeForUnrolling(&node);
+    if (unrollInfo.isUnrollable) {
+        emitUnrolledLoop(node, unrollInfo);
+        return;
+    }
+
     // Scoping for for-loop initializer variables
     auto oldVars = currentVars;
     auto oldVarTypes = variableTypes;
@@ -4128,6 +4151,95 @@ void CodeGenerator::visit(ForStatement& node) {
     invalidateRegs();
 
     // Cleanup scope
+    if (currentVars.size() > oldVars.size()) {
+        emit(".cleanup " + std::to_string(currentVars.size() - oldVars.size()));
+    }
+    currentVars = std::move(oldVars);
+    variableTypes = std::move(oldVarTypes);
+    zpRegs = std::move(oldZpRegs);
+}
+
+CodeGenerator::LoopUnrollInfo CodeGenerator::analyzeForUnrolling(ForStatement* node) {
+    LoopUnrollInfo info;
+    info.unrollCount = loopUnrollNext;
+    loopUnrollNext = 0;
+
+    if (info.unrollCount == 0) return info;
+
+    auto* varDecl = dynamic_cast<VariableDeclaration*>(node->initializer.get());
+    if (!varDecl || !varDecl->initializer) return info;
+
+    info.counterVar = varDecl->name;
+
+    auto* initVal = dynamic_cast<IntegerLiteral*>(varDecl->initializer.get());
+    if (!initVal) return info;
+    info.startVal = initVal->value;
+
+    if (!node->condition) return info;
+    auto* binOp = dynamic_cast<BinaryOperation*>(node->condition.get());
+    if (!binOp || binOp->op != "<") return info;
+
+    auto* condLhs = dynamic_cast<VariableReference*>(binOp->left.get());
+    if (!condLhs || condLhs->name != info.counterVar) return info;
+
+    auto* condRhs = dynamic_cast<IntegerLiteral*>(binOp->right.get());
+    if (!condRhs) return info;
+    info.endVal = condRhs->value;
+
+    if (!node->increment) return info;
+    auto* incExpr = dynamic_cast<UnaryOperation*>(node->increment.get());
+    if (!incExpr || incExpr->op != "++") return info;
+
+    auto* incVar = dynamic_cast<VariableReference*>(incExpr->operand.get());
+    if (!incVar || incVar->name != info.counterVar) return info;
+
+    int loopCount = info.endVal - info.startVal;
+    if (loopCount <= 0 || loopCount > 1024) return info;
+    if (info.unrollCount > loopCount) {
+        info.unrollCount = loopCount;
+    }
+
+    info.isUnrollable = true;
+    return info;
+}
+
+void CodeGenerator::emitUnrolledLoop(ForStatement& node, const LoopUnrollInfo& info) {
+    auto oldVars = currentVars;
+    auto oldVarTypes = variableTypes;
+    auto oldZpRegs = zpRegs;
+
+    if (node.initializer) {
+        bool oldNeeded = resultNeeded;
+        resultNeeded = false;
+        node.initializer->accept(*this);
+        resultNeeded = oldNeeded;
+    }
+
+    int totalIter = info.endVal - info.startVal;
+    int fullUnrolls = totalIter / info.unrollCount;
+    int remainder = totalIter % info.unrollCount;
+
+    for (int iter = 0; iter < fullUnrolls; iter++) {
+        node.body->accept(*this);
+        if (node.increment) {
+            bool oldNeeded = resultNeeded;
+            resultNeeded = false;
+            node.increment->accept(*this);
+            resultNeeded = oldNeeded;
+        }
+    }
+
+    for (int iter = 0; iter < remainder; iter++) {
+        node.body->accept(*this);
+        if (node.increment) {
+            bool oldNeeded = resultNeeded;
+            resultNeeded = false;
+            node.increment->accept(*this);
+            resultNeeded = oldNeeded;
+        }
+    }
+
+    invalidateRegs();
     if (currentVars.size() > oldVars.size()) {
         emit(".cleanup " + std::to_string(currentVars.size() - oldVars.size()));
     }

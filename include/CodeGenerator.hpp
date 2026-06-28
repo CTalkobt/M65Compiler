@@ -264,6 +264,17 @@ public:
     std::string newLabel();
     std::string newDontCareLabel();
 
+    struct LoopUnrollInfo {
+        std::string counterVar;
+        int64_t startVal = 0;
+        int64_t endVal = 0;
+        int64_t stepVal = 1;
+        bool isUnrollable = false;
+        int unrollCount = 0;
+    };
+    LoopUnrollInfo analyzeForUnrolling(ForStatement* node);
+    void emitUnrolledLoop(ForStatement& node, const LoopUnrollInfo& info);
+
     int allocateZP(int size);
     void freeZP(int index, int size);
 
@@ -283,6 +294,8 @@ public:
     bool crtNoBssInit = false; // #pragma cc45 no_bssinit
     bool crtHeap = false;      // #pragma cc45 heap
     bool crtStdio = false;     // #pragma cc45 stdio
+    int loopUnrollDefault = 0; // #pragma cc45 unroll N (0 = disabled, 3-8 typical)
+    int loopUnrollNext = 0;    // #pragma cc45 unroll (applies to next loop only, one-shot)
     std::set<std::string> knownFunctions; // defined + prototyped function names
     std::set<std::string> variadicFunctions; // functions declared with ...
     std::set<std::string> fastcallFunctions; // functions declared with __fastcall__
