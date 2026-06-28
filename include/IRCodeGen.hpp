@@ -123,6 +123,19 @@ private:
     // Check if a register already holds a specific ZP value
     bool regHoldsZPValue(RegId r, uint8_t zpAddr) const;
 
+    // Phase 3: MachineState-based helpers for range queries
+    // Returns true if a vreg is known to be within [lo..hi]
+    bool vregInRange(uint32_t vregId, int64_t lo, int64_t hi) const;
+    // Returns true if a ZP location is known to be within [lo..hi]
+    bool zpInRange(uint8_t addr, int64_t lo, int64_t hi) const;
+    // Check if a comparison instruction is redundant given a known value
+    // outAlwaysTrue: set to true if condition is always true, false if always false
+    bool compareCanBeEliminated(const ir::Inst& cmp, int64_t val, bool& outAlwaysTrue) const;
+    // Update range after CONST emission (exact constant = range [val,val])
+    void updateRangeFromConstant(uint32_t vregId, int64_t val);
+    // Update range from detected loop bounds
+    void updateRangeFromLoop(uint32_t vregId, int64_t lo, int64_t hi);
+
     // Source location tracking for .loc directives
     int lastLocLine_ = -1;
     std::string lastLocFile_;

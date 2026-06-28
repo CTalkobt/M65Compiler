@@ -1281,6 +1281,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         case ir::Op::CONST: {
             int val = (int)inst.src1.immVal;
             if (inst.dest.isVreg()) vregConstVal_[inst.dest.vregId] = val;
+            // Phase 3: Update range tracking (exact constant = range [val, val])
+            ms_.setRange(REG_A, val, val);
             // Skip emission for suppressed CONST vregs (address-only, used by direct store)
             if (inst.dest.isVreg() && suppressedVregs_.count(inst.dest.vregId)) break;
 
@@ -1341,6 +1343,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             uint8_t b2 = (val >> 16) & 0xFF;
             uint8_t b3 = (val >> 24) & 0xFF;
             ms_.setConst(REG_A, b0);
+            // Phase 3: Set range for full value (not just register byte)
+            ms_.setRange(REG_A, val, val);
             emit("lda #" + std::to_string((int)b0), r);
             valueByte_[0] = REG_A;
             // Can skip tax/tay/taz when byte matches A only if storeVreg
@@ -3215,4 +3219,153 @@ bool IRCodeGen::regHoldsZPValue(RegId r, uint8_t zpAddr) const {
     }
 
     return false;
+}
+
+// ============================================================================
+// MachineState Phase 3 Helper Methods
+// ============================================================================
+
+bool IRCodeGen::vregInRange(uint32_t vregId, int64_t lo, int64_t hi) const {
+    // Check if vreg is known to be within [lo..hi]
+    // Query MachineState to see if we know the vreg's value range
+    int64_t val;
+    if (vregIsConst(vregId, &val)) {
+        // If it's a known constant, check if it's in range
+        return val >= lo && val <= hi;
+    }
+    return false;  // Conservative: don't know the value
+}
+
+bool IRCodeGen::zpInRange(uint8_t addr, int64_t lo, int64_t hi) const {
+    // Check if ZP location is known to be within [lo..hi]
+    const auto& memVal = ms_.getZP(addr);
+    return memVal.isInRange(lo, hi);
+}
+
+bool IRCodeGen::compareCanBeEliminated(const ir::Inst& cmp, int64_t val, bool& outAlwaysTrue) const {
+    // Check if a comparison is redundant given a known value/range
+    // This is very conservative: only eliminate if mathematically certain
+
+    switch (cmp.op) {
+        case ir::Op::CMP_EQ: {
+            // val == cmp.src2: result is true if val equals src2, false otherwise
+            int64_t cmpVal;
+            if (cmp.src2.isImm()) {
+                cmpVal = (int64_t)cmp.src2.immVal;
+                outAlwaysTrue = (val == cmpVal);
+                return true;  // Can eliminate: result is known
+            }
+            if (cmp.src2.isVreg() && vregIsConst(cmp.src2.vregId, &cmpVal)) {
+                outAlwaysTrue = (val == cmpVal);
+                return true;
+            }
+            break;
+        }
+        case ir::Op::CMP_NE: {
+            // val != cmp.src2
+            int64_t cmpVal;
+            if (cmp.src2.isImm()) {
+                cmpVal = (int64_t)cmp.src2.immVal;
+                outAlwaysTrue = (val != cmpVal);
+                return true;
+            }
+            if (cmp.src2.isVreg() && vregIsConst(cmp.src2.vregId, &cmpVal)) {
+                outAlwaysTrue = (val != cmpVal);
+                return true;
+            }
+            break;
+        }
+        case ir::Op::CMP_LT: {
+            // val < cmp.src2 (signed)
+            int64_t cmpVal;
+            if (cmp.src2.isImm()) {
+                cmpVal = (int64_t)(int32_t)cmp.src2.immVal;  // Sign-extend
+                outAlwaysTrue = (val < cmpVal);
+                return true;
+            }
+            if (cmp.src2.isVreg() && vregIsConst(cmp.src2.vregId, &cmpVal)) {
+                outAlwaysTrue = (val < cmpVal);
+                return true;
+            }
+            break;
+        }
+        case ir::Op::CMP_LE: {
+            // val <= cmp.src2
+            int64_t cmpVal;
+            if (cmp.src2.isImm()) {
+                cmpVal = (int64_t)(int32_t)cmp.src2.immVal;
+                outAlwaysTrue = (val <= cmpVal);
+                return true;
+            }
+            if (cmp.src2.isVreg() && vregIsConst(cmp.src2.vregId, &cmpVal)) {
+                outAlwaysTrue = (val <= cmpVal);
+                return true;
+            }
+            break;
+        }
+        case ir::Op::CMP_GT: {
+            // val > cmp.src2
+            int64_t cmpVal;
+            if (cmp.src2.isImm()) {
+                cmpVal = (int64_t)(int32_t)cmp.src2.immVal;
+                outAlwaysTrue = (val > cmpVal);
+                return true;
+            }
+            if (cmp.src2.isVreg() && vregIsConst(cmp.src2.vregId, &cmpVal)) {
+                outAlwaysTrue = (val > cmpVal);
+                return true;
+            }
+            break;
+        }
+        case ir::Op::CMP_GE: {
+            // val >= cmp.src2
+            int64_t cmpVal;
+            if (cmp.src2.isImm()) {
+                cmpVal = (int64_t)(int32_t)cmp.src2.immVal;
+                outAlwaysTrue = (val >= cmpVal);
+                return true;
+            }
+            if (cmp.src2.isVreg() && vregIsConst(cmp.src2.vregId, &cmpVal)) {
+                outAlwaysTrue = (val >= cmpVal);
+                return true;
+            }
+            break;
+        }
+        case ir::Op::CMP_LTU: {
+            // val < cmp.src2 (unsigned)
+            uint64_t uval = (uint64_t)val & 0xFFFFFFFF;
+            uint64_t cmpVal;
+            if (cmp.src2.isImm()) {
+                cmpVal = cmp.src2.immVal & 0xFFFFFFFF;
+                outAlwaysTrue = (uval < cmpVal);
+                return true;
+            }
+            if (cmp.src2.isVreg() && vregIsConst(cmp.src2.vregId, (int64_t*)&cmpVal)) {
+                cmpVal &= 0xFFFFFFFF;
+                outAlwaysTrue = (uval < cmpVal);
+                return true;
+            }
+            break;
+        }
+        default:
+            break;
+    }
+
+    return false;  // Can't determine: keep CMP instruction
+}
+
+void IRCodeGen::updateRangeFromConstant(uint32_t vregId, int64_t val) {
+    // Phase 3: After CONST, set range = [val, val] (exact constant)
+    // This enables compare elimination for that vreg
+    ms_.setRange(REG_A, val, val);  // Set in A since CONST emits to A
+}
+
+void IRCodeGen::updateRangeFromLoop(uint32_t vregId, int64_t lo, int64_t hi) {
+    // Phase 3: Record detected loop bounds for a vreg
+    // This is conservative: only set if we're certain about the range
+    // Example: for loop with i=0; i<100; i++ → range [0..99]
+
+    // This would be called after loop analysis detects patterns
+    // For now, this is a hook for future loop analysis
+    ms_.setRange(REG_A, lo, hi);  // Set detected range in A
 }
