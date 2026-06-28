@@ -163,19 +163,28 @@ void IRCodeGen::loadVreg(uint32_t vregId) {
             std::string zpAddr = ss.str();
             if (alloc.type == ir::Type::I8) {
                 emit("lda " + zpAddr, r);
+                // Phase 2: Update MachineState after loading from ZP
+                updateZPFromLoad((uint8_t)alloc.offset, REG_A);
                 emit("ldx #0", "zext I8→I16");
+                ms_.setConst(REG_X, 0);
             } else if (alloc.type == ir::Type::I32) {
                 emit("lda " + zpAddr, r);
+                updateZPFromLoad((uint8_t)alloc.offset, REG_A);
                 ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 1);
                 emit("ldx " + ss.str(), r);
+                updateZPFromLoad((uint8_t)(alloc.offset + 1), REG_X);
                 ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 2);
                 emit("ldy " + ss.str(), r);
+                updateZPFromLoad((uint8_t)(alloc.offset + 2), REG_Y);
                 ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 3);
                 emit("ldz " + ss.str(), r);
+                updateZPFromLoad((uint8_t)(alloc.offset + 3), REG_Z);
             } else {
                 emit("lda " + zpAddr, r);
+                updateZPFromLoad((uint8_t)alloc.offset, REG_A);
                 ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 1);
                 emit("ldx " + ss.str(), r);
+                updateZPFromLoad((uint8_t)(alloc.offset + 1), REG_X);
             }
             break;
         }
@@ -227,18 +236,26 @@ void IRCodeGen::storeVreg(uint32_t vregId) {
             std::string zpAddr = ss.str();
             if (alloc.type == ir::Type::I8) {
                 emit("sta " + zpAddr, r);
+                // Phase 2: Track memory state after store to ZP
+                ms_.storeZP((uint8_t)alloc.offset, REG_A);
             } else if (alloc.type == ir::Type::I32) {
                 emit("sta " + zpAddr);
+                ms_.storeZP((uint8_t)alloc.offset, REG_A);
                 ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 1);
                 emit(ms_.regsEqual(REG_A, REG_X) ? "sta " + ss.str() : "stx " + ss.str());
+                ms_.storeZP((uint8_t)(alloc.offset + 1), ms_.regsEqual(REG_A, REG_X) ? REG_A : REG_X);
                 ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 2);
                 emit(ms_.regsEqual(REG_A, REG_Y) ? "sta " + ss.str() : "sty " + ss.str());
+                ms_.storeZP((uint8_t)(alloc.offset + 2), ms_.regsEqual(REG_A, REG_Y) ? REG_A : REG_Y);
                 ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 3);
                 emit(ms_.regsEqual(REG_A, REG_Z) ? "sta " + ss.str() : "stz " + ss.str());
+                ms_.storeZP((uint8_t)(alloc.offset + 3), ms_.regsEqual(REG_A, REG_Z) ? REG_A : REG_Z);
             } else {
                 emit("sta " + zpAddr);
+                ms_.storeZP((uint8_t)alloc.offset, REG_A);
                 ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 1);
                 emit(ms_.regsEqual(REG_A, REG_X) ? "sta " + ss.str() : "stx " + ss.str());
+                ms_.storeZP((uint8_t)(alloc.offset + 1), ms_.regsEqual(REG_A, REG_X) ? REG_A : REG_X);
             }
             break;
         }
@@ -1122,6 +1139,8 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         // Track the next block's label for no-op branch elimination
         nextBlockLabel_ = (bi + 1 < fn.blocks.size()) ? fn.blocks[bi + 1].label : "__return";
         emitLabel("@" + block.label);
+        // Phase 2: Invalidate memory at block boundaries (control flow merge point)
+        ms_.invalidateAllMem();
         for (size_t ii = 0; ii < block.insts.size(); ii++) {
             currentInstInBlock_ = ii;
             emitInst(block.insts[ii]);
@@ -2833,6 +2852,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     emit("stx __zp_scratch+1");
                     emit("jsr (__zp_scratch)");
                 }
+                // Phase 2: Invalidate memory state after JSR (conservative: callee may modify)
+                ms_.invalidateAllStack();
 
                 // Caller-side stack cleanup: pop argBytes with PLZ instructions
                 // (RTS #N opcode $62 is unreliable on some hardware)
@@ -2848,6 +2869,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             if (inst.callConv == ir::CallConv::ZP && (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID)) {
                 if (inst.src1.kind == ir::OperandKind::GLOBAL) {
                     emit("jsr " + inst.src1.name);
+                    // Phase 2: Invalidate memory state after JSR
+                    ms_.invalidateAllStack();
                 }
             }
 
@@ -3120,4 +3143,76 @@ void IRCodeGen::updateMachineStateForLoad(uint32_t vregId, RegId destReg) {
         // Register now holds unknown value from this vreg
         ms_.invalidateReg(destReg);
     }
+}
+
+// ============================================================================
+// MachineState Phase 2 Helper Methods
+// ============================================================================
+
+bool IRCodeGen::zpIsConst(uint8_t addr, int64_t* outVal) const {
+    // Check if ZP memory location holds a known constant
+    const auto& val = ms_.getZP(addr);
+    if (val.isConst()) {
+        if (outVal) *outVal = val.constVal;
+        return true;
+    }
+    return false;
+}
+
+bool IRCodeGen::stackIsConst(uint8_t offset, int64_t* outVal) const {
+    // Check if stack offset holds a known constant
+    const auto& val = ms_.getStack(offset);
+    if (val.isConst()) {
+        if (outVal) *outVal = val.constVal;
+        return true;
+    }
+    return false;
+}
+
+bool IRCodeGen::absMemIsConst(uint16_t addr, int64_t* outVal) const {
+    // Check if absolute address holds a known constant
+    ValueInfo val = ms_.getAbsMem(addr);
+    if (val.isConst()) {
+        if (outVal) *outVal = val.constVal;
+        return true;
+    }
+    return false;
+}
+
+void IRCodeGen::updateZPFromLoad(uint8_t addr, RegId destReg) {
+    // After loading from ZP, sync MachineState with what was loaded
+    ms_.setRegFromZP(destReg, addr);
+}
+
+void IRCodeGen::updateStackFromLoad(uint8_t offset, RegId destReg) {
+    // After loading from stack, sync MachineState
+    const auto& memVal = ms_.getStack(offset);
+    if (memVal.isConst()) {
+        ms_.setConst(destReg, (uint8_t)(memVal.constVal & 0xFF));
+    } else {
+        ms_.invalidateReg(destReg);
+    }
+}
+
+bool IRCodeGen::regHoldsZPValue(RegId r, uint8_t zpAddr) const {
+    // Check if register r already holds the value at ZP address
+    const auto& regVal = ms_.reg[r];
+    const auto& memVal = ms_.getZP(zpAddr);
+
+    // Same constant value?
+    if (regVal.isConst() && memVal.isConst() && regVal.constVal == memVal.constVal) {
+        return true;
+    }
+
+    // Register mirrors this memory location?
+    if (regVal.isSameAsMem(zpAddr)) {
+        return true;
+    }
+
+    // Memory mirrors this register?
+    if (memVal.isSameAs(r)) {
+        return true;
+    }
+
+    return false;
 }

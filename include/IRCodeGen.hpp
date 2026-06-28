@@ -109,6 +109,20 @@ private:
     // Update MachineState when a constant is loaded into a register
     void updateMachineStateForLoad(uint32_t vregId, RegId destReg);
 
+    // Phase 2: MachineState-based helpers for memory queries
+    // Returns true if a ZP location holds a known constant
+    bool zpIsConst(uint8_t addr, int64_t* outVal = nullptr) const;
+    // Returns true if a stack offset holds a known constant
+    bool stackIsConst(uint8_t offset, int64_t* outVal = nullptr) const;
+    // Returns true if an absolute address holds a known constant
+    bool absMemIsConst(uint16_t addr, int64_t* outVal = nullptr) const;
+    // Update MachineState after loading from a ZP location
+    void updateZPFromLoad(uint8_t addr, RegId destReg);
+    // Update MachineState after loading from a stack offset
+    void updateStackFromLoad(uint8_t offset, RegId destReg);
+    // Check if a register already holds a specific ZP value
+    bool regHoldsZPValue(RegId r, uint8_t zpAddr) const;
+
     // Source location tracking for .loc directives
     int lastLocLine_ = -1;
     std::string lastLocFile_;
