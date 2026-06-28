@@ -859,14 +859,14 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                     } else if (cc45Arg == "unroll") {
                         std::string countStr;
                         if (ss >> countStr) {
-                            output << "__asm__(\".crt_unroll " + countStr + "\");\n";
+                            output << "asm(\".crt_unroll " + countStr + "\");\n";
                         } else {
-                            output << "__asm__(\".crt_unroll\");\n";
+                            output << "asm(\".crt_unroll\");\n";
                         }
                     } else if (cc45Arg == "unroll_default") {
                         std::string countStr;
                         if (ss >> countStr) {
-                            output << "__asm__(\".crt_unroll_def " + countStr + "\");\n";
+                            output << "asm(\".crt_unroll_def " + countStr + "\");\n";
                         } else {
                             output << "\n";
                         }
@@ -952,15 +952,15 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         else if (cc45Arg == "unroll") {
                             std::string countStr;
                             if (ps >> countStr) {
-                                output << "__asm__(\".crt_unroll " + countStr + "\");\n";
+                                output << "asm(\".crt_unroll " + countStr + "\");\n";
                             } else {
-                                output << "__asm__(\".crt_unroll\");\n";
+                                output << "asm(\".crt_unroll\");\n";
                             }
                         }
                         else if (cc45Arg == "unroll_default") {
                             std::string countStr;
                             if (ps >> countStr) {
-                                output << "__asm__(\".crt_unroll_def " + countStr + "\");\n";
+                                output << "asm(\".crt_unroll_def " + countStr + "\");\n";
                             }
                         }
                     } else if (isCompiler && pragmaArg.substr(0, 9) == "encoding(") {
