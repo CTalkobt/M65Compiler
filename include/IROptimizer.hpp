@@ -33,6 +33,9 @@ private:
     bool completeLoopHoisting(Function& fn);
     bool enhancedAliasAnalysis(Function& fn);
     bool inliningAwareOpt(Function& fn);
+    bool crossFunctionOpt(Function& fn);
+    bool speculativeHoisting(Function& fn);
+    bool instructionPatternOpt(Function& fn);
     bool aggressiveDeadBlockRemoval(Function& fn);
     bool commonSubexprElim(Function& fn);
     bool propagateCopies(Function& fn);
