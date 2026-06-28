@@ -31,6 +31,8 @@ private:
     bool addressComputationFold(Function& fn);
     bool storeLoadForwarding(Function& fn);
     bool completeLoopHoisting(Function& fn);
+    bool enhancedAliasAnalysis(Function& fn);
+    bool inliningAwareOpt(Function& fn);
     bool aggressiveDeadBlockRemoval(Function& fn);
     bool commonSubexprElim(Function& fn);
     bool propagateCopies(Function& fn);

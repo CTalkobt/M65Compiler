@@ -66,12 +66,19 @@ Expected on real-world code: -5% to -10% with loop optimizations
 
 Measured impact: -14.4% on loop-heavy patterns (test_loops.c)
 
-**Phase 4** (this session):
-- Complete loop hoisting implementation (30 min)
-- Store-load forwarding (25 min)
-- Address computation folding (20 min)
+**Phase 4** ✓ COMPLETE:
+- Complete loop hoisting implementation (30 min) ✓
+- Store-load forwarding (25 min) ✓
+- Address computation folding (20 min) ✓
 
-Expected impact: -3% to -5% beyond Phase 3 on loop code
+Measured impact: -14.5% on advanced loop patterns
+
+**Phase 5** (this session):
+- Complete loop hoisting movement (35 min)
+- Enhanced alias analysis (30 min)
+- Inlining-aware optimization (30 min)
+
+Expected impact: -2% to -4% beyond Phase 4
 
 ## Integration
 
