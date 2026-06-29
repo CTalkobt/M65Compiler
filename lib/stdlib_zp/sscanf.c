@@ -1,13 +1,16 @@
-/* sscanf.c — Formatted string input for cc45 / MEGA65 (ZP calling convention)
+/* sscanf.c — Formatted string input for cc45 / MEGA65
  *
  * int sscanf(char *str, char *fmt, ...);
  *
- * Supports: %d %u %x %o %c %s %% and long variants %ld %lu %lx %lo.
+ * Supports: %d %u %x %o %c %s %f %% and long variants %ld %lu %lx %lo.
+ * Note: %f uses strtof() for float parsing.
  *
  * Returns the number of input items successfully matched and assigned.
  */
 
 #include <stdarg.h>
+
+float strtof(char *nptr, char **endptr);
 
 static int is_space(char c) {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r';
@@ -187,6 +190,13 @@ int sscanf(char *str, char *fmt, ...) {
             char *dest = (char *)va_arg(ap, int);
             *dest = *inp;
             inp = inp + 1;
+            matched = matched + 1;
+        } else if (*fmt == 'F' || *fmt == 'f') {
+            float *dest = (float *)va_arg(ap, int);
+            char *end;
+            *dest = strtof(inp, &end);
+            if (end == inp) break;
+            inp = end;
             matched = matched + 1;
         } else if (*fmt == 'S' || *fmt == 's') {
             while (is_space(*inp)) inp = inp + 1;
