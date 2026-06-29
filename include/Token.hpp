@@ -54,6 +54,8 @@ enum class TokenType {
     FLOAT,     // float (CBM 40-bit)
     DOUBLE,    // double (downgraded to float)
     COMPLEX,   // _Complex / __complex__
+    REAL_PART, // __real__ (complex real part)
+    IMAG_PART, // __imag__ (complex imaginary part)
 
     // Variadic
     ELLIPSIS,  // ...
@@ -178,6 +180,8 @@ struct Token {
             case TokenType::FLOAT: return "FLOAT";
             case TokenType::DOUBLE: return "DOUBLE";
             case TokenType::COMPLEX: return "COMPLEX";
+            case TokenType::REAL_PART: return "REAL_PART";
+            case TokenType::IMAG_PART: return "IMAG_PART";
             case TokenType::ELLIPSIS: return "ELLIPSIS";
             case TokenType::IDENTIFIER: return "IDENTIFIER";
             case TokenType::INTEGER_LITERAL: return "INTEGER_LITERAL";

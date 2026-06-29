@@ -288,6 +288,8 @@ Token Lexer::lexIdentifierOrKeyword() {
         {"__regparm__", TokenType::REGPARM},
         {"_Complex", TokenType::COMPLEX},
         {"__complex__", TokenType::COMPLEX},
+        {"__real__", TokenType::REAL_PART},
+        {"__imag__", TokenType::IMAG_PART},
         };
 
     auto it = keywords.find(value);

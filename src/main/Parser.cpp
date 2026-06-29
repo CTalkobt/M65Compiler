@@ -2379,6 +2379,21 @@ std::unique_ptr<Expression> Parser::parseMultiplicative() {
 }
 
 std::unique_ptr<Expression> Parser::parseUnary() {
+    // __real__ / __imag__: unary operators that access .real / .imag
+    // Support both __real__ x (no parens) and __real__(x) (with parens)
+    if (match(TokenType::REAL_PART) || match(TokenType::IMAG_PART)) {
+        const Token& opToken = tokens[pos-1];
+        std::string memberName = (opToken.type == TokenType::REAL_PART) ? "real" : "imag";
+        std::unique_ptr<Expression> operand;
+        if (match(TokenType::OPEN_PAREN)) {
+            operand = parseExpression();
+            expect(TokenType::CLOSE_PAREN, "Expected ')' after __real__/__imag__");
+        } else {
+            operand = parseUnary();
+        }
+        auto ma = std::make_unique<MemberAccess>(std::move(operand), memberName, false);
+        return setPos(std::move(ma), opToken);
+    }
     if (match(TokenType::SIZEOF)) {
         const Token& startToken = tokens[pos-1];
         if (match(TokenType::OPEN_PAREN)) {

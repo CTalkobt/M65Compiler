@@ -79,9 +79,8 @@ struct _Complex_float {
     }
 };
 
-// GCC builtins
-#define __real__(z) ((z).real)
-#define __imag__(z) ((z).imag)
+// __real__ and __imag__ are handled as unary operators in the parser
+// (work both with and without parentheses, support lvalue assignment)
 
 static struct _Complex_float __builtin_conjf(struct _Complex_float z) {
     struct _Complex_float r;
