@@ -2,9 +2,9 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
-## [v1.0.3-dev] - 2026-06-27 — Development
+## [v1.0.3-dev] - 2026-06-29 — Development
 
-Major feature release: OOP system, operator overloading, GTE compatibility from 65.8% to 92.9%.
+Major feature release: OOP system, operator overloading, **full floating-point support**, GTE compatibility from 65.8% to 86.4% (575 tests).
 
 ### Object-Oriented Programming System
 
@@ -23,12 +23,35 @@ Major feature release: OOP system, operator overloading, GTE compatibility from 
   - Unary: `- ~ ! ++ --`
   - Compound assignment: `+= -= *= /= %= &= |= ^= <<= >>=`
 
+### Floating-Point Support (CBM 40-bit via BASIC 65 ROM)
+
+- **`float` / `double` / `long double` types**: All downgrade to CBM 40-bit (5 bytes). Supported in all type positions: variables, function parameters/returns, struct members, arrays, pointers, casts, sizeof, _Alignas, va_arg, typedef, function pointer parameter lists
+- **Float literals**: Decimal (`3.14`, `1.5f`) and exponent notation (`1.5e-3`, `3.14e0`). Positive integer exponents (`1e2`) remain integer literals
+- **Arithmetic**: `+ - * /` via ROM routines (`FADDT`, `FSUBT`, `FMULTT`, `FDIVT`), unary negation (`NEGOP`)
+- **Comparisons**: `== != < <= > >=` via `FCMP` (returns -1/0/1) with unsigned equality mapping for correct 8-bit flag behavior
+- **Casts**: `(float)int_val` (`GIVAYF`), `(int)float_val` (`AYINT`), implicit promotion in mixed expressions
+- **Indirect access**: Pointer dereference (`*float_ptr`), struct member (`s.f`, `p->f`), array element (`arr[i]`) — all correctly handle 5-byte LOAD/STORE via `(ZP),Y` loops
+- **Function calls**: 5-byte push/pop for float arguments (both simple inline and two-phase ZP temp paths)
+- **Global initialization**: Compile-time IEEE-754 → CBM 40-bit conversion (`doubleToCBM40()`)
+- **`printf %f` / `sprintf %f`**: Float-aware printf linked automatically via weak/strong symbol pattern. Compiler emits `.extern _printf_float` sentinel when F32 args are passed to variadic calls; linker pulls float-capable `printf`/`sprintf` only when needed (zero cost for integer-only programs)
+- **`sscanf %f`**: Float parsing via `strtof()`
+- **`strtof()` / `atof()`**: String-to-float conversion with sign, integer, fractional, and exponent parts
+- **`#pragma cc45 weak`**: Mark next function as weak export (IR path). Used by integer-only printf to allow float printf override
+- **Math library** (`<math.h>`): 27 float functions total
+  - ROM-backed: `sinf`, `cosf`, `tanf`, `atanf`, `logf`, `expf`, `sqrtf`, `fabsf`
+  - C-implemented: `powf`, `fmodf`, `ceilf`, `floorf`, `roundf`, `truncf`, `atan2f`, `log10f`, `log2f`, `ldexpf`, `frexpf`, `modff`, `copysignf`, `fmaxf`, `fminf`, `fdimf`, `__isnanf`, `__isinff`, `__fpclassifyf`
+  - Constants: `M_PI`, `M_PI_2`, `M_PI_4`, `M_E`, `M_LOG2E`, `M_LOG10E`, `M_LN2`, `M_LN10`, `M_SQRT2`, `M_SQRT1_2`, `HUGE_VALF`, `INFINITY`
+  - Double aliases: `sin(x)` → `sinf(x)`, `pow(x,y)` → `powf(x,y)`, etc. (all 19 functions)
+- **`<float.h>`**: `FLT_RADIX`, `FLT_MANT_DIG`, `FLT_DIG`, `FLT_MIN_EXP`, `FLT_MAX_EXP`, `FLT_MIN_10_EXP`, `FLT_MAX_10_EXP`, `FLT_ROUNDS`, `FLT_MAX`, `FLT_MIN`, `FLT_EPSILON` (plus `DBL_*` and `LDBL_*` aliases)
+
 ### New Headers
 
 - **`<complex.h>`**: Integer complex number type via operator-overloaded struct (`_Complex_int`)
+- **`<float.h>`**: CBM 40-bit float characteristics and limits
 
-### GTE Compatibility (316→446/480, 65.8%→92.9%)
+### GTE Compatibility (316→497/575, 65.8%→86.4%)
 
+- **95 float/double torture tests added** from GCC test suite (previously excluded)
 - **Nested Functions**: Closure conversion with static chain — all `nestfunc-*` tests pass
 - **32-bit Bitfields**: `long`-backed storage units, `bfext32`/`bfins32` simulated ops
 - **`__builtin_*` Aliases**: 22 GCC builtins mapped to stdlib (`__builtin_printf` → `printf`, etc.)
@@ -47,7 +70,7 @@ Major feature release: OOP system, operator overloading, GTE compatibility from 
 - **Type Order Flexibility**: `short unsigned int`, `long unsigned int` in params/typedefs/vars
 - **Typedef Function Pointer Arrays**: `typedef void (*frob)(); frob f[] = {abort};`
 - **String Literal Concatenation**: `"hello" " world"` → `"hello world"`
-- **Float Literal Truncation**: `0.0`, `1.5f` truncated to integer (no FPU)
+- **Float Literals**: `0.0`, `1.5f`, `1.5e-3` now produce CBM 40-bit float values (previously truncated to integer)
 - **Enum Return Type**: `enum E foo(...)` at file scope
 - **Struct Def + Variable**: `struct S { } arr[2];` with array dims and multi-var comma at global and local scope
 - **Flexible Array Member**: Relaxed "must have at least one other member" check
@@ -81,6 +104,9 @@ Major feature release: OOP system, operator overloading, GTE compatibility from 
 - **Struct return frame allocation**: Deterministic vreg allocation order — named locals first (alphabetical), then temporaries. Fixed vregOffset_ vs alloc_ mismatch.
 - **Const-pointer increment**: `const char *p; p++` no longer falsely rejected as "read-only variable"
 - **Legacy validator false positives**: Unknown struct, dot/arrow non-struct, compound literal struct, const assignment made non-fatal
+- **Pointer dereference store bug**: `*p = val` overwrote the pointer variable instead of storing through it. The dereference handler in address-only mode returned the local-slot vreg directly; STORE handler treated it as a local-slot write. Fixed by emitting COPY to a fresh vreg. Affected both float and non-float pointer stores.
+- **String label prefix mismatch**: `ADDR_GLOBAL` added `_` prefix to symbol names but `emitStrings()` emitted labels without it, causing `___str_0` undefined symbol errors in relocatable mode. Fixed by adding `_` prefix to string label definitions.
+- **F32 arg push in two-phase call path**: Float args to variadic functions were pushed as 2 bytes (`push .ax`) instead of 5 bytes. Fixed both phases: ZP scratch slots now use variable sizes, and F32 args push via 5-byte `pha` loop.
 
 ---
 
