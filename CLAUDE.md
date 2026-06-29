@@ -230,7 +230,7 @@ make clean && make test  # Clean rebuild and test
 - **`dma.h`**: `dma_copy`, `dma_fill` (MEGA65 F018B DMA controller macros)
 - **`mega65.h`**: Hardware register struct overlays — VIC-IV, SID x4, CIA x2, DMA, math accelerator, audio mixer, FDC, SD card, Ethernet, Hypervisor, `SCREEN_RAM`/`COLOUR_RAM`, `key_pressed()` + 66 `KEY_*` constants
 - **`time.h`**: `clock`, `time`, `difftime`, `CLOCKS_PER_SEC` (jiffy clock, 60Hz)
-- **`complex.h`**: `_Complex_int` and `_Complex_float` structs with operator-overloaded arithmetic (`+`, `-`, `*`, `/`, `==`, `!=`), `__builtin_conjf`. `_Complex float`, `__complex__ float`, `float __complex__` syntax all supported via `COMPLEX` keyword token. Imaginary literals: `1.0fi`, `1.0i`. `__real__`/`__imag__` as parser-level unary operators (lvalue + rvalue, with and without parentheses)
+- **`complex.h`**: `_Complex_int` and `_Complex_float` structs with operator-overloaded arithmetic (`+`, `-`, `*`, `/`, `==`, `!=`), unary (`~` conjugate, `-` negation), `__builtin_conjf`. `_Complex float`, `__complex__ float`, `float __complex__`, `_Complex long int`, `_Complex long double` syntax all supported via `COMPLEX` keyword token. Imaginary literals: `1.0fi`, `1.0i`, `2.2if`. `__real__`/`__imag__` as parser-level unary operators (lvalue + rvalue, with and without parentheses)
 
 ### Calling Convention Support
 
@@ -452,7 +452,7 @@ Full documentation: `doc/disk45.md`
 - **MEGA65 Hardware**: https://github.com/MEGA65/mega65-core
 - **45GS02 CPU**: Extended 6502 with Q register (AXYZ) and 32-bit operations
 - **Test Coverage**: 176 assembler validation tests (Units 1-7), 55 segment emission tests, semantic/parser error tests
-- **GTE (GCC Torture Tests)**: 497/575 (86.4%) — comprehensive C language compatibility validation (includes 95 float/double tests)
+- **GTE (GCC Torture Tests)**: 497/575 (86.4%) — comprehensive C language compatibility validation (includes 95 float/double tests, 7 complex tests)
 - **Standards**: C99 preprocessor, C89/C99 subset for language features
 
 ---

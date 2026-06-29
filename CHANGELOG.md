@@ -47,16 +47,17 @@ Major feature release: OOP system, operator overloading, **full floating-point s
 ### New Headers
 
 - **`<complex.h>`**: Complex number types via operator-overloaded structs
-  - `_Complex_int`: integer complex (`+`, `-`, `*`, `==`, `!=`)
-  - `_Complex_float`: float complex (`+`, `-`, `*`, `/`, `==`, `!=`), `__builtin_conjf`
-  - `_Complex`/`__complex__` keyword: `_Complex float`, `__complex__ double`, `float __complex__` all map to `struct _Complex_float`
-  - Imaginary literals: `1.0fi`, `1.0i` → `(struct _Complex_float){0.0, value}`
+  - `_Complex_int`: integer complex (`+`, `-`, `*`, `~` conjugate, `-` negation, `==`, `!=`)
+  - `_Complex_float`: float complex (`+`, `-`, `*`, `/`, `~` conjugate, `-` negation, `==`, `!=`), `__builtin_conjf`
+  - `_Complex`/`__complex__` keyword: `_Complex float`, `__complex__ double`, `float __complex__`, `_Complex long int`, `_Complex long double` all supported via `COMPLEX` token
+  - Imaginary literals: `1.0fi`, `1.0i`, `2.2if` → `(struct _Complex_float){0.0, value}`
   - `__real__` / `__imag__`: parser-level unary operators (not macros). Support both `__real__ z` and `__real__(z)` forms, work as lvalues (`__real__ z = 1.0`) and rvalues (`float r = __real__ z`)
+  - Unary operator overloading: `~`, `-`, `!`, `++`, `--` dispatch to struct `operator_*` methods
 - **`<float.h>`**: CBM 40-bit float characteristics and limits
 
-### GTE Compatibility (316→497/575, 65.8%→86.4%)
+### GTE Compatibility (316→503/581, 65.8%→86.6%)
 
-- **95 float/double torture tests added** from GCC test suite (previously excluded)
+- **101 float/double/complex torture tests added** from GCC test suite (previously excluded)
 - **Nested Functions**: Closure conversion with static chain — all `nestfunc-*` tests pass
 - **32-bit Bitfields**: `long`-backed storage units, `bfext32`/`bfins32` simulated ops
 - **`__builtin_*` Aliases**: 22 GCC builtins mapped to stdlib (`__builtin_printf` → `printf`, etc.)
