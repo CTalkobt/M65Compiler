@@ -55,9 +55,10 @@ Major feature release: OOP system, operator overloading, **full floating-point s
   - Unary operator overloading: `~`, `-`, `!`, `++`, `--` dispatch to struct `operator_*` methods
 - **`<float.h>`**: CBM 40-bit float characteristics and limits
 
-### GTE Compatibility (316→503/581, 65.8%→86.6%)
+### GTE Compatibility (316→536/581, 65.8%→92.3%)
 
 - **101 float/double/complex torture tests added** from GCC test suite (previously excluded)
+- **ADDR_GLOBAL prefix fix**: global variable address-of (`&var`) had double `_` prefix, causing 33 assembler undefined symbol errors
 - **Nested Functions**: Closure conversion with static chain — all `nestfunc-*` tests pass
 - **32-bit Bitfields**: `long`-backed storage units, `bfext32`/`bfins32` simulated ops
 - **`__builtin_*` Aliases**: 22 GCC builtins mapped to stdlib (`__builtin_printf` → `printf`, etc.)
