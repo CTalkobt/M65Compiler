@@ -1436,11 +1436,13 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     std::unique_ptr<Expression> alignmentExpr = nullptr;
     if (match(TokenType::ALIGNAS)) {
         expect(TokenType::OPEN_PAREN, "Expected '(' after '_Alignas'");
-        if (peek().type == TokenType::INT || peek().type == TokenType::SHORT || peek().type == TokenType::LONG || peek().type == TokenType::CHAR || peek().type == TokenType::BOOL || peek().type == TokenType::STRUCT || peek().type == TokenType::VOID) {
+        if (peek().type == TokenType::INT || peek().type == TokenType::SHORT || peek().type == TokenType::LONG || peek().type == TokenType::CHAR || peek().type == TokenType::BOOL || peek().type == TokenType::STRUCT || peek().type == TokenType::VOID || peek().type == TokenType::FLOAT || peek().type == TokenType::DOUBLE) {
             std::string aType;
             if (match(TokenType::LONG)) { aType = "long"; match(TokenType::INT); } else if (match(TokenType::SHORT)) { aType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) aType = "int";
             else if (match(TokenType::CHAR)) aType = "char";
             else if (match(TokenType::VOID)) aType = "void";
+            else if (match(TokenType::FLOAT)) aType = "float";
+            else if (match(TokenType::DOUBLE)) { aType = "float"; }
             else if (match(TokenType::STRUCT)) aType = "struct " + expect(TokenType::IDENTIFIER, "Expected struct name").value;
             int aPtr = 0;
             while (match(TokenType::STAR)) aPtr++;
@@ -2334,6 +2336,7 @@ std::unique_ptr<Expression> Parser::parseUnary() {
             // Check if it's a type or an expression
             if (peek().type == TokenType::INT || peek().type == TokenType::SHORT || peek().type == TokenType::LONG || peek().type == TokenType::CHAR ||
                 peek().type == TokenType::BOOL || peek().type == TokenType::VOID ||
+                peek().type == TokenType::FLOAT || peek().type == TokenType::DOUBLE ||
                 peek().type == TokenType::STRUCT || peek().type == TokenType::UNION || peek().type == TokenType::ENUM ||
                 peek().type == TokenType::SIGNED || peek().type == TokenType::UNSIGNED ||
                 peek().type == TokenType::CONST || peek().type == TokenType::VOLATILE ||
@@ -2352,12 +2355,16 @@ std::unique_ptr<Expression> Parser::parseUnary() {
                 else if (match(TokenType::CHAR)) type = "char";
                 else if (match(TokenType::BOOL)) type = "_Bool";
                 else if (match(TokenType::VOID)) type = "void";
+                else if (match(TokenType::FLOAT)) type = "float";
+                else if (match(TokenType::DOUBLE)) { type = "float"; }
                 else if (match(TokenType::CONST) || match(TokenType::VOLATILE)) {
                     // const/volatile before type: sizeof(const int)
                     if (match(TokenType::LONG)) { type = "long"; match(TokenType::INT); }
                     else if (match(TokenType::INT)) type = "int";
                     else if (match(TokenType::CHAR)) type = "char";
                     else if (match(TokenType::VOID)) type = "void";
+                    else if (match(TokenType::FLOAT)) type = "float";
+                    else if (match(TokenType::DOUBLE)) { type = "float"; }
                     else if (match(TokenType::STRUCT) || match(TokenType::UNION)) {
                         bool isU2 = tokens[pos-1].type == TokenType::UNION;
                         type = (isU2 ? "union " : "struct ") + expect(TokenType::IDENTIFIER, "Expected struct name").value;
@@ -2446,7 +2453,7 @@ std::unique_ptr<Expression> Parser::parseUnary() {
         }
 
         if (peek().type == TokenType::INT || peek().type == TokenType::SHORT || peek().type == TokenType::LONG || peek().type == TokenType::CHAR || peek().type == TokenType::BOOL ||
-            peek().type == TokenType::VOID ||
+            peek().type == TokenType::VOID || peek().type == TokenType::FLOAT || peek().type == TokenType::DOUBLE ||
             peek().type == TokenType::STRUCT || peek().type == TokenType::UNION || peek().type == TokenType::ENUM ||
             peek().type == TokenType::SIGNED || peek().type == TokenType::UNSIGNED ||
             (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value))) {
@@ -2461,6 +2468,8 @@ std::unique_ptr<Expression> Parser::parseUnary() {
             else if (match(TokenType::CHAR)) castType = "char";
             else if (match(TokenType::BOOL)) castType = "_Bool";
             else if (match(TokenType::VOID)) castType = "void";
+            else if (match(TokenType::FLOAT)) castType = "float";
+            else if (match(TokenType::DOUBLE)) { castType = "float"; }
             else if (match(TokenType::STRUCT) || match(TokenType::UNION) || match(TokenType::ENUM)) {
                 bool isU = tokens[pos-1].type == TokenType::UNION;
                 bool isE = tokens[pos-1].type == TokenType::ENUM;
@@ -2714,6 +2723,8 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         } else if (match(TokenType::LONG)) { vaType = "long"; match(TokenType::INT); } else if (match(TokenType::SHORT)) { vaType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) vaType = "int";
         else if (match(TokenType::CHAR)) vaType = "char";
         else if (match(TokenType::VOID)) vaType = "void";
+        else if (match(TokenType::FLOAT)) vaType = "float";
+        else if (match(TokenType::DOUBLE)) { vaType = "float"; }
         else if (match(TokenType::STRUCT) || match(TokenType::UNION)) {
             bool isU = tokens[pos-1].type == TokenType::UNION;
             vaType = (isU ? "union " : "struct ") + expect(TokenType::IDENTIFIER, "Expected struct/union name in va_arg").value;

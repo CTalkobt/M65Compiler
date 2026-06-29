@@ -1766,6 +1766,34 @@ void IRBuilder::visit(BinaryOperation& node) {
 
     // Float binary operations
     if (resultType == ir::Type::F32) {
+        // Float comparisons: emit FCMP (returns -1/0/1), then unsigned test
+        if (node.op == "==" || node.op == "!=" ||
+            node.op == "<" || node.op == "<=" ||
+            node.op == ">" || node.op == ">=") {
+            // FCMP → I8 result: -1/$FF (a<b), 0 (a==b), 1 (a>b)
+            auto cmpResult = allocVreg(ir::Type::I8);
+            ir::Inst cmp; cmp.op = ir::Op::FCMP; cmp.dest = cmpResult;
+            cmp.resultType = ir::Type::I8;
+            cmp.src1 = lhsVal; cmp.src2 = rhsVal; cmp.loc = loc(node); emit(cmp);
+            // Map float comparison to unsigned equality check on FCMP result:
+            //   ==  →  result == 0     !=  →  result != 0
+            //   <   →  result == $FF   <=  →  result != 1
+            //   >   →  result == 1     >=  →  result != $FF
+            ir::Op intCmp; int testVal;
+            if (node.op == "==")      { intCmp = ir::Op::CMP_EQ;  testVal = 0; }
+            else if (node.op == "!=") { intCmp = ir::Op::CMP_NE;  testVal = 0; }
+            else if (node.op == "<")  { intCmp = ir::Op::CMP_EQ;  testVal = 0xFF; }
+            else if (node.op == "<=") { intCmp = ir::Op::CMP_NE;  testVal = 1; }
+            else if (node.op == ">")  { intCmp = ir::Op::CMP_EQ;  testVal = 1; }
+            else                      { intCmp = ir::Op::CMP_NE;  testVal = 0xFF; }
+            auto boolResult = allocVreg(ir::Type::I8);
+            ir::Inst test; test.op = intCmp; test.dest = boolResult;
+            test.resultType = ir::Type::I8;
+            test.src1 = cmpResult;
+            test.src2 = ir::Operand::imm(testVal, ir::Type::I8);
+            test.loc = loc(node); emit(test);
+            lastValue_ = boolResult; return;
+        }
         if (node.op == "+") op = ir::Op::FADD;
         else if (node.op == "-") op = ir::Op::FSUB;
         else if (node.op == "*") op = ir::Op::FMUL;
