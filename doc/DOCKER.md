@@ -225,15 +225,13 @@ ln45 main.o45 -l /app/lib/cc45/c45.lib -o main.prg
 
 ## Troubleshooting
 
-### Cannot find stdio.h
+### Include path resolution
 
-The compiler needs the `-I` flag to find headers:
+The compiler automatically locates standard headers relative to its binary path (at `/app/lib/cc45/include` inside the container). If you have custom headers, specify their path with `-I`:
 
 ```bash
-docker run -v $(pwd):/work mega65-cc45:latest -I/app/lib/cc45/include hello.c -c -o hello.o45
+docker run -v $(pwd):/work mega65-cc45:latest -I/work/headers hello.c -c -o hello.o45
 ```
-
-Or create your own headers without dependencies.
 
 ### Linker: undefined symbol errors
 

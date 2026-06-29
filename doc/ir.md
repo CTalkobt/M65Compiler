@@ -9,18 +9,17 @@ designed for the 45GS02 target. It sits between the AST and assembly emission:
 C Source → Lexer → Parser → AST → [ConstantFolder] → IRBuilder → IR → IRCodeGen → Assembly
 ```
 
-The `IRBuilder` (AST → IR) is implemented and covers all C language constructs
-supported by cc45. Use `cc45 --emit-ir` to generate a `.ir` dump alongside
-normal assembly output. The `IRCodeGen` (IR → assembly) is future work.
+The `IRBuilder` (AST → IR) and `IRCodeGen` (IR → assembly) are fully implemented and integrated into `cc45`. The IR pipeline handles all C language constructs, including floating-point operations. Use `cc45 --emit-ir` to generate a `.ir` dump alongside normal assembly output.
 
 ## Type System
 
-| IR Type | C Type(s)          | Width | Register Mapping |
-|---------|-------------------|-------|-----------------|
-| `i8`    | `char`            | 1     | A               |
-| `i16`   | `int`, `short`, pointers | 2 | A:X          |
-| `i32`   | `long`            | 4     | A:X:Y:Z (Q)    |
-| `void`  | `void`            | 0     | —               |
+| IR Type | C Type(s)          | Width | Register Mapping / Storage |
+|---------|-------------------|-------|---------------------------|
+| `i8`    | `char`            | 1     | A                         |
+| `i16`   | `int`, `short`, pointers | 2 | A:X                    |
+| `i32`   | `long`            | 4     | A:X:Y:Z (Q)              |
+| `F32`   | `float`, `double` | 5     | ZP / MFLUT 40-bit format  |
+| `void`  | `void`            | 0     | —                         |
 
 Pointers are `i16` (45GS02 has a 16-bit address space).
 
@@ -249,8 +248,6 @@ addressing mode and operand types. The IR abstracts away:
 
 ## Future Work
 
-1. **IRCodeGen**: IR → assembly emitter (replaces CodeGenerator)
-2. **Shadow comparison**: Run IRCodeGen alongside CodeGenerator, diff output
-3. **IR Optimizer**: Passes operating on IR (CSE, DCE, constant propagation)
-4. **Register Allocator**: vReg → {A,X,Y,Z} + ZP slot assignment
-5. **Debug Info**: IR source locations → line map emission
+1. **IR Optimization Passes**: Advanced CSE, DCE, and peephole optimizations operating directly on IR
+2. **Register Allocator Enhancements**: Advanced vReg → {A,X,Y,Z} + ZP slot assignment
+3. **Debug Info**: Extended IR source locations → line map emission

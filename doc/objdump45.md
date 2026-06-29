@@ -28,6 +28,7 @@ At least one display option (`-f`, `-h`, `-t`, `-r`, `-s`, `-d`, or `-a`) must b
 | `-d` | Disassemble executable sections |
 | `-a` | Display all of the above |
 | `-b ADDR` | Set base address for raw binary files (default: `$0000`). Accepts `$XXXX`, `0xXXXX`, or decimal. Overrides PRG load address when used with `.prg` files. |
+| `-m FILE` | Load symbols and source line mappings from a linker map file (produced by `ln45 -M`) for symbolic disassembly of PRG binaries. |
 | `-V` / `--version` | Display version and exit |
 | `-?` | Display help message |
 

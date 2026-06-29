@@ -10,6 +10,7 @@ These files define the fundamental types and constants required for C compliance
 - **`<stddef.h>`**: Common definitions: `size_t` (typedef to `unsigned int`, 16-bit), `ptrdiff_t`, and `NULL` (`((void *)0)`).
 - **`<stdbool.h>`**: Boolean type support. Defines `bool` as `_Bool` (a native 1-byte type that normalizes any non-zero value to `1`), `true` as `1`, `false` as `0`, and `__bool_true_false_are_defined` as `1`.
 - **`<limits.h>`**: Implementation-defined limits (`CHAR_BIT=8`, `INT_MAX=65535`, `INT_MIN=0` for unsigned; `SCHAR_MIN=-128`, `SCHAR_MAX=127` for signed char; `LONG_MAX`, `LONG_MIN`, etc. for 32-bit).
+- **`<float.h>`**: Floating-point limits and characteristics for Commodore 40-bit MFLUT float format (`FLT_MANT_DIG=32`, `FLT_DIG=9`, `FLT_MIN_EXP=-127`, `FLT_MAX_EXP=127`, `FLT_MIN=2.9387359e-39`, `FLT_MAX=1.7014118e38`, `FLT_EPSILON=4.6566129e-10`).
 - **`<stdarg.h>`**: Variadic function support. Defines `va_list` (typedef to `unsigned int` — a 16-bit stack offset into the caller's arguments), `va_start`, `va_arg`, and `va_end` as macros wrapping `__builtin_va_start`, `__builtin_va_arg`, and `__builtin_va_end`. Variadic functions always use stack-based argument passing, even when compiled with `-fzpcall`. See "Variadic Functions" in [cc45.md](cc45.md#variadic-functions) for comprehensive details.
 
 ### Implementation Notes for Core Headers
@@ -107,12 +108,15 @@ All character classification and conversion functions are implemented in hand-wr
 - **`srand(unsigned int seed)`**: No-op stub for C compatibility (MEGA65 hardware RNG is autonomous). **Implemented.**
 - **`strtol(char *nptr, char **endptr, int base)`**: Convert string to signed `long` (32-bit). Handles optional leading sign. Delegates to `strtoul` for digit parsing. **Implemented.**
 - **`strtoul(char *nptr, char **endptr, int base)`**: Convert string to unsigned `long` (32-bit). Supports base 0 (auto-detect from prefix), 8, 10, 16. Handles `0x`/`0X` hex prefix and PETSCII letter ranges for bases > 10. **Implemented.**
+- **`strtof(const char *nptr, char **endptr)`**: Convert string to 40-bit float. Handles leading whitespace, sign, decimal point, and exponent notation (`e`/`E`). **Implemented.**
+- **`atof(const char *nptr)`**: Convert string to float (wrapper for `strtof(nptr, NULL)`). **Implemented.**
 - **`exit(int status)`**: Terminate program execution. Loads the status code into `.AX` and jumps to the `__exit` label emitted by the CRT startup. The exit behavior depends on the `#pragma cc45 exit_*` mode: `exit_rts` (default) restores the caller's SP and returns, `exit_halt` enters an infinite loop, `exit_brk` triggers a BRK. **Implemented.**
 
-## 5b. Integer Math (`math.h`)
+## 5b. Math Library (`math.h`)
 
-Includes `stdlib.h` and adds integer math operations. All functions are implemented in C (`lib/stdlib/*.c`) and compiled via `cc45`. Each function is in a separate translation unit for selective linking.
+Includes `stdlib.h` and provides integer and floating-point math operations. Floating-point functions leverage Commodore BASIC 65 ROM primitives and C runtime routines for 40-bit MFLUT calculations.
 
+**Integer functions:**
 - **`abs(int j)`**: Absolute value (re-exported from `stdlib.h`). **Implemented.**
 - **`labs(long j)`**: Long absolute value (re-exported from `stdlib.h`). **Implemented.**
 - **`div(int numer, int denom)`**: Integer division returning `div_t { int quot; int rem; }`. Uses MEGA65 hardware divider. **Implemented.**
@@ -121,6 +125,11 @@ Includes `stdlib.h` and adds integer math operations. All functions are implemen
 - **`max(int a, int b)`**: Returns the larger of two integers. **Implemented.**
 - **`gcd(int a, int b)`**: Greatest common divisor via Euclidean algorithm. Handles negative inputs. **Implemented.**
 - **`lcm(int a, int b)`**: Least common multiple. Computed as `|a / gcd(a,b) * b|` to avoid overflow. **Implemented.**
+
+**Floating-point functions & macros:**
+- **Transcendental & Power**: `sinf(x)`, `cosf(x)`, `tanf(x)`, `atanf(x)`, `atan2f(y, x)`, `logf(x)`, `log10f(x)`, `log2f(x)`, `expf(x)`, `powf(x, y)`, `sqrtf(x)`, `fabsf(x)`, `fmodf(x, y)`. Standard `sin`, `cos`, `pow`, etc. are defined as macros mapping to their float equivalents. **Implemented.**
+- **Rounding & Manipulation**: `ceilf(x)`, `floorf(x)`, `roundf(x)`, `truncf(x)`, `ldexpf(x, n)`, `frexpf(x, exp)`, `modff(x, iptr)`, `copysignf(x, y)`, `fmaxf(x, y)`, `fminf(x, y)`, `fdimf(x, y)`. **Implemented.**
+- **Classification & Constants**: `isnan(x)`, `isinf(x)`, `isfinite(x)`, and constants (`M_PI`, `M_E`, `M_LN2`, `M_SQRT2`, `INFINITY`, `HUGE_VALF`). **Implemented.**
 
 ## 6. I/O (`stdio.h`)
 
@@ -151,6 +160,7 @@ Character I/O, string output, and formatted printing.
 | `%lx` | Hexadecimal (32-bit) |
 | `%lo` | Octal (32-bit) |
 | `%lb` | Binary (32-bit, `sprintf` only) |
+| `%f`  | Floating point (40-bit float, formatted via `printf_float.c` / `sprintf_float.c`) |
 
 The `l` length modifier causes 4 bytes to be read from the variadic argument list and converted via `ltoa` instead of `itoa`.
 
@@ -171,6 +181,7 @@ The `l` length modifier causes 4 bytes to be read from the variadic argument lis
 | `%lu` | Unsigned decimal long | `unsigned long *` |
 | `%lx` | Hexadecimal long | `long *` |
 | `%lo` | Octal long | `long *` |
+| `%f`  | Floating point | `float *` |
 
 Returns the number of items successfully matched and assigned. Whitespace in the format string matches any amount of whitespace in the input. Compiled as a separate `.o45` object — only linked when referenced.
 
