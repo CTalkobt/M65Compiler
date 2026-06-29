@@ -27,6 +27,9 @@ char *ltoa(long value, char *str, int base);
 
 long strtol(char *nptr, char **endptr, int base);
 unsigned long strtoul(char *nptr, char **endptr, int base);
+float strtof(char *nptr, char **endptr);
+float atof(char *nptr);
+#define strtod(nptr, endptr) ((double)strtof((nptr), (endptr)))
 
 #ifndef __NOMACRO_ABS
 #define abs(x) ((x)<0?-(x):(x))

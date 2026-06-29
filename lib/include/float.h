@@ -49,17 +49,23 @@
 #define LDBL_MIN_10_EXP FLT_MIN_10_EXP
 #define LDBL_MAX_10_EXP FLT_MAX_10_EXP
 
-/*
- * FLT_MAX, FLT_MIN, FLT_EPSILON cannot be expressed as integer macros.
- * Use these approximations:
- *   FLT_MAX   ≈ 1.7014118e+38  (exponent $FF, mantissa $FFFFFFFF)
- *   FLT_MIN   ≈ 2.9387359e-39  (exponent $01, mantissa $80000000)
- *   FLT_EPSILON ≈ 4.6566129e-10 (2^-31)
- *
- * These require float literal support in expressions:
- */
-/* #define FLT_MAX     1.7014118e+38 */
-/* #define FLT_MIN     2.9387359e-39 */
-/* #define FLT_EPSILON 4.6566129e-10 */
+/* Maximum representable finite float (exponent $FF, mantissa $FFFFFFFF) */
+#define FLT_MAX     1.7014118e38
+
+/* Minimum positive normalized float (exponent $01, mantissa $80000000) */
+#define FLT_MIN     2.9387359e-39
+
+/* Smallest x such that 1.0 + x != 1.0 (2^-31) */
+#define FLT_EPSILON 4.6566129e-10
+
+/* double = float on this target */
+#define DBL_MAX     FLT_MAX
+#define DBL_MIN     FLT_MIN
+#define DBL_EPSILON FLT_EPSILON
+
+/* long double = float on this target */
+#define LDBL_MAX    FLT_MAX
+#define LDBL_MIN    FLT_MIN
+#define LDBL_EPSILON FLT_EPSILON
 
 #endif /* _FLOAT_H */

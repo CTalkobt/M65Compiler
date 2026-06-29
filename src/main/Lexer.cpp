@@ -323,12 +323,50 @@ Token Lexer::lexNumber() {
     while (std::isdigit(peek())) {
         value += get();
     }
-    // Float literal: 0.0, 1.5f, etc.
+    // Float literal: 0.0, 1.5f, 1.5e10, 1.5e-3, 2e5, etc.
     if (peek() == '.' && pos + 1 < source.length() && std::isdigit(source[pos + 1])) {
         value += get(); // consume '.'
         while (std::isdigit(peek())) value += get();
+        // Optional exponent: e/E followed by optional sign and digits
+        if (peek() == 'e' || peek() == 'E') {
+            value += get();
+            if (peek() == '+' || peek() == '-') value += get();
+            while (std::isdigit(peek())) value += get();
+        }
         if (peek() == 'f' || peek() == 'F' || peek() == 'l' || peek() == 'L') get();
         return {TokenType::FLOAT_LITERAL, value, startLine, startCol, sourceFile};
+    }
+    // Integer with negative exponent is float: 1e-2, 1E-3
+    // Positive exponent (1e2) stays integer unless 'f' suffix
+    if ((peek() == 'e' || peek() == 'E') && !value.empty() && std::isdigit(value[0])) {
+        size_t savedPos2 = pos;
+        char eCh = get(); // consume e/E
+        bool isNeg = (peek() == '-');
+        bool hasSuffix = false;
+        std::string expPart;
+        expPart += eCh;
+        if (peek() == '+' || peek() == '-') expPart += get();
+        if (std::isdigit(peek())) {
+            while (std::isdigit(peek())) expPart += get();
+            hasSuffix = (peek() == 'f' || peek() == 'F');
+            if (hasSuffix) get();
+            if (isNeg || hasSuffix) {
+                // Negative exponent or explicit 'f' suffix → float
+                value += expPart;
+                return {TokenType::FLOAT_LITERAL, value, startLine, startCol, sourceFile};
+            }
+            // Positive exponent without suffix → integer
+            value += expPart;
+            try {
+                double dval = std::stod(value);
+                uint32_t ival = (uint32_t)dval;
+                return {TokenType::INTEGER_LITERAL, std::to_string(ival), startLine, startCol, sourceFile};
+            } catch (...) {
+                return {TokenType::INTEGER_LITERAL, value, startLine, startCol, sourceFile};
+            }
+        }
+        // No digits after e — backtrack
+        pos = savedPos2;
     }
     // Check decimal literal overflow
     try {
