@@ -53,6 +53,7 @@ enum class TokenType {
     REGPARM,   // __regparm (first param in A/AX register)
     FLOAT,     // float (CBM 40-bit)
     DOUBLE,    // double (downgraded to float)
+    COMPLEX,   // _Complex / __complex__
 
     // Variadic
     ELLIPSIS,  // ...
@@ -61,6 +62,7 @@ enum class TokenType {
     IDENTIFIER,
     INTEGER_LITERAL,
     FLOAT_LITERAL,  // 1.5, 3.14f
+    IMAGINARY_LITERAL,  // 1.5i, 3.14fi (complex imaginary)
     STRING_LITERAL,
     ASCII_STRING_LITERAL,  // @"..." — raw ASCII, no PETSCII conversion
     
@@ -175,6 +177,7 @@ struct Token {
             case TokenType::REGPARM: return "REGPARM";
             case TokenType::FLOAT: return "FLOAT";
             case TokenType::DOUBLE: return "DOUBLE";
+            case TokenType::COMPLEX: return "COMPLEX";
             case TokenType::ELLIPSIS: return "ELLIPSIS";
             case TokenType::IDENTIFIER: return "IDENTIFIER";
             case TokenType::INTEGER_LITERAL: return "INTEGER_LITERAL";

@@ -286,6 +286,8 @@ Token Lexer::lexIdentifierOrKeyword() {
         {"double", TokenType::DOUBLE},
         {"__regparm", TokenType::REGPARM},
         {"__regparm__", TokenType::REGPARM},
+        {"_Complex", TokenType::COMPLEX},
+        {"__complex__", TokenType::COMPLEX},
         };
 
     auto it = keywords.find(value);
@@ -334,6 +336,7 @@ Token Lexer::lexNumber() {
             while (std::isdigit(peek())) value += get();
         }
         if (peek() == 'f' || peek() == 'F' || peek() == 'l' || peek() == 'L') get();
+        if (peek() == 'i' || peek() == 'I') { get(); return {TokenType::IMAGINARY_LITERAL, value, startLine, startCol, sourceFile}; }
         return {TokenType::FLOAT_LITERAL, value, startLine, startCol, sourceFile};
     }
     // Integer with negative exponent is float: 1e-2, 1E-3

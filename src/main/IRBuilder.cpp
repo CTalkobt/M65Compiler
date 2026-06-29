@@ -1676,6 +1676,52 @@ void IRBuilder::visit(BinaryOperation& node) {
     IRTypeInfo lhsInfo = getExprTypeInfo(node.left.get());
     IRTypeInfo rhsInfo = getExprTypeInfo(node.right.get());
 
+    // Operator overloading: if LHS is a struct with an operator method, dispatch to it
+    if (!lhsInfo.typeName.empty() && lhsInfo.type != ir::Type::PTR) {
+        std::string sName = getAggregateName(lhsInfo.typeName);
+        if (structs_.count(sName)) {
+            // Map operator to method name suffix
+            static const std::map<std::string, std::string> opMethodMap = {
+                {"+", "add"}, {"-", "sub"}, {"*", "mul"}, {"/", "div"}, {"%", "mod"},
+                {"==", "eq"}, {"!=", "ne"}, {"<", "lt"}, {">", "gt"}, {"<=", "le"}, {">=", "ge"},
+                {"<<", "shl"}, {">>", "shr"}, {"&", "band"}, {"|", "bor"}, {"^", "bxor"},
+                {"+=", "add_assign"}, {"-=", "sub_assign"}, {"*=", "mul_assign"},
+                {"/=", "div_assign"}, {"%=", "mod_assign"}, {"&=", "band_assign"},
+                {"|=", "bor_assign"}, {"^=", "bxor_assign"}, {"<<=", "shl_assign"}, {">>=", "shr_assign"},
+            };
+            auto opIt = opMethodMap.find(node.op);
+            if (opIt != opMethodMap.end()) {
+                std::string mangledName = sName + "__operator_" + opIt->second;
+                if (functionReturnTypes_.count(mangledName)) {
+                    // Compute 'this' pointer (address of LHS)
+                    computeAddressOnly_ = true;
+                    node.left->accept(*this);
+                    computeAddressOnly_ = false;
+                    auto thisPtr = lastValue_;
+
+                    // Evaluate RHS
+                    node.right->accept(*this);
+                    auto rhsVal = lastValue_;
+
+                    // Call StructName__operator_OP(&lhs, rhs)
+                    auto retType = functionReturnTypes_[mangledName];
+                    auto dest = allocVreg(retType);
+                    ir::Inst call;
+                    call.op = (retType == ir::Type::VOID) ? ir::Op::CALL_VOID : ir::Op::CALL;
+                    call.dest = dest;
+                    call.resultType = retType;
+                    call.src1 = ir::Operand::global("_" + mangledName);
+                    call.args = {thisPtr, rhsVal};
+                    call.callConv = ir::CallConv::STACK;
+                    call.loc = loc(node);
+                    emit(call);
+                    lastValue_ = dest;
+                    return;
+                }
+            }
+        }
+    }
+
     // Pre-determine if we can keep this operation at I8 (char width).
     // Only when BOTH operands are I8, or one is I8 and the other is a small
     // literal with no explicit wider type. Never narrow a wider operand to I8.
