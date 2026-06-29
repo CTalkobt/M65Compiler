@@ -625,7 +625,7 @@ void IRCodeGen::emitStrings(const ir::Module& mod) {
     emitBlank();
     if (relocMode_) emit(".segment \"data\"");
     for (const auto& sl : mod.strings) {
-        emitLabel("_" + sl.label);
+        emitLabel(sl.label);
         if (sl.encoding == 1) {
             emit(".ascii \"" + sl.value + "\"");
         } else if (sl.encoding == 2) {
@@ -2506,7 +2506,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::ADDR_GLOBAL: {
-            emit("ldax #_" + inst.src1.name);
+            emit("ldax #" + inst.src1.name);
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
