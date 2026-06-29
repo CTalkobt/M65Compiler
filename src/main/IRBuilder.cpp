@@ -562,6 +562,8 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     fn.conv = (zpCallMode || node.isFastcall) ? ir::CallConv::ZP : ir::CallConv::STACK;
     fn.isVariadic = node.isVariadic;
     fn.isStatic = node.isStatic || node.isInline;
+    fn.isWeak = weakNextFunction_;
+    weakNextFunction_ = false;
     fn.isInterrupt = node.isInterrupt;
     fn.declLine = node.line;
     fn.isNaked = node.isNaked;
@@ -3548,6 +3550,10 @@ void IRBuilder::visit(LabelledStatement& node) {
 }
 
 void IRBuilder::visit(AsmStatement& node) {
+    if (node.code == ".weak_next") {
+        weakNextFunction_ = true;
+        return;
+    }
     if (node.code == ".no_zp_save") {
         module_.saveZP = false;
         return;

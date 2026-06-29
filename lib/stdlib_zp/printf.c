@@ -22,6 +22,7 @@ static int emit_buf(char *buf, int skip_minus) {
     return c;
 }
 
+#pragma cc45 weak
 int printf(char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);

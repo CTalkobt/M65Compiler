@@ -23,6 +23,7 @@ static void emit_buf(char **out, char *buf, int skip_minus) {
     }
 }
 
+#pragma cc45 weak
 int sprintf(char *buf, char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);

@@ -22,6 +22,7 @@ static int vemit_buf(char *buf, int skip_minus) {
     return c;
 }
 
+#pragma cc45 weak
 int vprintf(char *fmt, va_list ap) {
     int count = 0;
 

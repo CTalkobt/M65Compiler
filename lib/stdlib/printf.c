@@ -3,6 +3,8 @@
  * int printf(char *fmt, ...);
  *
  * Supports: %d %u %x %o %s %c %% and long variants %ld %lu %lx %lo.
+ * This is the integer-only version (weak). The float-aware version in
+ * printf_float.c provides a strong override when float support is needed.
  *
  * Returns the number of characters written.
  */
@@ -22,6 +24,7 @@ static int emit_buf(char *buf, int skip_minus) {
     return c;
 }
 
+#pragma cc45 weak
 int printf(char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);

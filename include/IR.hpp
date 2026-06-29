@@ -203,6 +203,7 @@ struct Function {
     std::vector<std::string> paramNames;
     bool isVariadic = false;
     bool isStatic = false;
+    bool isWeak = false;
     bool isInterrupt = false;
     bool isNaked = false;
     bool isRegparm = false;

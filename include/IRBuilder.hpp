@@ -95,6 +95,7 @@ private:
     // Last expression result (for chaining expression evaluation)
     ir::Operand lastValue_;
     bool computeAddressOnly_ = false;
+    bool weakNextFunction_ = false;
 
     // Variable tracking: name → allocated vReg (address operand for locals)
     std::map<std::string, ir::Operand> locals_;

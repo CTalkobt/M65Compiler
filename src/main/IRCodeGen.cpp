@@ -455,16 +455,23 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     // Auto-emit float runtime externs if any float ops are used
     if (relocMode) {
         bool hasFloat = false;
+        bool hasFloatArg = false;
         for (const auto& fn : mod.functions) {
             for (const auto& blk : fn.blocks) {
                 for (const auto& inst : blk.insts) {
                     if (inst.op >= ir::Op::FADD && inst.op <= ir::Op::FCONST) {
-                        hasFloat = true; break;
+                        hasFloat = true;
                     }
+                    if (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_INDIRECT || inst.op == ir::Op::CALL_VOID) {
+                        for (const auto& arg : inst.args) {
+                            if (arg.type == ir::Type::F32) { hasFloatArg = true; break; }
+                        }
+                    }
+                    if (hasFloat && hasFloatArg) break;
                 }
-                if (hasFloat) break;
+                if (hasFloat && hasFloatArg) break;
             }
-            if (hasFloat) break;
+            if (hasFloat && hasFloatArg) break;
         }
         if (hasFloat) {
             emit(".extern __float_a");
@@ -477,6 +484,9 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
             emit(".extern __float_cmp");
             emit(".extern __float_itof");
             emit(".extern __float_ftoi");
+        }
+        if (hasFloatArg) {
+            emit(".extern _printf_float");
         }
     }
 
@@ -514,7 +524,10 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
             }
         }
         for (const auto& fn : mod.functions) {
-            if (!fn.isStatic) emit(".global " + fn.name);
+            if (!fn.isStatic) {
+                if (fn.isWeak) emit(".weak " + fn.name);
+                else emit(".global " + fn.name);
+            }
         }
         emitBlank();
     }
@@ -2887,22 +2900,44 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 } else {
                     // Two-phase path: load all args into ZP temp slots BEFORE any pushes,
                     // so frame-relative loads aren't affected by SP/fp changes.
+                    // Compute per-slot offsets based on actual arg sizes
+                    std::vector<int> slotOffsets(nArgs, 0);
+                    {
+                        int off = 0;
+                        for (int ai = nArgs - 1; ai >= 0; ai--) {
+                            int slot = nArgs - 1 - ai;
+                            slotOffsets[slot] = off;
+                            int sz = ir::typeSize(inst.args[ai].type);
+                            if (sz < 2) sz = 2;
+                            off += sz;
+                        }
+                    }
                     auto zpSlotAddr = [&](int idx, int byteOff) {
                         std::stringstream ss;
                         ss << "$" << std::hex << std::uppercase << std::setfill('0')
-                           << std::setw(2) << ((int)zeroPageStart_ + 0x20 + idx * 4 + byteOff);
+                           << std::setw(2) << ((int)zeroPageStart_ + 0x20 + slotOffsets[idx] + byteOff);
                         return ss.str();
                     };
                     // Phase 1: load all args (right-to-left) into ZP scratch slots
                     for (int ai = nArgs - 1; ai >= 0; ai--) {
                         const auto& arg = inst.args[ai];
-                        loadOperand(arg);
                         int slot = nArgs - 1 - ai;
-                        emit("sta " + zpSlotAddr(slot, 0));
-                        emit("stx " + zpSlotAddr(slot, 1));
-                        if (arg.type == ir::Type::I32) {
-                            emit("sty " + zpSlotAddr(slot, 2));
-                            emit("stz " + zpSlotAddr(slot, 3));
+                        if (arg.type == ir::Type::F32 && arg.isVreg()) {
+                            // F32: copy 5 bytes from vreg ZP to scratch slot
+                            auto alloc = alloc_.getAlloc(arg.vregId);
+                            std::string za = "$" + hex8((uint8_t)alloc.offset);
+                            for (int bi = 0; bi < 5; bi++) {
+                                emit("lda " + za + "+" + std::to_string(bi));
+                                emit("sta " + zpSlotAddr(slot, bi));
+                            }
+                        } else {
+                            loadOperand(arg);
+                            emit("sta " + zpSlotAddr(slot, 0));
+                            emit("stx " + zpSlotAddr(slot, 1));
+                            if (arg.type == ir::Type::I32) {
+                                emit("sty " + zpSlotAddr(slot, 2));
+                                emit("stz " + zpSlotAddr(slot, 3));
+                            }
                         }
                     }
                     // Phase 2: push from ZP slots (same order — already right-to-left)
@@ -2912,13 +2947,21 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         const auto& arg = inst.args[origIdx];
                         int ps = ir::typeSize(arg.type);
                         if (ps < 2) ps = 2;
-                        emit("lda " + zpSlotAddr(i, 0));
-                        emit("ldx " + zpSlotAddr(i, 1));
-                        if (arg.type == ir::Type::I32) {
+                        if (arg.type == ir::Type::F32) {
+                            // F32: push 5 bytes (byte 4 first, byte 0 last)
+                            for (int bi = 4; bi >= 0; bi--) {
+                                emit("lda " + zpSlotAddr(i, bi));
+                                emit("pha");
+                            }
+                        } else if (arg.type == ir::Type::I32) {
+                            emit("lda " + zpSlotAddr(i, 0));
+                            emit("ldx " + zpSlotAddr(i, 1));
                             emit("ldy " + zpSlotAddr(i, 2));
                             emit("ldz " + zpSlotAddr(i, 3));
                             emit("push .axyz");
                         } else {
+                            emit("lda " + zpSlotAddr(i, 0));
+                            emit("ldx " + zpSlotAddr(i, 1));
                             emit("push .ax");
                         }
                         argBytes += ps;
