@@ -1890,8 +1890,18 @@ void IRBuilder::visit(UnaryOperation& node) {
         computeAddressOnly_ = oldAddrMode;
 
         if (computeAddressOnly_) {
-            // We want the address this pointer points to, which IS its value
-            lastValue_ = src;
+            // We want the address this pointer points to, which IS its value.
+            // Copy to a fresh vreg so the STORE handler treats it as an
+            // indirect address, not as a local-slot direct store.
+            auto addr = allocVreg(ir::Type::PTR);
+            ir::Inst copy;
+            copy.op = ir::Op::COPY;
+            copy.dest = addr;
+            copy.resultType = ir::Type::PTR;
+            copy.src1 = src;
+            copy.loc = loc(node);
+            emit(copy);
+            lastValue_ = addr;
             return;
         }
 

@@ -2224,16 +2224,27 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         emit("sta " + inst.src2.name + "+" + std::to_string(i));
                     }
                 } else if (inst.src2.isVreg()) {
-                    // Indirect store via (ZP),Y
-                    std::string zpPair;
-                    auto addrAlloc = alloc_.getAlloc(inst.src2.vregId);
-                    if (addrAlloc.loc == VRegAllocator::IN_ZP)
-                        zpPair = "$" + hex8((uint8_t)addrAlloc.offset);
-                    else { loadVreg(inst.src2.vregId); emit("sta __zp_scratch"); emit("stx __zp_scratch+1"); zpPair = "__zp_scratch"; }
-                    for (int i = 0; i < 5; i++) {
-                        emit("ldy #" + std::to_string(i));
-                        emit("lda " + sa + "+" + std::to_string(i));
-                        emit("sta (" + zpPair + "),y");
+                    bool isLocalSlot = localSlotVregs_.count(inst.src2.vregId) > 0;
+                    if (isLocalSlot) {
+                        // Direct 5-byte copy to local variable's ZP storage
+                        auto destAlloc = alloc_.getAlloc(inst.src2.vregId);
+                        std::string da = "$" + hex8((uint8_t)destAlloc.offset);
+                        for (int i = 0; i < 5; i++) {
+                            emit("lda " + sa + "+" + std::to_string(i));
+                            emit("sta " + da + "+" + std::to_string(i));
+                        }
+                    } else {
+                        // Indirect store via (ZP),Y — dest vreg holds a pointer address
+                        std::string zpPair;
+                        auto addrAlloc = alloc_.getAlloc(inst.src2.vregId);
+                        if (addrAlloc.loc == VRegAllocator::IN_ZP)
+                            zpPair = "$" + hex8((uint8_t)addrAlloc.offset);
+                        else { loadVreg(inst.src2.vregId); emit("sta __zp_scratch"); emit("stx __zp_scratch+1"); zpPair = "__zp_scratch"; }
+                        for (int i = 0; i < 5; i++) {
+                            emit("ldy #" + std::to_string(i));
+                            emit("lda " + sa + "+" + std::to_string(i));
+                            emit("sta (" + zpPair + "),y");
+                        }
                     }
                 }
                 break;

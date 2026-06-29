@@ -1965,6 +1965,8 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         else if (match(TokenType::CHAR)) type = "char";
         else if (match(TokenType::BOOL)) type = "_Bool";
         else if (match(TokenType::VOID)) type = "void";
+        else if (match(TokenType::FLOAT)) type = "float";
+        else if (match(TokenType::DOUBLE)) { type = "float"; }
         else if (match(TokenType::ENUM)) {
             if (peek().type == TokenType::IDENTIFIER) type = "enum " + advance().value;
             else {
