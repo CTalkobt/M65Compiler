@@ -323,13 +323,12 @@ Token Lexer::lexNumber() {
     while (std::isdigit(peek())) {
         value += get();
     }
-    // Float literal: 0.0, 1.5f, etc. — truncate to integer (no FPU)
-    if (peek() == '.' && std::isdigit(source[pos + 1])) {
-        get(); // consume '.'
-        while (std::isdigit(peek())) get(); // consume fractional digits
-        // Consume optional float suffix
+    // Float literal: 0.0, 1.5f, etc.
+    if (peek() == '.' && pos + 1 < source.length() && std::isdigit(source[pos + 1])) {
+        value += get(); // consume '.'
+        while (std::isdigit(peek())) value += get();
         if (peek() == 'f' || peek() == 'F' || peek() == 'l' || peek() == 'L') get();
-        // value already has the integer part
+        return {TokenType::FLOAT_LITERAL, value, startLine, startCol, sourceFile};
     }
     // Check decimal literal overflow
     try {

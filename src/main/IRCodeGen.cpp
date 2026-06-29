@@ -1,7 +1,23 @@
 #include "IRCodeGen.hpp"
+#include <cmath>
+#include <cstring>
 #include <iomanip>
 #include <sstream>
 #include <algorithm>
+
+// Convert IEEE 754 double to CBM 40-bit float (5 bytes)
+static void doubleToCBM40(double val, uint8_t out[5]) {
+    if (val == 0.0) { out[0]=out[1]=out[2]=out[3]=out[4]=0; return; }
+    bool neg = val < 0; if (neg) val = -val;
+    int exp; double mant = std::frexp(val, &exp);
+    int cbmExp = exp + 128;
+    if (cbmExp < 0) cbmExp = 0; if (cbmExp > 255) cbmExp = 255;
+    out[0] = (uint8_t)cbmExp;
+    uint32_t m = (uint32_t)(mant * 4294967296.0);
+    out[1] = (uint8_t)(m >> 24); out[2] = (uint8_t)(m >> 16);
+    out[3] = (uint8_t)(m >> 8);  out[4] = (uint8_t)(m);
+    if (neg) out[1] |= 0x80; else out[1] &= 0x7F;
+}
 
 
 static std::string hex8(uint8_t val) {
@@ -436,11 +452,12 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         return ss.str();
     };
 
-    emit(".global __static_chain");
-    emit(".global __zp_scratch");
-    emit(".global __zp_scratch2");
-    emit(".global __zp_scratch3");
-    emit(".global __zp_scratch4");
+    std::string symDir = relocMode ? ".weak" : ".global";
+    emit(symDir + " __static_chain");
+    emit(symDir + " __zp_scratch");
+    emit(symDir + " __zp_scratch2");
+    emit(symDir + " __zp_scratch3");
+    emit(symDir + " __zp_scratch4");
     emit("__static_chain = " + hex8(zeroPageStart_ - 2));
     emit("__zp_scratch = " + hex8(zeroPageStart_));
     emit("__zp_scratch2 = " + hex8(zeroPageStart_ + 2));
@@ -539,7 +556,13 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
                 }
             } else {
                 // Scalar initializer
-                if (g.type == ir::Type::I8) {
+                if (g.type == ir::Type::F32) {
+                    // Convert stored double bits to CBM 40-bit float
+                    double val; std::memcpy(&val, &g.initValue, sizeof(double));
+                    uint8_t cbm[5]; doubleToCBM40(val, cbm);
+                    emit(".byte $" + hex8(cbm[0]) + ", $" + hex8(cbm[1]) + ", $" +
+                         hex8(cbm[2]) + ", $" + hex8(cbm[3]) + ", $" + hex8(cbm[4]));
+                } else if (g.type == ir::Type::I8) {
                     emit(".byte " + std::to_string((int)(g.initValue & 0xFF)));
                 } else if (g.type == ir::Type::I32) {
                     emit(".dword " + std::to_string((int)g.initValue));
@@ -1105,12 +1128,21 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             }
             std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
                 ? fn.paramNames[i] : std::to_string(i);
-            if (fn.paramTypes[i] == ir::Type::I32) {
+            if (fn.paramTypes[i] == ir::Type::F32) {
+                // 5-byte float: copy from stack frame to ZP vreg
+                auto alloc = alloc_.getAlloc(vid);
+                std::string za = "$" + hex8((uint8_t)alloc.offset);
+                for (int bi = 0; bi < 5; bi++) {
+                    emit("lda.fp @_p_" + pName + "+" + std::to_string(bi));
+                    emit("sta " + za + "+" + std::to_string(bi));
+                }
+            } else if (fn.paramTypes[i] == ir::Type::I32) {
                 emit("ldaxyz.fp @_p_" + pName);
+                storeVreg(vid);
             } else {
                 emit("ldax.fp @_p_" + pName);
+                storeVreg(vid);
             }
-            storeVreg(vid);
         }
     } else {
         // ZP call convention: params already in ZP block, copy to vReg slots
@@ -2159,6 +2191,32 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             // instead of computing the ADD result as a separate address
             // (Deferred — needs instruction lookaback which is complex in current codegen)
 
+            if (inst.resultType == ir::Type::F32 && inst.dest.isVreg()) {
+                // 5-byte float load: copy to dest vreg ZP
+                auto dAlloc = alloc_.getAlloc(inst.dest.vregId);
+                std::string da = "$" + hex8((uint8_t)dAlloc.offset);
+                if (inst.src1.kind == ir::OperandKind::GLOBAL) {
+                    for (int i = 0; i < 5; i++) {
+                        emit("lda " + inst.src1.name + "+" + std::to_string(i));
+                        emit("sta " + da + "+" + std::to_string(i));
+                    }
+                } else {
+                    // Indirect load via (ZP),Y
+                    std::string zpPair;
+                    if (inst.src1.isVreg()) {
+                        auto addrAlloc = alloc_.getAlloc(inst.src1.vregId);
+                        if (addrAlloc.loc == VRegAllocator::IN_ZP)
+                            zpPair = "$" + hex8((uint8_t)addrAlloc.offset);
+                        else { loadVreg(inst.src1.vregId); emit("sta __zp_scratch"); emit("stx __zp_scratch+1"); zpPair = "__zp_scratch"; }
+                    } else { loadOperand(inst.src1); emit("sta __zp_scratch"); emit("stx __zp_scratch+1"); zpPair = "__zp_scratch"; }
+                    for (int i = 0; i < 5; i++) {
+                        emit("ldy #" + std::to_string(i));
+                        emit("lda (" + zpPair + "),y");
+                        emit("sta " + da + "+" + std::to_string(i));
+                    }
+                }
+                break;
+            }
             if (inst.src1.kind == ir::OperandKind::GLOBAL) {
                 // Load directly from global address
                 emit("lda " + inst.src1.name);
@@ -2227,6 +2285,30 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
         case ir::Op::STORE: {
             std::string storeR = irDesc(inst.src2.kind == ir::OperandKind::GLOBAL ? "→ " + inst.src2.name : "");
+            if (inst.resultType == ir::Type::F32 && inst.src1.isVreg()) {
+                // 5-byte float store from src1 vreg ZP to dest address
+                auto sAlloc = alloc_.getAlloc(inst.src1.vregId);
+                std::string sa = "$" + hex8((uint8_t)sAlloc.offset);
+                if (inst.src2.kind == ir::OperandKind::GLOBAL) {
+                    for (int i = 0; i < 5; i++) {
+                        emit("lda " + sa + "+" + std::to_string(i));
+                        emit("sta " + inst.src2.name + "+" + std::to_string(i));
+                    }
+                } else if (inst.src2.isVreg()) {
+                    // Indirect store via (ZP),Y
+                    std::string zpPair;
+                    auto addrAlloc = alloc_.getAlloc(inst.src2.vregId);
+                    if (addrAlloc.loc == VRegAllocator::IN_ZP)
+                        zpPair = "$" + hex8((uint8_t)addrAlloc.offset);
+                    else { loadVreg(inst.src2.vregId); emit("sta __zp_scratch"); emit("stx __zp_scratch+1"); zpPair = "__zp_scratch"; }
+                    for (int i = 0; i < 5; i++) {
+                        emit("ldy #" + std::to_string(i));
+                        emit("lda " + sa + "+" + std::to_string(i));
+                        emit("sta (" + zpPair + "),y");
+                    }
+                }
+                break;
+            }
             if (inst.src2.kind == ir::OperandKind::GLOBAL) {
                 // Store directly to global address
                 if (inst.resultType == ir::Type::I8 && inst.src1.isVreg()) {
@@ -2839,6 +2921,14 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                             // Global symbol
                             emit("ldax #" + arg.name);
                             emit("push .ax");
+                        } else if (arg.type == ir::Type::F32 && arg.isVreg()) {
+                            // Float: push 5 bytes from ZP (push byte 4 first, byte 0 last)
+                            auto alloc = alloc_.getAlloc(arg.vregId);
+                            std::string za = "$" + hex8((uint8_t)alloc.offset);
+                            for (int bi = 4; bi >= 0; bi--) {
+                                emit("lda " + za + "+" + std::to_string(bi));
+                                emit("pha");
+                            }
                         } else {
                             // Complex operand — load and push
                             loadOperand(arg);
@@ -3187,6 +3277,68 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             // PHI nodes are not directly executable in linear code.
             // For now, skip — the IRBuilder's control flow already sets
             // values before branching.
+            break;
+        }
+
+        // Float operations
+        case ir::Op::FCONST: {
+            int64_t bits = inst.src1.immVal; double val;
+            std::memcpy(&val, &bits, sizeof(double));
+            uint8_t cbm[5]; doubleToCBM40(val, cbm);
+            auto da = alloc_.getAlloc(inst.dest.vregId);
+            std::string d = "$" + hex8((uint8_t)da.offset);
+            for (int i = 0; i < 5; i++) {
+                emit("lda #$" + hex8(cbm[i]));
+                emit("sta " + d + "+" + std::to_string(i));
+            }
+            break;
+        }
+        case ir::Op::FADD: case ir::Op::FSUB:
+        case ir::Op::FMUL: case ir::Op::FDIV: {
+            auto s1 = alloc_.getAlloc(inst.src1.vregId);
+            auto s2 = alloc_.getAlloc(inst.src2.vregId);
+            emit("MOVE $" + hex8((uint8_t)s1.offset) + ", __float_a, 5");
+            emit("MOVE $" + hex8((uint8_t)s2.offset) + ", __float_b, 5");
+            if (inst.op == ir::Op::FADD) emit("jsr __float_add");
+            else if (inst.op == ir::Op::FSUB) emit("jsr __float_sub");
+            else if (inst.op == ir::Op::FMUL) emit("jsr __float_mul");
+            else emit("jsr __float_div");
+            auto da = alloc_.getAlloc(inst.dest.vregId);
+            emit("MOVE __float_a, $" + hex8((uint8_t)da.offset) + ", 5");
+            break;
+        }
+        case ir::Op::FNEG: {
+            auto s1 = alloc_.getAlloc(inst.src1.vregId);
+            emit("MOVE $" + hex8((uint8_t)s1.offset) + ", __float_a, 5");
+            emit("jsr __float_neg");
+            auto da = alloc_.getAlloc(inst.dest.vregId);
+            emit("MOVE __float_a, $" + hex8((uint8_t)da.offset) + ", 5");
+            break;
+        }
+        case ir::Op::FCMP: {
+            auto s1 = alloc_.getAlloc(inst.src1.vregId);
+            auto s2 = alloc_.getAlloc(inst.src2.vregId);
+            emit("MOVE $" + hex8((uint8_t)s1.offset) + ", __float_a, 5");
+            emit("MOVE $" + hex8((uint8_t)s2.offset) + ", __float_b, 5");
+            emit("jsr __float_cmp");
+            auto da = alloc_.getAlloc(inst.dest.vregId);
+            emit("sta $" + hex8((uint8_t)da.offset));
+            break;
+        }
+        case ir::Op::ITOF: {
+            loadOperand(inst.src1);
+            emit("jsr __float_itof");
+            auto da = alloc_.getAlloc(inst.dest.vregId);
+            emit("MOVE __float_a, $" + hex8((uint8_t)da.offset) + ", 5");
+            break;
+        }
+        case ir::Op::FTOI: {
+            auto s1 = alloc_.getAlloc(inst.src1.vregId);
+            emit("MOVE $" + hex8((uint8_t)s1.offset) + ", __float_a, 5");
+            emit("jsr __float_ftoi");
+            auto da = alloc_.getAlloc(inst.dest.vregId);
+            emit("sta $" + hex8((uint8_t)da.offset));
+            emit("stx $" + hex8((uint8_t)(da.offset + 1)));
             break;
         }
 

@@ -1,5 +1,7 @@
 #include "IRBuilder.hpp"
 #include <algorithm>
+#include <cmath>
+#include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -233,7 +235,8 @@ ir::Type IRBuilder::mapType(const std::string& typeName, int ptrLevel) {
     if (typeName == "char" || typeName == "unsigned char") return ir::Type::I8;
     if (typeName == "long" || typeName == "unsigned long") return ir::Type::I32;
     if (typeName == "void") return ir::Type::VOID;
-    
+    if (typeName == "float" || typeName == "double") return ir::Type::F32;
+
     // Check for 4-byte structs/unions
     if (getTypeSize(typeName, 0) == 4) return ir::Type::I32;
 
@@ -247,7 +250,8 @@ int IRBuilder::getTypeSize(const std::string& typeName, int ptrLevel) {
         typeName == "short" || typeName == "unsigned short" ||
         typeName == "unsigned") return 2;
     if (typeName == "long" || typeName == "unsigned long") return 4;
-    
+    if (typeName == "float" || typeName == "double") return 5;
+
     std::string sName = getAggregateName(typeName);
     auto it = structs_.find(sName);
     if (it != structs_.end()) return it->second.totalSize;
@@ -439,6 +443,20 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
 ir::Operand IRBuilder::emitCast(ir::Operand src, ir::Type targetType, bool isSigned) {
     if (src.type == targetType) return src;
 
+    // Float conversions
+    if (src.type == ir::Type::F32 && targetType != ir::Type::F32) {
+        auto dest = allocVreg(targetType);
+        ir::Inst inst; inst.op = ir::Op::FTOI; inst.dest = dest;
+        inst.resultType = targetType; inst.src1 = src; emit(inst);
+        return dest;
+    }
+    if (targetType == ir::Type::F32 && src.type != ir::Type::F32) {
+        auto dest = allocVreg(ir::Type::F32);
+        ir::Inst inst; inst.op = ir::Op::ITOF; inst.dest = dest;
+        inst.resultType = ir::Type::F32; inst.src1 = src; emit(inst);
+        return dest;
+    }
+
     // Determine conversion type
     ir::Op op = ir::Op::NOP;
     int srcSize = ir::typeSize(src.type);
@@ -543,7 +561,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     fn.returnType = mapType(node.returnType, node.returnPointerLevel);
     fn.conv = (zpCallMode || node.isFastcall) ? ir::CallConv::ZP : ir::CallConv::STACK;
     fn.isVariadic = node.isVariadic;
-    fn.isStatic = node.isStatic;
+    fn.isStatic = node.isStatic || node.isInline;
     fn.isInterrupt = node.isInterrupt;
     fn.declLine = node.line;
     fn.isNaked = node.isNaked;
@@ -801,6 +819,11 @@ void IRBuilder::visit(VariableDeclaration& node) {
     ir::Type t = mapType(node.type, node.pointerLevel);
 
     if (!currentFunc_) {
+        // Extern declaration: add to externs list, no BSS allocation
+        if (node.isExtern) {
+            module_.externs.push_back("_" + node.name);
+            return;
+        }
         // Global variable
         ir::Module::GlobalVar gv;
         gv.name = "_" + node.name;
@@ -810,7 +833,11 @@ void IRBuilder::visit(VariableDeclaration& node) {
         gv.isConst = node.isConst;
         gv.isStatic = node.isStatic;
         if (node.initializer) {
-            if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
+            if (auto* flit = dynamic_cast<FloatLiteral*>(node.initializer.get())) {
+                gv.hasInitValue = true;
+                // Store double bits in initValue for CBM conversion in IRCodeGen
+                std::memcpy(&gv.initValue, &flit->value, sizeof(double));
+            } else if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
                 gv.hasInitValue = true;
                 gv.initValue = lit->value;
             } else if (auto* cast = dynamic_cast<CastExpression*>(node.initializer.get())) {
@@ -871,8 +898,8 @@ void IRBuilder::visit(VariableDeclaration& node) {
         currentFunc_->memoryVregs.insert(vreg.vregId);
     }
     
-    if (getTypeSize(node.type, 0) > 2 && node.pointerLevel == 0) {
-        // Large aggregates must go to frame with correct byte size
+    if (getTypeSize(node.type, 0) > 2 && node.pointerLevel == 0 && node.arrayDims.empty()) {
+        // Large aggregates (non-array) must go to frame with correct byte size
         currentFunc_->memoryVregs.insert(vreg.vregId);
         currentFunc_->vregSizes[vreg.vregId] = getTypeSize(node.type, 0);
     }
@@ -1072,6 +1099,22 @@ void IRBuilder::visit(IntegerLiteral& node) {
     emit(inst);
     lastValue_ = dest;
     lastValueSigned_ = node.castIsSigned;
+}
+
+void IRBuilder::visit(FloatLiteral& node) {
+    auto dest = allocVreg(ir::Type::F32);
+    ir::Inst inst;
+    inst.op = ir::Op::FCONST;
+    inst.dest = dest;
+    inst.resultType = ir::Type::F32;
+    int64_t bits = 0;
+    static_assert(sizeof(double) == sizeof(int64_t), "double must be 64-bit");
+    std::memcpy(&bits, &node.value, sizeof(double));
+    inst.src1 = ir::Operand::imm(bits, ir::Type::F32);
+    inst.loc = loc(node);
+    emit(inst);
+    lastValue_ = dest;
+    lastValueSigned_ = false;
 }
 
 void IRBuilder::visit(StringLiteral& node) {
@@ -1687,11 +1730,52 @@ void IRBuilder::visit(BinaryOperation& node) {
     auto lhsVal = emitCast(lhs, resultType, lhsInfo.isSigned);
     auto rhsVal = shiftImm ? rhs : emitCast(rhs, resultType, rhsInfo.isSigned);
 
+    // Pointer arithmetic: scale integer operand by pointed-to element size
+    if ((node.op == "+" || node.op == "-") && resultType == ir::Type::PTR) {
+        int elemSize = 1;
+        IRTypeInfo ptrInfo = (lhsInfo.type == ir::Type::PTR) ? lhsInfo : rhsInfo;
+        if (ptrInfo.pointedToType != ir::Type::VOID)
+            elemSize = ir::typeSize(ptrInfo.pointedToType);
+        // Check for struct/union with larger sizes
+        if (!ptrInfo.typeName.empty()) {
+            std::string sName = getAggregateName(ptrInfo.typeName);
+            auto sit = structs_.find(sName);
+            if (sit != structs_.end()) elemSize = sit->second.totalSize;
+        }
+        if (elemSize > 1) {
+            // Scale the non-pointer operand
+            auto& intOp = (lhsInfo.type != ir::Type::PTR) ? lhsVal : rhsVal;
+            auto scaled = allocVreg(ir::Type::PTR);
+            ir::Inst mul;
+            mul.op = ir::Op::MUL_U;
+            mul.dest = scaled;
+            mul.resultType = ir::Type::PTR;
+            mul.src1 = intOp;
+            mul.src2 = ir::Operand::imm(elemSize, ir::Type::PTR);
+            mul.loc = loc(node);
+            emit(mul);
+            intOp = scaled;
+        }
+    }
+
     // For comparison operators: use signed ops only if BOTH operands are signed.
     bool bothSigned = lhsInfo.isSigned && rhsInfo.isSigned;
 
     ir::Op op = ir::Op::NOP;
     ir::Type finalResultType = resultType;
+
+    // Float binary operations
+    if (resultType == ir::Type::F32) {
+        if (node.op == "+") op = ir::Op::FADD;
+        else if (node.op == "-") op = ir::Op::FSUB;
+        else if (node.op == "*") op = ir::Op::FMUL;
+        else if (node.op == "/") op = ir::Op::FDIV;
+        else throw std::runtime_error("Unsupported operator '" + node.op + "' for float type");
+        auto dest = allocVreg(finalResultType);
+        ir::Inst inst; inst.op = op; inst.dest = dest; inst.resultType = finalResultType;
+        inst.src1 = lhsVal; inst.src2 = rhsVal; inst.loc = loc(node); emit(inst);
+        lastValue_ = dest; return;
+    }
 
     if (node.op == "+") op = ir::Op::ADD;
     else if (node.op == "-") op = ir::Op::SUB;
@@ -1740,7 +1824,7 @@ void IRBuilder::visit(UnaryOperation& node) {
     if (node.op == "-") {
         auto dest = allocVreg(src.type);
         ir::Inst inst;
-        inst.op = ir::Op::NEG;
+        inst.op = (src.type == ir::Type::F32) ? ir::Op::FNEG : ir::Op::NEG;
         inst.dest = dest;
         inst.resultType = src.type;
         inst.src1 = src;
@@ -1799,7 +1883,12 @@ void IRBuilder::visit(UnaryOperation& node) {
                 lastValue_ = dest;
             }
         } else {
-            lastValue_ = src;
+            // General case (e.g., &arr[i], &ptr->member):
+            // re-visit with computeAddressOnly_ to get the address
+            bool oldAddrMode = computeAddressOnly_;
+            computeAddressOnly_ = true;
+            node.operand->accept(*this);
+            computeAddressOnly_ = oldAddrMode;
         }
     } else if (node.op == "*") {
         // Dereference
@@ -1831,13 +1920,32 @@ void IRBuilder::visit(UnaryOperation& node) {
         bool isPost = (node.op.find("_POST") != std::string::npos);
         std::string baseOp = isPost ? node.op.substr(0, 2) : node.op;
 
+        // For pointer increment/decrement, scale by pointed-to element size
+        int incVal = 1;
+        if (src.type == ir::Type::PTR) {
+            auto info = getExprTypeInfo(node.operand.get());
+            if (info.pointedToType != ir::Type::VOID) {
+                incVal = ir::typeSize(info.pointedToType);
+            }
+            // Check for struct/union pointed-to types with larger sizes
+            if (!info.typeName.empty()) {
+                std::string ptName = info.typeName;
+                // Strip pointer suffix if present
+                std::string sName = getAggregateName(ptName);
+                auto sit = structs_.find(sName);
+                if (sit != structs_.end()) {
+                    incVal = sit->second.totalSize;
+                }
+            }
+        }
+
         auto dest = allocVreg(src.type);
         ir::Inst inst;
         inst.op = (baseOp == "++") ? ir::Op::ADD : ir::Op::SUB;
         inst.dest = dest;
         inst.resultType = src.type;
         inst.src1 = src;
-        inst.src2 = ir::Operand::imm(1, src.type);
+        inst.src2 = ir::Operand::imm(incVal, src.type);
         inst.loc = loc(node);
         emit(inst);
 
@@ -3153,6 +3261,7 @@ public:
     CaseCollector(IRBuilder::SwitchCtx& c, IRBuilder& b) : ctx(c), builder(b) {}
 
     void visit(IntegerLiteral&) override {}
+    void visit(FloatLiteral&) override {}
     void visit(StringLiteral&) override {}
     void visit(VariableReference&) override {}
     void visit(Assignment& node) override { if (node.expression) node.expression->accept(*this); }

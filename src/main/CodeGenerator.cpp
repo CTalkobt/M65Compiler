@@ -607,6 +607,7 @@ public:
     void visit(LabelAddressExpression&) override {}
     // Walk all node types that can contain expressions
     void visit(IntegerLiteral&) override {}
+    void visit(FloatLiteral&) override {}
     void visit(StringLiteral&) override {}
     void visit(VariableReference&) override {}
     void visit(Assignment& n) override { if (n.target) n.target->accept(*this); if (n.expression) n.expression->accept(*this); }
@@ -665,6 +666,7 @@ public:
         if (n.operand) n.operand->accept(*this);
     }
     void visit(IntegerLiteral&) override {}
+    void visit(FloatLiteral&) override {}
     void visit(StringLiteral&) override {}
     void visit(VariableReference&) override {}
     void visit(Assignment& n) override { if (n.target) n.target->accept(*this); if (n.expression) n.expression->accept(*this); }
@@ -831,6 +833,7 @@ public:
 
     // Walk all other node types
     void visit(IntegerLiteral&) override {}
+    void visit(FloatLiteral&) override {}
     void visit(StringLiteral&) override {}
     void visit(VariableReference&) override {}
     void visit(Assignment& n) override { n.target->accept(*this); n.expression->accept(*this); }
@@ -4274,6 +4277,7 @@ void CodeGenerator::visit(SwitchStatement& node) {
         CodeGenerator& gen;
         CaseCollector(SwitchInfo& i, CodeGenerator& g) : info(i), gen(g) {}
         void visit(IntegerLiteral&) override {}
+    void visit(FloatLiteral&) override {}
         void visit(StringLiteral&) override {}
         void visit(VariableReference&) override {}
         void visit(Assignment& node) override { node.expression->accept(*this); }
@@ -4637,6 +4641,10 @@ void CodeGenerator::visit(IntegerLiteral& node) {
         emit("ldax " + ss.str());
     }
     updateRegA(node.value & 0xFF); updateRegX((node.value >> 8) & 0xFF); updateZNFlags(FlagSource::A);
+}
+
+void CodeGenerator::visit(FloatLiteral&) {
+    // Float codegen handled by IRBuilder/IRCodeGen path
 }
 
 void CodeGenerator::visit(StringLiteral& node) {
@@ -5816,6 +5824,7 @@ public:
     CodeGenerator& gen;
     VariableUseChecker(const std::string& name, const std::string& currentDecl, CodeGenerator& g) : targetVarName(name), currentDeclVarName(currentDecl), gen(g) {}
     void visit(IntegerLiteral&) override {}
+    void visit(FloatLiteral&) override {}
     void visit(StringLiteral&) override {}
     void visit(VariableReference& node) override { if (node.name == targetVarName) used = true; }
     void visit(Assignment& node) override { if (auto* ref = dynamic_cast<VariableReference*>(node.target.get())) if (ref->name == targetVarName) used = true; node.expression->accept(*this); if (node.target) node.target->accept(*this); }

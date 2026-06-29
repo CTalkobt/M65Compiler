@@ -1,6 +1,7 @@
 #include "AST.hpp"
 
 void IntegerLiteral::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void FloatLiteral::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void StringLiteral::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void VariableReference::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void Assignment::accept(ASTVisitor& visitor) { visitor.visit(*this); }

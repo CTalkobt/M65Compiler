@@ -77,6 +77,7 @@ public:
     bool zpCallMode = false; // When true, use ZP parameter block calling convention (-fzpcall)
 
     void visit(IntegerLiteral& node) override;
+    void visit(FloatLiteral& node) override;
     void visit(StringLiteral& node) override;
     void visit(VariableReference& node) override;
     void visit(Assignment& node) override;
