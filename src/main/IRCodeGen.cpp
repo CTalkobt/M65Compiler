@@ -625,7 +625,7 @@ void IRCodeGen::emitStrings(const ir::Module& mod) {
     emitBlank();
     if (relocMode_) emit(".segment \"data\"");
     for (const auto& sl : mod.strings) {
-        emitLabel(sl.label);
+        emitLabel("_" + sl.label);
         if (sl.encoding == 1) {
             emit(".ascii \"" + sl.value + "\"");
         } else if (sl.encoding == 2) {
