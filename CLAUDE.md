@@ -148,14 +148,14 @@ make clean && make test  # Clean rebuild and test
 
 ### Implemented (v1.0.3-dev)
 
-- **Types**: `char`, `short`, `int`, `long`, `unsigned` variants, pointers, arrays, structs, unions, function pointers, `_Bool`
+- **Types**: `char`, `short`, `int`, `long`, `float`, `double`, `unsigned` variants, pointers, arrays, structs, unions, function pointers, `_Bool`
 - **Qualifiers**: `const`, `volatile`, `static` (all orderings), `register`, `extern`, `_Alignas`
 - **Declarations**: Function declarations, variable declarations, typedefs, type qualifiers in any order, implicit int (`static max;`, `unsigned d;`)
 - **Initializers**: Scalar, aggregate, designated initializers (`{.x=1}`, `{[2]=3}`), flexible array members, string literal concatenation
 - **Operators**: All C arithmetic, logical, bitwise, comparison, ternary, cast, sizeof, `_Alignof`, `_Generic`, comma operator, Elvis operator (`?:`)
 - **Control Flow**: if/else, while, do-while, for, switch/case (with GCC range syntax `case A ... Z:`), break, continue, return, goto, computed goto (`&&label`, `goto *expr`)
 - **Inline Assembly**: `asm("...")` and `__asm__("...")` with full variable access via naming prefixes
-- **Pragmas**: `#pragma once`, `#pragma cc45 <option>` (heap, no_bssinit, no_0100_stack, no_zp_save, exit_rts/halt/brk, set_bp)
+- **Pragmas**: `#pragma once`, `#pragma cc45 <option>` (heap, no_bssinit, no_0100_stack, no_zp_save, exit_rts/halt/brk, set_bp, weak)
 - **Compound Literals**: `(int){42}`, `(struct Point){1,2}`, `(int[3]){1,2,3}`, `(int[]){...}` array casts
 - **Bitfields**: `struct S { int x:4; unsigned y:4; long z:24; }` with optimized TRB/TSB codegen, 32-bit storage units, unnamed bitfield padding
 - **Alignment**: `_Alignas(N)` for globals, locals, and struct members
@@ -163,7 +163,7 @@ make clean && make test  # Clean rebuild and test
 - **Inline Functions**: `inline` keyword, `-finline-functions` flag, auto-inline for trivial struct methods (≤3 statements)
 - **Loop Unrolling**: `repeat(N) { body }` compile-time loop unrolling
 - **Function Attributes**: `__interrupt`, `__naked`, `__regparm`, `__fastcall__`, `__attribute__` (parsed and skipped in all positions)
-- **Variadic Functions**: Full `<stdarg.h>` support with `struct`/`union`/`enum`/`typeof`/`const` types in `va_arg`
+- **Variadic Functions**: Full `<stdarg.h>` support with `struct`/`union`/`enum`/`typeof`/`const`/`float`/`double` types in `va_arg`
 - **DMA Intrinsics**: `__dma_copy(dst, src, len)` and `__dma_fill(dst, len, val)` for MEGA65 F018B DMA
 - **CPU/Flag Intrinsics**: `__cpu.A/.X/.Y/.Z/.AX/.Q` and `__flags.Carry/.Zero/.Negative/.Overflow`
 - **GCC Builtins**: `__builtin_printf`, `__builtin_abort`, `__builtin_strlen`, `__builtin_memcpy`, `__builtin_offsetof`, etc. (22 builtin→stdlib aliases)
@@ -196,24 +196,36 @@ make clean && make test  # Clean rebuild and test
 - **Devirtualization**: Compiler detects single-implementation vtable slots → direct call
 - **Auto-Inline**: Trivial methods (≤3 statements) inlined at call site; combined with `final`, zero overhead
 
+### Floating-Point Support (v1.0.3)
+
+- **`float` / `double` / `long double`**: All map to CBM 40-bit (5 bytes: 1 exponent + 4 mantissa). Supported everywhere: variables, function params/returns, struct members, arrays, pointers, casts, sizeof, _Alignas, va_arg, typedef, function pointer params
+- **Literals**: Decimal (`3.14`, `1.5f`) and exponent notation (`1.5e-3`, `3.14e0`). Positive integer exponents (`1e2`) stay as integer
+- **Arithmetic & Comparisons**: `+ - * / == != < <= > >=` via BASIC 65 ROM routines (JSRFAR)
+- **Casts**: `(float)i`, `(int)f`, implicit promotion in mixed expressions
+- **Indirect access**: Pointer dereference, struct members, array elements — 5-byte `(ZP),Y` loops
+- **I/O**: `printf %f`, `sprintf %f`, `sscanf %f`, `strtof()`, `atof()`
+- **Printf auto-linking**: Weak/strong symbol pattern — integer-only printf linked by default; float-aware version pulled automatically when float args passed to variadic calls (zero cost for int-only programs)
+- **Math library**: 27 functions — ROM-backed trig/transcendental (`sinf`, `cosf`, `tanf`, `atanf`, `logf`, `expf`, `sqrtf`, `fabsf`) plus C-implemented `powf`, `fmodf`, `ceilf`, `floorf`, `roundf`, `truncf`, `atan2f`, `log10f`, `log2f`, `ldexpf`, `frexpf`, `modff`, `copysignf`, `fmaxf`, `fminf`, `fdimf`
+- **Headers**: `<float.h>` (FLT_MAX/MIN/EPSILON, FLT_DIG, etc.), `<math.h>` (M_PI, M_E, INFINITY, all function declarations + double aliases)
+
 ### Not Implemented
 
-- `float`, `double` (no FPU; software float is post-1.0)
-- `_Complex double/float` (integer complex via `<complex.h>` struct + operator overloading)
+- `_Complex float` (integer complex works via `<complex.h>` struct + operator overloading; float complex planned)
 - `long long` / `int64_t` (planned via `__int(N)` — see Issue #119)
 
 ## Standard Library
 
 ### Provided Headers
 
-- **`stdio.h`**: `printf`, `sprintf`, `puts`, `getchar`, `putchar`
-- **`stdlib.h`**: `malloc`, `free`, `exit`, `strtol`, `strtoul`
+- **`stdio.h`**: `printf`, `sprintf`, `puts`, `getchar`, `putchar` (printf/sprintf support `%f` for floats via auto-linked float variant)
+- **`stdlib.h`**: `malloc`, `free`, `exit`, `strtol`, `strtoul`, `strtof`, `atof`
 - **`string.h`**: `strlen`, `strcpy`, `strcmp`, `strcat`, `strchr`, `strstr`, `strtok`, `strncat`, `strpbrk`, `strspn`, `strcspn`, `memcpy`, `memset`, `memmove`, `memcmp`
 - **`ctype.h`**: `toupper`, `tolower`, `isalpha`, `isdigit`, `isxdigit`, `islower`, `isupper`, `ispunct`, `isblank`, `iscntrl`, `isalnum`, `isspace`, `isgraph`, `isprint`
 - **`limits.h`**: `CHAR_BIT`, `INT_MAX`, `LONG_MAX`, `UINT_MAX`, `ULONG_MAX`, etc.
 - **`stddef.h`**: `size_t`, `ptrdiff_t`, `NULL`, `offsetof`
 - **`assert.h`**: `assert(expr)` macro
-- **`math.h`**: `abs`, `labs`, `div`, `ldiv`, `min`, `max`, `gcd`, `lcm`
+- **`math.h`**: `abs`, `labs`, `div`, `ldiv`, `min`, `max`, `gcd`, `lcm`, `sinf`, `cosf`, `tanf`, `atanf`, `logf`, `expf`, `sqrtf`, `fabsf`, `powf`, `fmodf`, `ceilf`, `floorf`, `roundf`, `truncf`, `atan2f`, `log10f`, `log2f`, `ldexpf`, `frexpf`, `modff`, `copysignf`, `fmaxf`, `fminf`, `fdimf` (+ double aliases), `M_PI`, `M_E`, `INFINITY`
+- **`float.h`**: `FLT_RADIX`, `FLT_MANT_DIG`, `FLT_DIG`, `FLT_MAX`, `FLT_MIN`, `FLT_EPSILON`, exponent range constants (+ `DBL_*`, `LDBL_*` aliases)
 - **`errno.h`**: `errno`, `_errnoc`, `ERANGE`, `ENOMEM`, `EINVAL`, `EDOM`
 - **`setjmp.h`**: `jmp_buf`, `setjmp`, `longjmp`
 - **`dma.h`**: `dma_copy`, `dma_fill` (MEGA65 F018B DMA controller macros)
@@ -441,7 +453,7 @@ Full documentation: `doc/disk45.md`
 - **MEGA65 Hardware**: https://github.com/MEGA65/mega65-core
 - **45GS02 CPU**: Extended 6502 with Q register (AXYZ) and 32-bit operations
 - **Test Coverage**: 176 assembler validation tests (Units 1-7), 55 segment emission tests, semantic/parser error tests
-- **GTE (GCC Torture Tests)**: 446/480 (92.9%) — comprehensive C language compatibility validation
+- **GTE (GCC Torture Tests)**: 497/575 (86.4%) — comprehensive C language compatibility validation (includes 95 float/double tests)
 - **Standards**: C99 preprocessor, C89/C99 subset for language features
 
 ---
