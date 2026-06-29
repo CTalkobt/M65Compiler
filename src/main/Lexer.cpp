@@ -337,8 +337,16 @@ Token Lexer::lexNumber() {
             if (peek() == '+' || peek() == '-') value += get();
             while (std::isdigit(peek())) value += get();
         }
-        if (peek() == 'f' || peek() == 'F' || peek() == 'l' || peek() == 'L') get();
-        if (peek() == 'i' || peek() == 'I') { get(); return {TokenType::IMAGINARY_LITERAL, value, startLine, startCol, sourceFile}; }
+        // Handle suffix combinations: f, fi, if, i, l, li
+        if (peek() == 'i' || peek() == 'I') {
+            get(); // consume 'i'
+            if (peek() == 'f' || peek() == 'F' || peek() == 'l' || peek() == 'L') get();
+            return {TokenType::IMAGINARY_LITERAL, value, startLine, startCol, sourceFile};
+        }
+        if (peek() == 'f' || peek() == 'F' || peek() == 'l' || peek() == 'L') {
+            get();
+            if (peek() == 'i' || peek() == 'I') { get(); return {TokenType::IMAGINARY_LITERAL, value, startLine, startCol, sourceFile}; }
+        }
         return {TokenType::FLOAT_LITERAL, value, startLine, startCol, sourceFile};
     }
     // Integer with negative exponent is float: 1e-2, 1E-3

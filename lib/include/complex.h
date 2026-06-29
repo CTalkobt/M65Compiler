@@ -35,6 +35,20 @@ struct _Complex_int {
     int operator!=(struct _Complex_int o) {
         return this->real != o.real || this->imag != o.imag;
     }
+
+    struct _Complex_int operator~() {
+        struct _Complex_int r;
+        r.real = this->real;
+        r.imag = 0 - this->imag;
+        return r;
+    }
+
+    struct _Complex_int operator-() {
+        struct _Complex_int r;
+        r.real = 0 - this->real;
+        r.imag = 0 - this->imag;
+        return r;
+    }
 };
 
 struct _Complex_float {
@@ -76,6 +90,20 @@ struct _Complex_float {
 
     int operator!=(struct _Complex_float o) {
         return this->real != o.real || this->imag != o.imag;
+    }
+
+    struct _Complex_float operator~() {
+        struct _Complex_float r;
+        r.real = this->real;
+        r.imag = 0.0 - this->imag;
+        return r;
+    }
+
+    struct _Complex_float operator-() {
+        struct _Complex_float r;
+        r.real = 0.0 - this->real;
+        r.imag = 0.0 - this->imag;
+        return r;
     }
 };
 

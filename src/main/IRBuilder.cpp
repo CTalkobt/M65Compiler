@@ -1888,6 +1888,42 @@ void IRBuilder::visit(UnaryOperation& node) {
     node.operand->accept(*this);
     auto src = lastValue_;
 
+    // Unary operator overloading for struct types
+    if (node.op == "~" || node.op == "-" || node.op == "!" || node.op == "++" || node.op == "--") {
+        IRTypeInfo srcInfo = getExprTypeInfo(node.operand.get());
+        if (!srcInfo.typeName.empty() && srcInfo.type != ir::Type::PTR) {
+            std::string sName = getAggregateName(srcInfo.typeName);
+            if (structs_.count(sName)) {
+                static const std::map<std::string, std::string> unaryOpMap = {
+                    {"~", "bnot"}, {"-", "neg"}, {"!", "lnot"}, {"++", "inc"}, {"--", "dec"},
+                };
+                auto opIt = unaryOpMap.find(node.op);
+                if (opIt != unaryOpMap.end()) {
+                    std::string mangledName = sName + "__operator_" + opIt->second;
+                    if (functionReturnTypes_.count(mangledName)) {
+                        computeAddressOnly_ = true;
+                        node.operand->accept(*this);
+                        computeAddressOnly_ = false;
+                        auto thisPtr = lastValue_;
+                        auto retType = functionReturnTypes_[mangledName];
+                        auto dest = allocVreg(retType);
+                        ir::Inst call;
+                        call.op = (retType == ir::Type::VOID) ? ir::Op::CALL_VOID : ir::Op::CALL;
+                        call.dest = dest;
+                        call.resultType = retType;
+                        call.src1 = ir::Operand::global("_" + mangledName);
+                        call.args = {thisPtr};
+                        call.callConv = ir::CallConv::STACK;
+                        call.loc = loc(node);
+                        emit(call);
+                        lastValue_ = dest;
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
     if (node.op == "-") {
         auto dest = allocVreg(src.type);
         ir::Inst inst;

@@ -2519,7 +2519,7 @@ std::unique_ptr<Expression> Parser::parseUnary() {
         }
 
         if (peek().type == TokenType::INT || peek().type == TokenType::SHORT || peek().type == TokenType::LONG || peek().type == TokenType::CHAR || peek().type == TokenType::BOOL ||
-            peek().type == TokenType::VOID || peek().type == TokenType::FLOAT || peek().type == TokenType::DOUBLE ||
+            peek().type == TokenType::VOID || peek().type == TokenType::FLOAT || peek().type == TokenType::DOUBLE || peek().type == TokenType::COMPLEX ||
             peek().type == TokenType::STRUCT || peek().type == TokenType::UNION || peek().type == TokenType::ENUM ||
             peek().type == TokenType::SIGNED || peek().type == TokenType::UNSIGNED ||
             (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value))) {
@@ -3066,11 +3066,15 @@ std::string Parser::resolveComplexType() {
     // and return the appropriate struct name.
     if (match(TokenType::FLOAT)) return "struct _Complex_float";
     if (match(TokenType::DOUBLE)) return "struct _Complex_float";
-    if (match(TokenType::LONG)) { match(TokenType::DOUBLE); return "struct _Complex_float"; }
+    if (match(TokenType::LONG)) {
+        if (match(TokenType::DOUBLE)) return "struct _Complex_float";  // _Complex long double
+        match(TokenType::INT);  // _Complex long int → integer complex
+        return "struct _Complex_int";
+    }
     if (match(TokenType::INT)) return "struct _Complex_int";
     if (match(TokenType::SHORT)) { match(TokenType::INT); return "struct _Complex_int"; }
-    if (match(TokenType::UNSIGNED)) { match(TokenType::INT); return "struct _Complex_int"; }
-    if (match(TokenType::SIGNED)) { match(TokenType::INT); return "struct _Complex_int"; }
+    if (match(TokenType::UNSIGNED)) { match(TokenType::LONG); match(TokenType::INT); return "struct _Complex_int"; }
+    if (match(TokenType::SIGNED)) { match(TokenType::LONG); match(TokenType::INT); return "struct _Complex_int"; }
     // Bare _Complex with no type → default to double → float
     return "struct _Complex_float";
 }
