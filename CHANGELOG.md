@@ -46,7 +46,12 @@ Major feature release: OOP system, operator overloading, **full floating-point s
 
 ### New Headers
 
-- **`<complex.h>`**: Integer complex number type via operator-overloaded struct (`_Complex_int`)
+- **`<complex.h>`**: Complex number types via operator-overloaded structs
+  - `_Complex_int`: integer complex (`+`, `-`, `*`, `==`, `!=`)
+  - `_Complex_float`: float complex (`+`, `-`, `*`, `/`, `==`, `!=`), `__builtin_conjf`
+  - `_Complex`/`__complex__` keyword: `_Complex float`, `__complex__ double`, `float __complex__` all map to `struct _Complex_float`
+  - Imaginary literals: `1.0fi`, `1.0i` → `(struct _Complex_float){0.0, value}`
+  - `__real__(z)`, `__imag__(z)` accessor macros
 - **`<float.h>`**: CBM 40-bit float characteristics and limits
 
 ### GTE Compatibility (316→497/575, 65.8%→86.4%)
@@ -107,6 +112,7 @@ Major feature release: OOP system, operator overloading, **full floating-point s
 - **Pointer dereference store bug**: `*p = val` overwrote the pointer variable instead of storing through it. The dereference handler in address-only mode returned the local-slot vreg directly; STORE handler treated it as a local-slot write. Fixed by emitting COPY to a fresh vreg. Affected both float and non-float pointer stores.
 - **String label prefix mismatch**: `ADDR_GLOBAL` added `_` prefix to symbol names but `emitStrings()` emitted labels without it, causing `___str_0` undefined symbol errors in relocatable mode. Fixed by adding `_` prefix to string label definitions.
 - **F32 arg push in two-phase call path**: Float args to variadic functions were pushed as 2 bytes (`push .ax`) instead of 5 bytes. Fixed both phases: ZP scratch slots now use variable sizes, and F32 args push via 5-byte `pha` loop.
+- **Operator overloading with struct return types**: `isFunctionDeclaration()` didn't recognize `struct S operator+(struct S o)` — expected IDENTIFIER + `(` but got `operator` + `+`. Fixed lookahead to handle `operator` keyword followed by operator symbol(s). Also added operator dispatch in IRBuilder `BinaryOperation` visitor (was missing entirely — struct `a + b` was treated as regular arithmetic instead of calling `StructName__operator_add`).
 
 ---
 
