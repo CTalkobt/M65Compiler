@@ -105,6 +105,7 @@ option_data   (N bytes)  ; length - 2 bytes of payload
 | `$04`  | `OPT_AUTHOR` | Author string (NUL-terminated)                       |
 | `$05`  | `OPT_CREATED`| Creation timestamp (NUL-terminated)                  |
 | `$10`  | `OPT_SEGATTR`| Sub-segment attribute (see 1.7)                      |
+| `$11`  | `OPT_LINEINFO`| Debug line info table (see 1.8)                      |
 | `$80`+ | user-defined | Available for toolchain-specific extensions           |
 
 Recommended `.o45` options:
@@ -127,6 +128,34 @@ name           (N+1 bytes); NUL-terminated original assembler segment name
 The linker uses the `name` field to determine ordering priority. The built-in priority order for text sub-segments is: `"init"` before `"code"` before any other names. This ensures CRT startup code (in the `"init"` segment) is always placed at the beginning of the text section, regardless of link order.
 
 Objects without `OPT_SEGATTR` records are treated as having a single unnamed sub-segment equivalent to `"code"`. Old tools that do not understand `OPT_SEGATTR` simply ignore it (standard option skip behavior).
+
+### 1.8 Debug Line Info (OPT_LINEINFO) [IMPLEMENTED]
+
+Stores debug line information mapping machine code offsets to source code files and line numbers. For large programs, the debug line info may span multiple `OPT_LINEINFO` options.
+
+The first `OPT_LINEINFO` option has the following structure:
+```
+option_length  (1 byte)   ; 2 + payload_length
+option_type    (1 byte)   ; $11 (OPT_LINEINFO)
+fileCount      (2 bytes)  ; LE number of files in the file table
+fileNames      (V bytes)  ; fileCount NUL-terminated filename strings
+entryCount     (2 bytes)  ; LE number of line info entries in this option
+entries        (N*6 bytes); N line info entries (each 6 bytes)
+```
+
+Subsequent continuation `OPT_LINEINFO` options contain only entries:
+```
+option_length  (1 byte)   ; 2 + payload_length
+option_type    (1 byte)   ; $11 (OPT_LINEINFO)
+entries        (M*6 bytes); M continuation line info entries (each 6 bytes)
+```
+
+Each 6-byte line info entry is structured as:
+```
+textOffset     (2 bytes)  ; LE offset within the TEXT segment body
+fileIndex      (2 bytes)  ; LE index into the fileNames list
+line           (2 bytes)  ; LE 1-based source code line number
+```
 
 ---
 
@@ -293,9 +322,10 @@ flagClobbers      (1 byte)  ; bit 0=C, 1=N, 2=Z, 3=V
 zpUses            (4 bytes, LE) ; bitmask: which ZP slots are read as parameters
 zpClobbers        (4 bytes, LE) ; bitmask: which ZP slots are written by function
 zpRelease         (4 bytes, LE) ; bitmask: which ZP slots are consumed (caller need not restore)
+paramSize         (1 byte)  ; size of parameter space in bytes (for thunk generation)
 ```
 
-**Total size**: 16 bytes (including marker).
+**Total size**: 17 bytes (including marker).
 
 #### Flags Byte (offset 0 in attribute record, after marker)
 
