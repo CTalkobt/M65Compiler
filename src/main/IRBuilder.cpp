@@ -1209,7 +1209,8 @@ void IRBuilder::visit(VariableReference& node) {
             lastValueSigned_ = false;
             return;
         } else {
-            // Global function pointer
+            // Global function pointer — track reference for extern emission
+            calledFunctions_.insert("_" + node.name);
             lastValue_ = ir::Operand::global("_" + node.name);
             lastValueSigned_ = false;
             return;
