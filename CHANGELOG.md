@@ -2,9 +2,9 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
-## [v1.0.3-dev] - 2026-06-29 — Development
+## [v1.0.3-dev] - 2026-06-30 — Development
 
-Major feature release: OOP system, operator overloading, **full floating-point support**, GTE compatibility from 65.8% to 86.4% (575 tests).
+Major feature release: OOP system, operator overloading, **full floating-point support**, `__int(N)`/`__uint(N)`, GTE compatibility from 65.8% to 95.9% (581 tests).
 
 ### Object-Oriented Programming System
 
@@ -55,7 +55,15 @@ Major feature release: OOP system, operator overloading, **full floating-point s
   - Unary operator overloading: `~`, `-`, `!`, `++`, `--` dispatch to struct `operator_*` methods
 - **`<float.h>`**: CBM 40-bit float characteristics and limits
 
-### GTE Compatibility (316→545/581, 65.8%→93.8%)
+### Parameterized Integer Types (Phase 0 — parse + map)
+
+- **`__int(N)` / `__uint(N)`**: Parsed in all type positions (declarations, params, returns, casts, sizeof, typedef, funcptr, va_arg). Mapped to nearest supported type: ≤8→char, ≤16→int, ≤32→long. Widths >32 accepted but truncated to 32-bit pending full I64 codegen (Issue #119 Phase 1)
+- **`long long`**: Two consecutive `long` tokens consumed, mapped to `long` (32-bit)
+- **`__int128` / `__int128_t` / `__uint128_t`**: Recognized as INT_N keywords, mapped to `long`
+- **`_Decimal32` / `_Decimal64` / `_Decimal128`**: Preprocessor macros → `float`. Decimal literal suffixes (`.DD`, `.DF`, `.DL`) consumed in lexer
+- **`int64_t` / `uint64_t` / `intptr_t` / `uintptr_t`**: Added to `<stdint.h>`
+
+### GTE Compatibility (316→557/581, 65.8%→95.9%)
 
 - **101 float/double/complex torture tests added** from GCC test suite (previously excluded)
 - **ADDR_GLOBAL prefix fix**: global variable address-of (`&var`) had double `_` prefix, causing 33 assembler undefined symbol errors

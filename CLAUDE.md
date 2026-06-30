@@ -148,7 +148,7 @@ make clean && make test  # Clean rebuild and test
 
 ### Implemented (v1.0.3-dev)
 
-- **Types**: `char`, `short`, `int`, `long`, `float`, `double`, `unsigned` variants, pointers, arrays, structs, unions, function pointers, `_Bool`
+- **Types**: `char`, `short`, `int`, `long`, `long long`, `float`, `double`, `unsigned` variants, `__int(N)`/`__uint(N)` (arbitrary width), `_Decimal32`/`_Decimal64`/`_Decimal128`, pointers, arrays, structs, unions, function pointers, `_Bool`
 - **Qualifiers**: `const`, `volatile`, `static` (all orderings), `register`, `extern`, `_Alignas`
 - **Declarations**: Function declarations, variable declarations, typedefs, type qualifiers in any order, implicit int (`static max;`, `unsigned d;`)
 - **Initializers**: Scalar, aggregate, designated initializers (`{.x=1}`, `{[2]=3}`), flexible array members, string literal concatenation
@@ -210,7 +210,7 @@ make clean && make test  # Clean rebuild and test
 
 ### Not Implemented
 
-- `long long` / `int64_t` (planned via `__int(N)` — see Issue #119)
+- `long long` / `int64_t` full 64-bit codegen (parsed and accepted, currently truncated to 32-bit `long` — see Issue #119 for full I64 runtime)
 
 ## Standard Library
 
@@ -452,7 +452,7 @@ Full documentation: `doc/disk45.md`
 - **MEGA65 Hardware**: https://github.com/MEGA65/mega65-core
 - **45GS02 CPU**: Extended 6502 with Q register (AXYZ) and 32-bit operations
 - **Test Coverage**: 176 assembler validation tests (Units 1-7), 55 segment emission tests, semantic/parser error tests
-- **GTE (GCC Torture Tests)**: 545/581 (93.8%) — comprehensive C language compatibility validation (includes 95 float/double tests, 7 complex tests)
+- **GTE (GCC Torture Tests)**: 557/581 (95.9%) — comprehensive C language compatibility validation (includes 95 float/double tests, 7 complex tests)
 - **Standards**: C99 preprocessor, C89/C99 subset for language features
 
 ---
