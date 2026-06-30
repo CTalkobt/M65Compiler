@@ -212,7 +212,13 @@ std::string Preprocessor::expandMacros(const std::string& line) {
                                     size_t pos = 0;
                                     while ((pos = b.find(pattern, pos)) != std::string::npos) {
                                         if (pos > 0 && b[pos-1] == '#') { pos += pattern.length(); continue; }
-                                        b.replace(pos, pattern.length(), "\"" + argVal + "\"");
+                                        // Escape inner quotes and backslashes per C99 §6.10.3.2
+                                        std::string escaped;
+                                        for (char ch : argVal) {
+                                            if (ch == '"' || ch == '\\') escaped += '\\';
+                                            escaped += ch;
+                                        }
+                                        b.replace(pos, pattern.length(), "\"" + escaped + "\"");
                                     }
                                 };
 

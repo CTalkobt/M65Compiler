@@ -57,6 +57,23 @@ private:
     std::string resolveIntNType(bool isSigned); // consume (N) after __int/__uint, return type name
     std::shared_ptr<FuncPtrSignature> parseFuncPtrParams(const std::string& returnType, int returnPtrLevel, bool returnIsSigned);
 
+    // Unified type specifier parsing — replaces 15+ inline type-matching blocks
+    struct TypeSpec {
+        std::string name;       // "int", "long", "float", "struct Foo", "struct _Complex_float"
+        bool isSigned = false;
+        bool isUnsigned = false;
+        bool isConst = false;
+        bool isVolatile = false;
+        int pointerLevel = 0;
+        std::vector<int> arrayDims;  // from typedef
+        bool isFunctionPointer = false;
+        std::shared_ptr<FuncPtrSignature> funcPtrSig;
+        bool valid = false;     // true if a type was successfully parsed
+    };
+    TypeSpec parseTypeSpecifier();    // consume type keywords + qualifiers, return TypeSpec
+    bool isTypeStartToken() const;   // peek: does current token start a type?
+    bool isTypeStartAt(size_t look) const; // lookahead version
+
     struct TypeAlias {
         std::string baseType;
         int pointerLevel;

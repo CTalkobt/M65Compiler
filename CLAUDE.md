@@ -162,7 +162,7 @@ make clean && make test  # Clean rebuild and test
 - **Preprocessor**: Full C99 preprocessor, `__cc45__` macro, `__builtin_va_list`, GCC keyword synonyms (`__volatile`, `__const`, `__inline`, `__restrict`, `__signed`)
 - **Inline Functions**: `inline` keyword, `-finline-functions` flag, auto-inline for trivial struct methods (≤3 statements)
 - **Loop Unrolling**: `repeat(N) { body }` compile-time loop unrolling
-- **Function Attributes**: `__interrupt`, `__naked`, `__regparm`, `__fastcall__`, `__attribute__` (parsed and skipped in all positions)
+- **Function Attributes**: `__interrupt`, `__naked`, `__regparm`, `__fastcall__`, `__attribute__` (25+ attributes silently accepted including `always_inline`, `unused`, `weak`, `pure`, `const`, `cold`, `hot`, `packed`, `noinline`; 5 warn-and-ignore: `noipa`, `aligned`, `mode`, `vector_size`, `may_alias`)
 - **Variadic Functions**: Full `<stdarg.h>` support with `struct`/`union`/`enum`/`typeof`/`const`/`float`/`double` types in `va_arg`
 - **DMA Intrinsics**: `__dma_copy(dst, src, len)` and `__dma_fill(dst, len, val)` for MEGA65 F018B DMA
 - **CPU/Flag Intrinsics**: `__cpu.A/.X/.Y/.Z/.AX/.Q` and `__flags.Carry/.Zero/.Negative/.Overflow`
@@ -459,7 +459,7 @@ Full documentation: `doc/disk45.md`
 
 - **MEGA65 Hardware**: https://github.com/MEGA65/mega65-core
 - **45GS02 CPU**: Extended 6502 with Q register (AXYZ) and 32-bit operations
-- **Test Coverage**: 176 assembler validation tests (Units 1-7), 55 segment emission tests, semantic/parser error tests
+- **Test Coverage**: 282 unit tests pass (`make test`), 176 assembler validation tests (Units 1-7), 55 segment emission tests, semantic/parser error tests. 5 hardware I/O tests require mmemu MCP (mega65 mode with MAP clear — see mmemu#79, #80)
 - **GTE (GCC Torture Tests)**: 557/581 (95.9%) — comprehensive C language compatibility validation (includes 95 float/double tests, 7 complex tests). Remaining 24: 9 unfixable (sys/mman.h, stdout/FILE*, __builtin_va_arg_pack, #define L), 8 nested function closure issues, 7 parser edge cases (statement expressions, macro re-expansion)
 - **Standards**: C99 preprocessor, C89/C99 subset for language features
 

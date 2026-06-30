@@ -116,6 +116,7 @@ Remaining 24 failures: 9 unfixable (sys/mman.h, stdout/FILE\*, \_\_builtin\_va\_
 - **`#if(` without space**: `#if(__SIZEOF_INT__ >= 4)` now parsed correctly
 - **`__extension__`**: Skipped at top-level declaration context
 - **`va_arg`**: `const`/`volatile` qualifiers before type, `struct`/`union`/`enum`/`typeof` types
+- **`__attribute__` expansion**: 25+ GCC attributes silently accepted (`always_inline`, `unused`, `weak`, `pure`, `const`, `cold`, `hot`, `packed`, `noinline`, `deprecated`, `visibility`, `section`, `format`, `malloc`, `constructor`, `destructor`, etc.). `__attribute__` before `typedef` at top level now works.
 
 ### Assembler Fixes
 
@@ -139,6 +140,24 @@ Remaining 24 failures: 9 unfixable (sys/mman.h, stdout/FILE\*, \_\_builtin\_va\_
 - **String label prefix mismatch**: `ADDR_GLOBAL` added `_` prefix to symbol names but `emitStrings()` emitted labels without it, causing `___str_0` undefined symbol errors in relocatable mode. Fixed by adding `_` prefix to string label definitions.
 - **F32 arg push in two-phase call path**: Float args to variadic functions were pushed as 2 bytes (`push .ax`) instead of 5 bytes. Fixed both phases: ZP scratch slots now use variable sizes, and F32 args push via 5-byte `pha` loop.
 - **Operator overloading with struct return types**: `isFunctionDeclaration()` didn't recognize `struct S operator+(struct S o)` — expected IDENTIFIER + `(` but got `operator` + `+`. Fixed lookahead to handle `operator` keyword followed by operator symbol(s). Also added operator dispatch in IRBuilder `BinaryOperation` visitor (was missing entirely — struct `a + b` was treated as regular arithmetic instead of calling `StructName__operator_add`).
+- **sizeof(\*this)**: `getExprTypeInfo` for pointer dereference returned IR type size (2 bytes for PTR) instead of actual struct size. Fixed to use `getTypeSize(typeName)`.
+- **ADDR_GLOBAL double prefix**: global variable address-of (`&var`) had double `_` prefix in ADDR_GLOBAL emission.
+- **Static function DCE**: functions used as function pointers but never called directly were eliminated. DCE now scans all global operand references.
+- **Preprocessor # stringification**: inner quotes not escaped per C99 §6.10.3.2.
+- **Unary vs binary operator- disambiguation**: `operator-()` (unary negation) and `operator-(o)` (binary subtraction) both mangled to `operator_sub`. Fixed: unary maps to `operator_neg`.
+- **const double-pointer false positive**: `const T **pp; *pp = val;` incorrectly rejected. Fixed: check `localPointedToType_` for multi-level pointers.
+
+### Parser Refactoring
+
+- **`parseTypeSpecifier()`**: Unified type parsing function replaces 14 duplicated inline type-matching blocks. Adding a new type keyword now requires editing only one function. Net -403 lines.
+- **`isTypeStartToken()` / `isTypeStartAt()`**: Unified type detection for statement routing and lookahead.
+
+### Hardware I/O Testing
+
+- **MCP-based test runner** (`test_hw_mcp.sh`): documents MCP sequence for mega65 mode hardware tests (VIC-IV, SID, CIA, DMA, keyboard)
+- Boot mega65 via breakpoint at KERNAL loop `$E1C6`, clear MAP via `set_map_state`, load + run tests
+- VIC-IV test verified passing via MCP; SID/CIA/DMA/devices partially pass (timing-dependent registers, unimplemented devices)
+- Filed mmemu#79 (load_image bank 0 default) and mmemu#80 (CLI step doesn't apply MAP changes)
 
 ---
 
