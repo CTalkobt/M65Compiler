@@ -69,6 +69,8 @@ Major feature release: OOP system, operator overloading, **full floating-point s
 
 ### GTE Compatibility (316→557/581, 65.8%→95.9%)
 
+Remaining 24 failures: 9 unfixable (sys/mman.h, stdout/FILE\*, \_\_builtin\_va\_arg\_pack, #define L, missing file), 8 nested function closure/label issues, 7 parser edge cases (statement expressions, macro re-expansion, funcptr-in-funcptr).
+
 - **101 float/double/complex torture tests added** from GCC test suite (previously excluded)
 - **ADDR_GLOBAL prefix fix**: global variable address-of (`&var`) had double `_` prefix, causing 33 assembler undefined symbol errors
 - **Static function DCE fix**: functions used as function pointers but never called directly were incorrectly eliminated. DCE now scans all global operand references, not just CALL instructions
@@ -77,6 +79,10 @@ Major feature release: OOP system, operator overloading, **full floating-point s
 - **Integer imaginary literals**: `200i`, `1i` for complex number initialization
 - **Volatile function pointer arrays**: `int (* volatile fp[])(void)` — qualifiers between `(*` and name now skipped
 - **`_Complex` type completeness**: `_Complex unsigned short`, `_Complex char`, `_Complex long int` all resolved correctly
+- **Compound literal postfix**: `(int[]){1,2,3}[i]` — subscript/member access after compound literals
+- **`__alignof__`/`__alignof`**: Added as ALIGNOF keyword aliases with expanded type list (typedef, unsigned, signed, float, union)
+- **const double-pointer**: `const T **pp; *pp = val;` no longer falsely rejected as read-only
+- **Built-in type aliases**: `__int128`, `__int128_t`, `__uint128_t`, `__int64_t`, `__uint64_t` as parser typedefs
 - **Nested Functions**: Closure conversion with static chain — all `nestfunc-*` tests pass
 - **32-bit Bitfields**: `long`-backed storage units, `bfext32`/`bfins32` simulated ops
 - **`__builtin_*` Aliases**: 22 GCC builtins mapped to stdlib (`__builtin_printf` → `printf`, etc.)
