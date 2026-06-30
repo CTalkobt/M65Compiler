@@ -2551,8 +2551,23 @@ std::unique_ptr<Expression> Parser::parseUnary() {
         expect(TokenType::CLOSE_BRACE, "Expected '}' in statement expression");
         expect(TokenType::CLOSE_PAREN, "Expected ')' after statement expression");
         // Statement expressions yield their last value; for now, treat as 0
-        // (the actual value would require full statement expression codegen)
-        return setPos(std::make_unique<IntegerLiteral>(0), startToken);
+        std::unique_ptr<Expression> result = setPos(std::make_unique<IntegerLiteral>(0), startToken);
+        // Allow postfix operators: ({...}).member, ({...})[i]
+        while (peek().type == TokenType::DOT || peek().type == TokenType::ARROW ||
+               peek().type == TokenType::OPEN_SQUARE) {
+            if (match(TokenType::DOT)) {
+                std::string member = expect(TokenType::IDENTIFIER, "Expected member name").value;
+                result = setPos(std::make_unique<MemberAccess>(std::move(result), member, false), startToken);
+            } else if (match(TokenType::ARROW)) {
+                std::string member = expect(TokenType::IDENTIFIER, "Expected member name").value;
+                result = setPos(std::make_unique<MemberAccess>(std::move(result), member, true), startToken);
+            } else if (match(TokenType::OPEN_SQUARE)) {
+                auto index = parseExpression();
+                expect(TokenType::CLOSE_SQUARE, "Expected ']'");
+                result = setPos(std::make_unique<ArrayAccess>(std::move(result), std::move(index)), startToken);
+            }
+        }
+        return result;
     }
 
     // Explicit cast: (type)expr
@@ -3121,13 +3136,26 @@ std::unique_ptr<Expression> Parser::parseInitializerList() {
     if (peek().type != TokenType::CLOSE_BRACE) {
         do {
             InitializerList::Designator desig;
-            // Check for designators: .member = or [index] =
-            if (peek().type == TokenType::DOT && pos + 2 < tokens.size()
-                && tokens[pos + 1].type == TokenType::IDENTIFIER && tokens[pos + 2].type == TokenType::EQUALS) {
-                advance(); // consume '.'
-                desig.memberName = advance().value; // consume identifier
-                advance(); // consume '='
-                hasDesignators = true;
+            // Check for designators: .member = , .member.sub = , or [index] =
+            if (peek().type == TokenType::DOT && pos + 1 < tokens.size()
+                && tokens[pos + 1].type == TokenType::IDENTIFIER) {
+                // Consume .member chain (e.g., .f.f9)
+                std::string chain;
+                while (peek().type == TokenType::DOT && pos + 1 < tokens.size()
+                       && tokens[pos + 1].type == TokenType::IDENTIFIER) {
+                    advance(); // consume '.'
+                    if (!chain.empty()) chain += ".";
+                    chain += advance().value; // consume identifier
+                }
+                if (match(TokenType::EQUALS)) {
+                    desig.memberName = chain;
+                    hasDesignators = true;
+                } else {
+                    // Not a designator — backtrack would be needed, but for simplicity
+                    // treat as designator without '=' (some C99 code uses this)
+                    desig.memberName = chain;
+                    hasDesignators = true;
+                }
             } else if (peek().type == TokenType::OPEN_SQUARE && pos + 3 < tokens.size()
                 && tokens[pos + 1].type == TokenType::INTEGER_LITERAL
                 && tokens[pos + 2].type == TokenType::CLOSE_SQUARE
