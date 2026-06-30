@@ -697,8 +697,25 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             {"/=", "div_assign"}, {"%=", "mod_assign"}, {"&=", "band_assign"},
             {"|=", "bor_assign"}, {"^=", "bxor_assign"}, {"<<=", "shl_assign"}, {">>=", "shr_assign"},
         };
+        // Defer final name until we know param count (unary vs binary)
         auto it = opMap.find(opName);
-        name = "operator_" + (it != opMap.end() ? it->second : opName);
+        std::string opSuffix = it != opMap.end() ? it->second : opName;
+        // Check if it's a unary operator (no params before ')')
+        if (opName == "-" || opName == "+" || opName == "*" || opName == "&") {
+            // These can be both unary and binary — peek at params
+            // If next tokens are '(' ')' or '(' 'void' ')', it's unary
+            size_t peekPos = pos; // pos is at '('
+            if (peekPos + 1 < tokens.size() && tokens[peekPos].type == TokenType::OPEN_PAREN &&
+                tokens[peekPos + 1].type == TokenType::CLOSE_PAREN) {
+                // No params → unary
+                static const std::map<std::string, std::string> unaryMap = {
+                    {"-", "neg"}, {"+", "pos"}, {"*", "deref"}, {"&", "addr"},
+                };
+                auto uit = unaryMap.find(opName);
+                if (uit != unaryMap.end()) opSuffix = uit->second;
+            }
+        }
+        name = "operator_" + opSuffix;
     } else {
         name = expect(TokenType::IDENTIFIER, "Expected function name").value;
     }

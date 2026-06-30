@@ -292,11 +292,6 @@ Token Lexer::lexIdentifierOrKeyword() {
         {"__complex__", TokenType::COMPLEX},
         {"__real__", TokenType::REAL_PART},
         {"__imag__", TokenType::IMAG_PART},
-        {"__int", TokenType::INT_N},
-        {"__uint", TokenType::UINT_N},
-        {"__int128", TokenType::INT_N},
-        {"__int128_t", TokenType::INT_N},
-        {"__uint128_t", TokenType::UINT_N},
         };
 
     auto it = keywords.find(value);

@@ -47,6 +47,11 @@ Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
     macros["__signed"] = Macro{false, false, {}, "signed"};
     macros["__signed__"] = Macro{false, false, {}, "signed"};
 
+    // Parameterized integer types: __int(N) → struct __intN, __uint(N) → struct __uintN
+    macros["__int"] = Macro{true, false, {"N"}, "struct __int##N"};
+    macros["__uint"] = Macro{true, false, {"N"}, "struct __uint##N"};
+
+
     // Decimal floating-point types (GCC extension) — map to float for now
     macros["_Decimal32"] = Macro{false, false, {}, "float"};
     macros["_Decimal64"] = Macro{false, false, {}, "float"};
