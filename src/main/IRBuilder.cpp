@@ -27,6 +27,17 @@ void IRBuilder::generate(TranslationUnit& unit) {
                             inst.src1.kind == ir::OperandKind::GLOBAL) {
                             usedFuncs.insert(inst.src1.name);
                         }
+                        // Function address taken (function pointer) via ADDR_GLOBAL
+                        if (inst.op == ir::Op::ADDR_GLOBAL &&
+                            inst.src1.kind == ir::OperandKind::GLOBAL) {
+                            usedFuncs.insert(inst.src1.name);
+                        }
+                        // Function name used as value (global operand in args, src1, src2)
+                        if (inst.src1.kind == ir::OperandKind::GLOBAL) usedFuncs.insert(inst.src1.name);
+                        if (inst.src2.kind == ir::OperandKind::GLOBAL) usedFuncs.insert(inst.src2.name);
+                        for (const auto& arg : inst.args) {
+                            if (arg.kind == ir::OperandKind::GLOBAL) usedFuncs.insert(arg.name);
+                        }
                     }
                 }
             }

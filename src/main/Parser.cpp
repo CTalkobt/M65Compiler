@@ -1688,6 +1688,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     if (peek().type == TokenType::OPEN_PAREN && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::STAR) {
         advance(); // consume '('
         advance(); // consume '*'
+        while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT)) {}
         std::string fpName = expect(TokenType::IDENTIFIER, "Expected function pointer name").value;
         std::vector<int> fpArrayDims;
         while (match(TokenType::OPEN_SQUARE)) {
@@ -3073,8 +3074,9 @@ std::string Parser::resolveComplexType() {
     }
     if (match(TokenType::INT)) return "struct _Complex_int";
     if (match(TokenType::SHORT)) { match(TokenType::INT); return "struct _Complex_int"; }
-    if (match(TokenType::UNSIGNED)) { match(TokenType::LONG); match(TokenType::INT); return "struct _Complex_int"; }
-    if (match(TokenType::SIGNED)) { match(TokenType::LONG); match(TokenType::INT); return "struct _Complex_int"; }
+    if (match(TokenType::UNSIGNED)) { match(TokenType::LONG) || match(TokenType::SHORT) || match(TokenType::INT) || match(TokenType::CHAR); match(TokenType::INT); return "struct _Complex_int"; }
+    if (match(TokenType::SIGNED)) { match(TokenType::LONG) || match(TokenType::SHORT) || match(TokenType::INT) || match(TokenType::CHAR); match(TokenType::INT); return "struct _Complex_int"; }
+    if (match(TokenType::CHAR)) return "struct _Complex_int";
     // Bare _Complex with no type → default to double → float
     return "struct _Complex_float";
 }

@@ -297,6 +297,12 @@ Token Lexer::lexIdentifierOrKeyword() {
         return {it->second, value, startLine, startCol, sourceFile};
     }
 
+    // Wide char/string prefix: L'x' or L"str" → downgrade to regular char/string
+    if (value == "L" && (peek() == '\'' || peek() == '"')) {
+        if (peek() == '"') return lexString(false);
+        else return lexChar(false);
+    }
+
     return {TokenType::IDENTIFIER, value, startLine, startCol, sourceFile};
 }
 
@@ -392,6 +398,12 @@ Token Lexer::lexNumber() {
     }
     // Consume optional L/l/U/u suffixes
     while (peek() == 'L' || peek() == 'l' || peek() == 'U' || peek() == 'u') get();
+    // Integer imaginary literal: 200i, 1i
+    if (peek() == 'i' || peek() == 'I') {
+        get();
+        if (peek() == 'f' || peek() == 'F') get(); // consume trailing f
+        return {TokenType::IMAGINARY_LITERAL, value, startLine, startCol, sourceFile};
+    }
     return {TokenType::INTEGER_LITERAL, value, startLine, startCol, sourceFile};
 }
 
