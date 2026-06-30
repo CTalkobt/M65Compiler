@@ -55,13 +55,17 @@ Major feature release: OOP system, operator overloading, **full floating-point s
   - Unary operator overloading: `~`, `-`, `!`, `++`, `--` dispatch to struct `operator_*` methods
 - **`<float.h>`**: CBM 40-bit float characteristics and limits
 
-### Parameterized Integer Types (Phase 0 — parse + map)
+### Arbitrary-Width Integer Types (`__int(N)` / `__uint(N)`)
 
-- **`__int(N)` / `__uint(N)`**: Parsed in all type positions (declarations, params, returns, casts, sizeof, typedef, funcptr, va_arg). Mapped to nearest supported type: ≤8→char, ≤16→int, ≤32→long. Widths >32 accepted but truncated to 32-bit pending full I64 codegen (Issue #119 Phase 1)
-- **`long long`**: Two consecutive `long` tokens consumed, mapped to `long` (32-bit)
-- **`__int128` / `__int128_t` / `__uint128_t`**: Recognized as INT_N keywords, mapped to `long`
-- **`_Decimal32` / `_Decimal64` / `_Decimal128`**: Preprocessor macros → `float`. Decimal literal suffixes (`.DD`, `.DF`, `.DL`) consumed in lexer
+- **Architecture**: Library-based via operator-overloaded structs. Preprocessor maps `__int(N)` → `struct __intN` via token pasting. Operators call width-parameterized runtime with byte count. Zero compiler codegen changes.
+- **`<intwide.h>`**: `struct __int64` (8 bytes) and `struct __int128` (16 bytes) with operators `+`, `-`, `*`, `==`, `!=`, `~`, unary `-`. Extensible to any width by adding a struct definition.
+- **Runtime library** (`intwide.c`): `__intN_add`, `__intN_sub`, `__intN_mul`, `__intN_cmp_u`, `__intN_neg`, `__intN_not`, `__intN_and`, `__intN_or`, `__intN_xor`, `__intN_shl`, `__intN_shr_u` — single set of routines handles all widths. Also available as optimized 45GS02 assembly (`intwide_rt.s`, 525 bytes).
+- **`long long`**: Two consecutive `long` tokens consumed, mapped to `long` (32-bit). Use `__int(64)` with `<intwide.h>` for true 64-bit.
+- **`__int128` / `__int128_t` / `__uint128_t`**: Preprocessor macros → `struct __int128`
+- **`_Decimal32` / `_Decimal64` / `_Decimal128`**: Preprocessor macros → `float`. Decimal literal suffixes (`.DD`, `.DF`, `.DL`) consumed in lexer. Same struct+operator pattern extends to decimal types.
 - **`int64_t` / `uint64_t` / `intptr_t` / `uintptr_t`**: Added to `<stdint.h>`
+- **`sizeof(*this)` fix**: Correctly returns struct size in method bodies (was returning pointer size)
+- **Operator name disambiguation**: Unary `operator-()` → `operator_neg` vs binary `operator-(o)` → `operator_sub`
 
 ### GTE Compatibility (316→557/581, 65.8%→95.9%)
 

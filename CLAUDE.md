@@ -208,9 +208,16 @@ make clean && make test  # Clean rebuild and test
 - **Math library**: 27 functions — ROM-backed trig/transcendental (`sinf`, `cosf`, `tanf`, `atanf`, `logf`, `expf`, `sqrtf`, `fabsf`) plus C-implemented `powf`, `fmodf`, `ceilf`, `floorf`, `roundf`, `truncf`, `atan2f`, `log10f`, `log2f`, `ldexpf`, `frexpf`, `modff`, `copysignf`, `fmaxf`, `fminf`, `fdimf`
 - **Headers**: `<float.h>` (FLT_MAX/MIN/EPSILON, FLT_DIG, etc.), `<math.h>` (M_PI, M_E, INFINITY, all function declarations + double aliases)
 
+### Wide Integer Support (v1.0.3)
+
+- **`__int(N)` / `__uint(N)`**: Arbitrary-width integers via operator-overloaded structs. Preprocessor maps `__int(N)` → `struct __intN`. Operators call width-parameterized runtime (`__intN_add(a,b,byteCount)` etc.)
+- **Pre-defined widths**: `struct __int64` (8 bytes), `struct __int128` (16 bytes) in `<intwide.h>`
+- **Runtime library**: `__intN_add`, `__intN_sub`, `__intN_mul`, `__intN_cmp_u`, `__intN_neg`, `__intN_not`, `__intN_and`, `__intN_or`, `__intN_xor`, `__intN_shl`, `__intN_shr_u` — single set of routines handles all widths
+- **Extensibility**: New widths need only a struct definition with operators; runtime handles any byte count. Same pattern extends to `_Decimal(N)`
+
 ### Not Implemented
 
-- `long long` / `int64_t` full 64-bit codegen (parsed and accepted, currently truncated to 32-bit `long` — see Issue #119 for full I64 runtime)
+- `long long` native 64-bit arithmetic without struct wrapper (currently `long long` = `long` = 32-bit; use `__int(64)` with `<intwide.h>` for true 64-bit)
 
 ## Standard Library
 
@@ -231,6 +238,7 @@ make clean && make test  # Clean rebuild and test
 - **`mega65.h`**: Hardware register struct overlays — VIC-IV, SID x4, CIA x2, DMA, math accelerator, audio mixer, FDC, SD card, Ethernet, Hypervisor, `SCREEN_RAM`/`COLOUR_RAM`, `key_pressed()` + 66 `KEY_*` constants
 - **`time.h`**: `clock`, `time`, `difftime`, `CLOCKS_PER_SEC` (jiffy clock, 60Hz)
 - **`complex.h`**: `_Complex_int` and `_Complex_float` structs with operator-overloaded arithmetic (`+`, `-`, `*`, `/`, `==`, `!=`), unary (`~` conjugate, `-` negation), `__builtin_conjf`. `_Complex float`, `__complex__ float`, `float __complex__`, `_Complex long int`, `_Complex long double` syntax all supported via `COMPLEX` keyword token. Imaginary literals: `1.0fi`, `1.0i`, `2.2if`. `__real__`/`__imag__` as parser-level unary operators (lvalue + rvalue, with and without parentheses)
+- **`intwide.h`**: `struct __int64` (8-byte) and `struct __int128` (16-byte) wide integers with operator-overloaded arithmetic. Width-parameterized runtime (`__intN_add`, `__intN_mul`, etc.). Use via `__int(64)` syntax
 
 ### Calling Convention Support
 
