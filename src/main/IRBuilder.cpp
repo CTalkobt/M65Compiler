@@ -253,7 +253,8 @@ ir::Type IRBuilder::mapType(const std::string& typeName, int ptrLevel) {
         int sz = getTypeSize(typeName, 0);
         if (sz <= 1) return ir::Type::I8;
         if (sz <= 2) return ir::Type::I16;
-        return ir::Type::I32; // >32-bit maps to I32 for now (Phase 0)
+        if (sz <= 4) return ir::Type::I32;
+        return ir::Type::I_N;
     }
 
     // Check for 4-byte structs/unions
@@ -429,15 +430,24 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         if (deref->op == "*") {
             if (auto* ref = dynamic_cast<VariableReference*>(deref->operand.get())) {
                 auto pit = localPointedToType_.find(ref->name);
-                if (pit != localPointedToType_.end()) return {pit->second, "TODO", localSigned_[ref->name], ir::Type::VOID, ir::typeSize(pit->second)};
+                if (pit != localPointedToType_.end()) {
+                    std::string tn = localTypeNames_.count(ref->name) ? localTypeNames_[ref->name] : "";
+                    int sz = tn.empty() ? ir::typeSize(pit->second) : getTypeSize(tn, 0);
+                    return {pit->second, tn, localSigned_[ref->name], ir::Type::VOID, sz};
+                }
                 auto gpit = globalPointedToType_.find(ref->name);
-                if (gpit != globalPointedToType_.end()) return {gpit->second, "TODO", true, ir::Type::VOID, ir::typeSize(gpit->second)};
+                if (gpit != globalPointedToType_.end()) {
+                    std::string tn = globalTypeNames_.count(ref->name) ? globalTypeNames_[ref->name] : "";
+                    int sz = tn.empty() ? ir::typeSize(gpit->second) : getTypeSize(tn, 0);
+                    return {gpit->second, tn, true, ir::Type::VOID, sz};
+                }
             }
             // General case: derive pointee type from operand expression
             // Handles *(cast_expr), *(ptr + offset), etc.
             IRTypeInfo operandInfo = getExprTypeInfo(deref->operand.get());
             if (operandInfo.type == ir::Type::PTR && operandInfo.pointedToType != ir::Type::VOID) {
-                return {operandInfo.pointedToType, operandInfo.typeName, operandInfo.isSigned, ir::Type::VOID, ir::typeSize(operandInfo.pointedToType)};
+                int sz = operandInfo.typeName.empty() ? ir::typeSize(operandInfo.pointedToType) : getTypeSize(operandInfo.typeName, 0);
+                return {operandInfo.pointedToType, operandInfo.typeName, operandInfo.isSigned, ir::Type::VOID, sz};
             }
         }
         if (deref->op == "&") {

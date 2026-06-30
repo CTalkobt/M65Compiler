@@ -24,6 +24,7 @@ enum class Type : uint8_t {
     I8,
     I16,
     I32,
+    I_N,    // Arbitrary-width integer (byte count from vregSizes/operand)
     PTR,
     F32,    // CBM 40-bit float (5 bytes: exponent + 4-byte mantissa)
 };
@@ -34,6 +35,7 @@ inline int typeSize(Type t) {
         case Type::I8:   return 1;
         case Type::I16:  return 2;
         case Type::I32:  return 4;
+        case Type::I_N:  return 0; // Must use vregSizes lookup
         case Type::PTR:  return 2;
         case Type::F32:  return 5; // CBM 40-bit float
     }
@@ -133,9 +135,11 @@ struct Operand {
     uint32_t vregId = 0;
     int64_t immVal = 0;
     std::string name;
+    uint8_t byteWidth = 0; // For I_N: actual byte count (3,5,6,8,16,etc.)
 
     static Operand none() { return {}; }
     static Operand vreg(uint32_t id, Type t) { Operand o; o.kind = OperandKind::VREG; o.vregId = id; o.type = t; return o; }
+    static Operand vregN(uint32_t id, int bytes) { Operand o; o.kind = OperandKind::VREG; o.vregId = id; o.type = Type::I_N; o.byteWidth = bytes; return o; }
     static Operand imm(int64_t val, Type t) { Operand o; o.kind = OperandKind::IMM; o.immVal = val; o.type = t; return o; }
     static Operand global(const std::string& name) { Operand o; o.kind = OperandKind::GLOBAL; o.name = name; o.type = Type::PTR; return o; }
     static Operand label(const std::string& name) { Operand o; o.kind = OperandKind::LABEL; o.name = name; o.type = Type::PTR; return o; }
@@ -168,6 +172,7 @@ struct Inst {
     Operand src1;               // first operand
     Operand src2;               // second operand (NONE for unary ops)
     Type resultType = Type::VOID;
+    uint8_t resultByteWidth = 0; // For I_N: actual byte count
 
     // For CALL/CALL_INDIRECT: argument list and convention
     std::vector<Operand> args;
