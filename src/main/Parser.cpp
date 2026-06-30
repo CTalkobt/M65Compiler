@@ -1694,6 +1694,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         while (match(TokenType::OPEN_SQUARE)) {
             if (peek().type == TokenType::CLOSE_SQUARE) {
                 fpArrayDims.push_back(0);
+                advance(); // consume ']'
             } else {
                 auto szExpr = parseExpression();
                 int arrSize = 1;
@@ -2656,13 +2657,32 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
     if (match(TokenType::ALIGNOF)) {
         expect(TokenType::OPEN_PAREN, "Expected '(' after '_Alignof'");
         std::string typeName;
+        // Skip qualifiers
+        while (match(TokenType::CONST) || match(TokenType::VOLATILE) || match(TokenType::RESTRICT)) {}
         if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) typeName = "struct _Complex_float"; else typeName = "float"; } else { typeName = "long"; match(TokenType::INT); } }
         else if (match(TokenType::SHORT)) { typeName = "int"; match(TokenType::INT); }
+        else if (match(TokenType::UNSIGNED)) { if (match(TokenType::LONG)) typeName = "long"; else if (match(TokenType::SHORT)) typeName = "int"; else if (match(TokenType::INT)) typeName = "int"; else if (match(TokenType::CHAR)) typeName = "char"; else typeName = "int"; }
+        else if (match(TokenType::SIGNED)) { if (match(TokenType::LONG)) typeName = "long"; else if (match(TokenType::INT)) typeName = "int"; else if (match(TokenType::CHAR)) typeName = "char"; else typeName = "int"; }
         else if (match(TokenType::INT)) typeName = "int";
         else if (match(TokenType::CHAR)) typeName = "char";
         else if (match(TokenType::VOID)) typeName = "void";
-        else if (match(TokenType::STRUCT)) typeName = "struct " + expect(TokenType::IDENTIFIER, "Expected struct name").value;
-        else throw std::runtime_error("Expected type name in _Alignof");
+        else if (match(TokenType::FLOAT)) typeName = "float";
+        else if (match(TokenType::DOUBLE)) { typeName = "float"; }
+        else if (match(TokenType::STRUCT) || match(TokenType::UNION)) {
+            bool isU = tokens[pos-1].type == TokenType::UNION;
+            typeName = (isU ? "union " : "struct ") + expect(TokenType::IDENTIFIER, "Expected struct/union name").value;
+        }
+        else if (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value)) {
+            std::string alias = advance().value;
+            typeName = typedefs[alias].baseType;
+        }
+        else {
+            // Fall back: treat as expression (sizeof-style)
+            auto expr = parseExpression();
+            expect(TokenType::CLOSE_PAREN, "Expected ')' after _Alignof");
+            // Use a default alignment of 1 for expressions
+            return setPos(std::make_unique<IntegerLiteral>(1), tokens[pos-1]);
+        }
         
         int aPtrLevel = 0;
         while (match(TokenType::STAR)) aPtrLevel++;

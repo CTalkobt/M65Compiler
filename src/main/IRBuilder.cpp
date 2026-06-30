@@ -1336,8 +1336,15 @@ void IRBuilder::visit(Assignment& node) {
             if (auto* vr = dynamic_cast<VariableReference*>(deref->operand.get())) {
                 auto pit = localPointsToConst_.find(vr->name);
                 if (pit != localPointsToConst_.end() && pit->second) {
-                    errors_.push_back("Compile Error: Assignment to read-only location");
-                    return;
+                    // Check if this is a multi-level pointer (const T **pp)
+                    // For const T *p: *p gives const T → read-only
+                    // For const T **pp: *pp gives const T* → writable (it's a pointer)
+                    auto ptit = localPointedToType_.find(vr->name);
+                    bool isMultiPtr = (ptit != localPointedToType_.end() && ptit->second == ir::Type::PTR);
+                    if (!isMultiPtr) {
+                        errors_.push_back("Compile Error: Assignment to read-only location");
+                        return;
+                    }
                 }
             }
         }

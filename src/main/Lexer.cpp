@@ -245,6 +245,8 @@ Token Lexer::lexIdentifierOrKeyword() {
         {"_Static_assert", TokenType::STATIC_ASSERT},
         {"_Alignas", TokenType::ALIGNAS},
         {"_Alignof", TokenType::ALIGNOF},
+        {"__alignof__", TokenType::ALIGNOF},
+        {"__alignof", TokenType::ALIGNOF},
         {"_Noreturn", TokenType::NORETURN},
         {"__attribute__", TokenType::ATTRIBUTE},
         {"__attribute", TokenType::ATTRIBUTE},
