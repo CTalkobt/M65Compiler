@@ -217,7 +217,7 @@ make clean && make test  # Clean rebuild and test
 
 ### Not Implemented
 
-- `long long` native 64-bit arithmetic without struct wrapper (currently `long long` = `long` = 32-bit; use `__int(64)` with `<intwide.h>` for true 64-bit)
+- Native 64-bit register arithmetic (64-bit values use `struct __int64` with operator overloading + `__intN_*` runtime library — fully functional but with method call overhead vs inline codegen)
 
 ## Standard Library
 

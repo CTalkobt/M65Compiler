@@ -16,9 +16,10 @@
 #define int32_t  long
 #define uint32_t unsigned long
 
-/* 64-bit types (mapped to long until full I64 codegen is available) */
-#define int64_t  long
-#define uint64_t unsigned long
+/* 64-bit types — use __int(64) wide integer struct from intwide.h */
+/* Note: #include <intwide.h> required for struct __int64 definition */
+#define int64_t  struct __int64
+#define uint64_t struct __int64
 
 /* Pointer-width types */
 #define intptr_t  int
