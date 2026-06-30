@@ -782,6 +782,8 @@ if [ $? -ne 0 ]; then
     echo "FAIL: Compilation/linking failed for test_vic4_mmemu.c"
     failed=$((failed + 1))
 else
+    # Uses rawMega65 for now — VIC-IV I/O tests require mega65 mode with MAP
+    # cleared (see mmemu#79). TODO: Switch to MCP-based test runner.
     OUTPUT=$(echo -e "load build/test/test_vic4_mmemu.prg\nsetpc \$2000\nstep 5000000\nm \$4000 19\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
     # Expected at $4000 (19 bytes):
