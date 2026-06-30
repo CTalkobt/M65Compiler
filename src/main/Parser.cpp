@@ -2,7 +2,14 @@
 #include <stdexcept>
 #include <iostream>
 
-Parser::Parser(const std::vector<Token>& tokens) : tokens(tokens), pos(0) {}
+Parser::Parser(const std::vector<Token>& tokens) : tokens(tokens), pos(0) {
+    // Built-in type aliases for wide integers
+    typedefs["__int128"] = {"struct __int128", 0, false, false, {}, {}};
+    typedefs["__int128_t"] = {"struct __int128", 0, false, false, {}, {}};
+    typedefs["__uint128_t"] = {"struct __int128", 0, false, false, {}, {}};
+    typedefs["__int64_t"] = {"struct __int64", 0, false, false, {}, {}};
+    typedefs["__uint64_t"] = {"struct __int64", 0, false, false, {}, {}};
+}
 
 const Token& Parser::peek() const {
     if (pos >= tokens.size()) return tokens.back();
@@ -3285,8 +3292,7 @@ void Parser::parseTypedef() {
         skipTdQuals();
         if (match(TokenType::LONG)) { if (match(TokenType::LONG)) baseType = "struct __int64"; else baseType = "long"; match(TokenType::INT); } else if (match(TokenType::SHORT)) { baseType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) baseType = "int";
         else if (match(TokenType::CHAR)) baseType = "char";
-        else if (match(TokenType::INT_N)) { baseType = resolveIntNType(false); }
-        else if (match(TokenType::UINT_N)) { baseType = resolveIntNType(false); }
+        else if (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value)) { baseType = typedefs[advance().value].baseType; }
         else baseType = "int";
     }
     else if (match(TokenType::LONG)) {

@@ -51,6 +51,9 @@ Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
     macros["__int"] = Macro{true, false, {"N"}, "struct __int##N"};
     macros["__uint"] = Macro{true, false, {"N"}, "struct __uint##N"};
 
+    // __int128 without parens — can't use macro (breaks "unsigned __int128")
+    // Handled in parser instead via identifier check
+
 
     // Decimal floating-point types (GCC extension) — map to float for now
     macros["_Decimal32"] = Macro{false, false, {}, "float"};
