@@ -16,6 +16,14 @@
 #define int32_t  long
 #define uint32_t unsigned long
 
+/* 64-bit types (mapped to long until full I64 codegen is available) */
+#define int64_t  long
+#define uint64_t unsigned long
+
+/* Pointer-width types */
+#define intptr_t  int
+#define uintptr_t unsigned int
+
 /* Limits */
 #define INT8_MIN    (-128)
 #define INT8_MAX    127

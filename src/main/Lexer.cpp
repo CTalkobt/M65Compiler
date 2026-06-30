@@ -292,6 +292,11 @@ Token Lexer::lexIdentifierOrKeyword() {
         {"__complex__", TokenType::COMPLEX},
         {"__real__", TokenType::REAL_PART},
         {"__imag__", TokenType::IMAG_PART},
+        {"__int", TokenType::INT_N},
+        {"__uint", TokenType::UINT_N},
+        {"__int128", TokenType::INT_N},
+        {"__int128_t", TokenType::INT_N},
+        {"__uint128_t", TokenType::UINT_N},
         };
 
     auto it = keywords.find(value);
@@ -334,6 +339,12 @@ Token Lexer::lexNumber() {
     }
     while (std::isdigit(peek())) {
         value += get();
+    }
+    // Decimal float suffix: 0.DD, 1.DF, 2.DL — consume dot + suffix, treat as float
+    if (peek() == '.' && pos + 1 < source.length() && (source[pos + 1] == 'D' || source[pos + 1] == 'd')) {
+        get(); // consume '.'
+        while (std::isalpha(peek())) get(); // consume DD/DF/DL suffix
+        return {TokenType::FLOAT_LITERAL, value, startLine, startCol, sourceFile};
     }
     // Float literal: 0.0, 1.5f, 1.5e10, 1.5e-3, 2e5, etc.
     if (peek() == '.' && pos + 1 < source.length() && std::isdigit(source[pos + 1])) {

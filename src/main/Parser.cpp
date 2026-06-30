@@ -335,6 +335,8 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                                      tokens[look].type == TokenType::FLOAT ||
                                      tokens[look].type == TokenType::DOUBLE ||
                                      tokens[look].type == TokenType::COMPLEX ||
+                                     tokens[look].type == TokenType::INT_N ||
+                                     tokens[look].type == TokenType::UINT_N ||
                                      tokens[look].type == TokenType::STRUCT ||
                                      tokens[look].type == TokenType::UNION ||
                                      tokens[look].type == TokenType::ENUM ||
@@ -347,8 +349,15 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     tokens[look].type == TokenType::SHORT || tokens[look].type == TokenType::UNSIGNED ||
                     tokens[look].type == TokenType::SIGNED)) {
                     look++;
-                    // long double
                     if (look < tokens.size() && tokens[look].type == TokenType::DOUBLE) look++;
+                }
+            } else if (tokens[look].type == TokenType::INT_N || tokens[look].type == TokenType::UINT_N) {
+                look++; // skip __int/__uint
+                // Skip (N) if present
+                if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
+                    look++; // (
+                    if (look < tokens.size()) look++; // N
+                    if (look < tokens.size() && tokens[look].type == TokenType::CLOSE_PAREN) look++; // )
                 }
             } else if (tokens[look].type == TokenType::UNSIGNED || tokens[look].type == TokenType::SIGNED) {
                 look++;
@@ -375,6 +384,9 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 }
             } else {
                 look++; // skip int/char/void/float/double
+                // Handle long long, long int, etc.
+                if (look < tokens.size() && tokens[look].type == TokenType::LONG) look++;
+                if (look < tokens.size() && tokens[look].type == TokenType::INT) look++;
                 // Handle type followed by __complex__ (reverse order: float __complex__)
                 if (look < tokens.size() && tokens[look].type == TokenType::COMPLEX) look++;
             }
@@ -607,17 +619,17 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     if (match(TokenType::SIGNED)) {
         isSigned = true;
         skipRetQuals();
-        if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) returnType = "struct _Complex_float"; else returnType = "float"; } else { returnType = "long"; match(TokenType::INT); } } else if (match(TokenType::SHORT)) { returnType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) returnType = "int";
+        if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) returnType = "struct _Complex_float"; else returnType = "float"; } else { returnType = "long"; match(TokenType::LONG); match(TokenType::INT); } } else if (match(TokenType::SHORT)) { returnType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) returnType = "int";
         else if (match(TokenType::CHAR)) returnType = "char";
         else returnType = "int";
     }
     else if (match(TokenType::UNSIGNED)) {
         skipRetQuals();
-        if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) returnType = "struct _Complex_float"; else returnType = "float"; } else { returnType = "long"; match(TokenType::INT); } } else if (match(TokenType::SHORT)) { returnType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) returnType = "int";
+        if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) returnType = "struct _Complex_float"; else returnType = "float"; } else { returnType = "long"; match(TokenType::LONG); match(TokenType::INT); } } else if (match(TokenType::SHORT)) { returnType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) returnType = "int";
         else if (match(TokenType::CHAR)) returnType = "char";
         else returnType = "int"; // bare 'unsigned' is 'unsigned int'
     }
-    else if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) returnType = "struct _Complex_float"; else returnType = "float"; } else { returnType = "long"; match(TokenType::INT); } } else if (match(TokenType::SHORT)) { returnType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) returnType = "int";
+    else if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) returnType = "struct _Complex_float"; else returnType = "float"; } else { returnType = "long"; match(TokenType::LONG); match(TokenType::INT); } } else if (match(TokenType::SHORT)) { returnType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) returnType = "int";
     else if (match(TokenType::CHAR)) returnType = "char";
     else if (match(TokenType::BOOL)) returnType = "_Bool";
     else if (match(TokenType::VOID)) returnType = "void";
@@ -636,6 +648,8 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     else if (match(TokenType::FLOAT)) { if (match(TokenType::COMPLEX)) returnType = "struct _Complex_float"; else returnType = "float"; }
     else if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) returnType = "struct _Complex_float"; else returnType = "float"; }
     else if (match(TokenType::COMPLEX)) returnType = resolveComplexType();
+    else if (match(TokenType::INT_N)) { returnType = resolveIntNType(true); }
+    else if (match(TokenType::UINT_N)) { returnType = resolveIntNType(false); }
     else if (peek().type == TokenType::IDENTIFIER) {
         // C89 implicit int: function declared without return type defaults to int
         returnType = "int";
@@ -717,13 +731,13 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             if (match(TokenType::SIGNED)) {
                 pIsSigned = true;
                 skipParamQuals();
-                if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) pType = "struct _Complex_float"; else pType = "float"; } else { pType = "long"; match(TokenType::INT); } } else if (match(TokenType::SHORT)) { pType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) pType = "int";
+                if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) pType = "struct _Complex_float"; else pType = "float"; } else { pType = "long"; match(TokenType::LONG); match(TokenType::INT); } } else if (match(TokenType::SHORT)) { pType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) pType = "int";
                 else if (match(TokenType::CHAR)) pType = "char";
                 else pType = "int";
             }
             else if (match(TokenType::UNSIGNED)) {
                 skipParamQuals();
-                if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) pType = "struct _Complex_float"; else pType = "float"; } else { pType = "long"; match(TokenType::INT); } } else if (match(TokenType::SHORT)) { pType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) pType = "int";
+                if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) pType = "struct _Complex_float"; else pType = "float"; } else { pType = "long"; match(TokenType::LONG); match(TokenType::INT); } } else if (match(TokenType::SHORT)) { pType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) pType = "int";
                 else if (match(TokenType::CHAR)) pType = "char";
                 else pType = "int";
             }
@@ -747,6 +761,8 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             else if (match(TokenType::FLOAT)) { if (match(TokenType::COMPLEX)) pType = "struct _Complex_float"; else pType = "float"; }
             else if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) pType = "struct _Complex_float"; else pType = "float"; }
             else if (match(TokenType::COMPLEX)) pType = resolveComplexType();
+            else if (match(TokenType::INT_N)) { pType = resolveIntNType(true); }
+            else if (match(TokenType::UINT_N)) { pType = resolveIntNType(false); }
             else if (match(TokenType::STRUCT) || match(TokenType::UNION) || match(TokenType::ENUM)) {
                 bool isU = tokens[pos-1].type == TokenType::UNION;
                 bool isE = tokens[pos-1].type == TokenType::ENUM;
@@ -900,18 +916,18 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         }
         if (match(TokenType::SIGNED)) {
             krSigned = true;
-            if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) krType = "struct _Complex_float"; else krType = "float"; } else { krType = "long"; match(TokenType::INT); } }
+            if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) krType = "struct _Complex_float"; else krType = "float"; } else { krType = "long"; match(TokenType::LONG); match(TokenType::INT); } }
             else if (match(TokenType::SHORT)) { krType = "int"; match(TokenType::INT); }
             else if (match(TokenType::INT)) krType = "int";
             else if (match(TokenType::CHAR)) krType = "char";
             else krType = "int";
         } else if (match(TokenType::UNSIGNED)) {
-            if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) krType = "struct _Complex_float"; else krType = "float"; } else { krType = "long"; match(TokenType::INT); } }
+            if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) krType = "struct _Complex_float"; else krType = "float"; } else { krType = "long"; match(TokenType::LONG); match(TokenType::INT); } }
             else if (match(TokenType::SHORT)) { krType = "int"; match(TokenType::INT); }
             else if (match(TokenType::INT)) krType = "int";
             else if (match(TokenType::CHAR)) krType = "char";
             else krType = "int";
-        } else if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) krType = "struct _Complex_float"; else krType = "float"; } else { krType = "long"; match(TokenType::INT); } }
+        } else if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) krType = "struct _Complex_float"; else krType = "float"; } else { krType = "long"; match(TokenType::LONG); match(TokenType::INT); } }
         else if (match(TokenType::SHORT)) { krType = "int"; match(TokenType::INT); }
         else if (match(TokenType::INT)) krType = "int";
         else if (match(TokenType::CHAR)) krType = "char";
@@ -1206,6 +1222,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
     if (peek().type == TokenType::ALIGNAS || peek().type == TokenType::INT || peek().type == TokenType::SHORT || peek().type == TokenType::LONG || peek().type == TokenType::CHAR || peek().type == TokenType::BOOL ||
         peek().type == TokenType::VOID || peek().type == TokenType::TYPEOF ||
         peek().type == TokenType::FLOAT || peek().type == TokenType::DOUBLE || peek().type == TokenType::COMPLEX ||
+        peek().type == TokenType::INT_N || peek().type == TokenType::UINT_N ||
         peek().type == TokenType::UNSIGNED || peek().type == TokenType::SIGNED ||
         (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value))) {
         if (isFunctionDeclaration()) {
@@ -1359,7 +1376,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
             else match(TokenType::UNSIGNED);
             if (match(TokenType::CHAR)) varType = "char";
             else if (match(TokenType::INT) || match(TokenType::SHORT)) varType = "int";
-            else if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) varType = "struct _Complex_float"; else varType = "float"; } else { varType = "long"; match(TokenType::INT); } }
+            else if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) varType = "struct _Complex_float"; else varType = "float"; } else { varType = "long"; match(TokenType::LONG); match(TokenType::INT); } }
             else { varType = "int"; }
             varName = expect(TokenType::IDENTIFIER, "Expected variable name in repeat").value;
             expect(TokenType::COMMA, "Expected ',' after repeat variable");
@@ -1478,7 +1495,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         expect(TokenType::OPEN_PAREN, "Expected '(' after '_Alignas'");
         if (peek().type == TokenType::INT || peek().type == TokenType::SHORT || peek().type == TokenType::LONG || peek().type == TokenType::CHAR || peek().type == TokenType::BOOL || peek().type == TokenType::STRUCT || peek().type == TokenType::VOID || peek().type == TokenType::FLOAT || peek().type == TokenType::DOUBLE) {
             std::string aType;
-            if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) aType = "struct _Complex_float"; else aType = "float"; } else { aType = "long"; match(TokenType::INT); } } else if (match(TokenType::SHORT)) { aType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) aType = "int";
+            if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) aType = "struct _Complex_float"; else aType = "float"; } else { aType = "long"; match(TokenType::LONG); match(TokenType::INT); } } else if (match(TokenType::SHORT)) { aType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) aType = "int";
             else if (match(TokenType::CHAR)) aType = "char";
             else if (match(TokenType::VOID)) aType = "void";
             else if (match(TokenType::FLOAT)) { if (match(TokenType::COMPLEX)) aType = "struct _Complex_float"; else aType = "float"; }
@@ -1510,13 +1527,13 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     if (match(TokenType::SIGNED)) {
         isSigned = true;
         skipQualifiers();
-        if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; } else { type = "long"; match(TokenType::INT); } } else if (match(TokenType::SHORT)) { type = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) type = "int";
+        if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; } else { type = "long"; match(TokenType::LONG); match(TokenType::INT); } } else if (match(TokenType::SHORT)) { type = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) type = "int";
         else if (match(TokenType::CHAR)) type = "char";
         else type = "int";
     }
     else if (match(TokenType::UNSIGNED)) {
         skipQualifiers();
-        if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; } else { type = "long"; match(TokenType::INT); } } else if (match(TokenType::SHORT)) { type = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) type = "int";
+        if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; } else { type = "long"; match(TokenType::LONG); match(TokenType::INT); } } else if (match(TokenType::SHORT)) { type = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) type = "int";
         else if (match(TokenType::CHAR)) type = "char";
         else type = "int";
     }
@@ -1524,6 +1541,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; }
         else {
             type = "long";
+            match(TokenType::LONG); // long long
             if (match(TokenType::UNSIGNED)) { /* long unsigned */ }
             else if (match(TokenType::SIGNED)) { isSigned = true; }
             match(TokenType::INT);
@@ -1540,6 +1558,8 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     else if (match(TokenType::FLOAT)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; }
     else if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; }
     else if (match(TokenType::COMPLEX)) type = resolveComplexType();
+    else if (match(TokenType::INT_N)) { type = resolveIntNType(true); }
+    else if (match(TokenType::UINT_N)) { type = resolveIntNType(false); }
     else if (match(TokenType::TYPEOF)) {
         // typeof(expr) or typeof(type) — resolve to type name
         expect(TokenType::OPEN_PAREN, "Expected '(' after typeof");
@@ -1557,6 +1577,8 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             else if (match(TokenType::FLOAT)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; }
             else if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; }
             else if (match(TokenType::COMPLEX)) type = resolveComplexType();
+    else if (match(TokenType::INT_N)) { type = resolveIntNType(true); }
+    else if (match(TokenType::UINT_N)) { type = resolveIntNType(false); }
             else if (match(TokenType::UNSIGNED)) {
                 if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; } else type = "long"; }
                 else if (match(TokenType::INT) || match(TokenType::SHORT)) type = "int";
@@ -1937,7 +1959,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             expect(TokenType::OPEN_PAREN, "Expected '(' after '_Alignas'");
             if (peek().type == TokenType::INT || peek().type == TokenType::SHORT || peek().type == TokenType::LONG || peek().type == TokenType::CHAR || peek().type == TokenType::STRUCT || peek().type == TokenType::UNION || peek().type == TokenType::VOID) {
                 std::string aType;
-                if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) aType = "struct _Complex_float"; else aType = "float"; } else { aType = "long"; match(TokenType::INT); } } else if (match(TokenType::SHORT)) { aType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) aType = "int";
+                if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) aType = "struct _Complex_float"; else aType = "float"; } else { aType = "long"; match(TokenType::LONG); match(TokenType::INT); } } else if (match(TokenType::SHORT)) { aType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) aType = "int";
                 else if (match(TokenType::CHAR)) aType = "char";
                 else if (match(TokenType::VOID)) aType = "void";
                 else if (match(TokenType::STRUCT) || match(TokenType::UNION)) {
@@ -2004,22 +2026,24 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         std::vector<int> typedefArrayDims;
         if (match(TokenType::SIGNED)) {
             mIsSigned = true;
-            if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; } else { type = "long"; match(TokenType::INT); } } else if (match(TokenType::SHORT)) { type = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) type = "int";
+            if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; } else { type = "long"; match(TokenType::LONG); match(TokenType::INT); } } else if (match(TokenType::SHORT)) { type = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) type = "int";
             else if (match(TokenType::CHAR)) type = "char";
             else type = "int";
         }
         else if (match(TokenType::UNSIGNED)) {
-            if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; } else { type = "long"; match(TokenType::INT); } } else if (match(TokenType::SHORT)) { type = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) type = "int";
+            if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; } else { type = "long"; match(TokenType::LONG); match(TokenType::INT); } } else if (match(TokenType::SHORT)) { type = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) type = "int";
             else if (match(TokenType::CHAR)) type = "char";
             else type = "int";
         }
-        else if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; } else { type = "long"; match(TokenType::INT); } } else if (match(TokenType::SHORT)) { type = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) type = "int";
+        else if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; } else { type = "long"; match(TokenType::LONG); match(TokenType::INT); } } else if (match(TokenType::SHORT)) { type = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) type = "int";
         else if (match(TokenType::CHAR)) type = "char";
         else if (match(TokenType::BOOL)) type = "_Bool";
         else if (match(TokenType::VOID)) type = "void";
         else if (match(TokenType::FLOAT)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; }
         else if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; }
         else if (match(TokenType::COMPLEX)) type = resolveComplexType();
+    else if (match(TokenType::INT_N)) { type = resolveIntNType(true); }
+    else if (match(TokenType::UINT_N)) { type = resolveIntNType(false); }
         else if (match(TokenType::ENUM)) {
             if (peek().type == TokenType::IDENTIFIER) type = "enum " + advance().value;
             else {
@@ -2413,26 +2437,30 @@ std::unique_ptr<Expression> Parser::parseUnary() {
                 int sBasePtrLevel = 0;
                 if (match(TokenType::SIGNED) || match(TokenType::UNSIGNED)) {
                     if (tokens[pos-1].type == TokenType::SIGNED) sIsSigned = true;
-                    if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; } else { type = "long"; match(TokenType::INT); } } else if (match(TokenType::SHORT)) { type = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) type = "int";
+                    if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; } else { type = "long"; match(TokenType::LONG); match(TokenType::INT); } } else if (match(TokenType::SHORT)) { type = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) type = "int";
                     else if (match(TokenType::CHAR)) type = "char";
                     else type = "int";
                 }
-                else if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; } else { type = "long"; match(TokenType::INT); } } else if (match(TokenType::SHORT)) { type = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) type = "int";
+                else if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; } else { type = "long"; match(TokenType::LONG); match(TokenType::INT); } } else if (match(TokenType::SHORT)) { type = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) type = "int";
                 else if (match(TokenType::CHAR)) type = "char";
                 else if (match(TokenType::BOOL)) type = "_Bool";
                 else if (match(TokenType::VOID)) type = "void";
                 else if (match(TokenType::FLOAT)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; }
                 else if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; }
                 else if (match(TokenType::COMPLEX)) type = resolveComplexType();
+    else if (match(TokenType::INT_N)) { type = resolveIntNType(true); }
+    else if (match(TokenType::UINT_N)) { type = resolveIntNType(false); }
                 else if (match(TokenType::CONST) || match(TokenType::VOLATILE)) {
                     // const/volatile before type: sizeof(const int)
-                    if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; } else { type = "long"; match(TokenType::INT); } }
+                    if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; } else { type = "long"; match(TokenType::LONG); match(TokenType::INT); } }
                     else if (match(TokenType::INT)) type = "int";
                     else if (match(TokenType::CHAR)) type = "char";
                     else if (match(TokenType::VOID)) type = "void";
                     else if (match(TokenType::FLOAT)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; }
                     else if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) type = "struct _Complex_float"; else type = "float"; }
                     else if (match(TokenType::COMPLEX)) type = resolveComplexType();
+    else if (match(TokenType::INT_N)) { type = resolveIntNType(true); }
+    else if (match(TokenType::UINT_N)) { type = resolveIntNType(false); }
                     else if (match(TokenType::STRUCT) || match(TokenType::UNION)) {
                         bool isU2 = tokens[pos-1].type == TokenType::UNION;
                         type = (isU2 ? "union " : "struct ") + expect(TokenType::IDENTIFIER, "Expected struct name").value;
@@ -2521,24 +2549,26 @@ std::unique_ptr<Expression> Parser::parseUnary() {
         }
 
         if (peek().type == TokenType::INT || peek().type == TokenType::SHORT || peek().type == TokenType::LONG || peek().type == TokenType::CHAR || peek().type == TokenType::BOOL ||
-            peek().type == TokenType::VOID || peek().type == TokenType::FLOAT || peek().type == TokenType::DOUBLE || peek().type == TokenType::COMPLEX ||
+            peek().type == TokenType::VOID || peek().type == TokenType::FLOAT || peek().type == TokenType::DOUBLE || peek().type == TokenType::COMPLEX || peek().type == TokenType::INT_N || peek().type == TokenType::UINT_N ||
             peek().type == TokenType::STRUCT || peek().type == TokenType::UNION || peek().type == TokenType::ENUM ||
             peek().type == TokenType::SIGNED || peek().type == TokenType::UNSIGNED ||
             (peek().type == TokenType::IDENTIFIER && isTypedef(peek().value))) {
 
             if (match(TokenType::SIGNED) || match(TokenType::UNSIGNED)) {
                 castSigned = (tokens[pos-1].type == TokenType::SIGNED);
-                if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) castType = "struct _Complex_float"; else castType = "float"; } else { castType = "long"; match(TokenType::INT); } } else if (match(TokenType::SHORT)) { castType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) castType = "int";
+                if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) castType = "struct _Complex_float"; else castType = "float"; } else { castType = "long"; match(TokenType::LONG); match(TokenType::INT); } } else if (match(TokenType::SHORT)) { castType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) castType = "int";
                 else if (match(TokenType::CHAR)) castType = "char";
                 else castType = "int";
             }
-            else if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) castType = "struct _Complex_float"; else castType = "float"; } else { castType = "long"; match(TokenType::INT); } } else if (match(TokenType::SHORT)) { castType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) castType = "int";
+            else if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) castType = "struct _Complex_float"; else castType = "float"; } else { castType = "long"; match(TokenType::LONG); match(TokenType::INT); } } else if (match(TokenType::SHORT)) { castType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) castType = "int";
             else if (match(TokenType::CHAR)) castType = "char";
             else if (match(TokenType::BOOL)) castType = "_Bool";
             else if (match(TokenType::VOID)) castType = "void";
             else if (match(TokenType::FLOAT)) { if (match(TokenType::COMPLEX)) castType = "struct _Complex_float"; else castType = "float"; }
             else if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) castType = "struct _Complex_float"; else castType = "float"; }
             else if (match(TokenType::COMPLEX)) castType = resolveComplexType();
+            else if (match(TokenType::INT_N)) { castType = resolveIntNType(true); }
+            else if (match(TokenType::UINT_N)) { castType = resolveIntNType(false); }
             else if (match(TokenType::STRUCT) || match(TokenType::UNION) || match(TokenType::ENUM)) {
                 bool isU = tokens[pos-1].type == TokenType::UNION;
                 bool isE = tokens[pos-1].type == TokenType::ENUM;
@@ -2675,7 +2705,7 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         std::string typeName;
         // Skip qualifiers
         while (match(TokenType::CONST) || match(TokenType::VOLATILE) || match(TokenType::RESTRICT)) {}
-        if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) typeName = "struct _Complex_float"; else typeName = "float"; } else { typeName = "long"; match(TokenType::INT); } }
+        if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) typeName = "struct _Complex_float"; else typeName = "float"; } else { typeName = "long"; match(TokenType::LONG); match(TokenType::INT); } }
         else if (match(TokenType::SHORT)) { typeName = "int"; match(TokenType::INT); }
         else if (match(TokenType::UNSIGNED)) { if (match(TokenType::LONG)) typeName = "long"; else if (match(TokenType::SHORT)) typeName = "int"; else if (match(TokenType::INT)) typeName = "int"; else if (match(TokenType::CHAR)) typeName = "char"; else typeName = "int"; }
         else if (match(TokenType::SIGNED)) { if (match(TokenType::LONG)) typeName = "long"; else if (match(TokenType::INT)) typeName = "int"; else if (match(TokenType::CHAR)) typeName = "char"; else typeName = "int"; }
@@ -2817,19 +2847,21 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         while (match(TokenType::CONST) || match(TokenType::VOLATILE) || match(TokenType::RESTRICT)) {}
         if (match(TokenType::SIGNED)) {
             vaSigned = true;
-            if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) vaType = "struct _Complex_float"; else vaType = "float"; } else { vaType = "long"; match(TokenType::INT); } } else if (match(TokenType::SHORT)) { vaType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) vaType = "int";
+            if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) vaType = "struct _Complex_float"; else vaType = "float"; } else { vaType = "long"; match(TokenType::LONG); match(TokenType::INT); } } else if (match(TokenType::SHORT)) { vaType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) vaType = "int";
             else if (match(TokenType::CHAR)) vaType = "char";
             else vaType = "int";
         } else if (match(TokenType::UNSIGNED)) {
-            if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) vaType = "struct _Complex_float"; else vaType = "float"; } else { vaType = "long"; match(TokenType::INT); } } else if (match(TokenType::SHORT)) { vaType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) vaType = "int";
+            if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) vaType = "struct _Complex_float"; else vaType = "float"; } else { vaType = "long"; match(TokenType::LONG); match(TokenType::INT); } } else if (match(TokenType::SHORT)) { vaType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) vaType = "int";
             else if (match(TokenType::CHAR)) vaType = "char";
             else vaType = "int";
-        } else if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) vaType = "struct _Complex_float"; else vaType = "float"; } else { vaType = "long"; match(TokenType::INT); } } else if (match(TokenType::SHORT)) { vaType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) vaType = "int";
+        } else if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) vaType = "struct _Complex_float"; else vaType = "float"; } else { vaType = "long"; match(TokenType::LONG); match(TokenType::INT); } } else if (match(TokenType::SHORT)) { vaType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) vaType = "int";
         else if (match(TokenType::CHAR)) vaType = "char";
         else if (match(TokenType::VOID)) vaType = "void";
         else if (match(TokenType::FLOAT)) { if (match(TokenType::COMPLEX)) vaType = "struct _Complex_float"; else vaType = "float"; }
         else if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) vaType = "struct _Complex_float"; else vaType = "float"; }
         else if (match(TokenType::COMPLEX)) vaType = resolveComplexType();
+        else if (match(TokenType::INT_N)) { vaType = resolveIntNType(true); }
+        else if (match(TokenType::UINT_N)) { vaType = resolveIntNType(false); }
         else if (match(TokenType::STRUCT) || match(TokenType::UNION)) {
             bool isU = tokens[pos-1].type == TokenType::UNION;
             vaType = (isU ? "union " : "struct ") + expect(TokenType::IDENTIFIER, "Expected struct/union name in va_arg").value;
@@ -3117,6 +3149,32 @@ std::string Parser::resolveComplexType() {
     return "struct _Complex_float";
 }
 
+std::string Parser::resolveIntNType(bool isSigned) {
+    // Called after matching INT_N or UINT_N token.
+    // If the token value already encodes the width (e.g. "__int128"), extract it.
+    // Otherwise consume (N) to get the width.
+    const std::string& tokVal = tokens[pos-1].value;
+    int bits = 0;
+    if (tokVal == "__int128" || tokVal == "__int128_t") {
+        bits = 128;
+    } else if (tokVal == "__uint128_t") {
+        bits = 128;
+    } else if (match(TokenType::OPEN_PAREN)) {
+        if (peek().type == TokenType::INTEGER_LITERAL) {
+            bits = std::stoi(advance().value);
+        }
+        expect(TokenType::CLOSE_PAREN, "Expected ')' after __int/__uint width");
+    }
+    // Map to nearest supported type
+    if (bits <= 0) bits = 32; // default
+    std::string prefix = isSigned ? "__int" : "__uint";
+    if (bits <= 8) return isSigned ? "char" : "unsigned char";
+    if (bits <= 16) return isSigned ? "int" : "unsigned int";
+    if (bits <= 32) return isSigned ? "long" : "unsigned long";
+    // >32 bits: return canonical name for future I64 support
+    return prefix + std::to_string(bits);
+}
+
 bool Parser::tryParseAttribute() {
     if (!match(TokenType::ATTRIBUTE)) return false;
 
@@ -3201,14 +3259,16 @@ void Parser::parseTypedef() {
     if (match(TokenType::SIGNED)) {
         isSigned = true;
         skipTdQuals();
-        if (match(TokenType::LONG)) { baseType = "long"; match(TokenType::INT); } else if (match(TokenType::SHORT)) { baseType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) baseType = "int";
+        if (match(TokenType::LONG)) { baseType = "long"; match(TokenType::LONG); match(TokenType::INT); } else if (match(TokenType::SHORT)) { baseType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) baseType = "int";
         else if (match(TokenType::CHAR)) baseType = "char";
         else baseType = "int";
     }
     else if (match(TokenType::UNSIGNED)) {
         skipTdQuals();
-        if (match(TokenType::LONG)) { baseType = "long"; match(TokenType::INT); } else if (match(TokenType::SHORT)) { baseType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) baseType = "int";
+        if (match(TokenType::LONG)) { baseType = "long"; match(TokenType::LONG); match(TokenType::INT); } else if (match(TokenType::SHORT)) { baseType = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) baseType = "int";
         else if (match(TokenType::CHAR)) baseType = "char";
+        else if (match(TokenType::INT_N)) { baseType = resolveIntNType(false); }
+        else if (match(TokenType::UINT_N)) { baseType = resolveIntNType(false); }
         else baseType = "int";
     }
     else if (match(TokenType::LONG)) {
@@ -3217,7 +3277,7 @@ void Parser::parseTypedef() {
             baseType = "long";
             if (match(TokenType::UNSIGNED)) { /* long unsigned */ }
             else if (match(TokenType::SIGNED)) { isSigned = true; }
-            match(TokenType::INT);
+            match(TokenType::LONG); match(TokenType::INT);
         }
     } else if (match(TokenType::SHORT)) {
         baseType = "int";
@@ -3231,6 +3291,8 @@ void Parser::parseTypedef() {
     else if (match(TokenType::FLOAT)) { if (match(TokenType::COMPLEX)) baseType = "struct _Complex_float"; else baseType = "float"; }
     else if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) baseType = "struct _Complex_float"; else baseType = "float"; }
     else if (match(TokenType::COMPLEX)) baseType = resolveComplexType();
+    else if (match(TokenType::INT_N)) { baseType = resolveIntNType(true); }
+    else if (match(TokenType::UINT_N)) { baseType = resolveIntNType(false); }
     else if (match(TokenType::STRUCT) || match(TokenType::UNION)) {
         bool isU = tokens[pos-1].type == TokenType::UNION;
         if (peek().type == TokenType::OPEN_BRACE) {
@@ -3333,20 +3395,22 @@ std::shared_ptr<FuncPtrSignature> Parser::parseFuncPtrParams(const std::string& 
             while (match(TokenType::CONST) || match(TokenType::VOLATILE) || match(TokenType::RESTRICT)) {}
             if (match(TokenType::SIGNED)) {
                 fp.isSigned = true;
-                if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) fp.type = "struct _Complex_float"; else fp.type = "float"; } else { fp.type = "long"; match(TokenType::INT); } } else if (match(TokenType::SHORT)) { fp.type = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) fp.type = "int";
+                if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) fp.type = "struct _Complex_float"; else fp.type = "float"; } else { fp.type = "long"; match(TokenType::LONG); match(TokenType::INT); } } else if (match(TokenType::SHORT)) { fp.type = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) fp.type = "int";
                 else if (match(TokenType::CHAR)) fp.type = "char";
                 else fp.type = "int";
             } else if (match(TokenType::UNSIGNED)) {
-                if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) fp.type = "struct _Complex_float"; else fp.type = "float"; } else { fp.type = "long"; match(TokenType::INT); } } else if (match(TokenType::SHORT)) { fp.type = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) fp.type = "int";
+                if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) fp.type = "struct _Complex_float"; else fp.type = "float"; } else { fp.type = "long"; match(TokenType::LONG); match(TokenType::INT); } } else if (match(TokenType::SHORT)) { fp.type = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) fp.type = "int";
                 else if (match(TokenType::CHAR)) fp.type = "char";
                 else fp.type = "int";
-            } else if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) fp.type = "struct _Complex_float"; else fp.type = "float"; } else { fp.type = "long"; match(TokenType::INT); } } else if (match(TokenType::SHORT)) { fp.type = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) fp.type = "int";
+            } else if (match(TokenType::LONG)) { if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) fp.type = "struct _Complex_float"; else fp.type = "float"; } else { fp.type = "long"; match(TokenType::LONG); match(TokenType::INT); } } else if (match(TokenType::SHORT)) { fp.type = "int"; match(TokenType::INT); } else if (match(TokenType::INT)) fp.type = "int";
             else if (match(TokenType::CHAR)) fp.type = "char";
             else if (match(TokenType::BOOL)) fp.type = "_Bool";
             else if (match(TokenType::VOID)) fp.type = "void";
             else if (match(TokenType::FLOAT)) { if (match(TokenType::COMPLEX)) fp.type = "struct _Complex_float"; else fp.type = "float"; }
             else if (match(TokenType::DOUBLE)) { if (match(TokenType::COMPLEX)) fp.type = "struct _Complex_float"; else fp.type = "float"; }
             else if (match(TokenType::COMPLEX)) fp.type = resolveComplexType();
+            else if (match(TokenType::INT_N)) { fp.type = resolveIntNType(true); }
+            else if (match(TokenType::UINT_N)) { fp.type = resolveIntNType(false); }
             else if (match(TokenType::STRUCT) || match(TokenType::UNION) || match(TokenType::ENUM)) {
                 bool isU = tokens[pos-1].type == TokenType::UNION;
                 bool isE = tokens[pos-1].type == TokenType::ENUM;
@@ -3428,7 +3492,7 @@ bool Parser::isFunctionDeclaration() {
     TokenType t = tokens[look].type;
     if (t == TokenType::INT || t == TokenType::CHAR || t == TokenType::LONG ||
         t == TokenType::SHORT || t == TokenType::VOID || t == TokenType::BOOL ||
-        t == TokenType::FLOAT || t == TokenType::DOUBLE || t == TokenType::COMPLEX ||
+        t == TokenType::FLOAT || t == TokenType::DOUBLE || t == TokenType::COMPLEX || t == TokenType::INT_N || t == TokenType::UINT_N ||
         t == TokenType::STRUCT || t == TokenType::UNION || t == TokenType::ENUM ||
         (t == TokenType::IDENTIFIER && isTypedef(tokens[look].value))) {
 
@@ -3442,6 +3506,14 @@ bool Parser::isFunctionDeclaration() {
                 look++;
                 // long double after _Complex
                 if (ct == TokenType::LONG && look < tokens.size() && tokens[look].type == TokenType::DOUBLE) look++;
+            }
+        }
+        // Skip __int(N) / __uint(N) parameter
+        if ((t == TokenType::INT_N || t == TokenType::UINT_N) && look < tokens.size()) {
+            if (tokens[look].type == TokenType::OPEN_PAREN) {
+                look++; // (
+                if (look < tokens.size()) look++; // N
+                if (look < tokens.size() && tokens[look].type == TokenType::CLOSE_PAREN) look++; // )
             }
         }
         // Skip struct/union/enum name

@@ -47,6 +47,11 @@ Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
     macros["__signed"] = Macro{false, false, {}, "signed"};
     macros["__signed__"] = Macro{false, false, {}, "signed"};
 
+    // Decimal floating-point types (GCC extension) — map to float for now
+    macros["_Decimal32"] = Macro{false, false, {}, "float"};
+    macros["_Decimal64"] = Macro{false, false, {}, "float"};
+    macros["_Decimal128"] = Macro{false, false, {}, "float"};
+
     // GCC-compatible predefined macros for target (45GS02: 8-bit char, 16-bit int/short, 32-bit long)
     macros["__CHAR_BIT__"] = Macro{false, false, {}, "8"};
     macros["__SIZEOF_CHAR__"] = Macro{false, false, {}, "1"};

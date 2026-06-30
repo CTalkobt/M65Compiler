@@ -56,6 +56,9 @@ enum class TokenType {
     COMPLEX,   // _Complex / __complex__
     REAL_PART, // __real__ (complex real part)
     IMAG_PART, // __imag__ (complex imaginary part)
+    INT_N,     // __int (parameterized width integer)
+    UINT_N,    // __uint (parameterized width unsigned integer)
+    LONG_LONG, // long long (64-bit integer)
 
     // Variadic
     ELLIPSIS,  // ...
@@ -182,6 +185,9 @@ struct Token {
             case TokenType::COMPLEX: return "COMPLEX";
             case TokenType::REAL_PART: return "REAL_PART";
             case TokenType::IMAG_PART: return "IMAG_PART";
+            case TokenType::INT_N: return "INT_N";
+            case TokenType::UINT_N: return "UINT_N";
+            case TokenType::LONG_LONG: return "LONG_LONG";
             case TokenType::ELLIPSIS: return "ELLIPSIS";
             case TokenType::IDENTIFIER: return "IDENTIFIER";
             case TokenType::INTEGER_LITERAL: return "INTEGER_LITERAL";

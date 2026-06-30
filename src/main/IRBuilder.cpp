@@ -248,6 +248,14 @@ ir::Type IRBuilder::mapType(const std::string& typeName, int ptrLevel) {
     if (typeName == "void") return ir::Type::VOID;
     if (typeName == "float" || typeName == "double") return ir::Type::F32;
 
+    // __int(N) / __uint(N) — map to nearest supported type
+    if (typeName.substr(0, 5) == "__int" || typeName.substr(0, 6) == "__uint") {
+        int sz = getTypeSize(typeName, 0);
+        if (sz <= 1) return ir::Type::I8;
+        if (sz <= 2) return ir::Type::I16;
+        return ir::Type::I32; // >32-bit maps to I32 for now (Phase 0)
+    }
+
     // Check for 4-byte structs/unions
     if (getTypeSize(typeName, 0) == 4) return ir::Type::I32;
 
@@ -262,6 +270,15 @@ int IRBuilder::getTypeSize(const std::string& typeName, int ptrLevel) {
         typeName == "unsigned") return 2;
     if (typeName == "long" || typeName == "unsigned long") return 4;
     if (typeName == "float" || typeName == "double") return 5;
+    // __int(N) / __uint(N) — extract bit width from name
+    if (typeName.substr(0, 5) == "__int" || typeName.substr(0, 6) == "__uint") {
+        size_t numStart = typeName.find_first_of("0123456789");
+        if (numStart != std::string::npos) {
+            int bits = std::stoi(typeName.substr(numStart));
+            return (bits + 7) / 8; // round up to bytes
+        }
+        return 4; // default
+    }
 
     std::string sName = getAggregateName(typeName);
     auto it = structs_.find(sName);

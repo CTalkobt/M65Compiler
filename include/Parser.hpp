@@ -54,6 +54,7 @@ private:
     void parseTypedef();
     bool tryParseAttribute();  // parse __attribute__((...)), returns true if found
     std::string resolveComplexType(); // consume type after COMPLEX token, return struct name
+    std::string resolveIntNType(bool isSigned); // consume (N) after __int/__uint, return type name
     std::shared_ptr<FuncPtrSignature> parseFuncPtrParams(const std::string& returnType, int returnPtrLevel, bool returnIsSigned);
 
     struct TypeAlias {
