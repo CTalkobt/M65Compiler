@@ -2609,7 +2609,23 @@ std::unique_ptr<Expression> Parser::parseUnary() {
                         cl->arrayDims.push_back((int)cl->initializer->elements.size());
                     }
                 }
-                return setPos(std::move(cl), startToken);
+                std::unique_ptr<Expression> result = setPos(std::move(cl), startToken);
+                // Allow postfix operators on compound literals: (int[]){1,2}[0]
+                while (peek().type == TokenType::OPEN_SQUARE || peek().type == TokenType::DOT ||
+                       peek().type == TokenType::ARROW) {
+                    if (match(TokenType::OPEN_SQUARE)) {
+                        auto index = parseExpression();
+                        expect(TokenType::CLOSE_SQUARE, "Expected ']'");
+                        result = setPos(std::make_unique<ArrayAccess>(std::move(result), std::move(index)), startToken);
+                    } else if (match(TokenType::DOT)) {
+                        std::string member = expect(TokenType::IDENTIFIER, "Expected member name").value;
+                        result = setPos(std::make_unique<MemberAccess>(std::move(result), member, false), startToken);
+                    } else if (match(TokenType::ARROW)) {
+                        std::string member = expect(TokenType::IDENTIFIER, "Expected member name").value;
+                        result = setPos(std::make_unique<MemberAccess>(std::move(result), member, true), startToken);
+                    }
+                }
+                return result;
             }
             auto operand = parseUnary();
             return setPos(std::make_unique<CastExpression>(castType, castPtrLevel, castSigned, std::move(operand)), startToken);

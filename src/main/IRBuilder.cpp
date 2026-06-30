@@ -888,7 +888,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
     localConst_[node.name] = node.isConst && node.pointerLevel == 0;
     localPointsToConst_[node.name] = node.isConst && node.pointerLevel > 0;
     if (node.pointerLevel > 0) {
-        localPointedToType_[node.name] = mapType(node.type, 0);
+        localPointedToType_[node.name] = mapType(node.type, node.pointerLevel - 1);
         // Track constant pointer initializer for propagation
         if (node.initializer) {
             if (auto* intLit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
