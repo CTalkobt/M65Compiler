@@ -40,8 +40,8 @@ const Token& Parser::expect(TokenType type, const std::string& message) {
 std::unique_ptr<TranslationUnit> Parser::parse() {
     auto unit = setPos(std::make_unique<TranslationUnit>(), tokens[0]);
     while (peek().type != TokenType::END_OF_FILE) {
-        // Skip __extension__ at top level (GCC compatibility)
-        while (match(TokenType::EXTENSION)) {}
+        // Skip __extension__ and __attribute__ at top level (GCC compatibility)
+        while (match(TokenType::EXTENSION) || tryParseAttribute()) {}
         // Skip stray semicolons at top level (e.g., }; after function)
         if (match(TokenType::SEMICOLON)) continue;
         if (match(TokenType::TYPEDEF)) {
@@ -3054,7 +3054,16 @@ bool Parser::tryParseAttribute() {
                 canonical = canonical.substr(2, canonical.size() - 4);
 
             // Recognized — silently accept
-            if (canonical == "noinline" || canonical == "noclone" || canonical == "packed") {
+            if (canonical == "noinline" || canonical == "noclone" || canonical == "packed" ||
+                canonical == "always_inline" || canonical == "gnu_inline" ||
+                canonical == "unused" || canonical == "used" || canonical == "weak" ||
+                canonical == "const" || canonical == "pure" || canonical == "flatten" ||
+                canonical == "cold" || canonical == "hot" || canonical == "nothrow" ||
+                canonical == "returns_twice" || canonical == "warn_unused_result" ||
+                canonical == "deprecated" || canonical == "visibility" ||
+                canonical == "section" || canonical == "nonnull" || canonical == "sentinel" ||
+                canonical == "format" || canonical == "format_arg" || canonical == "malloc" ||
+                canonical == "alloc_size" || canonical == "constructor" || canonical == "destructor") {
                 // Skip optional parenthesized argument
                 if (peek().type == TokenType::OPEN_PAREN) {
                     int depth = 1; advance();
