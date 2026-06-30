@@ -452,7 +452,7 @@ Full documentation: `doc/disk45.md`
 - **MEGA65 Hardware**: https://github.com/MEGA65/mega65-core
 - **45GS02 CPU**: Extended 6502 with Q register (AXYZ) and 32-bit operations
 - **Test Coverage**: 176 assembler validation tests (Units 1-7), 55 segment emission tests, semantic/parser error tests
-- **GTE (GCC Torture Tests)**: 536/581 (92.3%) — comprehensive C language compatibility validation (includes 95 float/double tests, 7 complex tests)
+- **GTE (GCC Torture Tests)**: 545/581 (93.8%) — comprehensive C language compatibility validation (includes 95 float/double tests, 7 complex tests)
 - **Standards**: C99 preprocessor, C89/C99 subset for language features
 
 ---
