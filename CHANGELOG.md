@@ -116,6 +116,7 @@ Remaining 24 failures: 9 unfixable (sys/mman.h, stdout/FILE\*, \_\_builtin\_va\_
 - **`#if(` without space**: `#if(__SIZEOF_INT__ >= 4)` now parsed correctly
 - **`__extension__`**: Skipped at top-level declaration context
 - **`va_arg`**: `const`/`volatile` qualifiers before type, `struct`/`union`/`enum`/`typeof` types
+- **`__attribute__` expansion**: 25+ GCC attributes silently accepted (`always_inline`, `unused`, `weak`, `pure`, `const`, `cold`, `hot`, `packed`, `noinline`, `deprecated`, `visibility`, `section`, `format`, `malloc`, `constructor`, `destructor`, etc.). `__attribute__` before `typedef` at top level now works.
 
 ### Assembler Fixes
 

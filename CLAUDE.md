@@ -162,7 +162,7 @@ make clean && make test  # Clean rebuild and test
 - **Preprocessor**: Full C99 preprocessor, `__cc45__` macro, `__builtin_va_list`, GCC keyword synonyms (`__volatile`, `__const`, `__inline`, `__restrict`, `__signed`)
 - **Inline Functions**: `inline` keyword, `-finline-functions` flag, auto-inline for trivial struct methods (≤3 statements)
 - **Loop Unrolling**: `repeat(N) { body }` compile-time loop unrolling
-- **Function Attributes**: `__interrupt`, `__naked`, `__regparm`, `__fastcall__`, `__attribute__` (parsed and skipped in all positions)
+- **Function Attributes**: `__interrupt`, `__naked`, `__regparm`, `__fastcall__`, `__attribute__` (25+ attributes silently accepted including `always_inline`, `unused`, `weak`, `pure`, `const`, `cold`, `hot`, `packed`, `noinline`; 5 warn-and-ignore: `noipa`, `aligned`, `mode`, `vector_size`, `may_alias`)
 - **Variadic Functions**: Full `<stdarg.h>` support with `struct`/`union`/`enum`/`typeof`/`const`/`float`/`double` types in `va_arg`
 - **DMA Intrinsics**: `__dma_copy(dst, src, len)` and `__dma_fill(dst, len, val)` for MEGA65 F018B DMA
 - **CPU/Flag Intrinsics**: `__cpu.A/.X/.Y/.Z/.AX/.Q` and `__flags.Carry/.Zero/.Negative/.Overflow`
