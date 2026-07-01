@@ -4,7 +4,7 @@ All notable changes to the cc45 / ca45 suite will be documented in this file.
 
 ## [v1.0.3-dev] - 2026-06-30 — Development
 
-Major feature release: OOP system, operator overloading, **full floating-point support**, `__int(N)`/`__uint(N)`, GTE compatibility from 65.8% to 95.9% (581 tests).
+Major feature release: OOP system, operator overloading, **full floating-point support**, `__int(N)`/`__uint(N)`, GTE compatibility from 65.8% to 96.2% (581 tests).
 
 ### Object-Oriented Programming System
 
@@ -67,7 +67,7 @@ Major feature release: OOP system, operator overloading, **full floating-point s
 - **`sizeof(*this)` fix**: Correctly returns struct size in method bodies (was returning pointer size)
 - **Operator name disambiguation**: Unary `operator-()` → `operator_neg` vs binary `operator-(o)` → `operator_sub`
 
-### GTE Compatibility (316→557/581, 65.8%→95.9%)
+### GTE Compatibility (316→559/581, 65.8%→96.2%)
 
 Remaining 24 failures: 9 unfixable (sys/mman.h, stdout/FILE\*, \_\_builtin\_va\_arg\_pack, #define L, missing file), 8 nested function closure/label issues, 7 parser edge cases (statement expressions, macro re-expansion, funcptr-in-funcptr).
 

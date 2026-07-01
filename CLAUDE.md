@@ -460,7 +460,7 @@ Full documentation: `doc/disk45.md`
 - **MEGA65 Hardware**: https://github.com/MEGA65/mega65-core
 - **45GS02 CPU**: Extended 6502 with Q register (AXYZ) and 32-bit operations
 - **Test Coverage**: 282 unit tests pass (`make test`), 176 assembler validation tests (Units 1-7), 55 segment emission tests, semantic/parser error tests. 5 hardware I/O tests require mmemu MCP (mega65 mode with MAP clear — see mmemu#79, #80)
-- **GTE (GCC Torture Tests)**: 557/581 (95.9%) — comprehensive C language compatibility validation (includes 95 float/double tests, 7 complex tests). Remaining 24: 9 unfixable (sys/mman.h, stdout/FILE*, __builtin_va_arg_pack, #define L), 8 nested function closure issues, 7 parser edge cases (statement expressions, macro re-expansion)
+- **GTE (GCC Torture Tests)**: 559/581 (96.2%) — comprehensive C language compatibility validation (includes 95 float/double tests, 7 complex tests). Remaining 22: 9 unfixable (sys/mman.h, stdout/FILE*, __builtin_va_arg_pack, #define L), 8 nested function closure issues, 5 parser edge cases
 - **Standards**: C99 preprocessor, C89/C99 subset for language features
 
 ---
