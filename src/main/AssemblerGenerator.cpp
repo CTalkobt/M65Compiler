@@ -498,9 +498,25 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                     }
                     else if (stmt->dir.name == "dword" || stmt->dir.name == "long") for (const auto& a : stmt->dir.arguments) { uint32_t v = parseNumericLiteral(a); e.emitWord(v & 0xFFFF); e.emitWord(v >> 16); }
                     else if (stmt->dir.name == "float") for (const auto& a : stmt->dir.arguments) { double v = std::stod(a); std::vector<uint8_t> enc = encodeFloat(v); for (uint8_t eb : enc) e.emitByte(eb); }
-                    else if (stmt->dir.name == "text") { if (!stmt->dir.arguments.empty()) for (char c : stmt->dir.arguments[0]) e.emitByte(toPetscii(c)); }
-                    else if (stmt->dir.name == "ascii") { if (!stmt->dir.arguments.empty()) for (char c : stmt->dir.arguments[0]) e.emitByte((uint8_t)c); }
-                    else if (stmt->dir.name == "screencode") { if (!stmt->dir.arguments.empty()) for (char c : stmt->dir.arguments[0]) e.emitByte(toScreencode(c)); }
+                    else if (stmt->dir.name == "text" || stmt->dir.name == "ascii" || stmt->dir.name == "screencode") {
+                        if (!stmt->dir.arguments.empty()) {
+                            std::string str = stmt->dir.arguments[0];
+                            // Check for encoding prefix: s"..." or p"..."
+                            char prefix = 0;
+                            if (str.size() > 1 && (str[0] == 's' || str[0] == 'S' || str[0] == 'p' || str[0] == 'P')) {
+                                prefix = str[0];
+                                str = str.substr(1);
+                            }
+                            for (char c : str) {
+                                if (prefix == 's' || prefix == 'S' || (prefix == 0 && stmt->dir.name == "screencode"))
+                                    e.emitByte(toScreencode(c));
+                                else if (prefix == 0 && stmt->dir.name == "ascii")
+                                    e.emitByte((uint8_t)c);
+                                else
+                                    e.emitByte(toPetscii(c));
+                            }
+                        }
+                    }
                     else if (stmt->dir.name == "res") {
                         uint32_t count = parser->evaluateExpressionAt(stmt->dir.tokenIndex, stmt->scopePrefix);
                         uint8_t fill = 0;

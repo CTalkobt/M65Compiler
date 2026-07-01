@@ -1539,7 +1539,12 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
     if (dir.name == "float") return (int)dir.arguments.size() * 5;
     if (dir.name == "text" || dir.name == "ascii" || dir.name == "screencode") {
         if (dir.arguments.empty()) return 0;
-        return (int)dir.arguments[0].size();
+        int len = (int)dir.arguments[0].size();
+        // Subtract 1 for encoding prefix (s/S/p/P) if present
+        if (len > 1 && (dir.arguments[0][0] == 's' || dir.arguments[0][0] == 'S' ||
+                        dir.arguments[0][0] == 'p' || dir.arguments[0][0] == 'P'))
+            len--;
+        return len;
     }
     if (dir.name == "res") {
         if (dir.arguments.empty()) return 0;
