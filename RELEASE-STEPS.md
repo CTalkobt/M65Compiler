@@ -162,7 +162,32 @@ done
 
 ---
 
-## 10. Final Commit & Tag
+## 10. Docker Build
+
+Build and test the Docker image to verify the toolchain works in a clean environment:
+
+```bash
+# Build the Docker image
+docker build -t cc45:vX.Y.Z .
+
+# Verify tools are available
+docker run --rm cc45:vX.Y.Z cc45 --version
+docker run --rm cc45:vX.Y.Z ca45 --version
+docker run --rm cc45:vX.Y.Z ln45 --version
+
+# Run test suite inside container
+docker run --rm cc45:vX.Y.Z make test
+
+# Compile a test program
+docker run --rm -v $(pwd)/examples:/work cc45:vX.Y.Z sh -c \
+  "cd /work/c/hello_world && make clean && make"
+```
+
+**Gate: Docker image builds, tools run, tests pass inside container.**
+
+---
+
+## 11. Final Commit & Tag
 
 ```bash
 git add -A
@@ -173,7 +198,7 @@ git push && git push origin vX.Y.Z
 
 ---
 
-## 11. GitHub Release
+## 12. GitHub Release
 
 ```bash
 gh release create vX.Y.Z --title "vX.Y.Z" --notes-file CHANGELOG_EXCERPT.md
@@ -188,7 +213,7 @@ Or create via GitHub UI with release notes extracted from CHANGELOG.md.
 Full pre-release validation (requires mmemu-cli):
 
 ```bash
-make clean && make all && make lib && make test && make test-stdlib && make bench
+make clean && make all && make lib && make test && make test-stdlib && make bench && docker build -t cc45:latest .
 ```
 
 **All steps must exit 0. Any test failure blocks the release.**
