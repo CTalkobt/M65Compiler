@@ -118,6 +118,15 @@ Remaining 24 failures: 9 unfixable (sys/mman.h, stdout/FILE\*, \_\_builtin\_va\_
 - **`va_arg`**: `const`/`volatile` qualifiers before type, `struct`/`union`/`enum`/`typeof` types
 - **`__attribute__` expansion**: 25+ GCC attributes silently accepted (`always_inline`, `unused`, `weak`, `pure`, `const`, `cold`, `hot`, `packed`, `noinline`, `deprecated`, `visibility`, `section`, `format`, `malloc`, `constructor`, `destructor`, etc.). `__attribute__` before `typedef` at top level now works.
 
+### Assembler Enhancements
+
+- **Encoding prefixes**: `s'A'` (screencode), `p'A'` (PETSCII), `'A'` (PETSCII default) for char literals in expressions (`lda #s'A'`). String directives: `.text s"HELLO"` (screencode), `.text p"HELLO"` (PETSCII), `.ascii` defaults to raw ASCII, `.screencode` defaults to screen codes. Prefix overrides directive default.
+- **Char literal support**: `CHAR_LITERAL` token now handled in expression evaluator — `lda #'A'` works (was previously unsupported)
+
+### Standard Library Additions
+
+- **`vsprintf(buf, fmt, ap)`**: Formatted string output with `va_list`. Supports `%d %u %x %o %s %c %% %ld %lu %lx %lo`.
+
 ### Assembler Fixes
 
 - **16-bit Branch Offsets**: All LBRA/LBCS/BSR use `PC+2+offset` per MEGA65 book (was `PC+3`)

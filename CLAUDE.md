@@ -223,7 +223,7 @@ make clean && make test  # Clean rebuild and test
 
 ### Provided Headers
 
-- **`stdio.h`**: `printf`, `sprintf`, `puts`, `getchar`, `putchar` (printf/sprintf support `%f` for floats via auto-linked float variant)
+- **`stdio.h`**: `printf`, `sprintf`, `vsprintf`, `puts`, `getchar`, `putchar` (printf/sprintf support `%f` for floats via auto-linked float variant)
 - **`stdlib.h`**: `malloc`, `free`, `exit`, `strtol`, `strtoul`, `strtof`, `atof`
 - **`string.h`**: `strlen`, `strcpy`, `strcmp`, `strcat`, `strchr`, `strstr`, `strtok`, `strncat`, `strpbrk`, `strspn`, `strcspn`, `memcpy`, `memset`, `memmove`, `memcmp`
 - **`ctype.h`**: `toupper`, `tolower`, `isalpha`, `isdigit`, `isxdigit`, `islower`, `isupper`, `ispunct`, `isblank`, `iscntrl`, `isalnum`, `isspace`, `isgraph`, `isprint`
@@ -265,7 +265,8 @@ All stdlib functions support both stack and ZP calling conventions:
 
 ### Directives
 
-- **Layout**: `* = address`, `.align`, `.byte`, `.word`, `.long`, `.ascii`, `.asciiz`, `.fill`, `.space`
+- **Layout**: `* = address`, `.align`, `.byte`, `.word`, `.long`, `.ascii`, `.asciiz`, `.text`, `.screencode`, `.fill`, `.space`
+- **Encoding Prefixes**: `s'A'` (screencode), `p'A'` (PETSCII), `'A'` (PETSCII default); `.text s"HELLO"` (screencode), `.ascii` defaults to raw ASCII, `.screencode` defaults to screen codes
 - **Symbols**: `.label`, `.global`, `.extern`, `.const`, `.data`
 - **Flow Control**: `.if`, `.else`, `.endif`, `.ifndef`, `.ifdef`, `.defined(symbol)`
 - **Metadata**: `.cpu`, `.o45`, `.func_flags`, `.reg_clobbers`, `.flag_clobbers`, `.zp_uses`, `.zp_clobbers`
