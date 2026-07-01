@@ -383,6 +383,35 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
                 }
             }
 
+            // --- FCMP peephole: cmp #$FF + beq/bne → bmi/bpl when flags reflect A (Issue #126) ---
+            // FCMP returns -1($FF)/0/1 in A. When N/Z flags already reflect A
+            // (from a prior LDA), the CMP #$FF can be eliminated:
+            // cmp #$FF; beq → bmi (N=1 means A=$FF)
+            // cmp #$FF; bne → bpl (N=0 means A=$00 or $01)
+            if (m == "CMP" && isImm && hasNumVal && numVal == 255 && ms.flags.flagsReflect(REG_A)) {
+                size_t j = i + 1;
+                while (j < parser->statements.size() && parser->statements[j]->deleted) ++j;
+                if (j < parser->statements.size()) {
+                    auto* next = parser->statements[j].get();
+                    if (next->type == AssemblerParser::Statement::INSTRUCTION) {
+                        std::string nm = next->instr.mnemonic;
+                        std::transform(nm.begin(), nm.end(), nm.begin(), ::toupper);
+                        if (nm == "BEQ") {
+                            report("fcmp-opt", s, "CMP #$FF + BEQ → BMI");
+                            s->deleted = true; s->size = 0;
+                            next->instr.mnemonic = "BMI";
+                            changed = true; continue;
+                        }
+                        if (nm == "BNE") {
+                            report("fcmp-opt", s, "CMP #$FF + BNE → BPL");
+                            s->deleted = true; s->size = 0;
+                            next->instr.mnemonic = "BPL";
+                            changed = true; continue;
+                        }
+                    }
+                }
+            }
+
             // --- Redundant load elimination (MachineState-based) ---
             // A load is redundant if the register already holds the same value:
             //   1. Same constant (LDA #5 when A is CONSTANT(5))

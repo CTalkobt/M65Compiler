@@ -230,6 +230,21 @@ AssemblerToken AssemblerLexer::lexIdentifierOrInstruction() {
         return {AssemblerTokenType::INSTRUCTION, upperValue, startLine, startCol};
     }
 
+    // Encoding prefixes for char/string literals: s'A' p'A' s"ABC" p"ABC"
+    if ((value == "s" || value == "S" || value == "p" || value == "P") &&
+        (peek() == '\'' || peek() == '"')) {
+        char prefix = (value[0] == 's' || value[0] == 'S') ? 's' : 'p';
+        if (peek() == '\'') {
+            auto tok = lexChar();
+            tok.value = std::string(1, prefix) + tok.value; // prepend prefix
+            return tok;
+        } else {
+            auto tok = lexString();
+            tok.value = std::string(1, prefix) + tok.value; // prepend prefix
+            return tok;
+        }
+    }
+
     return {AssemblerTokenType::IDENTIFIER, value, startLine, startCol};
 }
 

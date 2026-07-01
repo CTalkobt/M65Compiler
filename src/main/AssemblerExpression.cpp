@@ -535,6 +535,34 @@ std::unique_ptr<ExprAST> parseExprAST(const std::vector<AssemblerToken>& tokens,
         if (t.type == AssemblerTokenType::DECIMAL_LITERAL) return std::make_unique<ConstantNode>(std::stoul(t.value));
         if (t.type == AssemblerTokenType::HEX_LITERAL) return std::make_unique<ConstantNode>(std::stoul(t.value.substr(1), nullptr, 16));
         if (t.type == AssemblerTokenType::BINARY_LITERAL) return std::make_unique<ConstantNode>(std::stoul(t.value.substr(1), nullptr, 2));
+        if (t.type == AssemblerTokenType::CHAR_LITERAL) {
+            // Char literal with optional encoding prefix: 'A', s'A', p'A'
+            char ch = 0;
+            char prefix = 0;
+            if (t.value.size() == 2) { prefix = t.value[0]; ch = t.value[1]; }
+            else if (t.value.size() == 1) { ch = t.value[0]; }
+            uint8_t val;
+            if (prefix == 's' || prefix == 'S') {
+                // Screencode conversion
+                uint8_t u = (uint8_t)ch;
+                if (u == 0x40) val = 0x00;
+                else if (u >= 0x41 && u <= 0x5A) val = u - 0x40;
+                else if (u >= 0x5B && u <= 0x5F) val = u - 0x40;
+                else if (u >= 0x61 && u <= 0x7A) val = u - 0x60;
+                else val = u;
+            } else if (prefix == 'p' || prefix == 'P') {
+                // PETSCII conversion
+                if (ch >= 'a' && ch <= 'z') val = ch - 32;
+                else if (ch >= 'A' && ch <= 'Z') val = ch + 32;
+                else val = (uint8_t)ch;
+            } else {
+                // Default: PETSCII conversion (same as .text)
+                if (ch >= 'a' && ch <= 'z') val = ch - 32;
+                else if (ch >= 'A' && ch <= 'Z') val = ch + 32;
+                else val = (uint8_t)ch;
+            }
+            return std::make_unique<ConstantNode>(val);
+        }
         if (t.type == AssemblerTokenType::REGISTER) return std::make_unique<RegisterNode>("." + t.value);
         if (t.type == AssemblerTokenType::FLAG) return std::make_unique<FlagNode>(t.value[0]);
         if (t.type == AssemblerTokenType::IDENTIFIER || t.type == AssemblerTokenType::INSTRUCTION) {

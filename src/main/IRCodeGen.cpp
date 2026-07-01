@@ -2041,12 +2041,14 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     emit("ora __zp_scratch");
                 }
             } else {
-                loadOperand(inst.src1);
-                if (inst.src1.type == ir::Type::I32) {
-                    emit(std::string(isSigned ? "cmp.s32" : "cmp.32") + " .AXYZ, " + src2);
-                } else if (inst.src1.type == ir::Type::I8) {
+                if (inst.src1.type == ir::Type::I8) {
+                    loadOperandA(inst.src1); // A-only: preserves N/Z flags for peephole
                     emit("cmp " + src2);
+                } else if (inst.src1.type == ir::Type::I32) {
+                    loadOperand(inst.src1);
+                    emit(std::string(isSigned ? "cmp.s32" : "cmp.32") + " .AXYZ, " + src2);
                 } else {
+                    loadOperand(inst.src1);
                     emit(std::string(isSigned ? "cmp.s16" : "cmp.16") + " .AX, " + src2);
                 }
             }

@@ -2,9 +2,9 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
-## [v1.0.3-dev] - 2026-06-30 — Development
+## [v1.0.3] - 2026-06-30
 
-Major feature release: OOP system, operator overloading, **full floating-point support**, `__int(N)`/`__uint(N)`, GTE compatibility from 65.8% to 95.9% (581 tests).
+Major feature release: OOP system, operator overloading, **full floating-point support**, `__int(N)`/`__uint(N)`, GTE compatibility from 65.8% to 96.4% (581 tests).
 
 ### Object-Oriented Programming System
 
@@ -67,7 +67,7 @@ Major feature release: OOP system, operator overloading, **full floating-point s
 - **`sizeof(*this)` fix**: Correctly returns struct size in method bodies (was returning pointer size)
 - **Operator name disambiguation**: Unary `operator-()` → `operator_neg` vs binary `operator-(o)` → `operator_sub`
 
-### GTE Compatibility (316→557/581, 65.8%→95.9%)
+### GTE Compatibility (316→560/581, 65.8%→96.4%)
 
 Remaining 24 failures: 9 unfixable (sys/mman.h, stdout/FILE\*, \_\_builtin\_va\_arg\_pack, #define L, missing file), 8 nested function closure/label issues, 7 parser edge cases (statement expressions, macro re-expansion, funcptr-in-funcptr).
 
@@ -117,6 +117,17 @@ Remaining 24 failures: 9 unfixable (sys/mman.h, stdout/FILE\*, \_\_builtin\_va\_
 - **`__extension__`**: Skipped at top-level declaration context
 - **`va_arg`**: `const`/`volatile` qualifiers before type, `struct`/`union`/`enum`/`typeof` types
 - **`__attribute__` expansion**: 25+ GCC attributes silently accepted (`always_inline`, `unused`, `weak`, `pure`, `const`, `cold`, `hot`, `packed`, `noinline`, `deprecated`, `visibility`, `section`, `format`, `malloc`, `constructor`, `destructor`, etc.). `__attribute__` before `typedef` at top level now works.
+
+### Assembler Enhancements
+
+- **Encoding prefixes**: `s'A'` (screencode), `p'A'` (PETSCII), `'A'` (PETSCII default) for char literals in expressions (`lda #s'A'`). String directives: `.text s"HELLO"` (screencode), `.text p"HELLO"` (PETSCII), `.ascii` defaults to raw ASCII, `.screencode` defaults to screen codes. Prefix overrides directive default.
+- **Char literal support**: `CHAR_LITERAL` token now handled in expression evaluator — `lda #'A'` works (was previously unsupported)
+- **FCMP peephole**: `CMP #$FF; BEQ` → `BMI` and `CMP #$FF; BNE` → `BPL` when N/Z flags reflect A. Saves 2 bytes per float `<` / `>=` comparison.
+- **I8 comparison optimization**: I8 comparisons use `loadOperandA` (A-only) instead of `loadOperand` (A:X with `ldx #0`). Saves 2 bytes per I8 comparison and avoids N/Z flag clobbering.
+
+### Standard Library Additions
+
+- **`vsprintf(buf, fmt, ap)`**: Formatted string output with `va_list`. Supports `%d %u %x %o %s %c %% %ld %lu %lx %lo`.
 
 ### Assembler Fixes
 

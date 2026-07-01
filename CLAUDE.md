@@ -1,7 +1,7 @@
 # MEGA65 C Compiler Suite — Codebase Documentation
 
-**Status:** v1.0.3-dev (branch: dev_v1.0.3)
-**Last Updated:** 2026-06-27
+**Status:** v1.0.3
+**Last Updated:** 2026-06-30
 **Maintainer:** Craig Taylor (CTalkobt)
 
 ---
@@ -200,7 +200,7 @@ make clean && make test  # Clean rebuild and test
 
 - **`float` / `double` / `long double`**: All map to CBM 40-bit (5 bytes: 1 exponent + 4 mantissa). Supported everywhere: variables, function params/returns, struct members, arrays, pointers, casts, sizeof, _Alignas, va_arg, typedef, function pointer params
 - **Literals**: Decimal (`3.14`, `1.5f`) and exponent notation (`1.5e-3`, `3.14e0`). Positive integer exponents (`1e2`) stay as integer
-- **Arithmetic & Comparisons**: `+ - * / == != < <= > >=` via BASIC 65 ROM routines (JSRFAR)
+- **Arithmetic & Comparisons**: `+ - * / == != < <= > >=` via BASIC 65 ROM routines (JSRFAR). Assembler peephole optimizes `<`/`>=` via BMI/BPL (saves 2 bytes each)
 - **Casts**: `(float)i`, `(int)f`, implicit promotion in mixed expressions
 - **Indirect access**: Pointer dereference, struct members, array elements — 5-byte `(ZP),Y` loops
 - **I/O**: `printf %f`, `sprintf %f`, `sscanf %f`, `strtof()`, `atof()`
@@ -223,7 +223,7 @@ make clean && make test  # Clean rebuild and test
 
 ### Provided Headers
 
-- **`stdio.h`**: `printf`, `sprintf`, `puts`, `getchar`, `putchar` (printf/sprintf support `%f` for floats via auto-linked float variant)
+- **`stdio.h`**: `printf`, `sprintf`, `vsprintf`, `puts`, `getchar`, `putchar` (printf/sprintf support `%f` for floats via auto-linked float variant)
 - **`stdlib.h`**: `malloc`, `free`, `exit`, `strtol`, `strtoul`, `strtof`, `atof`
 - **`string.h`**: `strlen`, `strcpy`, `strcmp`, `strcat`, `strchr`, `strstr`, `strtok`, `strncat`, `strpbrk`, `strspn`, `strcspn`, `memcpy`, `memset`, `memmove`, `memcmp`
 - **`ctype.h`**: `toupper`, `tolower`, `isalpha`, `isdigit`, `isxdigit`, `islower`, `isupper`, `ispunct`, `isblank`, `iscntrl`, `isalnum`, `isspace`, `isgraph`, `isprint`
@@ -265,7 +265,8 @@ All stdlib functions support both stack and ZP calling conventions:
 
 ### Directives
 
-- **Layout**: `* = address`, `.align`, `.byte`, `.word`, `.long`, `.ascii`, `.asciiz`, `.fill`, `.space`
+- **Layout**: `* = address`, `.align`, `.byte`, `.word`, `.long`, `.ascii`, `.asciiz`, `.text`, `.screencode`, `.fill`, `.space`
+- **Encoding Prefixes**: `s'A'` (screencode), `p'A'` (PETSCII), `'A'` (PETSCII default); `.text s"HELLO"` (screencode), `.ascii` defaults to raw ASCII, `.screencode` defaults to screen codes
 - **Symbols**: `.label`, `.global`, `.extern`, `.const`, `.data`
 - **Flow Control**: `.if`, `.else`, `.endif`, `.ifndef`, `.ifdef`, `.defined(symbol)`
 - **Metadata**: `.cpu`, `.o45`, `.func_flags`, `.reg_clobbers`, `.flag_clobbers`, `.zp_uses`, `.zp_clobbers`
@@ -460,7 +461,7 @@ Full documentation: `doc/disk45.md`
 - **MEGA65 Hardware**: https://github.com/MEGA65/mega65-core
 - **45GS02 CPU**: Extended 6502 with Q register (AXYZ) and 32-bit operations
 - **Test Coverage**: 282 unit tests pass (`make test`), 176 assembler validation tests (Units 1-7), 55 segment emission tests, semantic/parser error tests. 5 hardware I/O tests require mmemu MCP (mega65 mode with MAP clear — see mmemu#79, #80)
-- **GTE (GCC Torture Tests)**: 557/581 (95.9%) — comprehensive C language compatibility validation (includes 95 float/double tests, 7 complex tests). Remaining 24: 9 unfixable (sys/mman.h, stdout/FILE*, __builtin_va_arg_pack, #define L), 8 nested function closure issues, 7 parser edge cases (statement expressions, macro re-expansion)
+- **GTE (GCC Torture Tests)**: 560/581 (96.4%) — comprehensive C language compatibility validation (includes 95 float/double tests, 7 complex tests). Remaining 21: 9 unfixable (sys/mman.h, stdout/FILE*, __builtin_va_arg_pack, #define L), 8 nested function closure issues, 4 parser edge cases
 - **Standards**: C99 preprocessor, C89/C99 subset for language features
 
 ---
