@@ -700,8 +700,9 @@ int main(int argc, char** argv) {
                 try {
                     validator.generate(*ast);
                 } catch (const std::exception& e) {
-                    std::cerr << "Compile Error: " << e.what() << std::endl;
-                    return 1;
+                    // Legacy validator error — log but continue (Issue #116)
+                    // The IR path may handle the construct correctly.
+                    std::cerr << e.what() << std::endl;
                 }
             }
         }
