@@ -208,12 +208,33 @@ Or create via GitHub UI with release notes extracted from CHANGELOG.md.
 
 ---
 
+## 13. Merge to Main
+
+Merge the release branch into main and push:
+
+```bash
+git checkout main
+git merge --no-ff dev_vX.Y.Z -m "Merge dev_vX.Y.Z: <one-line summary>"
+git push ORIGIN main
+```
+
+Verify main is up to date:
+```bash
+git log --oneline -5
+```
+
+**Gate: main branch contains all release commits. No divergence.**
+
+---
+
 ## Quick Reference: One-Command Validation
 
 Full pre-release validation (requires mmemu-cli):
 
 ```bash
 make clean && make all && make lib && make test && make test-stdlib && make bench && docker build -t cc45:latest .
+# After tag + release:
+git checkout main && git merge --no-ff dev_vX.Y.Z && git push ORIGIN main
 ```
 
 **All steps must exit 0. Any test failure blocks the release.**
