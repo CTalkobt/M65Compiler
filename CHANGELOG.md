@@ -122,6 +122,8 @@ Remaining 24 failures: 9 unfixable (sys/mman.h, stdout/FILE\*, \_\_builtin\_va\_
 
 - **Encoding prefixes**: `s'A'` (screencode), `p'A'` (PETSCII), `'A'` (PETSCII default) for char literals in expressions (`lda #s'A'`). String directives: `.text s"HELLO"` (screencode), `.text p"HELLO"` (PETSCII), `.ascii` defaults to raw ASCII, `.screencode` defaults to screen codes. Prefix overrides directive default.
 - **Char literal support**: `CHAR_LITERAL` token now handled in expression evaluator — `lda #'A'` works (was previously unsupported)
+- **FCMP peephole**: `CMP #$FF; BEQ` → `BMI` and `CMP #$FF; BNE` → `BPL` when N/Z flags reflect A. Saves 2 bytes per float `<` / `>=` comparison.
+- **I8 comparison optimization**: I8 comparisons use `loadOperandA` (A-only) instead of `loadOperand` (A:X with `ldx #0`). Saves 2 bytes per I8 comparison and avoids N/Z flag clobbering.
 
 ### Standard Library Additions
 
