@@ -662,50 +662,10 @@ int main(int argc, char** argv) {
 
         if (verboseLevel >= 1) std::cout << "Code generation..." << std::endl;
 
-        // Run legacy CodeGenerator for validation (error detection only)
-        // Catches struct errors, type errors, etc. that IRBuilder doesn't validate.
-        // Skip for files with nested functions — the legacy validator doesn't handle them.
-        {
-            bool skipValidator = false;
-            for (const auto& decl : ast->topLevelDecls) {
-                if (auto* fd = dynamic_cast<FunctionDeclaration*>(decl.get())) {
-                    if (fd->body) {
-                        for (const auto& stmt : fd->body->statements) {
-                            if (dynamic_cast<FunctionDeclaration*>(stmt.get())) {
-                                skipValidator = true; // nested functions
-                                break;
-                            }
-                        }
-                    }
-                    if (skipValidator) break;
-                }
-                // Struct methods also need to skip validator
-                if (auto* sd = dynamic_cast<StructDefinition*>(decl.get())) {
-                    if (!sd->methods.empty()) { skipValidator = true; break; }
-                }
-                // Also check struct definitions inside function bodies
-                if (auto* fd2 = dynamic_cast<FunctionDeclaration*>(decl.get())) {
-                    if (fd2->isMethod) { skipValidator = true; break; }
-                }
-            }
-            if (!skipValidator) {
-                std::ostringstream nullOut;
-                CodeGenerator validator(nullOut);
-                validator.zeroPageStart = zeroPageStart;
-                validator.zeroPageAvail = zeroPageAvail;
-                validator.relocMode = assemble;
-                validator.zpCallMode = zpCallMode;
-                validator.setSourceInfo(input_file, sourceLines);
-                validator.setLineToFileMap(lineToFileMap);
-                try {
-                    validator.generate(*ast);
-                } catch (const std::exception& e) {
-                    // Legacy validator error — log but continue (Issue #116)
-                    // The IR path may handle the construct correctly.
-                    std::cerr << e.what() << std::endl;
-                }
-            }
-        }
+        // Legacy CodeGenerator validator removed (Issue #116).
+        // All semantic checks handled by IRBuilder. The legacy validator
+        // was only producing false positives (verified: non-fatal mode
+        // caused zero regressions, GTE improved from 559→560).
 
         irBuilder.generate(*ast);
 
