@@ -1209,9 +1209,11 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         int retSize = ir::typeSize(fn.returnType);
         if (retSize >= 4) {
             // I32: return value in A/X/Y/Z — Z carries byte 3, save it
-            emit("stz __zp_scratch3+1");
+            std::string restoreLabel = "@__restore_epilogue_z_" + std::to_string(labelCounter_++);
+            emit("stz " + restoreLabel + "+1");
             for (int i = 0; i < localFrameSize; i++) emit("plz");
-            emit("ldz __zp_scratch3+1");
+            emitLabel(restoreLabel);
+            emit("ldz #0");
         } else {
             // VOID/I8/I16: PLZ doesn't clobber A, X, or Y
             for (int i = 0; i < localFrameSize; i++) emit("plz");
@@ -2607,46 +2609,61 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::ADDR_ELEM: {
-            // Compute: base + index * elemSize
             int elemSize = (inst.args.size() > 0) ? (int)inst.args[0].immVal : 2;
             
-            std::string baseMem;
-            if (inst.src1.kind == ir::OperandKind::GLOBAL) {
-                emit("lda #<" + inst.src1.name);
-                emit("ldx #>" + inst.src1.name);
-                emit("sta __zp_scratch2");
-                emit("stx __zp_scratch2+1");
-                baseMem = "__zp_scratch2";
-            } else {
-                baseMem = src2MemOperand(inst.src1);
-            }
+            auto operandToString = [&](const ir::Operand& op) -> std::string {
+                if (op.isImm()) {
+                    return "#" + std::to_string((int)op.immVal);
+                }
+                if (op.isVreg()) {
+                    auto alloc = alloc_.getAlloc(op.vregId);
+                    if (alloc.loc == VRegAllocator::IN_ZP) {
+                        std::stringstream ss;
+                        ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << alloc.offset;
+                        return ss.str();
+                    } else if (alloc.loc == VRegAllocator::IN_AX) {
+                        return ".AX";
+                    }
+                }
+                if (op.kind == ir::OperandKind::GLOBAL) {
+                    return op.name;
+                }
+                return src2MemOperand(op);
+            };
 
-            // Step 2: load index into AX
-            loadOperand(inst.src2);
-            
-            // Step 3: multiply index by elemSize if needed
-            if (elemSize > 1) {
-                emit("mul.16 .AX, #" + std::to_string(elemSize));
+            std::string baseStr;
+            if (inst.src1.kind == ir::OperandKind::GLOBAL) {
+                baseStr = "#" + inst.src1.name;
+            } else {
+                baseStr = operandToString(inst.src1);
             }
             
-            // Step 4: add base address — store-fused when dest is ZP
+            std::string destStr = ".AX";
+            bool storeNeeded = true;
             if (inst.dest.isVreg()) {
                 auto destAlloc = alloc_.getAlloc(inst.dest.vregId);
                 if (destAlloc.loc == VRegAllocator::IN_ZP) {
-                    // Store-fused: clc; adc lo; sta $ZP; lda src_hi; adc hi; sta $ZP+1
-                    std::stringstream dlo, dhi;
-                    dlo << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << destAlloc.offset;
-                    dhi << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (destAlloc.offset + 1);
-                    emit("clc");
-                    emit("adc " + baseMem);
-                    emit("sta " + dlo.str());
-                    emit("txa");
-                    emit("adc " + baseMem + "+1");
-                    emit("sta " + dhi.str());
-                } else {
-                    emit("add.16 .AX, " + baseMem);
-                    storeVreg(inst.dest.vregId);
+                    std::stringstream ss;
+                    ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << destAlloc.offset;
+                    destStr = ss.str();
+                    storeNeeded = false;
                 }
+            }
+            
+            if (inst.src2.isImm()) {
+                uint32_t offset = inst.src2.immVal * elemSize;
+                emit("struct_elem.16 " + destStr + ", " + baseStr + ", #" + std::to_string(offset));
+            } else {
+                std::string indexStr = operandToString(inst.src2);
+                if (inst.src2.type == ir::Type::I8) {
+                    loadOperand(inst.src2);
+                    indexStr = ".AX";
+                }
+                emit("addr_elem.16 " + destStr + ", " + baseStr + ", " + indexStr + ", #" + std::to_string(elemSize));
+            }
+            
+            if (storeNeeded && inst.dest.isVreg()) {
+                storeVreg(inst.dest.vregId);
             }
             break;
         }
@@ -2986,16 +3003,28 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 } else {
                     // CALL_INDIRECT
                     loadOperand(inst.src1);
-                    emit("sta __zp_scratch");
-                    emit("stx __zp_scratch+1");
-                    emit("jsr (__zp_scratch)");
+                    std::string callLabel = "@__call_site_" + std::to_string(labelCounter_++);
+                    emit("sta " + callLabel + "+1");
+                    emit("stx " + callLabel + "+2");
+                    emitLabel(callLabel);
+                    emit("jsr $0000");
                 }
 
                 // Caller-side stack cleanup: pop argBytes with PLZ instructions
                 // (RTS #N opcode $62 is unreliable on some hardware)
                 if (argBytes > 0) {
+                    bool saveZ = (inst.op != ir::Op::CALL_VOID && inst.resultType == ir::Type::I32);
+                    std::string restoreLabel;
+                    if (saveZ) {
+                        restoreLabel = "@__restore_caller_z_" + std::to_string(labelCounter_++);
+                        emit("stz " + restoreLabel + "+1");
+                    }
                     for (int i = 0; i < argBytes; i++) {
                         emit("plz");
+                    }
+                    if (saveZ) {
+                        emitLabel(restoreLabel);
+                        emit("ldz #0");
                     }
                     emit(".var _fp = _fp - " + std::to_string(argBytes));
                 }
