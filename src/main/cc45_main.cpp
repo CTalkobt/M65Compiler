@@ -20,6 +20,7 @@
 #include "M65Emitter.hpp"
 #include "IRBuilder.hpp"
 #include "IRCodeGen.hpp"
+#include "IROptimizer.hpp"
 #include "Version.hpp"
 
 class ASTPrinter : public ASTVisitor {
@@ -668,6 +669,13 @@ int main(int argc, char** argv) {
         // caused zero regressions, GTE improved from 559→560).
 
         irBuilder.generate(*ast);
+
+        if (optimize) {
+            if (verboseLevel >= 1) std::cout << "Optimizing IR (CSE and Copy Propagation)..." << std::endl;
+            ir::optimizeCSE(irBuilder.getModule());
+            if (verboseLevel >= 1) std::cout << "Optimizing IR (LICM)..." << std::endl;
+            ir::optimizeLICM(irBuilder.getModule());
+        }
 
         // Write IR text dump if requested
         if (emitIR) {
