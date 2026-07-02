@@ -10,7 +10,7 @@
 
 proc _strcat, W#_p_dest, W#_p_src
     .var _fp = 0
-    ldax _p_dest, s
+    ldax _p_dest, sp
     stax $02
     ; Find end of dest
     ldy #0
@@ -31,7 +31,7 @@ proc _strcat, W#_p_dest, W#_p_src
     adc $03
     sta $03
     ; Now copy src to $02
-    ldax _p_src, s
+    ldax _p_src, sp
     stax $04
     ldy #0
 @copy:
@@ -44,6 +44,6 @@ proc _strcat, W#_p_dest, W#_p_src
     inc $05
     bra @copy
 @done:
-    ldax _p_dest, s
+    ldax _p_dest, sp
     rtn #0
     endproc

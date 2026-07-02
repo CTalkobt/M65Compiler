@@ -16,7 +16,7 @@ proc _strlen, W#_p_s
     pha
     lda $03
     pha
-    ldax _p_s+2, s
+    ldax _p_s+2, sp
     stax $02
     ldy #0
 @loop:

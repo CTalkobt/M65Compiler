@@ -216,10 +216,10 @@ static std::string formatOperand(AddressingMode mode, const uint8_t* bytes, int 
             return buf;
         }
         case AddressingMode::STACK_RELATIVE:
-            snprintf(buf, sizeof(buf), "$%02x,s", bytes[0]);
+            snprintf(buf, sizeof(buf), "$%02x,sp", bytes[0]);
             return buf;
         case AddressingMode::STACK_RELATIVE_INDIRECT_Y:
-            snprintf(buf, sizeof(buf), "($%02x,s),y", bytes[0]);
+            snprintf(buf, sizeof(buf), "($%02x,sp),y", bytes[0]);
             return buf;
         case AddressingMode::LINEAR_ABSOLUTE:
             snprintf(buf, sizeof(buf), "$%06x",

@@ -19,7 +19,7 @@ proc _puts, W#_p_s
     pha
     lda $FC
     pha
-    ldax _p_s+2, s
+    ldax _p_s+2, sp
     sta $FB
     stx $FC
     ldy #0

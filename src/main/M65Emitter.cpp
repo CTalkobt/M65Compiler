@@ -138,7 +138,7 @@ void M65Emitter::emitInstruction(const std::string& mnemonic, AddressingMode amo
                 case AddressingMode::BASE_PAGE_INDIRECT_SP_Y: operand = "(" + hex8((uint8_t)value) + ",sp),y"; break;
                 case AddressingMode::ABSOLUTE_INDIRECT: operand = "(" + hex16((uint16_t)value) + ")"; break;
                 case AddressingMode::ABSOLUTE_X_INDIRECT: operand = "(" + hex16((uint16_t)value) + ",x)"; break;
-                case AddressingMode::STACK_RELATIVE: operand = std::to_string((int)value) + ",s"; break;
+                case AddressingMode::STACK_RELATIVE: operand = std::to_string((int)value) + ",sp"; break;
                 case AddressingMode::FLAT_INDIRECT_Z: operand = "[" + hex8((uint8_t)value) + "],z"; break;
                 case AddressingMode::RELATIVE: {
                     int v = (int)(int8_t)value + 2; // +2 for BRA instruction size: offset → target

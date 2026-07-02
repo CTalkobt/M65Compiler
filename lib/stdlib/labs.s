@@ -12,32 +12,32 @@
 proc _labs, D#_p_value
     .var _fp = 0
     ; Check sign (byte3)
-    lda _p_value+3, s
+    lda _p_value+3, sp
     bpl @positive
     ; Negate: complement and add 1
-    lda _p_value, s
+    lda _p_value, sp
     eor #$FF
     clc
     adc #1
     pha                     ; save byte0
-    lda _p_value+1, s
+    lda _p_value+1, sp
     eor #$FF
     adc #0
     tax                     ; byte1
-    lda _p_value+2, s
+    lda _p_value+2, sp
     eor #$FF
     adc #0
     tay                     ; byte2
-    lda _p_value+3, s
+    lda _p_value+3, sp
     eor #$FF
     adc #0
     taz                     ; byte3
     pla                     ; byte0 in A
     rtn #0
 @positive:
-    lda _p_value, s
-    ldx _p_value+1, s
-    ldy _p_value+2, s
-    ldz _p_value+3, s
+    lda _p_value, sp
+    ldx _p_value+1, sp
+    ldy _p_value+2, sp
+    ldz _p_value+3, sp
     rtn #0
     endproc

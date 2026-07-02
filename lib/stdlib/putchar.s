@@ -18,6 +18,6 @@ proc _putchar, W#_p_c
     phz
     jsr $FFD2
     plz
-    ldax _p_c, s
+    ldax _p_c, sp
     rtn #0
     endproc

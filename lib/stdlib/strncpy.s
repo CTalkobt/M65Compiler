@@ -11,11 +11,11 @@
 
 proc _strncpy, W#_p_dest, W#_p_src, W#_p_n
     .var _fp = 0
-    ldax _p_dest, s
+    ldax _p_dest, sp
     stax $02
-    ldax _p_src, s
+    ldax _p_src, sp
     stax $04
-    ldax _p_n, s
+    ldax _p_n, sp
     stax $06            ; $06/$07 = count
     ldy #0
 @copy:
@@ -63,6 +63,6 @@ proc _strncpy, W#_p_dest, W#_p_src, W#_p_n
     dec $06
     bra @pad
 @done:
-    ldax _p_dest, s
+    ldax _p_dest, sp
     rtn #0
     endproc

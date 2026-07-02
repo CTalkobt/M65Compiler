@@ -10,21 +10,21 @@ volatile char g_flag = 0;
 
 void store_to_global(int val) {
     // Read int parameter via inline asm and store to global
-    __asm__("ldax @_p_val, s");
+    __asm__("ldax @_p_val, sp");
     __asm__("stax _g_value");
 }
 
 void set_flag(char f) {
     // Read char parameter via inline asm and store to global
-    __asm__("lda @_p_f, s");
+    __asm__("lda @_p_f, sp");
     __asm__("sta _g_flag");
 }
 
 int copy_via_asm(int val) {
     volatile int result = 0;
     // Load param and store to local via inline asm
-    __asm__("ldax @_p_val, s");
-    __asm__("stax @_l_result, s");
+    __asm__("ldax @_p_val, sp");
+    __asm__("stax @_l_result, sp");
     return result;
 }
 

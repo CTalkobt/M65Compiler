@@ -18,13 +18,13 @@
 
 proc _exit, W#_p_status
     .var _fp = 0
-    ldax _p_status, s
+    ldax _p_status, sp
     jmp __exit
     endproc
 
 ; _exit (POSIX-style) — strong, non-overridable
 proc __exit_, W#_p_status
     .var _fp = 0
-    ldax _p_status, s
+    ldax _p_status, sp
     jmp __exit
     endproc

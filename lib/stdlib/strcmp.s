@@ -19,7 +19,7 @@ proc _strcmp, W#_p_s1, W#_p_s2
     lda $04
     pha
 
-    ldax _p_s1+3, s
+    ldax _p_s1+3, sp
     stax $02
     ldy #0
 @loop:
@@ -36,12 +36,12 @@ proc _strcmp, W#_p_s1, W#_p_s2
     inc $03
     ; increment s2 pointer on stack for wrap
     clc
-    lda _p_s2+3, s
+    lda _p_s2+3, sp
     adc #0 ; y already 0 here
-    sta _p_s2+3, s
-    lda _p_s2+4, s
+    sta _p_s2+3, sp
+    lda _p_s2+4, sp
     adc #1
-    sta _p_s2+4, s
+    sta _p_s2+4, sp
     bra @loop
 @equal:
     ldax #$0000

@@ -33,7 +33,7 @@ proc _setjmp, W#_p_env
     .var _fp = 0
 
     ; Get pointer to jmp_buf
-    ldax _p_env, s
+    ldax _p_env, sp
     sta __zp_scratch
     stx __zp_scratch+1
 
@@ -69,7 +69,7 @@ proc _longjmp, W#_p_env, W#_p_val
     .var _fp = 0
 
     ; Load val
-    ldax _p_val, s
+    ldax _p_val, sp
     ; Check if AX == 0 (OR low and high bytes)
     sta __zp_scratch+2
     stx __zp_scratch+3
@@ -83,7 +83,7 @@ proc _longjmp, W#_p_env, W#_p_val
 @nonzero:
 
     ; Load jmp_buf pointer
-    ldax _p_env, s
+    ldax _p_env, sp
     sta __zp_scratch
     stx __zp_scratch+1
 

@@ -523,7 +523,7 @@ std::unique_ptr<ExprAST> parseExprAST(const std::vector<AssemblerToken>& tokens,
             // entire expression (first token), not when it's an operand inside a binary
             // expression like "_l_p + 0, s".
             if ((idx - 1) == exprStartIdx && idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::COMMA) {
-                if (idx + 1 < (int)tokens.size() && (tokens[idx + 1].value == "s" || tokens[idx + 1].value == "S")) {
+                if (idx + 1 < (int)tokens.size() && (tokens[idx + 1].value == "sp" || tokens[idx + 1].value == "SP")) {
                     uint32_t val = (t.type == AssemblerTokenType::HEX_LITERAL) ? std::stoul(t.value.substr(1), nullptr, 16) : std::stoul(t.value);
                     idx += 2;
                     std::string tempName = "__stack_" + std::to_string(val);

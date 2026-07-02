@@ -129,7 +129,7 @@ bool AssemblerParser::isStackRelativeOperand(int tokenIndex, uint32_t& offset, c
         auto ast = parseExprAST(tokens, idx, symbolTable, scopePrefix);
         if (ast && idx + 1 < (int)tokens.size() && 
             tokens[idx].type == AssemblerTokenType::COMMA &&
-            (tokens[idx+1].value == "s" || tokens[idx+1].value == "S")) {
+            (tokens[idx+1].value == "sp" || tokens[idx+1].value == "SP")) {
             try { offset = ast->getValue(this); } catch (...) { offset = 0; }
             return true;
         }
@@ -1023,7 +1023,7 @@ void AssemblerParser::pass1() {
                     else if (suffix == "indy") stmt->instr.mode = AddressingMode::BASE_PAGE_INDIRECT_Y;
                     else if (suffix == "indz") stmt->instr.mode = AddressingMode::BASE_PAGE_INDIRECT_Z;
                     else if (suffix == "accum" || suffix == "a") stmt->instr.mode = AddressingMode::ACCUMULATOR;
-                    else if (suffix == "s") stmt->instr.mode = AddressingMode::STACK_RELATIVE;
+                    else if (suffix == "sp") stmt->instr.mode = AddressingMode::STACK_RELATIVE;
                     else { stmt->instr.mnemonic = fullMnemonic; stmt->instr.forceMode = false; }
                 }
                 if (stmt->instr.mnemonic == "nop") throw std::runtime_error("nop disallowed");
@@ -1168,7 +1168,7 @@ void AssemblerParser::pass1() {
                             if (!stmt->instr.forceMode) {
                                 if (r == "X" || r == "x") stmt->instr.mode = AddressingMode::ABSOLUTE_X;
                                 else if (r == "Y" || r == "y") stmt->instr.mode = AddressingMode::ABSOLUTE_Y;
-                                else if (r == "S" || r == "s" || r == "SP" || r == "sp") stmt->instr.mode = AddressingMode::STACK_RELATIVE;
+                                else if (r == "SP" || r == "sp") stmt->instr.mode = AddressingMode::STACK_RELATIVE;
                                 else { stmt->instr.bitBranchTarget = r; stmt->instr.mode = AddressingMode::BASE_PAGE_RELATIVE; }
                             }
                         } else if (!stmt->instr.forceMode && !o.empty()) {

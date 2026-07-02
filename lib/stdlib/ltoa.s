@@ -36,15 +36,15 @@ proc _ltoa, D#_p_value, W#_p_str, W#_p_base
     pha
 
     ; Load 32-bit value into $02-$05
-    lda _p_value+7, s
+    lda _p_value+7, sp
     sta $02
-    lda _p_value+8, s
+    lda _p_value+8, sp
     sta $03
-    lda _p_value+9, s
+    lda _p_value+9, sp
     sta $04
-    lda _p_value+10, s
+    lda _p_value+10, sp
     sta $05
-    ldax _p_base+7, s
+    ldax _p_base+7, sp
     stax $06
 
     stz $08             ; digit count on stack
@@ -62,7 +62,7 @@ proc _ltoa, D#_p_value, W#_p_str, W#_p_base
     iny
     lda #0
     sta (_p_str+8, sp),y
-    ldax _p_str+7, s
+    ldax _p_str+7, sp
     bra @restore
 
 @valid:
@@ -173,7 +173,7 @@ proc _ltoa, D#_p_value, W#_p_str, W#_p_base
     lda #0
     sta (_p_str+8, sp),y
 
-    ldax _p_str+7, s
+    ldax _p_str+7, sp
 @restore:
     ; Return value in AX preserved (PLZ doesn't touch A/X).
     plz

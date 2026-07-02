@@ -102,7 +102,7 @@ static void cbm_setlfs(char lfn, char device, char sa) {
  * KERNAL SETNAM: A=length, X=lo(name), Y=hi(name)
  */
 static void cbm_setnam(char *name, char len) {
-    __asm__("ldxy @_p_name, s");  /* X=lo, Y=hi */
+    __asm__("ldxy @_p_name, sp");  /* X=lo, Y=hi */
     __asm__("lda.sp @_p_len");
     __asm__("jsr $FFBD");
 }
