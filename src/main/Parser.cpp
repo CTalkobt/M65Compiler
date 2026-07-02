@@ -1866,7 +1866,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
                     advance(); // struct/union
                     auto nestedDef = parseStructDefinition(isNestedUnion);
                     std::string nestedTypeName = (isNestedUnion ? "union " : "struct ") + nestedDef->name;
-                    { StructMember sm; sm.type = nestedTypeName; sm.pointerLevel = 0; sm.isAnonymous = true; def->members.push_back(std::move(sm)); }
+                    { StructMember sm; sm.type = nestedTypeName; sm.pointerLevel = 0; sm.isAnonymous = true; sm.name = "__anon_member_" + std::to_string(anonymousAggregateCount++); def->members.push_back(std::move(sm)); }
                     pendingDefinitions.push_back(std::move(nestedDef));
                     while (tryParseAttribute()) {}
                     match(TokenType::SEMICOLON); // consume optional semicolon
@@ -2076,6 +2076,38 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
                 if (!isOverride) {
                     method->vtableSlot = slot++;
                 }
+            }
+        }
+    }
+
+    // Validate flexible array members (C99)
+    for (size_t i = 0; i < def->members.size(); i++) {
+        auto& m = def->members[i];
+        bool isFAM = (!m.arrayDims.empty() && m.arrayDims[0] == 0 && m.arrayDims.size() == 1);
+        if (isFAM) {
+            if (def->isUnion) {
+                throw std::runtime_error("Syntax Error at " + std::to_string(startToken.line) + ":" + std::to_string(startToken.column) + ": Flexible array member '" + m.name + "' not allowed in union");
+            }
+            if (i != def->members.size() - 1) {
+                throw std::runtime_error("Syntax Error at " + std::to_string(startToken.line) + ":" + std::to_string(startToken.column) + ": Flexible array member '" + m.name + "' must be the last member of struct '" + def->name + "'");
+            }
+            if (def->members.size() < 2) {
+                throw std::runtime_error("Syntax Error at " + std::to_string(startToken.line) + ":" + std::to_string(startToken.column) + ": struct '" + def->name + "' with flexible array member must have at least one other member");
+            }
+        }
+    }
+
+    // Validate member types (e.g. unknown nested structs/unions)
+    for (auto& m : def->members) {
+        if (m.pointerLevel == 0 && m.type.rfind("struct ", 0) == 0) {
+            std::string sName = m.type.substr(7);
+            if (!structs.count(sName)) {
+                throw std::runtime_error("Syntax Error at " + std::to_string(startToken.line) + ":" + std::to_string(startToken.column) + ": Unknown struct/union type '" + sName + "'");
+            }
+        } else if (m.pointerLevel == 0 && m.type.rfind("union ", 0) == 0) {
+            std::string uName = m.type.substr(6);
+            if (!structs.count(uName)) {
+                throw std::runtime_error("Syntax Error at " + std::to_string(startToken.line) + ":" + std::to_string(startToken.column) + ": Unknown struct/union type '" + uName + "'");
             }
         }
     }
@@ -2443,11 +2475,7 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
             expect(TokenType::CLOSE_PAREN, "Expected ')' after _Alignof type");
             return setPos(std::make_unique<AlignofExpression>(ts.name, ts.pointerLevel), tokens[pos-1]);
         } else {
-            // Fall back: treat as expression (sizeof-style)
-            auto expr = parseExpression();
-            expect(TokenType::CLOSE_PAREN, "Expected ')' after _Alignof");
-            // Use a default alignment of 1 for expressions
-            return setPos(std::make_unique<IntegerLiteral>(1), tokens[pos-1]);
+            throw std::runtime_error("Syntax Error at " + std::to_string(peek().line) + ":" + std::to_string(peek().column) + ": Expected type name in _Alignof");
         }
     }
 

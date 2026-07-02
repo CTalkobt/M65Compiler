@@ -3080,6 +3080,7 @@ void AssemblerSimulatedOps::dispatch_DivS32(AssemblerParser* p, M65Emitter& e, S
 void AssemblerSimulatedOps::dispatch_Mod32(AssemblerParser* p, M65Emitter& e, Stmt* s) {
     emitMod32Code(p, e, s->type == Stmt::MOD_S32, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
 }
+
 void AssemblerSimulatedOps::emitMod32Code(AssemblerParser* parser, M65Emitter& e, bool isSigned, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
     if (isSigned) {
         // Signed 32-bit modulo: abs→unsigned div→read remainder→sign fixup
@@ -3102,6 +3103,438 @@ void AssemblerSimulatedOps::emitMod32Code(AssemblerParser* parser, M65Emitter& e
                 Symbol* sym = parser->resolveSymbol(dest, scopePrefix);
                 uint32_t addr = 0; if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } }
                 e.sta_addr(addr + i);
+            }
+        }
+    }
+}
+
+void AssemblerSimulatedOps::emitSpBaseAddrCalc16(AssemblerParser* parser, M65Emitter& e, uint16_t addend) {
+    if (e.hasFramePointer()) {
+        uint8_t fp = e.framePointerZP();
+        e.clc();
+        e.lda_zp(fp);
+        e.adc_imm(addend & 0xFF);
+        e.pha();
+        e.lda_zp(fp + 1);
+        e.adc_imm((addend >> 8) & 0xFF);
+        e.tax();
+        e.pla();
+        return;
+    }
+    bool spExtern = parser->isExternSymbol("__sp_base");
+    e.tsx(); e.txa(); e.clc();
+    if (spExtern) {
+        e.recordSymbolRelocLo("__sp_base");
+        e.adc_imm(addend & 0xFF);
+    } else {
+        uint16_t total = e.spBase() + addend;
+        e.adc_imm(total & 0xFF);
+    }
+    e.pha();
+    if (spExtern) {
+        e.recordSymbolRelocHi("__sp_base", addend & 0xFF);
+        e.lda_imm((addend >> 8) & 0xFF);
+    } else {
+        uint16_t total = e.spBase() + addend;
+        e.lda_imm((total >> 8) & 0xFF);
+    }
+    e.adc_imm(0); e.tax(); e.pla();
+}
+
+void AssemblerSimulatedOps::emitLoadIndexToAX(AssemblerParser* parser, M65Emitter& e, bool indexIsReg, const std::string& indexRegName, int idxIndexStart, const std::string& scopePrefix) {
+    if (indexIsReg) {
+        if (indexRegName == ".ax" || indexRegName == "ax") {
+            // Already in AX
+        } else if (indexRegName == ".a" || indexRegName == "a") {
+            e.ldx_imm(0);
+        } else if (indexRegName == ".x" || indexRegName == "x") {
+            e.txa();
+            e.ldx_imm(0);
+        } else if (indexRegName == ".y" || indexRegName == "y") {
+            e.tya();
+            e.ldx_imm(0);
+        } else if (indexRegName == ".z" || indexRegName == "z") {
+            e.tza();
+            e.ldx_imm(0);
+        }
+    } else {
+        uint32_t offset = 0;
+        bool isStack = parser->isStackRelativeOperand(idxIndexStart, offset, scopePrefix);
+        if (isStack) {
+            auto fa = parser->resolveFrameAccess(idxIndexStart, scopePrefix);
+            if (fa.isFrame) {
+                uint8_t totalOff = fa.fpOff + fa.yOff;
+                e.lda_stack(totalOff + 1); e.sta_scratch();
+                e.lda_stack(totalOff); e.ldx_scratch();
+            } else {
+                e.lda_stack(offset + 1); e.sta_scratch();
+                e.lda_stack(offset); e.ldx_scratch();
+            }
+        } else {
+            std::string symName = parser->tokens[idxIndexStart].value;
+            bool isZP = (!symName.empty() && symName[0] == '$');
+            Symbol* sym = parser->resolveSymbol(symName, scopePrefix);
+            uint32_t addr = 0;
+            if (sym) addr = sym->value;
+            else {
+                try { addr = parser->evaluateExpressionAt(idxIndexStart, scopePrefix); }
+                catch (...) { addr = 0; }
+            }
+            if (isZP) {
+                e.lda_zp(addr & 0xFF);
+                e.ldx_zp((addr + 1) & 0xFF);
+            } else {
+                if (sym && sym->isAddress) { e.recordSymbolReloc(symName); }
+                e.lda_abs(addr);
+                if (sym && sym->isAddress) { e.recordSymbolReloc(symName); }
+                e.ldx_abs(addr + 1);
+            }
+        }
+    }
+}
+
+void AssemblerSimulatedOps::emitWriteOperand16(AssemblerParser* parser, M65Emitter& e, bool isReg, const std::string& regName, int idxStart, uint16_t destAddr, const std::string& scopePrefix) {
+    if (isReg) {
+        if (regName == ".ax" || regName == "ax") {
+            e.sta_addr(destAddr);
+            e.txa(); e.sta_addr(destAddr + 1);
+        } else if (regName == ".a" || regName == "a") {
+            e.sta_addr(destAddr);
+            e.stz_addr(destAddr + 1);
+        } else if (regName == ".x" || regName == "x") {
+            e.txa(); e.sta_addr(destAddr);
+            e.stz_addr(destAddr + 1);
+        } else if (regName == ".y" || regName == "y") {
+            e.tya(); e.sta_addr(destAddr);
+            e.stz_addr(destAddr + 1);
+        } else if (regName == ".z" || regName == "z") {
+            e.tza(); e.sta_addr(destAddr);
+            e.stz_addr(destAddr + 1);
+        }
+    } else {
+        uint32_t offset = 0;
+        bool isStack = parser->isStackRelativeOperand(idxStart, offset, scopePrefix);
+        if (isStack) {
+            auto fa = parser->resolveFrameAccess(idxStart, scopePrefix);
+            if (fa.isFrame) {
+                uint8_t totalOff = fa.fpOff + fa.yOff;
+                e.lda_stack(totalOff); e.sta_addr(destAddr);
+                e.lda_stack(totalOff + 1); e.sta_addr(destAddr + 1);
+            } else {
+                e.lda_stack(offset); e.sta_addr(destAddr);
+                e.lda_stack(offset + 1); e.sta_addr(destAddr + 1);
+            }
+        } else {
+            std::string symName = parser->tokens[idxStart].value;
+            bool isZP = (!symName.empty() && symName[0] == '$');
+            Symbol* sym = parser->resolveSymbol(symName, scopePrefix);
+            uint32_t addr = 0; if (sym) addr = sym->value; else { try { addr = parser->evaluateExpressionAt(idxStart, scopePrefix); } catch(...) { addr = 0; } }
+            if (isZP) {
+                e.lda_zp(addr & 0xFF); e.sta_addr(destAddr);
+                e.ldx_zp((addr + 1) & 0xFF); e.stx_addr(destAddr + 1);
+            } else {
+                if (sym && sym->isAddress) { e.recordSymbolReloc(symName); }
+                e.lda_abs(addr); e.sta_addr(destAddr);
+                if (sym && sym->isAddress) { e.recordSymbolReloc(symName); }
+                e.ldx_abs(addr + 1); e.stx_addr(destAddr + 1);
+            }
+        }
+    }
+}
+
+void AssemblerSimulatedOps::emitLoadAddrConst(AssemblerParser* parser, M65Emitter& e, const std::string& name, uint16_t offset, char reg2) {
+    Symbol* sym = parser->resolveSymbol(name, "");
+    uint32_t baseVal = 0;
+    bool isReloc = parser->isRelocatableSymbol(name);
+    if (sym) {
+        baseVal = sym->value;
+    } else {
+        try { baseVal = parseNumericLiteral(name); } catch (...) { baseVal = 0; }
+    }
+    uint32_t total = baseVal + offset;
+    
+    if (isReloc) {
+        e.recordSymbolRelocLo(name);
+    }
+    e.lda_imm(total & 0xFF);
+    
+    if (isReloc) {
+        e.recordSymbolRelocHi(name, offset & 0xFF);
+    }
+    if (reg2 == 'X') e.ldx_imm((total >> 8) & 0xFF);
+    else if (reg2 == 'Y') e.ldy_imm((total >> 8) & 0xFF);
+    else if (reg2 == 'Z') e.ldz_imm((total >> 8) & 0xFF);
+}
+
+void AssemblerSimulatedOps::dispatch_StructElem(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    int idx = s->exprTokenIndex;
+    if (idx < 0 || idx >= (int)p->tokens.size()) return;
+    
+    bool baseIsReg = false;
+    std::string baseRegName;
+    int idxBaseStart = idx;
+    bool baseIsImmediate = false;
+    if (idx < (int)p->tokens.size() && p->tokens[idx].type == AssemblerTokenType::HASH) {
+        baseIsImmediate = true;
+        idx++;
+    }
+    if (idx < (int)p->tokens.size() && p->tokens[idx].type == AssemblerTokenType::REGISTER) {
+        baseIsReg = true;
+        baseRegName = p->tokens[idx].value;
+        idx++;
+    } else {
+        auto baseAst = parseExprAST(p->tokens, idx, p->symbolTable, s->scopePrefix);
+    }
+    
+    if (idx < (int)p->tokens.size() && p->tokens[idx].type == AssemblerTokenType::COMMA) idx++;
+    if (idx < (int)p->tokens.size() && p->tokens[idx].type == AssemblerTokenType::HASH) idx++;
+    
+    auto offsetAst = parseExprAST(p->tokens, idx, p->symbolTable, s->scopePrefix);
+    uint16_t offsetVal = offsetAst ? offsetAst->getValue(p) : 0;
+    
+    auto baseFa = p->resolveFrameAccess(idxBaseStart, s->scopePrefix);
+    if (baseFa.isFrame) {
+        emitSpBaseAddrCalc16(p, e, baseFa.fpOff + baseFa.yOff + offsetVal);
+    } else if (baseIsReg) {
+        if (offsetVal > 0) {
+            e.clc();
+            e.adc_imm(offsetVal & 0xFF);
+            e.pha(); e.txa(); e.adc_imm((offsetVal >> 8) & 0xFF); e.tax(); e.pla();
+        }
+    } else {
+        std::string baseSymName = baseIsImmediate ? p->tokens[idxBaseStart + 1].value : p->tokens[idxBaseStart].value;
+        Symbol* baseSym = p->resolveSymbol(baseSymName, s->scopePrefix);
+        uint32_t baseAddr = 0;
+        if (baseSym) baseAddr = baseSym->value;
+        else {
+            try { baseAddr = p->evaluateExpressionAt(idxBaseStart + (baseIsImmediate ? 1 : 0), s->scopePrefix); }
+            catch (...) { baseAddr = 0; }
+        }
+        if (baseIsImmediate) {
+            emitLoadAddrConst(p, e, baseSymName, offsetVal, 'X');
+        } else {
+            bool isZP = (!baseSymName.empty() && baseSymName[0] == '$');
+            if (isZP) {
+                e.lda_zp(baseAddr & 0xFF);
+                e.ldx_zp((baseAddr + 1) & 0xFF);
+            } else {
+                Symbol* relSym = p->resolveSymbol(baseSymName, s->scopePrefix);
+                if (relSym && relSym->isAddress) { e.recordSymbolReloc(baseSymName); }
+                e.lda_abs(baseAddr);
+                if (relSym && relSym->isAddress) { e.recordSymbolReloc(baseSymName); }
+                e.ldx_abs(baseAddr + 1);
+            }
+            if (offsetVal > 0) {
+                e.clc();
+                e.adc_imm(offsetVal & 0xFF);
+                e.pha(); e.txa(); e.adc_imm((offsetVal >> 8) & 0xFF); e.tax(); e.pla();
+            }
+        }
+    }
+    
+    std::string DEST = s->instr.operand;
+    if (!DEST.empty() && DEST[0] != '.') DEST = "." + DEST;
+    std::transform(DEST.begin(), DEST.end(), DEST.begin(), ::toupper);
+    if (DEST != ".AX") {
+        uint32_t destOffset = 0;
+        bool destIsStack = p->isStackRelativeOperand(s->instr.operandTokenIndex, destOffset, s->scopePrefix);
+        if (destIsStack) {
+            auto destFa = p->resolveFrameAccess(s->instr.operandTokenIndex, s->scopePrefix);
+            if (destFa.isFrame) {
+                uint8_t totalOff = destFa.fpOff + destFa.yOff;
+                e.stx_scratch(); e.sta_stack(totalOff); e.lda_scratch(); e.sta_stack(totalOff + 1);
+            } else {
+                e.stx_scratch(); e.sta_stack(destOffset); e.lda_scratch(); e.sta_stack(destOffset + 1);
+            }
+        } else {
+            std::string destSymName = s->instr.operand;
+            bool isZP = (!destSymName.empty() && destSymName[0] == '$');
+            Symbol* destSym = p->resolveSymbol(destSymName, s->scopePrefix);
+            uint32_t destAddr = 0;
+            if (destSym) destAddr = destSym->value;
+            else {
+                try { destAddr = p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix); }
+                catch (...) { destAddr = 0; }
+            }
+            if (isZP) {
+                e.sta_zp(destAddr & 0xFF);
+                e.txa(); e.sta_zp((destAddr + 1) & 0xFF);
+            } else {
+                if (destSym && destSym->isAddress) { e.recordSymbolReloc(destSymName); }
+                e.sta_abs(destAddr);
+                if (destSym && destSym->isAddress) { e.recordSymbolReloc(destSymName); }
+                e.txa(); e.sta_abs(destAddr + 1);
+            }
+        }
+    }
+}
+
+void AssemblerSimulatedOps::dispatch_AddrElem(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    int idx = s->exprTokenIndex;
+    if (idx < 0 || idx >= (int)p->tokens.size()) return;
+    
+    bool baseIsReg = false;
+    std::string baseRegName;
+    int idxBaseStart = idx;
+    bool baseIsImmediate = false;
+    if (idx < (int)p->tokens.size() && p->tokens[idx].type == AssemblerTokenType::HASH) {
+        baseIsImmediate = true;
+        idx++;
+    }
+    if (idx < (int)p->tokens.size() && p->tokens[idx].type == AssemblerTokenType::REGISTER) {
+        baseIsReg = true;
+        baseRegName = p->tokens[idx].value;
+        idx++;
+    } else {
+        auto baseAst = parseExprAST(p->tokens, idx, p->symbolTable, s->scopePrefix);
+    }
+    
+    if (idx < (int)p->tokens.size() && p->tokens[idx].type == AssemblerTokenType::COMMA) idx++;
+    
+    bool indexIsReg = false;
+    std::string indexRegName;
+    int idxIndexStart = idx;
+    if (idx < (int)p->tokens.size() && p->tokens[idx].type == AssemblerTokenType::REGISTER) {
+        indexIsReg = true;
+        indexRegName = p->tokens[idx].value;
+        idx++;
+    } else {
+        auto indexAst = parseExprAST(p->tokens, idx, p->symbolTable, s->scopePrefix);
+    }
+    
+    if (idx < (int)p->tokens.size() && p->tokens[idx].type == AssemblerTokenType::COMMA) idx++;
+    if (idx < (int)p->tokens.size() && p->tokens[idx].type == AssemblerTokenType::HASH) idx++;
+    
+    auto strideAst = parseExprAST(p->tokens, idx, p->symbolTable, s->scopePrefix);
+    uint16_t strideVal = strideAst ? strideAst->getValue(p) : 1;
+    
+    if (strideVal > 1) {
+        emitWriteOperand16(p, e, indexIsReg, indexRegName, idxIndexStart, m65::MULT_ARG1, s->scopePrefix);
+        
+        e.lda_imm(strideVal & 0xFF);
+        e.sta_addr(m65::MULT_ARG2);
+        e.lda_imm((strideVal >> 8) & 0xFF);
+        e.sta_addr(m65::MULT_ARG2 + 1);
+        
+        e.stz_addr(m65::MULT_ARG1 + 2);
+        e.stz_addr(m65::MULT_ARG1 + 3);
+        e.stz_addr(m65::MULT_ARG2 + 2);
+        e.stz_addr(m65::MULT_ARG2 + 3);
+        
+        auto baseFa = p->resolveFrameAccess(idxBaseStart, s->scopePrefix);
+        if (baseFa.isFrame) {
+            emitSpBaseAddrCalc16(p, e, baseFa.fpOff + baseFa.yOff);
+        } else if (baseIsReg) {
+            // Already in AX
+        } else {
+            std::string baseSymName = baseIsImmediate ? p->tokens[idxBaseStart + 1].value : p->tokens[idxBaseStart].value;
+            Symbol* baseSym = p->resolveSymbol(baseSymName, s->scopePrefix);
+            uint32_t baseAddr = 0;
+            if (baseSym) baseAddr = baseSym->value;
+            else {
+                try { baseAddr = p->evaluateExpressionAt(idxBaseStart + (baseIsImmediate ? 1 : 0), s->scopePrefix); }
+                catch (...) { baseAddr = 0; }
+            }
+            if (baseIsImmediate) {
+                emitLoadAddrConst(p, e, baseSymName, 0, 'X');
+            } else {
+                bool isZP = (!baseSymName.empty() && baseSymName[0] == '$');
+                if (isZP) {
+                    e.lda_zp(baseAddr & 0xFF);
+                    e.ldx_zp((baseAddr + 1) & 0xFF);
+                } else {
+                    Symbol* relSym = p->resolveSymbol(baseSymName, s->scopePrefix);
+                    if (relSym && relSym->isAddress) { e.recordSymbolReloc(baseSymName); }
+                    e.lda_abs(baseAddr);
+                    if (relSym && relSym->isAddress) { e.recordSymbolReloc(baseSymName); }
+                    e.ldx_abs(baseAddr + 1);
+                }
+            }
+        }
+        
+        e.clc();
+        e.adc_addr(m65::MULT_RES);
+        e.pha(); e.txa(); e.adc_addr(m65::MULT_RES + 1); e.tax(); e.pla();
+        
+    } else {
+        if (baseIsReg) {
+            e.sta_zp(e.scratchZP());
+            e.stx_zp(e.scratchZP() + 1);
+            emitLoadIndexToAX(p, e, indexIsReg, indexRegName, idxIndexStart, s->scopePrefix);
+            e.clc();
+            e.adc_zp(e.scratchZP());
+            e.pha(); e.txa(); e.adc_zp(e.scratchZP() + 1); e.tax(); e.pla();
+        } else {
+            emitLoadIndexToAX(p, e, indexIsReg, indexRegName, idxIndexStart, s->scopePrefix);
+            e.sta_zp(e.scratchZP());
+            e.stx_zp(e.scratchZP() + 1);
+            
+            auto baseFa = p->resolveFrameAccess(idxBaseStart, s->scopePrefix);
+            if (baseFa.isFrame) {
+                emitSpBaseAddrCalc16(p, e, baseFa.fpOff + baseFa.yOff);
+            } else {
+                std::string baseSymName = baseIsImmediate ? p->tokens[idxBaseStart + 1].value : p->tokens[idxBaseStart].value;
+                Symbol* baseSym = p->resolveSymbol(baseSymName, s->scopePrefix);
+                uint32_t baseAddr = 0;
+                if (baseSym) baseAddr = baseSym->value;
+                else {
+                    try { baseAddr = p->evaluateExpressionAt(idxBaseStart + (baseIsImmediate ? 1 : 0), s->scopePrefix); }
+                    catch (...) { baseAddr = 0; }
+                }
+                if (baseIsImmediate) {
+                    emitLoadAddrConst(p, e, baseSymName, 0, 'X');
+                } else {
+                    bool isZP = (!baseSymName.empty() && baseSymName[0] == '$');
+                    if (isZP) {
+                        e.lda_zp(baseAddr & 0xFF);
+                        e.ldx_zp((baseAddr + 1) & 0xFF);
+                    } else {
+                        Symbol* relSym = p->resolveSymbol(baseSymName, s->scopePrefix);
+                        if (relSym && relSym->isAddress) { e.recordSymbolReloc(baseSymName); }
+                        e.lda_abs(baseAddr);
+                        if (relSym && relSym->isAddress) { e.recordSymbolReloc(baseSymName); }
+                        e.ldx_abs(baseAddr + 1);
+                    }
+                }
+            }
+            e.clc();
+            e.adc_zp(e.scratchZP());
+            e.pha(); e.txa(); e.adc_zp(e.scratchZP() + 1); e.tax(); e.pla();
+        }
+    }
+    
+    std::string DEST = s->instr.operand;
+    if (!DEST.empty() && DEST[0] != '.') DEST = "." + DEST;
+    std::transform(DEST.begin(), DEST.end(), DEST.begin(), ::toupper);
+    if (DEST != ".AX") {
+        uint32_t destOffset = 0;
+        bool destIsStack = p->isStackRelativeOperand(s->instr.operandTokenIndex, destOffset, s->scopePrefix);
+        if (destIsStack) {
+            auto destFa = p->resolveFrameAccess(s->instr.operandTokenIndex, s->scopePrefix);
+            if (destFa.isFrame) {
+                uint8_t totalOff = destFa.fpOff + destFa.yOff;
+                e.stx_scratch(); e.sta_stack(totalOff); e.lda_scratch(); e.sta_stack(totalOff + 1);
+            } else {
+                e.stx_scratch(); e.sta_stack(destOffset); e.lda_scratch(); e.sta_stack(destOffset + 1);
+            }
+        } else {
+            std::string destSymName = s->instr.operand;
+            bool isZP = (!destSymName.empty() && destSymName[0] == '$');
+            Symbol* destSym = p->resolveSymbol(destSymName, s->scopePrefix);
+            uint32_t destAddr = 0;
+            if (destSym) destAddr = destSym->value;
+            else {
+                try { destAddr = p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix); }
+                catch (...) { destAddr = 0; }
+            }
+            if (isZP) {
+                e.sta_zp(destAddr & 0xFF);
+                e.txa(); e.sta_zp((destAddr + 1) & 0xFF);
+            } else {
+                if (destSym && destSym->isAddress) { e.recordSymbolReloc(destSymName); }
+                e.sta_abs(destAddr);
+                if (destSym && destSym->isAddress) { e.recordSymbolReloc(destSymName); }
+                e.txa(); e.sta_abs(destAddr + 1);
             }
         }
     }

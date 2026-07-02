@@ -1,6 +1,6 @@
 # MEGA65 C Compiler Suite — Codebase Documentation
 
-**Status:** v1.0.3
+**Status:** v1.0.4
 **Last Updated:** 2026-06-30
 **Maintainer:** Craig Taylor (CTalkobt)
 
@@ -146,7 +146,7 @@ make clean && make test  # Clean rebuild and test
 
 ## Language Features
 
-### Implemented (v1.0.3-dev)
+### Implemented (v1.0.4-dev)
 
 - **Types**: `char`, `short`, `int`, `long`, `long long`, `float`, `double`, `unsigned` variants, `__int(N)`/`__uint(N)` (arbitrary width), `_Decimal32`/`_Decimal64`/`_Decimal128`, pointers, arrays, structs, unions, function pointers, `_Bool`
 - **Qualifiers**: `const`, `volatile`, `static` (all orderings), `register`, `extern`, `_Alignas`
@@ -170,7 +170,7 @@ make clean && make test  # Clean rebuild and test
 - **Nested Functions**: GCC extension with closure conversion, static chain, trampolines for function pointers
 - **Array Parameters**: `int a[]`, `int *a[N]`, `int a[][M]` in function parameters (decay to pointer)
 
-### Object-Oriented Programming (v1.0.3)
+### Object-Oriented Programming (v1.0.4)
 
 - **Struct Methods**: Functions defined inside struct bodies with hidden `this` pointer
   ```c
@@ -196,7 +196,7 @@ make clean && make test  # Clean rebuild and test
 - **Devirtualization**: Compiler detects single-implementation vtable slots → direct call
 - **Auto-Inline**: Trivial methods (≤3 statements) inlined at call site; combined with `final`, zero overhead
 
-### Floating-Point Support (v1.0.3)
+### Floating-Point Support (v1.0.4)
 
 - **`float` / `double` / `long double`**: All map to CBM 40-bit (5 bytes: 1 exponent + 4 mantissa). Supported everywhere: variables, function params/returns, struct members, arrays, pointers, casts, sizeof, _Alignas, va_arg, typedef, function pointer params
 - **Literals**: Decimal (`3.14`, `1.5f`) and exponent notation (`1.5e-3`, `3.14e0`). Positive integer exponents (`1e2`) stay as integer
@@ -208,7 +208,7 @@ make clean && make test  # Clean rebuild and test
 - **Math library**: 27 functions — ROM-backed trig/transcendental (`sinf`, `cosf`, `tanf`, `atanf`, `logf`, `expf`, `sqrtf`, `fabsf`) plus C-implemented `powf`, `fmodf`, `ceilf`, `floorf`, `roundf`, `truncf`, `atan2f`, `log10f`, `log2f`, `ldexpf`, `frexpf`, `modff`, `copysignf`, `fmaxf`, `fminf`, `fdimf`
 - **Headers**: `<float.h>` (FLT_MAX/MIN/EPSILON, FLT_DIG, etc.), `<math.h>` (M_PI, M_E, INFINITY, all function declarations + double aliases)
 
-### Wide Integer Support (v1.0.3)
+### Wide Integer Support (v1.0.4)
 
 - **`__int(N)` / `__uint(N)`**: Arbitrary-width integers via operator-overloaded structs. Preprocessor maps `__int(N)` → `struct __intN`. Operators call width-parameterized runtime (`__intN_add(a,b,byteCount)` etc.)
 - **Pre-defined widths**: `struct __int64` (8 bytes), `struct __int128` (16 bytes) in `<intwide.h>`

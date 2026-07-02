@@ -244,7 +244,7 @@ int CodeGenerator::getTypeSize(const std::string& type, int ptrLevel, int arrayS
     else if (type.substr(0, 7) == "struct " || type.substr(0, 6) == "union ") {
         std::string sName = type.substr(type.find(' ') + 1);
         if (structs.count(sName)) size = structs.at(sName)->totalSize;
-        else return 0; // unknown struct — handled by IR path
+        else throw std::runtime_error("Unknown struct/union type: " + sName);
     }
     if (arraySize >= 0) size *= arraySize;
     return size;

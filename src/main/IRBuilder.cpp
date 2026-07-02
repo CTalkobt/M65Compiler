@@ -282,13 +282,49 @@ int IRBuilder::getTypeSize(const std::string& typeName, int ptrLevel) {
     }
 
     std::string sName = getAggregateName(typeName);
+    bool isStructOrUnion = (typeName.rfind("struct ", 0) == 0 || typeName.rfind("union ", 0) == 0);
     auto it = structs_.find(sName);
     if (it != structs_.end()) return it->second.totalSize;
+    if (isStructOrUnion) {
+        throw std::runtime_error("Unknown struct/union type: " + sName);
+    }
     return 2; // default for unknown types
 }
 
 IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
     if (!expr) return {};
+    
+    if (auto* gs = dynamic_cast<GenericSelection*>(expr)) {
+        IRTypeInfo controlInfo = getExprTypeInfo(gs->control.get());
+        int controlPtrLevel = (controlInfo.type == ir::Type::PTR) ? ((controlInfo.pointedToType == ir::Type::PTR) ? 2 : 1) : 0;
+        const GenericAssociation* selected = nullptr;
+        for (const auto& assoc : gs->associations) {
+            if (!assoc.isDefault) {
+                std::string atn = assoc.typeName;
+                std::string ctn = controlInfo.typeName;
+                if (atn == "unsigned") atn = "unsigned int";
+                if (ctn == "unsigned") ctn = "unsigned int";
+                if (atn == "signed") atn = "int";
+                if (ctn == "signed") ctn = "int";
+                if (atn == ctn && assoc.pointerLevel == controlPtrLevel) {
+                    selected = &assoc;
+                    break;
+                }
+            }
+        }
+        if (!selected) {
+            for (const auto& assoc : gs->associations) {
+                if (assoc.isDefault) {
+                    selected = &assoc;
+                    break;
+                }
+            }
+        }
+        if (selected && selected->result) {
+            return getExprTypeInfo(selected->result.get());
+        }
+        return {ir::Type::I16, "int", false, ir::Type::VOID, 2};
+    }
     
     if (auto* lit = dynamic_cast<IntegerLiteral*>(expr)) {
         ir::Type t = ir::Type::I16;
@@ -357,16 +393,32 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
     }
     
     if (auto* ma = dynamic_cast<MemberAccess*>(expr)) {
+        IRTypeInfo baseInfo = getExprTypeInfo(ma->structExpr.get());
+        std::string sName = getAggregateName(baseInfo.typeName);
+        int accOffset = 0;
+        auto* mit = findStructMember(sName, ma->memberName, accOffset);
+        if (mit) {
+            IRTypeInfo info;
+            info.type = mapType(mit->type, mit->pointerLevel);
+            info.typeName = mit->type;
+            info.isSigned = mit->isSigned;
+            info.totalSize = ir::typeSize(info.type);
+            if (info.type == ir::Type::PTR) {
+                info.pointedToType = mapType(mit->type, 0);
+            }
+            return info;
+        }
+        // Fallback: search all structs
         for (const auto& [sname, sinfo] : structs_) {
-            auto mit = sinfo.members.find(ma->memberName);
-            if (mit != sinfo.members.end()) {
+            auto it = sinfo.members.find(ma->memberName);
+            if (it != sinfo.members.end()) {
                 IRTypeInfo info;
-                info.type = mapType(mit->second.type, mit->second.pointerLevel);
-                info.typeName = mit->second.type;
-                info.isSigned = mit->second.isSigned;
+                info.type = mapType(it->second.type, it->second.pointerLevel);
+                info.typeName = it->second.type;
+                info.isSigned = it->second.isSigned;
                 info.totalSize = ir::typeSize(info.type);
                 if (info.type == ir::Type::PTR) {
-                    info.pointedToType = mapType(mit->second.type, 0);
+                    info.pointedToType = mapType(it->second.type, 0);
                 }
                 return info;
             }
@@ -374,6 +426,8 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
     }
     
     if (auto* aa = dynamic_cast<ArrayAccess*>(expr)) {
+        std::string tn = getExprTypeInfo(aa->arrayExpr.get()).typeName;
+        if (tn.empty()) tn = "int";
         Expression* root = aa->arrayExpr.get();
         int depth = 1;
         while (auto* inner = dynamic_cast<ArrayAccess*>(root)) {
@@ -383,7 +437,6 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         
         if (auto* ref = dynamic_cast<VariableReference*>(root)) {
             ir::Type baseType = ir::Type::I16;
-            std::string tn = "int";
             bool isSigned = true;
             std::vector<int> dims;
             
@@ -423,6 +476,14 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             }
             // Final dimension (or pointer subscript) -> it's the element type
             return {baseType, tn, isSigned, ir::Type::VOID, getTypeSize(tn, 0)};
+        } else {
+            // General fallback for non-variable roots (e.g. member arrays, function returns, derefs)
+            IRTypeInfo arrayTypeInfo = getExprTypeInfo(aa->arrayExpr.get());
+            ir::Type baseType = arrayTypeInfo.pointedToType;
+            if (baseType == ir::Type::VOID) {
+                baseType = mapType(tn, 0);
+            }
+            return {baseType, tn, arrayTypeInfo.isSigned, ir::Type::VOID, getTypeSize(tn, 0)};
         }
     }
     
@@ -542,6 +603,29 @@ std::string IRBuilder::getAggregateName(const std::string& type) {
     return type;
 }
 
+IRBuilder::IRMemberInfo* IRBuilder::findStructMember(const std::string& sName, const std::string& memberName, int& accumulatedOffset) {
+    auto sit = structs_.find(sName);
+    if (sit == structs_.end()) return nullptr;
+
+    auto mit = sit->second.members.find(memberName);
+    if (mit != sit->second.members.end()) {
+        return &mit->second;
+    }
+
+    for (const auto& [name, mi] : sit->second.members) {
+        if (name.rfind("__anon_member_", 0) == 0 || name.empty()) {
+            std::string subStructName = getAggregateName(mi.type);
+            int subOffset = 0;
+            auto* found = findStructMember(subStructName, memberName, subOffset);
+            if (found) {
+                accumulatedOffset += mi.offset + subOffset;
+                return found;
+            }
+        }
+    }
+    return nullptr;
+}
+
 ir::SourceLoc IRBuilder::loc(ASTNode& node) {
     ir::SourceLoc sl;
     sl.file = module_.sourceFile;
@@ -646,6 +730,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         scope.localSigned = std::move(localSigned_);
         scope.localConst = std::move(localConst_);
         scope.localPointsToConst = std::move(localPointsToConst_);
+        scope.localRegister = std::move(localRegister_);
         scope.localPointedToType = std::move(localPointedToType_);
         scope.localArrayDims = std::move(localArrayDims_);
         scope.usedVregs = std::move(usedVregs_);
@@ -659,6 +744,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         localSigned_.clear();
         localConst_.clear();
         localPointsToConst_.clear();
+        localRegister_.clear();
         localPointedToType_.clear();
         localArrayDims_.clear();
         usedVregs_.clear();
@@ -687,6 +773,10 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         loadSl.src1 = ir::Operand::global("__static_chain");
         loadSl.loc = loc(node);
         emit(loadSl);
+    }
+    currentFuncParams_.clear();
+    for (const auto& p : node.parameters) {
+        currentFuncParams_.insert(p.name);
     }
     for (const auto& p : node.parameters) {
         ir::Type pt = mapType(p.type, p.pointerLevel);
@@ -834,6 +924,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         localSigned_ = std::move(scope.localSigned);
         localConst_ = std::move(scope.localConst);
         localPointsToConst_ = std::move(scope.localPointsToConst);
+        localRegister_ = std::move(scope.localRegister);
         localPointedToType_ = std::move(scope.localPointedToType);
         localArrayDims_ = std::move(scope.localArrayDims);
         usedVregs_ = std::move(scope.usedVregs);
@@ -856,6 +947,14 @@ void IRBuilder::visit(CompoundStatement& node) {
 // ============================================================================
 
 void IRBuilder::visit(VariableDeclaration& node) {
+    bool isStructOrUnion = (node.type.rfind("struct ", 0) == 0 || node.type.rfind("union ", 0) == 0);
+    if (isStructOrUnion && node.pointerLevel == 0) {
+        std::string sName = getAggregateName(node.type);
+        if (!structs_.count(sName)) {
+            throw std::runtime_error("Error at line " + std::to_string(node.line) + ": Unknown struct/union type: Unknown struct type: " + node.type);
+        }
+    }
+
     ir::Type t = mapType(node.type, node.pointerLevel);
 
     if (!currentFunc_) {
@@ -900,6 +999,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
         if (!node.arrayDims.empty()) globalArrayDims_[node.name] = node.arrayDims;
         globalTypes_[node.name] = t;
         globalTypeNames_[node.name] = node.type;
+        globalRegister_[node.name] = node.isRegister;
         module_.globals.push_back(gv);
         return;
     }
@@ -907,6 +1007,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
     // Local variable — allocate a vReg
     auto vreg = allocVreg(t);
     locals_[node.name] = vreg;
+    localRegister_[node.name] = node.isRegister;
     localDeclLocs_[node.name] = loc(node);
     if (currentFunc_) currentFunc_->localNames[node.name] = vreg.vregId;
     localTypes_[node.name] = t;
@@ -2004,6 +2105,16 @@ void IRBuilder::visit(UnaryOperation& node) {
     } else if (node.op == "&") {
         // Address-of: compute the runtime address of the operand
         if (auto* vr = dynamic_cast<VariableReference*>(node.operand.get())) {
+            auto rit = localRegister_.find(vr->name);
+            if (rit != localRegister_.end() && rit->second) {
+                errors_.push_back("Compile Error: Cannot take address of register variable");
+                return;
+            }
+            auto grit = globalRegister_.find(vr->name);
+            if (grit != globalRegister_.end() && grit->second) {
+                errors_.push_back("Compile Error: Cannot take address of register variable");
+                return;
+            }
             auto it = locals_.find(vr->name);
             if (it != locals_.end()) {
                 // Force to frame because address is taken
@@ -2031,8 +2142,21 @@ void IRBuilder::visit(UnaryOperation& node) {
                 emit(inst);
                 lastValue_ = dest;
             }
+        } else if (auto* ma = dynamic_cast<MemberAccess*>(node.operand.get())) {
+            IRTypeInfo baseInfo = getExprTypeInfo(ma->structExpr.get());
+            std::string sName = getAggregateName(baseInfo.typeName);
+            int accOffset = 0;
+            auto* mit = findStructMember(sName, ma->memberName, accOffset);
+            if (mit && mit->bitWidth > 0) {
+                errors_.push_back("Compile Error: Cannot take address of bitfield member");
+                return;
+            }
+            bool oldAddrMode = computeAddressOnly_;
+            computeAddressOnly_ = true;
+            node.operand->accept(*this);
+            computeAddressOnly_ = oldAddrMode;
         } else {
-            // General case (e.g., &arr[i], &ptr->member):
+            // General case (e.g., &arr[i]):
             // re-visit with computeAddressOnly_ to get the address
             bool oldAddrMode = computeAddressOnly_;
             computeAddressOnly_ = true;
@@ -2078,6 +2202,36 @@ void IRBuilder::visit(UnaryOperation& node) {
     } else if (node.op == "++" || node.op == "--" || node.op == "++_POST" || node.op == "--_POST") {
         bool isPost = (node.op.find("_POST") != std::string::npos);
         std::string baseOp = isPost ? node.op.substr(0, 2) : node.op;
+
+        if (auto* vr = dynamic_cast<VariableReference*>(node.operand.get())) {
+            auto cit = localConst_.find(vr->name);
+            if (cit != localConst_.end() && cit->second) {
+                errors_.push_back("Compile Error: Assignment to read-only location");
+            }
+        }
+        if (auto* deref = dynamic_cast<UnaryOperation*>(node.operand.get())) {
+            if (deref->op == "*") {
+                if (auto* vr = dynamic_cast<VariableReference*>(deref->operand.get())) {
+                    auto pit = localPointsToConst_.find(vr->name);
+                    if (pit != localPointsToConst_.end() && pit->second) {
+                        auto ptit = localPointedToType_.find(vr->name);
+                        bool isMultiPtr = (ptit != localPointedToType_.end() && ptit->second == ir::Type::PTR);
+                        if (!isMultiPtr) {
+                            errors_.push_back("Compile Error: Increment/decrement of read-only location");
+                        }
+                    }
+                }
+            }
+        }
+        if (auto* ma = dynamic_cast<MemberAccess*>(node.operand.get())) {
+            IRTypeInfo baseInfo = getExprTypeInfo(ma->structExpr.get());
+            std::string sName = getAggregateName(baseInfo.typeName);
+            int accOffset = 0;
+            auto* mit = findStructMember(sName, ma->memberName, accOffset);
+            if (mit && mit->isConst) {
+                errors_.push_back("Compile Error: Increment/decrement of read-only member");
+            }
+        }
 
         // For pointer increment/decrement, scale by pointed-to element size
         int incVal = 1;
@@ -2641,7 +2795,11 @@ void IRBuilder::visit(FunctionCall& node) {
 
             ir::Type retType = ir::Type::I16;
             auto it = functionReturnTypes_.find(node.name);
-            if (it != functionReturnTypes_.end()) retType = it->second;
+            if (it != functionReturnTypes_.end()) {
+                retType = it->second;
+            } else {
+                warnings_.push_back("warning: implicit declaration of function '" + node.name + "'");
+            }
 
             if (retType == ir::Type::VOID) {
                 inst.op = ir::Op::CALL_VOID;
@@ -3040,8 +3198,35 @@ void IRBuilder::visit(ConditionalExpression& node) {
 }
 
 void IRBuilder::visit(GenericSelection& node) {
-    // Evaluate the controlling expression (default association used at IR level)
-    if (node.control) node.control->accept(*this);
+    IRTypeInfo controlInfo = getExprTypeInfo(node.control.get());
+    int controlPtrLevel = (controlInfo.type == ir::Type::PTR) ? ((controlInfo.pointedToType == ir::Type::PTR) ? 2 : 1) : 0;
+    const GenericAssociation* selected = nullptr;
+    for (const auto& assoc : node.associations) {
+        if (!assoc.isDefault) {
+            std::string atn = assoc.typeName;
+            std::string ctn = controlInfo.typeName;
+            if (atn == "unsigned") atn = "unsigned int";
+            if (ctn == "unsigned") ctn = "unsigned int";
+            if (atn == "signed") atn = "int";
+            if (ctn == "signed") ctn = "int";
+            if (atn == ctn && assoc.pointerLevel == controlPtrLevel) {
+                selected = &assoc;
+                break;
+            }
+        }
+    }
+    if (!selected) {
+        for (const auto& assoc : node.associations) {
+            if (assoc.isDefault) {
+                selected = &assoc;
+                break;
+            }
+        }
+    }
+    if (!selected) {
+        throw std::runtime_error("No matching association in _Generic selection");
+    }
+    if (selected->result) selected->result->accept(*this);
 }
 
 void IRBuilder::visit(InitializerList& node) {
@@ -3217,40 +3402,30 @@ void IRBuilder::visit(MemberAccess& node) {
     auto base = lastValue_;
     computeAddressOnly_ = oldAddrMode;
 
-    // Look up member info
-    int memberOffset = 0;
-    int bitWidth = 0;
-    int bitOffset = 0;
-    bool memberIsArray = false;
-    bool memberIsStruct = false;
-
     IRTypeInfo baseInfo = getExprTypeInfo(node.structExpr.get());
-    std::string sName = getAggregateName(baseInfo.typeName);
-
-    auto sit = structs_.find(sName);
-    if (sit != structs_.end()) {
-        auto mit = sit->second.members.find(node.memberName);
-        if (mit != sit->second.members.end()) {
-            memberOffset = mit->second.offset;
-            bitWidth = mit->second.bitWidth;
-            bitOffset = mit->second.bitOffset;
-            memberIsArray = !mit->second.arrayDims.empty();
-            memberIsStruct = structs_.count(mit->second.type) > 0;
-        }
-    } else {
-        // Fallback: search all structs (fragile but handles some cases)
-        for (const auto& [sn, sinfo] : structs_) {
-            auto mit = sinfo.members.find(node.memberName);
-            if (mit != sinfo.members.end()) {
-                memberOffset = mit->second.offset;
-                bitWidth = mit->second.bitWidth;
-                bitOffset = mit->second.bitOffset;
-                memberIsArray = !mit->second.arrayDims.empty();
-                memberIsStruct = structs_.count(mit->second.type) > 0;
-                break;
-            }
-        }
+    bool isBaseStructOrUnion = (baseInfo.typeName.rfind("struct ", 0) == 0 || baseInfo.typeName.rfind("union ", 0) == 0);
+    bool valid = isBaseStructOrUnion && (node.isArrow ? (baseInfo.type == ir::Type::PTR) : (baseInfo.type != ir::Type::PTR));
+    if (!valid) {
+        throw std::runtime_error("Error at line " + std::to_string(node.line) + ": Dot/Arrow operator on non-struct type");
     }
+
+    std::string sName = getAggregateName(baseInfo.typeName);
+    auto sit = structs_.find(sName);
+    if (sit == structs_.end()) {
+        throw std::runtime_error("Error at line " + std::to_string(node.line) + ": Unknown struct/union type '" + sName + "'");
+    }
+
+    int accumulatedOffset = 0;
+    auto* mit = findStructMember(sName, node.memberName, accumulatedOffset);
+    if (!mit) {
+        throw std::runtime_error("Error at line " + std::to_string(node.line) + ": Member '" + node.memberName + "' not found in struct '" + sName + "'");
+    }
+
+    int memberOffset = mit->offset + accumulatedOffset;
+    int bitWidth = mit->bitWidth;
+    int bitOffset = mit->bitOffset;
+    bool memberIsArray = !mit->arrayDims.empty();
+    bool memberIsStruct = structs_.count(mit->type) > 0;
 
     // Compute address of the storage unit containing the member
     auto addr = allocVreg(ir::Type::PTR);
@@ -3301,6 +3476,14 @@ void IRBuilder::visit(MemberAccess& node) {
 }
 
 void IRBuilder::visit(CompoundLiteral& node) {
+    bool isStructOrUnion = (node.targetType.rfind("struct ", 0) == 0 || node.targetType.rfind("union ", 0) == 0);
+    if (isStructOrUnion && node.pointerLevel == 0) {
+        std::string sName = getAggregateName(node.targetType);
+        if (!structs_.count(sName)) {
+            throw std::runtime_error("Error at line " + std::to_string(node.line) + ": Unknown struct type: " + node.targetType);
+        }
+    }
+
     ir::Type t = mapType(node.targetType, node.pointerLevel);
     int size = getTypeSize(node.targetType, node.pointerLevel);
     if (!node.arrayDims.empty()) {
@@ -3886,6 +4069,14 @@ void IRBuilder::visit(StructDefinition& node) {
     }
 }
 void IRBuilder::visit(BuiltinVaStart& node) {
+    if (!dynamic_cast<VariableReference*>(node.ap.get())) {
+        errors_.push_back("Compile Error: va_start: first argument must be a variable");
+        return;
+    }
+    if (currentFuncParams_.find(node.lastParamName) == currentFuncParams_.end()) {
+        errors_.push_back("Compile Error: va_start: '" + node.lastParamName + "' is not a parameter");
+        return;
+    }
     // va_start(ap, last_param): compute address past last named param
     // At IR level: ap = addr_local(last_param) + sizeof(last_param)
     node.ap->accept(*this);
