@@ -20,7 +20,7 @@ This reference summarizes the instructions available in the `ca45` assembler for
 - **`[bp],Z`**: 32-bit flat memory pointer (triggered by hardware `EOM` prefix).
 - **`.ax` / `.ay` / `.az` / `.xy`**: 16-bit register pairs (used by high-level instructions).
 - **`.q` / `.axyz`**: 32-bit Quad register.
-- **`offset, s`**: Stack-relative offset (e.g., `4, s` means SP + 4).
+- **`offset, sp`**: Stack-relative offset (e.g., `4, sp` means SP + 4).
 
 ---
 
@@ -50,7 +50,7 @@ This reference summarizes the instructions available in the `ca45` assembler for
 
 * **`LDX`, `LDY`, `LDZ`**
   * *Description*: Loads an 8-bit value into the specified register.
-  * *Modes*: `imm`, `bp`, `abs`, `bp,X/Y`, `abs,X/Y`, `(bp),Y/Z`, `[bp],Z`, `offset, s` (simulated)
+  * *Modes*: `imm`, `bp`, `abs`, `bp,X/Y`, `abs,X/Y`, `(bp),Y/Z`, `[bp],Z`, `offset, sp` (simulated)
   * *Flags*: `N`, `Z`
 
 * **`STA`**
@@ -67,18 +67,18 @@ This reference summarizes the instructions available in the `ca45` assembler for
 
 * **`STX`, `STY`, `STZ`**
   * *Description*: Stores an 8-bit value from the specified register into memory.
-  * *Modes*: `bp`, `abs`, `bp,X/Y`, `abs,X/Y`, `(bp),Y/Z`, `[bp],Z`, `offset, s` (simulated)
+  * *Modes*: `bp`, `abs`, `bp,X/Y`, `abs,X/Y`, `(bp),Y/Z`, `[bp],Z`, `offset, sp` (simulated)
   * *Flags*: None
 
 * **`LDAX`, `LDAY`, `LDAZ` (Simulated)**
   * *Description*: Loads a 16-bit word into A (low) and X/Y/Z (high).
-  * *Modes*: `imm16` (`#val`), `abs`, `offset, s`
+  * *Modes*: `imm16` (`#val`), `abs`, `offset, sp`
   * *Registers Affected*: `.A`, `.X/.Y/.Z`
   * *Flags*: `N`, `Z` (based on high byte)
 
 * **`STAX`, `STAY`, `STAZ` (Simulated)**
   * *Description*: Stores a 16-bit word from A (low) and X/Y/Z (high) into memory.
-  * *Modes*: `abs`, `offset, s`
+  * *Modes*: `abs`, `offset, sp`
   * *Registers Affected*: `.A` (if stack)
   * *Flags*: `N`, `Z` (if stack)
 
@@ -189,7 +189,7 @@ This reference summarizes the instructions available in the `ca45` assembler for
 
 * **`NEG.16`, `ABS.16`, `NEG.S16`, `ABS.S16` (Simulated)**
   * *Description*: 16-bit Negation / Absolute Value.
-  * *Modes*: `.ax`, `abs`, `offset, s`
+  * *Modes*: `.ax`, `abs`, `offset, sp`
   * *Registers Affected*: `dest` pair, `.A`, `.X` (if stack)
   * *Flags*: `N`, `Z`, `C`
 
@@ -214,7 +214,7 @@ This reference summarizes the instructions available in the `ca45` assembler for
 
 * **`AND.16`, `ORA.16`, `EOR.16`, `NOT.16` (Simulated)**
   * *Description*: 16-bit bitwise logic.
-  * *Modes*: `.ax`, `abs` (NOT also supports `offset, s`)
+  * *Modes*: `.ax`, `abs` (NOT also supports `offset, sp`)
   * *Registers Affected*: `.AX`, `.A` (temp)
   * *Flags*: `N`, `Z`
 
@@ -308,7 +308,7 @@ This reference summarizes the instructions available in the `ca45` assembler for
 
 * **`PHA`, `PHP`, `PHX`, `PHY`, `PHZ`, `PHW`**
   * *Description*: Pushes onto stack.
-  * *Modes*: `imp` (`PHW` supports `imm16`, `abs`, `offset, s`)
+  * *Modes*: `imp` (`PHW` supports `imm16`, `abs`, `offset, sp`)
   * *Flags Affected*: None (`PHP` pushes flags)
 
 * **`PLA`, `PLP`, `PLX`, `PLY`, `PLZ`**
@@ -335,7 +335,7 @@ This reference summarizes the instructions available in the `ca45` assembler for
   * *Syntax*: 
     - 2-operand form: `FILL dest, len` — length must be in `.XY` register pair (`.XY` = 256*Y + X bytes)
     - 3-operand form: `FILL dest, len, #count` — explicit length (3rd operand, typically `#256` etc.)
-  * *Destination modes*: `abs`, register pair (`.AX`, `.AY`, `.AZ`, `.XY`, `.XZ`, `.YZ`), multi-register (`.AXY`, `.AXZ`, `.AYZ`, `.AXYZ`/`.Q`), `offset, s`
+  * *Destination modes*: `abs`, register pair (`.AX`, `.AY`, `.AZ`, `.XY`, `.XZ`, `.YZ`), multi-register (`.AXY`, `.AXZ`, `.AYZ`, `.AXYZ`/`.Q`), `offset, sp`
   * *Length modes*: `#immediate`, single register (`.A`, `.X`, `.Y`, `.Z`), register pair (`.AX`, `.AY`, `.AZ`, `.XY`, `.XZ`, `.YZ`), multi-register (`.AXY`, `.AXZ`, `.AYZ`, `.AXYZ`/`.Q`)
   * *Registers Affected*: None (preserved)
   * *Flags*: None
@@ -356,7 +356,7 @@ This reference summarizes the instructions available in the `ca45` assembler for
   * *Syntax*:
     - 2-operand form: `MOVE src, dest` — length must be in `.XY` register pair (`.XY` = 256*Y + X bytes)
     - 3-operand form: `MOVE src, dest, len` — explicit length (3rd operand)
-  * *Source modes*: `abs`, single register (`.A`, `.X`, `.Y`, `.Z`), register pair (`.AX`, `.AY`, `.AZ`, `.XY`, `.XZ`, `.YZ`), multi-register (`.AXY`, `.AXZ`, `.AYZ`, `.AXYZ`/`.Q`), symbol, `offset, s`
+  * *Source modes*: `abs`, single register (`.A`, `.X`, `.Y`, `.Z`), register pair (`.AX`, `.AY`, `.AZ`, `.XY`, `.XZ`, `.YZ`), multi-register (`.AXY`, `.AXZ`, `.AYZ`, `.AXYZ`/`.Q`), symbol, `offset, sp`
   * *Destination modes*: Same as source
   * *Length modes*: `#immediate`, single register (`.A`, `.X`, `.Y`, `.Z`), register pair (`.AX`, `.AY`, `.AZ`, `.XY`, `.XZ`, `.YZ`), multi-register (`.AXY`, `.AXZ`, `.AYZ`, `.AXYZ`/`.Q`)
   * *Registers Affected*: None (preserved)
