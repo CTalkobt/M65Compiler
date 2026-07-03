@@ -35,9 +35,9 @@ public:
 protected:
     bool is9090_;
     int sectorOffset(int track, int sector) const override;
-    bool allocateSector(int track, int sector) override { return false; } // simplified
-    bool freeSector(int track, int sector) override { return false; }
-    bool isSectorFree(int track, int sector) const override { return false; }
-    TrackSector allocateNextFree(int) override { return {0, 0}; }
+    bool allocateSector(int track, int sector) override;
+    bool freeSector(int track, int sector) override;
+    bool isSectorFree(int track, int sector) const override;
+    TrackSector allocateNextFree(int nearTrack = -1) override;
     int directoryTrack() const override { return 39; }
 };
