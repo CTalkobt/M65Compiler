@@ -44,6 +44,8 @@ long labs(long value);
 int rand(void);
 void srand(unsigned int seed);
 
+int atexit(void (*func)());
+
 void *malloc(size_t size);
 void free(void *ptr);
 void *calloc(size_t nmemb, size_t size);
