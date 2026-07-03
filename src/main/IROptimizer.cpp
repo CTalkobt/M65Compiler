@@ -399,6 +399,116 @@ void optimizeAlgebraic(Module& mod) {
 }
 
 // ============================================================================
+// Type Narrowing (I16/I32 → I8)
+// ============================================================================
+
+void optimizeTypeNarrowing(Module& mod) {
+    for (auto& fn : mod.functions) {
+        // Build use map: for each vreg, collect all instructions that use it
+        // and what role (src1, src2, arg, store-value)
+        struct UseInfo {
+            Inst* inst;
+            enum Role { SRC1, SRC2, ARG, STORE_VAL, PHI, OTHER };
+            Role role;
+        };
+        std::map<uint32_t, std::vector<UseInfo>> uses;
+
+        for (auto& block : fn.blocks) {
+            for (auto& inst : block.insts) {
+                if (inst.src1.isVreg())
+                    uses[inst.src1.vregId].push_back({&inst, UseInfo::SRC1});
+                if (inst.src2.isVreg())
+                    uses[inst.src2.vregId].push_back({&inst, UseInfo::SRC2});
+                for (auto& arg : inst.args) {
+                    if (arg.isVreg())
+                        uses[arg.vregId].push_back({&inst, UseInfo::ARG});
+                }
+            }
+        }
+
+        // Narrowable arithmetic ops (safe to compute in I8 when result is truncated)
+        auto isNarrowable = [](Op op) -> bool {
+            switch (op) {
+                case Op::ADD: case Op::SUB:
+                case Op::MUL: case Op::MUL_U:
+                case Op::AND: case Op::OR: case Op::XOR:
+                case Op::SHL: case Op::SHR:
+                case Op::NEG: case Op::NOT:
+                    return true;
+                default:
+                    return false;
+            }
+        };
+
+        // Check if ALL uses of a vreg are TRUNC to I8
+        auto allUsesTruncI8 = [&](uint32_t vregId) -> bool {
+            auto it = uses.find(vregId);
+            if (it == uses.end()) return false;
+            for (auto& u : it->second) {
+                if (u.inst->op == Op::TRUNC && u.inst->resultType == Type::I8 &&
+                    u.role == UseInfo::SRC1) {
+                    continue; // this use is a TRUNC to I8 — OK
+                }
+                return false; // non-TRUNC use — can't narrow
+            }
+            return true;
+        };
+
+        // Pass: narrow I16/I32 ops whose result is only used via TRUNC I8
+        for (auto& block : fn.blocks) {
+            for (auto& inst : block.insts) {
+                if (!inst.dest.isVreg()) continue;
+                if (inst.resultType != Type::I16 && inst.resultType != Type::I32) continue;
+                if (!isNarrowable(inst.op)) continue;
+
+                // Don't narrow local slot vregs
+                if (fn.localSlotVregs.count(inst.dest.vregId)) continue;
+
+                if (!allUsesTruncI8(inst.dest.vregId)) continue;
+
+                // Narrow: change result type to I8
+                inst.resultType = Type::I8;
+
+                // Convert each TRUNC consumer to COPY (the result is already I8)
+                auto& useList = uses[inst.dest.vregId];
+                for (auto& u : useList) {
+                    if (u.inst->op == Op::TRUNC && u.inst->resultType == Type::I8) {
+                        u.inst->op = Op::COPY;
+                        u.inst->resultType = Type::I8;
+                    }
+                }
+            }
+        }
+
+        // Pass 2: Eliminate redundant ZEXT/SEXT where the extended value is
+        // only used in I8 context (TRUNC back to I8)
+        for (auto& block : fn.blocks) {
+            for (auto& inst : block.insts) {
+                if (inst.op != Op::ZEXT && inst.op != Op::SEXT) continue;
+                if (!inst.dest.isVreg()) continue;
+                // Check if src1 is I8 and all uses are TRUNC back to I8
+                if (inst.src1.type != Type::I8) continue;
+
+                if (!allUsesTruncI8(inst.dest.vregId)) continue;
+
+                // The ZEXT/SEXT is pointless — replace with COPY
+                inst.op = Op::COPY;
+                inst.resultType = Type::I8;
+
+                // Convert TRUNC consumers to COPY
+                auto& useList = uses[inst.dest.vregId];
+                for (auto& u : useList) {
+                    if (u.inst->op == Op::TRUNC && u.inst->resultType == Type::I8) {
+                        u.inst->op = Op::COPY;
+                        u.inst->resultType = Type::I8;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
 // Branch Folding and Dead Block Elimination
 // ============================================================================
 
