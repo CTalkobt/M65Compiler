@@ -13,6 +13,12 @@
 
 static const char* VERSION = "1.0.0";
 
+// Forward declaration for FUSE mount (in disk45_fuse.cpp)
+#ifdef HAVE_FUSE3
+extern int disk45_fuse_main(const std::string& imagePath, const std::string& mountpoint,
+                             bool readonly, int argc, char** argv);
+#endif
+
 static void usage() {
     std::cerr << "disk45 — CBM Disk Image Utility v" << VERSION << "\n"
               << "Usage:\n"
@@ -38,6 +44,9 @@ static void usage() {
               << "  disk45 bpeek <image> <t> <s> <off> [n]    Read byte(s)\n"
               << "  disk45 bpoke <image> <t> <s> <off> <val>  Write byte(s)\n"
               << "  disk45 bfill <image> <t> <s> <val>        Fill sector with value\n"
+#ifdef HAVE_FUSE3
+              << "  disk45 mount <image> <mountpoint> [-ro]   FUSE mount as directory\n"
+#endif
               << "  disk45 convert <source> <target>          Convert between formats\n"
               << "  disk45 chain <image> <filename>           Show file sector chain\n"
               << "  disk45 mkdir <image> <dirname>            Create subdirectory\n"
@@ -2148,6 +2157,23 @@ int main(int argc, char** argv) {
     if (cmd == "mkdir")      return cmdMkdir(subArgc, subArgv);
     if (cmd == "rmdir")      return cmdRmdir(subArgc, subArgv);
     if (cmd == "tree")       return cmdTree(subArgc, subArgv);
+#ifdef HAVE_FUSE3
+    if (cmd == "mount") {
+        if (subArgc < 2) { std::cerr << "Usage: disk45 mount <image> <mountpoint> [-ro]\n"; return 1; }
+        std::string imagePath = subArgv[0];
+        std::string mountpoint = subArgv[1];
+        bool ro = false;
+        std::vector<char*> extraArgs;
+        for (int i = 2; i < subArgc; i++) {
+            if (std::string(subArgv[i]) == "-ro" || std::string(subArgv[i]) == "--readonly")
+                ro = true;
+            else
+                extraArgs.push_back(subArgv[i]);
+        }
+        return disk45_fuse_main(imagePath, mountpoint, ro, (int)extraArgs.size(),
+                                 extraArgs.empty() ? nullptr : extraArgs.data());
+    }
+#endif
     if (cmd == "convert")    return cmdConvert(subArgc, subArgv);
     if (cmd == "dir-shrink") return cmdDirShrink(subArgc, subArgv);
     if (cmd == "dir-ensure") return cmdDirEnsure(subArgc, subArgv);

@@ -2,6 +2,13 @@ CX = g++
 GIT_HASH := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 EXTRA_CXXFLAGS ?=
 CXXFLAGS = -std=c++17 -Wall -Wextra -Iinclude -MMD -MP -DGIT_HASH='"$(GIT_HASH)"' $(EXTRA_CXXFLAGS)
+
+# Optional FUSE3 support for disk45 mount command
+HAVE_FUSE3 := $(shell pkg-config --exists fuse3 2>/dev/null && echo 1)
+ifeq ($(HAVE_FUSE3),1)
+  FUSE3_CFLAGS := $(shell pkg-config --cflags fuse3) -DHAVE_FUSE3
+  FUSE3_LIBS := $(shell pkg-config --libs fuse3)
+endif
 SRC_DIR = src/main
 OBJ_DIR = obj
 BIN_DIR = bin
@@ -43,6 +50,9 @@ LN_OBJECTS = $(OBJ_DIR)/ln45_main.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.
 AR_OBJECTS = $(OBJ_DIR)/ar45_main.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45Archive.o
 OD_OBJECTS = $(OBJ_DIR)/objdump45_main.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o
 DISK_OBJECTS = $(OBJ_DIR)/disk45_main.o $(OBJ_DIR)/DiskImage.o $(OBJ_DIR)/DiskImageFactory.o $(OBJ_DIR)/D64Image.o $(OBJ_DIR)/D71Image.o $(OBJ_DIR)/D81Image.o $(OBJ_DIR)/D65Image.o $(OBJ_DIR)/ArkImage.o $(OBJ_DIR)/ArcImage.o $(OBJ_DIR)/LnxImage.o $(OBJ_DIR)/TapImage.o $(OBJ_DIR)/T64Image.o $(OBJ_DIR)/G64Image.o $(OBJ_DIR)/D80Image.o $(OBJ_DIR)/GeosCvtImage.o $(OBJ_DIR)/GzipHelper.o
+ifeq ($(HAVE_FUSE3),1)
+  DISK_OBJECTS += $(OBJ_DIR)/disk45_fuse.o
+endif
 
 all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET) $(NM_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET)
 
@@ -82,7 +92,15 @@ $(OD_TARGET): $(OD_OBJECTS)
 
 $(DISK_TARGET): $(DISK_OBJECTS)
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $^ -lz
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lz $(FUSE3_LIBS)
+
+# disk45 FUSE module needs FUSE3 headers
+$(OBJ_DIR)/disk45_fuse.o: $(SRC_DIR)/disk45_fuse.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) $(FUSE3_CFLAGS) -c -o $@ $<
+
+# disk45_main needs HAVE_FUSE3 define
+$(OBJ_DIR)/disk45_main.o: $(SRC_DIR)/disk45_main.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) $(FUSE3_CFLAGS) -c -o $@ $<
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
 	@mkdir -p $(OBJ_DIR)
