@@ -20,6 +20,8 @@ static void usage() {
               << "  disk45 info <image>                       Show disk info\n"
               << "  disk45 add <image> <file> [cbm_name] [-p]  Add file to image\n"
               << "  disk45 extract <image> <cbm_name> <file> [-p]  Extract file\n"
+              << "  disk45 extract-all <image> [dir] [pattern]  Extract all files\n"
+              << "  disk45 copy <src> <pattern> <dst>         Copy files between images\n"
               << "  disk45 remove <image> <cbm_name>          Delete file from image\n"
               << "  disk45 rename <image> <old> <new>         Rename file in image\n"
               << "  disk45 lock <image> <cbm_name>            Lock file (prevent delete)\n"
@@ -38,6 +40,9 @@ static void usage() {
               << "  .arc  ARC archive (stored/RLE/Huffman/LZW)\n"
               << "  .sda  Self-Dissolving ARC archive\n"
               << "  .lnx  Lynx archive (block-aligned, uncompressed)\n"
+              << "  .tap  TAP tape image (read-only, pulse decoding)\n"
+              << "\n"
+              << "Wildcards: use * and ? in patterns for list, extract-all, copy, remove\n"
               << "\n"
               << "Flags:\n"
               << "  -p, --petscii   Convert SEQ content: ASCII→PETSCII (add) or\n"
@@ -126,6 +131,104 @@ static CbmFileType typeFromExtension(const std::string& path) {
     return CbmFileType::PRG; // default
 }
 
+// --- Filename normalization ---
+// Input convention:
+//   "NAME"      — ASCII input, converted to uppercase PETSCII for disk lookup
+//   @"NAME"     — explicit ASCII (same as default)
+//   p"NAME"     — already PETSCII, use as-is (no conversion)
+//
+// For lookups: always compare uppercase (CBM filenames are case-insensitive)
+
+static std::string normalizeName(const std::string& input) {
+    std::string name = input;
+
+    // Strip prefix if present
+    bool isPetscii = false;
+    if (name.size() >= 2 && (name[0] == 'p' || name[0] == 'P') && name[1] == '"') {
+        // p"..." — already PETSCII
+        name = name.substr(2);
+        if (!name.empty() && name.back() == '"') name.pop_back();
+        isPetscii = true;
+    } else if (name.size() >= 2 && name[0] == '@' && name[1] == '"') {
+        // @"..." — explicit ASCII
+        name = name.substr(2);
+        if (!name.empty() && name.back() == '"') name.pop_back();
+    } else if (name.size() >= 2 && name[0] == '"') {
+        // "..." — strip quotes
+        name = name.substr(1);
+        if (!name.empty() && name.back() == '"') name.pop_back();
+    }
+
+    if (!isPetscii) {
+        // Convert to uppercase for CBM lookup
+        std::transform(name.begin(), name.end(), name.begin(), ::toupper);
+    }
+    return name;
+}
+
+// --- Wildcard pattern matching (case-insensitive) ---
+// Supports * (match any) and ? (match one character)
+static bool matchWildcard(const std::string& pattern, const std::string& str) {
+    std::string p = pattern, s = str;
+    std::transform(p.begin(), p.end(), p.begin(), ::toupper);
+    std::transform(s.begin(), s.end(), s.begin(), ::toupper);
+
+    size_t pi = 0, si = 0;
+    size_t starP = std::string::npos, starS = 0;
+
+    while (si < s.size()) {
+        if (pi < p.size() && (p[pi] == '?' || p[pi] == s[si])) {
+            pi++; si++;
+        } else if (pi < p.size() && p[pi] == '*') {
+            starP = pi++;
+            starS = si;
+        } else if (starP != std::string::npos) {
+            pi = starP + 1;
+            si = ++starS;
+        } else {
+            return false;
+        }
+    }
+    while (pi < p.size() && p[pi] == '*') pi++;
+    return pi == p.size();
+}
+
+// Filter file list by optional wildcard pattern
+static std::vector<FileInfo> filterFiles(const std::vector<FileInfo>& files,
+                                          const std::string& pattern) {
+    if (pattern.empty() || pattern == "*") return files;
+    std::vector<FileInfo> result;
+    for (auto& f : files) {
+        if (matchWildcard(pattern, f.name)) result.push_back(f);
+    }
+    return result;
+}
+
+// File type extension for host filenames
+static std::string typeExtension(CbmFileType t) {
+    switch (t) {
+        case CbmFileType::PRG: return ".prg";
+        case CbmFileType::SEQ: return ".seq";
+        case CbmFileType::USR: return ".usr";
+        case CbmFileType::REL: return ".rel";
+        default: return ".del";
+    }
+}
+
+// Sanitize CBM filename for host filesystem
+static std::string sanitizeFilename(const std::string& name) {
+    std::string result;
+    for (char c : name) {
+        if (c >= 32 && c < 127 && c != '/' && c != '\\' && c != ':') result += c;
+        else result += '_';
+    }
+    // Trim trailing spaces/underscores
+    while (!result.empty() && (result.back() == ' ' || result.back() == '_'))
+        result.pop_back();
+    if (result.empty()) result = "unnamed";
+    return result;
+}
+
 static std::string baseName(const std::string& path) {
     auto slash = path.rfind('/');
     std::string name = (slash != std::string::npos) ? path.substr(slash + 1) : path;
@@ -166,8 +269,10 @@ static int cmdList(int argc, char** argv) {
     auto img = DiskImage::load(argv[0]);
     if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
 
+    std::string pattern = (argc >= 2) ? argv[1] : "";
+
     std::cout << "0 \"" << img->diskName() << "\" " << img->diskId() << "\n";
-    auto files = img->listFiles();
+    auto files = filterFiles(img->listFiles(), pattern);
     for (auto& f : files) {
         std::cout << f.sizeInSectors << "\t\"" << f.name << "\"\t" << fileTypeStr(f.type);
         if (f.locked) std::cout << "<";
@@ -518,6 +623,123 @@ static int cmdDump(int argc, char** argv) {
 }
 
 // ============================================================================
+// Copy between images
+// ============================================================================
+
+static int cmdCopy(int argc, char** argv) {
+    if (argc < 3) {
+        std::cerr << "Usage: disk45 copy <src_image> <pattern> <dst_image>\n";
+        return 1;
+    }
+    std::string srcPath = argv[0];
+    std::string pattern = argv[1];
+    std::string dstPath = argv[2];
+
+    auto src = DiskImage::load(srcPath);
+    if (!src) { std::cerr << "Error: failed to load " << srcPath << "\n"; return 1; }
+    auto dst = DiskImage::load(dstPath);
+    if (!dst) { std::cerr << "Error: failed to load " << dstPath << "\n"; return 1; }
+
+    auto files = filterFiles(src->listFiles(), pattern);
+    if (files.empty()) {
+        std::cerr << "No files matching \"" << pattern << "\" in " << srcPath << "\n";
+        return 1;
+    }
+
+    int copied = 0;
+    for (auto& f : files) {
+        auto data = src->readFile(f.name);
+        if (data.empty() && !src->fileExists(f.name)) {
+            std::cerr << "Warning: could not read \"" << f.name << "\", skipping\n";
+            continue;
+        }
+        if (dst->fileExists(f.name)) {
+            std::cerr << "Warning: \"" << f.name << "\" already exists in destination, skipping\n";
+            continue;
+        }
+        if (!dst->addFile(f.name, f.type, data)) {
+            std::cerr << "Error: failed to add \"" << f.name << "\" to destination (disk full?)\n";
+            continue;
+        }
+        std::cout << "  " << f.name << " (" << data.size() << " bytes, " << fileTypeStr(f.type) << ")\n";
+        copied++;
+    }
+
+    if (copied > 0) {
+        if (!dst->saveToFile(dstPath)) {
+            std::cerr << "Error: failed to write " << dstPath << "\n";
+            return 1;
+        }
+    }
+    std::cout << "Copied " << copied << " file(s) from " << srcPath << " to " << dstPath << "\n";
+    return 0;
+}
+
+// ============================================================================
+// Extract all files
+// ============================================================================
+
+static int cmdExtractAll(int argc, char** argv) {
+    bool petscii = extractPetsciiFlag(argc, argv);
+    if (argc < 1) {
+        std::cerr << "Usage: disk45 extract-all <image> [output_dir] [pattern]\n";
+        return 1;
+    }
+    std::string imagePath = argv[0];
+    std::string outDir = (argc >= 2) ? argv[1] : ".";
+    std::string pattern = (argc >= 3) ? argv[2] : "*";
+
+    auto img = DiskImage::load(imagePath);
+    if (!img) { std::cerr << "Error: failed to load " << imagePath << "\n"; return 1; }
+
+    // Create output directory if needed
+    std::string mkdirCmd = "mkdir -p '" + outDir + "'";
+    if (system(mkdirCmd.c_str()) != 0) {
+        std::cerr << "Error: cannot create directory " << outDir << "\n";
+        return 1;
+    }
+
+    auto files = filterFiles(img->listFiles(), pattern);
+    int extracted = 0;
+    for (auto& f : files) {
+        auto data = img->readFile(f.name);
+        if (data.empty() && !img->fileExists(f.name)) {
+            std::cerr << "Warning: could not read \"" << f.name << "\", skipping\n";
+            continue;
+        }
+
+        if (petscii && f.type == CbmFileType::SEQ) {
+            data = petsciiToAsciiContent(data);
+        }
+
+        std::string hostName = sanitizeFilename(f.name) + typeExtension(f.type);
+        std::string fullPath = outDir + "/" + hostName;
+
+        // Handle name collisions
+        if (std::ifstream(fullPath).good()) {
+            int suffix = 1;
+            std::string base = sanitizeFilename(f.name);
+            std::string ext = typeExtension(f.type);
+            do {
+                fullPath = outDir + "/" + base + "_" + std::to_string(suffix++) + ext;
+            } while (std::ifstream(fullPath).good());
+        }
+
+        std::ofstream out(fullPath, std::ios::binary);
+        if (!out) {
+            std::cerr << "Error: cannot write " << fullPath << "\n";
+            continue;
+        }
+        out.write(reinterpret_cast<const char*>(data.data()), data.size());
+        std::cout << "  " << f.name << " → " << fullPath << " (" << data.size() << " bytes)\n";
+        extracted++;
+    }
+
+    std::cout << "Extracted " << extracted << " file(s) from " << imagePath << "\n";
+    return 0;
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -536,6 +758,10 @@ int main(int argc, char** argv) {
                           return cmdAdd(subArgc, subArgv);
     if (cmd == "extract" || cmd == "read")
                           return cmdExtract(subArgc, subArgv);
+    if (cmd == "extract-all" || cmd == "extractall")
+                          return cmdExtractAll(subArgc, subArgv);
+    if (cmd == "copy" || cmd == "cp")
+                          return cmdCopy(subArgc, subArgv);
     if (cmd == "remove" || cmd == "delete" || cmd == "rm")
                           return cmdRemove(subArgc, subArgv);
     if (cmd == "rename" || cmd == "mv")

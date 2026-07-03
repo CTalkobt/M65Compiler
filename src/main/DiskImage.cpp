@@ -18,22 +18,27 @@ class D65Image;
 // ============================================================================
 
 std::string DiskImage::asciiToPetscii(const std::string& ascii) {
+    // Map both ASCII cases to PETSCII uppercase ($41-$5A)
+    // This is the standard CBM filename encoding
     std::string result;
     result.reserve(ascii.size());
-    for (char c : ascii) {
-        if (c >= 'a' && c <= 'z') result += (char)(c - 32);
-        else if (c >= 'A' && c <= 'Z') result += (char)(c + 32);
-        else result += c;
+    for (unsigned char c : ascii) {
+        if (c >= 'a' && c <= 'z') result += (char)(c - 32); // a-z → A-Z ($41-$5A)
+        else if (c >= 'A' && c <= 'Z') result += (char)c;   // A-Z stays $41-$5A
+        else result += (char)c;
     }
     return result;
 }
 
 std::string DiskImage::petsciiToAscii(const std::string& petscii) {
+    // Map PETSCII to uppercase ASCII for consistent round-tripping.
+    // PETSCII $41-$5A (unshifted uppercase) → ASCII A-Z
+    // PETSCII $C1-$DA (shifted uppercase) → ASCII A-Z
     std::string result;
     result.reserve(petscii.size());
     for (unsigned char c : petscii) {
-        if (c >= 0xC1 && c <= 0xDA) result += (char)(c - 0x60); // shifted uppercase → A-Z
-        else if (c >= 0x41 && c <= 0x5A) result += (char)(c + 0x20); // unshifted → a-z
+        if (c >= 0xC1 && c <= 0xDA) result += (char)(c - 0x60); // shifted → A-Z
+        else if (c >= 0x41 && c <= 0x5A) result += (char)c;     // unshifted → A-Z (same)
         else if (c == 0xA0 || c == 0x00) break; // padding / null
         else result += (char)c;
     }
@@ -184,8 +189,11 @@ DirEntry DiskImage::findFile(const std::string& name) const {
 }
 
 bool DiskImage::findFileEntry(const std::string& name, TrackSector& dirTS, int& entryIdx) const {
+    // Normalize: uppercase for case-insensitive CBM filename matching
+    std::string upper = name;
+    std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
     char petName[16];
-    padPetsciiName(petName, name);
+    padPetsciiName(petName, upper);
 
     int dirTrack = directoryTrack();
     // Start from directory first sector (sector 1 on D64/D71, sector 3 on D81)
