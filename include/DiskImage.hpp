@@ -26,6 +26,7 @@ enum class CbmFileType : uint8_t {
     PRG = 2,    // Program
     USR = 3,    // User
     REL = 4,    // Relative (record-based)
+    CBM = 5,    // CBM subdirectory (D71/D81)
 };
 
 // Directory entry (32 bytes, 8 per directory sector)
