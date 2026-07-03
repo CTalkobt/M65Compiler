@@ -248,6 +248,157 @@ void optimizeStrengthReduction(Module& mod) {
 }
 
 // ============================================================================
+// Algebraic Simplification
+// ============================================================================
+
+void optimizeAlgebraic(Module& mod) {
+    for (auto& fn : mod.functions) {
+        // Build constant value map
+        std::map<uint32_t, int64_t> constVals;
+        for (auto& block : fn.blocks) {
+            for (auto& inst : block.insts) {
+                if (inst.op == Op::CONST && inst.dest.isVreg() && inst.src1.isImm()) {
+                    constVals[inst.dest.vregId] = inst.src1.immVal;
+                }
+            }
+        }
+
+        // Helper: get constant value of an operand, if known
+        auto getConst = [&](const Operand& op, int64_t& out) -> bool {
+            if (op.isImm()) { out = op.immVal; return true; }
+            if (op.isVreg()) {
+                auto it = constVals.find(op.vregId);
+                if (it != constVals.end()) { out = it->second; return true; }
+            }
+            return false;
+        };
+
+        // Full-width mask for a given type
+        auto fullMask = [](Type t) -> int64_t {
+            switch (t) {
+                case Type::I8:  return 0xFF;
+                case Type::I16: case Type::PTR: return 0xFFFF;
+                case Type::I32: return 0xFFFFFFFF;
+                default: return 0xFFFF;
+            }
+        };
+
+        for (auto& block : fn.blocks) {
+            for (auto& inst : block.insts) {
+                // Same-operand patterns (x op x)
+                if (inst.src1.isVreg() && inst.src2.isVreg() &&
+                    inst.src1.vregId == inst.src2.vregId) {
+                    switch (inst.op) {
+                        case Op::SUB:   // x - x → 0
+                        case Op::XOR:   // x ^ x → 0
+                            inst.op = Op::CONST;
+                            inst.src1 = Operand::imm(0, inst.resultType);
+                            inst.src2 = Operand::none();
+                            continue;
+                        case Op::AND:   // x & x → x
+                        case Op::OR:    // x | x → x
+                            inst.op = Op::COPY;
+                            inst.src2 = Operand::none();
+                            continue;
+                        default: break;
+                    }
+                }
+
+                // Constant-operand patterns: check src2
+                int64_t val2;
+                if (getConst(inst.src2, val2)) {
+                    switch (inst.op) {
+                        case Op::ADD:
+                        case Op::SUB:
+                            if (val2 == 0) {
+                                // x + 0 → x, x - 0 → x
+                                inst.op = Op::COPY;
+                                inst.src2 = Operand::none();
+                            }
+                            break;
+                        case Op::AND:
+                            if (val2 == 0) {
+                                // x & 0 → 0
+                                inst.op = Op::CONST;
+                                inst.src1 = Operand::imm(0, inst.resultType);
+                                inst.src2 = Operand::none();
+                            } else if (val2 == fullMask(inst.resultType)) {
+                                // x & 0xFFFF (I16) → x
+                                inst.op = Op::COPY;
+                                inst.src2 = Operand::none();
+                            }
+                            break;
+                        case Op::OR:
+                            if (val2 == 0) {
+                                // x | 0 → x
+                                inst.op = Op::COPY;
+                                inst.src2 = Operand::none();
+                            } else if (val2 == fullMask(inst.resultType)) {
+                                // x | 0xFFFF → 0xFFFF
+                                inst.op = Op::CONST;
+                                inst.src1 = Operand::imm(val2, inst.resultType);
+                                inst.src2 = Operand::none();
+                            }
+                            break;
+                        case Op::XOR:
+                            if (val2 == 0) {
+                                // x ^ 0 → x
+                                inst.op = Op::COPY;
+                                inst.src2 = Operand::none();
+                            }
+                            break;
+                        case Op::SHL:
+                        case Op::SHR:
+                        case Op::LSL:
+                        case Op::LSR:
+                        case Op::ASR:
+                            if (val2 == 0) {
+                                // x << 0 → x, x >> 0 → x
+                                inst.op = Op::COPY;
+                                inst.src2 = Operand::none();
+                            }
+                            break;
+                        default: break;
+                    }
+                }
+
+                // Constant-operand patterns: check src1 (for commutative ops)
+                int64_t val1;
+                if (getConst(inst.src1, val1)) {
+                    switch (inst.op) {
+                        case Op::ADD:
+                            if (val1 == 0) {
+                                // 0 + x → x
+                                inst.op = Op::COPY;
+                                inst.src1 = inst.src2;
+                                inst.src2 = Operand::none();
+                            }
+                            break;
+                        case Op::AND:
+                            if (val1 == 0) {
+                                // 0 & x → 0
+                                inst.op = Op::CONST;
+                                inst.src1 = Operand::imm(0, inst.resultType);
+                                inst.src2 = Operand::none();
+                            }
+                            break;
+                        case Op::OR:
+                            if (val1 == 0) {
+                                // 0 | x → x
+                                inst.op = Op::COPY;
+                                inst.src1 = inst.src2;
+                                inst.src2 = Operand::none();
+                            }
+                            break;
+                        default: break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
 // LICM — Loop-Invariant Code Motion
 // ============================================================================
 
