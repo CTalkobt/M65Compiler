@@ -36,6 +36,8 @@ static void usage() {
               << "  disk45 bpoke <image> <t> <s> <off> <val>  Write byte(s)\n"
               << "  disk45 bfill <image> <t> <s> <val>        Fill sector with value\n"
               << "  disk45 chain <image> <filename>           Show file sector chain\n"
+              << "  disk45 -a2p                               ASCII→PETSCII filter (stdin→stdout)\n"
+              << "  disk45 -p2a                               PETSCII→ASCII filter (stdin→stdout)\n"
               << "\n"
               << "Supported formats (auto-detected from extension):\n"
               << "  .d64  C64 1541 (170KB, 35 tracks)\n"
@@ -970,6 +972,22 @@ int main(int argc, char** argv) {
     std::string cmd = argv[1];
     int subArgc = argc - 2;
     char** subArgv = argv + 2;
+
+    // Stdin→stdout character encoding filters
+    if (cmd == "-a2p" || cmd == "--ascii-to-petscii") {
+        std::vector<uint8_t> input((std::istreambuf_iterator<char>(std::cin)),
+                                    std::istreambuf_iterator<char>());
+        auto output = asciiToPetsciiContent(input);
+        std::cout.write(reinterpret_cast<const char*>(output.data()), output.size());
+        return 0;
+    }
+    if (cmd == "-p2a" || cmd == "--petscii-to-ascii") {
+        std::vector<uint8_t> input((std::istreambuf_iterator<char>(std::cin)),
+                                    std::istreambuf_iterator<char>());
+        auto output = petsciiToAsciiContent(input);
+        std::cout.write(reinterpret_cast<const char*>(output.data()), output.size());
+        return 0;
+    }
 
     if (cmd == "create")  return cmdCreate(subArgc, subArgv);
     if (cmd == "list" || cmd == "ls" || cmd == "dir")
