@@ -1350,8 +1350,13 @@ void IRBuilder::visit(VariableReference& node) {
         if (!computeAddressOnly_) {
             usedVregs_.insert(it->second.vregId);
         }
-        if (computeAddressOnly_) {
-            // Return the address of the local variable
+
+        // Array-to-pointer decay: when an array name is used as a value
+        // (not in address-only mode), it decays to a pointer to its first element.
+        bool isArray = localArrayDims_.count(node.name) > 0;
+
+        if (computeAddressOnly_ || isArray) {
+            // Return the address of the local variable (or array decay)
             auto addr = allocVreg(ir::Type::PTR);
             ir::Inst addrInst;
             addrInst.op = ir::Op::ADDR_LOCAL;
