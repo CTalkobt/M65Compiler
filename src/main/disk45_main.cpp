@@ -19,6 +19,9 @@ extern int disk45_fuse_main(const std::string& imagePath, const std::string& mou
                              bool readonly, int argc, char** argv);
 #endif
 
+// Forward declaration for catalog (in disk45_catalog.cpp)
+extern int disk45_catalog(int argc, char** argv);
+
 static void usage() {
     std::cerr << "disk45 — CBM Disk Image Utility v" << VERSION << "\n"
               << "Usage:\n"
@@ -58,6 +61,11 @@ static void usage() {
               << "  disk45 rel-read <img> <name> <rec#>       Read REL record\n"
               << "  disk45 rel-write <img> <name> <rec#> <d>  Write REL record\n"
               << "  disk45 rel-list <img> <name>              List REL records\n"
+              << "  disk45 catalog build <dir> [--db file]    Index image collection\n"
+              << "  disk45 catalog search <pattern> [--db f]  Search indexed files\n"
+              << "  disk45 catalog list [--db file]           List indexed images\n"
+              << "  disk45 catalog duplicates [--db file]     Find duplicate files\n"
+              << "  disk45 catalog stats [--db file]          Collection statistics\n"
               << "  disk45 -a2p                               ASCII→PETSCII filter (stdin→stdout)\n"
               << "  disk45 -p2a                               PETSCII→ASCII filter (stdin→stdout)\n"
               << "\n"
@@ -2174,6 +2182,7 @@ int main(int argc, char** argv) {
                                  extraArgs.empty() ? nullptr : extraArgs.data());
     }
 #endif
+    if (cmd == "catalog")    return disk45_catalog(subArgc, subArgv);
     if (cmd == "convert")    return cmdConvert(subArgc, subArgv);
     if (cmd == "dir-shrink") return cmdDirShrink(subArgc, subArgv);
     if (cmd == "dir-ensure") return cmdDirEnsure(subArgc, subArgv);
