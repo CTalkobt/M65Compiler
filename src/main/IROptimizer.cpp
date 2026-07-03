@@ -27,7 +27,9 @@ struct ExprKey {
 
 bool isCSECandidate(Op op) {
     switch (op) {
-        case Op::CONST:
+        // Note: CONST and FCONST are NOT CSE candidates. Constants are trivially
+        // cheap to recompute (lda #imm) and CSE-ing them extends live ranges,
+        // wastes ZP/frame slots, and increases register pressure on the 6502.
         case Op::ADD: case Op::SUB: case Op::MUL: case Op::DIV: case Op::MOD:
         case Op::MUL_U: case Op::DIV_U: case Op::MOD_U:
         case Op::AND: case Op::OR: case Op::XOR:
@@ -38,8 +40,7 @@ bool isCSECandidate(Op op) {
         case Op::CMP_LT: case Op::CMP_LE: case Op::CMP_GT: case Op::CMP_GE:
         case Op::CMP_LTU: case Op::CMP_LEU: case Op::CMP_GTU: case Op::CMP_GEU:
         case Op::SEXT: case Op::ZEXT: case Op::TRUNC:
-        case Op::ADDR_GLOBAL: case Op::ADDR_LOCAL: case Op::ADDR_LABEL: case Op::ADDR_ELEM:
-        case Op::LOAD: case Op::LOAD_ZP:
+        case Op::ADDR_GLOBAL: case Op::ADDR_LABEL: case Op::ADDR_ELEM:
             return true;
         default:
             return false;
@@ -135,67 +136,6 @@ void optimizeCSE(Module& mod) {
                         }
                     }
 
-                    if (!found) {
-                        activeExprs.push_back({key, inst.dest});
-                    }
-                }
-            }
-        }
-    }
-    // Now run it on all functions actually
-    for (auto& fn : mod.functions) {
-        if (fn.name == "_main" || fn.name == "main") continue;
-        for (auto& block : fn.blocks) {
-            std::map<uint32_t, Operand> copies;
-            std::vector<std::pair<ExprKey, Operand>> activeExprs;
-
-            for (auto& inst : block.insts) {
-                propagateOperand(inst.src1, copies);
-                propagateOperand(inst.src2, copies);
-                for (auto& arg : inst.args) {
-                    propagateOperand(arg, copies);
-                }
-                for (auto& pair : inst.phiIncoming) {
-                    propagateOperand(pair.first, copies);
-                }
-                if (inst.op == Op::STORE || inst.op == Op::STORE_ZP ||
-                    inst.op == Op::CALL || inst.op == Op::CALL_INDIRECT || inst.op == Op::CALL_VOID ||
-                    inst.op == Op::ASM_INLINE || inst.op == Op::CPU_REG_WRITE || inst.op == Op::CPU_FLAG_WRITE) {
-                    activeExprs.erase(
-                        std::remove_if(activeExprs.begin(), activeExprs.end(),
-                                       [](const auto& pair) {
-                                           return pair.first.op == Op::LOAD || pair.first.op == Op::LOAD_ZP;
-                                       }),
-                        activeExprs.end()
-                    );
-                }
-                if (inst.op == Op::COPY) {
-                    if (inst.dest.isVreg()) {
-                        copies[inst.dest.vregId] = inst.src1;
-                    }
-                    continue;
-                }
-                if (isCSECandidate(inst.op) && inst.dest.isVreg()) {
-                    ExprKey key;
-                    key.op = inst.op;
-                    key.src1 = inst.src1;
-                    key.src2 = inst.src2;
-                    key.type = inst.resultType;
-                    key.byteWidth = inst.resultByteWidth;
-                    if (inst.op == Op::ADDR_GLOBAL || inst.op == Op::ADDR_LABEL) {
-                        key.name = inst.src1.name;
-                    }
-                    bool found = false;
-                    for (const auto& pair : activeExprs) {
-                        if (pair.first == key) {
-                            inst.op = Op::COPY;
-                            inst.src1 = pair.second;
-                            inst.src2 = Operand::none();
-                            copies[inst.dest.vregId] = pair.second;
-                            found = true;
-                            break;
-                        }
-                    }
                     if (!found) {
                         activeExprs.push_back({key, inst.dest});
                     }
