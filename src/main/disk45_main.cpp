@@ -61,7 +61,7 @@ static void usage() {
               << "  disk45 rel-read <img> <name> <rec#>       Read REL record\n"
               << "  disk45 rel-write <img> <name> <rec#> <d>  Write REL record\n"
               << "  disk45 rel-list <img> <name>              List REL records\n"
-              << "  disk45 catalog build <dir> [--db file]    Index image collection\n"
+              << "  disk45 catalog build <dir>... [--db file]  Index image collection\n"
               << "  disk45 catalog search <pattern> [--db f]  Search indexed files\n"
               << "  disk45 catalog list [--db file]           List indexed images\n"
               << "  disk45 catalog duplicates [--db file]     Find duplicate files\n"

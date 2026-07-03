@@ -243,12 +243,13 @@ int disk45_catalog(int argc, char** argv) {
     if (argc < 1) {
         std::cerr << "Usage: disk45 catalog <command> [options]\n"
                   << "Commands:\n"
-                  << "  build <dir> [--db file]      Scan directory, index all images\n"
-                  << "  update <dir> [--db file]     Incremental update (skip unchanged)\n"
+                  << "  build <dir> [dir2...] [--db]  Scan directories, index all images\n"
+                  << "  update <dir> [dir2...] [--db] Incremental update (skip unchanged)\n"
                   << "  search <pattern> [--db file]  Search files by name (* and ? wildcards)\n"
                   << "  list [--db file]             Summary of indexed images\n"
                   << "  duplicates [--db file]        Find duplicate files by CRC32\n"
-                  << "  stats [--db file]            Collection statistics\n";
+                  << "  stats [--db file]            Collection statistics\n"
+                  << "  prune [--db file]            Remove entries for deleted images\n";
         return 1;
     }
 
@@ -268,26 +269,39 @@ int disk45_catalog(int argc, char** argv) {
 
     if (subcmd == "build" || subcmd == "update") {
         if (argc < 1) {
-            std::cerr << "Usage: disk45 catalog " << subcmd << " <directory> [--db file]\n";
+            std::cerr << "Usage: disk45 catalog " << subcmd << " <dir1> [dir2 ...] [--db file]\n";
             sqlite3_close(db);
             return 1;
         }
-        std::string dir = argv[0];
         int indexed = 0, skipped = 0, errors = 0;
 
         db_exec(db, "BEGIN TRANSACTION;");
 
-        std::cout << "Scanning " << dir << " ...\n";
-        for (auto& entry : fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied)) {
-            if (!entry.is_regular_file()) continue;
-            std::string path = entry.path().string();
-            if (!isSupportedImage(path)) continue;
+        // Scan all directory arguments
+        for (int di = 0; di < argc; di++) {
+            std::string dir = argv[di];
+            if (!fs::is_directory(dir)) {
+                // Single image file
+                if (isSupportedImage(dir) && fs::is_regular_file(dir)) {
+                    try {
+                        if (indexImage(db, dir, true)) indexed++;
+                        else errors++;
+                    } catch (...) { errors++; }
+                }
+                continue;
+            }
+            std::cout << "Scanning " << dir << " ...\n";
+            for (auto& entry : fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied)) {
+                if (!entry.is_regular_file()) continue;
+                std::string path = entry.path().string();
+                if (!isSupportedImage(path)) continue;
 
-            try {
-                if (indexImage(db, path, true)) indexed++;
-                else errors++;
-            } catch (...) {
-                errors++;
+                try {
+                    if (indexImage(db, path, true)) indexed++;
+                    else errors++;
+                } catch (...) {
+                    errors++;
+                }
             }
         }
 
@@ -440,6 +454,41 @@ int disk45_catalog(int argc, char** argv) {
                       << cnt << "\n";
         }
         sqlite3_finalize(stmt);
+
+    } else if (subcmd == "prune") {
+        // Remove entries for images whose files no longer exist on disk
+        sqlite3_stmt* stmt;
+        sqlite3_prepare_v2(db, "SELECT id, path FROM images", -1, &stmt, nullptr);
+
+        std::vector<int64_t> stale;
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            int64_t id = sqlite3_column_int64(stmt, 0);
+            const char* path = (const char*)sqlite3_column_text(stmt, 1);
+            if (path && !fs::exists(path)) {
+                std::cout << "  Pruning: " << path << "\n";
+                stale.push_back(id);
+            }
+        }
+        sqlite3_finalize(stmt);
+
+        if (stale.empty()) {
+            std::cout << "No stale entries to prune\n";
+        } else {
+            db_exec(db, "BEGIN TRANSACTION;");
+            for (int64_t id : stale) {
+                sqlite3_stmt* del;
+                sqlite3_prepare_v2(db, "DELETE FROM files WHERE image_id = ?", -1, &del, nullptr);
+                sqlite3_bind_int64(del, 1, id);
+                sqlite3_step(del);
+                sqlite3_finalize(del);
+                sqlite3_prepare_v2(db, "DELETE FROM images WHERE id = ?", -1, &del, nullptr);
+                sqlite3_bind_int64(del, 1, id);
+                sqlite3_step(del);
+                sqlite3_finalize(del);
+            }
+            db_exec(db, "COMMIT;");
+            std::cout << "Pruned " << stale.size() << " stale image(s)\n";
+        }
 
     } else {
         std::cerr << "Unknown catalog command: " << subcmd << "\n";
