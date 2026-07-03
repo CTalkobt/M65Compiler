@@ -145,6 +145,109 @@ void optimizeCSE(Module& mod) {
 }
 
 // ============================================================================
+// Strength Reduction
+// ============================================================================
+
+void optimizeStrengthReduction(Module& mod) {
+    for (auto& fn : mod.functions) {
+        // Build constant value map: vreg → immediate value
+        // (for looking up CONST operands of MUL/DIV/MOD)
+        std::map<uint32_t, int64_t> constVals;
+        for (auto& block : fn.blocks) {
+            for (auto& inst : block.insts) {
+                if (inst.op == Op::CONST && inst.dest.isVreg() && inst.src1.isImm()) {
+                    constVals[inst.dest.vregId] = inst.src1.immVal;
+                }
+            }
+        }
+
+        // Rewrite instructions
+        for (auto& block : fn.blocks) {
+            for (auto& inst : block.insts) {
+                // x / x → 1, x % x → 0 (when both operands are the same vreg)
+                if (inst.src1.isVreg() && inst.src2.isVreg() &&
+                    inst.src1.vregId == inst.src2.vregId) {
+                    if (inst.op == Op::DIV || inst.op == Op::DIV_U) {
+                        inst.op = Op::CONST;
+                        inst.src1 = Operand::imm(1, inst.resultType);
+                        inst.src2 = Operand::none();
+                        continue;
+                    }
+                    if (inst.op == Op::MOD || inst.op == Op::MOD_U) {
+                        inst.op = Op::CONST;
+                        inst.src1 = Operand::imm(0, inst.resultType);
+                        inst.src2 = Operand::none();
+                        continue;
+                    }
+                }
+
+                // Only handle ops with a vreg src2 that resolves to a constant
+                if (!inst.src2.isVreg()) continue;
+                auto it = constVals.find(inst.src2.vregId);
+                if (it == constVals.end()) continue;
+                int64_t val = it->second;
+
+                switch (inst.op) {
+                    case Op::MUL:
+                    case Op::MUL_U: {
+                        if (val == 0) {
+                            // x * 0 → 0
+                            inst.op = Op::CONST;
+                            inst.src1 = Operand::imm(0, inst.resultType);
+                            inst.src2 = Operand::none();
+                        } else if (val == 1) {
+                            // x * 1 → copy x
+                            inst.op = Op::COPY;
+                            inst.src2 = Operand::none();
+                        } else if (val > 0 && (val & (val - 1)) == 0) {
+                            // x * 2^n → x << n
+                            int shift = 0;
+                            int64_t v = val;
+                            while (v > 1) { v >>= 1; shift++; }
+                            inst.op = Op::SHL;
+                            inst.src2 = Operand::imm(shift, inst.resultType);
+                        }
+                        break;
+                    }
+                    case Op::DIV:
+                    case Op::DIV_U: {
+                        if (val == 1) {
+                            // x / 1 → copy x
+                            inst.op = Op::COPY;
+                            inst.src2 = Operand::none();
+                        } else if (inst.op == Op::DIV_U && val > 0 && (val & (val - 1)) == 0) {
+                            // x / 2^n → x >> n (unsigned only)
+                            int shift = 0;
+                            int64_t v = val;
+                            while (v > 1) { v >>= 1; shift++; }
+                            inst.op = Op::SHR;
+                            inst.src2 = Operand::imm(shift, inst.resultType);
+                        }
+                        break;
+                    }
+                    case Op::MOD:
+                    case Op::MOD_U: {
+                        if (val == 1) {
+                            // x % 1 → 0
+                            inst.op = Op::CONST;
+                            inst.src1 = Operand::imm(0, inst.resultType);
+                            inst.src2 = Operand::none();
+                        } else if (inst.op == Op::MOD_U && val > 0 && (val & (val - 1)) == 0) {
+                            // x % 2^n → x & (2^n - 1) (unsigned only)
+                            inst.op = Op::AND;
+                            inst.src2 = Operand::imm(val - 1, inst.resultType);
+                        }
+                        break;
+                    }
+                    default:
+                        break;
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
 // LICM — Loop-Invariant Code Motion
 // ============================================================================
 

@@ -671,6 +671,8 @@ int main(int argc, char** argv) {
         irBuilder.generate(*ast);
 
         if (optimize) {
+            if (verboseLevel >= 1) std::cout << "Optimizing IR (Strength Reduction)..." << std::endl;
+            ir::optimizeStrengthReduction(irBuilder.getModule());
             if (verboseLevel >= 1) std::cout << "Optimizing IR (CSE and Copy Propagation)..." << std::endl;
             ir::optimizeCSE(irBuilder.getModule());
             if (verboseLevel >= 1) std::cout << "Optimizing IR (LICM)..." << std::endl;
