@@ -3,6 +3,7 @@
 #include "D71Image.hpp"
 #include "D81Image.hpp"
 #include "D65Image.hpp"
+#include "TapImage.hpp"
 #include <iostream>
 #include <fstream>
 #include <iomanip>
@@ -181,14 +182,24 @@ static int cmdInfo(int argc, char** argv) {
     auto img = DiskImage::load(argv[0]);
     if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
 
-    std::cout << "Format:       " << formatStr(img->diskFormat()) << "\n"
-              << "Disk name:    " << img->diskName() << "\n"
-              << "Disk ID:      " << img->diskId() << "\n"
-              << "Tracks:       " << img->totalTracks() << "\n"
-              << "Total sectors:" << img->totalSectors() << "\n"
-              << "Free sectors: " << img->freeSectors() << "\n"
-              << "Image size:   " << img->totalBytes() << " bytes\n"
-              << "Files:        " << img->listFiles().size() << "\n";
+    // TAP-specific info
+    auto* tap = dynamic_cast<TapImage*>(img.get());
+    if (tap) {
+        std::cout << "Format:       TAP (tape image)\n"
+                  << "TAP version:  " << tap->tapVersion() << "\n"
+                  << "Platform:     " << tap->platformName() << "\n"
+                  << "Data size:    " << (img->totalBytes()) << " bytes\n"
+                  << "Files:        " << img->listFiles().size() << "\n";
+    } else {
+        std::cout << "Format:       " << formatStr(img->diskFormat()) << "\n"
+                  << "Disk name:    " << img->diskName() << "\n"
+                  << "Disk ID:      " << img->diskId() << "\n"
+                  << "Tracks:       " << img->totalTracks() << "\n"
+                  << "Total sectors:" << img->totalSectors() << "\n"
+                  << "Free sectors: " << img->freeSectors() << "\n"
+                  << "Image size:   " << img->totalBytes() << " bytes\n"
+                  << "Files:        " << img->listFiles().size() << "\n";
+    }
     return 0;
 }
 
