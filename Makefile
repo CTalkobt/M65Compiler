@@ -42,7 +42,7 @@ NM_OBJECTS = $(OBJ_DIR)/nm45_main.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.
 LN_OBJECTS = $(OBJ_DIR)/ln45_main.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o
 AR_OBJECTS = $(OBJ_DIR)/ar45_main.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45Archive.o
 OD_OBJECTS = $(OBJ_DIR)/objdump45_main.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o
-DISK_OBJECTS = $(OBJ_DIR)/disk45_main.o $(OBJ_DIR)/DiskImage.o $(OBJ_DIR)/DiskImageFactory.o $(OBJ_DIR)/D64Image.o $(OBJ_DIR)/D71Image.o $(OBJ_DIR)/D81Image.o $(OBJ_DIR)/D65Image.o $(OBJ_DIR)/ArkImage.o $(OBJ_DIR)/ArcImage.o $(OBJ_DIR)/LnxImage.o $(OBJ_DIR)/TapImage.o $(OBJ_DIR)/GzipHelper.o
+DISK_OBJECTS = $(OBJ_DIR)/disk45_main.o $(OBJ_DIR)/DiskImage.o $(OBJ_DIR)/DiskImageFactory.o $(OBJ_DIR)/D64Image.o $(OBJ_DIR)/D71Image.o $(OBJ_DIR)/D81Image.o $(OBJ_DIR)/D65Image.o $(OBJ_DIR)/ArkImage.o $(OBJ_DIR)/ArcImage.o $(OBJ_DIR)/LnxImage.o $(OBJ_DIR)/TapImage.o $(OBJ_DIR)/T64Image.o $(OBJ_DIR)/GzipHelper.o
 
 all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET) $(NM_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET)
 

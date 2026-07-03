@@ -7,6 +7,7 @@
 #include "ArcImage.hpp"
 #include "LnxImage.hpp"
 #include "TapImage.hpp"
+#include "T64Image.hpp"
 #include "GzipHelper.hpp"
 #include <algorithm>
 #include <cctype>
@@ -34,6 +35,7 @@ std::unique_ptr<DiskImage> DiskImage::createFromExtension(const std::string& pat
     if (ext == ".arc" || ext == ".sda") return std::make_unique<ArcImage>();
     if (ext == ".lnx") return std::make_unique<LnxImage>();
     if (ext == ".tap") return std::make_unique<TapImage>();
+    if (ext == ".t64") return std::make_unique<T64Image>();
     return create(formatFromExtension(path));
 }
 

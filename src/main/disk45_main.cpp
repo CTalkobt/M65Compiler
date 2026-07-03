@@ -30,6 +30,12 @@ static void usage() {
               << "  disk45 validate <image>                   Check BAM consistency\n"
               << "  disk45 bam <image>                        Visual BAM sector map\n"
               << "  disk45 dump <image> [track] [sector]      Hex dump sector(s)\n"
+              << "  disk45 bread <image> <t> <s> [file]       Read raw sector\n"
+              << "  disk45 bwrite <image> <t> <s> <file>      Write raw sector\n"
+              << "  disk45 bpeek <image> <t> <s> <off> [n]    Read byte(s)\n"
+              << "  disk45 bpoke <image> <t> <s> <off> <val>  Write byte(s)\n"
+              << "  disk45 bfill <image> <t> <s> <val>        Fill sector with value\n"
+              << "  disk45 chain <image> <filename>           Show file sector chain\n"
               << "\n"
               << "Supported formats (auto-detected from extension):\n"
               << "  .d64  C64 1541 (170KB, 35 tracks)\n"
@@ -41,6 +47,7 @@ static void usage() {
               << "  .sda  Self-Dissolving ARC archive\n"
               << "  .lnx  Lynx archive (block-aligned, uncompressed)\n"
               << "  .tap  TAP tape image (read-only, pulse decoding)\n"
+              << "  .t64  T64 tape container (read/write)\n"
               << "\n"
               << "Wildcards: use * and ? in patterns for list, extract-all, copy, remove\n"
               << "\n"
@@ -740,6 +747,216 @@ static int cmdExtractAll(int argc, char** argv) {
 }
 
 // ============================================================================
+// Block-level operations
+// ============================================================================
+
+static int cmdBread(int argc, char** argv) {
+    if (argc < 3) {
+        std::cerr << "Usage: disk45 bread <image> <track> <sector> [output_file]\n";
+        return 1;
+    }
+    auto img = DiskImage::load(argv[0]);
+    if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
+    int track = std::stoi(argv[1]);
+    int sector = std::stoi(argv[2]);
+
+    const uint8_t* data = img->sectorData(track, sector);
+    if (!data) { std::cerr << "Error: invalid track/sector " << track << "/" << sector << "\n"; return 1; }
+
+    if (argc >= 4) {
+        std::ofstream f(argv[3], std::ios::binary);
+        if (!f) { std::cerr << "Error: cannot write " << argv[3] << "\n"; return 1; }
+        f.write(reinterpret_cast<const char*>(data), 256);
+        std::cout << "Read sector " << track << "/" << sector << " → " << argv[3] << " (256 bytes)\n";
+    } else {
+        hexDumpSector(data, track, sector);
+    }
+    return 0;
+}
+
+static int cmdBwrite(int argc, char** argv) {
+    if (argc < 4) {
+        std::cerr << "Usage: disk45 bwrite <image> <track> <sector> <input_file>\n";
+        return 1;
+    }
+    auto img = DiskImage::load(argv[0]);
+    if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
+    int track = std::stoi(argv[1]);
+    int sector = std::stoi(argv[2]);
+
+    uint8_t* data = img->sectorData(track, sector);
+    if (!data) { std::cerr << "Error: invalid track/sector " << track << "/" << sector << "\n"; return 1; }
+
+    std::ifstream f(argv[3], std::ios::binary);
+    if (!f) { std::cerr << "Error: cannot read " << argv[3] << "\n"; return 1; }
+    f.read(reinterpret_cast<char*>(data), 256);
+
+    if (!img->saveToFile(argv[0])) { std::cerr << "Error: failed to write image\n"; return 1; }
+    std::cout << "Wrote sector " << track << "/" << sector << " from " << argv[3] << "\n";
+    return 0;
+}
+
+static int cmdBpeek(int argc, char** argv) {
+    if (argc < 4) {
+        std::cerr << "Usage: disk45 bpeek <image> <track> <sector> <offset> [count]\n";
+        return 1;
+    }
+    auto img = DiskImage::load(argv[0]);
+    if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
+    int track = std::stoi(argv[1]);
+    int sector = std::stoi(argv[2]);
+    int offset = std::stoi(argv[3]);
+    int count = (argc >= 5) ? std::stoi(argv[4]) : 1;
+
+    const uint8_t* data = img->sectorData(track, sector);
+    if (!data) { std::cerr << "Error: invalid track/sector\n"; return 1; }
+    if (offset < 0 || offset + count > 256) { std::cerr << "Error: offset out of range\n"; return 1; }
+
+    std::cout << std::hex << std::uppercase << std::setfill('0');
+    for (int i = 0; i < count; i++) {
+        if (i > 0) std::cout << " ";
+        std::cout << std::setw(2) << (int)data[offset + i];
+    }
+    std::cout << std::dec << "\n";
+    return 0;
+}
+
+static int cmdBpoke(int argc, char** argv) {
+    if (argc < 5) {
+        std::cerr << "Usage: disk45 bpoke <image> <track> <sector> <offset> <value> [value...]\n";
+        return 1;
+    }
+    auto img = DiskImage::load(argv[0]);
+    if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
+    int track = std::stoi(argv[1]);
+    int sector = std::stoi(argv[2]);
+    int offset = std::stoi(argv[3]);
+
+    uint8_t* data = img->sectorData(track, sector);
+    if (!data) { std::cerr << "Error: invalid track/sector\n"; return 1; }
+
+    for (int i = 4; i < argc; i++) {
+        if (offset >= 256) { std::cerr << "Error: offset out of range\n"; return 1; }
+        data[offset++] = (uint8_t)std::stoul(argv[i], nullptr, 0);
+    }
+
+    if (!img->saveToFile(argv[0])) { std::cerr << "Error: failed to write image\n"; return 1; }
+    std::cout << "Poked " << (argc - 4) << " byte(s) at " << track << "/" << sector << "+" << std::stoi(argv[3]) << "\n";
+    return 0;
+}
+
+static int cmdBfill(int argc, char** argv) {
+    if (argc < 4) {
+        std::cerr << "Usage: disk45 bfill <image> <track> <sector> <value>\n";
+        return 1;
+    }
+    auto img = DiskImage::load(argv[0]);
+    if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
+    int track = std::stoi(argv[1]);
+    int sector = std::stoi(argv[2]);
+    uint8_t val = (uint8_t)std::stoul(argv[3], nullptr, 0);
+
+    uint8_t* data = img->sectorData(track, sector);
+    if (!data) { std::cerr << "Error: invalid track/sector\n"; return 1; }
+
+    std::memset(data, val, 256);
+    if (!img->saveToFile(argv[0])) { std::cerr << "Error: failed to write image\n"; return 1; }
+    std::cout << "Filled sector " << track << "/" << sector << " with $"
+              << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)val
+              << std::dec << "\n";
+    return 0;
+}
+
+// ============================================================================
+// Sector chain trace
+// ============================================================================
+
+static int cmdChain(int argc, char** argv) {
+    if (argc < 2) {
+        std::cerr << "Usage: disk45 chain <image> <filename>\n";
+        return 1;
+    }
+    auto img = DiskImage::load(argv[0]);
+    if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
+
+    if (img->totalTracks() == 0) {
+        std::cerr << "Error: chain command only works on sector-based disk images\n";
+        return 1;
+    }
+
+    std::string name = normalizeName(argv[1]);
+
+    // Find the file's first track/sector via directory scan
+    // We need to walk the directory to find the file entry
+    auto files = img->listFiles();
+    bool found = false;
+    for (auto& f : files) {
+        if (f.name != name) continue;
+        found = true;
+        break;
+    }
+    if (!found) {
+        std::cerr << "Error: file \"" << name << "\" not found\n";
+        return 1;
+    }
+
+    // Walk directory to find the DirEntry with firstDataTS
+    // Use the raw directory traversal approach
+    int dirTrack = img->totalTracks() > 40 ? 40 : 18;
+    const uint8_t* bam = img->sectorData(dirTrack, 0);
+    if (!bam) { std::cerr << "Error: cannot read directory\n"; return 1; }
+
+    TrackSector firstTS = {0, 0};
+    TrackSector ts = {bam[0], bam[1]};
+    while (ts.track != 0) {
+        const uint8_t* sec = img->sectorData(ts.track, ts.sector);
+        if (!sec) break;
+        for (int i = 0; i < 8; i++) {
+            DirEntry e = DirEntry::fromSector(sec, i);
+            if (e.isValid() && e.isClosed() && e.name() == name) {
+                firstTS = e.firstDataTS;
+                break;
+            }
+        }
+        if (!firstTS.isNull()) break;
+        uint8_t nextT = sec[0], nextS = sec[1];
+        if (nextT == 0) break;
+        ts = {nextT, nextS};
+    }
+
+    if (firstTS.isNull()) {
+        std::cerr << "Error: could not find sector chain for \"" << name << "\"\n";
+        return 1;
+    }
+
+    // Follow the chain
+    std::cout << "File \"" << name << "\" chain:\n  ";
+    int count = 0;
+    uint32_t totalBytes = 0;
+    ts = firstTS;
+    while (ts.track != 0) {
+        const uint8_t* sec = img->sectorData(ts.track, ts.sector);
+        if (!sec) { std::cout << " → [BROKEN]"; break; }
+        if (count > 0) std::cout << " → ";
+        std::cout << (int)ts.track << "/" << (int)ts.sector;
+        count++;
+
+        uint8_t nextT = sec[0], nextS = sec[1];
+        if (nextT == 0) {
+            // Last sector: nextS = number of bytes used
+            totalBytes += nextS ? nextS - 1 : 255;
+        } else {
+            totalBytes += 254;
+        }
+
+        if (count % 10 == 0) std::cout << "\n  ";
+        ts = {nextT, nextS};
+    }
+    std::cout << "\n  " << count << " sector(s), " << totalBytes << " bytes\n";
+    return 0;
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -775,6 +992,12 @@ int main(int argc, char** argv) {
                           return cmdBAM(subArgc, subArgv);
     if (cmd == "dump" || cmd == "hex")
                           return cmdDump(subArgc, subArgv);
+    if (cmd == "bread")   return cmdBread(subArgc, subArgv);
+    if (cmd == "bwrite")  return cmdBwrite(subArgc, subArgv);
+    if (cmd == "bpeek")   return cmdBpeek(subArgc, subArgv);
+    if (cmd == "bpoke")   return cmdBpoke(subArgc, subArgv);
+    if (cmd == "bfill")   return cmdBfill(subArgc, subArgv);
+    if (cmd == "chain")   return cmdChain(subArgc, subArgv);
     if (cmd == "--version" || cmd == "-v") {
         std::cout << "disk45 v" << VERSION << "\n";
         return 0;
