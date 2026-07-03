@@ -36,6 +36,10 @@ static void usage() {
               << "  disk45 bpoke <image> <t> <s> <off> <val>  Write byte(s)\n"
               << "  disk45 bfill <image> <t> <s> <val>        Fill sector with value\n"
               << "  disk45 chain <image> <filename>           Show file sector chain\n"
+              << "  disk45 rel-create <img> <name> <len> [n]  Create REL file\n"
+              << "  disk45 rel-read <img> <name> <rec#>       Read REL record\n"
+              << "  disk45 rel-write <img> <name> <rec#> <d>  Write REL record\n"
+              << "  disk45 rel-list <img> <name>              List REL records\n"
               << "  disk45 -a2p                               ASCII→PETSCII filter (stdin→stdout)\n"
               << "  disk45 -p2a                               PETSCII→ASCII filter (stdin→stdout)\n"
               << "\n"
@@ -963,6 +967,435 @@ static int cmdChain(int argc, char** argv) {
 }
 
 // ============================================================================
+// REL file operations
+// ============================================================================
+
+// Side sector layout (D64/D71):
+//   $00: Track of next side sector (0 if last)
+//   $01: Sector of next side sector
+//   $02: Side sector number (0-based)
+//   $03: Record length
+//   $04-$0F: T/S pairs for side sector group (up to 6 side sectors)
+//   $10-$FF: 120 T/S pairs pointing to data sectors
+
+// Get the list of data sector T/S pairs from the side-sector chain
+static std::vector<TrackSector> getRelDataSectors(DiskImage* img, TrackSector sideTS) {
+    std::vector<TrackSector> sectors;
+    TrackSector ss = sideTS;
+    while (ss.track != 0) {
+        const uint8_t* sec = img->sectorData(ss.track, ss.sector);
+        if (!sec) break;
+        // Data sector T/S pairs at offsets $10-$FF (120 pairs)
+        for (int i = 0x10; i < 0x100; i += 2) {
+            if (sec[i] == 0 && sec[i + 1] == 0) break;
+            sectors.push_back({sec[i], sec[i + 1]});
+        }
+        ss = {sec[0], sec[1]};
+    }
+    return sectors;
+}
+
+static int cmdRelCreate(int argc, char** argv) {
+    if (argc < 3) {
+        std::cerr << "Usage: disk45 rel-create <image> <name> <record_len> [num_records]\n";
+        return 1;
+    }
+    std::string imagePath = argv[0];
+    std::string name = normalizeName(argv[1]);
+    int recordLen = std::stoi(argv[2]);
+    int numRecords = (argc >= 4) ? std::stoi(argv[3]) : 10;
+
+    if (recordLen < 1 || recordLen > 254) {
+        std::cerr << "Error: record length must be 1-254\n";
+        return 1;
+    }
+
+    auto img = DiskImage::load(imagePath);
+    if (!img) { std::cerr << "Error: failed to load " << imagePath << "\n"; return 1; }
+    if (img->totalTracks() == 0) {
+        std::cerr << "Error: REL files only supported on sector-based disk images\n";
+        return 1;
+    }
+    if (img->fileExists(name)) {
+        std::cerr << "Error: file \"" << name << "\" already exists\n";
+        return 1;
+    }
+
+    // Calculate how many data sectors we need
+    int bytesPerSector = 254; // usable bytes per data sector (minus 2-byte link)
+    int recordsPerSector = bytesPerSector / recordLen;
+    if (recordsPerSector < 1) recordsPerSector = 1;
+    int dataSectors = (numRecords + recordsPerSector - 1) / recordsPerSector;
+
+    // Allocate data sectors
+    std::vector<TrackSector> dataChain;
+    for (int i = 0; i < dataSectors; i++) {
+        TrackSector ts = img->allocateNextFree(-1);
+        if (ts.isNull()) { std::cerr << "Error: disk full\n"; return 1; }
+        dataChain.push_back(ts);
+    }
+
+    // Initialize data sectors (linked chain, zeroed data)
+    for (int i = 0; i < dataSectors; i++) {
+        uint8_t* sec = img->sectorData(dataChain[i].track, dataChain[i].sector);
+        std::memset(sec, 0, 256);
+        if (i < dataSectors - 1) {
+            sec[0] = dataChain[i + 1].track;
+            sec[1] = dataChain[i + 1].sector;
+        } else {
+            sec[0] = 0;
+            // Last used byte offset: depends on records that fit
+            int recsInLast = numRecords - recordsPerSector * (dataSectors - 1);
+            int lastByte = recsInLast * recordLen + 1;
+            if (lastByte > 255) lastByte = 255;
+            sec[1] = lastByte;
+        }
+    }
+
+    // Allocate side sector(s)
+    // Each side sector holds 120 data sector T/S pairs (at offsets $10-$FF)
+    int sideSectorsNeeded = (dataSectors + 119) / 120;
+    std::vector<TrackSector> sideChain;
+    for (int i = 0; i < sideSectorsNeeded; i++) {
+        TrackSector ts = img->allocateNextFree(-1);
+        if (ts.isNull()) { std::cerr << "Error: disk full\n"; return 1; }
+        sideChain.push_back(ts);
+    }
+
+    // Initialize side sectors
+    int dataIdx = 0;
+    for (int si = 0; si < sideSectorsNeeded; si++) {
+        uint8_t* sec = img->sectorData(sideChain[si].track, sideChain[si].sector);
+        std::memset(sec, 0, 256);
+        // Link to next side sector
+        if (si < sideSectorsNeeded - 1) {
+            sec[0] = sideChain[si + 1].track;
+            sec[1] = sideChain[si + 1].sector;
+        } else {
+            sec[0] = 0; sec[1] = 0;
+        }
+        sec[2] = si;           // side sector number
+        sec[3] = recordLen;    // record length
+        // Side sector group T/S pairs at $04-$0F (up to 6)
+        for (int g = 0; g < sideSectorsNeeded && g < 6; g++) {
+            sec[0x04 + g * 2] = sideChain[g].track;
+            sec[0x05 + g * 2] = sideChain[g].sector;
+        }
+        // Data sector T/S pairs at $10-$FF
+        for (int i = 0; i < 120 && dataIdx < dataSectors; i++, dataIdx++) {
+            sec[0x10 + i * 2] = dataChain[dataIdx].track;
+            sec[0x10 + i * 2 + 1] = dataChain[dataIdx].sector;
+        }
+    }
+
+    // Create directory entry
+    DirEntry entry;
+    std::memset(&entry, 0, sizeof(entry));
+    entry.fileType = 0x80 | (uint8_t)CbmFileType::REL;
+    entry.firstDataTS = dataChain[0];
+    entry.sideTS = sideChain[0];
+    entry.recordLen = recordLen;
+    entry.sizeInSectors = dataSectors + sideSectorsNeeded;
+    DiskImage::padPetsciiName(entry.filename, name);
+
+    // Use the protected allocDirectoryEntry - we need to go through addFile or manual dir write
+    // Manual directory write: find free slot
+    int dirTrack = img->totalTracks() > 40 ? 40 : 18;
+    TrackSector dts = {(uint8_t)dirTrack, 1};
+    bool written = false;
+    while (dts.track != 0 && !written) {
+        uint8_t* sec = img->sectorData(dts.track, dts.sector);
+        if (!sec) break;
+        for (int i = 0; i < 8; i++) {
+            DirEntry e = DirEntry::fromSector(sec, i);
+            if (!e.isValid()) {
+                entry.toSector(sec, i);
+                written = true;
+                break;
+            }
+        }
+        if (!written) {
+            uint8_t nextT = sec[0], nextS = sec[1];
+            if (nextT == 0) break;
+            dts = {nextT, nextS};
+        }
+    }
+
+    if (!written) { std::cerr << "Error: directory full\n"; return 1; }
+
+    if (!img->saveToFile(imagePath)) {
+        std::cerr << "Error: failed to write " << imagePath << "\n";
+        return 1;
+    }
+    std::cout << "Created REL file \"" << name << "\" (record length=" << recordLen
+              << ", " << numRecords << " records, " << dataSectors << " data sectors)\n";
+    return 0;
+}
+
+static int cmdRelRead(int argc, char** argv) {
+    if (argc < 3) {
+        std::cerr << "Usage: disk45 rel-read <image> <name> <record_num>\n";
+        return 1;
+    }
+    auto img = DiskImage::load(argv[0]);
+    if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
+
+    std::string name = normalizeName(argv[1]);
+    int recNum = std::stoi(argv[2]); // 1-based
+
+    // Find the REL file
+    int dirTrack = img->totalTracks() > 40 ? 40 : 18;
+    DirEntry found;
+    bool ok = false;
+    TrackSector dts = {(uint8_t)dirTrack, 1};
+    while (dts.track != 0) {
+        const uint8_t* sec = img->sectorData(dts.track, dts.sector);
+        if (!sec) break;
+        for (int i = 0; i < 8; i++) {
+            DirEntry e = DirEntry::fromSector(sec, i);
+            if (e.isValid() && e.type() == CbmFileType::REL && e.name() == name) {
+                found = e; ok = true; break;
+            }
+        }
+        if (ok) break;
+        uint8_t nextT = sec[0], nextS = sec[1];
+        if (nextT == 0) break;
+        dts = {nextT, nextS};
+    }
+    if (!ok) { std::cerr << "Error: REL file \"" << name << "\" not found\n"; return 1; }
+
+    int recordLen = found.recordLen;
+    if (recordLen < 1) { std::cerr << "Error: invalid record length\n"; return 1; }
+
+    // Get data sectors via side-sector chain
+    auto dataSectors = getRelDataSectors(img.get(), found.sideTS);
+
+    // Calculate which sector and offset the record is in
+    int byteOffset = (recNum - 1) * recordLen;
+    int sectorIdx = byteOffset / 254;
+    int offsetInSector = (byteOffset % 254) + 2; // +2 for link bytes
+
+    if (sectorIdx >= (int)dataSectors.size()) {
+        std::cerr << "Error: record " << recNum << " out of range\n";
+        return 1;
+    }
+
+    const uint8_t* sec = img->sectorData(dataSectors[sectorIdx].track,
+                                          dataSectors[sectorIdx].sector);
+    if (!sec) { std::cerr << "Error: cannot read data sector\n"; return 1; }
+
+    // Read record (may span sector boundary)
+    std::vector<uint8_t> record;
+    int remaining = recordLen;
+    int si = sectorIdx, off = offsetInSector;
+    while (remaining > 0 && si < (int)dataSectors.size()) {
+        sec = img->sectorData(dataSectors[si].track, dataSectors[si].sector);
+        if (!sec) break;
+        int avail = 256 - off;
+        int take = std::min(remaining, avail);
+        record.insert(record.end(), sec + off, sec + off + take);
+        remaining -= take;
+        si++;
+        off = 2; // next sector starts after link
+    }
+
+    // Output
+    std::cout << "Record " << recNum << " (" << recordLen << " bytes): ";
+    std::cout << std::hex << std::uppercase << std::setfill('0');
+    for (uint8_t b : record) std::cout << std::setw(2) << (int)b << " ";
+    std::cout << std::dec << "\n";
+
+    // Also show as text (printable chars)
+    std::cout << "  Text: \"";
+    for (uint8_t b : record) {
+        if (b >= 0x20 && b < 0x7F) std::cout << (char)b;
+        else if (b >= 0x41 && b <= 0x5A) std::cout << (char)b;
+        else if (b >= 0xC1 && b <= 0xDA) std::cout << (char)(b - 0x60);
+        else if (b == 0) std::cout << '.';
+        else std::cout << '.';
+    }
+    std::cout << "\"\n";
+    return 0;
+}
+
+static int cmdRelWrite(int argc, char** argv) {
+    if (argc < 4) {
+        std::cerr << "Usage: disk45 rel-write <image> <name> <record_num> <data...>\n";
+        return 1;
+    }
+    auto img = DiskImage::load(argv[0]);
+    if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
+
+    std::string name = normalizeName(argv[1]);
+    int recNum = std::stoi(argv[2]);
+
+    // Collect data bytes from remaining args (hex or decimal)
+    std::vector<uint8_t> data;
+    for (int i = 3; i < argc; i++) {
+        std::string arg = argv[i];
+        // If it looks like a quoted string, use the bytes directly
+        if (arg.size() >= 2 && arg[0] == '"' && arg.back() == '"') {
+            for (size_t j = 1; j < arg.size() - 1; j++)
+                data.push_back((uint8_t)arg[j]);
+        } else {
+            // Treat as numeric value
+            data.push_back((uint8_t)std::stoul(arg, nullptr, 0));
+        }
+    }
+
+    // Find the REL file
+    int dirTrack = img->totalTracks() > 40 ? 40 : 18;
+    DirEntry found;
+    bool ok = false;
+    TrackSector dts = {(uint8_t)dirTrack, 1};
+    while (dts.track != 0) {
+        const uint8_t* sec = img->sectorData(dts.track, dts.sector);
+        if (!sec) break;
+        for (int i = 0; i < 8; i++) {
+            DirEntry e = DirEntry::fromSector(sec, i);
+            if (e.isValid() && e.type() == CbmFileType::REL && e.name() == name) {
+                found = e; ok = true; break;
+            }
+        }
+        if (ok) break;
+        uint8_t nextT = sec[0], nextS = sec[1];
+        if (nextT == 0) break;
+        dts = {nextT, nextS};
+    }
+    if (!ok) { std::cerr << "Error: REL file \"" << name << "\" not found\n"; return 1; }
+
+    int recordLen = found.recordLen;
+    if (recordLen < 1) { std::cerr << "Error: invalid record length\n"; return 1; }
+
+    // Pad or truncate data to record length
+    data.resize(recordLen, 0);
+
+    auto dataSectors = getRelDataSectors(img.get(), found.sideTS);
+
+    int byteOffset = (recNum - 1) * recordLen;
+    int sectorIdx = byteOffset / 254;
+    int offsetInSector = (byteOffset % 254) + 2;
+
+    if (sectorIdx >= (int)dataSectors.size()) {
+        std::cerr << "Error: record " << recNum << " out of range\n";
+        return 1;
+    }
+
+    // Write record (may span sector boundary)
+    int remaining = recordLen;
+    int si = sectorIdx, off = offsetInSector, di = 0;
+    while (remaining > 0 && si < (int)dataSectors.size()) {
+        uint8_t* sec = img->sectorData(dataSectors[si].track, dataSectors[si].sector);
+        if (!sec) break;
+        int avail = 256 - off;
+        int put = std::min(remaining, avail);
+        std::memcpy(sec + off, data.data() + di, put);
+        remaining -= put;
+        di += put;
+        si++;
+        off = 2;
+    }
+
+    if (!img->saveToFile(argv[0])) {
+        std::cerr << "Error: failed to write " << argv[0] << "\n";
+        return 1;
+    }
+    std::cout << "Wrote record " << recNum << " (" << recordLen << " bytes)\n";
+    return 0;
+}
+
+static int cmdRelList(int argc, char** argv) {
+    if (argc < 2) {
+        std::cerr << "Usage: disk45 rel-list <image> <name>\n";
+        return 1;
+    }
+    auto img = DiskImage::load(argv[0]);
+    if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
+
+    std::string name = normalizeName(argv[1]);
+
+    // Find the REL file
+    int dirTrack = img->totalTracks() > 40 ? 40 : 18;
+    DirEntry found;
+    bool ok = false;
+    TrackSector dts = {(uint8_t)dirTrack, 1};
+    while (dts.track != 0) {
+        const uint8_t* sec = img->sectorData(dts.track, dts.sector);
+        if (!sec) break;
+        for (int i = 0; i < 8; i++) {
+            DirEntry e = DirEntry::fromSector(sec, i);
+            if (e.isValid() && e.type() == CbmFileType::REL && e.name() == name) {
+                found = e; ok = true; break;
+            }
+        }
+        if (ok) break;
+        uint8_t nextT = sec[0], nextS = sec[1];
+        if (nextT == 0) break;
+        dts = {nextT, nextS};
+    }
+    if (!ok) { std::cerr << "Error: REL file \"" << name << "\" not found\n"; return 1; }
+
+    int recordLen = found.recordLen;
+    auto dataSectors = getRelDataSectors(img.get(), found.sideTS);
+
+    // Calculate total records
+    int totalBytes = 0;
+    for (size_t i = 0; i < dataSectors.size(); i++) {
+        const uint8_t* sec = img->sectorData(dataSectors[i].track, dataSectors[i].sector);
+        if (!sec) break;
+        if (i == dataSectors.size() - 1) {
+            totalBytes += (sec[1] >= 2) ? sec[1] - 1 : 254;
+        } else {
+            totalBytes += 254;
+        }
+    }
+    int totalRecords = totalBytes / recordLen;
+
+    std::cout << "REL file \"" << name << "\": " << totalRecords << " records, "
+              << recordLen << " bytes/record, " << dataSectors.size() << " data sectors\n";
+
+    // Show non-empty records
+    for (int r = 1; r <= totalRecords; r++) {
+        int byteOff = (r - 1) * recordLen;
+        int si = byteOff / 254;
+        int off = (byteOff % 254) + 2;
+        if (si >= (int)dataSectors.size()) break;
+
+        const uint8_t* sec = img->sectorData(dataSectors[si].track, dataSectors[si].sector);
+        if (!sec) break;
+
+        // Check if record is all zeros (empty)
+        bool empty = true;
+        for (int b = 0; b < recordLen && empty; b++) {
+            int co = off + b;
+            int cs = si;
+            if (co >= 256) { cs++; co = 2 + (co - 256); }
+            if (cs >= (int)dataSectors.size()) break;
+            const uint8_t* s2 = img->sectorData(dataSectors[cs].track, dataSectors[cs].sector);
+            if (s2 && s2[co] != 0) empty = false;
+        }
+        if (empty) continue;
+
+        std::cout << "  #" << std::setw(3) << r << ": ";
+        for (int b = 0; b < recordLen; b++) {
+            int co = off + b;
+            int cs = si;
+            if (co >= 256) { cs++; co = 2 + (co - 256); }
+            if (cs >= (int)dataSectors.size()) break;
+            const uint8_t* s2 = img->sectorData(dataSectors[cs].track, dataSectors[cs].sector);
+            uint8_t val = s2 ? s2[co] : 0;
+            if (val >= 0x20 && val < 0x7F) std::cout << (char)val;
+            else if (val >= 0x41 && val <= 0x5A) std::cout << (char)val;
+            else if (val >= 0xC1 && val <= 0xDA) std::cout << (char)(val - 0x60);
+            else if (val == 0) std::cout << '.';
+            else std::cout << '.';
+        }
+        std::cout << "\n";
+    }
+    return 0;
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -1014,6 +1447,10 @@ int main(int argc, char** argv) {
                           return cmdBAM(subArgc, subArgv);
     if (cmd == "dump" || cmd == "hex")
                           return cmdDump(subArgc, subArgv);
+    if (cmd == "rel-create") return cmdRelCreate(subArgc, subArgv);
+    if (cmd == "rel-read")   return cmdRelRead(subArgc, subArgv);
+    if (cmd == "rel-write")  return cmdRelWrite(subArgc, subArgv);
+    if (cmd == "rel-list")   return cmdRelList(subArgc, subArgv);
     if (cmd == "bread")   return cmdBread(subArgc, subArgv);
     if (cmd == "bwrite")  return cmdBwrite(subArgc, subArgv);
     if (cmd == "bpeek")   return cmdBpeek(subArgc, subArgv);

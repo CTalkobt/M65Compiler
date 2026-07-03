@@ -142,10 +142,10 @@ protected:
     // --- BAM operations (implemented by subclass) ---
 public:
     virtual bool isSectorFree(int track, int sector) const = 0;
+    virtual TrackSector allocateNextFree(int nearTrack = -1) = 0;
 protected:
     virtual bool allocateSector(int track, int sector) = 0;
     virtual bool freeSector(int track, int sector) = 0;
-    virtual TrackSector allocateNextFree(int nearTrack = -1) = 0;
 
     // --- Directory helpers (common logic, uses virtual BAM/sector methods) ---
     DirEntry findFile(const std::string& name) const;
