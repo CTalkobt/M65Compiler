@@ -27,6 +27,8 @@ static void usage() {
               << "  disk45 rename <image> <old> <new>         Rename file in image\n"
               << "  disk45 lock <image> <cbm_name>            Lock file (prevent delete)\n"
               << "  disk45 unlock <image> <cbm_name>          Unlock file\n"
+              << "  disk45 splat <image> <cbm_name>           Mark file as unclosed (splat)\n"
+              << "  disk45 unsplat <image> <cbm_name>         Mark file as closed\n"
               << "  disk45 label <image> [-n name] [-i id]    Change disk name/ID\n"
               << "  disk45 validate <image>                   Check BAM consistency\n"
               << "  disk45 bam <image>                        Visual BAM sector map\n"
@@ -509,7 +511,9 @@ static int cmdList(int argc, char** argv) {
 
     std::cout << "0 \"" << img->diskName() << "\" " << img->diskId() << "\n";
     for (auto& f : files) {
-        std::cout << f.sizeInSectors << "\t\"" << f.name << "\"\t" << fileTypeStr(f.type);
+        std::cout << f.sizeInSectors << "\t\"" << f.name << "\"\t";
+        if (!f.closed) std::cout << "*"; // splat indicator
+        std::cout << fileTypeStr(f.type);
         if (f.locked) std::cout << "<";
         std::cout << "\n";
     }
@@ -643,17 +647,53 @@ static int cmdRemove(int argc, char** argv) {
     return 0;
 }
 
+// Generic rename: works for files AND CBM subdirectory entries
 static int cmdRename(int argc, char** argv) {
     if (argc < 3) { usage(); return 1; }
     std::string imagePath = argv[0];
-    std::string oldName = argv[1];
-    std::string newName = argv[2];
+    std::string oldName = normalizeName(argv[1]);
+    std::string newName = normalizeName(argv[2]);
 
     auto img = DiskImage::load(imagePath);
     if (!img) { std::cerr << "Error: failed to load " << imagePath << "\n"; return 1; }
 
-    if (!img->renameFile(oldName, newName)) {
-        std::cerr << "Error: rename failed (file not found or target name exists)\n";
+    // Try the standard renameFile first (handles regular files)
+    if (img->renameFile(oldName, newName)) {
+        if (!img->saveToFile(imagePath)) {
+            std::cerr << "Error: failed to write " << imagePath << "\n";
+            return 1;
+        }
+        std::cout << "Renamed \"" << oldName << "\" → \"" << newName << "\"\n";
+        return 0;
+    }
+
+    // Fall back to raw directory scan (for CBM subdirectories and other types)
+    if (img->totalTracks() == 0) {
+        std::cerr << "Error: rename failed (entry not found)\n";
+        return 1;
+    }
+    TrackSector rootDir = getRootDirStart(img.get());
+    TrackSector ts = rootDir;
+    bool renamed = false;
+    while (ts.track != 0 && !renamed) {
+        uint8_t* sec = img->sectorData(ts.track, ts.sector);
+        if (!sec) break;
+        for (int i = 0; i < 8; i++) {
+            DirEntry e = DirEntry::fromSector(sec, i);
+            if (e.isValid() && e.name() == oldName) {
+                DiskImage::padPetsciiName(e.filename, newName);
+                e.toSector(sec, i);
+                renamed = true;
+                break;
+            }
+        }
+        uint8_t nextT = sec[0], nextS = sec[1];
+        if (nextT == 0) break;
+        ts = {nextT, nextS};
+    }
+
+    if (!renamed) {
+        std::cerr << "Error: rename failed (entry not found)\n";
         return 1;
     }
     if (!img->saveToFile(imagePath)) {
@@ -661,6 +701,61 @@ static int cmdRename(int argc, char** argv) {
         return 1;
     }
     std::cout << "Renamed \"" << oldName << "\" → \"" << newName << "\"\n";
+    return 0;
+}
+
+// Toggle splat (unclosed) status on a file
+static int cmdSplat(int argc, char** argv, bool close) {
+    if (argc < 2) {
+        std::cerr << "Usage: disk45 " << (close ? "unsplat" : "splat") << " <image> <filename>\n";
+        return 1;
+    }
+    std::string imagePath = argv[0];
+    std::string name = normalizeName(argv[1]);
+
+    auto img = DiskImage::load(imagePath);
+    if (!img) { std::cerr << "Error: failed to load " << imagePath << "\n"; return 1; }
+
+    if (img->totalTracks() == 0) {
+        std::cerr << "Error: splat/unsplat only works on sector-based disk images\n";
+        return 1;
+    }
+
+    TrackSector rootDir = getRootDirStart(img.get());
+    TrackSector ts = rootDir;
+    bool found = false;
+    while (ts.track != 0 && !found) {
+        uint8_t* sec = img->sectorData(ts.track, ts.sector);
+        if (!sec) break;
+        for (int i = 0; i < 8; i++) {
+            DirEntry e = DirEntry::fromSector(sec, i);
+            // Match by name — check both valid and invalid (splat) entries
+            if ((e.fileType & 0x07) != 0 && e.name() == name) {
+                uint8_t* p = sec + i * 32;
+                if (close) {
+                    p[2] |= 0x80;  // set closed bit
+                } else {
+                    p[2] &= ~0x80; // clear closed bit (make splat)
+                }
+                found = true;
+                break;
+            }
+        }
+        uint8_t nextT = sec[0], nextS = sec[1];
+        if (nextT == 0) break;
+        ts = {nextT, nextS};
+    }
+
+    if (!found) {
+        std::cerr << "Error: file \"" << name << "\" not found\n";
+        return 1;
+    }
+    if (!img->saveToFile(imagePath)) {
+        std::cerr << "Error: failed to write " << imagePath << "\n";
+        return 1;
+    }
+    std::cout << (close ? "Unsplatted" : "Splatted") << " \"" << name << "\" ("
+              << (close ? "closed" : "unclosed/splat") << ")\n";
     return 0;
 }
 
@@ -2041,6 +2136,8 @@ int main(int argc, char** argv) {
                           return cmdRename(subArgc, subArgv);
     if (cmd == "lock")    return cmdLock(subArgc, subArgv, true);
     if (cmd == "unlock")  return cmdLock(subArgc, subArgv, false);
+    if (cmd == "splat")   return cmdSplat(subArgc, subArgv, false);
+    if (cmd == "unsplat") return cmdSplat(subArgc, subArgv, true);
     if (cmd == "label")   return cmdLabel(subArgc, subArgv);
     if (cmd == "validate" || cmd == "check")
                           return cmdValidate(subArgc, subArgv);
