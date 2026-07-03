@@ -14,6 +14,9 @@
 #include "P00Image.hpp"
 #include "X64Image.hpp"
 #include "ZipcodeImage.hpp"
+#include "D90Image.hpp"
+#include "CmdImage.hpp"
+#include "NibImage.hpp"
 #include "GzipHelper.hpp"
 #include <algorithm>
 #include <cctype>
@@ -54,6 +57,13 @@ std::unique_ptr<DiskImage> DiskImage::createFromExtension(const std::string& pat
         std::isdigit(ext[2]) && std::isdigit(ext[3])) return std::make_unique<P00Image>();
     // Zipcode: detect if filename starts with "1!"
     if (ZipcodeImage::isZipcodeFile(p)) return std::make_unique<ZipcodeImage>();
+    if (ext == ".d90") return std::make_unique<D90Image>(true);
+    if (ext == ".d60") return std::make_unique<D90Image>(false);
+    if (ext == ".d1m") return std::make_unique<CmdImage>(CmdImage::FD_1M);
+    if (ext == ".d2m") return std::make_unique<CmdImage>(CmdImage::FD_2M);
+    if (ext == ".d4m") return std::make_unique<CmdImage>(CmdImage::FD_4M);
+    if (ext == ".dnp") return std::make_unique<CmdImage>(CmdImage::NATIVE);
+    if (ext == ".nib" || ext == ".nbz") return std::make_unique<NibImage>();
     return create(formatFromExtension(path));
 }
 

@@ -29,7 +29,7 @@ public:
     static bool isG64File(const std::vector<uint8_t>& data);
     bool isDoubleSided() const { return doubleSided_; }
 
-private:
+protected:
     bool doubleSided_ = false;
 
     // GCR nybble-to-binary decode table

@@ -10,12 +10,26 @@ int D64Image::sectorsForTrack(int track) {
     if (track >= 1 && track <= 17) return 21;
     if (track >= 18 && track <= 24) return 19;
     if (track >= 25 && track <= 30) return 18;
-    if (track >= 31 && track <= 35) return 17;
+    if (track >= 31 && track <= 40) return 17; // supports extended tracks 36-40
     return 0;
 }
 
 int D64Image::sectorsOnTrack(int track) const {
     return sectorsForTrack(track);
+}
+
+int D64Image::totalTracks() const {
+    // Detect extended tracks from image size
+    if ((int)image_.size() <= IMAGE_SIZE) return TRACKS;
+    int extra = ((int)image_.size() - IMAGE_SIZE) / (17 * 256);
+    return std::min(TRACKS + extra, 40);
+}
+
+int D64Image::totalSectors() const {
+    int total = 0;
+    for (int t = 1; t <= totalTracks(); t++)
+        total += sectorsOnTrack(t);
+    return total;
 }
 
 // ============================================================================
