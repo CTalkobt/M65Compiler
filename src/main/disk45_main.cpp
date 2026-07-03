@@ -39,6 +39,8 @@ static void usage() {
               << "  disk45 mkdir <image> <dirname>            Create subdirectory\n"
               << "  disk45 rmdir <image> <dirname>            Remove empty subdirectory\n"
               << "  disk45 tree <image>                       Show directory tree\n"
+              << "  disk45 dir-shrink <image> [path]          Reclaim empty dir sectors\n"
+              << "  disk45 dir-ensure <image> <slots> [path]  Ensure min free dir slots\n"
               << "  disk45 rel-create <img> <name> <len> [n]  Create REL file\n"
               << "  disk45 rel-read <img> <name> <rec#>       Read REL record\n"
               << "  disk45 rel-write <img> <name> <rec#> <d>  Write REL record\n"
@@ -269,6 +271,107 @@ static std::vector<FileInfo> listFilesAt(DiskImage* img, TrackSector dirStart) {
         ts = {nextT, nextS};
     }
     return files;
+}
+
+// Shrink a directory chain: remove trailing empty sectors and free them.
+// Returns the number of sectors reclaimed.
+static int shrinkDirChain(DiskImage* img, TrackSector dirStart) {
+    // Collect all sectors in the chain
+    std::vector<TrackSector> chain;
+    TrackSector ts = dirStart;
+    while (ts.track != 0) {
+        chain.push_back(ts);
+        const uint8_t* sec = img->sectorData(ts.track, ts.sector);
+        if (!sec) break;
+        uint8_t nextT = sec[0], nextS = sec[1];
+        if (nextT == 0) break;
+        ts = {nextT, nextS};
+    }
+
+    // Never shrink below 1 sector (the directory must have at least one)
+    int reclaimed = 0;
+    while (chain.size() > 1) {
+        TrackSector last = chain.back();
+        const uint8_t* sec = img->sectorData(last.track, last.sector);
+        if (!sec) break;
+
+        // Check if all 8 entries are empty
+        bool allEmpty = true;
+        for (int i = 0; i < 8; i++) {
+            DirEntry e = DirEntry::fromSector(sec, i);
+            if (e.isValid()) { allEmpty = false; break; }
+        }
+        if (!allEmpty) break;
+
+        // Unlink from previous sector
+        chain.pop_back();
+        TrackSector prev = chain.back();
+        uint8_t* prevSec = img->sectorData(prev.track, prev.sector);
+        if (prevSec) {
+            prevSec[0] = 0;
+            prevSec[1] = 0xFF;
+        }
+
+        // Free the sector
+        img->freeSector(last.track, last.sector);
+        reclaimed++;
+    }
+    return reclaimed;
+}
+
+// Ensure a directory chain has at least minFreeSlots empty entry slots.
+// Allocates new sectors as needed. Works for any directory (root or sub).
+// Returns number of sectors added, or -1 on error.
+static int ensureDirCapacity(DiskImage* img, TrackSector dirStart, int minFreeSlots) {
+    // Count existing free slots
+    int freeSlots = 0;
+    TrackSector lastTS = {0, 0};
+    TrackSector ts = dirStart;
+    while (ts.track != 0) {
+        lastTS = ts;
+        const uint8_t* sec = img->sectorData(ts.track, ts.sector);
+        if (!sec) break;
+        for (int i = 0; i < 8; i++) {
+            DirEntry e = DirEntry::fromSector(sec, i);
+            if (!e.isValid()) freeSlots++;
+        }
+        uint8_t nextT = sec[0], nextS = sec[1];
+        if (nextT == 0) break;
+        ts = {nextT, nextS};
+    }
+
+    // Allocate additional sectors if needed
+    int added = 0;
+    while (freeSlots < minFreeSlots) {
+        TrackSector ext = img->allocateNextFree(-1);
+        if (ext.isNull()) return -1; // disk full
+
+        // Initialize new sector
+        uint8_t* extSec = img->sectorData(ext.track, ext.sector);
+        std::memset(extSec, 0, 256);
+        extSec[0] = 0;
+        extSec[1] = 0xFF;
+
+        // Link from previous last sector
+        uint8_t* prevSec = img->sectorData(lastTS.track, lastTS.sector);
+        if (prevSec) {
+            prevSec[0] = ext.track;
+            prevSec[1] = ext.sector;
+        }
+
+        lastTS = ext;
+        freeSlots += 8;
+        added++;
+    }
+    return added;
+}
+
+// Get root directory start T/S for an image
+static TrackSector getRootDirStart(DiskImage* img) {
+    int dirTrack = img->totalTracks() > 40 ? 40 : 18;
+    const uint8_t* hdr = img->sectorData(dirTrack, 0);
+    if (!hdr) return {0, 0};
+    return {hdr[0], hdr[1]};
 }
 
 // --- Wildcard pattern matching (case-insensitive) ---
@@ -1654,15 +1757,13 @@ static int cmdRmdir(int argc, char** argv) {
                               << contents.size() << " files)\n";
                     return 1;
                 }
-                // Free subdirectory sectors
+                // Free all subdirectory sectors
                 TrackSector sub = e.firstDataTS;
                 while (sub.track != 0) {
                     const uint8_t* ss = img->sectorData(sub.track, sub.sector);
                     TrackSector next = {0, 0};
-                    if (ss) next = {ss[0], ss[1]};
-                    // Can't call freeSector directly (protected), but we can zero the BAM via allocate trick
-                    // Actually we made allocateNextFree public, but freeSector is still protected
-                    // For now, just clear the directory entry
+                    if (ss) { next.track = ss[0]; next.sector = ss[1]; }
+                    img->freeSector(sub.track, sub.sector);
                     if (next.track == 0) break;
                     sub = next;
                 }
@@ -1680,11 +1781,16 @@ static int cmdRmdir(int argc, char** argv) {
 
     if (!removed) { std::cerr << "Error: directory \"" << dirName << "\" not found\n"; return 1; }
 
+    // Shrink the parent directory chain (remove trailing empty sectors)
+    int reclaimed = shrinkDirChain(img.get(), parentDir);
+
     if (!img->saveToFile(argv[0])) {
         std::cerr << "Error: failed to write " << argv[0] << "\n";
         return 1;
     }
-    std::cout << "Removed directory \"" << dirName << "\"\n";
+    std::cout << "Removed directory \"" << dirName << "\"";
+    if (reclaimed > 0) std::cout << " (" << reclaimed << " dir sector(s) reclaimed)";
+    std::cout << "\n";
     return 0;
 }
 
@@ -1719,6 +1825,74 @@ static int cmdTree(int argc, char** argv) {
     TrackSector rootDir = {hdr[0], hdr[1]};
 
     printTree(img.get(), rootDir, 1);
+    return 0;
+}
+
+static int cmdDirShrink(int argc, char** argv) {
+    if (argc < 1) {
+        std::cerr << "Usage: disk45 dir-shrink <image> [path]\n";
+        return 1;
+    }
+    auto img = DiskImage::load(argv[0]);
+    if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
+
+    TrackSector dirTS;
+    std::string pathStr = (argc >= 2) ? normalizeName(argv[1]) : "";
+    if (pathStr.empty()) {
+        dirTS = getRootDirStart(img.get());
+    } else {
+        dirTS = resolveDir(img.get(), splitPath(pathStr));
+    }
+    if (dirTS.isNull()) { std::cerr << "Error: directory not found\n"; return 1; }
+
+    int reclaimed = shrinkDirChain(img.get(), dirTS);
+    if (reclaimed > 0) {
+        if (!img->saveToFile(argv[0])) {
+            std::cerr << "Error: failed to write " << argv[0] << "\n";
+            return 1;
+        }
+        std::cout << "Reclaimed " << reclaimed << " empty directory sector(s)\n";
+    } else {
+        std::cout << "No empty trailing sectors to reclaim\n";
+    }
+    return 0;
+}
+
+static int cmdDirEnsure(int argc, char** argv) {
+    if (argc < 2) {
+        std::cerr << "Usage: disk45 dir-ensure <image> <min_free_slots> [path]\n"
+                  << "  Ensures the directory has at least <min_free_slots> empty entry slots.\n"
+                  << "  Allocates new directory sectors as needed (8 slots per sector).\n";
+        return 1;
+    }
+    auto img = DiskImage::load(argv[0]);
+    if (!img) { std::cerr << "Error: failed to load " << argv[0] << "\n"; return 1; }
+
+    int minFree = std::stoi(argv[1]);
+    std::string pathStr = (argc >= 3) ? normalizeName(argv[2]) : "";
+
+    TrackSector dirTS;
+    if (pathStr.empty()) {
+        dirTS = getRootDirStart(img.get());
+    } else {
+        dirTS = resolveDir(img.get(), splitPath(pathStr));
+    }
+    if (dirTS.isNull()) { std::cerr << "Error: directory not found\n"; return 1; }
+
+    int added = ensureDirCapacity(img.get(), dirTS, minFree);
+    if (added < 0) {
+        std::cerr << "Error: disk full, cannot allocate directory sectors\n";
+        return 1;
+    }
+    if (added > 0) {
+        if (!img->saveToFile(argv[0])) {
+            std::cerr << "Error: failed to write " << argv[0] << "\n";
+            return 1;
+        }
+        std::cout << "Added " << added << " directory sector(s) (" << (added * 8) << " slots)\n";
+    } else {
+        std::cout << "Directory already has sufficient free slots\n";
+    }
     return 0;
 }
 
@@ -1777,6 +1951,8 @@ int main(int argc, char** argv) {
     if (cmd == "mkdir")      return cmdMkdir(subArgc, subArgv);
     if (cmd == "rmdir")      return cmdRmdir(subArgc, subArgv);
     if (cmd == "tree")       return cmdTree(subArgc, subArgv);
+    if (cmd == "dir-shrink") return cmdDirShrink(subArgc, subArgv);
+    if (cmd == "dir-ensure") return cmdDirEnsure(subArgc, subArgv);
     if (cmd == "rel-create") return cmdRelCreate(subArgc, subArgv);
     if (cmd == "rel-read")   return cmdRelRead(subArgc, subArgv);
     if (cmd == "rel-write")  return cmdRelWrite(subArgc, subArgv);
