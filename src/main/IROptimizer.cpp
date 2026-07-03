@@ -399,6 +399,146 @@ void optimizeAlgebraic(Module& mod) {
 }
 
 // ============================================================================
+// Branch Folding and Dead Block Elimination
+// ============================================================================
+
+void optimizeBranchFold(Module& mod) {
+    for (auto& fn : mod.functions) {
+        bool changed = true;
+        int maxIter = 16;
+        while (changed && --maxIter > 0) {
+            changed = false;
+
+            // Build constant value map
+            std::map<uint32_t, int64_t> constVals;
+            for (auto& block : fn.blocks) {
+                for (auto& inst : block.insts) {
+                    if (inst.op == Op::CONST && inst.dest.isVreg() && inst.src1.isImm())
+                        constVals[inst.dest.vregId] = inst.src1.immVal;
+                }
+            }
+
+            // Pass 1: Fold BR_COND on constant condition
+            // If target is the next block, remove the branch entirely (fallthrough).
+            // Otherwise, replace with unconditional BR.
+            for (size_t bi = 0; bi < fn.blocks.size(); bi++) {
+                for (auto it = fn.blocks[bi].insts.begin(); it != fn.blocks[bi].insts.end(); ++it) {
+                    if (it->op != Op::BR_COND) continue;
+                    if (!it->src1.isVreg()) continue;
+                    auto cv = constVals.find(it->src1.vregId);
+                    if (cv == constVals.end()) continue;
+
+                    std::string target = (cv->second != 0) ? it->dest.name : it->src2.name;
+
+                    // If target is the next block, just remove the branch (fallthrough)
+                    if (bi + 1 < fn.blocks.size() && fn.blocks[bi + 1].label == target) {
+                        fn.blocks[bi].insts.erase(it);
+                    } else {
+                        it->op = Op::BR;
+                        it->src1 = Operand::label(target);
+                        it->src2 = Operand::none();
+                        it->dest = Operand::none();
+                    }
+                    changed = true;
+                    break; // block's terminator changed, move on
+                }
+            }
+
+            // Pass 2: Thread jump chains — BR to a block that only contains BR
+            {
+                // Build label → block index map
+                std::map<std::string, size_t> blockIndex;
+                for (size_t i = 0; i < fn.blocks.size(); i++)
+                    blockIndex[fn.blocks[i].label] = i;
+
+                for (auto& block : fn.blocks) {
+                    for (auto& inst : block.insts) {
+                        auto threadLabel = [&](std::string& label) {
+                            int depth = 8; // limit chain depth
+                            while (--depth > 0) {
+                                auto bi = blockIndex.find(label);
+                                if (bi == blockIndex.end()) break;
+                                auto& target = fn.blocks[bi->second];
+                                // Block contains only a single BR instruction?
+                                if (target.insts.size() == 1 && target.insts[0].op == Op::BR &&
+                                    !target.insts[0].src1.name.empty() &&
+                                    target.insts[0].src1.name != label) {
+                                    label = target.insts[0].src1.name;
+                                    changed = true;
+                                } else {
+                                    break;
+                                }
+                            }
+                        };
+
+                        if (inst.op == Op::BR && !inst.src1.name.empty()) {
+                            threadLabel(inst.src1.name);
+                        } else if (inst.op == Op::BR_COND) {
+                            if (!inst.dest.name.empty()) threadLabel(inst.dest.name);
+                            if (!inst.src2.name.empty()) threadLabel(inst.src2.name);
+                        }
+                    }
+                }
+            }
+
+            // Pass 2b: Remove redundant BR to next block (fallthrough)
+            for (size_t bi = 0; bi + 1 < fn.blocks.size(); bi++) {
+                auto& insts = fn.blocks[bi].insts;
+                if (!insts.empty() && insts.back().op == Op::BR &&
+                    insts.back().src1.name == fn.blocks[bi + 1].label) {
+                    insts.pop_back();
+                    changed = true;
+                }
+            }
+
+            // Pass 3: Remove unreachable blocks (no predecessors except entry)
+            if (fn.blocks.size() > 1) {
+                // Collect all referenced labels
+                std::set<std::string> referenced;
+                referenced.insert(fn.blocks[0].label); // entry is always reachable
+
+                for (size_t i = 0; i < fn.blocks.size(); i++) {
+                    auto& block = fn.blocks[i];
+                    bool hasTerminator = false;
+                    for (auto& inst : block.insts) {
+                        if (inst.op == Op::BR) {
+                            referenced.insert(inst.src1.name);
+                            hasTerminator = true;
+                        } else if (inst.op == Op::BR_COND) {
+                            referenced.insert(inst.dest.name);
+                            referenced.insert(inst.src2.name);
+                            hasTerminator = true;
+                        } else if (inst.op == Op::SWITCH) {
+                            referenced.insert(inst.src2.name);
+                            for (auto& sc : inst.switchCases)
+                                referenced.insert(sc.second);
+                            hasTerminator = true;
+                        } else if (inst.op == Op::RET || inst.op == Op::RET_VOID) {
+                            hasTerminator = true;
+                        }
+                    }
+                    // Fallthrough: if no terminator, the next block is reachable
+                    if (!hasTerminator && i + 1 < fn.blocks.size()) {
+                        referenced.insert(fn.blocks[i + 1].label);
+                    }
+                }
+
+                // Remove blocks that aren't referenced
+                auto it = fn.blocks.begin();
+                while (it != fn.blocks.end()) {
+                    if (!referenced.count(it->label)) {
+                        it = fn.blocks.erase(it);
+                        changed = true;
+                    } else {
+                        ++it;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
 // LICM — Loop-Invariant Code Motion
 // ============================================================================
 

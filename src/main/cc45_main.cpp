@@ -675,6 +675,8 @@ int main(int argc, char** argv) {
             ir::optimizeStrengthReduction(irBuilder.getModule());
             if (verboseLevel >= 1) std::cout << "Optimizing IR (Algebraic Simplification)..." << std::endl;
             ir::optimizeAlgebraic(irBuilder.getModule());
+            if (verboseLevel >= 1) std::cout << "Optimizing IR (Branch Folding)..." << std::endl;
+            ir::optimizeBranchFold(irBuilder.getModule());
             if (verboseLevel >= 1) std::cout << "Optimizing IR (CSE and Copy Propagation)..." << std::endl;
             ir::optimizeCSE(irBuilder.getModule());
             if (verboseLevel >= 1) std::cout << "Optimizing IR (LICM)..." << std::endl;
