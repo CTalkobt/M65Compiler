@@ -57,6 +57,7 @@ private:
     int frameSize_ = 0;
 
     void computeLiveRanges(const ir::Function& fn);
+    void extendLiveRangesAcrossLoops(const ir::Function& fn);
     void assignLocations(const ir::Function& fn);
 
     int allocZpSlot(ir::Type type);

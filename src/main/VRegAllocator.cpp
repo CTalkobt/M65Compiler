@@ -92,6 +92,84 @@ void VRegAllocator::computeLiveRanges(const ir::Function& fn) {
 }
 
 // ============================================================================
+// Loop-aware liveness extension
+// ============================================================================
+
+void VRegAllocator::extendLiveRangesAcrossLoops(const ir::Function& fn) {
+    // The linear scan computes live ranges as [firstDef, lastUse] over the
+    // flattened instruction sequence. This doesn't account for loops: a vreg
+    // defined before a loop and used inside the loop body needs to stay live
+    // for the entire loop, not just until the first (linear) use.
+    //
+    // Fix: detect loops via back-edges, compute the flattened index range of
+    // each loop, and extend any live range that overlaps the loop to cover
+    // the entire loop body.
+
+    if (flatInsts_.empty()) return;
+
+    // Build block → flattened index range mapping
+    // blockStart[b] = first flattened index in block b
+    // blockEnd[b]   = last flattened index in block b (inclusive)
+    std::map<int, int> blockStart, blockEnd;
+    for (int i = 0; i < (int)flatInsts_.size(); i++) {
+        int bi = flatInsts_[i].blockIdx;
+        if (!blockStart.count(bi)) blockStart[bi] = i;
+        blockEnd[bi] = i;
+    }
+
+    // Build block label → block index mapping
+    std::map<std::string, int> labelToBlock;
+    for (int bi = 0; bi < (int)fn.blocks.size(); bi++) {
+        labelToBlock[fn.blocks[bi].label] = bi;
+    }
+
+    // Find back-edges and compute loop ranges.
+    // A back-edge is a branch from block B to block H where H <= B in block order.
+    // The loop range in flattened indices is [blockStart[H], blockEnd[B]].
+    struct LoopRange { int start; int end; };
+    std::vector<LoopRange> loops;
+
+    for (int bi = 0; bi < (int)fn.blocks.size(); bi++) {
+        for (const auto& inst : fn.blocks[bi].insts) {
+            // Collect branch targets
+            std::vector<std::string> targets;
+            if (inst.op == ir::Op::BR && !inst.src1.name.empty())
+                targets.push_back(inst.src1.name);
+            if (inst.op == ir::Op::BR_COND) {
+                if (!inst.dest.name.empty()) targets.push_back(inst.dest.name);
+                if (!inst.src2.name.empty()) targets.push_back(inst.src2.name);
+            }
+            for (const auto& t : targets) {
+                auto it = labelToBlock.find(t);
+                if (it != labelToBlock.end() && it->second <= bi) {
+                    // Back-edge: bi → it->second
+                    int hdr = it->second;
+                    if (blockStart.count(hdr) && blockEnd.count(bi)) {
+                        loops.push_back({blockStart[hdr], blockEnd[bi]});
+                    }
+                }
+            }
+        }
+    }
+
+    if (loops.empty()) return;
+
+    // Extend live ranges: if a vreg's live range overlaps with a loop range,
+    // extend lastUse to at least the loop's end.
+    for (auto& lr : ranges_) {
+        for (const auto& loop : loops) {
+            // A live range overlaps a loop if it's defined before/during the loop
+            // AND used during/after the loop start
+            if (lr.firstDef <= loop.end && lr.lastUse >= loop.start) {
+                if (lr.lastUse < loop.end) {
+                    lr.lastUse = loop.end;
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
 // Location assignment
 // ============================================================================
 
@@ -250,6 +328,7 @@ void VRegAllocator::analyze(const ir::Function& fn, uint8_t zpStart, int zpSlots
     zpSlots_ = zpSlots;
     flatten(fn);
     computeLiveRanges(fn);
+    extendLiveRangesAcrossLoops(fn);
     assignLocations(fn);
 }
 

@@ -27,9 +27,8 @@ struct ExprKey {
 
 bool isCSECandidate(Op op) {
     switch (op) {
-        // Note: CONST and FCONST are NOT CSE candidates. Constants are trivially
-        // cheap to recompute (lda #imm) and CSE-ing them extends live ranges,
-        // wastes ZP/frame slots, and increases register pressure on the 6502.
+        // CONST/FCONST excluded: cheap to recompute (lda #imm), CSE wastes ZP slots
+        // ADDR_LOCAL excluded: frame-offset computation, CSE extends live range unnecessarily
         case Op::ADD: case Op::SUB: case Op::MUL: case Op::DIV: case Op::MOD:
         case Op::MUL_U: case Op::DIV_U: case Op::MOD_U:
         case Op::AND: case Op::OR: case Op::XOR:
@@ -528,26 +527,9 @@ void optimizeLICM(Module& mod) {
                 fn.blocks.insert(fn.blocks.begin() + header, std::move(preheader));
             }
 
-            // Insert NOP keep-alive references in the back-edge block for
-            // hoisted vregs. This extends their linear-scan live range past
-            // the entire loop body, preventing the ZP allocator from reusing
-            // their slots for loop-body temporaries.
-            auto& tailBlock = fn.blocks[tail < header ? tail : tail + 1]; // +1 if preheader was inserted
-            // Find where the back-edge BR is and insert NOPs before it
-            auto brPos = tailBlock.insts.end();
-            for (auto rit = tailBlock.insts.begin(); rit != tailBlock.insts.end(); ++rit) {
-                if (rit->op == Op::BR || rit->op == Op::BR_COND) {
-                    brPos = rit;
-                    break;
-                }
-            }
-            for (uint32_t v : nonConstInvariants) {
-                Inst nop;
-                nop.op = Op::NOP;
-                nop.src1 = Operand::vreg(v, ir::Type::I16);
-                brPos = tailBlock.insts.insert(brPos, nop);
-                ++brPos; // advance past inserted NOP
-            }
+            // Note: hoisted vregs' liveness across the loop is handled by
+            // VRegAllocator::extendLiveRangesAcrossLoops(), which extends
+            // live ranges that overlap loop bodies to cover the entire loop.
 
                 restart = true;
                 break; // Indices shifted — restart CFG analysis
