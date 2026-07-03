@@ -350,6 +350,14 @@ std::string IRCodeGen::src2MemOperand(const ir::Operand& op) {
                 return "__zp_scratch2";
         }
     }
+    if (op.kind == ir::OperandKind::GLOBAL) {
+        // Load global address into scratch for use as memory operand
+        emit("lda #<" + op.name);
+        emit("sta __zp_scratch2");
+        emit("lda #>" + op.name);
+        emit("sta __zp_scratch2+1");
+        return "__zp_scratch2";
+    }
     return "#0";
 }
 

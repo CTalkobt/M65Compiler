@@ -2793,30 +2793,77 @@ void IRBuilder::visit(FunctionCall& node) {
                 lastValue_ = resultVreg;
             }
         } else {
-            // Normal call path
-            std::string mangledName = "_" + node.name;
-            calledFunctions_.insert(mangledName);
-            inst.src1 = ir::Operand::global(mangledName);
-
-            ir::Type retType = ir::Type::I16;
-            auto it = functionReturnTypes_.find(node.name);
-            if (it != functionReturnTypes_.end()) {
-                retType = it->second;
-            } else {
-                warnings_.push_back("warning: implicit declaration of function '" + node.name + "'");
+            // Check if this name is a variable (function pointer) rather than a function
+            bool isVariable = false;
+            if (locals_.count(node.name) || globalTypes_.count(node.name)) {
+                if (!definedFunctions_.count("_" + node.name) &&
+                    !functionReturnTypes_.count(node.name)) {
+                    isVariable = true;
+                }
             }
 
-            if (retType == ir::Type::VOID) {
-                inst.op = ir::Op::CALL_VOID;
-                inst.resultType = ir::Type::VOID;
-                emit(inst);
-            } else {
-                auto dest = allocVreg(retType);
-                inst.op = ir::Op::CALL;
+            if (isVariable) {
+                // Indirect call via function pointer variable
+                // Load the pointer value from the variable
+                auto varIt = locals_.find(node.name);
+                ir::Operand ptrVal;
+                if (varIt != locals_.end()) {
+                    // Local function pointer variable
+                    auto addr = allocVreg(ir::Type::PTR);
+                    ir::Inst loadInst;
+                    loadInst.op = ir::Op::LOAD;
+                    loadInst.dest = addr;
+                    loadInst.resultType = ir::Type::PTR;
+                    loadInst.src1 = varIt->second;
+                    loadInst.loc = loc(node);
+                    emit(loadInst);
+                    ptrVal = addr;
+                } else {
+                    // Global function pointer variable — load from global
+                    auto addr = allocVreg(ir::Type::PTR);
+                    ir::Inst loadInst;
+                    loadInst.op = ir::Op::LOAD;
+                    loadInst.dest = addr;
+                    loadInst.resultType = ir::Type::PTR;
+                    loadInst.src1 = ir::Operand::global("_" + node.name);
+                    loadInst.loc = loc(node);
+                    emit(loadInst);
+                    ptrVal = addr;
+                }
+                inst.src1 = ptrVal;
+                auto dest = allocVreg(ir::Type::I16);
+                inst.op = ir::Op::CALL_INDIRECT;
+                inst.callConv = ir::CallConv::STACK;
                 inst.dest = dest;
-                inst.resultType = retType;
+                inst.resultType = ir::Type::I16;
                 emit(inst);
                 lastValue_ = dest;
+            } else {
+                // Normal direct call path
+                std::string mangledName = "_" + node.name;
+                calledFunctions_.insert(mangledName);
+                inst.src1 = ir::Operand::global(mangledName);
+
+                ir::Type retType = ir::Type::I16;
+                auto it = functionReturnTypes_.find(node.name);
+                if (it != functionReturnTypes_.end()) {
+                    retType = it->second;
+                } else {
+                    warnings_.push_back("warning: implicit declaration of function '" + node.name + "'");
+                }
+
+                if (retType == ir::Type::VOID) {
+                    inst.op = ir::Op::CALL_VOID;
+                    inst.resultType = ir::Type::VOID;
+                    emit(inst);
+                } else {
+                    auto dest = allocVreg(retType);
+                    inst.op = ir::Op::CALL;
+                    inst.dest = dest;
+                    inst.resultType = retType;
+                    emit(inst);
+                    lastValue_ = dest;
+                }
             }
         }
     }
