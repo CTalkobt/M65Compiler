@@ -25,7 +25,7 @@ extern int disk45_catalog(int argc, char** argv);
 static void usage() {
     std::cerr << "disk45 — CBM Disk Image Utility v" << VERSION << "\n"
               << "Usage:\n"
-              << "  disk45 create <image> [-n name] [-i id]   Create empty disk image\n"
+              << "  disk45 create <image> [-n name] [-i id] [-t tracks]  Create disk image\n"
               << "  disk45 list <image>                       List directory\n"
               << "  disk45 info <image>                       Show disk info\n"
               << "  disk45 add <image> <file> [cbm_name] [-p]  Add file to image\n"
@@ -488,20 +488,60 @@ static int cmdCreate(int argc, char** argv) {
     if (argc < 1) { usage(); return 1; }
     std::string imagePath = argv[0];
     std::string diskName, diskId;
+    int tracks = 0; // 0 = use format default
 
     for (int i = 1; i < argc; i++) {
         if (std::string(argv[i]) == "-n" && i + 1 < argc) diskName = argv[++i];
         else if (std::string(argv[i]) == "-i" && i + 1 < argc) diskId = argv[++i];
+        else if (std::string(argv[i]) == "-t" && i + 1 < argc) tracks = std::stoi(argv[++i]);
     }
 
     auto img = DiskImage::createFromExtension(imagePath);
     img->format(diskName, diskId);
+
+    // Extend image for non-default track count (e.g., D64 with 40 tracks)
+    if (tracks > 0 && tracks != img->totalTracks()) {
+        int defaultSize = (int)img->totalBytes();
+        // Calculate new size by adding sectors for extra tracks
+        int extraSectors = 0;
+        for (int t = img->totalTracks() + 1; t <= tracks; t++)
+            extraSectors += img->sectorsOnTrack(t);
+
+        if (extraSectors > 0) {
+            // Resize the image to include extra tracks
+            int newSize = defaultSize + extraSectors * 256;
+            // Access the raw image data via a temporary save/reload
+            // Simpler: just pad the image directly
+            // The image_ member is protected, so we save, resize, reload
+            // Actually, format() sets the image size. For D64 extended tracks,
+            // we need to resize after format().
+            // Use saveToFile + manual resize approach:
+            img->saveToFile(imagePath);
+
+            // Read back raw, extend, write
+            std::ifstream f(imagePath, std::ios::binary | std::ios::ate);
+            auto sz = f.tellg();
+            f.seekg(0);
+            std::vector<uint8_t> raw((size_t)sz);
+            f.read(reinterpret_cast<char*>(raw.data()), sz);
+            f.close();
+            raw.resize(newSize, 0);
+            std::ofstream out(imagePath, std::ios::binary);
+            out.write(reinterpret_cast<const char*>(raw.data()), raw.size());
+            out.close();
+
+            // Reload to pick up the new size
+            img = DiskImage::load(imagePath);
+        }
+    }
+
     if (!img->saveToFile(imagePath)) {
         std::cerr << "Error: failed to write " << imagePath << "\n";
         return 1;
     }
     std::cout << "Created " << formatStr(img->diskFormat()) << " image: "
-              << imagePath << " (" << img->totalBytes() << " bytes)\n";
+              << imagePath << " (" << img->totalTracks() << " tracks, "
+              << img->totalBytes() << " bytes)\n";
     return 0;
 }
 
