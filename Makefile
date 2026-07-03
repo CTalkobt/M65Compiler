@@ -171,6 +171,8 @@ test: all lib
 	@bash src/test/test_objdump45.sh
 	@echo "Running disk45 tests..."
 	@bash src/test/test_disk45.sh
+	@echo "Running new stdlib tests..."
+	@bash src/test/test_stdlib_new.sh
 
 test-assembler: all
 	@bash src/test/test_assembler.sh
