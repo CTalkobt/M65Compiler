@@ -1796,29 +1796,41 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
 
     while (peek().type != TokenType::CLOSE_BRACE && peek().type != TokenType::END_OF_FILE) {
         // Check for struct method: type name(params) { body }
-        // Also handle 'virtual' keyword
+        // Handle 'static', 'virtual' keywords
         bool methodIsVirtual = false;
+        bool methodIsStatic = false;
+        if (peek().type == TokenType::STATIC) {
+            advance(); // consume 'static'
+            methodIsStatic = true;
+        }
         if (peek().type == TokenType::IDENTIFIER && peek().value == "virtual") {
+            if (methodIsStatic) {
+                throw std::runtime_error("Line " + std::to_string(peek().line) +
+                    ": a method cannot be both 'static' and 'virtual'");
+            }
             advance(); // consume 'virtual'
             methodIsVirtual = true;
             def->hasVirtual = true;
         }
 
-        if (!isUnion && (methodIsVirtual || isFunctionDeclaration())) {
+        if (!isUnion && (methodIsVirtual || methodIsStatic || isFunctionDeclaration())) {
             auto method = parseFunctionDeclaration();
             method->isVirtual = methodIsVirtual;
+            method->isStatic = methodIsStatic;
             // Mangle name: StructName__methodName
             std::string origName = method->name;
             method->name = name + "__" + origName;
             method->isMethod = true;
             method->methodStructName = name;
-            // Add hidden 'this' parameter as first param
-            Parameter thisParam;
-            thisParam.type = "struct " + name;
-            thisParam.pointerLevel = 1;
-            thisParam.isSigned = false;
-            thisParam.name = "__this";
-            method->parameters.insert(method->parameters.begin(), thisParam);
+            // Add hidden 'this' parameter for non-static methods
+            if (!methodIsStatic) {
+                Parameter thisParam;
+                thisParam.type = "struct " + name;
+                thisParam.pointerLevel = 1;
+                thisParam.isSigned = false;
+                thisParam.name = "__this";
+                method->parameters.insert(method->parameters.begin(), thisParam);
+            }
             def->methods.push_back(std::move(method));
             continue;
         }
@@ -2666,7 +2678,20 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
             return setPos(std::make_unique<IntegerLiteral>(enumIt->second), nameToken);
         }
 
-        if (match(TokenType::OPEN_PAREN)) {
+        // Static struct method call: StructName::method(args)
+        if (match(TokenType::SCOPE_RESOLUTION)) {
+            std::string methodName = expect(TokenType::IDENTIFIER, "Expected method name after '::'").value;
+            std::string mangledName = actualName + "__" + methodName;
+            expect(TokenType::OPEN_PAREN, "Expected '(' after '" + actualName + "::" + methodName + "'");
+            auto call = setPos(std::make_unique<FunctionCall>(mangledName), nameToken);
+            if (peek().type != TokenType::CLOSE_PAREN) {
+                do {
+                    call->arguments.push_back(parseExpression());
+                } while (match(TokenType::COMMA));
+            }
+            expect(TokenType::CLOSE_PAREN, "Expected ')'");
+            expr = std::move(call);
+        } else if (match(TokenType::OPEN_PAREN)) {
             auto call = setPos(std::make_unique<FunctionCall>(actualName), nameToken);
             if (peek().type != TokenType::CLOSE_PAREN) {
                 do {

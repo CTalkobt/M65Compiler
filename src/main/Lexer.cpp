@@ -151,7 +151,9 @@ Token Lexer::nextToken() {
         case '[': return {TokenType::OPEN_SQUARE, "[", startLine, startCol, sourceFile};
         case ']': return {TokenType::CLOSE_SQUARE, "]", startLine, startCol, sourceFile};
         case ';': return {TokenType::SEMICOLON, ";", startLine, startCol, sourceFile};
-        case ':': return {TokenType::COLON, ":", startLine, startCol, sourceFile};
+        case ':':
+            if (peek() == ':') { get(); return {TokenType::SCOPE_RESOLUTION, "::", startLine, startCol, sourceFile}; }
+            return {TokenType::COLON, ":", startLine, startCol, sourceFile};
         case '?': return {TokenType::QUESTION_MARK, "?", startLine, startCol, sourceFile};
         case ',': return {TokenType::COMMA, ",", startLine, startCol, sourceFile};
         case '.':
