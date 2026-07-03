@@ -206,6 +206,9 @@ test-zpcall: all
 bench: all lib
 	@bash src/test/bench.sh
 
+bench-optimizer: all
+	@bash src/test/bench_optimizer.sh
+
 bench-save: all lib
 	@bash src/test/bench.sh
 	@cp build/test/bench_results.json src/test/bench_baseline.json
