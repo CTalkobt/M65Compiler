@@ -8,6 +8,8 @@
 #include "LnxImage.hpp"
 #include "TapImage.hpp"
 #include "T64Image.hpp"
+#include "G64Image.hpp"
+#include "D80Image.hpp"
 #include "GzipHelper.hpp"
 #include <algorithm>
 #include <cctype>
@@ -36,6 +38,10 @@ std::unique_ptr<DiskImage> DiskImage::createFromExtension(const std::string& pat
     if (ext == ".lnx") return std::make_unique<LnxImage>();
     if (ext == ".tap") return std::make_unique<TapImage>();
     if (ext == ".t64") return std::make_unique<T64Image>();
+    if (ext == ".g64") return std::make_unique<G64Image>();
+    if (ext == ".g71") return std::make_unique<G64Image>();
+    if (ext == ".d80") return std::make_unique<D80Image>();
+    if (ext == ".d82") return std::make_unique<D82Image>();
     return create(formatFromExtension(path));
 }
 

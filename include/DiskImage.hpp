@@ -84,8 +84,8 @@ public:
 
     // --- Image lifecycle ---
     virtual void format(const std::string& diskName = "", const std::string& diskId = "CC") = 0;
-    bool loadFromFile(const std::string& path);
-    bool saveToFile(const std::string& path) const;
+    virtual bool loadFromFile(const std::string& path);
+    virtual bool saveToFile(const std::string& path) const;
 
     // --- File operations ---
     virtual std::vector<FileInfo> listFiles() const = 0;
