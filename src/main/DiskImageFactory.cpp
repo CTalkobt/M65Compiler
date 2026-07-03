@@ -10,6 +10,7 @@
 #include "T64Image.hpp"
 #include "G64Image.hpp"
 #include "D80Image.hpp"
+#include "GeosCvtImage.hpp"
 #include "GzipHelper.hpp"
 #include <algorithm>
 #include <cctype>
@@ -42,6 +43,7 @@ std::unique_ptr<DiskImage> DiskImage::createFromExtension(const std::string& pat
     if (ext == ".g71") return std::make_unique<G64Image>();
     if (ext == ".d80") return std::make_unique<D80Image>();
     if (ext == ".d82") return std::make_unique<D82Image>();
+    if (ext == ".cvt") return std::make_unique<GeosCvtImage>();
     return create(formatFromExtension(path));
 }
 

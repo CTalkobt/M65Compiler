@@ -4,6 +4,7 @@
 #include "D81Image.hpp"
 #include "D65Image.hpp"
 #include "TapImage.hpp"
+#include "GeosCvtImage.hpp"
 #include <iostream>
 #include <fstream>
 #include <iomanip>
@@ -63,6 +64,7 @@ static void usage() {
               << "  .g71  G71 GCR-encoded 1571 (read-only, decodes to D71)\n"
               << "  .d80  D80 CBM 8050 (77 tracks, 533KB)\n"
               << "  .d82  D82 CBM 8250 (154 tracks, 1MB)\n"
+              << "  .cvt  GEOS Convert (read-only, info/list/extract)\n"
               << "\n"
               << "Wildcards: use * and ? in patterns for list, extract-all, copy, remove\n"
               << "\n"
@@ -521,12 +523,24 @@ static int cmdInfo(int argc, char** argv) {
 
     // TAP-specific info
     auto* tap = dynamic_cast<TapImage*>(img.get());
+    auto* cvt = dynamic_cast<GeosCvtImage*>(img.get());
     if (tap) {
         std::cout << "Format:       TAP (tape image)\n"
                   << "TAP version:  " << tap->tapVersion() << "\n"
                   << "Platform:     " << tap->platformName() << "\n"
                   << "Data size:    " << (img->totalBytes()) << " bytes\n"
                   << "Files:        " << img->listFiles().size() << "\n";
+    } else if (cvt) {
+        std::cout << "Format:       GEOS CVT (Convert)\n"
+                  << "GEOS name:    " << cvt->geosFileName() << "\n"
+                  << "GEOS type:    " << cvt->geosFileTypeName() << "\n"
+                  << "Structure:    " << (cvt->isVlir() ? "VLIR" : "Sequential") << "\n";
+        if (cvt->isVlir())
+            std::cout << "VLIR records: " << cvt->vlirRecordCount() << "\n";
+        std::string desc = cvt->geosDescription();
+        if (!desc.empty())
+            std::cout << "Description:  " << desc << "\n";
+        std::cout << "Files:        " << img->listFiles().size() << "\n";
     } else {
         std::cout << "Format:       " << formatStr(img->diskFormat()) << "\n"
                   << "Disk name:    " << img->diskName() << "\n"
