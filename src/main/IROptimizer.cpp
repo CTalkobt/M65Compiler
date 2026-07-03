@@ -399,6 +399,76 @@ void optimizeAlgebraic(Module& mod) {
 }
 
 // ============================================================================
+// ADDR_ELEM Fusion with LOAD/STORE
+// ============================================================================
+
+void optimizeAddrElemFusion(Module& mod) {
+    // When ADDR_ELEM result is used exactly once by the immediately following
+    // LOAD or STORE, embed the ADDR_ELEM info into the LOAD/STORE instruction's
+    // args and remove the ADDR_ELEM. This allows the codegen to compute the
+    // address inline without allocating a ZP slot for the intermediate pointer.
+    //
+    // Pattern:
+    //   %5 = addr_elem %base, %idx, stride
+    //   %6 = load i16 %5             (or: store i8 %val, %5)
+    //
+    // After fusion:
+    //   %5 = nop                      (removed)
+    //   %6 = load i16 %5             (with args[0]=base, args[1]=idx, args[2]=stride)
+    //   The codegen detects args.size() >= 3 on LOAD/STORE as "fused addr_elem".
+
+    for (auto& fn : mod.functions) {
+        // Build use counts for each vreg
+        std::map<uint32_t, int> useCount;
+        for (auto& block : fn.blocks) {
+            for (auto& inst : block.insts) {
+                if (inst.src1.isVreg()) useCount[inst.src1.vregId]++;
+                if (inst.src2.isVreg()) useCount[inst.src2.vregId]++;
+                for (auto& arg : inst.args)
+                    if (arg.isVreg()) useCount[arg.vregId]++;
+            }
+        }
+
+        for (auto& block : fn.blocks) {
+            for (size_t i = 0; i + 1 < block.insts.size(); i++) {
+                auto& addrInst = block.insts[i];
+                auto& nextInst = block.insts[i + 1];
+
+                if (addrInst.op != Op::ADDR_ELEM) continue;
+                if (!addrInst.dest.isVreg()) continue;
+                uint32_t addrVreg = addrInst.dest.vregId;
+
+                // Must be used exactly once
+                if (useCount[addrVreg] != 1) continue;
+                // Don't fuse local slot vregs
+                if (fn.localSlotVregs.count(addrVreg)) continue;
+
+                // Next instruction must be LOAD or STORE using this vreg as address
+                bool isLoad = (nextInst.op == Op::LOAD && nextInst.src1.isVreg() &&
+                               nextInst.src1.vregId == addrVreg);
+                bool isStore = (nextInst.op == Op::STORE && nextInst.src2.isVreg() &&
+                                nextInst.src2.vregId == addrVreg);
+                if (!isLoad && !isStore) continue;
+
+                // Fuse: copy ADDR_ELEM params into the LOAD/STORE args
+                int elemSize = (addrInst.args.size() > 0) ? (int)addrInst.args[0].immVal : 2;
+                nextInst.args.clear();
+                nextInst.args.push_back(addrInst.src1); // base
+                nextInst.args.push_back(addrInst.src2); // index
+                nextInst.args.push_back(Operand::imm(elemSize, Type::I16)); // stride
+
+                // Remove the ADDR_ELEM
+                addrInst.op = Op::NOP;
+                addrInst.dest = Operand::none();
+                addrInst.src1 = Operand::none();
+                addrInst.src2 = Operand::none();
+                addrInst.args.clear();
+            }
+        }
+    }
+}
+
+// ============================================================================
 // COPY Chain Elimination
 // ============================================================================
 

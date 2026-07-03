@@ -685,6 +685,8 @@ int main(int argc, char** argv) {
             ir::optimizeLICM(irBuilder.getModule());
             if (verboseLevel >= 1) std::cout << "Optimizing IR (COPY Chain Elimination)..." << std::endl;
             ir::optimizeCopyChains(irBuilder.getModule());
+            if (verboseLevel >= 1) std::cout << "Optimizing IR (ADDR_ELEM Fusion)..." << std::endl;
+            ir::optimizeAddrElemFusion(irBuilder.getModule());
         }
 
         // Write IR text dump if requested

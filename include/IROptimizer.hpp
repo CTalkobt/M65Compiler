@@ -11,6 +11,9 @@ namespace ir {
     // Algebraic simplification: eliminate identity/annihilator/idempotent patterns
     void optimizeAlgebraic(Module& mod);
 
+    // ADDR_ELEM fusion: merge single-use ADDR_ELEM into following LOAD/STORE
+    void optimizeAddrElemFusion(Module& mod);
+
     // COPY chain elimination: resolve transitive copies, remove dead COPYs
     void optimizeCopyChains(Module& mod);
 
