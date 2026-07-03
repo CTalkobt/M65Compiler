@@ -11,6 +11,9 @@
 #include "G64Image.hpp"
 #include "D80Image.hpp"
 #include "GeosCvtImage.hpp"
+#include "P00Image.hpp"
+#include "X64Image.hpp"
+#include "ZipcodeImage.hpp"
 #include "GzipHelper.hpp"
 #include <algorithm>
 #include <cctype>
@@ -44,6 +47,13 @@ std::unique_ptr<DiskImage> DiskImage::createFromExtension(const std::string& pat
     if (ext == ".d80") return std::make_unique<D80Image>();
     if (ext == ".d82") return std::make_unique<D82Image>();
     if (ext == ".cvt") return std::make_unique<GeosCvtImage>();
+    if (ext == ".x64") return std::make_unique<X64Image>();
+    if (ext == ".p00" || ext == ".s00" || ext == ".u00" || ext == ".r00") return std::make_unique<P00Image>();
+    // Check for P01-P99, S01-S99 etc.
+    if (ext.size() == 4 && (ext[1] == 'p' || ext[1] == 's' || ext[1] == 'u' || ext[1] == 'r') &&
+        std::isdigit(ext[2]) && std::isdigit(ext[3])) return std::make_unique<P00Image>();
+    // Zipcode: detect if filename starts with "1!"
+    if (ZipcodeImage::isZipcodeFile(p)) return std::make_unique<ZipcodeImage>();
     return create(formatFromExtension(path));
 }
 

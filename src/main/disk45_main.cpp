@@ -68,6 +68,7 @@ static void usage() {
               << "  disk45 catalog stats [--db file]          Collection statistics\n"
               << "  disk45 -a2p                               ASCII→PETSCII filter (stdin→stdout)\n"
               << "  disk45 -p2a                               PETSCII→ASCII filter (stdin→stdout)\n"
+              << "  disk45 batch <scriptfile>                 Run commands from file\n"
               << "\n"
               << "Supported formats (auto-detected from extension):\n"
               << "  .d64  C64 1541 (170KB, 35 tracks)\n"
@@ -85,6 +86,9 @@ static void usage() {
               << "  .d80  D80 CBM 8050 (77 tracks, 533KB)\n"
               << "  .d82  D82 CBM 8250 (154 tracks, 1MB)\n"
               << "  .cvt  GEOS Convert (read-only, info/list/extract)\n"
+              << "  .x64  X64 extended D64 (64-byte header + D64)\n"
+              << "  .p00  P00/S00/U00/R00 PC64 single-file container\n"
+              << "  1!xx  Zipcode 4-pack (read-only, decodes to D64)\n"
               << "\n"
               << "Wildcards: use * and ? in patterns for list, extract-all, copy, remove\n"
               << "\n"
@@ -2112,7 +2116,55 @@ static int cmdConvert(int argc, char** argv) {
 // Main
 // ============================================================================
 
-int main(int argc, char** argv) {
+// Process a single disk45 command line (for batch mode)
+static int processCommand(int argc, char** argv);
+
+// Batch script: read commands from file, execute each line
+static int cmdBatch(const std::string& scriptFile) {
+    std::ifstream f(scriptFile);
+    if (!f) { std::cerr << "Error: cannot open script " << scriptFile << "\n"; return 1; }
+
+    std::string line;
+    int lineNum = 0, errors = 0;
+    while (std::getline(f, line)) {
+        lineNum++;
+        // Skip empty lines and comments
+        size_t start = line.find_first_not_of(" \t");
+        if (start == std::string::npos) continue;
+        if (line[start] == '#' || line[start] == ';') continue;
+
+        // Parse line into argv-style tokens (simple space splitting, respecting quotes)
+        std::vector<std::string> tokens;
+        std::string current;
+        bool inQuote = false;
+        for (size_t i = start; i < line.size(); i++) {
+            char c = line[i];
+            if (c == '"') { inQuote = !inQuote; continue; }
+            if (c == ' ' && !inQuote) {
+                if (!current.empty()) { tokens.push_back(current); current.clear(); }
+            } else {
+                current += c;
+            }
+        }
+        if (!current.empty()) tokens.push_back(current);
+        if (tokens.empty()) continue;
+
+        // Build argv (prepend "disk45" as argv[0])
+        std::vector<char*> args;
+        std::string prog = "disk45";
+        args.push_back(const_cast<char*>(prog.c_str()));
+        for (auto& t : tokens) args.push_back(const_cast<char*>(t.c_str()));
+
+        int rc = processCommand((int)args.size(), args.data());
+        if (rc != 0) {
+            std::cerr << "  (script line " << lineNum << " failed)\n";
+            errors++;
+        }
+    }
+    return errors > 0 ? 1 : 0;
+}
+
+static int processCommand(int argc, char** argv) {
     if (argc < 2) { usage(); return 1; }
 
     std::string cmd = argv[1];
@@ -2204,4 +2256,17 @@ int main(int argc, char** argv) {
     std::cerr << "Unknown command: " << cmd << "\n";
     usage();
     return 1;
+}
+
+int main(int argc, char** argv) {
+    if (argc < 2) { usage(); return 1; }
+
+    // Batch script mode: disk45 batch <scriptfile>
+    std::string first = argv[1];
+    if (first == "batch" || first == "--batch") {
+        if (argc < 3) { std::cerr << "Usage: disk45 batch <scriptfile>\n"; return 1; }
+        return cmdBatch(argv[2]);
+    }
+
+    return processCommand(argc, argv);
 }
