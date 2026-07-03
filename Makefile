@@ -151,6 +151,8 @@ test: all lib
 	@$(MAKE) test-move-fill
 	@echo "Running objdump45 tests..."
 	@bash src/test/test_objdump45.sh
+	@echo "Running disk45 tests..."
+	@bash src/test/test_disk45.sh
 
 test-assembler: all
 	@bash src/test/test_assembler.sh
