@@ -1,16 +1,14 @@
-; float_rom.s — CBM 40-bit float runtime via BASIC 65 ROM
+; float_rom_indirect.s — CBM 40-bit float runtime via BASIC 65 jump table
 ;
-; Uses JSRFAR ($FF6E) to call BASIC ROM float routines.
-; JSRFAR handles MAP banking automatically — no overlay conflicts.
+; Alternative to float_rom.s that uses MOVFM/MOVMF/MOVFA/MOVAF via JSRFAR
+; instead of direct ZP access to FAC ($63-$68) and ARG ($6A-$6F).
 ;
-; JSRFAR convention: Bank=$02, PCH=$03, PCL=$04
-; These ZP locations are scratch (used by DMA ops and startup code)
-; and are free at the point float routines are called.
+; Trade-offs:
+;   - Direct (float_rom.s): faster, but tied to specific ZP addresses
+;   - Indirect (this file): slower (JSR overhead), but portable across ROM versions
 ;
-; FAC (Floating Point Accumulator) at $63-$68
-; ARG (secondary accumulator) at $6A-$6F
-;
-; Float values are 5 bytes: exponent (1) + mantissa (4), big-endian.
+; Build with: ca45 -c float_rom_indirect.s -o float_rom.o45
+; Use instead of float_rom.s when -ffp-indirect is specified.
 
     .cpu 45gs02
 
@@ -40,14 +38,11 @@ BJT_TAN     = $7F45
 BJT_ATN     = $7F48
 BJT_ABS     = $7F4E
 
-; FAC/ARG ZP locations
+; FAC/ARG ZP locations (still needed for reading results after ROM calls)
 FAC_EX = $63
-FAC_M1 = $64
-FAC_M2 = $65
 FAC_M3 = $66
 FAC_M4 = $67
 FAC_SI = $68
-ARG_EX = $6A
 
 ; ===========================================================================
 ; Helper: call BASIC ROM routine via JSRFAR
@@ -62,81 +57,65 @@ __jsrfar_basic:
     rts
 
 ; ===========================================================================
+; Helper: call BASIC ROM with register preload via JSRFAR
+; JSRFAR loads A from $06, X from $07, Y from $09 before calling target
+; ===========================================================================
+__jsrfar_basic_regs:
+    lda #BASIC_BANK
+    sta $02             ; Bank
+    jsr JSRFAR
+    rts
+
+; ===========================================================================
 ; Load 5-byte float from memory (AX = pointer) into FAC
-; Direct ZP access (default). For indirect access via BASIC 65 jump table,
-; see float_rom_indirect.s.
+; Uses MOVFM: loads FAC from memory address in A(low)/Y(high)
 ; ===========================================================================
 .global __float_load_fac
 __float_load_fac:
-    sta $02
-    stx $03
-    ldy #0
-    lda ($02),y
-    sta FAC_EX
-    iny
-    lda ($02),y
-    sta FAC_M1
-    iny
-    lda ($02),y
-    sta FAC_M2
-    iny
-    lda ($02),y
-    sta FAC_M3
-    iny
-    lda ($02),y
-    sta FAC_M4
-    lda #0
-    sta FAC_SI
+    ; JSRFAR preloads A from $06, Y from $09 for the ROM call
+    sta $06             ; A register = low byte of source pointer
+    stx $09             ; Y register = high byte of source pointer
+    lda #>BJT_MOVFM
+    sta $03             ; PCH
+    lda #<BJT_MOVFM
+    sta $04             ; PCL
+    jsr __jsrfar_basic_regs
     rts
 
 ; ===========================================================================
 ; Load 5-byte float from memory (AX = pointer) into ARG
+; Uses MOVFM to load into FAC, then MOVAF to copy FAC → ARG
 ; ===========================================================================
 .global __float_load_arg
 __float_load_arg:
-    sta $02
-    stx $03
-    ldy #0
-    lda ($02),y
-    sta ARG_EX
-    iny
-    lda ($02),y
-    sta $6B
-    iny
-    lda ($02),y
-    sta $6C
-    iny
-    lda ($02),y
-    sta $6D
-    iny
-    lda ($02),y
-    sta $6E
-    lda #0
-    sta $6F
+    ; First load into FAC
+    sta $06             ; A = low byte
+    stx $09             ; Y = high byte
+    lda #>BJT_MOVFM
+    sta $03
+    lda #<BJT_MOVFM
+    sta $04
+    jsr __jsrfar_basic_regs
+    ; Copy FAC → ARG
+    lda #<BJT_MOVAF
+    ldx #>BJT_MOVAF
+    jsr __jsrfar_basic
     rts
 
 ; ===========================================================================
 ; Store FAC to memory (AX = destination, 5 bytes)
+; Uses MOVMF: stores FAC to memory address in X(high)/Y(low)
 ; ===========================================================================
 .global __float_store_fac
 __float_store_fac:
-    sta $02
-    stx $03
-    ldy #0
-    lda FAC_EX
-    sta ($02),y
-    iny
-    lda FAC_M1
-    sta ($02),y
-    iny
-    lda FAC_M2
-    sta ($02),y
-    iny
-    lda FAC_M3
-    sta ($02),y
-    iny
-    lda FAC_M4
-    sta ($02),y
+    ; JSRFAR preloads X from $07, Y from $09 for the ROM call
+    sta $09             ; Y register = low byte of dest pointer
+    stx $07             ; X register = high byte of dest pointer
+    lda #>BJT_MOVMF
+    sta $03             ; PCH
+    lda #<BJT_MOVMF
+    sta $04             ; PCL
+    jsr __jsrfar_basic_regs
     rts
 
 ; ===========================================================================
@@ -245,47 +224,31 @@ __float_neg:
 ; ===========================================================================
 .global __float_cmp
 __float_cmp:
-    ; Load a into FAC, b into ARG
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
     lda #<__float_b
     ldx #>__float_b
     jsr __float_load_arg
-    ; FCOMP: compare MEM (AY) with FAC → A = -1/0/1
-    ; But we need FAC vs ARG. Use MOVFA to get a into FAC,
-    ; then compare FAC with __float_b in memory.
-    ; Actually: load b into FAC first, then a into ARG, then MOVFA (FAC=ARG=a)
-    ; Then FCOMP(__float_b) compares a(FAC) with b(mem)
     lda #<BJT_MOVFA
     ldx #>BJT_MOVFA
     jsr __jsrfar_basic
-    ; Now FAC = a. Compare with __float_b in memory.
-    ; FCOMP takes pointer in AY, compares (AY) with FAC
-    ; Result: A=$FF if FAC < (AY), $00 if equal, $01 if FAC > (AY)
-    lda #<__float_b
-    ldy #>__float_b
-    sta $04             ; PCL for FCOMP
-    sty $03             ; PCH
-    ; Wait — FCOMP takes MEM pointer in AY, not via JSRFAR
-    ; We need FCOMP to read from our RAM, but via JSRFAR it reads from ROM bank
-    ; Use direct FCOMP instead — but that needs BASIC ROM mapped in
-    ; For now: use subtraction and check sign
+    ; FAC = a. Subtract b to compare.
     lda #<BJT_FSUBT
     ldx #>BJT_FSUBT
     jsr __jsrfar_basic
-    ; FAC = a - b. Check sign.
+    ; FAC = a - b. Check sign via direct ZP read (result is already there).
     lda FAC_EX
-    beq @zero           ; exponent 0 = value is 0 (equal)
+    beq @zero
     lda FAC_SI
-    bne @negative        ; sign byte nonzero = negative
-    lda #$01            ; positive: a > b
+    bne @negative
+    lda #$01
     rts
 @negative:
-    lda #$FF            ; negative: a < b
+    lda #$FF
     rts
 @zero:
-    lda #$00            ; equal
+    lda #$00
     rts
 
 ; ===========================================================================
@@ -293,20 +256,10 @@ __float_cmp:
 ; ===========================================================================
 .global __float_itof
 __float_itof:
-    tay             ; Y = low byte
-    txa             ; A = high byte (GIVAYF wants A=high, Y=low)
-    sta $06         ; save A (high) — JSRFAR uses $02-$04
-    sty $09         ; save Y (low)
-    lda #<BJT_GIVAYF
-    ldx #>BJT_GIVAYF
-    ; Set up JSRFAR: AC=$06, YR=$09 will be loaded by JSRFAR
-    lda $06
-    sta $06         ; AC register for JSRFAR
-    lda $09
-    sta $09         ; YR register for JSRFAR
-    ; Actually JSRFAR loads A/X/Y/Z from $06-$09 before calling
-    ; So we need: $06=A(high byte), $09=Y(low byte)
-    ; But we also need to set $02=bank, $03=PCH, $04=PCL
+    tay
+    txa
+    sta $06
+    sty $09
     lda #BASIC_BANK
     sta $02
     lda #>BJT_GIVAYF
@@ -314,7 +267,6 @@ __float_itof:
     lda #<BJT_GIVAYF
     sta $04
     jsr JSRFAR
-    ; FAC now has the float value
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
@@ -331,8 +283,9 @@ __float_ftoi:
     lda #<BJT_AYINT
     ldx #>BJT_AYINT
     jsr __jsrfar_basic
-    lda FAC_M3      ; low byte of result
-    ldx FAC_M4      ; high byte
+    ; Result in FAC mantissa bytes (direct ZP read — ROM already wrote here)
+    lda FAC_M3
+    ldx FAC_M4
     rts
 
 ; ===========================================================================
