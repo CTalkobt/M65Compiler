@@ -11,6 +11,9 @@ namespace ir {
     // Algebraic simplification: eliminate identity/annihilator/idempotent patterns
     void optimizeAlgebraic(Module& mod);
 
+    // COPY chain elimination: resolve transitive copies, remove dead COPYs
+    void optimizeCopyChains(Module& mod);
+
     // Type narrowing: replace wide ops with I8 when result is truncated
     void optimizeTypeNarrowing(Module& mod);
 

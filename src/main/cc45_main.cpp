@@ -683,6 +683,8 @@ int main(int argc, char** argv) {
             ir::optimizeCSE(irBuilder.getModule());
             if (verboseLevel >= 1) std::cout << "Optimizing IR (LICM)..." << std::endl;
             ir::optimizeLICM(irBuilder.getModule());
+            if (verboseLevel >= 1) std::cout << "Optimizing IR (COPY Chain Elimination)..." << std::endl;
+            ir::optimizeCopyChains(irBuilder.getModule());
         }
 
         // Write IR text dump if requested

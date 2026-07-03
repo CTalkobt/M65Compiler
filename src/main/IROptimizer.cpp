@@ -399,6 +399,81 @@ void optimizeAlgebraic(Module& mod) {
 }
 
 // ============================================================================
+// COPY Chain Elimination
+// ============================================================================
+
+void optimizeCopyChains(Module& mod) {
+    for (auto& fn : mod.functions) {
+        // Build forwarding map: follow COPY chains to the root operand.
+        // %a = COPY %b; %c = COPY %a → %c should reference %b directly.
+        std::map<uint32_t, Operand> copyRoot;
+        for (auto& block : fn.blocks) {
+            for (auto& inst : block.insts) {
+                if (inst.op == Op::COPY && inst.dest.isVreg() && inst.src1.isVreg()) {
+                    // Follow chain to root
+                    Operand root = inst.src1;
+                    int depth = 16;
+                    while (root.isVreg() && --depth > 0) {
+                        auto it = copyRoot.find(root.vregId);
+                        if (it != copyRoot.end())
+                            root = it->second;
+                        else
+                            break;
+                    }
+                    copyRoot[inst.dest.vregId] = root;
+                }
+            }
+        }
+
+        if (copyRoot.empty()) return;
+
+        // Rewrite all operands using the forwarding map
+        auto rewrite = [&](Operand& op) {
+            if (op.isVreg()) {
+                auto it = copyRoot.find(op.vregId);
+                if (it != copyRoot.end()) {
+                    op.vregId = it->second.vregId;
+                }
+            }
+        };
+
+        for (auto& block : fn.blocks) {
+            for (auto& inst : block.insts) {
+                rewrite(inst.src1);
+                rewrite(inst.src2);
+                for (auto& arg : inst.args) rewrite(arg);
+                for (auto& phi : inst.phiIncoming) rewrite(phi.first);
+            }
+        }
+
+        // Mark COPYs whose dest is no longer referenced as NOP
+        std::set<uint32_t> usedVregs;
+        for (auto& block : fn.blocks) {
+            for (auto& inst : block.insts) {
+                if (inst.src1.isVreg()) usedVregs.insert(inst.src1.vregId);
+                if (inst.src2.isVreg()) usedVregs.insert(inst.src2.vregId);
+                for (auto& arg : inst.args)
+                    if (arg.isVreg()) usedVregs.insert(arg.vregId);
+                for (auto& phi : inst.phiIncoming)
+                    if (phi.first.isVreg()) usedVregs.insert(phi.first.vregId);
+            }
+        }
+        for (auto& block : fn.blocks) {
+            for (auto& inst : block.insts) {
+                if (inst.op == Op::COPY && inst.dest.isVreg() &&
+                    !usedVregs.count(inst.dest.vregId) &&
+                    !fn.localSlotVregs.count(inst.dest.vregId)) {
+                    inst.op = Op::NOP;
+                    inst.src1 = Operand::none();
+                    inst.src2 = Operand::none();
+                    inst.dest = Operand::none();
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
 // Type Narrowing (I16/I32 → I8)
 // ============================================================================
 
