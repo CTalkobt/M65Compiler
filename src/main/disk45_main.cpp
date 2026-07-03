@@ -36,6 +36,7 @@ static void usage() {
               << "  disk45 bpeek <image> <t> <s> <off> [n]    Read byte(s)\n"
               << "  disk45 bpoke <image> <t> <s> <off> <val>  Write byte(s)\n"
               << "  disk45 bfill <image> <t> <s> <val>        Fill sector with value\n"
+              << "  disk45 convert <source> <target>          Convert between formats\n"
               << "  disk45 chain <image> <filename>           Show file sector chain\n"
               << "  disk45 mkdir <image> <dirname>            Create subdirectory\n"
               << "  disk45 rmdir <image> <dirname>            Remove empty subdirectory\n"
@@ -1911,6 +1912,91 @@ static int cmdDirEnsure(int argc, char** argv) {
 }
 
 // ============================================================================
+// Format conversion
+// ============================================================================
+
+static bool isSingleFileFormat(const std::string& path) {
+    std::string ext;
+    auto dot = path.rfind('.');
+    if (dot != std::string::npos) {
+        ext = path.substr(dot);
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+    }
+    return ext == ".prg" || ext == ".seq" || ext == ".usr" || ext == ".cvt";
+}
+
+static int cmdConvert(int argc, char** argv) {
+    if (argc < 2) {
+        std::cerr << "Usage: disk45 convert <source> <target>\n"
+                  << "  Converts between disk/tape/archive formats, copying all files.\n"
+                  << "  For single-file sources (.prg/.cvt), creates a blank target image.\n";
+        return 1;
+    }
+    std::string srcPath = argv[0];
+    std::string dstPath = argv[1];
+
+    if (isSingleFileFormat(srcPath)) {
+        // Single file → disk image: create blank target, add the file
+        auto dst = DiskImage::createFromExtension(dstPath);
+        dst->format("CONVERTED", "CV");
+
+        // Read the source file
+        std::ifstream f(srcPath, std::ios::binary | std::ios::ate);
+        if (!f) { std::cerr << "Error: cannot read " << srcPath << "\n"; return 1; }
+        auto size = f.tellg();
+        f.seekg(0);
+        std::vector<uint8_t> data((size_t)size);
+        f.read(reinterpret_cast<char*>(data.data()), size);
+
+        std::string cbmName = baseName(srcPath);
+        std::transform(cbmName.begin(), cbmName.end(), cbmName.begin(), ::toupper);
+        CbmFileType ftype = typeFromExtension(srcPath);
+
+        if (!dst->addFile(cbmName, ftype, data)) {
+            std::cerr << "Error: failed to add file to target image\n";
+            return 1;
+        }
+        if (!dst->saveToFile(dstPath)) {
+            std::cerr << "Error: failed to write " << dstPath << "\n";
+            return 1;
+        }
+        std::cout << "Converted " << srcPath << " → " << dstPath
+                  << " (1 file added)\n";
+        return 0;
+    }
+
+    // Disk/tape/archive → disk/tape/archive: copy all files
+    auto src = DiskImage::load(srcPath);
+    if (!src) { std::cerr << "Error: failed to load " << srcPath << "\n"; return 1; }
+
+    auto dst = DiskImage::createFromExtension(dstPath);
+    std::string name = src->diskName();
+    std::string id = src->diskId();
+    dst->format(name, id);
+
+    auto files = src->listFiles();
+    int copied = 0;
+    for (auto& f : files) {
+        if (f.type == CbmFileType::CBM) continue; // skip subdirectory entries
+        auto data = src->readFile(f.name);
+        if (data.empty() && !src->fileExists(f.name)) continue;
+        if (!dst->addFile(f.name, f.type, data)) {
+            std::cerr << "Warning: failed to add \"" << f.name << "\" (disk full?)\n";
+            continue;
+        }
+        copied++;
+    }
+
+    if (!dst->saveToFile(dstPath)) {
+        std::cerr << "Error: failed to write " << dstPath << "\n";
+        return 1;
+    }
+    std::cout << "Converted " << srcPath << " → " << dstPath
+              << " (" << copied << " file(s) copied)\n";
+    return 0;
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -1965,6 +2051,7 @@ int main(int argc, char** argv) {
     if (cmd == "mkdir")      return cmdMkdir(subArgc, subArgv);
     if (cmd == "rmdir")      return cmdRmdir(subArgc, subArgv);
     if (cmd == "tree")       return cmdTree(subArgc, subArgv);
+    if (cmd == "convert")    return cmdConvert(subArgc, subArgv);
     if (cmd == "dir-shrink") return cmdDirShrink(subArgc, subArgv);
     if (cmd == "dir-ensure") return cmdDirEnsure(subArgc, subArgv);
     if (cmd == "rel-create") return cmdRelCreate(subArgc, subArgv);
