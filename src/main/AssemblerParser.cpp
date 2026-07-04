@@ -1617,6 +1617,10 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
             else overallChanged = true;
         }
         statements = std::move(newStatements);
+        std::map<std::string, uint32_t> savedVariableValues;
+        for (const auto& [name, symbol] : symbolTable) {
+            if (symbol.isVariable) savedVariableValues[name] = symbol.value;
+        }
         // Reset variables to initial values before each pass2 iteration
         for (auto& [name, symbol] : symbolTable) if (symbol.isVariable) symbol.value = symbol.initialValue;
         moveDmaFirstCopyAddr_ = 0xFFFFFFFF;
@@ -1667,7 +1671,10 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
             currentLocalScope_ = s->localLabelScope;
             if (!s->label.empty()) {
                 isDeadCode = false;
-                if (symbolTable[s->label].value != cP) { symbolTable[s->label].value = cP; addressRecalculationMadeChanges = true; }
+                if (symbolTable[s->label].value != cP) {
+                    symbolTable[s->label].value = cP;
+                    addressRecalculationMadeChanges = true;
+                }
             }
             if (s->type == Statement::DIRECTIVE && s->dir.name == "org") {
                 if (!s->dir.arguments.empty()) cP = parseNumericLiteral(s->dir.arguments[0]);
@@ -1714,17 +1721,18 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                             uint32_t newVal = evaluateExpressionAt(s->dir.tokenIndex, s->scopePrefix);
                             if (oldVal != newVal) {
                                 symbolTable[s->dir.varName].value = newVal;
-                                addressRecalculationMadeChanges = true;
                             }
                         }
-                        else if (s->dir.varType == Directive::INC) { symbolTable[s->dir.varName].value++; addressRecalculationMadeChanges = true; }
-                        else if (s->dir.varType == Directive::DEC) { symbolTable[s->dir.varName].value--; addressRecalculationMadeChanges = true; }
+                        else if (s->dir.varType == Directive::INC) { symbolTable[s->dir.varName].value++; }
+                        else if (s->dir.varType == Directive::DEC) { symbolTable[s->dir.varName].value--; }
                     }
                     s->size = calculateDirectiveSize(s->dir, cP);
                 }
                 else if (s->type == Statement::BASIC_UPSTART) s->size = 12;
             }
-            if (s->size != oS) addressRecalculationMadeChanges = true;
+            if (s->size != oS) {
+                addressRecalculationMadeChanges = true;
+            }
             // Build source-level line map (only on last iteration)
             if (!s->sourceFile.empty() && s->sourceLine > 0 && s->size > 0 && !s->deleted) {
                 if (lineMap_.empty() || lineMap_.back().address != s->address
@@ -1745,6 +1753,16 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                 seg->pc = pass2PCs[name];
             }
         }
+
+        bool variablesChanged = false;
+        for (const auto& [name, symbol] : symbolTable) {
+            if (symbol.isVariable) {
+                if (!savedVariableValues.count(name) || savedVariableValues[name] != symbol.value) {
+                    variablesChanged = true;
+                }
+            }
+        }
+        if (variablesChanged) overallChanged = true;
 
         if (addressRecalculationMadeChanges) overallChanged = true;
     } while (overallChanged);

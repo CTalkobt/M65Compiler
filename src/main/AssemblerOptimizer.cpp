@@ -7,6 +7,7 @@
 
 bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
     bool changed = false;
+    int tailCounter = 0;
 
     // Report helper: emits optimization action to stderr when verbose
     auto report = [&](const char* pass, const AssemblerParser::Statement* s, const std::string& action) {
@@ -848,7 +849,7 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
                 size_t savedBytes = (tails[0].tailSize - 2) * (tails.size() - 1);
                 if (savedBytes < 2) continue;
 
-                std::string sharedLabel = "__tail_" + std::to_string(reinterpret_cast<uintptr_t>(&sig));
+                std::string sharedLabel = "__tail_opt_dedup_" + std::to_string(tailCounter++);
                 bool isFirst = true;
 
                 for (auto& tail : tails) {
@@ -941,7 +942,7 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
                     size_t savings = allTails[i].tailSize - 2;
                     if (savings < 2) continue;
 
-                    std::string offsetLabel = "__tail_" + std::to_string(reinterpret_cast<uintptr_t>(&allTails[i])) + "_into";
+                    std::string offsetLabel = "__tail_opt_dedup_" + std::to_string(tailCounter++) + "_into";
 
                     size_t insertPos = longTail[longTail.size() - shortTail.size()];
                     auto* refStmt = parser->statements[insertPos].get();

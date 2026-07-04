@@ -27,7 +27,10 @@ static unsigned char int_to_bcd(int val) {
 static int days_in_month[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
 
 static int is_leap_year(int year) {
-    return (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
+    if (year % 4 != 0) return 0;
+    if (year % 100 != 0) return 1;
+    if (year % 400 == 0) return 1;
+    return 0;
 }
 
 /* Compute day of year (0-based) from month and day */

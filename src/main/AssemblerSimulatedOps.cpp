@@ -342,15 +342,16 @@ void AssemblerSimulatedOps::emitCMP16Code(AssemblerParser* parser, M65Emitter& e
     if (SRC1 == ".AX") {
         if (isImmediate && src2Ast->isConstant(parser)) {
             uint32_t val = src2Ast->getValue(parser);
-            // Use CPX for hi byte — avoids TXA, preserves A, saves 1 byte
-            e.cmp_imm(val & 0xFF); auto br = e.emitBranchPlaceholder(0xD0); e.cpx_imm((val >> 8) & 0xFF); e.patchBranchTarget(br);
+            // Compare high bytes first (X vs high byte of val)
+            e.cpx_imm((val >> 8) & 0xFF); auto br = e.emitBranchPlaceholder(0xD0); e.cmp_imm(val & 0xFF); e.patchBranchTarget(br);
         } else {
             std::string src2 = parser->tokens[tokenIndex].value;
             if (parser->tokens[tokenIndex].type == AssemblerTokenType::REGISTER) src2 = "." + src2;
             else if (!src2.empty() && src2[0] != '.' && (src2=="A"||src2=="X"||src2=="Y"||src2=="Z"||src2=="a"||src2=="x"||src2=="y"||src2=="z")) src2 = "." + src2;
             Symbol* sym = parser->resolveSymbol(src2, scopePrefix);
             uint32_t addr = 0; if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(src2); } catch(...) { addr = 0; } }
-            e.cmp_addr(addr); auto br = e.emitBranchPlaceholder(0xD0); e.cpx_addr(addr + 1); e.patchBranchTarget(br);
+            // Compare high bytes first (X vs memory high byte)
+            e.cpx_addr(addr + 1); auto br = e.emitBranchPlaceholder(0xD0); e.cmp_addr(addr); e.patchBranchTarget(br);
         }
     } else throw std::runtime_error("Simulated CMP.16 only supports .AX as first operand");
 }
@@ -368,7 +369,14 @@ void AssemblerSimulatedOps::emitCMP_S16Code(AssemblerParser* parser, M65Emitter&
     if (SRC1 == ".AX") {
         if (isImmediate && src2Ast->isConstant(parser)) {
             uint32_t val = src2Ast->getValue(parser);
-            e.cmp_imm(val & 0xFF); auto br366 = e.emitBranchPlaceholder(0xD0); e.txa(); e.eor_imm(0x80); e.cmp_imm(((val >> 8) & 0xFF) ^ 0x80); e.patchBranchTarget(br366);
+            e.sta_scratch();
+            e.txa();
+            e.eor_imm(0x80);
+            e.cmp_imm(((val >> 8) & 0xFF) ^ 0x80);
+            auto br = e.emitBranchPlaceholder(0xD0); // bne done
+            e.lda_scratch();
+            e.cmp_imm(val & 0xFF);
+            e.patchBranchTarget(br);
         } else {
             uint32_t addr = 0;
             try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
@@ -378,10 +386,17 @@ void AssemblerSimulatedOps::emitCMP_S16Code(AssemblerParser* parser, M65Emitter&
                 Symbol* sym = parser->resolveSymbol(src2, scopePrefix);
                 if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(src2); } catch(...) { addr = 0; } }
             }
-            e.cmp_addr(addr); auto br376 = e.emitBranchPlaceholder(0xD0); e.txa(); e.eor_imm(0x80); e.pha(); e.lda_addr(addr + 1); e.patchBranchTarget(br376); e.eor_imm(0x80); e.sta_scratch(); e.pla(); e.cmp_scratch();
-            // This is getting complex, maybe just use a simpler signed high-byte cmp.
-            // Simplified: CMP low, BNE done, TXA EOR #$80, STA temp, LDA high EOR #$80, CMP temp
-            // Actually: CMP low, BNE +7, TXA, EOR #$80, STA temp, LDA high, EOR #$80, CMP temp
+            e.sta_scratch();
+            e.txa();
+            e.eor_imm(0x80);
+            e.sta_scratch2(); // save AX high byte signed in scratch2
+            e.lda_addr(addr + 1);
+            e.eor_imm(0x80);
+            e.cmp_zp(e.scratchZP2()); // compare high bytes signed
+            auto br = e.emitBranchPlaceholder(0xD0); // bne done
+            e.lda_scratch();
+            e.cmp_addr(addr);
+            e.patchBranchTarget(br);
         }
     } else throw std::runtime_error("Simulated CMP.S16 only supports .AX as first operand");
 }
@@ -2087,7 +2102,7 @@ void AssemblerSimulatedOps::emitSTAXYZ_FPCode(AssemblerParser* parser, M65Emitte
     e.stx_scratch2();     // X
     e.sty_scratch3();     // Y
     e.stz_scratch3_hi();  // Z
-    
+
     e.lda_scratch();    e.sta_stack(totalOff);
     e.lda_scratch2();   e.sta_stack(totalOff + 1);
     e.lda_scratch3();   e.sta_stack(totalOff + 2);
