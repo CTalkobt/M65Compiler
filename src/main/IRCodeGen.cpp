@@ -591,7 +591,10 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
             } else if (!g.initList.empty()) {
                 // Array initializer
                 for (size_t i = 0; i < g.initList.size(); i++) {
-                    if (g.type == ir::Type::I8) emit(".byte " + std::to_string((int)(g.initList[i] & 0xFF)));
+                    // Check for symbolic label reference (e.g. string literal pointer)
+                    if (i < g.initLabels.size() && !g.initLabels[i].empty()) {
+                        emit(".word " + g.initLabels[i]);
+                    } else if (g.type == ir::Type::I8) emit(".byte " + std::to_string((int)(g.initList[i] & 0xFF)));
                     else if (g.type == ir::Type::I32) emit(".dword " + std::to_string((int)g.initList[i]));
                     else emit(".word " + std::to_string((int)(g.initList[i] & 0xFFFF)));
                 }
@@ -600,6 +603,9 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
                 if (bytesEmitted < g.size) {
                     emit(".res " + std::to_string(g.size - bytesEmitted));
                 }
+            } else if (!g.initLabels.empty() && !g.initLabels[0].empty()) {
+                // Scalar symbolic reference (e.g. char *p = "hello")
+                emit(".word " + g.initLabels[0]);
             } else {
                 // Scalar initializer
                 if (g.type == ir::Type::F32) {

@@ -474,7 +474,21 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
                 for (size_t i = depth; i < dims.size(); i++) totalSize *= dims[i];
                 return {ir::Type::PTR, tn, false, baseType, totalSize};
             }
-            // Final dimension (or pointer subscript) -> it's the element type
+            // Final dimension (or pointer subscript) -> it's the element type.
+            // For pointer arrays (e.g. char *arr[7]), the element is a pointer,
+            // not the pointed-to type.
+            {
+                auto tit = localTypes_.find(ref->name);
+                ir::Type varType = (tit != localTypes_.end()) ? tit->second : ir::Type::I16;
+                if (tit == localTypes_.end()) {
+                    auto gtit = globalTypes_.find(ref->name);
+                    if (gtit != globalTypes_.end()) varType = gtit->second;
+                }
+                if (varType == ir::Type::PTR && !dims.empty()) {
+                    // Array of pointers: element type is PTR, pointed-to is baseType
+                    return {ir::Type::PTR, tn, isSigned, baseType, 2};
+                }
+            }
             return {baseType, tn, isSigned, ir::Type::VOID, getTypeSize(tn, 0)};
         } else {
             // General fallback for non-variable roots (e.g. member arrays, function returns, derefs)
@@ -995,6 +1009,17 @@ void IRBuilder::visit(VariableDeclaration& node) {
             } else if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
                 gv.hasInitValue = true;
                 gv.initValue = lit->value;
+            } else if (auto* slit = dynamic_cast<StringLiteral*>(node.initializer.get())) {
+                // Scalar string literal init: char *p = "hello"
+                std::string label = "__str_" + std::to_string(nextLabel_++);
+                ir::Module::StringLiteral sl;
+                sl.label = label;
+                sl.value = slit->value;
+                sl.isAscii = slit->isAscii || (currentStringEncoding_ == StringEncoding::ASCII);
+                sl.encoding = slit->isAscii ? 1 : (currentStringEncoding_ == StringEncoding::SCREENCODE ? 2 : 0);
+                module_.strings.push_back(sl);
+                gv.hasInitValue = true;
+                gv.initLabels.push_back(label); // symbolic reference
             } else if (auto* cast = dynamic_cast<CastExpression*>(node.initializer.get())) {
                 if (auto* clit = dynamic_cast<IntegerLiteral*>(cast->expression.get())) {
                     gv.hasInitValue = true;
@@ -1005,8 +1030,21 @@ void IRBuilder::visit(VariableDeclaration& node) {
                 for (auto const& elem : il->elements) {
                     if (auto* elit = dynamic_cast<IntegerLiteral*>(elem.get())) {
                         gv.initList.push_back(elit->value);
+                        gv.initLabels.push_back("");
+                    } else if (auto* slit = dynamic_cast<StringLiteral*>(elem.get())) {
+                        // String literal in pointer array: create string constant and store label
+                        std::string label = "__str_" + std::to_string(nextLabel_++);
+                        ir::Module::StringLiteral sl;
+                        sl.label = label;
+                        sl.value = slit->value;
+                        sl.isAscii = slit->isAscii || (currentStringEncoding_ == StringEncoding::ASCII);
+                        sl.encoding = slit->isAscii ? 1 : (currentStringEncoding_ == StringEncoding::SCREENCODE ? 2 : 0);
+                        module_.strings.push_back(sl);
+                        gv.initList.push_back(0);
+                        gv.initLabels.push_back(label);
                     } else {
-                        gv.initList.push_back(0); // TODO: handle non-constant global initializers?
+                        gv.initList.push_back(0);
+                        gv.initLabels.push_back("");
                     }
                 }
             }
@@ -3409,7 +3447,10 @@ void IRBuilder::visit(ArrayAccess& node) {
             if (localTypeNames_.count(ref->name)) tn = localTypeNames_[ref->name];
             else tn = globalTypeNames_[ref->name];
 
-            int stride = getTypeSize(tn, 0);
+            // For pointer arrays (e.g. char *arr[7]), each element is a pointer (2 bytes),
+            // not the pointed-to type size.  Detect via localPointedToType_/globalPointedToType_.
+            bool isPointerElement = localPointedToType_.count(ref->name) || globalPointedToType_.count(ref->name);
+            int stride = isPointerElement ? 2 : getTypeSize(tn, 0);
             for (size_t i = depth; i < dims.size(); i++) {
                 stride *= dims[i];
             }
