@@ -8,5 +8,5 @@ class AssemblerParser;
 
 class AssemblerOptimizer {
 public:
-    static bool optimize(AssemblerParser* parser, bool verbose = false);
+    static bool optimize(AssemblerParser* parser, bool verbose = false, bool traceMachState = false);
 };

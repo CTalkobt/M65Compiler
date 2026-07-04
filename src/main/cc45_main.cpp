@@ -466,6 +466,7 @@ int main(int argc, char** argv) {
             std::cout << "  -I<path>       Add include search path" << std::endl;
             std::cout << "  -Rcodegen      Annotate assembly output with codegen reasoning comments" << std::endl;
             std::cout << "  -Roptir        Trace IR optimizer actions to stderr" << std::endl;
+            std::cout << "  -Rmachstate    Trace assembler MachineState register/flag tracking" << std::endl;
             std::cout << "  -?             Display this help message" << std::endl;
             return 0;
         } else if (arg == "-c") {
@@ -782,10 +783,12 @@ int main(int argc, char** argv) {
             ca45Path = cc45Path.substr(0, lastSep + 1) + "ca45";
         }
         std::string rOptFlag;
+        std::string rMachFlag;
         for (int ai = 1; ai < argc; ai++) {
-            if (std::string(argv[ai]) == "-Roptimizer") { rOptFlag = " -Roptimizer"; break; }
+            if (std::string(argv[ai]) == "-Roptimizer") rOptFlag = " -Roptimizer";
+            if (std::string(argv[ai]) == "-Rmachstate") rMachFlag = " -Rmachstate";
         }
-        std::string command = ca45Path + " -c -opt " + defineFlag + rOptFlag + " -o " + output_file + " " + asmFile;
+        std::string command = ca45Path + " -c -opt " + defineFlag + rOptFlag + rMachFlag + " -o " + output_file + " " + asmFile;
         int ret = std::system(command.c_str());
         if (ret != 0) {
             std::cerr << "Assembler failed with return code " << ret << std::endl;

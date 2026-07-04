@@ -152,7 +152,7 @@ AssemblerParser::FrameAccessInfo AssemblerParser::resolveFrameAccess(int tokenIn
     return info;
 }
 
-bool AssemblerParser::optimize() { return AssemblerOptimizer::optimize(this, verboseOptimizer); }
+bool AssemblerParser::optimize() { return AssemblerOptimizer::optimize(this, verboseOptimizer, traceMachState); }
 
 void AssemblerParser::emitExpressionCode(std::vector<uint8_t>& binary, const std::string& target, int tokenIndex, const std::string& scopePrefix) {
     M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());

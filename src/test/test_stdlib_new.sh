@@ -117,7 +117,7 @@ void main() {
     r[2] = 0xAA;
 }
 EOF
-# bsearch: blocked by codegen bug (#183)
+# bsearch: blocked by frame-access codegen bug in non-leaf loops (#183)
 echo "  SKIP: bsearch (#183)"
 
 # mktime, asctime: blocked by #179 (struct member access across linked objects)

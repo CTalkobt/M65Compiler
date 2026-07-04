@@ -1,4 +1,5 @@
 #include "IRCodeGen.hpp"
+#include "OpEffect.hpp"
 #include <cmath>
 #include <cstring>
 #include <iomanip>
@@ -55,6 +56,20 @@ void IRCodeGen::emit(const std::string& line, const std::string& reason) {
         out_ << "  ; [" << reason << "]";
     }
     out_ << "\n";
+
+    // Auto-update MachineState for simulated ops (contain '.' in mnemonic).
+    // Native instructions are handled with precise ms_ updates by the caller.
+    // Simulated ops (like stax.fp, add.16, mul.s16) need table-driven invalidation
+    // because the caller can't know what the expansion will clobber.
+    if (!line.empty() && line[0] != '.' && line[0] != ';') {
+        // Check if this is a simulated op (contains '.' in the mnemonic portion)
+        auto space = line.find(' ');
+        std::string mnem = (space != std::string::npos) ? line.substr(0, space) : line;
+        if (mnem.find('.') != std::string::npos) {
+            const OpEffect& effect = getOpEffect(mnem);
+            effect.apply(ms_);
+        }
+    }
 }
 
 void IRCodeGen::emitLabel(const std::string& label) {
@@ -266,10 +281,8 @@ void IRCodeGen::storeVreg(uint32_t vregId) {
             } else if (alloc.type == ir::Type::I8) {
                 emit("sta.fp " + sym);
             } else if (valueByte_[1] == REG_Z) {
-                // Hi byte already in Z — use staz.fp directly (no transfer needed)
                 emit("staz.fp " + sym);
             } else {
-                // Hi byte in X (standard AX convention) — stax.fp handles X→Z internally
                 emit("stax.fp " + sym);
             }
             break;
