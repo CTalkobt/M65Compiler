@@ -573,12 +573,14 @@ void optimizeTypeNarrowing(Module& mod) {
 
         // Narrowable arithmetic ops (safe to compute in I8 when result is truncated)
         auto isNarrowable = [](Op op) -> bool {
+            // SUB and NEG excluded: result sign matters (char subtraction
+            // must produce signed int result per C integer promotion rules)
             switch (op) {
-                case Op::ADD: case Op::SUB:
+                case Op::ADD:
                 case Op::MUL: case Op::MUL_U:
                 case Op::AND: case Op::OR: case Op::XOR:
                 case Op::SHL: case Op::SHR:
-                case Op::NEG: case Op::NOT:
+                case Op::NOT:
                     return true;
                 default:
                     return false;

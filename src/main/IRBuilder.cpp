@@ -1964,6 +1964,14 @@ void IRBuilder::visit(BinaryOperation& node) {
     ir::Op op = ir::Op::NOP;
     ir::Type finalResultType = resultType;
 
+    // C integer promotion: arithmetic on char (I8) promotes to int (I16)
+    // This ensures signed subtraction and other arithmetic produce correct results.
+    if (finalResultType == ir::Type::I8) {
+        finalResultType = ir::Type::I16;
+        lhsVal = emitCast(lhsVal, ir::Type::I16, lhsInfo.isSigned);
+        rhsVal = emitCast(rhsVal, ir::Type::I16, rhsInfo.isSigned);
+    }
+
     // Float binary operations
     if (resultType == ir::Type::F32) {
         // Float comparisons: emit FCMP (returns -1/0/1), then unsigned test
@@ -2838,6 +2846,7 @@ void IRBuilder::visit(FunctionCall& node) {
                 inst.resultType = ir::Type::I16;
                 emit(inst);
                 lastValue_ = dest;
+                lastValueSigned_ = true; // function pointer returns signed int by default
             } else {
                 // Normal direct call path
                 std::string mangledName = "_" + node.name;
@@ -2863,6 +2872,9 @@ void IRBuilder::visit(FunctionCall& node) {
                     inst.resultType = retType;
                     emit(inst);
                     lastValue_ = dest;
+                    // Function returns are signed by default (int, long)
+                    // unless the return type is explicitly unsigned
+                    lastValueSigned_ = true;
                 }
             }
         }
