@@ -202,14 +202,29 @@ void VRegAllocator::freeZpSlot(int zpAddr, ir::Type type) {
 int VRegAllocator::allocFrameSlot(ir::Type type, int overrideSize) {
     int size = (overrideSize > 0) ? overrideSize : ir::typeSize(type);
     if (size < 2) size = 2;
+
+    // Try to reuse a freed frame slot of matching size
+    for (auto it = freeFrameSlots_.begin(); it != freeFrameSlots_.end(); ++it) {
+        if (it->second == size) {
+            int offset = it->first;
+            freeFrameSlots_.erase(it);
+            return offset;
+        }
+    }
+
     int offset = frameSize_;
     frameSize_ += size;
     return offset;
 }
 
+void VRegAllocator::freeFrameSlot(int offset, int size) {
+    freeFrameSlots_.push_back({offset, size});
+}
+
 void VRegAllocator::assignLocations(const ir::Function& fn) {
     allocs_.clear();
     frameSize_ = 0;
+    freeFrameSlots_.clear();
 
     // Initialize ZP pool
     int zpPoolBytes = zpSlots_ * 2;
@@ -231,6 +246,11 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
     // Map vregId → zpAddr for ZP-allocated vRegs
     std::map<uint32_t, int> zpAllocMap;
 
+    // Track active frame allocations for reuse
+    // Map vregId → {frameOffset, slotSize}
+    struct FrameSlotInfo { int offset; int size; };
+    std::map<uint32_t, FrameSlotInfo> frameAllocMap;
+
     uint32_t paramCount = (uint32_t)fn.paramTypes.size();
     int axOccupiedUntil = -1; // instruction index until which A:X is occupied
 
@@ -243,17 +263,12 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
     for (auto& lr : ranges_) {
         int span = lr.lastUse - lr.firstDef;
 
-        // Expire ZP slots for temporaries whose live ranges have ended.
+        // Expire ZP and frame slots for temporaries whose live ranges have ended.
         // Only expire non-local-variable vRegs (temporaries are safe to reuse).
-        // NOTE: This is O(N * Z * N) where N = vregs, Z = active ZP allocs (≤64).
-        // Could be optimized to O(N * Z) with a vregId→LiveRange index map, but
-        // in practice N rarely exceeds 200 and Z ≤ 64, so the total iterations
-        // are ~12K at worst — more theoretical than practical concern.
         {
             std::vector<uint32_t> expired;
             for (auto& [vid, zpAddr] : zpAllocMap) {
-                if (localVarVregs.count(vid)) continue; // don't expire named locals
-                // Find this vReg's lastUse
+                if (localVarVregs.count(vid)) continue;
                 for (auto& r : ranges_) {
                     if (r.vregId == vid && r.lastUse < lr.firstDef) {
                         expired.push_back(vid);
@@ -263,6 +278,21 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
                 }
             }
             for (auto vid : expired) zpAllocMap.erase(vid);
+        }
+        // Expire frame slots
+        {
+            std::vector<uint32_t> expired;
+            for (auto& [vid, fsi] : frameAllocMap) {
+                if (localVarVregs.count(vid)) continue;
+                for (auto& r : ranges_) {
+                    if (r.vregId == vid && r.lastUse < lr.firstDef) {
+                        expired.push_back(vid);
+                        freeFrameSlot(fsi.offset, fsi.size);
+                        break;
+                    }
+                }
+            }
+            for (auto vid : expired) frameAllocMap.erase(vid);
         }
 
         // Check if any call occurs within the live range
@@ -282,7 +312,9 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
         bool isMemory = fn.memoryVregs.count(lr.vregId) > 0;
         if (isArray || isMemory) {
             int size = fn.vregSizes.count(lr.vregId) ? fn.vregSizes.at(lr.vregId) : ir::typeSize(lr.type);
-            allocs_[lr.vregId] = {IN_FRAME, allocFrameSlot(lr.type, size), lr.type};
+            int foff = allocFrameSlot(lr.type, size);
+            allocs_[lr.vregId] = {IN_FRAME, foff, lr.type};
+            frameAllocMap[lr.vregId] = {foff, size < 2 ? 2 : size};
             continue;
         }
 
@@ -305,13 +337,17 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
                 allocs_[lr.vregId] = {IN_ZP, zpAddr, lr.type};
                 zpAllocMap[lr.vregId] = zpAddr;
             } else {
-                allocs_[lr.vregId] = {IN_FRAME, allocFrameSlot(lr.type), lr.type};
+                int foff = allocFrameSlot(lr.type);
+                int fsize = ir::typeSize(lr.type); if (fsize < 2) fsize = 2;
+                allocs_[lr.vregId] = {IN_FRAME, foff, lr.type};
+                frameAllocMap[lr.vregId] = {foff, fsize};
             }
         } else {
             // Crosses a call — ZP is clobbered by callees, must use frame
-            {
-                allocs_[lr.vregId] = {IN_FRAME, allocFrameSlot(lr.type), lr.type};
-            }
+            int foff = allocFrameSlot(lr.type);
+            int fsize = ir::typeSize(lr.type); if (fsize < 2) fsize = 2;
+            allocs_[lr.vregId] = {IN_FRAME, foff, lr.type};
+            frameAllocMap[lr.vregId] = {foff, fsize};
         }
     }
 

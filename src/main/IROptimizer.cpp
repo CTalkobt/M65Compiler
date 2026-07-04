@@ -1,9 +1,26 @@
 #include "IROptimizer.hpp"
 #include <algorithm>
+#include <iostream>
 #include <map>
 #include <vector>
 
 namespace ir {
+
+std::ostream* optTrace = nullptr;
+
+static void trace(const char* pass, const std::string& func, const std::string& action,
+                  const SourceLoc& loc = {}) {
+    if (optTrace) {
+        *optTrace << "[" << pass << "] " << func;
+        if (loc.valid()) {
+            std::string f = loc.file;
+            auto slash = f.rfind('/');
+            if (slash != std::string::npos) f = f.substr(slash + 1);
+            *optTrace << " (" << f << ":" << loc.line << ")";
+        }
+        *optTrace << ": " << action << "\n";
+    }
+}
 
 namespace {
 
@@ -125,6 +142,7 @@ void optimizeCSE(Module& mod) {
                     for (const auto& pair : activeExprs) {
                         if (pair.first == key) {
                             // Match found! Replace instruction with COPY
+                            trace("cse", fn.name, "v" + std::to_string(inst.dest.vregId) + " reuses v" + std::to_string(pair.second.vregId), inst.loc);
                             inst.op = Op::COPY;
                             inst.src1 = pair.second;
                             inst.src2 = Operand::none();
@@ -168,12 +186,14 @@ void optimizeStrengthReduction(Module& mod) {
                 if (inst.src1.isVreg() && inst.src2.isVreg() &&
                     inst.src1.vregId == inst.src2.vregId) {
                     if (inst.op == Op::DIV || inst.op == Op::DIV_U) {
+                        trace("strength", fn.name, "v" + std::to_string(inst.dest.vregId) + " = v/v → 1", inst.loc);
                         inst.op = Op::CONST;
                         inst.src1 = Operand::imm(1, inst.resultType);
                         inst.src2 = Operand::none();
                         continue;
                     }
                     if (inst.op == Op::MOD || inst.op == Op::MOD_U) {
+                        trace("strength", fn.name, "v" + std::to_string(inst.dest.vregId) + " = v%v → 0", inst.loc);
                         inst.op = Op::CONST;
                         inst.src1 = Operand::imm(0, inst.resultType);
                         inst.src2 = Operand::none();
@@ -187,23 +207,24 @@ void optimizeStrengthReduction(Module& mod) {
                 if (it == constVals.end()) continue;
                 int64_t val = it->second;
 
+                auto vd = [&]() { return "v" + std::to_string(inst.dest.vregId); };
                 switch (inst.op) {
                     case Op::MUL:
                     case Op::MUL_U: {
                         if (val == 0) {
-                            // x * 0 → 0
+                            trace("strength", fn.name, vd() + " = MUL *0 → CONST 0", inst.loc);
                             inst.op = Op::CONST;
                             inst.src1 = Operand::imm(0, inst.resultType);
                             inst.src2 = Operand::none();
                         } else if (val == 1) {
-                            // x * 1 → copy x
+                            trace("strength", fn.name, vd() + " = MUL *1 → COPY", inst.loc);
                             inst.op = Op::COPY;
                             inst.src2 = Operand::none();
                         } else if (val > 0 && (val & (val - 1)) == 0) {
-                            // x * 2^n → x << n
                             int shift = 0;
                             int64_t v = val;
                             while (v > 1) { v >>= 1; shift++; }
+                            trace("strength", fn.name, vd() + " = MUL *" + std::to_string(val) + " → SHL " + std::to_string(shift), inst.loc);
                             inst.op = Op::SHL;
                             inst.src2 = Operand::imm(shift, inst.resultType);
                         }
@@ -212,14 +233,14 @@ void optimizeStrengthReduction(Module& mod) {
                     case Op::DIV:
                     case Op::DIV_U: {
                         if (val == 1) {
-                            // x / 1 → copy x
+                            trace("strength", fn.name, vd() + " = DIV /1 → COPY", inst.loc);
                             inst.op = Op::COPY;
                             inst.src2 = Operand::none();
                         } else if (inst.op == Op::DIV_U && val > 0 && (val & (val - 1)) == 0) {
-                            // x / 2^n → x >> n (unsigned only)
                             int shift = 0;
                             int64_t v = val;
                             while (v > 1) { v >>= 1; shift++; }
+                            trace("strength", fn.name, vd() + " = DIV_U /" + std::to_string(val) + " → SHR " + std::to_string(shift), inst.loc);
                             inst.op = Op::SHR;
                             inst.src2 = Operand::imm(shift, inst.resultType);
                         }
@@ -228,12 +249,12 @@ void optimizeStrengthReduction(Module& mod) {
                     case Op::MOD:
                     case Op::MOD_U: {
                         if (val == 1) {
-                            // x % 1 → 0
+                            trace("strength", fn.name, vd() + " = MOD %1 → CONST 0", inst.loc);
                             inst.op = Op::CONST;
                             inst.src1 = Operand::imm(0, inst.resultType);
                             inst.src2 = Operand::none();
                         } else if (inst.op == Op::MOD_U && val > 0 && (val & (val - 1)) == 0) {
-                            // x % 2^n → x & (2^n - 1) (unsigned only)
+                            trace("strength", fn.name, vd() + " = MOD_U %" + std::to_string(val) + " → AND " + std::to_string(val - 1), inst.loc);
                             inst.op = Op::AND;
                             inst.src2 = Operand::imm(val - 1, inst.resultType);
                         }
@@ -291,12 +312,14 @@ void optimizeAlgebraic(Module& mod) {
                     switch (inst.op) {
                         case Op::SUB:   // x - x → 0
                         case Op::XOR:   // x ^ x → 0
+                            trace("algebraic", fn.name, "v" + std::to_string(inst.dest.vregId) + " = x^x/x-x → 0", inst.loc);
                             inst.op = Op::CONST;
                             inst.src1 = Operand::imm(0, inst.resultType);
                             inst.src2 = Operand::none();
                             continue;
                         case Op::AND:   // x & x → x
                         case Op::OR:    // x | x → x
+                            trace("algebraic", fn.name, "v" + std::to_string(inst.dest.vregId) + " = x&x/x|x → COPY", inst.loc);
                             inst.op = Op::COPY;
                             inst.src2 = Operand::none();
                             continue;
@@ -307,11 +330,13 @@ void optimizeAlgebraic(Module& mod) {
                 // Constant-operand patterns: check src2
                 int64_t val2;
                 if (getConst(inst.src2, val2)) {
+                    auto vd = [&]() { return "v" + std::to_string(inst.dest.vregId); };
                     switch (inst.op) {
                         case Op::ADD:
                         case Op::SUB:
                             if (val2 == 0) {
                                 // x + 0 → x, x - 0 → x
+                                trace("algebraic", fn.name, vd() + " = ADD/SUB +0 → COPY", inst.loc);
                                 inst.op = Op::COPY;
                                 inst.src2 = Operand::none();
                             }
@@ -319,11 +344,13 @@ void optimizeAlgebraic(Module& mod) {
                         case Op::AND:
                             if (val2 == 0) {
                                 // x & 0 → 0
+                                trace("algebraic", fn.name, vd() + " = AND &0 → CONST 0", inst.loc);
                                 inst.op = Op::CONST;
                                 inst.src1 = Operand::imm(0, inst.resultType);
                                 inst.src2 = Operand::none();
                             } else if (val2 == fullMask(inst.resultType)) {
                                 // x & 0xFFFF (I16) → x
+                                trace("algebraic", fn.name, vd() + " = AND &mask → COPY", inst.loc);
                                 inst.op = Op::COPY;
                                 inst.src2 = Operand::none();
                             }
@@ -331,10 +358,12 @@ void optimizeAlgebraic(Module& mod) {
                         case Op::OR:
                             if (val2 == 0) {
                                 // x | 0 → x
+                                trace("algebraic", fn.name, vd() + " = OR |0 → COPY", inst.loc);
                                 inst.op = Op::COPY;
                                 inst.src2 = Operand::none();
                             } else if (val2 == fullMask(inst.resultType)) {
                                 // x | 0xFFFF → 0xFFFF
+                                trace("algebraic", fn.name, vd() + " = OR |mask → CONST mask", inst.loc);
                                 inst.op = Op::CONST;
                                 inst.src1 = Operand::imm(val2, inst.resultType);
                                 inst.src2 = Operand::none();
@@ -343,6 +372,7 @@ void optimizeAlgebraic(Module& mod) {
                         case Op::XOR:
                             if (val2 == 0) {
                                 // x ^ 0 → x
+                                trace("algebraic", fn.name, vd() + " = XOR ^0 → COPY", inst.loc);
                                 inst.op = Op::COPY;
                                 inst.src2 = Operand::none();
                             }
@@ -354,6 +384,7 @@ void optimizeAlgebraic(Module& mod) {
                         case Op::ASR:
                             if (val2 == 0) {
                                 // x << 0 → x, x >> 0 → x
+                                trace("algebraic", fn.name, vd() + " = shift <<0 → COPY", inst.loc);
                                 inst.op = Op::COPY;
                                 inst.src2 = Operand::none();
                             }
@@ -365,10 +396,12 @@ void optimizeAlgebraic(Module& mod) {
                 // Constant-operand patterns: check src1 (for commutative ops)
                 int64_t val1;
                 if (getConst(inst.src1, val1)) {
+                    auto vd = [&]() { return "v" + std::to_string(inst.dest.vregId); };
                     switch (inst.op) {
                         case Op::ADD:
                             if (val1 == 0) {
                                 // 0 + x → x
+                                trace("algebraic", fn.name, vd() + " = 0+x → COPY", inst.loc);
                                 inst.op = Op::COPY;
                                 inst.src1 = inst.src2;
                                 inst.src2 = Operand::none();
@@ -377,6 +410,7 @@ void optimizeAlgebraic(Module& mod) {
                         case Op::AND:
                             if (val1 == 0) {
                                 // 0 & x → 0
+                                trace("algebraic", fn.name, vd() + " = 0&x → CONST 0", inst.loc);
                                 inst.op = Op::CONST;
                                 inst.src1 = Operand::imm(0, inst.resultType);
                                 inst.src2 = Operand::none();
@@ -385,6 +419,7 @@ void optimizeAlgebraic(Module& mod) {
                         case Op::OR:
                             if (val1 == 0) {
                                 // 0 | x → x
+                                trace("algebraic", fn.name, vd() + " = 0|x → COPY", inst.loc);
                                 inst.op = Op::COPY;
                                 inst.src1 = inst.src2;
                                 inst.src2 = Operand::none();
@@ -451,6 +486,7 @@ void optimizeAddrElemFusion(Module& mod) {
                 if (!isLoad && !isStore) continue;
 
                 // Fuse: copy ADDR_ELEM params into the LOAD/STORE args
+                trace("fusion", fn.name, "v" + std::to_string(addrVreg) + " ADDR_ELEM fused into " + (isLoad ? "LOAD" : "STORE"), addrInst.loc);
                 int elemSize = (addrInst.args.size() > 0) ? (int)addrInst.args[0].immVal : 2;
                 nextInst.args.clear();
                 nextInst.args.push_back(addrInst.src1); // base
@@ -497,6 +533,10 @@ void optimizeCopyChains(Module& mod) {
 
         if (copyRoot.empty()) return;
 
+        for (auto& [dest, root] : copyRoot) {
+            trace("copy", fn.name, "v" + std::to_string(dest) + " chain → v" + std::to_string(root.vregId));
+        }
+
         // Rewrite all operands using the forwarding map
         auto rewrite = [&](Operand& op) {
             if (op.isVreg()) {
@@ -533,6 +573,7 @@ void optimizeCopyChains(Module& mod) {
                 if (inst.op == Op::COPY && inst.dest.isVreg() &&
                     !usedVregs.count(inst.dest.vregId) &&
                     !fn.localSlotVregs.count(inst.dest.vregId)) {
+                    trace("copy", fn.name, "v" + std::to_string(inst.dest.vregId) + " dead COPY removed", inst.loc);
                     inst.op = Op::NOP;
                     inst.src1 = Operand::none();
                     inst.src2 = Operand::none();
@@ -614,6 +655,7 @@ void optimizeTypeNarrowing(Module& mod) {
                 if (!allUsesTruncI8(inst.dest.vregId)) continue;
 
                 // Narrow: change result type to I8
+                trace("narrow", fn.name, "v" + std::to_string(inst.dest.vregId) + " narrowed to I8", inst.loc);
                 inst.resultType = Type::I8;
 
                 // Convert each TRUNC consumer to COPY (the result is already I8)
@@ -639,6 +681,7 @@ void optimizeTypeNarrowing(Module& mod) {
                 if (!allUsesTruncI8(inst.dest.vregId)) continue;
 
                 // The ZEXT/SEXT is pointless — replace with COPY
+                trace("narrow", fn.name, "v" + std::to_string(inst.dest.vregId) + " redundant ZEXT/SEXT → COPY", inst.loc);
                 inst.op = Op::COPY;
                 inst.resultType = Type::I8;
 
@@ -689,8 +732,10 @@ void optimizeBranchFold(Module& mod) {
 
                     // If target is the next block, just remove the branch (fallthrough)
                     if (bi + 1 < fn.blocks.size() && fn.blocks[bi + 1].label == target) {
+                        trace("branch", fn.name, "BR_COND const → fallthrough");
                         fn.blocks[bi].insts.erase(it);
                     } else {
+                        trace("branch", fn.name, "BR_COND const → BR " + target);
                         it->op = Op::BR;
                         it->src1 = Operand::label(target);
                         it->src2 = Operand::none();
@@ -720,6 +765,7 @@ void optimizeBranchFold(Module& mod) {
                                 if (target.insts.size() == 1 && target.insts[0].op == Op::BR &&
                                     !target.insts[0].src1.name.empty() &&
                                     target.insts[0].src1.name != label) {
+                                    trace("branch", fn.name, "thread " + label + " → " + target.insts[0].src1.name);
                                     label = target.insts[0].src1.name;
                                     changed = true;
                                 } else {
@@ -784,6 +830,7 @@ void optimizeBranchFold(Module& mod) {
                 auto it = fn.blocks.begin();
                 while (it != fn.blocks.end()) {
                     if (!referenced.count(it->label)) {
+                        trace("branch", fn.name, "dead block " + it->label + " removed");
                         it = fn.blocks.erase(it);
                         changed = true;
                     } else {
@@ -1056,6 +1103,10 @@ void optimizeLICM(Module& mod) {
             }
 
             if (nonConstInvariants.empty()) continue;
+
+            for (uint32_t v : nonConstInvariants) {
+                trace("licm", fn.name, "v" + std::to_string(v) + " hoisted to pre-header");
+            }
 
             // Collect non-CONST invariant instructions (MOVE from loop body)
             std::vector<Inst> hoisted;

@@ -117,8 +117,8 @@ void main() {
     r[2] = 0xAA;
 }
 EOF
-# bsearch: blocked by frame-access bug in non-leaf functions with deep frames (#183)
-echo "  SKIP: bsearch (#183 — frame-access bug with deep vReg frames)"
+# bsearch: blocked by codegen bug (#183)
+echo "  SKIP: bsearch (#183)"
 
 # mktime, asctime: blocked by #179 (struct member access across linked objects)
 echo "  SKIP: mktime (blocked by #179)"

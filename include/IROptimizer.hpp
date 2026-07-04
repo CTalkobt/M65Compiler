@@ -1,7 +1,12 @@
 #pragma once
 #include "IR.hpp"
+#include <ostream>
 
 namespace ir {
+    // Trace stream for IR optimizer logging (-Roptir)
+    // When non-null, optimization passes report actions to this stream
+    extern std::ostream* optTrace;
+
     // Run Common Subexpression Elimination and Copy Propagation on the IR Module
     void optimizeCSE(Module& mod);
 

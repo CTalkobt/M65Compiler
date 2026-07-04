@@ -406,6 +406,7 @@ int main(int argc, char** argv) {
     bool inlineFunctions = false;
     bool emitIR = false;
     bool emitReasons = false;
+    bool traceIROpt = false;
     uint32_t zeroPageAvail = 9;
     std::string defineFlag = "";
     std::map<std::string, std::string> initialSymbols;
@@ -464,6 +465,7 @@ int main(int argc, char** argv) {
             std::cout << "  -Dname=val     Define a symbol (e.g., -Dcc45.zeroPageStart=$10)" << std::endl;
             std::cout << "  -I<path>       Add include search path" << std::endl;
             std::cout << "  -Rcodegen      Annotate assembly output with codegen reasoning comments" << std::endl;
+            std::cout << "  -Roptir        Trace IR optimizer actions to stderr" << std::endl;
             std::cout << "  -?             Display this help message" << std::endl;
             return 0;
         } else if (arg == "-c") {
@@ -491,6 +493,8 @@ int main(int argc, char** argv) {
             emitIR = true;
         } else if (arg == "-Rcodegen") {
             emitReasons = true;
+        } else if (arg == "-Roptir") {
+            traceIROpt = true;
         } else if (arg == "-Roptimizer") {
             emitReasons = true; // also enable codegen reasons for context
             // Flag will be passed to ca45 subprocess below
@@ -670,6 +674,7 @@ int main(int argc, char** argv) {
 
         irBuilder.generate(*ast);
 
+        if (traceIROpt) ir::optTrace = &std::cerr;
         if (optimize) {
             if (verboseLevel >= 1) std::cout << "Optimizing IR (Strength Reduction)..." << std::endl;
             ir::optimizeStrengthReduction(irBuilder.getModule());

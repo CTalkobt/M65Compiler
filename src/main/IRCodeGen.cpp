@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstring>
 #include <iomanip>
+#include <iostream>
 #include <sstream>
 #include <algorithm>
 
@@ -1068,6 +1069,11 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // Allocate frame only for frame-allocated vRegs
     int localFrameSize = frameSize_;
     localFrameSize_ = localFrameSize;  // save for RET cleanup
+    if (localFrameSize > 128) {
+        // Frame + params + return addr + dynamic pushes must fit in uint8_t offsets
+        std::cerr << fn.name << ": warning: large frame (" << localFrameSize
+                  << " bytes) may cause incorrect stack-relative addressing\n";
+    }
     if (localFrameSize > 0) {
         emitComment("frame: " + std::to_string(localFrameSize) + " bytes (frame-allocated vRegs only)");
         // Push frame slots physically — do NOT bump _fp (stays at 0).
