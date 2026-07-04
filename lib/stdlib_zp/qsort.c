@@ -2,41 +2,38 @@
 
 #include <string.h>
 
-static void swap(char *a, char *b, int size) {
+static void swap(char *a, char *b, signed int size) {
     char tmp;
-    int i;
+    signed int i;
     for (i = 0; i < size; i++) {
         tmp = a[i]; a[i] = b[i]; b[i] = tmp;
     }
 }
 
-typedef int (*cmpfn_t)();
+typedef signed int (*cmpfn_t)();
 
 cmpfn_t qs_cmp;
-int qs_size;
+signed int qs_size;
 
-static int do_cmp(void *a, void *b) {
+static signed int do_cmp(void *a, void *b) {
     return qs_cmp(a, b);
 }
 
-/* Signed greater-than-zero: checks high bit for sign */
-static int cmp_positive(void *a, void *b) {
-    int v = do_cmp(a, b);
-    /* Use arithmetic: positive if non-zero and high byte < 0x80 */
-    unsigned int uv = (unsigned int)v;
-    if (uv == 0) return 0;
-    return (uv >> 8) < 128 ? 1 : 0;
+/* Signed greater-than-zero: compare result > 0 */
+static signed int cmp_positive(void *a, void *b) {
+    signed int v = do_cmp(a, b);
+    return v > 0 ? 1 : 0;
 }
 
 /* Signed less-than-or-equal-to-zero */
-static int cmp_not_positive(void *a, void *b) {
+static signed int cmp_not_positive(void *a, void *b) {
     return !cmp_positive(a, b);
 }
 
-static void qs_impl(char *arr, int nmemb) {
-    int i, j;
+static void qs_impl(char *arr, signed int nmemb) {
+    signed int i, j;
     char *pivot;
-    int size = qs_size;
+    signed int size = qs_size;
 
     if (nmemb <= 1) return;
 
@@ -52,8 +49,8 @@ static void qs_impl(char *arr, int nmemb) {
     }
 
     {
-        int mid = nmemb / 2;
-        int last = nmemb - 1;
+        signed int mid = nmemb / 2;
+        signed int last = nmemb - 1;
         if (cmp_positive(arr, arr + mid * size))
             swap(arr, arr + mid * size, size);
         if (cmp_positive(arr, arr + last * size))
@@ -85,7 +82,7 @@ static void qs_impl(char *arr, int nmemb) {
     }
 }
 
-void qsort(void *base, int nmemb, int size, int (*cmpfunc)()) {
+void qsort(void *base, signed int nmemb, signed int size, signed int (*cmpfunc)()) {
     qs_cmp = cmpfunc;
     qs_size = size;
     qs_impl((char *)base, nmemb);

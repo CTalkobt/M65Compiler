@@ -529,11 +529,27 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         }
     }
 
-    // Comma operator: type is the type of the right operand
+    // Binary operations: propagate type and signedness
     if (auto* bin = dynamic_cast<BinaryOperation*>(expr)) {
         if (bin->op == ",") {
             return getExprTypeInfo(bin->right.get());
         }
+        // For arithmetic/bitwise ops, result type comes from operands
+        auto lhs = getExprTypeInfo(bin->left.get());
+        auto rhs = getExprTypeInfo(bin->right.get());
+        // Signed if both operands are signed, or one is signed and the other
+        // is an unsigned literal that fits in signed range
+        bool sig = lhs.isSigned && rhs.isSigned;
+        if (!sig && (lhs.isSigned || rhs.isSigned)) {
+            auto* lhsLit = dynamic_cast<IntegerLiteral*>(bin->left.get());
+            auto* rhsLit = dynamic_cast<IntegerLiteral*>(bin->right.get());
+            if (lhs.isSigned && !rhs.isSigned && rhsLit && rhsLit->castType.empty() && rhsLit->value >= 0 && rhsLit->value <= 32767)
+                sig = true;
+            else if (rhs.isSigned && !lhs.isSigned && lhsLit && lhsLit->castType.empty() && lhsLit->value >= 0 && lhsLit->value <= 32767)
+                sig = true;
+        }
+        ir::Type t = (ir::typeSize(lhs.type) >= ir::typeSize(rhs.type)) ? lhs.type : rhs.type;
+        return {t, lhs.typeName, sig, ir::Type::VOID, ir::typeSize(t)};
     }
 
     return {ir::Type::I16, "int", false, ir::Type::VOID, 2};
@@ -1547,6 +1563,11 @@ void IRBuilder::visit(Assignment& node) {
         // Determine the operation
         ir::Op binOp = ir::Op::NOP;
         bool bothSigned = lhsSigned && rhsInfo.isSigned;
+        if (!bothSigned && (lhsSigned || rhsInfo.isSigned)) {
+            auto* rhsLit = dynamic_cast<IntegerLiteral*>(node.expression.get());
+            if (lhsSigned && !rhsInfo.isSigned && rhsLit && rhsLit->castType.empty() && rhsLit->value >= 0 && rhsLit->value <= 32767)
+                bothSigned = true;
+        }
         if (node.op == "+=") binOp = ir::Op::ADD;
         else if (node.op == "-=") binOp = ir::Op::SUB;
         else if (node.op == "*=") binOp = bothSigned ? ir::Op::MUL : ir::Op::MUL_U;
@@ -1959,7 +1980,17 @@ void IRBuilder::visit(BinaryOperation& node) {
     }
 
     // For comparison operators: use signed ops only if BOTH operands are signed.
+    // Per C semantics: if one operand is signed and the other is an unsigned
+    // literal that fits in the signed range (0-32767 for 16-bit), treat as signed.
     bool bothSigned = lhsInfo.isSigned && rhsInfo.isSigned;
+    if (!bothSigned && (lhsInfo.isSigned || rhsInfo.isSigned)) {
+        auto* lhsLit = dynamic_cast<IntegerLiteral*>(node.left.get());
+        auto* rhsLit = dynamic_cast<IntegerLiteral*>(node.right.get());
+        if (lhsInfo.isSigned && !rhsInfo.isSigned && rhsLit && rhsLit->castType.empty() && rhsLit->value >= 0 && rhsLit->value <= 32767)
+            bothSigned = true;
+        else if (rhsInfo.isSigned && !lhsInfo.isSigned && lhsLit && lhsLit->castType.empty() && lhsLit->value >= 0 && lhsLit->value <= 32767)
+            bothSigned = true;
+    }
 
     ir::Op op = ir::Op::NOP;
     ir::Type finalResultType = resultType;

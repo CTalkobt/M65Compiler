@@ -89,24 +89,10 @@ compile_and_run "strerror" "$BUILD/test_strerror.c" "01 01 AA" 3
 cat > $BUILD/test_qsort.c << 'EOF'
 #include <stdlib.h>
 volatile char *r = (char *)0x4000;
-int arr[5] = {50, 10, 40, 20, 30};
-int cmp(const void *a, const void *b) { return *(int*)a - *(int*)b; }
+signed int arr[5] = {50, 10, 40, 20, 30};
+signed int cmp(const void *a, const void *b) { return *(signed int*)a - *(signed int*)b; }
 void main() {
-    qsort(arr, 5, sizeof(int), cmp);
-    r[0] = (char)arr[0];
-    r[1] = (char)arr[2];
-    r[2] = (char)arr[4];
-    r[3] = 0xAA;
-}
-EOF
-# --- qsort (global array) ---
-cat > $BUILD/test_qsort.c << 'EOF'
-#include <stdlib.h>
-volatile char *r = (char *)0x4000;
-int arr[5] = {50, 10, 40, 20, 30};
-int cmp(const void *a, const void *b) { return *(int*)a - *(int*)b; }
-void main() {
-    qsort(arr, 5, sizeof(int), cmp);
+    qsort(arr, 5, sizeof(signed int), cmp);
     r[0] = (char)arr[0];
     r[1] = (char)arr[2];
     r[2] = (char)arr[4];
@@ -119,20 +105,20 @@ compile_and_run "qsort" "$BUILD/test_qsort.c" "0A 1E 32 AA" 4
 cat > $BUILD/test_bsearch.c << 'EOF'
 #include <stdlib.h>
 volatile char *r = (char *)0x4000;
-int sorted[5] = {10, 20, 30, 40, 50};
-int cmp(const void *a, const void *b) { return *(int*)a - *(int*)b; }
+signed int sorted[5] = {10, 20, 30, 40, 50};
+signed int cmp(const void *a, const void *b) { return *(signed int*)a - *(signed int*)b; }
 void main() {
-    int key = 30;
-    int *found = (int *)bsearch(&key, sorted, 5, sizeof(int), cmp);
+    signed int key = 30;
+    signed int *found = (signed int *)bsearch(&key, sorted, 5, sizeof(signed int), cmp);
     r[0] = found ? 1 : 0;
     key = 25;
-    found = (int *)bsearch(&key, sorted, 5, sizeof(int), cmp);
+    found = (signed int *)bsearch(&key, sorted, 5, sizeof(signed int), cmp);
     r[1] = found ? 1 : 0;
     r[2] = 0xAA;
 }
 EOF
-# bsearch: still failing — needs investigation (const void* or mid calculation issue)
-echo "  SKIP: bsearch (needs investigation)"
+# bsearch: blocked by frame-access bug in non-leaf functions with deep frames (#183)
+echo "  SKIP: bsearch (#183 — frame-access bug with deep vReg frames)"
 
 # mktime, asctime: blocked by #179 (struct member access across linked objects)
 echo "  SKIP: mktime (blocked by #179)"
