@@ -135,24 +135,34 @@ static const std::map<std::string, OpEffect>& getTable() {
         // --- 16-bit ALU: result in A:X ---
         {"add.16",   {E::A|E::X,       true,  false, false}},
         {"sub.16",   {E::A|E::X,       true,  false, false}},
+        {"add.s16",  {E::A|E::X,       true,  false, false}},
+        {"sub.s16",  {E::A|E::X,       true,  false, false}},
         {"adds.16",  {E::A|E::X,       true,  false, false}},
         {"subs.16",  {E::A|E::X,       true,  false, false}},
         {"and.16",   {E::A|E::X,       true,  false, false}},
         {"ora.16",   {E::A|E::X,       true,  false, false}},
         {"eor.16",   {E::A|E::X,       true,  false, false}},
         {"neg.16",   {E::A|E::X,       true,  false, false}},
+        {"neg.s16",  {E::A|E::X,       true,  false, false}},
         {"not.16",   {E::A|E::X,       true,  false, false}},
         {"abs.16",   {E::A|E::X,       true,  false, false}},
+        {"abs.s16",  {E::A|E::X,       true,  false, false}},
         {"lsl.16",   {E::A|E::X,       true,  false, false}},
         {"lsr.16",   {E::A|E::X,       true,  false, false}},
         {"asr.16",   {E::A|E::X,       true,  false, false}},
         {"rol.16",   {E::A|E::X,       true,  false, false}},
         {"ror.16",   {E::A|E::X,       true,  false, false}},
+        {"lsl.s16",  {E::A|E::X,       true,  false, false}},
+        {"lsr.s16",  {E::A|E::X,       true,  false, false}},
+        {"asr.s16",  {E::A|E::X,       true,  false, false}},
+        {"rol.s16",  {E::A|E::X,       true,  false, false}},
+        {"ror.s16",  {E::A|E::X,       true,  false, false}},
         {"sxt.8",    {E::A|E::X,       true,  false, false}},
         {"sxt.16",   {E::A|E::X|E::Y|E::Z, true, false, false}},
 
         // --- 16-bit compare ---
         {"cmp.16",   {E::A|E::X,       true,  false, false}},
+        {"cpw",      {E::A|E::X,       true,  false, false}},  // alias for cmp.16
         {"cmp.s16",  {E::A|E::X,       true,  true,  false}},  // uses scratch ZP
 
         // --- 16-bit mul/div/mod (use scratch ZP, may clobber Y) ---
@@ -166,12 +176,16 @@ static const std::map<std::string, OpEffect>& getTable() {
         // --- 32-bit ALU: result in AXYZ ---
         {"add.32",   {E::ALL,           true,  true,  false}},
         {"sub.32",   {E::ALL,           true,  true,  false}},
+        {"add.s32",  {E::ALL,           true,  true,  false}},
+        {"sub.s32",  {E::ALL,           true,  true,  false}},
         {"and.32",   {E::ALL,           true,  false, false}},
         {"ora.32",   {E::ALL,           true,  false, false}},
         {"eor.32",   {E::ALL,           true,  false, false}},
         {"neg.32",   {E::ALL,           true,  true,  false}},
+        {"neg.s32",  {E::ALL,           true,  true,  false}},
         {"not.32",   {E::ALL,           true,  false, false}},
         {"abs.32",   {E::ALL,           true,  true,  false}},
+        {"abs.s32",  {E::ALL,           true,  true,  false}},
         {"cmp.32",   {E::ALL,           true,  true,  false}},
         {"cmp.s32",  {E::ALL,           true,  true,  false}},
         {"mul.32",   {E::ALL,           true,  true,  false}},
@@ -185,6 +199,11 @@ static const std::map<std::string, OpEffect>& getTable() {
         {"asr.32",   {E::ALL,           true,  false, false}},
         {"rol.32",   {E::ALL,           true,  false, false}},
         {"ror.32",   {E::ALL,           true,  false, false}},
+        {"lsl.s32",  {E::ALL,           true,  false, false}},
+        {"lsr.s32",  {E::ALL,           true,  false, false}},
+        {"asr.s32",  {E::ALL,           true,  false, false}},
+        {"rol.s32",  {E::ALL,           true,  false, false}},
+        {"ror.s32",  {E::ALL,           true,  false, false}},
 
         // --- Check zero/nonzero ---
         {"chkzero.8",     {E::A,              true, false, false}},
@@ -197,7 +216,9 @@ static const std::map<std::string, OpEffect>& getTable() {
 
         // --- Load/Store word ---
         {"ldw",      {E::A|E::X,       true,  false, false}},
+        {"ldw.sp",   {E::A|E::X,       true,  false, false}},
         {"stw",      {0,               false, true,  false}},
+        {"stw.sp",   {0,               false, true,  false}},
         {"ldax",     {E::A|E::X,       true,  false, false}},
         {"stax",     {0,               false, true,  false}},
 
@@ -211,7 +232,33 @@ static const std::map<std::string, OpEffect>& getTable() {
 
         // --- Fill/Copy (DMA or loop) ---
         {"fill",     {E::A|E::X|E::Y|E::Z, true, true, false}},
+        {"fill.sp",  {E::A|E::X|E::Y|E::Z, true, true, false}},
         {"move",     {E::A|E::X|E::Y|E::Z, true, true, false}},
+        {"move.sp",  {E::A|E::X|E::Y|E::Z, true, true, false}},
+
+        // --- Stack-relative load/store (uses TSX → clobbers X) ---
+        {"lda.sp",   {E::A|E::X,            true,  false, false}},
+        {"sta.sp",   {E::X,                  false, true,  false}},
+        {"phw.sp",   {E::A,                  false, false, true}},
+
+        // --- Flat memory ops (absolute addressing, no frame pointer) ---
+        {"ldw.f",    {E::A|E::X,             true,  false, false}},
+        {"stw.f",    {0,                     false, true,  false}},
+        {"inc.f",    {0,                     true,  true,  false}},
+        {"dec.f",    {0,                     true,  true,  false}},
+
+        // --- Pointer ops ---
+        {"ptrstack", {E::A|E::X,             true,  false, false}},
+        {"ptrderef", {E::A|E::X|E::Y,        true,  false, false}},
+
+        // --- Branch pseudo-ops ---
+        {"branch.16",{0,                     false, false, false}},
+
+        // --- Struct/array element address computation ---
+        {"struct_elem",   {E::A|E::X,        true,  true,  false}},
+        {"struct_elem.16",{E::A|E::X,        true,  true,  false}},
+        {"addr_elem",     {E::A|E::X,        true,  true,  false}},
+        {"addr_elem.16",  {E::A|E::X,        true,  true,  false}},
 
         // --- Frame load ops: use tsx internally → clobber X ---
         {"lda.fp",   {E::A|E::X,             true,  false, false}},
@@ -246,7 +293,12 @@ static const std::map<std::string, OpEffect>& getTable() {
         {"bfext16",  {E::A|E::X,              true,  true,  false}},
         {"bfext32",  {E::A|E::X|E::Y|E::Z,   true,  true,  false}},
         {"bfins",    {E::A|E::X,              true,  true,  false}},
+        {"bfins.sp", {E::A|E::X,              true,  true,  false}},
+        {"bfins.ind",{E::A|E::X,              true,  true,  false}},
         {"bfins16",  {E::A|E::X,              true,  true,  false}},
+        {"bfins16.sp",  {E::A|E::X,           true,  true,  false}},
+        {"bfins16.ind", {E::A|E::X,           true,  true,  false}},
+        {"bfins32",  {E::A|E::X|E::Y|E::Z,   true,  true,  false}},
 
         // --- Proc/endproc (structural, not real ops) ---
         {"proc",     {0,                      false, false, false}},
