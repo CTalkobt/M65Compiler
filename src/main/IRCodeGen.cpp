@@ -1449,7 +1449,11 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 }
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
-            resultInAX_ = inst.dest.isVreg() ? (int32_t)inst.dest.vregId : -1;
+            // stax.fp clobbers X via TSX — don't claim result is in AX after frame store
+            if (inst.dest.isVreg() && alloc_.getAlloc(inst.dest.vregId).loc != VRegAllocator::IN_FRAME)
+                resultInAX_ = (int32_t)inst.dest.vregId;
+            else
+                resultInAX_ = -1;
             ms_.invalidateAll(); // conservative: reset after CONST+store
             break;
         }
@@ -1524,7 +1528,11 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     }
                 }
                 if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
-                resultInAX_ = inst.dest.isVreg() ? (int32_t)inst.dest.vregId : -1;
+                // stax.fp clobbers X via TSX — don't claim result is in AX after frame store
+                if (inst.dest.isVreg() && alloc_.getAlloc(inst.dest.vregId).loc != VRegAllocator::IN_FRAME)
+                    resultInAX_ = (int32_t)inst.dest.vregId;
+                else
+                    resultInAX_ = -1;
                 break;
             }
 
@@ -1660,7 +1668,11 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 emit(mn + " " + reg + ", " + src2mem);
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
-            resultInAX_ = inst.dest.isVreg() ? (int32_t)inst.dest.vregId : -1;
+            // stax.fp clobbers X via TSX — don't claim result is in AX after frame store
+            if (inst.dest.isVreg() && alloc_.getAlloc(inst.dest.vregId).loc != VRegAllocator::IN_FRAME)
+                resultInAX_ = (int32_t)inst.dest.vregId;
+            else
+                resultInAX_ = -1;
             break;
         }
 
@@ -2448,11 +2460,14 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         resultInAX_ = -1;
                         break;
                     }
-                    // Store-forwarding: if src1 result is still in A:X, skip reload
+                    // Store-forwarding: if src1 result is still in A:X (or A:Z), skip reload
                     if (inst.src1.isVreg() && (int32_t)inst.src1.vregId == resultInAX_) {
-                        // Result already in A:X from previous instruction — store directly
+                        // Result still in registers from previous instruction — store directly.
+                        // If the previous storeVreg used stax.fp (frame store), X was clobbered
+                        // by TSX but the hi byte is in Z (from the internal TXA;TAZ sequence).
                         valueByte_[0] = REG_A;
-                        valueByte_[1] = REG_X;
+                        auto prevAlloc = alloc_.getAlloc(inst.src1.vregId);
+                        valueByte_[1] = (prevAlloc.loc == VRegAllocator::IN_FRAME) ? REG_Z : REG_X;
                         storeVreg(inst.src2.vregId);
                     } else {
                         loadOperand(inst.src1);
