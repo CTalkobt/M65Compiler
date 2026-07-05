@@ -1,7 +1,7 @@
-# Bug #186: R_HIGH relocation off-by-one for data segment references in simulated ops
+# Bug #186: Missing symbol relocations in ldax/lday/ldaz immediate mode
 
-**Status:** Open
-**Labels:** bugfix, linker
+**Status:** Open (partially fixed — addr_elem.16 and segment interleaving fixed)
+**Labels:** bugfix, assembler
 
 ## Description
 
