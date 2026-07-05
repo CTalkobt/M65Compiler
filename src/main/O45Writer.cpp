@@ -39,10 +39,7 @@ std::vector<uint8_t> O45RelocEncoder::encode(const std::vector<O45Reloc>& relocs
         // doesn't support. We handle it defensively with an extra escape.
         if (delta == 0) {
             // Can't emit $00 (that's end-of-table). This shouldn't happen with
-            // well-formed input, but handle it: the first reloc should be at
-            // offset >= 1 in standard .o65. For offset 0, we use delta = 0
-            // which is invalid — caller must ensure offset >= 1.
-            // Skip this entry (or the caller should have adjusted).
+            // well-formed input — the first relocation should be at offset >= 1.
             continue;
         }
 

@@ -1,6 +1,6 @@
 # Bug #185: asctime produces empty string — *p++ codegen for char pointers
 
-**Status:** Open
+**Status:** FIXED (DEREF opcode)
 **Labels:** bugfix, codegen
 
 ## Description
