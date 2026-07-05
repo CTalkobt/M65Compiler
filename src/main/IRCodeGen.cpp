@@ -568,10 +568,20 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
         const auto& g = mod.globals[gi];
         if (globalLastIdx[g.name] != gi) continue; // skip earlier duplicate
         if (g.hasInitValue) {
-            // Initialized global: goes to data segment
-            if (!hasData) {
-                if (relocMode) emit(".segment \"data\"");
+            // Initialized global: goes to data segment.
+            // Must switch back from BSS if we were emitting uninitialized globals.
+            if (!hasData || hasBss) {
+                if (relocMode) {
+                    emit(".segment \"data\"");
+                    if (!hasData) {
+                        // Pad byte: .o65 relocation encoding uses delta $00 as
+                        // end-of-table, so relocations at segment offset 0 can't
+                        // be encoded. A 1-byte pad ensures offset >= 1.
+                        emit(".byte 0");
+                    }
+                }
                 hasData = true;
+                hasBss = false; // reset so next uninit global re-emits .segment "bss"
             }
             emitLabel(g.name);
             // Phase 3: Vtable — emit function address entries

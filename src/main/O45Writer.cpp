@@ -14,6 +14,10 @@
 //   - After the delta: one type/seg byte (type in bits 7-5, segment in bits 4-0).
 //   - If type == R_HIGH: one extra byte follows (low byte for underflow).
 //   - If segment == SEG_EXTERNAL: 4-byte LE symbol index follows (SIZE32 mode).
+//
+// NOTE: Delta $00 means end-of-table, so relocations at segment offset 0 are
+// not representable. The compiler emits a 1-byte pad at the start of each
+// segment in relocatable mode to ensure all relocations are at offset >= 1.
 // =============================================================================
 
 std::vector<uint8_t> O45RelocEncoder::encode(const std::vector<O45Reloc>& relocs) {
@@ -31,15 +35,9 @@ std::vector<uint8_t> O45RelocEncoder::encode(const std::vector<O45Reloc>& relocs
             delta -= O45_RELOC_SKIP;
         }
 
-        // The remaining delta must be 1..254.
-        // A delta of 0 after escapes means the entry sits exactly at a
-        // 254-boundary — emit 1 and adjust (the spec requires delta >= 1).
-        // However, this only occurs if the original offset == pos (first entry
-        // at offset 0 or two entries at the same offset), which the .o65 spec
-        // doesn't support. We handle it defensively with an extra escape.
         if (delta == 0) {
-            // Can't emit $00 (that's end-of-table). This shouldn't happen with
-            // well-formed input — the first relocation should be at offset >= 1.
+            // Can't emit $00 (end-of-table). Segment data is padded so this
+            // shouldn't happen. Skip if it does (defensive).
             continue;
         }
 
@@ -231,7 +229,7 @@ void O45Writer::emitOptions(std::vector<uint8_t>& out) const {
 }
 
 // --- Relocation table ---
-// Raw pre-encoded bytes, plus the $00 terminator
+// Raw pre-encoded bytes, plus the $00 terminator.
 
 void O45Writer::emitRelocTable(std::vector<uint8_t>& out, const std::vector<uint8_t>& relocs) const {
     out.insert(out.end(), relocs.begin(), relocs.end());

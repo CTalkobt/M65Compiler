@@ -3274,7 +3274,7 @@ void AssemblerSimulatedOps::emitLoadAddrConst(AssemblerParser* parser, M65Emitte
     e.lda_imm(total & 0xFF);
     
     if (isReloc) {
-        e.recordSymbolRelocHi(name, offset & 0xFF);
+        e.recordSymbolRelocHi(name, total & 0xFF);
     }
     if (reg2 == 'X') e.ldx_imm((total >> 8) & 0xFF);
     else if (reg2 == 'Y') e.ldy_imm((total >> 8) & 0xFF);
@@ -3385,6 +3385,7 @@ void AssemblerSimulatedOps::dispatch_StructElem(AssemblerParser* p, M65Emitter& 
 }
 
 void AssemblerSimulatedOps::dispatch_AddrElem(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    { FILE* f=fopen("dbg186.log","a"); if(f){ fprintf(f,"ENTRY exprTok=%d\n",s->exprTokenIndex); fclose(f); } }
     int idx = s->exprTokenIndex;
     if (idx < 0 || idx >= (int)p->tokens.size()) return;
     
@@ -3422,7 +3423,7 @@ void AssemblerSimulatedOps::dispatch_AddrElem(AssemblerParser* p, M65Emitter& e,
     
     auto strideAst = parseExprAST(p->tokens, idx, p->symbolTable, s->scopePrefix);
     uint16_t strideVal = strideAst ? strideAst->getValue(p) : 1;
-    
+    { FILE* f=fopen("/tmp/dbg186.log","a"); if(f){ fprintf(f,"stride=%d imm=%d mnem=%s\n",strideVal,baseIsImmediate,s->instr.mnemonic.c_str()); fclose(f); } }
     if (strideVal > 1) {
         emitWriteOperand16(p, e, indexIsReg, indexRegName, idxIndexStart, m65::MULT_ARG1, s->scopePrefix);
         
@@ -3437,7 +3438,9 @@ void AssemblerSimulatedOps::dispatch_AddrElem(AssemblerParser* p, M65Emitter& e,
         e.stz_addr(m65::MULT_ARG2 + 3);
         
         auto baseFa = p->resolveFrameAccess(idxBaseStart, s->scopePrefix);
-        if (baseFa.isFrame) {
+        if (baseFa.isFrame && !baseIsImmediate) {
+            // Frame-relative base (stack local). Immediate (#symbol) bases are
+            // never frame-relative — they're global/static data addresses.
             emitSpBaseAddrCalc16(p, e, baseFa.fpOff + baseFa.yOff);
         } else if (baseIsReg) {
             // Already in AX
