@@ -1406,9 +1406,9 @@ void IRBuilder::visit(VariableReference& node) {
 
     auto it = locals_.find(node.name);
     if (it != locals_.end()) {
-        if (!computeAddressOnly_) {
-            usedVregs_.insert(it->second.vregId);
-        }
+        // Mark as used whether reading value or taking address (&var).
+        // Address-of still "uses" the variable (e.g. passing struct by pointer).
+        usedVregs_.insert(it->second.vregId);
 
         // Array-to-pointer decay: when an array name is used as a value
         // (not in address-only mode), it decays to a pointer to its first element.
