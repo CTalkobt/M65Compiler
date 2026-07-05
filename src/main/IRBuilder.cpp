@@ -529,6 +529,11 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             IRTypeInfo sub = getExprTypeInfo(deref->operand.get());
             return {ir::Type::PTR, sub.typeName + "*", false, sub.type, 2};
         }
+        // ++, --, ++_POST, --_POST: same type as operand
+        if (deref->op == "++" || deref->op == "--" ||
+            deref->op == "++_POST" || deref->op == "--_POST") {
+            return getExprTypeInfo(deref->operand.get());
+        }
     }
 
     if (auto* call = dynamic_cast<FunctionCall*>(expr)) {
@@ -2114,7 +2119,13 @@ void IRBuilder::visit(BinaryOperation& node) {
 }
 
 void IRBuilder::visit(UnaryOperation& node) {
-    node.operand->accept(*this);
+    // Skip pre-visit for dereference (*) and address-of (&) — they handle
+    // their own operand evaluation with different computeAddressOnly_ state.
+    // Pre-visiting would double-evaluate operands with side effects (e.g. *p++
+    // would increment p twice and use the wrong address).
+    if (node.op != "*" && node.op != "&") {
+        node.operand->accept(*this);
+    }
     auto src = lastValue_;
 
     // Unary operator overloading for struct types
@@ -2254,18 +2265,25 @@ void IRBuilder::visit(UnaryOperation& node) {
         computeAddressOnly_ = oldAddrMode;
 
         if (computeAddressOnly_) {
-            // We want the address this pointer points to, which IS its value.
-            // Copy to a fresh vreg so the STORE handler treats it as an
-            // indirect address, not as a local-slot direct store.
-            auto addr = allocVreg(ir::Type::PTR);
-            ir::Inst copy;
-            copy.op = ir::Op::COPY;
-            copy.dest = addr;
-            copy.resultType = ir::Type::PTR;
-            copy.src1 = src;
-            copy.loc = loc(node);
-            emit(copy);
-            lastValue_ = addr;
+            // We want the address this pointer points to for an indirect store.
+            // If src is a mutable local slot vreg, emit DEREF to read its value
+            // into a fresh non-slot vreg. The STORE handler then correctly uses
+            // indirect addressing. DEREF is not eliminable by COPY chain optimization.
+            // If src is already a computed value (e.g. from p++ snapshot), pass through.
+            if (src.isVreg() && currentFunc_ &&
+                currentFunc_->localSlotVregs.count(src.vregId)) {
+                auto addr = allocVreg(ir::Type::PTR);
+                ir::Inst deref;
+                deref.op = ir::Op::DEREF;
+                deref.dest = addr;
+                deref.resultType = ir::Type::PTR;
+                deref.src1 = src;
+                deref.loc = loc(node);
+                emit(deref);
+                lastValue_ = addr;
+            } else {
+                lastValue_ = src;
+            }
             return;
         }
 
@@ -2334,12 +2352,29 @@ void IRBuilder::visit(UnaryOperation& node) {
             }
         }
 
+        // For post-increment: snapshot the old value BEFORE computing the
+        // incremented value using DEREF. Then ADD from the snapshot so the
+        // optimizer can't CSE two increments of the same mutable slot.
+        ir::Operand addSrc = src;
+        ir::Operand oldVal;
+        if (isPost && src.isVreg()) {
+            oldVal = allocVreg(src.type);
+            ir::Inst deref;
+            deref.op = ir::Op::DEREF;
+            deref.dest = oldVal;
+            deref.resultType = src.type;
+            deref.src1 = src;
+            deref.loc = loc(node);
+            emit(deref);
+            addSrc = oldVal; // ADD from snapshot, not from mutable slot
+        }
+
         auto dest = allocVreg(src.type);
         ir::Inst inst;
         inst.op = (baseOp == "++") ? ir::Op::ADD : ir::Op::SUB;
         inst.dest = dest;
         inst.resultType = src.type;
-        inst.src1 = src;
+        inst.src1 = addSrc;
         inst.src2 = ir::Operand::imm(incVal, src.type);
         inst.loc = loc(node);
         emit(inst);
@@ -2368,7 +2403,7 @@ void IRBuilder::visit(UnaryOperation& node) {
         store.resultType = src.type;
         emit(store);
 
-        lastValue_ = isPost ? src : dest;
+        lastValue_ = isPost ? oldVal : dest;
     }
 }
 

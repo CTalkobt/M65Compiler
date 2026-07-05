@@ -49,6 +49,7 @@ const char* opName(Op op) {
         case Op::BFEXT:        return "bfext";
         case Op::BFINS:        return "bfins";
         case Op::COPY:         return "copy";
+        case Op::DEREF:        return "deref";
         case Op::BR:           return "br";
         case Op::BR_COND:      return "br_cond";
         case Op::BR_INDIRECT:  return "br_indirect";

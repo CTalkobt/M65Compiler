@@ -796,6 +796,7 @@ IRCodeGen::FuncClobbers IRCodeGen::computeFuncClobbers(const ir::Function& fn) {
                     break;
 
                 case ir::Op::COPY:
+                case ir::Op::DEREF:
                     fc.regs |= A | X;
                     fc.flags |= N | ZF;
                     break;
@@ -1350,6 +1351,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             case ir::Op::RET: name = "RET"; break;
             case ir::Op::RET_VOID: name = "RET_VOID"; break;
             case ir::Op::COPY: name = "COPY"; break;
+            case ir::Op::DEREF: name = "DEREF"; break;
             default: name = "OP" + std::to_string((int)inst.op); break;
         }
         std::string s = name;
@@ -2787,7 +2789,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             break;
         }
 
-        case ir::Op::COPY: {
+        case ir::Op::COPY:
+        case ir::Op::DEREF: {
             loadOperand(inst.src1);
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;

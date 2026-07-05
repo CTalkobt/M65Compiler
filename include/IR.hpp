@@ -78,6 +78,7 @@ enum class Op : uint8_t {
 
     // Register/memory movement
     COPY,           // %d = copy <type> <src>
+    DEREF,          // %d = deref <ptr>  (read pointer value for indirect store target)
 
     // Control flow
     BR,             // br <label>
