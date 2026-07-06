@@ -1106,12 +1106,24 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     }
     if (localFrameSize > 0) {
         emitComment("frame: " + std::to_string(localFrameSize) + " bytes (frame-allocated vRegs only)");
-        // Push frame slots physically — do NOT bump _fp (stays at 0).
-        // ldax.fp computes __sp_base + _fp + offset + SPL.
-        // With _fp=0, SPL accounts for the physical pushes correctly.
         for (int i = 0; i < localFrameSize; i += 2) {
             emit("phw #0");
         }
+    }
+
+    // Set up ZP frame pointer for stack-relative access (only for stack calling convention)
+    // FP = __sp_base + SPL at function entry. Store in $FD/$FE.
+    // This maintains the frame pointer for use by inline assembly or future optimizations.
+    useStackParams_ = !zpCallMode_ || fn.isVariadic;
+    if (useStackParams_) {
+        emit("tsx");
+        emit("txa");
+        emit("clc");
+        emit("adc #1");
+        emit("sta $FD");
+        emit("lda #$01");
+        emit("adc #0");
+        emit("sta $FE");
     }
 
     // Emit .local for frame-allocated vRegs only
@@ -3140,6 +3152,19 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     emit("stx " + callLabel + "+2");
                     emitLabel(callLabel);
                     emit("jsr $0000");
+                }
+
+                // Recalculate frame pointer after JSR (SP may have changed)
+                // FP must be re-initialized from current SP for .fp addressing to work correctly
+                if (useStackParams_) {
+                    emit("tsx");
+                    emit("txa");
+                    emit("clc");
+                    emit("adc #1");
+                    emit("sta $FD");
+                    emit("lda #$01");
+                    emit("adc #0");
+                    emit("sta $FE");
                 }
 
                 // Caller-side stack cleanup: pop argBytes with PLZ instructions

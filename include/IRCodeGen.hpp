@@ -81,6 +81,7 @@ private:
     // Current function metadata
     bool relocMode_ = false;
     bool zpCallMode_ = false;
+    bool useStackParams_ = false;  // frame pointer setup required for current function
 
     // Frame management
     int localFrameSize_ = 0;
