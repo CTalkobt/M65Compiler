@@ -1459,7 +1459,21 @@ void CodeGenerator::visit(VariableDeclaration& node) {
 bool CodeGenerator::emitGlobalVariable(VariableDeclaration& node) {
     if (!(node.isGlobal || currentFunction == nullptr)) return false;
     std::string gName = "_" + node.name;
-    globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims, node.isFunctionPointer, node.funcPtrSig};
+    CodeGenerator::VarInfo vi = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims, node.isFunctionPointer, node.funcPtrSig};
+    globalVariableTypes[gName] = vi;
+    // Declare in ScopeManager (globals go in global scope)
+    ScopeManager::VarInfo smvi;
+    smvi.type = vi.type;
+    smvi.pointerLevel = vi.pointerLevel;
+    smvi.isSigned = vi.isSigned;
+    smvi.isVolatile = vi.isVolatile;
+    smvi.isConst = vi.isConst;
+    smvi.isPointerConst = vi.isPointerConst;
+    smvi.isRegister = vi.isRegister;
+    smvi.arrayDims = vi.arrayDims;
+    smvi.isFunctionPointer = vi.isFunctionPointer;
+    smvi.funcPtrSig = std::static_pointer_cast<void>(vi.funcPtrSig);
+    declareVariable(gName, smvi);
     if (node.isExtern) return true;
     if (node.isGlobal) {
         globalVars.push_back(&node);
@@ -1473,7 +1487,20 @@ bool CodeGenerator::emitGlobalVariable(VariableDeclaration& node) {
 bool CodeGenerator::emitStaticLocal(VariableDeclaration& node) {
     if (!(node.isStatic && currentFunction != nullptr)) return false;
     std::string sName = "__sl_" + currentFunction->name + "_" + node.name;
-    globalVariableTypes[sName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims};
+    CodeGenerator::VarInfo vi = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims};
+    globalVariableTypes[sName] = vi;
+    // Declare in ScopeManager (static locals go in global scope)
+    ScopeManager::VarInfo smvi;
+    smvi.type = vi.type;
+    smvi.pointerLevel = vi.pointerLevel;
+    smvi.isSigned = vi.isSigned;
+    smvi.isVolatile = vi.isVolatile;
+    smvi.isConst = vi.isConst;
+    smvi.isPointerConst = vi.isPointerConst;
+    smvi.isRegister = vi.isRegister;
+    smvi.arrayDims = vi.arrayDims;
+    smvi.isFunctionPointer = false;
+    declareVariable(sName, smvi);
     auto* synth = new VariableDeclaration(node.type, currentFunction->name + "__" + node.name, node.pointerLevel);
     synth->isSigned = node.isSigned;
     synth->isVolatile = node.isVolatile;
@@ -1500,14 +1527,41 @@ bool CodeGenerator::emitStaticLocal(VariableDeclaration& node) {
     staticGlobals.insert(synth->name);
     variableTypes.erase("_l_" + node.name);
     std::string gName = "_" + synth->name;
-    globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims};
+    CodeGenerator::VarInfo vi2 = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims};
+    globalVariableTypes[gName] = vi2;
+    // Declare in ScopeManager
+    ScopeManager::VarInfo smvi2;
+    smvi2.type = vi2.type;
+    smvi2.pointerLevel = vi2.pointerLevel;
+    smvi2.isSigned = vi2.isSigned;
+    smvi2.isVolatile = vi2.isVolatile;
+    smvi2.isConst = vi2.isConst;
+    smvi2.isPointerConst = vi2.isPointerConst;
+    smvi2.isRegister = vi2.isRegister;
+    smvi2.arrayDims = vi2.arrayDims;
+    smvi2.isFunctionPointer = false;
+    declareVariable(gName, smvi2);
     return true;
 }
 
 bool CodeGenerator::emitRegisterVariable(VariableDeclaration& node) {
     if (!(node.isRegister && node.arraySize() < 0 && !isStruct(node.type))) return false;
     std::string lName = "_l_" + node.name;
-    variableTypes[lName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims, node.isFunctionPointer, node.funcPtrSig};
+    CodeGenerator::VarInfo vi = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims, node.isFunctionPointer, node.funcPtrSig};
+    variableTypes[lName] = vi;
+    // Declare in ScopeManager (register vars go in current function scope)
+    ScopeManager::VarInfo smvi;
+    smvi.type = vi.type;
+    smvi.pointerLevel = vi.pointerLevel;
+    smvi.isSigned = vi.isSigned;
+    smvi.isVolatile = vi.isVolatile;
+    smvi.isConst = vi.isConst;
+    smvi.isPointerConst = vi.isPointerConst;
+    smvi.isRegister = vi.isRegister;
+    smvi.arrayDims = vi.arrayDims;
+    smvi.isFunctionPointer = vi.isFunctionPointer;
+    smvi.funcPtrSig = std::static_pointer_cast<void>(vi.funcPtrSig);
+    declareVariable(lName, smvi);
     int regSize = (node.pointerLevel > 0 || node.type == "int") ? 2 : 1;
     int zpIdx = allocateZP(regSize);
     if ((int)(zeroPageStart + zpIdx + regSize) > 0x100) {
@@ -1556,7 +1610,21 @@ bool CodeGenerator::emitRegisterVariable(VariableDeclaration& node) {
 
 void CodeGenerator::emitLocalVariableInit(VariableDeclaration& node) {
     std::string lName = "_l_" + node.name;
-    variableTypes[lName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims, node.isFunctionPointer, node.funcPtrSig};
+    CodeGenerator::VarInfo vi = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims, node.isFunctionPointer, node.funcPtrSig};
+    variableTypes[lName] = vi;
+    // Declare in ScopeManager (local vars go in current function scope)
+    ScopeManager::VarInfo smvi;
+    smvi.type = vi.type;
+    smvi.pointerLevel = vi.pointerLevel;
+    smvi.isSigned = vi.isSigned;
+    smvi.isVolatile = vi.isVolatile;
+    smvi.isConst = vi.isConst;
+    smvi.isPointerConst = vi.isPointerConst;
+    smvi.isRegister = vi.isRegister;
+    smvi.arrayDims = vi.arrayDims;
+    smvi.isFunctionPointer = vi.isFunctionPointer;
+    smvi.funcPtrSig = std::static_pointer_cast<void>(vi.funcPtrSig);
+    declareVariable(lName, smvi);
 
     if (node.initializer) {
         if (auto* cl = dynamic_cast<CompoundLiteral*>(node.initializer.get())) {
