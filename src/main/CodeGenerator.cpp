@@ -179,6 +179,11 @@ std::string CodeGenerator::getAggregateName(const std::string& type) {
 }
 
 std::string CodeGenerator::resolveVarName(const std::string& name) {
+    // Try ScopeManager first (for unified lookup)
+    std::string resolved = scopeMgr_.resolveName(name);
+    if (resolved != name) return resolved;
+
+    // Fall back to old maps for backward compatibility during transition
     if (name.length() >= 3) {
         std::string prefix = name.substr(0, 3);
         if (prefix == "_p_" || prefix == "_l_") {
@@ -208,6 +213,11 @@ std::string CodeGenerator::resolveVarName(const std::string& name) {
 }
 
 CodeGenerator::VarInfo CodeGenerator::lookupVar(const std::string& rName, ASTNode* node) {
+    // Try ScopeManager first (for unified lookup)
+    // Note: ScopeManager::VarInfo and CodeGenerator::VarInfo have the same fields,
+    // but are different types. For now, ScopeManager is not yet populated with variable
+    // declarations, so we rely on old maps as source of truth during transition.
+
     auto it = variableTypes.find(rName);
     if (it != variableTypes.end()) return it->second;
 
@@ -220,6 +230,7 @@ CodeGenerator::VarInfo CodeGenerator::lookupVar(const std::string& rName, ASTNod
 
     auto git = globalVariableTypes.find(rName);
     if (git != globalVariableTypes.end()) return git->second;
+
     // Strip prefixes for the error message
     std::string displayName = rName;
     if (displayName.length() >= 3 && (displayName.substr(0, 3) == "_p_" || displayName.substr(0, 3) == "_l_"))
