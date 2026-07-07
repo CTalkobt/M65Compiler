@@ -148,4 +148,8 @@ private:
         bool isLeaf = true;
     };
     FuncClobbers computeFuncClobbers(const ir::Function& fn);
+
+    // Phase 2: Fine-grained register invalidation tracking
+    // Maps function name → clobber mask for selective invalidation at call sites
+    std::map<std::string, int> functionClobberMasks_;
 };

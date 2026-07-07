@@ -394,6 +394,18 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     }
     setFunctionMap(&funcMap);
 
+    // Phase 2: Pre-compute clobber masks for all functions (fine-grained register invalidation)
+    functionClobberMasks_.clear();
+    for (const auto& fn : mod.functions) {
+        FuncClobbers clobbers = computeFuncClobbers(fn);
+        int regMask = 0;
+        if (clobbers.regs & (1 << 0)) regMask |= (1 << REG_A);  // bit 0 = A
+        if (clobbers.regs & (1 << 1)) regMask |= (1 << REG_X);  // bit 1 = X
+        if (clobbers.regs & (1 << 2)) regMask |= (1 << REG_Y);  // bit 2 = Y
+        if (clobbers.regs & (1 << 3)) regMask |= (1 << REG_Z);  // bit 3 = Z
+        functionClobberMasks_[fn.name] = regMask;
+    }
+
     if (relocMode) {
         emit(".o45");
         emit(".extern __sp_base");
@@ -3212,6 +3224,27 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 if (inst.src1.kind == ir::OperandKind::GLOBAL) {
                     emit("jsr " + inst.src1.name);
                 }
+            }
+
+            // Phase 2: Selective register invalidation (fine-grained clobber tracking)
+            // Instead of invalidating all registers, only invalidate those the function actually clobbers
+            if (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID || inst.op == ir::Op::CALL_INDIRECT) {
+                int clobberMask = 0;
+                // For direct calls, look up the function's clobber mask
+                if (inst.src1.kind == ir::OperandKind::GLOBAL) {
+                    auto it = functionClobberMasks_.find(inst.src1.name);
+                    if (it != functionClobberMasks_.end()) {
+                        clobberMask = it->second;
+                    } else {
+                        // External function or function not found: conservatively assume all registers clobbered
+                        clobberMask = (1 << REG_A) | (1 << REG_X) | (1 << REG_Y) | (1 << REG_Z);
+                    }
+                } else {
+                    // Indirect call: conservatively assume all registers clobbered
+                    clobberMask = (1 << REG_A) | (1 << REG_X) | (1 << REG_Y) | (1 << REG_Z);
+                }
+                // Selectively invalidate only the clobbered registers
+                ms_.invalidateSelective(clobberMask);
             }
 
             // Return value is in A,X,Y,Z (for 32-bit) or A:X (for 16-bit)

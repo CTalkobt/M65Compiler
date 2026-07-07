@@ -252,6 +252,17 @@ struct MachineState {
         pushDepth_ = 0;
     }
 
+    // Selectively invalidate only the specified registers (Phase 2: fine-grained clobber tracking).
+    // clobberMask is a bitmask of registers (1 << REG_A, 1 << REG_X, etc.)
+    void invalidateSelective(int clobberMask) {
+        if (clobberMask & (1 << REG_A)) invalidateReg(REG_A);
+        if (clobberMask & (1 << REG_X)) invalidateReg(REG_X);
+        if (clobberMask & (1 << REG_Y)) invalidateReg(REG_Y);
+        if (clobberMask & (1 << REG_Z)) invalidateReg(REG_Z);
+        // Note: only invalidate flags if all registers are clobbered (conservative)
+        // Phase 2: could refine this with separate flag clobber masks later
+    }
+
     // --- Memory state updates ---
 
     // Record a store to ZP: the memory location now holds what the register holds.
