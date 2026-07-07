@@ -31,6 +31,24 @@ std::string CodeGenerator::zpHex(uint8_t addr) const {
     return ss.str();
 }
 
+int CodeGenerator::getTypeSizeWithStructs(const std::string& type, int ptrLevel, int arraySize) {
+    // Build aggregate map from our structs
+    std::map<std::string, TypeSystem::AggregateInfo> aggregates;
+    for (const auto& [name, structPtr] : structs) {
+        aggregates[name] = {name, structPtr->totalSize};
+    }
+
+    // Get base type size from TypeSystem
+    int size = TypeSystem::getTypeSize(type, ptrLevel, aggregates);
+
+    // Multiply by array size if provided (arraySize >= 0 means it's specified)
+    if (arraySize >= 0) {
+        size *= arraySize;
+    }
+
+    return size;
+}
+
 void CodeGenerator::setSourceInfo(const std::string& filename, const std::vector<std::string>& lines) {
     sourceFilename = filename;
     sourceLines = lines;
@@ -233,22 +251,6 @@ bool CodeGenerator::matchType(const ExpressionType& t1, const std::string& t2Nam
     return true;
 }
 
-int CodeGenerator::getTypeSize(const std::string& type, int ptrLevel, int arraySize, const std::map<std::string, std::shared_ptr<CodeGenerator::StructInfo>>& structs) {
-    int size = 0;
-    if (ptrLevel > 0) size = 2;
-    else if (type == "char") size = 1;
-    else if (type == "_Bool") size = 1;
-    else if (type == "int") size = 2;
-    else if (type == "long") size = 4;
-    else if (type.length() >= 5 && type.substr(0, 5) == "enum ") size = 2;
-    else if (type.substr(0, 7) == "struct " || type.substr(0, 6) == "union ") {
-        std::string sName = type.substr(type.find(' ') + 1);
-        if (structs.count(sName)) size = structs.at(sName)->totalSize;
-        else throw std::runtime_error("Unknown struct/union type: " + sName);
-    }
-    if (arraySize >= 0) size *= arraySize;
-    return size;
-}
 
 CodeGenerator::ExpressionType CodeGenerator::getExprType(Expression* expr) {
     if (!expr) return {"int", 0, false, false, false, false, {}}; 
@@ -484,7 +486,7 @@ void CodeGenerator::emitAddress(Expression* expr) {
 
             if (!dims.empty() && depth < (int)dims.size() && vi) {
                 // Multi-dim array: stride = product(dims[depth+1..]) * scalar_element_size
-                int scalarSize = getTypeSize(vi->type, vi->pointerLevel, -1, structs);
+                int scalarSize = getTypeSizeWithStructs(vi->type, vi->pointerLevel, -1);
                 elementSize = scalarSize;
                 for (int d = depth + 1; d < (int)dims.size(); d++)
                     elementSize *= dims[d];
@@ -3941,7 +3943,7 @@ void CodeGenerator::visit(SizeofExpression& node) {
     embedSource(node);
     int size = 0;
     if (node.isType) {
-        size = getTypeSize(node.typeName, node.pointerLevel, -1, structs);
+        size = getTypeSizeWithStructs(node.typeName, node.pointerLevel, -1);
         if (node.pointerLevel == 0) {
             for (int d : node.arrayDims) {
                 if (d > 0) size *= d;
@@ -3963,7 +3965,7 @@ void CodeGenerator::visit(SizeofExpression& node) {
                 ptrLevel = vi->pointerLevel; // raw, without arrayDims adjustment
             }
         }
-        size = getTypeSize(et.type, ptrLevel, arrSize, structs);
+        size = getTypeSizeWithStructs(et.type, ptrLevel, arrSize);
     }
     std::stringstream ss; ss << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << size;
     emit("ldax #$" + ss.str());

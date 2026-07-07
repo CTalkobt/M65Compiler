@@ -1,6 +1,7 @@
 #pragma once
 #include "AST.hpp"
 #include "CodeGenerator.hpp"
+#include "TypeSystem.hpp"
 #include <memory>
 #include <map>
 #include <set>
@@ -519,7 +520,7 @@ public:
                 }
             }
 
-            int mSize = CodeGenerator::getTypeSize(m.type, m.pointerLevel, m.arraySize(), structs);
+            int mSize = getTypeSizeForStruct(m.type, m.pointerLevel, m.arraySize());
             int mAlign = alignment; // Simplification, should ideally check type alignment too
             if (mAlign > maxAlignment) maxAlignment = mAlign;
 
@@ -640,5 +641,24 @@ private:
         newNode->column = oldNode.column;
         newNode->sourceFile = oldNode.sourceFile;
         return newNode;
+    }
+
+    // Helper to calculate type size using unified TypeSystem
+    int getTypeSizeForStruct(const std::string& type, int ptrLevel, int arraySize) {
+        // Build aggregate map from our structs
+        std::map<std::string, TypeSystem::AggregateInfo> aggregates;
+        for (const auto& [name, structPtr] : structs) {
+            aggregates[name] = {name, structPtr->totalSize};
+        }
+
+        // Get base type size from TypeSystem
+        int size = TypeSystem::getTypeSize(type, ptrLevel, aggregates);
+
+        // Multiply by array size if provided
+        if (arraySize >= 0) {
+            size *= arraySize;
+        }
+
+        return size;
     }
 };

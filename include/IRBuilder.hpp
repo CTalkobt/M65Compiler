@@ -1,6 +1,7 @@
 #pragma once
 #include "AST.hpp"
 #include "IR.hpp"
+#include "TypeSystem.hpp"
 #include <map>
 #include <set>
 #include <string>
@@ -227,7 +228,7 @@ private:
     // Helper: map C type to IR type
     ir::Type mapType(const std::string& typeName, int ptrLevel);
 
-    // Helper: get size for a type
+    // Helper: get size for a type (using unified TypeSystem)
     int getTypeSize(const std::string& typeName, int ptrLevel);
 
     // Helper: source location from AST node

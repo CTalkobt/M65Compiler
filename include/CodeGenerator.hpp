@@ -1,6 +1,7 @@
 #pragma once
 #include "AST.hpp"
 #include "M65Emitter.hpp"
+#include "TypeSystem.hpp"
 #include <iostream>
 #include <ostream>
 #include <vector>
@@ -67,7 +68,6 @@ public:
     std::map<std::string, VarInfo> variableTypes;
     std::map<std::string, VarInfo> globalVariableTypes;
     std::map<std::string, std::shared_ptr<StructInfo>> structs;
-    static int getTypeSize(const std::string& type, int ptrLevel, int arraySize, const std::map<std::string, std::shared_ptr<CodeGenerator::StructInfo>>& structs);
     static bool is8BitType(const std::string& type) { return type == "char" || type == "_Bool"; }
     static bool is32BitType(const std::string& type) { return type == "long"; }
     uint32_t zeroPageStart = 0x02;
@@ -313,4 +313,7 @@ public:
     // Params whose address is taken — spilled from ZP to frame
     std::map<std::string, ZpSpillInfo> zpSpilledParams_; // _p_name → frame location
     bool isZpSpilledParam(const std::string& rName) const { return useZpCall_ && zpSpilledParams_.count(rName) > 0; }
+
+    // Helper to compute type size using unified TypeSystem (accounts for structs/unions)
+    int getTypeSizeWithStructs(const std::string& type, int ptrLevel, int arraySize);
 };

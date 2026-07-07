@@ -264,31 +264,14 @@ ir::Type IRBuilder::mapType(const std::string& typeName, int ptrLevel) {
 }
 
 int IRBuilder::getTypeSize(const std::string& typeName, int ptrLevel) {
-    if (ptrLevel > 0) return 2;
-    if (typeName == "char" || typeName == "unsigned char") return 1;
-    if (typeName == "int" || typeName == "unsigned int" ||
-        typeName == "short" || typeName == "unsigned short" ||
-        typeName == "unsigned") return 2;
-    if (typeName == "long" || typeName == "unsigned long") return 4;
-    if (typeName == "float" || typeName == "double") return 5;
-    // __int(N) / __uint(N) — extract bit width from name
-    if (typeName.substr(0, 5) == "__int" || typeName.substr(0, 6) == "__uint") {
-        size_t numStart = typeName.find_first_of("0123456789");
-        if (numStart != std::string::npos) {
-            int bits = std::stoi(typeName.substr(numStart));
-            return (bits + 7) / 8; // round up to bytes
-        }
-        return 4; // default
+    // Build aggregate map from our structs_
+    std::map<std::string, TypeSystem::AggregateInfo> aggregates;
+    for (const auto& [name, structInfo] : structs_) {
+        aggregates[name] = {name, structInfo.totalSize};
     }
 
-    std::string sName = getAggregateName(typeName);
-    bool isStructOrUnion = (typeName.rfind("struct ", 0) == 0 || typeName.rfind("union ", 0) == 0);
-    auto it = structs_.find(sName);
-    if (it != structs_.end()) return it->second.totalSize;
-    if (isStructOrUnion) {
-        throw std::runtime_error("Unknown struct/union type: " + sName);
-    }
-    return 2; // default for unknown types
+    // Delegate to unified TypeSystem
+    return TypeSystem::getTypeSize(typeName, ptrLevel, aggregates);
 }
 
 IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {

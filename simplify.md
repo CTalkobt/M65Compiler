@@ -1,71 +1,278 @@
-# Project Simplification and Duplication Reduction Plan
+# MEGA65 C Compiler — Simplification and Complexity Reduction Roadmap
 
-This document outlines areas in the `ccomp` project where code can be simplified, duplication reduced, and architectural improvements made.
+**Last Updated:** 2026-07-07  
+**Status:** Phase 1 beginning  
+**Target:** Reduce complexity by 15-25%, improve maintainability without changing functionality
 
-## 1. Unified Lexer Base
-**Observation:** `Lexer.cpp` (C lexer) and `AssemblerLexer.cpp` (Assembly lexer) share significant logic for:
-- Character consumption (`get`, `peek`, `peekNext`)
-- Position tracking (`line`, `column`)
-- Whitespace and comment skipping (C-style `//` and `/* */` are supported by both)
+---
 
-**Recommendation:** Create a `LexerBase` class that handles these common tasks. Both `Lexer` and `AssemblerLexer` should inherit from this base class or use it as a utility.
+## Overview
 
-## 2. Unification of Code Generation Pipelines
-**Observation:** The project currently maintains two code generation paths:
-- Legacy `CodeGenerator` (AST → Assembly)
-- Modern `IRBuilder` + `IRCodeGen` (AST → IR → Assembly)
+Comprehensive analysis identified **8 major complexity areas** and **~8,000+ lines of redundant code**. This document tracks the systematic simplification effort organized in 3 phases.
 
-In `cc45_main.cpp`, the legacy `CodeGenerator` is still used as a "validator" even when IR codegen is enabled because it catches certain semantic errors (struct/type errors) that `IRBuilder` doesn't yet fully validate.
+### Previous Work Completed
 
-**Recommendation:** 
-- Port all validation logic from `CodeGenerator` to `IRBuilder` or a dedicated `SemanticAnalyzer`.
-- Retire the legacy `CodeGenerator` once `IRBuilder` is feature-complete and self-validating.
-- This will remove thousands of lines of duplicated logic for type checking and struct layout.
+- [x] Centralized numeric literal parsing (Section 5)
+- [x] Hardware address constants (Section 6)
+- [x] Direct CPU register usage optimization (Section 10)
 
-## 3. Unified Type System
-**Observation:** Types are currently handled using `std::string typeName` and `int pointerLevel` throughout the compiler. This leads to repetitive string comparisons (e.g., `if (typeName == "int")`) and manual pointer level tracking.
+---
 
-**Recommendation:** Implement a robust `Type` class or structure that can represent:
-- Base types (int, char, void, etc.)
-- Pointer levels
-- Array dimensions
-- Struct/Union references
-- Signedness
-- Const/Volatile qualifiers
+## Phase 1: Quick Wins (Weeks 1-2, ~55 hours, Low Risk)
 
-Using a proper type system will simplify `IRBuilder`, `CodeGenerator`, and `ConstantFolder`.
+### 1.1 Unify Type Size Calculation (20 hours)
+**File(s):** `src/main/CodeGenerator.cpp`, `src/main/IRBuilder.cpp`  
+**Issue:** Two near-identical type size functions with different signatures  
+**Status:** COMPLETED (2026-07-07)
 
-## 4. Shared Struct/Union Layout Logic
-**Observation:** Both `CodeGenerator` and `IRBuilder` maintain their own internal maps and logic for computing struct layouts (`StructInfo` vs `IRStructInfo`).
+**Implementation Steps:**
+1. Create `src/common/TypeSystem.hpp` with unified `getTypeSize()` implementation
+2. Migrate `CodeGenerator::getTypeSize()` to call `TypeSystem::getTypeSize()`
+3. Migrate `IRBuilder::getTypeSize()` to call `TypeSystem::getTypeSize()`
+4. Remove duplicate implementations
+5. Run full test suite to verify no regressions
 
-**Recommendation:** Extract struct/union layout computation into a shared `TypeDatabase` or `TypeSystem` component that both pipelines can use.
+**Files Changed:**
+- `src/common/TypeSystem.hpp` (new)
+- `src/main/CodeGenerator.cpp` (refactor)
+- `src/main/IRBuilder.cpp` (refactor)
 
-## 5. Centralized Numeric Literal Parsing [COMPLETED]
-**Observation:** The function `parseNumericLiteral` was duplicated in:
-- `AssemblerParser.cpp`
-- `AssemblerSimulatedOps.cpp`
-- `AssemblerGenerator.cpp`
+**Estimate:** 20 hours  
+**Benefit:** Single source of truth for type sizes; 150 lines removed
 
-**Recommendation:** Move this and other common string utility functions to a shared utility header (e.g., `StringUtil.hpp`).
+---
 
-## 6. Constant Definitions for Hardware Addresses [COMPLETED]
-**Observation:** `AssemblerSimulatedOps.cpp` and `AssemblerExpression.cpp` contained hardcoded memory addresses for MEGA65 hardware features (e.g., `$D700` for the math accelerator).
+### 1.2 Consolidate Constant Folding (15 hours)
+**File(s):** `src/main/ConstantFolder.cpp`, `src/main/IROptimizer.cpp`  
+**Issue:** Both perform overlapping optimizations (constant propagation, branch simplification)  
+**Status:** TODO
 
-**Recommendation:** Create a header file (e.g., `Mega65Registers.hpp`) with named constants for these addresses to improve readability and maintainability.
+**Implementation Steps:**
+1. Audit which optimizations are performed at both levels
+2. Identify redundant cases in ConstantFolder
+3. Move essential folding to IROptimizer if not already there
+4. Remove duplicate optimization logic from ConstantFolder
+5. Test against all unit tests to ensure no regressions
+6. Document final optimization flow
 
-## 7. Refactor `cc45_main.cpp`
-**Observation:** The `main` function in `cc45_main.cpp` is extremely large and handles preprocessing, lexing, parsing, validation, IR generation, IR dump, and assembly emission in a single block.
+**Files Changed:**
+- `src/main/ConstantFolder.cpp` (simplify/remove)
+- `src/main/IROptimizer.cpp` (enhancement if needed)
 
-**Recommendation:** Refactor the compilation pipeline into a `Compiler` class with distinct stages. This will make the driver logic easier to follow and test.
+**Estimate:** 15 hours  
+**Benefit:** Single optimization pass; 100+ lines removed
 
-## 8. Assembler and C Parser Utilities
-**Observation:** While the languages differ, `AssemblerParser` and `Parser` share logic for token matching and error reporting.
+---
 
-**Recommendation:** Consider a `ParserBase` class to provide standard `match`, `expect`, and `error` methods.
+### 1.3 Begin Disk Image Refactor (40 of 120 hours)
+**File(s):** `src/main/D*Image.cpp` (19 disk format classes)  
+**Issue:** 85-90% code duplication across disk format implementations  
+**Status:** TODO (Phase 1: design + 40% implementation)
 
-## 10. Direct CPU Register Usage Optimization [COMPLETED]
-**Observation:** Initially, the compiler snapshotted CPU registers into virtual registers.
+**Implementation Steps:**
 
-**Recommendation:** Implemented direct instruction selection (LDX, LDY, SEC, etc.) for register and flag assignments. This ensures efficient, clobber-free code for sequences like `__cpu.X = 5; __flags.Carry = 1;`.
+**Part 1a: Design and Type Definitions (8 hours)**
+1. Analyze current disk format classes to extract commonalities
+2. Design `DiskImage` base template and format traits
+3. Create `src/main/DiskImageTemplate.hpp` with:
+   - `struct FormatTraits` interface (track layout, BAM structure, geometry)
+   - `class DiskImage<Traits>` template with unified implementations
+4. Document how each format specializes the template
 
+**Part 1b: Consolidate Simple Formats (32 hours)**
+1. Implement traits for D64 (simplest format)
+2. Migrate `D64Image` to template-based implementation
+3. Implement traits for D81
+4. Migrate `D81Image` to template-based implementation
+5. Do the same for D71, D80 (common formats with ~80% of usage)
+6. Test each format independently via `make test`
+7. Validate disk image creation and file I/O
+
+**Deferred to Phase 1b (remaining formats):**
+- D82, D90, D60, D1M, D2M, D4M, DNP (less common, can parallelize in later PR)
+- GCR, X64, TAP, T64, ARK, ARC, LNX, CVT, P00, Zipcode (specialized, separate PRs)
+
+**Files Changed:**
+- `src/main/DiskImageTemplate.hpp` (new, ~250 lines)
+- `src/main/D64Image.cpp` (refactor, ~80 lines from ~323)
+- `src/main/D81Image.cpp` (refactor, ~80 lines from ~341)
+- `src/main/D71Image.cpp` (refactor, ~80 lines from ~304)
+- `src/main/D80Image.cpp` (refactor, ~100 lines from ~411)
+- Potential removal of duplicated utility functions
+
+**Estimate:** 40 hours (Phase 1 scope); total 120 hours for all formats  
+**Benefit:** 4,200+ lines removed; clearer architecture; easier to add new formats
+
+**Testing:**
+```bash
+make clean && make all
+make test
+# Manual testing of D64/D81/D71/D80 image creation and manipulation
+```
+
+---
+
+## Phase 2: High-Impact Refactoring (Weeks 3-5, ~240 hours, Medium Risk)
+
+### 2.1 Extract Large Visitor Methods (80 hours)
+**Files:** `src/main/CodeGenerator.cpp`, `src/main/IRBuilder.cpp`, `src/main/Parser.cpp`  
+**Issue:** Individual methods exceed 500-700 lines (CodeGenerator::visit(Assignment&) is 722 lines)  
+**Status:** TODO
+
+**Scope:**
+- `CodeGenerator::visit(Assignment&)` (722 lines) → 6-8 sub-methods
+- `CodeGenerator::visit(FunctionCall&)` (508 lines) → 3-4 sub-methods
+- `CodeGenerator::visit(BinaryOperation&)` (444 lines) → 2-3 sub-methods
+- `IRBuilder::visit(Assignment&)` → parallel extraction
+- `Parser::parseStatement()` (454 lines) → per-statement parsers
+
+**Target:** All visitor methods under 150 lines; all helper methods under 100 lines
+
+---
+
+### 2.2 Unify Symbol and Type Tracking (60 hours)
+**Files:** `src/main/CodeGenerator.cpp`, `src/main/CodeGenerator.hpp`  
+**Issue:** Scope/type info scattered across 5+ data structures  
+**Status:** TODO
+
+**Implementation:**
+- Create `src/common/ScopeManager.hpp`
+- Extract nested scope tracking from `functionStack_`
+- Consolidate `variableTypes`, `globalVariableTypes`, `functionStack_`
+- Unify `resolveVarName()` and `lookupVar()` into single interface
+- Update CodeGenerator to use ScopeManager
+
+**Benefit:** 200+ lines removed; clearer variable lookup; single symbol table
+
+---
+
+### 2.3 Merge CodeGenerator and IRBuilder (100-150 hours)
+**Files:** Most of `src/main/CodeGenerator.cpp` + `src/main/IRBuilder.cpp`  
+**Issue:** Two parallel visitors on same AST; 1,500+ lines of duplication  
+**Status:** TODO (Largest refactor, requires careful integration testing)
+
+**Implementation Strategy:**
+1. Make IRBuilder the canonical code generator
+2. Port type-coercion and register-allocation logic from CodeGenerator to IRBuilder
+3. Ensure all CodeGenerator tests pass with IRBuilder
+4. Remove CodeGenerator entirely
+5. Rename IRBuilder to something clearer (or keep as-is)
+
+**Risk:** Medium (requires comprehensive testing; currently CodeGenerator validates IRBuilder)  
+**Benefit:** 1,500+ lines removed; single source of truth
+
+---
+
+## Phase 3: Architectural Simplification (Weeks 6-8, ~240 hours, High Risk)
+
+### 3.1 Simplify Register Allocation Architecture (120 hours)
+**Files:** `src/main/VRegAllocator.cpp`, `src/main/M65Emitter.cpp`, `src/main/MachineState.cpp`  
+**Issue:** Over-engineered for 8 CPU registers (3 layers of indirection)  
+**Status:** TODO
+
+**Consolidation:** Merge into unified `RegisterAllocator` with direct physical register tracking
+
+---
+
+### 3.2 Consolidate Optimization Passes (60 hours)
+**Files:** `src/main/ConstantFolder.cpp`, `src/main/IROptimizer.cpp`, `src/main/AssemblerOptimizer.cpp`  
+**Issue:** Multiple separate optimization passes; can be unified  
+**Status:** TODO (dependent on Phase 1.2)
+
+**Goal:** Single IR optimizer; remove assembler-level peephole (fold into IR)
+
+---
+
+### 3.3 Refactor Parser Structure (40 hours)
+**Files:** `src/main/Parser.cpp`, `src/main/Parser.hpp`  
+**Issue:** Large monolithic parser methods (parse() 565 lines, parseStatement() 454 lines)  
+**Status:** TODO (dependent on 2.1)
+
+**Goal:** Cleaner dispatch structure; methods under 100 lines each
+
+---
+
+## Previous Issues & Recommendations (from v1.1 work)
+
+### Unified Lexer Base [DEFERRED]
+**Observation:** `Lexer.cpp` and `AssemblerLexer.cpp` share character/position tracking logic  
+**Status:** Low priority (minimal duplication, both work well)  
+**Recommendation:** Create `LexerBase` if adding new lexers
+
+### Unified Type System [IN PROGRESS]
+**Observation:** Types as `std::string typeName + int pointerLevel` leads to repetitive comparisons  
+**Status:** Partially addressed by 1.1; full system (Phase 2.2 and later)  
+**Recommendation:** Extract to proper `Type` class post-Phase-2
+
+### Refactor cc45_main.cpp [DEFERRED]
+**Observation:** Main driver has preprocessing, lexing, parsing, validation in single block  
+**Status:** Works but could be cleaner  
+**Recommendation:** Extract to `Compiler` class after Phase 1 stabilizes
+
+### Parser Base Class [DEFERRED]
+**Observation:** `AssemblerParser` and `Parser` share token matching/error reporting  
+**Status:** Would only save ~50 lines; defer to Phase 3  
+**Recommendation:** Create `ParserBase` if refactoring Parser in Phase 3
+
+---
+
+## Success Metrics
+
+- **Code Reduction:** 15-25% fewer lines (~8,000+ lines removed)
+- **Maintainability:** All methods < 150 lines; single responsibilities clear
+- **Test Coverage:** No regressions (500+ tests passing)
+- **Performance:** ±1% acceptable variance in generated code size
+- **Documentation:** Each phase documented with rationale and metrics
+
+---
+
+## Checklist: Phase 1 Execution
+
+### 1.1: Unify Type Size Calculation
+- [ ] Create `src/common/TypeSystem.hpp`
+- [ ] Extract `getTypeSize()` implementation
+- [ ] Update `CodeGenerator.cpp` to use TypeSystem
+- [ ] Update `IRBuilder.cpp` to use TypeSystem
+- [ ] Run `make test` (verify no regressions)
+- [ ] Remove duplicate implementations
+- [ ] Document changes in CHANGELOG.md
+
+### 1.2: Consolidate Constant Folding
+- [ ] Audit ConstantFolder vs IROptimizer
+- [ ] Document overlapping optimizations
+- [ ] Move necessary folding to IROptimizer
+- [ ] Simplify ConstantFolder (remove redundancy)
+- [ ] Run `make test` (verify no regressions)
+- [ ] Update CHANGELOG.md
+
+### 1.3: Begin Disk Image Refactor
+- [ ] Design DiskImage template + FormatTraits
+- [ ] Create `src/main/DiskImageTemplate.hpp`
+- [ ] Migrate D64Image to template
+- [ ] Migrate D81Image to template
+- [ ] Migrate D71Image to template
+- [ ] Migrate D80Image to template
+- [ ] Test disk image creation/manipulation
+- [ ] Document format traits system
+- [ ] Update CHANGELOG.md
+- [ ] Note: Remaining formats (D82, GCR, etc.) deferred to future PR
+
+---
+
+## References
+
+- **Analysis Date:** 2026-07-07
+- **Analyzer:** Claude Code (Haiku 4.5)
+- **Codebase Size:** ~35,000 lines (estimate)
+- **Target Reduction:** 15-25% (~8,000 lines)
+- **Test Coverage:** 500+ unit tests
+
+---
+
+## Notes for Developers
+
+- **Incremental Integration:** Merge Phase 1 as independent PRs (1.1 → 1.2 → 1.3)
+- **Regression Detection:** Run full test suite after each PR
+- **Code Review:** Recommend peer review for any refactors touching CodeGenerator/IRBuilder
+- **Feature Parity:** Ensure generated code metrics (size, speed) remain equivalent
 
