@@ -85,51 +85,55 @@ Comprehensive analysis identified **8 major complexity areas** and **~8,000+ lin
 
 ---
 
-### 1.3 Begin Disk Image Refactor (40 of 120 hours)
-**File(s):** `src/main/D*Image.cpp` (19 disk format classes)  
-**Issue:** 85-90% code duplication across disk format implementations  
-**Status:** TODO (Phase 1: design + 40% implementation)
+### 1.3 Begin Disk Image Refactor — Design + D64/D81 POC
+**File(s):** `src/main/D*Image.cpp` (19 disk format classes, 5,054 lines, 85-90% duplication)  
+**Issue:** Massive duplication in BAM operations, sector allocation, directory handling  
+**Status:** IN PROGRESS (Part A: Design & Documentation)
 
-**Implementation Steps:**
+**Strategy:** Template-based refactoring with format traits. D64/D81 as proof-of-concept, defer other formats to follow-up PRs.
 
-**Part 1a: Design and Type Definitions (8 hours)**
-1. Analyze current disk format classes to extract commonalities
-2. Design `DiskImage` base template and format traits
-3. Create `src/main/DiskImageTemplate.hpp` with:
-   - `struct FormatTraits` interface (track layout, BAM structure, geometry)
-   - `class DiskImage<Traits>` template with unified implementations
-4. Document how each format specializes the template
+**Part A: Design & Documentation (8 hours)**
+1. Document FormatTraits interface (geometry, BAM layout, sector calculation)
+2. Identify common patterns across D64, D71, D81, D80, D65 (5 formats cover ~90% usage)
+3. Design abstract BAMOperations helper class
+4. Document migration path for less common formats (D90, D60, etc.)
+5. Create architecture document in simplify.md
 
-**Part 1b: Consolidate Simple Formats (32 hours)**
-1. Implement traits for D64 (simplest format)
-2. Migrate `D64Image` to template-based implementation
-3. Implement traits for D81
-4. Migrate `D81Image` to template-based implementation
-5. Do the same for D71, D80 (common formats with ~80% of usage)
-6. Test each format independently via `make test`
-7. Validate disk image creation and file I/O
+**Part B: D64 Refactoring (16 hours) — NEXT TARGET**
+1. Extract D64-specific traits (35 tracks, zone-based sector layout)
+2. Move isSectorFree/allocateSector/freeSector to BAMOperations helper
+3. Reduce D64Image.cpp from ~323 to ~100 lines
+4. Keep existing public API (no breaking changes)
+5. Test via `make -j 12 test`
 
-**Deferred to Phase 1b (remaining formats):**
-- D82, D90, D60, D1M, D2M, D4M, DNP (less common, can parallelize in later PR)
-- GCR, X64, TAP, T64, ARK, ARC, LNX, CVT, P00, Zipcode (specialized, separate PRs)
+**Part C: D81 Refactoring (16 hours) — FOLLOWS D64**
+1. Extract D81-specific traits (80 tracks, 40 SPT, dual BAM sectors)
+2. Adapt BAMOperations for multi-sector BAM layout
+3. Reduce D81Image.cpp from ~341 to ~100 lines
+4. Compare results with D64 refactoring
+5. Test via `make -j 12 test`
 
-**Files Changed:**
-- `src/main/DiskImageTemplate.hpp` (new, ~250 lines)
-- `src/main/D64Image.cpp` (refactor, ~80 lines from ~323)
-- `src/main/D81Image.cpp` (refactor, ~80 lines from ~341)
-- `src/main/D71Image.cpp` (refactor, ~80 lines from ~304)
-- `src/main/D80Image.cpp` (refactor, ~100 lines from ~411)
-- Potential removal of duplicated utility functions
+**Deferred to Separate PRs:**
+- D71 (72 tracks, D64-based) — ~80 lines reduction
+- D80 (77 tracks, variable SPT) — ~120 lines reduction
+- D65, D90, D60, D1M-D4M, etc. — follow same pattern, separate PRs
 
-**Estimate:** 40 hours (Phase 1 scope); total 120 hours for all formats  
-**Benefit:** 4,200+ lines removed; clearer architecture; easier to add new formats
+**Expected Results (Phase 1 scope, D64+D81):**
+- ~450 lines removed (D64: 223 lines, D81: 241 lines)
+- Unified BAMOperations helper (~150 lines) — smaller than duplicates removed
+- Net savings: ~300 lines
+- Template/traits pattern established for future formats
 
-**Testing:**
-```bash
-make clean && make all
-make test
-# Manual testing of D64/D81/D71/D80 image creation and manipulation
-```
+**Files Changed (Phase 1):**
+- `include/DiskImage.hpp` (enhance base class)
+- `include/BAMOperations.hpp` (new utility class)
+- `src/main/BAMOperations.cpp` (new, ~150 lines)
+- `src/main/D64Image.cpp` (refactor, ~100 lines from ~323)
+- `src/main/D81Image.cpp` (refactor, ~100 lines from ~341)
+- Documentation updates to simplify.md
+
+**Estimate:** 40 hours (full D64+D81); total 120+ hours for all 5 common formats  
+**Benefit:** 300+ lines removed in Phase 1; establishes pattern for 3,700+ more lines in Phase 3
 
 ---
 
