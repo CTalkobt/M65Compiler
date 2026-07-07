@@ -11,7 +11,7 @@
 #include <cstring>
 #include <algorithm>
 
-static const char* VERSION = "1.0.0";
+static const char* VERSION = "1.0.4";
 
 // Forward declaration for FUSE mount (in disk45_fuse.cpp)
 #ifdef HAVE_FUSE3
