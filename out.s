@@ -34,21 +34,110 @@ __halt:
     __zp_scratch3 = $0C
     __zp_scratch4 = $0E
 
-    .extern _mktime
+    .extern _bsearch
 
 _test_result:
     .word 16384
+_sorted:
+    .word 10
+    .word 20
+    .word 30
+    .word 40
+    .word 50
 
 
-; function _test_mktime
-    proc _test_mktime
+; function _cmp
+    proc _cmp, W#@_p_a, W#@_p_b
     .var _fp = 0
-    .loc "/home/duck/m65/inpg/m65compiler.dev_v1.0.4/bin/../lib/include/time.h", 6
-; frame: 36 bytes (frame-allocated vRegs only)
+    .loc "/home/duck/m65/inpg/m65compiler.dev_v1.0.4/bin/../lib/include/stddef.h", 4
+; frame: 8 bytes (frame-allocated vRegs only)
     phw #0
     phw #0
     phw #0
     phw #0
+    tsx
+    txa
+    clc
+    adc #1
+    sta $FD
+    lda #$01
+    adc #0
+    sta $FE
+    .local __vr0 = 0
+    .local __vr1 = 2
+    .local __vr2 = 4
+    .local __vr4 = 6
+    .local @_l_va = 4
+    .local @_l_vb = 6
+    .var @_p_a = 10
+    .var @_p_b = 12
+
+    ldax.fp @_p_a
+    stax.fp __vr0
+    ldax.fp @_p_b
+    stax.fp __vr1
+@entry:
+    .loc "src/test-resources/bug183_bsearch.c", 13
+    ldax.fp __vr0
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    pha
+    iny
+    lda (__zp_scratch),y
+    tax
+    pla
+    sta $20
+    stx $21
+    lda $20
+    ldx $21
+    stax.fp __vr2
+    .loc "src/test-resources/bug183_bsearch.c", 14
+    ldax.fp __vr1
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    pha
+    iny
+    lda (__zp_scratch),y
+    tax
+    pla
+    sta $20
+    stx $21
+    lda $20
+    ldx $21
+    stax.fp __vr4
+    .loc "src/test-resources/bug183_bsearch.c", 15
+    ldax.fp __vr4
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldax.fp __vr2
+    sub.16 .AX, __zp_scratch2
+    sta $20
+    stx $21
+    lda $20
+    ldx $21
+@__return:
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    .func_flags stack_call, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    endproc
+
+; function _test_bsearch
+    proc _test_bsearch
+    .var _fp = 0
+    .loc "/home/duck/m65/inpg/m65compiler.dev_v1.0.4/bin/../lib/include/stddef.h", 10
+; frame: 28 bytes (frame-allocated vRegs only)
     phw #0
     phw #0
     phw #0
@@ -71,200 +160,73 @@ _test_result:
     lda #$01
     adc #0
     sta $FE
-    .local __vr0 = 12
-    .local __vr28 = 0
-    .local __vr29 = 30
-    .local __vr49 = 4
-    .local __vr50 = 32
-    .local __vr61 = 8
-    .local __vr62 = 34
-    .local @_l_result1 = 0
-    .local @_l_result2 = 4
-    .local @_l_result3 = 8
-    .local @_l_t = 12
+    .local __vr0 = 2
+    .local __vr2 = 0
+    .local __vr3 = 4
+    .local __vr4 = 6
+    .local __vr5 = 8
+    .local __vr41 = 10
+    .local __vr42 = 12
+    .local __vr43 = 14
+    .local __vr59 = 16
+    .local __vr60 = 18
+    .local __vr61 = 20
+    .local __vr77 = 22
+    .local __vr78 = 24
+    .local __vr79 = 26
+    .local @_l_found = 0
+    .local @_l_key = 2
 
 @entry:
-    .loc "src/test-resources/bug179_validation.c", 14
-    lda #126
+    .loc "src/test-resources/bug183_bsearch.c", 20
+    lda #30
+    ldz #0
+    staz.fp __vr0
+    .loc "src/test-resources/bug183_bsearch.c", 21
+    leax.fp 2
+    stax.fp __vr3
+    lda #5
     ldx #0
-    sta $20
-    stx $21
-    leax.fp 12
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
-    add.16 .AX, #10
-    sta $24
-    stx $25
-    lda $20
-    ldx $21
-    ldy #0
-    sta ($24),y
-    txa
-    iny
-    sta ($24),y
-    .loc "src/test-resources/bug179_validation.c", 15
-    lda #6
+    stax.fp __vr4
+    lda #2
     ldx #0
-    sta $20
-    stx $21
-    leax.fp 12
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
-    add.16 .AX, #8
-    sta $24
-    stx $25
-    lda $20
-    ldx $21
-    ldy #0
-    sta ($24),y
-    txa
-    iny
-    sta ($24),y
-    .loc "src/test-resources/bug179_validation.c", 16
-    lda #6
-    ldx #0
-    sta $20
-    stx $21
-    leax.fp 12
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
-    add.16 .AX, #6
-    sta $24
-    stx $25
-    lda $20
-    ldx $21
-    ldy #0
-    sta ($24),y
-    txa
-    iny
-    sta ($24),y
-    .loc "src/test-resources/bug179_validation.c", 17
-    lda #12
-    ldx #0
-    sta $20
-    stx $21
-    leax.fp 12
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
-    add.16 .AX, #4
-    sta $24
-    stx $25
-    lda $20
-    ldx $21
-    ldy #0
-    sta ($24),y
-    txa
-    iny
-    sta ($24),y
-    .loc "src/test-resources/bug179_validation.c", 18
-    lda #0
-    sta $20
-    sta $21
-    leax.fp 12
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
-    add.16 .AX, #2
-    sta $24
-    stx $25
-    lda $20
-    ldx $21
-    ldy #0
-    sta ($24),y
-    txa
-    iny
-    sta ($24),y
-    .loc "src/test-resources/bug179_validation.c", 19
-    lda #0
-    sta $20
-    sta $21
-    leax.fp 12
-    sta $22
-    stx $23
-    lda $20
-    ldx $21
-    ldy #0
-    sta ($22),y
-    txa
-    iny
-    sta ($22),y
-    .loc "src/test-resources/bug179_validation.c", 20
-    lda #0
-    sta $20
-    sta $21
-    leax.fp 12
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
-    add.16 .AX, #12
-    sta $24
-    stx $25
-    lda $20
-    ldx $21
-    ldy #0
-    sta ($24),y
-    txa
-    iny
-    sta ($24),y
-    .loc "src/test-resources/bug179_validation.c", 21
-    lda #0
-    sta $20
-    sta $21
-    leax.fp 12
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
-    add.16 .AX, #14
-    sta $24
-    stx $25
-    lda $20
-    ldx $21
-    ldy #0
-    sta ($24),y
-    txa
-    iny
-    sta ($24),y
-    .loc "src/test-resources/bug179_validation.c", 22
-    lda #0
-    sta $20
-    sta $21
-    leax.fp 12
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
-    add.16 .AX, #16
-    sta $24
-    stx $25
-    lda $20
-    ldx $21
-    ldy #0
-    sta ($24),y
-    txa
-    iny
-    sta ($24),y
-    .loc "src/test-resources/bug179_validation.c", 24
-    leax.fp 12
-    stax.fp __vr29
-    ldax.fp __vr29
+    stax.fp __vr5
+    ldax #_cmp
     sta $28
     stx $29
+    ldax.fp __vr5
+    sta $2A
+    stx $2B
+    ldax.fp __vr4
+    sta $2C
+    stx $2D
+    ldax #_sorted
+    sta $2E
+    stx $2F
+    ldax.fp __vr3
+    sta $30
+    stx $31
     lda $28
     ldx $29
     push .ax
     .var _fp = _fp + 2
-    jsr _mktime
+    lda $2A
+    ldx $2B
+    push .ax
+    .var _fp = _fp + 2
+    lda $2C
+    ldx $2D
+    push .ax
+    .var _fp = _fp + 2
+    lda $2E
+    ldx $2F
+    push .ax
+    .var _fp = _fp + 2
+    lda $30
+    ldx $31
+    push .ax
+    .var _fp = _fp + 2
+    jsr _bsearch
     phx
     pha
     tsx
@@ -277,282 +239,26 @@ _test_result:
     sta $FE
     pla
     plx
-    stz @__restore_caller_z_0+1
     plz
     plz
-@__restore_caller_z_0:
-    ldz #0
-    .var _fp = _fp - 2
-    sta $20
-    stx $21
-    sty $22
-    stz $23
-    lda $20
-    ldx $21
-    ldy $22
-    ldz $23
-    staxyz.fp __vr28
-    .loc "src/test-resources/bug179_validation.c", 27
-    lda #125
-    ldx #0
-    sta $20
-    stx $21
-    leax.fp 12
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
-    add.16 .AX, #10
-    sta $24
-    stx $25
-    lda $20
-    ldx $21
-    ldy #0
-    sta ($24),y
-    txa
-    iny
-    sta ($24),y
-    .loc "src/test-resources/bug179_validation.c", 28
-    lda #0
-    sta $20
-    sta $21
-    leax.fp 12
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
-    add.16 .AX, #8
-    sta $24
-    stx $25
-    lda $20
-    ldx $21
-    ldy #0
-    sta ($24),y
-    txa
-    iny
-    sta ($24),y
-    .loc "src/test-resources/bug179_validation.c", 29
-    lda #1
-    ldx #0
-    sta $20
-    stx $21
-    leax.fp 12
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
-    add.16 .AX, #6
-    sta $24
-    stx $25
-    lda $20
-    ldx $21
-    ldy #0
-    sta ($24),y
-    txa
-    iny
-    sta ($24),y
-    .loc "src/test-resources/bug179_validation.c", 30
-    lda #0
-    sta $20
-    sta $21
-    leax.fp 12
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
-    add.16 .AX, #4
-    sta $24
-    stx $25
-    lda $20
-    ldx $21
-    ldy #0
-    sta ($24),y
-    txa
-    iny
-    sta ($24),y
-    .loc "src/test-resources/bug179_validation.c", 31
-    lda #0
-    sta $20
-    sta $21
-    leax.fp 12
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
-    add.16 .AX, #2
-    sta $24
-    stx $25
-    lda $20
-    ldx $21
-    ldy #0
-    sta ($24),y
-    txa
-    iny
-    sta ($24),y
-    .loc "src/test-resources/bug179_validation.c", 32
-    lda #0
-    sta $20
-    sta $21
-    leax.fp 12
-    sta $22
-    stx $23
-    lda $20
-    ldx $21
-    ldy #0
-    sta ($22),y
-    txa
-    iny
-    sta ($22),y
-    .loc "src/test-resources/bug179_validation.c", 34
-    leax.fp 12
-    stax.fp __vr50
-    ldax.fp __vr50
-    sta $28
-    stx $29
-    lda $28
-    ldx $29
-    push .ax
-    .var _fp = _fp + 2
-    jsr _mktime
-    phx
-    pha
-    tsx
-    txa
-    clc
-    adc #1
-    sta $FD
-    lda #$01
-    adc #0
-    sta $FE
-    pla
-    plx
-    stz @__restore_caller_z_1+1
     plz
     plz
-@__restore_caller_z_1:
-    ldz #0
-    .var _fp = _fp - 2
-    sta $20
-    stx $21
-    sty $22
-    stz $23
-    lda $20
-    ldx $21
-    ldy $22
-    ldz $23
-    staxyz.fp __vr49
-    .loc "src/test-resources/bug179_validation.c", 37
-    lda #124
-    ldx #0
-    sta $20
-    stx $21
-    leax.fp 12
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
-    add.16 .AX, #10
-    sta $24
-    stx $25
-    lda $20
-    ldx $21
-    ldy #0
-    sta ($24),y
-    txa
-    iny
-    sta ($24),y
-    .loc "src/test-resources/bug179_validation.c", 38
-    lda #1
-    ldx #0
-    sta $20
-    stx $21
-    leax.fp 12
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
-    add.16 .AX, #8
-    sta $24
-    stx $25
-    lda $20
-    ldx $21
-    ldy #0
-    sta ($24),y
-    txa
-    iny
-    sta ($24),y
-    .loc "src/test-resources/bug179_validation.c", 39
-    lda #29
-    ldx #0
-    sta $20
-    stx $21
-    leax.fp 12
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
-    add.16 .AX, #6
-    sta $24
-    stx $25
-    lda $20
-    ldx $21
-    ldy #0
-    sta ($24),y
-    txa
-    iny
-    sta ($24),y
-    .loc "src/test-resources/bug179_validation.c", 41
-    leax.fp 12
-    stax.fp __vr62
-    ldax.fp __vr62
-    sta $28
-    stx $29
-    lda $28
-    ldx $29
-    push .ax
-    .var _fp = _fp + 2
-    jsr _mktime
-    phx
-    pha
-    tsx
-    txa
-    clc
-    adc #1
-    sta $FD
-    lda #$01
-    adc #0
-    sta $FE
-    pla
-    plx
-    stz @__restore_caller_z_2+1
     plz
     plz
-@__restore_caller_z_2:
-    ldz #0
-    .var _fp = _fp - 2
+    plz
+    plz
+    plz
+    plz
+    .var _fp = _fp - 10
     sta $20
     stx $21
-    sty $22
-    stz $23
     lda $20
     ldx $21
-    ldy $22
-    ldz $23
-    staxyz.fp __vr61
-    .loc "src/test-resources/bug179_validation.c", 44
-    lda #0
-    sta $20
-    sta $21
-    lda $20
-    ldx $21
-    ldy #0
-    ldz #0
-    sta $22
-    stx $23
-    sty $24
-    stz $25
-    ldaxyz.fp __vr28
-    cmp.32 .AXYZ, $22
+    stax.fp __vr2
+    .loc "src/test-resources/bug183_bsearch.c", 24
+    ldax.fp __vr2
+    stx __zp_scratch
+    ora __zp_scratch
     bne @tern_then0
     bra @tern_else1
 @tern_then0:
@@ -560,168 +266,607 @@ _test_result:
     ldx #0
     sta $20
     stx $21
+    lda $20
+    ldx $21
+    sta $22
+    stx $23
     bra @tern_end2
 @tern_else1:
     lda #1
     ldx #0
     sta $20
     stx $21
-@tern_end2:
     lda $20
     ldx $21
     sta $22
+    stx $23
+@tern_end2:
+    lda $22
+    ldx $23
+    sta $20
     lda _test_result
     ldx _test_result+1
-    sta $20
-    stx $21
+    sta $22
+    stx $23
     lda #0
     sta $24
     sta $25
-    lda $22
+    lda $20
     ldx #0
     pha
-    addr_elem.16 __zp_scratch, $20, $24, #1
+    addr_elem.16 __zp_scratch, $22, $24, #1
     pla
     ldy #0
     sta (__zp_scratch),y
-    .loc "src/test-resources/bug179_validation.c", 45
-    lda #0
-    sta $20
-    sta $21
-    lda $20
-    ldx $21
-    ldy #0
-    ldz #0
-    sta $22
-    stx $23
-    sty $24
-    stz $25
-    ldaxyz.fp __vr49
-    cmp.32 .AXYZ, $22
-    bne @tern_then3
-    bra @tern_else4
-@tern_then3:
-    lda #170
+    .loc "src/test-resources/bug183_bsearch.c", 25
+    lda #2
     ldx #0
     sta $20
     stx $21
+    addr_elem.16 $22, #_sorted, $20, #2
+    ldax.fp __vr2
+    cmp.16 .AX, $22
+    beq @tern_then3
+    bra @tern_else4
+@tern_then3:
+    lda #187
+    ldx #0
+    sta $20
+    stx $21
+    lda $20
+    ldx $21
+    sta $22
+    stx $23
     bra @tern_end5
 @tern_else4:
     lda #2
     ldx #0
     sta $20
     stx $21
-@tern_end5:
     lda $20
     ldx $21
     sta $22
+    stx $23
+@tern_end5:
+    lda $22
+    ldx $23
+    sta $20
     lda _test_result
     ldx _test_result+1
-    sta $20
-    stx $21
+    sta $22
+    stx $23
     lda #1
     ldx #0
     sta $24
     stx $25
-    lda $22
+    lda $20
     ldx #0
     pha
-    addr_elem.16 __zp_scratch, $20, $24, #1
+    addr_elem.16 __zp_scratch, $22, $24, #1
     pla
     ldy #0
     sta (__zp_scratch),y
-    .loc "src/test-resources/bug179_validation.c", 46
-    lda #0
+    .loc "src/test-resources/bug183_bsearch.c", 26
+    ldax.fp __vr2
+    bne @if_then6
+    cmp #$00
+    bne @if_then6
+    bra @if_else7
+@if_then6:
+    .loc "src/test-resources/bug183_bsearch.c", 27
+    ldax.fp __vr2
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    pha
+    iny
+    lda (__zp_scratch),y
+    tax
+    pla
     sta $20
-    sta $21
+    stx $21
     lda $20
     ldx $21
-    ldy #0
-    ldz #0
-    sta $22
-    stx $23
-    sty $24
-    stz $25
-    ldaxyz.fp __vr61
-    cmp.32 .AXYZ, $22
-    bne @tern_then6
-    bra @tern_else7
-@tern_then6:
-    lda #170
+    cmp.16 .AX, #30
+    beq @tern_then9
+    bra @tern_else10
+@tern_then9:
+    lda #204
     ldx #0
     sta $20
     stx $21
-    bra @tern_end8
-@tern_else7:
+    lda $20
+    ldx $21
+    sta $22
+    stx $23
+    bra @tern_end11
+@tern_else10:
     lda #3
     ldx #0
     sta $20
     stx $21
-@tern_end8:
     lda $20
     ldx $21
     sta $22
+    stx $23
+@tern_end11:
+    lda $22
+    ldx $23
+    sta $20
     lda _test_result
     ldx _test_result+1
-    sta $20
-    stx $21
+    sta $22
+    stx $23
     lda #2
     ldx #0
     sta $24
     stx $25
-    lda $22
+    lda $20
     ldx #0
     pha
-    addr_elem.16 __zp_scratch, $20, $24, #1
+    addr_elem.16 __zp_scratch, $22, $24, #1
     pla
     ldy #0
     sta (__zp_scratch),y
-    .loc "src/test-resources/bug179_validation.c", 47
-    ldaxyz.fp __vr49
-    sta __zp_scratch2
-    stx __zp_scratch2+1
-    ldaxyz.fp __vr28
-    cmp.32 .AXYZ, __zp_scratch2
-    bne @tern_then9
-    bra @tern_else10
-@tern_then9:
+    bra @if_end8
+@if_else7:
+    .loc "src/test-resources/bug183_bsearch.c", 29
+    lda #153
+    sta $20
+    lda _test_result
+    ldx _test_result+1
+    sta $22
+    stx $23
+    lda #2
+    ldx #0
+    sta $24
+    stx $25
+    lda $20
+    ldx #0
+    pha
+    addr_elem.16 __zp_scratch, $22, $24, #1
+    pla
+    ldy #0
+    sta (__zp_scratch),y
+@if_end8:
+    .loc "src/test-resources/bug183_bsearch.c", 33
+    lda #10
+    ldz #0
+    staz.fp __vr0
+    .loc "src/test-resources/bug183_bsearch.c", 34
+    leax.fp 2
+    stax.fp __vr41
+    lda #5
+    ldx #0
+    stax.fp __vr42
+    lda #2
+    ldx #0
+    stax.fp __vr43
+    ldax #_cmp
+    sta $28
+    stx $29
+    ldax.fp __vr43
+    sta $2A
+    stx $2B
+    ldax.fp __vr42
+    sta $2C
+    stx $2D
+    ldax #_sorted
+    sta $2E
+    stx $2F
+    ldax.fp __vr41
+    sta $30
+    stx $31
+    lda $28
+    ldx $29
+    push .ax
+    .var _fp = _fp + 2
+    lda $2A
+    ldx $2B
+    push .ax
+    .var _fp = _fp + 2
+    lda $2C
+    ldx $2D
+    push .ax
+    .var _fp = _fp + 2
+    lda $2E
+    ldx $2F
+    push .ax
+    .var _fp = _fp + 2
+    lda $30
+    ldx $31
+    push .ax
+    .var _fp = _fp + 2
+    jsr _bsearch
+    phx
+    pha
+    tsx
+    txa
+    clc
+    adc #1
+    sta $FD
+    lda #$01
+    adc #0
+    sta $FE
+    pla
+    plx
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    .var _fp = _fp - 10
+    sta $20
+    stx $21
+    lda $20
+    ldx $21
+    stax.fp __vr2
+    .loc "src/test-resources/bug183_bsearch.c", 35
+    ldax.fp __vr2
+    stx __zp_scratch
+    ora __zp_scratch
+    bne @sc_merge12
+    bra @sc_short13
+@sc_merge12:
+    ldax.fp __vr2
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    pha
+    iny
+    lda (__zp_scratch),y
+    tax
+    pla
+    sta $20
+    stx $21
+    lda $20
+    ldx $21
+    cmp.16 .AX, #10
+    beq @__cmp_set_0
+    bra @__cmp_zero_0
+@__cmp_set_0:
+    lda #1
+    ldx #0
+    bra @__cmp_done_0
+@__cmp_zero_0:
+    lda #0
+    ldx #0
+@__cmp_done_0:
+    sta $24
+    bra @sc_done14
+@sc_short13:
+@sc_done14:
+    lda $24
+    bne @tern_then15
+    bra @tern_else16
+@tern_then15:
     lda #170
     ldx #0
     sta $20
     stx $21
-    bra @tern_end11
-@tern_else10:
+    lda $20
+    ldx $21
+    sta $22
+    stx $23
+    bra @tern_end17
+@tern_else16:
     lda #4
     ldx #0
     sta $20
     stx $21
-@tern_end11:
     lda $20
     ldx $21
     sta $22
+    stx $23
+@tern_end17:
+    lda $22
+    ldx $23
+    sta $20
     lda _test_result
     ldx _test_result+1
-    sta $20
-    stx $21
+    sta $22
+    stx $23
     lda #3
     ldx #0
     sta $24
     stx $25
-    lda $22
+    lda $20
     ldx #0
     pha
-    addr_elem.16 __zp_scratch, $20, $24, #1
+    addr_elem.16 __zp_scratch, $22, $24, #1
     pla
     ldy #0
     sta (__zp_scratch),y
-    .loc "src/test-resources/bug179_validation.c", 50
+    .loc "src/test-resources/bug183_bsearch.c", 38
+    lda #50
+    ldz #0
+    staz.fp __vr0
+    .loc "src/test-resources/bug183_bsearch.c", 39
+    leax.fp 2
+    stax.fp __vr59
+    lda #5
+    ldx #0
+    stax.fp __vr60
+    lda #2
+    ldx #0
+    stax.fp __vr61
+    ldax #_cmp
+    sta $28
+    stx $29
+    ldax.fp __vr61
+    sta $2A
+    stx $2B
+    ldax.fp __vr60
+    sta $2C
+    stx $2D
+    ldax #_sorted
+    sta $2E
+    stx $2F
+    ldax.fp __vr59
+    sta $30
+    stx $31
+    lda $28
+    ldx $29
+    push .ax
+    .var _fp = _fp + 2
+    lda $2A
+    ldx $2B
+    push .ax
+    .var _fp = _fp + 2
+    lda $2C
+    ldx $2D
+    push .ax
+    .var _fp = _fp + 2
+    lda $2E
+    ldx $2F
+    push .ax
+    .var _fp = _fp + 2
+    lda $30
+    ldx $31
+    push .ax
+    .var _fp = _fp + 2
+    jsr _bsearch
+    phx
+    pha
+    tsx
+    txa
+    clc
+    adc #1
+    sta $FD
+    lda #$01
+    adc #0
+    sta $FE
+    pla
+    plx
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    .var _fp = _fp - 10
+    sta $20
+    stx $21
+    lda $20
+    ldx $21
+    stax.fp __vr2
+    .loc "src/test-resources/bug183_bsearch.c", 40
+    ldax.fp __vr2
+    stx __zp_scratch
+    ora __zp_scratch
+    bne @sc_merge18
+    bra @sc_short19
+@sc_merge18:
+    ldax.fp __vr2
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    pha
+    iny
+    lda (__zp_scratch),y
+    tax
+    pla
+    sta $20
+    stx $21
+    lda $20
+    ldx $21
+    cmp.16 .AX, #50
+    beq @__cmp_set_1
+    bra @__cmp_zero_1
+@__cmp_set_1:
+    lda #1
+    ldx #0
+    bra @__cmp_done_1
+@__cmp_zero_1:
+    lda #0
+    ldx #0
+@__cmp_done_1:
+    sta $24
+    bra @sc_done20
+@sc_short19:
+@sc_done20:
+    lda $24
+    bne @tern_then21
+    bra @tern_else22
+@tern_then21:
+    lda #170
+    ldx #0
+    sta $20
+    stx $21
+    lda $20
+    ldx $21
+    sta $22
+    stx $23
+    bra @tern_end23
+@tern_else22:
+    lda #5
+    ldx #0
+    sta $20
+    stx $21
+    lda $20
+    ldx $21
+    sta $22
+    stx $23
+@tern_end23:
+    lda $22
+    ldx $23
+    sta $20
+    lda _test_result
+    ldx _test_result+1
+    sta $22
+    stx $23
+    lda #4
+    ldx #0
+    sta $24
+    stx $25
+    lda $20
+    ldx #0
+    pha
+    addr_elem.16 __zp_scratch, $22, $24, #1
+    pla
+    ldy #0
+    sta (__zp_scratch),y
+    .loc "src/test-resources/bug183_bsearch.c", 43
+    lda #35
+    ldz #0
+    staz.fp __vr0
+    .loc "src/test-resources/bug183_bsearch.c", 44
+    leax.fp 2
+    stax.fp __vr77
+    lda #5
+    ldx #0
+    stax.fp __vr78
+    lda #2
+    ldx #0
+    stax.fp __vr79
+    ldax #_cmp
+    sta $28
+    stx $29
+    ldax.fp __vr79
+    sta $2A
+    stx $2B
+    ldax.fp __vr78
+    sta $2C
+    stx $2D
+    ldax #_sorted
+    sta $2E
+    stx $2F
+    ldax.fp __vr77
+    sta $30
+    stx $31
+    lda $28
+    ldx $29
+    push .ax
+    .var _fp = _fp + 2
+    lda $2A
+    ldx $2B
+    push .ax
+    .var _fp = _fp + 2
+    lda $2C
+    ldx $2D
+    push .ax
+    .var _fp = _fp + 2
+    lda $2E
+    ldx $2F
+    push .ax
+    .var _fp = _fp + 2
+    lda $30
+    ldx $31
+    push .ax
+    .var _fp = _fp + 2
+    jsr _bsearch
+    phx
+    pha
+    tsx
+    txa
+    clc
+    adc #1
+    sta $FD
+    lda #$01
+    adc #0
+    sta $FE
+    pla
+    plx
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    .var _fp = _fp - 10
+    sta $20
+    stx $21
+    lda $20
+    ldx $21
+    stax.fp __vr2
+    .loc "src/test-resources/bug183_bsearch.c", 45
+    ldax.fp __vr2
+    stx __zp_scratch
+    ora __zp_scratch
+    beq @tern_then24
+    bra @tern_else25
+@tern_then24:
+    lda #170
+    ldx #0
+    sta $20
+    stx $21
+    lda $20
+    ldx $21
+    sta $22
+    stx $23
+    bra @tern_end26
+@tern_else25:
+    lda #6
+    ldx #0
+    sta $20
+    stx $21
+    lda $20
+    ldx $21
+    sta $22
+    stx $23
+@tern_end26:
+    lda $22
+    ldx $23
+    sta $20
+    lda _test_result
+    ldx _test_result+1
+    sta $22
+    stx $23
+    lda #5
+    ldx #0
+    sta $24
+    stx $25
+    lda $20
+    ldx #0
+    pha
+    addr_elem.16 __zp_scratch, $22, $24, #1
+    pla
+    ldy #0
+    sta (__zp_scratch),y
+    .loc "src/test-resources/bug183_bsearch.c", 48
     lda #255
     sta $20
     lda _test_result
     ldx _test_result+1
     sta $22
     stx $23
-    lda #4
+    lda #6
     ldx #0
     sta $24
     stx $25
@@ -761,14 +906,6 @@ _test_result:
     plz
     plz
     plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
     .func_flags stack_call
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
@@ -777,7 +914,7 @@ _test_result:
 ; function _main
     proc _main
     .var _fp = 0
-    .loc "/home/duck/m65/inpg/m65compiler.dev_v1.0.4/bin/../lib/include/stdio.h", 4
+    .loc "/home/duck/m65/inpg/m65compiler.dev_v1.0.4/bin/../lib/include/stdlib.h", 35
     tsx
     txa
     clc
@@ -788,8 +925,8 @@ _test_result:
     sta $FE
 
 @entry:
-    .loc "src/test-resources/bug179_validation.c", 54
-    jsr _test_mktime
+    .loc "src/test-resources/bug183_bsearch.c", 52
+    jsr _test_bsearch
     phx
     pha
     tsx
