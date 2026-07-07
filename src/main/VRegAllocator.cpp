@@ -323,15 +323,21 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
         // their definition and use. Use ZP or FRAME only.
         bool canUseAX = false;
 
-        if (canUseAX && span <= 1) {
-            // Short-lived, no conflict — keep in A:X
+        // Bug #179 fix: Locals (including parameters) MUST go to FRAME, never ZP.
+        // They may be accessed by linked functions that expect frame offsets,
+        // and reusing ZP across different locals causes address mismatches.
+        bool isLocal = localVarVregs.count(lr.vregId) > 0;
+
+        if (canUseAX && span <= 1 && !isLocal) {
+            // Short-lived, no conflict — keep in A:X (only for non-locals)
             allocs_[lr.vregId] = {IN_AX, 0, lr.type};
             axOccupiedUntil = lr.lastUse;
             for (int i = lr.firstDef; i <= lr.lastUse && i < (int)axState_.size(); i++) {
                 axState_[i] = (int)lr.vregId;
             }
-        } else if (!crossesCall) {
-            // Try ZP for medium-lived vRegs that don't cross calls
+        } else if (!crossesCall && !isLocal) {
+            // Try ZP for medium-lived non-local vRegs that don't cross calls
+            // Locals must go to FRAME (see comment above)
             int zpAddr = allocZpSlot(lr.type);
             if (zpAddr >= 0) {
                 allocs_[lr.vregId] = {IN_ZP, zpAddr, lr.type};
@@ -343,7 +349,8 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
                 frameAllocMap[lr.vregId] = {foff, fsize};
             }
         } else {
-            // Crosses a call — ZP is clobbered by callees, must use frame
+            // Either: crosses a call (ZP is clobbered), or is a local (must use frame)
+            // In both cases, locals and call-crossing vRegs go to FRAME
             int foff = allocFrameSlot(lr.type);
             int fsize = ir::typeSize(lr.type); if (fsize < 2) fsize = 2;
             allocs_[lr.vregId] = {IN_FRAME, foff, lr.type};
