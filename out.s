@@ -34,114 +34,33 @@ __halt:
     __zp_scratch3 = $0C
     __zp_scratch4 = $0E
 
-_results:
-    .word 0
-_g_value:
-    .word 0
-_g_flag:
-    .byte 0
+    .extern _mktime
+
+_test_result:
+    .word 16384
 
 
-; function _store_to_global
-    proc _store_to_global, W#@_p_val
+; function _test_mktime
+    proc _test_mktime
     .var _fp = 0
-    .loc "src/test-resources/test_inline_asm.c", 11
-    tsx
-    txa
-    clc
-    adc #1
-    sta $FD
-    lda #$01
-    adc #0
-    sta $FE
-    .var @_p_val = 2
-
-    ldax.fp @_p_val
-    sta $20
-    stx $21
-@entry:
-    .loc "src/test-resources/test_inline_asm.c", 13
-    ldax @_p_val, sp
-    .loc "src/test-resources/test_inline_asm.c", 14
-    stax _g_value
-@__return:
-    .func_flags stack_call, leaf
-    .reg_clobbers A, X, Y, Z
-    .flag_clobbers C, N, Z, V
-    endproc
-
-; function _set_flag
-    proc _set_flag, B#@_p_f
-    .var _fp = 0
-    .loc "src/test-resources/test_inline_asm.c", 17
-    tsx
-    txa
-    clc
-    adc #1
-    sta $FD
-    lda #$01
-    adc #0
-    sta $FE
-    .var @_p_f = 2
-
-    ldax.fp @_p_f
-    sta $20
-@entry:
-    .loc "src/test-resources/test_inline_asm.c", 19
-    lda @_p_f, sp
-    .loc "src/test-resources/test_inline_asm.c", 20
-    sta _g_flag
-@__return:
-    .func_flags stack_call, leaf
-    .reg_clobbers A, X, Y, Z
-    .flag_clobbers C, N, Z, V
-    endproc
-
-; function _copy_via_asm
-    proc _copy_via_asm, W#@_p_val
-    .var _fp = 0
-    .loc "src/test-resources/test_inline_asm.c", 23
-; frame: 2 bytes (frame-allocated vRegs only)
+    .loc "/home/duck/m65/inpg/m65compiler.dev_v1.0.4/bin/../lib/include/time.h", 6
+; frame: 36 bytes (frame-allocated vRegs only)
     phw #0
-    tsx
-    txa
-    clc
-    adc #1
-    sta $FD
-    lda #$01
-    adc #0
-    sta $FE
-    .local __vr1 = 0
-    .local @_l_result = 0
-    .var @_p_val = 4
-
-    ldax.fp @_p_val
-    sta $20
-    stx $21
-@entry:
-    .loc "src/test-resources/test_inline_asm.c", 24
-    lda #0
-    taz
-    staz.fp __vr1
-    .loc "src/test-resources/test_inline_asm.c", 26
-    ldax @_p_val, sp
-    .loc "src/test-resources/test_inline_asm.c", 27
-    stax @_l_result, sp
-    .loc "src/test-resources/test_inline_asm.c", 28
-    ldax.fp __vr1
-@__return:
-    plz
-    plz
-    .func_flags stack_call, leaf
-    .reg_clobbers A, X, Y, Z
-    .flag_clobbers C, N, Z, V
-    endproc
-
-; function _test_local_access
-    proc _test_local_access
-    .var _fp = 0
-    .loc "src/test-resources/test_inline_asm.c", 31
-; frame: 4 bytes (frame-allocated vRegs only)
+    phw #0
+    phw #0
+    phw #0
+    phw #0
+    phw #0
+    phw #0
+    phw #0
+    phw #0
+    phw #0
+    phw #0
+    phw #0
+    phw #0
+    phw #0
+    phw #0
+    phw #0
     phw #0
     phw #0
     tsx
@@ -152,176 +71,202 @@ _g_flag:
     lda #$01
     adc #0
     sta $FE
-    .local __vr0 = 0
-    .local __vr3 = 2
-    .local @_l_d = 0
-    .local @_l_x = 2
+    .local __vr0 = 12
+    .local __vr28 = 0
+    .local __vr29 = 30
+    .local __vr49 = 4
+    .local __vr50 = 32
+    .local __vr61 = 8
+    .local __vr62 = 34
+    .local @_l_result1 = 0
+    .local @_l_result2 = 4
+    .local @_l_result3 = 8
+    .local @_l_t = 12
 
 @entry:
-    .loc "src/test-resources/test_inline_asm.c", 33
-    lda #50
+    .loc "src/test-resources/bug179_validation.c", 14
+    lda #126
     ldx #0
-    push .ax
-    .var _fp = _fp + 2
-    jsr _copy_via_asm
-    tsx
-    txa
-    clc
-    adc #1
-    sta $FD
-    lda #$01
-    adc #0
-    sta $FE
-    plz
-    plz
-    .var _fp = _fp - 2
     sta $20
     stx $21
-    .loc "src/test-resources/test_inline_asm.c", 36
-    lda #100
-    ldx #0
-    push .ax
-    .var _fp = _fp + 2
-    jsr _copy_via_asm
-    tsx
-    txa
-    clc
-    adc #1
-    sta $FD
-    lda #$01
-    adc #0
-    sta $FE
-    plz
-    plz
-    .var _fp = _fp - 2
-    sta $20
-    stx $21
-    lda $20
-    ldx $21
-    stax.fp __vr3
-    .loc "src/test-resources/test_inline_asm.c", 37
-    ldax.fp __vr3
-    cmp.16 .AX, #100
-    beq @if_then0
-    bra @if_end2
-@if_then0:
-    .loc "src/test-resources/test_inline_asm.c", 38
-    lda #1
-    sta $20
-    lda _results
-    ldx _results+1
+    leax.fp 12
     sta $22
     stx $23
-    lda #3
-    ldx #0
+    lda $22
+    ldx $23
+    add.16 .AX, #10
     sta $24
     stx $25
     lda $20
-    ldx #0
-    pha
-    addr_elem.16 __zp_scratch, $22, $24, #1
-    pla
+    ldx $21
     ldy #0
-    sta (__zp_scratch),y
-@if_end2:
-@__return:
-    plz
-    plz
-    plz
-    plz
-    .func_flags stack_call
-    .reg_clobbers A, X, Y, Z
-    .flag_clobbers C, N, Z, V
-    endproc
-
-; function _main
-    proc _main
-    .var _fp = 0
-    .loc "src/test-resources/test_inline_asm.c", 42
-; frame: 2 bytes (frame-allocated vRegs only)
-    phw #0
-    tsx
+    sta ($24),y
     txa
-    clc
-    adc #1
-    sta $FD
-    lda #$01
-    adc #0
-    sta $FE
-    .local __vr10 = 0
-
-@entry:
-    .loc "src/test-resources/test_inline_asm.c", 43
-    lda #0
-    ldx #64
-    sta $20
-    stx $21
-    lda $20
-    ldx $21
-    sta _results
-    stx _results+1
-    .loc "src/test-resources/test_inline_asm.c", 46
-    lda #171
+    iny
+    sta ($24),y
+    .loc "src/test-resources/bug179_validation.c", 15
+    lda #6
     ldx #0
-    push .ax
-    .var _fp = _fp + 2
-    jsr _store_to_global
-    tsx
-    txa
-    clc
-    adc #1
-    sta $FD
-    lda #$01
-    adc #0
-    sta $FE
-    plz
-    plz
-    .var _fp = _fp - 2
-    .loc "src/test-resources/test_inline_asm.c", 47
-    lda _g_value
-    ldx _g_value+1
     sta $20
     stx $21
-    lda $20
-    ldx $21
-    cmp.16 .AX, #171
-    beq @if_then3
-    bra @if_end5
-@if_then3:
-    .loc "src/test-resources/test_inline_asm.c", 48
-    lda #1
-    sta $20
-    lda _results
-    ldx _results+1
+    leax.fp 12
     sta $22
     stx $23
-    lda #0
+    lda $22
+    ldx $23
+    add.16 .AX, #8
     sta $24
-    sta $25
+    stx $25
     lda $20
-    ldx #0
-    pha
-    addr_elem.16 __zp_scratch, $22, $24, #1
-    pla
+    ldx $21
     ldy #0
-    sta (__zp_scratch),y
-@if_end5:
-    .loc "src/test-resources/test_inline_asm.c", 52
-    lda #66
+    sta ($24),y
+    txa
+    iny
+    sta ($24),y
+    .loc "src/test-resources/bug179_validation.c", 16
+    lda #6
     ldx #0
     sta $20
     stx $21
+    leax.fp 12
+    sta $22
+    stx $23
+    lda $22
+    ldx $23
+    add.16 .AX, #6
+    sta $24
+    stx $25
     lda $20
     ldx $21
-    sta.fp __vr10
-    lda.fp __vr10
+    ldy #0
+    sta ($24),y
+    txa
+    iny
+    sta ($24),y
+    .loc "src/test-resources/bug179_validation.c", 17
+    lda #12
+    ldx #0
+    sta $20
+    stx $21
+    leax.fp 12
+    sta $22
+    stx $23
+    lda $22
+    ldx $23
+    add.16 .AX, #4
+    sta $24
+    stx $25
+    lda $20
+    ldx $21
+    ldy #0
+    sta ($24),y
+    txa
+    iny
+    sta ($24),y
+    .loc "src/test-resources/bug179_validation.c", 18
+    lda #0
+    sta $20
+    sta $21
+    leax.fp 12
+    sta $22
+    stx $23
+    lda $22
+    ldx $23
+    add.16 .AX, #2
+    sta $24
+    stx $25
+    lda $20
+    ldx $21
+    ldy #0
+    sta ($24),y
+    txa
+    iny
+    sta ($24),y
+    .loc "src/test-resources/bug179_validation.c", 19
+    lda #0
+    sta $20
+    sta $21
+    leax.fp 12
+    sta $22
+    stx $23
+    lda $20
+    ldx $21
+    ldy #0
+    sta ($22),y
+    txa
+    iny
+    sta ($22),y
+    .loc "src/test-resources/bug179_validation.c", 20
+    lda #0
+    sta $20
+    sta $21
+    leax.fp 12
+    sta $22
+    stx $23
+    lda $22
+    ldx $23
+    add.16 .AX, #12
+    sta $24
+    stx $25
+    lda $20
+    ldx $21
+    ldy #0
+    sta ($24),y
+    txa
+    iny
+    sta ($24),y
+    .loc "src/test-resources/bug179_validation.c", 21
+    lda #0
+    sta $20
+    sta $21
+    leax.fp 12
+    sta $22
+    stx $23
+    lda $22
+    ldx $23
+    add.16 .AX, #14
+    sta $24
+    stx $25
+    lda $20
+    ldx $21
+    ldy #0
+    sta ($24),y
+    txa
+    iny
+    sta ($24),y
+    .loc "src/test-resources/bug179_validation.c", 22
+    lda #0
+    sta $20
+    sta $21
+    leax.fp 12
+    sta $22
+    stx $23
+    lda $22
+    ldx $23
+    add.16 .AX, #16
+    sta $24
+    stx $25
+    lda $20
+    ldx $21
+    ldy #0
+    sta ($24),y
+    txa
+    iny
+    sta ($24),y
+    .loc "src/test-resources/bug179_validation.c", 24
+    leax.fp 12
+    stax.fp __vr29
+    ldax.fp __vr29
     sta $28
     stx $29
     lda $28
     ldx $29
     push .ax
     .var _fp = _fp + 2
-    jsr _set_flag
+    jsr _mktime
+    phx
+    pha
     tsx
     txa
     clc
@@ -330,111 +275,450 @@ _g_flag:
     lda #$01
     adc #0
     sta $FE
+    pla
+    plx
+    stz @__restore_caller_z_0+1
     plz
     plz
+@__restore_caller_z_0:
+    ldz #0
     .var _fp = _fp - 2
-    .loc "src/test-resources/test_inline_asm.c", 53
-    lda _g_flag
+    sta $20
+    stx $21
+    sty $22
+    stz $23
+    lda $20
+    ldx $21
+    ldy $22
+    ldz $23
+    staxyz.fp __vr28
+    .loc "src/test-resources/bug179_validation.c", 27
+    lda #125
     ldx #0
     sta $20
-    lda #66
+    stx $21
+    leax.fp 12
     sta $22
+    stx $23
+    lda $22
+    ldx $23
+    add.16 .AX, #10
+    sta $24
+    stx $25
     lda $20
+    ldx $21
+    ldy #0
+    sta ($24),y
+    txa
+    iny
+    sta ($24),y
+    .loc "src/test-resources/bug179_validation.c", 28
+    lda #0
+    sta $20
+    sta $21
+    leax.fp 12
+    sta $22
+    stx $23
+    lda $22
+    ldx $23
+    add.16 .AX, #8
+    sta $24
+    stx $25
+    lda $20
+    ldx $21
+    ldy #0
+    sta ($24),y
+    txa
+    iny
+    sta ($24),y
+    .loc "src/test-resources/bug179_validation.c", 29
+    lda #1
     ldx #0
-    sxt.8
+    sta $20
+    stx $21
+    leax.fp 12
+    sta $22
+    stx $23
+    lda $22
+    ldx $23
+    add.16 .AX, #6
+    sta $24
+    stx $25
+    lda $20
+    ldx $21
+    ldy #0
+    sta ($24),y
+    txa
+    iny
+    sta ($24),y
+    .loc "src/test-resources/bug179_validation.c", 30
+    lda #0
+    sta $20
+    sta $21
+    leax.fp 12
+    sta $22
+    stx $23
+    lda $22
+    ldx $23
+    add.16 .AX, #4
+    sta $24
+    stx $25
+    lda $20
+    ldx $21
+    ldy #0
+    sta ($24),y
+    txa
+    iny
+    sta ($24),y
+    .loc "src/test-resources/bug179_validation.c", 31
+    lda #0
+    sta $20
+    sta $21
+    leax.fp 12
+    sta $22
+    stx $23
+    lda $22
+    ldx $23
+    add.16 .AX, #2
+    sta $24
+    stx $25
+    lda $20
+    ldx $21
+    ldy #0
+    sta ($24),y
+    txa
+    iny
+    sta ($24),y
+    .loc "src/test-resources/bug179_validation.c", 32
+    lda #0
+    sta $20
+    sta $21
+    leax.fp 12
+    sta $22
+    stx $23
+    lda $20
+    ldx $21
+    ldy #0
+    sta ($22),y
+    txa
+    iny
+    sta ($22),y
+    .loc "src/test-resources/bug179_validation.c", 34
+    leax.fp 12
+    stax.fp __vr50
+    ldax.fp __vr50
+    sta $28
+    stx $29
+    lda $28
+    ldx $29
+    push .ax
+    .var _fp = _fp + 2
+    jsr _mktime
+    phx
+    pha
+    tsx
+    txa
+    clc
+    adc #1
+    sta $FD
+    lda #$01
+    adc #0
+    sta $FE
+    pla
+    plx
+    stz @__restore_caller_z_1+1
+    plz
+    plz
+@__restore_caller_z_1:
+    ldz #0
+    .var _fp = _fp - 2
+    sta $20
+    stx $21
+    sty $22
+    stz $23
+    lda $20
+    ldx $21
+    ldy $22
+    ldz $23
+    staxyz.fp __vr49
+    .loc "src/test-resources/bug179_validation.c", 37
+    lda #124
+    ldx #0
+    sta $20
+    stx $21
+    leax.fp 12
+    sta $22
+    stx $23
+    lda $22
+    ldx $23
+    add.16 .AX, #10
+    sta $24
+    stx $25
+    lda $20
+    ldx $21
+    ldy #0
+    sta ($24),y
+    txa
+    iny
+    sta ($24),y
+    .loc "src/test-resources/bug179_validation.c", 38
+    lda #1
+    ldx #0
+    sta $20
+    stx $21
+    leax.fp 12
+    sta $22
+    stx $23
+    lda $22
+    ldx $23
+    add.16 .AX, #8
+    sta $24
+    stx $25
+    lda $20
+    ldx $21
+    ldy #0
+    sta ($24),y
+    txa
+    iny
+    sta ($24),y
+    .loc "src/test-resources/bug179_validation.c", 39
+    lda #29
+    ldx #0
+    sta $20
+    stx $21
+    leax.fp 12
+    sta $22
+    stx $23
+    lda $22
+    ldx $23
+    add.16 .AX, #6
+    sta $24
+    stx $25
+    lda $20
+    ldx $21
+    ldy #0
+    sta ($24),y
+    txa
+    iny
+    sta ($24),y
+    .loc "src/test-resources/bug179_validation.c", 41
+    leax.fp 12
+    stax.fp __vr62
+    ldax.fp __vr62
+    sta $28
+    stx $29
+    lda $28
+    ldx $29
+    push .ax
+    .var _fp = _fp + 2
+    jsr _mktime
+    phx
+    pha
+    tsx
+    txa
+    clc
+    adc #1
+    sta $FD
+    lda #$01
+    adc #0
+    sta $FE
+    pla
+    plx
+    stz @__restore_caller_z_2+1
+    plz
+    plz
+@__restore_caller_z_2:
+    ldz #0
+    .var _fp = _fp - 2
+    sta $20
+    stx $21
+    sty $22
+    stz $23
+    lda $20
+    ldx $21
+    ldy $22
+    ldz $23
+    staxyz.fp __vr61
+    .loc "src/test-resources/bug179_validation.c", 44
+    lda #0
+    sta $20
+    sta $21
+    lda $20
+    ldx $21
+    ldy #0
+    ldz #0
+    sta $22
+    stx $23
+    sty $24
+    stz $25
+    ldaxyz.fp __vr28
+    cmp.32 .AXYZ, $22
+    bne @tern_then0
+    bra @tern_else1
+@tern_then0:
+    lda #170
+    ldx #0
+    sta $20
+    stx $21
+    bra @tern_end2
+@tern_else1:
+    lda #1
+    ldx #0
+    sta $20
+    stx $21
+@tern_end2:
+    lda $20
+    ldx $21
+    sta $22
+    lda _test_result
+    ldx _test_result+1
+    sta $20
+    stx $21
+    lda #0
+    sta $24
+    sta $25
+    lda $22
+    ldx #0
+    pha
+    addr_elem.16 __zp_scratch, $20, $24, #1
+    pla
+    ldy #0
+    sta (__zp_scratch),y
+    .loc "src/test-resources/bug179_validation.c", 45
+    lda #0
+    sta $20
+    sta $21
+    lda $20
+    ldx $21
+    ldy #0
+    ldz #0
+    sta $22
+    stx $23
+    sty $24
+    stz $25
+    ldaxyz.fp __vr49
+    cmp.32 .AXYZ, $22
+    bne @tern_then3
+    bra @tern_else4
+@tern_then3:
+    lda #170
+    ldx #0
+    sta $20
+    stx $21
+    bra @tern_end5
+@tern_else4:
+    lda #2
+    ldx #0
+    sta $20
+    stx $21
+@tern_end5:
+    lda $20
+    ldx $21
+    sta $22
+    lda _test_result
+    ldx _test_result+1
+    sta $20
+    stx $21
+    lda #1
+    ldx #0
     sta $24
     stx $25
     lda $22
     ldx #0
-    ldx #0
-    sta $20
-    stx $21
-    lda $24
-    ldx $25
-    cmp.16 .AX, $20
-    beq @if_then6
-    bra @if_end8
-@if_then6:
-    .loc "src/test-resources/test_inline_asm.c", 54
-    lda #1
-    sta $20
-    lda _results
-    ldx _results+1
-    sta $22
-    stx $23
-    lda #1
-    ldx #0
-    sta $24
-    stx $25
-    lda $20
-    ldx #0
     pha
-    addr_elem.16 __zp_scratch, $22, $24, #1
+    addr_elem.16 __zp_scratch, $20, $24, #1
     pla
     ldy #0
     sta (__zp_scratch),y
-@if_end8:
-    .loc "src/test-resources/test_inline_asm.c", 58
+    .loc "src/test-resources/bug179_validation.c", 46
     lda #0
-    ldx #0
-    push .ax
-    .var _fp = _fp + 2
-    jsr _store_to_global
-    tsx
-    txa
-    clc
-    adc #1
-    sta $FD
-    lda #$01
-    adc #0
-    sta $FE
-    plz
-    plz
-    .var _fp = _fp - 2
-    .loc "src/test-resources/test_inline_asm.c", 59
-    lda _g_value
-    ldx _g_value+1
     sta $20
-    stx $21
+    sta $21
     lda $20
-    ora $21
-    beq @if_then9
-    bra @if_end11
-@if_then9:
-    .loc "src/test-resources/test_inline_asm.c", 60
-    lda #1
-    sta $20
-    lda _results
-    ldx _results+1
+    ldx $21
+    ldy #0
+    ldz #0
     sta $22
     stx $23
+    sty $24
+    stz $25
+    ldaxyz.fp __vr61
+    cmp.32 .AXYZ, $22
+    bne @tern_then6
+    bra @tern_else7
+@tern_then6:
+    lda #170
+    ldx #0
+    sta $20
+    stx $21
+    bra @tern_end8
+@tern_else7:
+    lda #3
+    ldx #0
+    sta $20
+    stx $21
+@tern_end8:
+    lda $20
+    ldx $21
+    sta $22
+    lda _test_result
+    ldx _test_result+1
+    sta $20
+    stx $21
     lda #2
     ldx #0
     sta $24
     stx $25
-    lda $20
+    lda $22
     ldx #0
     pha
-    addr_elem.16 __zp_scratch, $22, $24, #1
+    addr_elem.16 __zp_scratch, $20, $24, #1
     pla
     ldy #0
     sta (__zp_scratch),y
-@if_end11:
-    .loc "src/test-resources/test_inline_asm.c", 64
-    jsr _test_local_access
-    tsx
-    txa
-    clc
-    adc #1
-    sta $FD
-    lda #$01
-    adc #0
-    sta $FE
-    .loc "src/test-resources/test_inline_asm.c", 67
+    .loc "src/test-resources/bug179_validation.c", 47
+    ldaxyz.fp __vr49
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldaxyz.fp __vr28
+    cmp.32 .AXYZ, __zp_scratch2
+    bne @tern_then9
+    bra @tern_else10
+@tern_then9:
     lda #170
+    ldx #0
     sta $20
-    lda _results
-    ldx _results+1
+    stx $21
+    bra @tern_end11
+@tern_else10:
+    lda #4
+    ldx #0
+    sta $20
+    stx $21
+@tern_end11:
+    lda $20
+    ldx $21
+    sta $22
+    lda _test_result
+    ldx _test_result+1
+    sta $20
+    stx $21
+    lda #3
+    ldx #0
+    sta $24
+    stx $25
+    lda $22
+    ldx #0
+    pha
+    addr_elem.16 __zp_scratch, $20, $24, #1
+    pla
+    ldy #0
+    sta (__zp_scratch),y
+    .loc "src/test-resources/bug179_validation.c", 50
+    lda #255
+    sta $20
+    lda _test_result
+    ldx _test_result+1
     sta $22
     stx $23
     lda #4
@@ -451,6 +735,74 @@ _g_flag:
 @__return:
     plz
     plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    .func_flags stack_call
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    endproc
+
+; function _main
+    proc _main
+    .var _fp = 0
+    .loc "/home/duck/m65/inpg/m65compiler.dev_v1.0.4/bin/../lib/include/stdio.h", 4
+    tsx
+    txa
+    clc
+    adc #1
+    sta $FD
+    lda #$01
+    adc #0
+    sta $FE
+
+@entry:
+    .loc "src/test-resources/bug179_validation.c", 54
+    jsr _test_mktime
+    phx
+    pha
+    tsx
+    txa
+    clc
+    adc #1
+    sta $FD
+    lda #$01
+    adc #0
+    sta $FE
+    pla
+    plx
+@__return:
     .func_flags stack_call
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V

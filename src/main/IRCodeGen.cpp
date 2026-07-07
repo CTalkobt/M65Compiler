@@ -387,9 +387,12 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     sourceFile_ = mod.sourceFile;
 
     // Pre-scan all functions to compute frame offsets (needed for capture)
+    // Bug #179 fix: Skip prescan for all functions.
+    // Prescan allocates without knowing allocator decisions, causing frame conflicts.
+    // emitFunction will re-allocate based on allocator's decisions.
     std::map<std::string, const ir::Function*> funcMap;
     for (const auto& fn : mod.functions) {
-        prescanFunction(fn);
+        // Do NOT call prescanFunction here — it causes frame allocation conflicts
         funcMap[fn.name] = &fn;
     }
     setFunctionMap(&funcMap);
@@ -892,8 +895,10 @@ IRCodeGen::FuncClobbers IRCodeGen::computeFuncClobbers(const ir::Function& fn) {
 void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMainWithZPSave) {
     emitComment("function " + fn.name);
 
-    // Re-run prescan to restore vregOffset_ for this function
-    prescanFunction(fn);
+    // Bug #179 fix: Skip prescan here. Prescan runs before the allocator and doesn't know
+    // which vRegs will be allocated to ZP vs frame. This causes overlapping frame offsets.
+    // Instead, we allocate based on allocator decisions below.
+    // prescanFunction(fn);  // REMOVED
 
     // Run register allocator
     alloc_.analyze(fn);
@@ -1012,27 +1017,37 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         }
     }
 
-    // Prescan to compute vregSizes_ and initial frame layout
-    prescanFunction(fn);
+    // Bug #179 fix: Skip prescan entirely. Only use allocator's decisions for frame layout.
+    // Prescan runs before allocator and doesn't know which vRegs go to ZP vs FRAME.
+    // This causes incorrect frame offsets that overlap between locals and temporaries.
+    vregSizes_ = fn.vregSizes;  // Still need vregSizes for size overrides
 
-    // Override: only allocate frame slots for vRegs assigned to frame by allocator.
-    // Use prescanFunction's localNames order (alphabetical) for deterministic offsets.
     resetFrame();
-    // First: allocate named locals that are in frame, in localNames order (deterministic)
+
+    // Allocate frame slots based on ALLOCATOR's decisions only
+    // First: allocate named locals and parameters in localNames order (deterministic)
+    std::set<uint32_t> localVregs;
+    for (const auto& [name, vid] : fn.localNames) localVregs.insert(vid);
+
     for (const auto& [name, vid] : fn.localNames) {
         if (suppressedVregs_.count(vid)) continue;
         auto alloc = alloc_.getAlloc(vid);
-        if (alloc.loc == VRegAllocator::IN_FRAME) {
+        // Locals are ALWAYS allocated to frame (never ZP or AX, per Bug #179 fix)
+        if (alloc.loc == VRegAllocator::IN_FRAME || alloc.loc == VRegAllocator::IN_ZP) {
             allocSlot(vid, alloc.type);
         }
     }
-    // Then: allocate remaining frame vRegs (temporaries) in live-range order
+
+    // Second: allocate remaining frame vRegs (temporaries) in live-range order
+    // They are placed AFTER locals in frame, preventing overlaps
     for (const auto& lr : alloc_.liveRanges()) {
         if (suppressedVregs_.count(lr.vregId)) continue;
-        if (vregOffset_.count(lr.vregId)) continue; // already allocated above
+        if (vregOffset_.count(lr.vregId)) continue; // already allocated above (local)
+        if (localVregs.count(lr.vregId)) continue; // skip locals
+
         auto alloc = alloc_.getAlloc(lr.vregId);
         if (alloc.loc == VRegAllocator::IN_FRAME) {
-            allocSlot(lr.vregId, lr.type);
+            allocSlot(lr.vregId, alloc.type);
         }
     }
 
