@@ -1,0 +1,27 @@
+Linked 3 objects to scroller.prg (3271 bytes)
+
+Symbol map:
+  00002045 __abort
+  00002dc7 __bss_end
+  00002cc6 __bss_start
+  00002031 __exit
+  0000200d __init
+  00000101 __sp_base
+  00000006 __static_chain
+  00002cc6 __zp_save_buf
+  00000008 __zp_scratch
+  0000000a __zp_scratch2
+  0000000c __zp_scratch3
+  0000000e __zp_scratch4
+  00002b9e _clear_screen
+  00002225 _draw_banner
+  00002044 _init_features
+  000020c5 _init_palette
+  0000242c _main
+  00002bf7 _message
+  00002dbe _palette
+  00002dc5 _palette_len
+  00002b41 _scroll_line_left
+  00002b6b _set_text_color
+  00002bcb _strlen
+  00002b91 _wait_vsync

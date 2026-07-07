@@ -1163,7 +1163,10 @@ _color:
     proc _main
     .var _fp = 0
     .loc "/home/duck/m65/inpg/m65compiler.dev_v1.0.5/bin/../lib/include/mega65.h", 79
-; frame: 10 bytes (frame-allocated vRegs only)
+; frame: 16 bytes (frame-allocated vRegs only)
+    phw #0
+    phw #0
+    phw #0
     phw #0
     phw #0
     phw #0
@@ -1178,10 +1181,13 @@ _color:
     adc #0
     sta $FE
     .local __vr0 = 0
-    .local __vr31 = 4
-    .local __vr32 = 6
-    .local __vr33 = 8
-    .local __vr34 = 2
+    .local __vr26 = 2
+    .local __vr28 = 4
+    .local __vr29 = 6
+    .local __vr36 = 10
+    .local __vr37 = 12
+    .local __vr38 = 14
+    .local __vr39 = 8
     .local @_l_gen = 0
 
 @entry:
@@ -1369,6 +1375,60 @@ _color:
     lda $20
     ldy #0
     sta ($24),y
+    .loc "main.c", 149
+    lda _color
+    ldx _color+1
+    stax.fp __vr26
+    lda #5
+    sta $20
+    lda #232
+    ldx #3
+    stax.fp __vr28
+    lda $20
+    ldx #0
+    ldx #0
+    stax.fp __vr29
+    ldax.fp __vr28
+    sta $28
+    stx $29
+    ldax.fp __vr29
+    sta $2A
+    stx $2B
+    ldax.fp __vr26
+    sta $2C
+    stx $2D
+    lda $28
+    ldx $29
+    push .ax
+    .var _fp = _fp + 2
+    lda $2A
+    ldx $2B
+    push .ax
+    .var _fp = _fp + 2
+    lda $2C
+    ldx $2D
+    push .ax
+    .var _fp = _fp + 2
+    jsr _memset
+    phx
+    pha
+    tsx
+    txa
+    clc
+    adc #1
+    sta $FD
+    lda #$01
+    adc #0
+    sta $FE
+    pla
+    plx
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
+    .var _fp = _fp - 6
     .loc "main.c", 150
     lda #0
     sta $20
@@ -1395,7 +1455,7 @@ _color:
     stx $21
     lda $20
     ldx $21
-    stax.fp __vr34
+    stax.fp __vr39
 @for_cond63:
     .loc "main.c", 151
     ldax.fp __vr0
@@ -1405,14 +1465,14 @@ _color:
 @for_body64:
     .loc "main.c", 152
     lda #1
-    sta.fp __vr32
+    sta.fp __vr37
     lda #32
     ldx #208
-    stax.fp __vr33
-    ldax.fp __vr34
+    stax.fp __vr38
+    ldax.fp __vr39
     sta __zp_scratch2
     stx __zp_scratch2+1
-    lda.fp __vr32
+    lda.fp __vr37
     ldy #0
     sta (__zp_scratch2),y
     .loc "main.c", 153
@@ -1492,6 +1552,12 @@ _color:
     lda #0
     ldx #0
 @__return:
+    plz
+    plz
+    plz
+    plz
+    plz
+    plz
     plz
     plz
     plz

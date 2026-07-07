@@ -1,5 +1,11 @@
     .o45
     .extern __sp_base
+    .weak __static_chain
+    .weak __zp_scratch
+    .weak __zp_scratch2
+    .weak __zp_scratch3
+    .weak __zp_scratch4
+    __static_chain = $06
     __zp_scratch = $08
     __zp_scratch2 = $0A
     __zp_scratch3 = $0C
@@ -11,6 +17,7 @@
     .global _main
 
     .segment "data"
+    .byte 0
 _VIC4:
     .word 53280
 
@@ -19,7 +26,15 @@ _VIC4:
 ; function _unlock_mega65_io
     proc _unlock_mega65_io
     .var _fp = 0
-    .loc "/home/duck/m65/in_devel/ccomp/bin/../lib/include/stdio.h", 11
+    .loc "/home/duck/m65/inpg/m65compiler.dev_v1.0.5/bin/../lib/include/stdio.h", 11
+    tsx
+    txa
+    clc
+    adc #1
+    sta $FD
+    lda #$01
+    adc #0
+    sta $FE
 
 @entry:
     .loc "main.c", 22
@@ -39,14 +54,34 @@ _VIC4:
 ; function _main
     proc _main
     .var _fp = 0
-    .loc "main.c", 15
+    .loc "/home/duck/m65/inpg/m65compiler.dev_v1.0.5/bin/../lib/include/stdio.h", 18
 ; frame: 2 bytes (frame-allocated vRegs only)
     phw #0
+    tsx
+    txa
+    clc
+    adc #1
+    sta $FD
+    lda #$01
+    adc #0
+    sta $FE
     .local __vr6 = 0
 
 @entry:
     .loc "main.c", 29
     jsr _unlock_mega65_io
+    phx
+    pha
+    tsx
+    txa
+    clc
+    adc #1
+    sta $FD
+    lda #$01
+    adc #0
+    sta $FE
+    pla
+    plx
     .loc "main.c", 32
     lda #1
     sta $20
@@ -55,15 +90,12 @@ _VIC4:
     sta $22
     stx $23
     lda $22
-    clc
-    adc #0
+    ldx $23
     sta $24
-    lda $23
-    adc #0
-    sta $25
+    stx $25
     lda $20
     ldy #0
-    sta ($24),y
+    sta ($22),y
     .loc "main.c", 33
     lda #1
     sta $20
@@ -72,12 +104,10 @@ _VIC4:
     sta $22
     stx $23
     lda $22
-    clc
-    adc #1
+    ldx $23
+    add.16 .AX, #1
     sta $24
-    lda $23
-    adc #0
-    sta $25
+    stx $25
     lda $20
     ldy #0
     sta ($24),y
@@ -92,6 +122,18 @@ _VIC4:
     push .ax
     .var _fp = _fp + 2
     jsr _puts
+    phx
+    pha
+    tsx
+    txa
+    clc
+    adc #1
+    sta $FD
+    lda #$01
+    adc #0
+    sta $FE
+    pla
+    plx
     plz
     plz
     .var _fp = _fp - 2

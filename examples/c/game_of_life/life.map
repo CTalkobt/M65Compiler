@@ -3,23 +3,23 @@ Linker Map
 
 Memory Layout
 -------------
-  TEXT   $200D - $3236  (4650 bytes)
-  DATA   $3237 - $323B  (5 bytes)
-  BSS    $323C - $3B03  (2248 bytes)
+  TEXT   $200D - $32D3  (4807 bytes)
+  DATA   $32D4 - $32D8  (5 bytes)
+  BSS    $32D9 - $3BA0  (2248 bytes)
 
 Object Files
 ------------
   main.o45
-    TEXT  $2046 - $31A7  (4450 bytes)
-    DATA  $3237 - $323B  (5 bytes)
-    BSS   $323C - $3A0B  (2000 bytes)
+    TEXT  $2046 - $3244  (4607 bytes)
+    DATA  $32D4 - $32D8  (5 bytes)
+    BSS   $32D9 - $3AA8  (2000 bytes)
   ../../../lib/build/c45.lib(crt0.o45)
     TEXT  $200D - $2045  (57 bytes)
-    BSS   $3A0C - $3B03  (248 bytes)
+    BSS   $3AA9 - $3BA0  (248 bytes)
   ../../../lib/build/c45.lib(memcpy.o45)
-    TEXT  $31A8 - $31F3  (76 bytes)
+    TEXT  $3245 - $3290  (76 bytes)
   ../../../lib/build/c45.lib(memset.o45)
-    TEXT  $31F4 - $3236  (67 bytes)
+    TEXT  $3291 - $32D3  (67 bytes)
 
 Symbols (by address)
 --------------------
@@ -33,18 +33,19 @@ Symbols (by address)
   $2031  __exit                         ../../../lib/build/c45.lib(crt0.o45)
   $2044  _init_features                 ../../../lib/build/c45.lib(crt0.o45) [weak]
   $2045  __abort                        ../../../lib/build/c45.lib(crt0.o45)
-  $2F96  _main                          main.o45  [uses:- clob:- rel:- regs:AXYZ]
-  $31A8  _memcpy                        ../../../lib/build/c45.lib(memcpy.o45)
-  $31F4  _memset                        ../../../lib/build/c45.lib(memset.o45)
-  $3238  _screen                        main.o45
-  $323A  _color                         main.o45
-  $323C  __bss_start                    <linker>
-  $3A0C  __zp_save_buf                  ../../../lib/build/c45.lib(crt0.o45)
-  $3B04  __bss_end                      <linker>
+  $2F97  _main                          main.o45  [uses:- clob:- rel:- regs:AXYZ]
+  $3245  _memcpy                        ../../../lib/build/c45.lib(memcpy.o45)
+  $3291  _memset                        ../../../lib/build/c45.lib(memset.o45)
+  $32D5  _screen                        main.o45
+  $32D7  _color                         main.o45
+  $32D9  __bss_start                    <linker>
+  $3AA9  __zp_save_buf                  ../../../lib/build/c45.lib(crt0.o45)
+  $3BA1  __bss_end                      <linker>
 
 Call Graph
 ----------
   __init -> __abort _main
+  _main -> _memset
 
 Source Lines
 ------------
@@ -83,36 +84,37 @@ Source Lines
   $2819  main.c:98
   $28CD  main.c:99
   $2912  main.c:101
-  $29B1  /home/duck/m65/inpg/m65compiler.dev_v1.0.5/lib/include/mega65.h:54
-  $29C1  main.c:108
-  $2A0A  /home/duck/m65/inpg/m65compiler.dev_v1.0.5/lib/include/mega65.h:62
-  $2A47  main.c:115
-  $2ACC  main.c:116
-  $2B12  main.c:117
-  $2B95  main.c:118
-  $2C1F  main.c:119
-  $2CAE  /home/duck/m65/inpg/m65compiler.dev_v1.0.5/lib/include/mega65.h:71
-  $2CEB  main.c:124
-  $2D70  main.c:125
-  $2DFA  main.c:126
-  $2E7D  main.c:127
-  $2F07  main.c:128
-  $2F96  /home/duck/m65/inpg/m65compiler.dev_v1.0.5/lib/include/mega65.h:79
-  $2FB2  main.c:134
-  $2FC8  main.c:135
-  $2FDC  main.c:136
-  $2FF2  main.c:139
-  $3004  main.c:140
-  $3026  main.c:141
-  $3042  main.c:142
-  $3062  main.c:143
-  $3078  main.c:144
-  $309A  main.c:145
-  $30B0  main.c:150
-  $30C2  main.c:151
-  $30CB  main.c:152
-  $311C  main.c:153
-  $3130  main.c:154
-  $3144  main.c:155
-  $3183  main.c:157
-  $3199  main.c:159
+  $29B2  /home/duck/m65/inpg/m65compiler.dev_v1.0.5/lib/include/mega65.h:54
+  $29C2  main.c:108
+  $2A0B  /home/duck/m65/inpg/m65compiler.dev_v1.0.5/lib/include/mega65.h:62
+  $2A48  main.c:115
+  $2ACD  main.c:116
+  $2B13  main.c:117
+  $2B96  main.c:118
+  $2C20  main.c:119
+  $2CAF  /home/duck/m65/inpg/m65compiler.dev_v1.0.5/lib/include/mega65.h:71
+  $2CEC  main.c:124
+  $2D71  main.c:125
+  $2DFB  main.c:126
+  $2E7E  main.c:127
+  $2F08  main.c:128
+  $2F97  /home/duck/m65/inpg/m65compiler.dev_v1.0.5/lib/include/mega65.h:79
+  $2FBC  main.c:134
+  $2FD2  main.c:135
+  $2FE6  main.c:136
+  $2FFC  main.c:139
+  $300E  main.c:140
+  $3030  main.c:141
+  $304C  main.c:142
+  $306C  main.c:143
+  $3082  main.c:144
+  $30A4  main.c:145
+  $30BA  main.c:149
+  $3143  main.c:150
+  $3159  main.c:151
+  $3162  main.c:152
+  $31B3  main.c:153
+  $31C7  main.c:154
+  $31DB  main.c:155
+  $321A  main.c:157
+  $3230  main.c:159

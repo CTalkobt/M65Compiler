@@ -3,48 +3,55 @@ Linker Map
 
 Memory Layout
 -------------
-  TEXT   $200D - $20FC  (240 bytes)
-  DATA   $20FD - $211A  (30 bytes)
-  BSS    $211B - $2212  (248 bytes)
+  TEXT   $200D - $212A  (286 bytes)
+  DATA   $212B - $2133  (9 bytes)
+  BSS    $2134 - $222B  (248 bytes)
 
 Object Files
 ------------
   main.o45
-    TEXT  $2051 - $20C5  (117 bytes)
-    DATA  $20FD - $2104  (8 bytes)
+    TEXT  $2046 - $20F2  (173 bytes)
+    DATA  $212B - $2133  (9 bytes)
   ../../../lib/build/c45.lib(crt0.o45)
-    TEXT  $200D - $2050  (68 bytes)
-    DATA  $2105 - $211A  (22 bytes)
-    BSS   $211B - $2212  (248 bytes)
+    TEXT  $200D - $2045  (57 bytes)
+    BSS   $2134 - $222B  (248 bytes)
   ../../../lib/build/c45.lib(puts.o45)
-    TEXT  $20C6 - $20FC  (55 bytes)
+    TEXT  $20F3 - $212A  (56 bytes)
 
 Symbols (by address)
 --------------------
+  $0006  __static_chain                 main.o45 [weak]
+  $0008  __zp_scratch                   main.o45 [weak]
+  $000A  __zp_scratch2                  main.o45 [weak]
+  $000C  __zp_scratch3                  main.o45 [weak]
+  $000E  __zp_scratch4                  main.o45 [weak]
   $0101  __sp_base                      ../../../lib/build/c45.lib(crt0.o45)
   $200D  __init                         ../../../lib/build/c45.lib(crt0.o45)
-  $2037  __exit                         ../../../lib/build/c45.lib(crt0.o45)
-  $2050  _init_features                 ../../../lib/build/c45.lib(crt0.o45) [weak]
-  $205C  _main                          main.o45  [uses:- clob:- rel:- regs:AXYZ]
-  $20C6  _puts                          ../../../lib/build/c45.lib(puts.o45)
-  $20FD  _VIC4                          main.o45
-  $211B  __bss_start                    <linker>
-  $2213  __bss_end                      <linker>
+  $2031  __exit                         ../../../lib/build/c45.lib(crt0.o45)
+  $2044  _init_features                 ../../../lib/build/c45.lib(crt0.o45) [weak]
+  $2045  __abort                        ../../../lib/build/c45.lib(crt0.o45)
+  $205E  _main                          main.o45  [uses:- clob:- rel:- regs:AXYZ]
+  $20F3  _puts                          ../../../lib/build/c45.lib(puts.o45)
+  $212C  _VIC4                          main.o45
+  $2134  __bss_start                    <linker>
+  $2134  __zp_save_buf                  ../../../lib/build/c45.lib(crt0.o45)
+  $222C  __bss_end                      <linker>
 
 Call Graph
 ----------
-  __init -> __exit _main
+  __init -> __abort _main
   _main -> _puts
 
 Source Lines
 ------------
-  $2051  main.c:22
-  $2051  main.c:36
-  $2053  main.c:23
-  $2056  main.c:24
-  $2058  main.c:25
-  $205C  main.c:15
-  $205F  main.c:29
-  $2062  main.c:32
-  $2081  main.c:33
-  $209C  main.c:35
+  $2046  /home/duck/m65/inpg/m65compiler.dev_v1.0.5/lib/include/stdio.h:11
+  $2046  main.c:36
+  $2053  main.c:22
+  $2055  main.c:23
+  $2058  main.c:24
+  $205A  main.c:25
+  $205E  /home/duck/m65/inpg/m65compiler.dev_v1.0.5/lib/include/stdio.h:18
+  $206E  main.c:29
+  $2082  main.c:32
+  $209A  main.c:33
+  $20B7  main.c:35
