@@ -118,6 +118,8 @@ void CodeGenerator::emitBoolNormalize(int srcSize) {
 }
 
 void CodeGenerator::generate(TranslationUnit& unit) {
+    scopeMgr_.clear();
+    scopeMgr_.pushGlobalScope();
     emitter = std::make_unique<M65Emitter>(out, zeroPageStart);
     zpRegs.clear();
     for (uint32_t i = 0; i < zeroPageAvail; ++i) zpRegs.push_back({false});
@@ -1203,6 +1205,7 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
 
     out << ".code" << std::endl;
     variableTypes.clear();
+    scopeMgr_.pushFunctionScope();  // Initialize function-level scope
     currentVars.clear();
     currentFunction = &node;
     currentParamByteSize = 0;
@@ -1254,6 +1257,8 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     } else {
         emitStackCallingConvention(node, frameSize, paramInfos);
     }
+
+    scopeMgr_.popScope();  // Exit function scope
 }
 
 void CodeGenerator::visit(BuiltinVaStart& node) {

@@ -252,16 +252,50 @@ This reduces risk by making incremental improvements before the large consolidat
 ### 2.2 Unify Symbol and Type Tracking (60 hours)
 **Files:** `src/main/CodeGenerator.cpp`, `src/main/CodeGenerator.hpp`  
 **Issue:** Scope/type info scattered across 5+ data structures  
-**Status:** TODO
+**Status:** IN PROGRESS (Foundation complete, integration starting)
 
-**Implementation:**
-- Create `src/common/ScopeManager.hpp`
-- Extract nested scope tracking from `functionStack_`
-- Consolidate `variableTypes`, `globalVariableTypes`, `functionStack_`
-- Unify `resolveVarName()` and `lookupVar()` into single interface
-- Update CodeGenerator to use ScopeManager
+**Status: Foundation COMPLETE (commit bd480cc)**
+- ✅ Created `include/ScopeManager.hpp` 
+- ✅ Created `src/main/ScopeManager.cpp` (176 lines)
+- ✅ Added to Makefile compilation
+- ✅ Compiles successfully
 
-**Benefit:** 200+ lines removed; clearer variable lookup; single symbol table
+**Integration Plan (Next Steps):**
+
+**Phase 2.2.1: Add ScopeManager to CodeGenerator (8 hours)**
+1. Add `ScopeManager scopeMgr_;` member to CodeGenerator class
+2. Initialize in CodeGenerator constructor
+3. Add wrapper methods to CodeGenerator (pass-through to scopeMgr_)
+4. Keep old `variableTypes` and `globalVariableTypes` for now (dual-write)
+5. Test: all 500+ tests pass
+
+**Phase 2.2.2: Migrate resolveVarName() and lookupVar() (8 hours)**
+1. Update CodeGenerator::resolveVarName() to use scopeMgr_
+2. Update CodeGenerator::lookupVar() to use scopeMgr_
+3. Test: all 500+ tests pass
+4. Verify assembly output unchanged (code size metrics stable)
+
+**Phase 2.2.3: Migrate VariableDeclaration visitor (12 hours)**
+1. Update visit(VariableDeclaration&) to use scopeMgr_.declare() for globals/locals
+2. Remove duplicative tracking in variableTypes maps
+3. Update all variable lookups in declarations to use scopeMgr_
+4. Test: all 500+ tests pass
+
+**Phase 2.2.4: Migrate FunctionDeclaration visitor (12 hours)**
+1. Replace pushFunctionScope/popFunctionScope with scopeMgr_.pushFunctionScope/popFunctionScope
+2. Remove functionStack_ usage (use scopeMgr_ instead)
+3. Update frame locals tracking to use scopeMgr_
+4. Test: all 500+ tests pass
+
+**Phase 2.2.5: Cleanup (8 hours)**
+1. Remove old `variableTypes` and `globalVariableTypes` members
+2. Remove old `functionStack_` deque
+3. Remove old `resolveVarName()` and `lookupVar()` implementations (now wrappers)
+4. Update related code (nested scope handling, etc.)
+5. Test: all 500+ tests pass
+6. Verify no regressions in code generation
+
+**Benefit:** ~200 lines removed; single source of truth for symbol tracking; clearer scope management
 
 ---
 

@@ -2,6 +2,7 @@
 #include "AST.hpp"
 #include "M65Emitter.hpp"
 #include "TypeSystem.hpp"
+#include "ScopeManager.hpp"
 #include <iostream>
 #include <ostream>
 #include <vector>
@@ -221,6 +222,22 @@ public:
     private:
     std::ostream& out;
     std::unique_ptr<M65Emitter> emitter;
+    ScopeManager scopeMgr_;  // Unified symbol table and scope tracking
+
+    // Scope management wrappers
+    void pushGlobalScope() { scopeMgr_.pushGlobalScope(); }
+    void pushFunctionScope() { scopeMgr_.pushFunctionScope(); }
+    void pushBlockScope() { scopeMgr_.pushBlockScope(); }
+    void popScope() { scopeMgr_.popScope(); }
+
+    // Symbol tracking wrappers
+    void declareVariable(const std::string& name, const ScopeManager::VarInfo& info) {
+        scopeMgr_.declareVariable(name, info);
+    }
+    bool isSymbolDeclared(const std::string& name) const { return scopeMgr_.isDeclared(name); }
+    ScopeManager::VarInfo* lookupSymbol(const std::string& name) { return scopeMgr_.lookup(name); }
+    const ScopeManager::VarInfo* lookupSymbol(const std::string& name) const { return scopeMgr_.lookup(name); }
+
     int stringCount = 0;
     int labelCount = 0;
     std::map<std::string, std::string> stringPool;
