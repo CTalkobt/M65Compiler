@@ -3385,7 +3385,6 @@ void AssemblerSimulatedOps::dispatch_StructElem(AssemblerParser* p, M65Emitter& 
 }
 
 void AssemblerSimulatedOps::dispatch_AddrElem(AssemblerParser* p, M65Emitter& e, Stmt* s) {
-    { FILE* f=fopen("dbg186.log","a"); if(f){ fprintf(f,"ENTRY exprTok=%d\n",s->exprTokenIndex); fclose(f); } }
     int idx = s->exprTokenIndex;
     if (idx < 0 || idx >= (int)p->tokens.size()) return;
     
@@ -3423,7 +3422,6 @@ void AssemblerSimulatedOps::dispatch_AddrElem(AssemblerParser* p, M65Emitter& e,
     
     auto strideAst = parseExprAST(p->tokens, idx, p->symbolTable, s->scopePrefix);
     uint16_t strideVal = strideAst ? strideAst->getValue(p) : 1;
-    { FILE* f=fopen("/tmp/dbg186.log","a"); if(f){ fprintf(f,"stride=%d imm=%d mnem=%s\n",strideVal,baseIsImmediate,s->instr.mnemonic.c_str()); fclose(f); } }
     if (strideVal > 1) {
         emitWriteOperand16(p, e, indexIsReg, indexRegName, idxIndexStart, m65::MULT_ARG1, s->scopePrefix);
         
