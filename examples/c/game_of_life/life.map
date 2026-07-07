@@ -1,0 +1,118 @@
+Linker Map
+==========
+
+Memory Layout
+-------------
+  TEXT   $200D - $3236  (4650 bytes)
+  DATA   $3237 - $323B  (5 bytes)
+  BSS    $323C - $3B03  (2248 bytes)
+
+Object Files
+------------
+  main.o45
+    TEXT  $2046 - $31A7  (4450 bytes)
+    DATA  $3237 - $323B  (5 bytes)
+    BSS   $323C - $3A0B  (2000 bytes)
+  ../../../lib/build/c45.lib(crt0.o45)
+    TEXT  $200D - $2045  (57 bytes)
+    BSS   $3A0C - $3B03  (248 bytes)
+  ../../../lib/build/c45.lib(memcpy.o45)
+    TEXT  $31A8 - $31F3  (76 bytes)
+  ../../../lib/build/c45.lib(memset.o45)
+    TEXT  $31F4 - $3236  (67 bytes)
+
+Symbols (by address)
+--------------------
+  $0006  __static_chain                 main.o45 [weak]
+  $0008  __zp_scratch                   main.o45 [weak]
+  $000A  __zp_scratch2                  main.o45 [weak]
+  $000C  __zp_scratch3                  main.o45 [weak]
+  $000E  __zp_scratch4                  main.o45 [weak]
+  $0101  __sp_base                      ../../../lib/build/c45.lib(crt0.o45)
+  $200D  __init                         ../../../lib/build/c45.lib(crt0.o45)
+  $2031  __exit                         ../../../lib/build/c45.lib(crt0.o45)
+  $2044  _init_features                 ../../../lib/build/c45.lib(crt0.o45) [weak]
+  $2045  __abort                        ../../../lib/build/c45.lib(crt0.o45)
+  $2F96  _main                          main.o45  [uses:- clob:- rel:- regs:AXYZ]
+  $31A8  _memcpy                        ../../../lib/build/c45.lib(memcpy.o45)
+  $31F4  _memset                        ../../../lib/build/c45.lib(memset.o45)
+  $3238  _screen                        main.o45
+  $323A  _color                         main.o45
+  $323C  __bss_start                    <linker>
+  $3A0C  __zp_save_buf                  ../../../lib/build/c45.lib(crt0.o45)
+  $3B04  __bss_end                      <linker>
+
+Call Graph
+----------
+  __init -> __abort _main
+
+Source Lines
+------------
+  $2046  /home/duck/m65/inpg/m65compiler.dev_v1.0.5/lib/include/string.h:18
+  $2053  main.c:33
+  $207F  main.c:34
+  $20AC  /home/duck/m65/inpg/m65compiler.dev_v1.0.5/lib/include/string.h:24
+  $20F8  main.c:45
+  $2103  main.c:46
+  $2122  main.c:47
+  $212D  main.c:48
+  $2148  main.c:49
+  $21A9  main.c:50
+  $21D8  main.c:52
+  $21F5  main.c:53
+  $2211  main.c:54
+  $222E  main.c:55
+  $224A  main.c:56
+  $2340  main.c:59
+  $2357  /home/duck/m65/inpg/m65compiler.dev_v1.0.5/lib/include/mega65.h:10
+  $2385  main.c:67
+  $23A2  main.c:68
+  $23AD  main.c:70
+  $23F7  main.c:73
+  $2441  main.c:75
+  $248B  main.c:79
+  $24D5  main.c:81
+  $2531  main.c:69
+  $25C2  main.c:72
+  $2676  main.c:78
+  $276B  main.c:87
+  $27AE  /home/duck/m65/inpg/m65compiler.dev_v1.0.5/lib/include/mega65.h:38
+  $27C4  main.c:95
+  $27E1  main.c:96
+  $27EC  main.c:97
+  $2819  main.c:98
+  $28CD  main.c:99
+  $2912  main.c:101
+  $29B1  /home/duck/m65/inpg/m65compiler.dev_v1.0.5/lib/include/mega65.h:54
+  $29C1  main.c:108
+  $2A0A  /home/duck/m65/inpg/m65compiler.dev_v1.0.5/lib/include/mega65.h:62
+  $2A47  main.c:115
+  $2ACC  main.c:116
+  $2B12  main.c:117
+  $2B95  main.c:118
+  $2C1F  main.c:119
+  $2CAE  /home/duck/m65/inpg/m65compiler.dev_v1.0.5/lib/include/mega65.h:71
+  $2CEB  main.c:124
+  $2D70  main.c:125
+  $2DFA  main.c:126
+  $2E7D  main.c:127
+  $2F07  main.c:128
+  $2F96  /home/duck/m65/inpg/m65compiler.dev_v1.0.5/lib/include/mega65.h:79
+  $2FB2  main.c:134
+  $2FC8  main.c:135
+  $2FDC  main.c:136
+  $2FF2  main.c:139
+  $3004  main.c:140
+  $3026  main.c:141
+  $3042  main.c:142
+  $3062  main.c:143
+  $3078  main.c:144
+  $309A  main.c:145
+  $30B0  main.c:150
+  $30C2  main.c:151
+  $30CB  main.c:152
+  $311C  main.c:153
+  $3130  main.c:154
+  $3144  main.c:155
+  $3183  main.c:157
+  $3199  main.c:159

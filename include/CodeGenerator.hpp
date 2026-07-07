@@ -332,4 +332,10 @@ public:
     void emitLogicalAnd(BinaryOperation& node);
     void emitMultiplicativeLiteral(BinaryOperation& node, ExpressionType lhsType);
     void emitGeneralBinaryOp(BinaryOperation& node, int scale, ExpressionType lhsType, ExpressionType rhsType);
+
+    // FunctionDeclaration dispatch helpers
+    struct ParamInfo { std::string pName; int size; };
+    void emitNakedFunction(FunctionDeclaration& node);
+    void emitZpCallingConvention(FunctionDeclaration& node, int frameSize, const class FrameScanner& scanner, const std::vector<ParamInfo>& paramInfos);
+    void emitStackCallingConvention(FunctionDeclaration& node, int frameSize, const class FrameScanner& scanner, const std::vector<ParamInfo>& paramInfos);
 };

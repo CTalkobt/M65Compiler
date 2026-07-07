@@ -1195,56 +1195,40 @@ void CodeGenerator::visit(TranslationUnit& node) {
 }
 
 void CodeGenerator::visit(FunctionDeclaration& node) {
-    if (node.isPrototype) return; // Forward declaration — no code emitted
-
-    // __naked: emit only proc label + body + endproc, no prologue/epilogue
+    if (node.isPrototype) return;
     if (node.isNaked) {
-        out << ".code" << std::endl;
-        out << "proc _" + node.name << std::endl;
-        currentFunction = &node;
-        node.body->accept(*this);
-        emit("endproc");
-        out << std::endl;
-        currentFunction = nullptr;
+        emitNakedFunction(node);
         return;
     }
 
     out << ".code" << std::endl;
     variableTypes.clear();
     currentVars.clear();
-
     currentFunction = &node;
     currentParamByteSize = 0;
     currentLocalByteSize = 0;
     useZpCall_ = (zpCallMode || node.isFastcall) && !node.isVariadic;
 
-    // Initialize per-function clobber tracking
     auto& ci = funcClobbers_[node.name];
-    ci = FuncClobberInfo{};  // reset
+    ci = FuncClobberInfo{};
     currentClobbers_ = &ci;
 
-    // --- Pre-scan: compute frame layout ---
     FrameScanner scanner(structs);
     scanner.scan(*node.body);
     int frameSize = scanner.maxFrameSize;
 
-    // Store frame layout for use by visit(VariableDeclaration)
     frameLocals_.clear();
     for (auto& loc : scanner.locals) {
         frameLocals_[loc.name] = loc.frameOffset;
     }
     frameSize_ = frameSize;
 
-    // Collect param info
     struct ParamInfo { std::string pName; int size; };
     std::vector<ParamInfo> paramInfos;
 
-    // In zpCall mode, long returns use AXYZ directly — no hidden pointer needed.
-    // Only actual struct returns need the hidden pointer.
     bool isStructReturn = structReturningFunctions.count(node.name) > 0;
     bool isLongReturn = is32BitType(node.returnType) && node.returnPointerLevel == 0;
     bool needsHiddenPtr = isStructReturn && !isLongReturn;
-    // In non-zpCall mode, long returns still use the hidden pointer
     if (!useZpCall_) needsHiddenPtr = isStructReturn;
 
     if (needsHiddenPtr) {
@@ -1267,331 +1251,10 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     }
 
     if (useZpCall_) {
-        // --- ZP Calling Convention ---
-        // Variadic functions use stack convention (va_start needs stack-relative addresses)
-        zpParams_.clear();
-        zpParamTotalBytes_ = 0;
-        zpSpilledParams_.clear();
-
-        // Compute ZP param layout: left-to-right packing from zeroPageStart+1
-        uint8_t zpBase = (uint8_t)(zeroPageStart + 8);
-        int zpOff = 0;
-        for (auto& pi : paramInfos) {
-            if (zpOff + pi.size > (int)(zeroPageAvail - 1)) {
-                throw std::runtime_error("Too many parameter bytes for ZP calling convention (" +
-                    std::to_string(zpOff + pi.size) + " > " + std::to_string(zeroPageAvail - 1) +
-                    "); increase zeroPageAvail");
-            }
-            zpParams_[pi.pName] = {(uint8_t)(zpBase + zpOff), pi.size};
-            zpOff += pi.size;
-        }
-        zpParamTotalBytes_ = zpOff;
-
-        // Detect params whose address is taken — must spill to frame
-        std::set<std::string> paramNameSet;
-        for (auto& pi : paramInfos) paramNameSet.insert(pi.pName);
-        AddressOfParamCollector addrCollector(paramNameSet);
-        node.body->accept(addrCollector);
-
-        // Allocate frame slots for address-taken params (after scanner's locals)
-        int spillOffset = frameSize; // append after existing locals
-        for (auto& pName : addrCollector.addressTakenParams) {
-            auto& zpi = zpParams_[pName];
-            zpSpilledParams_[pName] = {spillOffset, zpi.size};
-            spillOffset += zpi.size;
-        }
-        int spillSize = spillOffset - frameSize;
-        frameSize = spillOffset; // expand frame to include spill slots
-        frameSize_ = frameSize;  // update member so caller-save offsets are correct
-
-        // Reserve ZP param slots so allocateZP won't hand them out as scratch
-        // zpRegs[0] is __zp_scratch, zpRegs[1..N] map to param slots
-        for (int i = 0; i < zpOff; i++) {
-            int slot = 1 + i; // slot 0 is scratch, slot 1 is first param byte
-            while (slot >= (int)zpRegs.size()) zpRegs.push_back({false});
-            zpRegs[slot].inUse = true;
-        }
-
-        // proc line — no B#/W#/D# annotations in zpCall mode
-        out << "proc _" + node.name << std::endl;
-
-        // __interrupt: save all registers at entry
-        if (node.isInterrupt) {
-            emit("pha"); emit("phx"); emit("phy"); emit("phz");
-        }
-
-        // Frame prologue
-        emit(".var _fp = 0");
-        currentVars.push_back("_fp");
-
-        // Detect leaf functions — if no calls, no need for caller-save
-        CallCollector callChecker;
-        node.body->accept(callChecker);
-        bool isLeaf = callChecker.calledFunctions.empty();
-
-        // Compute caller-save area: save our ZP params when making calls
-        // Leaf functions never need caller-save (no calls = no clobber risk)
-        // Only save non-spilled params (spilled ones live in frame already)
-        int zpSavableBytes = 0;
-        for (auto& kv : zpParams_) {
-            if (!zpSpilledParams_.count(kv.first)) zpSavableBytes += kv.second.size;
-        }
-        zpCallerSaveSize_ = isLeaf ? 0 : zpSavableBytes;
-        int totalFrame = frameSize + zpCallerSaveSize_;
-        if (totalFrame > 0) {
-            emit("; frame: " + std::to_string(frameSize) + " bytes locals" +
-                 (spillSize > 0 ? " (incl " + std::to_string(spillSize) + " spill)" : "") +
-                 " + " + std::to_string(zpCallerSaveSize_) + " bytes caller-save");
-            for (int i = 0; i < totalFrame / 2; ++i) emitter->phw_imm(0);
-            if (totalFrame % 2) { emitter->lda_imm(0); emitter->pha(); }
-            currentLocalByteSize = totalFrame;
-        }
-
-        // Emit .local for pre-scanned locals
-        for (auto& loc : scanner.locals) {
-            emit(".local " + loc.name + " = " + std::to_string(loc.frameOffset));
-        }
-
-        // Emit .local for spilled params and copy ZP → frame at entry
-        for (auto& sp : zpSpilledParams_) {
-            emit(".local " + sp.first + " = " + std::to_string(sp.second.frameOffset));
-            auto& zpi = zpParams_[sp.first];
-            emit("; spill " + sp.first + " from " + zpHex(zpi.zpAddr) + " to frame offset " + std::to_string(sp.second.frameOffset));
-            for (int b = 0; b < sp.second.size; b++) {
-                emit("lda " + zpHex(zpi.zpAddr + b));
-                emit("sta.fp " + getLocalOffsetSymbol(sp.second.frameOffset + b));
-            }
-            // Remove from zpParams_ so all subsequent access uses frame
-            zpParams_.erase(sp.first);
-        }
-
-        // Emit comment showing ZP param layout
-        for (auto& pi : paramInfos) {
-            if (zpSpilledParams_.count(pi.pName)) {
-                auto& sp = zpSpilledParams_[pi.pName];
-                emit("; " + pi.pName + " = frame offset " + std::to_string(sp.frameOffset) + " (spilled, " + std::to_string(sp.size) + " bytes)");
-            } else {
-                auto& zpi = zpParams_[pi.pName];
-                emit("; " + pi.pName + " = " + zpHex(zpi.zpAddr) + " (" + std::to_string(zpi.size) + " bytes)");
-            }
-        }
-
-        node.body->accept(*this);
-        if (!node.isNoreturn) {
-            bool lastWasReturn = false;
-            if (!node.body->statements.empty()) {
-                if (dynamic_cast<ReturnStatement*>(node.body->statements.back().get())) {
-                    lastWasReturn = true;
-                }
-            }
-            if (!lastWasReturn) {
-                if (totalFrame > 0) {
-                    emitter->taz();
-                    for (int i = 0; i < totalFrame; ++i) emitter->pla();
-                    emitter->tza();
-                }
-                if (node.isInterrupt) {
-                    emit("plz"); emit("ply"); emit("plx"); emit("pla");
-                    emit("rti");
-                } else {
-                    emit("rtn #0");
-                }
-            }
-        }
-
-        // Emit function attribute directives for assembler
-        // Use paramInfos + zpBase to compute ZP addresses (zpParams_ may have spilled entries removed)
-        if (zpParamTotalBytes_ > 0) {
-            int attrOff = 0;
-            emit(".zp_uses " + [&]() {
-                std::string s;
-                int off = 0;
-                for (auto& pi : paramInfos) {
-                    if (!s.empty()) s += ", ";
-                    s += zpHex(zpBase + off);
-                    off += pi.size;
-                }
-                return s;
-            }());
-            emit(".zp_clobbers " + [&]() {
-                std::string s;
-                int off = 0;
-                for (auto& pi : paramInfos) {
-                    for (int b = 0; b < pi.size; b++) {
-                        if (!s.empty()) s += ", ";
-                        s += zpHex(zpBase + off + b);
-                    }
-                    off += pi.size;
-                }
-                return s;
-            }());
-        }
-
-        // Emit function flags
-        emit(isLeaf ? ".func_flags zp_call, leaf" : ".func_flags zp_call");
-
-        // Emit actual reg/flag clobbers from tracking (always, not just when ZP params present)
-        {
-            auto& ci = funcClobbers_[node.name];
-            std::string regs;
-            if (ci.regMask & CLOBBER_A) regs += "A, ";
-            if (ci.regMask & CLOBBER_X) regs += "X, ";
-            if (ci.regMask & CLOBBER_Y) regs += "Y, ";
-            if (ci.regMask & CLOBBER_Z) regs += "Z, ";
-            if (!regs.empty()) { regs.pop_back(); regs.pop_back(); emit(".reg_clobbers " + regs); }
-            std::string fl;
-            if (ci.flagMask & CLOBBER_C) fl += "C, ";
-            if (ci.flagMask & CLOBBER_N) fl += "N, ";
-            if (ci.flagMask & CLOBBER_ZF) fl += "Z, ";
-            if (ci.flagMask & CLOBBER_V) fl += "V, ";
-            if (!fl.empty()) { fl.pop_back(); fl.pop_back(); emit(".flag_clobbers " + fl); }
-        }
-
-        // Finalize clobber info
-        funcClobbers_[node.name].complete = true;
-        currentClobbers_ = nullptr;
-
-        emit("endproc");
-        out << std::endl;
-
-        freeRegisterVars();
-        // Free ZP param slots
-        for (int i = 0; i < zpParamTotalBytes_; i++) {
-            int slot = 1 + i;
-            if (slot < (int)zpRegs.size()) zpRegs[slot].inUse = false;
-        }
-        frameLocals_.clear();
-        frameSize_ = 0;
-        zpParams_.clear();
-        zpSpilledParams_.clear();
-        zpParamTotalBytes_ = 0;
-        zpCallerSaveSize_ = 0;
-        currentFunction = nullptr;
-        return;
+        emitZpCallingConvention(node, frameSize, scanner, paramInfos);
+    } else {
+        emitStackCallingConvention(node, frameSize, scanner, paramInfos);
     }
-
-    // --- Stack-based calling convention (original) ---
-    std::string procLine = "proc _" + node.name;
-
-    if (needsHiddenPtr) {
-        procLine += ", W#_p___ret_ptr";
-    }
-
-    for (auto& pi : paramInfos) {
-        if (pi.pName == "_p___ret_ptr") continue; // already added
-        VarInfo& vi = variableTypes.at(pi.pName);
-        if (vi.pointerLevel > 0) procLine += ", W#" + pi.pName;
-        else if (is8BitType(vi.type)) procLine += ", B#" + pi.pName;
-        else if (is32BitType(vi.type)) procLine += ", D#" + pi.pName;
-        else procLine += ", W#" + pi.pName;
-    }
-    out << procLine << std::endl;
-
-    // __interrupt: save all registers at entry
-    if (node.isInterrupt) {
-        emit("pha"); emit("phx"); emit("phy"); emit("phz");
-    }
-
-    // --- Frame prologue ---
-    emit(".var _fp = 0");
-    currentVars.push_back("_fp");
-
-    if (frameSize > 0) {
-        emit("; frame: " + std::to_string(frameSize) + " bytes");
-        for (int i = 0; i < frameSize / 2; ++i) emitter->phw_imm(0);
-        if (frameSize % 2) { emitter->lda_imm(0); emitter->pha(); }
-        currentLocalByteSize = frameSize;
-    }
-
-    // Set up ZP frame pointer ($FD/$FE) for stack-relative access.
-    // FP points to the first frame byte (SP+1 after frame allocation).
-    // This eliminates per-access __sp_base relocations.
-    if (!useZpCall_) {
-        emit("; setup frame pointer");
-        emitter->setFramePointerZP(0xFD);
-        emitter->setupFramePointer();
-    }
-
-    for (auto& loc : scanner.locals) {
-        emit(".local " + loc.name + " = " + std::to_string(loc.frameOffset));
-    }
-
-    // Params: stack-relative, past frame + return address.
-    {
-        int pOff = frameSize + 2;
-        if (node.isVariadic) {
-            for (int i = 0; i < (int)paramInfos.size(); ++i) {
-                emit(".var " + paramInfos[i].pName + " = " + std::to_string(pOff));
-                currentVars.push_back(paramInfos[i].pName);
-                pOff += paramInfos[i].size;
-            }
-        } else {
-            for (int i = (int)paramInfos.size() - 1; i >= 0; --i) {
-                emit(".var " + paramInfos[i].pName + " = " + std::to_string(pOff));
-                currentVars.push_back(paramInfos[i].pName);
-                pOff += paramInfos[i].size;
-            }
-        }
-    }
-
-    node.body->accept(*this);
-    if (!node.isNoreturn) {
-        bool lastWasReturn = false;
-        if (!node.body->statements.empty()) {
-            if (dynamic_cast<ReturnStatement*>(node.body->statements.back().get())) {
-                lastWasReturn = true;
-            }
-        }
-        if (!lastWasReturn) {
-            if (frameSize > 0) {
-                emitter->taz();
-                for (int i = 0; i < frameSize; ++i) emitter->pla();
-                emitter->tza();
-            }
-            if (node.isInterrupt) {
-                emit("plz"); emit("ply"); emit("plx"); emit("pla");
-                emit("rti");
-            } else {
-                emit("rtn #0");
-            }
-        }
-    }
-    // Detect leaf functions for stack path (ZP path did this at line 1169)
-    {
-        CallCollector stackCallChecker;
-        node.body->accept(stackCallChecker);
-        bool isLeaf = stackCallChecker.calledFunctions.empty();
-        emit(isLeaf ? ".func_flags stack_call, leaf" : ".func_flags stack_call");
-    }
-    // Emit reg/flag clobbers from tracking
-    {
-        auto& ci = funcClobbers_[node.name];
-        std::string regs;
-        if (ci.regMask & CLOBBER_A) regs += "A, ";
-        if (ci.regMask & CLOBBER_X) regs += "X, ";
-        if (ci.regMask & CLOBBER_Y) regs += "Y, ";
-        if (ci.regMask & CLOBBER_Z) regs += "Z, ";
-        if (!regs.empty()) { regs.pop_back(); regs.pop_back(); emit(".reg_clobbers " + regs); }
-        std::string fl;
-        if (ci.flagMask & CLOBBER_C) fl += "C, ";
-        if (ci.flagMask & CLOBBER_N) fl += "N, ";
-        if (ci.flagMask & CLOBBER_ZF) fl += "Z, ";
-        if (ci.flagMask & CLOBBER_V) fl += "V, ";
-        if (!fl.empty()) { fl.pop_back(); fl.pop_back(); emit(".flag_clobbers " + fl); }
-    }
-
-    // Finalize clobber info
-    funcClobbers_[node.name].complete = true;
-    currentClobbers_ = nullptr;
-
-    emit("endproc");
-    out << std::endl;
-
-    freeRegisterVars();
-    frameLocals_.clear();
-    frameSize_ = 0;
-    emitter->setFramePointerZP(0); // disable FP for next function
-    currentFunction = nullptr;
 }
 
 void CodeGenerator::visit(BuiltinVaStart& node) {
@@ -3112,6 +2775,310 @@ void CodeGenerator::visit(BinaryOperation& node) {
     emitGeneralBinaryOp(node, scale, lhsType, rhsType);
 }
 
+void CodeGenerator::emitNakedFunction(FunctionDeclaration& node) {
+    out << ".code" << std::endl;
+    out << "proc _" + node.name << std::endl;
+    currentFunction = &node;
+    node.body->accept(*this);
+    emit("endproc");
+    out << std::endl;
+    currentFunction = nullptr;
+}
+
+void CodeGenerator::emitZpCallingConvention(FunctionDeclaration& node, int frameSize, const FrameScanner& scanner, const std::vector<ParamInfo>& paramInfos) {
+    zpParams_.clear();
+    zpParamTotalBytes_ = 0;
+    zpSpilledParams_.clear();
+
+    uint8_t zpBase = (uint8_t)(zeroPageStart + 8);
+    int zpOff = 0;
+    for (auto& pi : paramInfos) {
+        if (zpOff + pi.size > (int)(zeroPageAvail - 1)) {
+            throw std::runtime_error("Too many parameter bytes for ZP calling convention (" +
+                std::to_string(zpOff + pi.size) + " > " + std::to_string(zeroPageAvail - 1) +
+                "); increase zeroPageAvail");
+        }
+        zpParams_[pi.pName] = {(uint8_t)(zpBase + zpOff), pi.size};
+        zpOff += pi.size;
+    }
+    zpParamTotalBytes_ = zpOff;
+
+    std::set<std::string> paramNameSet;
+    for (auto& pi : paramInfos) paramNameSet.insert(pi.pName);
+    AddressOfParamCollector addrCollector(paramNameSet);
+    node.body->accept(addrCollector);
+
+    int spillOffset = frameSize;
+    for (auto& pName : addrCollector.addressTakenParams) {
+        auto& zpi = zpParams_[pName];
+        zpSpilledParams_[pName] = {spillOffset, zpi.size};
+        spillOffset += zpi.size;
+    }
+    int spillSize = spillOffset - frameSize;
+    frameSize = spillOffset;
+    frameSize_ = frameSize;
+
+    for (int i = 0; i < zpOff; i++) {
+        int slot = 1 + i;
+        while (slot >= (int)zpRegs.size()) zpRegs.push_back({false});
+        zpRegs[slot].inUse = true;
+    }
+
+    out << "proc _" + node.name << std::endl;
+
+    if (node.isInterrupt) {
+        emit("pha"); emit("phx"); emit("phy"); emit("phz");
+    }
+
+    emit(".var _fp = 0");
+    currentVars.push_back("_fp");
+
+    CallCollector callChecker;
+    node.body->accept(callChecker);
+    bool isLeaf = callChecker.calledFunctions.empty();
+
+    int zpSavableBytes = 0;
+    for (auto& kv : zpParams_) {
+        if (!zpSpilledParams_.count(kv.first)) zpSavableBytes += kv.second.size;
+    }
+    zpCallerSaveSize_ = isLeaf ? 0 : zpSavableBytes;
+    int totalFrame = frameSize + zpCallerSaveSize_;
+    if (totalFrame > 0) {
+        emit("; frame: " + std::to_string(frameSize) + " bytes locals" +
+             (spillSize > 0 ? " (incl " + std::to_string(spillSize) + " spill)" : "") +
+             " + " + std::to_string(zpCallerSaveSize_) + " bytes caller-save");
+        for (int i = 0; i < totalFrame / 2; ++i) emitter->phw_imm(0);
+        if (totalFrame % 2) { emitter->lda_imm(0); emitter->pha(); }
+        currentLocalByteSize = totalFrame;
+    }
+
+    for (auto& loc : scanner.locals) {
+        emit(".local " + loc.name + " = " + std::to_string(loc.frameOffset));
+    }
+
+    for (auto& sp : zpSpilledParams_) {
+        emit(".local " + sp.first + " = " + std::to_string(sp.second.frameOffset));
+        auto& zpi = zpParams_[sp.first];
+        emit("; spill " + sp.first + " from " + zpHex(zpi.zpAddr) + " to frame offset " + std::to_string(sp.second.frameOffset));
+        for (int b = 0; b < sp.second.size; b++) {
+            emit("lda " + zpHex(zpi.zpAddr + b));
+            emit("sta.fp " + getLocalOffsetSymbol(sp.second.frameOffset + b));
+        }
+        zpParams_.erase(sp.first);
+    }
+
+    for (auto& pi : paramInfos) {
+        if (zpSpilledParams_.count(pi.pName)) {
+            auto& sp = zpSpilledParams_[pi.pName];
+            emit("; " + pi.pName + " = frame offset " + std::to_string(sp.frameOffset) + " (spilled, " + std::to_string(sp.size) + " bytes)");
+        } else {
+            auto& zpi = zpParams_[pi.pName];
+            emit("; " + pi.pName + " = " + zpHex(zpi.zpAddr) + " (" + std::to_string(zpi.size) + " bytes)");
+        }
+    }
+
+    node.body->accept(*this);
+    if (!node.isNoreturn) {
+        bool lastWasReturn = false;
+        if (!node.body->statements.empty()) {
+            if (dynamic_cast<ReturnStatement*>(node.body->statements.back().get())) {
+                lastWasReturn = true;
+            }
+        }
+        if (!lastWasReturn) {
+            if (totalFrame > 0) {
+                emitter->taz();
+                for (int i = 0; i < totalFrame; ++i) emitter->pla();
+                emitter->tza();
+            }
+            if (node.isInterrupt) {
+                emit("plz"); emit("ply"); emit("plx"); emit("pla");
+                emit("rti");
+            } else {
+                emit("rtn #0");
+            }
+        }
+    }
+
+    if (zpParamTotalBytes_ > 0) {
+        emit(".zp_uses " + [&]() {
+            std::string s;
+            int off = 0;
+            for (auto& pi : paramInfos) {
+                if (!s.empty()) s += ", ";
+                s += zpHex(zpBase + off);
+                off += pi.size;
+            }
+            return s;
+        }());
+        emit(".zp_clobbers " + [&]() {
+            std::string s;
+            int off = 0;
+            for (auto& pi : paramInfos) {
+                for (int b = 0; b < pi.size; b++) {
+                    if (!s.empty()) s += ", ";
+                    s += zpHex(zpBase + off + b);
+                }
+                off += pi.size;
+            }
+            return s;
+        }());
+    }
+
+    emit(isLeaf ? ".func_flags zp_call, leaf" : ".func_flags zp_call");
+
+    {
+        auto& ci = funcClobbers_[node.name];
+        std::string regs;
+        if (ci.regMask & CLOBBER_A) regs += "A, ";
+        if (ci.regMask & CLOBBER_X) regs += "X, ";
+        if (ci.regMask & CLOBBER_Y) regs += "Y, ";
+        if (ci.regMask & CLOBBER_Z) regs += "Z, ";
+        if (!regs.empty()) { regs.pop_back(); regs.pop_back(); emit(".reg_clobbers " + regs); }
+        std::string fl;
+        if (ci.flagMask & CLOBBER_C) fl += "C, ";
+        if (ci.flagMask & CLOBBER_N) fl += "N, ";
+        if (ci.flagMask & CLOBBER_ZF) fl += "Z, ";
+        if (ci.flagMask & CLOBBER_V) fl += "V, ";
+        if (!fl.empty()) { fl.pop_back(); fl.pop_back(); emit(".flag_clobbers " + fl); }
+    }
+
+    funcClobbers_[node.name].complete = true;
+    currentClobbers_ = nullptr;
+
+    emit("endproc");
+    out << std::endl;
+
+    freeRegisterVars();
+    for (int i = 0; i < zpParamTotalBytes_; i++) {
+        int slot = 1 + i;
+        if (slot < (int)zpRegs.size()) zpRegs[slot].inUse = false;
+    }
+    frameLocals_.clear();
+    frameSize_ = 0;
+    zpParams_.clear();
+    zpSpilledParams_.clear();
+    zpParamTotalBytes_ = 0;
+    zpCallerSaveSize_ = 0;
+    currentFunction = nullptr;
+}
+
+void CodeGenerator::emitStackCallingConvention(FunctionDeclaration& node, int frameSize, const FrameScanner& scanner, const std::vector<ParamInfo>& paramInfos) {
+    bool isStructReturn = structReturningFunctions.count(node.name) > 0;
+    bool isLongReturn = is32BitType(node.returnType) && node.returnPointerLevel == 0;
+    bool needsHiddenPtr = isStructReturn;
+
+    std::string procLine = "proc _" + node.name;
+    if (needsHiddenPtr) {
+        procLine += ", W#_p___ret_ptr";
+    }
+    for (auto& pi : paramInfos) {
+        if (pi.pName == "_p___ret_ptr") continue;
+        VarInfo& vi = variableTypes.at(pi.pName);
+        if (vi.pointerLevel > 0) procLine += ", W#" + pi.pName;
+        else if (is8BitType(vi.type)) procLine += ", B#" + pi.pName;
+        else if (is32BitType(vi.type)) procLine += ", D#" + pi.pName;
+        else procLine += ", W#" + pi.pName;
+    }
+    out << procLine << std::endl;
+
+    if (node.isInterrupt) {
+        emit("pha"); emit("phx"); emit("phy"); emit("phz");
+    }
+
+    emit(".var _fp = 0");
+    currentVars.push_back("_fp");
+
+    if (frameSize > 0) {
+        emit("; frame: " + std::to_string(frameSize) + " bytes");
+        for (int i = 0; i < frameSize / 2; ++i) emitter->phw_imm(0);
+        if (frameSize % 2) { emitter->lda_imm(0); emitter->pha(); }
+        currentLocalByteSize = frameSize;
+    }
+
+    emit("; setup frame pointer");
+    emitter->setFramePointerZP(0xFD);
+    emitter->setupFramePointer();
+
+    for (auto& loc : scanner.locals) {
+        emit(".local " + loc.name + " = " + std::to_string(loc.frameOffset));
+    }
+
+    {
+        int pOff = frameSize + 2;
+        if (node.isVariadic) {
+            for (int i = 0; i < (int)paramInfos.size(); ++i) {
+                emit(".var " + paramInfos[i].pName + " = " + std::to_string(pOff));
+                currentVars.push_back(paramInfos[i].pName);
+                pOff += paramInfos[i].size;
+            }
+        } else {
+            for (int i = (int)paramInfos.size() - 1; i >= 0; --i) {
+                emit(".var " + paramInfos[i].pName + " = " + std::to_string(pOff));
+                currentVars.push_back(paramInfos[i].pName);
+                pOff += paramInfos[i].size;
+            }
+        }
+    }
+
+    node.body->accept(*this);
+    if (!node.isNoreturn) {
+        bool lastWasReturn = false;
+        if (!node.body->statements.empty()) {
+            if (dynamic_cast<ReturnStatement*>(node.body->statements.back().get())) {
+                lastWasReturn = true;
+            }
+        }
+        if (!lastWasReturn) {
+            if (frameSize > 0) {
+                emitter->taz();
+                for (int i = 0; i < frameSize; ++i) emitter->pla();
+                emitter->tza();
+            }
+            if (node.isInterrupt) {
+                emit("plz"); emit("ply"); emit("plx"); emit("pla");
+                emit("rti");
+            } else {
+                emit("rtn #0");
+            }
+        }
+    }
+
+    {
+        CallCollector stackCallChecker;
+        node.body->accept(stackCallChecker);
+        bool isLeaf = stackCallChecker.calledFunctions.empty();
+        emit(isLeaf ? ".func_flags stack_call, leaf" : ".func_flags stack_call");
+    }
+
+    {
+        auto& ci = funcClobbers_[node.name];
+        std::string regs;
+        if (ci.regMask & CLOBBER_A) regs += "A, ";
+        if (ci.regMask & CLOBBER_X) regs += "X, ";
+        if (ci.regMask & CLOBBER_Y) regs += "Y, ";
+        if (ci.regMask & CLOBBER_Z) regs += "Z, ";
+        if (!regs.empty()) { regs.pop_back(); regs.pop_back(); emit(".reg_clobbers " + regs); }
+        std::string fl;
+        if (ci.flagMask & CLOBBER_C) fl += "C, ";
+        if (ci.flagMask & CLOBBER_N) fl += "N, ";
+        if (ci.flagMask & CLOBBER_ZF) fl += "Z, ";
+        if (ci.flagMask & CLOBBER_V) fl += "V, ";
+        if (!fl.empty()) { fl.pop_back(); fl.pop_back(); emit(".flag_clobbers " + fl); }
+    }
+
+    funcClobbers_[node.name].complete = true;
+    currentClobbers_ = nullptr;
+
+    emit("endproc");
+    out << std::endl;
+
+    freeRegisterVars();
+    frameLocals_.clear();
+    frameSize_ = 0;
+    emitter->setFramePointerZP(0);
+    currentFunction = nullptr;
+}
 
 void CodeGenerator::visit(ConditionalExpression& node) {
     embedSource(node);
