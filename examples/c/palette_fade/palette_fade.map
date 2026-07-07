@@ -1,0 +1,76 @@
+Linker Map
+==========
+
+Memory Layout
+-------------
+  TEXT   $200D - $2491  (1157 bytes)
+  BSS    $2492 - $2589  (248 bytes)
+
+Object Files
+------------
+  ../../../lib/build/crt0_zp.o45
+    TEXT  $200D - $2044  (56 bytes)
+    BSS   $2492 - $2589  (248 bytes)
+  palette_fade.o45
+    TEXT  $2045 - $23F7  (947 bytes)
+  palette_fade_asm.o45
+    TEXT  $23F8 - $2491  (154 bytes)
+
+Symbols (by address)
+--------------------
+  $0006  __static_chain                 palette_fade.o45 [weak]
+  $0008  __zp_scratch                   palette_fade.o45 [weak]
+  $000A  __zp_scratch2                  palette_fade.o45 [weak]
+  $000C  __zp_scratch3                  palette_fade.o45 [weak]
+  $000E  __zp_scratch4                  palette_fade.o45 [weak]
+  $0101  __sp_base                      ../../../lib/build/crt0_zp.o45
+  $200D  __init                         ../../../lib/build/crt0_zp.o45
+  $2031  __exit                         ../../../lib/build/crt0_zp.o45
+  $2044  _init_features                 ../../../lib/build/crt0_zp.o45 [weak]
+  $2045  _delay_frame                   palette_fade.o45  [uses:- clob:- rel:- regs:AXY]
+  $20DC  _main                          palette_fade.o45  [uses:- clob:- rel:- regs:AXYZ]
+  $23F8  _unlock_viciv                  palette_fade_asm.o45
+  $2403  _save_palette                  palette_fade_asm.o45
+  $241D  _restore_palette               palette_fade_asm.o45
+  $2437  _apply_fade                    palette_fade_asm.o45
+  $2492  __bss_start                    <linker>
+  $2492  __zp_save_buf                  ../../../lib/build/crt0_zp.o45
+  $258A  __bss_end                      <linker>
+
+Call Graph
+----------
+  __init -> __exit _main
+  _main -> _apply_fade _save_palette _unlock_viciv
+
+Source Lines
+------------
+  $2045  palette_fade.c:16
+  $204B  palette_fade.c:19
+  $2067  palette_fade.c:20
+  $20DC  palette_fade.c:24
+  $213C  palette_fade.c:28
+  $2141  palette_fade.c:31
+  $2146  palette_fade.c:34
+  $2149  palette_fade.c:37
+  $214E  palette_fade.c:40
+  $2151  palette_fade.c:43
+  $2156  palette_fade.c:59
+  $215E  palette_fade.c:75
+  $2164  palette_fade.c:49
+  $2168  palette_fade.c:53
+  $216C  palette_fade.c:65
+  $2170  palette_fade.c:69
+  $21C2  palette_fade.c:48
+  $2218  palette_fade.c:50
+  $221F  palette_fade.c:51
+  $2273  palette_fade.c:54
+  $227A  palette_fade.c:56
+  $22B2  palette_fade.c:60
+  $22B5  palette_fade.c:61
+  $22BA  palette_fade.c:64
+  $2313  palette_fade.c:66
+  $231A  palette_fade.c:67
+  $236E  palette_fade.c:70
+  $2375  palette_fade.c:72
+  $23AC  palette_fade.c:76
+  $23AF  palette_fade.c:77
