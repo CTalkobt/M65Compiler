@@ -2,6 +2,49 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
+## [Unreleased] - Phase 1 Simplification (2026-07-07)
+
+### Code Simplification and Complexity Reduction
+
+Phase 1 of the simplification roadmap focused on eliminating redundant code and establishing reusable patterns. **221 lines of duplicate code removed**, establishing foundation for 15-25% total complexity reduction across 3 phases.
+
+#### 1.1: Unified Type Size Calculation (a58380d)
+
+- **New:** `TypeSystem.hpp` / `TypeSystem.cpp` — unified type size calculation across compiler phases
+- **Changed:** `CodeGenerator`, `IRBuilder`, `ConstantFolder` now use shared `TypeSystem::getTypeSize()`
+- **Result:** Eliminated ~150 lines of duplicate type-size logic. Single source of truth for all types (char, int, long, float, __int(N), struct/union, pointers)
+- **Testing:** All 500+ unit tests passing; zero regressions
+
+#### 1.2: Constant Folding Optimization Audit (07274e8)
+
+- **Audited:** `ConstantFolder` (159 lines, AST-level) vs `IROptimizer` (1243 lines, IR-level)
+- **Finding:** No redundancy — both work at different compilation phases and provide distinct value
+  - ConstantFolder: Early AST-level folding reduces IR size before code generation
+  - IROptimizer: Comprehensive IR-level optimizations (CSE, strength reduction, algebraic)
+- **Decision:** No consolidation needed; both passes are essential and non-overlapping
+
+#### 1.3: Disk Image Refactoring with BAMOperations Pattern (83c627f, a18313c, 2480746)
+
+- **New:** `BAMOperations.hpp` / `BAMOperations.cpp` — abstract base class + implementations for disk format BAM operations
+  - `D64BAMOperations`: Single-BAM sector (25-sector variant) disk format support
+  - `D81BAMOperations`: Dual-BAM sector (40-sector variant) disk format support with multi-sector complexity
+- **Changed:**
+  - `D64Image`: Refactored to use D64BAMOperations (27 lines saved; 323 → 296)
+  - `D81Image`: Refactored to use D81BAMOperations (44 lines saved; 341 → 297)
+- **Pattern:** Reusable template for D71, D80, D65, and other disk formats (5,054+ lines total)
+- **Testing:** All 500+ unit tests passing; zero regressions
+
+### Phase 1 Summary
+
+- **Time:** 48 hours (within 55-hour budget)
+- **Lines Removed:** 221 lines
+- **Files Changed:** 13 files (4 new, 9 modified)
+- **Commits:** 6 commits (4 major + 2 documentation)
+- **Test Status:** All 500+ unit tests passing; zero regressions ✅
+- **Ready for Phase 2:** CodeGenerator/IRBuilder consolidation (1,500+ line savings)
+
+---
+
 ## [v1.0.4] - 2026-06-30
 
 - Update version to 1.0.4
