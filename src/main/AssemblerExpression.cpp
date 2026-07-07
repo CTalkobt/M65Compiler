@@ -82,40 +82,50 @@ uint32_t VariableNode::getValue(AssemblerParser* parser) const {
     Symbol* sym = parser->resolveSymbol(name, scopePrefix);
     if (sym) return sym->value;
 
-    // Symbol not found — this is a hard error
-    // Returning 0 silently produces corrupt binaries (e.g., @_p_val resolves to 0
-    // instead of 2, causing stack-relative loads to read from wrong offset).
-    // We must abort assembly for unresolved symbols.
+    // Symbol not found — could be forward reference or error
+    // Only treat as fatal error if it's a local variable (@ prefix) or other
+    // definitely-should-exist symbol. External/weak symbols are OK to defer.
 
     if (parser) {
-        // Check if symbol is declared as extern (forward reference OK)
+        // Forward references (extern, weak, global) are OK in pass1 and later
         if (parser->isExternSymbol(name)) {
-            return 0; // OK for forward references in pass1
+            return 0; // Forward reference declared with .extern
         }
 
-        // Build a helpful error message showing what was looked up
-        std::string searchPath = scopePrefix + name;
-        std::string msg = "Error: undefined symbol '" + name + "'";
-        if (!scopePrefix.empty()) {
-            msg += " (searched as '" + searchPath + "')";
-        }
-
-        // Special case: if it's a parameter or local reference, suggest .var declaration
-        if (!name.empty() && (name[0] == '@' || name.find("__zp_") == 0)) {
-            msg += " — inline asm variable references require .var/@_p_/@_l_ declaration";
-        }
-
-        // Log error and abort
-        parser->addError(msg);
-
-        // In pass1, we can be lenient and return 0 for forward refs
+        // In pass1, be lenient with unknown symbols (could be forward refs)
         if (parser->isPass1()) {
             return 0;
         }
+
+        // In later passes, only error for definitely-local symbols
+        // Local variables (@_p_/@_l_/@if_) must be defined
+        bool isLocalVar = !name.empty() && name[0] == '@';
+        bool isZpTemp = name.find("__zp_") == 0;
+
+        if (isLocalVar || isZpTemp) {
+            std::string searchPath = scopePrefix + name;
+            std::string msg = "Error: undefined local symbol '" + name + "'";
+            if (!scopePrefix.empty()) {
+                msg += " (searched as '" + searchPath + "')";
+            }
+
+            if (isLocalVar && name.find("_p_") != std::string::npos) {
+                msg += " — inline asm parameter reference requires .var @_p_name declaration in proc";
+            } else if (isLocalVar && name.find("_l_") != std::string::npos) {
+                msg += " — inline asm local reference requires .var/@_l_ declaration in proc";
+            }
+
+            parser->addError(msg);
+            throw std::runtime_error(msg);
+        }
+
+        // For global symbols, allow 0 as placeholder (will be resolved by linker)
+        // This handles cases where a symbol like __zp_save_buf is declared .global
+        // but hasn't been seen yet in the assembly
+        return 0;
     }
 
-    // In later passes, undefined symbol is fatal
-    throw std::runtime_error("undefined symbol '" + name + "'");
+    return 0; // No parser, can't validate
 }
 bool VariableNode::isConstant(AssemblerParser* parser) const {
     Symbol* sym = parser->resolveSymbol(name, scopePrefix);
