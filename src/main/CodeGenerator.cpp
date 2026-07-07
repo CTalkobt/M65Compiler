@@ -1223,7 +1223,6 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     }
     frameSize_ = frameSize;
 
-    struct ParamInfo { std::string pName; int size; };
     std::vector<ParamInfo> paramInfos;
 
     bool isStructReturn = structReturningFunctions.count(node.name) > 0;
@@ -1251,9 +1250,9 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     }
 
     if (useZpCall_) {
-        emitZpCallingConvention(node, frameSize, scanner, paramInfos);
+        emitZpCallingConvention(node, frameSize, paramInfos);
     } else {
-        emitStackCallingConvention(node, frameSize, scanner, paramInfos);
+        emitStackCallingConvention(node, frameSize, paramInfos);
     }
 }
 
@@ -1435,324 +1434,128 @@ void CodeGenerator::visit(CompoundStatement& node) {
 
 void CodeGenerator::visit(VariableDeclaration& node) {
     embedSource(node);
+    if (emitGlobalVariable(node)) return;
+    if (emitStaticLocal(node)) return;
+    if (emitRegisterVariable(node)) return;
+    emitLocalVariableInit(node);
+}
 
-    if (node.isGlobal || currentFunction == nullptr) {
-        std::string gName = "_" + node.name;
-        globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims, node.isFunctionPointer, node.funcPtrSig};
-        if (node.isExtern) {
-            // extern declaration — type is known but no storage emitted
-            return;
-        }
-        if (node.isGlobal) {
-            globalVars.push_back(&node);
-            if (weakNext) { weakGlobals.insert(node.name); weakNext = false; }
-            if (node.isStatic) staticGlobals.insert(node.name);
-            return;
-        }
+bool CodeGenerator::emitGlobalVariable(VariableDeclaration& node) {
+    if (!(node.isGlobal || currentFunction == nullptr)) return false;
+    std::string gName = "_" + node.name;
+    globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims, node.isFunctionPointer, node.funcPtrSig};
+    if (node.isExtern) return true;
+    if (node.isGlobal) {
+        globalVars.push_back(&node);
+        if (weakNext) { weakGlobals.insert(node.name); weakNext = false; }
+        if (node.isStatic) staticGlobals.insert(node.name);
+        return true;
     }
+    return false;
+}
 
-    // Static local: allocate in data/bss segment, not on the stack
-    if (node.isStatic && currentFunction != nullptr) {
-        std::string sName = "__sl_" + currentFunction->name + "_" + node.name;
-        globalVariableTypes[sName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims};
-        // Create a synthetic global VariableDeclaration for emitData
-        auto* synth = new VariableDeclaration(node.type, currentFunction->name + "__" + node.name, node.pointerLevel);
-        synth->isSigned = node.isSigned;
-        synth->isVolatile = node.isVolatile;
-        synth->isConst = node.isConst;
-        synth->isPointerConst = node.isPointerConst;
-        synth->arrayDims = node.arrayDims;
-        synth->isGlobal = true;
-        synth->isStatic = true;
-        if (node.initializer) {
-            if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
-                synth->initializer = std::make_unique<IntegerLiteral>(lit->value);
-            } else if (auto* initList = dynamic_cast<InitializerList*>(node.initializer.get())) {
-                auto copy = std::make_unique<InitializerList>();
-                for (auto& elem : initList->elements) {
-                    if (auto* eLit = dynamic_cast<IntegerLiteral*>(elem.get())) {
-                        copy->elements.push_back(std::make_unique<IntegerLiteral>(eLit->value));
-                    }
+bool CodeGenerator::emitStaticLocal(VariableDeclaration& node) {
+    if (!(node.isStatic && currentFunction != nullptr)) return false;
+    std::string sName = "__sl_" + currentFunction->name + "_" + node.name;
+    globalVariableTypes[sName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims};
+    auto* synth = new VariableDeclaration(node.type, currentFunction->name + "__" + node.name, node.pointerLevel);
+    synth->isSigned = node.isSigned;
+    synth->isVolatile = node.isVolatile;
+    synth->isConst = node.isConst;
+    synth->isPointerConst = node.isPointerConst;
+    synth->arrayDims = node.arrayDims;
+    synth->isGlobal = true;
+    synth->isStatic = true;
+    if (node.initializer) {
+        if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
+            synth->initializer = std::make_unique<IntegerLiteral>(lit->value);
+        } else if (auto* initList = dynamic_cast<InitializerList*>(node.initializer.get())) {
+            auto copy = std::make_unique<InitializerList>();
+            for (auto& elem : initList->elements) {
+                if (auto* eLit = dynamic_cast<IntegerLiteral*>(elem.get())) {
+                    copy->elements.push_back(std::make_unique<IntegerLiteral>(eLit->value));
                 }
-                copy->designators = initList->designators;
-                synth->initializer = std::move(copy);
             }
-            // Non-literal initializers: leave as nullptr, will be zero-initialized in BSS
+            copy->designators = initList->designators;
+            synth->initializer = std::move(copy);
         }
-        globalVars.push_back(synth);
-        staticGlobals.insert(synth->name);
-        // Alias the local name to the global static label
-        variableTypes.erase("_l_" + node.name);
-        std::string gName = "_" + synth->name;
-        globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims};
-        return;
     }
+    globalVars.push_back(synth);
+    staticGlobals.insert(synth->name);
+    variableTypes.erase("_l_" + node.name);
+    std::string gName = "_" + synth->name;
+    globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims};
+    return true;
+}
 
+bool CodeGenerator::emitRegisterVariable(VariableDeclaration& node) {
+    if (!(node.isRegister && node.arraySize() < 0 && !isStruct(node.type))) return false;
+    std::string lName = "_l_" + node.name;
+    variableTypes[lName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims, node.isFunctionPointer, node.funcPtrSig};
+    int regSize = (node.pointerLevel > 0 || node.type == "int") ? 2 : 1;
+    int zpIdx = allocateZP(regSize);
+    if ((int)(zeroPageStart + zpIdx + regSize) > 0x100) {
+        freeZP(zpIdx, regSize);
+        return false;
+    }
+    variableTypes[lName].isRegister = true;
+    registerVars[lName] = {zpIdx, regSize};
+    std::stringstream ss;
+    ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpIdx);
+    emit("; register " + lName + " = " + ss.str());
+    if (node.initializer) {
+        if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
+            if (regSize == 2) {
+                emitter->lda_imm(lit->value & 0xFF);
+                emit("sta " + ss.str());
+                emitter->lda_imm((lit->value >> 8) & 0xFF);
+                emit("sta " + ss.str() + "+1");
+            } else {
+                uint8_t val = lit->value & 0xFF;
+                if (node.type == "_Bool") val = (val != 0) ? 1 : 0;
+                emitter->lda_imm(val);
+                emit("sta " + ss.str());
+            }
+        } else {
+            bool oldNeeded = resultNeeded;
+            resultNeeded = true;
+            node.initializer->accept(*this);
+            resultNeeded = oldNeeded;
+            if (node.type == "_Bool" && node.pointerLevel == 0) {
+                ExpressionType srcType = getExprType(node.initializer.get());
+                int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
+                emitBoolNormalize(srcSize);
+            }
+            emit("sta " + ss.str());
+            if (regSize == 2) emit("stx " + ss.str() + "+1");
+        }
+    } else {
+        emitter->lda_imm(0);
+        emit("sta " + ss.str());
+        if (regSize == 2) emit("sta " + ss.str() + "+1");
+    }
+    invalidateRegs();
+    return true;
+}
+
+void CodeGenerator::emitLocalVariableInit(VariableDeclaration& node) {
     std::string lName = "_l_" + node.name;
     variableTypes[lName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims, node.isFunctionPointer, node.funcPtrSig};
 
-    // Register variable: allocate in zero page instead of stack
-    if (node.isRegister && node.arraySize() < 0 && !isStruct(node.type)) {
-        int regSize = (node.pointerLevel > 0 || node.type == "int") ? 2 : 1;
-        int zpIdx = allocateZP(regSize);
-        if ((int)(zeroPageStart + zpIdx + regSize) <= 0x100) {
-            variableTypes[lName].isRegister = true;
-            registerVars[lName] = {zpIdx, regSize};
-            std::stringstream ss;
-            ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpIdx);
-            // Emit the ZP address as a .var so source comments are meaningful
-            emit("; register " + lName + " = " + ss.str());
-            if (node.initializer) {
-                if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
-                    if (regSize == 2) {
-                        emitter->lda_imm(lit->value & 0xFF);
-                        emit("sta " + ss.str());
-                        emitter->lda_imm((lit->value >> 8) & 0xFF);
-                        emit("sta " + ss.str() + "+1");
-                    } else {
-                        uint8_t val = lit->value & 0xFF;
-                        if (node.type == "_Bool") val = (val != 0) ? 1 : 0;
-                        emitter->lda_imm(val);
-                        emit("sta " + ss.str());
-                    }
-                } else {
-                    bool oldNeeded = resultNeeded;
-                    resultNeeded = true;
-                    node.initializer->accept(*this);
-                    resultNeeded = oldNeeded;
-                    if (node.type == "_Bool" && node.pointerLevel == 0) {
-                        ExpressionType srcType = getExprType(node.initializer.get());
-                        int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
-                        emitBoolNormalize(srcSize);
-                    }
-                    emit("sta " + ss.str());
-                    if (regSize == 2) emit("stx " + ss.str() + "+1");
-                }
-            } else {
-                emitter->lda_imm(0);
-                emit("sta " + ss.str());
-                if (regSize == 2) emit("sta " + ss.str() + "+1");
-            }
-            invalidateRegs();
-            return;
-        } else {
-            // ZP space exhausted — fall back to normal stack allocation
-            freeZP(zpIdx, regSize);
-        }
-    }
-
-    // Unwrap compound literal initializer: (type){1,2} → {1,2}
-    // Struct/array compound literals become InitializerLists; scalar compound literals
-    // unwrap to the single element expression directly.
     if (node.initializer) {
         if (auto* cl = dynamic_cast<CompoundLiteral*>(node.initializer.get())) {
             if (cl->arrayDims.empty() && !isStruct(cl->targetType) && cl->pointerLevel == 0) {
-                // Scalar: (int){42} → 42
                 if (cl->initializer && !cl->initializer->elements.empty()) {
                     node.initializer = std::move(cl->initializer->elements[0]);
                 }
             } else {
-                // Struct/array: (struct Point){1,2} → {1,2}
                 node.initializer = std::move(cl->initializer);
             }
         }
     }
 
-    // Frame-local: already pre-allocated in the frame prologue.
-    // Just emit initialization code targeting the frame slot, no stack push needed.
     if (frameLocals_.count(lName)) {
-        int frameOff = frameLocals_[lName];
-        int size = 0;
-        if (node.pointerLevel > 0) size = 2;
-        else if (node.type == "char" || node.type == "_Bool") size = 1;
-        else if (node.type == "long") size = 4;
-        else if (node.type == "int") size = 2;
-        else if (isStruct(node.type)) {
-            std::string sName = getAggregateName(node.type);
-            if (structs.count(sName)) size = structs[sName]->totalSize;
-        }
-        if (node.arraySize() >= 0) size *= node.arraySize();
-
-        // Narrowing warnings
-        if (node.initializer && !dynamic_cast<CastExpression*>(node.initializer.get()) && !dynamic_cast<InitializerList*>(node.initializer.get())) {
-            if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
-                if (size == 1 && (lit->value < 0 || lit->value > 255)) {
-                    std::string loc = sourceFilename.empty() ? "" : sourceFilename + ":";
-                    if (node.line > 0) loc += std::to_string(node.line) + ":" + std::to_string(node.column) + ": ";
-                    std::string msg = loc + "warning: implicit conversion from constant " + std::to_string(lit->value) + " loses data (truncated to 'char')";
-                    warnings.push_back(msg);
-                    std::cerr << msg << std::endl;
-                }
-            } else {
-                ExpressionType initType = getExprType(node.initializer.get());
-                emitNarrowingWarning(node, initType.type, initType.pointerLevel, node.type, node.pointerLevel);
-            }
-        }
-
-        // Dead-code elimination for unused integer-initialized locals
-        if (node.initializer && dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
-            if (!isVariableUsed(node.name, *currentFunction)) {
-                return;
-            }
-        }
-
-        // Initialize the frame slot
-        if (auto* initList = dynamic_cast<InitializerList*>(node.initializer.get())) {
-            if (isStruct(node.type) && node.pointerLevel == 0) {
-                // Struct initializer: {val0, val1, ...} or {.x=val, ...} matched to members by offset order
-                std::string sName = getAggregateName(node.type);
-                if (!structs.count(sName))
-                    throw std::runtime_error("Unknown struct type: " + sName);
-                auto& sInfo = *structs[sName];
-                std::vector<std::pair<std::string, MemberInfo*>> orderedMembers;
-                for (auto& [mname, minfo] : sInfo.members) orderedMembers.push_back({mname, &minfo});
-                std::sort(orderedMembers.begin(), orderedMembers.end(),
-                          [](auto& a, auto& b) { return a.second->offset < b.second->offset; });
-                // Resolve designators to member-ordered positions
-                std::vector<Expression*> resolved(orderedMembers.size(), nullptr);
-                int nextPos = 0;
-                for (size_t ei = 0; ei < initList->elements.size(); ei++) {
-                    auto desig = initList->getDesignator(ei);
-                    if (!desig.memberName.empty()) {
-                        for (int j = 0; j < (int)orderedMembers.size(); j++) {
-                            if (orderedMembers[j].first == desig.memberName) { nextPos = j; break; }
-                        }
-                    }
-                    if (nextPos < (int)resolved.size()) {
-                        resolved[nextPos] = initList->elements[ei].get();
-                        nextPos++;
-                    }
-                }
-                for (int i = 0; i < (int)orderedMembers.size(); i++) {
-                    if (!resolved[i]) continue;
-                    auto& minfo = *orderedMembers[i].second;
-                    int memberOff = frameOff + minfo.offset;
-                    int memberSize = (minfo.pointerLevel > 0 || minfo.type == "int") ? 2 :
-                                     (minfo.type == "char" || minfo.type == "_Bool") ? 1 : 2;
-                    if (auto* lit = dynamic_cast<IntegerLiteral*>(resolved[i])) {
-                        if (memberSize == 2) {
-                            emitter->lda_imm(lit->value & 0xFF);
-                            emit("sta.fp " + getLocalOffsetSymbol(memberOff));
-                            emitter->lda_imm((lit->value >> 8) & 0xFF);
-                            emit("sta.fp " + getLocalOffsetSymbol(memberOff + 1));
-                        } else {
-                            emitter->lda_imm(lit->value & 0xFF);
-                            emit("sta.fp " + getLocalOffsetSymbol(memberOff));
-                        }
-                    } else {
-                        bool oldNeeded = resultNeeded;
-                        resultNeeded = true;
-                        resolved[i]->accept(*this);
-                        resultNeeded = oldNeeded;
-                        if (memberSize == 2) emit("stax.fp " + getLocalOffsetSymbol(memberOff));
-                        else emit("sta.fp " + getLocalOffsetSymbol(memberOff));
-                    }
-                }
-            } else {
-                // Array/scalar initializer (supports [N]=val designators)
-                int elementSize = 0;
-                if (node.pointerLevel > 0) elementSize = 2;
-                else if (is8BitType(node.type)) elementSize = 1;
-                else if (node.type == "int") elementSize = 2;
-                int totalElements = node.arraySize() >= 0 ? node.arraySize() : 1;
-                // Resolve array designators to position map
-                std::vector<Expression*> resolved(totalElements, nullptr);
-                int nextIdx = 0;
-                for (size_t ei = 0; ei < initList->elements.size(); ei++) {
-                    auto desig = initList->getDesignator(ei);
-                    if (desig.arrayIndex >= 0) nextIdx = desig.arrayIndex;
-                    if (nextIdx < totalElements) {
-                        resolved[nextIdx] = initList->elements[ei].get();
-                        nextIdx++;
-                    }
-                }
-                for (int i = 0; i < totalElements; i++) {
-                    int val = 0;
-                    if (resolved[i]) {
-                        if (auto* lit = dynamic_cast<IntegerLiteral*>(resolved[i])) {
-                            val = lit->value;
-                        }
-                    }
-                    int elemOff = frameOff + i * elementSize;
-                    if (elementSize == 2) {
-                        emitter->lda_imm(val & 0xFF);
-                        emit("sta.fp " + getLocalOffsetSymbol(elemOff));
-                        emitter->lda_imm((val >> 8) & 0xFF);
-                        emit("sta.fp " + getLocalOffsetSymbol(elemOff + 1));
-                    } else {
-                        emitter->lda_imm(val & 0xFF);
-                        emit("sta.fp " + getLocalOffsetSymbol(elemOff));
-                    }
-                }
-            }
-        } else if (node.initializer) {
-            if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
-                if (size == 4) {
-                    uint32_t val = (uint32_t)lit->value;
-                    emitter->lda_imm(val & 0xFF);
-                    emit("sta.fp " + getLocalOffsetSymbol(frameOff));
-                    emitter->lda_imm((val >> 8) & 0xFF);
-                    emit("sta.fp " + getLocalOffsetSymbol(frameOff + 1));
-                    emitter->lda_imm((val >> 16) & 0xFF);
-                    emit("sta.fp " + getLocalOffsetSymbol(frameOff + 2));
-                    emitter->lda_imm((val >> 24) & 0xFF);
-                    emit("sta.fp " + getLocalOffsetSymbol(frameOff + 3));
-                } else if (size == 2) {
-                    emitter->lda_imm(lit->value & 0xFF);
-                    emit("sta.fp " + getLocalOffsetSymbol(frameOff));
-                    emitter->lda_imm((lit->value >> 8) & 0xFF);
-                    emit("sta.fp " + getLocalOffsetSymbol(frameOff + 1));
-                } else {
-                    uint8_t val = lit->value & 0xFF;
-                    if (node.type == "_Bool") val = (val != 0) ? 1 : 0;
-                    emitter->lda_imm(val);
-                    emit("sta.fp " + getLocalOffsetSymbol(frameOff));
-                }
-            } else {
-                // Check if this is a struct-returning function call
-                bool isStructRetInit = false;
-                if (auto* fc = dynamic_cast<FunctionCall*>(node.initializer.get())) {
-                    if (structReturningFunctions.count(fc->name)) isStructRetInit = true;
-                }
-
-                if (isStructRetInit && (isStruct(node.type) || is32BitType(node.type)) && node.pointerLevel == 0) {
-                    // Set the destination frame offset so the FunctionCall visitor
-                    // passes our frame slot address as the hidden _ret_ptr.
-                    // The callee writes directly to our frame slot — no copy needed.
-                    structRetDest_ = frameOff;
-                    bool oldNeeded = resultNeeded;
-                    resultNeeded = true;
-                    node.initializer->accept(*this);
-                    resultNeeded = oldNeeded;
-                    structRetDest_ = -1;
-                } else {
-                    bool oldNeeded = resultNeeded;
-                    resultNeeded = true;
-                    node.initializer->accept(*this);
-                    resultNeeded = oldNeeded;
-                    if (node.type == "_Bool" && node.pointerLevel == 0) {
-                        ExpressionType srcType = getExprType(node.initializer.get());
-                        int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
-                        emitBoolNormalize(srcSize);
-                    }
-                    if (size == 4) {
-                        // Store AXYZ to frame slot byte-by-byte
-                        // Note: sta.fp does TSX which clobbers X, so save X first
-                        emit("stx __zp_scratch");
-                        emit("sta.fp " + getLocalOffsetSymbol(frameOff));
-                        emit("lda __zp_scratch"); emit("sta.fp " + getLocalOffsetSymbol(frameOff + 1));
-                        emit("tya"); emit("sta.fp " + getLocalOffsetSymbol(frameOff + 2));
-                        emit("tza"); emit("sta.fp " + getLocalOffsetSymbol(frameOff + 3));
-                    } else if (size == 2) {
-                        emit("stax.fp " + getLocalOffsetSymbol(frameOff));
-                    } else {
-                        emit("sta.fp " + getLocalOffsetSymbol(frameOff));
-                    }
-                }
-            }
-        }
-        // Frame slot was already zeroed by prologue, no init needed for uninitialized vars
-        invalidateRegs();
+        emitFrameLocalInit(node, lName);
         return;
     }
 
@@ -1780,144 +1583,330 @@ void CodeGenerator::visit(VariableDeclaration& node) {
     else if (isStruct(node.type)) {
         std::string sName = getAggregateName(node.type);
         if (structs.count(sName)) size = structs[sName]->totalSize;
-        else return; // unknown struct — handled by IR path
+        else return;
     }
     if (node.arraySize() >= 0) size *= node.arraySize();
 
     if (node.isVolatile) {
-        if (auto* initList = dynamic_cast<InitializerList*>(node.initializer.get())) {
-            int elementSize = 0;
-            if (node.pointerLevel > 0) elementSize = 2;
-            else if (is8BitType(node.type)) elementSize = 1;
-            else if (node.type == "int") elementSize = 2;
-            int totalElements = node.arraySize() >= 0 ? node.arraySize() : 1;
-            // Resolve array designators
-            std::vector<Expression*> resolved(totalElements, nullptr);
-            int nextIdx = 0;
-            for (size_t ei = 0; ei < initList->elements.size(); ei++) {
-                auto desig = initList->getDesignator(ei);
-                if (desig.arrayIndex >= 0) nextIdx = desig.arrayIndex;
-                if (nextIdx < totalElements) {
-                    resolved[nextIdx] = initList->elements[ei].get();
-                    nextIdx++;
+        emitVolatileStackInit(node, size);
+    } else {
+        emitNonVolatileStackInit(node, size, lName);
+    }
+}
+
+void CodeGenerator::emitFrameLocalInit(VariableDeclaration& node, const std::string& lName) {
+    int frameOff = frameLocals_[lName];
+    int size = 0;
+    if (node.pointerLevel > 0) size = 2;
+    else if (node.type == "char" || node.type == "_Bool") size = 1;
+    else if (node.type == "long") size = 4;
+    else if (node.type == "int") size = 2;
+    else if (isStruct(node.type)) {
+        std::string sName = getAggregateName(node.type);
+        if (structs.count(sName)) size = structs[sName]->totalSize;
+    }
+    if (node.arraySize() >= 0) size *= node.arraySize();
+
+    if (node.initializer && !dynamic_cast<CastExpression*>(node.initializer.get()) && !dynamic_cast<InitializerList*>(node.initializer.get())) {
+        if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
+            if (size == 1 && (lit->value < 0 || lit->value > 255)) {
+                std::string loc = sourceFilename.empty() ? "" : sourceFilename + ":";
+                if (node.line > 0) loc += std::to_string(node.line) + ":" + std::to_string(node.column) + ": ";
+                std::string msg = loc + "warning: implicit conversion from constant " + std::to_string(lit->value) + " loses data (truncated to 'char')";
+                warnings.push_back(msg);
+                std::cerr << msg << std::endl;
+            }
+        } else {
+            ExpressionType initType = getExprType(node.initializer.get());
+            emitNarrowingWarning(node, initType.type, initType.pointerLevel, node.type, node.pointerLevel);
+        }
+    }
+
+    if (node.initializer && dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
+        if (!isVariableUsed(node.name, *currentFunction)) return;
+    }
+
+    if (auto* initList = dynamic_cast<InitializerList*>(node.initializer.get())) {
+        emitFrameListInit(node, initList, frameOff);
+    } else if (node.initializer) {
+        emitFrameExprInit(node, frameOff, size);
+    }
+    invalidateRegs();
+}
+
+void CodeGenerator::emitFrameListInit(VariableDeclaration& node, InitializerList* initList, int frameOff) {
+    if (isStruct(node.type) && node.pointerLevel == 0) {
+        std::string sName = getAggregateName(node.type);
+        if (!structs.count(sName)) throw std::runtime_error("Unknown struct type: " + sName);
+        auto& sInfo = *structs[sName];
+        std::vector<std::pair<std::string, MemberInfo*>> orderedMembers;
+        for (auto& [mname, minfo] : sInfo.members) orderedMembers.push_back({mname, &minfo});
+        std::sort(orderedMembers.begin(), orderedMembers.end(),
+                  [](auto& a, auto& b) { return a.second->offset < b.second->offset; });
+        std::vector<Expression*> resolved(orderedMembers.size(), nullptr);
+        int nextPos = 0;
+        for (size_t ei = 0; ei < initList->elements.size(); ei++) {
+            auto desig = initList->getDesignator(ei);
+            if (!desig.memberName.empty()) {
+                for (int j = 0; j < (int)orderedMembers.size(); j++) {
+                    if (orderedMembers[j].first == desig.memberName) { nextPos = j; break; }
                 }
             }
-            for (int i = totalElements - 1; i >= 0; i--) {
-                int val = 0;
-                if (resolved[i]) {
-                    if (auto* lit = dynamic_cast<IntegerLiteral*>(resolved[i])) {
-                        val = lit->value;
-                    }
-                }
-                if (elementSize == 2) {
-                    emitter->phw_imm((uint16_t)(int16_t)val);
-                } else {
-                    emitter->lda_imm(val & 0xFF);
-                    emitter->pha();
-                }
+            if (nextPos < (int)resolved.size()) {
+                resolved[nextPos] = initList->elements[ei].get();
+                nextPos++;
             }
-        } else if (node.initializer) {
-            if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
-                 if (size == 2) {
-                    emitter->phw_imm((uint16_t)(int16_t)lit->value);
+        }
+        for (int i = 0; i < (int)orderedMembers.size(); i++) {
+            if (!resolved[i]) continue;
+            auto& minfo = *orderedMembers[i].second;
+            int memberOff = frameOff + minfo.offset;
+            int memberSize = (minfo.pointerLevel > 0 || minfo.type == "int") ? 2 :
+                             (minfo.type == "char" || minfo.type == "_Bool") ? 1 : 2;
+            if (auto* lit = dynamic_cast<IntegerLiteral*>(resolved[i])) {
+                if (memberSize == 2) {
+                    emitter->lda_imm(lit->value & 0xFF);
+                    emit("sta.fp " + getLocalOffsetSymbol(memberOff));
+                    emitter->lda_imm((lit->value >> 8) & 0xFF);
+                    emit("sta.fp " + getLocalOffsetSymbol(memberOff + 1));
                 } else {
-                    uint8_t val = lit->value & 0xFF;
-                    if (node.type == "_Bool") val = (val != 0) ? 1 : 0;
-                    emitter->lda_imm(val);
-                    emitter->pha();
+                    emitter->lda_imm(lit->value & 0xFF);
+                    emit("sta.fp " + getLocalOffsetSymbol(memberOff));
                 }
             } else {
                 bool oldNeeded = resultNeeded;
                 resultNeeded = true;
-                node.initializer->accept(*this);
+                resolved[i]->accept(*this);
                 resultNeeded = oldNeeded;
-                if (node.type == "_Bool" && node.pointerLevel == 0) {
-                    ExpressionType srcType = getExprType(node.initializer.get());
-                    int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
-                    emitBoolNormalize(srcSize);
-                }
-                if (size == 2) emitter->push_ax();
-                else emitter->pha();
+                if (memberSize == 2) emit("stax.fp " + getLocalOffsetSymbol(memberOff));
+                else emit("sta.fp " + getLocalOffsetSymbol(memberOff));
             }
+        }
+    } else {
+        int elementSize = 0;
+        if (node.pointerLevel > 0) elementSize = 2;
+        else if (is8BitType(node.type)) elementSize = 1;
+        else if (node.type == "int") elementSize = 2;
+        int totalElements = node.arraySize() >= 0 ? node.arraySize() : 1;
+        std::vector<Expression*> resolved(totalElements, nullptr);
+        int nextIdx = 0;
+        for (size_t ei = 0; ei < initList->elements.size(); ei++) {
+            auto desig = initList->getDesignator(ei);
+            if (desig.arrayIndex >= 0) nextIdx = desig.arrayIndex;
+            if (nextIdx < totalElements) {
+                resolved[nextIdx] = initList->elements[ei].get();
+                nextIdx++;
+            }
+        }
+        for (int i = 0; i < totalElements; i++) {
+            int val = 0;
+            if (resolved[i]) {
+                if (auto* lit = dynamic_cast<IntegerLiteral*>(resolved[i])) {
+                    val = lit->value;
+                }
+            }
+            int elemOff = frameOff + i * elementSize;
+            if (elementSize == 2) {
+                emitter->lda_imm(val & 0xFF);
+                emit("sta.fp " + getLocalOffsetSymbol(elemOff));
+                emitter->lda_imm((val >> 8) & 0xFF);
+                emit("sta.fp " + getLocalOffsetSymbol(elemOff + 1));
+            } else {
+                emitter->lda_imm(val & 0xFF);
+                emit("sta.fp " + getLocalOffsetSymbol(elemOff));
+            }
+        }
+    }
+}
+
+void CodeGenerator::emitFrameExprInit(VariableDeclaration& node, int frameOff, int size) {
+    if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
+        if (size == 4) {
+            uint32_t val = (uint32_t)lit->value;
+            emitter->lda_imm(val & 0xFF);
+            emit("sta.fp " + getLocalOffsetSymbol(frameOff));
+            emitter->lda_imm((val >> 8) & 0xFF);
+            emit("sta.fp " + getLocalOffsetSymbol(frameOff + 1));
+            emitter->lda_imm((val >> 16) & 0xFF);
+            emit("sta.fp " + getLocalOffsetSymbol(frameOff + 2));
+            emitter->lda_imm((val >> 24) & 0xFF);
+            emit("sta.fp " + getLocalOffsetSymbol(frameOff + 3));
+        } else if (size == 2) {
+            emitter->lda_imm(lit->value & 0xFF);
+            emit("sta.fp " + getLocalOffsetSymbol(frameOff));
+            emitter->lda_imm((lit->value >> 8) & 0xFF);
+            emit("sta.fp " + getLocalOffsetSymbol(frameOff + 1));
+        } else {
+            uint8_t val = lit->value & 0xFF;
+            if (node.type == "_Bool") val = (val != 0) ? 1 : 0;
+            emitter->lda_imm(val);
+            emit("sta.fp " + getLocalOffsetSymbol(frameOff));
+        }
+    } else {
+        bool isStructRetInit = false;
+        if (auto* fc = dynamic_cast<FunctionCall*>(node.initializer.get())) {
+            if (structReturningFunctions.count(fc->name)) isStructRetInit = true;
+        }
+        if (isStructRetInit && (isStruct(node.type) || is32BitType(node.type)) && node.pointerLevel == 0) {
+            structRetDest_ = frameOff;
+            bool oldNeeded = resultNeeded;
+            resultNeeded = true;
+            node.initializer->accept(*this);
+            resultNeeded = oldNeeded;
+            structRetDest_ = -1;
+        } else {
+            bool oldNeeded = resultNeeded;
+            resultNeeded = true;
+            node.initializer->accept(*this);
+            resultNeeded = oldNeeded;
+            if (node.type == "_Bool" && node.pointerLevel == 0) {
+                ExpressionType srcType = getExprType(node.initializer.get());
+                int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
+                emitBoolNormalize(srcSize);
+            }
+            if (size == 4) {
+                emit("stx __zp_scratch");
+                emit("sta.fp " + getLocalOffsetSymbol(frameOff));
+                emit("lda __zp_scratch"); emit("sta.fp " + getLocalOffsetSymbol(frameOff + 1));
+                emit("tya"); emit("sta.fp " + getLocalOffsetSymbol(frameOff + 2));
+                emit("tza"); emit("sta.fp " + getLocalOffsetSymbol(frameOff + 3));
+            } else if (size == 2) {
+                emit("stax.fp " + getLocalOffsetSymbol(frameOff));
+            } else {
+                emit("sta.fp " + getLocalOffsetSymbol(frameOff));
+            }
+        }
+    }
+}
+
+void CodeGenerator::emitVolatileStackInit(VariableDeclaration& node, int size) {
+    if (auto* initList = dynamic_cast<InitializerList*>(node.initializer.get())) {
+        int elementSize = 0;
+        if (node.pointerLevel > 0) elementSize = 2;
+        else if (is8BitType(node.type)) elementSize = 1;
+        else if (node.type == "int") elementSize = 2;
+        int totalElements = node.arraySize() >= 0 ? node.arraySize() : 1;
+        std::vector<Expression*> resolved(totalElements, nullptr);
+        int nextIdx = 0;
+        for (size_t ei = 0; ei < initList->elements.size(); ei++) {
+            auto desig = initList->getDesignator(ei);
+            if (desig.arrayIndex >= 0) nextIdx = desig.arrayIndex;
+            if (nextIdx < totalElements) {
+                resolved[nextIdx] = initList->elements[ei].get();
+                nextIdx++;
+            }
+        }
+        for (int i = totalElements - 1; i >= 0; i--) {
+            int val = 0;
+            if (resolved[i]) {
+                if (auto* lit = dynamic_cast<IntegerLiteral*>(resolved[i])) {
+                    val = lit->value;
+                }
+            }
+            if (elementSize == 2) {
+                emitter->phw_imm((uint16_t)(int16_t)val);
+            } else {
+                emitter->lda_imm(val & 0xFF);
+                emitter->pha();
+            }
+        }
+    } else if (node.initializer) {
+        if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
+            if (size == 2) {
+                emitter->phw_imm((uint16_t)(int16_t)lit->value);
+            } else {
+                uint8_t val = lit->value & 0xFF;
+                if (node.type == "_Bool") val = (val != 0) ? 1 : 0;
+                emitter->lda_imm(val);
+                emitter->pha();
+            }
+        } else {
+            bool oldNeeded = resultNeeded;
+            resultNeeded = true;
+            node.initializer->accept(*this);
+            resultNeeded = oldNeeded;
+            if (node.type == "_Bool" && node.pointerLevel == 0) {
+                ExpressionType srcType = getExprType(node.initializer.get());
+                int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
+                emitBoolNormalize(srcSize);
+            }
+            if (size == 2) emitter->push_ax();
+            else emitter->pha();
+        }
+    } else {
+        if (size == 2) emitter->phw_imm(0);
+        else { emitter->lda_imm(0); emitter->pha(); }
+    }
+}
+
+void CodeGenerator::emitNonVolatileStackInit(VariableDeclaration& node, int size, const std::string& lName) {
+    if (node.initializer && dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
+        if (!isVariableUsed(node.name, *currentFunction)) return;
+    }
+
+    if (auto* initList = dynamic_cast<InitializerList*>(node.initializer.get())) {
+        int elementSize = 0;
+        if (node.pointerLevel > 0) elementSize = 2;
+        else if (is8BitType(node.type)) elementSize = 1;
+        else if (node.type == "int") elementSize = 2;
+        int totalElements = node.arraySize() >= 0 ? node.arraySize() : 1;
+        std::vector<Expression*> resolved(totalElements, nullptr);
+        int nextIdx = 0;
+        for (size_t ei = 0; ei < initList->elements.size(); ei++) {
+            auto desig = initList->getDesignator(ei);
+            if (desig.arrayIndex >= 0) nextIdx = desig.arrayIndex;
+            if (nextIdx < totalElements) {
+                resolved[nextIdx] = initList->elements[ei].get();
+                nextIdx++;
+            }
+        }
+        for (int i = totalElements - 1; i >= 0; i--) {
+            int val = 0;
+            if (resolved[i]) {
+                if (auto* lit = dynamic_cast<IntegerLiteral*>(resolved[i])) {
+                    val = lit->value;
+                }
+            }
+            if (elementSize == 2) {
+                emitter->phw_imm((uint16_t)(int16_t)val);
+            } else {
+                emitter->lda_imm(val & 0xFF);
+                emitter->pha();
+            }
+        }
+    } else if (node.initializer) {
+        if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
+            if (size == 2) {
+                emitter->phw_imm((uint16_t)(int16_t)lit->value);
+            } else {
+                uint8_t val = lit->value & 0xFF;
+                if (node.type == "_Bool") val = (val != 0) ? 1 : 0;
+                emitter->lda_imm(val);
+                emitter->pha();
+            }
+        } else {
+            bool oldNeeded = resultNeeded;
+            resultNeeded = true;
+            node.initializer->accept(*this);
+            resultNeeded = oldNeeded;
+            if (node.type == "_Bool" && node.pointerLevel == 0) {
+                ExpressionType srcType = getExprType(node.initializer.get());
+                int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
+                emitBoolNormalize(srcSize);
+            }
+            if (size == 2) emitter->push_ax();
+            else emitter->pha();
+        }
+    } else {
+        if (size >= 9) {
+            emitter->phw_imm(0);
+            for (int i = 0; i < (size - 2) / 2; ++i) emitter->phw_imm(0);
+            if (size % 2) { emit("lda #0"); emit("pha"); }
+            emit("lda #0");
+            emit("FILL.SP " + lName + ", #" + std::to_string(size));
         } else {
             if (size == 2) emitter->phw_imm(0);
             else { emitter->lda_imm(0); emitter->pha(); }
-        }
-    } else {
-
-        if (node.initializer && dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
-            if (!isVariableUsed(node.name, *currentFunction)) {
-                return;
-            }
-        }
-
-        if (auto* initList = dynamic_cast<InitializerList*>(node.initializer.get())) {
-            // Local array with initializer list — push elements in reverse order
-            int elementSize = 0;
-            if (node.pointerLevel > 0) elementSize = 2;
-            else if (is8BitType(node.type)) elementSize = 1;
-            else if (node.type == "int") elementSize = 2;
-            int totalElements = node.arraySize() >= 0 ? node.arraySize() : 1;
-            // Resolve array designators
-            std::vector<Expression*> resolved(totalElements, nullptr);
-            int nextIdx = 0;
-            for (size_t ei = 0; ei < initList->elements.size(); ei++) {
-                auto desig = initList->getDesignator(ei);
-                if (desig.arrayIndex >= 0) nextIdx = desig.arrayIndex;
-                if (nextIdx < totalElements) {
-                    resolved[nextIdx] = initList->elements[ei].get();
-                    nextIdx++;
-                }
-            }
-            // Push in reverse: last element first (stack grows down)
-            for (int i = totalElements - 1; i >= 0; i--) {
-                int val = 0;
-                if (resolved[i]) {
-                    if (auto* lit = dynamic_cast<IntegerLiteral*>(resolved[i])) {
-                        val = lit->value;
-                    }
-                }
-                if (elementSize == 2) {
-                    emitter->phw_imm((uint16_t)(int16_t)val);
-                } else {
-                    emitter->lda_imm(val & 0xFF);
-                    emitter->pha();
-                }
-            }
-        } else if (node.initializer) {
-            if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
-                if (size == 2) {
-                    emitter->phw_imm((uint16_t)(int16_t)lit->value);
-                } else {
-                    uint8_t val = lit->value & 0xFF;
-                    if (node.type == "_Bool") val = (val != 0) ? 1 : 0;
-                    emitter->lda_imm(val);
-                    emitter->pha();
-                }
-            } else {
-                bool oldNeeded = resultNeeded;
-                resultNeeded = true;
-                node.initializer->accept(*this);
-                resultNeeded = oldNeeded;
-                if (node.type == "_Bool" && node.pointerLevel == 0) {
-                    ExpressionType srcType = getExprType(node.initializer.get());
-                    int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
-                    emitBoolNormalize(srcSize);
-                }
-                if (size == 2) emitter->push_ax();
-                else emitter->pha();
-            }
-        } else {
-            if (size >= 9) {
-                emitter->phw_imm(0);
-                for (int i = 0; i < (size - 2) / 2; ++i) emitter->phw_imm(0);
-                if (size % 2) { emit("lda #0"); emit("pha"); }
-                emit("lda #0");
-                emit("FILL.SP " + lName + ", #" + std::to_string(size));
-            } else {
-                if (size == 2) emitter->phw_imm(0);
-                else { emitter->lda_imm(0); emitter->pha(); }
-            }
         }
     }
     for (const auto& varName : currentVars) {
@@ -2785,7 +2774,7 @@ void CodeGenerator::emitNakedFunction(FunctionDeclaration& node) {
     currentFunction = nullptr;
 }
 
-void CodeGenerator::emitZpCallingConvention(FunctionDeclaration& node, int frameSize, const FrameScanner& scanner, const std::vector<ParamInfo>& paramInfos) {
+void CodeGenerator::emitZpCallingConvention(FunctionDeclaration& node, int frameSize, const std::vector<ParamInfo>& paramInfos) {
     zpParams_.clear();
     zpParamTotalBytes_ = 0;
     zpSpilledParams_.clear();
@@ -2852,8 +2841,8 @@ void CodeGenerator::emitZpCallingConvention(FunctionDeclaration& node, int frame
         currentLocalByteSize = totalFrame;
     }
 
-    for (auto& loc : scanner.locals) {
-        emit(".local " + loc.name + " = " + std::to_string(loc.frameOffset));
+    for (auto& [name, offset] : frameLocals_) {
+        emit(".local " + name + " = " + std::to_string(offset));
     }
 
     for (auto& sp : zpSpilledParams_) {
@@ -2963,7 +2952,7 @@ void CodeGenerator::emitZpCallingConvention(FunctionDeclaration& node, int frame
     currentFunction = nullptr;
 }
 
-void CodeGenerator::emitStackCallingConvention(FunctionDeclaration& node, int frameSize, const FrameScanner& scanner, const std::vector<ParamInfo>& paramInfos) {
+void CodeGenerator::emitStackCallingConvention(FunctionDeclaration& node, int frameSize, const std::vector<ParamInfo>& paramInfos) {
     bool isStructReturn = structReturningFunctions.count(node.name) > 0;
     bool isLongReturn = is32BitType(node.returnType) && node.returnPointerLevel == 0;
     bool needsHiddenPtr = isStructReturn;
@@ -3000,8 +2989,8 @@ void CodeGenerator::emitStackCallingConvention(FunctionDeclaration& node, int fr
     emitter->setFramePointerZP(0xFD);
     emitter->setupFramePointer();
 
-    for (auto& loc : scanner.locals) {
-        emit(".local " + loc.name + " = " + std::to_string(loc.frameOffset));
+    for (auto& [name, offset] : frameLocals_) {
+        emit(".local " + name + " = " + std::to_string(offset));
     }
 
     {

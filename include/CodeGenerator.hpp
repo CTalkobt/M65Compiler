@@ -336,6 +336,17 @@ public:
     // FunctionDeclaration dispatch helpers
     struct ParamInfo { std::string pName; int size; };
     void emitNakedFunction(FunctionDeclaration& node);
-    void emitZpCallingConvention(FunctionDeclaration& node, int frameSize, const class FrameScanner& scanner, const std::vector<ParamInfo>& paramInfos);
-    void emitStackCallingConvention(FunctionDeclaration& node, int frameSize, const class FrameScanner& scanner, const std::vector<ParamInfo>& paramInfos);
+    void emitZpCallingConvention(FunctionDeclaration& node, int frameSize, const std::vector<ParamInfo>& paramInfos);
+    void emitStackCallingConvention(FunctionDeclaration& node, int frameSize, const std::vector<ParamInfo>& paramInfos);
+
+    // VariableDeclaration dispatch helpers
+    bool emitGlobalVariable(VariableDeclaration& node);
+    bool emitStaticLocal(VariableDeclaration& node);
+    bool emitRegisterVariable(VariableDeclaration& node);
+    void emitLocalVariableInit(VariableDeclaration& node);
+    void emitFrameLocalInit(VariableDeclaration& node, const std::string& lName);
+    void emitFrameListInit(VariableDeclaration& node, InitializerList* initList, int frameOff);
+    void emitFrameExprInit(VariableDeclaration& node, int frameOff, int size);
+    void emitVolatileStackInit(VariableDeclaration& node, int size);
+    void emitNonVolatileStackInit(VariableDeclaration& node, int size, const std::string& lName);
 };
