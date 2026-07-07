@@ -1,5 +1,7 @@
 #pragma once
 #include "DiskImage.hpp"
+#include "BAMOperations.hpp"
+#include <memory>
 
 // D64: 1541 disk image — 35 tracks, variable sectors per track, 174,848 bytes
 // Track zones: 1-17 = 21 sectors, 18-24 = 19, 25-30 = 18, 31-35 = 17
@@ -14,6 +16,8 @@ public:
     static constexpr int DIR_FIRST_SECTOR = 1;
     static constexpr int TOTAL_SECTORS = 683;
     static constexpr int IMAGE_SIZE = TOTAL_SECTORS * 256; // 174848
+
+    D64Image();
 
     void format(const std::string& diskName = "", const std::string& diskId = "CC") override;
 
@@ -44,4 +48,7 @@ protected:
     bool isSectorFree(int track, int sector) const override;
     TrackSector allocateNextFree(int nearTrack = -1) override;
     int directoryTrack() const override { return DIR_TRACK; }
+
+private:
+    std::unique_ptr<D64BAMOperations> bamOps_;
 };
