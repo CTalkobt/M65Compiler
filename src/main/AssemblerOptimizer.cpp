@@ -1,12 +1,26 @@
 #include "AssemblerOptimizer.hpp"
 #include "AssemblerParser.hpp"
 #include "MachineState.hpp"
+#include "OpEffect.hpp"
+#include "O45Reader.hpp"
+#include "O45Types.hpp"
 #include <algorithm>
 #include <iostream>
 #include <map>
+#include <fstream>
 
-bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
+bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose, bool traceMachState) {
+    return optimizeInternal(parser, nullptr, verbose, traceMachState);
+}
+
+bool AssemblerOptimizer::optimizeInternal(
+    AssemblerParser* parser,
+    const std::map<std::string, ExternalFuncInfo>* externalFuncs,
+    bool verbose,
+    bool traceMachState
+) {
     bool changed = false;
+    int tailCounter = 0;
 
     // Report helper: emits optimization action to stderr when verbose
     auto report = [&](const char* pass, const AssemblerParser::Statement* s, const std::string& action) {
@@ -70,9 +84,22 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
         bool known = false;
     };
     std::map<std::string, ProcClobbers> procClobbers;
+
+    // 1. Add local procedures with function attributes
     for (const auto& [addr, ctx] : parser->getProcedures()) {
         if (ctx && ctx->hasFuncAttrs) {
             procClobbers[ctx->name] = {ctx->regClobbersMask, true};
+        }
+    }
+
+    // 2. Phase 5: Add external functions from linked object files
+    if (externalFuncs) {
+        for (const auto& [funcName, extFunc] : *externalFuncs) {
+            procClobbers[funcName] = {extFunc.regMask, true};
+            if (verbose) {
+                std::cerr << "opt: loaded external " << funcName << " clobber mask $"
+                          << std::hex << (int)extFunc.regMask << std::dec << std::endl;
+            }
         }
     }
 
@@ -705,49 +732,32 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
             // Branches: flags/registers valid for fall-through. Labels handle merge points.
 
         } else if (s->isSimulatedOp()) {
-            // Instead of blanket invalidateAll, track what each simulated op clobbers.
-            // Most 16-bit ops leave result in A:X and preserve Y/Z/memory.
-            using ST = AssemblerParser::Statement;
-            auto stype = s->type;
-            if (stype == ST::ADD16 || stype == ST::SUB16 || stype == ST::ADDS16 || stype == ST::SUBS16 ||
-                stype == ST::AND16 || stype == ST::ORA16 || stype == ST::EOR16 ||
-                stype == ST::NEG16 || stype == ST::NOT16 || stype == ST::ABS16 ||
-                stype == ST::MUL || stype == ST::DIV ||
-                stype == ST::LSL16 || stype == ST::LSR16 || stype == ST::ASR16 ||
-                stype == ST::ROL16 || stype == ST::ROR16 ||
-                stype == ST::CMP16 || stype == ST::CMP_S16 ||
-                stype == ST::CHKZERO8 || stype == ST::CHKZERO16 ||
-                stype == ST::CHKNONZERO8 || stype == ST::CHKNONZERO16 ||
-                stype == ST::SELECT || stype == ST::SXT8) {
-                // Result in A:X, Y/Z preserved, flags clobbered
-                ms.invalidateReg(REG_A);
-                ms.invalidateReg(REG_X);
-                ms.flags.invalidate();
-            } else if (stype == ST::LDW || stype == ST::LDAX || stype == ST::LDAX_FP) {
-                // Load into A:X (or A:Y/A:Z for variants)
-                ms.invalidateReg(REG_A);
-                ms.invalidateReg(REG_X);
-                ms.flags.invalidate();
-            } else if (stype == ST::STW || stype == ST::STAX || stype == ST::STAX_FP) {
-                // Store from A:X — doesn't clobber registers, but may modify memory
-                ms.invalidateAllMem();
-            } else if (stype == ST::INC_FP || stype == ST::DEC_FP ||
-                       stype == ST::INC16_FP || stype == ST::DEC16_FP) {
-                // Frame inc/dec: clobbers flags, may clobber A (dec.16f), preserves X/Y/Z
-                ms.invalidateReg(REG_A);
-                ms.flags.invalidate();
-                ms.invalidateAllStack();
-            } else if (stype == ST::STACK_INC || stype == ST::STACK_DEC ||
-                       stype == ST::STACK_INC8 || stype == ST::STACK_DEC8) {
-                // Stack inc/dec: clobbers A/X, flags
-                ms.invalidateReg(REG_A);
-                ms.invalidateReg(REG_X);
-                ms.flags.invalidate();
-            } else {
-                // Unknown simulated op — conservatively invalidate all
-                ms.invalidateAll();
-            }
+            // Use centralized OpEffect table — keyed by mnemonic
+            const OpEffect& effect = getOpEffect(s->instr.mnemonic);
+            effect.apply(ms);
             stackVarLastValue.clear();
+        }
+
+        // MachineState trace: dump register/flag state after each statement
+        if (traceMachState && !s->deleted) {
+            std::string loc;
+            if (!s->sourceFile.empty()) {
+                auto slash = s->sourceFile.rfind('/');
+                loc = (slash != std::string::npos ? s->sourceFile.substr(slash + 1) : s->sourceFile);
+                if (s->sourceLine > 0) loc += ":" + std::to_string(s->sourceLine);
+            } else if (s->line > 0) {
+                loc = "asm:" + std::to_string(s->line);
+            }
+            std::string what;
+            if (s->type == AssemblerParser::Statement::INSTRUCTION)
+                what = s->instr.mnemonic + " " + s->instr.operand;
+            else if (s->isSimulatedOp())
+                what = s->instr.mnemonic + " " + s->instr.operand;
+            else if (!s->label.empty())
+                what = s->label + ":";
+            else
+                continue; // skip directives/blank lines
+            std::cerr << "ms: " << loc << ": " << what << "\n" << ms.dumpLine() << "\n";
         }
     }
 
@@ -848,7 +858,7 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
                 size_t savedBytes = (tails[0].tailSize - 2) * (tails.size() - 1);
                 if (savedBytes < 2) continue;
 
-                std::string sharedLabel = "__tail_" + std::to_string(reinterpret_cast<uintptr_t>(&sig));
+                std::string sharedLabel = "__tail_opt_dedup_" + std::to_string(tailCounter++);
                 bool isFirst = true;
 
                 for (auto& tail : tails) {
@@ -941,7 +951,7 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
                     size_t savings = allTails[i].tailSize - 2;
                     if (savings < 2) continue;
 
-                    std::string offsetLabel = "__tail_" + std::to_string(reinterpret_cast<uintptr_t>(&allTails[i])) + "_into";
+                    std::string offsetLabel = "__tail_opt_dedup_" + std::to_string(tailCounter++) + "_into";
 
                     size_t insertPos = longTail[longTail.size() - shortTail.size()];
                     auto* refStmt = parser->statements[insertPos].get();
@@ -1140,6 +1150,73 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose) {
         for (auto& routine : sharedRoutines) {
             parser->statements.push_back(std::move(routine));
         }
+    }
+
+    return changed;
+}
+
+// ============================================================================
+// Phase 5: Inter-TU Optimization — Load external object files
+// ============================================================================
+// Reads .o45 object files and extracts function attributes (clobber masks,
+// leaf flags) to enable optimization of call sites to external functions.
+// ============================================================================
+
+bool AssemblerOptimizer::optimizeWithExternalObjects(
+    AssemblerParser* parser,
+    const std::vector<std::string>& objectFiles,
+    bool verbose,
+    bool traceMachState
+) {
+    // Load external object files and extract function attributes
+    std::map<std::string, ExternalFuncInfo> externalFuncs;
+
+    for (const auto& objFile : objectFiles) {
+        // Read .o45 file
+        std::ifstream file(objFile, std::ios::binary);
+        if (!file.is_open()) {
+            if (verbose) std::cerr << "phase5: warning: cannot open object file: " << objFile << std::endl;
+            continue;
+        }
+
+        std::vector<uint8_t> data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        file.close();
+
+        O45File obj;
+        std::string errorMsg;
+        if (!O45Reader::read(data, obj, errorMsg)) {
+            if (verbose) std::cerr << "phase5: warning: failed to read " << objFile << ": " << errorMsg << std::endl;
+            continue;
+        }
+
+        // Extract function attributes from exports
+        for (const auto& exp : obj.exports) {
+            if (exp.hasFuncAttr) {
+                uint8_t regMask = exp.funcAttr.regClobbers;
+                bool isLeaf = (exp.funcAttr.flags & FUNC_FLAG_LEAF) != 0;
+
+                externalFuncs[exp.name] = {regMask, isLeaf};
+
+                if (verbose) {
+                    std::cerr << "phase5: loaded " << exp.name << " from " << objFile
+                              << " (regMask=$" << std::hex << (int)regMask << std::dec
+                              << ", leaf=" << (isLeaf ? "yes" : "no") << ")" << std::endl;
+                }
+            }
+        }
+    }
+
+    if (verbose && !externalFuncs.empty()) {
+        std::cerr << "phase5: loaded " << externalFuncs.size() << " external function(s)" << std::endl;
+    }
+
+    // Optimize with external function info
+    bool changed = optimizeInternal(parser, &externalFuncs, verbose, traceMachState);
+
+    // Log summary
+    if (verbose && !externalFuncs.empty()) {
+        std::cerr << "phase5: optimization complete with " << externalFuncs.size()
+                  << " external function attribute(s)" << std::endl;
     }
 
     return changed;

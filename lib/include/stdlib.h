@@ -44,7 +44,14 @@ long labs(long value);
 int rand(void);
 void srand(unsigned int seed);
 
+int atexit(void (*func)());
+
 void *malloc(size_t size);
 void free(void *ptr);
 void *calloc(size_t nmemb, size_t size);
 void *realloc(void *ptr, size_t size);
+
+/* Sorting and searching */
+void qsort(void *base, int nmemb, int size, int (*cmpfunc)());
+void *bsearch(const void *key, const void *base, int nmemb, int size,
+              int (*cmpfunc)());

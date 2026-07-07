@@ -20,6 +20,7 @@
 #include "M65Emitter.hpp"
 #include "IRBuilder.hpp"
 #include "IRCodeGen.hpp"
+#include "IROptimizer.hpp"
 #include "Version.hpp"
 
 class ASTPrinter : public ASTVisitor {
@@ -405,6 +406,7 @@ int main(int argc, char** argv) {
     bool inlineFunctions = false;
     bool emitIR = false;
     bool emitReasons = false;
+    bool traceIROpt = false;
     uint32_t zeroPageAvail = 9;
     std::string defineFlag = "";
     std::map<std::string, std::string> initialSymbols;
@@ -463,6 +465,8 @@ int main(int argc, char** argv) {
             std::cout << "  -Dname=val     Define a symbol (e.g., -Dcc45.zeroPageStart=$10)" << std::endl;
             std::cout << "  -I<path>       Add include search path" << std::endl;
             std::cout << "  -Rcodegen      Annotate assembly output with codegen reasoning comments" << std::endl;
+            std::cout << "  -Roptir        Trace IR optimizer actions to stderr" << std::endl;
+            std::cout << "  -Rmachstate    Trace assembler MachineState register/flag tracking" << std::endl;
             std::cout << "  -?             Display this help message" << std::endl;
             return 0;
         } else if (arg == "-c") {
@@ -490,6 +494,8 @@ int main(int argc, char** argv) {
             emitIR = true;
         } else if (arg == "-Rcodegen") {
             emitReasons = true;
+        } else if (arg == "-Roptir") {
+            traceIROpt = true;
         } else if (arg == "-Roptimizer") {
             emitReasons = true; // also enable codegen reasons for context
             // Flag will be passed to ca45 subprocess below
@@ -669,6 +675,26 @@ int main(int argc, char** argv) {
 
         irBuilder.generate(*ast);
 
+        if (traceIROpt) ir::optTrace = &std::cerr;
+        if (optimize) {
+            if (verboseLevel >= 1) std::cout << "Optimizing IR (Strength Reduction)..." << std::endl;
+            ir::optimizeStrengthReduction(irBuilder.getModule());
+            if (verboseLevel >= 1) std::cout << "Optimizing IR (Algebraic Simplification)..." << std::endl;
+            ir::optimizeAlgebraic(irBuilder.getModule());
+            if (verboseLevel >= 1) std::cout << "Optimizing IR (Type Narrowing)..." << std::endl;
+            ir::optimizeTypeNarrowing(irBuilder.getModule());
+            if (verboseLevel >= 1) std::cout << "Optimizing IR (Branch Folding)..." << std::endl;
+            ir::optimizeBranchFold(irBuilder.getModule());
+            if (verboseLevel >= 1) std::cout << "Optimizing IR (CSE and Copy Propagation)..." << std::endl;
+            ir::optimizeCSE(irBuilder.getModule());
+            if (verboseLevel >= 1) std::cout << "Optimizing IR (LICM)..." << std::endl;
+            ir::optimizeLICM(irBuilder.getModule());
+            if (verboseLevel >= 1) std::cout << "Optimizing IR (COPY Chain Elimination)..." << std::endl;
+            ir::optimizeCopyChains(irBuilder.getModule());
+            if (verboseLevel >= 1) std::cout << "Optimizing IR (ADDR_ELEM Fusion)..." << std::endl;
+            ir::optimizeAddrElemFusion(irBuilder.getModule());
+        }
+
         // Write IR text dump if requested
         if (emitIR) {
             std::string irFile = asmFile;
@@ -757,10 +783,12 @@ int main(int argc, char** argv) {
             ca45Path = cc45Path.substr(0, lastSep + 1) + "ca45";
         }
         std::string rOptFlag;
+        std::string rMachFlag;
         for (int ai = 1; ai < argc; ai++) {
-            if (std::string(argv[ai]) == "-Roptimizer") { rOptFlag = " -Roptimizer"; break; }
+            if (std::string(argv[ai]) == "-Roptimizer") rOptFlag = " -Roptimizer";
+            if (std::string(argv[ai]) == "-Rmachstate") rMachFlag = " -Rmachstate";
         }
-        std::string command = ca45Path + " -c -opt " + defineFlag + rOptFlag + " -o " + output_file + " " + asmFile;
+        std::string command = ca45Path + " -c -opt " + defineFlag + rOptFlag + rMachFlag + " -o " + output_file + " " + asmFile;
         int ret = std::system(command.c_str());
         if (ret != 0) {
             std::cerr << "Assembler failed with return code " << ret << std::endl;

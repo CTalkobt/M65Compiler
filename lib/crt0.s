@@ -17,6 +17,7 @@
 .global __exit
 .global __abort
 .global __sp_base
+.global __zp_save_buf
 .weak _init_features
 .extern _main
 
@@ -31,34 +32,34 @@ __init:
     tsy
     sty __saved_sph + 1
 
-    ; Enable MEGA65 I/O before DMA — GS knock must precede $D700 access
+    ; Enable MEGA65 I/O — GS knock must precede hardware register access
     lda #$47            ; 'G'
     sta $D02F
     lda #$53            ; 'S'
     sta $D02F
 
-    ; Save ZP $08-$FF to BSS buffer via static DMA job
-    ldz #0              ; Z must be 0 for stz bank clears below
-    stz $D704           ; megabyte bank = 0 (clear stale KERNAL value)
-    stz $D702           ; bank = 0
-    lda #>__dma_save
-    sta $D701           ; DMA list address MSB
-    lda #<__dma_save
-    sta $D700           ; DMA list address LSB — triggers DMA
+    ; Save ZP $08-$FF to BSS buffer
+    ldx #0
+@__zp_save_loop:
+    lda $08,x
+    sta __zp_save_buf,x
+    inx
+    cpx #248
+    bne @__zp_save_loop
 
     jsr _init_features
     jsr _main
 
     ; Fall through to __exit
 __exit:
-    ; Restore ZP $08-$FF from BSS buffer via static DMA job
-    ldz #0              ; Z may have changed during program execution
-    stz $D704           ; megabyte bank = 0
-    stz $D702           ; bank = 0
-    lda #>__dma_restore
-    sta $D701           ; DMA list address MSB
-    lda #<__dma_restore
-    sta $D700           ; DMA list address LSB — triggers DMA
+    ; Restore ZP $08-$FF from BSS buffer
+    ldx #0
+@__zp_restore_loop:
+    lda __zp_save_buf,x
+    sta $08,x
+    inx
+    cpx #248
+    bne @__zp_restore_loop
 
     ; Restore caller's stack pointer and return.
 __saved_spl:
@@ -80,30 +81,7 @@ _init_features:
 __abort:
     brk
 
-; Static DMA command blocks (12 bytes each, linker patches BSS address)
-; Align to 16 bytes so the 12-byte job never spans a page boundary
-; (mmemu DMA handler malfunctions when list addr lo byte >= $F9)
-.segment "data"
-    .align 16
-__dma_save:
-    .byte $00                           ; command: COPY
-    .word 248                           ; count
-    .word $08                           ; source: ZP $08
-    .byte $00                           ; source bank
-    .word __zp_save_buf                 ; dest: BSS buffer
-    .byte $00                           ; dest bank
-    .byte $00                           ; command MSB
-    .byte $00                           ; modulo
 
-__dma_restore:
-    .byte $00                           ; command: COPY
-    .word 248                           ; count
-    .word __zp_save_buf                 ; source: BSS buffer
-    .byte $00                           ; source bank
-    .word $08                           ; dest: ZP $08
-    .byte $00                           ; dest bank
-    .byte $00                           ; command MSB
-    .byte $00                           ; modulo
 
 .segment "bss"
 __zp_save_buf:

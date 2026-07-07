@@ -81,6 +81,8 @@ public:
     static void dispatch_DivS32(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_Mod16(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_Mod32(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_StructElem(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_AddrElem(AssemblerParser* p, M65Emitter& e, Stmt* s);
 
     // Original emit functions (implementations unchanged)
     static void emitExpressionCode(AssemblerParser* parser, M65Emitter& e, const std::string& target, int tokenIndex, const std::string& scopePrefix);
@@ -163,7 +165,10 @@ public:
     static void emitLEAX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
     static void emitMOVE_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
     static void emitSignedMathOp32(AssemblerParser* parser, M65Emitter& e, int op, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
-private:
     static uint32_t resolveAbsAddr(AssemblerParser* parser, int tokenIndex, const std::string& scopePrefix);
     static void emitSignedMathOp(AssemblerParser* parser, M65Emitter& e, int op, const std::string& dest, int tokenIndex, const std::string& scopePrefix);
+    static void emitSpBaseAddrCalc16(AssemblerParser* parser, M65Emitter& e, uint16_t addend);
+    static void emitLoadIndexToAX(AssemblerParser* parser, M65Emitter& e, bool indexIsReg, const std::string& indexRegName, int idxIndexStart, const std::string& scopePrefix);
+    static void emitWriteOperand16(AssemblerParser* parser, M65Emitter& e, bool isReg, const std::string& regName, int idxStart, uint16_t destAddr, const std::string& scopePrefix);
+    static void emitLoadAddrConst(AssemblerParser* parser, M65Emitter& e, const std::string& name, uint16_t offset, char reg2);
 };

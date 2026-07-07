@@ -39,11 +39,11 @@ proc _itoa, W#_p_value, W#_p_str, W#_p_base
 
     ; Load params into ZP working registers.
     ; Load in reverse order since ldax uses $02 as scratch.
-    ldax _p_str+7, s
+    ldax _p_str+7, sp
     stax $07                ; $07/$08 = output buffer pointer
-    ldax _p_base+7, s
+    ldax _p_base+7, sp
     stax $04                ; $04/$05 = base
-    ldax _p_value+7, s
+    ldax _p_value+7, sp
     stax $02                ; $02/$03 = value
 
     stz $06                 ; digit count on stack

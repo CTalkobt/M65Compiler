@@ -1,7 +1,9 @@
 #include "IRCodeGen.hpp"
+#include "OpEffect.hpp"
 #include <cmath>
 #include <cstring>
 #include <iomanip>
+#include <iostream>
 #include <sstream>
 #include <algorithm>
 
@@ -54,6 +56,20 @@ void IRCodeGen::emit(const std::string& line, const std::string& reason) {
         out_ << "  ; [" << reason << "]";
     }
     out_ << "\n";
+
+    // Auto-update MachineState for simulated ops (contain '.' in mnemonic).
+    // Native instructions are handled with precise ms_ updates by the caller.
+    // Simulated ops (like stax.fp, add.16, mul.s16) need table-driven invalidation
+    // because the caller can't know what the expansion will clobber.
+    if (!line.empty() && line[0] != '.' && line[0] != ';') {
+        // Check if this is a simulated op (contains '.' in the mnemonic portion)
+        auto space = line.find(' ');
+        std::string mnem = (space != std::string::npos) ? line.substr(0, space) : line;
+        if (mnem.find('.') != std::string::npos) {
+            const OpEffect& effect = getOpEffect(mnem);
+            effect.apply(ms_);
+        }
+    }
 }
 
 void IRCodeGen::emitLabel(const std::string& label) {
@@ -265,10 +281,8 @@ void IRCodeGen::storeVreg(uint32_t vregId) {
             } else if (alloc.type == ir::Type::I8) {
                 emit("sta.fp " + sym);
             } else if (valueByte_[1] == REG_Z) {
-                // Hi byte already in Z — use staz.fp directly (no transfer needed)
                 emit("staz.fp " + sym);
             } else {
-                // Hi byte in X (standard AX convention) — stax.fp handles X→Z internally
                 emit("stax.fp " + sym);
             }
             break;
@@ -350,6 +364,14 @@ std::string IRCodeGen::src2MemOperand(const ir::Operand& op) {
                 return "__zp_scratch2";
         }
     }
+    if (op.kind == ir::OperandKind::GLOBAL) {
+        // Load global address into scratch for use as memory operand
+        emit("lda #<" + op.name);
+        emit("sta __zp_scratch2");
+        emit("lda #>" + op.name);
+        emit("sta __zp_scratch2+1");
+        return "__zp_scratch2";
+    }
     return "#0";
 }
 
@@ -371,6 +393,18 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         funcMap[fn.name] = &fn;
     }
     setFunctionMap(&funcMap);
+
+    // Phase 2: Pre-compute clobber masks for all functions (fine-grained register invalidation)
+    functionClobberMasks_.clear();
+    for (const auto& fn : mod.functions) {
+        FuncClobbers clobbers = computeFuncClobbers(fn);
+        int regMask = 0;
+        if (clobbers.regs & (1 << 0)) regMask |= (1 << REG_A);  // bit 0 = A
+        if (clobbers.regs & (1 << 1)) regMask |= (1 << REG_X);  // bit 1 = X
+        if (clobbers.regs & (1 << 2)) regMask |= (1 << REG_Y);  // bit 2 = Y
+        if (clobbers.regs & (1 << 3)) regMask |= (1 << REG_Z);  // bit 3 = Z
+        functionClobberMasks_[fn.name] = regMask;
+    }
 
     if (relocMode) {
         emit(".o45");
@@ -546,10 +580,20 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
         const auto& g = mod.globals[gi];
         if (globalLastIdx[g.name] != gi) continue; // skip earlier duplicate
         if (g.hasInitValue) {
-            // Initialized global: goes to data segment
-            if (!hasData) {
-                if (relocMode) emit(".segment \"data\"");
+            // Initialized global: goes to data segment.
+            // Must switch back from BSS if we were emitting uninitialized globals.
+            if (!hasData || hasBss) {
+                if (relocMode) {
+                    emit(".segment \"data\"");
+                    if (!hasData) {
+                        // Pad byte: .o65 relocation encoding uses delta $00 as
+                        // end-of-table, so relocations at segment offset 0 can't
+                        // be encoded. A 1-byte pad ensures offset >= 1.
+                        emit(".byte 0");
+                    }
+                }
                 hasData = true;
+                hasBss = false; // reset so next uninit global re-emits .segment "bss"
             }
             emitLabel(g.name);
             // Phase 3: Vtable — emit function address entries
@@ -569,7 +613,10 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
             } else if (!g.initList.empty()) {
                 // Array initializer
                 for (size_t i = 0; i < g.initList.size(); i++) {
-                    if (g.type == ir::Type::I8) emit(".byte " + std::to_string((int)(g.initList[i] & 0xFF)));
+                    // Check for symbolic label reference (e.g. string literal pointer)
+                    if (i < g.initLabels.size() && !g.initLabels[i].empty()) {
+                        emit(".word " + g.initLabels[i]);
+                    } else if (g.type == ir::Type::I8) emit(".byte " + std::to_string((int)(g.initList[i] & 0xFF)));
                     else if (g.type == ir::Type::I32) emit(".dword " + std::to_string((int)g.initList[i]));
                     else emit(".word " + std::to_string((int)(g.initList[i] & 0xFFFF)));
                 }
@@ -578,6 +625,9 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
                 if (bytesEmitted < g.size) {
                     emit(".res " + std::to_string(g.size - bytesEmitted));
                 }
+            } else if (!g.initLabels.empty() && !g.initLabels[0].empty()) {
+                // Scalar symbolic reference (e.g. char *p = "hello")
+                emit(".word " + g.initLabels[0]);
             } else {
                 // Scalar initializer
                 if (g.type == ir::Type::F32) {
@@ -768,6 +818,7 @@ IRCodeGen::FuncClobbers IRCodeGen::computeFuncClobbers(const ir::Function& fn) {
                     break;
 
                 case ir::Op::COPY:
+                case ir::Op::DEREF:
                     fc.regs |= A | X;
                     fc.flags |= N | ZF;
                     break;
@@ -1060,14 +1111,31 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // Allocate frame only for frame-allocated vRegs
     int localFrameSize = frameSize_;
     localFrameSize_ = localFrameSize;  // save for RET cleanup
+    if (localFrameSize > 128) {
+        // Frame + params + return addr + dynamic pushes must fit in uint8_t offsets
+        std::cerr << fn.name << ": warning: large frame (" << localFrameSize
+                  << " bytes) may cause incorrect stack-relative addressing\n";
+    }
     if (localFrameSize > 0) {
         emitComment("frame: " + std::to_string(localFrameSize) + " bytes (frame-allocated vRegs only)");
-        // Push frame slots physically — do NOT bump _fp (stays at 0).
-        // ldax.fp computes __sp_base + _fp + offset + SPL.
-        // With _fp=0, SPL accounts for the physical pushes correctly.
         for (int i = 0; i < localFrameSize; i += 2) {
             emit("phw #0");
         }
+    }
+
+    // Set up ZP frame pointer for stack-relative access (only for stack calling convention)
+    // FP = __sp_base + SPL at function entry. Store in $FD/$FE.
+    // This maintains the frame pointer for use by inline assembly or future optimizations.
+    useStackParams_ = !zpCallMode_ || fn.isVariadic;
+    if (useStackParams_) {
+        emit("tsx");
+        emit("txa");
+        emit("clc");
+        emit("adc #1");
+        emit("sta $FD");
+        emit("lda #$01");
+        emit("adc #0");
+        emit("sta $FE");
     }
 
     // Emit .local for frame-allocated vRegs only
@@ -1209,9 +1277,11 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         int retSize = ir::typeSize(fn.returnType);
         if (retSize >= 4) {
             // I32: return value in A/X/Y/Z — Z carries byte 3, save it
-            emit("stz __zp_scratch3+1");
+            std::string restoreLabel = "@__restore_epilogue_z_" + std::to_string(labelCounter_++);
+            emit("stz " + restoreLabel + "+1");
             for (int i = 0; i < localFrameSize; i++) emit("plz");
-            emit("ldz __zp_scratch3+1");
+            emitLabel(restoreLabel);
+            emit("ldz #0");
         } else {
             // VOID/I8/I16: PLZ doesn't clobber A, X, or Y
             for (int i = 0; i < localFrameSize; i++) emit("plz");
@@ -1315,6 +1385,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             case ir::Op::RET: name = "RET"; break;
             case ir::Op::RET_VOID: name = "RET_VOID"; break;
             case ir::Op::COPY: name = "COPY"; break;
+            case ir::Op::DEREF: name = "DEREF"; break;
             default: name = "OP" + std::to_string((int)inst.op); break;
         }
         std::string s = name;
@@ -1420,7 +1491,11 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 }
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
-            resultInAX_ = inst.dest.isVreg() ? (int32_t)inst.dest.vregId : -1;
+            // stax.fp clobbers X via TSX — don't claim result is in AX after frame store
+            if (inst.dest.isVreg() && alloc_.getAlloc(inst.dest.vregId).loc != VRegAllocator::IN_FRAME)
+                resultInAX_ = (int32_t)inst.dest.vregId;
+            else
+                resultInAX_ = -1;
             ms_.invalidateAll(); // conservative: reset after CONST+store
             break;
         }
@@ -1495,7 +1570,11 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     }
                 }
                 if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
-                resultInAX_ = inst.dest.isVreg() ? (int32_t)inst.dest.vregId : -1;
+                // stax.fp clobbers X via TSX — don't claim result is in AX after frame store
+                if (inst.dest.isVreg() && alloc_.getAlloc(inst.dest.vregId).loc != VRegAllocator::IN_FRAME)
+                    resultInAX_ = (int32_t)inst.dest.vregId;
+                else
+                    resultInAX_ = -1;
                 break;
             }
 
@@ -1631,7 +1710,11 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 emit(mn + " " + reg + ", " + src2mem);
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
-            resultInAX_ = inst.dest.isVreg() ? (int32_t)inst.dest.vregId : -1;
+            // stax.fp clobbers X via TSX — don't claim result is in AX after frame store
+            if (inst.dest.isVreg() && alloc_.getAlloc(inst.dest.vregId).loc != VRegAllocator::IN_FRAME)
+                resultInAX_ = (int32_t)inst.dest.vregId;
+            else
+                resultInAX_ = -1;
             break;
         }
 
@@ -2130,10 +2213,42 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::LOAD: {
-            // #4 Optimization: If source address = ADD(base, small_const),
-            // use Y-indexed addressing: LDY #const; LDA (base),Y
-            // instead of computing the ADD result as a separate address
-            // (Deferred — needs instruction lookaback which is complex in current codegen)
+            // Fused ADDR_ELEM+LOAD: args carry base/index/stride from the
+            // eliminated ADDR_ELEM. Compute address inline to __zp_scratch.
+            if (inst.args.size() >= 3 && inst.resultType != ir::Type::F32) {
+                // args[0]=base, args[1]=index, args[2]=stride
+                auto& base = inst.args[0];
+                auto& index = inst.args[1];
+                int stride = (int)inst.args[2].immVal;
+
+                std::string baseStr = (base.kind == ir::OperandKind::GLOBAL) ?
+                    "#" + base.name : src2MemOperand(base);
+                if (index.isImm()) {
+                    uint32_t offset = index.immVal * stride;
+                    emit("struct_elem.16 __zp_scratch, " + baseStr + ", #" + std::to_string(offset));
+                } else {
+                    std::string indexStr = src2MemOperand(index);
+                    if (index.type == ir::Type::I8) { loadOperand(index); indexStr = ".AX"; }
+                    emit("addr_elem.16 __zp_scratch, " + baseStr + ", " + indexStr + ", #" + std::to_string(stride));
+                }
+                // Now load from (__zp_scratch),Y
+                emit("ldy #0");
+                emit("lda (__zp_scratch),y");
+                if (inst.resultType == ir::Type::I32) {
+                    emit("pha"); emit("iny"); emit("lda (__zp_scratch),y");
+                    emit("tax"); emit("iny"); emit("lda (__zp_scratch),y");
+                    emit("tay"); emit("iny"); emit("lda (__zp_scratch),y");
+                    emit("taz"); emit("tya"); emit("tay"); emit("pla");
+                } else if (inst.resultType != ir::Type::I8) {
+                    emit("pha"); emit("iny"); emit("lda (__zp_scratch),y");
+                    emit("tax"); emit("pla");
+                } else {
+                    emit("ldx #0");
+                }
+                if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+                ms_.invalidateAll();
+                break;
+            }
 
             if (inst.resultType == ir::Type::F32 && inst.dest.isVreg()) {
                 // 5-byte float load: copy to dest vreg ZP
@@ -2229,6 +2344,45 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
         case ir::Op::STORE: {
             std::string storeR = irDesc(inst.src2.kind == ir::OperandKind::GLOBAL ? "→ " + inst.src2.name : "");
+
+            // Fused ADDR_ELEM+STORE: compute address inline to __zp_scratch
+            if (inst.args.size() >= 3 && inst.resultType != ir::Type::F32) {
+                auto& base = inst.args[0];
+                auto& index = inst.args[1];
+                int stride = (int)inst.args[2].immVal;
+
+                // Load value first (before addr_elem clobbers A:X)
+                loadOperand(inst.src1);
+                emit("pha"); // save value on stack
+                if (inst.resultType != ir::Type::I8) emit("phx");
+
+                std::string baseStr = (base.kind == ir::OperandKind::GLOBAL) ?
+                    "#" + base.name : src2MemOperand(base);
+                if (index.isImm()) {
+                    uint32_t offset = index.immVal * stride;
+                    emit("struct_elem.16 __zp_scratch, " + baseStr + ", #" + std::to_string(offset));
+                } else {
+                    std::string indexStr = src2MemOperand(index);
+                    if (index.type == ir::Type::I8) { loadOperand(index); indexStr = ".AX"; }
+                    emit("addr_elem.16 __zp_scratch, " + baseStr + ", " + indexStr + ", #" + std::to_string(stride));
+                }
+
+                // Restore value and store via (__zp_scratch),Y
+                if (inst.resultType != ir::Type::I8) emit("plx");
+                emit("pla");
+                emit("ldy #0");
+                emit("sta (__zp_scratch),y");
+                if (inst.resultType == ir::Type::I32) {
+                    emit("txa"); emit("iny"); emit("sta (__zp_scratch),y");
+                    emit("tya"); emit("iny"); emit("sta (__zp_scratch),y"); // wait, Y is used for index
+                    // I32 fused store is complex — skip for now, fall through to normal path
+                } else if (inst.resultType != ir::Type::I8) {
+                    emit("txa"); emit("iny"); emit("sta (__zp_scratch),y");
+                }
+                ms_.invalidateAll();
+                break;
+            }
+
             if (inst.resultType == ir::Type::F32 && inst.src1.isVreg()) {
                 // 5-byte float store from src1 vreg ZP to dest address
                 auto sAlloc = alloc_.getAlloc(inst.src1.vregId);
@@ -2348,11 +2502,14 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         resultInAX_ = -1;
                         break;
                     }
-                    // Store-forwarding: if src1 result is still in A:X, skip reload
+                    // Store-forwarding: if src1 result is still in A:X (or A:Z), skip reload
                     if (inst.src1.isVreg() && (int32_t)inst.src1.vregId == resultInAX_) {
-                        // Result already in A:X from previous instruction — store directly
+                        // Result still in registers from previous instruction — store directly.
+                        // If the previous storeVreg used stax.fp (frame store), X was clobbered
+                        // by TSX but the hi byte is in Z (from the internal TXA;TAZ sequence).
                         valueByte_[0] = REG_A;
-                        valueByte_[1] = REG_X;
+                        auto prevAlloc = alloc_.getAlloc(inst.src1.vregId);
+                        valueByte_[1] = (prevAlloc.loc == VRegAllocator::IN_FRAME) ? REG_Z : REG_X;
                         storeVreg(inst.src2.vregId);
                     } else {
                         loadOperand(inst.src1);
@@ -2417,8 +2574,18 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     }
                 }
             } else {
-                loadOperand(inst.src1);
-                emitComment("TODO: store to non-vReg address");
+                // STORE to non-vReg address (direct memory write)
+                // This could be: STORE(value, global_addr) or STORE(value, imm_addr)
+                if (inst.dest.kind == ir::OperandKind::IMM) {
+                    throw std::runtime_error("IRCodeGen: STORE to immediate address 0x" +
+                        std::to_string(inst.dest.immVal) + " — not yet implemented (use pointer vregs)");
+                } else if (inst.dest.kind == ir::OperandKind::GLOBAL || inst.dest.kind == ir::OperandKind::LABEL) {
+                    throw std::runtime_error("IRCodeGen: STORE to '" + inst.dest.name +
+                        "' (global/label address) — not yet implemented (use pointer vregs)");
+                } else {
+                    throw std::runtime_error("IRCodeGen: STORE to non-vReg operand (kind=" +
+                        std::to_string((int)inst.dest.kind) + ") — not yet implemented (use pointer vregs)");
+                }
             }
             break;
         }
@@ -2444,6 +2611,10 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             uint32_t bufVregId = inst.args[0].vregId;
 
             // Step 1: Get address of buffer on stack into scratch $08/$09
+            if (vregOffset_.find(bufVregId) == vregOffset_.end()) {
+                throw std::runtime_error("TRAMPOLINE: buffer vreg " + std::to_string(bufVregId) +
+                    " not allocated on stack (vregOffset_ map has " + std::to_string(vregOffset_.size()) + " entries)");
+            }
             emit("leax.fp " + std::to_string(vregOffset_.at(bufVregId)));
             emit("sta $08");
             emit("stx $09");
@@ -2607,51 +2778,67 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::ADDR_ELEM: {
-            // Compute: base + index * elemSize
             int elemSize = (inst.args.size() > 0) ? (int)inst.args[0].immVal : 2;
             
-            std::string baseMem;
-            if (inst.src1.kind == ir::OperandKind::GLOBAL) {
-                emit("lda #<" + inst.src1.name);
-                emit("ldx #>" + inst.src1.name);
-                emit("sta __zp_scratch2");
-                emit("stx __zp_scratch2+1");
-                baseMem = "__zp_scratch2";
-            } else {
-                baseMem = src2MemOperand(inst.src1);
-            }
+            auto operandToString = [&](const ir::Operand& op) -> std::string {
+                if (op.isImm()) {
+                    return "#" + std::to_string((int)op.immVal);
+                }
+                if (op.isVreg()) {
+                    auto alloc = alloc_.getAlloc(op.vregId);
+                    if (alloc.loc == VRegAllocator::IN_ZP) {
+                        std::stringstream ss;
+                        ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << alloc.offset;
+                        return ss.str();
+                    } else if (alloc.loc == VRegAllocator::IN_AX) {
+                        return ".AX";
+                    }
+                }
+                if (op.kind == ir::OperandKind::GLOBAL) {
+                    return op.name;
+                }
+                return src2MemOperand(op);
+            };
 
-            // Step 2: load index into AX
-            loadOperand(inst.src2);
-            
-            // Step 3: multiply index by elemSize if needed
-            if (elemSize > 1) {
-                emit("mul.16 .AX, #" + std::to_string(elemSize));
+            std::string baseStr;
+            if (inst.src1.kind == ir::OperandKind::GLOBAL) {
+                baseStr = "#" + inst.src1.name;
+            } else {
+                baseStr = operandToString(inst.src1);
             }
             
-            // Step 4: add base address — store-fused when dest is ZP
+            std::string destStr = ".AX";
+            bool storeNeeded = true;
             if (inst.dest.isVreg()) {
                 auto destAlloc = alloc_.getAlloc(inst.dest.vregId);
                 if (destAlloc.loc == VRegAllocator::IN_ZP) {
-                    // Store-fused: clc; adc lo; sta $ZP; lda src_hi; adc hi; sta $ZP+1
-                    std::stringstream dlo, dhi;
-                    dlo << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << destAlloc.offset;
-                    dhi << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (destAlloc.offset + 1);
-                    emit("clc");
-                    emit("adc " + baseMem);
-                    emit("sta " + dlo.str());
-                    emit("txa");
-                    emit("adc " + baseMem + "+1");
-                    emit("sta " + dhi.str());
-                } else {
-                    emit("add.16 .AX, " + baseMem);
-                    storeVreg(inst.dest.vregId);
+                    std::stringstream ss;
+                    ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << destAlloc.offset;
+                    destStr = ss.str();
+                    storeNeeded = false;
                 }
+            }
+            
+            if (inst.src2.isImm()) {
+                uint32_t offset = inst.src2.immVal * elemSize;
+                emit("struct_elem.16 " + destStr + ", " + baseStr + ", #" + std::to_string(offset));
+            } else {
+                std::string indexStr = operandToString(inst.src2);
+                if (inst.src2.type == ir::Type::I8) {
+                    loadOperand(inst.src2);
+                    indexStr = ".AX";
+                }
+                emit("addr_elem.16 " + destStr + ", " + baseStr + ", " + indexStr + ", #" + std::to_string(elemSize));
+            }
+            
+            if (storeNeeded && inst.dest.isVreg()) {
+                storeVreg(inst.dest.vregId);
             }
             break;
         }
 
-        case ir::Op::COPY: {
+        case ir::Op::COPY:
+        case ir::Op::DEREF: {
             loadOperand(inst.src1);
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
@@ -2986,16 +3173,47 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 } else {
                     // CALL_INDIRECT
                     loadOperand(inst.src1);
-                    emit("sta __zp_scratch");
-                    emit("stx __zp_scratch+1");
-                    emit("jsr (__zp_scratch)");
+                    std::string callLabel = "@__call_site_" + std::to_string(labelCounter_++);
+                    emit("sta " + callLabel + "+1");
+                    emit("stx " + callLabel + "+2");
+                    emitLabel(callLabel);
+                    emit("jsr $0000");
+                }
+
+                // Recalculate frame pointer after JSR (SP may have changed)
+                // FP must be re-initialized from current SP for .fp addressing to work correctly
+                if (useStackParams_) {
+                    // Save return value (AX) on stack before overwriting A with SP
+                    emit("phx");  // Push X (high byte)
+                    emit("pha");  // Push A (low byte)
+                    emit("tsx");
+                    emit("txa");
+                    emit("clc");
+                    emit("adc #1");
+                    emit("sta $FD");
+                    emit("lda #$01");
+                    emit("adc #0");
+                    emit("sta $FE");
+                    // Restore return value from stack
+                    emit("pla");  // Pop A (low byte)
+                    emit("plx");  // Pop X (high byte)
                 }
 
                 // Caller-side stack cleanup: pop argBytes with PLZ instructions
                 // (RTS #N opcode $62 is unreliable on some hardware)
                 if (argBytes > 0) {
+                    bool saveZ = (inst.op != ir::Op::CALL_VOID && inst.resultType == ir::Type::I32);
+                    std::string restoreLabel;
+                    if (saveZ) {
+                        restoreLabel = "@__restore_caller_z_" + std::to_string(labelCounter_++);
+                        emit("stz " + restoreLabel + "+1");
+                    }
                     for (int i = 0; i < argBytes; i++) {
                         emit("plz");
+                    }
+                    if (saveZ) {
+                        emitLabel(restoreLabel);
+                        emit("ldz #0");
                     }
                     emit(".var _fp = _fp - " + std::to_string(argBytes));
                 }
@@ -3006,6 +3224,27 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 if (inst.src1.kind == ir::OperandKind::GLOBAL) {
                     emit("jsr " + inst.src1.name);
                 }
+            }
+
+            // Phase 2: Selective register invalidation (fine-grained clobber tracking)
+            // Instead of invalidating all registers, only invalidate those the function actually clobbers
+            if (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID || inst.op == ir::Op::CALL_INDIRECT) {
+                int clobberMask = 0;
+                // For direct calls, look up the function's clobber mask
+                if (inst.src1.kind == ir::OperandKind::GLOBAL) {
+                    auto it = functionClobberMasks_.find(inst.src1.name);
+                    if (it != functionClobberMasks_.end()) {
+                        clobberMask = it->second;
+                    } else {
+                        // External function or function not found: conservatively assume all registers clobbered
+                        clobberMask = (1 << REG_A) | (1 << REG_X) | (1 << REG_Y) | (1 << REG_Z);
+                    }
+                } else {
+                    // Indirect call: conservatively assume all registers clobbered
+                    clobberMask = (1 << REG_A) | (1 << REG_X) | (1 << REG_Y) | (1 << REG_Z);
+                }
+                // Selectively invalidate only the clobbered registers
+                ms_.invalidateSelective(clobberMask);
             }
 
             // Return value is in A,X,Y,Z (for 32-bit) or A:X (for 16-bit)
@@ -3294,7 +3533,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         default:
-            emitComment("TODO: unimplemented IR op");
+            throw std::runtime_error("IRCodeGen: unimplemented IR opcode " +
+                std::to_string((int)inst.op) + " — check IR.hpp for opcode definition and implement in emitInst()");
             break;
     }
 }

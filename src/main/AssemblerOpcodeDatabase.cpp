@@ -367,8 +367,8 @@ std::string AssemblerOpcodeDatabase::AddressingModeToString(AddressingMode mode)
         case AddressingMode::RELATIVE: return "rel";
         case AddressingMode::RELATIVE16: return "rel16";
         case AddressingMode::BASE_PAGE_RELATIVE: return "zp,rel";
-        case AddressingMode::STACK_RELATIVE: return "offset,s";
-        case AddressingMode::STACK_RELATIVE_INDIRECT_Y: return "(offset,s),y";
+        case AddressingMode::STACK_RELATIVE: return "offset,sp";
+        case AddressingMode::STACK_RELATIVE_INDIRECT_Y: return "(offset,sp),y";
         case AddressingMode::LINEAR_ABSOLUTE: return "lin_abs";
         case AddressingMode::LINEAR_ABSOLUTE_X: return "lin_abs,X";
         case AddressingMode::LINEAR_ABSOLUTE_Y: return "lin_abs,Y";

@@ -11,7 +11,7 @@
 
 proc _strncat, W#_p_dest, W#_p_src, W#_p_n
     .var _fp = 0
-    ldax _p_dest, s
+    ldax _p_dest, sp
     stax $02
     ; Find end of dest
     ldy #0
@@ -32,10 +32,10 @@ proc _strncat, W#_p_dest, W#_p_src, W#_p_n
     adc $03
     sta $03
     ; Load src pointer
-    ldax _p_src, s
+    ldax _p_src, sp
     stax $04
     ; Load count
-    ldax _p_n, s
+    ldax _p_n, sp
     stax $06
     ldy #0
 @copy:
@@ -61,6 +61,6 @@ proc _strncat, W#_p_dest, W#_p_src, W#_p_n
     lda #0
     sta ($02),y
 @done:
-    ldax _p_dest, s
+    ldax _p_dest, sp
     rtn #0
     endproc

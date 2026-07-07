@@ -220,41 +220,41 @@ lda ($10, SP), Y
     CHECK(correct_size, "lda ($10, SP), Y produces 2 bytes");
 }
 
-// Test 12: Stack-relative addressing (offset,S)
+// Test 12: Stack-relative addressing (offset,SP)
 void test_stack_relative_lda() {
     std::string code = R"(.org $2000
-lda $04, S
+lda $04, SP
 )";
     bool succeeded = assemblySucceeded(code);
-    CHECK(succeeded, "lda $04, S stack-relative addressing assembles");
+    CHECK(succeeded, "lda $04, SP stack-relative addressing assembles");
 
     // Stack-relative is a simulated op that expands to multiple bytes
     // (typically expands to a simulated instruction sequence)
     auto bin = readBinaryFile("build/test_validation_addressing_temp.bin");
     bool has_output = (bin.size() > 0);
-    CHECK(has_output, "lda $04, S produces output bytes (simulated op expansion)");
+    CHECK(has_output, "lda $04, SP produces output bytes (simulated op expansion)");
 }
 
 // Test 13: Stack-relative store
 void test_stack_relative_sta() {
     std::string code = R"(.org $2000
-sta $08, S
+sta $08, SP
 )";
     bool succeeded = assemblySucceeded(code);
-    CHECK(succeeded, "sta $08, S stack-relative store assembles");
+    CHECK(succeeded, "sta $08, SP stack-relative store assembles");
 
     // Stack-relative store also expands
     auto bin = readBinaryFile("build/test_validation_addressing_temp.bin");
     bool has_output = (bin.size() > 0);
-    CHECK(has_output, "sta $08, S produces output bytes (simulated op expansion)");
+    CHECK(has_output, "sta $08, SP produces output bytes (simulated op expansion)");
 }
 
 // Test 14: Multiple stack-relative instructions
 void test_multiple_stack_relative() {
     std::string code = R"(.org $2000
-lda $04, S
-sta $06, S
-ldx $08, S
+lda $04, SP
+sta $06, SP
+ldx $08, SP
 )";
     bool succeeded = assemblySucceeded(code);
     CHECK(succeeded, "Multiple stack-relative instructions assemble");

@@ -27,7 +27,7 @@ proc _div, W#_p___ret_ptr, W#_p_numer, W#_p_denom
     stz $03                 ; sign = 0
 
     ; Load numerator
-    ldax _p_numer+2, s
+    ldax _p_numer+2, sp
     ; Check if negative
     cpx #$80
     bcc @numer_pos
@@ -51,7 +51,7 @@ proc _div, W#_p___ret_ptr, W#_p_numer, W#_p_denom
     stz $D763
 
     ; Load denominator
-    ldax _p_denom+2, s
+    ldax _p_denom+2, sp
     ; Check if negative
     cpx #$80
     bcc @denom_pos
@@ -69,7 +69,7 @@ proc _div, W#_p___ret_ptr, W#_p_numer, W#_p_denom
     eor #1                  ; flip result sign
     sta $03
     ; Reload abs(denom) into AX
-    ldax _p_denom+2, s
+    ldax _p_denom+2, sp
     eor #$FF
     clc
     adc #1
@@ -139,7 +139,7 @@ proc _div, W#_p___ret_ptr, W#_p_numer, W#_p_denom
     sta (_p___ret_ptr+2, sp), y
 
     ; Return pointer to struct in AX
-    ldax _p___ret_ptr+2, s
+    ldax _p___ret_ptr+2, sp
 
     ; Restore ZP
     pla

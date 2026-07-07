@@ -42,6 +42,7 @@ public:
     void pass1();
     bool optimize();
     bool verboseOptimizer = false;
+    bool traceMachState = false;
     bool enableExperimental = false;
     std::vector<uint8_t> pass2(bool isPrg = false);
     uint32_t getZPStart() const;
@@ -174,7 +175,8 @@ public:
                     ADD32, SUB32, AND32, ORA32, EOR32, CMP32, NEG32, NOT32, ABS32,
                     LSL32, LSR32, ROL32, ROR32, ASR32, SXT16,
                     ADDS32, SUBS32, CMP_S32, NEG_S32, ABS_S32,
-                    ASR_S32, LSL_S32, LSR_S32, ROL_S32, ROR_S32 } type = NONE;
+                    ASR_S32, LSL_S32, LSR_S32, ROL_S32, ROR_S32,
+                    STRUCT_ELEM, ADDR_ELEM_SIM } type = NONE;
         Instruction instr;
         Directive dir;
         std::string label;

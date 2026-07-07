@@ -55,7 +55,7 @@ static RunResult runCC45(const char* src) {
 
 // Test 1: Expected return type for function declaration
 void test_expected_return_type() {
-    const char* src = "void bar(int x) { return; } invalid foo() { return 0; }";
+    const char* src = "void bar(int x) { return; } + foo() { return 0; }";
     RunResult res = runCC45(src);
     CHECK(res.exitCode != 0, "test_expected_return_type: exit code != 0");
     CHECK(res.output.find("Expected return type") != std::string::npos,
@@ -64,7 +64,7 @@ void test_expected_return_type() {
 
 // Test 2: Expected parameter type
 void test_expected_parameter_type() {
-    const char* src = "int foo(invalid x) { return 0; }";
+    const char* src = "int foo(+ x) { return 0; }";
     RunResult res = runCC45(src);
     CHECK(res.exitCode != 0, "test_expected_parameter_type: exit code != 0");
     CHECK(res.output.find("Expected parameter type") != std::string::npos,

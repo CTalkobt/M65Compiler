@@ -25,10 +25,10 @@ proc _memcpy, W#_p_dest, W#_p_src, W#_p_n
     sta $03
     ldy #0
 @loop:
-    ; S-relative offsets include +2 for the PHA saves (assembler adds +1 internally)
-    lda _p_n+2, s
+    ; SP-relative offsets include +2 for the PHA saves
+    lda _p_n+2, sp
     bne @do_copy
-    lda _p_n+3, s
+    lda _p_n+3, sp
     beq @done
 @do_copy:
     lda (_p_src+2, sp), y   ; load from src via stack-relative indirect
@@ -37,14 +37,14 @@ proc _memcpy, W#_p_dest, W#_p_src, W#_p_n
     bne @no_inc
     inc $03
     ; increment src high byte on stack
-    inc _p_src+3, s
+    inc _p_src+3, sp
 @no_inc:
     ; decrement count in-place on stack
-    lda _p_n+2, s
+    lda _p_n+2, sp
     bne @dec_lo
-    dec _p_n+3, s
+    dec _p_n+3, sp
 @dec_lo:
-    dec _p_n+2, s
+    dec _p_n+2, sp
     bra @loop
 @done:
     ; Restore ZP (pops the 2 PHA saves)

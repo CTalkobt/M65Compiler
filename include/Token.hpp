@@ -78,6 +78,7 @@ enum class TokenType {
     CLOSE_BRACE,   // }
     SEMICOLON,     // ;
     COLON,         // :
+    SCOPE_RESOLUTION, // ::
     COMMA,         // ,
     EQUALS,        // =
     PLUS,          // +
@@ -202,6 +203,7 @@ struct Token {
             case TokenType::CLOSE_SQUARE: return "CLOSE_SQUARE";
             case TokenType::SEMICOLON: return "SEMICOLON";
             case TokenType::COLON: return "COLON";
+            case TokenType::SCOPE_RESOLUTION: return "SCOPE_RESOLUTION";
             case TokenType::QUESTION_MARK: return "QUESTION_MARK";
             case TokenType::COMMA: return "COMMA";
             case TokenType::EQUALS: return "EQUALS";

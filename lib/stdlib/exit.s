@@ -1,30 +1,30 @@
-; exit.s — Normal program termination
+; exit.s — Normal program termination with atexit handler support
 ;
 ; _Noreturn void exit(int status);
-;   Weak function — can be overridden by user code for pre-exit hooks
-;   (atexit handlers, cleanup). Default calls __exit directly.
+;   Calls registered atexit() handlers in reverse order, then terminates.
 ;
 ; _Noreturn void _exit(int status);
-;   Strong function — always calls __exit. Cannot be overridden.
-;   Use _exit() when you want guaranteed immediate termination.
+;   Immediate termination without calling atexit handlers.
 
-.weak _exit
 .global _exit
 .global __exit_
 .extern __exit
+.extern ___atexit_run
 .extern __sp_base
 
 .segment "code"
 
+; exit() — call atexit handlers, then terminate
 proc _exit, W#_p_status
     .var _fp = 0
-    ldax _p_status, s
+    jsr ___atexit_run
+    ldax _p_status, sp
     jmp __exit
     endproc
 
-; _exit (POSIX-style) — strong, non-overridable
+; _exit() — immediate termination (no atexit)
 proc __exit_, W#_p_status
     .var _fp = 0
-    ldax _p_status, s
+    ldax _p_status, sp
     jmp __exit
     endproc

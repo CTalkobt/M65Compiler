@@ -34,13 +34,13 @@ proc _ldiv, W#_p___ret_ptr, D#_p_numer, D#_p_denom
     stz $03                 ; quot sign XOR
 
     ; Load numer into $04-$07
-    lda _p_numer+7, s
+    lda _p_numer+7, sp
     sta $04
-    lda _p_numer+8, s
+    lda _p_numer+8, sp
     sta $05
-    lda _p_numer+9, s
+    lda _p_numer+9, sp
     sta $06
-    lda _p_numer+10, s
+    lda _p_numer+10, sp
     sta $07
 
     ; --- abs(numer) ---
@@ -77,13 +77,13 @@ proc _ldiv, W#_p___ret_ptr, D#_p_numer, D#_p_denom
     sta $D763
 
     ; Load denom into $04-$07
-    lda _p_denom+7, s
+    lda _p_denom+7, sp
     sta $04
-    lda _p_denom+8, s
+    lda _p_denom+8, sp
     sta $05
-    lda _p_denom+9, s
+    lda _p_denom+9, sp
     sta $06
-    lda _p_denom+10, s
+    lda _p_denom+10, sp
     sta $07
 
     ; --- abs(denom) ---
@@ -125,7 +125,7 @@ proc _ldiv, W#_p___ret_ptr, D#_p_numer, D#_p_denom
     bne @wait
 
     ; Load ret_ptr into $04/$05 (adjusted for 7 pushed ZP bytes)
-    ldax _p___ret_ptr+7, s
+    ldax _p___ret_ptr+7, sp
     sta $04
     stx $05
 

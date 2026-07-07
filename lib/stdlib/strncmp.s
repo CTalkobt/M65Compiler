@@ -10,11 +10,11 @@
 
 proc _strncmp, W#_p_s1, W#_p_s2, W#_p_n
     .var _fp = 0
-    ldax _p_s1, s
+    ldax _p_s1, sp
     stax $02
-    ldax _p_s2, s
+    ldax _p_s2, sp
     stax $04
-    ldax _p_n, s
+    ldax _p_n, sp
     stax $06            ; $06/$07 = count
     ldy #0
 @loop:

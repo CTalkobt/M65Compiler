@@ -78,6 +78,7 @@ enum class Op : uint8_t {
 
     // Register/memory movement
     COPY,           // %d = copy <type> <src>
+    DEREF,          // %d = deref <ptr>  (read pointer value for indirect store target)
 
     // Control flow
     BR,             // br <label>
@@ -252,6 +253,7 @@ struct Module {
         bool hasInitValue = false;
         int64_t initValue = 0;
         std::vector<int64_t> initList;
+        std::vector<std::string> initLabels; // symbolic labels for pointer array elements (e.g. string literals)
         std::vector<std::string> vtableMethodNames; // Phase 3: function names for vtable entries
     };
     std::vector<GlobalVar> globals;

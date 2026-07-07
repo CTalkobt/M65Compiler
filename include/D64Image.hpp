@@ -29,9 +29,9 @@ public:
     std::string diskId() const override;
     bool setDiskName(const std::string& name) override;
     bool setDiskId(const std::string& id) override;
-    int totalTracks() const override { return TRACKS; }
+    int totalTracks() const override;
     int sectorsOnTrack(int track) const override;
-    int totalSectors() const override { return TOTAL_SECTORS; }
+    int totalSectors() const override;
     int freeSectors() const override;
 
     // Static helper: sectors on a given track (D64 zone layout)

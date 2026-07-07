@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <array>
 #include <string>
+#include <sstream>
 
 // Register & Memory Value Tracking Framework — Phase 1+2+3
 // Tracks what is known about CPU register values, memory contents,
@@ -251,6 +252,17 @@ struct MachineState {
         pushDepth_ = 0;
     }
 
+    // Selectively invalidate only the specified registers (Phase 2: fine-grained clobber tracking).
+    // clobberMask is a bitmask of registers (1 << REG_A, 1 << REG_X, etc.)
+    void invalidateSelective(int clobberMask) {
+        if (clobberMask & (1 << REG_A)) invalidateReg(REG_A);
+        if (clobberMask & (1 << REG_X)) invalidateReg(REG_X);
+        if (clobberMask & (1 << REG_Y)) invalidateReg(REG_Y);
+        if (clobberMask & (1 << REG_Z)) invalidateReg(REG_Z);
+        // Note: only invalidate flags if all registers are clobbered (conservative)
+        // Phase 2: could refine this with separate flag clobber masks later
+    }
+
     // --- Memory state updates ---
 
     // Record a store to ZP: the memory location now holds what the register holds.
@@ -384,6 +396,32 @@ struct MachineState {
         invalidateMirrorsOf(REG_SP);
         reg[REG_SP] = ValueInfo::unknown();
         pushDepth_ = 0; // can't trust stack contents
+    }
+
+    // Compact one-line dump of register and flag state for tracing
+    std::string dumpLine() const {
+        static const char* regNames[] = {"A", "X", "Y", "Z", "SP"};
+        std::ostringstream os;
+        os << "  regs: ";
+        for (int i = 0; i < REG_COUNT; i++) {
+            const auto& v = reg[i];
+            os << regNames[i] << "=";
+            switch (v.kind) {
+                case ValueInfo::UNKNOWN:     os << "?"; break;
+                case ValueInfo::CONSTANT:    os << "$" << std::hex << (v.constVal & 0xFF); break;
+                case ValueInfo::SAME_AS_REG: os << "=" << regNames[v.mirrorReg]; break;
+                case ValueInfo::SAME_AS_MEM: os << "[$" << std::hex << v.mirrorAddr << "]"; break;
+                case ValueInfo::NONZERO:     os << "!0"; break;
+                case ValueInfo::RANGE:       os << std::dec << v.rangeLo << ".." << v.rangeHi; break;
+                case ValueInfo::RELOC_CONST: os << "<" << v.relocSymbol << (v.relocByte ? ">hi" : ">lo"); break;
+            }
+            if (i < REG_COUNT - 1) os << " ";
+        }
+        os << std::dec << "  flags: ";
+        auto fv = [](FlagState::FlagVal f) { return f == FlagState::F_SET ? "1" : f == FlagState::F_CLEAR ? "0" : "?"; };
+        os << "N=" << fv(flags.n) << " Z=" << fv(flags.z)
+           << " C=" << fv(flags.c) << " V=" << fv(flags.v);
+        return os.str();
     }
 
 private:

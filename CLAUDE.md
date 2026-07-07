@@ -1,6 +1,6 @@
 # MEGA65 C Compiler Suite — Codebase Documentation
 
-**Status:** v1.0.3
+**Status:** v1.0.4
 **Last Updated:** 2026-06-30
 **Maintainer:** Craig Taylor (CTalkobt)
 
@@ -17,7 +17,7 @@ The MEGA65 C Compiler Suite is a modern toolchain for developing 6502-compatible
 - **nm45** — Symbol table inspector for `.o45` and `.o65` object files
 - **objdump45** — Object file disassembler with symbolic annotation
 - **cp45** — C preprocessor
-- **disk45** — CBM disk image utility supporting D64, D71, D81, D65 disk images, ARK/ARC archives, and GZ compression
+- **disk45** — CBM disk/tape image utility (25 formats, FUSE mount, SQLite catalog, 40+ commands)
 
 ## Architecture
 
@@ -146,7 +146,7 @@ make clean && make test  # Clean rebuild and test
 
 ## Language Features
 
-### Implemented (v1.0.3-dev)
+### Implemented (v1.0.4-dev)
 
 - **Types**: `char`, `short`, `int`, `long`, `long long`, `float`, `double`, `unsigned` variants, `__int(N)`/`__uint(N)` (arbitrary width), `_Decimal32`/`_Decimal64`/`_Decimal128`, pointers, arrays, structs, unions, function pointers, `_Bool`
 - **Qualifiers**: `const`, `volatile`, `static` (all orderings), `register`, `extern`, `_Alignas`
@@ -170,7 +170,7 @@ make clean && make test  # Clean rebuild and test
 - **Nested Functions**: GCC extension with closure conversion, static chain, trampolines for function pointers
 - **Array Parameters**: `int a[]`, `int *a[N]`, `int a[][M]` in function parameters (decay to pointer)
 
-### Object-Oriented Programming (v1.0.3)
+### Object-Oriented Programming (v1.0.4)
 
 - **Struct Methods**: Functions defined inside struct bodies with hidden `this` pointer
   ```c
@@ -196,7 +196,7 @@ make clean && make test  # Clean rebuild and test
 - **Devirtualization**: Compiler detects single-implementation vtable slots → direct call
 - **Auto-Inline**: Trivial methods (≤3 statements) inlined at call site; combined with `final`, zero overhead
 
-### Floating-Point Support (v1.0.3)
+### Floating-Point Support (v1.0.4)
 
 - **`float` / `double` / `long double`**: All map to CBM 40-bit (5 bytes: 1 exponent + 4 mantissa). Supported everywhere: variables, function params/returns, struct members, arrays, pointers, casts, sizeof, _Alignas, va_arg, typedef, function pointer params
 - **Literals**: Decimal (`3.14`, `1.5f`) and exponent notation (`1.5e-3`, `3.14e0`). Positive integer exponents (`1e2`) stay as integer
@@ -208,7 +208,7 @@ make clean && make test  # Clean rebuild and test
 - **Math library**: 27 functions — ROM-backed trig/transcendental (`sinf`, `cosf`, `tanf`, `atanf`, `logf`, `expf`, `sqrtf`, `fabsf`) plus C-implemented `powf`, `fmodf`, `ceilf`, `floorf`, `roundf`, `truncf`, `atan2f`, `log10f`, `log2f`, `ldexpf`, `frexpf`, `modff`, `copysignf`, `fmaxf`, `fminf`, `fdimf`
 - **Headers**: `<float.h>` (FLT_MAX/MIN/EPSILON, FLT_DIG, etc.), `<math.h>` (M_PI, M_E, INFINITY, all function declarations + double aliases)
 
-### Wide Integer Support (v1.0.3)
+### Wide Integer Support (v1.0.4)
 
 - **`__int(N)` / `__uint(N)`**: Arbitrary-width integers via operator-overloaded structs. Preprocessor maps `__int(N)` → `struct __intN`. Operators call width-parameterized runtime (`__intN_add(a,b,byteCount)` etc.)
 - **Pre-defined widths**: `struct __int64` (8 bytes), `struct __int128` (16 bytes) in `<intwide.h>`
@@ -383,63 +383,51 @@ The `.o45` relocatable object format is documented in `doc/lib45.md`. Key sectio
 
 ## Disk Image Utility (disk45)
 
-**disk45** creates, reads, and manipulates Commodore disk images and archive files.
+**disk45** creates, reads, and manipulates Commodore disk images, tape images, and archive files. Supports 25 formats, FUSE mounting, SQLite catalog, format conversion, batch scripting, and 40+ commands.
 
-### Supported Formats
+### Supported Formats (25)
 
-| Extension | Format | Capacity | Notes |
-|-----------|--------|----------|-------|
-| `.d64` | C64 1541 | 170 KB | 35 tracks, variable sectors/track |
-| `.d71` | C128 1571 | 340 KB | Double-sided D64 (70 tracks) |
-| `.d81` | C65/MEGA65 1581 | 800 KB | 80×40 uniform. **Recommended for MEGA65** |
-| `.d65` | MEGA65 native | 1.6 MB | 162 tracks, double-sided D81 |
-| `.ark` | Arkive | Variable | Uncompressed CBM file archive |
-| `.arc`/`.sda` | ARC/SDA | Variable | Compressed archive (RLE/Huffman/LZW) |
-| `.gz` | GZ wrapper | — | Append to any format (e.g., `.d81.gz`) |
+| Extension | Format | R/W | Description |
+|-----------|--------|-----|-------------|
+| `.d64` | 1541 | R/W | C64 standard (35-40 tracks) |
+| `.d71` | 1571 | R/W | C128 double-sided |
+| `.d81` | 1581 | R/W | C65/MEGA65. **Recommended** |
+| `.d65` | MEGA65 | R/W | MEGA65 native extended |
+| `.d80` | 8050 | R/W | CBM PET 8050 |
+| `.d82` | 8250 | R/W | CBM PET 8250 |
+| `.d90`/`.d60` | D9090/D9060 | R/W | CBM hard drives |
+| `.d1m`/`.d2m`/`.d4m` | CMD FD | R/W | CMD FD-2000/4000 |
+| `.dnp` | CMD Native | R/W | CMD Native Partition (≤16MB) |
+| `.g64`/`.g71` | GCR | R | GCR-encoded (decoded to D64/D71) |
+| `.x64` | Extended | R/W | D64 with 64-byte header |
+| `.nib` | Nibble | R | Raw nibble dump |
+| `.tap` | TAP | R | Raw tape pulses |
+| `.t64` | T64 | R/W | Tape container |
+| `.ark` | Arkive | R/W | Uncompressed archive |
+| `.arc`/`.sda` | ARC | R | Compressed (RLE/Huffman/LZW) |
+| `.lnx` | Lynx | R/W | Block-aligned archive |
+| `.cvt` | GEOS | R | GEOS Convert |
+| `.p00` | PC64 | R/W | PC64 container |
+| `1!name` | Zipcode | R | 4-pack RLE compressed |
+| `.gz` | GZ | R/W | Transparent on all formats |
 
-### Commands
+### Key Features
 
 ```bash
-disk45 create <image> [-n name] [-i id]   # Create empty disk/archive
-disk45 list <image>                       # List directory
-disk45 info <image>                       # Show disk info
-disk45 add <image> <file> [cbm_name]      # Add file to image
-disk45 extract <image> <cbm_name> <file>  # Extract file from image
-disk45 remove <image> <cbm_name>          # Delete file from image
+disk45 create game.d81 -n "MY GAME" -t 40   # create with custom tracks
+disk45 list game.d81 "*.prg"                 # wildcard filtering
+disk45 copy old.d64 "*" new.d81              # cross-format copy
+disk45 convert game.d64 game.d81             # format conversion
+disk45 extract-all game.d81 ./output/        # bulk extract
+disk45 mount game.d81 /mnt/cbm              # FUSE mount
+disk45 catalog build /images/ --db cat.db    # index collection
+disk45 catalog search "BOULDER*"             # search by name
+disk45 mkdir game.d81 SUBDIR                 # subdirectories
+disk45 batch build_disk.script               # batch scripting
+disk45 -p2a < petscii_file > ascii_file      # encoding filter
 ```
 
-### Usage Examples
-
-```bash
-# Create a D81 and add a compiled program
-disk45 create game.d81 -n "MY GAME" -i "MG"
-disk45 add game.d81 build/main.prg "GAME"
-disk45 add game.d81 assets/sprites.bin "SPRITES"
-disk45 list game.d81
-
-# Compressed distribution
-disk45 create release.d81.gz -n "MY GAME"
-disk45 add release.d81.gz build/main.prg "GAME"
-
-# Extract from an ARC archive (auto-decompresses RLE/Huffman/LZW)
-disk45 extract old_archive.arc "PROGRAM" ./program.prg
-```
-
-### Library API
-
-The disk image library can be used from C++ via the `DiskImage` base class:
-
-```cpp
-#include "DiskImage.hpp"
-auto img = DiskImage::create(DiskFormat::D81);
-img->format("MY DISK", "MD");
-img->addFile("GAME", CbmFileType::PRG, data);
-img->saveToFile("game.d81.gz");  // transparent GZ compression
-
-auto disk = DiskImage::load("game.d81.gz");  // transparent decompression
-auto files = disk->listFiles();
-auto prg = disk->readFile("GAME");
-```
+Full documentation: `doc/disk45.md`
 
 Full documentation: `doc/disk45.md`
 

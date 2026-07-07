@@ -60,7 +60,14 @@ bool AssemblerParser::match(AssemblerTokenType type) {
 }
 
 uint32_t AssemblerParser::evaluateExpressionAt(int index, const std::string& scopePrefix) {
-    if (index < 0 || index >= (int)tokens.size()) return 0;
+    if (index < 0) {
+        throw std::runtime_error("evaluateExpressionAt: invalid token index " + std::to_string(index) +
+            " (negative index)");
+    }
+    if (index >= (int)tokens.size()) {
+        throw std::runtime_error("evaluateExpressionAt: token index " + std::to_string(index) +
+            " out of bounds (only " + std::to_string(tokens.size()) + " tokens available)");
+    }
     int idx = index;
     auto ast = parseExprAST(tokens, idx, symbolTable, scopePrefix);
     if (!ast) throw std::runtime_error("Expected expression at line " + std::to_string(tokens[index].line));
@@ -127,13 +134,20 @@ bool AssemblerParser::isStackRelativeOperand(int tokenIndex, uint32_t& offset, c
     int idx = tokenIndex;
     try {
         auto ast = parseExprAST(tokens, idx, symbolTable, scopePrefix);
-        if (ast && idx + 1 < (int)tokens.size() && 
+        if (ast && idx + 1 < (int)tokens.size() &&
             tokens[idx].type == AssemblerTokenType::COMMA &&
-            (tokens[idx+1].value == "s" || tokens[idx+1].value == "S")) {
-            try { offset = ast->getValue(this); } catch (...) { offset = 0; }
+            (tokens[idx+1].value == "sp" || tokens[idx+1].value == "SP")) {
+            try {
+                offset = ast->getValue(this);
+            } catch (const std::exception& e) {
+                addError("isStackRelativeOperand: failed to evaluate offset expression: " + std::string(e.what()));
+                offset = 0;
+            }
             return true;
         }
-    } catch (...) {}
+    } catch (const std::exception& e) {
+        addError("isStackRelativeOperand: expression parsing failed: " + std::string(e.what()));
+    }
     return false;
 }
 
@@ -152,7 +166,7 @@ AssemblerParser::FrameAccessInfo AssemblerParser::resolveFrameAccess(int tokenIn
     return info;
 }
 
-bool AssemblerParser::optimize() { return AssemblerOptimizer::optimize(this, verboseOptimizer); }
+bool AssemblerParser::optimize() { return AssemblerOptimizer::optimize(this, verboseOptimizer, traceMachState); }
 
 void AssemblerParser::emitExpressionCode(std::vector<uint8_t>& binary, const std::string& target, int tokenIndex, const std::string& scopePrefix) {
     M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
@@ -887,6 +901,8 @@ void AssemblerParser::pass1() {
             else if (fullMnemonic == "bfins16.sp") { SIMOP(BFINS16_SP, dispatch_BFIns); }
             else if (fullMnemonic == "bfins16.ind") { SIMOP(BFINS16_IND, dispatch_BFIns); }
             else if (fullMnemonic == "bfins32") { SIMOP(BFINS32, dispatch_BFIns); }
+            else if (fullMnemonic == "struct_elem.16" || fullMnemonic == "struct_elem") { SIMOP(STRUCT_ELEM, dispatch_StructElem); }
+            else if (fullMnemonic == "addr_elem.16" || fullMnemonic == "addr_elem") { SIMOP(ADDR_ELEM_SIM, dispatch_AddrElem); }
             #undef SIMOP
 
             if (stmt->instr.mnemonic == "expr") {
@@ -1021,7 +1037,7 @@ void AssemblerParser::pass1() {
                     else if (suffix == "indy") stmt->instr.mode = AddressingMode::BASE_PAGE_INDIRECT_Y;
                     else if (suffix == "indz") stmt->instr.mode = AddressingMode::BASE_PAGE_INDIRECT_Z;
                     else if (suffix == "accum" || suffix == "a") stmt->instr.mode = AddressingMode::ACCUMULATOR;
-                    else if (suffix == "s") stmt->instr.mode = AddressingMode::STACK_RELATIVE;
+                    else if (suffix == "sp") stmt->instr.mode = AddressingMode::STACK_RELATIVE;
                     else { stmt->instr.mnemonic = fullMnemonic; stmt->instr.forceMode = false; }
                 }
                 if (stmt->instr.mnemonic == "nop") throw std::runtime_error("nop disallowed");
@@ -1166,7 +1182,7 @@ void AssemblerParser::pass1() {
                             if (!stmt->instr.forceMode) {
                                 if (r == "X" || r == "x") stmt->instr.mode = AddressingMode::ABSOLUTE_X;
                                 else if (r == "Y" || r == "y") stmt->instr.mode = AddressingMode::ABSOLUTE_Y;
-                                else if (r == "S" || r == "s" || r == "SP" || r == "sp") stmt->instr.mode = AddressingMode::STACK_RELATIVE;
+                                else if (r == "SP" || r == "sp") stmt->instr.mode = AddressingMode::STACK_RELATIVE;
                                 else { stmt->instr.bitBranchTarget = r; stmt->instr.mode = AddressingMode::BASE_PAGE_RELATIVE; }
                             }
                         } else if (!stmt->instr.forceMode && !o.empty()) {
@@ -1515,8 +1531,19 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
         // rtn #0 optimizes to just RTS (1 byte); rtn #N is RTS + immediate (2 bytes)
         if (!instr.operand.empty()) {
             Symbol* sym = resolveSymbol(instr.operand, scopePrefix);
-            uint32_t v = sym ? sym->value : 0;
-            if (!sym) { try { v = std::stoul(instr.operand); } catch(...) { v = 0; } }
+            uint32_t v = 0;
+            if (sym) {
+                v = sym->value;
+            } else {
+                // Try parsing as numeric literal
+                try {
+                    v = std::stoul(instr.operand);
+                } catch (...) {
+                    addError("RTN instruction: undefined operand '" + instr.operand +
+                        "' (not a symbol or numeric literal)");
+                    return 2; // Conservative: assume non-zero operand
+                }
+            }
             if (v == 0) return 1;
         }
         return 2;
@@ -1538,7 +1565,10 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
     if (dir.name == "dword" || dir.name == "long") return (int)dir.arguments.size() * 4;
     if (dir.name == "float") return (int)dir.arguments.size() * 5;
     if (dir.name == "text" || dir.name == "ascii" || dir.name == "screencode") {
-        if (dir.arguments.empty()) return 0;
+        if (dir.arguments.empty()) {
+            addError("Directive ." + dir.name + " requires string argument");
+            return 0;
+        }
         int len = (int)dir.arguments[0].size();
         // Subtract 1 for encoding prefix (s/S/p/P) if present
         if (len > 1 && (dir.arguments[0][0] == 's' || dir.arguments[0][0] == 'S' ||
@@ -1547,34 +1577,73 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
         return len;
     }
     if (dir.name == "res") {
-        if (dir.arguments.empty()) return 0;
-        return (int)evaluateExpressionAt(dir.tokenIndex, "");
-    }
-    if (dir.name == "array") {
-        if (dir.arguments.empty()) return 0;
-        return (int)parseNumericLiteral(dir.arguments[0]);
-    }
-    if (dir.name == "align" || dir.name == "balign") {
-        if (dir.arguments.empty()) return 0;
-        uint32_t align = parseNumericLiteral(dir.arguments[0]);
-        if (align == 0) return 0;
-        return (align - (currentAddr % align)) % align;
-    }
-    if (dir.name == "fillto") {
-        if (dir.arguments.empty()) return 0;
-        uint32_t target = evaluateExpressionAt(dir.tokenIndex, "");
-        if (target < currentAddr) {
-            if (isPass1_) errors.push_back("Error: .fillto target address $" + std::to_string(target) + " is before current PC $" + std::to_string(currentAddr));
+        if (dir.arguments.empty()) {
+            addError("Directive .res requires size argument");
             return 0;
         }
-        return (int)(target - currentAddr);
+        try {
+            return (int)evaluateExpressionAt(dir.tokenIndex, "");
+        } catch (const std::exception& e) {
+            addError("Directive .res: failed to evaluate size: " + std::string(e.what()));
+            return 0;
+        }
+    }
+    if (dir.name == "array") {
+        if (dir.arguments.empty()) {
+            addError("Directive .array requires size argument");
+            return 0;
+        }
+        try {
+            return (int)parseNumericLiteral(dir.arguments[0]);
+        } catch (const std::exception& e) {
+            addError("Directive .array: failed to parse size: " + std::string(e.what()));
+            return 0;
+        }
+    }
+    if (dir.name == "align" || dir.name == "balign") {
+        if (dir.arguments.empty()) {
+            addError("Directive ." + dir.name + " requires alignment argument");
+            return 0;
+        }
+        try {
+            uint32_t align = parseNumericLiteral(dir.arguments[0]);
+            if (align == 0) {
+                addError("Directive ." + dir.name + ": alignment must be non-zero");
+                return 0;
+            }
+            return (align - (currentAddr % align)) % align;
+        } catch (const std::exception& e) {
+            addError("Directive ." + dir.name + ": failed to parse alignment: " + std::string(e.what()));
+            return 0;
+        }
+    }
+    if (dir.name == "fillto") {
+        if (dir.arguments.empty()) {
+            addError("Directive .fillto requires target address argument");
+            return 0;
+        }
+        try {
+            uint32_t target = evaluateExpressionAt(dir.tokenIndex, "");
+            if (target < currentAddr) {
+                addError("Directive .fillto: target address 0x" + std::to_string(target) +
+                    " is before current PC 0x" + std::to_string(currentAddr));
+                return 0;
+            }
+            return (int)(target - currentAddr);
+        } catch (const std::exception& e) {
+            addError("Directive .fillto: failed to evaluate target address: " + std::string(e.what()));
+            return 0;
+        }
     }
     if (dir.name == "import" || dir.name == "incbin") {
-        if (dir.arguments.empty()) return 0;
+        if (dir.arguments.empty()) {
+            addError("Directive ." + dir.name + " requires filename argument");
+            return 0;
+        }
         std::string filename;
         if (dir.name == "import") {
             if (dir.arguments.size() < 2 || dir.arguments[0] != "binary") {
-                if (isPass1_) errors.push_back("Error: .import requires 'binary' keyword: .import binary \"filename\"");
+                addError("Directive .import requires 'binary' keyword: .import binary \"filename\"");
                 return 0;
             }
             filename = dir.arguments[1];
@@ -1587,7 +1656,7 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
         }
         std::ifstream file(filename, std::ios::binary | std::ios::ate);
         if (!file) {
-            if (isPass1_) errors.push_back("Error: cannot open binary file '" + filename + "'");
+            addError("Directive ." + dir.name + ": cannot open binary file '" + filename + "'");
             return 0;
         }
         return (int)file.tellg();
@@ -1615,6 +1684,10 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
             else overallChanged = true;
         }
         statements = std::move(newStatements);
+        std::map<std::string, uint32_t> savedVariableValues;
+        for (const auto& [name, symbol] : symbolTable) {
+            if (symbol.isVariable) savedVariableValues[name] = symbol.value;
+        }
         // Reset variables to initial values before each pass2 iteration
         for (auto& [name, symbol] : symbolTable) if (symbol.isVariable) symbol.value = symbol.initialValue;
         moveDmaFirstCopyAddr_ = 0xFFFFFFFF;
@@ -1665,7 +1738,10 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
             currentLocalScope_ = s->localLabelScope;
             if (!s->label.empty()) {
                 isDeadCode = false;
-                if (symbolTable[s->label].value != cP) { symbolTable[s->label].value = cP; addressRecalculationMadeChanges = true; }
+                if (symbolTable[s->label].value != cP) {
+                    symbolTable[s->label].value = cP;
+                    addressRecalculationMadeChanges = true;
+                }
             }
             if (s->type == Statement::DIRECTIVE && s->dir.name == "org") {
                 if (!s->dir.arguments.empty()) cP = parseNumericLiteral(s->dir.arguments[0]);
@@ -1712,17 +1788,18 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                             uint32_t newVal = evaluateExpressionAt(s->dir.tokenIndex, s->scopePrefix);
                             if (oldVal != newVal) {
                                 symbolTable[s->dir.varName].value = newVal;
-                                addressRecalculationMadeChanges = true;
                             }
                         }
-                        else if (s->dir.varType == Directive::INC) { symbolTable[s->dir.varName].value++; addressRecalculationMadeChanges = true; }
-                        else if (s->dir.varType == Directive::DEC) { symbolTable[s->dir.varName].value--; addressRecalculationMadeChanges = true; }
+                        else if (s->dir.varType == Directive::INC) { symbolTable[s->dir.varName].value++; }
+                        else if (s->dir.varType == Directive::DEC) { symbolTable[s->dir.varName].value--; }
                     }
                     s->size = calculateDirectiveSize(s->dir, cP);
                 }
                 else if (s->type == Statement::BASIC_UPSTART) s->size = 12;
             }
-            if (s->size != oS) addressRecalculationMadeChanges = true;
+            if (s->size != oS) {
+                addressRecalculationMadeChanges = true;
+            }
             // Build source-level line map (only on last iteration)
             if (!s->sourceFile.empty() && s->sourceLine > 0 && s->size > 0 && !s->deleted) {
                 if (lineMap_.empty() || lineMap_.back().address != s->address
@@ -1743,6 +1820,16 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                 seg->pc = pass2PCs[name];
             }
         }
+
+        bool variablesChanged = false;
+        for (const auto& [name, symbol] : symbolTable) {
+            if (symbol.isVariable) {
+                if (!savedVariableValues.count(name) || savedVariableValues[name] != symbol.value) {
+                    variablesChanged = true;
+                }
+            }
+        }
+        if (variablesChanged) overallChanged = true;
 
         if (addressRecalculationMadeChanges) overallChanged = true;
     } while (overallChanged);

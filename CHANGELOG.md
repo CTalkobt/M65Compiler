@@ -2,6 +2,12 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
+## [v1.0.4] - 2026-06-30
+
+- Update version to 1.0.4
+
+---
+
 ## [v1.0.3] - 2026-06-30
 
 Major feature release: OOP system, operator overloading, **full floating-point support**, `__int(N)`/`__uint(N)`, GTE compatibility from 65.8% to 96.4% (581 tests).

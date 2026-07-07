@@ -2,15 +2,17 @@
 # Stage 1: Build the compiler suite
 FROM alpine:3.20 AS builder
 
-# Set working directory
 WORKDIR /build
 
-# Install build dependencies
+# Install build dependencies (including FUSE3, SQLite3, zlib)
 RUN apk add --no-cache \
     g++ \
     make \
     git \
-    zlib-dev
+    zlib-dev \
+    fuse3-dev \
+    sqlite-dev \
+    pkgconf
 
 # Copy source code
 COPY . .
@@ -21,13 +23,12 @@ RUN make clean && make all lib
 # Stage 2: Runtime image with just the binaries
 FROM alpine:3.20 AS runtime
 
-# Install runtime dependencies and full glibc compatibility
-# Note: libc6-compat provides glibc, libstdc++ provides C++ runtime libraries
-RUN apk add --no-cache zlib libc6-compat libstdc++
+# Install runtime dependencies
+RUN apk add --no-cache zlib libc6-compat libstdc++ fuse3 sqlite-libs
 
 # Create app directory structure
 WORKDIR /app
-RUN mkdir -p /app/bin /app/lib/cc45 /app/lib/cc45/include /app/lib/cc45/stdlib /app/lib/cc45/stdlib_zp
+RUN mkdir -p /app/bin /app/lib/cc45 /app/lib/cc45/include
 
 # Copy compiled binaries from builder
 COPY --from=builder /build/bin/cc45 /app/bin/
@@ -57,13 +58,16 @@ RUN ln -s /app/bin/cc45 /usr/local/bin/cc45 && \
     ln -s /app/bin/objdump45 /usr/local/bin/objdump45 && \
     ln -s /app/bin/disk45 /usr/local/bin/disk45
 
-# Set environment variable for library path
+# Set environment
 ENV CC45_LIB_PATH=/app/lib/cc45
 ENV PATH="/app/bin:$PATH"
 
-# Create /work directory for volume mounts
+# Volume for work files and catalog database
+VOLUME /work
+VOLUME /catalog
+
 WORKDIR /work
 
-# Default to cc45 compiler when no entrypoint override
+# Default to cc45 compiler
 ENTRYPOINT ["/app/bin/cc45"]
 CMD ["-?"]

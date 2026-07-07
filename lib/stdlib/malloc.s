@@ -54,7 +54,7 @@ proc _malloc, W#_p_size
     ; Total stack shift for params = 10
 
     ; 1. Adjust size: add 2-byte header, align to 2 bytes, min 4 bytes.
-    ldax _p_size+10, s
+    ldax _p_size+10, sp
     ora #0
     bne @non_zero
     txa
@@ -65,7 +65,7 @@ proc _malloc, W#_p_size
     clc
     adc #2              ; + header
     tax
-    lda _p_size+11, s
+    lda _p_size+11, sp
     adc #0
     tay
     
@@ -296,7 +296,7 @@ proc _free, W#_p_ptr
     lda $0b
     pha
 
-    ldax _p_ptr+10, s
+    ldax _p_ptr+10, sp
     ora #0
     bne @not_null
     txa
@@ -498,9 +498,9 @@ proc _free, W#_p_ptr
 ; -----------------------------------------------------------------------------
 proc _calloc, W#_p_nmemb, W#_p_size
     .var _fp = 0
-    ldax _p_nmemb, s
+    ldax _p_nmemb, sp
     stax $02
-    ldax _p_size, s
+    ldax _p_size, sp
     mul.16 .ax, $02
     stax $0C            ; total
     phx
@@ -535,12 +535,12 @@ proc _calloc, W#_p_nmemb, W#_p_size
 proc _realloc, W#_p_ptr, W#_p_size
     .var _fp = 0
     ; 1. If ptr is NULL, realloc is malloc
-    ldax _p_ptr, s
+    ldax _p_ptr, sp
     ora #0
     bne @not_null
     txa
     bne @not_null
-    ldax _p_size, s
+    ldax _p_size, sp
     phx
     pha
     jsr _malloc
@@ -548,12 +548,12 @@ proc _realloc, W#_p_ptr, W#_p_size
 
 @not_null:
     ; 2. If size is 0, realloc is free
-    ldax _p_size, s
+    ldax _p_size, sp
     ora #0
     bne @do_realloc
     txa
     bne @do_realloc
-    ldax _p_ptr, s
+    ldax _p_ptr, sp
     phx
     pha
     jsr _free
@@ -563,7 +563,7 @@ proc _realloc, W#_p_ptr, W#_p_size
 
 @do_realloc:
     ; 3. Normal realloc
-    ldax _p_size, s
+    ldax _p_size, sp
     phx
     pha
     jsr _malloc
@@ -572,7 +572,7 @@ proc _realloc, W#_p_ptr, W#_p_size
     beq @fail
     
     ; memcpy(new_ptr, old_ptr, min(old_size, new_size))
-    ldax _p_ptr, s
+    ldax _p_ptr, sp
     sec
     sbc #2
     bcs @no_dec
@@ -592,19 +592,19 @@ proc _realloc, W#_p_ptr, W#_p_size
     tay                 ; Y:X = old_data_size
     
     ; count = min(old_data_size, new_size)
-    lda _p_size+1, s
+    lda _p_size+1, sp
     sta $0A
     tya
     cmp $0A
     bcc @use_old
     bne @use_new
-    lda _p_size, s
+    lda _p_size, sp
     sta $0A
     txa
     cmp $0A
     bcc @use_old
 @use_new:
-    ldax _p_size, s
+    ldax _p_size, sp
     bra @do_copy
 @use_old:
     txa
@@ -612,7 +612,7 @@ proc _realloc, W#_p_ptr, W#_p_size
 @do_copy:
     phy
     phx                 ; count (Y:X)
-    ldax _p_ptr, s
+    ldax _p_ptr, sp
     phx
     pha                 ; src (.AX)
     lda $07
@@ -621,7 +621,7 @@ proc _realloc, W#_p_ptr, W#_p_size
     pha                 ; dest ($06/$07)
     jsr _memcpy
     
-    ldax _p_ptr, s
+    ldax _p_ptr, sp
     phx
     pha
     jsr _free

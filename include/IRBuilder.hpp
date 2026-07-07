@@ -15,6 +15,7 @@ public:
     void setSourceInfo(const std::string& filename);
     void setExternalUsedVars(const std::set<std::string>& vars) { externalUsedVars_ = vars; }
     const ir::Module& getModule() const { return module_; }
+    ir::Module& getModule() { return module_; }
     bool hasErrors() const { return !errors_.empty(); }
     const std::vector<std::string>& getErrors() const { return errors_; }
     const std::vector<std::string>& getWarnings() const { return warnings_; }
@@ -81,6 +82,7 @@ private:
         std::map<std::string, bool> localSigned;
         std::map<std::string, bool> localConst;
         std::map<std::string, bool> localPointsToConst;
+        std::map<std::string, bool> localRegister;
         std::map<std::string, ir::Type> localPointedToType;
         std::map<std::string, std::vector<int>> localArrayDims;
         std::set<uint32_t> usedVregs;
@@ -106,6 +108,8 @@ private:
     std::map<std::string, bool> localSigned_;  // true if variable was declared signed
     std::map<std::string, bool> localConst_;       // true if variable itself is const
     std::map<std::string, bool> localPointsToConst_; // true if pointed-to data is const (const int *p)
+    std::map<std::string, bool> localRegister_;
+    std::map<std::string, bool> globalRegister_;
     std::map<std::string, ir::Type> localPointedToType_; // for pointers: the type of *ptr
     std::map<std::string, int64_t> localConstPtrValue_; // constant pointer value (for propagation)
     std::map<std::string, ir::Type> globalPointedToType_; // for global pointers
@@ -119,6 +123,7 @@ private:
 
     // Track signedness of last expression result (for comparison op selection)
     bool lastValueSigned_ = false;
+    std::set<std::string> currentFuncParams_;
 
     // String encoding pragma support
     enum class StringEncoding { PETSCII = 0, ASCII = 1, SCREENCODE = 2 };
@@ -233,4 +238,7 @@ private:
 
     // Helper: normalize struct/union names
     std::string getAggregateName(const std::string& type);
+
+    // Helper: recursively find a member in a struct/union, returning its info and total offset
+    IRMemberInfo* findStructMember(const std::string& sName, const std::string& memberName, int& accumulatedOffset);
 };

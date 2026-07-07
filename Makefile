@@ -2,6 +2,13 @@ CX = g++
 GIT_HASH := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 EXTRA_CXXFLAGS ?=
 CXXFLAGS = -std=c++17 -Wall -Wextra -Iinclude -MMD -MP -DGIT_HASH='"$(GIT_HASH)"' $(EXTRA_CXXFLAGS)
+
+# Optional FUSE3 support for disk45 mount command
+HAVE_FUSE3 := $(shell pkg-config --exists fuse3 2>/dev/null && echo 1)
+ifeq ($(HAVE_FUSE3),1)
+  FUSE3_CFLAGS := $(shell pkg-config --cflags fuse3) -DHAVE_FUSE3
+  FUSE3_LIBS := $(shell pkg-config --libs fuse3)
+endif
 SRC_DIR = src/main
 OBJ_DIR = obj
 BIN_DIR = bin
@@ -20,10 +27,10 @@ CA_SOURCES = $(SRC_DIR)/ca45_main.cpp
 
 # Common objects
 COMMON_SOURCES = $(SRC_DIR)/Lexer.cpp $(SRC_DIR)/Parser.cpp $(SRC_DIR)/AST.cpp $(SRC_DIR)/CodeGenerator.cpp $(SRC_DIR)/M65Emitter.cpp $(SRC_DIR)/Preprocessor.cpp $(SRC_DIR)/ConstantFolder.cpp $(SRC_DIR)/LoopOptimizer.cpp $(SRC_DIR)/AssemblerOpcodeDatabase.cpp $(SRC_DIR)/O45Writer.cpp $(SRC_DIR)/O45Emitter.cpp
-COMMON_OBJECTS = $(OBJ_DIR)/Lexer.o $(OBJ_DIR)/Parser.o $(OBJ_DIR)/AST.o $(OBJ_DIR)/CodeGenerator.o $(OBJ_DIR)/M65Emitter.o $(OBJ_DIR)/Preprocessor.o $(OBJ_DIR)/ConstantFolder.o $(OBJ_DIR)/LoopOptimizer.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45Emitter.o
+COMMON_OBJECTS = $(OBJ_DIR)/Lexer.o $(OBJ_DIR)/Parser.o $(OBJ_DIR)/AST.o $(OBJ_DIR)/CodeGenerator.o $(OBJ_DIR)/M65Emitter.o $(OBJ_DIR)/Preprocessor.o $(OBJ_DIR)/ConstantFolder.o $(OBJ_DIR)/LoopOptimizer.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45Emitter.o
 
-CC_OBJECTS = $(OBJ_DIR)/cc45_main.o $(OBJ_DIR)/AssemblerLexer.o $(OBJ_DIR)/AssemblerParser.o $(OBJ_DIR)/AssemblerExpression.o $(OBJ_DIR)/AssemblerOptimizer.o $(OBJ_DIR)/AssemblerSimulatedOps.o $(OBJ_DIR)/AssemblerGenerator.o $(OBJ_DIR)/IRBuilder.o $(OBJ_DIR)/IRPrinter.o $(OBJ_DIR)/IRCodeGen.o $(OBJ_DIR)/VRegAllocator.o $(COMMON_OBJECTS)
-CA_OBJECTS = $(OBJ_DIR)/ca45_main.o $(OBJ_DIR)/AssemblerLexer.o $(OBJ_DIR)/AssemblerParser.o $(OBJ_DIR)/AssemblerExpression.o $(OBJ_DIR)/AssemblerOptimizer.o $(OBJ_DIR)/AssemblerSimulatedOps.o $(OBJ_DIR)/AssemblerGenerator.o $(COMMON_OBJECTS)
+CC_OBJECTS = $(OBJ_DIR)/cc45_main.o $(OBJ_DIR)/AssemblerLexer.o $(OBJ_DIR)/AssemblerParser.o $(OBJ_DIR)/AssemblerExpression.o $(OBJ_DIR)/AssemblerOptimizer.o $(OBJ_DIR)/AssemblerSimulatedOps.o $(OBJ_DIR)/AssemblerGenerator.o $(OBJ_DIR)/OpEffect.o $(OBJ_DIR)/IRBuilder.o $(OBJ_DIR)/IRPrinter.o $(OBJ_DIR)/IRCodeGen.o $(OBJ_DIR)/IROptimizer.o $(OBJ_DIR)/VRegAllocator.o $(COMMON_OBJECTS)
+CA_OBJECTS = $(OBJ_DIR)/ca45_main.o $(OBJ_DIR)/AssemblerLexer.o $(OBJ_DIR)/AssemblerParser.o $(OBJ_DIR)/AssemblerExpression.o $(OBJ_DIR)/AssemblerOptimizer.o $(OBJ_DIR)/AssemblerSimulatedOps.o $(OBJ_DIR)/AssemblerGenerator.o $(OBJ_DIR)/OpEffect.o $(COMMON_OBJECTS)
 
 MAN_DIR = man
 
@@ -33,7 +40,7 @@ LIBDIR ?= $(PREFIX)/lib/cc45
 INCDIR ?= $(PREFIX)/include/cc45
 MANDIR ?= $(PREFIX)/share/man/man1
 
-.PHONY: all clean test man test-mmemu test-stdlib test-regression test-zpcall test-integration bench bench-save lib install install_local uninstall cppcheck coverage coverage-build coverage-clean coverage-report docker
+.PHONY: all clean test man test-mmemu test-stdlib test-regression test-zpcall test-integration bench bench-save lib install install_local uninstall uninstall_local cppcheck coverage coverage-build coverage-clean coverage-report docker
 
 cppcheck:
 	cppcheck --enable=warning,performance,portability --inline-suppr -I include/ src/main/
@@ -42,7 +49,10 @@ NM_OBJECTS = $(OBJ_DIR)/nm45_main.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.
 LN_OBJECTS = $(OBJ_DIR)/ln45_main.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o
 AR_OBJECTS = $(OBJ_DIR)/ar45_main.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45Archive.o
 OD_OBJECTS = $(OBJ_DIR)/objdump45_main.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o
-DISK_OBJECTS = $(OBJ_DIR)/disk45_main.o $(OBJ_DIR)/DiskImage.o $(OBJ_DIR)/DiskImageFactory.o $(OBJ_DIR)/D64Image.o $(OBJ_DIR)/D71Image.o $(OBJ_DIR)/D81Image.o $(OBJ_DIR)/D65Image.o $(OBJ_DIR)/ArkImage.o $(OBJ_DIR)/ArcImage.o $(OBJ_DIR)/LnxImage.o $(OBJ_DIR)/GzipHelper.o
+DISK_OBJECTS = $(OBJ_DIR)/disk45_main.o $(OBJ_DIR)/disk45_catalog.o $(OBJ_DIR)/DiskImage.o $(OBJ_DIR)/DiskImageFactory.o $(OBJ_DIR)/D64Image.o $(OBJ_DIR)/D71Image.o $(OBJ_DIR)/D81Image.o $(OBJ_DIR)/D65Image.o $(OBJ_DIR)/ArkImage.o $(OBJ_DIR)/ArcImage.o $(OBJ_DIR)/LnxImage.o $(OBJ_DIR)/TapImage.o $(OBJ_DIR)/T64Image.o $(OBJ_DIR)/G64Image.o $(OBJ_DIR)/D80Image.o $(OBJ_DIR)/GeosCvtImage.o $(OBJ_DIR)/P00Image.o $(OBJ_DIR)/X64Image.o $(OBJ_DIR)/ZipcodeImage.o $(OBJ_DIR)/D90Image.o $(OBJ_DIR)/CmdImage.o $(OBJ_DIR)/NibImage.o $(OBJ_DIR)/GzipHelper.o
+ifeq ($(HAVE_FUSE3),1)
+  DISK_OBJECTS += $(OBJ_DIR)/disk45_fuse.o
+endif
 
 all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET) $(NM_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET)
 
@@ -82,7 +92,15 @@ $(OD_TARGET): $(OD_OBJECTS)
 
 $(DISK_TARGET): $(DISK_OBJECTS)
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $^ -lz
+	$(CXX) $(CXXFLAGS) -o $@ $^ -lz -lsqlite3 $(FUSE3_LIBS)
+
+# disk45 FUSE module needs FUSE3 headers
+$(OBJ_DIR)/disk45_fuse.o: $(SRC_DIR)/disk45_fuse.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) $(FUSE3_CFLAGS) -c -o $@ $<
+
+# disk45_main needs HAVE_FUSE3 define
+$(OBJ_DIR)/disk45_main.o: $(SRC_DIR)/disk45_main.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) $(FUSE3_CFLAGS) -c -o $@ $<
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
 	@mkdir -p $(OBJ_DIR)
@@ -151,6 +169,10 @@ test: all lib
 	@$(MAKE) test-move-fill
 	@echo "Running objdump45 tests..."
 	@bash src/test/test_objdump45.sh
+	@echo "Running disk45 tests..."
+	@bash src/test/test_disk45.sh
+	@echo "Running new stdlib tests..."
+	@bash src/test/test_stdlib_new.sh
 
 test-assembler: all
 	@bash src/test/test_assembler.sh
@@ -185,6 +207,9 @@ test-zpcall: all
 
 bench: all lib
 	@bash src/test/bench.sh
+
+bench-optimizer: all
+	@bash src/test/bench_optimizer.sh
 
 bench-save: all lib
 	@bash src/test/bench.sh
@@ -510,6 +535,9 @@ install: all lib
 install_local:
 	@$(MAKE) install PREFIX=$(HOME)/.local
 
+uninstall_local:
+	@$(MAKE) uninstall PREFIX=$(HOME)/.local
+
 docker:
 	@echo "Building Docker image..."
 	@docker build -f src/Docker/Dockerfile -t mega65-cc45:latest .
@@ -522,7 +550,7 @@ docker:
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/cc45 $(DESTDIR)$(BINDIR)/ca45 $(DESTDIR)$(BINDIR)/cp45
 	rm -f $(DESTDIR)$(BINDIR)/nm45 $(DESTDIR)$(BINDIR)/ln45 $(DESTDIR)$(BINDIR)/ar45
-	rm -f $(DESTDIR)$(BINDIR)/objdump45
+	rm -f $(DESTDIR)$(BINDIR)/objdump45 $(DESTDIR)$(BINDIR)/disk45
 	rm -rf $(DESTDIR)$(LIBDIR)
 	rm -rf $(DESTDIR)$(INCDIR)
 	rm -f $(DESTDIR)$(MANDIR)/cc45.1 $(DESTDIR)$(MANDIR)/ca45.1 $(DESTDIR)$(MANDIR)/cp45.1

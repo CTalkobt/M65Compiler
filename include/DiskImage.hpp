@@ -26,6 +26,7 @@ enum class CbmFileType : uint8_t {
     PRG = 2,    // Program
     USR = 3,    // User
     REL = 4,    // Relative (record-based)
+    CBM = 5,    // CBM subdirectory (D71/D81)
 };
 
 // Directory entry (32 bytes, 8 per directory sector)
@@ -84,8 +85,8 @@ public:
 
     // --- Image lifecycle ---
     virtual void format(const std::string& diskName = "", const std::string& diskId = "CC") = 0;
-    bool loadFromFile(const std::string& path);
-    bool saveToFile(const std::string& path) const;
+    virtual bool loadFromFile(const std::string& path);
+    virtual bool saveToFile(const std::string& path) const;
 
     // --- File operations ---
     virtual std::vector<FileInfo> listFiles() const = 0;
@@ -142,10 +143,10 @@ protected:
     // --- BAM operations (implemented by subclass) ---
 public:
     virtual bool isSectorFree(int track, int sector) const = 0;
+    virtual TrackSector allocateNextFree(int nearTrack = -1) = 0;
+    virtual bool freeSector(int track, int sector) = 0;
 protected:
     virtual bool allocateSector(int track, int sector) = 0;
-    virtual bool freeSector(int track, int sector) = 0;
-    virtual TrackSector allocateNextFree(int nearTrack = -1) = 0;
 
     // --- Directory helpers (common logic, uses virtual BAM/sector methods) ---
     DirEntry findFile(const std::string& name) const;

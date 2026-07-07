@@ -25,5 +25,6 @@ int isxdigit(int c);
 int ispunct(int c);
 int isblank(int c);
 int iscntrl(int c);
+int isgraph(int c);
 int toupper(int c);
 int tolower(int c);

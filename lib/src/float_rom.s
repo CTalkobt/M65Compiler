@@ -63,6 +63,8 @@ __jsrfar_basic:
 
 ; ===========================================================================
 ; Load 5-byte float from memory (AX = pointer) into FAC
+; Direct ZP access (default). For indirect access via BASIC 65 jump table,
+; see float_rom_indirect.s.
 ; ===========================================================================
 .global __float_load_fac
 __float_load_fac:

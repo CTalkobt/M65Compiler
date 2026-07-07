@@ -55,13 +55,16 @@ private:
     std::vector<bool> zpUsed_;
 
     int frameSize_ = 0;
+    std::vector<std::pair<int,int>> freeFrameSlots_;  // {offset, size} of freed frame slots
 
     void computeLiveRanges(const ir::Function& fn);
+    void extendLiveRangesAcrossLoops(const ir::Function& fn);
     void assignLocations(const ir::Function& fn);
 
     int allocZpSlot(ir::Type type);
     void freeZpSlot(int zpAddr, ir::Type type);
     int allocFrameSlot(ir::Type type, int overrideSize = 0);
+    void freeFrameSlot(int offset, int size);
 
     // Flatten all instructions in a function to a linear index
     struct FlatInst {
