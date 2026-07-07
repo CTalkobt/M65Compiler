@@ -163,19 +163,56 @@ Comprehensive analysis identified **8 major complexity areas** and **~8,000+ lin
 
 ## Phase 2: High-Impact Refactoring (Weeks 3-5, ~240 hours, Medium Risk)
 
-### 2.1 Extract Large Visitor Methods (80 hours)
-**Files:** `src/main/CodeGenerator.cpp`, `src/main/IRBuilder.cpp`, `src/main/Parser.cpp`  
-**Issue:** Individual methods exceed 500-700 lines (CodeGenerator::visit(Assignment&) is 722 lines)  
-**Status:** TODO
+**Status:** IN PROGRESS (2026-07-07)
+**Target:** Reduce 1,500+ lines of CodeGenerator/IRBuilder duplication
+**Strategy:** Consolidate parallel visitors into single unified code generator
 
-**Scope:**
-- `CodeGenerator::visit(Assignment&)` (722 lines) → 6-8 sub-methods
-- `CodeGenerator::visit(FunctionCall&)` (508 lines) → 3-4 sub-methods
-- `CodeGenerator::visit(BinaryOperation&)` (444 lines) → 2-3 sub-methods
-- `IRBuilder::visit(Assignment&)` → parallel extraction
-- `Parser::parseStatement()` (454 lines) → per-statement parsers
+### Phase 2 Merge Strategy
 
-**Target:** All visitor methods under 150 lines; all helper methods under 100 lines
+The current architecture has two parallel code generators processing the same AST:
+- **CodeGenerator** (5,789 lines): Legacy generator, produces assembly directly
+- **IRBuilder** (4,346 lines): Modern generator, produces IR for downstream processing
+- **IRCodeGen** (3,556 lines): IR → Assembly translator
+
+**Recommended merge order:**
+1. **Phase 2.1:** Extract large visitor methods (80 hours) — makes both generators cleaner
+2. **Phase 2.2:** Unify symbol/type tracking (60 hours) — foundation for merge
+3. **Phase 2.3:** Consolidate CodeGenerator into IRBuilder (100 hours) — final merge
+
+This reduces risk by making incremental improvements before the large consolidation.
+
+### 2.1 Extract Large Visitor Methods — STARTING (80 hours)
+**Files:** `src/main/CodeGenerator.cpp`, `src/main/IRBuilder.cpp`  
+**Status:** STARTING (2026-07-07)  
+**Issue:** Visitor methods exceed 300-700 lines, blocking comprehension and safe modification
+
+**CodeGenerator Extraction Targets (verified by line count):**
+- `visit(Assignment&)` — 723 lines → extract to 6-8 sub-helpers (register/ZP/stack/global/array variants)
+- `visit(FunctionDeclaration&)` — 509 lines → extract to 3-4 sub-helpers (setup/params/body/cleanup)
+- `visit(VariableDeclaration&)` — 494 lines → extract to 3-4 sub-helpers (initialization/storage/register variants)
+- `visit(BinaryOperation&)` — 445 lines → extract to 2-3 sub-helpers (type-specific operations)
+- `visit(FunctionCall&)` — 399 lines → extract to 3-4 sub-helpers (calling conventions/parameter handling)
+- `visit(UnaryOperation&)` — 205 lines → extract to 1-2 sub-helpers
+- `visit(VariableReference&)` — 197 lines → extract to 1-2 sub-helpers
+
+**IRBuilder Extraction Targets (verified by line count):**
+- `visit(FunctionCall&)` — 552 lines → extract to 3-4 sub-helpers
+- `visit(BinaryOperation&)` — 311 lines → extract to 2-3 sub-helpers
+- `visit(VariableDeclaration&)` — 300 lines → extract to 2-3 sub-helpers
+- `visit(Assignment&)` — 291 lines → extract to 2-3 sub-helpers
+
+**Extraction Strategy:**
+1. Identify dispatch criteria (register vs ZP vs stack vs global, etc.)
+2. Extract sub-helper methods (private, focused on single case)
+3. Update visitor to dispatch: `if (cond) return helper(node);`
+4. Verify each extraction with tests
+5. Target: All methods under 150 lines
+
+**Estimate:** 80 hours (40 CodeGenerator, 40 IRBuilder)  
+**Benefit:** 
+- Methods become comprehensible
+- Easier to test individual cases
+- Foundation for Phase 2.2-2.3 consolidation
 
 ---
 
