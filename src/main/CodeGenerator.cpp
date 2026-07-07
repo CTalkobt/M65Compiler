@@ -2764,6 +2764,219 @@ void CodeGenerator::visit(BinaryOperation& node) {
     emitGeneralBinaryOp(node, scale, lhsType, rhsType);
 }
 
+void CodeGenerator::emitLiteralOneOptimization(BinaryOperation& node, int scale, ExpressionType lhsType) {
+    bool oldNeeded = resultNeeded;
+    resultNeeded = true;
+    node.left->accept(*this);
+    resultNeeded = oldNeeded;
+    if (node.op == "+") {
+        std::string label = newDontCareLabel();
+        emitter->inc_a();
+        emitter->bne(0x01);
+        emit("inx");
+        out << label << ":" << std::endl;
+    } else {
+        std::string label = newDontCareLabel();
+        emit("cmp #$00");
+        emit("bne " + label);
+        emit("dex");
+        out << label << ":" << std::endl;
+        emitter->dec_a();
+    }
+    regA.known = false;
+    regX.known = false;
+    clobberReg(CLOBBER_A | CLOBBER_X);
+    invalidateFlags();
+}
+
+void CodeGenerator::emitLogicalOr(BinaryOperation& node) {
+    std::string labelTrue = newDontCareLabel();
+    std::string labelEnd = newDontCareLabel();
+    bool oldNeeded = resultNeeded;
+    resultNeeded = true;
+    node.left->accept(*this);
+    resultNeeded = oldNeeded;
+    if (is8BitType(getExprType(node.left.get()).type) && getExprType(node.left.get()).pointerLevel == 0) {
+        if (flags.znSource != FlagSource::A) emit("cmp #$00");
+        emit("bne " + labelTrue);
+    } else {
+        if (flags.znSource != FlagSource::A) emit("cmp #$00");
+        emitBranch16Bne(labelTrue);
+    }
+    resultNeeded = true;
+    node.right->accept(*this);
+    resultNeeded = oldNeeded;
+    if (is8BitType(getExprType(node.right.get()).type) && getExprType(node.right.get()).pointerLevel == 0) {
+        if (flags.znSource != FlagSource::A) emit("cmp #$00");
+        emit("bne " + labelTrue);
+    } else {
+        if (flags.znSource != FlagSource::A) emit("cmp #$00");
+        emitBranch16Bne(labelTrue);
+    }
+    emit("zero a, x");
+    emit("bra " + labelEnd);
+    out << labelTrue << ":" << std::endl;
+    emit("lda #$01");
+    emit("ldx #$00");
+    updateRegA(1);
+    updateRegX(0);
+    out << labelEnd << ":" << std::endl;
+    invalidateRegs();
+}
+
+void CodeGenerator::emitLogicalAnd(BinaryOperation& node) {
+    std::string labelFalse = newDontCareLabel();
+    std::string labelEnd = newDontCareLabel();
+    bool oldNeeded = resultNeeded;
+    resultNeeded = true;
+    node.left->accept(*this);
+    resultNeeded = oldNeeded;
+    if (is8BitType(getExprType(node.left.get()).type) && getExprType(node.left.get()).pointerLevel == 0) {
+        if (flags.znSource != FlagSource::A) emit("cmp #$00");
+        emit("beq " + labelFalse);
+    } else {
+        if (flags.znSource != FlagSource::A) emit("cmp #$00");
+        emitBranch16Beq(labelFalse);
+    }
+    resultNeeded = true;
+    node.right->accept(*this);
+    resultNeeded = oldNeeded;
+    if (is8BitType(getExprType(node.right.get()).type) && getExprType(node.right.get()).pointerLevel == 0) {
+        if (flags.znSource != FlagSource::A) emit("cmp #$00");
+        emit("beq " + labelFalse);
+    } else {
+        if (flags.znSource != FlagSource::A) emit("cmp #$00");
+        emitBranch16Beq(labelFalse);
+    }
+    emit("lda #$01");
+    emit("ldx #$00");
+    updateRegA(1);
+    updateRegX(0);
+    emit("bra " + labelEnd);
+    out << labelFalse << ":" << std::endl;
+    emit("zero a, x");
+    updateRegA(0);
+    updateRegX(0);
+    out << labelEnd << ":" << std::endl;
+    invalidateRegs();
+}
+
+void CodeGenerator::emitMultiplicativeLiteral(BinaryOperation& node, ExpressionType lhsType) {
+    auto* lit = dynamic_cast<IntegerLiteral*>(node.right.get());
+    int litVal = lit->value;
+    bool oldNeeded = resultNeeded;
+    resultNeeded = true;
+    node.left->accept(*this);
+    resultNeeded = oldNeeded;
+    if (node.op == "*") {
+        if (litVal == 0) {
+            emit("zero a, x");
+            updateRegA(0);
+            updateRegX(0);
+        } else if (litVal == 1) {
+        } else if ((litVal & (litVal - 1)) == 0) {
+            int shifts = 0;
+            int temp = litVal;
+            while (temp > 1) {
+                temp >>= 1;
+                shifts++;
+            }
+            for (int i = 0; i < shifts; i++) {
+                emitter->asl_a();
+                emitter->pha();
+                emitter->txa();
+                emitter->rol_a();
+                emitter->tax();
+                emitter->pla();
+            }
+            regA.known = false;
+            regX.known = false;
+        }
+    } else if (node.op == "/") {
+        if ((litVal & (litVal - 1)) == 0 && litVal > 0) {
+            int shifts = 0;
+            int temp = litVal;
+            while (temp > 1) {
+                temp >>= 1;
+                shifts++;
+            }
+            for (int i = 0; i < shifts; i++) {
+                emitter->lsr_a();
+                emitter->pha();
+                emit("txa");
+                emit("ror a");
+                emitter->tax();
+                emitter->pla();
+            }
+            regA.known = false;
+            regX.known = false;
+        }
+    } else if (node.op == "%") {
+        if ((litVal & (litVal - 1)) == 0 && litVal > 0) {
+            emit("and #$" + std::string(std::to_string(litVal - 1)));
+            regA.known = false;
+        }
+    } else if (node.op == "<<") {
+        if (litVal > 0) {
+            for (int i = 0; i < litVal; i++) {
+                emitter->asl_a();
+                emitter->pha();
+                emitter->txa();
+                emitter->rol_a();
+                emitter->tax();
+                emitter->pla();
+            }
+            regA.known = false;
+            regX.known = false;
+        }
+    } else if (node.op == ">>") {
+        if (litVal > 0) {
+            for (int i = 0; i < litVal; i++) {
+                emitter->lsr_a();
+                emitter->pha();
+                emit("txa");
+                emit("ror a");
+                emitter->tax();
+                emitter->pla();
+            }
+            regA.known = false;
+            regX.known = false;
+        }
+    }
+    clobberReg(CLOBBER_A | CLOBBER_X);
+    invalidateFlags();
+}
+
+void CodeGenerator::emitGeneralBinaryOp(BinaryOperation& node, int scale, ExpressionType lhsType, ExpressionType rhsType) {
+    int zpLeft = allocateZP(2);
+    bool oldNeeded = resultNeeded;
+    resultNeeded = true;
+    node.left->accept(*this);
+    resultNeeded = oldNeeded;
+    emitter->push_ax();
+    oldNeeded = resultNeeded;
+    resultNeeded = true;
+    node.right->accept(*this);
+    resultNeeded = oldNeeded;
+    emitter->pop_ax();
+    emit("stx $" + std::to_string(emitter->getZP(zpLeft)) + "+1");
+    emit("sta $" + std::to_string(emitter->getZP(zpLeft)));
+    emitOperation(node.op, zpLeft, lhsType, rhsType);
+    if (scale > 1) {
+        emitter->asl_a();
+        emitter->pha();
+        emitter->txa();
+        emitter->rol_a();
+        emitter->tax();
+        emitter->pla();
+    }
+    freeZP(zpLeft, 2);
+    regA.known = false;
+    regX.known = false;
+    clobberReg(CLOBBER_A | CLOBBER_X);
+    invalidateFlags();
+}
+
 void CodeGenerator::emitNakedFunction(FunctionDeclaration& node) {
     out << ".code" << std::endl;
     out << "proc _" + node.name << std::endl;

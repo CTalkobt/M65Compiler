@@ -2711,9 +2711,9 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             const ir::Operand& targetVar = inst.args[0];
             int targetOffset = 0;
             if (targetVar.vregId != 0xFFFFFFFF) {
-                if (functionMap_) {
-                    if (functionMap_->count(targetVar.name)) {
-                        const auto* targetFn = functionMap_->at(targetVar.name);
+                if (!functionMap_.empty()) {
+                    if (functionMap_.count(targetVar.name)) {
+                        const auto* targetFn = functionMap_.at(targetVar.name);
                         if (targetFn->vregOffsets.count(targetVar.vregId)) {
                             targetOffset = targetFn->vregOffsets.at(targetVar.vregId);
                         }
