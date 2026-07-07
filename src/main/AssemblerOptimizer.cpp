@@ -2,11 +2,23 @@
 #include "AssemblerParser.hpp"
 #include "MachineState.hpp"
 #include "OpEffect.hpp"
+#include "O45Reader.hpp"
+#include "O45Types.hpp"
 #include <algorithm>
 #include <iostream>
 #include <map>
+#include <fstream>
 
 bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose, bool traceMachState) {
+    return optimizeInternal(parser, nullptr, verbose, traceMachState);
+}
+
+bool AssemblerOptimizer::optimizeInternal(
+    AssemblerParser* parser,
+    const std::map<std::string, ExternalFuncInfo>* externalFuncs,
+    bool verbose,
+    bool traceMachState
+) {
     bool changed = false;
     int tailCounter = 0;
 
@@ -72,9 +84,22 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose, bool tr
         bool known = false;
     };
     std::map<std::string, ProcClobbers> procClobbers;
+
+    // 1. Add local procedures with function attributes
     for (const auto& [addr, ctx] : parser->getProcedures()) {
         if (ctx && ctx->hasFuncAttrs) {
             procClobbers[ctx->name] = {ctx->regClobbersMask, true};
+        }
+    }
+
+    // 2. Phase 5: Add external functions from linked object files
+    if (externalFuncs) {
+        for (const auto& [funcName, extFunc] : *externalFuncs) {
+            procClobbers[funcName] = {extFunc.regMask, true};
+            if (verbose) {
+                std::cerr << "opt: loaded external " << funcName << " clobber mask $"
+                          << std::hex << (int)extFunc.regMask << std::dec << std::endl;
+            }
         }
     }
 
@@ -1125,6 +1150,73 @@ bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose, bool tr
         for (auto& routine : sharedRoutines) {
             parser->statements.push_back(std::move(routine));
         }
+    }
+
+    return changed;
+}
+
+// ============================================================================
+// Phase 5: Inter-TU Optimization — Load external object files
+// ============================================================================
+// Reads .o45 object files and extracts function attributes (clobber masks,
+// leaf flags) to enable optimization of call sites to external functions.
+// ============================================================================
+
+bool AssemblerOptimizer::optimizeWithExternalObjects(
+    AssemblerParser* parser,
+    const std::vector<std::string>& objectFiles,
+    bool verbose,
+    bool traceMachState
+) {
+    // Load external object files and extract function attributes
+    std::map<std::string, ExternalFuncInfo> externalFuncs;
+
+    for (const auto& objFile : objectFiles) {
+        // Read .o45 file
+        std::ifstream file(objFile, std::ios::binary);
+        if (!file.is_open()) {
+            if (verbose) std::cerr << "phase5: warning: cannot open object file: " << objFile << std::endl;
+            continue;
+        }
+
+        std::vector<uint8_t> data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        file.close();
+
+        O45File obj;
+        std::string errorMsg;
+        if (!O45Reader::read(data, obj, errorMsg)) {
+            if (verbose) std::cerr << "phase5: warning: failed to read " << objFile << ": " << errorMsg << std::endl;
+            continue;
+        }
+
+        // Extract function attributes from exports
+        for (const auto& exp : obj.exports) {
+            if (exp.hasFuncAttr) {
+                uint8_t regMask = exp.funcAttr.regClobbers;
+                bool isLeaf = (exp.funcAttr.flags & FUNC_FLAG_LEAF) != 0;
+
+                externalFuncs[exp.name] = {regMask, isLeaf};
+
+                if (verbose) {
+                    std::cerr << "phase5: loaded " << exp.name << " from " << objFile
+                              << " (regMask=$" << std::hex << (int)regMask << std::dec
+                              << ", leaf=" << (isLeaf ? "yes" : "no") << ")" << std::endl;
+                }
+            }
+        }
+    }
+
+    if (verbose && !externalFuncs.empty()) {
+        std::cerr << "phase5: loaded " << externalFuncs.size() << " external function(s)" << std::endl;
+    }
+
+    // Optimize with external function info
+    bool changed = optimizeInternal(parser, &externalFuncs, verbose, traceMachState);
+
+    // Log summary
+    if (verbose && !externalFuncs.empty()) {
+        std::cerr << "phase5: optimization complete with " << externalFuncs.size()
+                  << " external function attribute(s)" << std::endl;
     }
 
     return changed;

@@ -22,6 +22,15 @@ extern int disk45_fuse_main(const std::string& imagePath, const std::string& mou
 // Forward declaration for catalog (in disk45_catalog.cpp)
 extern int disk45_catalog(int argc, char** argv);
 
+// Forward declaration for FUSE mount (in disk45_fuse.cpp)
+#ifdef HAVE_FUSE3
+extern int disk45_fuse_main(const std::string& imagePath, const std::string& mountpoint,
+                             bool readonly, int argc, char** argv);
+#endif
+
+// Forward declaration for catalog (in disk45_catalog.cpp)
+extern int disk45_catalog(int argc, char** argv);
+
 static void usage() {
     std::cerr << "disk45 — CBM Disk Image Utility v" << VERSION << "\n"
               << "Usage:\n"

@@ -387,12 +387,27 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     sourceFile_ = mod.sourceFile;
 
     // Pre-scan all functions to compute frame offsets (needed for capture)
+    // Bug #179 fix: Skip prescan for all functions.
+    // Prescan allocates without knowing allocator decisions, causing frame conflicts.
+    // emitFunction will re-allocate based on allocator's decisions.
     std::map<std::string, const ir::Function*> funcMap;
     for (const auto& fn : mod.functions) {
-        prescanFunction(fn);
+        // Do NOT call prescanFunction here — it causes frame allocation conflicts
         funcMap[fn.name] = &fn;
     }
     setFunctionMap(&funcMap);
+
+    // Phase 2: Pre-compute clobber masks for all functions (fine-grained register invalidation)
+    functionClobberMasks_.clear();
+    for (const auto& fn : mod.functions) {
+        FuncClobbers clobbers = computeFuncClobbers(fn);
+        int regMask = 0;
+        if (clobbers.regs & (1 << 0)) regMask |= (1 << REG_A);  // bit 0 = A
+        if (clobbers.regs & (1 << 1)) regMask |= (1 << REG_X);  // bit 1 = X
+        if (clobbers.regs & (1 << 2)) regMask |= (1 << REG_Y);  // bit 2 = Y
+        if (clobbers.regs & (1 << 3)) regMask |= (1 << REG_Z);  // bit 3 = Z
+        functionClobberMasks_[fn.name] = regMask;
+    }
 
     if (relocMode) {
         emit(".o45");
@@ -880,8 +895,10 @@ IRCodeGen::FuncClobbers IRCodeGen::computeFuncClobbers(const ir::Function& fn) {
 void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMainWithZPSave) {
     emitComment("function " + fn.name);
 
-    // Re-run prescan to restore vregOffset_ for this function
-    prescanFunction(fn);
+    // Bug #179 fix: Skip prescan here. Prescan runs before the allocator and doesn't know
+    // which vRegs will be allocated to ZP vs frame. This causes overlapping frame offsets.
+    // Instead, we allocate based on allocator decisions below.
+    // prescanFunction(fn);  // REMOVED
 
     // Run register allocator
     alloc_.analyze(fn);
@@ -1000,27 +1017,38 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         }
     }
 
-    // Prescan to compute vregSizes_ and initial frame layout
-    prescanFunction(fn);
+    // Bug #179 fix: Skip prescan entirely. Only use allocator's decisions for frame layout.
+    // Prescan runs before allocator and doesn't know which vRegs go to ZP vs FRAME.
+    // This causes incorrect frame offsets that overlap between locals and temporaries.
+    vregSizes_ = fn.vregSizes;  // Still need vregSizes for size overrides
 
-    // Override: only allocate frame slots for vRegs assigned to frame by allocator.
-    // Use prescanFunction's localNames order (alphabetical) for deterministic offsets.
     resetFrame();
-    // First: allocate named locals that are in frame, in localNames order (deterministic)
+
+    // Allocate frame slots based on ALLOCATOR's decisions only
+    // First: allocate named locals and parameters in localNames order (deterministic)
+    std::set<uint32_t> localVregs;
+    for (const auto& [name, vid] : fn.localNames) localVregs.insert(vid);
+
     for (const auto& [name, vid] : fn.localNames) {
         if (suppressedVregs_.count(vid)) continue;
         auto alloc = alloc_.getAlloc(vid);
+        // Locals MUST be allocated to frame only (VRegAllocator enforces this with isLocal check)
+        // Bug #183 fix: Only call allocSlot if allocator decided IN_FRAME
         if (alloc.loc == VRegAllocator::IN_FRAME) {
             allocSlot(vid, alloc.type);
         }
     }
-    // Then: allocate remaining frame vRegs (temporaries) in live-range order
+
+    // Second: allocate remaining frame vRegs (temporaries) in live-range order
+    // They are placed AFTER locals in frame, preventing overlaps
     for (const auto& lr : alloc_.liveRanges()) {
         if (suppressedVregs_.count(lr.vregId)) continue;
-        if (vregOffset_.count(lr.vregId)) continue; // already allocated above
+        if (vregOffset_.count(lr.vregId)) continue; // already allocated above (local)
+        if (localVregs.count(lr.vregId)) continue; // skip locals
+
         auto alloc = alloc_.getAlloc(lr.vregId);
         if (alloc.loc == VRegAllocator::IN_FRAME) {
-            allocSlot(lr.vregId, lr.type);
+            allocSlot(lr.vregId, alloc.type);
         }
     }
 
@@ -1106,12 +1134,24 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     }
     if (localFrameSize > 0) {
         emitComment("frame: " + std::to_string(localFrameSize) + " bytes (frame-allocated vRegs only)");
-        // Push frame slots physically — do NOT bump _fp (stays at 0).
-        // ldax.fp computes __sp_base + _fp + offset + SPL.
-        // With _fp=0, SPL accounts for the physical pushes correctly.
         for (int i = 0; i < localFrameSize; i += 2) {
             emit("phw #0");
         }
+    }
+
+    // Set up ZP frame pointer for stack-relative access (only for stack calling convention)
+    // FP = __sp_base + SPL at function entry. Store in $FD/$FE.
+    // This maintains the frame pointer for use by inline assembly or future optimizations.
+    useStackParams_ = !zpCallMode_ || fn.isVariadic;
+    if (useStackParams_) {
+        emit("tsx");
+        emit("txa");
+        emit("clc");
+        emit("adc #1");
+        emit("sta $FD");
+        emit("lda #$01");
+        emit("adc #0");
+        emit("sta $FE");
     }
 
     // Emit .local for frame-allocated vRegs only
@@ -2550,8 +2590,18 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     }
                 }
             } else {
-                loadOperand(inst.src1);
-                emitComment("TODO: store to non-vReg address");
+                // STORE to non-vReg address (direct memory write)
+                // This could be: STORE(value, global_addr) or STORE(value, imm_addr)
+                if (inst.dest.kind == ir::OperandKind::IMM) {
+                    throw std::runtime_error("IRCodeGen: STORE to immediate address 0x" +
+                        std::to_string(inst.dest.immVal) + " — not yet implemented (use pointer vregs)");
+                } else if (inst.dest.kind == ir::OperandKind::GLOBAL || inst.dest.kind == ir::OperandKind::LABEL) {
+                    throw std::runtime_error("IRCodeGen: STORE to '" + inst.dest.name +
+                        "' (global/label address) — not yet implemented (use pointer vregs)");
+                } else {
+                    throw std::runtime_error("IRCodeGen: STORE to non-vReg operand (kind=" +
+                        std::to_string((int)inst.dest.kind) + ") — not yet implemented (use pointer vregs)");
+                }
             }
             break;
         }
@@ -2577,6 +2627,10 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             uint32_t bufVregId = inst.args[0].vregId;
 
             // Step 1: Get address of buffer on stack into scratch $08/$09
+            if (vregOffset_.find(bufVregId) == vregOffset_.end()) {
+                throw std::runtime_error("TRAMPOLINE: buffer vreg " + std::to_string(bufVregId) +
+                    " not allocated on stack (vregOffset_ map has " + std::to_string(vregOffset_.size()) + " entries)");
+            }
             emit("leax.fp " + std::to_string(vregOffset_.at(bufVregId)));
             emit("sta $08");
             emit("stx $09");
@@ -3142,6 +3196,25 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     emit("jsr $0000");
                 }
 
+                // Recalculate frame pointer after JSR (SP may have changed)
+                // FP must be re-initialized from current SP for .fp addressing to work correctly
+                if (useStackParams_) {
+                    // Save return value (AX) on stack before overwriting A with SP
+                    emit("phx");  // Push X (high byte)
+                    emit("pha");  // Push A (low byte)
+                    emit("tsx");
+                    emit("txa");
+                    emit("clc");
+                    emit("adc #1");
+                    emit("sta $FD");
+                    emit("lda #$01");
+                    emit("adc #0");
+                    emit("sta $FE");
+                    // Restore return value from stack
+                    emit("pla");  // Pop A (low byte)
+                    emit("plx");  // Pop X (high byte)
+                }
+
                 // Caller-side stack cleanup: pop argBytes with PLZ instructions
                 // (RTS #N opcode $62 is unreliable on some hardware)
                 if (argBytes > 0) {
@@ -3167,6 +3240,27 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 if (inst.src1.kind == ir::OperandKind::GLOBAL) {
                     emit("jsr " + inst.src1.name);
                 }
+            }
+
+            // Phase 2: Selective register invalidation (fine-grained clobber tracking)
+            // Instead of invalidating all registers, only invalidate those the function actually clobbers
+            if (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID || inst.op == ir::Op::CALL_INDIRECT) {
+                int clobberMask = 0;
+                // For direct calls, look up the function's clobber mask
+                if (inst.src1.kind == ir::OperandKind::GLOBAL) {
+                    auto it = functionClobberMasks_.find(inst.src1.name);
+                    if (it != functionClobberMasks_.end()) {
+                        clobberMask = it->second;
+                    } else {
+                        // External function or function not found: conservatively assume all registers clobbered
+                        clobberMask = (1 << REG_A) | (1 << REG_X) | (1 << REG_Y) | (1 << REG_Z);
+                    }
+                } else {
+                    // Indirect call: conservatively assume all registers clobbered
+                    clobberMask = (1 << REG_A) | (1 << REG_X) | (1 << REG_Y) | (1 << REG_Z);
+                }
+                // Selectively invalidate only the clobbered registers
+                ms_.invalidateSelective(clobberMask);
             }
 
             // Return value is in A,X,Y,Z (for 32-bit) or A:X (for 16-bit)
@@ -3455,7 +3549,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         default:
-            emitComment("TODO: unimplemented IR op");
+            throw std::runtime_error("IRCodeGen: unimplemented IR opcode " +
+                std::to_string((int)inst.op) + " — check IR.hpp for opcode definition and implement in emitInst()");
             break;
     }
 }
