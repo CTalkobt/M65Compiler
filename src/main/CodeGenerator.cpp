@@ -214,10 +214,24 @@ std::string CodeGenerator::resolveVarName(const std::string& name) {
 
 CodeGenerator::VarInfo CodeGenerator::lookupVar(const std::string& rName, ASTNode* node) {
     // Try ScopeManager first (for unified lookup)
-    // Note: ScopeManager::VarInfo and CodeGenerator::VarInfo have the same fields,
-    // but are different types. For now, ScopeManager is not yet populated with variable
-    // declarations, so we rely on old maps as source of truth during transition.
+    if (auto* smvi = scopeMgr_.lookup(rName)) {
+        CodeGenerator::VarInfo vi;
+        vi.type = smvi->type;
+        vi.pointerLevel = smvi->pointerLevel;
+        vi.isSigned = smvi->isSigned;
+        vi.isVolatile = smvi->isVolatile;
+        vi.isConst = smvi->isConst;
+        vi.isPointerConst = smvi->isPointerConst;
+        vi.isRegister = smvi->isRegister;
+        vi.arrayDims = smvi->arrayDims;
+        vi.isFunctionPointer = smvi->isFunctionPointer;
+        if (smvi->funcPtrSig) {
+            vi.funcPtrSig = std::static_pointer_cast<FuncPtrSignature>(smvi->funcPtrSig);
+        }
+        return vi;
+    }
 
+    // Fall back to old maps for backward compatibility during transition
     auto it = variableTypes.find(rName);
     if (it != variableTypes.end()) return it->second;
 
@@ -3990,7 +4004,21 @@ void CodeGenerator::visit(RepeatStatement& node) {
     // Validator: declare the loop variable if present, then validate body
     if (!node.varName.empty()) {
         std::string lName = "_l_" + node.varName;
-        variableTypes[lName] = {node.varType, 0, node.varSigned, false, false, false, {}};
+        VarInfo vi = {node.varType, 0, node.varSigned, false, false, false, {}};
+        variableTypes[lName] = vi;
+        // Declare repeat var in ScopeManager (goes to current function scope)
+        ScopeManager::VarInfo smvi;
+        smvi.type = vi.type;
+        smvi.pointerLevel = vi.pointerLevel;
+        smvi.isSigned = vi.isSigned;
+        smvi.isVolatile = vi.isVolatile;
+        smvi.isConst = vi.isConst;
+        smvi.isPointerConst = vi.isPointerConst;
+        smvi.isRegister = vi.isRegister;
+        smvi.arrayDims = vi.arrayDims;
+        smvi.isFunctionPointer = vi.isFunctionPointer;
+        smvi.funcPtrSig = std::static_pointer_cast<void>(vi.funcPtrSig);
+        declareVariable(lName, smvi);
     }
     for (int i = 0; i < node.count; i++) {
         node.body->accept(*this);
