@@ -11,7 +11,16 @@
 #include <cstring>
 #include <algorithm>
 
-static const char* VERSION = "1.0.0";
+static const char* VERSION = "1.0.4";
+
+// Forward declaration for FUSE mount (in disk45_fuse.cpp)
+#ifdef HAVE_FUSE3
+extern int disk45_fuse_main(const std::string& imagePath, const std::string& mountpoint,
+                             bool readonly, int argc, char** argv);
+#endif
+
+// Forward declaration for catalog (in disk45_catalog.cpp)
+extern int disk45_catalog(int argc, char** argv);
 
 // Forward declaration for FUSE mount (in disk45_fuse.cpp)
 #ifdef HAVE_FUSE3
