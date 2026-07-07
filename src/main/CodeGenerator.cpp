@@ -1426,6 +1426,7 @@ static bool isTerminalStatement(Statement* stmt) {
 }
 
 void CodeGenerator::visit(CompoundStatement& node) {
+    scopeMgr_.pushBlockScope();  // Enter block scope for nested declarations
     bool reachable = true;
     for (auto& stmt : node.statements) {
         // Case and default labels in a switch can always be jumped to, so they reset reachability
@@ -1446,6 +1447,7 @@ void CodeGenerator::visit(CompoundStatement& node) {
         if (isTerminalStatement(stmt.get()))
             reachable = false;
     }
+    scopeMgr_.popScope();  // Exit block scope
 }
 
 void CodeGenerator::visit(VariableDeclaration& node) {
