@@ -121,13 +121,33 @@ void IRCodeGen::prescanFunction(const ir::Function& fn) {
     ir::Function& mutableFn = const_cast<ir::Function&>(fn);
     mutableFn.vregOffsets.clear();
 
-    // 1. Allocate static link first if it exists
-    if (fn.isNested && fn.staticLinkVreg != -1) {
-        int off = allocSlot(fn.staticLinkVreg, ir::Type::PTR);
-        mutableFn.vregOffsets[fn.staticLinkVreg] = off;
+    // 1. Allocate register vregs to zero page first (before stack allocation)
+    int zpOffset = 0x20;  // Start of user ZP space (after system ZP)
+    for (const auto& [name, vid] : fn.localNames) {
+        if (fn.registerVregs.count(vid)) {
+            // Allocate register variable to ZP
+            ir::Type t = ir::Type::I16;
+            if (fn.vregTypes.count(vid)) {
+                t = fn.vregTypes.at(vid);
+            }
+            int size = ir::typeSize(t);
+            if (size < 2) size = 2;
+            // Use negative offset to indicate ZP allocation
+            // Format: -(zpAddress + 1) so we can distinguish from stack offsets
+            mutableFn.vregOffsets[vid] = -(zpOffset + 1);
+            zpOffset += size;
+        }
     }
 
-    // 2. Allocate all named variables (locals and parameters)
+    // 2. Allocate static link first if it exists
+    if (fn.isNested && fn.staticLinkVreg != -1) {
+        if (!mutableFn.vregOffsets.count(fn.staticLinkVreg)) {
+            int off = allocSlot(fn.staticLinkVreg, ir::Type::PTR);
+            mutableFn.vregOffsets[fn.staticLinkVreg] = off;
+        }
+    }
+
+    // 3. Allocate all named variables (locals and parameters) to stack
     for (const auto& [name, vid] : fn.localNames) {
         if (mutableFn.vregOffsets.count(vid)) continue;
 
@@ -1172,11 +1192,22 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
         std::string prefix = "@_l_";
 
-        if (vregOffset_.count(vregId)) {
-            // It's a local/param on the stack
-            emit(".local " + prefix + name + " = " + std::to_string(vregOffset_.at(vregId)));
+        if (fn.vregOffsets.count(vregId)) {
+            int offset = fn.vregOffsets.at(vregId);
+            if (offset < 0) {
+                // Negative offset indicates ZP allocation: -(zpAddress + 1)
+                int zpAddr = -(offset + 1);
+                std::stringstream ss;
+                ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << zpAddr;
+                emit(".var " + prefix + name + " = " + ss.str());
+            } else {
+                // Stack allocation
+                if (vregOffset_.count(vregId)) {
+                    emit(".local " + prefix + name + " = " + std::to_string(vregOffset_.at(vregId)));
+                }
+            }
         } else {
-            // It might be in ZP?
+            // It might be in ZP via allocator?
             auto alloc = alloc_.getAlloc(vregId);
             if (alloc.loc == VRegAllocator::IN_ZP) {
                 std::stringstream ss;

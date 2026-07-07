@@ -1071,6 +1071,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
         }
     }
     if (node.isVolatile && currentFunc_) currentFunc_->memoryVregs.insert(vreg.vregId);
+    if (node.isRegister && currentFunc_) currentFunc_->registerVregs.insert(vreg.vregId);
     if (currentFunc_) currentFunc_->localSlotVregs.insert(vreg.vregId);
     if (!node.arrayDims.empty()) {
         localArrayDims_[node.name] = node.arrayDims;
