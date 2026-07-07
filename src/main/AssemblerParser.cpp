@@ -1656,7 +1656,7 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
         }
         std::ifstream file(filename, std::ios::binary | std::ios::ate);
         if (!file) {
-            addError("Directive ." + dir.name + ": cannot open file '" + filename + "'");
+            addError("Directive ." + dir.name + ": cannot open binary file '" + filename + "'");
             return 0;
         }
         return (int)file.tellg();
