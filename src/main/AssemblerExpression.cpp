@@ -94,6 +94,21 @@ uint32_t VariableNode::getValue(AssemblerParser* parser) const {
 
         // In pass1, be lenient with unknown symbols (could be forward refs)
         if (parser->isPass1()) {
+            // Log forward reference for diagnostic purposes
+            // This helps identify forward declarations vs typos
+            if (!parser->isExternSymbol(name) &&
+                (name.find("__") == 0 || name.find("_") == 0)) {
+                // Only log for symbols that look like they might be globals (start with _ or __)
+                // Skip very frequent control-flow labels to avoid spam
+                bool isControlFlow = name.find("@") == 0 && (
+                    name.find("@if_") != std::string::npos ||
+                    name.find("@for_") != std::string::npos ||
+                    name.find("@while_") != std::string::npos);
+                if (!isControlFlow) {
+                    // Silent in pass1 - just log if needed for debugging
+                    // parser->addWarning("Forward reference (pass1): '" + name + "' not yet defined");
+                }
+            }
             return 0;
         }
 

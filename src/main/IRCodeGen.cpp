@@ -3494,7 +3494,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         default:
-            emitComment("TODO: unimplemented IR op");
+            throw std::runtime_error("IRCodeGen: unimplemented IR opcode " +
+                std::to_string((int)inst.op) + " — check IR.hpp for opcode definition and implement in emitInst()");
             break;
     }
 }

@@ -60,7 +60,14 @@ bool AssemblerParser::match(AssemblerTokenType type) {
 }
 
 uint32_t AssemblerParser::evaluateExpressionAt(int index, const std::string& scopePrefix) {
-    if (index < 0 || index >= (int)tokens.size()) return 0;
+    if (index < 0) {
+        throw std::runtime_error("evaluateExpressionAt: invalid token index " + std::to_string(index) +
+            " (negative index)");
+    }
+    if (index >= (int)tokens.size()) {
+        throw std::runtime_error("evaluateExpressionAt: token index " + std::to_string(index) +
+            " out of bounds (only " + std::to_string(tokens.size()) + " tokens available)");
+    }
     int idx = index;
     auto ast = parseExprAST(tokens, idx, symbolTable, scopePrefix);
     if (!ast) throw std::runtime_error("Expected expression at line " + std::to_string(tokens[index].line));
