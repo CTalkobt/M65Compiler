@@ -325,4 +325,11 @@ public:
     void assignToStackOrGlobalVar(Assignment& node, VariableReference* ref, const std::string& rName);
     void assignToDirectMember(Assignment& node, MemberAccess* ma);
     void assignToIndirectOrBitfield(Assignment& node);
+
+    // BinaryOperation dispatch helpers
+    void emitLiteralOneOptimization(BinaryOperation& node, int scale, ExpressionType lhsType);
+    void emitLogicalOr(BinaryOperation& node);
+    void emitLogicalAnd(BinaryOperation& node);
+    void emitMultiplicativeLiteral(BinaryOperation& node, ExpressionType lhsType);
+    void emitGeneralBinaryOp(BinaryOperation& node, int scale, ExpressionType lhsType, ExpressionType rhsType);
 };
