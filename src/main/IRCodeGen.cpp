@@ -1032,8 +1032,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     for (const auto& [name, vid] : fn.localNames) {
         if (suppressedVregs_.count(vid)) continue;
         auto alloc = alloc_.getAlloc(vid);
-        // Locals are ALWAYS allocated to frame (never ZP or AX, per Bug #179 fix)
-        if (alloc.loc == VRegAllocator::IN_FRAME || alloc.loc == VRegAllocator::IN_ZP) {
+        // Locals MUST be allocated to frame only (VRegAllocator enforces this with isLocal check)
+        // Bug #183 fix: Only call allocSlot if allocator decided IN_FRAME
+        if (alloc.loc == VRegAllocator::IN_FRAME) {
             allocSlot(vid, alloc.type);
         }
     }
