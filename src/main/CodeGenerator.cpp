@@ -1246,14 +1246,42 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
 
     if (needsHiddenPtr) {
         std::string rpName = "_p___ret_ptr";
-        variableTypes[rpName] = {node.returnType, 1, false, false, false, false, false, {}};
+        VarInfo rpvi = {node.returnType, 1, false, false, false, false, false, {}};
+        variableTypes[rpName] = rpvi;
+        // Declare return pointer in function scope
+        ScopeManager::VarInfo smrpvi;
+        smrpvi.type = rpvi.type;
+        smrpvi.pointerLevel = rpvi.pointerLevel;
+        smrpvi.isSigned = rpvi.isSigned;
+        smrpvi.isVolatile = rpvi.isVolatile;
+        smrpvi.isConst = rpvi.isConst;
+        smrpvi.isPointerConst = rpvi.isPointerConst;
+        smrpvi.isRegister = rpvi.isRegister;
+        smrpvi.arrayDims = rpvi.arrayDims;
+        smrpvi.isFunctionPointer = rpvi.isFunctionPointer;
+        smrpvi.funcPtrSig = std::static_pointer_cast<void>(rpvi.funcPtrSig);
+        declareVariable(rpName, smrpvi);
         currentParamByteSize += 2;
         paramInfos.push_back({rpName, 2});
     }
 
     for (auto& param : node.parameters) {
         std::string pName = "_p_" + param.name;
-        variableTypes[pName] = {param.type, param.pointerLevel, param.isSigned, param.isVolatile, param.isConst, param.isPointerConst, false, {}, param.isFunctionPointer, param.funcPtrSig};
+        VarInfo pvi = {param.type, param.pointerLevel, param.isSigned, param.isVolatile, param.isConst, param.isPointerConst, false, {}, param.isFunctionPointer, param.funcPtrSig};
+        variableTypes[pName] = pvi;
+        // Declare param in function scope
+        ScopeManager::VarInfo smpvi;
+        smpvi.type = pvi.type;
+        smpvi.pointerLevel = pvi.pointerLevel;
+        smpvi.isSigned = pvi.isSigned;
+        smpvi.isVolatile = pvi.isVolatile;
+        smpvi.isConst = pvi.isConst;
+        smpvi.isPointerConst = pvi.isPointerConst;
+        smpvi.isRegister = pvi.isRegister;
+        smpvi.arrayDims = pvi.arrayDims;
+        smpvi.isFunctionPointer = pvi.isFunctionPointer;
+        smpvi.funcPtrSig = std::static_pointer_cast<void>(pvi.funcPtrSig);
+        declareVariable(pName, smpvi);
         int pSize;
         if (param.pointerLevel > 0) pSize = 2;
         else if (is8BitType(param.type)) pSize = 1;
