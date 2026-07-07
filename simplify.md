@@ -19,23 +19,31 @@
 - **Decision:** No consolidation needed; both provide distinct value
 - **Result:** Documented that real duplication is in disk image classes (Phase 1.3)
 
-### ✅ 1.3 Begin Disk Image Refactor (Parts A+B)
-- **Part A (Design):** Template/traits pattern documented — COMPLETED
-- **Part B (D64 Refactoring):** Commit a18313c (2026-07-07)
-  - Created BAMOperations helper class (150 lines)
-  - D64Image: Delegates sector allocation to BAMOperations
-  - Reduction: 27 lines from D64Image.cpp
+### ✅ 1.3 Disk Image Refactor (Parts A, B, C COMPLETE)
+- **Part A (Design):** BAMOperations pattern documented — COMPLETED
+  - Commit: 83c627f (2026-07-07)
+  
+- **Part B (D64 Refactoring):** — COMPLETED
+  - Commit: a18313c (2026-07-07)
+  - Created BAMOperations.hpp/cpp (150 lines, abstract + D64 implementation)
+  - D64Image: 323 → 296 lines (27 lines saved)
   - Pattern established for D81, D71, D80
-- **Part C (D81+):** Deferred to follow-up PR
-  - D81 refactoring ready (dual-BAM handling designed)
-  - D71, D80, D65 follow same pattern
+  
+- **Part C (D81 Refactoring):** — COMPLETED ✅
+  - Commit: 2480746 (2026-07-07)
+  - D81BAMOperations handles dual-BAM complexity (tracks 1-40 vs 41-80)
+  - D81Image: 341 → 297 lines (44 lines saved)
+  - Validated pattern works for complex multi-sector BAM layouts
+  
+- **Remaining:** D71, D80, D65 follow same pattern in future PRs
 
-### Phase 1 Summary
-**Time:** ~40 hours (within 55-hour budget)  
-**Commits:** 3 major commits (a58380d, 07274e8, a18313c)  
-**Lines Removed:** 150 (Type sizes) + 27 (D64) = 177 lines  
-**Pattern Established:** Template-based disk image refactoring for remaining 5,054 lines  
-**Test Status:** All 500+ tests passing  
+### Phase 1 Summary — COMPLETE ✅
+**Time:** ~48 hours (within 55-hour budget)  
+**Commits:** 4 major commits (a58380d, 07274e8, a18313c, 2480746)  
+**Lines Removed:** 150 (Type sizes) + 27 (D64) + 44 (D81) = **221 lines**  
+**BAMOperations:** Reusable helper (150 lines) unifies sector allocation logic  
+**Pattern Established:** For remaining 5,054 lines of disk image code  
+**Test Status:** All 500+ unit tests passing, zero regressions ✅  
 **Next:** Phase 2 (High-impact refactoring of CodeGenerator/IRBuilder)
 
 ---
@@ -286,17 +294,19 @@ Comprehensive analysis identified **8 major complexity areas** and **~8,000+ lin
 - [x] Updated simplify.md with findings
 - [x] Decision: Focus on real duplication (disk images Phase 1.3)
 
-### 1.3: Begin Disk Image Refactor (Parts A+B)
+### 1.3: Disk Image Refactor (Parts A, B, C COMPLETE)
 - [x] Design BAMOperations-based refactoring strategy (Part A)
 - [x] Create `include/BAMOperations.hpp` abstract base class
 - [x] Implement `D64BAMOperations` class (Part B)
+- [x] Implement `D81BAMOperations` class with dual-BAM support (Part C)
 - [x] Create `src/main/BAMOperations.cpp` (150 lines)
-- [x] Refactor D64Image to use BAMOperations
+- [x] Refactor D64Image to use BAMOperations (27 lines saved)
+- [x] Refactor D81Image to use BAMOperations (44 lines saved)
 - [x] Update Makefile to compile BAMOperations
 - [x] Test D64 refactoring (all 500+ tests pass)
-- [x] Commit changes (commit a18313c)
+- [x] Test D81 refactoring (all 500+ tests pass)
+- [x] Commit changes (commits a18313c, 2480746)
 - [x] Document BAMOperations pattern in simplify.md
-- [ ] Part C: Migrate D81Image to BAMOperations (ready for follow-up PR)
 - [ ] Remaining formats (D71, D80, D65, etc.) — follow same pattern in future PRs
 
 ---
