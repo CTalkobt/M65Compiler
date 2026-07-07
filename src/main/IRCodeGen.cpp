@@ -2589,6 +2589,10 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             uint32_t bufVregId = inst.args[0].vregId;
 
             // Step 1: Get address of buffer on stack into scratch $08/$09
+            if (vregOffset_.find(bufVregId) == vregOffset_.end()) {
+                throw std::runtime_error("TRAMPOLINE: buffer vreg " + std::to_string(bufVregId) +
+                    " not allocated on stack (vregOffset_ map has " + std::to_string(vregOffset_.size()) + " entries)");
+            }
             emit("leax.fp " + std::to_string(vregOffset_.at(bufVregId)));
             emit("sta $08");
             emit("stx $09");

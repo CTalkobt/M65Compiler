@@ -1517,8 +1517,19 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
         // rtn #0 optimizes to just RTS (1 byte); rtn #N is RTS + immediate (2 bytes)
         if (!instr.operand.empty()) {
             Symbol* sym = resolveSymbol(instr.operand, scopePrefix);
-            uint32_t v = sym ? sym->value : 0;
-            if (!sym) { try { v = std::stoul(instr.operand); } catch(...) { v = 0; } }
+            uint32_t v = 0;
+            if (sym) {
+                v = sym->value;
+            } else {
+                // Try parsing as numeric literal
+                try {
+                    v = std::stoul(instr.operand);
+                } catch (...) {
+                    addError("RTN instruction: undefined operand '" + instr.operand +
+                        "' (not a symbol or numeric literal)");
+                    return 2; // Conservative: assume non-zero operand
+                }
+            }
             if (v == 0) return 1;
         }
         return 2;

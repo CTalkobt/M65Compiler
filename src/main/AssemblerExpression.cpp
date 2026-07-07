@@ -359,13 +359,37 @@ void BinaryExpr::emit(M65Emitter& e, AssemblerParser* parser, int width, const s
 
 // ArrayIndexNode — computes base + sum(index[i] * stride[i]) and dereferences
 uint32_t ArrayIndexNode::getValue(AssemblerParser* parser) const {
-    if (!parser) return 0;
+    if (!parser) {
+        throw std::runtime_error("ArrayIndexNode::getValue: parser is null");
+    }
     auto* info = parser->getArrayInfo(arrayName);
     Symbol* sym = parser->resolveSymbol(arrayName, scopePrefix);
-    if (!info || !sym) return 0;
+    if (!info) {
+        throw std::runtime_error("ArrayIndexNode::getValue: array '" + arrayName + "' has no stride info");
+    }
+    if (!sym) {
+        throw std::runtime_error("ArrayIndexNode::getValue: array '" + arrayName + "' not resolved (scope '" + scopePrefix + "')");
+    }
     uint32_t addr = sym->value;
-    for (size_t i = 0; i < indices.size() && i < info->strides.size(); ++i)
-        addr += indices[i]->getValue(parser) * info->strides[i];
+    for (size_t i = 0; i < indices.size() && i < info->strides.size(); ++i) {
+        uint32_t indexVal = indices[i]->getValue(parser);
+        uint32_t stride = info->strides[i];
+
+        // Check for overflow in multiplication
+        if (stride > 0 && indexVal > UINT32_MAX / stride) {
+            throw std::runtime_error("ArrayIndexNode::getValue: overflow in index[" + std::to_string(i) +
+                "] * stride calculation: " + std::to_string(indexVal) + " * " + std::to_string(stride) +
+                " exceeds 32-bit maximum");
+        }
+        uint32_t offset = indexVal * stride;
+
+        // Check for overflow in addition
+        if (addr > UINT32_MAX - offset) {
+            throw std::runtime_error("ArrayIndexNode::getValue: overflow in address calculation: 0x" +
+                std::to_string(addr) + " + 0x" + std::to_string(offset) + " exceeds 32-bit maximum");
+        }
+        addr += offset;
+    }
     return addr; // returns the address, not the dereferenced value
 }
 
@@ -411,10 +435,17 @@ bool ArrayIndexNode::usesHardwareMath() const {
 }
 
 void ArrayIndexNode::emit(M65Emitter& e, AssemblerParser* parser, int width, const std::string& /*target*/) {
-    if (!parser) return;
+    if (!parser) {
+        throw std::runtime_error("ArrayIndexNode::emit: parser is null");
+    }
     auto* info = parser->getArrayInfo(arrayName);
     Symbol* sym = parser->resolveSymbol(arrayName, scopePrefix);
-    if (!info || !sym) return;
+    if (!info) {
+        throw std::runtime_error("ArrayIndexNode::emit: array '" + arrayName + "' has no stride info");
+    }
+    if (!sym) {
+        throw std::runtime_error("ArrayIndexNode::emit: array '" + arrayName + "' not resolved (scope '" + scopePrefix + "')");
+    }
 
     uint32_t base = sym->value;
 
@@ -426,8 +457,25 @@ void ArrayIndexNode::emit(M65Emitter& e, AssemblerParser* parser, int width, con
     // All-constant indices: load from computed address
     if (allConstant) {
         uint32_t addr = base;
-        for (size_t i = 0; i < indices.size() && i < info->strides.size(); ++i)
-            addr += indices[i]->getValue(parser) * info->strides[i];
+        for (size_t i = 0; i < indices.size() && i < info->strides.size(); ++i) {
+            uint32_t indexVal = indices[i]->getValue(parser);
+            uint32_t stride = info->strides[i];
+
+            // Check for overflow in multiplication
+            if (stride > 0 && indexVal > UINT32_MAX / stride) {
+                throw std::runtime_error("ArrayIndexNode::emit: overflow in index[" + std::to_string(i) +
+                    "] * stride calculation: " + std::to_string(indexVal) + " * " + std::to_string(stride) +
+                    " exceeds 32-bit maximum");
+            }
+            uint32_t offset = indexVal * stride;
+
+            // Check for overflow in addition
+            if (addr > UINT32_MAX - offset) {
+                throw std::runtime_error("ArrayIndexNode::emit: overflow in address calculation: 0x" +
+                    std::to_string(addr) + " + 0x" + std::to_string(offset) + " exceeds 32-bit maximum");
+            }
+            addr += offset;
+        }
         e.lda_abs(addr);
         if (width >= 16 && info->elementSize >= 2) e.ldx_abs(addr + 1);
         else if (width >= 16) e.ldx_imm(0);
@@ -438,12 +486,36 @@ void ArrayIndexNode::emit(M65Emitter& e, AssemblerParser* parser, int width, con
     // Count runtime (non-constant) index terms to optimize single-index case
     uint32_t constOffset = 0;
     int runtimeTermCount = 0;
-    for (size_t i = 0; i < indices.size() && i < info->strides.size(); ++i)
-        if (!indices[i]->isConstant(parser)) runtimeTermCount++;
-        else constOffset += indices[i]->getValue(parser) * info->strides[i];
+    for (size_t i = 0; i < indices.size() && i < info->strides.size(); ++i) {
+        if (!indices[i]->isConstant(parser)) {
+            runtimeTermCount++;
+        } else {
+            uint32_t indexVal = indices[i]->getValue(parser);
+            uint32_t stride = info->strides[i];
+
+            // Check for overflow in multiplication
+            if (stride > 0 && indexVal > UINT32_MAX / stride) {
+                throw std::runtime_error("ArrayIndexNode::emit: overflow in constant index[" + std::to_string(i) +
+                    "] * stride calculation: " + std::to_string(indexVal) + " * " + std::to_string(stride) +
+                    " exceeds 32-bit maximum");
+            }
+            uint32_t offset = indexVal * stride;
+
+            // Check for overflow in addition
+            if (constOffset > UINT32_MAX - offset) {
+                throw std::runtime_error("ArrayIndexNode::emit: overflow in constant offset accumulation: 0x" +
+                    std::to_string(constOffset) + " + 0x" + std::to_string(offset) + " exceeds 32-bit maximum");
+            }
+            constOffset += offset;
+        }
+    }
 
     if (runtimeTermCount == 0) {
         // All constant — shouldn't reach here but handle gracefully
+        if (base > UINT32_MAX - constOffset) {
+            throw std::runtime_error("ArrayIndexNode::emit: overflow in final address: 0x" +
+                std::to_string(base) + " + 0x" + std::to_string(constOffset) + " exceeds 32-bit maximum");
+        }
         uint32_t addr = base + constOffset;
         e.lda_abs(addr);
         if (width >= 16 && info->elementSize >= 2) e.ldx_abs(addr + 1);
@@ -459,6 +531,10 @@ void ArrayIndexNode::emit(M65Emitter& e, AssemblerParser* parser, int width, con
             if (indices[i]->isConstant(parser)) continue;
             uint32_t stride = info->strides[i];
             auto* regNode = dynamic_cast<RegisterNode*>(indices[i].get());
+            if (base > UINT32_MAX - constOffset) {
+                throw std::runtime_error("ArrayIndexNode::emit: overflow in base address: 0x" +
+                    std::to_string(base) + " + 0x" + std::to_string(constOffset) + " exceeds 32-bit maximum");
+            }
             uint16_t absBase = (uint16_t)(base + constOffset);
             if (regNode && stride == 1 && regNode->name == ".X") {
                 e.lda_abs_x(absBase);
