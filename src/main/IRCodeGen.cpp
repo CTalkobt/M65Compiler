@@ -2562,8 +2562,18 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     }
                 }
             } else {
-                loadOperand(inst.src1);
-                emitComment("TODO: store to non-vReg address");
+                // STORE to non-vReg address (direct memory write)
+                // This could be: STORE(value, global_addr) or STORE(value, imm_addr)
+                if (inst.dest.kind == ir::OperandKind::IMM) {
+                    throw std::runtime_error("IRCodeGen: STORE to immediate address 0x" +
+                        std::to_string(inst.dest.immVal) + " — not yet implemented (use pointer vregs)");
+                } else if (inst.dest.kind == ir::OperandKind::GLOBAL || inst.dest.kind == ir::OperandKind::LABEL) {
+                    throw std::runtime_error("IRCodeGen: STORE to '" + inst.dest.name +
+                        "' (global/label address) — not yet implemented (use pointer vregs)");
+                } else {
+                    throw std::runtime_error("IRCodeGen: STORE to non-vReg operand (kind=" +
+                        std::to_string((int)inst.dest.kind) + ") — not yet implemented (use pointer vregs)");
+                }
             }
             break;
         }

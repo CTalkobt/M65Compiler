@@ -127,13 +127,20 @@ bool AssemblerParser::isStackRelativeOperand(int tokenIndex, uint32_t& offset, c
     int idx = tokenIndex;
     try {
         auto ast = parseExprAST(tokens, idx, symbolTable, scopePrefix);
-        if (ast && idx + 1 < (int)tokens.size() && 
+        if (ast && idx + 1 < (int)tokens.size() &&
             tokens[idx].type == AssemblerTokenType::COMMA &&
             (tokens[idx+1].value == "sp" || tokens[idx+1].value == "SP")) {
-            try { offset = ast->getValue(this); } catch (...) { offset = 0; }
+            try {
+                offset = ast->getValue(this);
+            } catch (const std::exception& e) {
+                addError("isStackRelativeOperand: failed to evaluate offset expression: " + std::string(e.what()));
+                offset = 0;
+            }
             return true;
         }
-    } catch (...) {}
+    } catch (const std::exception& e) {
+        addError("isStackRelativeOperand: expression parsing failed: " + std::string(e.what()));
+    }
     return false;
 }
 
@@ -1551,7 +1558,10 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
     if (dir.name == "dword" || dir.name == "long") return (int)dir.arguments.size() * 4;
     if (dir.name == "float") return (int)dir.arguments.size() * 5;
     if (dir.name == "text" || dir.name == "ascii" || dir.name == "screencode") {
-        if (dir.arguments.empty()) return 0;
+        if (dir.arguments.empty()) {
+            addError("Directive ." + dir.name + " requires string argument");
+            return 0;
+        }
         int len = (int)dir.arguments[0].size();
         // Subtract 1 for encoding prefix (s/S/p/P) if present
         if (len > 1 && (dir.arguments[0][0] == 's' || dir.arguments[0][0] == 'S' ||
@@ -1560,34 +1570,73 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
         return len;
     }
     if (dir.name == "res") {
-        if (dir.arguments.empty()) return 0;
-        return (int)evaluateExpressionAt(dir.tokenIndex, "");
-    }
-    if (dir.name == "array") {
-        if (dir.arguments.empty()) return 0;
-        return (int)parseNumericLiteral(dir.arguments[0]);
-    }
-    if (dir.name == "align" || dir.name == "balign") {
-        if (dir.arguments.empty()) return 0;
-        uint32_t align = parseNumericLiteral(dir.arguments[0]);
-        if (align == 0) return 0;
-        return (align - (currentAddr % align)) % align;
-    }
-    if (dir.name == "fillto") {
-        if (dir.arguments.empty()) return 0;
-        uint32_t target = evaluateExpressionAt(dir.tokenIndex, "");
-        if (target < currentAddr) {
-            if (isPass1_) errors.push_back("Error: .fillto target address $" + std::to_string(target) + " is before current PC $" + std::to_string(currentAddr));
+        if (dir.arguments.empty()) {
+            addError("Directive .res requires size argument");
             return 0;
         }
-        return (int)(target - currentAddr);
+        try {
+            return (int)evaluateExpressionAt(dir.tokenIndex, "");
+        } catch (const std::exception& e) {
+            addError("Directive .res: failed to evaluate size: " + std::string(e.what()));
+            return 0;
+        }
+    }
+    if (dir.name == "array") {
+        if (dir.arguments.empty()) {
+            addError("Directive .array requires size argument");
+            return 0;
+        }
+        try {
+            return (int)parseNumericLiteral(dir.arguments[0]);
+        } catch (const std::exception& e) {
+            addError("Directive .array: failed to parse size: " + std::string(e.what()));
+            return 0;
+        }
+    }
+    if (dir.name == "align" || dir.name == "balign") {
+        if (dir.arguments.empty()) {
+            addError("Directive ." + dir.name + " requires alignment argument");
+            return 0;
+        }
+        try {
+            uint32_t align = parseNumericLiteral(dir.arguments[0]);
+            if (align == 0) {
+                addError("Directive ." + dir.name + ": alignment must be non-zero");
+                return 0;
+            }
+            return (align - (currentAddr % align)) % align;
+        } catch (const std::exception& e) {
+            addError("Directive ." + dir.name + ": failed to parse alignment: " + std::string(e.what()));
+            return 0;
+        }
+    }
+    if (dir.name == "fillto") {
+        if (dir.arguments.empty()) {
+            addError("Directive .fillto requires target address argument");
+            return 0;
+        }
+        try {
+            uint32_t target = evaluateExpressionAt(dir.tokenIndex, "");
+            if (target < currentAddr) {
+                addError("Directive .fillto: target address 0x" + std::to_string(target) +
+                    " is before current PC 0x" + std::to_string(currentAddr));
+                return 0;
+            }
+            return (int)(target - currentAddr);
+        } catch (const std::exception& e) {
+            addError("Directive .fillto: failed to evaluate target address: " + std::string(e.what()));
+            return 0;
+        }
     }
     if (dir.name == "import" || dir.name == "incbin") {
-        if (dir.arguments.empty()) return 0;
+        if (dir.arguments.empty()) {
+            addError("Directive ." + dir.name + " requires filename argument");
+            return 0;
+        }
         std::string filename;
         if (dir.name == "import") {
             if (dir.arguments.size() < 2 || dir.arguments[0] != "binary") {
-                if (isPass1_) errors.push_back("Error: .import requires 'binary' keyword: .import binary \"filename\"");
+                addError("Directive .import requires 'binary' keyword: .import binary \"filename\"");
                 return 0;
             }
             filename = dir.arguments[1];
@@ -1600,7 +1649,7 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
         }
         std::ifstream file(filename, std::ios::binary | std::ios::ate);
         if (!file) {
-            if (isPass1_) errors.push_back("Error: cannot open binary file '" + filename + "'");
+            addError("Directive ." + dir.name + ": cannot open file '" + filename + "'");
             return 0;
         }
         return (int)file.tellg();
