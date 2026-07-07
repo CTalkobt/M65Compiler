@@ -82,17 +82,40 @@ uint32_t VariableNode::getValue(AssemblerParser* parser) const {
     Symbol* sym = parser->resolveSymbol(name, scopePrefix);
     if (sym) return sym->value;
 
-    // Symbol not found — check if it's declared as extern
-    // Only emit error in later passes when all labels should be known
-    // TODO: Make this a hard error that aborts assembly. Currently it prints
-    // an error but continues with value 0, which silently produces corrupt
-    // binaries (e.g., __zp_scratch=0 causes writes to ZP $00 instead of $02,
-    // corrupting the 45GS02 base page register). The assembler should refuse
-    // to produce a .o45 when symbols are unresolved and not declared .extern.
-    if (parser && !parser->isPass1() && !parser->isExternSymbol(name)) {
-        std::cerr << "Error: undefined symbol '" << name << "' (did you forget .extern " << name << "?)\n";
+    // Symbol not found — this is a hard error
+    // Returning 0 silently produces corrupt binaries (e.g., @_p_val resolves to 0
+    // instead of 2, causing stack-relative loads to read from wrong offset).
+    // We must abort assembly for unresolved symbols.
+
+    if (parser) {
+        // Check if symbol is declared as extern (forward reference OK)
+        if (parser->isExternSymbol(name)) {
+            return 0; // OK for forward references in pass1
+        }
+
+        // Build a helpful error message showing what was looked up
+        std::string searchPath = scopePrefix + name;
+        std::string msg = "Error: undefined symbol '" + name + "'";
+        if (!scopePrefix.empty()) {
+            msg += " (searched as '" + searchPath + "')";
+        }
+
+        // Special case: if it's a parameter or local reference, suggest .var declaration
+        if (!name.empty() && (name[0] == '@' || name.find("__zp_") == 0)) {
+            msg += " — inline asm variable references require .var/@_p_/@_l_ declaration";
+        }
+
+        // Log error and abort
+        parser->addError(msg);
+
+        // In pass1, we can be lenient and return 0 for forward refs
+        if (parser->isPass1()) {
+            return 0;
+        }
     }
-    return 0; // fallback: treat as zero
+
+    // In later passes, undefined symbol is fatal
+    throw std::runtime_error("undefined symbol '" + name + "'");
 }
 bool VariableNode::isConstant(AssemblerParser* parser) const {
     Symbol* sym = parser->resolveSymbol(name, scopePrefix);
