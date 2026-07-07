@@ -2328,7 +2328,6 @@ void CodeGenerator::visit(Assignment& node) {
     // Check for const assignment
     ExpressionType targetType = getExprType(node.target.get());
     if (auto* ref = dynamic_cast<VariableReference*>(node.target.get())) {
-        // Direct variable assignment: check isConst for non-pointers, isPointerConst for pointers
         if (targetType.pointerLevel > 0) {
             if (targetType.isPointerConst) throw std::runtime_error("Compile Error: Assignment to read-only location '" + ref->name + "'");
         } else {
@@ -2339,45 +2338,17 @@ void CodeGenerator::visit(Assignment& node) {
     }
 
     if (node.op == "=") {
+        // CPU register assignment
         if (auto* cra = dynamic_cast<CpuRegisterAccess*>(node.target.get())) {
-            std::string reg = cra->regName;
-            std::transform(reg.begin(), reg.end(), reg.begin(), ::toupper);
-
-            // Optimization: Direct load for immediate values
-            if (auto* lit = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
-                uint32_t val = (uint32_t)lit->value;
-                if (reg == "A") emit("lda #$" + hex8((uint8_t)val));
-                else if (reg == "X") emit("ldx #$" + hex8((uint8_t)val));
-                else if (reg == "Y") emit("ldy #$" + hex8((uint8_t)val));
-                else if (reg == "Z") emit("ldz #$" + hex8((uint8_t)val));
-                else if (reg == "AX") emit("ldax #$" + hex16((uint16_t)val));
-                else if (reg == "AY") emit("lday #$" + hex16((uint16_t)val));
-                else if (reg == "AZ") emit("ldaz #$" + hex16((uint16_t)val));
-                else if (reg == "XY") emit("ldxy #$" + hex16((uint16_t)val));
-                else if (reg == "Q" || reg == "AXYZ") emit("ldq #$" + hex32(val));
-                else if (reg == "SP") { emit("ldy #$" + hex8((uint8_t)val)); emit("ldx #$" + hex8((uint8_t)(val >> 8))); emit("tys"); }
-                invalidateRegs();
-                return;
-            }
-
-            node.expression->accept(*this);
-            if (reg == "A") ;
-            else if (reg == "X") emit("tax");
-            else if (reg == "Y") emit("tay");
-            else if (reg == "Z") emit("taz");
-            else if (reg == "AX") ;
-            else if (reg == "AY") { emit("phx"); emit("ply"); }
-            else if (reg == "AZ") { emit("phx"); emit("plz"); }
-            else if (reg == "XY") { emit("tax"); emit("phx"); emit("ply"); emit("plx"); }
-            else if (reg == "SP") { emit("phx"); emit("ply"); emit("tys"); }
-            invalidateRegs();
+            assignToCpuRegister(node, cra);
             return;
         }
+
+        // CPU flag assignment
         if (auto* cfa = dynamic_cast<CpuFlagAccess*>(node.target.get())) {
             std::string flag = cfa->flagName;
             std::transform(flag.begin(), flag.end(), flag.begin(), ::toupper);
 
-            // Optimization: Direct SEC/CLC for immediate values
             if (auto* lit = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
                 int val = lit->value;
                 if (flag == "CARRY") { emit(val ? "sec" : "clc"); invalidateRegs(); return; }
@@ -2412,6 +2383,7 @@ void CodeGenerator::visit(Assignment& node) {
         }
     }
 
+    // Compound assignment (+=, -=, etc.)
     if (node.op != "=") {
         // ZP calling convention: compound assignment on ZP params
         if (auto* ref = dynamic_cast<VariableReference*>(node.target.get())) {
@@ -2508,273 +2480,154 @@ void CodeGenerator::visit(Assignment& node) {
         return;
     }
 
+    // Simple assignment to variable targets
     if (auto* ref = dynamic_cast<VariableReference*>(node.target.get())) {
         std::string rName = resolveVarName(ref->name);
-        ASTNode* refNode = ref;  // Use ref for line info (more accurate than Assignment node)
 
-        // ZP calling convention: spilled params (address-taken) live in frame
         if (isZpSpilledParam(rName)) {
-            VarInfo vi = variableTypes.at(rName);
-            auto& sp = zpSpilledParams_[rName];
-            std::string off = std::to_string(sp.frameOffset);
-            bool is32 = is32BitType(vi.type) && vi.pointerLevel == 0;
-            bool is16 = !is32 && (vi.pointerLevel > 0 || vi.type == "int");
-
-            // Literal assignment
-            if (auto* lit = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
-                uint32_t uval = (uint32_t)lit->value;
-                if (is32) {
-                    emitter->lda_imm(uval & 0xFF); emit("sta.fp " + off);
-                    emitter->lda_imm((uval >> 8) & 0xFF); emit("sta.fp " + getLocalOffsetSymbol(sp.frameOffset + 1));
-                    emitter->lda_imm((uval >> 16) & 0xFF); emit("sta.fp " + getLocalOffsetSymbol(sp.frameOffset + 2));
-                    emitter->lda_imm((uval >> 24) & 0xFF); emit("sta.fp " + getLocalOffsetSymbol(sp.frameOffset + 3));
-                } else if (is16) {
-                    emitter->lda_imm(uval & 0xFF); emit("sta.fp " + off);
-                    emitter->lda_imm((uval >> 8) & 0xFF); emit("sta.fp " + getLocalOffsetSymbol(sp.frameOffset + 1));
-                } else {
-                    uint8_t val = uval & 0xFF;
-                    if (vi.type == "_Bool") val = (val != 0) ? 1 : 0;
-                    emitter->lda_imm(val); emit("sta.fp " + off);
-                }
-                invalidateRegs();
-                return;
-            }
-
-            // General expression assignment
-            bool oldNeeded = resultNeeded;
-            resultNeeded = true;
-            node.expression->accept(*this);
-            resultNeeded = oldNeeded;
-
-            if (vi.type == "_Bool" && vi.pointerLevel == 0) {
-                ExpressionType srcType = getExprType(node.expression.get());
-                int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
-                emitBoolNormalize(srcSize);
-            }
-
-            if (is32) {
-                // AXYZ → frame: stax.fp stores A,X; then Y,Z via save/restore
-                emit("stax.fp " + off);
-                emit("pha"); emit("tya"); emit("sta.fp " + getLocalOffsetSymbol(sp.frameOffset + 2));
-                emit("tza"); emit("sta.fp " + getLocalOffsetSymbol(sp.frameOffset + 3)); emit("pla");
-            } else if (is16) {
-                emit("stax.fp " + off);
-            } else {
-                emit("sta.fp " + off);
-            }
-            invalidateRegs();
+            assignToZpSpilledParam(node, ref, rName);
             return;
         }
 
-        // ZP calling convention: params live in zero page
         if (isZpParam(rName)) {
-            VarInfo vi = variableTypes.at(rName);
-            auto& zpi = zpParams_[rName];
-            std::string zpAddr = zpHex(zpi.zpAddr);
-            bool is32 = is32BitType(vi.type) && vi.pointerLevel == 0;
-            bool is16 = !is32 && (vi.pointerLevel > 0 || vi.type == "int");
-
-            // Optimization: x = x;
-            if (auto* rhsRef = dynamic_cast<VariableReference*>(node.expression.get())) {
-                if (resolveVarName(rhsRef->name) == rName && !vi.isVolatile) {
-                    if (resultNeeded) node.target->accept(*this);
-                    return;
-                }
-            }
-
-            // inc/dec optimization for x = x + 1 / x = x - 1
-            if (!is32) {
-                if (auto* bin = dynamic_cast<BinaryOperation*>(node.expression.get())) {
-                    if (bin->op == "+" || bin->op == "-") {
-                        if (auto* leftRef = dynamic_cast<VariableReference*>(bin->left.get())) {
-                            if (auto* rightLit = dynamic_cast<IntegerLiteral*>(bin->right.get())) {
-                                if (resolveVarName(leftRef->name) == rName && rightLit->value == 1) {
-                                    if (bin->op == "+") {
-                                        if (is16) emit("inw " + zpAddr);
-                                        else emit("inc " + zpAddr);
-                                    } else {
-                                        if (is16) emit("dew " + zpAddr);
-                                        else emit("dec " + zpAddr);
-                                    }
-                                    invalidateRegs();
-                                    if (resultNeeded) ref->accept(*this);
-                                    return;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Literal assignment
-            if (auto* lit = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
-                uint32_t uval = (uint32_t)lit->value;
-                if (is32) {
-                    emitter->lda_imm(uval & 0xFF); emit("sta " + zpAddr);
-                    emitter->lda_imm((uval >> 8) & 0xFF); emit("sta " + zpAddr + "+1");
-                    emitter->lda_imm((uval >> 16) & 0xFF); emit("sta " + zpAddr + "+2");
-                    emitter->lda_imm((uval >> 24) & 0xFF); emit("sta " + zpAddr + "+3");
-                } else if (is16) {
-                    emitter->lda_imm(uval & 0xFF); emit("sta " + zpAddr);
-                    emitter->lda_imm((uval >> 8) & 0xFF); emit("sta " + zpAddr + "+1");
-                } else {
-                    uint8_t val = uval & 0xFF;
-                    if (vi.type == "_Bool") val = (val != 0) ? 1 : 0;
-                    emitter->lda_imm(val); emit("sta " + zpAddr);
-                }
-                invalidateRegs();
-                return;
-            }
-
-            // General expression assignment
-            bool oldNeeded = resultNeeded;
-            resultNeeded = true;
-            node.expression->accept(*this);
-            resultNeeded = oldNeeded;
-
-            if (vi.type == "_Bool" && vi.pointerLevel == 0) {
-                ExpressionType srcType = getExprType(node.expression.get());
-                int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
-                emitBoolNormalize(srcSize);
-            }
-
-            if (is32) {
-                emit("sta " + zpAddr); emit("stx " + zpAddr + "+1");
-                emit("pha"); emit("tya"); emit("sta " + zpAddr + "+2");
-                emit("tza"); emit("sta " + zpAddr + "+3"); emit("pla");
-            } else {
-                emit("sta " + zpAddr);
-                if (is16) emit("stx " + zpAddr + "+1");
-            }
-            invalidateRegs();
+            assignToZpParam(node, ref, rName);
             return;
         }
 
-        // Register variable: use direct ZP addressing
         if (registerVars.count(rName)) {
-            VarInfo vi = variableTypes.at(rName);
-            auto& rv = registerVars[rName];
-            std::stringstream ssZP;
-            ssZP << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(rv.zpIndex);
-            std::string zpAddr = ssZP.str();
-            bool is16 = (vi.pointerLevel > 0 || vi.type == "int");
-
-            // Optimization: x = x;
-            if (auto* rhsRef = dynamic_cast<VariableReference*>(node.expression.get())) {
-                if (resolveVarName(rhsRef->name) == rName && !vi.isVolatile) {
-                    if (resultNeeded) node.target->accept(*this);
-                    return;
-                }
-            }
-
-            // inc/dec optimization for x = x + 1 / x = x - 1
-            if (auto* bin = dynamic_cast<BinaryOperation*>(node.expression.get())) {
-                if (bin->op == "+" || bin->op == "-") {
-                    if (auto* leftRef = dynamic_cast<VariableReference*>(bin->left.get())) {
-                        if (auto* rightLit = dynamic_cast<IntegerLiteral*>(bin->right.get())) {
-                            if (resolveVarName(leftRef->name) == rName && rightLit->value == 1) {
-                                // inw/dew work for base-page addresses
-                                if (bin->op == "+") {
-                                    if (is16) emit("inw " + zpAddr);
-                                    else emit("inc " + zpAddr);
-                                } else {
-                                    if (is16) emit("dew " + zpAddr);
-                                    else emit("dec " + zpAddr);
-                                }
-                                invalidateRegs();
-                                if (resultNeeded) ref->accept(*this);
-                                return;
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Literal assignment
-            if (auto* lit = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
-                if (is16) {
-                    emitter->lda_imm(lit->value & 0xFF);
-                    emit("sta " + zpAddr);
-                    emitter->lda_imm((lit->value >> 8) & 0xFF);
-                    emit("sta " + zpAddr + "+1");
-                } else {
-                    uint8_t val = lit->value & 0xFF;
-                    if (vi.type == "_Bool") val = (val != 0) ? 1 : 0;
-                    emitter->lda_imm(val);
-                    emit("sta " + zpAddr);
-                }
-                invalidateRegs();
-                return;
-            }
-
-            // General expression assignment
-            bool oldNeeded = resultNeeded;
-            resultNeeded = true;
-            node.expression->accept(*this);
-            resultNeeded = oldNeeded;
-
-            if (vi.type == "_Bool" && vi.pointerLevel == 0) {
-                ExpressionType srcType = getExprType(node.expression.get());
-                int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
-                emitBoolNormalize(srcSize);
-            }
-
-            emit("sta " + zpAddr);
-            if (is16) emit("stx " + zpAddr + "+1");
-            invalidateRegs();
+            assignToRegisterVar(node, ref, rName);
             return;
         }
 
-        bool isGlobal = globalVariableTypes.count(rName);
-        std::string suffix = isGlobal ? "" : ", s";
+        assignToStackOrGlobalVar(node, ref, rName);
+        return;
+    }
 
-        // Optimization: x = x;
-        if (auto* rhsRef = dynamic_cast<VariableReference*>(node.expression.get())) {
-            if (resolveVarName(rhsRef->name) == rName) {
-                VarInfo vi = lookupVar(rName, refNode);
-                if (!vi.isVolatile) {
-                    if (resultNeeded) node.target->accept(*this);
-                    return;
-                }
-            }
+    // Direct member access (struct.member = x)
+    if (auto* ma = dynamic_cast<MemberAccess*>(node.target.get())) {
+        if (!ma->isArrow) {
+            assignToDirectMember(node, ma);
+            return;
         }
+    }
 
+    // Indirect/pointer assignment and bitfields
+    assignToIndirectOrBitfield(node);
+}
+
+void CodeGenerator::assignToCpuRegister(Assignment& node, CpuRegisterAccess* cra) {
+    std::string reg = cra->regName;
+    std::transform(reg.begin(), reg.end(), reg.begin(), ::toupper);
+
+    // Optimization: Direct load for immediate values
+    if (auto* lit = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
+        uint32_t val = (uint32_t)lit->value;
+        if (reg == "A") emit("lda #$" + hex8((uint8_t)val));
+        else if (reg == "X") emit("ldx #$" + hex8((uint8_t)val));
+        else if (reg == "Y") emit("ldy #$" + hex8((uint8_t)val));
+        else if (reg == "Z") emit("ldz #$" + hex8((uint8_t)val));
+        else if (reg == "AX") emit("ldax #$" + hex16((uint16_t)val));
+        else if (reg == "AY") emit("lday #$" + hex16((uint16_t)val));
+        else if (reg == "AZ") emit("ldaz #$" + hex16((uint16_t)val));
+        else if (reg == "XY") emit("ldxy #$" + hex16((uint16_t)val));
+        else if (reg == "Q" || reg == "AXYZ") emit("ldq #$" + hex32(val));
+        else if (reg == "SP") { emit("ldy #$" + hex8((uint8_t)val)); emit("ldx #$" + hex8((uint8_t)(val >> 8))); emit("tys"); }
+        invalidateRegs();
+        return;
+    }
+
+    node.expression->accept(*this);
+    if (reg == "A") ;
+    else if (reg == "X") emit("tax");
+    else if (reg == "Y") emit("tay");
+    else if (reg == "Z") emit("taz");
+    else if (reg == "AX") ;
+    else if (reg == "AY") { emit("phx"); emit("ply"); }
+    else if (reg == "AZ") { emit("phx"); emit("plz"); }
+    else if (reg == "XY") { emit("tax"); emit("phx"); emit("ply"); emit("plx"); }
+    else if (reg == "SP") { emit("phx"); emit("ply"); emit("tys"); }
+    invalidateRegs();
+}
+
+void CodeGenerator::assignToZpSpilledParam(Assignment& node, VariableReference* ref, const std::string& rName) {
+    VarInfo vi = variableTypes.at(rName);
+    auto& sp = zpSpilledParams_[rName];
+    std::string off = std::to_string(sp.frameOffset);
+    bool is32 = is32BitType(vi.type) && vi.pointerLevel == 0;
+    bool is16 = !is32 && (vi.pointerLevel > 0 || vi.type == "int");
+
+    // Literal assignment
+    if (auto* lit = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
+        uint32_t uval = (uint32_t)lit->value;
+        if (is32) {
+            emitter->lda_imm(uval & 0xFF); emit("sta.fp " + off);
+            emitter->lda_imm((uval >> 8) & 0xFF); emit("sta.fp " + getLocalOffsetSymbol(sp.frameOffset + 1));
+            emitter->lda_imm((uval >> 16) & 0xFF); emit("sta.fp " + getLocalOffsetSymbol(sp.frameOffset + 2));
+            emitter->lda_imm((uval >> 24) & 0xFF); emit("sta.fp " + getLocalOffsetSymbol(sp.frameOffset + 3));
+        } else if (is16) {
+            emitter->lda_imm(uval & 0xFF); emit("sta.fp " + off);
+            emitter->lda_imm((uval >> 8) & 0xFF); emit("sta.fp " + getLocalOffsetSymbol(sp.frameOffset + 1));
+        } else {
+            uint8_t val = uval & 0xFF;
+            if (vi.type == "_Bool") val = (val != 0) ? 1 : 0;
+            emitter->lda_imm(val); emit("sta.fp " + off);
+        }
+        invalidateRegs();
+        return;
+    }
+
+    // General expression assignment
+    bool oldNeeded = resultNeeded;
+    resultNeeded = true;
+    node.expression->accept(*this);
+    resultNeeded = oldNeeded;
+
+    if (vi.type == "_Bool" && vi.pointerLevel == 0) {
+        ExpressionType srcType = getExprType(node.expression.get());
+        int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
+        emitBoolNormalize(srcSize);
+    }
+
+    if (is32) {
+        emit("stax.fp " + off);
+        emit("pha"); emit("tya"); emit("sta.fp " + getLocalOffsetSymbol(sp.frameOffset + 2));
+        emit("tza"); emit("sta.fp " + getLocalOffsetSymbol(sp.frameOffset + 3)); emit("pla");
+    } else if (is16) {
+        emit("stax.fp " + off);
+    } else {
+        emit("sta.fp " + off);
+    }
+    invalidateRegs();
+}
+
+void CodeGenerator::assignToZpParam(Assignment& node, VariableReference* ref, const std::string& rName) {
+    VarInfo vi = variableTypes.at(rName);
+    auto& zpi = zpParams_[rName];
+    std::string zpAddr = zpHex(zpi.zpAddr);
+    bool is32 = is32BitType(vi.type) && vi.pointerLevel == 0;
+    bool is16 = !is32 && (vi.pointerLevel > 0 || vi.type == "int");
+
+    // Optimization: x = x;
+    if (auto* rhsRef = dynamic_cast<VariableReference*>(node.expression.get())) {
+        if (resolveVarName(rhsRef->name) == rName && !vi.isVolatile) {
+            if (resultNeeded) node.target->accept(*this);
+            return;
+        }
+    }
+
+    // inc/dec optimization for x = x + 1 / x = x - 1
+    if (!is32) {
         if (auto* bin = dynamic_cast<BinaryOperation*>(node.expression.get())) {
             if (bin->op == "+" || bin->op == "-") {
                 if (auto* leftRef = dynamic_cast<VariableReference*>(bin->left.get())) {
                     if (auto* rightLit = dynamic_cast<IntegerLiteral*>(bin->right.get())) {
                         if (resolveVarName(leftRef->name) == rName && rightLit->value == 1) {
-                            VarInfo vi = lookupVar(rName, refNode);
-                            bool is16 = (vi.pointerLevel > 0 || vi.type == "int");
-                            if (isStruct(vi.type)) {
-                                std::string sName = getAggregateName(vi.type);
-                                if (structs.count(sName) && structs[sName]->totalSize > 1) is16 = true;
-                            }
-                            if (!isGlobal) {
-                                // inw/dew work for base-page and stack-relative
-                                if (bin->op == "+") {
-                                    if (is16) emit("inw " + rName + suffix);
-                                    else emit("inc " + rName + suffix);
-                                } else {
-                                    if (is16) emit("dew " + rName + suffix);
-                                    else emit("dec " + rName + suffix);
-                                }
-                            } else if (!is16) {
-                                // 8-bit: inc/dec support absolute addressing
-                                if (bin->op == "+") emit("inc " + rName);
-                                else emit("dec " + rName);
+                            if (bin->op == "+") {
+                                if (is16) emit("inw " + zpAddr);
+                                else emit("inc " + zpAddr);
                             } else {
-                                // 16-bit global: inw/dew only support base-page; use inc/dec absolute
-                                if (bin->op == "+") {
-                                    emit("inc " + rName);
-                                    emit("bne *+5");
-                                    emit("inc " + rName + "+1");
-                                } else {
-                                    emit("lda " + rName);
-                                    emit("bne *+5");
-                                    emit("dec " + rName + "+1");
-                                    emit("dec " + rName);
-                                }
+                                if (is16) emit("dew " + zpAddr);
+                                else emit("dec " + zpAddr);
                             }
                             invalidateRegs();
                             if (resultNeeded) ref->accept(*this);
@@ -2784,90 +2637,185 @@ void CodeGenerator::visit(Assignment& node) {
                 }
             }
         }
+    }
 
-        if (auto* lit = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
-            VarInfo vi = lookupVar(rName, refNode);
-            bool is32 = is32BitType(vi.type) && vi.pointerLevel == 0;
-            bool is16 = !is32 && (vi.pointerLevel > 0 || vi.type == "int");
-            if (!is32 && isStruct(vi.type)) {
-                std::string sName = getAggregateName(vi.type);
-                if (structs.count(sName) && structs[sName]->totalSize > 1) is16 = true;
-            }
-            if (is32) {
-                // Store 32-bit literal
-                uint32_t val = (uint32_t)lit->value;
-                if (isGlobal) {
-                    std::stringstream ssLo, ssHi;
-                    ssLo << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (val & 0xFFFF);
-                    ssHi << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << ((val >> 16) & 0xFFFF);
-                    emit("stw " + ssLo.str() + ", " + rName);
-                    emit("stw " + ssHi.str() + ", " + rName + "+2");
-                } else {
-                    std::stringstream ssLo, ssHi;
-                    ssLo << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (val & 0xFFFF);
-                    ssHi << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << ((val >> 16) & 0xFFFF);
-                    emit("stw.sp " + ssLo.str() + ", " + rName);
-                    emit("stw.sp " + ssHi.str() + ", " + rName + "+2");
-                }
-                invalidateRegs();
-            } else if (is16) {
-                std::stringstream ss;
-                ss << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (uint16_t)(int16_t)lit->value;
-                if (isGlobal) {
-                    emit("stw " + ss.str() + ", " + rName);
-                    invalidateRegs(); // stw to global clobbers A
-                } else {
-                    emit("stw.sp " + ss.str() + ", " + rName);
-                    invalidateRegs(); // stw.sp clobbers A
-                }
-            } else {
-                uint8_t val = lit->value & 0xFF;
-                if (vi.type == "_Bool") val = (val != 0) ? 1 : 0;
-                if (!regA.known || (regA.isVariable && regA.varName != rName) || (!regA.isVariable && regA.value != val)) {
-                    emitter->lda_imm(val);
-                }
-                if (isGlobal) emit("sta " + rName);
-                else emit("sta.sp " + rName);
-                updateRegAVar(rName, 0); regA.value = val;
-            }
+    // Literal assignment
+    if (auto* lit = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
+        uint32_t uval = (uint32_t)lit->value;
+        if (is32) {
+            emitter->lda_imm(uval & 0xFF); emit("sta " + zpAddr);
+            emitter->lda_imm((uval >> 8) & 0xFF); emit("sta " + zpAddr + "+1");
+            emitter->lda_imm((uval >> 16) & 0xFF); emit("sta " + zpAddr + "+2");
+            emitter->lda_imm((uval >> 24) & 0xFF); emit("sta " + zpAddr + "+3");
+        } else if (is16) {
+            emitter->lda_imm(uval & 0xFF); emit("sta " + zpAddr);
+            emitter->lda_imm((uval >> 8) & 0xFF); emit("sta " + zpAddr + "+1");
+        } else {
+            uint8_t val = uval & 0xFF;
+            if (vi.type == "_Bool") val = (val != 0) ? 1 : 0;
+            emitter->lda_imm(val); emit("sta " + zpAddr);
+        }
+        invalidateRegs();
+        return;
+    }
+
+    // General expression assignment
+    bool oldNeeded = resultNeeded;
+    resultNeeded = true;
+    node.expression->accept(*this);
+    resultNeeded = oldNeeded;
+
+    if (vi.type == "_Bool" && vi.pointerLevel == 0) {
+        ExpressionType srcType = getExprType(node.expression.get());
+        int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
+        emitBoolNormalize(srcSize);
+    }
+
+    if (is32) {
+        emit("sta " + zpAddr); emit("stx " + zpAddr + "+1");
+        emit("pha"); emit("tya"); emit("sta " + zpAddr + "+2");
+        emit("tza"); emit("sta " + zpAddr + "+3"); emit("pla");
+    } else {
+        emit("sta " + zpAddr);
+        if (is16) emit("stx " + zpAddr + "+1");
+    }
+    invalidateRegs();
+}
+
+void CodeGenerator::assignToRegisterVar(Assignment& node, VariableReference* ref, const std::string& rName) {
+    VarInfo vi = variableTypes.at(rName);
+    auto& rv = registerVars[rName];
+    std::stringstream ssZP;
+    ssZP << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(rv.zpIndex);
+    std::string zpAddr = ssZP.str();
+    bool is16 = (vi.pointerLevel > 0 || vi.type == "int");
+
+    // Optimization: x = x;
+    if (auto* rhsRef = dynamic_cast<VariableReference*>(node.expression.get())) {
+        if (resolveVarName(rhsRef->name) == rName && !vi.isVolatile) {
+            if (resultNeeded) node.target->accept(*this);
             return;
         }
+    }
 
-        VarInfo vi = lookupVar(rName, refNode);
-        if (isStruct(vi.type)) {
-            std::string sName = getAggregateName(vi.type);
-            if (structs.count(sName)) {
-                int structSize = structs[sName]->totalSize;
-                if (structSize >= 9) {
-                    if (auto* sourceRef = dynamic_cast<VariableReference*>(node.expression.get())) {
-                        std::string srcName = resolveVarName(sourceRef->name);
-                        bool sourceGlobal = globalVariableTypes.count(srcName);
-
-                        std::stringstream ssX, ssY;
-                        ssX << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (structSize & 0xFF);
-                        ssY << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << ((structSize >> 8) & 0xFF);
-                        emit("ldx #$" + ssX.str());
-                        emit("ldy #$" + ssY.str());
-                        emit("MOVE " + srcName + (sourceGlobal ? "" : ", s") + ", " + rName + (isGlobal ? "" : ", s"));
-                        invalidateVar(rName);
+    // inc/dec optimization for x = x + 1 / x = x - 1
+    if (auto* bin = dynamic_cast<BinaryOperation*>(node.expression.get())) {
+        if (bin->op == "+" || bin->op == "-") {
+            if (auto* leftRef = dynamic_cast<VariableReference*>(bin->left.get())) {
+                if (auto* rightLit = dynamic_cast<IntegerLiteral*>(bin->right.get())) {
+                    if (resolveVarName(leftRef->name) == rName && rightLit->value == 1) {
+                        // inw/dew work for base-page addresses
+                        if (bin->op == "+") {
+                            if (is16) emit("inw " + zpAddr);
+                            else emit("inc " + zpAddr);
+                        } else {
+                            if (is16) emit("dew " + zpAddr);
+                            else emit("dec " + zpAddr);
+                        }
+                        invalidateRegs();
+                        if (resultNeeded) ref->accept(*this);
                         return;
                     }
                 }
             }
         }
+    }
 
-        bool oldNeeded = resultNeeded;
-        resultNeeded = true;
-        node.expression->accept(*this);
-        resultNeeded = oldNeeded;
-
-        // _Bool normalization: any non-zero value becomes 1
-        if (vi.type == "_Bool" && vi.pointerLevel == 0) {
-            ExpressionType srcType = getExprType(node.expression.get());
-            int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
-            emitBoolNormalize(srcSize);
+    // Literal assignment
+    if (auto* lit = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
+        if (is16) {
+            emitter->lda_imm(lit->value & 0xFF);
+            emit("sta " + zpAddr);
+            emitter->lda_imm((lit->value >> 8) & 0xFF);
+            emit("sta " + zpAddr + "+1");
+        } else {
+            uint8_t val = lit->value & 0xFF;
+            if (vi.type == "_Bool") val = (val != 0) ? 1 : 0;
+            emitter->lda_imm(val);
+            emit("sta " + zpAddr);
         }
+        invalidateRegs();
+        return;
+    }
 
+    // General expression assignment
+    bool oldNeeded = resultNeeded;
+    resultNeeded = true;
+    node.expression->accept(*this);
+    resultNeeded = oldNeeded;
+
+    if (vi.type == "_Bool" && vi.pointerLevel == 0) {
+        ExpressionType srcType = getExprType(node.expression.get());
+        int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
+        emitBoolNormalize(srcSize);
+    }
+
+    emit("sta " + zpAddr);
+    if (is16) emit("stx " + zpAddr + "+1");
+    invalidateRegs();
+}
+
+void CodeGenerator::assignToStackOrGlobalVar(Assignment& node, VariableReference* ref, const std::string& rName) {
+    bool isGlobal = globalVariableTypes.count(rName);
+    std::string suffix = isGlobal ? "" : ", s";
+    ASTNode* refNode = ref;
+
+    // Optimization: x = x;
+    if (auto* rhsRef = dynamic_cast<VariableReference*>(node.expression.get())) {
+        if (resolveVarName(rhsRef->name) == rName) {
+            VarInfo vi = lookupVar(rName, refNode);
+            if (!vi.isVolatile) {
+                if (resultNeeded) node.target->accept(*this);
+                return;
+            }
+        }
+    }
+
+    if (auto* bin = dynamic_cast<BinaryOperation*>(node.expression.get())) {
+        if (bin->op == "+" || bin->op == "-") {
+            if (auto* leftRef = dynamic_cast<VariableReference*>(bin->left.get())) {
+                if (auto* rightLit = dynamic_cast<IntegerLiteral*>(bin->right.get())) {
+                    if (resolveVarName(leftRef->name) == rName && rightLit->value == 1) {
+                        VarInfo vi = lookupVar(rName, refNode);
+                        bool is16 = (vi.pointerLevel > 0 || vi.type == "int");
+                        if (isStruct(vi.type)) {
+                            std::string sName = getAggregateName(vi.type);
+                            if (structs.count(sName) && structs[sName]->totalSize > 1) is16 = true;
+                        }
+                        if (!isGlobal) {
+                            if (bin->op == "+") {
+                                if (is16) emit("inw " + rName + suffix);
+                                else emit("inc " + rName + suffix);
+                            } else {
+                                if (is16) emit("dew " + rName + suffix);
+                                else emit("dec " + rName + suffix);
+                            }
+                        } else if (!is16) {
+                            if (bin->op == "+") emit("inc " + rName);
+                            else emit("dec " + rName);
+                        } else {
+                            if (bin->op == "+") {
+                                emit("inc " + rName);
+                                emit("bne *+5");
+                                emit("inc " + rName + "+1");
+                            } else {
+                                emit("lda " + rName);
+                                emit("bne *+5");
+                                emit("dec " + rName + "+1");
+                                emit("dec " + rName);
+                            }
+                        }
+                        invalidateRegs();
+                        if (resultNeeded) ref->accept(*this);
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    if (auto* lit = dynamic_cast<IntegerLiteral*>(node.expression.get())) {
+        VarInfo vi = lookupVar(rName, refNode);
         bool is32 = is32BitType(vi.type) && vi.pointerLevel == 0;
         bool is16 = !is32 && (vi.pointerLevel > 0 || vi.type == "int");
         if (!is32 && isStruct(vi.type)) {
@@ -2875,95 +2823,173 @@ void CodeGenerator::visit(Assignment& node) {
             if (structs.count(sName) && structs[sName]->totalSize > 1) is16 = true;
         }
         if (is32) {
-            // Store AXYZ to 32-bit variable
+            uint32_t val = (uint32_t)lit->value;
             if (isGlobal) {
-                emit("stq " + rName);
+                std::stringstream ssLo, ssHi;
+                ssLo << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (val & 0xFFFF);
+                ssHi << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << ((val >> 16) & 0xFFFF);
+                emit("stw " + ssLo.str() + ", " + rName);
+                emit("stw " + ssHi.str() + ", " + rName + "+2");
             } else {
-                emit("sta.sp " + rName);
-                emit("pha"); emit("txa"); emit("sta.sp " + rName + "+1"); emit("pla");
-                emit("pha"); emit("tya"); emit("sta.sp " + rName + "+2"); emit("pla");
-                emit("pha"); emit("tza"); emit("sta.sp " + rName + "+3"); emit("pla");
+                std::stringstream ssLo, ssHi;
+                ssLo << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (val & 0xFFFF);
+                ssHi << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << ((val >> 16) & 0xFFFF);
+                emit("stw.sp " + ssLo.str() + ", " + rName);
+                emit("stw.sp " + ssHi.str() + ", " + rName + "+2");
             }
             invalidateRegs();
         } else if (is16) {
-            bool lowCorrect = (regA.known && regA.isVariable && regA.varName == rName && regA.varOffset == 0);
-            bool highCorrect = (regX.known && regX.isVariable && regX.varName == rName && regX.varOffset == 1);
-            if (vi.isVolatile) { lowCorrect = false; highCorrect = false; }
-
-            if (lowCorrect && highCorrect) {
-                // Redundant store
-            } else if (lowCorrect) {
-                if (isGlobal) emit("stx " + rName + "+1");
-                else emit("stx.sp " + rName + "+1");
-            } else if (highCorrect) {
-                if (isGlobal) emit("sta " + rName);
-                else emit("sta.sp " + rName);
+            std::stringstream ss;
+            ss << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (uint16_t)(int16_t)lit->value;
+            if (isGlobal) {
+                emit("stw " + ss.str() + ", " + rName);
+                invalidateRegs();
             } else {
-                emit("stax " + rName + suffix);
+                emit("stw.sp " + ss.str() + ", " + rName);
+                invalidateRegs();
             }
-            if (vi.isVolatile || !isGlobal) invalidateRegs();
-            else { updateRegAVar(rName, 0); updateRegXVar(rName, 1); }
         } else {
-            bool lowCorrect = (regA.known && regA.isVariable && regA.varName == rName && regA.varOffset == 0);
-            if (vi.isVolatile) lowCorrect = false;
-
-            if (lowCorrect) {
-                // Redundant store
-            } else {
-                if (isGlobal) emit("sta " + rName);
-                else emit("sta.sp " + rName);
+            uint8_t val = lit->value & 0xFF;
+            if (vi.type == "_Bool") val = (val != 0) ? 1 : 0;
+            if (!regA.known || (regA.isVariable && regA.varName != rName) || (!regA.isVariable && regA.value != val)) {
+                emitter->lda_imm(val);
             }
-            if (vi.isVolatile || !isGlobal) invalidateRegs();
-            else updateRegAVar(rName, 0);
+            if (isGlobal) emit("sta " + rName);
+            else emit("sta.sp " + rName);
+            updateRegAVar(rName, 0); regA.value = val;
         }
         return;
-    } else if (auto* ma = dynamic_cast<MemberAccess*>(node.target.get())) {
-        if (!ma->isArrow) {
-            if (auto* ref = dynamic_cast<VariableReference*>(ma->structExpr.get())) {
-                std::string rName = resolveVarName(ref->name);
-                bool isGlobal = globalVariableTypes.count(rName);
-                std::string suffix = isGlobal ? "" : ", s";
+    }
 
-                ExpressionType baseType = getExprType(ref);
-                if (!isStruct(baseType.type)) {
-                    if (globalVariableTypes.count("_" + ref->name)) {
-                        baseType = {globalVariableTypes.at("_" + ref->name).type, globalVariableTypes.at("_" + ref->name).pointerLevel};
-                    }
-                }
-                if (isStruct(baseType.type)) {
-                    std::string sName = getAggregateName(baseType.type);
-                    if (structs.count(sName) && structs[sName]->members.count(ma->memberName)) {
-                        MemberInfo& mInfo = structs[sName]->members[ma->memberName];
-                        bool oldNeeded = resultNeeded;
-                        resultNeeded = true;
-                        node.expression->accept(*this);
-                        resultNeeded = oldNeeded;
-                        bool is16 = (mInfo.pointerLevel > 0 || mInfo.type == "int");
-                        if (isStruct(mInfo.type)) {
-                            std::string nestedSName = getAggregateName(mInfo.type);
-                            if (structs.count(nestedSName) && structs[nestedSName]->totalSize > 1) is16 = true;
-                        }
-                        std::string memberAddr = rName + (mInfo.offset ? "+" + std::to_string(mInfo.offset) : "");
-                        if (mInfo.bitWidth > 0) {
-                            // Bitfield insert: A has new value, do RMW on storage unit
-                            std::string bfOp = is16 ? "bfins16" : "bfins";
-                            if (!isGlobal) bfOp += ".sp";
-                            emit(bfOp + " " + memberAddr + ", #" + std::to_string(mInfo.bitOffset) + ", #" + std::to_string(mInfo.bitWidth));
-                        } else if (is16) {
-                            emit("stax " + memberAddr + suffix);
-                            updateRegAVar(rName, mInfo.offset); updateRegXVar(rName, mInfo.offset + 1);
-                        } else {
-                            if (isGlobal) emit("sta " + memberAddr);
-                            else emit("sta.sp " + memberAddr);
-                            updateRegAVar(rName, mInfo.offset);
-                        }
-                        invalidateRegs();
-                        return;
-                    }
+    VarInfo vi = lookupVar(rName, refNode);
+    if (isStruct(vi.type)) {
+        std::string sName = getAggregateName(vi.type);
+        if (structs.count(sName)) {
+            int structSize = structs[sName]->totalSize;
+            if (structSize >= 9) {
+                if (auto* sourceRef = dynamic_cast<VariableReference*>(node.expression.get())) {
+                    std::string srcName = resolveVarName(sourceRef->name);
+                    bool sourceGlobal = globalVariableTypes.count(srcName);
+
+                    std::stringstream ssX, ssY;
+                    ssX << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (structSize & 0xFF);
+                    ssY << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << ((structSize >> 8) & 0xFF);
+                    emit("ldx #$" + ssX.str());
+                    emit("ldy #$" + ssY.str());
+                    emit("MOVE " + srcName + (sourceGlobal ? "" : ", s") + ", " + rName + (isGlobal ? "" : ", s"));
+                    invalidateVar(rName);
+                    return;
                 }
             }
         }
     }
+
+    bool oldNeeded = resultNeeded;
+    resultNeeded = true;
+    node.expression->accept(*this);
+    resultNeeded = oldNeeded;
+
+    if (vi.type == "_Bool" && vi.pointerLevel == 0) {
+        ExpressionType srcType = getExprType(node.expression.get());
+        int srcSize = (srcType.pointerLevel > 0 || srcType.type == "int") ? 2 : 1;
+        emitBoolNormalize(srcSize);
+    }
+
+    bool is32 = is32BitType(vi.type) && vi.pointerLevel == 0;
+    bool is16 = !is32 && (vi.pointerLevel > 0 || vi.type == "int");
+    if (!is32 && isStruct(vi.type)) {
+        std::string sName = getAggregateName(vi.type);
+        if (structs.count(sName) && structs[sName]->totalSize > 1) is16 = true;
+    }
+    if (is32) {
+        if (isGlobal) {
+            emit("stq " + rName);
+        } else {
+            emit("sta.sp " + rName);
+            emit("pha"); emit("txa"); emit("sta.sp " + rName + "+1"); emit("pla");
+            emit("pha"); emit("tya"); emit("sta.sp " + rName + "+2"); emit("pla");
+            emit("pha"); emit("tza"); emit("sta.sp " + rName + "+3"); emit("pla");
+        }
+        invalidateRegs();
+    } else if (is16) {
+        bool lowCorrect = (regA.known && regA.isVariable && regA.varName == rName && regA.varOffset == 0);
+        bool highCorrect = (regX.known && regX.isVariable && regX.varName == rName && regX.varOffset == 1);
+        if (vi.isVolatile) { lowCorrect = false; highCorrect = false; }
+
+        if (lowCorrect && highCorrect) {
+            // Redundant store
+        } else if (lowCorrect) {
+            if (isGlobal) emit("stx " + rName + "+1");
+            else emit("stx.sp " + rName + "+1");
+        } else if (highCorrect) {
+            if (isGlobal) emit("sta " + rName);
+            else emit("sta.sp " + rName);
+        } else {
+            emit("stax " + rName + suffix);
+        }
+        if (vi.isVolatile || !isGlobal) invalidateRegs();
+        else { updateRegAVar(rName, 0); updateRegXVar(rName, 1); }
+    } else {
+        bool lowCorrect = (regA.known && regA.isVariable && regA.varName == rName && regA.varOffset == 0);
+        if (vi.isVolatile) lowCorrect = false;
+
+        if (lowCorrect) {
+            // Redundant store
+        } else {
+            if (isGlobal) emit("sta " + rName);
+            else emit("sta.sp " + rName);
+        }
+        if (vi.isVolatile || !isGlobal) invalidateRegs();
+        else updateRegAVar(rName, 0);
+    }
+}
+
+void CodeGenerator::assignToDirectMember(Assignment& node, MemberAccess* ma) {
+    if (auto* ref = dynamic_cast<VariableReference*>(ma->structExpr.get())) {
+        std::string rName = resolveVarName(ref->name);
+        bool isGlobal = globalVariableTypes.count(rName);
+        std::string suffix = isGlobal ? "" : ", s";
+
+        ExpressionType baseType = getExprType(ref);
+        if (!isStruct(baseType.type)) {
+            if (globalVariableTypes.count("_" + ref->name)) {
+                baseType = {globalVariableTypes.at("_" + ref->name).type, globalVariableTypes.at("_" + ref->name).pointerLevel};
+            }
+        }
+        if (isStruct(baseType.type)) {
+            std::string sName = getAggregateName(baseType.type);
+            if (structs.count(sName) && structs[sName]->members.count(ma->memberName)) {
+                MemberInfo& mInfo = structs[sName]->members[ma->memberName];
+                bool oldNeeded = resultNeeded;
+                resultNeeded = true;
+                node.expression->accept(*this);
+                resultNeeded = oldNeeded;
+                bool is16 = (mInfo.pointerLevel > 0 || mInfo.type == "int");
+                if (isStruct(mInfo.type)) {
+                    std::string nestedSName = getAggregateName(mInfo.type);
+                    if (structs.count(nestedSName) && structs[nestedSName]->totalSize > 1) is16 = true;
+                }
+                std::string memberAddr = rName + (mInfo.offset ? "+" + std::to_string(mInfo.offset) : "");
+                if (mInfo.bitWidth > 0) {
+                    std::string bfOp = is16 ? "bfins16" : "bfins";
+                    if (!isGlobal) bfOp += ".sp";
+                    emit(bfOp + " " + memberAddr + ", #" + std::to_string(mInfo.bitOffset) + ", #" + std::to_string(mInfo.bitWidth));
+                } else if (is16) {
+                    emit("stax " + memberAddr + suffix);
+                    updateRegAVar(rName, mInfo.offset); updateRegXVar(rName, mInfo.offset + 1);
+                } else {
+                    if (isGlobal) emit("sta " + memberAddr);
+                    else emit("sta.sp " + memberAddr);
+                    updateRegAVar(rName, mInfo.offset);
+                }
+                invalidateRegs();
+            }
+        }
+    }
+}
+
+void CodeGenerator::assignToIndirectOrBitfield(Assignment& node) {
+    ExpressionType targetType = getExprType(node.target.get());
 
     // Check if target is a bitfield member (for arrow/indirect access)
     int bfWidth = 0, bfOffset = 0;
@@ -2989,8 +3015,7 @@ void CodeGenerator::visit(Assignment& node) {
         }
     }
 
-    // Evaluate RHS first, save to allocated ZP (not hardware stack, which
-    // would shift SP and break stack-relative index reads in emitAddress)
+    // Evaluate RHS first, save to allocated ZP
     bool oldNeeded = resultNeeded;
     resultNeeded = true;
     node.expression->accept(*this);
@@ -3002,8 +3027,7 @@ void CodeGenerator::visit(Assignment& node) {
         emit("stax $" + ssR.str());
     }
 
-    // Compute destination address (emitAddress uses allocateZP internally,
-    // so its slots won't conflict with zpRHS)
+    // Compute destination address
     emitAddress(node.target.get());
     int zpIdx = allocateZP(2);
     {

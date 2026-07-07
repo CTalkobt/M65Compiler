@@ -316,4 +316,13 @@ public:
 
     // Helper to compute type size using unified TypeSystem (accounts for structs/unions)
     int getTypeSizeWithStructs(const std::string& type, int ptrLevel, int arraySize);
+
+    // Assignment dispatch helpers
+    void assignToCpuRegister(Assignment& node, CpuRegisterAccess* cra);
+    void assignToZpSpilledParam(Assignment& node, VariableReference* ref, const std::string& rName);
+    void assignToZpParam(Assignment& node, VariableReference* ref, const std::string& rName);
+    void assignToRegisterVar(Assignment& node, VariableReference* ref, const std::string& rName);
+    void assignToStackOrGlobalVar(Assignment& node, VariableReference* ref, const std::string& rName);
+    void assignToDirectMember(Assignment& node, MemberAccess* ma);
+    void assignToIndirectOrBitfield(Assignment& node);
 };
