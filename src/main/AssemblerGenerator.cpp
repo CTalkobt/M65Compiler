@@ -469,6 +469,14 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                     if (stmt->instr.mnemonic == "rts" || stmt->instr.mnemonic == "rtn" || stmt->instr.mnemonic == "rti") isDeadCode = true;
                 }
             } else if (stmt->type == AssemblerParser::Statement::DIRECTIVE) {
+                // Reset isDeadCode for .noopt_start (indicates executable code ahead).
+                // After RTS/RTN/RTI instructions, isDeadCode is true and all following code is skipped.
+                // .noopt_start marks regions with critical instructions (like ldy #0 for array access)
+                // that must be emitted even if they appear after dead code. Resetting the flag ensures
+                // these marked regions are output to the binary.
+                if (stmt->dir.name == "noopt_start") {
+                    isDeadCode = false;
+                }
                 if (!isDeadCode || stmt->dir.name == "org") {
                     if (stmt->dir.name == "var") {
                         if (stmt->dir.varType == Directive::ASSIGN) {

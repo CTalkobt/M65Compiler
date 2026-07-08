@@ -2321,10 +2321,17 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 } else {
                     std::string indexStr = src2MemOperand(index);
                     if (index.type == ir::Type::I8) { loadOperand(index); indexStr = ".AX"; }
+                    // .noopt_start/.noopt_end marks region where optimizer must not eliminate ldy #0.
+                    // In loops, Y gets incremented (iny) after loading bytes, so Y holds non-zero after iterations.
+                    // When loop exits and re-enters (or code jumps to lda (__zp_scratch),y), Y must be reset to 0.
+                    // Optimizer incorrectly assumes Y still holds 0 from earlier iterations and eliminates the ldy #0,
+                    // causing array access to read from wrong memory locations. These directives prevent elimination.
+                    emit(".noopt_start");
                     emit("addr_elem.16 __zp_scratch, " + baseStr + ", " + indexStr + ", #" + std::to_string(stride));
+                    emit("ldy #0");
+                    emit(".noopt_end");
                 }
                 // Now load from (__zp_scratch),Y
-                emit("ldy #0");
                 emit("lda (__zp_scratch),y");
                 if (inst.resultType == ir::Type::I32) {
                     emit("pha"); emit("iny"); emit("lda (__zp_scratch),y");
@@ -2456,13 +2463,20 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 } else {
                     std::string indexStr = src2MemOperand(index);
                     if (index.type == ir::Type::I8) { loadOperand(index); indexStr = ".AX"; }
+                    // .noopt_start/.noopt_end marks region where optimizer must not eliminate ldy #0.
+                    // In loops, Y gets incremented (iny) after storing bytes, so Y holds non-zero after iterations.
+                    // When loop exits and re-enters (or code jumps to sta (__zp_scratch),y), Y must be reset to 0.
+                    // Optimizer incorrectly assumes Y still holds 0 from earlier iterations and eliminates the ldy #0,
+                    // causing array access to write to wrong memory locations. These directives prevent elimination.
+                    emit(".noopt_start");
                     emit("addr_elem.16 __zp_scratch, " + baseStr + ", " + indexStr + ", #" + std::to_string(stride));
+                    emit("ldy #0");
+                    emit(".noopt_end");
                 }
 
                 // Restore value and store via (__zp_scratch),Y
                 if (inst.resultType != ir::Type::I8) emit("plx");
                 emit("pla");
-                emit("ldy #0");
                 emit("sta (__zp_scratch),y");
                 if (inst.resultType == ir::Type::I32) {
                     emit("txa"); emit("iny"); emit("sta (__zp_scratch),y");
@@ -2920,7 +2934,14 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     loadOperand(inst.src2);
                     indexStr = ".AX";
                 }
+                // .noopt_start/.noopt_end marks region where optimizer must not eliminate ldy #0.
+                // This ADDR_ELEM calculates a new address for indirect indexed access via (__zp_scratch),Y.
+                // If Y was incremented in a loop (iny after loads/stores), Y must be reset to 0 for this access.
+                // Optimizer sees addr_elem.16 doesn't modify Y and incorrectly eliminates subsequent ldy #0,
+                // causing array access to use stale Y value. These directives prevent elimination.
+                emit(".noopt_start");
                 emit("addr_elem.16 " + destStr + ", " + baseStr + ", " + indexStr + ", #" + std::to_string(elemSize));
+                emit(".noopt_end");
             }
             
             if (storeNeeded && inst.dest.isVreg()) {

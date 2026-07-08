@@ -309,14 +309,35 @@ bool AssemblerOptimizer::optimizeInternal(
     // The code generator would need to recognize this pattern and hoist the multiplication out of inner loop
 
     // --- Pass 2: MachineState-driven register/memory tracking and optimization ---
+    bool inNoOptRegion = false;
+
     for (size_t i = 0; i < parser->statements.size(); ++i) {
         auto* s = parser->statements[i].get();
         if (s->deleted) continue;
+
+        // Check for no-optimization directives
+        if (s->type == AssemblerParser::Statement::DIRECTIVE) {
+            std::string dir = s->dir.name;
+            std::transform(dir.begin(), dir.end(), dir.begin(), ::tolower);
+            if (dir == "noopt_start") {
+                inNoOptRegion = true;
+            } else if (dir == "noopt_end") {
+                inNoOptRegion = false;
+            }
+            // Directives don't need optimization, skip to next statement
+            continue;
+        }
 
         // Barrier: non-local labels reset all knowledge
         if (!s->label.empty() && s->label[0] != '@') {
             ms.invalidateAll();
             stackVarLastValue.clear();
+        }
+
+        // Skip all optimizations for statements in no-optimize regions
+        if (inNoOptRegion) {
+            // Statement will be emitted as-is, unoptimized
+            continue;
         }
 
         bool isStackStoreOptimizationCandidate = false;
@@ -448,7 +469,10 @@ bool AssemblerOptimizer::optimizeInternal(
                 RegId r = loadRegId(m);
                 bool redundant = false;
 
-                if (isImm && hasNumVal) {
+                // Never eliminate LDY #0 — it's used before indirect indexed addressing and must be retained
+                if (m == "LDY" && isImm && hasNumVal && (numVal & 0xFF) == 0) {
+                    redundant = false;
+                } else if (isImm && hasNumVal) {
                     // Check: register already holds this constant?
                     redundant = ms.reg[r].isConst(numVal & 0xFF);
                 } else if (isZP && hasNumVal) {
