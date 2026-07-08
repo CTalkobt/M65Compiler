@@ -174,6 +174,33 @@ void IRCodeGen::prescanFunction(const ir::Function& fn) {
     }
 }
 
+// Bug #3 fix: Allocate register variables to zero page
+// This was part of prescanFunction but needs to run even though prescanFunction is skipped
+// (prescanFunction was removed to fix Bug #179 frame allocation conflicts)
+void IRCodeGen::allocateRegisterVariablesZP(const ir::Function& fn) {
+    if (fn.registerVregs.empty()) return;  // No register variables, nothing to do
+
+    ir::Function& mutableFn = const_cast<ir::Function&>(fn);
+
+    // Allocate register variables to zero page, starting at 0x20
+    int zpOffset = 0x20;  // Start of user ZP space (after system ZP)
+    for (const auto& [name, vid] : fn.localNames) {
+        if (fn.registerVregs.count(vid)) {
+            // Allocate register variable to ZP
+            ir::Type t = ir::Type::I16;
+            if (fn.vregTypes.count(vid)) {
+                t = fn.vregTypes.at(vid);
+            }
+            int size = ir::typeSize(t);
+            if (size < 2) size = 2;
+            // Use negative offset to indicate ZP allocation
+            // Format: -(zpAddress + 1) so we can distinguish from stack offsets
+            mutableFn.vregOffsets[vid] = -(zpOffset + 1);
+            zpOffset += size;
+        }
+    }
+}
+
 // ============================================================================
 // Load/store vRegs via frame pointer
 // ============================================================================
@@ -923,6 +950,11 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // Run register allocator
     alloc_.analyze(fn);
 
+    // Bug #3 fix: Allocate register variables to ZP
+    // This was part of prescanFunction but needs to run even though prescanFunction is skipped
+    // (prescanFunction was removed to fix Bug #179 frame allocation conflicts)
+    allocateRegisterVariablesZP(fn);
+
     // Copy local slot info from IR function
     localSlotVregs_ = fn.localSlotVregs;
     vregConstVal_.clear();
@@ -1051,6 +1083,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     for (const auto& [name, vid] : fn.localNames) {
         if (suppressedVregs_.count(vid)) continue;
+        if (fn.registerVregs.count(vid)) continue;  // Bug #3 fix: Skip register variables (already allocated to ZP)
         auto alloc = alloc_.getAlloc(vid);
         // Locals MUST be allocated to frame only (VRegAllocator enforces this with isLocal check)
         // Bug #183 fix: Only call allocSlot if allocator decided IN_FRAME

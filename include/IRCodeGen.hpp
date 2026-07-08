@@ -75,6 +75,11 @@ private:
     // Pre-scan a function to allocate frame slots for all vRegs
     void prescanFunction(const ir::Function& fn);
 
+    // Bug #3 fix: Allocate register variables to zero page
+    // Called during emitFunction to ensure register variables get ZP allocation
+    // even though prescanFunction is skipped (to avoid Bug #179 frame conflicts)
+    void allocateRegisterVariablesZP(const ir::Function& fn);
+
     // String pool
     std::map<std::string, std::string> stringPool_;
     int stringCount_ = 0;
