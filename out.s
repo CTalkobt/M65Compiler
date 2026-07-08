@@ -38,10 +38,34 @@ _result:
     .word 16384
 _scores:
     .byte 0
-    .res 4
+    .byte 0
+    .byte 0
+    .byte 0
+    .byte 0
 _grid:
     .word 0
-    .res 22
+    .byte 0
+    .byte 0
+    .byte 0
+    .byte 0
+    .byte 0
+    .byte 0
+    .byte 0
+    .byte 0
+    .byte 0
+    .byte 0
+    .byte 0
+    .byte 0
+    .byte 0
+    .byte 0
+    .byte 0
+    .byte 0
+    .byte 0
+    .byte 0
+    .byte 0
+    .byte 0
+    .byte 0
+    .byte 0
 
 
 ; function _main
@@ -389,3 +413,4 @@ _grid:
 
 
 __zp_save_buf:
+    .res 248
