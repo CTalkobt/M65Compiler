@@ -3270,6 +3270,7 @@ void AssemblerSimulatedOps::emitLoadAddrConst(AssemblerParser* parser, M65Emitte
     }
     uint32_t total = baseVal + offset;
 
+
     if (isReloc) {
         e.recordSymbolRelocLo(name);
     }
@@ -3389,6 +3390,7 @@ void AssemblerSimulatedOps::dispatch_StructElem(AssemblerParser* p, M65Emitter& 
 void AssemblerSimulatedOps::dispatch_AddrElem(AssemblerParser* p, M65Emitter& e, Stmt* s) {
     int idx = s->exprTokenIndex;
     if (idx < 0 || idx >= (int)p->tokens.size()) return;
+
 
     bool baseIsReg = false;
     std::string baseRegName;

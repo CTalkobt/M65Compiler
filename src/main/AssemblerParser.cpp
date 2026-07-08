@@ -1723,8 +1723,18 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
             if (s->type == Statement::DIRECTIVE && (s->dir.name == "segment" || s->dir.name == "code" || s->dir.name == "data" || s->dir.name == "bss")) {
                 pass2PCs[activeSegment] = cP; activeSegment = s->segmentName;
                 uint32_t savedPC = pass2PCs[activeSegment];
-                if (savedPC != 0xFFFFFFFF) cP = savedPC; // restore saved PC for revisited segments
-                // else: first visit to this segment — carry cP forward (no .org means it follows previous segment)
+                if (savedPC != 0xFFFFFFFF) {
+                    cP = savedPC; // restore saved PC for revisited segments
+                } else {
+                    // First visit to this segment
+                    // For relocatable segments (no .org), each starts at 0
+                    // For non-relocatable segments, carry cP forward
+                    auto segIt = segments.find(activeSegment);
+                    if (segIt != segments.end() && !segIt->second->hasOrg) {
+                        cP = 0; // relocatable segment — independent address space
+                    }
+                    // else: non-relocatable segment — carry cP forward
+                }
             }
             if (s->type == Statement::DIRECTIVE && s->dir.name == "org") {
                 if (!s->dir.arguments.empty()) {

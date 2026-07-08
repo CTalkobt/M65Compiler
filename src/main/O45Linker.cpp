@@ -511,6 +511,29 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
             } else {
                 targetAddr = segBase + segObjOff + segRelOff;
             }
+
+            // DEBUG: Log ALL DATA relocations
+            if (r.segment == SEG_DATA) {
+                // Log all DATA relocations
+                if (true) {
+                    std::cerr << "\n=== DEBUG: DATA relocation at offset 0x" << std::hex << patchPos << std::dec << " ===" << std::endl;
+                    std::cerr << "  RelType: " << (int)r.type << " (32=R_LOW, 64=R_HIGH, 128=R_WORD)" << std::endl;
+                    std::cerr << "  Extra: 0x" << std::hex << (int)r.extra << std::dec << std::endl;
+                    std::cerr << "  PatchPos: 0x" << std::hex << patchPos << std::dec << std::endl;
+                    std::cerr << "  ExistingVal: 0x" << std::hex << existingVal << std::dec << std::endl;
+                    std::cerr << "  SegBase (dataBase_): 0x" << std::hex << segBase << std::dec << std::endl;
+                    std::cerr << "  SegObjOff (dataOffset): 0x" << std::hex << segObjOff << std::dec << std::endl;
+                    std::cerr << "  OrigBase (dbase): 0x" << std::hex << origBase << std::dec << std::endl;
+                    std::cerr << "  SegRelOff (existingVal - origBase): 0x" << std::hex << segRelOff << std::dec << std::endl;
+                    std::cerr << "  TargetAddr (segBase + segObjOff + segRelOff): 0x" << std::hex << targetAddr << std::dec << std::endl;
+                    std::cerr << "  Bytes before patch: 0x" << std::hex;
+                    int patchSize = o45RelocPatchSize((uint8_t)r.type);
+                    for (int i = 0; i < patchSize && (patchPos + i) < body.size(); i++) {
+                        std::cerr << (int)body[patchPos + i] << " ";
+                    }
+                    std::cerr << std::dec << std::endl;
+                }
+            }
         }
 
         // Patch the bytes at the relocation site
@@ -518,6 +541,15 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
         if (patchPos + patchSize > body.size()) {
             errorMsg = "relocation patch overflows segment in " + input.filename;
             return false;
+        }
+
+        // DEBUG: Log bytes being patched for DATA relocations
+        bool shouldLogPatch = false;
+        if (r.segment == SEG_DATA) {
+            shouldLogPatch = true;
+        }
+        if (shouldLogPatch) {
+            std::cerr << "  Bytes AFTER patch: 0x" << std::hex;
         }
 
         switch (r.type) {
@@ -551,12 +583,22 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
                 errorMsg = "unknown relocation type in " + input.filename;
                 return false;
         }
+
+        // DEBUG: Complete logging for DATA relocations
+        if (shouldLogPatch) {
+            for (int i = 0; i < patchSize && (patchPos + i) < body.size(); i++) {
+                std::cerr << (int)body[patchPos + i] << " ";
+            }
+            std::cerr << std::dec << std::endl;
+            std::cerr << "==================================================\n" << std::endl;
+        }
     }
 
     return true;
 }
 
 bool O45Linker::applyRelocations(std::string& errorMsg) {
+    std::cout << "DEBUG: applyRelocations called with " << objects_.size() << " objects" << std::endl;
     for (int objIdx = 0; objIdx < (int)objects_.size(); objIdx++) {
         auto& input = objects_[objIdx];
         // Text relocations
@@ -568,6 +610,10 @@ bool O45Linker::applyRelocations(std::string& errorMsg) {
 
         // Data relocations
         auto dataRelocs = O45RelocDecoder::decode(input.obj.dataRelocs);
+        std::cout << "DEBUG: Decoded " << dataRelocs.size() << " DATA relocations from " << input.filename << std::endl;
+        for (const auto& r : dataRelocs) {
+            std::cout << "  Reloc at offset 0x" << std::hex << r.offset << " type 0x" << (int)r.type << " seg " << (int)r.segment << " extra 0x" << (int)r.extra << std::dec << std::endl;
+        }
         if (!applyRelocs(dataRelocs, mergedData_, dataBase_, input.dataOffset,
                          input, errorMsg, -1)) {
             return false;
