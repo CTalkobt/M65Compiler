@@ -3270,16 +3270,6 @@ void AssemblerSimulatedOps::emitLoadAddrConst(AssemblerParser* parser, M65Emitte
     }
     uint32_t total = baseVal + offset;
 
-    // DEBUG: Log symbol resolution for addr_elem analysis
-    std::cerr << "[DEBUG emitLoadAddrConst] name=\"" << name << "\""
-              << " sym_found=" << (sym ? "true" : "false")
-              << " baseVal=0x" << std::hex << std::setfill('0') << std::setw(4) << baseVal << std::dec
-              << " offset=0x" << std::hex << std::setfill('0') << std::setw(4) << offset << std::dec
-              << " total=0x" << std::hex << std::setfill('0') << std::setw(4) << total << std::dec
-              << " lda_imm=0x" << std::hex << std::setfill('0') << std::setw(2) << (total & 0xFF)
-              << " ldx_imm=0x" << std::hex << std::setfill('0') << std::setw(2) << ((total >> 8) & 0xFF)
-              << std::dec << " isReloc=" << (isReloc ? "true" : "false") << std::endl;
-
     if (isReloc) {
         e.recordSymbolRelocLo(name);
     }
@@ -3400,16 +3390,12 @@ void AssemblerSimulatedOps::dispatch_AddrElem(AssemblerParser* p, M65Emitter& e,
     int idx = s->exprTokenIndex;
     if (idx < 0 || idx >= (int)p->tokens.size()) return;
 
-    std::cerr << "[DEBUG dispatch_AddrElem] START stmt.operand=" << s->instr.operand << std::endl;
-
     bool baseIsReg = false;
     std::string baseRegName;
     int idxBaseStart = idx;
     bool baseIsImmediate = false;
     if (idx < (int)p->tokens.size() && p->tokens[idx].type == AssemblerTokenType::HASH) {
         baseIsImmediate = true;
-        std::cerr << "[DEBUG dispatch_AddrElem] baseIsImmediate=true, next token="
-                  << (idx+1 < (int)p->tokens.size() ? p->tokens[idx+1].value : "END") << std::endl;
         idx++;
     }
     if (idx < (int)p->tokens.size() && p->tokens[idx].type == AssemblerTokenType::REGISTER) {
@@ -3468,7 +3454,6 @@ void AssemblerSimulatedOps::dispatch_AddrElem(AssemblerParser* p, M65Emitter& e,
                 catch (...) { baseAddr = 0; }
             }
             if (baseIsImmediate) {
-                std::cerr << "[DEBUG dispatch_AddrElem] Calling emitLoadAddrConst with baseSymName=\"" << baseSymName << "\"" << std::endl;
                 emitLoadAddrConst(p, e, baseSymName, 0, 'X');
             } else {
                 bool isZP = (!baseSymName.empty() && baseSymName[0] == '$');

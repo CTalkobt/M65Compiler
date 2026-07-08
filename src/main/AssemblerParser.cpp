@@ -1833,6 +1833,7 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
 
         if (addressRecalculationMadeChanges) overallChanged = true;
     } while (overallChanged);
+    finalizeAddresses();
     return AssemblerGenerator::generate(this, isPrg);
 }
 

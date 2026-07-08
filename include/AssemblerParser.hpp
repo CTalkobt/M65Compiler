@@ -69,6 +69,8 @@ public:
     uint32_t getExternIndex(const std::string& name) const;
 
     bool isPass1() const { return isPass1_; }
+    bool areAddressesFinalized() const { return addressesFinalized_; }
+    void finalizeAddresses() { addressesFinalized_ = true; }
 
     struct ProcContext {
         std::string name;
@@ -119,6 +121,7 @@ public:
 
 private:
     bool isPass1_ = true; // Flag to indicate if we are in pass 1 of assembly
+    bool addressesFinalized_ = false; // Flag to prevent symbol address updates after pass2
     std::vector<AssemblerToken> tokens;
     size_t pos;
     uint32_t pc;

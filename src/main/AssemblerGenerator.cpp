@@ -61,7 +61,11 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
     std::shared_ptr<AssemblerParser::ProcContext> currentPass2Proc;
     std::vector<std::shared_ptr<AssemblerParser::ProcContext>> pass2ProcStack;
 
-    for (auto& [name, symbol] : parser->symbolTable) if (symbol.isVariable) symbol.value = symbol.initialValue;
+    for (auto& [name, symbol] : parser->symbolTable) {
+        if (symbol.isVariable && !parser->areAddressesFinalized()) {
+            symbol.value = symbol.initialValue;
+        }
+    }
 
     std::vector<std::string> order = parser->requestedSegmentOrder;
     if (order.empty()) {
@@ -469,17 +473,24 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                     if (stmt->dir.name == "var") {
                         if (stmt->dir.varType == Directive::ASSIGN) {
                             uint32_t val = parser->evaluateExpressionAt(stmt->dir.tokenIndex, stmt->scopePrefix);
-                            parser->symbolTable[stmt->dir.varName].value = val;
-                        } else if (stmt->dir.varType == Directive::INC) parser->symbolTable[stmt->dir.varName].value++;
-                        else if (stmt->dir.varType == Directive::DEC) parser->symbolTable[stmt->dir.varName].value--;
+                            if (!parser->areAddressesFinalized()) {
+                                parser->symbolTable[stmt->dir.varName].value = val;
+                            }
+                        } else if (stmt->dir.varType == Directive::INC) {
+                            if (!parser->areAddressesFinalized()) parser->symbolTable[stmt->dir.varName].value++;
+                        } else if (stmt->dir.varType == Directive::DEC) {
+                            if (!parser->areAddressesFinalized()) parser->symbolTable[stmt->dir.varName].value--;
+                        }
                     }
                     else if (stmt->dir.name == "local") {
                         if (stmt->dir.varType == Directive::ASSIGN) {
                             uint32_t val = parser->evaluateExpressionAt(stmt->dir.tokenIndex, stmt->scopePrefix);
-                            auto& sym = parser->symbolTable[stmt->dir.varName];
-                            sym.value = val;
-                            sym.frameOffset = (int)val;
-                            sym.isFrameRelative = true;
+                            if (!parser->areAddressesFinalized()) {
+                                auto& sym = parser->symbolTable[stmt->dir.varName];
+                                sym.value = val;
+                                sym.frameOffset = (int)val;
+                                sym.isFrameRelative = true;
+                            }
                         }
                     }
                     else if (stmt->dir.name == "cleanup") { if (currentPass2Proc) currentPass2Proc->totalParamSize += parser->evaluateExpressionAt(stmt->dir.tokenIndex, stmt->scopePrefix); }
