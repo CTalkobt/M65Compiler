@@ -510,7 +510,30 @@ bool AssemblerOptimizer::optimizeInternal(
                     }
                 }
 
-                if (redundant) {
+                // CRITICAL: Don't eliminate loads immediately before control-flow change
+                // Loads before branches, labels, or calls are CRITICAL because they
+                // establish register state at control-flow merge points. Eliminating
+                // them breaks Bug #183 where return value loads were removed before
+                // branches to common epilogue.
+                bool isBeforeCFChange = false;
+                if (i + 1 < parser->statements.size()) {
+                    auto* nextStmt = parser->statements[i + 1].get();
+                    if (nextStmt && !nextStmt->deleted) {
+                        if (!nextStmt->label.empty()) {
+                            isBeforeCFChange = true;
+                        } else if (nextStmt->type == AssemblerParser::Statement::INSTRUCTION) {
+                            const std::string& mn = nextStmt->instr.mnemonic;
+                            if (mn == "BRA" || mn == "BEQ" || mn == "BNE" || mn == "BMI" ||
+                                mn == "BPL" || mn == "BCS" || mn == "BCC" || mn == "BVS" ||
+                                mn == "BVC" || mn == "RTS" || mn == "RTI" || mn == "JMP" ||
+                                mn == "JSR" || mn == "BRL" || mn == "JML" || mn == "RTL") {
+                                isBeforeCFChange = true;
+                            }
+                        }
+                    }
+                }
+
+                if (redundant && !isBeforeCFChange) {
                     report("redundant-load", s, m + " " + op + " eliminated (" + m.substr(2) + " already holds value)");
                     s->deleted = true; s->size = 0; changed = true; continue;
                 }
