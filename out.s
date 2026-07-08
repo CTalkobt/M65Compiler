@@ -47,7 +47,7 @@ _grid:
 ; function _main
     proc _main
     .var _fp = 0
-    .loc "test_array_loop.c", 9
+    .loc "src/test-resources/test_array_loop.c", 9
 ; frame: 4 bytes (frame-allocated vRegs only)
     phw #0
     phw #0
@@ -63,7 +63,7 @@ _grid:
     .local __vr1 = 2
 
 @entry:
-    .loc "test_array_loop.c", 14
+    .loc "src/test-resources/test_array_loop.c", 14
     lda #0
     taz
     staz.fp __vr0
@@ -73,7 +73,7 @@ _grid:
     bcc @for_body1
     bra @for_end3
 @for_body1:
-    .loc "test_array_loop.c", 15
+    .loc "src/test-resources/test_array_loop.c", 15
     ldax.fp __vr0
     clc
     adc #1
@@ -90,7 +90,7 @@ _grid:
     ldy #0
     sta (__zp_scratch),y
 @for_inc2:
-    .loc "test_array_loop.c", 14
+    .loc "src/test-resources/test_array_loop.c", 14
     ldax.fp __vr0
     sta $2A
     stx $2B
@@ -106,7 +106,7 @@ _grid:
     stax.fp __vr0
     bra @for_cond0
 @for_end3:
-    .loc "test_array_loop.c", 19
+    .loc "src/test-resources/test_array_loop.c", 19
     lda #0
     taz
     staz.fp __vr0
@@ -116,12 +116,12 @@ _grid:
     bcc @for_body5
     bra @for_end7
 @for_body5:
-    .loc "test_array_loop.c", 20
+    .loc "src/test-resources/test_array_loop.c", 20
     lda #0
     taz
     staz.fp __vr1
 @for_cond8_ph:
-    .loc "test_array_loop.c", 21
+    .loc "src/test-resources/test_array_loop.c", 21
     lda #10
     ldx #0
     sta $26
@@ -135,13 +135,13 @@ _grid:
     stx __zp_scratch2+1
     addr_elem.16 $2A, #_grid, __zp_scratch2, #8
 @for_cond8:
-    .loc "test_array_loop.c", 20
+    .loc "src/test-resources/test_array_loop.c", 20
     ldax.fp __vr1
     cmp.16 .AX, #4
     bcc @for_body9
     bra @for_end11
 @for_body9:
-    .loc "test_array_loop.c", 21
+    .loc "src/test-resources/test_array_loop.c", 21
     lda #10
     ldx #0
     sta $30
@@ -166,7 +166,7 @@ _grid:
     iny
     sta (__zp_scratch),y
 @for_inc10:
-    .loc "test_array_loop.c", 20
+    .loc "src/test-resources/test_array_loop.c", 20
     ldax.fp __vr1
     sta $36
     stx $37
@@ -183,7 +183,7 @@ _grid:
     bra @for_cond8
 @for_end11:
 @for_inc6:
-    .loc "test_array_loop.c", 19
+    .loc "src/test-resources/test_array_loop.c", 19
     ldax.fp __vr0
     sta $3A
     stx $3B
@@ -199,7 +199,7 @@ _grid:
     stax.fp __vr0
     bra @for_cond4
 @for_end7:
-    .loc "test_array_loop.c", 26
+    .loc "src/test-resources/test_array_loop.c", 26
     lda #0
     sta $20
     sta $21
@@ -222,7 +222,7 @@ _grid:
     pla
     ldy #0
     sta (__zp_scratch),y
-    .loc "test_array_loop.c", 29
+    .loc "src/test-resources/test_array_loop.c", 29
     lda #4
     ldx #0
     sta $20
@@ -247,7 +247,7 @@ _grid:
     pla
     ldy #0
     sta (__zp_scratch),y
-    .loc "test_array_loop.c", 32
+    .loc "src/test-resources/test_array_loop.c", 32
     lda #0
     sta $20
     sta $21
@@ -283,7 +283,7 @@ _grid:
     pla
     ldy #0
     sta (__zp_scratch),y
-    .loc "test_array_loop.c", 35
+    .loc "src/test-resources/test_array_loop.c", 35
     lda #1
     ldx #0
     sta $20
@@ -321,7 +321,7 @@ _grid:
     pla
     ldy #0
     sta (__zp_scratch),y
-    .loc "test_array_loop.c", 38
+    .loc "src/test-resources/test_array_loop.c", 38
     lda #2
     ldx #0
     sta $20
@@ -359,7 +359,7 @@ _grid:
     pla
     ldy #0
     sta (__zp_scratch),y
-    .loc "test_array_loop.c", 41
+    .loc "src/test-resources/test_array_loop.c", 41
     lda #170
     sta $20
     lda _result
@@ -389,4 +389,3 @@ _grid:
 
 
 __zp_save_buf:
-    .res 248

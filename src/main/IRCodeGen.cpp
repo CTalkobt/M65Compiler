@@ -587,11 +587,11 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     // Emit string data
     emitStrings(mod);
 
-    // ZP save buffer: label at end of program, no .res needed.
-    // The 248 bytes after the program are unused RAM — written before read.
+    // ZP save buffer: 248 bytes for saving/restoring ZP $08-$FF
     if (mod.saveZP) {
         emitBlank();
         emitLabel("__zp_save_buf");
+        emit(".res 248");  // Reserve 248 bytes for ZP save buffer (saves $08-$FF)
     }
 }
 
@@ -673,7 +673,13 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
                 // Handle partial initialization: padding with zeros
                 int bytesEmitted = (int)g.initList.size() * ir::typeSize(g.type);
                 if (bytesEmitted < g.size) {
-                    emit(".res " + std::to_string(g.size - bytesEmitted));
+                    int paddingBytes = g.size - bytesEmitted;
+                    if (relocMode) {
+                        emit(".res " + std::to_string(paddingBytes));
+                    } else {
+                        // PRG mode: emit actual zero bytes (not just reserve space)
+                        for (int i = 0; i < paddingBytes; i++) emit(".byte 0");
+                    }
                 }
             } else if (!g.initLabels.empty() && !g.initLabels[0].empty()) {
                 // Scalar symbolic reference (e.g. char *p = "hello")
@@ -697,7 +703,13 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
                 // e.g. char a[10] = 0;
                 int typeSz = ir::typeSize(g.type);
                 if (typeSz < g.size) {
-                    emit(".res " + std::to_string(g.size - typeSz));
+                    int paddingBytes = g.size - typeSz;
+                    if (relocMode) {
+                        emit(".res " + std::to_string(paddingBytes));
+                    } else {
+                        // PRG mode: emit actual zero bytes (not just reserve space)
+                        for (int i = 0; i < paddingBytes; i++) emit(".byte 0");
+                    }
                 }
             }
         } else {
