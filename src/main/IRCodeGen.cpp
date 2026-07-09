@@ -317,27 +317,7 @@ void IRCodeGen::storeVreg(uint32_t vregId) {
             } else {
                 emit("sta " + zpAddr);
                 ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 1);
-                // For storing 16-bit values to ZP: use STA if A and X are equal, otherwise reload X
-                // and use STX. When A has a constant value, ensure X is loaded with the correct
-                // high byte to avoid using stale X values from previous operations.
-                if (ms_.regsEqual(REG_A, REG_X)) {
-                    emit("sta " + ss.str());
-                } else if (ms_.hasConst(REG_A)) {
-                    // A contains a known constant - ensure X is loaded with the high byte
-                    uint8_t ahigh = (ms_.getConst(REG_A) >> 8) & 0xFF;
-                    emit("ldx #" + std::to_string(ahigh));
-                    ms_.setConst(REG_X, ahigh);
-                    emit("stx " + ss.str());
-                } else if (ms_.hasConst(REG_X)) {
-                    // X has a known constant (and A doesn't), reload and store it
-                    uint8_t xval = ms_.getConst(REG_X);
-                    emit("ldx #" + std::to_string(xval));
-                    ms_.setConst(REG_X, xval);
-                    emit("stx " + ss.str());
-                } else {
-                    // Neither A nor X have known constants - just emit stx
-                    emit("stx " + ss.str());
-                }
+                emit(ms_.regsEqual(REG_A, REG_X) ? "sta " + ss.str() : "stx " + ss.str());
             }
             break;
         }
