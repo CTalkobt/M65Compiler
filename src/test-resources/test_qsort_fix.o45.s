@@ -1,33 +1,10 @@
-* = $2000
-    __sp_base = $0101
-; Save ZP $08-$FF to BSS buffer
-    ldx #0
-@__zp_save_loop:
-    lda $08,x
-    sta __zp_save_buf,x
-    inx
-    cpx #248
-    bne @__zp_save_loop
-    jsr _main
-    sta $02
-    stx $03
-; Restore ZP $08-$FF from BSS buffer
-    ldx #0
-@__zp_restore_loop:
-    lda __zp_save_buf,x
-    sta $08,x
-    inx
-    cpx #248
-    bne @__zp_restore_loop
-    lda $02
-    ldx $03
-__halt:
-    jmp __halt
-    .global __static_chain
-    .global __zp_scratch
-    .global __zp_scratch2
-    .global __zp_scratch3
-    .global __zp_scratch4
+    .o45
+    .extern __sp_base
+    .weak __static_chain
+    .weak __zp_scratch
+    .weak __zp_scratch2
+    .weak __zp_scratch3
+    .weak __zp_scratch4
     __static_chain = $06
     __zp_scratch = $08
     __zp_scratch2 = $0A
@@ -36,11 +13,19 @@ __halt:
 
     .extern _qsort
 
+    .global _test_result
+    .global _compare_calls
+    .global _compare_ints
+    .global _main
+
+    .segment "data"
+    .byte 0
 _test_result:
     .word 16384
 _compare_calls:
     .word 0
 
+    .segment "code"
 
 ; function _compare_ints
     proc _compare_ints, W#@_p_a, W#@_p_b
