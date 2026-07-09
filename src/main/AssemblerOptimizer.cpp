@@ -436,7 +436,10 @@ bool AssemblerOptimizer::optimizeInternal(
             // (from a prior LDA), the CMP #$FF can be eliminated:
             // cmp #$FF; beq → bmi (N=1 means A=$FF)
             // cmp #$FF; bne → bpl (N=0 means A=$00 or $01)
-            if (m == "CMP" && isImm && hasNumVal && numVal == 255 && ms.flags.flagsReflect(REG_A)) {
+            // DISABLED: This optimization causes assembler errors when BMI/BPL are generated
+            // with absolute addressing, which they don't support (relative-only branches).
+            // TODO: Re-enable only when addressing modes can be guaranteed to be relative.
+            if (false && m == "CMP" && isImm && hasNumVal && numVal == 255 && ms.flags.flagsReflect(REG_A)) {
                 size_t j = i + 1;
                 while (j < parser->statements.size() && parser->statements[j]->deleted) ++j;
                 if (j < parser->statements.size()) {
