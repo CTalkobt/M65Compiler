@@ -2388,53 +2388,72 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     emit("ldx #0");
                 }
             } else if (inst.src1.kind != ir::OperandKind::NONE) {
-                // Load value from address held in an operand via (ZP),Y
-                std::string zpPair;
-                if (inst.src1.isVreg()) {
-                    auto addrAlloc = alloc_.getAlloc(inst.src1.vregId);
-                    if (addrAlloc.loc == VRegAllocator::IN_ZP) {
-                        std::stringstream ss;
-                        ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << addrAlloc.offset;
-                        zpPair = ss.str();
+                // Check if this is a pointer-to-pointer assignment (function pointer or data pointer)
+                // In C, assigning one pointer to another doesn't dereference - it just copies the address.
+                // If both src and dest are I16 (which is 16-bit pointers on 45GS02), this is a pointer copy,
+                // not a memory load from the address.
+                bool isPointerCopy = (inst.src1.type == ir::Type::I16 && inst.resultType == ir::Type::I16);
+
+                static bool debugOnce = false;
+                if (!debugOnce) {
+                    debugOnce = true;
+                    std::cerr << "LOAD: src1.type=" << (int)inst.src1.type << " I16=" << (int)ir::Type::I16
+                              << " resultType=" << (int)inst.resultType << " isPointerCopy=" << isPointerCopy << "\n";
+                }
+
+                if (isPointerCopy) {
+                    // Pointer-to-pointer copy: load the pointer value directly, don't dereference it
+                    emit("; POINTER COPY - no dereference");
+                    loadOperand(inst.src1);
+                } else {
+                    // Normal LOAD: dereference the pointer to load data at that address
+                    std::string zpPair;
+                    if (inst.src1.isVreg()) {
+                        auto addrAlloc = alloc_.getAlloc(inst.src1.vregId);
+                        if (addrAlloc.loc == VRegAllocator::IN_ZP) {
+                            std::stringstream ss;
+                            ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << addrAlloc.offset;
+                            zpPair = ss.str();
+                        } else {
+                            loadVreg(inst.src1.vregId);
+                            emit("sta __zp_scratch");
+                            emit("stx __zp_scratch+1");
+                            zpPair = "__zp_scratch";
+                        }
                     } else {
-                        loadVreg(inst.src1.vregId);
+                        loadOperand(inst.src1);
                         emit("sta __zp_scratch");
                         emit("stx __zp_scratch+1");
                         zpPair = "__zp_scratch";
                     }
-                } else {
-                    loadOperand(inst.src1);
-                    emit("sta __zp_scratch");
-                    emit("stx __zp_scratch+1");
-                    zpPair = "__zp_scratch";
-                }
-                
-                emit("ldy #0");
-                if (inst.resultType == ir::Type::I8) {
-                    emit("lda (" + zpPair + "),y");
-                    emit("ldx #0");
-                } else if (inst.resultType == ir::Type::I32) {
-                    emit("lda (" + zpPair + "),y"); // byte 0
-                    emit("pha");
-                    emit("iny");
-                    emit("lda (" + zpPair + "),y"); // byte 1
-                    emit("pha");
-                    emit("iny");
-                    emit("lda (" + zpPair + "),y"); // byte 2
-                    emit("pha");
-                    emit("iny");
-                    emit("lda (" + zpPair + "),y"); // byte 3
-                    emit("taz");
-                    emit("ply");
-                    emit("plx");
-                    emit("pla");
-                } else {
-                    emit("lda (" + zpPair + "),y"); // lo
-                    emit("pha");
-                    emit("iny");
-                    emit("lda (" + zpPair + "),y"); // hi
-                    emit("tax");
-                    emit("pla");
+
+                    emit("ldy #0");
+                    if (inst.resultType == ir::Type::I8) {
+                        emit("lda (" + zpPair + "),y");
+                        emit("ldx #0");
+                    } else if (inst.resultType == ir::Type::I32) {
+                        emit("lda (" + zpPair + "),y"); // byte 0
+                        emit("pha");
+                        emit("iny");
+                        emit("lda (" + zpPair + "),y"); // byte 1
+                        emit("pha");
+                        emit("iny");
+                        emit("lda (" + zpPair + "),y"); // byte 2
+                        emit("pha");
+                        emit("iny");
+                        emit("lda (" + zpPair + "),y"); // byte 3
+                        emit("taz");
+                        emit("ply");
+                        emit("plx");
+                        emit("pla");
+                    } else {
+                        emit("lda (" + zpPair + "),y"); // lo
+                        emit("pha");
+                        emit("iny");
+                        emit("lda (" + zpPair + "),y"); // hi
+                        emit("tax");
+                        emit("pla");
+                    }
                 }
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
