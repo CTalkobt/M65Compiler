@@ -2586,6 +2586,12 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     }
                 } else if (inst.resultType == ir::Type::I8 && inst.src1.isImm()) {
                     emit("lda #" + std::to_string((int)(inst.src1.immVal & 0xFF)));
+                } else if (inst.src1.isImm() && inst.resultType != ir::Type::I8) {
+                    // For non-I8 immediates, we need to load full value into A:X
+                    // Create a temporary operand with the correct type for loading
+                    ir::Operand tempOp = inst.src1;
+                    tempOp.type = inst.resultType;  // Force operand to match destination type
+                    loadOperand(tempOp);
                 } else {
                     loadOperand(inst.src1);
                 }
