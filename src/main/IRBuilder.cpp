@@ -2900,20 +2900,13 @@ void IRBuilder::visit(FunctionCall& node) {
 
             if (isVariable) {
                 // Indirect call via function pointer variable
-                // Load the pointer value from the variable
                 auto varIt = locals_.find(node.name);
                 ir::Operand ptrVal;
                 if (varIt != locals_.end()) {
-                    // Local function pointer variable
-                    auto addr = allocVreg(ir::Type::PTR);
-                    ir::Inst loadInst;
-                    loadInst.op = ir::Op::LOAD;
-                    loadInst.dest = addr;
-                    loadInst.resultType = ir::Type::PTR;
-                    loadInst.src1 = varIt->second;
-                    loadInst.loc = loc(node);
-                    emit(loadInst);
-                    ptrVal = addr;
+                    // Local function pointer parameter or variable
+                    // The vreg already contains the function address value.
+                    // Use it directly without dereferencing (unlike data pointers).
+                    ptrVal = varIt->second;
                 } else {
                     // Global function pointer variable — load from global
                     auto addr = allocVreg(ir::Type::PTR);
