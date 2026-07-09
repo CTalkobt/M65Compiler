@@ -317,7 +317,27 @@ void IRCodeGen::storeVreg(uint32_t vregId) {
             } else {
                 emit("sta " + zpAddr);
                 ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 1);
-                emit(ms_.regsEqual(REG_A, REG_X) ? "sta " + ss.str() : "stx " + ss.str());
+                // For storing 16-bit values to ZP: use STA if A and X are equal, otherwise reload X
+                // and use STX. When A has a constant value, ensure X is loaded with the correct
+                // high byte to avoid using stale X values from previous operations.
+                if (ms_.regsEqual(REG_A, REG_X)) {
+                    emit("sta " + ss.str());
+                } else if (ms_.hasConst(REG_A)) {
+                    // A contains a known constant - ensure X is loaded with the high byte
+                    uint8_t ahigh = (ms_.getConst(REG_A) >> 8) & 0xFF;
+                    emit("ldx #" + std::to_string(ahigh));
+                    ms_.setConst(REG_X, ahigh);
+                    emit("stx " + ss.str());
+                } else if (ms_.hasConst(REG_X)) {
+                    // X has a known constant (and A doesn't), reload and store it
+                    uint8_t xval = ms_.getConst(REG_X);
+                    emit("ldx #" + std::to_string(xval));
+                    ms_.setConst(REG_X, xval);
+                    emit("stx " + ss.str());
+                } else {
+                    // Neither A nor X have known constants - just emit stx
+                    emit("stx " + ss.str());
+                }
             }
             break;
         }
@@ -359,12 +379,17 @@ void IRCodeGen::loadOperand(const ir::Operand& op) {
             break;
         case ir::OperandKind::IMM:
             emit("lda #" + std::to_string((int)(op.immVal & 0xFF)));
+            ms_.setConst(REG_A, op.immVal & 0xFF);
             if (op.type == ir::Type::I32) {
                 emit("ldx #" + std::to_string((int)((op.immVal >> 8) & 0xFF)));
+                ms_.setConst(REG_X, (op.immVal >> 8) & 0xFF);
                 emit("ldy #" + std::to_string((int)((op.immVal >> 16) & 0xFF)));
+                ms_.setConst(REG_Y, (op.immVal >> 16) & 0xFF);
                 emit("ldz #" + std::to_string((int)((op.immVal >> 24) & 0xFF)));
+                ms_.setConst(REG_Z, (op.immVal >> 24) & 0xFF);
             } else if (op.type != ir::Type::I8) {
                 emit("ldx #" + std::to_string((int)((op.immVal >> 8) & 0xFF)));
+                ms_.setConst(REG_X, (op.immVal >> 8) & 0xFF);
             }
             break;
         case ir::OperandKind::GLOBAL:
@@ -373,6 +398,8 @@ void IRCodeGen::loadOperand(const ir::Operand& op) {
         default:
             emit("lda #0");
             emit("ldx #0");
+            ms_.setConst(REG_A, 0);
+            ms_.setConst(REG_X, 0);
             break;
     }
 }
