@@ -1525,7 +1525,18 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << destAlloc.offset;
                         emit("lda #" + std::to_string((int)b0), r);
                         emit("sta " + ss.str());
-                        if (inst.resultType != ir::Type::I8) {
+                        // Always emit high byte for 16-bit destinations, even if constant is I8
+                        // This ensures X register is properly initialized
+                        auto destType = alloc_.getAlloc(nextInst->src2.vregId).type;
+                        if (destType == ir::Type::I16) {
+                            ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (destAlloc.offset + 1);
+                            if (b1 == b0) {
+                                emit("sta " + ss.str());
+                            } else {
+                                emit("ldx #" + std::to_string((int)b1));
+                                emit("stx " + ss.str());
+                            }
+                        } else if (inst.resultType != ir::Type::I8) {
                             ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (destAlloc.offset + 1);
                             if (b1 == b0) {
                                 emit("sta " + ss.str());
