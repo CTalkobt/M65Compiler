@@ -518,21 +518,28 @@ bool AssemblerOptimizer::optimizeInternal(
                 // establish register state at control-flow merge points. Eliminating
                 // them breaks Bug #183 where return value loads were removed before
                 // branches to common epilogue.
+                // CRITICAL: Check if load comes immediately before control-flow instruction.
+                // Look ahead up to 3 statements (e.g., LDA $28; LDX $29; BRA @label)
                 bool isBeforeCFChange = false;
-                if (i + 1 < parser->statements.size()) {
-                    auto* nextStmt = parser->statements[i + 1].get();
-                    if (nextStmt && !nextStmt->deleted) {
-                        if (!nextStmt->label.empty()) {
+                for (size_t lookahead = 1; lookahead <= 3 && i + lookahead < parser->statements.size(); ++lookahead) {
+                    auto* nextStmt = parser->statements[i + lookahead].get();
+                    if (!nextStmt || nextStmt->deleted) continue;
+
+                    if (!nextStmt->label.empty()) {
+                        isBeforeCFChange = true;
+                        break;
+                    } else if (nextStmt->type == AssemblerParser::Statement::INSTRUCTION) {
+                        const std::string& mn = nextStmt->instr.mnemonic;
+                        if (mn == "BRA" || mn == "BEQ" || mn == "BNE" || mn == "BMI" ||
+                            mn == "BPL" || mn == "BCS" || mn == "BCC" || mn == "BVS" ||
+                            mn == "BVC" || mn == "RTS" || mn == "RTI" || mn == "JMP" ||
+                            mn == "JSR" || mn == "BRL" || mn == "JML" || mn == "RTL") {
                             isBeforeCFChange = true;
-                        } else if (nextStmt->type == AssemblerParser::Statement::INSTRUCTION) {
-                            const std::string& mn = nextStmt->instr.mnemonic;
-                            if (mn == "BRA" || mn == "BEQ" || mn == "BNE" || mn == "BMI" ||
-                                mn == "BPL" || mn == "BCS" || mn == "BCC" || mn == "BVS" ||
-                                mn == "BVC" || mn == "RTS" || mn == "RTI" || mn == "JMP" ||
-                                mn == "JSR" || mn == "BRL" || mn == "JML" || mn == "RTL") {
-                                isBeforeCFChange = true;
-                            }
+                            break;
                         }
+                    } else {
+                        // Non-instruction, non-label statement - keep searching
+                        continue;
                     }
                 }
 
