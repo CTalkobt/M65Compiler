@@ -3423,21 +3423,24 @@ void AssemblerSimulatedOps::dispatch_AddrElem(AssemblerParser* p, M65Emitter& e,
     
     if (idx < (int)p->tokens.size() && p->tokens[idx].type == AssemblerTokenType::COMMA) idx++;
     if (idx < (int)p->tokens.size() && p->tokens[idx].type == AssemblerTokenType::HASH) idx++;
-    
+
     auto strideAst = parseExprAST(p->tokens, idx, p->symbolTable, s->scopePrefix);
     uint16_t strideVal = strideAst ? strideAst->getValue(p) : 1;
     if (strideVal > 1) {
-        emitWriteOperand16(p, e, indexIsReg, indexRegName, idxIndexStart, m65::MULT_ARG1, s->scopePrefix);
-        
-        e.lda_imm(strideVal & 0xFF);
-        e.sta_addr(m65::MULT_ARG2);
-        e.lda_imm((strideVal >> 8) & 0xFF);
-        e.sta_addr(m65::MULT_ARG2 + 1);
-        
+        // Clear high bytes first to ensure 16-bit × 16-bit multiplication
         e.stz_addr(m65::MULT_ARG1 + 2);
         e.stz_addr(m65::MULT_ARG1 + 3);
         e.stz_addr(m65::MULT_ARG2 + 2);
         e.stz_addr(m65::MULT_ARG2 + 3);
+
+        // Write stride to MULT_ARG2 first
+        e.lda_imm(strideVal & 0xFF);
+        e.sta_addr(m65::MULT_ARG2);
+        e.lda_imm((strideVal >> 8) & 0xFF);
+        e.sta_addr(m65::MULT_ARG2 + 1);
+
+        // Write index to MULT_ARG1 last (may trigger multiplication)
+        emitWriteOperand16(p, e, indexIsReg, indexRegName, idxIndexStart, m65::MULT_ARG1, s->scopePrefix);
         
         auto baseFa = p->resolveFrameAccess(idxBaseStart, s->scopePrefix);
         if (baseFa.isFrame && !baseIsImmediate) {
