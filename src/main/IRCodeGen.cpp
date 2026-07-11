@@ -2363,11 +2363,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     // Store result to __zp_scratch
                     emit("sta __zp_scratch");
                     emit("stx __zp_scratch+1");
-
-                    // .noopt_start/.noopt_end marks region where optimizer must not eliminate ldy #0.
-                    emit(".noopt_start");
                     emit("ldy #0");
-                    emit(".noopt_end");
                 }
                 // Now load from (__zp_scratch),Y
                 emit("lda (__zp_scratch),y");
@@ -2544,11 +2540,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     // Store result to __zp_scratch
                     emit("sta __zp_scratch");
                     emit("stx __zp_scratch+1");
-
-                    // .noopt_start/.noopt_end marks region where optimizer must not eliminate ldy #0.
-                    emit(".noopt_start");
                     emit("ldy #0");
-                    emit(".noopt_end");
                 }
 
                 // Restore value and store via (__zp_scratch),Y
@@ -3012,8 +3004,6 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 uint32_t offset = inst.src2.immVal * elemSize;
                 emit("struct_elem.16 " + destStr + ", " + baseStr + ", #" + std::to_string(offset));
             } else {
-                emit(".noopt_start");
-
                 // Load base address
                 loadOperand(inst.src1);
                 std::string baseScratch = "$20";
@@ -3042,8 +3032,6 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     emit("sta " + destStr);
                     emit("stx " + destStr + "+1");
                 }
-
-                emit(".noopt_end");
             }
 
             if (storeNeeded && inst.dest.isVreg()) {
