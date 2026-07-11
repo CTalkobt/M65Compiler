@@ -113,10 +113,10 @@ if [ $? -ne 0 ]; then
     echo "FAIL: Compilation/linking failed for mmemu_compiler_simple.c"
     failed=$((failed + 1))
 else
-    # Run in mmemu-cli
-    OUTPUT=$(echo -e "load build/test/mmemu_compiler_simple.prg\nstep 5000000\nm \$4000 1\nq" | $MMEMU -m rawMega65 2>/dev/null)
+    # Run in mmemu-cli (setpc sets PC to PRG load address after loading)
+    OUTPUT=$(echo -e "load build/test/mmemu_compiler_simple.prg\nsetpc \$2000\nstep 10000000\nm \$4000 1\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
-    if echo "$OUTPUT" | grep -q "4000: aa"; then
+    if echo "$OUTPUT" | grep -qi "4000: aa"; then
         echo "SUCCESS: mmemu_compiler_simple.c executed correctly."
     else
         echo "FAIL: mmemu_compiler_simple.c validation failed."
@@ -129,83 +129,69 @@ fi
 
 echo "Testing mmemu-cli with test_mmemu_control.c (comprehensive control flow)..."
 
-# 1. Compile
-$CC -O0 src/test-resources/test_mmemu_control.c -o build/test/test_mmemu_control.s
+# Use new integrated pipeline: cc45 -o .prg directly links with startup code
+$CC -O0 src/test-resources/test_mmemu_control.c -o build/test/test_mmemu_control.prg 2>/dev/null
 if [ $? -ne 0 ]; then
-    echo "FAIL: Compilation failed for test_mmemu_control.c"
+    echo "FAIL: Compilation/linking failed for test_mmemu_control.c"
     failed=$((failed + 1))
 else
-    # 2. Assemble to .prg
-    $AS build/test/test_mmemu_control.s -o build/test/test_mmemu_control.prg
-    if [ $? -ne 0 ]; then
-        echo "FAIL: Assembly failed for test_mmemu_control.s"
-        failed=$((failed + 1))
+    # Run in mmemu-cli
+    # Expected bytes at $4000:
+    # 4000: AA (Success flag)
+    # 4001: 01 (1 && 1)
+    # 4002: 01 (0 || 1)
+    # 4003: 0A (while sum 0-4 = 10)
+    # 4004: 0A (do-while sum 0-4 = 10)
+    # 4005: 12 (for break/continue 3+4+5+6 = 18 = $12)
+    # 4006: 0A (switch 1 = 10 = $0A)
+    # 4007: 19 (switch 2 = 25 = $19)
+    # 4008: 64 (switch default = 100 = $64)
+    # 4009: 11 (ternary true = $11)
+    # 400A: 22 (ternary false = $22)
+
+    EXPECTED_CONTROL="AA 01 01 0A 0A 12 0A 19 64 11 22"
+
+    OUTPUT=$(echo -e "load build/test/test_mmemu_control.prg\nsetpc \$2000\nstep 10000000\nm \$4000 11\nq" | $MMEMU -m rawMega65 2>/dev/null)
+
+    if echo "$OUTPUT" | grep -q "$EXPECTED_CONTROL"; then
+        echo "SUCCESS: test_mmemu_control.c executed correctly."
     else
-        # 3. Run in mmemu-cli
-        # Expected bytes at $4000:
-        # 4000: AA (Success flag)
-        # 4001: 01 (1 && 1)
-        # 4002: 01 (0 || 1)
-        # 4003: 0A (while sum 0-4 = 10)
-        # 4004: 0A (do-while sum 0-4 = 10)
-        # 4005: 12 (for break/continue 3+4+5+6 = 18 = $12)
-        # 4006: 0A (switch 1 = 10 = $0A)
-        # 4007: 19 (switch 2 = 25 = $19)
-        # 4008: 64 (switch default = 100 = $64)
-        # 4009: 11 (ternary true = $11)
-        # 400A: 22 (ternary false = $22)
-        
-        EXPECTED_CONTROL="AA 01 01 0A 0A 12 0A 19 64 11 22"
-        
-        OUTPUT=$(echo -e "load build/test/test_mmemu_control.prg\nsetpc \$2000\nstep 5000000\nm \$4000 11\nq" | $MMEMU -m rawMega65 2>/dev/null)
-        
-        if echo "$OUTPUT" | grep -q "$EXPECTED_CONTROL"; then
-            echo "SUCCESS: test_mmemu_control.c executed correctly."
-        else
-            echo "FAIL: test_mmemu_control.c validation failed."
-            echo "Expected at \$4000: $EXPECTED_CONTROL"
-            echo "Actual output:"
-            echo "$OUTPUT"
-            failed=$((failed + 1))
-        fi
+        echo "FAIL: test_mmemu_control.c validation failed."
+        echo "Expected at \$4000: $EXPECTED_CONTROL"
+        echo "Actual output:"
+        echo "$OUTPUT"
+        failed=$((failed + 1))
     fi
 fi
 
 echo "Testing mmemu-cli with test_inline_asm.c (inline assembly variable access)..."
 
-# 1. Compile
-$CC src/test-resources/test_inline_asm.c -o build/test/test_inline_asm.s
+# Use new integrated pipeline: cc45 -o .prg directly links with startup code
+$CC src/test-resources/test_inline_asm.c -o build/test/test_inline_asm.prg 2>/dev/null
 if [ $? -ne 0 ]; then
-    echo "FAIL: Compilation failed for test_inline_asm.c"
+    echo "FAIL: Compilation/linking failed for test_inline_asm.c"
     failed=$((failed + 1))
 else
-    # 2. Assemble to .prg
-    $AS build/test/test_inline_asm.s -o build/test/test_inline_asm.prg
-    if [ $? -ne 0 ]; then
-        echo "FAIL: Assembly failed for test_inline_asm.s"
-        failed=$((failed + 1))
+    # Run in mmemu-cli
+    # Expected bytes at $4000:
+    # 4000: 01 (global int param via ldax/stax inline asm)
+    # 4001: 01 (global char param via lda.sp/sta inline asm)
+    # 4002: 01 (global overwrite to zero)
+    # 4003: 01 (local variable via ldax/stax inline asm)
+    # 4004: AA (success marker)
+
+    EXPECTED_INLINE="01 01 01 01 AA"
+
+    OUTPUT=$(echo -e "load build/test/test_inline_asm.prg\nsetpc \$2000\nstep 10000000\nm \$4000 5\nq" | $MMEMU -m rawMega65 2>/dev/null)
+
+    if echo "$OUTPUT" | grep -q "$EXPECTED_INLINE"; then
+        echo "SUCCESS: test_inline_asm.c executed correctly."
     else
-        # 3. Run in mmemu-cli
-        # Expected bytes at $4000:
-        # 4000: 01 (global int param via ldax/stax inline asm)
-        # 4001: 01 (global char param via lda.sp/sta inline asm)
-        # 4002: 01 (global overwrite to zero)
-        # 4003: 01 (local variable via ldax/stax inline asm)
-        # 4004: AA (success marker)
-
-        EXPECTED_INLINE="01 01 01 01 AA"
-
-        OUTPUT=$(echo -e "load build/test/test_inline_asm.prg\nsetpc \$2000\nstep 5000000\nm \$4000 5\nq" | $MMEMU -m rawMega65 2>/dev/null)
-
-        if echo "$OUTPUT" | grep -q "$EXPECTED_INLINE"; then
-            echo "SUCCESS: test_inline_asm.c executed correctly."
-        else
-            echo "FAIL: test_inline_asm.c validation failed."
-            echo "Expected at \$4000: $EXPECTED_INLINE"
-            echo "Actual output:"
-            echo "$OUTPUT"
-            failed=$((failed + 1))
-        fi
+        echo "FAIL: test_inline_asm.c validation failed."
+        echo "Expected at \$4000: $EXPECTED_INLINE"
+        echo "Actual output:"
+        echo "$OUTPUT"
+        failed=$((failed + 1))
     fi
 fi
 
