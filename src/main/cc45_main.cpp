@@ -922,14 +922,17 @@ int main(int argc, char** argv) {
     if (!objectFileOnly) {
         if (verboseLevel >= 1) std::cout << "Linking " << objFile << " → " << prgFile << "..." << std::endl;
 
-        // Determine which library to link based on calling convention
+        // Determine which library and startup object to link based on calling convention
         std::string libName = "c45.lib";
+        std::string crt0Name = "crt0.o45";
         if (zpCallMode) {
             libName = "c45_zp.lib";
+            crt0Name = "crt0_zp.o45";
         }
 
-        // Try to find library in multiple locations (build tree, then installed prefix)
+        // Try to find library and startup object in multiple locations (build tree, then installed prefix)
         std::string libPath = libName;
+        std::string crt0Path = crt0Name;
         if (lastSep != std::string::npos) {
             std::string binDir = cc45Path.substr(0, lastSep + 1);
             // Try build tree location first: ../lib/build/
@@ -947,9 +950,26 @@ int main(int argc, char** argv) {
                     test.close();
                 }
             }
+
+            // Look for crt0 in the same locations
+            tryPath = binDir + "../lib/build/" + crt0Name;
+            test.open(tryPath);
+            if (test.good()) {
+                crt0Path = tryPath;
+                test.close();
+            } else {
+                // Try installed prefix location
+                tryPath = binDir + "../lib/cc45/" + crt0Name;
+                test.open(tryPath);
+                if (test.good()) {
+                    crt0Path = tryPath;
+                    test.close();
+                }
+            }
         }
 
-        std::string linkCommand = ln45Path + " " + objFile + " " + libPath + " -o " + prgFile;
+        // Link with crt0 first (sets entry point), then user object, then libraries
+        std::string linkCommand = ln45Path + " " + crt0Path + " " + objFile + " " + libPath + " -o " + prgFile;
         int linkRet = std::system(linkCommand.c_str());
         if (linkRet != 0) {
             std::cerr << "Linker failed with return code " << linkRet << std::endl;
