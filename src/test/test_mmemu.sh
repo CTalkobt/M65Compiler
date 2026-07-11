@@ -107,31 +107,23 @@ fi
 
 echo "Testing mmemu-cli with mmemu_compiler_simple.c..."
 
-# 1. Compile
-$CC src/test-resources/mmemu_compiler_simple.c -o build/test/mmemu_compiler_simple.s
+# Use new integrated pipeline: cc45 -o .prg directly links with startup code
+$CC src/test-resources/mmemu_compiler_simple.c -o build/test/mmemu_compiler_simple.prg 2>/dev/null
 if [ $? -ne 0 ]; then
-    echo "FAIL: Compilation failed for mmemu_compiler_simple.c"
+    echo "FAIL: Compilation/linking failed for mmemu_compiler_simple.c"
     failed=$((failed + 1))
 else
-    # 2. Assemble to .prg
-    $AS build/test/mmemu_compiler_simple.s -o build/test/mmemu_compiler_simple.prg
-    if [ $? -ne 0 ]; then
-        echo "FAIL: Assembly failed for mmemu_compiler_simple.s"
-        failed=$((failed + 1))
+    # Run in mmemu-cli
+    OUTPUT=$(echo -e "load build/test/mmemu_compiler_simple.prg\nstep 5000000\nm \$4000 1\nq" | $MMEMU -m rawMega65 2>/dev/null)
+
+    if echo "$OUTPUT" | grep -q "4000: aa"; then
+        echo "SUCCESS: mmemu_compiler_simple.c executed correctly."
     else
-        # 3. Run in mmemu-cli
-        # Load .prg (uses header), set PC to $2000 (now jmp main), step 200, dump $4000
-        OUTPUT=$(echo -e "load build/test/mmemu_compiler_simple.prg\nsetpc \$2000\nstep 5000000\nm \$4000 1\nq" | $MMEMU -m rawMega65 2>/dev/null)
-        
-        if echo "$OUTPUT" | grep -q "4000: AA"; then
-            echo "SUCCESS: mmemu_compiler_simple.c executed correctly."
-        else
-            echo "FAIL: mmemu_compiler_simple.c validation failed."
-            echo "Expected AA at \$4000"
-            echo "Actual output:"
-            echo "$OUTPUT"
-            failed=$((failed + 1))
-        fi
+        echo "FAIL: mmemu_compiler_simple.c validation failed."
+        echo "Expected AA at \$4000"
+        echo "Actual output:"
+        echo "$OUTPUT"
+        failed=$((failed + 1))
     fi
 fi
 

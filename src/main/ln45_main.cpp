@@ -169,9 +169,9 @@ int main(int argc, char** argv) {
         linker.addLibrary(libname, lib);
     }
 
-    // Link (for -basic, we add the header ourselves)
+    // Link (we always add the header ourselves in ln45_main)
     std::string linkErr;
-    auto binary = linker.link(linkErr, isPrg && !isBasic);
+    auto binary = linker.link(linkErr, false);
     if (binary.empty()) {
         std::cerr << "ln45: link error: " << linkErr << std::endl;
         return 1;
