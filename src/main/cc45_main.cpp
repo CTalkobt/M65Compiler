@@ -527,6 +527,9 @@ int main(int argc, char** argv) {
         } else if (arg == "-Roptimizer") {
             emitReasons = true; // also enable codegen reasons for context
             // Flag will be passed to ca45 subprocess below
+        } else if (arg.substr(0, 2) == "-P") {
+            // Named optimization flags: forward to ca45
+            // -P<Name> to enable, -PNo<Name> to disable
         } else if (arg == "-O0") {
             optimize = false;
         } else if (arg == "-vv") {
@@ -847,18 +850,21 @@ int main(int argc, char** argv) {
     // Collect flags for subprocesses
     std::string rOptFlag;
     std::string rMachFlag;
+    std::string pFlags;
     std::string optLevelFlag = " -O2";  // Default optimization level
     if (!optimize) {
         optLevelFlag = " -O0";  // No optimization if -O0 was passed to cc45
     }
     for (int ai = 1; ai < argc_merged; ai++) {
-        if (std::string(argv_merged[ai]) == "-Roptimizer") rOptFlag = " -Roptimizer";
-        if (std::string(argv_merged[ai]) == "-Rmachstate") rMachFlag = " -Rmachstate";
+        std::string arg = argv_merged[ai];
+        if (arg == "-Roptimizer") rOptFlag = " -Roptimizer";
+        if (arg == "-Rmachstate") rMachFlag = " -Rmachstate";
+        if (arg.substr(0, 2) == "-P") pFlags += " " + arg;  // Collect all -P flags
     }
 
     // STEP 1: Assemble .s → .o45
     if (verboseLevel >= 1) std::cout << "Assembling " << asmFile << " → " << objFile << "..." << std::endl;
-    std::string asmCommand = ca45Path + " -c" + optLevelFlag + " " + defineFlag + rOptFlag + rMachFlag + " -o " + objFile + " " + asmFile;
+    std::string asmCommand = ca45Path + " -c" + optLevelFlag + " " + defineFlag + rOptFlag + rMachFlag + pFlags + " -o " + objFile + " " + asmFile;
     int asmRet = std::system(asmCommand.c_str());
     if (asmRet != 0) {
         std::cerr << "Assembler failed with return code " << asmRet << std::endl;

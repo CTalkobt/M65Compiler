@@ -9,6 +9,7 @@
 #include "AssemblerToken.hpp"
 #include "AssemblerTypes.hpp"
 #include "AssemblerOpcodeDatabase.hpp"
+#include "AssemblerOptimizer.hpp"
 
 class M65Emitter;  // forward declaration for SimOpEmitFn
 
@@ -45,6 +46,7 @@ public:
     bool traceMachState = false;
     bool enableExperimental = false;
     int optimizationLevel = 2;  // 0=none, 1=basic, 2=default, 3=aggressive
+    OptimizationFlags optFlags = OptimizationFlags::fromLevel(2);  // Named optimization flags
     std::vector<uint8_t> pass2(bool isPrg = false);
     uint32_t getZPStart() const;
     uint16_t getSpBase() const;

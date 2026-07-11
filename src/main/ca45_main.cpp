@@ -91,6 +91,7 @@ int main(int argc, char** argv) {
     bool traceMachState = false;
     bool enableExperimental = false;
     int optimizationLevel = 2;  // Default to -O2
+    OptimizationFlags optFlags = OptimizationFlags::fromLevel(2);  // Default to -O2
     int verboseLevel = 0;
     int listingLevel = 1;
     std::map<std::string, uint32_t> predefinedSymbols;
@@ -152,6 +153,18 @@ int main(int argc, char** argv) {
                 optimizationLevel = levelStr[0] - '0';
             } else {
                 optimizationLevel = 2;  // -O defaults to O2
+            }
+            optFlags = OptimizationFlags::fromLevel(optimizationLevel);
+        } else if (arg.substr(0, 2) == "-P") {
+            // Named optimization flags: -P<Name> to enable, -PNo<Name> to disable
+            std::string flagName = arg.substr(2);
+            if (flagName.substr(0, 2) == "No") {
+                // -PNo<Name> disables the flag
+                std::string name = flagName.substr(2);
+                if (name == "JSRRelocate") optFlags.jsrRelocate = false;
+            } else {
+                // -P<Name> enables the flag
+                if (flagName == "JSRRelocate") optFlags.jsrRelocate = true;
             }
         } else if (arg == "-vv") {
             verboseLevel = 2;
@@ -238,6 +251,7 @@ int main(int argc, char** argv) {
     parser.traceMachState = traceMachState;
     parser.enableExperimental = enableExperimental;
     parser.optimizationLevel = optimizationLevel;
+    parser.optFlags = optFlags;
     try {
         parser.pass1();
 

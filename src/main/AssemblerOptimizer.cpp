@@ -274,7 +274,7 @@ bool AssemblerOptimizer::optimizeInternal(
                     changed = true;
                 }
             } else {
-                bool canBSR = resolved && optimizationLevel > 0;  // Only optimize JSR to BSR if optimization is enabled
+                bool canBSR = resolved && parser->optFlags.jsrRelocate;
                 if (canBSR && s->instr.operandTokenIndex >= 0) {
                     std::string operand = s->instr.operand;
                     if (operand.empty() && s->instr.operandTokenIndex < (int)parser->tokens.size())

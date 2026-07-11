@@ -14,6 +14,21 @@ struct ExternalFuncInfo {
     bool isLeaf;
 };
 
+// Named optimization flags: per-pass control via -P<Name> / -PNo<Name>
+struct OptimizationFlags {
+    bool jsrRelocate = true;  // JSR → BSR relocation for position-independent code
+
+    // Constructor to reset all flags based on optimization level
+    static OptimizationFlags fromLevel(int level) {
+        OptimizationFlags flags;
+        // All passes enabled at level 1+
+        if (level <= 0) {
+            flags.jsrRelocate = false;
+        }
+        return flags;
+    }
+};
+
 class AssemblerOptimizer {
 public:
     static bool optimize(AssemblerParser* parser, bool verbose = false, bool traceMachState = false);
