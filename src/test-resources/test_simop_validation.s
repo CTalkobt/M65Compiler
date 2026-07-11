@@ -61,7 +61,7 @@ _errors:
 ; function _check
     proc _check, W#@_p_actual, W#@_p_expected, W#@_p_test_name
     .var _fp = 0
-    .loc "test_simop_validation.c", 17
+    .loc "src/test-resources/test_simop_validation.c", 17
 ; frame: 6 bytes (frame-allocated vRegs only)
     phw #0
     phw #0
@@ -88,7 +88,7 @@ _errors:
     ldax.fp @_p_test_name
     stax.fp __vr2
 @entry:
-    .loc "test_simop_validation.c", 18
+    .loc "src/test-resources/test_simop_validation.c", 18
     lda _test_count
     ldx _test_count+1
     sta $20
@@ -138,7 +138,7 @@ _errors:
     sta (__zp_scratch),y
     ldax.fp __vr1
     sta $20
-    .loc "test_simop_validation.c", 19
+    .loc "src/test-resources/test_simop_validation.c", 19
     lda _output
     ldx _output+1
     sta $22
@@ -181,7 +181,7 @@ _errors:
     sta (__zp_scratch),y
     ldax.fp __vr0
     sta $20
-    .loc "test_simop_validation.c", 20
+    .loc "src/test-resources/test_simop_validation.c", 20
     lda _output
     ldx _output+1
     sta $22
@@ -222,7 +222,7 @@ _errors:
     ldy #0
     pla
     sta (__zp_scratch),y
-    .loc "test_simop_validation.c", 22
+    .loc "src/test-resources/test_simop_validation.c", 22
     ldax.fp __vr1
     sta __zp_scratch2
     stx __zp_scratch2+1
@@ -231,7 +231,7 @@ _errors:
     bne @if_then0
     bra @if_else1
 @if_then0:
-    .loc "test_simop_validation.c", 23
+    .loc "src/test-resources/test_simop_validation.c", 23
     lda _errors
     ldx _errors+1
     sta $20
@@ -251,7 +251,7 @@ _errors:
     ldx $21
     sta _errors
     stx _errors+1
-    .loc "test_simop_validation.c", 24
+    .loc "src/test-resources/test_simop_validation.c", 24
     lda #255
     sta $20
     lda _output
@@ -296,7 +296,7 @@ _errors:
     sta (__zp_scratch),y
     bra @if_end2
 @if_else1:
-    .loc "test_simop_validation.c", 26
+    .loc "src/test-resources/test_simop_validation.c", 26
     lda #0
     sta $20
     lda _output
@@ -340,7 +340,7 @@ _errors:
     pla
     sta (__zp_scratch),y
 @if_end2:
-    .loc "test_simop_validation.c", 29
+    .loc "src/test-resources/test_simop_validation.c", 29
     lda _test_count
     ldx _test_count+1
     sta $20
@@ -375,7 +375,7 @@ _errors:
 ; function _main
     proc _main
     .var _fp = 0
-    .loc "test_simop_validation.c", 32
+    .loc "src/test-resources/test_simop_validation.c", 32
 ; frame: 62 bytes (frame-allocated vRegs only)
     phw #0
     phw #0
@@ -449,7 +449,7 @@ _errors:
     .local __vr70 = 60
 
 @entry:
-    .loc "test_simop_validation.c", 35
+    .loc "src/test-resources/test_simop_validation.c", 35
     lda #0
     taz
     staz.fp __vr0
@@ -459,7 +459,7 @@ _errors:
     bcc @for_body4
     bra @for_end6
 @for_body4:
-    .loc "test_simop_validation.c", 36
+    .loc "src/test-resources/test_simop_validation.c", 36
     lda #0
     sta $24
     lda _output
@@ -487,7 +487,7 @@ _errors:
     pla
     sta (__zp_scratch),y
 @for_inc5:
-    .loc "test_simop_validation.c", 35
+    .loc "src/test-resources/test_simop_validation.c", 35
     ldax.fp __vr0
     sta $2A
     stx $2B
@@ -503,7 +503,7 @@ _errors:
     stax.fp __vr0
     bra @for_cond3
 @for_end6:
-    .loc "test_simop_validation.c", 39
+    .loc "src/test-resources/test_simop_validation.c", 39
     lda #0
     sta $20
     sta $21
@@ -511,7 +511,7 @@ _errors:
     ldx $21
     sta _test_count
     stx _test_count+1
-    .loc "test_simop_validation.c", 40
+    .loc "src/test-resources/test_simop_validation.c", 40
     lda #0
     sta $20
     sta $21
@@ -519,7 +519,7 @@ _errors:
     ldx $21
     sta _errors
     stx _errors+1
-    .loc "test_simop_validation.c", 43
+    .loc "src/test-resources/test_simop_validation.c", 43
     lda #0
     sta $20
     sta $21
@@ -591,7 +591,7 @@ _errors:
     plz
     plz
     .var _fp = _fp - 6
-    .loc "test_simop_validation.c", 44
+    .loc "src/test-resources/test_simop_validation.c", 44
     lda #1
     ldx #0
     sta $20
@@ -664,7 +664,7 @@ _errors:
     plz
     plz
     .var _fp = _fp - 6
-    .loc "test_simop_validation.c", 45
+    .loc "src/test-resources/test_simop_validation.c", 45
     lda #2
     ldx #0
     sta $20
@@ -737,7 +737,7 @@ _errors:
     plz
     plz
     .var _fp = _fp - 6
-    .loc "test_simop_validation.c", 46
+    .loc "src/test-resources/test_simop_validation.c", 46
     lda #3
     ldx #0
     sta $20
@@ -810,7 +810,7 @@ _errors:
     plz
     plz
     .var _fp = _fp - 6
-    .loc "test_simop_validation.c", 47
+    .loc "src/test-resources/test_simop_validation.c", 47
     lda #4
     ldx #0
     sta $20
@@ -883,7 +883,7 @@ _errors:
     plz
     plz
     .var _fp = _fp - 6
-    .loc "test_simop_validation.c", 48
+    .loc "src/test-resources/test_simop_validation.c", 48
     lda #5
     ldx #0
     sta $20
@@ -956,7 +956,7 @@ _errors:
     plz
     plz
     .var _fp = _fp - 6
-    .loc "test_simop_validation.c", 51
+    .loc "src/test-resources/test_simop_validation.c", 51
     lda #0
     sta $20
     sta $21
@@ -1028,7 +1028,7 @@ _errors:
     plz
     plz
     .var _fp = _fp - 6
-    .loc "test_simop_validation.c", 52
+    .loc "src/test-resources/test_simop_validation.c", 52
     lda #1
     ldx #0
     sta $20
@@ -1101,7 +1101,7 @@ _errors:
     plz
     plz
     .var _fp = _fp - 6
-    .loc "test_simop_validation.c", 53
+    .loc "src/test-resources/test_simop_validation.c", 53
     lda #2
     ldx #0
     sta $20
@@ -1174,7 +1174,7 @@ _errors:
     plz
     plz
     .var _fp = _fp - 6
-    .loc "test_simop_validation.c", 54
+    .loc "src/test-resources/test_simop_validation.c", 54
     lda #3
     ldx #0
     sta $20
@@ -1247,7 +1247,7 @@ _errors:
     plz
     plz
     .var _fp = _fp - 6
-    .loc "test_simop_validation.c", 57
+    .loc "src/test-resources/test_simop_validation.c", 57
     lda #170
     sta $20
     lda _output
@@ -1279,7 +1279,7 @@ _errors:
     ldy #0
     pla
     sta (__zp_scratch),y
-    .loc "test_simop_validation.c", 60
+    .loc "src/test-resources/test_simop_validation.c", 60
     lda #0
     sta $20
     sta $21
