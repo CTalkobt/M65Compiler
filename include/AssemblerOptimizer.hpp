@@ -32,6 +32,7 @@ private:
         AssemblerParser* parser,
         const std::map<std::string, ExternalFuncInfo>* externalFuncs,
         bool verbose,
-        bool traceMachState
+        bool traceMachState,
+        int optimizationLevel = 2
     );
 };

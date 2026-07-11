@@ -44,6 +44,7 @@ public:
     bool verboseOptimizer = false;
     bool traceMachState = false;
     bool enableExperimental = false;
+    int optimizationLevel = 2;  // 0=none, 1=basic, 2=default, 3=aggressive
     std::vector<uint8_t> pass2(bool isPrg = false);
     uint32_t getZPStart() const;
     uint16_t getSpBase() const;

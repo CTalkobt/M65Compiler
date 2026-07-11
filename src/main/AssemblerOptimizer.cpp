@@ -10,14 +10,15 @@
 #include <fstream>
 
 bool AssemblerOptimizer::optimize(AssemblerParser* parser, bool verbose, bool traceMachState) {
-    return optimizeInternal(parser, nullptr, verbose, traceMachState);
+    return optimizeInternal(parser, nullptr, verbose, traceMachState, parser->optimizationLevel);
 }
 
 bool AssemblerOptimizer::optimizeInternal(
     AssemblerParser* parser,
     const std::map<std::string, ExternalFuncInfo>* externalFuncs,
     bool verbose,
-    bool traceMachState
+    bool traceMachState,
+    int optimizationLevel
 ) {
     bool changed = false;
     int tailCounter = 0;
@@ -273,7 +274,7 @@ bool AssemblerOptimizer::optimizeInternal(
                     changed = true;
                 }
             } else {
-                bool canBSR = resolved;
+                bool canBSR = resolved && optimizationLevel > 0;  // Only optimize JSR to BSR if optimization is enabled
                 if (canBSR && s->instr.operandTokenIndex >= 0) {
                     std::string operand = s->instr.operand;
                     if (operand.empty() && s->instr.operandTokenIndex < (int)parser->tokens.size())
@@ -1268,7 +1269,7 @@ bool AssemblerOptimizer::optimizeWithExternalObjects(
     }
 
     // Optimize with external function info
-    bool changed = optimizeInternal(parser, &externalFuncs, verbose, traceMachState);
+    bool changed = optimizeInternal(parser, &externalFuncs, verbose, traceMachState, parser->optimizationLevel);
 
     // Log summary
     if (verbose && !externalFuncs.empty()) {

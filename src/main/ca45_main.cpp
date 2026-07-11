@@ -90,6 +90,7 @@ int main(int argc, char** argv) {
     bool verboseOptimizer = false;
     bool traceMachState = false;
     bool enableExperimental = false;
+    int optimizationLevel = 2;  // Default to -O2
     int verboseLevel = 0;
     int listingLevel = 1;
     std::map<std::string, uint32_t> predefinedSymbols;
@@ -124,6 +125,7 @@ int main(int argc, char** argv) {
             std::cout << "  -vv            Extra verbose output (token dumps)" << std::endl;
             std::cout << "  -Dname=val     Define a symbol (e.g., -Dcc45.zeroPageStart=$10)" << std::endl;
             std::cout << "  -I<path>       Add include search path" << std::endl;
+            std::cout << "  -O<level>      Optimization level: 0=none, 1=basic, 2=default, 3=aggressive" << std::endl;
             std::cout << "  -Roptimizer    Report optimizer actions to stderr" << std::endl;
             std::cout << "  -Rmachstate    Trace MachineState register/flag tracking to stderr" << std::endl;
             std::cout << "  --experimental Enable experimental optimizations (HIGHLY UNSTABLE, likely to break code)" << std::endl;
@@ -144,6 +146,13 @@ int main(int argc, char** argv) {
             traceMachState = true;
         } else if (arg == "--experimental") {
             enableExperimental = true;
+        } else if (arg.substr(0, 2) == "-O") {
+            std::string levelStr = arg.substr(2);
+            if (!levelStr.empty() && levelStr[0] >= '0' && levelStr[0] <= '3') {
+                optimizationLevel = levelStr[0] - '0';
+            } else {
+                optimizationLevel = 2;  // -O defaults to O2
+            }
         } else if (arg == "-vv") {
             verboseLevel = 2;
         } else if (arg == "-v") {
@@ -228,6 +237,7 @@ int main(int argc, char** argv) {
     parser.verboseOptimizer = verboseOptimizer;
     parser.traceMachState = traceMachState;
     parser.enableExperimental = enableExperimental;
+    parser.optimizationLevel = optimizationLevel;
     try {
         parser.pass1();
 
