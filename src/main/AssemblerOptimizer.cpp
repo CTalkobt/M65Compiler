@@ -345,7 +345,7 @@ bool AssemblerOptimizer::optimizeInternal(
         bool isStackStoreOptimizationCandidate = false;
 
         // STW.SP redundant store elimination (symbolic frame variable names)
-        if (s->type == AssemblerParser::Statement::STW && s->instr.mnemonic == "STW.SP") {
+        if (parser->optFlags.deadStore && s->type == AssemblerParser::Statement::STW && s->instr.mnemonic == "STW.SP") {
             isStackStoreOptimizationCandidate = true;
             std::string immediateValue = s->instr.operand;
             std::string varName = parser->tokens[s->exprTokenIndex].value;
@@ -413,7 +413,7 @@ bool AssemblerOptimizer::optimizeInternal(
             bool isAbs = (mode == AddressingMode::ABSOLUTE);
 
             // --- CMP #0 elimination ---
-            if (m == "CMP" && isImm && hasNumVal && numVal == 0) {
+            if (parser->optFlags.cmpElimination && m == "CMP" && isImm && hasNumVal && numVal == 0) {
                 if (ms.flags.flagsReflect(REG_A)) {
                     size_t j = i + 1;
                     while (j < parser->statements.size() && parser->statements[j]->deleted) ++j;
@@ -441,7 +441,7 @@ bool AssemblerOptimizer::optimizeInternal(
             // DISABLED: This optimization causes assembler errors when BMI/BPL are generated
             // with absolute addressing, which they don't support (relative-only branches).
             // TODO: Re-enable only when addressing modes can be guaranteed to be relative.
-            if (false && m == "CMP" && isImm && hasNumVal && numVal == 255 && ms.flags.flagsReflect(REG_A)) {
+            if (parser->optFlags.fcmpOpt && m == "CMP" && isImm && hasNumVal && numVal == 255 && ms.flags.flagsReflect(REG_A)) {
                 size_t j = i + 1;
                 while (j < parser->statements.size() && parser->statements[j]->deleted) ++j;
                 if (j < parser->statements.size()) {
@@ -555,7 +555,7 @@ bool AssemblerOptimizer::optimizeInternal(
             // Pattern: STA $zp; ...; LDA $zp when the value is only used for testing
             // If LDA $zp is immediately followed by a branch (BNE, BEQ, etc.) and
             // the stored ZP location is not modified between store and load, eliminate both.
-            if (m == "STA" && isZP && hasNumVal) {
+            if (parser->optFlags.storeLoadPair && m == "STA" && isZP && hasNumVal) {
                 uint8_t zpAddr = (uint8_t)(numVal & 0xFF);
                 size_t j = i + 1;
                 bool foundLoad = false;
@@ -620,7 +620,7 @@ bool AssemblerOptimizer::optimizeInternal(
             // When X holds SP (for stack-relative addressing), avoid clobbering it with
             // temporary loads. If we're loading a small immediate into X just to save it to
             // a scratch ZP, use A instead to keep X = SP for upcoming stack operations.
-            if (m == "LDX" && isImm && hasNumVal && ms.xHoldsSP()) {
+            if (parser->optFlags.preserveXSP && m == "LDX" && isImm && hasNumVal && ms.xHoldsSP()) {
                 uint8_t immVal = (uint8_t)(numVal & 0xFF);
                 size_t j = i + 1;
                 while (j < parser->statements.size() && parser->statements[j]->deleted) ++j;
@@ -687,7 +687,7 @@ bool AssemblerOptimizer::optimizeInternal(
             else if (m == "TZA") { ms.setTransfer(REG_A, REG_Z); }
             else if (m == "TSX") {
                 // Redundant TSX elimination: skip if X already holds SP
-                if (ms.xHoldsSP()) {
+                if (parser->optFlags.tsxRedundant && ms.xHoldsSP()) {
                     report("tsx-redundant", s, "TSX eliminated (X already holds SP)");
                     s->deleted = true; s->size = 0; changed = true;
                 } else {
@@ -844,6 +844,7 @@ bool AssemblerOptimizer::optimizeInternal(
             std::map<std::string, std::vector<TailInfo>> tailsBySignature;
 
         // Find all procedure end points and extract tail sequences
+        if (parser->optFlags.tailDedup) {
         for (size_t i = 0; i < parser->statements.size(); ++i) {
             auto* s = parser->statements[i].get();
             if (s->deleted) continue;
@@ -1060,6 +1061,7 @@ bool AssemblerOptimizer::optimizeInternal(
             }
         }
     }
+        }  // if (parser->optFlags.tailDedup)
 
     // --- Pass 4: In-method sequence jumping (extract duplicate sequences) ---
     // EXPERIMENTAL - DISABLED by default due to size accounting bug causing null bytes in code (issue #89)
@@ -1076,7 +1078,7 @@ bool AssemblerOptimizer::optimizeInternal(
     std::set<size_t> processed;  // Already-processed instruction indices
     std::map<std::string, std::vector<SeqMatch>> seqsBySignature;
 
-    if (parser->enableExperimental) for (size_t i = 0; i < parser->statements.size(); ++i) {
+    if (parser->enableExperimental && parser->optFlags.seqExtract) for (size_t i = 0; i < parser->statements.size(); ++i) {
         auto* stmt = parser->statements[i].get();
         if (stmt->deleted || processed.count(i) || !stmt->label.empty()) continue;
         if (stmt->type != AssemblerParser::Statement::INSTRUCTION) continue;
