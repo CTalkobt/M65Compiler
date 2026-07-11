@@ -2337,6 +2337,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     std::string baseStr = (base.kind == ir::OperandKind::GLOBAL) ?
                         "#" + base.name : src2MemOperand(base);
                     emit("struct_elem.16 __zp_scratch, " + baseStr + ", #" + std::to_string(offset));
+                    emit("ldy #0");  // CRITICAL: Initialize Y for indirect addressing mode
                 } else {
                     // Runtime index: load base and multiply index by stride
                     if (base.isVreg()) {
@@ -2521,6 +2522,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 if (index.isImm()) {
                     uint32_t offset = index.immVal * stride;
                     emit("struct_elem.16 __zp_scratch, " + baseStr + ", #" + std::to_string(offset));
+                    emit("ldy #0");  // CRITICAL: Initialize Y for indirect addressing mode
                 } else {
                     // Load base address
                     loadOperand(base);
