@@ -158,14 +158,35 @@ int main(int argc, char** argv) {
         } else if (arg.substr(0, 2) == "-P") {
             // Named optimization flags: -P<Name> to enable, -PNo<Name> to disable
             std::string flagName = arg.substr(2);
+            bool enable = true;
             if (flagName.substr(0, 2) == "No") {
-                // -PNo<Name> disables the flag
-                std::string name = flagName.substr(2);
-                if (name == "JSRRelocate") optFlags.jsrRelocate = false;
-            } else {
-                // -P<Name> enables the flag
-                if (flagName == "JSRRelocate") optFlags.jsrRelocate = true;
+                enable = false;
+                flagName = flagName.substr(2);
             }
+            // IR-level optimizations
+            if (flagName == "StrengthReduction") optFlags.strengthReduction = enable;
+            else if (flagName == "AlgebraicSimplify") optFlags.algebraicSimplify = enable;
+            else if (flagName == "TypeNarrowing") optFlags.typeNarrowing = enable;
+            else if (flagName == "BranchFold") optFlags.branchFold = enable;
+            else if (flagName == "CSE") optFlags.cse = enable;
+            else if (flagName == "LICM") optFlags.licm = enable;
+            else if (flagName == "CopyChains") optFlags.copyChains = enable;
+            else if (flagName == "AddrElemFusion") optFlags.addrElemFusion = enable;
+            // Assembler-level optimizations
+            else if (flagName == "JSRRelocate") optFlags.jsrRelocate = enable;
+            else if (flagName == "TailCall") optFlags.tailCall = enable;
+            else if (flagName == "BranchInvert") optFlags.branchInvert = enable;
+            else if (flagName == "JmpBra") optFlags.jmpBra = enable;
+            else if (flagName == "NoOpBra") optFlags.noOpBra = enable;
+            else if (flagName == "CmpElimination") optFlags.cmpElimination = enable;
+            else if (flagName == "RedundantLoad") optFlags.redundantLoad = enable;
+            else if (flagName == "DeadStore") optFlags.deadStore = enable;
+            else if (flagName == "TailDedup") optFlags.tailDedup = enable;
+            else if (flagName == "PreserveXSP") optFlags.preserveXSP = enable;
+            else if (flagName == "SeqExtract") optFlags.seqExtract = enable;
+            else if (flagName == "StoreLoadPair") optFlags.storeLoadPair = enable;
+            else if (flagName == "FCmpOpt") optFlags.fcmpOpt = enable;
+            else if (flagName == "TSXRedundant") optFlags.tsxRedundant = enable;
         } else if (arg == "-vv") {
             verboseLevel = 2;
         } else if (arg == "-v") {

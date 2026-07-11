@@ -419,6 +419,7 @@ int main(int argc, char** argv) {
     bool saveTemps = false;       // --save-temps: keep .s and .o45 files
     int verboseLevel = 0;
     bool optimize = true;
+    OptimizationFlags irOptFlags = OptimizationFlags::fromLevel(2);  // IR optimizer flags
     int listingLevel = 1;
     uint32_t zeroPageStart = 0x08;
     bool zpCallMode = false;
@@ -528,10 +529,33 @@ int main(int argc, char** argv) {
             emitReasons = true; // also enable codegen reasons for context
             // Flag will be passed to ca45 subprocess below
         } else if (arg.substr(0, 2) == "-P") {
-            // Named optimization flags: forward to ca45
-            // -P<Name> to enable, -PNo<Name> to disable
-        } else if (arg == "-O0") {
-            optimize = false;
+            // Named optimization flags: apply to IR optimizer and forward to ca45
+            std::string flagName = arg.substr(2);
+            bool enable = true;
+            if (flagName.substr(0, 2) == "No") {
+                enable = false;
+                flagName = flagName.substr(2);
+            }
+            // IR-level optimizations
+            if (flagName == "StrengthReduction") irOptFlags.strengthReduction = enable;
+            else if (flagName == "AlgebraicSimplify") irOptFlags.algebraicSimplify = enable;
+            else if (flagName == "TypeNarrowing") irOptFlags.typeNarrowing = enable;
+            else if (flagName == "BranchFold") irOptFlags.branchFold = enable;
+            else if (flagName == "CSE") irOptFlags.cse = enable;
+            else if (flagName == "LICM") irOptFlags.licm = enable;
+            else if (flagName == "CopyChains") irOptFlags.copyChains = enable;
+            else if (flagName == "AddrElemFusion") irOptFlags.addrElemFusion = enable;
+            // Assembler-level: will be forwarded to ca45 subprocess
+        } else if (arg.substr(0, 2) == "-O") {
+            std::string levelStr = arg.substr(2);
+            if (!levelStr.empty() && levelStr[0] >= '0' && levelStr[0] <= '3') {
+                int level = levelStr[0] - '0';
+                optimize = (level > 0);
+                irOptFlags = OptimizationFlags::fromLevel(level);
+            } else {
+                optimize = false;
+                irOptFlags = OptimizationFlags::fromLevel(0);
+            }
         } else if (arg == "-vv") {
             verboseLevel = 2;
         } else if (arg == "-v") {
@@ -718,22 +742,38 @@ int main(int argc, char** argv) {
 
         if (traceIROpt) ir::optTrace = &std::cerr;
         if (optimize) {
-            if (verboseLevel >= 1) std::cout << "Optimizing IR (Strength Reduction)..." << std::endl;
-            ir::optimizeStrengthReduction(irBuilder.getModule());
-            if (verboseLevel >= 1) std::cout << "Optimizing IR (Algebraic Simplification)..." << std::endl;
-            ir::optimizeAlgebraic(irBuilder.getModule());
-            if (verboseLevel >= 1) std::cout << "Optimizing IR (Type Narrowing)..." << std::endl;
-            ir::optimizeTypeNarrowing(irBuilder.getModule());
-            if (verboseLevel >= 1) std::cout << "Optimizing IR (Branch Folding)..." << std::endl;
-            ir::optimizeBranchFold(irBuilder.getModule());
-            if (verboseLevel >= 1) std::cout << "Optimizing IR (CSE and Copy Propagation)..." << std::endl;
-            ir::optimizeCSE(irBuilder.getModule());
-            if (verboseLevel >= 1) std::cout << "Optimizing IR (LICM)..." << std::endl;
-            ir::optimizeLICM(irBuilder.getModule());
-            if (verboseLevel >= 1) std::cout << "Optimizing IR (COPY Chain Elimination)..." << std::endl;
-            ir::optimizeCopyChains(irBuilder.getModule());
-            if (verboseLevel >= 1) std::cout << "Optimizing IR (ADDR_ELEM Fusion)..." << std::endl;
-            ir::optimizeAddrElemFusion(irBuilder.getModule());
+            if (irOptFlags.strengthReduction) {
+                if (verboseLevel >= 1) std::cout << "Optimizing IR (Strength Reduction)..." << std::endl;
+                ir::optimizeStrengthReduction(irBuilder.getModule());
+            }
+            if (irOptFlags.algebraicSimplify) {
+                if (verboseLevel >= 1) std::cout << "Optimizing IR (Algebraic Simplification)..." << std::endl;
+                ir::optimizeAlgebraic(irBuilder.getModule());
+            }
+            if (irOptFlags.typeNarrowing) {
+                if (verboseLevel >= 1) std::cout << "Optimizing IR (Type Narrowing)..." << std::endl;
+                ir::optimizeTypeNarrowing(irBuilder.getModule());
+            }
+            if (irOptFlags.branchFold) {
+                if (verboseLevel >= 1) std::cout << "Optimizing IR (Branch Folding)..." << std::endl;
+                ir::optimizeBranchFold(irBuilder.getModule());
+            }
+            if (irOptFlags.cse) {
+                if (verboseLevel >= 1) std::cout << "Optimizing IR (CSE and Copy Propagation)..." << std::endl;
+                ir::optimizeCSE(irBuilder.getModule());
+            }
+            if (irOptFlags.licm) {
+                if (verboseLevel >= 1) std::cout << "Optimizing IR (LICM)..." << std::endl;
+                ir::optimizeLICM(irBuilder.getModule());
+            }
+            if (irOptFlags.copyChains) {
+                if (verboseLevel >= 1) std::cout << "Optimizing IR (COPY Chain Elimination)..." << std::endl;
+                ir::optimizeCopyChains(irBuilder.getModule());
+            }
+            if (irOptFlags.addrElemFusion) {
+                if (verboseLevel >= 1) std::cout << "Optimizing IR (ADDR_ELEM Fusion)..." << std::endl;
+                ir::optimizeAddrElemFusion(irBuilder.getModule());
+            }
         }
 
         // Write IR text dump if requested

@@ -125,7 +125,7 @@ bool AssemblerOptimizer::optimizeInternal(
             std::string nm = next->instr.mnemonic;
             std::transform(nm.begin(), nm.end(), nm.begin(), ::toupper);
 
-            if ((nm == "RTS" || nm == "RTN") && next->instr.mode == AddressingMode::IMPLIED) {
+            if (parser->optFlags.tailCall && (nm == "RTS" || nm == "RTN") && next->instr.mode == AddressingMode::IMPLIED) {
                 report("tail-call", s, "JSR " + s->instr.operand + " + RTS → JMP (saved 1 byte)");
                 s->instr.mnemonic = "jmp";
                 next->deleted = true;
@@ -144,7 +144,7 @@ bool AssemblerOptimizer::optimizeInternal(
         std::string m = s->instr.mnemonic;
         std::transform(m.begin(), m.end(), m.begin(), ::toupper);
 
-        if (m == "BRA" && s->instr.mode == AddressingMode::RELATIVE) {
+        if (parser->optFlags.noOpBra && m == "BRA" && s->instr.mode == AddressingMode::RELATIVE) {
             size_t j = i + 1;
             while (j < parser->statements.size() && parser->statements[j]->deleted) ++j;
             if (j >= parser->statements.size()) continue;
@@ -191,6 +191,7 @@ bool AssemblerOptimizer::optimizeInternal(
         };
 
         for (size_t i = 0; i < parser->statements.size(); ++i) {
+            if (!parser->optFlags.branchInvert) break;  // Skip entire optimization if disabled
             auto* s = parser->statements[i].get();
             if (s->deleted) continue;
             if (s->type != AssemblerParser::Statement::INSTRUCTION) continue;
@@ -263,7 +264,7 @@ bool AssemblerOptimizer::optimizeInternal(
             }
             if (!resolved) continue;
 
-            if (m == "JMP") {
+            if (m == "JMP" && parser->optFlags.jmpBra) {
                 uint32_t braPC = s->address + 2;
                 int32_t offset = (int32_t)targetAddr - (int32_t)braPC;
                 if (offset >= -128 && offset <= 127) {
@@ -469,7 +470,7 @@ bool AssemblerOptimizer::optimizeInternal(
             //   1. Same constant (LDA #5 when A is CONSTANT(5))
             //   2. Same memory source (LDA $20 when A is SAME_AS_MEM($20) and mem[$20] unchanged)
             //   3. Store-forwarding (STA $20; ... LDA $20 when A still holds what was stored)
-            if (m == "LDA" || m == "LDX" || m == "LDY" || m == "LDZ") {
+            if (parser->optFlags.redundantLoad && (m == "LDA" || m == "LDX" || m == "LDY" || m == "LDZ")) {
                 RegId r = loadRegId(m);
                 bool redundant = false;
 
