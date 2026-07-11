@@ -393,7 +393,7 @@ void IRCodeGen::loadOperand(const ir::Operand& op) {
             }
             break;
         case ir::OperandKind::GLOBAL:
-            emit("ldax #" + op.name);
+            emit("ldax #" + op.name);  // Immediate-mode: load address value, will be relocated
             break;
         default:
             emit("lda #0");
@@ -2893,7 +2893,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::ADDR_GLOBAL: {
-            emit("ldax #" + inst.src1.name);
+            emit("ldax #" + inst.src1.name);  // Immediate-mode: will be relocated
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
@@ -3287,7 +3287,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                             emit("push .ax");
                         } else if (arg.kind == ir::OperandKind::GLOBAL && arg.type != ir::Type::I32) {
                             // Global symbol
-                            emit("ldax #" + arg.name);
+                            emit("ldax #" + arg.name);  // Immediate-mode: will be relocated
                             emit("push .ax");
                         } else if (arg.type == ir::Type::F32 && arg.isVreg()) {
                             // Float: push 5 bytes from ZP (push byte 4 first, byte 0 last)

@@ -448,19 +448,20 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
                 uint32_t val = srcAst->getValue(parser);
                 std::string symName = parser->tokens[tokenIndex].value;
 
-                // Check if this is a symbol reference (not a numeric literal)
-                bool isSymbolRef = false;
-                try {
-                    parseNumericLiteral(symName); // If this succeeds, it's a number, not a symbol
-                } catch (...) {
-                    isSymbolRef = true; // If parsing fails, it's a symbol name
+                // Try to resolve as address symbol for relocation
+                // First try with current scope, then try global scope (empty prefix) for globals
+                Symbol* relSym = parser->resolveSymbol(symName, scopePrefix);
+                if (!relSym && !scopePrefix.empty()) {
+                    // Try global scope for symbols not found in local scope
+                    relSym = parser->resolveSymbol(symName, "");
                 }
+                bool needsReloc = relSym && relSym->isAddress;
 
-                // Always record relocations for symbol references (including forward references)
-                if (isSymbolRef) { e.recordSymbolReloc(symName); }
+                // Record relocations for address symbols (same as non-immediate path)
+                if (needsReloc) { e.recordSymbolReloc(symName); }
                 e.lda_imm(val & 0xFF);
                 uint8_t val2 = (val >> 8) & 0xFF;
-                if (isSymbolRef) { e.recordSymbolReloc(symName); }
+                if (needsReloc) { e.recordSymbolReloc(symName); }
                 if (reg2 == 'X') e.ldx_imm(val2); else if (reg2 == 'Y') e.ldy_imm(val2); else if (reg2 == 'Z') e.ldz_imm(val2);
             } else {
                 uint32_t addr = 0;
@@ -480,6 +481,10 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
                 // Record symbol relocation for each absolute address reference
                 std::string symName = parser->tokens[tokenIndex].value;
                 Symbol* relSym = parser->resolveSymbol(symName, scopePrefix);
+                if (!relSym && !scopePrefix.empty()) {
+                    // Try global scope for symbols not found in local scope
+                    relSym = parser->resolveSymbol(symName, "");
+                }
                 if (relSym && relSym->isAddress) { e.recordSymbolReloc(symName); }
                 e.lda_addr(addr);
                 uint32_t addr2 = addr + 1;
