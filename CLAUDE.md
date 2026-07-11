@@ -1,7 +1,7 @@
 # MEGA65 C Compiler Suite — Codebase Documentation
 
-**Status:** v1.0.4
-**Last Updated:** 2026-06-30
+**Status:** v1.0.5
+**Last Updated:** 2026-07-11
 **Maintainer:** Craig Taylor (CTalkobt)
 
 ---
@@ -60,9 +60,39 @@ PRG Executable or Flat Binary
    - Parameter narrowing advisory (compiler suggests changing `int` params to `char` when all call sites pass 0-255)
    - MachineState tracking: unified register/memory/flag tracking across assembler optimizer
 
-3. **Symbol Scoping**: Hierarchical scoping with nested procedures and blocks, allowing label/variable reuse without namespace pollution
+3. **Per-Optimization Control** (v1.0.5+): Named optimization flags for granular pass-level control
+   - **IR-Level Passes** (controlled in cc45 via `-P<Name>` flags):
+     * StrengthReduction — Replace MUL/DIV by powers-of-2 with bit shifts
+     * AlgebraicSimplify — Eliminate identity/annihilator/idempotent patterns
+     * TypeNarrowing — Replace wide operations with I8 when result is truncated
+     * BranchFold — Branch folding and dead block elimination
+     * CSE — Common Subexpression Elimination + Copy Propagation
+     * LICM — Loop-Invariant Code Motion (hoist loop-invariant computations)
+     * CopyChains — Resolve transitive copy chains, remove dead copies
+     * AddrElemFusion — Merge single-use ADDR_ELEM into following LOAD/STORE
+   - **Assembler-Level Passes** (controlled in ca45 via `-P<Name>` flags, forwarded by cc45):
+     * JSRRelocate — JSR → BSR relocation for position-independent code
+     * TailCall — Convert JSR + RTS → JMP
+     * BranchInvert — Invert branch + BRA → single inverted branch (saves 2 bytes)
+     * JmpBra — Convert JMP → BRA for backward branches (saves 1 byte)
+     * NoOpBra — Eliminate BRA instructions that jump to next instruction
+     * CmpElimination — Eliminate redundant compare instructions
+     * RedundantLoad — Eliminate redundant loads (reverse store-forwarding)
+     * DeadStore — Eliminate stores whose values are never used
+     * TailDedup — Deduplicate tail code sequences
+     * PreserveXSP — Optimize TSX preservation across function calls
+     * SeqExtract — Sequential extract pattern optimization
+     * StoreLoadPair — Optimize store-load pair patterns
+     * FCmpOpt — Floating-point compare optimization
+     * TSXRedundant — Eliminate redundant TSX instructions
+   - **Usage**: `-P<Name>` enables pass, `-PNo<Name>` disables (applied after `-O` baseline)
+   - **Example**: `cc45 input.c -O2 -PNoLICM -PNoCopyChains` enables all optimizations except LICM and CopyChains
+   - **Config File Support**: Set defaults in `~/.config/m65/cc45.conf` (CLI args override)
+   - **Availability**: All -O0 through -O3 levels supported; -O0 disables all, -O1+ enables all by default
 
-4. **Object Format**: Custom `.o45` relocatable object format with:
+4. **Symbol Scoping**: Hierarchical scoping with nested procedures and blocks, allowing label/variable reuse without namespace pollution
+
+5. **Object Format**: Custom `.o45` relocatable object format with:
    - Symbol table with relocation info (R_LOW, R_HIGH, R_ADDR16, R_ADDR24 relocations)
    - Function attributes (calling convention bit FUNC_FLAG_ZP_CONV, clobber masks for registers/flags)
    - Stack frame metadata (.zp_uses, .zp_clobbers, .reg_clobbers, .flag_clobbers directives)
@@ -143,6 +173,69 @@ make test                # All unit tests (no emulator required)
 make test-mmemu          # Full suite including execution tests
 make clean && make test  # Clean rebuild and test
 ```
+
+## Configuration (v1.0.5+)
+
+All tools support configuration files and command-line override of optimization flags.
+
+### Configuration Files
+
+Each tool reads `~/.config/m65/<toolname>.conf` at startup:
+
+```
+~/.config/m65/cc45.conf    # C compiler defaults
+~/.config/m65/ca45.conf    # Assembler defaults
+~/.config/m65/ln45.conf    # Linker defaults
+~/.config/m65/ar45.conf    # Archiver defaults
+~/.config/m65/nm45.conf    # Symbol tool defaults
+```
+
+**Format**: One flag per line; `#` at line-start denotes comment; blank lines ignored; supports shell-style quoting.
+
+**Example `~/.config/m65/cc45.conf`**:
+```
+-O2
+-fzpcall
+-PNoSeqExtract    # Disable seq-extract optimization
+# -finline-functions  (commented out)
+```
+
+**Precedence**: Config file parsed first, then CLI arguments (CLI overrides config).
+
+**Example usage**:
+```bash
+# Use config defaults (-O2 -fzpcall -PNoSeqExtract)
+cc45 input.c -o output.prg
+
+# Override config: use -O0, ignore -fzpcall from config
+cc45 input.c -O0 -o output.prg
+```
+
+### Compilation Pipeline (v1.0.5+)
+
+The unified compilation pipeline ensures consistent output:
+
+```
+C Source (input.c)
+    ↓
+cc45 (Compile: Lexer → Parser → AST → IR Optimizer → Code Generator → Assembly)
+    ↓
+  output.s (or output.o45 if -c, or done if -S)
+    ↓
+ca45 (Assemble: Lexer → Parser → Optimizer → Generator → Binary)
+    ↓
+  output.o45 (or output.bin if direct mode)
+    ↓
+ln45 (Link: Combine .o45 objects + libraries → PRG/Binary)
+    ↓
+  output.prg (Executable)
+```
+
+**Flags**:
+- `-S` — Stop after assembly generation (output: `.s` text)
+- `-c` — Stop after assembling to object file (output: `.o45` relocatable)
+- (default) — Full pipeline to executable (output: `.prg`)
+- `--save-temps` — Keep intermediate `.s` and `.o45` files (normally cleaned up)
 
 ## Language Features
 
