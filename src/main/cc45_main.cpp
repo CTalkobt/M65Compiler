@@ -8,6 +8,7 @@
 #endif
 #include <fstream>
 #include <sstream>
+#include "ConfigLoader.hpp"
 #include "Lexer.hpp"
 #include "Parser.hpp"
 #include "AST.hpp"
@@ -394,6 +395,21 @@ int main(int argc, char** argv) {
     size_t lastSlash = programName.find_last_of("/\\");
     if (lastSlash != std::string::npos) programName = programName.substr(lastSlash + 1);
 
+    // Load configuration from ~/.config/m65/<program>.conf
+    // Config tokens are parsed first, then real argv (which overrides config)
+    std::vector<std::string> configTokens = ConfigLoader::loadConfig(programName);
+    std::vector<std::string> allArgs;
+    // Add config tokens first
+    for (const auto& tok : configTokens) allArgs.push_back(tok);
+    // Add real argv (skip argv[0] which is program name)
+    for (int i = 1; i < argc; ++i) allArgs.push_back(std::string(argv[i]));
+
+    // Now parse all arguments (config + CLI)
+    int argc_merged = allArgs.size() + 1;
+    std::vector<const char*> argv_merged;
+    argv_merged.push_back(argv[0]);
+    for (const auto& arg : allArgs) argv_merged.push_back(arg.c_str());
+
     std::string input_file;
     bool preprocessOnly = (programName == "cp45");
     std::string output_file = "";
@@ -447,8 +463,8 @@ int main(int argc, char** argv) {
         includePaths.push_back(baseDir + "../lib/include");
     }
 
-    for (int i = 1; i < argc; ++i) {
-        std::string arg = argv[i];
+    for (int i = 1; i < argc_merged; ++i) {
+        std::string arg = argv_merged[i];
         if (arg == "-V" || arg == "--version") {
             std::cout << suiteVersionString("cc45") << std::endl;
             return 0;
@@ -835,9 +851,9 @@ int main(int argc, char** argv) {
     if (!optimize) {
         optLevelFlag = " -O0";  // No optimization if -O0 was passed to cc45
     }
-    for (int ai = 1; ai < argc; ai++) {
-        if (std::string(argv[ai]) == "-Roptimizer") rOptFlag = " -Roptimizer";
-        if (std::string(argv[ai]) == "-Rmachstate") rMachFlag = " -Rmachstate";
+    for (int ai = 1; ai < argc_merged; ai++) {
+        if (std::string(argv_merged[ai]) == "-Roptimizer") rOptFlag = " -Roptimizer";
+        if (std::string(argv_merged[ai]) == "-Rmachstate") rMachFlag = " -Rmachstate";
     }
 
     // STEP 1: Assemble .s → .o45

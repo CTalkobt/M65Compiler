@@ -29,8 +29,8 @@ CA_SOURCES = $(SRC_DIR)/ca45_main.cpp
 COMMON_SOURCES = $(SRC_DIR)/Lexer.cpp $(SRC_DIR)/Parser.cpp $(SRC_DIR)/AST.cpp $(SRC_DIR)/M65Emitter.cpp $(SRC_DIR)/Preprocessor.cpp $(SRC_DIR)/ConstantFolder.cpp $(SRC_DIR)/LoopOptimizer.cpp $(SRC_DIR)/AssemblerOpcodeDatabase.cpp $(SRC_DIR)/O45Writer.cpp $(SRC_DIR)/O45Emitter.cpp $(SRC_DIR)/TypeSystem.cpp $(SRC_DIR)/ScopeManager.cpp
 COMMON_OBJECTS = $(OBJ_DIR)/Lexer.o $(OBJ_DIR)/Parser.o $(OBJ_DIR)/AST.o $(OBJ_DIR)/M65Emitter.o $(OBJ_DIR)/Preprocessor.o $(OBJ_DIR)/ConstantFolder.o $(OBJ_DIR)/LoopOptimizer.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45Emitter.o $(OBJ_DIR)/TypeSystem.o $(OBJ_DIR)/ScopeManager.o
 
-CC_OBJECTS = $(OBJ_DIR)/cc45_main.o $(OBJ_DIR)/AssemblerLexer.o $(OBJ_DIR)/AssemblerParser.o $(OBJ_DIR)/AssemblerExpression.o $(OBJ_DIR)/AssemblerOptimizer.o $(OBJ_DIR)/AssemblerSimulatedOps.o $(OBJ_DIR)/AssemblerGenerator.o $(OBJ_DIR)/OpEffect.o $(OBJ_DIR)/IRBuilder.o $(OBJ_DIR)/IRPrinter.o $(OBJ_DIR)/IRCodeGen.o $(OBJ_DIR)/IROptimizer.o $(OBJ_DIR)/VRegAllocator.o $(COMMON_OBJECTS)
-CA_OBJECTS = $(OBJ_DIR)/ca45_main.o $(OBJ_DIR)/AssemblerLexer.o $(OBJ_DIR)/AssemblerParser.o $(OBJ_DIR)/AssemblerExpression.o $(OBJ_DIR)/AssemblerOptimizer.o $(OBJ_DIR)/AssemblerSimulatedOps.o $(OBJ_DIR)/AssemblerGenerator.o $(OBJ_DIR)/OpEffect.o $(COMMON_OBJECTS)
+CC_OBJECTS = $(OBJ_DIR)/cc45_main.o $(OBJ_DIR)/ConfigLoader.o $(OBJ_DIR)/AssemblerLexer.o $(OBJ_DIR)/AssemblerParser.o $(OBJ_DIR)/AssemblerExpression.o $(OBJ_DIR)/AssemblerOptimizer.o $(OBJ_DIR)/AssemblerSimulatedOps.o $(OBJ_DIR)/AssemblerGenerator.o $(OBJ_DIR)/OpEffect.o $(OBJ_DIR)/IRBuilder.o $(OBJ_DIR)/IRPrinter.o $(OBJ_DIR)/IRCodeGen.o $(OBJ_DIR)/IROptimizer.o $(OBJ_DIR)/VRegAllocator.o $(COMMON_OBJECTS)
+CA_OBJECTS = $(OBJ_DIR)/ca45_main.o $(OBJ_DIR)/ConfigLoader.o $(OBJ_DIR)/AssemblerLexer.o $(OBJ_DIR)/AssemblerParser.o $(OBJ_DIR)/AssemblerExpression.o $(OBJ_DIR)/AssemblerOptimizer.o $(OBJ_DIR)/AssemblerSimulatedOps.o $(OBJ_DIR)/AssemblerGenerator.o $(OBJ_DIR)/OpEffect.o $(COMMON_OBJECTS)
 
 MAN_DIR = man
 
@@ -45,11 +45,11 @@ MANDIR ?= $(PREFIX)/share/man/man1
 cppcheck:
 	cppcheck --enable=warning,performance,portability --inline-suppr -I include/ src/main/
 
-NM_OBJECTS = $(OBJ_DIR)/nm45_main.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o
-LN_OBJECTS = $(OBJ_DIR)/ln45_main.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o
-AR_OBJECTS = $(OBJ_DIR)/ar45_main.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45Archive.o
-OD_OBJECTS = $(OBJ_DIR)/objdump45_main.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o
-DISK_OBJECTS = $(OBJ_DIR)/disk45_main.o $(OBJ_DIR)/disk45_catalog.o $(OBJ_DIR)/DiskImage.o $(OBJ_DIR)/DiskImageFactory.o $(OBJ_DIR)/BAMOperations.o $(OBJ_DIR)/D64Image.o $(OBJ_DIR)/D71Image.o $(OBJ_DIR)/D81Image.o $(OBJ_DIR)/D65Image.o $(OBJ_DIR)/ArkImage.o $(OBJ_DIR)/ArcImage.o $(OBJ_DIR)/LnxImage.o $(OBJ_DIR)/TapImage.o $(OBJ_DIR)/T64Image.o $(OBJ_DIR)/G64Image.o $(OBJ_DIR)/D80Image.o $(OBJ_DIR)/GeosCvtImage.o $(OBJ_DIR)/P00Image.o $(OBJ_DIR)/X64Image.o $(OBJ_DIR)/ZipcodeImage.o $(OBJ_DIR)/D90Image.o $(OBJ_DIR)/CmdImage.o $(OBJ_DIR)/NibImage.o $(OBJ_DIR)/GzipHelper.o
+NM_OBJECTS = $(OBJ_DIR)/nm45_main.o $(OBJ_DIR)/ConfigLoader.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o
+LN_OBJECTS = $(OBJ_DIR)/ln45_main.o $(OBJ_DIR)/ConfigLoader.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o
+AR_OBJECTS = $(OBJ_DIR)/ar45_main.o $(OBJ_DIR)/ConfigLoader.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45Archive.o
+OD_OBJECTS = $(OBJ_DIR)/objdump45_main.o $(OBJ_DIR)/ConfigLoader.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o
+DISK_OBJECTS = $(OBJ_DIR)/disk45_main.o $(OBJ_DIR)/ConfigLoader.o $(OBJ_DIR)/disk45_catalog.o $(OBJ_DIR)/DiskImage.o $(OBJ_DIR)/DiskImageFactory.o $(OBJ_DIR)/BAMOperations.o $(OBJ_DIR)/D64Image.o $(OBJ_DIR)/D71Image.o $(OBJ_DIR)/D81Image.o $(OBJ_DIR)/D65Image.o $(OBJ_DIR)/ArkImage.o $(OBJ_DIR)/ArcImage.o $(OBJ_DIR)/LnxImage.o $(OBJ_DIR)/TapImage.o $(OBJ_DIR)/T64Image.o $(OBJ_DIR)/G64Image.o $(OBJ_DIR)/D80Image.o $(OBJ_DIR)/GeosCvtImage.o $(OBJ_DIR)/P00Image.o $(OBJ_DIR)/X64Image.o $(OBJ_DIR)/ZipcodeImage.o $(OBJ_DIR)/D90Image.o $(OBJ_DIR)/CmdImage.o $(OBJ_DIR)/NibImage.o $(OBJ_DIR)/GzipHelper.o
 ifeq ($(HAVE_FUSE3),1)
   DISK_OBJECTS += $(OBJ_DIR)/disk45_fuse.o
 endif
