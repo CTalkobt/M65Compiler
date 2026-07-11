@@ -2337,15 +2337,35 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     uint32_t offset = index.immVal * stride;
                     emit("struct_elem.16 __zp_scratch, " + baseStr + ", #" + std::to_string(offset));
                 } else {
-                    std::string indexStr = src2MemOperand(index);
-                    if (index.type == ir::Type::I8) { loadOperand(index); indexStr = ".AX"; }
+                    // Load base address
+                    loadOperand(base);
+                    std::string baseScratch = "$1F";
+                    emit("sta " + baseScratch);
+                    emit("stx " + baseScratch + "+1");
+
+                    // Load index
+                    loadOperand(index);
+
+                    if (stride > 1) {
+                        // Multiply index by stride
+                        emit("mul.16 .AX, #" + std::to_string(stride));
+                    }
+
+                    // Add base + offset
+                    emit("clc");
+                    emit("adc " + baseScratch);
+                    emit("pha");
+                    emit("txa");
+                    emit("adc " + baseScratch + "+1");
+                    emit("tax");
+                    emit("pla");
+
+                    // Store result to __zp_scratch
+                    emit("sta __zp_scratch");
+                    emit("stx __zp_scratch+1");
+
                     // .noopt_start/.noopt_end marks region where optimizer must not eliminate ldy #0.
-                    // In loops, Y gets incremented (iny) after loading bytes, so Y holds non-zero after iterations.
-                    // When loop exits and re-enters (or code jumps to lda (__zp_scratch),y), Y must be reset to 0.
-                    // Optimizer incorrectly assumes Y still holds 0 from earlier iterations and eliminates the ldy #0,
-                    // causing array access to read from wrong memory locations. These directives prevent elimination.
                     emit(".noopt_start");
-                    emit("addr_elem.16 __zp_scratch, " + baseStr + ", " + indexStr + ", #" + std::to_string(stride));
                     emit("ldy #0");
                     emit(".noopt_end");
                 }
@@ -2498,15 +2518,35 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     uint32_t offset = index.immVal * stride;
                     emit("struct_elem.16 __zp_scratch, " + baseStr + ", #" + std::to_string(offset));
                 } else {
-                    std::string indexStr = src2MemOperand(index);
-                    if (index.type == ir::Type::I8) { loadOperand(index); indexStr = ".AX"; }
+                    // Load base address
+                    loadOperand(base);
+                    std::string baseScratch = "$1F";
+                    emit("sta " + baseScratch);
+                    emit("stx " + baseScratch + "+1");
+
+                    // Load index
+                    loadOperand(index);
+
+                    if (stride > 1) {
+                        // Multiply index by stride
+                        emit("mul.16 .AX, #" + std::to_string(stride));
+                    }
+
+                    // Add base + offset
+                    emit("clc");
+                    emit("adc " + baseScratch);
+                    emit("pha");
+                    emit("txa");
+                    emit("adc " + baseScratch + "+1");
+                    emit("tax");
+                    emit("pla");
+
+                    // Store result to __zp_scratch
+                    emit("sta __zp_scratch");
+                    emit("stx __zp_scratch+1");
+
                     // .noopt_start/.noopt_end marks region where optimizer must not eliminate ldy #0.
-                    // In loops, Y gets incremented (iny) after storing bytes, so Y holds non-zero after iterations.
-                    // When loop exits and re-enters (or code jumps to sta (__zp_scratch),y), Y must be reset to 0.
-                    // Optimizer incorrectly assumes Y still holds 0 from earlier iterations and eliminates the ldy #0,
-                    // causing array access to write to wrong memory locations. These directives prevent elimination.
                     emit(".noopt_start");
-                    emit("addr_elem.16 __zp_scratch, " + baseStr + ", " + indexStr + ", #" + std::to_string(stride));
                     emit("ldy #0");
                     emit(".noopt_end");
                 }
@@ -2967,26 +3007,45 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     storeNeeded = false;
                 }
             }
-            
+
             if (inst.src2.isImm()) {
                 uint32_t offset = inst.src2.immVal * elemSize;
                 emit("struct_elem.16 " + destStr + ", " + baseStr + ", #" + std::to_string(offset));
             } else {
-                std::string indexStr = operandToString(inst.src2);
-                if (inst.src2.type == ir::Type::I8) {
-                    loadOperand(inst.src2);
-                    indexStr = ".AX";
-                }
-                // .noopt_start/.noopt_end marks region where optimizer must not eliminate ldy #0.
-                // This ADDR_ELEM calculates a new address for indirect indexed access via (__zp_scratch),Y.
-                // If Y was incremented in a loop (iny after loads/stores), Y must be reset to 0 for this access.
-                // Optimizer sees addr_elem.16 doesn't modify Y and incorrectly eliminates subsequent ldy #0,
-                // causing array access to use stale Y value. These directives prevent elimination.
                 emit(".noopt_start");
-                emit("addr_elem.16 " + destStr + ", " + baseStr + ", " + indexStr + ", #" + std::to_string(elemSize));
+
+                // Load base address
+                loadOperand(inst.src1);
+                std::string baseScratch = "$20";
+                emit("sta " + baseScratch);
+                emit("stx " + baseScratch + "+1");
+
+                // Load index
+                loadOperand(inst.src2);
+
+                if (elemSize > 1) {
+                    // Multiply index by elemSize using mul.16 simulated opcode
+                    emit("mul.16 .AX, #" + std::to_string(elemSize));
+                }
+
+                // Add base + offset
+                emit("clc");
+                emit("adc " + baseScratch);
+                emit("pha");
+                emit("txa");
+                emit("adc " + baseScratch + "+1");
+                emit("tax");
+                emit("pla");
+
+                // Store result to destination
+                if (destStr != ".AX") {
+                    emit("sta " + destStr);
+                    emit("stx " + destStr + "+1");
+                }
+
                 emit(".noopt_end");
             }
-            
+
             if (storeNeeded && inst.dest.isVreg()) {
                 storeVreg(inst.dest.vregId);
             }
