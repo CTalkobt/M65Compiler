@@ -466,11 +466,19 @@ int main(int argc, char** argv) {
             return 0;
         } else if (arg == "-?" || arg == "--help") {
             std::cout << "Usage: cc45 [options] <input_file.c>" << std::endl;
+            std::cout << std::endl;
+            std::cout << "Compilation Pipeline:" << std::endl;
+            std::cout << "  Default:   C → Assembly → Object → Link → Executable (.prg)" << std::endl;
+            std::cout << "  With -S:   C → Assembly (.s only)" << std::endl;
+            std::cout << "  With -c:   C → Assembly → Object (.o45 relocatable)" << std::endl;
+            std::cout << "  With -E:   C → Preprocessor output (C only)" << std::endl;
+            std::cout << std::endl;
             std::cout << "Options:" << std::endl;
             std::cout << "  -E             Run only the preprocessor (output to stdout or -o file)" << std::endl;
             std::cout << "  -S             Produce assembly text only (stop after code generation)" << std::endl;
             std::cout << "  -c             Produce .o45 relocatable object file (compile+assemble, no link)" << std::endl;
-            std::cout << "  -o <filename>  Specify output filename (default: out.prg or out.o45 with -c)" << std::endl;
+            std::cout << "  -o <filename>  Specify output filename" << std::endl;
+            std::cout << "                   (default: out.prg for full pipeline, out.o45 with -c, out.s with -S)" << std::endl;
             std::cout << "                 Automatically infers type from extension (.prg, .o45, .s)" << std::endl;
             std::cout << "  -l <level>     Listing level: 1=Standard (default), 2=Expanded" << std::endl;
             std::cout << "  -v             Enable verbose output (phase info)" << std::endl;
@@ -912,7 +920,22 @@ int main(int argc, char** argv) {
     // STEP 1: Assemble .s → .o45
     if (verboseLevel >= 1) std::cout << "Assembling " << asmFile << " → " << objFile << "..." << std::endl;
     std::string asmCommand = ca45Path + " -c" + optLevelFlag + " " + defineFlag + rOptFlag + rMachFlag + pFlags + " -o " + objFile + " " + asmFile;
-    int asmRet = std::system(asmCommand.c_str());
+
+    // Capture and display assembler output
+    FILE* asmPipe = popen(asmCommand.c_str(), "r");
+    if (!asmPipe) {
+        std::cerr << "Failed to run assembler: " << asmCommand << std::endl;
+        return 1;
+    }
+
+    char asmBuf[256];
+    while (fgets(asmBuf, sizeof(asmBuf), asmPipe) != nullptr) {
+        // Display assembler output with prefix
+        if (verboseLevel >= 1) std::cout << "[ca45] ";
+        std::cout << asmBuf;
+    }
+
+    int asmRet = pclose(asmPipe);
     if (asmRet != 0) {
         std::cerr << "Assembler failed with return code " << asmRet << std::endl;
         return 1;
@@ -970,7 +993,22 @@ int main(int argc, char** argv) {
 
         // Link with crt0 first (sets entry point), then user object, then libraries
         std::string linkCommand = ln45Path + " " + crt0Path + " " + objFile + " " + libPath + " -o " + prgFile;
-        int linkRet = std::system(linkCommand.c_str());
+
+        // Capture and display linker output with a prefix so it's clear where it comes from
+        FILE* linkerPipe = popen(linkCommand.c_str(), "r");
+        if (!linkerPipe) {
+            std::cerr << "Failed to run linker: " << linkCommand << std::endl;
+            return 1;
+        }
+
+        char linkerBuf[256];
+        while (fgets(linkerBuf, sizeof(linkerBuf), linkerPipe) != nullptr) {
+            // Display linker output with prefix
+            if (verboseLevel >= 1) std::cout << "[ln45] ";
+            std::cout << linkerBuf;
+        }
+
+        int linkRet = pclose(linkerPipe);
         if (linkRet != 0) {
             std::cerr << "Linker failed with return code " << linkRet << std::endl;
             return 1;
