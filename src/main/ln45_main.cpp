@@ -177,36 +177,41 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Prepend BASIC SYS stub if requested
-    if (isBasic) {
-        // MEGA65 BASIC starts at $2001 (C64 uses $0801)
-        uint16_t basicBase = 0x2001;
+    // Prepend PRG load address header and optional BASIC SYS stub
+    if (isPrg) {
+        std::vector<uint8_t> prgData;
 
-        // Build: load address + BASIC stub (12 bytes) + binary
-        std::vector<uint8_t> basicPrg;
+        if (isBasic) {
+            // MEGA65 BASIC starts at $2001 (C64 uses $0801)
+            uint16_t basicBase = 0x2001;
 
-        // 2-byte PRG load address
-        basicPrg.push_back((uint8_t)(basicBase & 0xFF));
-        basicPrg.push_back((uint8_t)(basicBase >> 8));
+            // 2-byte PRG load address for BASIC
+            prgData.push_back((uint8_t)(basicBase & 0xFF));
+            prgData.push_back((uint8_t)(basicBase >> 8));
 
-        // BASIC stub: 10 SYS <textBase>
-        std::string addrStr = std::to_string(textBase);
-        // No padding — real BASIC SYS tokens don't pad
+            // BASIC stub: 10 SYS <textBase>
+            std::string addrStr = std::to_string(textBase);
+            // No padding — real BASIC SYS tokens don't pad
 
-        uint16_t nextLine = basicBase + 2 + 2 + 1 + (uint16_t)addrStr.length() + 1;
-        basicPrg.push_back((uint8_t)(nextLine & 0xFF));
-        basicPrg.push_back((uint8_t)(nextLine >> 8));
-        basicPrg.push_back(0x0A); basicPrg.push_back(0x00); // line number 10
-        basicPrg.push_back(0x9E); // SYS token
-        for (char c : addrStr) {
-            basicPrg.push_back((uint8_t)c);
+            uint16_t nextLine = basicBase + 2 + 2 + 1 + (uint16_t)addrStr.length() + 1;
+            prgData.push_back((uint8_t)(nextLine & 0xFF));
+            prgData.push_back((uint8_t)(nextLine >> 8));
+            prgData.push_back(0x0A); prgData.push_back(0x00); // line number 10
+            prgData.push_back(0x9E); // SYS token
+            for (char c : addrStr) {
+                prgData.push_back((uint8_t)c);
+            }
+            prgData.push_back(0x00); // end of BASIC line
+            prgData.push_back(0x00); prgData.push_back(0x00); // end of BASIC program
+        } else {
+            // Plain PRG: just 2-byte load address header, no BASIC stub
+            prgData.push_back((uint8_t)(textBase & 0xFF));
+            prgData.push_back((uint8_t)(textBase >> 8));
         }
-        basicPrg.push_back(0x00); // end of BASIC line
-        basicPrg.push_back(0x00); basicPrg.push_back(0x00); // end of BASIC program
 
         // Append the linked binary
-        basicPrg.insert(basicPrg.end(), binary.begin(), binary.end());
-        binary = std::move(basicPrg);
+        prgData.insert(prgData.end(), binary.begin(), binary.end());
+        binary = std::move(prgData);
     }
 
     // Write output
