@@ -753,6 +753,7 @@ int main(int argc, char** argv) {
             AssemblerLexer lex(asmBuf.str());
             auto tokens = lex.tokenize();
             AssemblerParser parser(tokens, predefinedSymbols);
+            parser.optimizationLevel = optimize ? 2 : 0;  // Set optimization level based on -O0 flag
             parser.pass1();
             if (parser.hasErrors()) {
                 for (const auto& err : parser.getErrors()) {
@@ -784,11 +785,15 @@ int main(int argc, char** argv) {
         }
         std::string rOptFlag;
         std::string rMachFlag;
+        std::string optLevelFlag = " -O2";  // Default optimization level
+        if (!optimize) {
+            optLevelFlag = " -O0";  // No optimization if -O0 was passed to cc45
+        }
         for (int ai = 1; ai < argc; ai++) {
             if (std::string(argv[ai]) == "-Roptimizer") rOptFlag = " -Roptimizer";
             if (std::string(argv[ai]) == "-Rmachstate") rMachFlag = " -Rmachstate";
         }
-        std::string command = ca45Path + " -c -opt " + defineFlag + rOptFlag + rMachFlag + " -o " + output_file + " " + asmFile;
+        std::string command = ca45Path + " -c" + optLevelFlag + " " + defineFlag + rOptFlag + rMachFlag + " -o " + output_file + " " + asmFile;
         int ret = std::system(command.c_str());
         if (ret != 0) {
             std::cerr << "Assembler failed with return code " << ret << std::endl;
