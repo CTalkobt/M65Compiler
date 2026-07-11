@@ -653,6 +653,18 @@ int main(int argc, char** argv) {
             // Default: compile+assemble+link to .prg
             output_file = base + ".prg";
         }
+    } else {
+        // Infer output type from filename extension when -o is used
+        size_t dot = output_file.rfind('.');
+        if (dot != std::string::npos) {
+            std::string ext = output_file.substr(dot);
+            if (ext == ".s") {
+                assemblyOnly = true;
+            } else if (ext == ".o45") {
+                objectFileOnly = true;
+            }
+            // .prg or other extensions: full pipeline (default)
+        }
     }
 
     std::vector<std::string> sourceLines;
