@@ -583,13 +583,15 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
 
     if (!mod.externs.empty()) emitBlank();
 
-    // Emit global declarations (segment switching only in reloc mode)
-    emitGlobals(mod, relocMode);
-
-    // Emit functions
+    // Emit functions FIRST (code section)
     for (const auto& fn : mod.functions) {
         emitFunction(fn, relocMode);
     }
+
+    // Emit global data AFTER functions (so data doesn't end up in code section in PRG mode)
+    // This fixes the issue where global arrays were being placed before functions
+    // and the CPU would try to execute the data as instructions.
+    emitGlobals(mod, relocMode);
 
     // Emit string data
     emitStrings(mod);
