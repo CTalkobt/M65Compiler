@@ -2331,19 +2331,27 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 auto& index = inst.args[1];
                 int stride = (int)inst.args[2].immVal;
 
-                std::string baseStr = (base.kind == ir::OperandKind::GLOBAL) ?
-                    "#" + base.name : src2MemOperand(base);
                 if (index.isImm()) {
+                    // Immediate index: use struct_elem.16 with constant offset
                     uint32_t offset = index.immVal * stride;
+                    std::string baseStr = (base.kind == ir::OperandKind::GLOBAL) ?
+                        "#" + base.name : src2MemOperand(base);
                     emit("struct_elem.16 __zp_scratch, " + baseStr + ", #" + std::to_string(offset));
                 } else {
-                    // Load base address
+                    // Runtime index: load base and multiply index by stride
+                    if (base.isVreg()) {
+                        std::cerr << "DEBUG [LOAD vreg" << base.vregId << "]: Loading frame array base (runtime index)\n";
+                    }
                     loadOperand(base);
                     std::string baseScratch = "$1F";
+                    emit("; base→" + baseScratch);
                     emit("sta " + baseScratch);
                     emit("stx " + baseScratch + "+1");
 
                     // Load index
+                    if (index.isVreg()) {
+                        std::cerr << "DEBUG [LOAD vreg" << index.vregId << "]: Loading index\n";
+                    }
                     loadOperand(index);
 
                     if (stride > 1) {
