@@ -2442,15 +2442,16 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 break;
             }
             if (inst.src1.kind == ir::OperandKind::GLOBAL) {
-                // Load directly from global address
-                emit("lda " + inst.src1.name);
+                // Load global value (which is typically an address that needs relocation)
+                // Use immediate-mode addressing so the linker can patch the address
                 if (inst.resultType == ir::Type::I32) {
-                    emit("ldx " + inst.src1.name + "+1");
+                    emit("ldax #" + inst.src1.name);  // Low 16 bits
                     emit("ldy " + inst.src1.name + "+2");
                     emit("ldz " + inst.src1.name + "+3");
                 } else if (inst.resultType != ir::Type::I8) {
-                    emit("ldx " + inst.src1.name + "+1");
+                    emit("ldax #" + inst.src1.name);  // Load A:X with immediate address
                 } else {
+                    emit("lda #" + inst.src1.name);   // 8-bit: load only A
                     emit("ldx #0");
                 }
             } else if (inst.src1.kind != ir::OperandKind::NONE) {

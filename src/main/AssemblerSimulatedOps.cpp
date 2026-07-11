@@ -446,7 +446,14 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
             if (!srcAst) return;
             if (isImm) {
                 uint32_t val = srcAst->getValue(parser);
-                std::string symName = parser->tokens[tokenIndex].value;
+                // Get the symbol name from the first significant token after the hash
+                std::string symName = "";
+                if (idx < (int)parser->tokens.size()) {
+                    symName = parser->tokens[idx].value;
+                    if (parser->tokens[idx].type == AssemblerTokenType::REGISTER) {
+                        symName = "." + symName; // Prefix registers with dot
+                    }
+                }
 
                 // Try to resolve as address symbol for relocation
                 // First try with current scope, then try global scope (empty prefix) for globals
