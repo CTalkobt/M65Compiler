@@ -445,7 +445,22 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
             auto srcAst = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
             if (!srcAst) return;
             if (isImm) {
-                uint32_t val = srcAst->getValue(parser); e.lda_imm(val & 0xFF); uint8_t val2 = (val >> 8) & 0xFF;
+                uint32_t val = srcAst->getValue(parser);
+                std::string symName = parser->tokens[tokenIndex].value;
+
+                // Check if this is a symbol reference (not a numeric literal)
+                bool isSymbolRef = false;
+                try {
+                    parseNumericLiteral(symName); // If this succeeds, it's a number, not a symbol
+                } catch (...) {
+                    isSymbolRef = true; // If parsing fails, it's a symbol name
+                }
+
+                // Always record relocations for symbol references (including forward references)
+                if (isSymbolRef) { e.recordSymbolReloc(symName); }
+                e.lda_imm(val & 0xFF);
+                uint8_t val2 = (val >> 8) & 0xFF;
+                if (isSymbolRef) { e.recordSymbolReloc(symName); }
                 if (reg2 == 'X') e.ldx_imm(val2); else if (reg2 == 'Y') e.ldy_imm(val2); else if (reg2 == 'Z') e.ldz_imm(val2);
             } else {
                 uint32_t addr = 0;
