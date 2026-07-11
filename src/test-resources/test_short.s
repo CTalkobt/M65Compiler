@@ -1,47 +1,20 @@
-* = $2000
-    __sp_base = $0101
-; Save ZP $08-$FF to BSS buffer
-    ldx #0
-@__zp_save_loop:
-    lda $08,x
-    sta __zp_save_buf,x
-    inx
-    cpx #248
-    bne @__zp_save_loop
-    jsr _main
-    sta $02
-    stx $03
-; Restore ZP $08-$FF from BSS buffer
-    ldx #0
-@__zp_restore_loop:
-    lda __zp_save_buf,x
-    sta $08,x
-    inx
-    cpx #248
-    bne @__zp_restore_loop
-    lda $02
-    ldx $03
-__halt:
-    jmp __halt
-    .global __static_chain
-    .global __zp_scratch
-    .global __zp_scratch2
-    .global __zp_scratch3
-    .global __zp_scratch4
+    .o45
+    .extern __sp_base
+    .weak __static_chain
+    .weak __zp_scratch
+    .weak __zp_scratch2
+    .weak __zp_scratch3
+    .weak __zp_scratch4
     __static_chain = $06
     __zp_scratch = $08
     __zp_scratch2 = $0A
     __zp_scratch3 = $0C
     __zp_scratch4 = $0E
 
-_r:
-    .word 16384
-
-
 ; function _add_short
     proc _add_short, W#@_p_a, W#@_p_b
     .var _fp = 0
-    .loc "test_short.c", 7
+    .loc "src/test-resources/test_short.c", 7
 ; frame: 4 bytes (frame-allocated vRegs only)
     phw #0
     phw #0
@@ -63,7 +36,7 @@ _r:
     ldax.fp @_p_b
     stax.fp __vr1
 @entry:
-    .loc "test_short.c", 8
+    .loc "src/test-resources/test_short.c", 8
     ldax.fp __vr1
     sta __zp_scratch2
     stx __zp_scratch2+1
@@ -74,10 +47,10 @@ _r:
     lda $20
     ldx $21
 @__return:
-    plz
-    plz
-    plz
-    plz
+    pla
+    pla
+    pla
+    pla
     .func_flags stack_call, leaf
     .reg_clobbers A, X
     .flag_clobbers C, N, Z, V
@@ -86,7 +59,7 @@ _r:
 ; function _mul_short
     proc _mul_short, W#@_p_a, W#@_p_b
     .var _fp = 0
-    .loc "test_short.c", 11
+    .loc "src/test-resources/test_short.c", 11
 ; frame: 4 bytes (frame-allocated vRegs only)
     phw #0
     phw #0
@@ -108,7 +81,7 @@ _r:
     ldax.fp @_p_b
     stax.fp __vr1
 @entry:
-    .loc "test_short.c", 12
+    .loc "src/test-resources/test_short.c", 12
     ldax.fp __vr1
     sta __zp_scratch2
     stx __zp_scratch2+1
@@ -119,10 +92,10 @@ _r:
     lda $20
     ldx $21
 @__return:
-    plz
-    plz
-    plz
-    plz
+    pla
+    pla
+    pla
+    pla
     .func_flags stack_call, leaf
     .reg_clobbers A, X
     .flag_clobbers C, N, Z, V
@@ -131,7 +104,7 @@ _r:
 ; function _main
     proc _main
     .var _fp = 0
-    .loc "test_short.c", 15
+    .loc "src/test-resources/test_short.c", 15
 ; frame: 16 bytes (frame-allocated vRegs only)
     phw #0
     phw #0
@@ -157,12 +130,12 @@ _r:
     .local __vr18 = 8
 
 @entry:
-    .loc "test_short.c", 16
+    .loc "src/test-resources/test_short.c", 16
     lda #10
     ldz #0
     staz.fp __vr0
-    .loc "test_short.c", 17
-    .loc "test_short.c", 18
+    .loc "src/test-resources/test_short.c", 17
+    .loc "src/test-resources/test_short.c", 18
     lda #20
     ldx #0
     push .ax
@@ -184,18 +157,18 @@ _r:
     sta $FE
     pla
     plx
-    plz
-    plz
-    plz
-    plz
+    pla
+    pla
+    pla
+    pla
     .var _fp = _fp - 4
     sta $20
     stx $21
     lda $20
     ldx $21
     stax.fp __vr4
-    .loc "test_short.c", 19
-    .loc "test_short.c", 20
+    .loc "src/test-resources/test_short.c", 19
+    .loc "src/test-resources/test_short.c", 20
     leax.fp 0
     sta $20
     stx $21
@@ -208,6 +181,7 @@ _r:
     pha
     phx
     struct_elem.16 __zp_scratch, $20, #0
+    ldy #0
     plx
     pla
     sta (__zp_scratch),y
@@ -223,6 +197,7 @@ _r:
     pha
     phx
     struct_elem.16 __zp_scratch, $20, #2
+    ldy #0
     plx
     pla
     sta (__zp_scratch),y
@@ -238,13 +213,14 @@ _r:
     pha
     phx
     struct_elem.16 __zp_scratch, $20, #4
+    ldy #0
     plx
     pla
     sta (__zp_scratch),y
     txa
     iny
     sta (__zp_scratch),y
-    .loc "test_short.c", 21
+    .loc "src/test-resources/test_short.c", 21
     leax.fp 10
     sta $20
     stx $21
@@ -253,9 +229,8 @@ _r:
     stax.fp __vr18
     ldax.fp __vr4
     sta $20
-    .loc "test_short.c", 23
-    lda _r
-    ldx _r+1
+    .loc "src/test-resources/test_short.c", 23
+    ldax #_r
     sta $22
     stx $23
     lda #0
@@ -264,13 +239,25 @@ _r:
     lda $20
     ldx #0
     pha
-    .noopt_start
-    addr_elem.16 __zp_scratch, $22, $24, #1
+    lda $22
+    ldx $23
+    sta $1F
+    stx $1F+1
+    lda $24
+    ldx $25
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
     ldy #0
-    .noopt_end
     pla
     sta (__zp_scratch),y
-    .loc "test_short.c", 24
+    .loc "src/test-resources/test_short.c", 24
     lda #5
     ldx #0
     sta $20
@@ -278,8 +265,7 @@ _r:
     lda $20
     ldx $21
     sta $22
-    lda _r
-    ldx _r+1
+    ldax #_r
     sta $20
     stx $21
     lda #1
@@ -289,17 +275,28 @@ _r:
     lda $22
     ldx #0
     pha
-    .noopt_start
-    addr_elem.16 __zp_scratch, $20, $24, #1
+    lda $20
+    ldx $21
+    sta $1F
+    stx $1F+1
+    lda $24
+    ldx $25
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
     ldy #0
-    .noopt_end
     pla
     sta (__zp_scratch),y
-    .loc "test_short.c", 25
+    .loc "src/test-resources/test_short.c", 25
     lda #2
     sta $20
-    lda _r
-    ldx _r+1
+    ldax #_r
     sta $22
     stx $23
     lda #2
@@ -309,13 +306,25 @@ _r:
     lda $20
     ldx #0
     pha
-    .noopt_start
-    addr_elem.16 __zp_scratch, $22, $24, #1
+    lda $22
+    ldx $23
+    sta $1F
+    stx $1F+1
+    lda $24
+    ldx $25
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
     ldy #0
-    .noopt_end
     pla
     sta (__zp_scratch),y
-    .loc "test_short.c", 26
+    .loc "src/test-resources/test_short.c", 26
     lda #4
     ldx #0
     push .ax
@@ -337,18 +346,17 @@ _r:
     sta $FE
     pla
     plx
-    plz
-    plz
-    plz
-    plz
+    pla
+    pla
+    pla
+    pla
     .var _fp = _fp - 4
     sta $20
     stx $21
     lda $20
     ldx $21
     sta $22
-    lda _r
-    ldx _r+1
+    ldax #_r
     sta $20
     stx $21
     lda #3
@@ -358,13 +366,25 @@ _r:
     lda $22
     ldx #0
     pha
-    .noopt_start
-    addr_elem.16 __zp_scratch, $20, $24, #1
+    lda $20
+    ldx $21
+    sta $1F
+    stx $1F+1
+    lda $24
+    ldx $25
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
     ldy #0
-    .noopt_end
     pla
     sta (__zp_scratch),y
-    .loc "test_short.c", 27
+    .loc "src/test-resources/test_short.c", 27
     ldax.fp __vr18
     sta __zp_scratch
     stx __zp_scratch+1
@@ -380,8 +400,7 @@ _r:
     lda $20
     ldx $21
     sta $22
-    lda _r
-    ldx _r+1
+    ldax #_r
     sta $20
     stx $21
     lda #4
@@ -391,13 +410,25 @@ _r:
     lda $22
     ldx #0
     pha
-    .noopt_start
-    addr_elem.16 __zp_scratch, $20, $24, #1
+    lda $20
+    ldx $21
+    sta $1F
+    stx $1F+1
+    lda $24
+    ldx $25
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
     ldy #0
-    .noopt_end
     pla
     sta (__zp_scratch),y
-    .loc "test_short.c", 28
+    .loc "src/test-resources/test_short.c", 28
     leax.fp 0
     sta $20
     stx $21
@@ -405,10 +436,24 @@ _r:
     ldx #0
     sta $22
     stx $23
-    .noopt_start
-    addr_elem.16 __zp_scratch, $20, $22, #2
+    lda $20
+    ldx $21
+    ; base→$1F
+    sta $1F
+    stx $1F+1
+    lda $22
+    ldx $23
+    mul.16 .AX, #2
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
     ldy #0
-    .noopt_end
     lda (__zp_scratch),y
     pha
     iny
@@ -420,8 +465,7 @@ _r:
     lda $26
     ldx $27
     sta $20
-    lda _r
-    ldx _r+1
+    ldax #_r
     sta $22
     stx $23
     lda #5
@@ -431,17 +475,28 @@ _r:
     lda $20
     ldx #0
     pha
-    .noopt_start
-    addr_elem.16 __zp_scratch, $22, $24, #1
+    lda $22
+    ldx $23
+    sta $1F
+    stx $1F+1
+    lda $24
+    ldx $25
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
     ldy #0
-    .noopt_end
     pla
     sta (__zp_scratch),y
-    .loc "test_short.c", 29
+    .loc "src/test-resources/test_short.c", 29
     lda #170
     sta $20
-    lda _r
-    ldx _r+1
+    ldax #_r
     sta $22
     stx $23
     lda #6
@@ -451,33 +506,47 @@ _r:
     lda $20
     ldx #0
     pha
-    .noopt_start
-    addr_elem.16 __zp_scratch, $22, $24, #1
+    lda $22
+    ldx $23
+    sta $1F
+    stx $1F+1
+    lda $24
+    ldx $25
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
     ldy #0
-    .noopt_end
     pla
     sta (__zp_scratch),y
 @__return:
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
+    tsx
+    txa
+    clc
+    adc #16
+    tax
+    txs
     .func_flags stack_call
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
     endproc
+
+    .global _r
+    .global _add_short
+    .global _mul_short
+    .global _main
+
+    .segment "data"
+    .byte 0
+_r:
+    .word 16384
+
+    .segment "code"
 
 
 __zp_save_buf:
