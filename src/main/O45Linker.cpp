@@ -399,6 +399,13 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
                              int objIdx) {
     for (int rIdx = 0; rIdx < (int)relocs.size(); rIdx++) {
         const auto& r = relocs[rIdx];
+
+        // Log TEXT relocations too
+        const char* segName = "";
+        if (objIdx >= 0 && r.segment == SEG_TEXT) segName = "TEXT";
+        else if (r.segment == SEG_DATA) segName = "DATA";
+        else if (r.segment == SEG_EXTERNAL) segName = "EXTERNAL";
+
         // The relocation offset is relative to the object's segment start.
         // If the object has text sub-segment remaps (init/code reordering)
         // and we're patching text, use remapTextOffset for correct positioning.
@@ -408,6 +415,14 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
             patchPos = input.remapTextOffset(r.offset);
         } else {
             patchPos = objOffset + r.offset;
+        }
+
+        // Log all relocations before processing
+        if (r.segment == SEG_TEXT || r.segment == SEG_DATA) {
+            std::cerr << "DEBUG [Reloc " << rIdx << "]: " << segName
+                      << " reloc in " << input.filename
+                      << " at offset 0x" << std::hex << r.offset << " (patch pos 0x" << patchPos << ")"
+                      << " type=" << (int)r.type << " seg=" << (int)r.segment << std::dec << std::endl;
         }
 
         if (patchPos >= body.size()) {
@@ -432,6 +447,7 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
                 errorMsg = "undefined symbol '" + symName + "' in " + input.filename;
                 return false;
             }
+            std::cerr << "DEBUG [External Reloc]: Symbol '" << symName << "' = 0x" << std::hex << it->second << std::dec << std::endl;
             // Read existing value at patch site as addend (e.g., __sp_base+offset
             // has the offset baked in by the assembler)
             uint32_t addend = 0;
@@ -514,25 +530,36 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
 
             // DEBUG: Log ALL DATA relocations
             if (r.segment == SEG_DATA) {
-                // Log all DATA relocations
-                if (true) {
-                    std::cerr << "\n=== DEBUG: DATA relocation at offset 0x" << std::hex << patchPos << std::dec << " ===" << std::endl;
-                    std::cerr << "  RelType: " << (int)r.type << " (32=R_LOW, 64=R_HIGH, 128=R_WORD)" << std::endl;
-                    std::cerr << "  Extra: 0x" << std::hex << (int)r.extra << std::dec << std::endl;
-                    std::cerr << "  PatchPos: 0x" << std::hex << patchPos << std::dec << std::endl;
-                    std::cerr << "  ExistingVal: 0x" << std::hex << existingVal << std::dec << std::endl;
-                    std::cerr << "  SegBase (dataBase_): 0x" << std::hex << segBase << std::dec << std::endl;
-                    std::cerr << "  SegObjOff (dataOffset): 0x" << std::hex << segObjOff << std::dec << std::endl;
-                    std::cerr << "  OrigBase (dbase): 0x" << std::hex << origBase << std::dec << std::endl;
-                    std::cerr << "  SegRelOff (existingVal - origBase): 0x" << std::hex << segRelOff << std::dec << std::endl;
-                    std::cerr << "  TargetAddr (segBase + segObjOff + segRelOff): 0x" << std::hex << targetAddr << std::dec << std::endl;
-                    std::cerr << "  Bytes before patch: 0x" << std::hex;
-                    int patchSize = o45RelocPatchSize((uint8_t)r.type);
-                    for (int i = 0; i < patchSize && (patchPos + i) < body.size(); i++) {
-                        std::cerr << (int)body[patchPos + i] << " ";
+                // Log all DATA relocations with detailed information
+                std::cerr << "\n=== DEBUG: DATA relocation at offset 0x" << std::hex << patchPos << std::dec << " ===" << std::endl;
+                std::cerr << "  RelType: " << (int)r.type << " (32=R_LOW, 64=R_HIGH, 128=R_WORD)" << std::endl;
+                std::cerr << "  Extra: 0x" << std::hex << (int)r.extra << std::dec << std::endl;
+                std::cerr << "  PatchPos: 0x" << std::hex << patchPos << std::dec << std::endl;
+                std::cerr << "  ExistingVal: 0x" << std::hex << existingVal << std::dec << std::endl;
+                std::cerr << "  SegBase (dataBase_): 0x" << std::hex << segBase << std::dec << std::endl;
+                std::cerr << "  SegObjOff (dataOffset): 0x" << std::hex << segObjOff << std::dec << std::endl;
+                std::cerr << "  OrigBase (dbase): 0x" << std::hex << origBase << std::dec << std::endl;
+                std::cerr << "  SegRelOff (existingVal - origBase): 0x" << std::hex << segRelOff << std::dec << std::endl;
+                std::cerr << "  TargetAddr (segBase + segObjOff + segRelOff): 0x" << std::hex << targetAddr << std::dec << std::endl;
+
+                // Show context: what's before this patch in the body (likely code)
+                std::cerr << "  Context (bytes -2 to +3 around patch): ";
+                for (int i = -2; i <= 3; i++) {
+                    int pos = (int)patchPos + i;
+                    if (pos >= 0 && pos < (int)body.size()) {
+                        if (i == 0) std::cerr << "[";
+                        std::cerr << std::hex << (int)body[pos] << " ";
+                        if (i == o45RelocPatchSize((uint8_t)r.type) - 1) std::cerr << "]";
                     }
-                    std::cerr << std::dec << std::endl;
                 }
+                std::cerr << std::dec << std::endl;
+
+                std::cerr << "  Bytes before patch: 0x" << std::hex;
+                int patchSize = o45RelocPatchSize((uint8_t)r.type);
+                for (int i = 0; i < patchSize && (patchPos + i) < body.size(); i++) {
+                    std::cerr << (int)body[patchPos + i] << " ";
+                }
+                std::cerr << std::dec << std::endl;
             }
         }
 
@@ -592,6 +619,12 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
             std::cerr << std::dec << std::endl;
             std::cerr << "==================================================\n" << std::endl;
         }
+
+        // DEBUG: Log TEXT relocations patch result
+        if (objIdx >= 0 && r.segment == SEG_TEXT) {
+            std::cerr << "DEBUG [TEXT Patch]: Patched 0x" << std::hex << patchPos << " with targetAddr=0x" << targetAddr;
+            std::cerr << " type=" << (int)r.type << std::dec << " (" << (int)patchSize << " bytes)" << std::endl;
+        }
     }
 
     return true;
@@ -601,8 +634,18 @@ bool O45Linker::applyRelocations(std::string& errorMsg) {
     std::cout << "DEBUG: applyRelocations called with " << objects_.size() << " objects" << std::endl;
     for (int objIdx = 0; objIdx < (int)objects_.size(); objIdx++) {
         auto& input = objects_[objIdx];
+        std::cout << "DEBUG: Processing object " << objIdx << ": " << input.filename << std::endl;
         // Text relocations
         auto textRelocs = O45RelocDecoder::decode(input.obj.textRelocs);
+        std::cout << "DEBUG: Decoded " << textRelocs.size() << " TEXT relocations from " << input.filename << std::endl;
+        for (const auto& r : textRelocs) {
+            const char* segName = "";
+            if (r.segment == SEG_EXTERNAL) segName = "EXTERN";
+            else if (r.segment == SEG_TEXT) segName = "TEXT";
+            else if (r.segment == SEG_DATA) segName = "DATA";
+            std::cout << "  TEXT Reloc at offset 0x" << std::hex << r.offset << " type 0x" << (int)r.type
+                      << " seg " << segName << " extra 0x" << (int)r.extra << std::dec << std::endl;
+        }
         if (!applyRelocs(textRelocs, mergedText_, textBase_, input.textOffset,
                          input, errorMsg, objIdx)) {
             return false;
@@ -612,7 +655,7 @@ bool O45Linker::applyRelocations(std::string& errorMsg) {
         auto dataRelocs = O45RelocDecoder::decode(input.obj.dataRelocs);
         std::cout << "DEBUG: Decoded " << dataRelocs.size() << " DATA relocations from " << input.filename << std::endl;
         for (const auto& r : dataRelocs) {
-            std::cout << "  Reloc at offset 0x" << std::hex << r.offset << " type 0x" << (int)r.type << " seg " << (int)r.segment << " extra 0x" << (int)r.extra << std::dec << std::endl;
+            std::cout << "  DATA Reloc at offset 0x" << std::hex << r.offset << " type 0x" << (int)r.type << " seg " << (int)r.segment << " extra 0x" << (int)r.extra << std::dec << std::endl;
         }
         if (!applyRelocs(dataRelocs, mergedData_, dataBase_, input.dataOffset,
                          input, errorMsg, -1)) {
