@@ -193,7 +193,7 @@ test-cast-fold: all
 test-integration: all
 	@bash src/test/test_integration.sh
 
-test-mmemu: all
+test-mmemu: all lib
 	@bash src/test/test_mmemu.sh
 
 test-stdlib: all lib

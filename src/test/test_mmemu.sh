@@ -337,264 +337,208 @@ done
 # --- BSS init test ---
 echo "Testing mmemu-cli with test_bssinit.c (BSS zeroing)..."
 
-$CC src/test-resources/test_bssinit.c -o build/test/test_bssinit.s
+$CC src/test-resources/test_bssinit.c -o build/test/test_bssinit.prg
 if [ $? -ne 0 ]; then
     echo "FAIL: Compilation failed for test_bssinit.c"
     failed=$((failed + 1))
 else
-    $AS build/test/test_bssinit.s -o build/test/test_bssinit.prg
-    if [ $? -ne 0 ]; then
-        echo "FAIL: Assembly failed for test_bssinit.s"
-        failed=$((failed + 1))
-    else
-        # Fill RAM with $DE pattern first so BSS init can be verified (not just fresh zeros)
-        OUTPUT=$(echo -e "fill \$2000 \$3000 \$DE\nload build/test/test_bssinit.prg\nsetpc \$2000\nrun\nm \$4000 2\nq" | $MMEMU -m rawMega65 2>/dev/null)
+    # Fill RAM with $DE pattern first so BSS init can be verified (not just fresh zeros)
+    OUTPUT=$(echo -e "fill \$2000 \$3000 \$DE\nload build/test/test_bssinit.prg\nsetpc \$2000\nrun\nm \$4000 2\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
-        if echo "$OUTPUT" | grep -qi "4000: 00 2a"; then
-            echo "SUCCESS: test_bssinit.c — BSS zeroed, globals correct."
-        else
-            echo "FAIL: test_bssinit.c — BSS init validation failed."
-            echo "Expected 4000: 00 2A"
-            echo "Actual output:"
-            echo "$OUTPUT" | grep "4000:"
-            failed=$((failed + 1))
-        fi
+    if echo "$OUTPUT" | grep -qi "4000: 00 2a"; then
+        echo "SUCCESS: test_bssinit.c — BSS zeroed, globals correct."
+    else
+        echo "FAIL: test_bssinit.c — BSS init validation failed."
+        echo "Expected 4000: 00 2A"
+        echo "Actual output:"
+        echo "$OUTPUT" | grep "4000:"
+        failed=$((failed + 1))
     fi
 fi
 
 # --- Multi-dimensional array test ---
 echo "Testing mmemu-cli with test_multidim_array.c (multi-dim arrays)..."
 
-$CC src/test-resources/test_multidim_array.c -o build/test/test_multidim_array.s
+$CC src/test-resources/test_multidim_array.c -o build/test/test_multidim_array.prg
 if [ $? -ne 0 ]; then
     echo "FAIL: Compilation failed for test_multidim_array.c"
     failed=$((failed + 1))
 else
-    $AS build/test/test_multidim_array.s -o build/test/test_multidim_array.prg
-    if [ $? -ne 0 ]; then
-        echo "FAIL: Assembly failed for test_multidim_array.s"
-        failed=$((failed + 1))
-    else
-        # Expected: 03 0C 17 00 18 AA
-        # scores[2]=3, grid[1][2]=12, grid[2][3]=23, grid[0][0]=0, sizeof=24, marker=AA
-        EXPECTED_MD="03 0C 17 00 18 AA"
-        OUTPUT=$(echo -e "load build/test/test_multidim_array.prg\nsetpc \$2000\nstep 5000000\nm \$4000 6\nq" | $MMEMU -m rawMega65 2>/dev/null)
+    # Expected: 03 0C 17 00 18 AA
+    # scores[2]=3, grid[1][2]=12, grid[2][3]=23, grid[0][0]=0, sizeof=24, marker=AA
+    EXPECTED_MD="03 0C 17 00 18 AA"
+    OUTPUT=$(echo -e "load build/test/test_multidim_array.prg\nsetpc \$2000\nstep 10000000\nm \$4000 6\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
-        if echo "$OUTPUT" | grep -qi "4000: 03 0c 17 00 18 aa"; then
-            echo "SUCCESS: test_multidim_array.c — multi-dim arrays correct."
-        else
-            echo "FAIL: test_multidim_array.c — multi-dim array validation failed."
-            echo "Expected 4000: $EXPECTED_MD"
-            echo "Actual output:"
-            echo "$OUTPUT" | grep "4000:"
-            failed=$((failed + 1))
-        fi
+    if echo "$OUTPUT" | grep -qi "4000: 03 0c 17 00 18 aa"; then
+        echo "SUCCESS: test_multidim_array.c — multi-dim arrays correct."
+    else
+        echo "FAIL: test_multidim_array.c — multi-dim array validation failed."
+        echo "Expected 4000: $EXPECTED_MD"
+        echo "Actual output:"
+        echo "$OUTPUT" | grep "4000:"
+        failed=$((failed + 1))
     fi
 fi
 
 # --- Runtime-indexed array loop test ---
 echo "Testing mmemu-cli with test_array_loop.c (runtime-indexed global array stores)..."
 
-$CC src/test-resources/test_array_loop.c -o build/test/test_array_loop.s
+$CC src/test-resources/test_array_loop.c -o build/test/test_array_loop.prg
 if [ $? -ne 0 ]; then
     echo "FAIL: Compilation failed for test_array_loop.c"
     failed=$((failed + 1))
 else
-    $AS build/test/test_array_loop.s -o build/test/test_array_loop.prg
-    if [ $? -ne 0 ]; then
-        echo "FAIL: Assembly failed for test_array_loop.s"
-        failed=$((failed + 1))
-    else
-        # Expected: 01 05 00 0C 17 AA
-        # scores[0]=1, scores[4]=5, grid[0][0]=0, grid[1][2]=12, grid[2][3]=23, marker=AA
-        OUTPUT=$(echo -e "load build/test/test_array_loop.prg\nsetpc \$2000\nstep 5000000\nm \$4000 6\nq" | $MMEMU -m rawMega65 2>/dev/null)
+    # Expected: 01 05 00 0C 17 AA
+    # scores[0]=1, scores[4]=5, grid[0][0]=0, grid[1][2]=12, grid[2][3]=23, marker=AA
+    OUTPUT=$(echo -e "load build/test/test_array_loop.prg\nsetpc \$2000\nstep 10000000\nm \$4000 6\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
-        if echo "$OUTPUT" | grep -qi "4000: 01 05 00 0c 17 aa"; then
-            echo "SUCCESS: test_array_loop.c — runtime-indexed array loops correct."
-        else
-            echo "FAIL: test_array_loop.c — runtime-indexed array loop validation failed."
-            echo "Expected 4000: 01 05 00 0C 17 AA"
-            echo "Actual output:"
-            echo "$OUTPUT" | grep "4000:"
-            failed=$((failed + 1))
-        fi
+    if echo "$OUTPUT" | grep -qi "4000: 01 05 00 0c 17 aa"; then
+        echo "SUCCESS: test_array_loop.c — runtime-indexed array loops correct."
+    else
+        echo "FAIL: test_array_loop.c — runtime-indexed array loop validation failed."
+        echo "Expected 4000: 01 05 00 0C 17 AA"
+        echo "Actual output:"
+        echo "$OUTPUT" | grep "4000:"
+        failed=$((failed + 1))
     fi
 fi
 
 # --- Array initializer test ---
 echo "Testing mmemu-cli with test_array_init.c (array initializer lists)..."
 
-$CC src/test-resources/test_array_init.c -o build/test/test_array_init.s
+$CC src/test-resources/test_array_init.c -o build/test/test_array_init.prg
 if [ $? -ne 0 ]; then
     echo "FAIL: Compilation failed for test_array_init.c"
     failed=$((failed + 1))
 else
-    $AS build/test/test_array_init.s -o build/test/test_array_init.prg
-    if [ $? -ne 0 ]; then
-        echo "FAIL: Assembly failed for test_array_init.s"
-        failed=$((failed + 1))
-    else
-        # Expected: 10 40 64 2C 0B 16 00 00 00 00 AA CC E8 D0 FF
-        OUTPUT=$(echo -e "load build/test/test_array_init.prg\nsetpc \$2000\nstep 5000000\nm \$4000 15\nq" | $MMEMU -m rawMega65 2>/dev/null)
+    # Expected: 10 40 64 2C 0B 16 00 00 00 00 AA CC E8 D0 FF
+    OUTPUT=$(echo -e "load build/test/test_array_init.prg\nsetpc \$2000\nstep 10000000\nm \$4000 15\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
-        if echo "$OUTPUT" | grep -qi "4000: 10 40 64 2c 0b 16 00 00 00 00 aa cc e8 d0 ff"; then
-            echo "SUCCESS: test_array_init.c — array initializer lists correct."
-        else
-            echo "FAIL: test_array_init.c — array initializer list validation failed."
-            echo "Expected 4000: 10 40 64 2C 0B 16 00 00 00 00 AA CC E8 D0 FF"
-            echo "Actual output:"
-            echo "$OUTPUT" | grep "4000:"
-            failed=$((failed + 1))
-        fi
+    if echo "$OUTPUT" | grep -qi "4000: 10 40 64 2c 0b 16 00 00 00 00 aa cc e8 d0 ff"; then
+        echo "SUCCESS: test_array_init.c — array initializer lists correct."
+    else
+        echo "FAIL: test_array_init.c — array initializer list validation failed."
+        echo "Expected 4000: 10 40 64 2C 0B 16 00 00 00 00 AA CC E8 D0 FF"
+        echo "Actual output:"
+        echo "$OUTPUT" | grep "4000:"
+        failed=$((failed + 1))
     fi
 fi
 
 # --- Struct array test ---
 echo "Testing mmemu-cli with test_struct_array.c (struct arrays with loop)..."
 
-$CC src/test-resources/test_struct_array.c -o build/test/test_struct_array.s
+$CC src/test-resources/test_struct_array.c -o build/test/test_struct_array.prg
 if [ $? -ne 0 ]; then
     echo "FAIL: Compilation failed for test_struct_array.c"
     failed=$((failed + 1))
 else
-    $AS build/test/test_struct_array.s -o build/test/test_struct_array.prg
-    if [ $? -ne 0 ]; then
-        echo "FAIL: Assembly failed for test_struct_array.s"
-        failed=$((failed + 1))
-    else
-        # Expected: 00 0A 15 1F 10 AA
-        # pts[0].x=0, pts[1].x=10, pts[2].y=21, pts[3].y=31, sizeof=16, marker
-        OUTPUT=$(echo -e "load build/test/test_struct_array.prg\nsetpc \$2000\nstep 5000000\nm \$4000 6\nq" | $MMEMU -m rawMega65 2>/dev/null)
+    # Expected: 00 0A 15 1F 10 AA
+    # pts[0].x=0, pts[1].x=10, pts[2].y=21, pts[3].y=31, sizeof=16, marker
+    OUTPUT=$(echo -e "load build/test/test_struct_array.prg\nsetpc \$2000\nstep 10000000\nm \$4000 6\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
-        if echo "$OUTPUT" | grep -qi "4000: 00 0a 15 1f 10 aa"; then
-            echo "SUCCESS: test_struct_array.c — struct arrays correct."
-        else
-            echo "FAIL: test_struct_array.c — struct array validation failed."
-            echo "Expected 4000: 00 0A 15 1F 10 AA"
-            echo "Actual output:"
-            echo "$OUTPUT" | grep "4000:"
-            failed=$((failed + 1))
-        fi
+    if echo "$OUTPUT" | grep -qi "4000: 00 0a 15 1f 10 aa"; then
+        echo "SUCCESS: test_struct_array.c — struct arrays correct."
+    else
+        echo "FAIL: test_struct_array.c — struct array validation failed."
+        echo "Expected 4000: 00 0A 15 1F 10 AA"
+        echo "Actual output:"
+        echo "$OUTPUT" | grep "4000:"
+        failed=$((failed + 1))
     fi
 fi
 
 # --- test_short.c: short type ---
 echo "Testing mmemu-cli with test_short.c (short type alias)..."
-$CC src/test-resources/test_short.c -o build/test/test_short.s 2>/dev/null
+$CC src/test-resources/test_short.c -o build/test/test_short.prg 2>/dev/null
 if [ $? -ne 0 ]; then echo "FAIL: Compilation failed for test_short.c"; failed=$((failed + 1));
 else
-    $AS build/test/test_short.s -o build/test/test_short.prg
-    if [ $? -ne 0 ]; then echo "FAIL: Assembly failed for test_short.s"; failed=$((failed + 1));
+    OUTPUT=$(echo -e "load build/test/test_short.prg\nsetpc \$2000\nstep 10000000\nm \$4000 7\nq" | $MMEMU -m rawMega65 2>/dev/null)
+    if echo "$OUTPUT" | grep -qi "4000:.*1e 05 02 0c 0a c8 aa"; then
+        echo "SUCCESS: test_short.c — short type correct."
     else
-        OUTPUT=$(echo -e "load build/test/test_short.prg\nsetpc \$2000\nstep 5000000\nm \$4000 7\nq" | $MMEMU -m rawMega65 2>/dev/null)
-        if echo "$OUTPUT" | grep -qi "4000:.*1e 05 02 0c 0a c8 aa"; then
-            echo "SUCCESS: test_short.c — short type correct."
-        else
-            echo "FAIL: test_short.c — short type validation failed."
-            echo "Expected 4000: 1E 05 02 0C 0A C8 AA"
-            echo "Actual output:"
-            echo "$OUTPUT" | grep "4000:"
-            failed=$((failed + 1))
-        fi
+        echo "FAIL: test_short.c — short type validation failed."
+        echo "Expected 4000: 1E 05 02 0C 0A C8 AA"
+        echo "Actual output:"
+        echo "$OUTPUT" | grep "4000:"
+        failed=$((failed + 1))
     fi
 fi
 
 # --- test_struct_return.c: struct return by value ---
 echo "Testing mmemu-cli with test_struct_return.c (struct return by value)..."
-$CC src/test-resources/test_struct_return.c -o build/test/test_struct_return.s 2>/dev/null
+$CC src/test-resources/test_struct_return.c -o build/test/test_struct_return.prg 2>/dev/null
 if [ $? -ne 0 ]; then echo "FAIL: Compilation failed for test_struct_return.c"; failed=$((failed + 1));
 else
-    $AS build/test/test_struct_return.s -o build/test/test_struct_return.prg
-    if [ $? -ne 0 ]; then echo "FAIL: Assembly failed for test_struct_return.s"; failed=$((failed + 1));
+    OUTPUT=$(echo -e "load build/test/test_struct_return.prg\nsetpc \$2000\nstep 10000000\nm \$4000 7\nq" | $MMEMU -m rawMega65 2>/dev/null)
+    if echo "$OUTPUT" | grep -qi "4000:.*01 02 03 04 0a 14 aa"; then
+        echo "SUCCESS: test_struct_return.c — struct return by value correct."
     else
-        OUTPUT=$(echo -e "load build/test/test_struct_return.prg\nsetpc \$2000\nstep 5000000\nm \$4000 7\nq" | $MMEMU -m rawMega65 2>/dev/null)
-        if echo "$OUTPUT" | grep -qi "4000:.*01 02 03 04 0a 14 aa"; then
-            echo "SUCCESS: test_struct_return.c — struct return by value correct."
-        else
-            echo "FAIL: test_struct_return.c — struct return by value validation failed."
-            echo "Expected 4000: 01 02 03 04 0A 14 AA"
-            echo "Actual output:"
-            echo "$OUTPUT" | grep "4000:"
-            failed=$((failed + 1))
-        fi
+        echo "FAIL: test_struct_return.c — struct return by value validation failed."
+        echo "Expected 4000: 01 02 03 04 0A 14 AA"
+        echo "Actual output:"
+        echo "$OUTPUT" | grep "4000:"
+        failed=$((failed + 1))
     fi
 fi
 
 echo "Testing bitfield read/write/increment..."
 
-$CC src/test-resources/test_bitfield_mmemu.c -o build/test/test_bitfield_mmemu.s
+$CC src/test-resources/test_bitfield_mmemu.c -o build/test/test_bitfield_mmemu.prg
 if [ $? -ne 0 ]; then
     echo "FAIL: Compilation failed for test_bitfield_mmemu.c"
     failed=$((failed + 1))
 else
-    $AS build/test/test_bitfield_mmemu.s -o build/test/test_bitfield_mmemu.prg
-    if [ $? -ne 0 ]; then
-        echo "FAIL: Assembly failed for test_bitfield_mmemu.s"
-        failed=$((failed + 1))
-    else
-        OUTPUT=$(echo -e "load build/test/test_bitfield_mmemu.prg\nsetpc \$2000\nstep 5000000\nm \$4000 6\nq" | $MMEMU -m rawMega65 2>/dev/null)
+    OUTPUT=$(echo -e "load build/test/test_bitfield_mmemu.prg\nsetpc \$2000\nstep 10000000\nm \$4000 6\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
-        if echo "$OUTPUT" | grep -q "4000: 00 00 00 00 00 00"; then
-            echo "SUCCESS: bitfield read/write/increment works correctly."
-        else
-            echo "FAIL: test_bitfield_mmemu.c — bitfield validation failed."
-            echo "Expected 4000: 00 00 00 00 00 00"
-            echo "Actual output:"
-            echo "$OUTPUT" | grep "4000:"
-            failed=$((failed + 1))
-        fi
+    if echo "$OUTPUT" | grep -qi "4000: 00 00 00 00 00 00"; then
+        echo "SUCCESS: bitfield read/write/increment works correctly."
+    else
+        echo "FAIL: test_bitfield_mmemu.c — bitfield validation failed."
+        echo "Expected 4000: 00 00 00 00 00 00"
+        echo "Actual output:"
+        echo "$OUTPUT" | grep "4000:"
+        failed=$((failed + 1))
     fi
 fi
 
 echo "Testing compound literals..."
 
-$CC src/test-resources/test_compound_literal.c -o build/test/test_compound_literal.s
+$CC src/test-resources/test_compound_literal.c -o build/test/test_compound_literal.prg
 if [ $? -ne 0 ]; then
     echo "FAIL: Compilation failed for test_compound_literal.c"
     failed=$((failed + 1))
 else
-    $AS build/test/test_compound_literal.s -o build/test/test_compound_literal.prg
-    if [ $? -ne 0 ]; then
-        echo "FAIL: Assembly failed for test_compound_literal.s"
-        failed=$((failed + 1))
-    else
-        OUTPUT=$(echo -e "load build/test/test_compound_literal.prg\nsetpc \$2000\nstep 5000000\nm \$4000 7\nq" | $MMEMU -m rawMega65 2>/dev/null)
+    OUTPUT=$(echo -e "load build/test/test_compound_literal.prg\nsetpc \$2000\nstep 10000000\nm \$4000 7\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
-        if echo "$OUTPUT" | grep -qi "4000: 1e 2a 07 2c 01 14 00"; then
-            echo "SUCCESS: compound literal tests passed."
-        else
-            echo "FAIL: test_compound_literal.c — compound literal validation failed."
-            echo "Expected 4000: 1E 2A 07 2C 01 14 00"
-            echo "Actual output:"
-            echo "$OUTPUT" | grep "4000:"
-            failed=$((failed + 1))
-        fi
+    if echo "$OUTPUT" | grep -qi "4000: 1e 2a 07 2c 01 14 00"; then
+        echo "SUCCESS: compound literal tests passed."
+    else
+        echo "FAIL: test_compound_literal.c — compound literal validation failed."
+        echo "Expected 4000: 1E 2A 07 2C 01 14 00"
+        echo "Actual output:"
+        echo "$OUTPUT" | grep "4000:"
+        failed=$((failed + 1))
     fi
 fi
 
 echo "Testing long type (32-bit) operations..."
 
-$CC -O0 src/test-resources/test_long_mmemu.c -o build/test/test_long_mmemu.s 2>/dev/null
+$CC -O0 src/test-resources/test_long_mmemu.c -o build/test/test_long_mmemu.prg 2>/dev/null
 if [ $? -ne 0 ]; then
     echo "FAIL: Compilation failed for test_long_mmemu.c"
     failed=$((failed + 1))
 else
-    $AS build/test/test_long_mmemu.s -o build/test/test_long_mmemu.prg
-    if [ $? -ne 0 ]; then
-        echo "FAIL: Assembly failed for test_long_mmemu.s"
-        failed=$((failed + 1))
-    else
-        OUTPUT=$(echo -e "load build/test/test_long_mmemu.prg\nsetpc \$2000\nstep 5000000\nm \$4000 12\nq" | $MMEMU -m rawMega65 2>/dev/null)
+    OUTPUT=$(echo -e "load build/test/test_long_mmemu.prg\nsetpc \$2000\nstep 10000000\nm \$4000 12\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
-        if echo "$OUTPUT" | grep -q "4000: 04 C0 01 A0 2A A0 00 E0 93 04 00 AA"; then
-            echo "SUCCESS: long type tests passed."
-        else
-            echo "FAIL: test_long_mmemu.c — long type validation failed."
-            echo "Expected 4000: 04 C0 01 A0 2A A0 00 E0 93 ..."
-            echo "Actual output:"
-            echo "$OUTPUT" | grep "4000:"
-            failed=$((failed + 1))
-        fi
+    if echo "$OUTPUT" | grep -qi "4000: 04 c0 01 a0 2a a0 00 e0 93 04 00 aa"; then
+        echo "SUCCESS: long type tests passed."
+    else
+        echo "FAIL: test_long_mmemu.c — long type validation failed."
+        echo "Expected 4000: 04 C0 01 A0 2A A0 00 E0 93 ..."
+        echo "Actual output:"
+        echo "$OUTPUT" | grep "4000:"
+        failed=$((failed + 1))
     fi
 fi
 
@@ -656,28 +600,22 @@ fi
 
 echo "Testing zpCall mixed convention (-fzpcall calling variadic)..."
 
-$CC -fzpcall src/test-resources/test_zpcall_mixed.c -o build/test/test_zpcall_mixed.s
+$CC -fzpcall src/test-resources/test_zpcall_mixed.c -o build/test/test_zpcall_mixed.prg
 if [ $? -ne 0 ]; then
     echo "FAIL: Compilation failed for test_zpcall_mixed.c"
     failed=$((failed + 1))
 else
-    $AS build/test/test_zpcall_mixed.s -o build/test/test_zpcall_mixed.prg
-    if [ $? -ne 0 ]; then
-        echo "FAIL: Assembly failed for test_zpcall_mixed.s"
-        failed=$((failed + 1))
-    else
-        OUTPUT=$(echo -e "load build/test/test_zpcall_mixed.prg\nsetpc \$2000\nstep 5000000\nm \$4000 9\nq" | $MMEMU -m rawMega65 2>/dev/null)
+    OUTPUT=$(echo -e "load build/test/test_zpcall_mixed.prg\nsetpc \$2000\nstep 10000000\nm \$4000 9\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
-        # Expected: 3C 00 48 00 96 00 63 50 AA
-        if echo "$OUTPUT" | grep -q "4000: 3C 00"; then
-            echo "SUCCESS: zpCall mixed convention tests passed."
-        else
-            echo "FAIL: zpCall mixed convention validation failed."
-            echo "Expected at $4000: 3C ..."
-            echo "Actual output:"
-            echo "$OUTPUT" | grep "4000:"
-            failed=$((failed + 1))
-        fi
+    # Expected: 3C 00 48 00 96 00 63 50 AA
+    if echo "$OUTPUT" | grep -qi "4000: 3c 00"; then
+        echo "SUCCESS: zpCall mixed convention tests passed."
+    else
+        echo "FAIL: zpCall mixed convention validation failed."
+        echo "Expected at $4000: 3C ..."
+        echo "Actual output:"
+        echo "$OUTPUT" | grep "4000:"
+        failed=$((failed + 1))
     fi
 fi
 
@@ -912,12 +850,11 @@ else
 fi
 
 echo "Testing CPU and flag intrinsics (__cpu.R, __flags.F)..."
-$CC src/test-resources/test_cpu_intrinsics.c -o build/test/test_cpu_intrinsics.s
+$CC src/test-resources/test_cpu_intrinsics.c -o build/test/test_cpu_intrinsics.prg
 if [ $? -eq 0 ]; then
-    $AS build/test/test_cpu_intrinsics.s -o build/test/test_cpu_intrinsics.prg
     # Return 0 in A means success
     OUTPUT=$(echo -e "load build/test/test_cpu_intrinsics.prg\nsetpc \$2000\nstep 2000000\nregs\nq" | $MMEMU -m rawMega65 2>/dev/null)
-    if echo "$OUTPUT" | grep -q "A: \$00"; then
+    if echo "$OUTPUT" | grep -qi "A: \$00"; then
         echo "SUCCESS: CPU and flag intrinsics tests passed."
     else
         echo "FAIL: CPU and flag intrinsics tests failed (A != 0)."
