@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <cstdlib>
+#include <cstdio>
 #ifdef __linux__
 #include <unistd.h>
 #endif
@@ -397,7 +398,9 @@ int main(int argc, char** argv) {
     bool preprocessOnly = (programName == "cp45");
     std::string output_file = "";
     bool outputFileSet = false;
-    bool assemble = false;
+    bool objectFileOnly = false;  // -c: stop after assembling to .o45
+    bool assemblyOnly = false;    // -S: stop after code generation (assembly text)
+    bool saveTemps = false;       // --save-temps: keep .s and .o45 files
     int verboseLevel = 0;
     bool optimize = true;
     int listingLevel = 1;
@@ -453,11 +456,15 @@ int main(int argc, char** argv) {
             std::cout << "Usage: cc45 [options] <input_file.c>" << std::endl;
             std::cout << "Options:" << std::endl;
             std::cout << "  -E             Run only the preprocessor (output to stdout or -o file)" << std::endl;
-            std::cout << "  -c             Compile and assemble to a .o45 relocatable object file" << std::endl;
-            std::cout << "  -o <filename>  Specify output assembly filename (default: out.s)" << std::endl;
+            std::cout << "  -S             Produce assembly text only (stop after code generation)" << std::endl;
+            std::cout << "  -c             Produce .o45 relocatable object file (compile+assemble, no link)" << std::endl;
+            std::cout << "  -o <filename>  Specify output filename (default: out.prg or out.o45 with -c)" << std::endl;
+            std::cout << "                 Automatically infers type from extension (.prg, .o45, .s)" << std::endl;
             std::cout << "  -l <level>     Listing level: 1=Standard (default), 2=Expanded" << std::endl;
             std::cout << "  -v             Enable verbose output (phase info)" << std::endl;
             std::cout << "  -vv            Extra verbose output (token dumps, AST)" << std::endl;
+            std::cout << "  -O0            Disable optimizations" << std::endl;
+            std::cout << "  --save-temps   Keep intermediate .s and .o45 files" << std::endl;
             std::cout << "  -fzpcall       Use ZP parameter block calling convention" << std::endl;
             std::cout << "  -fno-zpcall    Use stack-based calling convention (default)" << std::endl;
             std::cout << "  -finline-functions  Inline small functions at call sites" << std::endl;
@@ -466,13 +473,18 @@ int main(int argc, char** argv) {
             std::cout << "  -I<path>       Add include search path" << std::endl;
             std::cout << "  -Rcodegen      Annotate assembly output with codegen reasoning comments" << std::endl;
             std::cout << "  -Roptir        Trace IR optimizer actions to stderr" << std::endl;
+            std::cout << "  -Roptimizer    Report assembler optimizer actions to stderr" << std::endl;
             std::cout << "  -Rmachstate    Trace assembler MachineState register/flag tracking" << std::endl;
             std::cout << "  -?             Display this help message" << std::endl;
             return 0;
         } else if (arg == "-c") {
-            assemble = true;
+            objectFileOnly = true;
+        } else if (arg == "-S") {
+            assemblyOnly = true;
         } else if (arg == "-E") {
             preprocessOnly = true;
+        } else if (arg == "--save-temps") {
+            saveTemps = true;
         } else if (arg == "-o" && i + 1 < argc) {
             output_file = argv[++i];
             outputFileSet = true;
@@ -589,14 +601,19 @@ int main(int argc, char** argv) {
     }
 
     if (!outputFileSet) {
-        if (assemble) {
+        std::string base = input_file;
+        size_t dot = base.rfind('.');
+        if (dot != std::string::npos) base = base.substr(0, dot);
+
+        if (objectFileOnly) {
             // -c mode: default output is input.o45
-            std::string base = input_file;
-            size_t dot = base.rfind('.');
-            if (dot != std::string::npos) base = base.substr(0, dot);
             output_file = base + ".o45";
+        } else if (assemblyOnly) {
+            // -S mode: default output is input.s
+            output_file = base + ".s";
         } else {
-            output_file = "out.s";
+            // Default: compile+assemble+link to .prg
+            output_file = base + ".prg";
         }
     }
 
@@ -633,8 +650,13 @@ int main(int argc, char** argv) {
         std::cout << "Parsing " << input_file << "..." << std::endl;
     }
 
-    // In -c mode, the .s file is intermediate; output_file is the .o45
-    std::string asmFile = assemble ? (output_file + ".s") : output_file;
+    // Compute assembly file path:
+    // - If -S mode: output_file is the final .s, so asmFile = output_file
+    // - Otherwise: .s is intermediate, use base + ".s"
+    std::string baseName = output_file;
+    size_t dotPos = baseName.rfind('.');
+    if (dotPos != std::string::npos) baseName = baseName.substr(0, dotPos);
+    std::string asmFile = assemblyOnly ? output_file : (baseName + ".s");
 
     Parser parser(tokens);
     try {
@@ -730,7 +752,7 @@ int main(int argc, char** argv) {
         }
         IRCodeGen irCodeGen(asmOut);
         irCodeGen.setLineToFileMap(lineToFileMap);
-        irCodeGen.generate(irBuilder.getModule(), zeroPageStart, assemble, zpCallMode, emitReasons);
+        irCodeGen.generate(irBuilder.getModule(), zeroPageStart, true, zpCallMode, emitReasons);
         asmOut.close();
 
         if (verboseLevel >= 1) {
@@ -773,32 +795,119 @@ int main(int argc, char** argv) {
         std::cerr << "Compiler Error: " << e.what() << std::endl;
         return 1;
     }
-    
-    if (assemble) {
-        if (verboseLevel >= 1) std::cout << "Assembling to " << output_file << "..." << std::endl;
-        // Find ca45 relative to cc45's own location
-        std::string cc45Path = argv[0];
-        std::string ca45Path = "ca45";
-        size_t lastSep = cc45Path.find_last_of("/\\");
+
+    // ===== COMPILATION PIPELINE =====
+    // If -S: stop after code generation (assembly text)
+    // If -c: compile → assemble → stop (keep .o45, optionally .s)
+    // Default: compile → assemble → link → stop (keep .prg, optionally .s/.o45)
+
+    if (assemblyOnly) {
+        // -S mode: we're done, assembly was generated to asmFile (which equals output_file)
+        if (verboseLevel >= 1) std::cout << "Assembly generated in " << asmFile << std::endl;
+        return 0;
+    }
+
+    // Compute base name for intermediate files
+    std::string finalOutputBase = output_file;
+    size_t finalDotPos = finalOutputBase.rfind('.');
+    if (finalDotPos != std::string::npos) {
+        finalOutputBase = finalOutputBase.substr(0, finalDotPos);
+    }
+
+    std::string objFile = finalOutputBase + ".o45";
+    std::string prgFile = finalOutputBase + ".prg";
+
+    // Find ca45 and ln45 relative to cc45's own location
+    std::string cc45Path = argv[0];
+    std::string ca45Path = "ca45";
+    std::string ln45Path = "ln45";
+    size_t lastSep = cc45Path.find_last_of("/\\");
+    if (lastSep != std::string::npos) {
+        std::string binDir = cc45Path.substr(0, lastSep + 1);
+        ca45Path = binDir + "ca45";
+        ln45Path = binDir + "ln45";
+    }
+
+    // Collect flags for subprocesses
+    std::string rOptFlag;
+    std::string rMachFlag;
+    std::string optLevelFlag = " -O2";  // Default optimization level
+    if (!optimize) {
+        optLevelFlag = " -O0";  // No optimization if -O0 was passed to cc45
+    }
+    for (int ai = 1; ai < argc; ai++) {
+        if (std::string(argv[ai]) == "-Roptimizer") rOptFlag = " -Roptimizer";
+        if (std::string(argv[ai]) == "-Rmachstate") rMachFlag = " -Rmachstate";
+    }
+
+    // STEP 1: Assemble .s → .o45
+    if (verboseLevel >= 1) std::cout << "Assembling " << asmFile << " → " << objFile << "..." << std::endl;
+    std::string asmCommand = ca45Path + " -c" + optLevelFlag + " " + defineFlag + rOptFlag + rMachFlag + " -o " + objFile + " " + asmFile;
+    int asmRet = std::system(asmCommand.c_str());
+    if (asmRet != 0) {
+        std::cerr << "Assembler failed with return code " << asmRet << std::endl;
+        return 1;
+    }
+
+    // STEP 2: Link .o45 → .prg (unless -c specified)
+    if (!objectFileOnly) {
+        if (verboseLevel >= 1) std::cout << "Linking " << objFile << " → " << prgFile << "..." << std::endl;
+
+        // Determine which library to link based on calling convention
+        std::string libName = "c45.lib";
+        if (zpCallMode) {
+            libName = "c45_zp.lib";
+        }
+
+        // Try to find library in multiple locations (build tree, then installed prefix)
+        std::string libPath = libName;
         if (lastSep != std::string::npos) {
-            ca45Path = cc45Path.substr(0, lastSep + 1) + "ca45";
+            std::string binDir = cc45Path.substr(0, lastSep + 1);
+            // Try build tree location first: ../lib/build/
+            std::string tryPath = binDir + "../lib/build/" + libName;
+            std::ifstream test(tryPath);
+            if (test.good()) {
+                libPath = tryPath;
+                test.close();
+            } else {
+                // Try installed prefix location: ../lib/cc45/
+                tryPath = binDir + "../lib/cc45/" + libName;
+                test.open(tryPath);
+                if (test.good()) {
+                    libPath = tryPath;
+                    test.close();
+                }
+            }
         }
-        std::string rOptFlag;
-        std::string rMachFlag;
-        std::string optLevelFlag = " -O2";  // Default optimization level
-        if (!optimize) {
-            optLevelFlag = " -O0";  // No optimization if -O0 was passed to cc45
-        }
-        for (int ai = 1; ai < argc; ai++) {
-            if (std::string(argv[ai]) == "-Roptimizer") rOptFlag = " -Roptimizer";
-            if (std::string(argv[ai]) == "-Rmachstate") rMachFlag = " -Rmachstate";
-        }
-        std::string command = ca45Path + " -c" + optLevelFlag + " " + defineFlag + rOptFlag + rMachFlag + " -o " + output_file + " " + asmFile;
-        int ret = std::system(command.c_str());
-        if (ret != 0) {
-            std::cerr << "Assembler failed with return code " << ret << std::endl;
+
+        std::string linkCommand = ln45Path + " " + objFile + " " + libPath + " -o " + prgFile;
+        int linkRet = std::system(linkCommand.c_str());
+        if (linkRet != 0) {
+            std::cerr << "Linker failed with return code " << linkRet << std::endl;
             return 1;
         }
+    }
+
+    // STEP 3: Cleanup intermediate files (unless --save-temps)
+    if (!saveTemps) {
+        if (!assemblyOnly) {
+            // Remove assembly file
+            if (std::remove(asmFile.c_str()) == 0 && verboseLevel >= 1) {
+                std::cout << "Removed intermediate assembly file: " << asmFile << std::endl;
+            }
+        }
+        if (!objectFileOnly && !assemblyOnly) {
+            // Remove object file (unless -c mode keeps it)
+            if (std::remove(objFile.c_str()) == 0 && verboseLevel >= 1) {
+                std::cout << "Removed intermediate object file: " << objFile << std::endl;
+            }
+        }
+    }
+
+    if (objectFileOnly) {
+        if (verboseLevel >= 1) std::cout << "Object file: " << objFile << std::endl;
+    } else {
+        if (verboseLevel >= 1) std::cout << "Executable: " << prgFile << std::endl;
     }
 
     return 0;
