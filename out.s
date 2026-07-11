@@ -1,26 +1,6 @@
 * = $2000
     __sp_base = $0101
-; Save ZP $08-$FF to BSS buffer
-    ldx #0
-@__zp_save_loop:
-    lda $08,x
-    sta __zp_save_buf,x
-    inx
-    cpx #248
-    bne @__zp_save_loop
     jsr _main
-    sta $02
-    stx $03
-; Restore ZP $08-$FF from BSS buffer
-    ldx #0
-@__zp_restore_loop:
-    lda __zp_save_buf,x
-    sta $08,x
-    inx
-    cpx #248
-    bne @__zp_restore_loop
-    lda $02
-    ldx $03
 __halt:
     jmp __halt
     .global __static_chain
@@ -34,17 +14,13 @@ __halt:
     __zp_scratch3 = $0C
     __zp_scratch4 = $0E
 
-    .extern _bsearch
-
-_test:
-    .word 16384
-
-
-; function _cmp
-    proc _cmp, W#@_p_a, W#@_p_b
+; function _main
+    proc _main
     .var _fp = 0
-    .loc "/tmp/stdlib.h", 5
-; frame: 4 bytes (frame-allocated vRegs only)
+    .loc "src/test-resources/test_array_init.c", 18
+; frame: 7 bytes (frame-allocated vRegs only)
+    phw #0
+    phw #0
     phw #0
     phw #0
     tsx
@@ -56,115 +32,52 @@ _test:
     adc #0
     sta $FE
     .local __vr0 = 0
-    .local __vr1 = 2
-    .var @_p_a = 6
-    .var @_p_b = 8
-
-    ldax.fp @_p_a
-    stax.fp __vr0
-    ldax.fp @_p_b
-    stax.fp __vr1
-@entry:
-    .loc "/tmp/test_bsearch_debug.c", 6
-    ldax.fp __vr0
-    sta __zp_scratch
-    stx __zp_scratch+1
-    ldy #0
-    lda (__zp_scratch),y
-    pha
-    iny
-    lda (__zp_scratch),y
-    tax
-    pla
-    sta $20
-    stx $21
-    ldax.fp __vr1
-    sta __zp_scratch
-    stx __zp_scratch+1
-    ldy #0
-    lda (__zp_scratch),y
-    pha
-    iny
-    lda (__zp_scratch),y
-    tax
-    pla
-    sta $22
-    stx $23
-    lda $20
-    sec
-    sbc $22
-    sta $24
-    lda $21
-    sbc $22+1
-    sta $25
-    lda $24
-    ldx $25
-@__return:
-    plz
-    plz
-    plz
-    plz
-    .func_flags stack_call, leaf
-    .reg_clobbers A, X, Y
-    .flag_clobbers C, N, Z, V
-    endproc
-
-; function _main
-    proc _main
-    .var _fp = 0
-    .loc "/tmp/stddef.h", 4
-; frame: 20 bytes (frame-allocated vRegs only)
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    tsx
-    txa
-    clc
-    adc #1
-    sta $FD
-    lda #$01
-    adc #0
-    sta $FE
-    .local __vr4 = 0
-    .local __vr16 = 10
-    .local __vr19 = 12
-    .local __vr20 = 14
-    .local __vr21 = 16
-    .local __vr22 = 18
+    .local __vr8 = 3
 
 @entry:
-    .loc "/tmp/test_bsearch_debug.c", 10
-    lda #17
-    sta $20
-    lda _test
-    ldx _test+1
-    sta $22
-    stx $23
-    lda #0
-    sta $24
-    sta $25
-    lda $20
-    ldx #0
-    pha
-    .noopt_start
-    addr_elem.16 __zp_scratch, $22, $24, #1
-    ldy #0
-    .noopt_end
-    pla
-    sta (__zp_scratch),y
-    .loc "/tmp/test_bsearch_debug.c", 11
+    .loc "src/test-resources/test_array_init.c", 20
     leax.fp 0
     sta $20
     stx $21
-    lda #10
+    lda #170
     ldx #0
+    sta $22
+    stx $23
+    lda $22
+    ldx $23
+    pha
+    struct_elem.16 __zp_scratch, $20, #0
+    ldy #0
+    pla
+    sta (__zp_scratch),y
+    lda #187
+    ldx #0
+    sta $22
+    stx $23
+    lda $22
+    ldx $23
+    pha
+    struct_elem.16 __zp_scratch, $20, #1
+    ldy #0
+    pla
+    sta (__zp_scratch),y
+    lda #204
+    ldx #0
+    sta $22
+    stx $23
+    lda $22
+    ldx $23
+    pha
+    struct_elem.16 __zp_scratch, $20, #2
+    ldy #0
+    pla
+    sta (__zp_scratch),y
+    .loc "src/test-resources/test_array_init.c", 21
+    leax.fp 3
+    sta $20
+    stx $21
+    lda #232
+    ldx #3
     sta $22
     stx $23
     lda $22
@@ -172,14 +85,15 @@ _test:
     pha
     phx
     struct_elem.16 __zp_scratch, $20, #0
+    ldy #0
     plx
     pla
     sta (__zp_scratch),y
     txa
     iny
     sta (__zp_scratch),y
-    lda #20
-    ldx #0
+    lda #208
+    ldx #7
     sta $22
     stx $23
     lda $22
@@ -187,214 +101,868 @@ _test:
     pha
     phx
     struct_elem.16 __zp_scratch, $20, #2
+    ldy #0
     plx
     pla
     sta (__zp_scratch),y
     txa
     iny
     sta (__zp_scratch),y
-    lda #30
-    ldx #0
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
-    pha
-    phx
-    struct_elem.16 __zp_scratch, $20, #4
-    plx
-    pla
-    sta (__zp_scratch),y
-    txa
-    iny
-    sta (__zp_scratch),y
-    lda #40
-    ldx #0
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
-    pha
-    phx
-    struct_elem.16 __zp_scratch, $20, #6
-    plx
-    pla
-    sta (__zp_scratch),y
-    txa
-    iny
-    sta (__zp_scratch),y
-    lda #50
-    ldx #0
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
-    pha
-    phx
-    struct_elem.16 __zp_scratch, $20, #8
-    plx
-    pla
-    sta (__zp_scratch),y
-    txa
-    iny
-    sta (__zp_scratch),y
-    .loc "/tmp/test_bsearch_debug.c", 12
-    leax.fp 0
+    .loc "src/test-resources/test_array_init.c", 24
+    lda #0
     sta $20
-    stx $21
-    lda #2
-    ldx #0
-    sta $22
-    stx $23
-    .noopt_start
-    addr_elem.16 .AX, $20, $22, #2
-    .noopt_end
-    stax.fp __vr19
-    leax.fp 0
-    stax.fp __vr20
-    lda #5
-    ldx #0
-    stax.fp __vr21
-    lda #2
-    ldx #0
-    stax.fp __vr22
-    ldax #_cmp
-    sta $28
-    stx $29
-    ldax.fp __vr22
-    sta $2A
-    stx $2B
-    ldax.fp __vr21
-    sta $2C
-    stx $2D
-    ldax.fp __vr20
-    sta $2E
-    stx $2F
-    ldax.fp __vr19
-    sta $30
-    stx $31
-    lda $28
-    ldx $29
-    push .ax
-    .var _fp = _fp + 2
-    lda $2A
-    ldx $2B
-    push .ax
-    .var _fp = _fp + 2
-    lda $2C
-    ldx $2D
-    push .ax
-    .var _fp = _fp + 2
-    lda $2E
-    ldx $2F
-    push .ax
-    .var _fp = _fp + 2
-    lda $30
-    ldx $31
-    push .ax
-    .var _fp = _fp + 2
-    jsr _bsearch
-    phx
-    pha
-    tsx
-    txa
-    clc
-    adc #1
-    sta $FD
-    lda #$01
-    adc #0
-    sta $FE
-    pla
-    plx
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    .var _fp = _fp - 10
-    sta $20
-    stx $21
+    sta $21
+    ldax #_bytes
+    ; base→$1F
+    sta $1F
+    stx $1F+1
     lda $20
     ldx $21
-    stax.fp __vr16
-    .loc "/tmp/test_bsearch_debug.c", 13
-    lda #170
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    ldx #0
+    sta $24
+    lda _result
+    ldx _result+1
     sta $20
-    lda _test
-    ldx _test+1
+    stx $21
+    lda #0
     sta $22
-    stx $23
+    sta $23
+    lda $24
+    ldx #0
+    pha
+    lda $20
+    ldx $21
+    sta $1F
+    stx $1F+1
+    lda $22
+    ldx $23
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    pla
+    sta (__zp_scratch),y
+    .loc "src/test-resources/test_array_init.c", 25
+    lda #3
+    ldx #0
+    sta $20
+    stx $21
+    ldax #_bytes
+    ; base→$1F
+    sta $1F
+    stx $1F+1
+    lda $20
+    ldx $21
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    ldx #0
+    sta $24
+    lda _result
+    ldx _result+1
+    sta $20
+    stx $21
     lda #1
     ldx #0
-    sta $24
-    stx $25
-    lda $20
-    ldx #0
-    pha
-    .noopt_start
-    addr_elem.16 __zp_scratch, $22, $24, #1
-    ldy #0
-    .noopt_end
-    pla
-    sta (__zp_scratch),y
-    .loc "/tmp/test_bsearch_debug.c", 14
-    ldax.fp __vr16
-    bne @if_then0
-    cmp #$00
-    bne @if_then0
-    bra @if_else1
-@if_then0:
-    .loc "/tmp/test_bsearch_debug.c", 15
-    lda #85
-    sta $20
-    lda _test
-    ldx _test+1
     sta $22
     stx $23
-    lda #2
-    ldx #0
-    sta $24
-    stx $25
-    lda $20
+    lda $24
     ldx #0
     pha
-    .noopt_start
-    addr_elem.16 __zp_scratch, $22, $24, #1
-    ldy #0
-    .noopt_end
-    pla
-    sta (__zp_scratch),y
-    bra @if_end2
-@if_else1:
-    .loc "/tmp/test_bsearch_debug.c", 17
-    lda #153
-    sta $20
-    lda _test
-    ldx _test+1
-    sta $22
-    stx $23
-    lda #2
-    ldx #0
-    sta $24
-    stx $25
     lda $20
-    ldx #0
+    ldx $21
+    sta $1F
+    stx $1F+1
+    lda $22
+    ldx $23
+    clc
+    adc $1F
     pha
-    .noopt_start
-    addr_elem.16 __zp_scratch, $22, $24, #1
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
     ldy #0
-    .noopt_end
     pla
     sta (__zp_scratch),y
-@if_end2:
-    .loc "/tmp/test_bsearch_debug.c", 19
+    .loc "src/test-resources/test_array_init.c", 28
     lda #0
+    sta $20
+    sta $21
+    ldax #_words
+    ; base→$1F
+    sta $1F
+    stx $1F+1
+    lda $20
+    ldx $21
+    mul.16 .AX, #2
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    pha
+    iny
+    lda (__zp_scratch),y
+    tax
+    pla
+    sta $24
+    stx $25
+    lda $24
+    ldx $25
+    sta $20
+    lda _result
+    ldx _result+1
+    sta $22
+    stx $23
+    lda #2
     ldx #0
+    sta $24
+    stx $25
+    lda $20
+    ldx #0
+    pha
+    lda $22
+    ldx $23
+    sta $1F
+    stx $1F+1
+    lda $24
+    ldx $25
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    pla
+    sta (__zp_scratch),y
+    .loc "src/test-resources/test_array_init.c", 29
+    lda #2
+    ldx #0
+    sta $20
+    stx $21
+    ldax #_words
+    ; base→$1F
+    sta $1F
+    stx $1F+1
+    lda $20
+    ldx $21
+    mul.16 .AX, #2
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    pha
+    iny
+    lda (__zp_scratch),y
+    tax
+    pla
+    sta $24
+    stx $25
+    lda $24
+    ldx $25
+    sta $20
+    lda _result
+    ldx _result+1
+    sta $22
+    stx $23
+    lda #3
+    ldx #0
+    sta $24
+    stx $25
+    lda $20
+    ldx #0
+    pha
+    lda $22
+    ldx $23
+    sta $1F
+    stx $1F+1
+    lda $24
+    ldx $25
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    pla
+    sta (__zp_scratch),y
+    .loc "src/test-resources/test_array_init.c", 32
+    lda #0
+    sta $20
+    sta $21
+    ldax #_partial
+    ; base→$1F
+    sta $1F
+    stx $1F+1
+    lda $20
+    ldx $21
+    mul.16 .AX, #2
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    pha
+    iny
+    lda (__zp_scratch),y
+    tax
+    pla
+    sta $24
+    stx $25
+    lda $24
+    ldx $25
+    sta $20
+    lda _result
+    ldx _result+1
+    sta $22
+    stx $23
+    lda #4
+    ldx #0
+    sta $24
+    stx $25
+    lda $20
+    ldx #0
+    pha
+    lda $22
+    ldx $23
+    sta $1F
+    stx $1F+1
+    lda $24
+    ldx $25
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    pla
+    sta (__zp_scratch),y
+    .loc "src/test-resources/test_array_init.c", 33
+    lda #1
+    ldx #0
+    sta $20
+    stx $21
+    ldax #_partial
+    ; base→$1F
+    sta $1F
+    stx $1F+1
+    lda $20
+    ldx $21
+    mul.16 .AX, #2
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    pha
+    iny
+    lda (__zp_scratch),y
+    tax
+    pla
+    sta $24
+    stx $25
+    lda $24
+    ldx $25
+    sta $20
+    lda _result
+    ldx _result+1
+    sta $22
+    stx $23
+    lda #5
+    ldx #0
+    sta $24
+    stx $25
+    lda $20
+    ldx #0
+    pha
+    lda $22
+    ldx $23
+    sta $1F
+    stx $1F+1
+    lda $24
+    ldx $25
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    pla
+    sta (__zp_scratch),y
+    .loc "src/test-resources/test_array_init.c", 36
+    lda #2
+    ldx #0
+    sta $20
+    stx $21
+    ldax #_partial
+    ; base→$1F
+    sta $1F
+    stx $1F+1
+    lda $20
+    ldx $21
+    mul.16 .AX, #2
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    pha
+    iny
+    lda (__zp_scratch),y
+    tax
+    pla
+    sta $24
+    stx $25
+    lda $24
+    ldx $25
+    sta $20
+    lda _result
+    ldx _result+1
+    sta $22
+    stx $23
+    lda #6
+    ldx #0
+    sta $24
+    stx $25
+    lda $20
+    ldx #0
+    pha
+    lda $22
+    ldx $23
+    sta $1F
+    stx $1F+1
+    lda $24
+    ldx $25
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    pla
+    sta (__zp_scratch),y
+    .loc "src/test-resources/test_array_init.c", 37
+    lda #4
+    ldx #0
+    sta $20
+    stx $21
+    ldax #_partial
+    ; base→$1F
+    sta $1F
+    stx $1F+1
+    lda $20
+    ldx $21
+    mul.16 .AX, #2
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    pha
+    iny
+    lda (__zp_scratch),y
+    tax
+    pla
+    sta $24
+    stx $25
+    lda $24
+    ldx $25
+    sta $20
+    lda _result
+    ldx _result+1
+    sta $22
+    stx $23
+    lda #7
+    ldx #0
+    sta $24
+    stx $25
+    lda $20
+    ldx #0
+    pha
+    lda $22
+    ldx $23
+    sta $1F
+    stx $1F+1
+    lda $24
+    ldx $25
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    pla
+    sta (__zp_scratch),y
+    .loc "src/test-resources/test_array_init.c", 40
+    lda #0
+    sta $20
+    sta $21
+    ldax #_zeros
+    ; base→$1F
+    sta $1F
+    stx $1F+1
+    lda $20
+    ldx $21
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    ldx #0
+    sta $24
+    lda _result
+    ldx _result+1
+    sta $20
+    stx $21
+    lda #8
+    ldx #0
+    sta $22
+    stx $23
+    lda $24
+    ldx #0
+    pha
+    lda $20
+    ldx $21
+    sta $1F
+    stx $1F+1
+    lda $22
+    ldx $23
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    pla
+    sta (__zp_scratch),y
+    .loc "src/test-resources/test_array_init.c", 41
+    lda #2
+    ldx #0
+    sta $20
+    stx $21
+    ldax #_zeros
+    ; base→$1F
+    sta $1F
+    stx $1F+1
+    lda $20
+    ldx $21
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    ldx #0
+    sta $24
+    lda _result
+    ldx _result+1
+    sta $20
+    stx $21
+    lda #9
+    ldx #0
+    sta $22
+    stx $23
+    lda $24
+    ldx #0
+    pha
+    lda $20
+    ldx $21
+    sta $1F
+    stx $1F+1
+    lda $22
+    ldx $23
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    pla
+    sta (__zp_scratch),y
+    .loc "src/test-resources/test_array_init.c", 44
+    leax.fp 0
+    sta $20
+    stx $21
+    lda #0
+    sta $22
+    sta $23
+    lda $20
+    ldx $21
+    ; base→$1F
+    sta $1F
+    stx $1F+1
+    lda $22
+    ldx $23
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    ldx #0
+    sta $26
+    lda _result
+    ldx _result+1
+    sta $20
+    stx $21
+    lda #10
+    ldx #0
+    sta $22
+    stx $23
+    lda $26
+    ldx #0
+    pha
+    lda $20
+    ldx $21
+    sta $1F
+    stx $1F+1
+    lda $22
+    ldx $23
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    pla
+    sta (__zp_scratch),y
+    .loc "src/test-resources/test_array_init.c", 45
+    leax.fp 0
+    sta $20
+    stx $21
+    lda #2
+    ldx #0
+    sta $22
+    stx $23
+    lda $20
+    ldx $21
+    ; base→$1F
+    sta $1F
+    stx $1F+1
+    lda $22
+    ldx $23
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    ldx #0
+    sta $26
+    lda _result
+    ldx _result+1
+    sta $20
+    stx $21
+    lda #11
+    ldx #0
+    sta $22
+    stx $23
+    lda $26
+    ldx #0
+    pha
+    lda $20
+    ldx $21
+    sta $1F
+    stx $1F+1
+    lda $22
+    ldx $23
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    pla
+    sta (__zp_scratch),y
+    .loc "src/test-resources/test_array_init.c", 48
+    leax.fp 3
+    sta $20
+    stx $21
+    lda #0
+    sta $22
+    sta $23
+    lda $20
+    ldx $21
+    ; base→$1F
+    sta $1F
+    stx $1F+1
+    lda $22
+    ldx $23
+    mul.16 .AX, #2
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    pha
+    iny
+    lda (__zp_scratch),y
+    tax
+    pla
+    sta $26
+    stx $27
+    lda $26
+    ldx $27
+    sta $20
+    lda _result
+    ldx _result+1
+    sta $22
+    stx $23
+    lda #12
+    ldx #0
+    sta $24
+    stx $25
+    lda $20
+    ldx #0
+    pha
+    lda $22
+    ldx $23
+    sta $1F
+    stx $1F+1
+    lda $24
+    ldx $25
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    pla
+    sta (__zp_scratch),y
+    .loc "src/test-resources/test_array_init.c", 49
+    leax.fp 3
+    sta $20
+    stx $21
+    lda #1
+    ldx #0
+    sta $22
+    stx $23
+    lda $20
+    ldx $21
+    ; base→$1F
+    sta $1F
+    stx $1F+1
+    lda $22
+    ldx $23
+    mul.16 .AX, #2
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    pha
+    iny
+    lda (__zp_scratch),y
+    tax
+    pla
+    sta $26
+    stx $27
+    lda $26
+    ldx $27
+    sta $20
+    lda _result
+    ldx _result+1
+    sta $22
+    stx $23
+    lda #13
+    ldx #0
+    sta $24
+    stx $25
+    lda $20
+    ldx #0
+    pha
+    lda $22
+    ldx $23
+    sta $1F
+    stx $1F+1
+    lda $24
+    ldx $25
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    pla
+    sta (__zp_scratch),y
+    .loc "src/test-resources/test_array_init.c", 52
+    lda #255
+    sta $20
+    lda _result
+    ldx _result+1
+    sta $22
+    stx $23
+    lda #14
+    ldx #0
+    sta $24
+    stx $25
+    lda $20
+    ldx #0
+    pha
+    lda $22
+    ldx $23
+    sta $1F
+    stx $1F+1
+    lda $24
+    ldx $25
+    clc
+    adc $1F
+    pha
+    txa
+    adc $1F+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    pla
+    sta (__zp_scratch),y
 @__return:
     plz
     plz
@@ -403,25 +971,34 @@ _test:
     plz
     plz
     plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    .func_flags stack_call
-    .reg_clobbers A, X, Y, Z
-    .flag_clobbers C, N, Z, V
+    .func_flags stack_call, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
     endproc
 
+_result:
+    .word 16384
+_bytes:
+    .byte 16
+    .byte 32
+    .byte 48
+    .byte 64
+_words:
+    .word 100
+    .word 200
+    .word 300
+_partial:
+    .word 11
+    .word 22
+    .byte 0
+    .byte 0
+    .byte 0
+    .byte 0
+    .byte 0
+    .byte 0
+_zeros:
+    .byte 0
+    .byte 0
+    .byte 0
 
-__zp_save_buf:
-    .res 248
-    .global _main
+

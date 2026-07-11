@@ -84,6 +84,26 @@ void IRCodeGen::emitBlank() {
     out_ << "\n";
 }
 
+void IRCodeGen::emitStackCleanup(int frameSize) {
+    if (frameSize <= 0) return;
+    if (frameSize == 1) {
+        emit("pla");
+    } else if (frameSize == 2) {
+        emit("pla");
+        emit("pla");
+    } else if (frameSize <= 4) {
+        for (int i = 0; i < frameSize; i++) emit("pla");
+    } else {
+        // For larger frames, use stack pointer adjustment to avoid clobbering A
+        emit("tsx");
+        emit("txa");
+        emit("clc");
+        emit("adc #" + std::to_string(frameSize));
+        emit("tax");
+        emit("txs");
+    }
+}
+
 // ============================================================================
 // Frame management
 // ============================================================================
@@ -1380,18 +1400,19 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             // I32: return value in A/X/Y/Z — Z carries byte 3, save it
             std::string restoreLabel = "@__restore_epilogue_z_" + std::to_string(labelCounter_++);
             emit("stz " + restoreLabel + "+1");
-            for (int i = 0; i < localFrameSize; i++) emit("plz");
+            // Clean up local frame by adjusting stack pointer
+            emitStackCleanup(localFrameSize);
             emitLabel(restoreLabel);
             emit("ldz #0");
         } else {
-            // VOID/I8/I16: PLZ doesn't clobber A, X, or Y
-            for (int i = 0; i < localFrameSize; i++) emit("plz");
+            // VOID/I8/I16: clean up local frame without clobbering A, X, or Y
+            emitStackCleanup(localFrameSize);
         }
     }
 
     // __interrupt: restore registers and return with RTI
     if (fn.isInterrupt) {
-        emit("plz"); emit("ply"); emit("plx"); emit("pla");
+        emit("pla"); emit("plx"); emit("ply");
         emit("rti");
     }
 
@@ -3414,7 +3435,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     emit("plx");  // Pop X (high byte)
                 }
 
-                // Caller-side stack cleanup: pop argBytes with PLZ instructions
+                // Caller-side stack cleanup: pop argBytes with valid instructions
                 // (RTS #N opcode $62 is unreliable on some hardware)
                 if (argBytes > 0) {
                     bool saveZ = (inst.op != ir::Op::CALL_VOID && inst.resultType == ir::Type::I32);
@@ -3423,9 +3444,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         restoreLabel = "@__restore_caller_z_" + std::to_string(labelCounter_++);
                         emit("stz " + restoreLabel + "+1");
                     }
-                    for (int i = 0; i < argBytes; i++) {
-                        emit("plz");
-                    }
+                    emitStackCleanup(argBytes);
                     if (saveZ) {
                         emitLabel(restoreLabel);
                         emit("ldz #0");
@@ -3637,7 +3656,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 else if (reg == "Z") emit("taz");
                 else if (reg == "AX") ;
                 else if (reg == "AY") { emit("phx"); emit("ply"); }
-                else if (reg == "AZ") { emit("phx"); emit("plz"); }
+                else if (reg == "AZ") { emit("phx"); emit("pla"); }
                 else if (reg == "XY") { emit("tax"); emit("phx"); emit("ply"); emit("plx"); }
                 else if (reg == "SP") { emit("phx"); emit("ply"); emit("tys"); }
             }

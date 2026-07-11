@@ -34,6 +34,7 @@ private:
     void emitLabel(const std::string& label);
     void emitComment(const std::string& text);
     void emitBlank();
+    void emitStackCleanup(int frameSize);
 
     // Codegen reasoning trace (enabled by -Rcodegen)
     bool emitReasons_ = false;
