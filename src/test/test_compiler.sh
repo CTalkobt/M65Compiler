@@ -108,48 +108,34 @@ for f in "${TEST_FILES[@]}"; do
     fi
     
     filename=$(basename "$f")
-    s_file="build/test/${filename%.c}.s"
-    bin_file="build/test/${filename%.c}.bin"
-    
+    prg_file="build/test/${filename%.c}.prg"
+
     echo "Testing $f..."
-    
-    # 1. Compile
-    $CC -v "$f" -o "$s_file"
+
+    # Unified pipeline: Compile C → Assembly → Assemble → Link → PRG
+    # (No intermediate files unless --save-temps is used)
+    $CC -v "$f" -o "$prg_file"
     if [ $? -ne 0 ]; then
-        echo "FAIL: Compilation failed for $f"
+        echo "FAIL: Compilation/linking failed for $f"
         failed=$((failed + 1))
         continue
     fi
-    
-    # 2. Assemble
-    $AS "$s_file" -o "$bin_file"
-    if [ $? -ne 0 ]; then
-        echo "FAIL: Assembly failed for $f"
-        failed=$((failed + 1))
-        continue
-    fi
-    
+
     echo "SUCCESS: $f"
 done
 
 # --- Test -I flag with space-separated path ---
 echo "Testing -I flag (space-separated)..."
-$CC -v -I lib/include src/test-resources/test_include_flag.c -o build/test/test_include_flag.s
+$CC -v -I lib/include src/test-resources/test_include_flag.c -o build/test/test_include_flag.prg
 if [ $? -ne 0 ]; then
     echo "FAIL: -I lib/include (space) failed"
     failed=$((failed + 1))
 else
-    $AS build/test/test_include_flag.s -o build/test/test_include_flag.bin
-    if [ $? -ne 0 ]; then
-        echo "FAIL: Assembly failed for test_include_flag.s (-I space)"
-        failed=$((failed + 1))
-    else
-        echo "SUCCESS: -I flag (space-separated)"
-    fi
+    echo "SUCCESS: -I flag (space-separated)"
 fi
 
 echo "Testing -I flag (no space)..."
-$CC -v -Ilib/include src/test-resources/test_include_flag.c -o build/test/test_include_flag_nospace.s
+$CC -v -Ilib/include src/test-resources/test_include_flag.c -o build/test/test_include_flag_nospace.prg
 if [ $? -ne 0 ]; then
     echo "FAIL: -Ilib/include (no space) failed"
     failed=$((failed + 1))
