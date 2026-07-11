@@ -84,6 +84,9 @@ void AssemblerSimulatedOps::emitMulCode(AssemblerParser* parser, M65Emitter& e, 
             if (bytes >= 4) storeMath(m65::MULT_ARG2, 3, ".Z");
         } else for (int i = 0; i < bytes; ++i) storeMath(m65::MULT_ARG2, i, srcName);
     }
+    // Wait for hardware multiplier to complete (MULT_RES needs time to be valid)
+    e.bit_addr(m65::MATH_BUSY_STATUS);
+    e.bne(-5);
     if (dest == ".A" || dest == ".AX" || dest == ".AXY" || dest == ".AXYZ" || dest == ".Q") {
         // Read result into registers: load high bytes first into their
         // target registers, then load the low byte into A last
