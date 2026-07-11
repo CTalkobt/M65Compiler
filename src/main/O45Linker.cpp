@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <iomanip>
 #include <sstream>
+#include <cstring>
 
 // =============================================================================
 // O45RelocDecoder — inverse of O45RelocEncoder
@@ -574,9 +575,12 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
         bool shouldLogPatch = false;
         if (r.segment == SEG_DATA) {
             shouldLogPatch = true;
-        }
-        if (shouldLogPatch) {
-            std::cerr << "  Bytes AFTER patch: 0x" << std::hex;
+            std::cerr << "DEBUG [DATA Patch]: at 0x" << std::hex << patchPos << " type=" << (int)r.type << " targetAddr=0x" << targetAddr << std::dec << "\n";
+            std::cerr << "  Bytes BEFORE patch: 0x" << std::hex;
+            for (int i = 0; i < patchSize && (patchPos + i) < body.size(); i++) {
+                std::cerr << std::setw(2) << std::setfill('0') << (int)body[patchPos + i] << " ";
+            }
+            std::cerr << std::dec << std::endl;
         }
 
         switch (r.type) {
