@@ -405,11 +405,6 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) allArgs.push_back(std::string(argv[i]));
 
     // Now parse all arguments (config + CLI)
-    int argc_merged = allArgs.size() + 1;
-    std::vector<const char*> argv_merged;
-    argv_merged.push_back(argv[0]);
-    for (const auto& arg : allArgs) argv_merged.push_back(arg.c_str());
-
     std::string input_file;
     bool preprocessOnly = (programName == "cp45");
     std::string output_file = "";
@@ -464,8 +459,8 @@ int main(int argc, char** argv) {
         includePaths.push_back(baseDir + "../lib/include");
     }
 
-    for (int i = 1; i < argc_merged; ++i) {
-        std::string arg = argv_merged[i];
+    for (size_t i = 0; i < allArgs.size(); ++i) {
+        std::string arg = allArgs[i];
         if (arg == "-V" || arg == "--version") {
             std::cout << suiteVersionString("cc45") << std::endl;
             return 0;
@@ -502,11 +497,11 @@ int main(int argc, char** argv) {
             preprocessOnly = true;
         } else if (arg == "--save-temps") {
             saveTemps = true;
-        } else if (arg == "-o" && i + 1 < argc) {
-            output_file = argv[++i];
+        } else if (arg == "-o" && i + 1 < allArgs.size()) {
+            output_file = allArgs[++i];
             outputFileSet = true;
-        } else if (arg == "-l" && i + 1 < argc) {
-            listingLevel = std::stoi(argv[++i]);
+        } else if (arg == "-l" && i + 1 < allArgs.size()) {
+            listingLevel = std::stoi(allArgs[++i]);
         } else if (arg == "-fzpcall") {
             zpCallMode = true;
         } else if (arg == "-fno-zpcall") {
@@ -517,8 +512,8 @@ int main(int argc, char** argv) {
             inlineFunctions = false;
         } else if (arg.rfind("-fset-bp=", 0) == 0) {
             cliPragmas.push_back("cc45 set_bp " + arg.substr(9));
-        } else if (arg == "--pragma" && i + 1 < argc) {
-            cliPragmas.push_back(argv[++i]);
+        } else if (arg == "--pragma" && i + 1 < allArgs.size()) {
+            cliPragmas.push_back(allArgs[++i]);
         } else if (arg == "--emit-ir") {
             emitIR = true;
         } else if (arg == "-Rcodegen") {
@@ -560,8 +555,8 @@ int main(int argc, char** argv) {
             verboseLevel = 2;
         } else if (arg == "-v") {
             verboseLevel = 1;
-        } else if (arg == "-I" && i + 1 < argc) {
-            includePaths.push_back(argv[++i]);
+        } else if (arg == "-I" && i + 1 < allArgs.size()) {
+            includePaths.push_back(allArgs[++i]);
         } else if (arg.substr(0, 2) == "-I") {
             includePaths.push_back(arg.substr(2));
         } else if (arg.substr(0, 2) == "-D") {
@@ -895,8 +890,8 @@ int main(int argc, char** argv) {
     if (!optimize) {
         optLevelFlag = " -O0";  // No optimization if -O0 was passed to cc45
     }
-    for (int ai = 1; ai < argc_merged; ai++) {
-        std::string arg = argv_merged[ai];
+    for (size_t ai = 0; ai < allArgs.size(); ai++) {
+        std::string arg = allArgs[ai];
         if (arg == "-Roptimizer") rOptFlag = " -Roptimizer";
         if (arg == "-Rmachstate") rMachFlag = " -Rmachstate";
         if (arg.substr(0, 2) == "-P") pFlags += " " + arg;  // Collect all -P flags
