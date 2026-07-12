@@ -2442,16 +2442,19 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 break;
             }
             if (inst.src1.kind == ir::OperandKind::GLOBAL) {
-                // Load global value (which is typically an address that needs relocation)
-                // Use immediate-mode addressing so the linker can patch the address
+                // Load global value using absolute addressing.
+                // The DATA segment gets linked at a runtime address, so we use
+                // absolute mode (ldax _res loads the VALUE stored at _res in memory).
+                // Unlike immediate mode (ldax #_res which loads the address of _res),
+                // this correctly dereferences the global variable.
                 if (inst.resultType == ir::Type::I32) {
-                    emit("ldax #" + inst.src1.name);  // Low 16 bits
+                    emit("ldax " + inst.src1.name);   // Load low 16 bits from global
                     emit("ldy " + inst.src1.name + "+2");
                     emit("ldz " + inst.src1.name + "+3");
                 } else if (inst.resultType != ir::Type::I8) {
-                    emit("ldax #" + inst.src1.name);  // Load A:X with immediate address
+                    emit("ldax " + inst.src1.name);   // Load A:X from global data
                 } else {
-                    emit("lda #" + inst.src1.name);   // 8-bit: load only A
+                    emit("lda " + inst.src1.name);    // 8-bit: load only A from global
                     emit("ldx #0");
                 }
             } else if (inst.src1.kind != ir::OperandKind::NONE) {
