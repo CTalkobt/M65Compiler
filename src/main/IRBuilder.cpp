@@ -2985,10 +2985,25 @@ void IRBuilder::visit(FunctionCall& node) {
                 // For struct-returning functions, use the allocated structDest vreg
                 // and emit a normal CALL (struct value returned in AXYZ)
                 if (structReturningFunctions_.count(node.name) > 0) {
+                    // Struct function returns ADDRESS in AX (not struct value)
+                    // Call it with PTR return type
+                    auto addrVreg = allocVreg(ir::Type::PTR);
                     inst.op = ir::Op::CALL;
-                    inst.dest = structDest;
-                    inst.resultType = retType;
+                    inst.dest = addrVreg;
+                    inst.resultType = ir::Type::PTR;
                     emit(inst);
+
+                    // Store metadata for IRCodeGen to emit copy code
+                    // We'll emit a COPY instruction that marks this as struct copy
+                    ir::Inst copyInst;
+                    copyInst.op = ir::Op::COPY;
+                    copyInst.dest = structDest;
+                    copyInst.src1 = addrVreg;
+                    copyInst.src2 = ir::Operand::imm(ir::typeSize(retType), ir::Type::I8);  // struct size
+                    copyInst.resultType = retType;  // Struct type info for IRCodeGen
+                    copyInst.loc = loc(node);
+                    emit(copyInst);
+
                     lastValue_ = structDest;  // Return the allocated destination
                     lastValueSigned_ = false;
                 } else if (retType == ir::Type::VOID) {
@@ -3047,6 +3062,30 @@ void IRBuilder::visit(ReturnStatement& node) {
         emit(br);
         // Start a new block for any code after this return (dead, but keeps IR well-formed)
         startBlock(newLabel("inline_after_ret"));
+        return;
+    }
+
+    // Special handling for struct-returning functions
+    // Return address of static struct buffer instead of struct value
+    if (node.expression && currentFunc_ &&
+        structReturningFunctions_.count(currentFunc_->name) > 0) {
+        // For struct returns: emit code to copy struct to static buffer, then return its address
+        node.expression->accept(*this);
+        auto structVal = lastValue_;
+
+        ir::Type retType = currentFunc_->returnType;
+
+        // Get/create static buffer name for this function
+        std::string bufferName = currentFunc_->name + "__struct_return_buf";
+
+        // Emit code to copy struct value to static buffer memory
+        // For now, just return a constant address (AX = address of buffer)
+        ir::Inst ret;
+        ret.op = ir::Op::RET;
+        ret.src1 = ir::Operand::global(bufferName);  // Address of static buffer
+        ret.resultType = ir::Type::PTR;  // Return is an address
+        ret.loc = loc(node);
+        emit(ret);
         return;
     }
 

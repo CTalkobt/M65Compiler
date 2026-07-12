@@ -3080,7 +3080,59 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             break;
         }
 
-        case ir::Op::COPY:
+        case ir::Op::COPY: {
+            // Check for struct copy: src1 is PTR (address returned from struct function),
+            // src2 has struct size, dest is destination vreg
+            if (inst.src1.type == ir::Type::PTR && inst.src2.kind == ir::OperandKind::IMM &&
+                inst.resultType == ir::Type::I32 && inst.dest.isVreg()) {
+                // Struct copy: copy bytes from (AX) to destination frame location
+                // AX contains address returned by struct function
+                // Copy bytes: load from (AX+i), store to dest+i
+                loadOperand(inst.src1);  // Load address into AX
+                emit("sta $20");         // Save address to ZP
+                emit("stx $21");
+
+                // Get destination vreg frame location
+                auto destAlloc = alloc_.getAlloc(inst.dest.vregId);
+                std::string destPtr;
+                if (destAlloc.loc == VRegAllocator::IN_ZP) {
+                    destPtr = "$" + hex8((uint8_t)destAlloc.offset);
+                } else {
+                    // Load frame pointer for destination
+                    emit("tsx");
+                    emit("txa");
+                    emit("clc");
+                    emit("adc #" + std::to_string(destAlloc.offset));
+                    emit("sta $22");
+                    emit("lda #$00");
+                    emit("adc #$00");
+                    emit("sta $23");
+                    destPtr = "$22";  // Will use $22/$23 as dest pointer
+                }
+
+                // Copy 4 bytes from (address) to (dest)
+                for (int i = 0; i < 4; i++) {
+                    if (destAlloc.loc == VRegAllocator::IN_ZP) {
+                        // Direct copy to ZP
+                        emit("ldy #" + std::to_string(i));
+                        emit("lda ($20),y");
+                        emit("sta " + destPtr + "+" + std::to_string(i));
+                    } else {
+                        // Copy via indirect addressing
+                        emit("ldy #" + std::to_string(i));
+                        emit("lda ($20),y");
+                        emit("ldy #" + std::to_string(i));
+                        emit("sta (" + destPtr + "),y");
+                    }
+                }
+            } else {
+                // Regular copy
+                loadOperand(inst.src1);
+                if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+            }
+            break;
+        }
+
         case ir::Op::DEREF: {
             loadOperand(inst.src1);
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
