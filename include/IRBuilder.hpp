@@ -186,6 +186,8 @@ private:
     std::map<std::string, std::vector<bool>> functionParamSigned_;
     std::set<std::string> variadicFunctions_;
     std::set<std::string> regparmFunctions_;
+    std::set<std::string> structReturningFunctions_;  // Functions that return struct by value
+    ir::Operand structReturnPtr_;  // Hidden return pointer parameter for current function (-1 if none)
 
     // Inline function support: store AST nodes for inline-eligible functions
     std::map<std::string, FunctionDeclaration*> inlineCandidates_;

@@ -680,6 +680,18 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         std::vector<ParamInfo> pinfo;
         std::vector<ir::Type> ptypes;
         std::vector<bool> psigned;
+
+        // Detect struct returns: function returns struct by value (not pointer)
+        bool isStructReturn = node.returnPointerLevel == 0 && node.returnType.rfind("struct ", 0) == 0 &&
+                              getTypeSize(node.returnType, 0) > 2;
+        if (isStructReturn) {
+            structReturningFunctions_.insert(node.name);
+            // Add hidden return pointer as implicit first parameter
+            pinfo.push_back({false, 1});
+            ptypes.push_back(ir::Type::PTR);
+            psigned.push_back(false);
+        }
+
         for (const auto& p : node.parameters) {
             pinfo.push_back({p.isConst, p.pointerLevel});
             ptypes.push_back(mapType(p.type, p.pointerLevel));
@@ -727,6 +739,17 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         if (shouldInline && stmtCount <= INLINE_MAX_STMTS) {
             inlineCandidates_[node.name] = &node;
         }
+    }
+
+    // Detect struct returns for function definition
+    bool isStructReturn = node.returnPointerLevel == 0 && node.returnType.rfind("struct ", 0) == 0 &&
+                          getTypeSize(node.returnType, 0) > 2;
+
+    if (isStructReturn) {
+        // Add hidden return pointer as first parameter
+        fn.paramTypes.push_back(ir::Type::PTR);
+        fn.paramNames.push_back("__ret_ptr");
+        structReturningFunctions_.insert(node.name);
     }
 
     for (const auto& p : node.parameters) {
@@ -796,6 +819,21 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     for (const auto& p : node.parameters) {
         currentFuncParams_.insert(p.name);
     }
+
+    // Set up hidden return pointer if this is a struct-returning function
+    if (isStructReturn) {
+        auto retPtr = allocVreg(ir::Type::PTR);
+        structReturnPtr_ = retPtr;
+        locals_["__ret_ptr"] = retPtr;
+        localDeclLocs_["__ret_ptr"] = loc(node);
+        if (currentFunc_) currentFunc_->localNames["__ret_ptr"] = retPtr.vregId;
+        localTypes_["__ret_ptr"] = ir::Type::PTR;
+        localTypeNames_["__ret_ptr"] = "void*";
+        localSigned_["__ret_ptr"] = false;
+        localConst_["__ret_ptr"] = true;  // read-only parameter
+        currentFunc_->localSlotVregs.insert(retPtr.vregId);
+    }
+
     for (const auto& p : node.parameters) {
         ir::Type pt = mapType(p.type, p.pointerLevel);
         auto vreg = allocVreg(pt);
@@ -2698,6 +2736,24 @@ void IRBuilder::visit(FunctionCall& node) {
 
     // Evaluate arguments
     std::vector<ir::Operand> args;
+
+    // For struct-returning functions, allocate destination and pass address as first argument
+    ir::Operand structDest;
+    if (structReturningFunctions_.count(node.name) > 0) {
+        // Get return type to determine size
+        ir::Type retType = ir::Type::I16;
+        auto it = functionReturnTypes_.find(node.name);
+        if (it != functionReturnTypes_.end()) retType = it->second;
+
+        // Allocate a vreg for the return value storage
+        structDest = allocVreg(retType);
+        args.push_back(structDest);  // Pass address as first argument
+
+        if (currentFunc_) {
+            currentFunc_->memoryVregs.insert(structDest.vregId);
+        }
+    }
+
     for (auto& arg : node.arguments) {
         arg->accept(*this);
         args.push_back(lastValue_);
@@ -2706,7 +2762,7 @@ void IRBuilder::visit(FunctionCall& node) {
     ir::Inst inst;
     inst.args = args;
     inst.loc = loc(node);
-    
+
     // Determine calling convention
     bool isVariadic = variadicFunctions_.count(node.name) > 0;
     inst.callConv = (zpCallMode && !isVariadic) ? ir::CallConv::ZP : ir::CallConv::STACK;
@@ -2942,7 +2998,15 @@ void IRBuilder::visit(FunctionCall& node) {
                     warnings_.push_back("warning: implicit declaration of function '" + node.name + "'");
                 }
 
-                if (retType == ir::Type::VOID) {
+                // Struct-returning functions don't actually return anything; the value is stored
+                // through the hidden pointer parameter. Just emit CALL_VOID.
+                if (structReturningFunctions_.count(node.name) > 0) {
+                    inst.op = ir::Op::CALL_VOID;
+                    inst.resultType = ir::Type::VOID;
+                    emit(inst);
+                    lastValue_ = structDest;  // Return the allocated destination
+                    lastValueSigned_ = false;
+                } else if (retType == ir::Type::VOID) {
                     inst.op = ir::Op::CALL_VOID;
                     inst.resultType = ir::Type::VOID;
                     emit(inst);
@@ -2998,6 +3062,25 @@ void IRBuilder::visit(ReturnStatement& node) {
         emit(br);
         // Start a new block for any code after this return (dead, but keeps IR well-formed)
         startBlock(newLabel("inline_after_ret"));
+        return;
+    }
+
+    // Struct return: for now, just return void. The actual struct copying
+    // will be handled by marking this function as a struct-returning function
+    // and letting IRCodeGen handle the hidden parameter mechanism
+    if (node.expression && structReturnPtr_.vregId != 0xFFFFFFFFU) {
+        node.expression->accept(*this);
+        auto val = lastValue_;
+
+        // Store struct value into the hidden return pointer parameter
+        // This will be expanded by IRCodeGen into proper copy code
+        ir::Inst ret;
+        ret.op = ir::Op::RET_VOID;
+        ret.loc = loc(node);
+        // Mark this return as a struct return by setting src1 to the struct value
+        ret.src1 = val;
+        ret.resultType = currentFunc_->returnType;
+        emit(ret);
         return;
     }
 
