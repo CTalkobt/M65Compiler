@@ -442,15 +442,16 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
         }
         else {
             bool isImm = false; if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) { isImm = true; idx++; }
+            int exprStartIdx = idx;  // Save position BEFORE parsing expression
             auto srcAst = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
             if (!srcAst) return;
             if (isImm) {
                 uint32_t val = srcAst->getValue(parser);
-                // Get the symbol name from the first significant token after the hash
+                // Get the symbol name from the first significant token in the expression
                 std::string symName = "";
-                if (idx < (int)parser->tokens.size()) {
-                    symName = parser->tokens[idx].value;
-                    if (parser->tokens[idx].type == AssemblerTokenType::REGISTER) {
+                if (exprStartIdx < (int)parser->tokens.size()) {
+                    symName = parser->tokens[exprStartIdx].value;
+                    if (parser->tokens[exprStartIdx].type == AssemblerTokenType::REGISTER) {
                         symName = "." + symName; // Prefix registers with dot
                     }
                 }
@@ -513,11 +514,31 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
             }
         } else {
             bool isImm = false; if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) { isImm = true; idx++; }
+            int exprStartIdx = idx;  // Save position BEFORE parsing expression
             auto srcAst = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
             if (!srcAst) return;
             if (isImm) {
                 uint32_t val = srcAst->getValue(parser);
-                e.ldx_imm(val & 0xFF); e.ldy_imm((val >> 8) & 0xFF);
+                // Get the symbol name from the first significant token in the expression
+                std::string symName = "";
+                if (exprStartIdx < (int)parser->tokens.size()) {
+                    symName = parser->tokens[exprStartIdx].value;
+                    if (parser->tokens[exprStartIdx].type == AssemblerTokenType::REGISTER) {
+                        symName = "." + symName;
+                    }
+                }
+
+                // Try to resolve as address symbol for relocation
+                Symbol* relSym = parser->resolveSymbol(symName, scopePrefix);
+                if (!relSym && !scopePrefix.empty()) {
+                    relSym = parser->resolveSymbol(symName, "");
+                }
+                bool needsReloc = relSym && relSym->isAddress;
+
+                if (needsReloc) { e.recordSymbolReloc(symName); }
+                e.ldx_imm(val & 0xFF);
+                if (needsReloc) { e.recordSymbolReloc(symName); }
+                e.ldy_imm((val >> 8) & 0xFF);
             } else {
                 uint32_t addr = 0;
                 try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }

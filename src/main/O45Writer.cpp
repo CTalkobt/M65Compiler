@@ -333,6 +333,12 @@ uint32_t O45SymbolTable::getImportIndex(const std::string& name) const {
     return (uint32_t)-1;
 }
 
+uint32_t O45SymbolTable::getExportIndex(const std::string& name) const {
+    auto it = exportIndex_.find(name);
+    if (it != exportIndex_.end()) return it->second;
+    return (uint32_t)-1;
+}
+
 bool O45SymbolTable::isImported(const std::string& name) const {
     return importIndex_.count(name) > 0;
 }

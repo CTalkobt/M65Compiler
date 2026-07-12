@@ -157,6 +157,9 @@ public:
     // Look up an import index by name. Returns (uint32_t)-1 if not found.
     uint32_t getImportIndex(const std::string& name) const;
 
+    // Look up an export index by name. Returns (uint32_t)-1 if not found.
+    uint32_t getExportIndex(const std::string& name) const;
+
     // Check if a symbol is imported.
     bool isImported(const std::string& name) const;
 
