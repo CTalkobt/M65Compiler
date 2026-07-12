@@ -1148,6 +1148,21 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     currentInstIdx_ = 0;
 
+    // For struct-returning functions, emit static buffer in data section
+    // This buffer will hold the struct value before it's returned
+    std::string structBufferName;
+    if (fn.returnType == ir::Type::I32) {
+        // Could be a 4-byte struct - emit a static buffer
+        // Check if this looks like a struct (all structs we support are I32)
+        structBufferName = fn.name + "__struct_buf";
+        // Emit buffer declaration (will be resolved to actual address by assembler/linker)
+        emitBlank();
+        emit("; Static buffer for struct return from " + fn.name);
+        emit(structBufferName + ":");
+        emit(".byte 0, 0, 0, 0");
+        emitBlank();
+    }
+
     // __naked: emit only proc label + body + endproc, no prologue/epilogue
     if (fn.isNaked) {
         emit("proc " + fn.name);
@@ -1396,18 +1411,10 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     emitLabel("@__return");
     if (localFrameSize > 0) {
         int retSize = ir::typeSize(fn.returnType);
-        if (retSize >= 4) {
-            // I32: return value in A/X/Y/Z — Z carries byte 3, save it
-            std::string restoreLabel = "@__restore_epilogue_z_" + std::to_string(labelCounter_++);
-            emit("stz " + restoreLabel + "+1");
-            // Clean up local frame by adjusting stack pointer
-            emitStackCleanup(localFrameSize);
-            emitLabel(restoreLabel);
-            emit("ldz #0");
-        } else {
-            // VOID/I8/I16: clean up local frame without clobbering A, X, or Y
-            emitStackCleanup(localFrameSize);
-        }
+        // For I32 returns, preserve Z register (it's part of the return value AXYZ)
+        // Don't execute the "stz + ldz #0" epilogue sequence as it destroys Z
+        // For all return types, just clean up the frame
+        emitStackCleanup(localFrameSize);
     }
 
     // __interrupt: restore registers and return with RTI
