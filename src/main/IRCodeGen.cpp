@@ -3096,8 +3096,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 // AX contains address returned by struct function
                 // Copy bytes: load from (AX+i), store to dest+i
                 loadOperand(inst.src1);  // Load address into AX
-                emit("sta $20");         // Save address to ZP
-                emit("stx $21");
+                emit("sta __zp_scratch");         // Save address to ZP (symbolic reference)
+                emit("stx __zp_scratch+1");
 
                 // Get destination vreg frame location
                 auto destAlloc = alloc_.getAlloc(inst.dest.vregId);
@@ -3110,11 +3110,11 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     emit("txa");
                     emit("clc");
                     emit("adc #" + std::to_string(destAlloc.offset));
-                    emit("sta $22");
+                    emit("sta __zp_scratch2");
                     emit("lda #$00");
                     emit("adc #$00");
-                    emit("sta $23");
-                    destPtr = "$22";  // Will use $22/$23 as dest pointer
+                    emit("sta __zp_scratch2+1");
+                    destPtr = "__zp_scratch2";  // Will use __zp_scratch2/__zp_scratch2+1 as dest pointer
                 }
 
                 // Copy 4 bytes from (address) to (dest)
@@ -3122,12 +3122,12 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     if (destAlloc.loc == VRegAllocator::IN_ZP) {
                         // Direct copy to ZP
                         emit("ldy #" + std::to_string(i));
-                        emit("lda ($20),y");
+                        emit("lda (__zp_scratch),y");
                         emit("sta " + destPtr + "+" + std::to_string(i));
                     } else {
                         // Copy via indirect addressing
                         emit("ldy #" + std::to_string(i));
-                        emit("lda ($20),y");
+                        emit("lda (__zp_scratch),y");
                         emit("ldy #" + std::to_string(i));
                         emit("sta (" + destPtr + "),y");
                     }

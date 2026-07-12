@@ -686,10 +686,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
                               getTypeSize(node.returnType, 0) > 2;
         if (isStructReturn) {
             structReturningFunctions_.insert(node.name);
-            // Add hidden return pointer as implicit first parameter
-            pinfo.push_back({false, 1});
-            ptypes.push_back(ir::Type::PTR);
-            psigned.push_back(false);
+            // No hidden return pointer - struct returned in AXYZ, caller copies to destination
         }
 
         for (const auto& p : node.parameters) {
