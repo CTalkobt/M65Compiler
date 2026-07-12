@@ -2442,52 +2442,23 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 break;
             }
             if (inst.src1.kind == ir::OperandKind::GLOBAL) {
-                // Load global variable value.
+                // Load global variable value using absolute addressing.
                 // Global variables are stored in the DATA segment at runtime.
-                // To load a global:
-                // 1. Load ADDRESS of the global using immediate mode with relocation
-                // 2. Dereference it to get the VALUE stored there
-                // This handles pointer variables correctly: if global is a pointer to 0x4000,
-                // we load the address of the global, then dereference to get 0x4000.
+                // The assembler automatically forces absolute addressing for relocatable symbols,
+                // emits the proper 16-bit opcodes, and records relocations for the linker.
                 if (inst.resultType == ir::Type::I32) {
-                    // 32-bit: load 4 bytes from global via indirection
-                    // Use alternate ZP location to avoid conflicts
-                    emit("ldax #" + inst.src1.name);   // Load address of global
-                    emit("sta __zp_scratch4");          // Store address in different ZP
-                    emit("stx __zp_scratch4+1");
-                    emit("ldy #0");
-                    emit("lda (__zp_scratch4),y");      // Load byte 0
-                    emit("sta __zp_scratch");           // Store in __zp_scratch for later use
-                    emit("iny");
-                    emit("lda (__zp_scratch4),y");      // Load byte 1
-                    emit("sta __zp_scratch+1");
-                    emit("iny");
-                    emit("lda (__zp_scratch4),y");      // Load byte 2
-                    emit("tay");                        // Y = byte 2
-                    emit("iny");
-                    emit("lda (__zp_scratch4),y");      // Load byte 3
-                    emit("ldx __zp_scratch+1");         // X = byte 1
-                    emit("lda __zp_scratch");           // A = byte 0
-                    // Z is still byte 3 in A (will be moved to Z reg by caller)
+                    // 32-bit: load 4 bytes from global address
+                    emit("ldax " + inst.src1.name);    // Load bytes 0-1 from global
+                    emit("ldy " + inst.src1.name + "+2");  // Load byte 2
+                    emit("ldz " + inst.src1.name + "+3");  // Load byte 3
                 } else if (inst.resultType != ir::Type::I8) {
-                    // 16-bit: load 2 bytes via Y-indexed indirection
-                    emit("ldax #" + inst.src1.name);   // Load address of global
-                    emit("sta __zp_scratch3");          // Store address in ZP temp
-                    emit("stx __zp_scratch3+1");
-                    emit("ldy #0");
-                    emit("lda (__zp_scratch3),y");      // Dereference: load low byte
-                    emit("pha");                        // Save it temporarily
-                    emit("iny");
-                    emit("ldx (__zp_scratch3),y");      // Load high byte into X
-                    emit("pla");                        // Restore low byte into A
+                    // 16-bit: load 2 bytes from global address
+                    emit("lda " + inst.src1.name);     // Load low byte from global
+                    emit("ldx " + inst.src1.name + "+1");  // Load high byte from global+1
                 } else {
-                    // 8-bit: load 1 byte via Y-indexed indirection
-                    emit("ldax #" + inst.src1.name);   // Load address of global
-                    emit("sta __zp_scratch3");          // Store address in ZP temp
-                    emit("stx __zp_scratch3+1");
-                    emit("ldy #0");
-                    emit("lda (__zp_scratch3),y");      // Dereference: load value
-                    emit("ldx #0");
+                    // 8-bit: load 1 byte from global address
+                    emit("lda " + inst.src1.name);     // Load byte from global
+                    emit("ldx #0");                     // Clear high byte
                 }
             } else if (inst.src1.kind != ir::OperandKind::NONE) {
                 // Check if this is a pointer-to-pointer assignment (function pointer or data pointer)
