@@ -2391,7 +2391,63 @@ void IRBuilder::visit(UnaryOperation& node) {
         inst.loc = loc(node);
         emit(inst);
 
-        // Store back to the variable
+        // Store back to the variable (handle bitfield specially)
+        if (auto* ma = dynamic_cast<MemberAccess*>(node.operand.get())) {
+            // Check if this is a bitfield member
+            int bitWidth = 0, bitOffset = 0, memberOffset = 0;
+            ir::Type memberType = ir::Type::I16;
+            for (const auto& [sname, sinfo] : structs_) {
+                auto mit = sinfo.members.find(ma->memberName);
+                if (mit != sinfo.members.end() && mit->second.bitWidth > 0) {
+                    bitWidth = mit->second.bitWidth;
+                    bitOffset = mit->second.bitOffset;
+                    memberOffset = mit->second.offset;
+                    memberType = mapType(mit->second.type, mit->second.pointerLevel);
+                    break;
+                }
+            }
+
+            if (bitWidth > 0) {
+                // Bitfield store: use BFINS
+                ma->structExpr->accept(*this);
+                auto base = lastValue_;
+                auto addrVreg = allocVreg(ir::Type::PTR);
+                ir::Inst add;
+                add.op = ir::Op::ADD;
+                add.dest = addrVreg;
+                add.resultType = ir::Type::PTR;
+                add.src1 = base;
+                add.src2 = ir::Operand::imm(memberOffset, ir::Type::I16);
+                add.loc = loc(node);
+                emit(add);
+
+                ir::Inst bfins;
+                bfins.op = ir::Op::BFINS;
+                bfins.resultType = memberType;
+                auto bfinsResult = allocVreg(memberType);
+                bfins.dest = bfinsResult;
+                bfins.src1 = dest;  // The incremented value
+                bfins.src2 = addrVreg;
+                bfins.args.push_back(ir::Operand::imm(bitOffset, ir::Type::I8));
+                bfins.args.push_back(ir::Operand::imm(bitWidth, ir::Type::I8));
+                bfins.loc = loc(node);
+                emit(bfins);
+
+                // Store the modified value back
+                ir::Inst store;
+                store.op = ir::Op::STORE;
+                store.src1 = bfinsResult;
+                store.src2 = addrVreg;
+                store.resultType = ir::Type::VOID;
+                store.loc = loc(node);
+                emit(store);
+
+                lastValue_ = isPost ? oldVal : dest;
+                return;
+            }
+        }
+
+        // Regular (non-bitfield) store
         ir::Operand addr;
         if (auto* vr = dynamic_cast<VariableReference*>(node.operand.get())) {
             auto lit = locals_.find(vr->name);
