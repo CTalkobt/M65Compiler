@@ -326,7 +326,9 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
         // Bug #179 fix: Locals (including parameters) MUST go to FRAME, never ZP.
         // They may be accessed by linked functions that expect frame offsets,
         // and reusing ZP across different locals causes address mismatches.
+        // EXCEPTION: Register variables (register keyword) are explicitly marked for ZP
         bool isLocal = localVarVregs.count(lr.vregId) > 0;
+        bool isRegisterVar = registerVregs_.count(lr.vregId) > 0;
 
         if (canUseAX && span <= 1 && !isLocal) {
             // Short-lived, no conflict — keep in A:X (only for non-locals)
@@ -335,14 +337,16 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
             for (int i = lr.firstDef; i <= lr.lastUse && i < (int)axState_.size(); i++) {
                 axState_[i] = (int)lr.vregId;
             }
-        } else if (!crossesCall && !isLocal) {
-            // Try ZP for medium-lived non-local vRegs that don't cross calls
-            // Locals must go to FRAME (see comment above)
+        } else if (!crossesCall && (!isLocal || isRegisterVar)) {
+            // Try ZP for:
+            // - medium-lived non-local vRegs that don't cross calls, OR
+            // - register variables (even if they're locals, register keyword overrides frame allocation)
             int zpAddr = allocZpSlot(lr.type);
             if (zpAddr >= 0) {
                 allocs_[lr.vregId] = {IN_ZP, zpAddr, lr.type};
                 zpAllocMap[lr.vregId] = zpAddr;
             } else {
+                // ZP pool exhausted, fall back to FRAME
                 int foff = allocFrameSlot(lr.type);
                 int fsize = ir::typeSize(lr.type); if (fsize < 2) fsize = 2;
                 allocs_[lr.vregId] = {IN_FRAME, foff, lr.type};

@@ -1068,7 +1068,12 @@ void IRBuilder::visit(VariableDeclaration& node) {
     locals_[node.name] = vreg;
     localRegister_[node.name] = node.isRegister;
     localDeclLocs_[node.name] = loc(node);
-    if (currentFunc_) currentFunc_->localNames[node.name] = vreg.vregId;
+    if (currentFunc_) {
+        currentFunc_->localNames[node.name] = vreg.vregId;
+        if (node.isRegister) {
+            currentFunc_->registerVregs.insert(vreg.vregId);
+        }
+    }
     localTypes_[node.name] = t;
     localTypeNames_[node.name] = node.type;
     localSigned_[node.name] = node.isSigned;

@@ -1004,6 +1004,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // prescanFunction(fn);  // REMOVED
 
     // Run register allocator
+    alloc_.setRegisterVregs(fn.registerVregs);
     alloc_.analyze(fn);
 
     // Copy local slot info from IR function
