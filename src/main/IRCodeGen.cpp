@@ -1250,6 +1250,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         emit("lda #$01");
         emit("adc #0");
         emit("sta $FE");
+        emit("; .frameptr_zp $FD  ; Enable frame pointer mode for .fp addressing");
     }
 
     // Emit .local for frame-allocated vRegs only

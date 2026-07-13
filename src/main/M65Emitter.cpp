@@ -456,9 +456,11 @@ void M65Emitter::lda_stack(uint8_t offset) {
         ldy_imm(offset);
         emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
     } else {
-        // TSX (cached); LDA __sp_base+offset,X
-        tsxCached();
-        lda_stack_noTSX(offset);
+        // Fallback: assume frame pointer at $FD/$FE (cc45 default)
+        // When frame-relative variables are used, cc45 always sets FP at $FD/$FE
+        // Use frame pointer indirect addressing: LDY #offset; LDA ($FD),Y
+        ldy_imm(offset);
+        emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, 0xFD, true);
     }
 }
 
@@ -473,9 +475,9 @@ void M65Emitter::ldx_stack(uint8_t offset) {
         ldy_imm(offset);
         emitInstruction("ldx", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
     } else {
-        tsx();
-        recordSpBaseReloc(offset);
-        emitInstruction("ldx", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
+        // Fallback: assume frame pointer at $FD/$FE (cc45 default)
+        ldy_imm(offset);
+        emitInstruction("ldx", AddressingMode::BASE_PAGE_INDIRECT_Y, 0xFD, true);
     }
     ms_.invalidateReg(REG_X);
 }
@@ -496,9 +498,9 @@ void M65Emitter::ldz_stack(uint8_t offset) {
         ldy_imm(offset);
         emitInstruction("ldz", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
     } else {
-        tsx();
-        recordSpBaseReloc(offset);
-        emitInstruction("ldz", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
+        // Fallback: assume frame pointer at $FD/$FE (cc45 default)
+        ldy_imm(offset);
+        emitInstruction("ldz", AddressingMode::BASE_PAGE_INDIRECT_Y, 0xFD, true);
     }
 }
 void M65Emitter::sta_stack(uint8_t offset) {
@@ -507,9 +509,9 @@ void M65Emitter::sta_stack(uint8_t offset) {
         ldy_imm(offset);
         emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
     } else {
-        tsxCached();
-        recordSpBaseReloc(offset);
-        emitInstruction("sta", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
+        // Fallback: assume frame pointer at $FD/$FE (cc45 default)
+        ldy_imm(offset);
+        emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, 0xFD, true);
     }
 }
 void M65Emitter::stx_stack(uint8_t offset) {
@@ -518,9 +520,9 @@ void M65Emitter::stx_stack(uint8_t offset) {
         ldy_imm(offset);
         emitInstruction("stx", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
     } else {
-        tsx();
-        recordSpBaseReloc(offset);
-        emitInstruction("stx", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
+        // Fallback: assume frame pointer at $FD/$FE (cc45 default)
+        ldy_imm(offset);
+        emitInstruction("stx", AddressingMode::BASE_PAGE_INDIRECT_Y, 0xFD, true);
     }
 }
 void M65Emitter::sty_stack(uint8_t offset) {
@@ -543,12 +545,19 @@ void M65Emitter::sty_stack(uint8_t offset) {
 void M65Emitter::stz_stack(uint8_t offset) {
     ms_.storeStack(offset, REG_Z);
     if (hasFramePointer()) {
+        // STZ doesn't support indirect addressing, so use LDA (scratch) + STA indirect
+        lda_zp(scratchZP_);  // temp save Z to scratch via A (preserves Z)
         ldy_imm(offset);
         emitInstruction("stz", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
+        sta_zp(scratchZP_);  // restore Z from A
     } else {
-        tsx();
-        recordSpBaseReloc(offset);
-        emitInstruction("stz", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
+        // Fallback: assume frame pointer at $FD/$FE (cc45 default)
+        // Since STZ doesn't support indirect addressing, use indirect store via A
+        sta_zp(scratchZP_);  // save A
+        tza();               // A = Z
+        ldy_imm(offset);
+        emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, 0xFD, true);
+        lda_zp(scratchZP_);  // restore A
     }
 }
 void M65Emitter::inc_stack(uint8_t offset) {

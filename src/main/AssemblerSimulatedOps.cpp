@@ -2004,13 +2004,12 @@ void AssemblerSimulatedOps::emitLDAX_FPCode(AssemblerParser* parser, M65Emitter&
         e.lda_stack(totalOff);
         e.ldx_scratch();
     } else {
-        // Single TSX (cached): hi → push → lo → plx. X holds old SP throughout;
-        // pha changes hardware SP but X still valid for stack-relative loads.
-        e.tsxCached();
-        e.lda_stack_noTSX(totalOff + 1);  // A = hi byte
-        e.pha();                           // push hi (SP changes but X unchanged)
-        e.lda_stack_noTSX(totalOff);       // A = lo byte (X still = old SP)
-        e.plx();                           // X = hi byte
+        // Fallback: use frame pointer indirect addressing (cc45 always uses $FD/$FE)
+        // Load hi byte first, save to scratch, then load lo byte
+        e.lda_stack(totalOff + 1);  // A = hi byte (uses frame pointer indirect)
+        e.sta_scratch();             // save hi byte
+        e.lda_stack(totalOff);       // A = lo byte (uses frame pointer indirect)
+        e.ldx_scratch();             // X = hi byte
     }
 }
 
