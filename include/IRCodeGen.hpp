@@ -34,6 +34,11 @@ private:
     void emitComment(const std::string& text);
     void emitBlank();
 
+    // Debug metadata emission
+    std::string formatDebugType(ir::Type type);
+    void emitDebugVariable(const std::string& functionName, const std::string& varName,
+                          int offset, ir::Type type, const std::string& scope);
+
     // Codegen reasoning trace (enabled by -Rcodegen)
     bool emitReasons_ = false;
 

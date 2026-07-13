@@ -84,6 +84,31 @@ void IRCodeGen::emitBlank() {
     out_ << "\n";
 }
 
+std::string IRCodeGen::formatDebugType(ir::Type type) {
+    // Convert IR type to debug metadata type identifier
+    switch (type) {
+        case ir::Type::I8:    return "int8";
+        case ir::Type::I16:   return "int16";
+        case ir::Type::I32:   return "int32";
+        case ir::Type::F32:   return "float32";
+        default:              return "int16";  // default fallback
+    }
+}
+
+void IRCodeGen::emitDebugVariable(const std::string& functionName, const std::string& varName,
+                                  int offset, ir::Type type, const std::string& scope) {
+    int size = ir::typeSize(type);
+    if (size < 2) size = 2;  // minimum 2 bytes for stack alignment
+
+    std::string debugType = formatDebugType(type);
+    std::string metadata = ".debug_var: " + functionName + " " + varName +
+                          " offset=" + std::to_string(offset) +
+                          " size=" + std::to_string(size) +
+                          " type=" + debugType +
+                          " scope=" + scope;
+    emitComment(metadata);
+}
+
 // ============================================================================
 // Frame management
 // ============================================================================
@@ -1186,6 +1211,17 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         }
     }
 
+    // Emit debug metadata for local variables
+    for (const auto& [name, vregId] : fn.localNames) {
+        bool isParam = paramNamesSet.count(name) > 0;
+        if (isParam) continue; // Skip parameters, they're handled separately
+
+        if (vregOffset_.count(vregId)) {
+            ir::Type varType = vregType_.count(vregId) ? vregType_[vregId] : ir::Type::I16;
+            emitDebugVariable("_" + fn.name, "@_l_" + name, vregOffset_[vregId], varType, "local");
+        }
+    }
+
     // Param .var overrides
     bool useStackParams = !zpCallMode_ || fn.isVariadic;
     if (useStackParams) {
@@ -1214,6 +1250,37 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
                 ? fn.paramNames[i] : std::to_string(i);
             emit(".var @_p_" + pName + " = " + hex8(zpOff));
+            zpOff += ps;
+        }
+    }
+
+    // Emit debug metadata for parameters
+    if (useStackParams) {
+        // Stack convention: parameters on stack
+        int pOff = localFrameSize + 2;
+        for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+            int ps = ir::typeSize(fn.paramTypes[i]);
+            if (ps < 2) ps = 2;
+            std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
+                ? fn.paramNames[i] : std::to_string(i);
+            emitDebugVariable("_" + fn.name, "@_p_" + pName, pOff, fn.paramTypes[i], "parameter");
+            pOff += ps;
+        }
+    } else {
+        // ZP call convention: parameters in zero page
+        auto hex8 = [](uint32_t val) {
+            std::stringstream ss;
+            ss << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (val & 0xFF);
+            return ss.str();
+        };
+        int zpOff = (int)zeroPageStart_ + 8;
+        for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+            int ps = ir::typeSize(fn.paramTypes[i]);
+            if (ps < 2) ps = 2;
+            std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
+                ? fn.paramNames[i] : std::to_string(i);
+            // Store ZP address as offset for metadata (0xZZ format gets parsed as offset)
+            emitDebugVariable("_" + fn.name, "@_p_" + pName, zpOff, fn.paramTypes[i], "parameter");
             zpOff += ps;
         }
     }
