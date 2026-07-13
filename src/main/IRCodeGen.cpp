@@ -417,7 +417,7 @@ void IRCodeGen::emitArrayElemAddr(const std::string& baseStr, const ir::Operand&
             // Load base and add constant offset
             if (baseStr[0] == '#') {
                 std::string symName = baseStr.substr(1);
-                emit("ldax " + symName);   // Load address of symbol into A:X
+                emit("ldax #" + symName);  // Load immediate address of symbol into A:X
             } else if (baseStr[0] == '$') {
                 // Load from ZP address
                 emit("lda " + baseStr);
@@ -450,9 +450,9 @@ void IRCodeGen::emitArrayElemAddr(const std::string& baseStr, const ir::Operand&
 
     // Load base address based on its type
     if (baseStr[0] == '#') {
-        // Immediate symbol - use ldax to load address
+        // Immediate symbol - use ldax with # prefix to load address as immediate
         std::string symName = baseStr.substr(1);
-        emit("ldax " + symName);         // Load address of symbol into A:X
+        emit("ldax #" + symName);        // Load immediate address of symbol into A:X
     } else if (baseStr[0] == '$') {
         // ZP address
         emit("lda " + baseStr);          // Load from ZP low byte
