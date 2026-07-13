@@ -2905,7 +2905,15 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 // Use vregOffset_ (consistent with storeVreg/loadVreg frame offsets)
                 auto vit = vregOffset_.find(inst.src1.vregId);
                 if (vit != vregOffset_.end()) {
-                    emit("leax.fp " + std::to_string(vit->second));
+                    int offset = vit->second;
+                    if (frameAddrZPIndex_ >= 0 && offset == 0) {
+                        // Use cached frame address from function entry
+                        std::string frameAddrZP = zpAddr(frameAddrZPIndex_);
+                        emit("lda " + frameAddrZP);
+                        emit("ldx " + frameAddrZP + "+1");
+                    } else {
+                        emit("leax.fp " + std::to_string(offset));
+                    }
                 } else {
                     // Fallback: allocate now (ensures consistency for first-use)
                     auto alloc = alloc_.getAlloc(inst.src1.vregId);
@@ -2914,12 +2922,26 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         emit("ldx #0");
                     } else {
                         int offset = allocSlot(inst.src1.vregId, alloc.type);
-                        emit("leax.fp " + std::to_string(offset));
+                        if (frameAddrZPIndex_ >= 0 && offset == 0) {
+                            // Use cached frame address
+                            std::string frameAddrZP = zpAddr(frameAddrZPIndex_);
+                            emit("lda " + frameAddrZP);
+                            emit("ldx " + frameAddrZP + "+1");
+                        } else {
+                            emit("leax.fp " + std::to_string(offset));
+                        }
                     }
                 }
             } else {
                 int offset = (int)inst.src1.immVal;
-                emit("leax.fp " + std::to_string(offset));
+                if (frameAddrZPIndex_ >= 0 && offset == 0) {
+                    // Use cached frame address
+                    std::string frameAddrZP = zpAddr(frameAddrZPIndex_);
+                    emit("lda " + frameAddrZP);
+                    emit("ldx " + frameAddrZP + "+1");
+                } else {
+                    emit("leax.fp " + std::to_string(offset));
+                }
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
