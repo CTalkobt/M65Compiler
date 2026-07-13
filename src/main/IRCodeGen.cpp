@@ -3460,6 +3460,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
         case ir::Op::BFINS: {
             // src1: new field value, src2: address of storage unit
+            // dest: vreg to hold the modified value
             std::string addrStr;
             if (inst.src2.kind == ir::OperandKind::GLOBAL) {
                 addrStr = inst.src2.name;
@@ -3479,6 +3480,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             } else {
                 emit("bfins " + addrStr + ", #" + std::to_string(offset) + ", #" + std::to_string(width));
             }
+            // bfins modifies in-place and leaves result in A/AX; store to dest vreg
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }

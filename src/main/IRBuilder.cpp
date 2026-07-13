@@ -1690,12 +1690,24 @@ void IRBuilder::visit(Assignment& node) {
             ir::Inst bfins;
             bfins.op = ir::Op::BFINS;
             bfins.resultType = memberType;
+            auto bfinsResult = allocVreg(memberType);
+            bfins.dest = bfinsResult;  // Allocate vreg to hold modified value
             bfins.src1 = rhs;
             bfins.src2 = addr;
             bfins.args.push_back(ir::Operand::imm(bitOffset, ir::Type::I8));
             bfins.args.push_back(ir::Operand::imm(bitWidth, ir::Type::I8));
             bfins.loc = loc(node);
             emit(bfins);
+
+            // Store the modified value back to the original storage location
+            ir::Inst store;
+            store.op = ir::Op::STORE;
+            store.src1 = bfinsResult;
+            store.src2 = addr;
+            store.resultType = ir::Type::VOID;
+            store.loc = loc(node);
+            emit(store);
+
             lastValue_ = rhs;
             return;
         }

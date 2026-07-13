@@ -34,20 +34,14 @@ __halt:
     __zp_scratch3 = $0C
     __zp_scratch4 = $0E
 
-_result:
+_res:
     .word 16384
-_scores:
-    .byte 0
-    .res 4
-_grid:
-    .word 0
-    .res 22
 
 
 ; function _main
     proc _main
     .var _fp = 0
-    .loc "src/test-resources/test_array_loop.c", 9
+    .loc "src/test-resources/test_bitfield_mmemu.c", 15
 ; frame: 4 bytes (frame-allocated vRegs only)
     phw #0
     phw #0
@@ -59,221 +53,137 @@ _grid:
     lda #$01
     adc #0
     sta $FE
+    ; .frameptr_zp $FD  ; Enable frame pointer mode for .fp addressing
     .local __vr0 = 0
-    .local __vr1 = 2
-    .local @_l_i = 0
-    .local @_l_j = 2
-; .debug_var: __main @_l_i offset=0 size=2 type=int16 scope=local
-; .debug_var: __main @_l_j offset=2 size=2 type=int16 scope=local
+    .local __vr46 = 2
+    .local @_l_f = 0
+    .local @_l_wf = 2
+; .debug_var: __main @_l_f offset=0 size=2 type=int16 scope=local
+; .debug_var: __main @_l_wf offset=2 size=2 type=int16 scope=local
 
 @entry:
-    .loc "src/test-resources/test_array_loop.c", 14
-    lda #0
-    taz
-    staz.fp __vr0
-@for_cond0:
-    ldax.fp __vr0
-    cmp.16 .AX, #5
-    bcc @for_body1
-    bra @for_end3
-@for_body1:
-    .loc "src/test-resources/test_array_loop.c", 15
-    ldax.fp __vr0
-    clc
-    adc #1
-    sta $26
-    stx $27
-    lda $26
-    ldx $27
-    pha
-    ldax.fp __vr0
-    sta __zp_scratch2
-    stx __zp_scratch2+1
-    addr_elem.16 __zp_scratch, #_scores, __zp_scratch2, #1
-    pla
-    ldy #0
-    sta (__zp_scratch),y
-@for_inc2:
-    .loc "src/test-resources/test_array_loop.c", 14
-    ldax.fp __vr0
-    sta $2A
-    stx $2B
-    lda $2A
-    clc
-    adc #1
-    sta $2C
-    lda $2B
-    adc #0
-    sta $2D
-    lda $2C
-    ldx $2D
-    stax.fp __vr0
-    bra @for_cond0
-@for_end3:
-    .loc "src/test-resources/test_array_loop.c", 19
-    lda #0
-    taz
-    staz.fp __vr0
-@for_cond4:
-    ldax.fp __vr0
-    cmp.16 .AX, #3
-    bcc @for_body5
-    bra @for_end7
-@for_body5:
-    .loc "src/test-resources/test_array_loop.c", 20
-    lda #0
-    taz
-    staz.fp __vr1
-@for_cond8_ph:
-    .loc "src/test-resources/test_array_loop.c", 21
-    lda #10
-    ldx #0
-    sta $26
-    stx $27
-    ldax.fp __vr0
-    mul.16 .AX, $26
-    sta $28
-    stx $29
-    ldax.fp __vr0
-    sta __zp_scratch2
-    stx __zp_scratch2+1
-    addr_elem.16 $2A, #_grid, __zp_scratch2, #8
-@for_cond8:
-    .loc "src/test-resources/test_array_loop.c", 20
-    ldax.fp __vr1
-    cmp.16 .AX, #4
-    bcc @for_body9
-    bra @for_end11
-@for_body9:
-    .loc "src/test-resources/test_array_loop.c", 21
-    lda #10
-    ldx #0
-    sta $30
-    stx $31
-    ldax.fp __vr1
-    add.16 .AX, $28
-    sta $32
-    stx $33
-    lda $32
-    ldx $33
-    pha
-    phx
-    ldax.fp __vr1
-    sta __zp_scratch2
-    stx __zp_scratch2+1
-    addr_elem.16 __zp_scratch, $2A, __zp_scratch2, #2
-    plx
-    pla
-    ldy #0
-    sta (__zp_scratch),y
-    txa
-    iny
-    sta (__zp_scratch),y
-@for_inc10:
-    .loc "src/test-resources/test_array_loop.c", 20
-    ldax.fp __vr1
-    sta $36
-    stx $37
-    lda $36
-    clc
-    adc #1
-    sta $38
-    lda $37
-    adc #0
-    sta $39
-    lda $38
-    ldx $39
-    stax.fp __vr1
-    bra @for_cond8
-@for_end11:
-@for_inc6:
-    .loc "src/test-resources/test_array_loop.c", 19
-    ldax.fp __vr0
-    sta $3A
-    stx $3B
-    lda $3A
-    clc
-    adc #1
-    sta $3C
-    lda $3B
-    adc #0
-    sta $3D
-    lda $3C
-    ldx $3D
-    stax.fp __vr0
-    bra @for_cond4
-@for_end7:
-    .loc "src/test-resources/test_array_loop.c", 26
-    lda #0
-    sta $20
-    sta $21
-    addr_elem.16 __zp_scratch, #_scores, $20, #1
-    ldy #0
-    lda (__zp_scratch),y
-    ldx #0
-    sta $24
-    lda _result
-    ldx _result+1
-    sta $20
-    stx $21
-    lda #0
-    sta $22
-    sta $23
-    lda $24
-    ldx #0
-    pha
-    addr_elem.16 __zp_scratch, $20, $22, #1
-    pla
-    ldy #0
-    sta (__zp_scratch),y
-    .loc "src/test-resources/test_array_loop.c", 29
-    lda #4
-    ldx #0
-    sta $20
-    stx $21
-    addr_elem.16 __zp_scratch, #_scores, $20, #1
-    ldy #0
-    lda (__zp_scratch),y
-    ldx #0
-    sta $24
-    lda _result
-    ldx _result+1
-    sta $20
-    stx $21
+    .loc "src/test-resources/test_bitfield_mmemu.c", 17
     lda #1
+    sta $20
+    ldax.fp __vr0
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda $20
     ldx #0
+    bfins __zp_scratch2, #0, #1
+    sta $22
+    lda $22
+    ldx #0
+    stax.fp __vr0
+    .loc "src/test-resources/test_bitfield_mmemu.c", 18
+    lda #5
+    sta $20
+    ldax.fp __vr0
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda $20
+    ldx #0
+    bfins __zp_scratch2, #1, #3
+    sta $22
+    lda $22
+    ldx #0
+    stax.fp __vr0
+    .loc "src/test-resources/test_bitfield_mmemu.c", 19
+    lda #12
+    sta $20
+    ldax.fp __vr0
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda $20
+    ldx #0
+    bfins __zp_scratch2, #4, #4
+    sta $22
+    lda $22
+    ldx #0
+    stax.fp __vr0
+    .loc "src/test-resources/test_bitfield_mmemu.c", 21
+    leax.fp 0
+    sta $20
+    stx $21
+    ldy #0
+    lda ($20),y
+    ldx #0
+    sta $22
+    lda $22
+    ldx #0
+    bfext #0, #1
+    sta $20
+    lda _res
+    ldx _res+1
     sta $22
     stx $23
-    lda $24
+    lda #0
+    sta $24
+    sta $25
+    lda $20
     ldx #0
     pha
-    addr_elem.16 __zp_scratch, $20, $22, #1
+    lda $24
+    ldx $25
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $22
+    ldx $22+1
+    add.16 .AX, __zp_scratch3
+    sta __zp_scratch
+    stx __zp_scratch+1
     pla
     ldy #0
     sta (__zp_scratch),y
-    .loc "src/test-resources/test_array_loop.c", 32
-    lda #0
+    .loc "src/test-resources/test_bitfield_mmemu.c", 22
+    leax.fp 0
     sta $20
-    sta $21
-    addr_elem.16 $22, #_grid, $20, #8
-    lda #0
-    sta $20
-    sta $21
-    addr_elem.16 __zp_scratch, $22, $20, #2
+    stx $21
     ldy #0
-    lda (__zp_scratch),y
-    pha
-    iny
-    lda (__zp_scratch),y
-    tax
-    pla
-    sta $26
-    stx $27
-    lda $26
-    ldx $27
+    lda ($20),y
+    ldx #0
+    sta $22
+    lda $22
+    ldx #0
+    bfext #1, #3
     sta $20
-    lda _result
-    ldx _result+1
+    lda _res
+    ldx _res+1
+    sta $22
+    stx $23
+    lda #1
+    ldx #0
+    sta $24
+    stx $25
+    lda $20
+    ldx #0
+    pha
+    lda $24
+    ldx $25
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $22
+    ldx $22+1
+    add.16 .AX, __zp_scratch3
+    sta __zp_scratch
+    stx __zp_scratch+1
+    pla
+    ldy #0
+    sta (__zp_scratch),y
+    .loc "src/test-resources/test_bitfield_mmemu.c", 23
+    leax.fp 0
+    sta $20
+    stx $21
+    ldy #0
+    lda ($20),y
+    ldx #0
+    sta $22
+    lda $22
+    ldx #0
+    bfext #4, #4
+    sta $20
+    lda _res
+    ldx _res+1
     sta $22
     stx $23
     lda #2
@@ -283,35 +193,56 @@ _grid:
     lda $20
     ldx #0
     pha
-    addr_elem.16 __zp_scratch, $22, $24, #1
+    lda $24
+    ldx $25
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $22
+    ldx $22+1
+    add.16 .AX, __zp_scratch3
+    sta __zp_scratch
+    stx __zp_scratch+1
     pla
     ldy #0
     sta (__zp_scratch),y
-    .loc "src/test-resources/test_array_loop.c", 35
-    lda #1
-    ldx #0
+    .loc "src/test-resources/test_bitfield_mmemu.c", 25
+    leax.fp 0
     sta $20
     stx $21
-    addr_elem.16 $22, #_grid, $20, #8
-    lda #2
-    ldx #0
-    sta $20
-    stx $21
-    addr_elem.16 __zp_scratch, $22, $20, #2
     ldy #0
-    lda (__zp_scratch),y
-    pha
-    iny
-    lda (__zp_scratch),y
-    tax
-    pla
-    sta $26
-    stx $27
-    lda $26
-    ldx $27
+    lda ($20),y
+    ldx #0
+    sta $22
+    lda $22
+    ldx #0
+    bfext #1, #3
     sta $20
-    lda _result
-    ldx _result+1
+    lda $20
+    ldx #0
+    sta $22
+    lda $22
+    inc a
+    sta $20
+    leax.fp 0
+    sta $22
+    stx $23
+    lda $20
+    ldy #0
+    sta ($22),y
+    .loc "src/test-resources/test_bitfield_mmemu.c", 26
+    leax.fp 0
+    sta $20
+    stx $21
+    ldy #0
+    lda ($20),y
+    ldx #0
+    sta $22
+    lda $22
+    ldx #0
+    bfext #1, #3
+    sta $20
+    lda _res
+    ldx _res+1
     sta $22
     stx $23
     lda #3
@@ -321,73 +252,147 @@ _grid:
     lda $20
     ldx #0
     pha
-    addr_elem.16 __zp_scratch, $22, $24, #1
+    lda $24
+    ldx $25
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $22
+    ldx $22+1
+    add.16 .AX, __zp_scratch3
+    sta __zp_scratch
+    stx __zp_scratch+1
     pla
     ldy #0
     sta (__zp_scratch),y
-    .loc "src/test-resources/test_array_loop.c", 38
-    lda #2
-    ldx #0
+    .loc "src/test-resources/test_bitfield_mmemu.c", 29
+    lda #244
+    ldx #1
     sta $20
     stx $21
-    addr_elem.16 $22, #_grid, $20, #8
-    lda #3
-    ldx #0
-    sta $20
-    stx $21
-    addr_elem.16 __zp_scratch, $22, $20, #2
-    ldy #0
-    lda (__zp_scratch),y
-    pha
-    iny
-    lda (__zp_scratch),y
-    tax
-    pla
-    sta $26
-    stx $27
-    lda $26
-    ldx $27
-    sta $20
-    lda _result
-    ldx _result+1
+    ldax.fp __vr46
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda $20
+    ldx $21
+    bfins16 __zp_scratch2, #0, #10
     sta $22
     stx $23
+    lda $22
+    ldx $23
+    stax.fp __vr46
+    .loc "src/test-resources/test_bitfield_mmemu.c", 30
+    lda #30
+    ldx #0
+    sta $20
+    stx $21
+    ldax.fp __vr46
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda $20
+    ldx $21
+    bfins16 __zp_scratch2, #10, #6
+    sta $22
+    stx $23
+    lda $22
+    ldx $23
+    stax.fp __vr46
+    .loc "src/test-resources/test_bitfield_mmemu.c", 31
+    leax.fp 2
+    sta $20
+    stx $21
+    ldy #0
+    lda ($20),y
+    pha
+    iny
+    lda ($20),y
+    tax
+    pla
+    sta $22
+    stx $23
+    lda $22
+    ldx $23
+    bfext16 #0, #10
+    sta $20
+    stx $21
+    lda $20
+    ldx $21
+    sta $22
+    lda _res
+    ldx _res+1
+    sta $20
+    stx $21
     lda #4
     ldx #0
     sta $24
     stx $25
-    lda $20
+    lda $22
     ldx #0
     pha
-    addr_elem.16 __zp_scratch, $22, $24, #1
+    lda $24
+    ldx $25
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $20
+    ldx $20+1
+    add.16 .AX, __zp_scratch3
+    sta __zp_scratch
+    stx __zp_scratch+1
     pla
     ldy #0
     sta (__zp_scratch),y
-    .loc "src/test-resources/test_array_loop.c", 41
-    lda #170
+    .loc "src/test-resources/test_bitfield_mmemu.c", 32
+    leax.fp 2
     sta $20
-    lda _result
-    ldx _result+1
+    stx $21
+    ldy #0
+    lda ($20),y
+    pha
+    iny
+    lda ($20),y
+    tax
+    pla
     sta $22
     stx $23
+    lda $22
+    ldx $23
+    bfext16 #10, #6
+    sta $20
+    stx $21
+    lda $20
+    ldx $21
+    sta $22
+    lda _res
+    ldx _res+1
+    sta $20
+    stx $21
     lda #5
     ldx #0
     sta $24
     stx $25
-    lda $20
+    lda $22
     ldx #0
     pha
-    addr_elem.16 __zp_scratch, $22, $24, #1
+    lda $24
+    ldx $25
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $20
+    ldx $20+1
+    add.16 .AX, __zp_scratch3
+    sta __zp_scratch
+    stx __zp_scratch+1
     pla
     ldy #0
     sta (__zp_scratch),y
+    .loc "src/test-resources/test_bitfield_mmemu.c", 34
+    brk
 @__return:
     plz
     plz
     plz
     plz
     .func_flags stack_call, leaf
-    .reg_clobbers A, X, Y
+    .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
     endproc
 
