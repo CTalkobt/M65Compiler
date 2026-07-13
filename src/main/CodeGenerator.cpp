@@ -117,6 +117,77 @@ void CodeGenerator::emit(const std::string& line) {
     out << "    " << line << std::endl;
 }
 
+std::string CodeGenerator::formatDebugType(const std::string& type, int pointerLevel, const std::vector<int>& arrayDims) {
+    std::string result;
+
+    // Map C types to debug type identifiers
+    if (type == "char") result = "char";
+    else if (type == "_Bool") result = "uint8";
+    else if (type == "int") result = "int16";
+    else if (type == "long") result = "int32";
+    else if (type == "unsigned char") result = "uint8";
+    else if (type == "unsigned") result = "uint16";
+    else if (type == "unsigned int") result = "uint16";
+    else if (type == "unsigned long") result = "uint32";
+    else if (type == "signed char") result = "int8";
+    else if (type == "signed int") result = "int16";
+    else if (type == "signed long") result = "int32";
+    else if (type == "short") result = "int16";
+    else if (type == "unsigned short") result = "uint16";
+    else if (type == "signed short") result = "int16";
+    else if (type == "float" || type == "double") result = "float";
+    else if (isStruct(type)) result = "struct_" + type;
+    else result = type;  // Keep as-is for unknown/custom types
+
+    // Add pointer levels
+    for (int i = 0; i < pointerLevel; i++) {
+        result += "*";
+    }
+
+    // Add array dimensions
+    for (int dim : arrayDims) {
+        result += "[";
+        result += std::to_string(dim);
+        result += "]";
+    }
+
+    return result;
+}
+
+void CodeGenerator::emitDebugVariable(const std::string& functionName, const std::string& varName, uint32_t offset,
+                                     const std::string& type, int pointerLevel, const std::string& scope,
+                                     const std::vector<int>& arrayDims, int srcLine, const std::string& displayName) {
+    std::string debugType = formatDebugType(type, pointerLevel, arrayDims);
+
+    // Calculate size in bytes
+    int size = 1;  // default
+    if (pointerLevel > 0) size = 2;  // pointers are 16-bit
+    else if (type == "char" || type == "_Bool" || type == "unsigned char" || type == "signed char") size = 1;
+    else if (type == "long" || type == "unsigned long" || type == "signed long") size = 4;
+    else if (type == "short" || type == "unsigned short" || type == "signed short") size = 2;
+    else if (type == "int" || type == "unsigned int" || type == "unsigned" || type == "signed int") size = 2;
+    else if (type == "float" || type == "double") size = 4;
+    else {
+        // For structs, try to look up the size
+        if (isStruct(type) && structs.count(type)) {
+            size = structs.at(type)->totalSize;
+        }
+    }
+
+    // Apply array dimensions to size
+    for (int dim : arrayDims) {
+        size *= dim;
+    }
+
+    std::stringstream ss;
+    ss << "; .debug_var: " << functionName << " " << varName << " offset=" << offset
+       << " size=" << size << " type=" << debugType << " scope=" << scope;
+    if (srcLine >= 0) ss << " src_line=" << srcLine;
+    if (!displayName.empty() && displayName != varName) ss << " name=" << displayName;
+
+    emit(ss.str());
+}
+
 void CodeGenerator::emitBranch16Beq(const std::string& target) {
     // Branch to target if 16-bit A:X == 0 (assumes cmp #$00 already set flags for A)
     std::string skip = newDontCareLabel();
@@ -1374,6 +1445,30 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
             }
         }
 
+        // Emit debug metadata for parameters
+        for (auto& pi : paramInfos) {
+            if (variableTypes.count(pi.pName)) {
+                VarInfo& vi = variableTypes.at(pi.pName);
+                uint32_t offset;
+                if (zpSpilledParams_.count(pi.pName)) {
+                    offset = zpSpilledParams_[pi.pName].frameOffset;
+                } else {
+                    offset = zpParams_[pi.pName].zpAddr;
+                }
+                emitDebugVariable("_" + node.name, pi.pName, offset, vi.type, vi.pointerLevel,
+                                "parameter", vi.arrayDims, node.line, "");
+            }
+        }
+
+        // Emit debug metadata for local variables
+        for (auto& loc : scanner.locals) {
+            if (variableTypes.count(loc.name)) {
+                VarInfo& vi = variableTypes.at(loc.name);
+                emitDebugVariable("_" + node.name, loc.name, loc.frameOffset, vi.type, vi.pointerLevel,
+                                "local", vi.arrayDims, -1, "");
+            }
+        }
+
         node.body->accept(*this);
         if (!node.isNoreturn) {
             bool lastWasReturn = false;
@@ -1469,6 +1564,7 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     }
 
     // --- Stack-based calling convention (original) ---
+    emit("; DEBUG: Entering stack-based calling convention path for " + node.name);
     std::string procLine = "proc _" + node.name;
 
     if (needsHiddenPtr) {
@@ -1527,6 +1623,41 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
             for (int i = (int)paramInfos.size() - 1; i >= 0; --i) {
                 emit(".var " + paramInfos[i].pName + " = " + std::to_string(pOff));
                 currentVars.push_back(paramInfos[i].pName);
+                pOff += paramInfos[i].size;
+            }
+        }
+    }
+
+    // Emit debug metadata for local variables (stack convention)
+    for (auto& loc : scanner.locals) {
+        if (variableTypes.count(loc.name)) {
+            VarInfo& vi = variableTypes.at(loc.name);
+            emitDebugVariable("_" + node.name, loc.name, loc.frameOffset, vi.type, vi.pointerLevel,
+                            "local", vi.arrayDims, -1, "");
+        }
+    }
+
+    // Emit debug metadata for parameters (stack convention)
+    emit("; DEBUG: Starting parameter metadata emission for " + node.name);
+    {
+        int pOff = frameSize + 2;
+        if (node.isVariadic) {
+            for (int i = 0; i < (int)paramInfos.size(); ++i) {
+                if (variableTypes.count(paramInfos[i].pName)) {
+                    VarInfo& vi = variableTypes.at(paramInfos[i].pName);
+                    emitDebugVariable("_" + node.name, paramInfos[i].pName, pOff, vi.type, vi.pointerLevel,
+                                    "parameter", vi.arrayDims, node.line, "");
+                }
+                pOff += paramInfos[i].size;
+            }
+        } else {
+            pOff = frameSize + 2;
+            for (int i = (int)paramInfos.size() - 1; i >= 0; --i) {
+                if (variableTypes.count(paramInfos[i].pName)) {
+                    VarInfo& vi = variableTypes.at(paramInfos[i].pName);
+                    emitDebugVariable("_" + node.name, paramInfos[i].pName, pOff, vi.type, vi.pointerLevel,
+                                    "parameter", vi.arrayDims, node.line, "");
+                }
                 pOff += paramInfos[i].size;
             }
         }
@@ -5462,6 +5593,15 @@ void CodeGenerator::emitData() {
             gVar->alignment = resolveAlignmentExpr(gVar->alignmentExpr.get(), structs);
         if (gVar->alignment > 1) out << "    .align " << std::to_string(gVar->alignment) << std::endl;
         out << "_" << gVar->name << ":" << std::endl;
+
+        // Emit debug metadata for global variable
+        std::string globalName = "_" + gVar->name;
+        if (globalVariableTypes.count(globalName)) {
+            VarInfo& vi = globalVariableTypes.at(globalName);
+            emitDebugVariable("@global", globalName, 0x2000 + (5585 + 5593) % 0xC000,  // Placeholder address
+                            vi.type, vi.pointerLevel, "global", vi.arrayDims, gVar->line, gVar->name);
+        }
+
         int size = 0;
         if (gVar->pointerLevel > 0) size = 2;
         else if (is8BitType(gVar->type)) size = 1;

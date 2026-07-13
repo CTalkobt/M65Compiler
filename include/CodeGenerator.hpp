@@ -128,6 +128,10 @@ public:
     ExpressionType getExprType(Expression* expr);
     void emitNarrowingWarning(ASTNode& node, const std::string& fromType, int fromPtr, const std::string& toType, int toPtr);
     void emitBoolNormalize(int srcSize);
+    std::string formatDebugType(const std::string& type, int pointerLevel, const std::vector<int>& arrayDims);
+    void emitDebugVariable(const std::string& functionName, const std::string& varName, uint32_t offset,
+                           const std::string& type, int pointerLevel, const std::string& scope,
+                           const std::vector<int>& arrayDims, int srcLine = -1, const std::string& displayName = "");
     std::vector<std::string> warnings;
     bool isStruct(const std::string& type);
     bool isEnum(const std::string& type);
