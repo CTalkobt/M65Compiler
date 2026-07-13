@@ -2374,6 +2374,9 @@ void AssemblerSimulatedOps::emitBFInsCode(AssemblerParser* parser, M65Emitter& e
         // Set new bits with TSB
         e.lda_scratch();
         e.emitInstruction("tsb", AddressingMode::BASE_PAGE, addr, true);
+
+        // Load final result from memory into A
+        e.emitInstruction("lda", AddressingMode::BASE_PAGE, addr, true);
     } else if (mode == 0) {
         // Absolute (non-ZP) target: use TRB/TSB with absolute mode
         e.and_imm(mask8);
@@ -2385,6 +2388,9 @@ void AssemblerSimulatedOps::emitBFInsCode(AssemblerParser* parser, M65Emitter& e
 
         e.lda_scratch();
         e.emitInstruction("tsb", AddressingMode::ABSOLUTE, addr, true);
+
+        // Load final result from memory into A
+        e.lda_addr(addr);
     } else if (mode == 1) {
         // Stack-relative: general shift/mask/ORA
         e.and_imm(mask8);
