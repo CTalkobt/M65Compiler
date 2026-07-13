@@ -10,7 +10,6 @@
 #include "Lexer.hpp"
 #include "Parser.hpp"
 #include "AST.hpp"
-#include "CodeGenerator.hpp"
 #include "ConstantFolder.hpp"
 #include "LoopOptimizer.hpp"
 #include "Preprocessor.hpp"
