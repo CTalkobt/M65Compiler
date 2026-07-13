@@ -3778,3 +3778,7 @@ void IRCodeGen::loadFrameAddr(int offset) {
         }
     }
 }
+
+// Get optimal ZP address pair for indirect addressing
+// If vreg is a frame address at offset 0 and we have a cache, use cached location directly
+// Otherwise, load vreg and return location where it was stored
