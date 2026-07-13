@@ -76,6 +76,14 @@ private:
     // If the vReg is in A:X, spills it to __zp_scratch first and returns the ZP addr.
     std::string src2MemOperand(const ir::Operand& op);
 
+    // Emit inline address calculation: result = base + index*stride
+    // Result is returned in A:X and optionally stored to destZP (if non-empty)
+    // baseStr can be "#symbol" (immediate) or memory operand
+    // indexOp is the array index (can be immediate, operand, or vReg)
+    // destZP is optional destination ZP address (e.g., "__zp_scratch"); if empty, result stays in A:X
+    void emitArrayElemAddr(const std::string& baseStr, const ir::Operand& indexOp, int stride,
+                           const std::string& destZP = "");
+
     // Pre-scan a function to allocate frame slots for all vRegs
     void prescanFunction(const ir::Function& fn);
 

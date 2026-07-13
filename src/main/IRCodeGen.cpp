@@ -400,6 +400,79 @@ std::string IRCodeGen::src2MemOperand(const ir::Operand& op) {
     return "#0";
 }
 
+void IRCodeGen::emitArrayElemAddr(const std::string& baseStr, const ir::Operand& indexOp,
+                                   int stride, const std::string& destZP) {
+    // Emit inline address calculation: result = baseAddr + (index * stride)
+    // Result is returned in A:X and optionally stored to destZP (if non-empty)
+    // baseStr can be: "#symbol" (immediate), "$XX" (ZP address), or other memory operand
+    // indexOp is the array index (can be immediate, operand, or vReg)
+    // stride is the element size in bytes
+
+    if (indexOp.isImm()) {
+        // Immediate index: compute constant offset at compile time
+        uint32_t offset = indexOp.immVal * stride;
+        if (!destZP.empty()) {
+            emit("struct_elem.16 " + destZP + ", " + baseStr + ", #" + std::to_string(offset));
+        } else {
+            // Load base and add constant offset
+            if (baseStr[0] == '#') {
+                std::string symName = baseStr.substr(1);
+                emit("ldax " + symName);   // Load address of symbol into A:X
+            } else if (baseStr[0] == '$') {
+                // Load from ZP address
+                emit("lda " + baseStr);
+                emit("ldx " + baseStr + "+1");
+            } else {
+                // Memory operand
+                emit("lda " + baseStr);
+                emit("ldx " + baseStr + "+1");
+            }
+            if (offset > 0) {
+                emit("add.16 .AX, #" + std::to_string(offset));
+            }
+        }
+        return;
+    }
+
+    // Runtime index: need to compute address = base + (index * stride)
+    // Step 1: Load index into A:X
+    loadOperand(indexOp);  // Load into A:X
+
+    // Step 2: Multiply index by stride if stride > 1
+    if (stride > 1) {
+        emit("mul.16 .AX, #" + std::to_string(stride));  // A:X = index * stride
+    }
+
+    // Step 3: Load base address and add the scaled index
+    // Save scaled index first
+    emit("sta __zp_scratch3");           // Save low byte of scaled index
+    emit("stx __zp_scratch3+1");         // Save high byte of scaled index
+
+    // Load base address based on its type
+    if (baseStr[0] == '#') {
+        // Immediate symbol - use ldax to load address
+        std::string symName = baseStr.substr(1);
+        emit("ldax " + symName);         // Load address of symbol into A:X
+    } else if (baseStr[0] == '$') {
+        // ZP address
+        emit("lda " + baseStr);          // Load from ZP low byte
+        emit("ldx " + baseStr + "+1");   // Load from ZP high byte
+    } else {
+        // Other memory operand
+        emit("lda " + baseStr);
+        emit("ldx " + baseStr + "+1");
+    }
+
+    // Add base + scaled index
+    emit("add.16 .AX, __zp_scratch3");   // A:X = base + scaled_index
+
+    // Step 4: Store to destZP if provided
+    if (!destZP.empty()) {
+        emit("sta " + destZP);
+        emit("stx " + destZP + "+1");
+    }
+}
+
 // ============================================================================
 // Module-level emission
 // ============================================================================
@@ -2306,14 +2379,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
                 std::string baseStr = (base.kind == ir::OperandKind::GLOBAL) ?
                     "#" + base.name : src2MemOperand(base);
-                if (index.isImm()) {
-                    uint32_t offset = index.immVal * stride;
-                    emit("struct_elem.16 __zp_scratch, " + baseStr + ", #" + std::to_string(offset));
-                } else {
-                    std::string indexStr = src2MemOperand(index);
-                    if (index.type == ir::Type::I8) { loadOperand(index); indexStr = ".AX"; }
-                    emit("addr_elem.16 __zp_scratch, " + baseStr + ", " + indexStr + ", #" + std::to_string(stride));
-                }
+                emitArrayElemAddr(baseStr, index, stride, "__zp_scratch");
                 // Now load from (__zp_scratch),Y
                 emit("ldy #0");
                 emit("lda (__zp_scratch),y");
@@ -2441,14 +2507,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
                 std::string baseStr = (base.kind == ir::OperandKind::GLOBAL) ?
                     "#" + base.name : src2MemOperand(base);
-                if (index.isImm()) {
-                    uint32_t offset = index.immVal * stride;
-                    emit("struct_elem.16 __zp_scratch, " + baseStr + ", #" + std::to_string(offset));
-                } else {
-                    std::string indexStr = src2MemOperand(index);
-                    if (index.type == ir::Type::I8) { loadOperand(index); indexStr = ".AX"; }
-                    emit("addr_elem.16 __zp_scratch, " + baseStr + ", " + indexStr + ", #" + std::to_string(stride));
-                }
+                emitArrayElemAddr(baseStr, index, stride, "__zp_scratch");
 
                 // Restore value and store via (__zp_scratch),Y
                 if (inst.resultType != ir::Type::I8) emit("plx");
@@ -2902,18 +2961,15 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 }
             }
             
-            if (inst.src2.isImm()) {
-                uint32_t offset = inst.src2.immVal * elemSize;
-                emit("struct_elem.16 " + destStr + ", " + baseStr + ", #" + std::to_string(offset));
+            // Compute array element address
+            if (destStr == ".AX") {
+                // Result goes to A:X register pair
+                emitArrayElemAddr(baseStr, inst.src2, elemSize, "");  // Don't store to ZP
             } else {
-                std::string indexStr = operandToString(inst.src2);
-                if (inst.src2.type == ir::Type::I8) {
-                    loadOperand(inst.src2);
-                    indexStr = ".AX";
-                }
-                emit("addr_elem.16 " + destStr + ", " + baseStr + ", " + indexStr + ", #" + std::to_string(elemSize));
+                // Result goes to destZP (ZP address)
+                emitArrayElemAddr(baseStr, inst.src2, elemSize, destStr);
             }
-            
+
             if (storeNeeded && inst.dest.isVreg()) {
                 storeVreg(inst.dest.vregId);
             }

@@ -902,7 +902,6 @@ void AssemblerParser::pass1() {
             else if (fullMnemonic == "bfins16.ind") { SIMOP(BFINS16_IND, dispatch_BFIns); }
             else if (fullMnemonic == "bfins32") { SIMOP(BFINS32, dispatch_BFIns); }
             else if (fullMnemonic == "struct_elem.16" || fullMnemonic == "struct_elem") { SIMOP(STRUCT_ELEM, dispatch_StructElem); }
-            else if (fullMnemonic == "addr_elem.16" || fullMnemonic == "addr_elem") { SIMOP(ADDR_ELEM_SIM, dispatch_AddrElem); }
             #undef SIMOP
 
             if (stmt->instr.mnemonic == "expr") {

@@ -176,7 +176,7 @@ public:
                     LSL32, LSR32, ROL32, ROR32, ASR32, SXT16,
                     ADDS32, SUBS32, CMP_S32, NEG_S32, ABS_S32,
                     ASR_S32, LSL_S32, LSR_S32, ROL_S32, ROR_S32,
-                    STRUCT_ELEM, ADDR_ELEM_SIM } type = NONE;
+                    STRUCT_ELEM } type = NONE;
         Instruction instr;
         Directive dir;
         std::string label;
