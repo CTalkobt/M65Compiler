@@ -53,7 +53,7 @@ _res:
     lda #$01
     adc #0
     sta $FE
-    ; .frameptr_zp $FD  ; Enable frame pointer mode for .fp addressing
+    .frameptr_zp $FD
     .local __vr0 = 0
     .local __vr46 = 2
     .local @_l_f = 0
@@ -223,12 +223,16 @@ _res:
     lda $22
     inc a
     sta $20
-    leax.fp 0
-    sta $22
-    stx $23
+    ldax.fp __vr0
+    sta __zp_scratch2
+    stx __zp_scratch2+1
     lda $20
-    ldy #0
-    sta ($22),y
+    ldx #0
+    bfins __zp_scratch2, #1, #3
+    sta $22
+    lda $22
+    ldx #0
+    stax.fp __vr0
     .loc "src/test-resources/test_bitfield_mmemu.c", 26
     leax.fp 0
     sta $20

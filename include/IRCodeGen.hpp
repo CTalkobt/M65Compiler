@@ -59,6 +59,17 @@ private:
     int allocSlot(uint32_t vregId, ir::Type type);
     int slotOf(uint32_t vregId);
 
+    // ZP allocator for frame address tracking
+    struct ZPReg { bool inUse = false; };
+    std::vector<ZPReg> zpRegs_;
+    uint32_t zeroPageAvail_ = 248;  // Available ZP space (usually $08-$FF)
+    int frameAddrZPIndex_ = -1;  // allocated ZP index for frame address (2 bytes), -1 if not allocated
+
+    int allocateZP(int size);
+    void freeZP(int index, int size);
+    std::string zpAddr(int index) const;  // Return ZP address string like "$08"
+    void loadFrameAddr(int offset = 0);  // Load frame address into A:X, using cache if available
+
     // Describe a vReg for codegen reasoning comments
     std::string vregDesc(uint32_t vregId);
     // Load a vReg value into A (I8) or A:X (I16) or A:X:Y:Z (I32)

@@ -484,6 +484,11 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     zeroPageStart_ = zpStart;
     sourceFile_ = mod.sourceFile;
 
+    // Initialize ZP allocator
+    zpRegs_.clear();
+    for (uint32_t i = 0; i < zeroPageAvail_; ++i)
+        zpRegs_.push_back({false});
+
     // Pre-scan all functions to compute frame offsets (needed for capture)
     // Bug #179 fix: Skip prescan for all functions.
     // Prescan allocates without knowing allocator decisions, causing frame conflicts.
@@ -1121,6 +1126,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     vregSizes_ = fn.vregSizes;  // Still need vregSizes for size overrides
 
     resetFrame();
+    frameAddrZPIndex_ = -1;  // reset for new function
 
     // Allocate frame slots based on ALLOCATOR's decisions only
     // First: allocate named locals and parameters in localNames order (deterministic)
@@ -1148,6 +1154,12 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         if (alloc.loc == VRegAllocator::IN_FRAME) {
             allocSlot(lr.vregId, alloc.type);
         }
+    }
+
+    // Allocate a dedicated ZP slot for frame address (2 bytes) if function has frame
+    // This prevents leax.fp results from being clobbered by intermediate operations
+    if (frameSize_ > 0) {
+        frameAddrZPIndex_ = allocateZP(2);
     }
 
     currentInstIdx_ = 0;
@@ -1251,6 +1263,14 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         emit("adc #0");
         emit("sta $FE");
         emit(".frameptr_zp $FD");
+    }
+
+    // Compute and cache frame address in dedicated ZP slot if function uses frame-relative access
+    if (frameAddrZPIndex_ >= 0) {
+        std::string frameAddrZP = zpAddr(frameAddrZPIndex_);
+        emit("leax.fp 0");
+        emit("sta " + frameAddrZP);
+        emit("stx " + frameAddrZP + "+1");
     }
 
     // Emit .local for frame-allocated vRegs only
@@ -3678,5 +3698,61 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             throw std::runtime_error("IRCodeGen: unimplemented IR opcode " +
                 std::to_string((int)inst.op) + " — check IR.hpp for opcode definition and implement in emitInst()");
             break;
+    }
+}
+
+int IRCodeGen::allocateZP(int size) {
+    for (int i = 0; i <= (int)zpRegs_.size() - size; ++i) {
+        bool found = true;
+        for (int j = 0; j < size; ++j)
+            if (zpRegs_[i + j].inUse) { found = false; break; }
+        if (found) {
+            for (int j = 0; j < size; ++j) zpRegs_[i + j].inUse = true;
+            return i;
+        }
+    }
+    int oldSize = zpRegs_.size();
+    for (int i = 0; i < size; ++i) zpRegs_.push_back({true});
+    return oldSize;
+}
+
+void IRCodeGen::freeZP(int index, int size) {
+    for (int i = 0; i < size; ++i)
+        if (index + i < (int)zpRegs_.size())
+            zpRegs_[index + i].inUse = false;
+}
+
+std::string IRCodeGen::zpAddr(int index) const {
+    std::stringstream ss;
+    ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2)
+       << ((zeroPageStart_ + index * 1) & 0xFF);
+    return ss.str();
+}
+
+// Load frame address into A:X, either from cache or compute it
+// If frameAddrZPIndex_ >= 0, load from cached slot; otherwise compute leax.fp 0
+void IRCodeGen::loadFrameAddr(int offset) {
+    if (frameAddrZPIndex_ >= 0) {
+        std::string frameAddrZP = zpAddr(frameAddrZPIndex_);
+        if (offset == 0) {
+            emit("lda " + frameAddrZP);
+            emit("ldx " + frameAddrZP + "+1");
+        } else {
+            emit("lda " + frameAddrZP);
+            emit("ldx " + frameAddrZP + "+1");
+            emit("clc");
+            emit("adc #" + std::to_string(offset & 0xFF));
+            emit("pha");
+            emit("txa");
+            emit("adc #" + std::to_string((offset >> 8) & 0xFF));
+            emit("tax");
+            emit("pla");
+        }
+    } else {
+        if (offset == 0) {
+            emit("leax.fp 0");
+        } else {
+            emit("leax.fp " + std::to_string(offset));
+        }
     }
 }
