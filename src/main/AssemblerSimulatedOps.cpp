@@ -2027,12 +2027,9 @@ void AssemblerSimulatedOps::emitLDAY_FPCode(AssemblerParser* parser, M65Emitter&
 // stay.fp varOffset — Store AY (lo=A, hi=Y) to frame-relative offset
 // Use when Z must be preserved (e.g., loop counter).
 void AssemblerSimulatedOps::emitSTAY_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
-    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    uint8_t totalOff = fpOff + yOff;
-    e.sta_stack(totalOff);           // TSX + STA abs,X (lo byte)
-    e.sty_stack(totalOff + 1);       // TSX + STY abs,X (hi byte)
+    e.sta_stack(yOff);               // Frame-relative: LDY #yOff; STA ($FD),Y (lo byte)
+    e.sty_stack(yOff + 1);           // Frame-relative: STY offset+1 via scratch (hi byte)
 }
 
 // ldaz.fp varOffset — Load 16-bit value from frame into AZ (lo in A, hi in Z)
@@ -2050,25 +2047,19 @@ void AssemblerSimulatedOps::emitLDAZ_FPCode(AssemblerParser* parser, M65Emitter&
 // Transfers X→Z internally for IRQ-safe frame access (no ZP scratch).
 // For constant values, prefer staz.fp which avoids the transfer entirely.
 void AssemblerSimulatedOps::emitSTAX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
-    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    uint8_t totalOff = fpOff + yOff;
     // Move X (hi byte) to Z via A, preserving A on stack
     e.pha(); e.txa(); e.taz(); e.pla();
-    e.sta_stack(totalOff);           // TSX + STA abs,X (lo byte)
-    e.stz_stack(totalOff + 1);       // STZ abs,X (hi byte)
+    e.sta_stack(yOff);               // Frame-relative: LDY #yOff; STA ($FD),Y (lo byte)
+    e.stz_stack(yOff + 1);           // Frame-relative: LDY #yOff+1; STZ ($FD),Y (hi byte)
 }
 
 // staz.fp varOffset — Store AZ (lo=A, hi=Z) to frame-relative offset
 // Preferred over stax.fp: no ZP scratch needed, IRQ-safe.
 void AssemblerSimulatedOps::emitSTAZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
-    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    uint8_t totalOff = fpOff + yOff;
-    e.sta_stack(totalOff);           // TSX + STA abs,X (lo byte)
-    e.stz_stack(totalOff + 1);       // STZ abs,X (hi byte)
+    e.sta_stack(yOff);               // Frame-relative: LDY #yOff; STA ($FD),Y (lo byte)
+    e.stz_stack(yOff + 1);           // Frame-relative: LDY #yOff+1; STZ ($FD),Y (hi byte)
 }
 
 // ldaxyz.fp varOffset — Load 32-bit value from frame into A,X,Y,Z
@@ -2091,21 +2082,18 @@ void AssemblerSimulatedOps::emitLDAXYZ_FPCode(AssemblerParser* parser, M65Emitte
 
 // staxyz.fp varOffset — Store 32-bit value from A,X,Y,Z to frame
 void AssemblerSimulatedOps::emitSTAXYZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
-    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    uint8_t totalOff = fpOff + yOff;
-    
+
     // Store all bytes to scratch first (sta_stack clobbers X in non-FP mode)
     e.sta_scratch();      // A
     e.stx_scratch2();     // X
     e.sty_scratch3();     // Y
     e.stz_scratch3_hi();  // Z
 
-    e.lda_scratch();    e.sta_stack(totalOff);
-    e.lda_scratch2();   e.sta_stack(totalOff + 1);
-    e.lda_scratch3();   e.sta_stack(totalOff + 2);
-    e.lda_scratch3_hi(); e.sta_stack(totalOff + 3);
+    e.lda_scratch();    e.sta_stack(yOff);
+    e.lda_scratch2();   e.sta_stack(yOff + 1);
+    e.lda_scratch3();   e.sta_stack(yOff + 2);
+    e.lda_scratch3_hi(); e.sta_stack(yOff + 3);
 }
 
 // leax.fp varOffset — Load effective address of frame variable into AX

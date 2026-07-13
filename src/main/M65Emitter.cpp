@@ -545,11 +545,12 @@ void M65Emitter::sty_stack(uint8_t offset) {
 void M65Emitter::stz_stack(uint8_t offset) {
     ms_.storeStack(offset, REG_Z);
     if (hasFramePointer()) {
-        // STZ doesn't support indirect addressing, so use LDA (scratch) + STA indirect
-        lda_zp(scratchZP_);  // temp save Z to scratch via A (preserves Z)
+        // STZ doesn't support indirect addressing, so use A as intermediate
+        sta_zp(scratchZP_);  // save A
+        tza();               // A = Z
         ldy_imm(offset);
-        emitInstruction("stz", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
-        sta_zp(scratchZP_);  // restore Z from A
+        emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
+        lda_zp(scratchZP_);  // restore A
     } else {
         // Fallback: assume frame pointer at $FD/$FE (cc45 default)
         // Since STZ doesn't support indirect addressing, use indirect store via A
