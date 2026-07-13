@@ -50,6 +50,8 @@ public:
     uint8_t getScratchZP() const;
     uint32_t getPC() const { return pc; }
     uint32_t getFirstOrgAddress() const { return firstOrgAddress; }
+    uint8_t getFramePointerZP() const { return framePointerZP; }
+    bool hasFramePointer() const { return framePointerZP != 0; }
     Symbol* resolveSymbol(const std::string& name, const std::string& scopePrefix = "");
     bool hasErrors() const { return !errors.empty(); }
     const std::vector<std::string>& getErrors() const { return errors; }
@@ -132,6 +134,7 @@ private:
 
     std::shared_ptr<ProcContext> currentProc;
     std::map<uint32_t, std::shared_ptr<ProcContext>> procedures;
+    uint8_t framePointerZP = 0; // 0 = disabled; when set, stack ops use ($FP),Y
 
     struct Segment {
         std::string name;

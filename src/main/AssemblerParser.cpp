@@ -578,6 +578,13 @@ void AssemblerParser::pass1() {
                 }
                 stmt->size = 0;
             }
+            else if (stmt->dir.name == "frameptr_zp") {
+                // .frameptr_zp $FD — Set ZP location for frame pointer (for frame-relative addressing)
+                AssemblerToken tok = advance(); // consume the next token
+                uint8_t fp = (uint8_t)parseNumericLiteral(tok.value);
+                framePointerZP = fp;
+                stmt->size = 0;
+            }
             else if (stmt->dir.name == "zp_uses" || stmt->dir.name == "zp_clobbers" || stmt->dir.name == "zp_release") {
                 // .zp_uses $03, $04, $05   — ZP slots read as parameters
                 // .zp_clobbers $03, $04    — ZP slots written by this function
@@ -1384,51 +1391,51 @@ void AssemblerParser::emitMod32Code(std::vector<uint8_t>& binary, bool isSigned,
 }
 
 void AssemblerParser::emitLDA_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP);
     AssemblerSimulatedOps::emitLDA_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitSTA_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP);
     AssemblerSimulatedOps::emitSTA_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitLDAX_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP);
     AssemblerSimulatedOps::emitLDAX_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitSTAX_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP);
     AssemblerSimulatedOps::emitSTAX_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitLDAY_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP);
     AssemblerSimulatedOps::emitLDAY_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitSTAY_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP);
     AssemblerSimulatedOps::emitSTAY_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitLDAZ_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP);
     AssemblerSimulatedOps::emitLDAZ_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitSTAZ_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP);
     AssemblerSimulatedOps::emitSTAZ_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitLDAXYZ_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP);
     AssemblerSimulatedOps::emitLDAXYZ_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitSTAXYZ_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP);
     AssemblerSimulatedOps::emitSTAXYZ_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitLEAX_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP);
     AssemblerSimulatedOps::emitLEAX_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitMOVE_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP);
     AssemblerSimulatedOps::emitMOVE_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitBFExtCode(std::vector<uint8_t>& binary, bool is16, int tokenIndex, const std::string& scopePrefix) {
