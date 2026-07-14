@@ -3364,7 +3364,6 @@ void AssemblerSimulatedOps::dispatch_StructElem(AssemblerParser* p, M65Emitter& 
             }
         } else {
             std::string destSymName = destOperandStr;
-            bool isZP = (!destSymName.empty() && destSymName[0] == '$');
             Symbol* destSym = p->resolveSymbol(destSymName, s->scopePrefix);
             uint32_t destAddr = 0;
             if (destSym) destAddr = destSym->value;
@@ -3372,6 +3371,7 @@ void AssemblerSimulatedOps::dispatch_StructElem(AssemblerParser* p, M65Emitter& 
                 try { destAddr = p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix); }
                 catch (...) { destAddr = 0; }
             }
+            bool isZP = (destAddr < 0x100);
             if (isZP) {
                 e.sta_zp(destAddr & 0xFF);
                 e.txa(); e.sta_zp((destAddr + 1) & 0xFF);
