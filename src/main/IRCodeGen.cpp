@@ -178,13 +178,15 @@ void IRCodeGen::loadVreg(uint32_t vregId) {
             break;
         }
         case VRegAllocator::IN_FRAME: {
-            std::string sym = "__vr" + std::to_string(vregId);
-            if (alloc.type == ir::Type::I32) {
-                emit("ldaxyz.fp " + sym, r);
-            } else if (alloc.type == ir::Type::I8) {
-                emit("lda.fp " + sym, r);
-            } else {
-                emit("ldax.fp " + sym, r);
+            if (vregOffset_.count(vregId)) {
+                std::string offset = std::to_string(vregOffset_[vregId]);
+                if (alloc.type == ir::Type::I32) {
+                    emit("ldaxyz.fp " + offset, r);
+                } else if (alloc.type == ir::Type::I8) {
+                    emit("lda.fp " + offset, r);
+                } else {
+                    emit("ldax.fp " + offset, r);
+                }
             }
             break;
         }
@@ -208,7 +210,8 @@ void IRCodeGen::loadVregA(uint32_t vregId) {
             break;
         }
         case VRegAllocator::IN_FRAME:
-            emit("lda.fp __vr" + std::to_string(vregId), r);
+            if (vregOffset_.count(vregId))
+                emit("lda.fp " + std::to_string(vregOffset_[vregId]), r);
             break;
     }
 }
@@ -241,15 +244,17 @@ void IRCodeGen::storeVreg(uint32_t vregId) {
             break;
         }
         case VRegAllocator::IN_FRAME: {
-            std::string sym = "__vr" + std::to_string(vregId);
-            if (alloc.type == ir::Type::I32) {
-                emit("staxyz.fp " + sym);
-            } else if (alloc.type == ir::Type::I8) {
-                emit("sta.fp " + sym);
-            } else if (valueByte_[1] == REG_Z) {
-                emit("staz.fp " + sym);
-            } else {
-                emit("stax.fp " + sym);
+            if (vregOffset_.count(vregId)) {
+                std::string offset = std::to_string(vregOffset_[vregId]);
+                if (alloc.type == ir::Type::I32) {
+                    emit("staxyz.fp " + offset);
+                } else if (alloc.type == ir::Type::I8) {
+                    emit("sta.fp " + offset);
+                } else if (valueByte_[1] == REG_Z) {
+                    emit("staz.fp " + offset);
+                } else {
+                    emit("stax.fp " + offset);
+                }
             }
             break;
         }
@@ -1083,7 +1088,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // This causes incorrect frame offsets that overlap between locals and temporaries.
     vregSizes_ = fn.vregSizes;  // Still need vregSizes for size overrides
 
-    resetFrame();
+    // Don't resetFrame() here — vregOffset_ was already populated by allocator at lines 958-968
     frameAddrZPIndex_ = -1;  // reset for new function
 
     // Allocate frame slots based on ALLOCATOR's decisions only
@@ -1555,7 +1560,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     if (destAlloc.loc == VRegAllocator::IN_FRAME && inst.resultType == ir::Type::I16) {
                         // Direct store to frame via staz.fp — load hi into Z, skip X entirely
                         std::string r = irDesc("val=" + std::to_string(val) + " → direct frame store");
-                        std::string sym = "__vr" + std::to_string(nextInst->src2.vregId);
+                        uint32_t destVregId = nextInst->src2.vregId;
                         uint8_t b0 = val & 0xFF;
                         uint8_t b1 = (val >> 8) & 0xFF;
                         emit("lda #" + std::to_string((int)b0), r);
@@ -1564,7 +1569,15 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         } else {
                             emit("ldz #" + std::to_string((int)b1), r);
                         }
-                        emit("staz.fp " + sym, r);
+                        std::cerr << "DEBUG CONST+STORE: destVregId=" << destVregId << " vregOffset_.size()=" << vregOffset_.size() << " has_entry=" << vregOffset_.count(destVregId) << "\n";
+                        if (vregOffset_.count(destVregId)) {
+                            std::cerr << "  Using offset " << vregOffset_[destVregId] << "\n";
+                            emit("staz.fp " + std::to_string(vregOffset_[destVregId]), r);
+                        } else {
+                            // Fallback to symbolic name if vregOffset not available
+                            std::cerr << "  Using fallback __vr" << destVregId << "\n";
+                            emit("staz.fp __vr" + std::to_string(destVregId), r);
+                        }
                         resultInAX_ = -2;
                         ms_.invalidateAll();
                         break;
@@ -2526,7 +2539,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         vs << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << valAlloc.offset;
                         emit("lda " + vs.str());
                     } else if (valAlloc.loc == VRegAllocator::IN_FRAME) {
-                        emit("lda.fp __vr" + std::to_string(inst.src1.vregId));
+                        if (vregOffset_.count(inst.src1.vregId))
+                            emit("lda.fp " + std::to_string(vregOffset_[inst.src1.vregId]));
                     } else {
                         loadOperand(inst.src1);
                     }
@@ -2642,7 +2656,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                                 vs << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << valAlloc.offset;
                                 emit("lda " + vs.str());
                             } else if (valAlloc.loc == VRegAllocator::IN_FRAME) {
-                                emit("lda.fp __vr" + std::to_string(inst.src1.vregId));
+                                if (vregOffset_.count(inst.src1.vregId))
+                                    emit("lda.fp " + std::to_string(vregOffset_[inst.src1.vregId]));
                             } else {
                                 loadOperand(inst.src1);
                             }
@@ -3187,7 +3202,6 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                             emit("push .ax");
                         }
                         argBytes += ps;
-                        emit(".var _fp = _fp + " + std::to_string(ps));
                     }
                     // For regparm: load first arg into A/AX last
                     if (inst.isRegparm && nArgs > 0) {
@@ -3274,7 +3288,6 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                             emit("push .ax");
                         }
                         argBytes += ps;
-                        emit(".var _fp = _fp + " + std::to_string(ps));
                     }
                     // For regparm: load first arg into A/AX last
                     if (inst.isRegparm && nArgs > 0) {
@@ -3335,7 +3348,6 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         emitLabel(restoreLabel);
                         emit("ldz #0");
                     }
-                    emit(".var _fp = _fp - " + std::to_string(argBytes));
                 }
             }
 
