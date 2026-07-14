@@ -272,23 +272,29 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
     }
 
     for (uint32_t vid : localVidOrder) {
-        // Find this vreg's live range
-        auto it = std::find_if(ranges_.begin(), ranges_.end(),
-            [vid](const LiveRange& lr) { return lr.vregId == vid; });
-        if (it == ranges_.end()) continue;  // No live range for this vreg
-
-        auto& lr = *it;
         if (registerVregs_.count(vid)) continue;        // Skip register vars (handle in phase 2)
 
+        // Find this vreg's live range to get type info
+        auto it = std::find_if(ranges_.begin(), ranges_.end(),
+            [vid](const LiveRange& lr) { return lr.vregId == vid; });
+
+        // Even if no live range, we must allocate frame slot for all locals
+        ir::Type vtype = ir::Type::I16;  // default
+        if (it != ranges_.end()) {
+            vtype = it->type;
+        } else if (fn.vregTypes.count(vid)) {
+            vtype = fn.vregTypes.at(vid);
+        }
+
         // Allocate frame slot for this local variable
-        int fsize = ir::typeSize(lr.type);
+        int fsize = ir::typeSize(vtype);
         if (fsize < 2) fsize = 2;
         if (fn.vregSizes.count(vid)) {
             fsize = fn.vregSizes.at(vid);
         }
 
-        int foff = allocFrameSlot(lr.type, fsize);
-        allocs_[vid] = {VRegAllocator::IN_FRAME, foff, lr.type};
+        int foff = allocFrameSlot(vtype, fsize);
+        allocs_[vid] = {VRegAllocator::IN_FRAME, foff, vtype};
         frameAllocMap[vid] = {foff, fsize};
     }
 
