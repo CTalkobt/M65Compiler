@@ -1445,6 +1445,47 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 // Instruction emission
 // ============================================================================
 
+// Check if frame-relative addressing (.fp pseudo-ops) is used after the current instruction
+bool IRCodeGen::frameAddrUsedAfterCall() const {
+    if (!currentFn_) return false;
+
+    // Look ahead from current position to find frame-relative addressing usage
+    for (size_t bi = currentBlockIdx_; bi < currentFn_->blocks.size(); bi++) {
+        const auto& block = currentFn_->blocks[bi];
+        size_t startIdx = (bi == currentBlockIdx_) ? currentInstInBlock_ + 1 : 0;
+
+        for (size_t ii = startIdx; ii < block.insts.size(); ii++) {
+            const auto& inst = block.insts[ii];
+
+            // Stop at control flow instructions (next call, branch, return)
+            if (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID ||
+                inst.op == ir::Op::CALL_INDIRECT || inst.op == ir::Op::RET ||
+                inst.op == ir::Op::RET_VOID || inst.op == ir::Op::BR ||
+                inst.op == ir::Op::BR_COND) {
+                return false;  // Reached control flow without seeing .fp usage
+            }
+
+            // Check if this instruction uses frame-relative addressing
+            // Look for vregs that are frame-based (positive offset in vregOffset_)
+            if (inst.src1.isVreg() && vregOffset_.count(inst.src1.vregId)) {
+                if (vregOffset_.at(inst.src1.vregId) > 0) return true;  // Frame-based
+            }
+            if (inst.src2.isVreg() && vregOffset_.count(inst.src2.vregId)) {
+                if (vregOffset_.at(inst.src2.vregId) > 0) return true;
+            }
+            if (inst.dest.isVreg() && vregOffset_.count(inst.dest.vregId)) {
+                if (vregOffset_.at(inst.dest.vregId) > 0) return true;
+            }
+            for (const auto& arg : inst.args) {
+                if (arg.isVreg() && vregOffset_.count(arg.vregId)) {
+                    if (vregOffset_.at(arg.vregId) > 0) return true;
+                }
+            }
+        }
+    }
+    return false;  // No frame usage found after the call
+}
+
 void IRCodeGen::emitInst(const ir::Inst& inst) {
     // Reset value-role tracking for each new instruction
     clearValueRoles();
@@ -3307,9 +3348,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     emit("jsr $0000");
                 }
 
-                // Recalculate frame pointer after JSR (SP may have changed)
-                // FP must be re-initialized from current SP for .fp addressing to work correctly
-                if (useStackParams_) {
+                // Only recalculate frame pointer if frame-relative addressing is used after this call
+                if (useStackParams_ && frameAddrUsedAfterCall()) {
                     // Save return value (AX) on stack before recalculating frame pointer
                     emit("phx");  // Push X (high byte)
                     emit("pha");  // Push A (low byte)

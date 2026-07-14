@@ -49,6 +49,9 @@ private:
     void emitFunction(const ir::Function& fn, bool relocMode, bool isMainWithZPSave = false);
     void emitInst(const ir::Inst& inst);
 
+    // Check if frame-relative addressing is used after the current instruction
+    bool frameAddrUsedAfterCall() const;
+
     // vReg frame slot management (per-function)
     std::map<uint32_t, int> vregOffset_;  // vregId → frame offset
     std::map<uint32_t, ir::Type> vregType_; // vregId → type
