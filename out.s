@@ -67,9 +67,9 @@ _r:
 ; .debug_var: __add_short @_p_b offset=12 size=2 type=int16 scope=parameter
 
     ldax.fp @_p_a
-    stax.fp 4
+    stax.fp __vr0
     ldax.fp @_p_b
-    stax.fp 6
+    stax.fp __vr1
 @entry:
     .loc "src/test-resources/test_short.c", 8
     ldax.fp 6
@@ -124,9 +124,9 @@ _r:
 ; .debug_var: __mul_short @_p_b offset=12 size=2 type=int16 scope=parameter
 
     ldax.fp @_p_a
-    stax.fp 4
+    stax.fp __vr0
     ldax.fp @_p_b
-    stax.fp 6
+    stax.fp __vr1
 @entry:
     .loc "src/test-resources/test_short.c", 12
     ldax.fp 6
@@ -206,7 +206,7 @@ _r:
     .loc "src/test-resources/test_short.c", 16
     lda #10
     ldz #0
-    staz.fp 10
+    staz.fp __vr0
     .loc "src/test-resources/test_short.c", 17
     .loc "src/test-resources/test_short.c", 18
     lda #20
@@ -236,7 +236,7 @@ _r:
     stx $21
     lda $20
     ldx $21
-    stax.fp 14
+    stax.fp __vr4
     .loc "src/test-resources/test_short.c", 19
     .loc "src/test-resources/test_short.c", 20
     lda $0C
@@ -297,7 +297,7 @@ _r:
     stx $21
     lda $20
     ldx $21
-    stax.fp 8
+    stax.fp __vr18
     ldax.fp 14
     sta $20
     .loc "src/test-resources/test_short.c", 23

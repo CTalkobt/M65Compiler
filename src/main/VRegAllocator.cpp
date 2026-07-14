@@ -1,5 +1,6 @@
 #include "VRegAllocator.hpp"
 #include <algorithm>
+#include <iostream>
 
 // ============================================================================
 // Flatten function instructions into linear sequence
@@ -262,14 +263,30 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
 
     // PHASE 1: Pre-allocate frame slots for non-register local variables
     // This prevents temporaries from using frame slots that should belong to locals
-    // Process locals first to ensure they get the first frame slots
+    // Process locals in declaration order first (parameters, then locals from localNames)
     std::vector<uint32_t> localVidOrder;
-    for (const auto& [name, vid] : fn.localNames) {
-        localVidOrder.push_back(vid);
-    }
     for (uint32_t i = 0; i < paramCount; i++) {
         localVidOrder.push_back(i);
     }
+    for (const auto& [name, vid] : fn.localNames) {
+        localVidOrder.push_back(vid);
+    }
+
+    // Sort non-array locals before array locals to pack small objects first
+    // This prevents temporaries from being allocated between small and large locals
+    std::stable_sort(localVidOrder.begin() + paramCount, localVidOrder.end(),
+        [&fn](uint32_t a, uint32_t b) {
+            bool aIsArray = fn.vregSizes.count(a) > 0;
+            bool bIsArray = fn.vregSizes.count(b) > 0;
+            if (aIsArray != bIsArray) return !aIsArray;  // non-arrays before arrays
+            if (aIsArray && bIsArray) {
+                // Both arrays: sort by size, smaller first
+                int aSize = fn.vregSizes.at(a);
+                int bSize = fn.vregSizes.at(b);
+                return aSize < bSize;
+            }
+            return false;  // maintain original order for non-arrays
+        });
 
     for (uint32_t vid : localVidOrder) {
         if (registerVregs_.count(vid)) continue;        // Skip register vars (handle in phase 2)
@@ -278,12 +295,12 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
         auto it = std::find_if(ranges_.begin(), ranges_.end(),
             [vid](const LiveRange& lr) { return lr.vregId == vid; });
 
-        // Even if no live range, we must allocate frame slot for all locals
+        // Determine type: prefer explicit type info, fall back to live range type
         ir::Type vtype = ir::Type::I16;  // default
-        if (it != ranges_.end()) {
-            vtype = it->type;
-        } else if (fn.vregTypes.count(vid)) {
+        if (fn.vregTypes.count(vid)) {
             vtype = fn.vregTypes.at(vid);
+        } else if (it != ranges_.end()) {
+            vtype = it->type;
         }
 
         // Allocate frame slot for this local variable
