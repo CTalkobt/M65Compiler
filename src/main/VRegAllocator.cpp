@@ -260,7 +260,48 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
     for (const auto& [name, vid] : fn.localNames) localVarVregs.insert(vid);
     for (uint32_t i = 0; i < paramCount; i++) localVarVregs.insert(i);
 
+    // PHASE 1: Pre-allocate frame slots for non-register local variables
+    // This prevents temporaries from using frame slots that should belong to locals
+    // Process locals first to ensure they get the first frame slots
+    std::vector<uint32_t> localVidOrder;
+    for (const auto& [name, vid] : fn.localNames) {
+        localVidOrder.push_back(vid);
+    }
+    for (uint32_t i = 0; i < paramCount; i++) {
+        localVidOrder.push_back(i);
+    }
+
+    for (uint32_t vid : localVidOrder) {
+        // Find this vreg's live range
+        auto it = std::find_if(ranges_.begin(), ranges_.end(),
+            [vid](const LiveRange& lr) { return lr.vregId == vid; });
+        if (it == ranges_.end()) continue;  // No live range for this vreg
+
+        auto& lr = *it;
+        if (registerVregs_.count(vid)) continue;        // Skip register vars (handle in phase 2)
+
+        // Allocate frame slot for this local variable
+        int fsize = ir::typeSize(lr.type);
+        if (fsize < 2) fsize = 2;
+        if (fn.vregSizes.count(vid)) {
+            fsize = fn.vregSizes.at(vid);
+        }
+
+        int foff = allocFrameSlot(lr.type, fsize);
+        allocs_[vid] = {VRegAllocator::IN_FRAME, foff, lr.type};
+        frameAllocMap[vid] = {foff, fsize};
+    }
+
+    // PHASE 2: Allocate temporaries and register variables
     for (auto& lr : ranges_) {
+        // Skip if already allocated in phase 1
+        if (allocs_.count(lr.vregId)) continue;
+
+        // Skip non-register locals — they were pre-allocated in phase 1
+        if (localVarVregs.count(lr.vregId) && !registerVregs_.count(lr.vregId)) {
+            continue;  // Skip non-register locals
+        }
+
         int span = lr.lastUse - lr.firstDef;
 
         // Expire ZP and frame slots for temporaries whose live ranges have ended.

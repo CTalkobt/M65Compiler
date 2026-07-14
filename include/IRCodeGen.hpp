@@ -56,8 +56,6 @@ private:
     int labelCounter_ = 0;
 
     void resetFrame();
-    int allocSlot(uint32_t vregId, ir::Type type);
-    int slotOf(uint32_t vregId);
 
     // ZP allocator for frame address tracking
     struct ZPReg { bool inUse = false; };
@@ -95,8 +93,6 @@ private:
     void emitArrayElemAddr(const std::string& baseStr, const ir::Operand& indexOp, int stride,
                            const std::string& destZP = "");
 
-    // Pre-scan a function to allocate frame slots for all vRegs
-    void prescanFunction(const ir::Function& fn);
 
     // String pool
     std::map<std::string, std::string> stringPool_;

@@ -119,65 +119,6 @@ void IRCodeGen::resetFrame() {
     frameSize_ = 0;
 }
 
-int IRCodeGen::allocSlot(uint32_t vregId, ir::Type type) {
-    auto it = vregOffset_.find(vregId);
-    if (it != vregOffset_.end()) return it->second;
-    int size = ir::typeSize(type);
-    // Check for array override size
-    auto sit = vregSizes_.find(vregId);
-    if (sit != vregSizes_.end()) size = sit->second;
-    if (size < 2) size = 2; // minimum 2 bytes per slot for stack alignment
-    int offset = frameSize_;
-    frameSize_ += size;
-    vregOffset_[vregId] = offset;
-    vregType_[vregId] = type;
-    return offset;
-}
-
-int IRCodeGen::slotOf(uint32_t vregId) {
-    auto it = vregOffset_.find(vregId);
-    if (it != vregOffset_.end()) return it->second;
-    return allocSlot(vregId, ir::Type::I16);
-}
-
-void IRCodeGen::prescanFunction(const ir::Function& fn) {
-    resetFrame();
-    vregSizes_ = fn.vregSizes; // Must set before allocSlot calls (struct/array size overrides)
-    ir::Function& mutableFn = const_cast<ir::Function&>(fn);
-    mutableFn.vregOffsets.clear();
-
-    // 1. Allocate static link first if it exists
-    if (fn.isNested && fn.staticLinkVreg != -1) {
-        int off = allocSlot(fn.staticLinkVreg, ir::Type::PTR);
-        mutableFn.vregOffsets[fn.staticLinkVreg] = off;
-    }
-
-    // 2. Allocate all named variables (locals and parameters)
-    for (const auto& [name, vid] : fn.localNames) {
-        if (mutableFn.vregOffsets.count(vid)) continue;
-
-        ir::Type t = ir::Type::I16;
-        if (fn.vregTypes.count(vid)) {
-            t = fn.vregTypes.at(vid);
-        }
-
-        int off = allocSlot(vid, t);
-        mutableFn.vregOffsets[vid] = off;
-    }
-
-    // 3. Scan all instructions for any other vReg definitions (temporaries)
-    for (const auto& block : fn.blocks) {
-        for (const auto& inst : block.insts) {
-            if (inst.dest.isVreg()) {
-                uint32_t vid = inst.dest.vregId;
-                if (mutableFn.vregOffsets.count(vid)) continue;
-                
-                int off = allocSlot(vid, inst.resultType != ir::Type::VOID ? inst.resultType : ir::Type::I16);
-                mutableFn.vregOffsets[vid] = off;
-            }
-        }
-    }
-}
 
 // ============================================================================
 // Load/store vRegs via frame pointer
@@ -1007,10 +948,26 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     alloc_.setRegisterVregs(fn.registerVregs);
     alloc_.analyze(fn);
 
+    // Populate vregOffset_ from allocator decisions (frame-allocated vregs only)
+    // This prevents IRCodeGen from re-allocating frame slots that VRegAllocator already assigned
+    vregOffset_.clear();
+    vregType_.clear();
+    vregSizes_ = fn.vregSizes;
+
+    for (uint32_t vid = 0; vid < fn.nextVreg; vid++) {
+        auto alloc = alloc_.getAlloc(vid);
+        if (alloc.loc == VRegAllocator::IN_FRAME) {
+            vregOffset_[vid] = alloc.offset;
+            vregType_[vid] = alloc.type;
+        }
+    }
+
+    // Set frameSize from allocator (which computed optimal frame layout)
+    frameSize_ = alloc_.frameSize();
+
     // Copy local slot info from IR function
     localSlotVregs_ = fn.localSlotVregs;
     vregConstVal_.clear();
-    vregSizes_ = fn.vregSizes;
 
     // Pre-scan: identify CONST vregs and detect which are only used as
     // STORE addresses. These can be suppressed (no emit, no frame slot)
@@ -1131,31 +1088,8 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     // Allocate frame slots based on ALLOCATOR's decisions only
     // First: allocate named locals and parameters in localNames order (deterministic)
-    std::set<uint32_t> localVregs;
-    for (const auto& [name, vid] : fn.localNames) localVregs.insert(vid);
-
-    for (const auto& [name, vid] : fn.localNames) {
-        if (suppressedVregs_.count(vid)) continue;
-        auto alloc = alloc_.getAlloc(vid);
-        // Locals MUST be allocated to frame only (VRegAllocator enforces this with isLocal check)
-        // Bug #183 fix: Only call allocSlot if allocator decided IN_FRAME
-        if (alloc.loc == VRegAllocator::IN_FRAME) {
-            allocSlot(vid, alloc.type);
-        }
-    }
-
-    // Second: allocate remaining frame vRegs (temporaries) in live-range order
-    // They are placed AFTER locals in frame, preventing overlaps
-    for (const auto& lr : alloc_.liveRanges()) {
-        if (suppressedVregs_.count(lr.vregId)) continue;
-        if (vregOffset_.count(lr.vregId)) continue; // already allocated above (local)
-        if (localVregs.count(lr.vregId)) continue; // skip locals
-
-        auto alloc = alloc_.getAlloc(lr.vregId);
-        if (alloc.loc == VRegAllocator::IN_FRAME) {
-            allocSlot(lr.vregId, alloc.type);
-        }
-    }
+    // All frame allocations are now handled by VRegAllocator
+    // vregOffset_ was already populated above, no need for allocSlot calls
 
     // Allocate a dedicated ZP slot for frame address (2 bytes) if function has frame
     // This prevents leax.fp results from being clobbered by intermediate operations
@@ -2916,13 +2850,13 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         emit("leax.fp " + std::to_string(offset));
                     }
                 } else {
-                    // Fallback: allocate now (ensures consistency for first-use)
+                    // Get allocation from VRegAllocator (should have already allocated)
                     auto alloc = alloc_.getAlloc(inst.src1.vregId);
                     if (alloc.loc == VRegAllocator::IN_ZP) {
                         emit("lda #" + std::to_string(alloc.offset));
                         emit("ldx #0");
-                    } else {
-                        int offset = allocSlot(inst.src1.vregId, alloc.type);
+                    } else if (alloc.loc == VRegAllocator::IN_FRAME) {
+                        int offset = alloc.offset;
                         if (frameAddrZPIndex_ >= 0 && offset == 0) {
                             // Use cached frame address
                             std::string frameAddrZP = zpAddr(frameAddrZPIndex_);
@@ -2931,6 +2865,9 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         } else {
                             emit("leax.fp " + std::to_string(offset));
                         }
+                    } else {
+                        // Should not reach here - VRegAllocator should have allocated
+                        emit("; ERROR: vreg not allocated");
                     }
                 }
             } else {

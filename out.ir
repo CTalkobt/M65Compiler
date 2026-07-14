@@ -1,0 +1,139 @@
+; Module: src/test-resources/test_array_init.c
+
+fn _main() -> void {
+@entry:
+  %1 = addr_local %0 ; src/test-resources/test_array_init.c:20
+  %2 = const i16 170 ; src/test-resources/test_array_init.c:20
+  nop ptr _ ; src/test-resources/test_array_init.c:20
+  store i8 %2, %3 ; src/test-resources/test_array_init.c:20
+  %4 = const i16 187 ; src/test-resources/test_array_init.c:20
+  nop ptr _ ; src/test-resources/test_array_init.c:20
+  store i8 %4, %5 ; src/test-resources/test_array_init.c:20
+  %6 = const i16 204 ; src/test-resources/test_array_init.c:20
+  nop ptr _ ; src/test-resources/test_array_init.c:20
+  store i8 %6, %7 ; src/test-resources/test_array_init.c:20
+  %9 = addr_local %8 ; src/test-resources/test_array_init.c:21
+  %10 = const i16 1000 ; src/test-resources/test_array_init.c:21
+  nop ptr _ ; src/test-resources/test_array_init.c:21
+  store i16 %10, %11 ; src/test-resources/test_array_init.c:21
+  %12 = const i16 2000 ; src/test-resources/test_array_init.c:21
+  nop ptr _ ; src/test-resources/test_array_init.c:21
+  store i16 %12, %13 ; src/test-resources/test_array_init.c:21
+  %14 = const i16 0 ; src/test-resources/test_array_init.c:24
+  nop ptr _ ; src/test-resources/test_array_init.c:24
+  %16 = load i8 %15 ; src/test-resources/test_array_init.c:24
+  %17 = load ptr @_result ; src/test-resources/test_array_init.c:24
+  %18 = const i16 0 ; src/test-resources/test_array_init.c:24
+  nop ptr _ ; src/test-resources/test_array_init.c:24
+  store i8 %16, %19 ; src/test-resources/test_array_init.c:24
+  %20 = const i16 3 ; src/test-resources/test_array_init.c:25
+  nop ptr _ ; src/test-resources/test_array_init.c:25
+  %22 = load i8 %21 ; src/test-resources/test_array_init.c:25
+  %23 = load ptr @_result ; src/test-resources/test_array_init.c:25
+  %24 = const i16 1 ; src/test-resources/test_array_init.c:25
+  nop ptr _ ; src/test-resources/test_array_init.c:25
+  store i8 %22, %25 ; src/test-resources/test_array_init.c:25
+  %26 = const i16 0 ; src/test-resources/test_array_init.c:28
+  nop ptr _ ; src/test-resources/test_array_init.c:28
+  %28 = load i16 %27 ; src/test-resources/test_array_init.c:28
+  %29 = trunc i8 %28
+  %30 = load ptr @_result ; src/test-resources/test_array_init.c:28
+  %31 = const i16 2 ; src/test-resources/test_array_init.c:28
+  nop ptr _ ; src/test-resources/test_array_init.c:28
+  store i8 %29, %32 ; src/test-resources/test_array_init.c:28
+  %33 = const i16 2 ; src/test-resources/test_array_init.c:29
+  nop ptr _ ; src/test-resources/test_array_init.c:29
+  %35 = load i16 %34 ; src/test-resources/test_array_init.c:29
+  %36 = trunc i8 %35
+  %37 = load ptr @_result ; src/test-resources/test_array_init.c:29
+  %38 = const i16 3 ; src/test-resources/test_array_init.c:29
+  nop ptr _ ; src/test-resources/test_array_init.c:29
+  store i8 %36, %39 ; src/test-resources/test_array_init.c:29
+  %40 = const i16 0 ; src/test-resources/test_array_init.c:32
+  nop ptr _ ; src/test-resources/test_array_init.c:32
+  %42 = load i16 %41 ; src/test-resources/test_array_init.c:32
+  %43 = trunc i8 %42
+  %44 = load ptr @_result ; src/test-resources/test_array_init.c:32
+  %45 = const i16 4 ; src/test-resources/test_array_init.c:32
+  nop ptr _ ; src/test-resources/test_array_init.c:32
+  store i8 %43, %46 ; src/test-resources/test_array_init.c:32
+  %47 = const i16 1 ; src/test-resources/test_array_init.c:33
+  nop ptr _ ; src/test-resources/test_array_init.c:33
+  %49 = load i16 %48 ; src/test-resources/test_array_init.c:33
+  %50 = trunc i8 %49
+  %51 = load ptr @_result ; src/test-resources/test_array_init.c:33
+  %52 = const i16 5 ; src/test-resources/test_array_init.c:33
+  nop ptr _ ; src/test-resources/test_array_init.c:33
+  store i8 %50, %53 ; src/test-resources/test_array_init.c:33
+  %54 = const i16 2 ; src/test-resources/test_array_init.c:36
+  nop ptr _ ; src/test-resources/test_array_init.c:36
+  %56 = load i16 %55 ; src/test-resources/test_array_init.c:36
+  %57 = trunc i8 %56
+  %58 = load ptr @_result ; src/test-resources/test_array_init.c:36
+  %59 = const i16 6 ; src/test-resources/test_array_init.c:36
+  nop ptr _ ; src/test-resources/test_array_init.c:36
+  store i8 %57, %60 ; src/test-resources/test_array_init.c:36
+  %61 = const i16 4 ; src/test-resources/test_array_init.c:37
+  nop ptr _ ; src/test-resources/test_array_init.c:37
+  %63 = load i16 %62 ; src/test-resources/test_array_init.c:37
+  %64 = trunc i8 %63
+  %65 = load ptr @_result ; src/test-resources/test_array_init.c:37
+  %66 = const i16 7 ; src/test-resources/test_array_init.c:37
+  nop ptr _ ; src/test-resources/test_array_init.c:37
+  store i8 %64, %67 ; src/test-resources/test_array_init.c:37
+  %68 = const i16 0 ; src/test-resources/test_array_init.c:40
+  nop ptr _ ; src/test-resources/test_array_init.c:40
+  %70 = load i8 %69 ; src/test-resources/test_array_init.c:40
+  %71 = load ptr @_result ; src/test-resources/test_array_init.c:40
+  %72 = const i16 8 ; src/test-resources/test_array_init.c:40
+  nop ptr _ ; src/test-resources/test_array_init.c:40
+  store i8 %70, %73 ; src/test-resources/test_array_init.c:40
+  %74 = const i16 2 ; src/test-resources/test_array_init.c:41
+  nop ptr _ ; src/test-resources/test_array_init.c:41
+  %76 = load i8 %75 ; src/test-resources/test_array_init.c:41
+  %77 = load ptr @_result ; src/test-resources/test_array_init.c:41
+  %78 = const i16 9 ; src/test-resources/test_array_init.c:41
+  nop ptr _ ; src/test-resources/test_array_init.c:41
+  store i8 %76, %79 ; src/test-resources/test_array_init.c:41
+  %80 = addr_local %0 ; src/test-resources/test_array_init.c:44
+  %81 = const i16 0 ; src/test-resources/test_array_init.c:44
+  nop ptr _ ; src/test-resources/test_array_init.c:44
+  %83 = load i8 %82 ; src/test-resources/test_array_init.c:44
+  %84 = load ptr @_result ; src/test-resources/test_array_init.c:44
+  %85 = const i16 10 ; src/test-resources/test_array_init.c:44
+  nop ptr _ ; src/test-resources/test_array_init.c:44
+  store i8 %83, %86 ; src/test-resources/test_array_init.c:44
+  %87 = addr_local %0 ; src/test-resources/test_array_init.c:45
+  %88 = const i16 2 ; src/test-resources/test_array_init.c:45
+  nop ptr _ ; src/test-resources/test_array_init.c:45
+  %90 = load i8 %89 ; src/test-resources/test_array_init.c:45
+  %91 = load ptr @_result ; src/test-resources/test_array_init.c:45
+  %92 = const i16 11 ; src/test-resources/test_array_init.c:45
+  nop ptr _ ; src/test-resources/test_array_init.c:45
+  store i8 %90, %93 ; src/test-resources/test_array_init.c:45
+  %94 = addr_local %8 ; src/test-resources/test_array_init.c:48
+  %95 = const i16 0 ; src/test-resources/test_array_init.c:48
+  nop ptr _ ; src/test-resources/test_array_init.c:48
+  %97 = load i16 %96 ; src/test-resources/test_array_init.c:48
+  %98 = trunc i8 %97
+  %99 = load ptr @_result ; src/test-resources/test_array_init.c:48
+  %100 = const i16 12 ; src/test-resources/test_array_init.c:48
+  nop ptr _ ; src/test-resources/test_array_init.c:48
+  store i8 %98, %101 ; src/test-resources/test_array_init.c:48
+  %102 = addr_local %8 ; src/test-resources/test_array_init.c:49
+  %103 = const i16 1 ; src/test-resources/test_array_init.c:49
+  nop ptr _ ; src/test-resources/test_array_init.c:49
+  %105 = load i16 %104 ; src/test-resources/test_array_init.c:49
+  %106 = trunc i8 %105
+  %107 = load ptr @_result ; src/test-resources/test_array_init.c:49
+  %108 = const i16 13 ; src/test-resources/test_array_init.c:49
+  nop ptr _ ; src/test-resources/test_array_init.c:49
+  store i8 %106, %109 ; src/test-resources/test_array_init.c:49
+  %110 = const i8 255 ; src/test-resources/test_array_init.c:52
+  %111 = load ptr @_result ; src/test-resources/test_array_init.c:52
+  %112 = const i16 14 ; src/test-resources/test_array_init.c:52
+  nop ptr _ ; src/test-resources/test_array_init.c:52
+  store i8 %110, %113 ; src/test-resources/test_array_init.c:52
+  ret void
+}
+
