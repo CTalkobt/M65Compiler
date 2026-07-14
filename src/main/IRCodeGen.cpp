@@ -1193,14 +1193,17 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // This maintains the frame pointer for use by inline assembly or future optimizations.
     useStackParams_ = !zpCallMode_ || fn.isVariadic;
     if (useStackParams_) {
-        emit("tsx");
-        emit("txa");
-        emit("clc");
-        emit("adc #1");
-        emit("sta $FD");
-        emit("lda #$01");
-        emit("adc #0");
-        emit("sta $FE");
+        // Calculate frame pointer: SPL + 1
+        // Using TSY/TSX/INX is more efficient than TSX/TXA/ADC
+        emit("tsy");           // SPH → Y
+        emit("tsx");           // SPL → X
+        emit("inx");           // X = SPL + 1 (sets carry if wrapped)
+        std::string noCarryLabel = "@__fp_no_carry_" + std::to_string(labelCounter_++);
+        emit("bne " + noCarryLabel);  // Skip if X != 0 (no carry)
+        emit("iny");           // If carry, increment Y (SPH)
+        emitLabel(noCarryLabel);
+        emit("stx $FD");       // Store low byte
+        emit("sty $FE");       // Store high byte
         emit(".frameptr_zp $FD");
     }
 
@@ -3307,17 +3310,21 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 // Recalculate frame pointer after JSR (SP may have changed)
                 // FP must be re-initialized from current SP for .fp addressing to work correctly
                 if (useStackParams_) {
-                    // Save return value (AX) on stack before overwriting A with SP
+                    // Save return value (AX) on stack before recalculating frame pointer
                     emit("phx");  // Push X (high byte)
                     emit("pha");  // Push A (low byte)
-                    emit("tsx");
-                    emit("txa");
-                    emit("clc");
-                    emit("adc #1");
-                    emit("sta $FD");
-                    emit("lda #$01");
-                    emit("adc #0");
-                    emit("sta $FE");
+
+                    // Recalculate frame pointer: SPL + 1 using efficient TSY/TSX/INX
+                    emit("tsy");           // SPH → Y
+                    emit("tsx");           // SPL → X
+                    emit("inx");           // X = SPL + 1 (sets carry if wrapped)
+                    std::string noCarryLabel = "@__fp_no_carry_" + std::to_string(labelCounter_++);
+                    emit("bne " + noCarryLabel);  // Skip if X != 0 (no carry)
+                    emit("iny");           // If carry, increment Y (SPH)
+                    emitLabel(noCarryLabel);
+                    emit("stx $FD");       // Store low byte
+                    emit("sty $FE");       // Store high byte
+
                     // Restore return value from stack
                     emit("pla");  // Pop A (low byte)
                     emit("plx");  // Pop X (high byte)
