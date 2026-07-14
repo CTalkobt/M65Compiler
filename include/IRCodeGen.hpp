@@ -62,6 +62,7 @@ private:
     std::vector<ZPReg> zpRegs_;
     uint32_t zeroPageAvail_ = 248;  // Available ZP space (usually $08-$FF)
     int frameAddrZPIndex_ = -1;  // allocated ZP index for frame address (2 bytes), -1 if not allocated
+    bool frameAddrCacheValid_ = true;  // Frame pointer cache valid flag (invalidated after function calls)
 
     int allocateZP(int size);
     void freeZP(int index, int size);

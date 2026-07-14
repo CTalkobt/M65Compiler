@@ -1100,6 +1100,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         frameAddrZPIndex_ = allocateZP(2);
     }
 
+    frameAddrCacheValid_ = true;  // Initialize cache validity for new function
     currentInstIdx_ = 0;
 
     // __naked: emit only proc label + body + endproc, no prologue/epilogue
@@ -3348,6 +3349,31 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 }
             }
 
+            // Invalidate frame pointer cache after function calls
+            // Stack pointer temporarily changes during call handling (save return value, etc.)
+            // BUT: Skip invalidation for terminal leaf functions with no parameters
+            // (they don't push anything, so stack pointer never changes)
+            if (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID || inst.op == ir::Op::CALL_INDIRECT) {
+                bool shouldInvalidate = true;
+
+                // For direct calls, check if it's a terminal leaf with no parameters
+                if (inst.src1.kind == ir::OperandKind::GLOBAL && functionMap_) {
+                    auto it = functionMap_->find(inst.src1.name);
+                    if (it != functionMap_->end()) {
+                        const ir::Function* calledFn = it->second;
+                        // Check: no parameters + no calls made (leaf function)
+                        FuncClobbers clobbers = computeFuncClobbers(*calledFn);
+                        if (calledFn->paramTypes.empty() && clobbers.isLeaf) {
+                            shouldInvalidate = false;  // No stack changes for terminal leaf with no params
+                        }
+                    }
+                }
+
+                if (shouldInvalidate) {
+                    frameAddrCacheValid_ = false;
+                }
+            }
+
             // Phase 2: Selective register invalidation (fine-grained clobber tracking)
             // Instead of invalidating all registers, only invalidate those the function actually clobbers
             if (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID || inst.op == ir::Op::CALL_INDIRECT) {
@@ -3691,10 +3717,13 @@ std::string IRCodeGen::zpAddr(int index) const {
     return ss.str();
 }
 
-// Load frame address into A:X, either from cache or compute it
-// If frameAddrZPIndex_ >= 0, load from cached slot; otherwise compute leax.fp 0
+// Load frame address into A:X, either from cache or use leax.fp pseudo-instruction
+// If frameAddrZPIndex_ >= 0 and cache is valid, load from allocated ZP slot
+// Otherwise use leax.fp which references the cached value in $FD/$FE (for stack params)
+// or recalculates fresh (for zpCall mode)
 void IRCodeGen::loadFrameAddr(int offset) {
-    if (frameAddrZPIndex_ >= 0) {
+    if (frameAddrZPIndex_ >= 0 && frameAddrCacheValid_) {
+        // Use cached frame pointer from allocated ZP slot (valid before any function calls)
         std::string frameAddrZP = zpAddr(frameAddrZPIndex_);
         if (offset == 0) {
             emit("lda " + frameAddrZP);
@@ -3711,6 +3740,10 @@ void IRCodeGen::loadFrameAddr(int offset) {
             emit("pla");
         }
     } else {
+        // Cache is invalid (after function calls)
+        // Use leax.fp pseudo-instruction which handles both:
+        // - Stack mode: uses recalculated $FD/$FE from return value handling
+        // - ZpCall mode: computes fresh from current stack pointer
         if (offset == 0) {
             emit("leax.fp 0");
         } else {
