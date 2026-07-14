@@ -3277,7 +3277,15 @@ void AssemblerSimulatedOps::emitLoadAddrConst(AssemblerParser* parser, M65Emitte
 void AssemblerSimulatedOps::dispatch_StructElem(AssemblerParser* p, M65Emitter& e, Stmt* s) {
     int idx = s->exprTokenIndex;
     if (idx < 0 || idx >= (int)p->tokens.size()) return;
-    
+
+    // Extract the actual destination operand from the token (not from s->instr.operand which is just 'EXPR')
+    std::string destOperandStr;
+    if (s->instr.operandTokenIndex >= 0 && s->instr.operandTokenIndex < (int)p->tokens.size()) {
+        destOperandStr = p->tokens[s->instr.operandTokenIndex].value;
+    } else {
+        destOperandStr = s->instr.operand;  // Fallback to stored operand if token index invalid
+    }
+
     bool baseIsReg = false;
     std::string baseRegName;
     int idxBaseStart = idx;
@@ -3340,7 +3348,7 @@ void AssemblerSimulatedOps::dispatch_StructElem(AssemblerParser* p, M65Emitter& 
         }
     }
     
-    std::string DEST = s->instr.operand;
+    std::string DEST = destOperandStr;
     if (!DEST.empty() && DEST[0] != '.') DEST = "." + DEST;
     std::transform(DEST.begin(), DEST.end(), DEST.begin(), ::toupper);
     if (DEST != ".AX") {
@@ -3355,7 +3363,7 @@ void AssemblerSimulatedOps::dispatch_StructElem(AssemblerParser* p, M65Emitter& 
                 e.stx_scratch(); e.sta_stack(destOffset); e.lda_scratch(); e.sta_stack(destOffset + 1);
             }
         } else {
-            std::string destSymName = s->instr.operand;
+            std::string destSymName = destOperandStr;
             bool isZP = (!destSymName.empty() && destSymName[0] == '$');
             Symbol* destSym = p->resolveSymbol(destSymName, s->scopePrefix);
             uint32_t destAddr = 0;
