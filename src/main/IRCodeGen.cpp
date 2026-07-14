@@ -1569,13 +1569,10 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         } else {
                             emit("ldz #" + std::to_string((int)b1), r);
                         }
-                        std::cerr << "DEBUG CONST+STORE: destVregId=" << destVregId << " vregOffset_.size()=" << vregOffset_.size() << " has_entry=" << vregOffset_.count(destVregId) << "\n";
                         if (vregOffset_.count(destVregId)) {
-                            std::cerr << "  Using offset " << vregOffset_[destVregId] << "\n";
                             emit("staz.fp " + std::to_string(vregOffset_[destVregId]), r);
                         } else {
                             // Fallback to symbolic name if vregOffset not available
-                            std::cerr << "  Using fallback __vr" << destVregId << "\n";
                             emit("staz.fp __vr" + std::to_string(destVregId), r);
                         }
                         resultInAX_ = -2;
