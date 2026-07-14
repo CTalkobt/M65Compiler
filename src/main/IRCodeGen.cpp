@@ -1183,8 +1183,13 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     }
     if (localFrameSize > 0) {
         emitComment("frame: " + std::to_string(localFrameSize) + " bytes (frame-allocated vRegs only)");
-        for (int i = 0; i < localFrameSize; i += 2) {
+        // Push frame in 2-byte chunks; if odd size, push final byte separately
+        for (int i = 0; i < localFrameSize - 1; i += 2) {
             emit("phw #0");
+        }
+        if (localFrameSize % 2 == 1) {
+            emit("lda #0");
+            emit("pha");  // Push final odd byte
         }
     }
 
