@@ -740,5 +740,69 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         }
     }
 
+    // Emit debug symbols option (OPT_DEBUG_SYMBOLS)
+    const auto& procedures = parser.getProcedures();
+    if (!procedures.empty()) {
+        std::vector<uint8_t> payload;
+
+        // Count total procedures (as header)
+        uint16_t procCount = (uint16_t)procedures.size();
+        payload.push_back((uint8_t)(procCount & 0xFF));
+        payload.push_back((uint8_t)(procCount >> 8));
+
+        // Emit each procedure's debug info
+        for (const auto& [addr, proc] : procedures) {
+            // Keep payload under 253 bytes per option; if it gets too large,
+            // emit current option and start a new one
+
+            // Estimate needed space: name length + param count + (name + 2-byte offset) per param + terminator
+            size_t estimatedSize = proc->name.length() + 1 + 1;  // name + nul + param count
+            for (const auto& [paramName, offset] : proc->localArgs) {
+                estimatedSize += paramName.length() + 1 + 2;  // param name + nul + offset
+            }
+            estimatedSize += 1;  // terminator for this function
+
+            // Flush if adding this function would exceed limit
+            if (!payload.empty() && payload.size() > 2 && payload.size() + estimatedSize > 240) {
+                writer.addOptionRaw(OPT_DEBUG_SYMBOLS, payload);
+                payload.clear();
+                // Re-add count header for continuation
+                payload.push_back((uint8_t)(procCount & 0xFF));
+                payload.push_back((uint8_t)(procCount >> 8));
+            }
+
+            // Emit function name (null-terminated string)
+            for (char c : proc->name) {
+                payload.push_back((uint8_t)c);
+            }
+            payload.push_back(0x00);
+
+            // Emit parameter count
+            uint8_t paramCount = (uint8_t)proc->localArgs.size();
+            payload.push_back(paramCount);
+
+            // Emit each parameter: name (null-terminated) + offset (little-endian 16-bit)
+            for (const auto& [paramName, offset] : proc->localArgs) {
+                for (char c : paramName) {
+                    payload.push_back((uint8_t)c);
+                }
+                payload.push_back(0x00);
+
+                // Encode 16-bit offset (frame-relative address)
+                int16_t signedOffset = (int16_t)offset;
+                payload.push_back((uint8_t)(signedOffset & 0xFF));
+                payload.push_back((uint8_t)((signedOffset >> 8) & 0xFF));
+            }
+
+            // Terminator for this function record (0xFF marks end of params for this function)
+            payload.push_back(0xFF);
+        }
+
+        // Emit final payload
+        if (payload.size() > 2) {  // Only emit if we have more than just the count header
+            writer.addOptionRaw(OPT_DEBUG_SYMBOLS, payload);
+        }
+    }
+
     return writer.emit();
 }
