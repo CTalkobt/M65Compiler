@@ -1,0 +1,431 @@
+{
+  "opcodes": [
+    {
+      "mnemonic": "LDA",
+      "description": "Load Accumulator",
+      "modes": ["#", "zp", "zp,X", "abs", "abs,X", "abs,Y", "(zp,X)", "(zp),Y", "zp,S", "(zp),Y"],
+      "flags": ["N", "Z"],
+      "cycles": "2-5"
+    },
+    {
+      "mnemonic": "LDX",
+      "description": "Load X Register",
+      "modes": ["#", "zp", "zp,Y", "abs", "abs,Y"],
+      "flags": ["N", "Z"],
+      "cycles": "2-4"
+    },
+    {
+      "mnemonic": "LDY",
+      "description": "Load Y Register",
+      "modes": ["#", "zp", "zp,X", "abs", "abs,X"],
+      "flags": ["N", "Z"],
+      "cycles": "2-4"
+    },
+    {
+      "mnemonic": "LDZ",
+      "description": "Load Z Register (45GS02 extension)",
+      "modes": ["#", "zp", "abs"],
+      "flags": ["N", "Z"],
+      "cycles": "2-3"
+    },
+    {
+      "mnemonic": "STA",
+      "description": "Store Accumulator",
+      "modes": ["zp", "zp,X", "abs", "abs,X", "abs,Y", "(zp,X)", "(zp),Y", "zp,S", "(zp)"],
+      "flags": [],
+      "cycles": "3-5"
+    },
+    {
+      "mnemonic": "STX",
+      "description": "Store X Register",
+      "modes": ["zp", "zp,Y", "abs"],
+      "flags": [],
+      "cycles": "3"
+    },
+    {
+      "mnemonic": "STY",
+      "description": "Store Y Register",
+      "modes": ["zp", "zp,X", "abs"],
+      "flags": [],
+      "cycles": "3"
+    },
+    {
+      "mnemonic": "STZ",
+      "description": "Store Zero (45GS02 extension)",
+      "modes": ["zp", "zp,X", "abs", "abs,X"],
+      "flags": [],
+      "cycles": "3-4"
+    },
+    {
+      "mnemonic": "ADC",
+      "description": "Add with Carry",
+      "modes": ["#", "zp", "zp,X", "abs", "abs,X", "abs,Y", "(zp,X)", "(zp),Y"],
+      "flags": ["N", "V", "Z", "C"],
+      "cycles": "2-5"
+    },
+    {
+      "mnemonic": "SBC",
+      "description": "Subtract with Carry",
+      "modes": ["#", "zp", "zp,X", "abs", "abs,X", "abs,Y", "(zp,X)", "(zp),Y"],
+      "flags": ["N", "V", "Z", "C"],
+      "cycles": "2-5"
+    },
+    {
+      "mnemonic": "AND",
+      "description": "Logical AND",
+      "modes": ["#", "zp", "zp,X", "abs", "abs,X", "abs,Y", "(zp,X)", "(zp),Y"],
+      "flags": ["N", "Z"],
+      "cycles": "2-5"
+    },
+    {
+      "mnemonic": "ORA",
+      "description": "Logical OR",
+      "modes": ["#", "zp", "zp,X", "abs", "abs,X", "abs,Y", "(zp,X)", "(zp),Y"],
+      "flags": ["N", "Z"],
+      "cycles": "2-5"
+    },
+    {
+      "mnemonic": "EOR",
+      "description": "Logical XOR",
+      "modes": ["#", "zp", "zp,X", "abs", "abs,X", "abs,Y", "(zp,X)", "(zp),Y"],
+      "flags": ["N", "Z"],
+      "cycles": "2-5"
+    },
+    {
+      "mnemonic": "BIT",
+      "description": "Bit Test (sets Z from AND, N/V from memory)",
+      "modes": ["zp", "zp,X", "abs", "abs,X"],
+      "flags": ["N", "V", "Z"],
+      "cycles": "3-4"
+    },
+    {
+      "mnemonic": "TSB",
+      "description": "Test and Set Bit",
+      "modes": ["zp", "abs"],
+      "flags": ["Z"],
+      "cycles": "5-6"
+    },
+    {
+      "mnemonic": "TRB",
+      "description": "Test and Reset Bit",
+      "modes": ["zp", "abs"],
+      "flags": ["Z"],
+      "cycles": "5-6"
+    },
+    {
+      "mnemonic": "ASL",
+      "description": "Arithmetic Shift Left",
+      "modes": ["A", "zp", "zp,X", "abs", "abs,X"],
+      "flags": ["N", "Z", "C"],
+      "cycles": "2-6"
+    },
+    {
+      "mnemonic": "LSR",
+      "description": "Logical Shift Right",
+      "modes": ["A", "zp", "zp,X", "abs", "abs,X"],
+      "flags": ["N", "Z", "C"],
+      "cycles": "2-6"
+    },
+    {
+      "mnemonic": "ROL",
+      "description": "Rotate Left through Carry",
+      "modes": ["A", "zp", "zp,X", "abs", "abs,X"],
+      "flags": ["N", "Z", "C"],
+      "cycles": "2-6"
+    },
+    {
+      "mnemonic": "ROR",
+      "description": "Rotate Right through Carry",
+      "modes": ["A", "zp", "zp,X", "abs", "abs,X"],
+      "flags": ["N", "Z", "C"],
+      "cycles": "2-6"
+    },
+    {
+      "mnemonic": "INC",
+      "description": "Increment",
+      "modes": ["A", "zp", "zp,X", "abs", "abs,X"],
+      "flags": ["N", "Z"],
+      "cycles": "2-6"
+    },
+    {
+      "mnemonic": "DEC",
+      "description": "Decrement",
+      "modes": ["A", "zp", "zp,X", "abs", "abs,X"],
+      "flags": ["N", "Z"],
+      "cycles": "2-6"
+    },
+    {
+      "mnemonic": "INX",
+      "description": "Increment X Register",
+      "modes": ["implied"],
+      "flags": ["N", "Z"],
+      "cycles": "2"
+    },
+    {
+      "mnemonic": "DEX",
+      "description": "Decrement X Register",
+      "modes": ["implied"],
+      "flags": ["N", "Z"],
+      "cycles": "2"
+    },
+    {
+      "mnemonic": "INY",
+      "description": "Increment Y Register",
+      "modes": ["implied"],
+      "flags": ["N", "Z"],
+      "cycles": "2"
+    },
+    {
+      "mnemonic": "DEY",
+      "description": "Decrement Y Register",
+      "modes": ["implied"],
+      "flags": ["N", "Z"],
+      "cycles": "2"
+    },
+    {
+      "mnemonic": "CMP",
+      "description": "Compare Accumulator",
+      "modes": ["#", "zp", "zp,X", "abs", "abs,X", "abs,Y", "(zp,X)", "(zp),Y"],
+      "flags": ["N", "Z", "C"],
+      "cycles": "2-5"
+    },
+    {
+      "mnemonic": "CPX",
+      "description": "Compare X Register",
+      "modes": ["#", "zp", "abs"],
+      "flags": ["N", "Z", "C"],
+      "cycles": "2-3"
+    },
+    {
+      "mnemonic": "CPY",
+      "description": "Compare Y Register",
+      "modes": ["#", "zp", "abs"],
+      "flags": ["N", "Z", "C"],
+      "cycles": "2-3"
+    },
+    {
+      "mnemonic": "BEQ",
+      "description": "Branch if Equal (Z flag set)",
+      "modes": ["rel"],
+      "flags": [],
+      "cycles": "2-3"
+    },
+    {
+      "mnemonic": "BNE",
+      "description": "Branch if Not Equal (Z flag clear)",
+      "modes": ["rel"],
+      "flags": [],
+      "cycles": "2-3"
+    },
+    {
+      "mnemonic": "BMI",
+      "description": "Branch if Minus (N flag set)",
+      "modes": ["rel"],
+      "flags": [],
+      "cycles": "2-3"
+    },
+    {
+      "mnemonic": "BPL",
+      "description": "Branch if Plus (N flag clear)",
+      "modes": ["rel"],
+      "flags": [],
+      "cycles": "2-3"
+    },
+    {
+      "mnemonic": "BVS",
+      "description": "Branch if Overflow Set",
+      "modes": ["rel"],
+      "flags": [],
+      "cycles": "2-3"
+    },
+    {
+      "mnemonic": "BVC",
+      "description": "Branch if Overflow Clear",
+      "modes": ["rel"],
+      "flags": [],
+      "cycles": "2-3"
+    },
+    {
+      "mnemonic": "BCS",
+      "description": "Branch if Carry Set",
+      "modes": ["rel"],
+      "flags": [],
+      "cycles": "2-3"
+    },
+    {
+      "mnemonic": "BCC",
+      "description": "Branch if Carry Clear",
+      "modes": ["rel"],
+      "flags": [],
+      "cycles": "2-3"
+    },
+    {
+      "mnemonic": "BRA",
+      "description": "Branch Always (45GS02 extension)",
+      "modes": ["rel"],
+      "flags": [],
+      "cycles": "3"
+    },
+    {
+      "mnemonic": "JMP",
+      "description": "Jump",
+      "modes": ["abs", "(abs)", "(abs,X)"],
+      "flags": [],
+      "cycles": "3-6"
+    },
+    {
+      "mnemonic": "JSR",
+      "description": "Jump to Subroutine (pushes return address)",
+      "modes": ["abs"],
+      "flags": [],
+      "cycles": "6"
+    },
+    {
+      "mnemonic": "RTS",
+      "description": "Return from Subroutine",
+      "modes": ["implied"],
+      "flags": [],
+      "cycles": "6"
+    },
+    {
+      "mnemonic": "RTI",
+      "description": "Return from Interrupt",
+      "modes": ["implied"],
+      "flags": ["All"],
+      "cycles": "6"
+    },
+    {
+      "mnemonic": "BRK",
+      "description": "Software Break / Interrupt",
+      "modes": ["implied"],
+      "flags": ["B"],
+      "cycles": "7"
+    },
+    {
+      "mnemonic": "CLC",
+      "description": "Clear Carry Flag",
+      "modes": ["implied"],
+      "flags": ["C"],
+      "cycles": "2"
+    },
+    {
+      "mnemonic": "SEC",
+      "description": "Set Carry Flag",
+      "modes": ["implied"],
+      "flags": ["C"],
+      "cycles": "2"
+    },
+    {
+      "mnemonic": "CLI",
+      "description": "Clear Interrupt Disable",
+      "modes": ["implied"],
+      "flags": ["I"],
+      "cycles": "2"
+    },
+    {
+      "mnemonic": "SEI",
+      "description": "Set Interrupt Disable",
+      "modes": ["implied"],
+      "flags": ["I"],
+      "cycles": "2"
+    },
+    {
+      "mnemonic": "CLV",
+      "description": "Clear Overflow Flag",
+      "modes": ["implied"],
+      "flags": ["V"],
+      "cycles": "2"
+    },
+    {
+      "mnemonic": "CLD",
+      "description": "Clear Decimal Mode",
+      "modes": ["implied"],
+      "flags": ["D"],
+      "cycles": "2"
+    },
+    {
+      "mnemonic": "SED",
+      "description": "Set Decimal Mode",
+      "modes": ["implied"],
+      "flags": ["D"],
+      "cycles": "2"
+    },
+    {
+      "mnemonic": "TAX",
+      "description": "Transfer Accumulator to X",
+      "modes": ["implied"],
+      "flags": ["N", "Z"],
+      "cycles": "2"
+    },
+    {
+      "mnemonic": "TXA",
+      "description": "Transfer X to Accumulator",
+      "modes": ["implied"],
+      "flags": ["N", "Z"],
+      "cycles": "2"
+    },
+    {
+      "mnemonic": "TAY",
+      "description": "Transfer Accumulator to Y",
+      "modes": ["implied"],
+      "flags": ["N", "Z"],
+      "cycles": "2"
+    },
+    {
+      "mnemonic": "TYA",
+      "description": "Transfer Y to Accumulator",
+      "modes": ["implied"],
+      "flags": ["N", "Z"],
+      "cycles": "2"
+    },
+    {
+      "mnemonic": "TSX",
+      "description": "Transfer Stack Pointer to X",
+      "modes": ["implied"],
+      "flags": ["N", "Z"],
+      "cycles": "2"
+    },
+    {
+      "mnemonic": "TXS",
+      "description": "Transfer X to Stack Pointer",
+      "modes": ["implied"],
+      "flags": [],
+      "cycles": "2"
+    },
+    {
+      "mnemonic": "PHA",
+      "description": "Push Accumulator",
+      "modes": ["implied"],
+      "flags": [],
+      "cycles": "3"
+    },
+    {
+      "mnemonic": "PLA",
+      "description": "Pull Accumulator",
+      "modes": ["implied"],
+      "flags": ["N", "Z"],
+      "cycles": "4"
+    },
+    {
+      "mnemonic": "PHP",
+      "description": "Push Processor Status",
+      "modes": ["implied"],
+      "flags": [],
+      "cycles": "3"
+    },
+    {
+      "mnemonic": "PLP",
+      "description": "Pull Processor Status",
+      "modes": ["implied"],
+      "flags": ["All"],
+      "cycles": "4"
+    },
+    {
+      "mnemonic": "NOP",
+      "description": "No Operation",
+      "modes": ["implied"],
+      "flags": [],
+      "cycles": "2"
+    }
+  ]
+}
