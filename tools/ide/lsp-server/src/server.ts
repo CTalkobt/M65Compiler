@@ -6,12 +6,23 @@ import {
   TextDocumentSyncKind,
   DidChangeConfigurationNotification,
 } from 'vscode-languageserver/node';
+import * as path from 'path';
 
 import { DocumentManager } from './documents';
+import { HoverProvider } from './providers/hover';
+import { CompletionProvider } from './providers/completion';
+import { DefinitionProvider } from './providers/definition';
+import { WorkspaceSymbolProvider } from './providers/workspaceSymbol';
+import { WorkspaceIndex } from './indexer/workspaceIndex';
 
 const connection = createConnection();
 
 let documentManager: DocumentManager;
+let hoverProvider: HoverProvider;
+let completionProvider: CompletionProvider;
+let definitionProvider: DefinitionProvider;
+let workspaceSymbolProvider: WorkspaceSymbolProvider;
+let workspaceIndex: WorkspaceIndex;
 let cc45Path = 'bin/cc45';
 let ca45Path = 'bin/ca45';
 let debounceMs = 500;
@@ -27,7 +38,9 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
     workspacePath = params.rootUri.replace('file://', '');
   }
 
-  // Initialize document manager
+  // Initialize providers
+  const dataDir = path.join(__dirname, '..', 'data');
+  workspaceIndex = new WorkspaceIndex(workspacePath);
   documentManager = new DocumentManager(
     connection,
     cc45Path,
@@ -35,6 +48,10 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
     debounceMs,
     workspacePath
   );
+  hoverProvider = new HoverProvider(connection, dataDir);
+  completionProvider = new CompletionProvider(connection, dataDir);
+  definitionProvider = new DefinitionProvider(connection, workspaceIndex);
+  workspaceSymbolProvider = new WorkspaceSymbolProvider(connection, workspaceIndex);
 
   const capabilities: ServerCapabilities = {
     textDocumentSync: TextDocumentSyncKind.Full,
@@ -64,6 +81,39 @@ connection.onInitialized(() => {
 
   // Register for configuration changes
   connection.client.register(DidChangeConfigurationNotification.type);
+
+  // Register provider handlers
+  connection.onHover((params) => {
+    const doc = documentManager.textDocuments.get(params.textDocument.uri);
+    if (!doc) return null;
+    return hoverProvider.onHover(params, doc);
+  });
+
+  connection.onCompletion((params) => {
+    const doc = documentManager.textDocuments.get(params.textDocument.uri);
+    if (!doc) return [];
+    return completionProvider.onCompletion(params, doc);
+  });
+
+  connection.onDefinition((params) => {
+    const doc = documentManager.textDocuments.get(params.textDocument.uri);
+    if (!doc) return null;
+
+    // Index the document first (for current file symbols)
+    workspaceIndex.indexDocument(doc);
+
+    return definitionProvider.onDefinition(params, doc);
+  });
+
+  connection.onWorkspaceSymbol((params) => {
+    return workspaceSymbolProvider.onWorkspaceSymbol(params);
+  });
+
+  connection.onDidChangeWatchedFiles(() => {
+    // Could implement file watcher handling here for incremental indexing
+  });
+
+  console.error('[LSP Server] All providers registered');
 });
 
 connection.onDidChangeConfiguration((change) => {
