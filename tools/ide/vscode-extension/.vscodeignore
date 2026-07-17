@@ -1,0 +1,10 @@
+**/*.ts
+**/*.map
+.eslintrc.json
+tsconfig.json
+node_modules/**
+dist/**/*.d.ts
+test/**
+.git/**
+.gitignore
+README.md

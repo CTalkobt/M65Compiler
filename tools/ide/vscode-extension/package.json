@@ -1,0 +1,92 @@
+{
+  "name": "mega65-cc45-ca45",
+  "displayName": "MEGA65 CC45/CA45 Compiler",
+  "description": "Language support for MEGA65 C compiler (cc45) and assembler (ca45)",
+  "version": "0.1.0",
+  "publisher": "m65",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "main": "./dist/extension.js",
+  "scripts": {
+    "build": "tsc && esbuild src/extension.ts --bundle --platform=node --target=es2020 --external:vscode --outfile=dist/extension.js",
+    "watch": "tsc --watch",
+    "lint": "eslint src/**/*.ts"
+  },
+  "activationEvents": [
+    "onLanguage:c",
+    "onLanguage:h",
+    "onLanguage:m65-asm"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "c",
+        "extensions": [".c"],
+        "aliases": ["C"]
+      },
+      {
+        "id": "h",
+        "extensions": [".h"],
+        "aliases": ["C Header"]
+      },
+      {
+        "id": "m65-asm",
+        "extensions": [".s45", ".asm"],
+        "aliases": ["MEGA65 Assembly", "45GS02 Assembly"],
+        "configuration": "./language-configuration/m65-asm.language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "m65-asm",
+        "scopeName": "source.m65-asm",
+        "path": "./syntaxes/m65-asm.tmLanguage.json"
+      }
+    ],
+    "configuration": [
+      {
+        "title": "MEGA65 Compiler Settings",
+        "properties": {
+          "m65.cc45Path": {
+            "type": "string",
+            "default": "${workspaceFolder}/bin/cc45",
+            "description": "Path to the cc45 compiler binary"
+          },
+          "m65.ca45Path": {
+            "type": "string",
+            "default": "${workspaceFolder}/bin/ca45",
+            "description": "Path to the ca45 assembler binary"
+          },
+          "m65.diagnostics.debounceMs": {
+            "type": "number",
+            "default": 500,
+            "description": "Debounce delay in milliseconds for diagnostic runs on file changes"
+          },
+          "m65.indexer.exclude": {
+            "type": "array",
+            "default": ["node_modules", ".git", "bin", "obj", "build"],
+            "description": "Glob patterns to exclude from workspace indexing"
+          }
+        }
+      }
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.75.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "esbuild": "^0.19.0",
+    "eslint": "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^10.1.0"
+  }
+}
