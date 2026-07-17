@@ -1244,7 +1244,8 @@ void AssemblerParser::pass1() {
             }
           } catch (const std::exception& ex) {
             int errLine = stmt->line;
-            errors.push_back("line " + std::to_string(errLine) + ": Error parsing instruction '" + stmt->instr.mnemonic + "': " + ex.what());
+            errors.push_back(formatDiagnostic(stmt->sourceFile, errLine, 1, Severity::Error,
+                "Error parsing instruction '" + stmt->instr.mnemonic + "': " + ex.what()));
             while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
             continue;
           }
@@ -1252,7 +1253,8 @@ void AssemblerParser::pass1() {
         else if (stmt->label.empty()) {
             std::string badToken = peek().value;
             int badLine = peek().line;
-            errors.push_back("line " + std::to_string(badLine) + ": Unknown instruction '" + badToken + "'");
+            errors.push_back(formatDiagnostic(stmt->sourceFile, badLine, 1, Severity::Error,
+                "Unknown instruction '" + badToken + "'"));
             while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
             continue;
         }

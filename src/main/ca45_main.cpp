@@ -226,6 +226,7 @@ int main(int argc, char** argv) {
     }
 
     AssemblerParser parser(tokens, predefinedSymbols);
+    parser.setSourceFile(input_file);
     parser.verboseOptimizer = verboseOptimizer;
     parser.traceMachState = traceMachState;
     parser.enableExperimental = enableExperimental;

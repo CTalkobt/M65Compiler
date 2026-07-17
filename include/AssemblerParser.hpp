@@ -39,6 +39,7 @@ public:
     friend std::vector<uint8_t> emitO45(AssemblerParser&, const std::string&);
     AssemblerParser(const std::vector<AssemblerToken>& tokens);
     AssemblerParser(const std::vector<AssemblerToken>& tokens, const std::map<std::string, uint32_t>& predefinedSymbols);
+    void setSourceFile(const std::string& filename) { currentSourceFile_ = filename; }
     void pass1();
     bool optimize();
     bool verboseOptimizer = false;
