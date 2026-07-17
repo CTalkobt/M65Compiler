@@ -410,7 +410,7 @@ After connecting, configure via IDE settings or `.m65-lsp.json`:
 ### Compiler Configuration
 
 By default, the LSP server runs:
-- **C files**: `cc45 <file> -o <temp>.s`
+- **C files**: `cc45 <file> -o <temp>.s45`
 - **Assembly files**: `ca45 <file> -o <temp>.bin`
 
 To pass custom flags, create `cc45.flags` or `ca45.flags` in workspace root:
@@ -434,7 +434,7 @@ To pass custom flags, create `cc45.flags` or `ca45.flags` in workspace root:
 
 **Diagnostics not appearing:**
 1. Ensure cc45/ca45 binaries exist: `ls -la bin/cc45 bin/ca45`
-2. Run manually to test: `./bin/cc45 test.c -o test.s`
+2. Run manually to test: `./bin/cc45 test.c -o test.s45`
 3. Check IDE console for subprocess errors
 
 **Hover/completion not working:**

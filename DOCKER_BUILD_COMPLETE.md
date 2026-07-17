@@ -99,8 +99,8 @@ Default Tool: cc45 (C Compiler)
 cd /path/to/project
 source /path/to/wt.docker/docker-aliases.sh
 
-cc45 hello.c -o hello.s
-ca45 hello.s -o hello.prg
+cc45 hello.c -o hello.s45
+ca45 hello.s45 -o hello.prg
 disk45 create game.d81 -n "GAME"
 disk45 add game.d81 hello.prg "HELLO"
 ```
@@ -108,7 +108,7 @@ disk45 add game.d81 hello.prg "HELLO"
 ### Without Aliases
 ```bash
 docker run -v $(pwd):/work mega65-cc45:latest hello.c -c -o hello.o45
-docker run -v $(pwd):/work --entrypoint ca45 mega65-cc45:latest hello.s -o hello.prg
+docker run -v $(pwd):/work --entrypoint ca45 mega65-cc45:latest hello.s45 -o hello.prg
 docker run -v $(pwd):/work --entrypoint disk45 mega65-cc45:latest create game.d81
 ```
 
@@ -152,8 +152,8 @@ docker build -t mega65-cc45 .
 source docker-aliases.sh
 
 # Step 3: Start using the tools
-cc45 myprogram.c -o myprogram.s
-ca45 myprogram.s -o myprogram.prg
+cc45 myprogram.c -o myprogram.s45
+ca45 myprogram.s45 -o myprogram.prg
 ```
 
 ## Dependencies
@@ -198,7 +198,7 @@ wt.docker/
 ```bash
 1. Build: docker build -t mega65-cc45 .
 2. Setup: source docker-aliases.sh
-3. Use: cc45 hello.c -o hello.s
+3. Use: cc45 hello.c -o hello.s45
 ```
 
 ### Option B: Use with --entrypoint

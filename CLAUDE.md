@@ -126,7 +126,7 @@ src/test-resources/
   test_assembler.sh      # Assembler unit test driver
   validation/            # Error condition validation tests (Units 1-8)
   examples/              # Practical examples with makefiles
-  *.c / *.s              # Individual test cases
+  *.c / *.s45            # Individual test cases
 ```
 
 ### Test Categories
@@ -331,7 +331,7 @@ Not implemented:
 
 #### Adding a Standard Library Function
 
-1. Implement in `lib/src/func_name.s` (hand-written 45GS02 asm or `func_name.c`)
+1. Implement in `lib/src/func_name.s45` (hand-written 45GS02 asm or `func_name.c`)
 2. Declare in `lib/include/<header>.h`
 3. Add export to `lib/Makefile` or `.o45` archive
 4. Add test in `src/test-resources/test_*.c`
@@ -358,7 +358,7 @@ cd src/test-resources
 ### Compiler Output
 
 ```bash
-./bin/cc45 -S input.c -o input.s    # Generate assembly (useful for inspection)
+./bin/cc45 -S input.c -o input.s45  # Generate assembly (useful for inspection)
 ./bin/cc45 -C input.c               # Print AST to stderr during parsing
 ./bin/cc45 input.c 2>&1 | head -50  # First 50 lines of output/errors
 ```
@@ -366,8 +366,8 @@ cd src/test-resources
 ### Assembler Output
 
 ```bash
-./bin/ca45 input.s -o output.prg          # Assemble to binary
-./bin/ca45 -c input.s -o output.o45       # Generate relocatable object
+./bin/ca45 input.s45 -o output.prg        # Assemble to binary
+./bin/ca45 -c input.s45 -o output.o45     # Generate relocatable object
 ./bin/nm45 output.o45                     # Inspect symbol table
 ./bin/objdump45 -d output.o45             # Disassemble
 ./bin/objdump45 -r output.o45             # Show relocations

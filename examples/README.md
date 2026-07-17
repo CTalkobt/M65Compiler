@@ -19,7 +19,7 @@ These examples demonstrate different features of the m65compiler.
 
 ### Assembly Examples
 
-- **asm/zpcall_prototype.s** - Prototype for zero-page calling convention
+- **asm/zpcall_prototype.s45** - Prototype for zero-page calling convention
 
 ## Building Examples
 

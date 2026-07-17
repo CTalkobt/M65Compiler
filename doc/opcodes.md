@@ -387,7 +387,7 @@ This reference summarizes the instructions available in the `ca45` assembler for
     - 2-byte pairs (`.AX`, `.AY`, `.AZ`, `.XY`, `.XZ`, `.YZ`) are used as-is (16-bit values)
     - 3-byte groups (`.AXY`, `.AXZ`, `.AYZ`) are treated as 24-bit values and zero-extended to 32 bits by appending a zero high byte for DMA structure field compatibility
     - 4-byte group `.AXYZ` and its synonym `.Q` use all four bytes as a 32-bit value
-  * **Implementation Notes**: The explicit length operand is stored at DMA buffer offset 1-2 (lo/hi bytes), source at offset 3-4, and destination at offset 6-7. The DMA controller transfers the specified number of bytes. Comprehensive tests are in `src/test/test_move_fill.cpp` (C++) and `src/test-resources/test_fill_advanced.s` (assembly).
+  * **Implementation Notes**: The explicit length operand is stored at DMA buffer offset 1-2 (lo/hi bytes), source at offset 3-4, and destination at offset 6-7. The DMA controller transfers the specified number of bytes. Comprehensive tests are in `src/test/test_move_fill.cpp` (C++) and `src/test-resources/test_fill_advanced.s45` (assembly).
 
 ---
 
