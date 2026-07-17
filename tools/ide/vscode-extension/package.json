@@ -5,6 +5,11 @@
   "version": "0.1.0",
   "publisher": "m65",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CTalkobt/M65Compiler"
+  },
+  "homepage": "https://github.com/CTalkobt/M65Compiler/tree/main/tools/ide",
   "engines": {
     "vscode": "^1.75.0"
   },
