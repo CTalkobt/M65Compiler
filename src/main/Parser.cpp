@@ -1,4 +1,5 @@
 #include "Parser.hpp"
+#include "Diagnostic.hpp"
 #include <stdexcept>
 #include <iostream>
 
@@ -34,7 +35,8 @@ const Token& Parser::expect(TokenType type, const std::string& message) {
         return advance();
     }
     std::string foundStr = peek().value.empty() ? peek().typeToString() : peek().value;
-    throw std::runtime_error("Syntax Error at " + std::to_string(peek().line) + ":" + std::to_string(peek().column) + ": " + message + ". Found '" + foundStr + "' (" + peek().typeToString() + ") instead.");
+    std::string msg = message + ". Found '" + foundStr + "' (" + peek().typeToString() + ") instead.";
+    throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, msg));
 }
 
 std::unique_ptr<TranslationUnit> Parser::parse() {
@@ -321,11 +323,11 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             if (tokens[look].type == TokenType::VOLATILE) isVol = true;
             else if (tokens[look].type == TokenType::CONST) isConst = true;
             else if (tokens[look].type == TokenType::SIGNED) {
-                if (isUnsig) throw std::runtime_error("Syntax Error at " + std::to_string(tokens[look].line) + ":" + std::to_string(tokens[look].column) + ": both 'signed' and 'unsigned' in declaration");
+                if (isUnsig) throw std::runtime_error(formatDiagnostic(tokens[look].sourceFile, tokens[look].line, tokens[look].column, Severity::Error, "both 'signed' and 'unsigned' in declaration"));
                 isSig = true;
             }
             else if (tokens[look].type == TokenType::UNSIGNED) {
-                if (isSig) throw std::runtime_error("Syntax Error at " + std::to_string(tokens[look].line) + ":" + std::to_string(tokens[look].column) + ": both 'signed' and 'unsigned' in declaration");
+                if (isSig) throw std::runtime_error(formatDiagnostic(tokens[look].sourceFile, tokens[look].line, tokens[look].column, Severity::Error, "both 'signed' and 'unsigned' in declaration"));
                 isUnsig = true;
             }
             look++;
@@ -633,7 +635,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             returnType = "int";
         } else {
             std::string foundStr = peek().value.empty() ? peek().typeToString() : peek().value;
-            throw std::runtime_error("Syntax Error at " + std::to_string(peek().line) + ":" + std::to_string(peek().column) + ": Expected return type (int, char, void, struct, union) for function declaration. Found '" + foundStr + "' instead.");
+            throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Expected return type (int, char, void, struct, union) for function declaration. Found '" + foundStr + "' instead."));
         }
     }
     // Skip qualifiers after the type keyword (e.g., int volatile func())
@@ -746,7 +748,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                 }
                 else {
                     std::string foundStr = peek().value.empty() ? peek().typeToString() : peek().value;
-                    throw std::runtime_error("Syntax Error at " + std::to_string(peek().line) + ":" + std::to_string(peek().column) + ": Expected parameter type (int, char, struct, union). Found '" + foundStr + "' instead.");
+                    throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Expected parameter type (int, char, struct, union). Found '" + foundStr + "' instead."));
                 }
             }
 
@@ -1320,10 +1322,10 @@ std::unique_ptr<Statement> Parser::parseStatement() {
         if (auto* lit = dynamic_cast<IntegerLiteral*>(countExpr.get())) {
             count = (int)lit->value;
         } else {
-            throw std::runtime_error("repeat count must be a compile-time constant");
+            throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "repeat count must be a compile-time constant"));
         }
         if (count < 0 || count > 1024) {
-            throw std::runtime_error("repeat count must be between 0 and 1024");
+            throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "repeat count must be between 0 and 1024"));
         }
         auto body = parseStatement();
         auto rep = setPos(std::make_unique<RepeatStatement>(count, std::move(body)), startToken);
@@ -1540,7 +1542,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             // Implicit int: "static max;", "unsigned d;" (where unsigned was consumed as qualifier)
             type = "int";
         } else {
-            throw std::runtime_error("Syntax Error at " + std::to_string(peek().line) + ":" + std::to_string(peek().column) + ": Expected type for variable declaration. Found '" + peek().typeToString() + "' instead.");
+            throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Expected type for variable declaration. Found '" + peek().typeToString() + "' instead."));
         }
     }
 
@@ -1791,7 +1793,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
 
     // Validate: cannot inherit from a final struct
     if (!parentStruct.empty() && structs.count(parentStruct) && structs[parentStruct]->isFinal) {
-        throw std::runtime_error("Error: cannot inherit from final struct '" + parentStruct + "'");
+        throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "cannot inherit from final struct '" + parentStruct + "'"));
     }
 
     while (peek().type != TokenType::CLOSE_BRACE && peek().type != TokenType::END_OF_FILE) {
@@ -1805,8 +1807,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         }
         if (peek().type == TokenType::IDENTIFIER && peek().value == "virtual") {
             if (methodIsStatic) {
-                throw std::runtime_error("Line " + std::to_string(peek().line) +
-                    ": a method cannot be both 'static' and 'virtual'");
+                throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "a method cannot be both 'static' and 'virtual'"));
             }
             advance(); // consume 'virtual'
             methodIsVirtual = true;
@@ -1904,7 +1905,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         {
             auto ts = parseTypeSpecifier();
             if (!ts.valid) {
-                throw std::runtime_error("Expected member type");
+                throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Expected member type"));
             }
             type = ts.name;
             mIsSigned = ts.isSigned;
@@ -1989,20 +1990,20 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         // Append typedef array dimensions
         memberArrayDims.insert(memberArrayDims.end(), typedefArrayDims.begin(), typedefArrayDims.end());
         if (isFlexArray && memberArrayDims.size() > 1)
-            throw std::runtime_error("Flexible array member '" + memberName + "' cannot be multi-dimensional");
+            throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Flexible array member '" + memberName + "' cannot be multi-dimensional"));
         int memberBitWidth = 0;
         if (match(TokenType::COLON)) {
             if (!memberArrayDims.empty())
-                throw std::runtime_error("Bitfield member '" + memberName + "' cannot be an array");
+                throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Bitfield member '" + memberName + "' cannot be an array"));
             if (ptrLevel > 0)
-                throw std::runtime_error("Bitfield member '" + memberName + "' cannot be a pointer");
+                throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Bitfield member '" + memberName + "' cannot be a pointer"));
             const Token& bwTok = expect(TokenType::INTEGER_LITERAL, "Expected integer literal for bitfield width");
             memberBitWidth = std::stoi(bwTok.value);
             // Max bitfield width: char=8, int=16, long=32
             // Use long for bitfields >16 bits (with __int(N) for arbitrary widths)
             int maxBits = (type == "long") ? 32 : (type == "char") ? 8 : 16;
             if (memberBitWidth < 1 || memberBitWidth > maxBits)
-                throw std::runtime_error("Bitfield width " + std::to_string(memberBitWidth) + " out of range for type '" + type + "'");
+                throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Bitfield width " + std::to_string(memberBitWidth) + " out of range for type '" + type + "'"));
         }
         while (tryParseAttribute()) {}
         StructMember sm;
@@ -2077,7 +2078,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
                         if (pm->isVirtual && pm->name.substr(pm->name.rfind("__") + 2) == method->name.substr(method->name.rfind("__") + 2)) {
                             // Validate: cannot override a final method
                             if (pm->isFinal) {
-                                throw std::runtime_error("Error: cannot override final method '" + pm->name.substr(pm->name.rfind("__") + 2) + "' in struct '" + name + "'");
+                                throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "cannot override final method '" + pm->name.substr(pm->name.rfind("__") + 2) + "' in struct '" + name + "'"));
                             }
                             method->vtableSlot = pm->vtableSlot;
                             isOverride = true;
@@ -2098,13 +2099,13 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         bool isFAM = (!m.arrayDims.empty() && m.arrayDims[0] == 0 && m.arrayDims.size() == 1);
         if (isFAM) {
             if (def->isUnion) {
-                throw std::runtime_error("Syntax Error at " + std::to_string(startToken.line) + ":" + std::to_string(startToken.column) + ": Flexible array member '" + m.name + "' not allowed in union");
+                throw std::runtime_error(formatDiagnostic(startToken.sourceFile, startToken.line, startToken.column, Severity::Error, "Flexible array member '" + m.name + "' not allowed in union"));
             }
             if (i != def->members.size() - 1) {
-                throw std::runtime_error("Syntax Error at " + std::to_string(startToken.line) + ":" + std::to_string(startToken.column) + ": Flexible array member '" + m.name + "' must be the last member of struct '" + def->name + "'");
+                throw std::runtime_error(formatDiagnostic(startToken.sourceFile, startToken.line, startToken.column, Severity::Error, "Flexible array member '" + m.name + "' must be the last member of struct '" + def->name + "'"));
             }
             if (def->members.size() < 2) {
-                throw std::runtime_error("Syntax Error at " + std::to_string(startToken.line) + ":" + std::to_string(startToken.column) + ": struct '" + def->name + "' with flexible array member must have at least one other member");
+                throw std::runtime_error(formatDiagnostic(startToken.sourceFile, startToken.line, startToken.column, Severity::Error, "struct '" + def->name + "' with flexible array member must have at least one other member"));
             }
         }
     }
@@ -2114,12 +2115,12 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         if (m.pointerLevel == 0 && m.type.rfind("struct ", 0) == 0) {
             std::string sName = m.type.substr(7);
             if (!structs.count(sName)) {
-                throw std::runtime_error("Syntax Error at " + std::to_string(startToken.line) + ":" + std::to_string(startToken.column) + ": Unknown struct/union type '" + sName + "'");
+                throw std::runtime_error(formatDiagnostic(startToken.sourceFile, startToken.line, startToken.column, Severity::Error, "Unknown struct/union type '" + sName + "'"));
             }
         } else if (m.pointerLevel == 0 && m.type.rfind("union ", 0) == 0) {
             std::string uName = m.type.substr(6);
             if (!structs.count(uName)) {
-                throw std::runtime_error("Syntax Error at " + std::to_string(startToken.line) + ":" + std::to_string(startToken.column) + ": Unknown struct/union type '" + uName + "'");
+                throw std::runtime_error(formatDiagnostic(startToken.sourceFile, startToken.line, startToken.column, Severity::Error, "Unknown struct/union type '" + uName + "'"));
             }
         }
     }
@@ -2454,10 +2455,10 @@ std::unique_ptr<Expression> Parser::parseUnary() {
         std::string op = opToken.value;
         auto operand = parseUnary();
         if (dynamic_cast<CpuRegisterAccess*>(operand.get())) {
-            throw std::runtime_error("Error at " + std::to_string(opToken.line) + ":" + std::to_string(opToken.column) + ": Cannot take address of CPU register");
+            throw std::runtime_error(formatDiagnostic(opToken.sourceFile, opToken.line, opToken.column, Severity::Error, "Cannot take address of CPU register"));
         }
         if (dynamic_cast<CpuFlagAccess*>(operand.get())) {
-            throw std::runtime_error("Error at " + std::to_string(opToken.line) + ":" + std::to_string(opToken.column) + ": Cannot take address of CPU flag");
+            throw std::runtime_error(formatDiagnostic(opToken.sourceFile, opToken.line, opToken.column, Severity::Error, "Cannot take address of CPU flag"));
         }
         return setPos(std::make_unique<UnaryOperation>(op, std::move(operand)), opToken);
     }
@@ -2487,21 +2488,21 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
             expect(TokenType::CLOSE_PAREN, "Expected ')' after _Alignof type");
             return setPos(std::make_unique<AlignofExpression>(ts.name, ts.pointerLevel), tokens[pos-1]);
         } else {
-            throw std::runtime_error("Syntax Error at " + std::to_string(peek().line) + ":" + std::to_string(peek().column) + ": Expected type name in _Alignof");
+            throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Expected type name in _Alignof"));
         }
     }
 
     if (peek().type == TokenType::IDENTIFIER && (peek().value == "__func__" || peek().value == "__FUNCTION__")) {
         const Token& funcToken = advance();
         if (currentFunctionName.empty()) {
-            throw std::runtime_error("Error at " + std::to_string(funcToken.line) + ":" + std::to_string(funcToken.column) + ": __func__ used outside of a function");
+            throw std::runtime_error(formatDiagnostic(funcToken.sourceFile, funcToken.line, funcToken.column, Severity::Error, "__func__ used outside of a function"));
         }
         expr = setPos(std::make_unique<StringLiteral>(currentFunctionName), funcToken);
     } else if (peek().type == TokenType::IDENTIFIER && (peek().value == "__cpu" || peek().value == "__flags")) {
         const Token& baseToken = advance();
         std::string base = baseToken.value;
         if (!match(TokenType::DOT)) {
-            throw std::runtime_error("Error at " + std::to_string(baseToken.line) + ":" + std::to_string(baseToken.column) + ": '" + base + "' must be followed by '.' and a member name");
+            throw std::runtime_error(formatDiagnostic(baseToken.sourceFile, baseToken.line, baseToken.column, Severity::Error, "'" + base + "' must be followed by '.' and a member name"));
         }
         const Token& memberToken = expect(TokenType::IDENTIFIER, "Expected member name after " + base + ".");
         std::string member = memberToken.value;
@@ -2611,7 +2612,7 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         } else {
             auto ts = parseTypeSpecifier();
             if (!ts.valid) {
-                throw std::runtime_error("Expected type in __builtin_va_arg");
+                throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Expected type in __builtin_va_arg"));
             }
             vaType = ts.name;
             vaSigned = ts.isSigned;
@@ -2760,7 +2761,7 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         expect(TokenType::CLOSE_PAREN, "Expected ')'");
     } else {
         std::string foundStr = peek().value.empty() ? peek().typeToString() : peek().value;
-        throw std::runtime_error("Syntax Error at " + std::to_string(peek().line) + ":" + std::to_string(peek().column) + ": Expected expression. Found '" + foundStr + "' (" + peek().typeToString() + ") instead.");
+        throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Expected expression. Found '" + foundStr + "' (" + peek().typeToString() + ") instead."));
     }
 
     while (match(TokenType::DOT) || match(TokenType::ARROW) || match(TokenType::PLUS_PLUS) || match(TokenType::MINUS_MINUS) || match(TokenType::OPEN_SQUARE) || match(TokenType::OPEN_PAREN)) {
@@ -2817,7 +2818,7 @@ std::unique_ptr<Expression> Parser::parseGenericSelection() {
             else if (match(TokenType::STRUCT) || match(TokenType::UNION)) {
                 assoc.typeName = (tokens[pos-1].type == TokenType::STRUCT ? "struct " : "union ") + expect(TokenType::IDENTIFIER, "Expected aggregate name").value;
             } else {
-                throw std::runtime_error("Expected type name in _Generic association");
+                throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Expected type name in _Generic association"));
             }
             while (match(TokenType::STAR)) assoc.pointerLevel++;
         }
@@ -3176,7 +3177,7 @@ void Parser::parseTypedef() {
     {
         auto ts = parseTypeSpecifier();
         if (!ts.valid) {
-            throw std::runtime_error("Expected type in typedef");
+            throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Expected type in typedef"));
         }
         baseType = ts.name;
         isSigned = ts.isSigned;
@@ -3250,7 +3251,7 @@ std::shared_ptr<FuncPtrSignature> Parser::parseFuncPtrParams(const std::string& 
             {
                 auto ts = parseTypeSpecifier();
                 if (!ts.valid) {
-                    throw std::runtime_error("Expected type in function pointer parameter list");
+                    throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Expected type in function pointer parameter list"));
                 }
                 fp.type = ts.name;
                 fp.isSigned = ts.isSigned;

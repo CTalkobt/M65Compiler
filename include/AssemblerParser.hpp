@@ -239,8 +239,8 @@ private:
     bool match(AssemblerTokenType type);
     const AssemblerToken& expect(AssemblerTokenType type, const std::string& message);
 
-    int calculateInstructionSize(const Instruction& instr, uint32_t currentAddr = 0, const std::string& scopePrefix = "");
-    int calculateDirectiveSize(const Directive& dir, uint32_t currentAddr = 0);
+    int calculateInstructionSize(const Instruction& instr, uint32_t currentAddr = 0, const std::string& scopePrefix = "", const Statement* stmt = nullptr);
+    int calculateDirectiveSize(const Directive& dir, uint32_t currentAddr = 0, const Statement* stmt = nullptr);
     int calculateExprSize(int tokenIndex, const std::string& scopePrefix = "");
     uint32_t evaluateExpressionAt(int index, const std::string& scopePrefix = "");
     void emitExpressionCode(std::vector<uint8_t>& binary, const std::string& target, int tokenIndex, const std::string& scopePrefix = "");
@@ -302,7 +302,7 @@ private:
     void emitDivS32Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
     void emitMod16Code(std::vector<uint8_t>& binary, bool isSigned, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
     void emitMod32Code(std::vector<uint8_t>& binary, bool isSigned, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
-    bool isStackRelativeOperand(int tokenIndex, uint32_t& offset, const std::string& scopePrefix);
+    bool isStackRelativeOperand(int tokenIndex, uint32_t& offset, const std::string& scopePrefix, const Statement* stmt = nullptr);
 
     // Frame-pointer pseudo-ops
     void emitLDA_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");

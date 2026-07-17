@@ -21,6 +21,7 @@
 #include "IRCodeGen.hpp"
 #include "IROptimizer.hpp"
 #include "Version.hpp"
+#include "Diagnostic.hpp"
 
 class ASTPrinter : public ASTVisitor {
 public:
@@ -568,7 +569,7 @@ int main(int argc, char** argv) {
     try {
         source = preprocessor.process(sourceRaw, initialSymbols, includePaths, input_file);
     } catch (const std::exception& e) {
-        std::cerr << "Preprocessor Error: " << e.what() << std::endl;
+        std::cerr << formatDiagnostic(input_file, 1, 1, Severity::Error, e.what()) << std::endl;
         return 1;
     }
 
@@ -710,13 +711,13 @@ int main(int argc, char** argv) {
 
         // Emit warnings
         for (const auto& warn : irBuilder.getWarnings()) {
-            std::cerr << input_file << ":" << warn << std::endl;
+            std::cerr << warn << std::endl;
         }
 
         // Check for IR errors (const violations, etc.)
         if (irBuilder.hasErrors()) {
             for (const auto& err : irBuilder.getErrors()) {
-                std::cerr << input_file << ":" << err << std::endl;
+                std::cerr << err << std::endl;
             }
             return 1;
         }
