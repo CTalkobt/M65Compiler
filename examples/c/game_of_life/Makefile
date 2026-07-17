@@ -27,7 +27,7 @@ $(TARGET): main.o45 $(STDLIB)
 	$(LN45) -basic -M $(MAP) -o $(TARGET) main.o45 $(STDLIB)
 
 clean:
-	rm -f main.o45 main.o45.s $(TARGET) $(MAP) $(TARGET).debug.json
+	rm -f main.o45 main.o45.s45 $(TARGET) $(MAP) $(TARGET).debug.json
 
 run: $(TARGET)
 	xemu-xmega65 -prg $(TARGET)

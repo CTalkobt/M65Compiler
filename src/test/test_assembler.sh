@@ -10,7 +10,7 @@ passed=0
 
 test_file() {
     local f=$1
-    local bin_file="build/test/$(basename "$f" .s).bin"
+    local bin_file="build/test/$(basename "$f" .s45).bin"
     
     echo "Testing $f..."
     if $AS "$f" -o "$bin_file"; then
@@ -24,32 +24,32 @@ test_file() {
 
 # List of assembler feature tests
 AS_TEST_FILES=(
-    "src/test-resources/test_basic_upstart.s"
-    "src/test-resources/test_data_types.s"
-    "src/test-resources/test_mul.s"
-    "src/test-resources/test_div.s"
-    "src/test-resources/test_expr.s"
-    "src/test-resources/test_expr_advanced.s"
-    "src/test-resources/hello_call.s"
-    "src/test-resources/test_var.s"
-    "src/test-resources/test_45gs02.s"
-    "src/test-resources/test_equates_advanced.s"
-    "src/test-resources/test_flat_z_all.s"
-    "src/test-resources/test_accumulator_labels.s"
-    "src/test-resources/test_multi_org.s"
-    "src/test-resources/test_peephole.s"
-    "src/test-resources/test_simulated_ops.s"
-    "src/test-resources/test_fill.s"
-    "src/test-resources/test_fill_advanced.s"
-    "src/test-resources/test_segments.s"
-    "src/test-resources/test_res.s"
-    "src/test-resources/test_pushpop.s"
-    "src/test-resources/test_addr_helpers.s"
-    "src/test-resources/test_shifts_16.s"
-    "src/test-resources/test_new_16bit_ops.s"
-    "src/test-resources/test_global_extern.s"
-    "src/test-resources/test_array.s"
-    "src/test-resources/test_expressions.s"
+    "src/test-resources/test_basic_upstart.s45"
+    "src/test-resources/test_data_types.s45"
+    "src/test-resources/test_mul.s45"
+    "src/test-resources/test_div.s45"
+    "src/test-resources/test_expr.s45"
+    "src/test-resources/test_expr_advanced.s45"
+    "src/test-resources/hello_call.s45"
+    "src/test-resources/test_var.s45"
+    "src/test-resources/test_45gs02.s45"
+    "src/test-resources/test_equates_advanced.s45"
+    "src/test-resources/test_flat_z_all.s45"
+    "src/test-resources/test_accumulator_labels.s45"
+    "src/test-resources/test_multi_org.s45"
+    "src/test-resources/test_peephole.s45"
+    "src/test-resources/test_simulated_ops.s45"
+    "src/test-resources/test_fill.s45"
+    "src/test-resources/test_fill_advanced.s45"
+    "src/test-resources/test_segments.s45"
+    "src/test-resources/test_res.s45"
+    "src/test-resources/test_pushpop.s45"
+    "src/test-resources/test_addr_helpers.s45"
+    "src/test-resources/test_shifts_16.s45"
+    "src/test-resources/test_new_16bit_ops.s45"
+    "src/test-resources/test_global_extern.s45"
+    "src/test-resources/test_array.s45"
+    "src/test-resources/test_expressions.s45"
 )
 
 for f in "${AS_TEST_FILES[@]}"; do
@@ -73,8 +73,8 @@ fi
 
 echo "Testing -Dcc45.zeroPageStart=\$10..."
 # Use a dereference which is guaranteed to use ZP scratch $02/$03
-echo -e ".var ptr = \$20\nexpr .A, *ptr" > build/test_zp_shift.s
-$AS "-Dcc45.zeroPageStart=\$10" -o build/test_zp_shift.bin build/test_zp_shift.s
+echo -e ".var ptr = \$20\nexpr .A, *ptr" > build/test_zp_shift.s45
+$AS "-Dcc45.zeroPageStart=\$10" -o build/test_zp_shift.bin build/test_zp_shift.s45
 # 85 10 (STA $10) should be in there (saving eval'd ptr address to ZP scratch)
 ACTUAL_ZP=$(hexdump -v -e '1/1 "%02x "' build/test_zp_shift.bin)
 if [ -f build/test_zp_shift.bin ] && echo "$ACTUAL_ZP" | grep -q "85 10"; then

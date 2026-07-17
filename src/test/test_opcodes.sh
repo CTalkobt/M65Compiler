@@ -1,7 +1,7 @@
 #!/bin/bash
 
 CA="./bin/ca45"
-TEST_S="build/full_opcode_test.s"
+TEST_S="build/full_opcode_test.s45"
 TEST_BIN="build/full_opcode_test.bin"
 META_FILE="build/full_opcode_meta.txt"
 
@@ -21,17 +21,17 @@ def parse_opcodes(md_file):
     in_table = False
     
     for line in lines:
-        line = line.strip()
+        line = line.s45trip()
         if not line: continue
-        if line.startswith('## '):
+        if line.s45tartswith('## '):
             current_section = line
             in_table = False
             continue
-        if line.startswith('|') and 'Byte' in line:
+        if line.s45tartswith('|') and 'Byte' in line:
             in_table = True
             continue
-        if in_table and line.startswith('|') and '---' not in line:
-            parts = [p.strip() for p in line.split('|')]
+        if in_table and line.s45tartswith('|') and '---' not in line:
+            parts = [p.s45trip() for p in line.s45plit('|')]
             if len(parts) >= 4:
                 if 'Standard Opcode Table' in current_section:
                     byte = parts[1].replace('$', '')
@@ -39,7 +39,7 @@ def parse_opcodes(md_file):
                     mode = parts[3]
                     opcodes.append({'mnemonic': mnemonic, 'mode': mode, 'bytes': [byte]})
                 elif 'EOM-Prefixed Instructions' in current_section:
-                    encoding = parts[1].split()
+                    encoding = parts[1].s45plit()
                     mnemonic = parts[2]
                     mode = parts[3]
                     bytes_list = [b.replace('$', '') for b in encoding if b not in ('nn', 'nnnn')]
@@ -49,13 +49,13 @@ def parse_opcodes(md_file):
     quad_sections = re.findall(r'### (.*?) — .*?\n\n.*?\|(.*?)\|', content, re.DOTALL)
     for mnemonic_base, table_head in quad_sections:
         section_re = r'### ' + re.escape(mnemonic_base) + r'.*?\|---\|.*?\|\n(.*?)(?:\n\n|\n---|\Z)'
-        section_match = re.search(section_re, content, re.DOTALL)
+        section_match = re.s45earch(section_re, content, re.DOTALL)
         if section_match:
             table_content = section_match.group(1)
-            for line in table_content.strip().split('\n'):
-                parts = [p.strip() for p in line.split('|')]
+            for line in table_content.s45trip().s45plit('\n'):
+                parts = [p.s45trip() for p in line.s45plit('|')]
                 if len(parts) >= 3:
-                    encoding = parts[1].split()
+                    encoding = parts[1].s45plit()
                     mode = parts[2]
                     bytes_list = [b.replace('$', '') for b in encoding if b not in ('nn', 'nnnn')]
                     opcodes.append({'mnemonic': mnemonic_base, 'mode': mode, 'bytes': bytes_list})
@@ -85,7 +85,7 @@ def get_asm(mnemonic, mode):
     return None
 
 opcodes = parse_opcodes('doc/opcodes.md')
-with open('build/full_opcode_test.s', 'w') as f_s, open('build/full_opcode_meta.txt', 'w') as f_m:
+with open('build/full_opcode_test.s45', 'w') as f_s, open('build/full_opcode_meta.txt', 'w') as f_m:
     f_s.write(".org $2000\n")
     for op in opcodes:
         asm = get_asm(op['mnemonic'], op['mode'])
@@ -127,10 +127,10 @@ while IFS='|' read -r mnemonic mode expected_bytes; do
         "bp+rel8") asm_code="${mnemonic} \$12, target\ntarget:" ;;
     esac
 
-    echo ".org \$2000" > build/single_op.s
-    printf '%b\n' "$asm_code" >> build/single_op.s
+    echo ".org \$2000" > build/single_op.s45
+    printf '%b\n' "$asm_code" >> build/single_op.s45
     
-    $CA -o build/single_op.bin build/single_op.s > /dev/null 2>&1
+    $CA -o build/single_op.bin build/single_op.s45 > /dev/null 2>&1
     if [ $? -ne 0 ]; then
         echo "FAIL (Assemble): $mnemonic $mode"
         failed=$((failed + 1))

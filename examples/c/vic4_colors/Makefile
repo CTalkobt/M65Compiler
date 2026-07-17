@@ -26,7 +26,7 @@ $(TARGET): main.o45 $(STDLIB)
 	$(LN45) -basic -M vic4_colors.map -o $(TARGET) main.o45 $(STDLIB)
 
 clean:
-	rm -f main.o45 main.o45.s $(TARGET) vic4_colors.map
+	rm -f main.o45 main.o45.s45 $(TARGET) vic4_colors.map
 
 run: $(TARGET)
 	xemu-xmega65 -prg $(TARGET)

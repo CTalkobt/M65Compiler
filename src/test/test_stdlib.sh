@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# test_stdlib.sh — Stdlib validation tests via mmemu-cli
+# test_stdlib.s45h — Stdlib validation tests via mmemu-cli
 #
 # Each test returns A=$00 on success, non-zero on failure.
 # Tests are compiled with cc45 -c, linked with ln45 + c45.lib,

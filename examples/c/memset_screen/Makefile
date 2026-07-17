@@ -19,7 +19,7 @@ $(TARGET): main.o45 $(STDLIB)
 	$(LN45) -basic -M memset_screen.map -o $(TARGET) main.o45 $(STDLIB)
 
 clean:
-	rm -f main.o45 main.o45.s $(TARGET) memset_screen.map
+	rm -f main.o45 main.o45.s45 $(TARGET) memset_screen.map
 
 run: $(TARGET)
 	xemu-xmega65 -prgexit $(TARGET)

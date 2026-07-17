@@ -118,22 +118,22 @@ clean:
 
 test: all lib
 	@echo "Running compiler tests..."
-	@bash src/test/test_compiler.sh
+	@bash src/test/test_compiler.s45h
 	@echo "Running assembler feature tests..."
-	@bash src/test/test_assembler.sh
+	@bash src/test/test_assembler.s45h
 	@echo "Running const keyword tests..."
-	@bash src/test/test_const_compiler.sh
-	@bash src/test/test_const_assembler.sh
+	@bash src/test/test_const_compiler.s45h
+	@bash src/test/test_const_assembler.s45h
 	@echo "Running restrict qualifier tests..."
-	@bash src/test/test_restrict.sh
+	@bash src/test/test_restrict.s45h
 	@echo "Running register keyword tests..."
-	@bash src/test/test_register.sh
+	@bash src/test/test_register.s45h
 	@echo "Running cast fold type preservation tests..."
-	@bash src/test/test_cast_fold.sh
+	@bash src/test/test_cast_fold.s45h
 	@echo "Running clobber tracking tests..."
-	@bash src/test/test_clobber.sh
+	@bash src/test/test_clobber.s45h
 	@echo "Validating mmemu-cli integration..."
-	@bash src/test/test_mmemu.sh
+	@bash src/test/test_mmemu.s45h
 	@echo "Running parser syntax error validation tests..."
 	@$(MAKE) test-validation-parser
 	@echo "Running struct/union semantic error validation tests..."
@@ -168,60 +168,60 @@ test: all lib
 	@echo "Running Move/Fill operation tests..."
 	@$(MAKE) test-move-fill
 	@echo "Running objdump45 tests..."
-	@bash src/test/test_objdump45.sh
+	@bash src/test/test_objdump45.s45h
 	@echo "Running disk45 tests..."
-	@bash src/test/test_disk45.sh
+	@bash src/test/test_disk45.s45h
 	@echo "Running new stdlib tests..."
-	@bash src/test/test_stdlib_new.sh
+	@bash src/test/test_stdlib_new.s45h
 
 test-assembler: all
-	@bash src/test/test_assembler.sh
+	@bash src/test/test_assembler.s45h
 
 test-const: all
-	@bash src/test/test_const_compiler.sh
-	@bash src/test/test_const_assembler.sh
+	@bash src/test/test_const_compiler.s45h
+	@bash src/test/test_const_assembler.s45h
 
 test-restrict: all
-	@bash src/test/test_restrict.sh
+	@bash src/test/test_restrict.s45h
 
 test-register: all
-	@bash src/test/test_register.sh
+	@bash src/test/test_register.s45h
 
 test-cast-fold: all
-	@bash src/test/test_cast_fold.sh
+	@bash src/test/test_cast_fold.s45h
 
 test-integration: all
-	@bash src/test/test_integration.sh
+	@bash src/test/test_integration.s45h
 
 test-mmemu: all
-	@bash src/test/test_mmemu.sh
+	@bash src/test/test_mmemu.s45h
 
 test-stdlib: all lib
-	@bash src/test/test_stdlib.sh
+	@bash src/test/test_stdlib.s45h
 
 test-regression: all lib
-	@bash src/test/test_regression.sh
+	@bash src/test/test_regression.s45h
 
 test-zpcall: all
-	@bash src/test/test_zpcall.sh
+	@bash src/test/test_zpcall.s45h
 
 bench: all lib
-	@bash src/test/bench.sh
+	@bash src/test/bench.s45h
 
 bench-optimizer: all
-	@bash src/test/bench_optimizer.sh
+	@bash src/test/bench_optimizer.s45h
 
 bench-save: all lib
-	@bash src/test/bench.sh
+	@bash src/test/bench.s45h
 	@cp build/test/bench_results.json src/test/bench_baseline.json
 	@echo "Baseline saved to src/test/bench_baseline.json"
 
 test-objdump45: all
-	@bash src/test/test_objdump45.sh
+	@bash src/test/test_objdump45.s45h
 
 test-opcodes: all
 	@echo "Validating opcodes and addressing modes..."
-	@bash src/test/test_opcodes.sh
+	@bash src/test/test_opcodes.s45h
 
 # O45 format unit test
 TEST_O45_TARGET = $(BIN_DIR)/test_o45

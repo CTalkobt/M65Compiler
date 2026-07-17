@@ -43,11 +43,11 @@ get_a_reg() {
 shadow_test() {
     local name="$1"
     local src="$2"
-    local legacy_s="build/test/shadow/${name}_legacy.s"
+    local legacy_s="build/test/shadow/${name}_legacy.s45"
     local legacy_prg="build/test/shadow/${name}_legacy.prg"
     local ir_prg="build/test/shadow/${name}_ir.prg"
 
-    # Legacy path: cc45 → .s → ca45 → .prg
+    # Legacy path: cc45 → .s45 → ca45 → .prg
     $CC "$src" -o "$legacy_s" 2>/dev/null
     if [ $? -ne 0 ]; then
         echo "SKIP: $name (legacy compilation failed)"
@@ -61,15 +61,15 @@ shadow_test() {
         return
     fi
 
-    # IR path: cc45 (IR is default) → .s → ca45 → .prg
-    $CC "$src" -o "build/test/shadow/${name}_ir.s" 2>/dev/null
+    # IR path: cc45 (IR is default) → .s45 → ca45 → .prg
+    $CC "$src" -o "build/test/shadow/${name}_ir.s45" 2>/dev/null
     if [ $? -ne 0 ]; then
         echo "SKIP: $name (IR compilation failed)"
         skipped=$((skipped + 1))
         return
     fi
 
-    $AS "build/test/shadow/${name}_ir.s" -o "$ir_prg" 2>/dev/null
+    $AS "build/test/shadow/${name}_ir.s45" -o "$ir_prg" 2>/dev/null
     if [ $? -ne 0 ]; then
         echo "FAIL: $name (IR assembly failed)"
         echo "  IR assembly file: $ir_s"

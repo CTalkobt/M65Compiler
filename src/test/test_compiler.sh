@@ -108,7 +108,7 @@ for f in "${TEST_FILES[@]}"; do
     fi
     
     filename=$(basename "$f")
-    s_file="build/test/${filename%.c}.s"
+    s_file="build/test/${filename%.c}.s45"
     bin_file="build/test/${filename%.c}.bin"
     
     echo "Testing $f..."
@@ -134,14 +134,14 @@ done
 
 # --- Test -I flag with space-separated path ---
 echo "Testing -I flag (space-separated)..."
-$CC -v -I lib/include src/test-resources/test_include_flag.c -o build/test/test_include_flag.s
+$CC -v -I lib/include src/test-resources/test_include_flag.c -o build/test/test_include_flag.s45
 if [ $? -ne 0 ]; then
     echo "FAIL: -I lib/include (space) failed"
     failed=$((failed + 1))
 else
-    $AS build/test/test_include_flag.s -o build/test/test_include_flag.bin
+    $AS build/test/test_include_flag.s45 -o build/test/test_include_flag.bin
     if [ $? -ne 0 ]; then
-        echo "FAIL: Assembly failed for test_include_flag.s (-I space)"
+        echo "FAIL: Assembly failed for test_include_flag.s45 (-I space)"
         failed=$((failed + 1))
     else
         echo "SUCCESS: -I flag (space-separated)"
@@ -149,7 +149,7 @@ else
 fi
 
 echo "Testing -I flag (no space)..."
-$CC -v -Ilib/include src/test-resources/test_include_flag.c -o build/test/test_include_flag_nospace.s
+$CC -v -Ilib/include src/test-resources/test_include_flag.c -o build/test/test_include_flag_nospace.s45
 if [ $? -ne 0 ]; then
     echo "FAIL: -Ilib/include (no space) failed"
     failed=$((failed + 1))
