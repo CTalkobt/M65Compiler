@@ -2,6 +2,8 @@
 
 Language Server Protocol (LSP) server and VS Code extension for the MEGA65 C compiler (cc45) and assembler (ca45).
 
+**📖 [IDE Setup Guide](IDE-SETUP.md)** — Configure LSP in VS Code, Visual Studio, CLion, Vim, Emacs, Sublime, and more.
+
 ## Project Structure
 
 - **`lsp-server/`** — Standalone LSP server (Node.js, TypeScript)
