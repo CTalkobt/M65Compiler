@@ -27,7 +27,9 @@
 #include "FormatDetection.hpp"
 #include "Version.hpp"
 #include "MacroUtils.hpp"
+#include "ThreadPool.hpp"
 #include <chrono>
+#include <atomic>
 
 static void registerFormats() {
     // Register ca45 parser
@@ -774,8 +776,10 @@ int main(int argc, char** argv) {
     bool verbose = false;
     bool validateMode = false;
     bool statsMode = false;
-    bool metricsMode = false;  // Phase 4
-    bool clearCache = false;   // Phase 4
+    bool metricsMode = false;  // Phase 4a
+    bool clearCache = false;   // Phase 4a
+    bool parallelMode = false;  // Phase 4b
+    int numThreads = 0;         // Phase 4b (0 = auto-detect)
 
     // Parse command line arguments
     for (int i = 1; i < argc; ++i) {
@@ -791,10 +795,14 @@ int main(int argc, char** argv) {
             validateMode = true;
         } else if (arg == "--stats") {
             statsMode = true;
-        } else if (arg == "--metrics") {  // Phase 4
+        } else if (arg == "--metrics") {  // Phase 4a
             metricsMode = true;
-        } else if (arg == "--clear-cache") {  // Phase 4
+        } else if (arg == "--clear-cache") {  // Phase 4a
             clearCache = true;
+        } else if (arg == "--parallel") {  // Phase 4b
+            parallelMode = true;
+        } else if (arg == "--threads" && i + 1 < argc) {  // Phase 4b
+            numThreads = std::atoi(argv[++i]);
         } else if (arg == "-l" || arg == "--list-formats") {
             listFormats();
             return 0;
@@ -976,7 +984,7 @@ int main(int argc, char** argv) {
         return (failureCount > 0) ? 1 : 0;
     }
 
-    // Phase 4: Clear cache if requested
+    // Phase 4a: Clear cache if requested
     if (clearCache) {
         MacroUtils::clearCache();
         if (verbose) {
@@ -984,35 +992,80 @@ int main(int argc, char** argv) {
         }
     }
 
-    // Phase 4: Reset metrics at start of batch conversion
+    // Phase 4a: Reset metrics at start of batch conversion
     MacroUtils::resetMetrics();
     auto batchStartTime = std::chrono::high_resolution_clock::now();
 
-    // Batch conversion: process each input file
-    int failureCount = 0;
-    int successCount = 0;
+    // Phase 4b: Batch conversion with optional parallel processing
+    std::atomic<int> failureCount{0};
+    std::atomic<int> successCount{0};
 
-    for (size_t i = 0; i < inputFiles.size(); ++i) {
-        const std::string& inputFile = inputFiles[i];
-        std::string outputFile;
+    if (parallelMode && inputFiles.size() > 1) {
+        // Phase 4b: Parallel batch conversion
+        if (verbose) {
+            std::cerr << "Using parallel conversion with "
+                      << (numThreads > 0 ? std::to_string(numThreads) : "auto-detected")
+                      << " threads\n";
+        }
 
-        // For single file with no output dir: use stdout
-        // For single file with output dir: generate filename
-        // For multiple files: always generate filename
-        if (inputFiles.size() == 1 && outputDir.empty()) {
-            outputFile = "";  // stdout
-        } else {
-            outputFile = generateOutputPath(inputFile, targetFormat, outputDir);
+        ThreadPool pool(numThreads > 0 ? numThreads : 0);
+
+        // Enqueue all conversion tasks
+        for (size_t i = 0; i < inputFiles.size(); ++i) {
+            const std::string& inputFile = inputFiles[i];
+            std::string outputFile;
+
+            if (inputFiles.size() == 1 && outputDir.empty()) {
+                outputFile = "";
+            } else {
+                outputFile = generateOutputPath(inputFile, targetFormat, outputDir);
+            }
+
+            pool.enqueue([inputFile, inputFormat, targetFormat, outputFile, verbose,
+                         &failureCount, &successCount, i, totalCount = inputFiles.size()]() {
+                if (verbose) {
+                    std::cerr << "[" << (i + 1) << "/" << totalCount << "] ";
+                }
+
+                if (convertFile(inputFile, inputFormat, targetFormat, outputFile, verbose)) {
+                    successCount++;
+                } else {
+                    failureCount++;
+                }
+            });
+        }
+
+        // Wait for all conversions to complete
+        pool.waitAll();
+
+        if (verbose) {
+            std::cerr << "\n";
+        }
+    } else {
+        // Sequential batch conversion (Phase 2b)
+        for (size_t i = 0; i < inputFiles.size(); ++i) {
+            const std::string& inputFile = inputFiles[i];
+            std::string outputFile;
+
+            if (inputFiles.size() == 1 && outputDir.empty()) {
+                outputFile = "";
+            } else {
+                outputFile = generateOutputPath(inputFile, targetFormat, outputDir);
+            }
+
+            if (verbose && inputFiles.size() > 1) {
+                std::cerr << "\n[" << (i + 1) << "/" << inputFiles.size() << "] ";
+            }
+
+            if (!convertFile(inputFile, inputFormat, targetFormat, outputFile, verbose)) {
+                failureCount++;
+            } else {
+                successCount++;
+            }
         }
 
         if (verbose && inputFiles.size() > 1) {
-            std::cerr << "\n[" << (i + 1) << "/" << inputFiles.size() << "] ";
-        }
-
-        if (!convertFile(inputFile, inputFormat, targetFormat, outputFile, verbose)) {
-            failureCount++;
-        } else {
-            successCount++;
+            std::cerr << "\n";
         }
     }
 
@@ -1020,14 +1073,19 @@ int main(int argc, char** argv) {
     auto batchDuration = std::chrono::duration_cast<std::chrono::milliseconds>(batchEndTime - batchStartTime);
 
     if (verbose && inputFiles.size() > 1) {
-        std::cerr << "\n\nBatch conversion complete: " << successCount << " succeeded, " << failureCount << " failed\n";
+        std::cerr << "\nBatch conversion complete: " << successCount << " succeeded, " << failureCount << " failed\n";
     }
 
     // Phase 4: Report performance metrics if enabled or verbose
     if (metricsMode || verbose) {
         std::cout << "\n=== Performance Metrics ===\n";
+        std::cout << "Processing mode:          " << (parallelMode ? "PARALLEL" : "SEQUENTIAL") << "\n";
+        if (parallelMode) {
+            std::cout << "Worker threads:           " << (numThreads > 0 ? std::to_string(numThreads) : "auto-detected") << "\n";
+        }
         std::cout << "Total files processed:    " << inputFiles.size() << "\n";
         std::cout << "Successful conversions:   " << successCount << "\n";
+        std::cout << "Failed conversions:       " << failureCount << "\n";
         std::cout << "Total time:               " << batchDuration.count() << " ms\n";
         if (inputFiles.size() > 0) {
             std::cout << "Average time per file:    "
