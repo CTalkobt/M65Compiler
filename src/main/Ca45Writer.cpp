@@ -25,7 +25,7 @@ std::string Ca45Writer::write(const AsmIR::Module& module) {
         out << "\n";
     }
 
-    // Emit statements
+    // Emit statements, skipping symbol directives (global, extern, weak) as they're already output from module.symbols
     for (const auto& stmt : module.statements) {
         switch (stmt.type) {
             case AsmIR::Statement::Type::LABEL:
@@ -41,6 +41,13 @@ std::string Ca45Writer::write(const AsmIR::Module& module) {
             }
 
             case AsmIR::Statement::Type::DIRECTIVE: {
+                // Skip symbol directives (global, extern, weak) as they're output from module.symbols
+                if (stmt.dir.type == AsmIR::DirectiveType::GLOBAL ||
+                    stmt.dir.type == AsmIR::DirectiveType::EXTERN ||
+                    stmt.dir.type == AsmIR::DirectiveType::WEAK) {
+                    continue;
+                }
+
                 if (!stmt.label.empty()) {
                     out << stmt.label << ":\n";
                 }

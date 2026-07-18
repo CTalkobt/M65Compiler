@@ -102,26 +102,7 @@ std::vector<AcmeParser::Token> AcmeParser::tokenize(const std::string& source) {
             continue;
         }
 
-        // Identifiers and labels
-        if (std::isalpha(c) || c == '_' || c == ':') {
-            size_t start = pos;
-            if (c == ':') {
-                pos++;
-                while (pos < source.length() && (std::isalnum(source[pos]) || source[pos] == '_')) {
-                    pos++;
-                }
-            } else {
-                while (pos < source.length() && (std::isalnum(source[pos]) || source[pos] == '_')) {
-                    pos++;
-                }
-            }
-            std::string ident = source.substr(start, pos - start);
-            tokens.push_back({TokenType::IDENTIFIER, ident, line, column});
-            column += pos - start;
-            continue;
-        }
-
-        // Single character tokens
+        // Single character tokens (handle before identifiers to properly detect ':' as COLON not IDENTIFIER start)
         TokenType type = TokenType::WHITESPACE;
         switch (c) {
             case '#': type = TokenType::IMMEDIATE; break;
@@ -138,8 +119,24 @@ std::vector<AcmeParser::Token> AcmeParser::tokenize(const std::string& source) {
 
         if (type != TokenType::WHITESPACE) {
             tokens.push_back({type, std::string(1, c), line, column});
+            pos++;
+            column++;
+            continue;
         }
 
+        // Identifiers (no longer starting with ':')
+        if (std::isalpha(c) || c == '_') {
+            size_t start = pos;
+            while (pos < source.length() && (std::isalnum(source[pos]) || source[pos] == '_')) {
+                pos++;
+            }
+            std::string ident = source.substr(start, pos - start);
+            tokens.push_back({TokenType::IDENTIFIER, ident, line, column});
+            column += pos - start;
+            continue;
+        }
+
+        // Skip any other character
         pos++;
         column++;
     }
