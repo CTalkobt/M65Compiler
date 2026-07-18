@@ -22,6 +22,7 @@ private:
         NUMBER,
         STRING,
         PSEUDO_OP,       // !pseudo
+        IMMEDIATE,       // #
         STAR,             // *
         EQUALS,           // =
         COLON,

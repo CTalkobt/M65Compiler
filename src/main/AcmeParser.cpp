@@ -124,6 +124,7 @@ std::vector<AcmeParser::Token> AcmeParser::tokenize(const std::string& source) {
         // Single character tokens
         TokenType type = TokenType::WHITESPACE;
         switch (c) {
+            case '#': type = TokenType::IMMEDIATE; break;
             case '*': type = TokenType::STAR; break;
             case '=': type = TokenType::EQUALS; break;
             case ':': type = TokenType::COLON; break;
@@ -260,8 +261,14 @@ AsmIR::Module AcmeParser::parseTokens(const std::vector<Token>& tokens) {
 
             // Parse operand
             std::string operandText;
+            bool hasImmediate = false;
             while (peek().type != TokenType::NEWLINE && peek().type != TokenType::END_OF_FILE &&
                    peek().type != TokenType::COMMENT) {
+                if (peek().type == TokenType::IMMEDIATE) {
+                    hasImmediate = true;
+                    advance();  // skip # token
+                    continue;
+                }
                 operandText += peek().value;
                 advance();
                 if (peek().type == TokenType::COMMA) {
@@ -272,6 +279,9 @@ AsmIR::Module AcmeParser::parseTokens(const std::vector<Token>& tokens) {
 
             stmt.instr.operand.text = operandText;
             stmt.instr.mode = inferAddressingMode(operandText);
+            if (hasImmediate) {
+                stmt.instr.mode = AsmIR::AddressingMode::IMMEDIATE;
+            }
             module.statements.push_back(stmt);
             continue;
         }
