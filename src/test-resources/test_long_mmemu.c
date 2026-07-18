@@ -52,4 +52,6 @@ void main() {
     r[10] = (char)(global_c >> 24); // $00
 
     r[11] = 0xAA;  // marker
+
+    __asm__("brk");        // Signal test complete to mmemu
 }
