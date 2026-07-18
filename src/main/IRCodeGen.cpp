@@ -1267,8 +1267,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     bool useStackParams = !zpCallMode_ || fn.isVariadic;
     if (useStackParams) {
         // Stack convention (or variadic in zpCall mode): args pushed right-to-left,
-        // first param is closest to SP (smallest offset past frame + return address).
-        int pOff = localFrameSize + 2;
+        // first param is closest to SP (smallest offset past return address).
+        // FP points to return address (offset 0-1), so parameters start at offset 2.
+        int pOff = 2;
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
             int ps = ir::typeSize(fn.paramTypes[i]);
             if (ps < 2) ps = 2;
@@ -1298,7 +1299,8 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // Emit debug metadata for parameters
     if (useStackParams) {
         // Stack convention: parameters on stack
-        int pOff = localFrameSize + 2;
+        // FP points to return address (offset 0-1), so parameters start at offset 2.
+        int pOff = 2;
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
             int ps = ir::typeSize(fn.paramTypes[i]);
             if (ps < 2) ps = 2;
