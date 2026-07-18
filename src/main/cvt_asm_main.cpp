@@ -20,6 +20,7 @@
 #include "X65Writer.hpp"
 #include "KickAssemblerParser.hpp"
 #include "KickAssemblerWriter.hpp"
+#include "FormatDetection.hpp"
 #include "Version.hpp"
 
 static void registerFormats() {
@@ -99,7 +100,7 @@ static void showUsage(const char* progName) {
     std::cerr << suiteVersionString("cvt_asm") << "\n\n";
     std::cerr << "Usage: " << progName << " [options] <input-file>\n\n";
     std::cerr << "Options:\n";
-    std::cerr << "  -f <format>    Input format (default: ca45)\n";
+    std::cerr << "  -f <format>    Input format (default: auto-detect from extension/modeline)\n";
     std::cerr << "  -t <format>    Target format (default: ca45)\n";
     std::cerr << "  -o <file>      Output file (default: stdout)\n";
     std::cerr << "  -l             List supported formats and exit\n";
@@ -126,7 +127,7 @@ int main(int argc, char** argv) {
     registerFormats();
 
     std::string inputFile;
-    std::string inputFormat = "ca45";
+    std::string inputFormat = "";  // Empty means auto-detect
     std::string targetFormat = "ca45";
     std::string outputFile;
     bool verbose = false;
@@ -178,6 +179,21 @@ int main(int argc, char** argv) {
     buffer << inFile.rdbuf();
     std::string source = buffer.str();
     inFile.close();
+
+    // Auto-detect input format if not specified
+    if (inputFormat.empty()) {
+        auto detected = FormatDetection::detectFormat(inputFile);
+        if (detected) {
+            inputFormat = *detected;
+            if (verbose) {
+                std::cerr << "Auto-detected input format: " << inputFormat << "\n";
+            }
+        } else {
+            std::cerr << "Error: Could not auto-detect input format. Specify with -f <format>\n";
+            std::cerr << "Supported formats: ca45, ca65, acme, oscar, merlin64, x65, kickassembler\n";
+            return 1;
+        }
+    }
 
     if (verbose) {
         std::cerr << "Input format: " << inputFormat << "\n";
