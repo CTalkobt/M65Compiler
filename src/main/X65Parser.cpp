@@ -1,10 +1,10 @@
-#include "AcmeParser.hpp"
-#include "MacroUtils.hpp"
+#include "X65Parser.hpp"
 #include <cctype>
 #include <sstream>
 #include <algorithm>
+#include <set>
 
-AsmIR::Module AcmeParser::parse(const std::string& source) {
+AsmIR::Module X65Parser::parse(const std::string& source) {
     AsmIR::Module module;
 
     try {
@@ -12,9 +12,6 @@ AsmIR::Module AcmeParser::parse(const std::string& source) {
         module = parseTokens(tokens);
         module.cpu = "6502";
         module.is_o45 = false;
-
-        // Extract macros from source
-        MacroUtils::extractACMEMacros(source, module);
     } catch (const std::exception& e) {
         addError(std::string("Parse error: ") + e.what());
     }
@@ -22,7 +19,7 @@ AsmIR::Module AcmeParser::parse(const std::string& source) {
     return module;
 }
 
-std::vector<AcmeParser::Token> AcmeParser::tokenize(const std::string& source) {
+std::vector<X65Parser::Token> X65Parser::tokenize(const std::string& source) {
     std::vector<Token> tokens;
     size_t pos = 0;
     int line = 1, column = 1;
@@ -46,8 +43,8 @@ std::vector<AcmeParser::Token> AcmeParser::tokenize(const std::string& source) {
             continue;
         }
 
-        // Comments (semicolon or * at line start after whitespace)
-        if (c == ';' || c == '*') {
+        // Comments (semicolon anywhere)
+        if (c == ';') {
             size_t end = source.find('\n', pos);
             if (end == std::string::npos) end = source.length();
             std::string comment = source.substr(pos, end - pos);
@@ -56,21 +53,8 @@ std::vector<AcmeParser::Token> AcmeParser::tokenize(const std::string& source) {
             continue;
         }
 
-        // Pseudo-ops (starting with !)
-        if (c == '!' && pos + 1 < source.length() && std::isalpha(source[pos + 1])) {
-            pos++;  // skip !
-            size_t start = pos;
-            while (pos < source.length() && (std::isalnum(source[pos]) || source[pos] == '_')) {
-                pos++;
-            }
-            std::string name = source.substr(start, pos - start);
-            tokens.push_back({TokenType::PSEUDO_OP, name, line, column});
-            column += pos - start + 1;
-            continue;
-        }
-
-        // Numbers (hex $xxxx, binary %xxxx, octal &xxxx, decimal)
-        if (std::isdigit(c) || c == '$' || c == '%' || c == '&') {
+        // Numbers ($xxxx hex, %binary, decimal)
+        if (std::isdigit(c) || c == '$' || c == '%') {
             size_t start = pos;
             if (c == '$' && pos + 1 < source.length() && std::isxdigit(source[pos + 1])) {
                 pos++;
@@ -78,9 +62,6 @@ std::vector<AcmeParser::Token> AcmeParser::tokenize(const std::string& source) {
             } else if (c == '%' && pos + 1 < source.length() && (source[pos + 1] == '0' || source[pos + 1] == '1')) {
                 pos++;
                 while (pos < source.length() && (source[pos] == '0' || source[pos] == '1')) pos++;
-            } else if (c == '&' && pos + 1 < source.length() && std::isdigit(source[pos + 1])) {
-                pos++;
-                while (pos < source.length() && source[pos] >= '0' && source[pos] <= '7') pos++;
             } else if (std::isdigit(c)) {
                 while (pos < source.length() && std::isdigit(source[pos])) pos++;
             } else {
@@ -92,10 +73,11 @@ std::vector<AcmeParser::Token> AcmeParser::tokenize(const std::string& source) {
             continue;
         }
 
-        // Strings
-        if (c == '"') {
+        // Strings (double or single quoted)
+        if (c == '"' || c == '\'') {
+            char quote = c;
             size_t start = pos++;
-            while (pos < source.length() && source[pos] != '"') {
+            while (pos < source.length() && source[pos] != quote) {
                 if (source[pos] == '\\') pos++;
                 pos++;
             }
@@ -106,12 +88,22 @@ std::vector<AcmeParser::Token> AcmeParser::tokenize(const std::string& source) {
             continue;
         }
 
-        // Single character tokens (handle before identifiers to properly detect ':' as COLON not IDENTIFIER start)
+        // Dot directives (.import, .export, etc.)
+        if (c == '.' && pos + 1 < source.length() && std::isalpha(source[pos + 1])) {
+            size_t start = pos++;
+            while (pos < source.length() && (std::isalnum(source[pos]) || source[pos] == '_')) {
+                pos++;
+            }
+            std::string directive = source.substr(start, pos - start);
+            tokens.push_back({TokenType::DOT_DIRECTIVE, directive, line, column});
+            column += pos - start;
+            continue;
+        }
+
+        // Single character tokens
         TokenType type = TokenType::WHITESPACE;
         switch (c) {
             case '#': type = TokenType::IMMEDIATE; break;
-            case '*': type = TokenType::STAR; break;
-            case '=': type = TokenType::EQUALS; break;
             case ':': type = TokenType::COLON; break;
             case ',': type = TokenType::COMMA; break;
             case '(': type = TokenType::LPAREN; break;
@@ -128,8 +120,8 @@ std::vector<AcmeParser::Token> AcmeParser::tokenize(const std::string& source) {
             continue;
         }
 
-        // Identifiers (no longer starting with ':')
-        if (std::isalpha(c) || c == '_') {
+        // Identifiers
+        if (std::isalpha(c) || c == '_' || c == '@') {
             size_t start = pos;
             while (pos < source.length() && (std::isalnum(source[pos]) || source[pos] == '_')) {
                 pos++;
@@ -140,7 +132,7 @@ std::vector<AcmeParser::Token> AcmeParser::tokenize(const std::string& source) {
             continue;
         }
 
-        // Skip any other character
+        // Skip unknown character
         pos++;
         column++;
     }
@@ -149,7 +141,7 @@ std::vector<AcmeParser::Token> AcmeParser::tokenize(const std::string& source) {
     return tokens;
 }
 
-AsmIR::Module AcmeParser::parseTokens(const std::vector<Token>& tokens) {
+AsmIR::Module X65Parser::parseTokens(const std::vector<Token>& tokens) {
     AsmIR::Module module;
     size_t pos = 0;
 
@@ -177,114 +169,91 @@ AsmIR::Module AcmeParser::parseTokens(const std::vector<Token>& tokens) {
             continue;
         }
 
-        // Handle ORG (*=address)
-        if (tok.type == TokenType::STAR && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::EQUALS) {
-            advance();  // *
-            advance();  // =
-
-            AsmIR::Statement stmt;
-            stmt.type = AsmIR::Statement::Type::DIRECTIVE;
-            stmt.dir.type = AsmIR::DirectiveType::ORG;
-            stmt.dir.name = "org";
-            stmt.source_line = tok.line;
-
-            if (peek().type == TokenType::NUMBER) {
-                stmt.dir.arguments.push_back(peek().value);
-                advance();
-            }
-
-            module.statements.push_back(stmt);
-            continue;
-        }
-
-        // Handle pseudo-ops
-        if (tok.type == TokenType::PSEUDO_OP) {
-            std::string opName = tok.value;
+        // Handle dot directives
+        if (tok.type == TokenType::DOT_DIRECTIVE) {
+            std::string dirName = tok.value;
             advance();
 
             AsmIR::Statement stmt;
             stmt.type = AsmIR::Statement::Type::DIRECTIVE;
+            stmt.dir.type = directiveTypeFromName(dirName);
+            stmt.dir.name = dirName;
             stmt.source_line = tok.line;
 
-            if (opName == "byte") {
-                stmt.dir.type = AsmIR::DirectiveType::BYTE_DATA;
-                stmt.dir.name = "byte";
-            } else if (opName == "word") {
-                stmt.dir.type = AsmIR::DirectiveType::WORD_DATA;
-                stmt.dir.name = "word";
-            } else if (opName == "long") {
-                stmt.dir.type = AsmIR::DirectiveType::LONG_DATA;
-                stmt.dir.name = "long";
-            } else if (opName == "align") {
-                stmt.dir.type = AsmIR::DirectiveType::ALIGN;
-                stmt.dir.name = "align";
-            } else {
-                stmt.dir.type = AsmIR::DirectiveType::OTHER;
-                stmt.dir.name = opName;
-            }
-
-            // Collect arguments until end of line
-            while (peek().type != TokenType::NEWLINE && peek().type != TokenType::END_OF_FILE) {
-                if (peek().type != TokenType::COMMENT) {
-                    stmt.dir.arguments.push_back(peek().value);
-                }
-                advance();
-            }
-
-            module.statements.push_back(stmt);
-            continue;
-        }
-
-        // Handle labels (identifier not followed by instruction mnemonic)
-        if (tok.type == TokenType::IDENTIFIER) {
-            // Lookahead to see if this is a label or instruction
-            std::string potential_label = tok.value;
-            advance();
-
-            // If followed by colon, it's definitely a label
-            if (peek().type == TokenType::COLON) {
-                AsmIR::Statement stmt;
-                stmt.type = AsmIR::Statement::Type::LABEL;
-                stmt.label = potential_label;
-                stmt.source_line = tok.line;
-                module.statements.push_back(stmt);
-                advance();  // colon
-                continue;
-            }
-
-            // Otherwise, treat as instruction
-            std::string mnemonic = normalizeMnemonic(potential_label);
-
-            AsmIR::Statement stmt;
-            stmt.type = AsmIR::Statement::Type::INSTRUCTION;
-            stmt.instr.mnemonic = mnemonic;
-            stmt.source_line = tok.line;
-
-            // Parse operand
-            std::string operandText;
-            bool hasImmediate = false;
+            // Collect arguments until newline
             while (peek().type != TokenType::NEWLINE && peek().type != TokenType::END_OF_FILE &&
                    peek().type != TokenType::COMMENT) {
-                if (peek().type == TokenType::IMMEDIATE) {
-                    hasImmediate = true;
-                    advance();  // skip # token
-                    continue;
-                }
-                operandText += peek().value;
+                stmt.dir.arguments.push_back(peek().value);
                 advance();
                 if (peek().type == TokenType::COMMA) {
-                    operandText += ",";
                     advance();
                 }
             }
 
-            stmt.instr.operand.text = operandText;
-            stmt.instr.mode = inferAddressingMode(operandText);
-            if (hasImmediate) {
-                stmt.instr.mode = AsmIR::AddressingMode::IMMEDIATE;
-            }
             module.statements.push_back(stmt);
             continue;
+        }
+
+        // Handle labels and instructions
+        if (tok.type == TokenType::IDENTIFIER) {
+            std::string potential_ident = tok.value;
+            advance();
+
+            // Check if it's a mnemonic
+            if (isMnemonic(potential_ident)) {
+                // It's an instruction
+                std::string mnemonic = normalizeMnemonic(potential_ident);
+
+                AsmIR::Statement stmt;
+                stmt.type = AsmIR::Statement::Type::INSTRUCTION;
+                stmt.instr.mnemonic = mnemonic;
+                stmt.source_line = tok.line;
+
+                // Parse operand
+                std::string operandText;
+                bool hasImmediate = false;
+                while (peek().type != TokenType::NEWLINE && peek().type != TokenType::END_OF_FILE &&
+                       peek().type != TokenType::COMMENT) {
+                    if (peek().type == TokenType::IMMEDIATE) {
+                        hasImmediate = true;
+                        advance();
+                        continue;
+                    }
+                    operandText += peek().value;
+                    advance();
+                    if (peek().type == TokenType::COMMA) {
+                        operandText += ",";
+                        advance();
+                    }
+                }
+
+                stmt.instr.operand.text = operandText;
+                stmt.instr.mode = inferAddressingMode(operandText);
+                if (hasImmediate) {
+                    stmt.instr.mode = AsmIR::AddressingMode::IMMEDIATE;
+                }
+                module.statements.push_back(stmt);
+                continue;
+            }
+
+            // Check if it's a label: followed by colon, directive, or mnemonic
+            bool is_label = peek().type == TokenType::COLON ||
+                           peek().type == TokenType::DOT_DIRECTIVE ||
+                           peek().type == TokenType::NEWLINE ||
+                           peek().type == TokenType::END_OF_FILE ||
+                           (peek().type == TokenType::IDENTIFIER && isMnemonic(peek().value));
+
+            if (is_label) {
+                AsmIR::Statement stmt;
+                stmt.type = AsmIR::Statement::Type::LABEL;
+                stmt.label = potential_ident;
+                stmt.source_line = tok.line;
+                module.statements.push_back(stmt);
+                if (peek().type == TokenType::COLON) {
+                    advance();
+                }
+                continue;
+            }
         }
 
         // Skip unknown tokens
@@ -294,10 +263,10 @@ AsmIR::Module AcmeParser::parseTokens(const std::vector<Token>& tokens) {
     return module;
 }
 
-AsmIR::AddressingMode AcmeParser::inferAddressingMode(const std::string& operand) {
+AsmIR::AddressingMode X65Parser::inferAddressingMode(const std::string& operand) {
     if (operand.empty()) return AsmIR::AddressingMode::IMPLIED;
 
-    if (operand[0] == '$' || operand[0] == '%' || operand[0] == '&' || std::isdigit(operand[0])) {
+    if (operand[0] == '$' || operand[0] == '%' || std::isdigit(operand[0])) {
         if (operand.find(",x") != std::string::npos || operand.find(",X") != std::string::npos)
             return AsmIR::AddressingMode::ABSOLUTE_X;
         if (operand.find(",y") != std::string::npos || operand.find(",Y") != std::string::npos)
@@ -316,8 +285,35 @@ AsmIR::AddressingMode AcmeParser::inferAddressingMode(const std::string& operand
     return AsmIR::AddressingMode::ABSOLUTE;
 }
 
-std::string AcmeParser::normalizeMnemonic(const std::string& mnemonic) {
+std::string X65Parser::normalizeMnemonic(const std::string& mnemonic) {
     std::string result = mnemonic;
     std::transform(result.begin(), result.end(), result.begin(), ::toupper);
     return result;
+}
+
+bool X65Parser::isMnemonic(const std::string& word) {
+    static const std::set<std::string> mnemonics = {
+        "ADC", "AND", "ASL", "BCC", "BCS", "BEQ", "BIT", "BMI", "BNE", "BPL", "BRK", "BVC", "BVS",
+        "CLC", "CLD", "CLI", "CLV", "CMP", "CPX", "CPY", "DEC", "DEX", "DEY", "EOR", "INC", "INX",
+        "INY", "JMP", "JSR", "LDA", "LDX", "LDY", "LSR", "NOP", "ORA", "PHA", "PHP", "PLA", "PLP",
+        "ROL", "ROR", "RTI", "RTS", "SBC", "SEC", "SED", "SEI", "STA", "STX", "STY", "TAX", "TAY",
+        "TSX", "TXA", "TXS", "TYA"
+    };
+    std::string upper = word;
+    std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
+    return mnemonics.count(upper) > 0;
+}
+
+AsmIR::DirectiveType X65Parser::directiveTypeFromName(const std::string& name) {
+    std::string lower = name;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+
+    if (lower == ".byte") return AsmIR::DirectiveType::BYTE_DATA;
+    if (lower == ".word") return AsmIR::DirectiveType::WORD_DATA;
+    if (lower == ".dword") return AsmIR::DirectiveType::LONG_DATA;
+    if (lower == ".import") return AsmIR::DirectiveType::EXTERN;
+    if (lower == ".export") return AsmIR::DirectiveType::GLOBAL;
+    if (lower == ".org") return AsmIR::DirectiveType::ORG;
+    if (lower == ".segment") return AsmIR::DirectiveType::OTHER;
+    return AsmIR::DirectiveType::OTHER;
 }

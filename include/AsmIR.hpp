@@ -106,9 +106,21 @@ struct Symbol {
     std::string segment;
 };
 
+struct Macro {
+    std::string name;
+    std::vector<std::string> parameters;  // parameter names
+    std::vector<std::string> body;        // macro body lines (may contain \1, \2, etc. for params)
+    int definitionLine = 0;
+    std::string sourceFile;
+
+    Macro() = default;
+    Macro(const std::string& name_) : name(name_) {}
+};
+
 struct Module {
     std::vector<Statement> statements;
     std::map<std::string, Symbol> symbols;
+    std::map<std::string, Macro> macros;    // macro name -> macro definition
     std::map<std::string, uint32_t> segments;  // segment name -> start address
 
     std::string cpu = "45GS02";
