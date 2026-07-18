@@ -483,6 +483,13 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                         }
                     }
                     else if (stmt->dir.name == "cleanup") { if (currentPass2Proc) currentPass2Proc->totalParamSize += parser->evaluateExpressionAt(stmt->dir.tokenIndex, stmt->scopePrefix); }
+                    else if (stmt->dir.name == "frameptr_zp") {
+                        // .frameptr_zp $FD — Set ZP location for frame pointer (for frame-relative addressing)
+                        if (!stmt->dir.arguments.empty()) {
+                            uint8_t fp = (uint8_t)parseNumericLiteral(stmt->dir.arguments[0]);
+                            e.setFramePointerZP(fp);
+                        }
+                    }
                     else if (stmt->dir.name == "byte") for (const auto& a : stmt->dir.arguments) e.emitByte((uint8_t)parseNumericLiteral(a));
                     else if (stmt->dir.name == "word") {
                         for (const auto& a : stmt->dir.arguments) {

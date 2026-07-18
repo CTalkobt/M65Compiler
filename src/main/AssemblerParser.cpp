@@ -594,6 +594,7 @@ void AssemblerParser::pass1() {
                 AssemblerToken tok = advance(); // consume the next token
                 uint8_t fp = (uint8_t)parseNumericLiteral(tok.value);
                 framePointerZP = fp;
+                stmt->dir.arguments.push_back(tok.value);  // Store for use in generator
                 stmt->size = 0;
             }
             else if (stmt->dir.name == "zp_uses" || stmt->dir.name == "zp_clobbers" || stmt->dir.name == "zp_release") {
