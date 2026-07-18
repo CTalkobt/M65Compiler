@@ -33,27 +33,32 @@ echo "=== Round-Trip Tests ==="
 # Create object with all segment types
 cat > "$TEST_DIR/roundtrip.s45" << 'ASM'
 .o45
+
+.segment "code"
 * = $2000
+_main:
     lda #$42
     rts
 
-.data
+.segment "data"
 * = $4000
+data_start:
     .byte $AA, $BB, $CC
 
-.bss
+.segment "bss"
 * = $6000
+bss_start:
     .space $100
 
-.zp
+.segment "zp"
 * = $20
+zp_start:
     .space $10
 
 .global _main
-_main = $2000
 ASM
 
-if $CA_BIN "$TEST_DIR/roundtrip.s45" -o "$TEST_DIR/roundtrip.o45" 2>/dev/null; then
+if $CA_BIN "$TEST_DIR/roundtrip.s45" -c -o "$TEST_DIR/roundtrip.o45" 2>/dev/null; then
     if [ -f "$TEST_DIR/roundtrip.o45" ]; then
         SIZE=$(stat -f%z "$TEST_DIR/roundtrip.o45" 2>/dev/null || stat -c%s "$TEST_DIR/roundtrip.o45")
         if [ "$SIZE" -gt 50 ]; then
@@ -71,17 +76,19 @@ fi
 # Test reading object with relocations
 cat > "$TEST_DIR/reloc.s45" << 'ASM'
 .o45
+
+.segment "code"
 * = $2000
+_main:
     jsr _external_func
     rts
 
-.import _external_func
+.extern _external_func
 .global _main
-_main = $2000
 ASM
 
-if $CA_BIN "$TEST_DIR/reloc.s45" -o "$TEST_DIR/reloc.o45" 2>/dev/null; then
-    if $OD_BIN "$TEST_DIR/reloc.o45" >/dev/null 2>&1; then
+if $CA_BIN "$TEST_DIR/reloc.s45" -c -o "$TEST_DIR/reloc.o45" 2>/dev/null; then
+    if $OD_BIN -f "$TEST_DIR/reloc.o45" >/dev/null 2>&1; then
         test_passed "Round-trip: Relocation object read via objdump"
     else
         test_failed "Round-trip: Cannot read relocation object"
@@ -99,14 +106,16 @@ echo "=== Linker Symbol Resolution Tests ==="
 # Create library object
 cat > "$TEST_DIR/lib.s45" << 'ASM'
 .o45
+
+.segment "code"
 * = $0000
+_printf:
     rts
 
 .global _printf
-_printf = $0000
 ASM
 
-if $CA_BIN "$TEST_DIR/lib.s45" -o "$TEST_DIR/lib.o45" 2>/dev/null; then
+if $CA_BIN "$TEST_DIR/lib.s45" -c -o "$TEST_DIR/lib.o45" 2>/dev/null; then
     test_passed "Linker: Create library object"
 else
     test_failed "Linker: Library assembly failed"
@@ -115,16 +124,18 @@ fi
 # Create main object that imports from lib
 cat > "$TEST_DIR/main.s45" << 'ASM'
 .o45
+
+.segment "code"
 * = $0000
+_main:
     jsr _printf
     rts
 
-.import _printf
+.extern _printf
 .global _main
-_main = $0000
 ASM
 
-if $CA_BIN "$TEST_DIR/main.s45" -o "$TEST_DIR/main.o45" 2>/dev/null; then
+if $CA_BIN "$TEST_DIR/main.s45" -c -o "$TEST_DIR/main.o45" 2>/dev/null; then
     test_passed "Linker: Create main object with import"
 else
     test_failed "Linker: Main assembly failed"
@@ -148,21 +159,24 @@ fi
 # Create object with data relocations
 cat > "$TEST_DIR/data_reloc.s45" << 'ASM'
 .o45
+
+.segment "code"
 * = $0000
+_main:
     lda #<_data_array
     lda #>_data_array
     rts
 
-.data
+.segment "data"
 * = $4000
+data_ptr:
     .word 0
 
-.import _data_array
+.extern _data_array
 .global _main
-_main = $0000
 ASM
 
-if $CA_BIN "$TEST_DIR/data_reloc.s45" -o "$TEST_DIR/data_reloc.o45" 2>/dev/null; then
+if $CA_BIN "$TEST_DIR/data_reloc.s45" -c -o "$TEST_DIR/data_reloc.o45" 2>/dev/null; then
     test_passed "Linker: Create data relocation object"
 else
     test_failed "Linker: Data relocation assembly failed"
@@ -174,20 +188,29 @@ fi
 echo ""
 echo "=== Edge Case Tests ==="
 
-# Large symbol table (100 imports)
+# Large symbol table (50+ imports)
 cat > "$TEST_DIR/large_syms.s45" << 'ASM'
 .o45
+
+.segment "code"
 * = $0000
+_export0:
     rts
+
 .global _export0
-_export0 = $0000
+.extern _func0, _func1, _func2, _func3, _func4
+.extern _func5, _func6, _func7, _func8, _func9
+.extern _func10, _func11, _func12, _func13, _func14
+.extern _func15, _func16, _func17, _func18, _func19
+.extern _func20, _func21, _func22, _func23, _func24
+.extern _func25, _func26, _func27, _func28, _func29
+.extern _func30, _func31, _func32, _func33, _func34
+.extern _func35, _func36, _func37, _func38, _func39
+.extern _func40, _func41, _func42, _func43, _func44
+.extern _func45, _func46, _func47, _func48, _func49
 ASM
 
-for i in {1..50}; do
-    echo ".import _func$i" >> "$TEST_DIR/large_syms.s45"
-done
-
-if $CA_BIN "$TEST_DIR/large_syms.s45" -o "$TEST_DIR/large_syms.o45" 2>/dev/null; then
+if $CA_BIN "$TEST_DIR/large_syms.s45" -c -o "$TEST_DIR/large_syms.o45" 2>/dev/null; then
     if [ -f "$TEST_DIR/large_syms.o45" ]; then
         test_passed "Edge: Large symbol table (50+ imports)"
     else
@@ -200,15 +223,24 @@ fi
 # Large code section (10KB+)
 cat > "$TEST_DIR/large_code.s45" << 'ASM'
 .o45
+
+.segment "code"
 * = $0000
+_start:
+    lda #0
 ASM
 
-for i in {1..1000}; do
-    echo "    nop" >> "$TEST_DIR/large_code.s45"
+for i in {1..500}; do
+    echo "    adc #0" >> "$TEST_DIR/large_code.s45"
 done
-echo "    rts" >> "$TEST_DIR/large_code.s45"
 
-if $CA_BIN "$TEST_DIR/large_code.s45" -o "$TEST_DIR/large_code.o45" 2>/dev/null; then
+cat >> "$TEST_DIR/large_code.s45" << 'ASM'
+    rts
+
+.global _start
+ASM
+
+if $CA_BIN "$TEST_DIR/large_code.s45" -c -o "$TEST_DIR/large_code.o45" 2>/dev/null; then
     SIZE=$(stat -f%z "$TEST_DIR/large_code.o45" 2>/dev/null || stat -c%s "$TEST_DIR/large_code.o45")
     if [ "$SIZE" -gt 1000 ]; then
         test_passed "Edge: Large code section (10KB+)"
@@ -225,7 +257,7 @@ fi
 echo ""
 echo "=== Symbol Table Inspection ==="
 
-if $NM_BIN "$TEST_DIR/roundtrip.o45" >/dev/null 2>&1; then
+if $NM_BIN -n "$TEST_DIR/roundtrip.o45" >/dev/null 2>&1; then
     test_passed "Inspect: nm45 read object successfully"
 else
     test_failed "Inspect: nm45 cannot read object"
