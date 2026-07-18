@@ -7,8 +7,8 @@
 
 The MEGA65 C Compiler (cc45) supports two calling conventions:
 
-1. **Stack Calling Convention** (default) — Parameters on stack, suitable for variable-argument and complex calling patterns
-2. **ZP Calling Convention** (`-fzpcall`) — Parameters in fixed zero-page region, faster, suitable for performance-critical code
+1. **Stack Calling Convention** (default) — Parameters on stack, suitable for variable-argument and complex calling patterns. Supports varargs (`printf`, `va_args`).
+2. **ZP Calling Convention** (`-fzpcall`) — Parameters in fixed zero-page region, faster, suitable for performance-critical code. Fixed parameter count only; no varargs support.
 
 Both conventions use the same register return values (AXYZ for multi-byte results).
 
@@ -20,7 +20,7 @@ Both conventions use the same register return values (AXYZ for multi-byte result
 
 | Register | Purpose | Preserved? |
 |----------|---------|-----------|
-| A | Accumulator, lo-byte of return value | No |
+| A | Accumulator, lo-byte of return value or byte 0 (32-bit) | No |
 | X | Index, hi-byte of return value (16-bit) or byte 1 (32-bit) | No |
 | Y | Index, byte 2 of 32-bit return | No |
 | Z | Index, byte 3 of 32-bit return (hi-byte of 32-bit value) | No |
@@ -187,6 +187,118 @@ plz
 rts
 ```
 
+### Variadic Functions (Varargs)
+
+**Stack convention supports variadic functions.** Varargs are passed on the stack after fixed parameters.
+
+#### Declaration and Usage
+
+```c
+#include <stdarg.h>
+
+int printf(const char *fmt, ...);  // fmt is fixed parameter, rest are varargs
+
+int custom_sum(int count, ...) {
+    va_list args;
+    va_start(args, count);     // Start after count
+    int sum = 0;
+    for (int i = 0; i < count; i++) {
+        sum += va_arg(args, int);  // Read next int from stack
+    }
+    va_end(args);
+    return sum;
+}
+
+// Caller:
+int result = custom_sum(3, 10, 20, 30);  // 3 fixed args, then varargs
+```
+
+#### Stack Layout for Varargs
+
+For `custom_sum(3, 10, 20, 30)`:
+
+```
+Stack (from caller's perspective):
+SP+0:  30 (lo-byte, last vararg)
+SP+1:  00 (hi-byte)
+SP+2:  20 (lo-byte, 2nd vararg)
+SP+3:  00 (hi-byte)
+SP+4:  10 (lo-byte, 1st vararg)
+SP+5:  00 (hi-byte)
+SP+6:  03 (lo-byte, count parameter)
+SP+7:  00 (hi-byte)
+```
+
+The fixed parameter (`count`) is at the lowest stack offset. Variadic arguments follow above it (higher stack addresses).
+
+#### How va_start/va_arg Work
+
+```c
+va_list args;           // Type defined in <stdarg.h>, typically uint16_t (pointer to stack)
+va_start(args, count);  // Initialize args to point to first vararg (above count parameter)
+int val = va_arg(args, int);  // Read 16-bit int, advance args by 2
+va_end(args);           // Cleanup (typically no-op for stack varargs)
+```
+
+**Implementation Details:**
+- `va_start(args, last_fixed)` computes the address of the first vararg (stack offset of `last_fixed` + size of `last_fixed`)
+- `va_arg(args, type)` reads the value at the current args pointer and advances it by `sizeof(type)`
+- Works with frame-relative addressing: args pointer computed relative to frame or stack
+
+#### Varargs in Variadic Functions
+
+When a variadic function is called, the compiler:
+1. Pushes all arguments (fixed + varargs) onto stack in the usual way
+2. Callee uses `va_start` to initialize the varargs list to point past the last fixed parameter
+3. Callee uses `va_arg` to read each vararg in sequence
+
+Example assembly for `custom_sum(3, 10, 20, 30)`:
+
+```asm
+; Caller pushes: 30, 20, 10, 3 (right-to-left)
+lda #30
+ldx #0
+phx
+pha
+lda #20
+ldx #0
+phx
+pha
+lda #10
+ldx #0
+phx
+pha
+lda #3
+ldx #0
+phx
+pha
+jsr custom_sum
+
+; Callee: va_start(&args, count)
+; Compute: args = SP + offset_of_count + sizeof(count)
+; So: args points to first vararg (the 10)
+ldax.fp @_p_count     ; Load count parameter address
+leax                  ; Get address after count
+stax @_l_args         ; Save to args variable
+```
+
+#### Limitations
+
+- **Stack convention only** — Varargs require stack to work (parameter list on stack)
+- **ZP convention incompatible** — ZP uses fixed parameter locations; no varargs support
+- **Type information** — Caller responsible for correct types; `va_arg(args, int)` vs `va_arg(args, short)` changes how many bytes are read
+- **Format string parsing** — Functions like `printf` infer types from format string; custom varargs functions must track arity explicitly
+
+#### Common Varargs Functions
+
+Stack convention stdlib functions supporting varargs:
+
+- `printf(const char *fmt, ...)` — formatted output
+- `sprintf(char *str, const char *fmt, ...)` — format to string
+- `snprintf(char *str, size_t n, const char *fmt, ...)` — bounded format to string
+- `sscanf(const char *str, const char *fmt, ...)` — formatted input from string
+- Custom functions using `<stdarg.h>` macros
+
 ---
 
 ## ZP Calling Convention (`-fzpcall`)
@@ -244,7 +356,7 @@ jsr func_zpcall
 ### Disadvantages
 
 1. **Limited parameters** — Maximum 4 parameters (8 bytes in ZP)
-2. **No variadic functions** — Fixed parameter count only
+2. **No variadic functions** — Fixed parameter count only (cannot use `...`); see [Variadic Functions](#variadic-functions-varargs) section for stack-convention varargs support
 3. **Clobber tracking** — Caller must know which registers are clobbered
 4. **Calling convention mixing** — Requires linker support to prevent mismatched calls
 
@@ -336,11 +448,11 @@ In ZP convention, $20-$2A are caller-saved (callee clobbers freely).
 
 ## Future Enhancements
 
-1. **Per-function convention selection** via `__attribute__`
-2. **Parameter register convention** — use A/X for first param instead of stack
+1. **Per-function convention selection** via `__attribute__((zpcall))` / `__attribute__((stack_call))`
+2. **Parameter register convention** — use A/X for first param instead of stack (hybrid convention)
 3. **Tail call optimization** — reuse frame space across tail calls
-4. **Variadic ZP functions** — multiple calling points with different arities
-5. **Struct optimization** — small structs (≤4 bytes) returned in AXYZ
+4. **Variadic ZP functions** *(Research)* — extend ZP convention to support varargs (requires new calling strategy, not compatible with current fixed ZP layout)
+5. **Struct optimization** — small structs (≤4 bytes) returned in AXYZ instead of static allocation
 
 ---
 
