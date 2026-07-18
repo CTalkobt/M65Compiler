@@ -10,6 +10,8 @@
 #include "Ca45Writer.hpp"
 #include "Ca65Parser.hpp"
 #include "Ca65Writer.hpp"
+#include "AcmeParser.hpp"
+#include "AcmeWriter.hpp"
 #include "KickAssemblerParser.hpp"
 #include "KickAssemblerWriter.hpp"
 #include "Version.hpp"
@@ -43,6 +45,16 @@ static void registerFormats() {
     // Register ca65 writer
     WriterRegistry::getInstance().registerWriter("ca65", []() -> AsmWriter* {
         return new Ca65Writer();
+    });
+
+    // Register ACME parser
+    ParserRegistry::getInstance().registerParser("acme", []() -> AsmParser* {
+        return new AcmeParser();
+    });
+
+    // Register ACME writer
+    WriterRegistry::getInstance().registerWriter("acme", []() -> AsmWriter* {
+        return new AcmeWriter();
     });
 }
 
