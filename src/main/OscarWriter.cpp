@@ -1,12 +1,17 @@
 #include "OscarWriter.hpp"
+#include "MacroUtils.hpp"
 #include <sstream>
 #include <iomanip>
 
 std::string OscarWriter::write(const AsmIR::Module& module) {
+    // Oscar doesn't support macros, so expand them
+    AsmIR::Module expandedModule = module;
+    MacroUtils::processAndExpandMacros(expandedModule, "oscar", true);
+
     std::stringstream out;
 
     // Emit symbols (globals, externs, weak)
-    for (const auto& [name, sym] : module.symbols) {
+    for (const auto& [name, sym] : expandedModule.symbols) {
         if (sym.is_extern) {
             out << "EXTERN " << name << "\n";
         } else if (sym.is_global) {
@@ -16,12 +21,12 @@ std::string OscarWriter::write(const AsmIR::Module& module) {
         }
     }
 
-    if (!module.symbols.empty()) {
+    if (!expandedModule.symbols.empty()) {
         out << "\n";
     }
 
     // Emit statements, skipping symbol directives (global, extern, weak)
-    for (const auto& stmt : module.statements) {
+    for (const auto& stmt : expandedModule.statements) {
         switch (stmt.type) {
             case AsmIR::Statement::Type::LABEL:
                 out << stmt.label << "\n";

@@ -1,12 +1,17 @@
 #include "X65Writer.hpp"
+#include "MacroUtils.hpp"
 #include <sstream>
 #include <iomanip>
 
 std::string X65Writer::write(const AsmIR::Module& module) {
+    // X65 doesn't support macros, so expand them
+    AsmIR::Module expandedModule = module;
+    MacroUtils::processAndExpandMacros(expandedModule, "x65", true);
+
     std::stringstream out;
 
     // Emit symbols (.import/.export)
-    for (const auto& [name, sym] : module.symbols) {
+    for (const auto& [name, sym] : expandedModule.symbols) {
         if (sym.is_extern) {
             out << ".import " << name << "\n";
         } else if (sym.is_global) {
@@ -14,12 +19,12 @@ std::string X65Writer::write(const AsmIR::Module& module) {
         }
     }
 
-    if (!module.symbols.empty()) {
+    if (!expandedModule.symbols.empty()) {
         out << "\n";
     }
 
     // Emit statements, skipping symbol directives
-    for (const auto& stmt : module.statements) {
+    for (const auto& stmt : expandedModule.statements) {
         switch (stmt.type) {
             case AsmIR::Statement::Type::LABEL:
                 out << stmt.label << ":\n";

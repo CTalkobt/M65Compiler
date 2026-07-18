@@ -2,7 +2,17 @@
 #include "AsmIR.hpp"
 #include <string>
 #include <vector>
+#include <set>
 #include <regex>
+#include <sstream>
+#include <algorithm>
+
+// Macro invocation detection and expansion
+struct MacroInvocation {
+    std::string macroName;
+    std::vector<std::string> arguments;
+    int sourceLine = 0;
+};
 
 // Macro extraction and expansion utilities
 class MacroUtils {
@@ -150,7 +160,125 @@ public:
         return expanded;
     }
 
+    // Detect macro invocation in a line of code
+    static bool detectMacroInvocation(const std::string& line,
+                                      const AsmIR::Module& module,
+                                      MacroInvocation& invocation) {
+        std::string trimmed = trimLine(line);
+        if (trimmed.empty()) return false;
+
+        // Try each macro to see if this line invokes it
+        for (const auto& [macroName, macro] : module.macros) {
+            // Simple heuristic: macro name as first token (instruction-like position)
+            std::istringstream iss(trimmed);
+            std::string firstToken;
+            iss >> firstToken;
+
+            if (firstToken == macroName) {
+                invocation.macroName = macroName;
+
+                // Parse arguments (comma-separated or space-separated)
+                std::string remainder;
+                std::getline(iss, remainder);
+
+                // Split arguments
+                invocation.arguments = parseArguments(remainder);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Process macro invocations in module, expanding for target format
+    static void processAndExpandMacros(AsmIR::Module& module,
+                                       const std::string& targetFormat,
+                                       bool shouldExpand = false) {
+        // Formats that don't support macros natively
+        static const std::set<std::string> noMacroFormats = {
+            "oscar", "merlin64", "x65"  // These formats need macro expansion
+        };
+
+        // If target format doesn't support macros, expand all invocations
+        if (noMacroFormats.count(targetFormat) > 0) {
+            shouldExpand = true;
+        }
+
+        if (!shouldExpand) return;  // Format supports macros, no expansion needed
+
+        // Scan statements for macro invocations and expand them
+        std::vector<AsmIR::Statement> expandedStatements;
+
+        for (const auto& stmt : module.statements) {
+            if (stmt.type == AsmIR::Statement::Type::INSTRUCTION) {
+                // Check if this looks like a macro invocation
+                // Macro invocations appear as "instruction-like" statements
+
+                // Look for macro with matching name to the mnemonic
+                auto macroIt = module.macros.find(stmt.instr.mnemonic);
+                if (macroIt != module.macros.end()) {
+                    const auto& macro = macroIt->second;
+
+                    // For now, we don't have arguments in the instruction
+                    // In a real implementation, these would be parsed separately
+                    // For this version, we expand with empty args as placeholder
+                    std::vector<std::string> args;
+                    auto expanded = expandMacro(macro, args);
+
+                    // Convert expanded lines to statements
+                    for (const auto& line : expanded) {
+                        AsmIR::Statement newStmt;
+                        newStmt.type = AsmIR::Statement::Type::INSTRUCTION;
+                        newStmt.comment = "expanded from macro: " + stmt.instr.mnemonic;
+                        // Parse the expanded line as instruction
+                        // For now, just add as comment
+                        newStmt.type = AsmIR::Statement::Type::COMMENT;
+                        newStmt.comment = line + " ; (from macro " + macro.name + ")";
+                        expandedStatements.push_back(newStmt);
+                    }
+                    continue;
+                }
+            }
+
+            // Not a macro invocation, keep as-is
+            expandedStatements.push_back(stmt);
+        }
+
+        if (shouldExpand && expandedStatements.size() > module.statements.size()) {
+            module.statements = expandedStatements;
+        }
+    }
+
 private:
+    static std::vector<std::string> parseArguments(const std::string& argString) {
+        std::vector<std::string> args;
+        std::string current;
+
+        for (char c : argString) {
+            if (c == ',' || c == ' ') {
+                std::string trimmed = current;
+                trimmed.erase(0, trimmed.find_first_not_of(" \t"));
+                trimmed.erase(trimmed.find_last_not_of(" \t") + 1);
+                if (!trimmed.empty()) {
+                    args.push_back(trimmed);
+                }
+                current.clear();
+            } else {
+                current += c;
+            }
+        }
+
+        if (!current.empty()) {
+            std::string trimmed = current;
+            trimmed.erase(0, trimmed.find_first_not_of(" \t"));
+            trimmed.erase(trimmed.find_last_not_of(" \t") + 1);
+            if (!trimmed.empty()) {
+                args.push_back(trimmed);
+            }
+        }
+
+        return args;
+    }
     static std::string trimLine(const std::string& line) {
         size_t start = line.find_first_not_of(" \t");
         if (start == std::string::npos) return "";
