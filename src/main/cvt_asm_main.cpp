@@ -12,6 +12,8 @@
 #include "Ca65Writer.hpp"
 #include "AcmeParser.hpp"
 #include "AcmeWriter.hpp"
+#include "OscarParser.hpp"
+#include "OscarWriter.hpp"
 #include "KickAssemblerParser.hpp"
 #include "KickAssemblerWriter.hpp"
 #include "Version.hpp"
@@ -55,6 +57,16 @@ static void registerFormats() {
     // Register ACME writer
     WriterRegistry::getInstance().registerWriter("acme", []() -> AsmWriter* {
         return new AcmeWriter();
+    });
+
+    // Register Oscar parser
+    ParserRegistry::getInstance().registerParser("oscar", []() -> AsmParser* {
+        return new OscarParser();
+    });
+
+    // Register Oscar writer
+    WriterRegistry::getInstance().registerWriter("oscar", []() -> AsmWriter* {
+        return new OscarWriter();
     });
 }
 
