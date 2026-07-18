@@ -17,6 +17,10 @@ char *strpbrk(char *s, char *accept);
 int strspn(char *s, char *accept);
 int strcspn(char *s, char *reject);
 char *strtok(char *s, char *delim);
+char *strtok_r(char *s, char *delim, char **saveptr);
+int strnlen(const char *s, int maxlen);
+int strlcpy(char *dst, const char *src, int size);
+char *strdup(const char *s);
 
 /* Memory operations */
 void *memcpy(void *dest, void *src, int n);
