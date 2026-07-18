@@ -1,7 +1,8 @@
 # MEGA65 C Compiler Calling Conventions
 
-**Version:** 1.0  
-**Last Updated:** 2026-07-17
+**Version:** 1.1  
+**Last Updated:** 2026-07-17  
+**Status:** Documented current implementation + optimization roadmap for v1.1+
 
 ## Overview
 
@@ -25,7 +26,9 @@ Both conventions use the same register return values (AXYZ for multi-byte result
 | Y | Index, byte 2 of 32-bit return | No |
 | Z | Index, byte 3 of 32-bit return (hi-byte of 32-bit value) | No |
 | S | Stack pointer (8-bit, page $01 or above on MEGA65) | Preserved by convention |
-| $FD/$FE | Frame pointer (dynamic, set up lazily) | Caller-saved if used |
+| $FD/$FE | Frame pointer (dynamic, set up at function entry) | Caller-saved; reserved even if not used* |
+
+*Note: Frame pointer setup is currently unconditional (planned optimization: lazy initialization only when needed)
 
 ### Parameter Passing
 
@@ -65,12 +68,14 @@ Return values are placed in hardware registers (no stack return):
 
 ### Stack Frame Layout
 
-Stack frames are allocated **lazily** — the frame pointer ($FD/$FE) is only set up when:
+Stack frames are allocated, and the frame pointer ($FD/$FE) is set up at function entry.
 
+**Current Implementation:** Frame pointer is always set up for all stack-convention functions.  
+**Planned Optimization (v1.1):** Lazy initialization — only set up when:
 1. A function uses frame-relative variable access, OR
 2. A function calls another function that requires a frame pointer
 
-When set up, the frame layout is:
+The frame layout is:
 
 ```
 [Caller's return address (2 bytes)]
@@ -186,6 +191,33 @@ plz
 ; ... (one plz per word of frame space)
 rts
 ```
+
+### Frame Pointer Recalculation After Function Calls
+
+After each function call (JSR), the frame pointer must be recalculated because:
+- Stack pointer may have changed if arguments were pushed and cleaned up
+- FP must continue pointing to the frame start for subsequent frame-relative access
+
+**Current Implementation:**
+```asm
+jsr _called_function
+; Caller cleans up pushed arguments (if any)
+; Then recalculate FP:
+taz            ; Save A (return value) to Z
+tsx
+txa
+clc
+adc #1
+sta $FD
+lda #$01       ; High byte
+adc #0
+sta $FE
+tza            ; Restore A
+```
+
+**Planned Optimization (v1.1):** Skip FP recalculation if no arguments were pushed (zero-argument calls, common in recursion and callbacks). Saves ~11 bytes and ~20 cycles per call.
+
+**Future Enhancement (v1.2):** Leaf function detection — skip FP recalculation entirely for functions that make no outgoing calls.
 
 ### Variadic Functions (Varargs)
 
@@ -446,13 +478,99 @@ In ZP convention, $20-$2A are caller-saved (callee clobbers freely).
 
 ---
 
-## Future Enhancements
+## Implementation Roadmap
 
-1. **Per-function convention selection** via `__attribute__((zpcall))` / `__attribute__((stack_call))`
-2. **Parameter register convention** — use A/X for first param instead of stack (hybrid convention)
-3. **Tail call optimization** — reuse frame space across tail calls
-4. **Variadic ZP functions** *(Research)* — extend ZP convention to support varargs (requires new calling strategy, not compatible with current fixed ZP layout)
-5. **Struct optimization** — small structs (≤4 bytes) returned in AXYZ instead of static allocation
+### v1.1 — Calling Convention Optimizations (Planned)
+
+**Priority 1: Lazy Frame Pointer Initialization**
+- Only set up FP if function uses frame variables or calls frame-using functions
+- Benefits: Eliminates 11 bytes + ~20 cycles overhead per leaf function
+- Detection: Scan function body for frame-relative access during FrameScanner pass
+- Implementation: Conditional FP setup at function entry based on analysis
+
+**Priority 2: Smart Frame Pointer Recalculation**
+- Skip FP recalculation after calls with zero arguments
+- Benefits: Saves ~10 cycles per zero-argument call (significant in recursion, callbacks)
+- Implementation: Check `argBytes > 0` before emitting setupFramePointer after JSR
+- Common case: Recursive functions, array iteration callbacks
+
+**Priority 3: Leaf Function Detection**
+- Detect functions that make no outgoing calls
+- Skip FP recalculation entirely for leaf functions
+- Benefits: Zero FP-recalc overhead in leaf functions
+- Implementation: Build call graph, mark leaf functions during analysis
+
+### v1.2 — Advanced Calling Convention Features (Planned)
+
+**Priority 4: Hybrid Stack-Register Convention**
+- Use A/X/Y/Z/Q registers for first N parameters, stack for remainder
+- Benefits: Faster parameter passing, smaller code, fewer stack operations
+- Example: `int add(int a, short b, char c, int d)` → first 3 params in regs/ZP, `d` on stack
+- Requirements:
+  - New calling convention marker for linker
+  - Per-function parameter layout specification
+  - Linker enforcement to prevent mismatched calls
+
+**Priority 5: Per-Function Frame Pointer Control**
+- `__attribute__((no_frame_pointer))` — opt out of FP setup entirely
+- `__attribute__((zpcall))` — use ZP convention for single function
+- `__attribute__((regparm(N)))` — hint first N params go in registers
+- Benefits: Fine-grained control for performance-critical functions
+
+**Priority 6: Tail Call Optimization**
+- Detect tail calls (function call as final statement)
+- Reuse frame space instead of allocating new frame
+- Benefits: Eliminates frame setup/teardown for tail-recursive functions
+- Example: `return factorial_helper(n-1, acc * n)` → no new frame
+
+### Future Research
+
+**Variadic ZP Functions**
+- Extend ZP convention to support varargs (e.g., `printf` in ZP mode)
+- Challenge: Fixed ZP layout incompatible with variable-length argument lists
+- Possible solution: Use stack fallback for varargs portion, ZP for fixed params
+- Status: Research required; lower priority than stack convention optimizations
+
+**Struct Return Optimization**
+- Small structs (≤4 bytes) returned in AXYZ instead of static allocation
+- Benefits: Fewer memory accesses, better for inline functions
+- Requirements: Track struct sizes, handle unaligned field packing
+- Current implementation uses static allocation (safe, predictable)
+
+**Call Frame Reuse**
+- Optimize sequences of function calls with different frame sizes
+- Reuse frame space across multiple calls instead of repeated setup/teardown
+- Benefits: Reduced stack pressure, better cache locality
+- Challenge: Complex analysis to ensure correctness
+
+### Optimization Impact Summary
+
+| Optimization | Savings | Complexity | Priority |
+|--------------|---------|-----------|----------|
+| Lazy FP init | 11 bytes/20 cycles per leaf | Low | P1 |
+| Skip FP recalc (0-arg) | 10 cycles per call | Low | P2 |
+| Leaf detection | 20+ cycles per call | Medium | P3 |
+| Hybrid convention | 4-8 bytes per call, 5-10 cycles | High | P4 |
+| Per-function attrs | Variable | Low | P5 |
+| Tail call opt | 30+ bytes per tail call | High | P6 |
+
+## Known Issues / Limitations
+
+1. **Frame-Relative Pointer Dereferencing** — Currently failing mmemu tests (test_short.c)
+   - Pointer to frame-relative variable may compute wrong address
+   - Needs investigation and fix before optimizations proceed
+
+2. **Struct Return Values** — test_struct_return.c returns all zeros
+   - Hidden pointer mechanism may have address computation issue
+   - Verify frame offset calculation in leax.fp and struct assignment
+
+3. **Page Boundary Crossing** — Potential issue in frame pointer arithmetic
+   - TSX/INX/BNE/INY sequence may not correctly handle page wrapping
+   - Needs verification with edge case testing (frame crossing page boundary)
+
+4. **ZP Scratch Space Limitations** — $FD/$FE always reserved
+   - Limits available ZP for high-speed code
+   - Lazy FP init will partially address this
 
 ---
 
@@ -462,4 +580,21 @@ In ZP convention, $20-$2A are caller-saved (callee clobbers freely).
 - **lib45.md** — Object file format and relocation details
 - **stdlib.md** — Standard library conventions and signatures
 - **Opcodes** — 45GS02 instruction reference for address modes and stack operations
+- **.plan/todo.md** — Development roadmap and optimization tracking
+
+## Implementation Status
+
+**Current Version (v1.0.4):**
+- ✅ Stack calling convention (non-lazy FP, recalc after every call)
+- ✅ ZP calling convention (fixed parameters)
+- ✅ Struct returns via hidden pointer
+- ✅ Variadic function support
+- ❌ Lazy FP initialization (planned v1.1)
+- ❌ Smart FP recalculation optimization (planned v1.1)
+- ❌ Hybrid register-stack convention (planned v1.2)
+
+**Known Issues:**
+- Frame-relative pointer dereferencing failing in mmemu tests
+- Struct return value corruption in some scenarios
+- Page boundary crossing in FP arithmetic (needs verification)
 
