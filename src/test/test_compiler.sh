@@ -89,6 +89,8 @@ TEST_FILES=(
     "src/test-resources/stdlib/test_strlcpy.c"
     "src/test-resources/stdlib/test_strdup.c"
     "src/test-resources/stdlib/test_strtok_r.c"
+    "src/test-resources/stdlib/test_strcspn.c"
+    "src/test-resources/stdlib/test_strspn.c"
     "src/test-resources/test_static.c"
     "src/test-resources/test_register.c"
     "src/test-resources/test_array_init.c"
