@@ -19,13 +19,18 @@
 ### Current Status
 
 **Phase 1 (Complete):**
-- ca45 parser and writer (full implementation)
 - Semantic IR for 6502/45GS02 instructions and directives
 - Generic parser/writer registry system
+- ca45 parser and writer (full implementation)
+
+**Phase 2 (Complete):**
+- KickAssembler parser and writer (full implementation)
+- Namespace support (!namespace / !endnamespace)
+- Directive flattening and conversion
+- Bidirectional conversion (ca45 ↔ kickassembler)
 
 **Future Phases:**
 - ca65 parser and writer (CC65 compatible)
-- KickAssembler parser and writer
 - Other assemblers (Oscar, Merlin, Buddy/Power Assembler, etc.)
 
 ---
@@ -70,9 +75,11 @@ Output:
 ```
 Supported input formats:
   ca45
+  kickassembler
 
 Supported output formats:
   ca45
+  kickassembler
 ```
 
 ---
@@ -258,12 +265,41 @@ loop:
 
 Directives are preserved but normalized to the target format:
 
-| ca45 | IR | ca65 (future) |
+| ca45 | IR | KickAssembler |
 |------|----|----|
-| `.byte 1, 2` | BYTE_DATA | `.byte 1, 2` |
-| `.word $1000` | WORD_DATA | `.word $1000` |
-| `.align 256` | ALIGN | `.align 256` |
-| `.global foo` | GLOBAL | `.global foo` |
+| `.byte 1, 2` | BYTE_DATA | `!byte 1, 2` |
+| `.word $1000` | WORD_DATA | `!word $1000` |
+| `.align 256` | ALIGN | `!align 256` |
+| `.global foo` | GLOBAL | `!export foo` |
+
+### KickAssembler Namespace Flattening
+
+KickAssembler namespaces are flattened to dot-notation labels during conversion, enabling use in other assemblers:
+
+**Input (KickAssembler):**
+```asm
+!namespace game
+    main:
+        lda #$42
+        rts
+!endnamespace
+```
+
+**Output (ca45):**
+```asm
+game.main:
+    lda #$42
+    rts
+```
+
+**Output (KickAssembler, round-trip):**
+```asm
+game.main:
+    LDA #$42
+    RTS
+```
+
+Labels with dots are preserved during round-trips. Conversions between formats that don't support namespaces use flattened names.
 
 ---
 
