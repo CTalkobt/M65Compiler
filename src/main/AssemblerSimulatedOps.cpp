@@ -1994,21 +1994,18 @@ void AssemblerSimulatedOps::emitSTA_FPCode(AssemblerParser* parser, M65Emitter& 
 
 // ldax.fp varOffset — Load 16-bit value from frame into AX (lo in A, hi in X)
 void AssemblerSimulatedOps::emitLDAX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
-    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    uint8_t totalOff = fpOff + yOff;
     if (e.hasFramePointer()) {
-        e.lda_stack(totalOff + 1);
+        e.lda_stack(yOff + 1);
         e.sta_scratch();
-        e.lda_stack(totalOff);
+        e.lda_stack(yOff);
         e.ldx_scratch();
     } else {
         // Fallback: use frame pointer indirect addressing (cc45 always uses $FD/$FE)
         // Load hi byte first, save to scratch, then load lo byte
-        e.lda_stack(totalOff + 1);  // A = hi byte (uses frame pointer indirect)
+        e.lda_stack(yOff + 1);      // A = hi byte (uses frame pointer indirect)
         e.sta_scratch();             // save hi byte
-        e.lda_stack(totalOff);       // A = lo byte (uses frame pointer indirect)
+        e.lda_stack(yOff);           // A = lo byte (uses frame pointer indirect)
         e.ldx_scratch();             // X = hi byte
     }
 }
@@ -2016,12 +2013,9 @@ void AssemblerSimulatedOps::emitLDAX_FPCode(AssemblerParser* parser, M65Emitter&
 // lday.fp varOffset — Load 16-bit value from frame into AY (lo in A, hi in Y)
 // Use when Z must be preserved (e.g., loop counter).
 void AssemblerSimulatedOps::emitLDAY_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
-    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    uint8_t totalOff = fpOff + yOff;
-    e.ldy_stack(totalOff + 1);       // Y = hi byte
-    e.lda_stack(totalOff);           // A = lo byte
+    e.ldy_stack(yOff + 1);           // Y = hi byte
+    e.lda_stack(yOff);               // A = lo byte
 }
 
 // stay.fp varOffset — Store AY (lo=A, hi=Y) to frame-relative offset
@@ -2035,12 +2029,9 @@ void AssemblerSimulatedOps::emitSTAY_FPCode(AssemblerParser* parser, M65Emitter&
 // ldaz.fp varOffset — Load 16-bit value from frame into AZ (lo in A, hi in Z)
 // Preferred over ldax.fp: leaves X free for TSX, no scratch needed.
 void AssemblerSimulatedOps::emitLDAZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
-    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    uint8_t totalOff = fpOff + yOff;
-    e.ldz_stack(totalOff + 1);       // Z = hi byte
-    e.lda_stack(totalOff);           // A = lo byte
+    e.ldz_stack(yOff + 1);           // Z = hi byte
+    e.lda_stack(yOff);               // A = lo byte
 }
 
 // stax.fp varOffset — Store AX (16-bit) to frame-relative offset
@@ -2064,17 +2055,14 @@ void AssemblerSimulatedOps::emitSTAZ_FPCode(AssemblerParser* parser, M65Emitter&
 
 // ldaxyz.fp varOffset — Load 32-bit value from frame into A,X,Y,Z
 void AssemblerSimulatedOps::emitLDAXYZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
-    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    uint8_t totalOff = fpOff + yOff;
-    
+
     // Load all bytes into scratch first (lda_stack clobbers X in non-FP mode)
-    e.lda_stack(totalOff + 3); e.sta_scratch3_hi();
-    e.lda_stack(totalOff + 2); e.sta_scratch3();
-    e.lda_stack(totalOff + 1); e.sta_scratch2();
-    e.lda_stack(totalOff); // byte 0 stays in A
-    
+    e.lda_stack(yOff + 3); e.sta_scratch3_hi();
+    e.lda_stack(yOff + 2); e.sta_scratch3();
+    e.lda_stack(yOff + 1); e.sta_scratch2();
+    e.lda_stack(yOff); // byte 0 stays in A
+
     e.ldx_scratch2();
     e.ldy_scratch3();
     e.ldz_scratch3_hi();
