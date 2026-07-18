@@ -3,9 +3,12 @@
 #include <string>
 #include <vector>
 #include <set>
+#include <map>
 #include <regex>
 #include <sstream>
 #include <algorithm>
+#include <fstream>
+#include <filesystem>
 
 // Macro invocation detection and expansion
 struct MacroInvocation {
@@ -396,6 +399,132 @@ public:
         }
 
         return args;
+    }
+
+    // Phase 3c: Library path management for .include directives
+    static std::vector<std::string>& getLibraryPaths() {
+        static std::vector<std::string> libraryPaths = {
+            ".",           // Current directory
+            "./include",   // Typical include directory
+            "./macros",    // Macro library directory
+        };
+        return libraryPaths;
+    }
+
+    static void addLibraryPath(const std::string& path) {
+        getLibraryPaths().push_back(path);
+    }
+
+    static void setLibraryPaths(const std::vector<std::string>& paths) {
+        getLibraryPaths() = paths;
+    }
+
+    // Find include file in library paths
+    static std::string findIncludeFile(const std::string& filename) {
+        // Try as absolute or relative path first
+        if (std::filesystem::exists(filename)) {
+            return std::filesystem::absolute(filename).string();
+        }
+
+        // Search in library paths
+        for (const auto& libPath : getLibraryPaths()) {
+            std::string fullPath = libPath + "/" + filename;
+            if (std::filesystem::exists(fullPath)) {
+                return std::filesystem::absolute(fullPath).string();
+            }
+        }
+
+        // Not found
+        return "";
+    }
+
+    // Read include file with error handling
+    static bool readIncludeFile(const std::string& filename, std::string& content, std::string& error) {
+        std::string fullPath = findIncludeFile(filename);
+        if (fullPath.empty()) {
+            error = "Include file not found: " + filename;
+            return false;
+        }
+
+        std::ifstream file(fullPath);
+        if (!file.is_open()) {
+            error = "Cannot open include file: " + filename;
+            return false;
+        }
+
+        std::stringstream buffer;
+        buffer << file.rdbuf();
+        content = buffer.str();
+        return true;
+    }
+
+    // Process .include directives with circular dependency detection
+    static std::string processIncludes(const std::string& source, AsmIR::Module& module,
+                                       std::set<std::string>& processedFiles,
+                                       std::vector<std::string>& errors) {
+        std::istringstream iss(source);
+        std::stringstream oss;
+        std::string line;
+
+        while (std::getline(iss, line)) {
+            std::string trimmed = trimLine(line);
+
+            // Check for .include directive
+            if (trimmed.find(".include") == 0 || trimmed.find("#include") == 0) {
+                std::string directive = trimmed.substr(trimmed.find(".include") == 0 ? 8 : 8);
+                directive = trimLine(directive);
+
+                // Parse filename from "filename" or <filename>
+                std::string filename;
+                if (directive.length() >= 2) {
+                    if ((directive[0] == '"' && directive.back() == '"') ||
+                        (directive[0] == '<' && directive.back() == '>')) {
+                        filename = directive.substr(1, directive.length() - 2);
+                    }
+                }
+
+                if (!filename.empty()) {
+                    std::string fullPath = findIncludeFile(filename);
+                    if (fullPath.empty()) {
+                        errors.push_back("Include file not found: " + filename);
+                        continue;
+                    }
+
+                    // Detect circular dependencies
+                    if (processedFiles.count(fullPath) > 0) {
+                        errors.push_back("Circular include detected: " + filename);
+                        continue;
+                    }
+
+                    // Read and process included file
+                    std::string includeContent;
+                    std::string error;
+                    if (!readIncludeFile(filename, includeContent, error)) {
+                        errors.push_back(error);
+                        continue;
+                    }
+
+                    // Mark file as processed
+                    processedFiles.insert(fullPath);
+
+                    // Recursively process includes in the included file
+                    std::string processedInclude = processIncludes(includeContent, module, processedFiles, errors);
+
+                    // Output the processed content with a comment indicating the source
+                    oss << "; --- Included from: " << filename << " ---\n";
+                    oss << processedInclude;
+                    oss << "; --- End include: " << filename << " ---\n";
+                } else {
+                    errors.push_back("Invalid include directive: " + trimmed);
+                }
+                continue;
+            }
+
+            // Pass through other lines unchanged
+            oss << line << "\n";
+        }
+
+        return oss.str();
     }
 
     // Phase 3b: Evaluate conditional directive
