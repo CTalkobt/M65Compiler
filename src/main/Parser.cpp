@@ -2653,6 +2653,7 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
                 {"__builtin_malloc", "malloc"},
                 {"__builtin_free", "free"},
                 {"__builtin_calloc", "calloc"},
+                {"__builtin_realloc", "realloc"},
                 {"__builtin_strlen", "strlen"},
                 {"__builtin_strcmp", "strcmp"},
                 {"__builtin_strcpy", "strcpy"},
