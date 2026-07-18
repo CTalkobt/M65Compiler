@@ -98,15 +98,18 @@ static void registerFormats() {
 static void showUsage(const char* progName) {
     std::cerr << "cvt_asm - Assembler format converter\n";
     std::cerr << suiteVersionString("cvt_asm") << "\n\n";
-    std::cerr << "Usage: " << progName << " [options] <input-file>\n\n";
+    std::cerr << "Usage: " << progName << " [options] <input-file> [<input-file> ...]\n\n";
     std::cerr << "Options:\n";
     std::cerr << "  -f <format>    Input format (default: auto-detect from extension/modeline)\n";
     std::cerr << "  -t <format>    Target format (default: ca45)\n";
-    std::cerr << "  -o <file>      Output file (default: stdout)\n";
+    std::cerr << "  -o <file>      Output file or directory (for multiple files, treated as directory)\n";
     std::cerr << "  -l             List supported formats and exit\n";
     std::cerr << "  -v             Verbose output\n";
     std::cerr << "  --help         Show this help message\n";
     std::cerr << "  --version      Show version information\n";
+    std::cerr << "\nBatch conversion:\n";
+    std::cerr << "  " << progName << " -f ca65 -t acme *.s65        Convert all .s65 files to .asm\n";
+    std::cerr << "  " << progName << " -t oscar -o output/ *.asm   Convert files to oscar format in output dir\n";
 }
 
 static void listFormats() {
@@ -126,10 +129,10 @@ static void listFormats() {
 int main(int argc, char** argv) {
     registerFormats();
 
-    std::string inputFile;
+    std::vector<std::string> inputFiles;
     std::string inputFormat = "";  // Empty means auto-detect
     std::string targetFormat = "ca45";
-    std::string outputFile;
+    std::string outputDir;
     bool verbose = false;
 
     // Parse command line arguments
@@ -141,7 +144,7 @@ int main(int argc, char** argv) {
         } else if (arg == "-t" && i + 1 < argc) {
             targetFormat = argv[++i];
         } else if (arg == "-o" && i + 1 < argc) {
-            outputFile = argv[++i];
+            outputDir = argv[++i];
         } else if (arg == "-l" || arg == "--list-formats") {
             listFormats();
             return 0;
@@ -154,7 +157,7 @@ int main(int argc, char** argv) {
             std::cout << suiteVersionString("cvt_asm") << "\n";
             return 0;
         } else if (arg[0] != '-') {
-            inputFile = arg;
+            inputFiles.push_back(arg);
         } else {
             std::cerr << "Unknown option: " << arg << "\n";
             showUsage(argv[0]);
@@ -162,7 +165,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (inputFile.empty()) {
+    if (inputFiles.empty()) {
         std::cerr << "Error: No input file specified\n";
         showUsage(argv[0]);
         return 1;
