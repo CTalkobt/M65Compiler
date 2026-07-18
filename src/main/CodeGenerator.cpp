@@ -1598,7 +1598,7 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     }
 
     // Set up ZP frame pointer ($FD/$FE) for stack-relative access.
-    // FP points to the first frame byte (SP+1 after frame allocation).
+    // FP points past the frame (SP + frameSize + 1), so parameters are at FP + 2.
     // This eliminates per-access __sp_base relocations.
     if (!useZpCall_) {
         emit("; setup frame pointer");
@@ -1611,7 +1611,7 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     }
 
     // Params: stack-relative, past frame + return address.
-    // FP points to the frame start, so parameters are at FP + frameSize + 2.
+    // FP now points past the frame (at parameter region), so parameters are at FP + 2.
     {
         int pOff = frameSize + 2;
         if (node.isVariadic) {

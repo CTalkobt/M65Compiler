@@ -419,26 +419,15 @@ void M65Emitter::recordSymbolReloc32Bit(const std::string& name) {
 }
 
 void M65Emitter::setupFramePointer() {
-    // Compute FP from current SP: FP = SP + 1 (address of first occupied stack byte)
-    // No save/restore needed — caller recalculates FP after each JSR return.
+    // Compute FP from current SP: FP = SP + 1
     uint8_t fp = framePointerZP_;
     tsx();
     txa();
     clc();
-    adc_imm(1);   // SPL + 1 (SP points to next free; +1 = first occupied)
+    adc_imm(1);
     sta_zp(fp);
     lda_imm((spBase_ >> 8) & 0xFF);
-    adc_imm(0);
     sta_zp(fp + 1);
-    // Record __sp_base relocation for the low byte addition.
-    // The addend is 1 (the +1 for SP convention).
-    // We need spBaseReloc for the TSX-based absolute,X instructions that DON'T
-    // exist here — instead we just need the $01 in the high byte to be correct.
-    // Since we're using immediates, we record symbol relocs if extern.
-    // Actually, for the FP setup we hardcode: FP_lo = SPL + 1, FP_hi = $01.
-    // The +1 accounts for the 6502 SP convention (SP points to next free).
-    // __sp_base is always $01xx, so the high byte is always $01.
-    // No relocation needed — the high byte is $01 regardless of __sp_base's low byte.
 }
 
 void M65Emitter::restoreFramePointer() {
