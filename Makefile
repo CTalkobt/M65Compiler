@@ -21,6 +21,7 @@ LN_TARGET = $(BIN_DIR)/ln45
 AR_TARGET = $(BIN_DIR)/ar45
 OD_TARGET = $(BIN_DIR)/objdump45
 DISK_TARGET = $(BIN_DIR)/disk45
+CVT_ASM_TARGET = $(BIN_DIR)/cvt_asm
 
 CC_SOURCES = $(SRC_DIR)/cc45_main.cpp
 CA_SOURCES = $(SRC_DIR)/ca45_main.cpp
@@ -54,7 +55,9 @@ ifeq ($(HAVE_FUSE3),1)
   DISK_OBJECTS += $(OBJ_DIR)/disk45_fuse.o
 endif
 
-all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET) $(NM_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET)
+CVT_ASM_OBJECTS = $(OBJ_DIR)/cvt_asm_main.o $(OBJ_DIR)/AsmParser.o $(OBJ_DIR)/AsmWriter.o $(OBJ_DIR)/Ca45Parser.o $(OBJ_DIR)/Ca45Writer.o $(OBJ_DIR)/AssemblerLexer.o $(OBJ_DIR)/AssemblerParser.o $(OBJ_DIR)/AssemblerExpression.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o $(OBJ_DIR)/AssemblerOptimizer.o $(OBJ_DIR)/AssemblerSimulatedOps.o $(OBJ_DIR)/AssemblerGenerator.o $(OBJ_DIR)/OpEffect.o $(COMMON_OBJECTS)
+
+all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET) $(NM_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET)
 
 man: $(MAN_DIR)/cc45.1 $(MAN_DIR)/ca45.1 $(MAN_DIR)/cp45.1 $(MAN_DIR)/ln45.1 $(MAN_DIR)/nm45.1 $(MAN_DIR)/ar45.1 $(MAN_DIR)/objdump45.1
 
@@ -93,6 +96,10 @@ $(OD_TARGET): $(OD_OBJECTS)
 $(DISK_TARGET): $(DISK_OBJECTS)
 	@mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ $^ -lz -lsqlite3 $(FUSE3_LIBS)
+
+$(CVT_ASM_TARGET): $(CVT_ASM_OBJECTS)
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $^
 
 # disk45 FUSE module needs FUSE3 headers
 $(OBJ_DIR)/disk45_fuse.o: $(SRC_DIR)/disk45_fuse.cpp | $(OBJ_DIR)

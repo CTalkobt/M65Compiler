@@ -1,0 +1,7 @@
+; Simple test assembly
+.global main
+
+main:
+    lda #$42
+    sta $d020
+    rts
