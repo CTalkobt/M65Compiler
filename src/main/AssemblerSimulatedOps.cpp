@@ -2085,13 +2085,11 @@ void AssemblerSimulatedOps::emitSTAXYZ_FPCode(AssemblerParser* parser, M65Emitte
 }
 
 // leax.fp varOffset — Load effective address of frame variable into AX
-// Computes: AX = __sp_base + _fp + varOffset + SPL
-// Uses emitSpBaseAddrCalc for correct relocation in .o45 mode.
+// leax.fp varOffset — Load frame-relative address into AX
+// Computes AX = FP + varOffset using the current frame pointer.
 void AssemblerSimulatedOps::emitLEAX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
-    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
-    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    emitSpBaseAddrCalc(parser, e, fpOff + yOff);
+    uint16_t yOff = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    emitSpBaseAddrCalc16(parser, e, yOff);
 }
 
 // move.fp dest, src, len — Block copy between frame-relative addresses
