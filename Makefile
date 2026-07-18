@@ -55,7 +55,7 @@ ifeq ($(HAVE_FUSE3),1)
   DISK_OBJECTS += $(OBJ_DIR)/disk45_fuse.o
 endif
 
-CVT_ASM_OBJECTS = $(OBJ_DIR)/cvt_asm_main.o $(OBJ_DIR)/AsmParser.o $(OBJ_DIR)/AsmWriter.o $(OBJ_DIR)/Ca45Parser.o $(OBJ_DIR)/Ca45Writer.o $(OBJ_DIR)/AssemblerLexer.o $(OBJ_DIR)/AssemblerParser.o $(OBJ_DIR)/AssemblerExpression.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o $(OBJ_DIR)/AssemblerOptimizer.o $(OBJ_DIR)/AssemblerSimulatedOps.o $(OBJ_DIR)/AssemblerGenerator.o $(OBJ_DIR)/OpEffect.o $(COMMON_OBJECTS)
+CVT_ASM_OBJECTS = $(OBJ_DIR)/cvt_asm_main.o $(OBJ_DIR)/AsmParser.o $(OBJ_DIR)/AsmWriter.o $(OBJ_DIR)/Ca45Parser.o $(OBJ_DIR)/Ca45Writer.o $(OBJ_DIR)/KickAssemblerParser.o $(OBJ_DIR)/KickAssemblerWriter.o $(OBJ_DIR)/AssemblerLexer.o $(OBJ_DIR)/AssemblerParser.o $(OBJ_DIR)/AssemblerExpression.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o $(OBJ_DIR)/AssemblerOptimizer.o $(OBJ_DIR)/AssemblerSimulatedOps.o $(OBJ_DIR)/AssemblerGenerator.o $(OBJ_DIR)/OpEffect.o $(COMMON_OBJECTS)
 
 all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET) $(NM_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET)
 
