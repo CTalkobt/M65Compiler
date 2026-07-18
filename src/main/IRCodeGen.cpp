@@ -3353,26 +3353,10 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     emit("jsr $0000");
                 }
 
-                // Only recalculate frame pointer if frame-relative addressing is used after this call
-                if (useStackParams_ && frameAddrUsedAfterCall()) {
-                    // Save return value (AX) on stack before recalculating frame pointer
+                // Preserve return value before cleaning up arguments
+                if (argBytes > 0) {
                     emit("phx");  // Push X (high byte)
                     emit("pha");  // Push A (low byte)
-
-                    // Recalculate frame pointer: SPL + 1 using efficient TSY/TSX/INX
-                    emit("tsy");           // SPH → Y
-                    emit("tsx");           // SPL → X
-                    emit("inx");           // X = SPL + 1 (sets carry if wrapped)
-                    std::string noCarryLabel = "@__fp_no_carry_" + std::to_string(labelCounter_++);
-                    emit("bne " + noCarryLabel);  // Skip if X != 0 (no carry)
-                    emit("iny");           // If carry, increment Y (SPH)
-                    emitLabel(noCarryLabel);
-                    emit("stx $FD");       // Store low byte
-                    emit("sty $FE");       // Store high byte
-
-                    // Restore return value from stack
-                    emit("pla");  // Pop A (low byte)
-                    emit("plx");  // Pop X (high byte)
                 }
 
                 // Caller-side stack cleanup: pop argBytes with PLZ instructions
@@ -3391,7 +3375,19 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         emitLabel(restoreLabel);
                         emit("ldz #0");
                     }
+                    // Restore return value after stack cleanup
+                    emit("pla");  // Pop A (low byte)
+                    emit("plx");  // Pop X (high byte)
                 }
+
+                // NOTE: Do NOT recalculate frame pointer after function calls!
+                // The frame-relative offsets (.local directives) are calculated based on the
+                // frame pointer value at function ENTRY. If we recalculate the FP here, those
+                // offsets become invalid and frame-relative dereferencing reads from wrong addresses.
+                // The frame pointer must remain stable throughout the entire function.
+                //
+                // Previous implementation recalculated FP here (tsy; tsx; inx; etc.),
+                // which broke frame-relative addressing for variables accessed after function calls.
             }
 
             // If it's a direct call and we didn't jsr yet (ZP case)

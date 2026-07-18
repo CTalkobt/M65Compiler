@@ -5298,22 +5298,16 @@ void CodeGenerator::visit(FunctionCall& node) {
     if (argBytes > 0) {
         emitter->taz();  // save A to Z
         for (int i = 0; i < argBytes; ++i) emitter->pla();
-        // Recalculate frame pointer after arg cleanup (SP back at frame level).
-        // A is in Z, save X to scratch ZP.
-        if (emitter->hasFramePointer()) {
-            emitter->stx_scratch();
-            emitter->setupFramePointer();
-            emitter->ldx_scratch();
-        }
+        // NOTE: Recalculating frame pointer after arg cleanup breaks frame-relative addressing!
+        // The .local offsets are calculated based on the FP at function entry.
+        // If we recalculate FP here, those offsets become invalid.
+        // Therefore, we do NOT recalculate the frame pointer.
+        // The frame pointer should remain stable throughout the function.
         emitter->tza();  // restore A
-    } else if (emitter->hasFramePointer()) {
-        // No args but still need FP recalc
-        emitter->taz();
-        emitter->stx_scratch();
-        emitter->setupFramePointer();
-        emitter->ldx_scratch();
-        emitter->tza();
     }
+    // NOTE: Do NOT recalculate frame pointer after function calls.
+    // Frame pointer is set once at entry and must remain stable for frame-relative offsets.
+
     // Restore assembler frame tracking
     if (pushedBytes > 0) {
         for (const auto& varName : currentVars) {
