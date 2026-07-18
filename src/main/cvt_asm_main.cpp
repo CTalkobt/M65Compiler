@@ -26,6 +26,8 @@
 #include "KickAssemblerWriter.hpp"
 #include "FormatDetection.hpp"
 #include "Version.hpp"
+#include "MacroUtils.hpp"
+#include <chrono>
 
 static void registerFormats() {
     // Register ca45 parser
@@ -772,6 +774,8 @@ int main(int argc, char** argv) {
     bool verbose = false;
     bool validateMode = false;
     bool statsMode = false;
+    bool metricsMode = false;  // Phase 4
+    bool clearCache = false;   // Phase 4
 
     // Parse command line arguments
     for (int i = 1; i < argc; ++i) {
@@ -787,6 +791,10 @@ int main(int argc, char** argv) {
             validateMode = true;
         } else if (arg == "--stats") {
             statsMode = true;
+        } else if (arg == "--metrics") {  // Phase 4
+            metricsMode = true;
+        } else if (arg == "--clear-cache") {  // Phase 4
+            clearCache = true;
         } else if (arg == "-l" || arg == "--list-formats") {
             listFormats();
             return 0;
@@ -968,6 +976,18 @@ int main(int argc, char** argv) {
         return (failureCount > 0) ? 1 : 0;
     }
 
+    // Phase 4: Clear cache if requested
+    if (clearCache) {
+        MacroUtils::clearCache();
+        if (verbose) {
+            std::cerr << "Include file cache cleared.\n";
+        }
+    }
+
+    // Phase 4: Reset metrics at start of batch conversion
+    MacroUtils::resetMetrics();
+    auto batchStartTime = std::chrono::high_resolution_clock::now();
+
     // Batch conversion: process each input file
     int failureCount = 0;
     int successCount = 0;
@@ -996,8 +1016,26 @@ int main(int argc, char** argv) {
         }
     }
 
+    auto batchEndTime = std::chrono::high_resolution_clock::now();
+    auto batchDuration = std::chrono::duration_cast<std::chrono::milliseconds>(batchEndTime - batchStartTime);
+
     if (verbose && inputFiles.size() > 1) {
         std::cerr << "\n\nBatch conversion complete: " << successCount << " succeeded, " << failureCount << " failed\n";
+    }
+
+    // Phase 4: Report performance metrics if enabled or verbose
+    if (metricsMode || verbose) {
+        std::cout << "\n=== Performance Metrics ===\n";
+        std::cout << "Total files processed:    " << inputFiles.size() << "\n";
+        std::cout << "Successful conversions:   " << successCount << "\n";
+        std::cout << "Total time:               " << batchDuration.count() << " ms\n";
+        if (inputFiles.size() > 0) {
+            std::cout << "Average time per file:    "
+                      << (batchDuration.count() / static_cast<double>(inputFiles.size()))
+                      << " ms\n";
+        }
+        std::cout << "Include cache hits:       " << MacroUtils::getCacheHitCount() << "\n";
+        std::cout << "\n";
     }
 
     return (failureCount > 0) ? 1 : 0;
