@@ -20,6 +20,7 @@ public:
     void setLineToFileMap(const std::map<int, std::pair<std::string, int>>& map) {
         lineToFileMap_ = map;
     }
+    // cppcheck-suppress danglingLifetime
     void setFunctionMap(const std::map<std::string, const ir::Function*>* map) {
         functionMap_ = map;
     }

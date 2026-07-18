@@ -3353,31 +3353,26 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     emit("jsr $0000");
                 }
 
-                // Preserve return value before cleaning up arguments
+                // Caller-side stack cleanup: skip over argBytes without loading them
+                // Use TSX/TXS to adjust SP directly, preserving the return value in A:X:Y:Z
                 if (argBytes > 0) {
-                    emit("phx");  // Push X (high byte)
-                    emit("pha");  // Push A (low byte)
-                }
+                    bool needZ = (inst.op != ir::Op::CALL_VOID && inst.resultType == ir::Type::I32);
+                    if (needZ) {
+                        // Save Z register to ZP scratch before adjusting SP
+                        emit("stz __zp_scratch3+2");
+                    }
 
-                // Caller-side stack cleanup: pop argBytes with PLZ instructions
-                // (RTS #N opcode $62 is unreliable on some hardware)
-                if (argBytes > 0) {
-                    bool saveZ = (inst.op != ir::Op::CALL_VOID && inst.resultType == ir::Type::I32);
-                    std::string restoreLabel;
-                    if (saveZ) {
-                        restoreLabel = "@__restore_caller_z_" + std::to_string(labelCounter_++);
-                        emit("stz " + restoreLabel + "+1");
-                    }
+                    // Adjust stack pointer to skip over parameters without loading them
+                    emit("tsx");  // Get SP into X
                     for (int i = 0; i < argBytes; i++) {
-                        emit("plz");
+                        emit("inx");  // Skip each parameter byte
                     }
-                    if (saveZ) {
-                        emitLabel(restoreLabel);
-                        emit("ldz #0");
+                    emit("txs");  // Set new SP, discarding parameters
+
+                    if (needZ) {
+                        // Restore Z register from ZP scratch
+                        emit("ldz __zp_scratch3+2");
                     }
-                    // Restore return value after stack cleanup
-                    emit("pla");  // Pop A (low byte)
-                    emit("plx");  // Pop X (high byte)
                 }
 
                 // NOTE: Do NOT recalculate frame pointer after function calls!
