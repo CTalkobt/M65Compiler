@@ -14,6 +14,8 @@
 #include "AcmeWriter.hpp"
 #include "OscarParser.hpp"
 #include "OscarWriter.hpp"
+#include "Merlin64Parser.hpp"
+#include "Merlin64Writer.hpp"
 #include "KickAssemblerParser.hpp"
 #include "KickAssemblerWriter.hpp"
 #include "Version.hpp"
@@ -67,6 +69,16 @@ static void registerFormats() {
     // Register Oscar writer
     WriterRegistry::getInstance().registerWriter("oscar", []() -> AsmWriter* {
         return new OscarWriter();
+    });
+
+    // Register Merlin 64 parser
+    ParserRegistry::getInstance().registerParser("merlin64", []() -> AsmParser* {
+        return new Merlin64Parser();
+    });
+
+    // Register Merlin 64 writer
+    WriterRegistry::getInstance().registerWriter("merlin64", []() -> AsmWriter* {
+        return new Merlin64Writer();
     });
 }
 
