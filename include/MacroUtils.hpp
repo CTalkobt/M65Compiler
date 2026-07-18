@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <fstream>
 #include <filesystem>
+#include <mutex>
+#include <chrono>
 
 // Macro invocation detection and expansion
 struct MacroInvocation {
@@ -57,9 +59,80 @@ struct ConditionalState {
     }
 };
 
+// Phase 4: Include file cache for performance
+struct IncludeFileCache {
+    std::string content;
+    std::string filepath;
+    std::filesystem::file_time_type lastModified;
+    int cacheHits = 0;
+
+    bool isStale() const {
+        try {
+            auto currentMtime = std::filesystem::last_write_time(filepath);
+            return currentMtime != lastModified;
+        } catch (...) {
+            return true;
+        }
+    }
+};
+
+// Phase 4: Performance metrics tracking
+struct PerformanceMetrics {
+    int totalFiles = 0;
+    int processedFiles = 0;
+    int cachedIncludes = 0;
+    std::chrono::milliseconds totalTime{0};
+    std::chrono::milliseconds parseTime{0};
+    std::chrono::milliseconds expandTime{0};
+    std::chrono::milliseconds writeTime{0};
+
+    double averageTimePerFile() const {
+        return (totalFiles > 0) ? totalTime.count() / static_cast<double>(totalFiles) : 0.0;
+    }
+
+    double cacheHitRate() const {
+        return (processedFiles > 0) ? (cachedIncludes / static_cast<double>(processedFiles)) * 100.0 : 0.0;
+    }
+};
+
 // Macro extraction and expansion utilities
 class MacroUtils {
+private:
+    // Phase 4: Include file cache and metrics
+    static std::map<std::string, IncludeFileCache>& getIncludeCache() {
+        static std::map<std::string, IncludeFileCache> cache;
+        return cache;
+    }
+
+    static std::mutex& getCacheMutex() {
+        static std::mutex mutex;
+        return mutex;
+    }
+
+    static PerformanceMetrics& getMetrics() {
+        static PerformanceMetrics metrics;
+        return metrics;
+    }
+
 public:
+    // Phase 4: Cache management
+    static void clearCache() {
+        std::lock_guard<std::mutex> lock(getCacheMutex());
+        getIncludeCache().clear();
+    }
+
+    static void resetMetrics() {
+        getMetrics() = PerformanceMetrics();
+    }
+
+    static const PerformanceMetrics& getPerformanceMetrics() {
+        return getMetrics();
+    }
+
+    static int getCacheHitCount() {
+        return getMetrics().cachedIncludes;
+    }
+
     // Extract macros from ca65 format source
     static void extractCa65Macros(const std::string& source, AsmIR::Module& module) {
         std::istringstream iss(source);
@@ -438,7 +511,7 @@ public:
         return "";
     }
 
-    // Read include file with error handling
+    // Read include file with error handling and caching (Phase 4)
     static bool readIncludeFile(const std::string& filename, std::string& content, std::string& error) {
         std::string fullPath = findIncludeFile(filename);
         if (fullPath.empty()) {
@@ -446,6 +519,26 @@ public:
             return false;
         }
 
+        // Phase 4: Check cache first
+        {
+            std::lock_guard<std::mutex> lock(getCacheMutex());
+            auto& cache = getIncludeCache();
+            if (cache.count(fullPath) > 0) {
+                auto& cached = cache[fullPath];
+                // Verify cache is still valid (not stale)
+                if (!cached.isStale()) {
+                    content = cached.content;
+                    cached.cacheHits++;
+                    getMetrics().cachedIncludes++;
+                    return true;
+                } else {
+                    // Cache is stale, remove it
+                    cache.erase(fullPath);
+                }
+            }
+        }
+
+        // Read from file
         std::ifstream file(fullPath);
         if (!file.is_open()) {
             error = "Cannot open include file: " + filename;
@@ -455,6 +548,22 @@ public:
         std::stringstream buffer;
         buffer << file.rdbuf();
         content = buffer.str();
+
+        // Phase 4: Store in cache
+        {
+            std::lock_guard<std::mutex> lock(getCacheMutex());
+            auto& cache = getIncludeCache();
+            IncludeFileCache cacheEntry;
+            cacheEntry.content = content;
+            cacheEntry.filepath = fullPath;
+            try {
+                cacheEntry.lastModified = std::filesystem::last_write_time(fullPath);
+            } catch (...) {
+                // If we can't get mtime, cache without expiration check
+            }
+            cache[fullPath] = cacheEntry;
+        }
+
         return true;
     }
 
