@@ -1,4 +1,5 @@
 #include "AcmeParser.hpp"
+#include "MacroUtils.hpp"
 #include <cctype>
 #include <sstream>
 #include <algorithm>
@@ -11,6 +12,9 @@ AsmIR::Module AcmeParser::parse(const std::string& source) {
         module = parseTokens(tokens);
         module.cpu = "6502";
         module.is_o45 = false;
+
+        // Extract macros from source
+        MacroUtils::extractACMEMacros(source, module);
     } catch (const std::exception& e) {
         addError(std::string("Parse error: ") + e.what());
     }

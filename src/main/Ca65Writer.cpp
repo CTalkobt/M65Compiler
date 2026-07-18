@@ -1,4 +1,5 @@
 #include "Ca65Writer.hpp"
+#include "MacroUtils.hpp"
 #include <sstream>
 #include <iomanip>
 
@@ -15,6 +16,14 @@ std::string Ca65Writer::write(const AsmIR::Module& module) {
     }
 
     if (!module.symbols.empty()) {
+        out << "\n";
+    }
+
+    // Emit macros
+    if (!module.macros.empty()) {
+        for (const auto& [name, macro] : module.macros) {
+            out << MacroUtils::formatCa65Macro(macro);
+        }
         out << "\n";
     }
 

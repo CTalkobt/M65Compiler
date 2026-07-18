@@ -1,9 +1,18 @@
 #include "AcmeWriter.hpp"
+#include "MacroUtils.hpp"
 #include <sstream>
 #include <iomanip>
 
 std::string AcmeWriter::write(const AsmIR::Module& module) {
     std::stringstream out;
+
+    // Emit macros first
+    if (!module.macros.empty()) {
+        for (const auto& [name, macro] : module.macros) {
+            out << MacroUtils::formatACMEMacro(macro);
+        }
+        out << "\n";
+    }
 
     // ACME doesn't have global/extern directives in the traditional sense
     // Just emit statements directly

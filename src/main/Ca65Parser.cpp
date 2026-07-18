@@ -1,4 +1,5 @@
 #include "Ca65Parser.hpp"
+#include "MacroUtils.hpp"
 #include <cctype>
 #include <sstream>
 #include <algorithm>
@@ -11,6 +12,9 @@ AsmIR::Module Ca65Parser::parse(const std::string& source) {
         module = parseTokens(tokens);
         module.cpu = "6502";  // ca65 is primarily for 6502/65C02
         module.is_o45 = false;
+
+        // Extract macros from source
+        MacroUtils::extractCa65Macros(source, module);
     } catch (const std::exception& e) {
         addError(std::string("Parse error: ") + e.what());
     }
