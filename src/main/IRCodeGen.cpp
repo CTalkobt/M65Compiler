@@ -87,11 +87,14 @@ void IRCodeGen::emitBlank() {
 std::string IRCodeGen::formatDebugType(ir::Type type) {
     // Convert IR type to debug metadata type identifier
     switch (type) {
+        case ir::Type::VOID:  return "void";
         case ir::Type::I8:    return "int8";
         case ir::Type::I16:   return "int16";
         case ir::Type::I32:   return "int32";
+        case ir::Type::I_N:   return "int_N";
+        case ir::Type::PTR:   return "ptr";
         case ir::Type::F32:   return "float32";
-        default:              return "int16";  // default fallback
+        default:              return "unknown";
     }
 }
 
@@ -646,6 +649,8 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
                 hasBss = false; // reset so next uninit global re-emits .segment "bss"
             }
             emitLabel(g.name);
+            // Emit debug metadata for global variable
+            emitDebugVariable("@global", g.name, 0, g.type, "global");
             // Phase 3: Vtable — emit function address entries
             if (!g.vtableMethodNames.empty()) {
                 for (size_t slot = 0; slot < g.vtableMethodNames.size(); slot++) {
@@ -708,6 +713,8 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
                 hasBss = true;
             }
             emitLabel(g.name);
+            // Emit debug metadata for global variable
+            emitDebugVariable("@global", g.name, 0, g.type, "global");
             emit(".res " + std::to_string(g.size > 0 ? g.size : ir::typeSize(g.type)));
         }
     }
