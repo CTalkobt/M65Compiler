@@ -1,5 +1,6 @@
 #include "Ca45Parser.hpp"
 #include "Preprocessor.hpp"
+#include "MacroUtils.hpp"
 #include <sstream>
 
 AsmIR::Module Ca45Parser::parse(const std::string& source) {

@@ -8,13 +8,16 @@ AsmIR::Module AcmeParser::parse(const std::string& source) {
     AsmIR::Module module;
 
     try {
-        auto tokens = tokenize(source);
+        // Phase 3b: Process conditional compilation directives first
+        std::string processedSource = MacroUtils::processConditionals(source, module);
+
+        auto tokens = tokenize(processedSource);
         module = parseTokens(tokens);
         module.cpu = "6502";
         module.is_o45 = false;
 
-        // Extract macros from source
-        MacroUtils::extractACMEMacros(source, module);
+        // Extract macros from processed source
+        MacroUtils::extractACMEMacros(processedSource, module);
     } catch (const std::exception& e) {
         addError(std::string("Parse error: ") + e.what());
     }

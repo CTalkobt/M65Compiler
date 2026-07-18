@@ -1,4 +1,5 @@
 #include "X65Parser.hpp"
+#include "MacroUtils.hpp"
 #include <cctype>
 #include <sstream>
 #include <algorithm>
@@ -8,7 +9,10 @@ AsmIR::Module X65Parser::parse(const std::string& source) {
     AsmIR::Module module;
 
     try {
-        auto tokens = tokenize(source);
+        // Phase 3b: Process conditional compilation directives first
+        std::string processedSource = MacroUtils::processConditionals(source, module);
+
+        auto tokens = tokenize(processedSource);
         module = parseTokens(tokens);
         module.cpu = "6502";
         module.is_o45 = false;

@@ -14,6 +14,46 @@ struct MacroInvocation {
     int sourceLine = 0;
 };
 
+// Conditional compilation block tracking
+struct ConditionalBlock {
+    enum Type { IF, IFDEF, IFNDEF, ELSE, ENDIF };
+    Type type;
+    std::string condition;  // For #if, the full condition expression
+    int startLine = 0;
+    int endLine = 0;
+    bool isActive = true;   // Whether this block's content is included
+};
+
+// Conditional compilation state
+struct ConditionalState {
+    std::vector<bool> blockStack;      // Stack of conditional states
+    std::set<std::string> definedSymbols;  // Symbols/macros that are defined
+    int nestingLevel = 0;
+
+    bool isActive() const {
+        if (blockStack.empty()) return true;
+        return blockStack.back();
+    }
+
+    void push(bool condition) {
+        blockStack.push_back(condition && isActive());
+        nestingLevel++;
+    }
+
+    void pop() {
+        if (!blockStack.empty()) {
+            blockStack.pop_back();
+            nestingLevel--;
+        }
+    }
+
+    void setElse() {
+        if (!blockStack.empty()) {
+            blockStack.back() = !blockStack.back();
+        }
+    }
+};
+
 // Macro extraction and expansion utilities
 class MacroUtils {
 public:
@@ -356,6 +396,125 @@ public:
         }
 
         return args;
+    }
+
+    // Phase 3b: Evaluate conditional directive
+    static bool evaluateCondition(const std::string& condition, const ConditionalState& state) {
+        std::string trimmed = trimLine(condition);
+
+        // Handle #ifdef SYMBOL
+        if (trimmed.find("ifdef") == 0) {
+            std::string symbol = trimmed.substr(5);
+            symbol = trimLine(symbol);
+            return state.definedSymbols.count(symbol) > 0;
+        }
+
+        // Handle #ifndef SYMBOL
+        if (trimmed.find("ifndef") == 0) {
+            std::string symbol = trimmed.substr(6);
+            symbol = trimLine(symbol);
+            return state.definedSymbols.count(symbol) == 0;
+        }
+
+        // Handle #if EXPRESSION (simple evaluation)
+        if (trimmed.find("if") == 0) {
+            std::string expr = trimmed.substr(2);
+            expr = trimLine(expr);
+            return evaluateExpression(expr, state);
+        }
+
+        return false;
+    }
+
+    // Evaluate simple conditional expressions
+    static bool evaluateExpression(const std::string& expr, const ConditionalState& state) {
+        std::string trimmed = trimLine(expr);
+
+        // Handle defined(SYMBOL)
+        std::regex definedRegex(R"(defined\s*\(\s*(\w+)\s*\))");
+        std::smatch match;
+        if (std::regex_search(trimmed, match, definedRegex)) {
+            std::string symbol = match[1];
+            return state.definedSymbols.count(symbol) > 0;
+        }
+
+        // Handle !defined(SYMBOL)
+        std::regex notDefinedRegex(R"(!\s*defined\s*\(\s*(\w+)\s*\))");
+        if (std::regex_search(trimmed, match, notDefinedRegex)) {
+            std::string symbol = match[1];
+            return state.definedSymbols.count(symbol) == 0;
+        }
+
+        // Simple constant evaluation (1 = true, 0 = false)
+        if (trimmed == "1" || trimmed == "true") return true;
+        if (trimmed == "0" || trimmed == "false") return false;
+
+        // Default to true if we can't evaluate
+        return true;
+    }
+
+    // Process conditional compilation in source
+    static std::string processConditionals(const std::string& source, AsmIR::Module& module) {
+        std::istringstream iss(source);
+        std::stringstream oss;
+        std::string line;
+        ConditionalState state;
+
+        // Populate defined symbols from module macros
+        for (const auto& [name, macro] : module.macros) {
+            state.definedSymbols.insert(name);
+        }
+
+        // Populate defined symbols from module symbols
+        for (const auto& [name, sym] : module.symbols) {
+            if (sym.is_global) {
+                state.definedSymbols.insert(name);
+            }
+        }
+
+        while (std::getline(iss, line)) {
+            std::string trimmed = trimLine(line);
+
+            // Check for conditional directives
+            if (trimmed.find("#ifdef") == 0) {
+                std::string symbol = trimmed.substr(6);
+                symbol = trimLine(symbol);
+                state.push(state.definedSymbols.count(symbol) > 0);
+                continue;
+            }
+
+            if (trimmed.find("#ifndef") == 0) {
+                std::string symbol = trimmed.substr(7);
+                symbol = trimLine(symbol);
+                state.push(state.definedSymbols.count(symbol) == 0);
+                continue;
+            }
+
+            if (trimmed.find("#if") == 0) {
+                std::string condition = trimmed.substr(3);
+                condition = trimLine(condition);
+                bool result = evaluateExpression(condition, state);
+                state.push(result);
+                continue;
+            }
+
+            if (trimmed.find("#else") == 0) {
+                state.setElse();
+                continue;
+            }
+
+            if (trimmed.find("#endif") == 0) {
+                state.pop();
+                continue;
+            }
+
+            // Output line if we're in an active block
+            if (state.isActive()) {
+                oss << line << "\n";
+            }
+        }
+
+        return oss.str();
     }
 
     // Expand macro with full argument substitution
