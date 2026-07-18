@@ -3353,26 +3353,30 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     emit("jsr $0000");
                 }
 
-                // Caller-side stack cleanup: skip over argBytes without loading them
-                // Use TSX/TXS to adjust SP directly, preserving the return value in A:X:Y:Z
+                // Caller-side stack cleanup: skip over parameters WITHOUT modifying the stack pointer
+                // Instead, use explicit PLA/PLX to pop parameters while preserving return value
+                // by doing PLZ (pop-zero) which discards into the Z register (which we don't need)
                 if (argBytes > 0) {
+                    // Save result to ZP scratch locations to preserve it during cleanup
+                    emit("sta __zp_scratch");     // Save A (result low byte)
+                    emit("stx __zp_scratch+1");   // Save X (result high byte)
+
+                    bool needY = (inst.op != ir::Op::CALL_VOID && inst.resultType == ir::Type::I32);
                     bool needZ = (inst.op != ir::Op::CALL_VOID && inst.resultType == ir::Type::I32);
-                    if (needZ) {
-                        // Save Z register to ZP scratch before adjusting SP
-                        emit("stz __zp_scratch3+2");
-                    }
 
-                    // Adjust stack pointer to skip over parameters without loading them
-                    emit("tsx");  // Get SP into X
+                    if (needY) emit("sty __zp_scratch+2");  // Save Y
+                    if (needZ) emit("stz __zp_scratch+3");  // Save Z
+
+                    // Pop parameters using PLZ (discards into Z register)
                     for (int i = 0; i < argBytes; i++) {
-                        emit("inx");  // Skip each parameter byte
+                        emit("plz");
                     }
-                    emit("txs");  // Set new SP, discarding parameters
 
-                    if (needZ) {
-                        // Restore Z register from ZP scratch
-                        emit("ldz __zp_scratch3+2");
-                    }
+                    // Restore result from ZP scratch
+                    emit("lda __zp_scratch");
+                    emit("ldx __zp_scratch+1");
+                    if (needY) emit("ldy __zp_scratch+2");
+                    if (needZ) emit("ldz __zp_scratch+3");
                 }
 
                 // NOTE: Do NOT recalculate frame pointer after function calls!
