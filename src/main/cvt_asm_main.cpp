@@ -108,6 +108,7 @@ static void showUsage(const char* progName) {
     std::cerr << "  -t <format>    Target format (default: ca45)\n";
     std::cerr << "  -o <file>      Output file or directory (for multiple files, treated as directory)\n";
     std::cerr << "  --validate     Verify round-trip conversion (A → target → A)\n";
+    std::cerr << "  --stats        Show detailed conversion statistics and loss analysis\n";
     std::cerr << "  -l             List supported formats and exit\n";
     std::cerr << "  -v             Verbose output\n";
     std::cerr << "  --help         Show this help message\n";
@@ -115,9 +116,10 @@ static void showUsage(const char* progName) {
     std::cerr << "\nBatch conversion:\n";
     std::cerr << "  " << progName << " -f ca65 -t acme *.s65        Convert all .s65 files to .asm\n";
     std::cerr << "  " << progName << " -t oscar -o output/ *.asm   Convert files to oscar format in output dir\n";
-    std::cerr << "\nRound-trip validation:\n";
-    std::cerr << "  " << progName << " --validate -t oscar input.s65    Test if ca65→oscar→ca65 is lossless\n";
-    std::cerr << "  " << progName << " --validate -t acme *.s65 -v      Validate all files with details\n";
+    std::cerr << "\nStatistics & validation:\n";
+    std::cerr << "  " << progName << " --stats -t oscar input.s65          Show conversion stats\n";
+    std::cerr << "  " << progName << " --validate -t oscar input.s65       Test round-trip preservation\n";
+    std::cerr << "  " << progName << " --stats --validate -t acme *.s65   Stats + validation with verbose\n";
 }
 
 // Validation statistics tracking
@@ -139,6 +141,66 @@ struct ValidationStats {
         if (totalItems == 0) return 100.0;
         int preserved = preservedLabels + preservedSymbols + preservedDirectives + preservedComments;
         return (preserved * 100.0) / totalItems;
+    }
+};
+
+// Conversion statistics tracking
+struct ConversionStats {
+    std::string inputFile;
+    std::string inputFormat;
+    std::string targetFormat;
+
+    // Source metrics
+    int srcLabels = 0;
+    int srcInstructions = 0;
+    int srcDirectives = 0;
+    int srcComments = 0;
+    int srcSymbols = 0;
+    int srcMacros = 0;  // Detected via .macro/.endmacro patterns
+    int srcLines = 0;
+
+    // Target metrics
+    int tgtLabels = 0;
+    int tgtInstructions = 0;
+    int tgtDirectives = 0;
+    int tgtComments = 0;
+    int tgtSymbols = 0;
+    int tgtLines = 0;
+
+    // Loss tracking
+    int lostLabels = 0;
+    int lostInstructions = 0;
+    int lostDirectives = 0;
+    int lostComments = 0;
+    int lostSymbols = 0;
+    int lostMacros = 0;
+
+    // Detailed loss reasons
+    std::vector<std::string> unsupportedDirectives;
+    std::vector<std::string> conversionIssues;
+
+    // Calculated metrics
+    double getInstructionPreservation() const {
+        if (srcInstructions == 0) return 100.0;
+        return ((srcInstructions - lostInstructions) * 100.0) / srcInstructions;
+    }
+
+    double getMetadataPreservation() const {
+        int total = srcLabels + srcDirectives + srcComments + srcSymbols;
+        if (total == 0) return 100.0;
+        int lost = lostLabels + lostDirectives + lostComments + lostSymbols;
+        return ((total - lost) * 100.0) / total;
+    }
+
+    double getOverallPreservation() const {
+        int total = srcLabels + srcInstructions + srcDirectives + srcComments + srcSymbols;
+        if (total == 0) return 100.0;
+        int lost = lostLabels + lostInstructions + lostDirectives + lostComments + lostSymbols;
+        return ((total - lost) * 100.0) / total;
+    }
+
+    int getTotalLoss() const {
+        return lostLabels + lostInstructions + lostDirectives + lostComments + lostSymbols + lostMacros;
     }
 };
 
@@ -198,6 +260,78 @@ static std::set<std::string> extractLabels(const std::string& output) {
         }
     }
     return labels;
+}
+
+// Detect macros in source text
+static int detectMacros(const std::string& source) {
+    int count = 0;
+    std::istringstream iss(source);
+    std::string line;
+    while (std::getline(iss, line)) {
+        // Trim whitespace
+        line.erase(0, line.find_first_not_of(" \t"));
+        // Check for .macro or macro patterns
+        if (line.find(".macro") == 0 || line.find("macro") == 0 ||
+            line.find(".define") == 0) {
+            count++;
+        }
+    }
+    return count;
+}
+
+// Count instructions in module
+static int countInstructions(const AsmIR::Module& module) {
+    int count = 0;
+    for (const auto& stmt : module.statements) {
+        if (stmt.type == AsmIR::Statement::Type::INSTRUCTION) {
+            count++;
+        }
+    }
+    return count;
+}
+
+// Detect unsupported directives per format
+static std::vector<std::string> detectUnsupportedDirectives(
+    const AsmIR::Module& module,
+    const std::string& targetFormat) {
+    std::vector<std::string> unsupported;
+    std::set<std::string> seen;
+
+    for (const auto& stmt : module.statements) {
+        if (stmt.type == AsmIR::Statement::Type::DIRECTIVE) {
+            std::string dirName = stmt.dir.name;
+            if (seen.count(dirName)) continue;
+            seen.insert(dirName);
+
+            // Check format-specific unsupported directives
+            bool isUnsupported = false;
+            std::string reason;
+
+            if (targetFormat == "oscar") {
+                // Oscar doesn't support some modern directives
+                if (dirName == "cpu" || dirName == "o45") {
+                    isUnsupported = true;
+                    reason = "45GS02-specific directive";
+                }
+            } else if (targetFormat == "acme") {
+                if (dirName == "o45" || dirName == "func_flags") {
+                    isUnsupported = true;
+                    reason = "Format-specific metadata";
+                }
+            } else if (targetFormat == "kickassembler") {
+                if (dirName == "zp_uses" || dirName == "zp_clobbers") {
+                    isUnsupported = true;
+                    reason = "Stack/ZP frame tracking";
+                }
+            }
+
+            if (isUnsupported) {
+                unsupported.push_back(dirName + " (" + reason + ")");
+            }
+        }
+    }
+
+    return unsupported;
 }
 
 static void listFormats() {
@@ -377,6 +511,116 @@ static bool convertFile(const std::string& inputFile,
     return true;
 }
 
+static bool collectConversionStats(const std::string& inputFile,
+                                    const std::string& inputFormat,
+                                    const std::string& targetFormat,
+                                    bool verbose,
+                                    ConversionStats& stats) {
+    // Read input file
+    std::ifstream inFile(inputFile);
+    if (!inFile.is_open()) {
+        std::cerr << "Error: Cannot open input file '" << inputFile << "'\n";
+        return false;
+    }
+
+    std::stringstream buffer;
+    buffer << inFile.rdbuf();
+    std::string source = buffer.str();
+    inFile.close();
+
+    // Auto-detect input format
+    std::string actualFormat = inputFormat;
+    if (actualFormat.empty()) {
+        auto detected = FormatDetection::detectFormat(inputFile);
+        if (detected) {
+            actualFormat = *detected;
+        } else {
+            std::cerr << "Error: Could not auto-detect input format\n";
+            return false;
+        }
+    }
+
+    stats.inputFile = inputFile;
+    stats.inputFormat = actualFormat;
+    stats.targetFormat = targetFormat;
+
+    // Count source metrics
+    stats.srcLines = std::count(source.begin(), source.end(), '\n') + 1;
+    stats.srcComments = std::count(source.begin(), source.end(), ';');
+    stats.srcMacros = detectMacros(source);
+
+    // Parse source
+    auto srcParser = ParserRegistry::getInstance().createParser(actualFormat);
+    if (!srcParser) {
+        std::cerr << "Error: Unsupported input format\n";
+        return false;
+    }
+
+    auto srcModule = srcParser->parse(source);
+    if (srcParser->hasErrors()) {
+        std::cerr << "Error: Failed to parse source\n";
+        return false;
+    }
+
+    stats.srcLabels = countLabels(srcModule);
+    stats.srcInstructions = countInstructions(srcModule);
+    stats.srcDirectives = countDirectives(srcModule);
+    stats.srcSymbols = countSymbols(srcModule);
+
+    // Convert to target format
+    auto tgtWriter = WriterRegistry::getInstance().createWriter(targetFormat);
+    if (!tgtWriter) {
+        std::cerr << "Error: Unsupported target format\n";
+        return false;
+    }
+
+    std::string tgtOutput = tgtWriter->write(srcModule);
+    if (tgtWriter->hasErrors()) {
+        std::cerr << "Error: Failed to write target format\n";
+        return false;
+    }
+
+    // Parse target format to count resulting metrics
+    auto tgtParser = ParserRegistry::getInstance().createParser(targetFormat);
+    if (!tgtParser) {
+        std::cerr << "Error: Cannot re-parse target format\n";
+        return false;
+    }
+
+    auto tgtModule = tgtParser->parse(tgtOutput);
+    if (tgtParser->hasErrors()) {
+        // Warn but don't fail - target might have parsing issues
+        if (verbose) {
+            std::cerr << "Warning: Target format output has parsing issues\n";
+        }
+    }
+
+    stats.tgtLabels = countLabels(tgtModule);
+    stats.tgtInstructions = countInstructions(tgtModule);
+    stats.tgtDirectives = countDirectives(tgtModule);
+    stats.tgtComments = std::count(tgtOutput.begin(), tgtOutput.end(), ';');
+    stats.tgtSymbols = countSymbols(tgtModule);
+    stats.tgtLines = std::count(tgtOutput.begin(), tgtOutput.end(), '\n') + 1;
+
+    // Calculate losses
+    stats.lostLabels = std::max(0, stats.srcLabels - stats.tgtLabels);
+    stats.lostInstructions = std::max(0, stats.srcInstructions - stats.tgtInstructions);
+    stats.lostDirectives = std::max(0, stats.srcDirectives - stats.tgtDirectives);
+    stats.lostComments = std::max(0, stats.srcComments - stats.tgtComments);
+    stats.lostSymbols = std::max(0, stats.srcSymbols - stats.tgtSymbols);
+    stats.lostMacros = stats.srcMacros;  // Macros always lost in conversion
+
+    // Detect unsupported directives
+    stats.unsupportedDirectives = detectUnsupportedDirectives(srcModule, targetFormat);
+
+    if (verbose) {
+        std::cerr << "Conversion analysis: " << inputFile << " (" << actualFormat
+                  << " → " << targetFormat << ")\n";
+    }
+
+    return true;
+}
+
 static bool validateRoundTrip(const std::string& inputFile,
                              const std::string& inputFormat,
                              const std::string& targetFormat,
@@ -527,6 +771,7 @@ int main(int argc, char** argv) {
     std::string outputDir;
     bool verbose = false;
     bool validateMode = false;
+    bool statsMode = false;
 
     // Parse command line arguments
     for (int i = 1; i < argc; ++i) {
@@ -540,6 +785,8 @@ int main(int argc, char** argv) {
             outputDir = argv[++i];
         } else if (arg == "--validate") {
             validateMode = true;
+        } else if (arg == "--stats") {
+            statsMode = true;
         } else if (arg == "-l" || arg == "--list-formats") {
             listFormats();
             return 0;
@@ -568,9 +815,110 @@ int main(int argc, char** argv) {
 
     if (verbose) {
         std::cerr << "Target format: " << targetFormat << "\n";
-        if (!outputDir.empty() && !validateMode) {
+        if (!outputDir.empty() && !validateMode && !statsMode) {
             std::cerr << "Output directory: " << outputDir << "\n";
         }
+    }
+
+    // Conversion statistics mode
+    if (statsMode) {
+        int failureCount = 0;
+        int successCount = 0;
+        std::vector<ConversionStats> allStats;
+
+        for (size_t i = 0; i < inputFiles.size(); ++i) {
+            const std::string& inputFile = inputFiles[i];
+            ConversionStats stats;
+
+            if (verbose && inputFiles.size() > 1) {
+                std::cerr << "\n[" << (i + 1) << "/" << inputFiles.size() << "] ";
+            }
+
+            if (!collectConversionStats(inputFile, inputFormat, targetFormat, verbose, stats)) {
+                failureCount++;
+            } else {
+                successCount++;
+                allStats.push_back(stats);
+            }
+        }
+
+        // Report statistics
+        std::cout << "\n";
+        for (const auto& stats : allStats) {
+            std::cout << "File: " << stats.inputFile << "\n";
+            std::cout << "Conversion: " << stats.inputFormat << " → " << stats.targetFormat << "\n\n";
+
+            std::cout << "Source Metrics:\n";
+            std::cout << "  Lines:        " << stats.srcLines << "\n";
+            std::cout << "  Labels:       " << stats.srcLabels << "\n";
+            std::cout << "  Instructions: " << stats.srcInstructions << "\n";
+            std::cout << "  Directives:   " << stats.srcDirectives << "\n";
+            std::cout << "  Symbols:      " << stats.srcSymbols << "\n";
+            std::cout << "  Comments:     " << stats.srcComments << "\n";
+            std::cout << "  Macros:       " << stats.srcMacros << "\n\n";
+
+            std::cout << "Target Metrics:\n";
+            std::cout << "  Lines:        " << stats.tgtLines << "\n";
+            std::cout << "  Labels:       " << stats.tgtLabels << "\n";
+            std::cout << "  Instructions: " << stats.tgtInstructions << "\n";
+            std::cout << "  Directives:   " << stats.tgtDirectives << "\n";
+            std::cout << "  Symbols:      " << stats.tgtSymbols << "\n";
+            std::cout << "  Comments:     " << stats.tgtComments << "\n\n";
+
+            if (stats.getTotalLoss() > 0) {
+                std::cout << "Loss Analysis:\n";
+                if (stats.lostLabels > 0) {
+                    std::cout << "  Labels lost:       " << stats.lostLabels << "\n";
+                }
+                if (stats.lostInstructions > 0) {
+                    std::cout << "  Instructions lost: " << stats.lostInstructions << "\n";
+                }
+                if (stats.lostDirectives > 0) {
+                    std::cout << "  Directives lost:   " << stats.lostDirectives << "\n";
+                }
+                if (stats.lostComments > 0) {
+                    std::cout << "  Comments lost:     " << stats.lostComments << "\n";
+                }
+                if (stats.lostSymbols > 0) {
+                    std::cout << "  Symbols lost:      " << stats.lostSymbols << "\n";
+                }
+                if (stats.lostMacros > 0) {
+                    std::cout << "  ⚠ Macros lost:      " << stats.lostMacros
+                              << " (always lost in conversion)\n";
+                }
+
+                if (!stats.unsupportedDirectives.empty()) {
+                    std::cout << "\nUnsupported Directives:\n";
+                    for (const auto& dir : stats.unsupportedDirectives) {
+                        std::cout << "  • " << dir << "\n";
+                    }
+                }
+                std::cout << "\n";
+            }
+
+            // Preservation percentages
+            std::cout << "Preservation:\n";
+            std::cout << "  Instructions: " << std::fixed << std::setprecision(1)
+                      << stats.getInstructionPreservation() << "%\n";
+            std::cout << "  Metadata:     " << stats.getMetadataPreservation() << "%\n";
+            std::cout << "  Overall:      " << stats.getOverallPreservation() << "%\n";
+
+            if (stats.getOverallPreservation() >= 95.0) {
+                std::cout << "  Rating:       ✓ GOOD (minimal loss)\n";
+            } else if (stats.getOverallPreservation() >= 80.0) {
+                std::cout << "  Rating:       ⚠ FAIR (some loss)\n";
+            } else {
+                std::cout << "  Rating:       ✗ POOR (significant loss)\n";
+            }
+            std::cout << "\n";
+        }
+
+        if (verbose && inputFiles.size() > 1) {
+            std::cerr << "\nStatistics complete: " << successCount << " analyzed, "
+                      << failureCount << " failed\n";
+        }
+
+        return (failureCount > 0) ? 1 : 0;
     }
 
     // Round-trip validation mode
