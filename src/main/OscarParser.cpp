@@ -1,4 +1,5 @@
 #include "OscarParser.hpp"
+#include "MacroUtils.hpp"
 #include <cctype>
 #include <sstream>
 #include <algorithm>
@@ -8,7 +9,18 @@ AsmIR::Module OscarParser::parse(const std::string& source) {
     AsmIR::Module module;
 
     try {
-        auto tokens = tokenize(source);
+        // Phase 3c: Process .include directives first
+        std::set<std::string> processedFiles;
+        std::vector<std::string> includeErrors;
+        std::string withIncludes = MacroUtils::processIncludes(source, module, processedFiles, includeErrors);
+        for (const auto& err : includeErrors) {
+            addWarning(err);
+        }
+
+        // Phase 3b: Process conditional compilation directives
+        std::string processedSource = MacroUtils::processConditionals(withIncludes, module);
+
+        auto tokens = tokenize(processedSource);
         module = parseTokens(tokens);
         module.cpu = "6502";
         module.is_o45 = false;

@@ -8,13 +8,24 @@ AsmIR::Module Ca65Parser::parse(const std::string& source) {
     AsmIR::Module module;
 
     try {
-        auto tokens = tokenize(source);
+        // Phase 3c: Process .include directives first
+        std::set<std::string> processedFiles;
+        std::vector<std::string> includeErrors;
+        std::string withIncludes = MacroUtils::processIncludes(source, module, processedFiles, includeErrors);
+        for (const auto& err : includeErrors) {
+            addWarning(err);
+        }
+
+        // Phase 3b: Process conditional compilation directives
+        std::string processedSource = MacroUtils::processConditionals(withIncludes, module);
+
+        auto tokens = tokenize(processedSource);
         module = parseTokens(tokens);
         module.cpu = "6502";  // ca65 is primarily for 6502/65C02
         module.is_o45 = false;
 
-        // Extract macros from source
-        MacroUtils::extractCa65Macros(source, module);
+        // Extract macros from processed source
+        MacroUtils::extractCa65Macros(processedSource, module);
     } catch (const std::exception& e) {
         addError(std::string("Parse error: ") + e.what());
     }
