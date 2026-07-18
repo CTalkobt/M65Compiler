@@ -1471,6 +1471,16 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
         return AssemblerSimulatedOps::getPushPopSize(this, instr.mnemonic == "push", instr.operand, instr.operandTokenIndex, scopePrefix);
     }
 
+    // Calculate size for simulated ops (ldax.fp, stax.fp, leax.fp, move.fp, etc.)
+    // Use the same emitFn dispatch as pass1 to get accurate sizes
+    if (stmt && stmt->emitFn) {
+        std::vector<uint8_t> d;
+        M65Emitter sizer(d, getZPStart()); sizer.setSpBase(getSpBase()); sizer.setScratchZP(getScratchZP());
+        sizer.setFramePointerZP(framePointerZP);  // Important: use current frame pointer state!
+        stmt->emitFn(this, sizer, const_cast<Statement*>(stmt));
+        return (int)d.size();
+    }
+
     AddressingMode resolvedMode = instr.mode;
     
     // Auto-promote BASE_PAGE to ABSOLUTE if it doesn't fit in 8 bits.
