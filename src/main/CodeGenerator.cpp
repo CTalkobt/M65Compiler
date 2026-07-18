@@ -1610,10 +1610,10 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
         emit(".local " + loc.name + " = " + std::to_string(loc.frameOffset));
     }
 
-    // Params: stack-relative, past return address (2 bytes).
-    // FP points to the return address low byte, so parameters start at FP+2.
+    // Params: stack-relative, past frame + return address.
+    // FP points to the frame start, so parameters are at FP + frameSize + 2.
     {
-        int pOff = 2;
+        int pOff = frameSize + 2;
         if (node.isVariadic) {
             for (int i = 0; i < (int)paramInfos.size(); ++i) {
                 emit(".var " + paramInfos[i].pName + " = " + std::to_string(pOff));
@@ -1641,7 +1641,7 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     // Emit debug metadata for parameters (stack convention)
     emit("; DEBUG: Starting parameter metadata emission for " + node.name);
     {
-        int pOff = 2;  // Parameters start at FP+2 (after 2-byte return address)
+        int pOff = frameSize + 2;  // Parameters start at FP + frameSize + 2
         if (node.isVariadic) {
             for (int i = 0; i < (int)paramInfos.size(); ++i) {
                 if (variableTypes.count(paramInfos[i].pName)) {
@@ -1652,7 +1652,7 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
                 pOff += paramInfos[i].size;
             }
         } else {
-            pOff = 2;  // Parameters start at FP+2 (after 2-byte return address)
+            pOff = frameSize + 2;  // Parameters start at FP + frameSize + 2
             for (int i = (int)paramInfos.size() - 1; i >= 0; --i) {
                 if (variableTypes.count(paramInfos[i].pName)) {
                     VarInfo& vi = variableTypes.at(paramInfos[i].pName);
