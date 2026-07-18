@@ -160,34 +160,56 @@ public:
         return expanded;
     }
 
-    // Detect macro invocation in a line of code
+    // Detect macro invocation in a line of code with full argument parsing
     static bool detectMacroInvocation(const std::string& line,
                                       const AsmIR::Module& module,
-                                      MacroInvocation& invocation) {
+                                      MacroInvocation& invocation,
+                                      std::string& errorMsg) {
         std::string trimmed = trimLine(line);
         if (trimmed.empty()) return false;
 
         // Try each macro to see if this line invokes it
         for (const auto& [macroName, macro] : module.macros) {
-            // Simple heuristic: macro name as first token (instruction-like position)
-            std::istringstream iss(trimmed);
-            std::string firstToken;
-            iss >> firstToken;
+            // Check if line starts with macro name (instruction-like position)
+            if (trimmed.find(macroName) != 0) continue;
 
-            if (firstToken == macroName) {
-                invocation.macroName = macroName;
-
-                // Parse arguments (comma-separated or space-separated)
-                std::string remainder;
-                std::getline(iss, remainder);
-
-                // Split arguments
-                invocation.arguments = parseArguments(remainder);
-                return true;
+            // Ensure it's a complete word match (not part of longer identifier)
+            size_t macroEnd = macroName.length();
+            if (macroEnd < trimmed.length()) {
+                char nextChar = trimmed[macroEnd];
+                if (std::isalnum(nextChar) || nextChar == '_') continue;  // Not a match
             }
+
+            invocation.macroName = macroName;
+            invocation.sourceLine = 0;  // Would be set by caller
+
+            // Extract argument portion (everything after macro name)
+            std::string argPortion = trimmed.substr(macroEnd);
+            argPortion = trimLine(argPortion);
+
+            // Parse arguments with validation
+            invocation.arguments = parseArgumentsWithValidation(argPortion, macro, errorMsg);
+
+            // Validate argument count
+            if (invocation.arguments.size() != macro.parameters.size()) {
+                errorMsg = "Macro '" + macroName + "' expects " +
+                          std::to_string(macro.parameters.size()) + " arguments, got " +
+                          std::to_string(invocation.arguments.size());
+                return false;
+            }
+
+            return true;
         }
 
         return false;
+    }
+
+    // Overload for backwards compatibility
+    static bool detectMacroInvocation(const std::string& line,
+                                      const AsmIR::Module& module,
+                                      MacroInvocation& invocation) {
+        std::string dummyError;
+        return detectMacroInvocation(line, module, invocation, dummyError);
     }
 
     // Process macro invocations in module, expanding for target format
@@ -212,26 +234,37 @@ public:
         for (const auto& stmt : module.statements) {
             if (stmt.type == AsmIR::Statement::Type::INSTRUCTION) {
                 // Check if this looks like a macro invocation
-                // Macro invocations appear as "instruction-like" statements
-
-                // Look for macro with matching name to the mnemonic
                 auto macroIt = module.macros.find(stmt.instr.mnemonic);
                 if (macroIt != module.macros.end()) {
                     const auto& macro = macroIt->second;
 
-                    // For now, we don't have arguments in the instruction
-                    // In a real implementation, these would be parsed separately
-                    // For this version, we expand with empty args as placeholder
-                    std::vector<std::string> args;
-                    auto expanded = expandMacro(macro, args);
+                    // PHASE 3a: Parse arguments from operand
+                    std::string operandText = stmt.instr.operand.text;
+                    std::string errorMsg;
+                    auto args = parseArgumentsWithValidation(operandText, macro, errorMsg);
+
+                    // Validate argument count
+                    if (!errorMsg.empty() || args.size() != macro.parameters.size()) {
+                        // Add error comment instead of expanding
+                        AsmIR::Statement errStmt;
+                        errStmt.type = AsmIR::Statement::Type::COMMENT;
+                        if (errorMsg.empty()) {
+                            errStmt.comment = "; ERROR: macro '" + macro.name + "' expects " +
+                                            std::to_string(macro.parameters.size()) + " args, got " +
+                                            std::to_string(args.size());
+                        } else {
+                            errStmt.comment = "; ERROR: " + errorMsg;
+                        }
+                        expandedStatements.push_back(errStmt);
+                        continue;
+                    }
+
+                    // Expand with proper argument substitution
+                    auto expanded = expandMacroWithArguments(macro, args);
 
                     // Convert expanded lines to statements
                     for (const auto& line : expanded) {
                         AsmIR::Statement newStmt;
-                        newStmt.type = AsmIR::Statement::Type::INSTRUCTION;
-                        newStmt.comment = "expanded from macro: " + stmt.instr.mnemonic;
-                        // Parse the expanded line as instruction
-                        // For now, just add as comment
                         newStmt.type = AsmIR::Statement::Type::COMMENT;
                         newStmt.comment = line + " ; (from macro " + macro.name + ")";
                         expandedStatements.push_back(newStmt);
@@ -247,6 +280,138 @@ public:
         if (shouldExpand && expandedStatements.size() > module.statements.size()) {
             module.statements = expandedStatements;
         }
+    }
+
+    // Parse macro arguments with proper handling of quoted strings and nested parens
+    static std::vector<std::string> parseArgumentsWithValidation(
+        const std::string& argString,
+        const AsmIR::Macro& macro,
+        std::string& errorMsg) {
+        std::vector<std::string> args;
+
+        if (argString.empty()) {
+            return args;  // No arguments
+        }
+
+        bool inQuotes = false;
+        int inParens = 0;  // Track nesting depth
+        std::string current;
+
+        for (size_t i = 0; i < argString.length(); ++i) {
+            char c = argString[i];
+
+            // Handle quoted strings
+            if (c == '"' || c == '\'') {
+                inQuotes = !inQuotes;
+                current += c;
+                continue;
+            }
+
+            // Skip processing if in quotes
+            if (inQuotes) {
+                current += c;
+                continue;
+            }
+
+            // Track parentheses nesting
+            if (c == '(') {
+                inParens++;
+                current += c;
+            } else if (c == ')') {
+                inParens--;
+                current += c;
+            }
+            // Split on comma or space (only if not in parens or quotes)
+            else if ((c == ',' || std::isspace(c)) && inParens == 0) {
+                std::string trimmed = current;
+                trimmed.erase(0, trimmed.find_first_not_of(" \t"));
+                trimmed.erase(trimmed.find_last_not_of(" \t") + 1);
+                if (!trimmed.empty()) {
+                    args.push_back(trimmed);
+                }
+                current.clear();
+            } else {
+                current += c;
+            }
+        }
+
+        // Add last argument
+        if (!current.empty()) {
+            std::string trimmed = current;
+            trimmed.erase(0, trimmed.find_first_not_of(" \t"));
+            trimmed.erase(trimmed.find_last_not_of(" \t") + 1);
+            if (!trimmed.empty()) {
+                args.push_back(trimmed);
+            }
+        }
+
+        // Validate we didn't end in an incomplete quote or paren
+        if (inQuotes) {
+            errorMsg = "Unclosed quote in macro arguments";
+            return {};
+        }
+        if (inParens != 0) {
+            errorMsg = "Unmatched parentheses in macro arguments";
+            return {};
+        }
+
+        return args;
+    }
+
+    // Expand macro with full argument substitution
+    static std::vector<std::string> expandMacroWithArguments(
+        const AsmIR::Macro& macro,
+        const std::vector<std::string>& arguments) {
+        std::vector<std::string> expanded;
+
+        // Validate argument count
+        if (arguments.size() != macro.parameters.size()) {
+            // Return body with error comment
+            expanded.push_back("; ERROR: macro argument count mismatch");
+            for (const auto& line : macro.body) {
+                expanded.push_back(line);
+            }
+            return expanded;
+        }
+
+        // Expand with parameter substitution
+        for (const auto& line : macro.body) {
+            std::string expandedLine = line;
+
+            // Substitute each parameter
+            for (size_t i = 0; i < macro.parameters.size(); ++i) {
+                const std::string& paramName = macro.parameters[i];
+                const std::string& argValue = arguments[i];
+
+                // Replace parameter name (word boundary check)
+                size_t pos = 0;
+                while ((pos = expandedLine.find(paramName, pos)) != std::string::npos) {
+                    // Check word boundaries
+                    bool isWordStart = (pos == 0) || !std::isalnum(expandedLine[pos - 1]);
+                    bool isWordEnd = (pos + paramName.length() >= expandedLine.length()) ||
+                                    !std::isalnum(expandedLine[pos + paramName.length()]);
+
+                    if (isWordStart && isWordEnd) {
+                        expandedLine.replace(pos, paramName.length(), argValue);
+                        pos += argValue.length();
+                    } else {
+                        pos += paramName.length();
+                    }
+                }
+
+                // Also replace numbered placeholders (\1, \2, etc.)
+                std::string placeholder = "\\" + std::to_string(i + 1);
+                pos = 0;
+                while ((pos = expandedLine.find(placeholder, pos)) != std::string::npos) {
+                    expandedLine.replace(pos, placeholder.length(), argValue);
+                    pos += argValue.length();
+                }
+            }
+
+            expanded.push_back(expandedLine);
+        }
+
+        return expanded;
     }
 
 private:
