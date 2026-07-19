@@ -420,6 +420,12 @@ void IRCodeGen::emitArrayElemAddr(const std::string& baseStr, const ir::Operand&
     }
 }
 
+void IRCodeGen::emitStackCleanup(int frameSize) {
+    for (int i = 0; i < frameSize; i++) {
+        emit("plz");
+    }
+}
+
 // ============================================================================
 // Module-level emission
 // ============================================================================

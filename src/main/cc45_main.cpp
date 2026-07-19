@@ -666,7 +666,7 @@ int main(int argc, char** argv) {
         size_t dot = output_file.rfind('.');
         if (dot != std::string::npos) {
             std::string ext = output_file.substr(dot);
-            if (ext == ".s") {
+            if (ext == ".s" || ext == ".s45") {
                 assemblyOnly = true;
             } else if (ext == ".o45") {
                 objectFileOnly = true;
