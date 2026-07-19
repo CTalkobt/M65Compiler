@@ -423,16 +423,11 @@ fi
 # --- Struct array test ---
 echo "Testing mmemu-cli with test_struct_array.c (struct arrays with loop)..."
 
-$CC src/test-resources/test_struct_array.c -o build/test/test_struct_array.s45
+compile_link_test "src/test-resources/test_struct_array.c" "build/test/test_struct_array.prg" ""
 if [ $? -ne 0 ]; then
-    echo "FAIL: Compilation failed for test_struct_array.c"
+    echo "FAIL: Compilation/linking failed for test_struct_array.c"
     failed=$((failed + 1))
 else
-    $AS build/test/test_struct_array.s45 -o build/test/test_struct_array.prg
-    if [ $? -ne 0 ]; then
-        echo "FAIL: Assembly failed for test_struct_array.s45"
-        failed=$((failed + 1))
-    else
         # Expected: 00 0A 15 1F 10 AA
         # pts[0].x=0, pts[1].x=10, pts[2].y=21, pts[3].y=31, sizeof=16, marker
         OUTPUT=$(echo -e "load build/test/test_struct_array.prg\nsetpc \$2000\nstep 5000000\nm \$4000 6\nq" | $MMEMU -m rawMega65 2>/dev/null)
@@ -493,16 +488,11 @@ fi
 
 echo "Testing bitfield read/write/increment..."
 
-$CC src/test-resources/test_bitfield_mmemu.c -o build/test/test_bitfield_mmemu.s45
+compile_link_test "src/test-resources/test_bitfield_mmemu.c" "build/test/test_bitfield_mmemu.prg" ""
 if [ $? -ne 0 ]; then
-    echo "FAIL: Compilation failed for test_bitfield_mmemu.c"
+    echo "FAIL: Compilation/linking failed for test_bitfield_mmemu.c"
     failed=$((failed + 1))
 else
-    $AS build/test/test_bitfield_mmemu.s45 -o build/test/test_bitfield_mmemu.prg
-    if [ $? -ne 0 ]; then
-        echo "FAIL: Assembly failed for test_bitfield_mmemu.s45"
-        failed=$((failed + 1))
-    else
         OUTPUT=$(echo -e "load build/test/test_bitfield_mmemu.prg\nsetpc \$2000\nstep 5000000\nm \$4000 6\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
         if echo "$OUTPUT" | grep -q "4000: 00 00 00 00 00 00"; then
@@ -519,16 +509,11 @@ fi
 
 echo "Testing compound literals..."
 
-$CC src/test-resources/test_compound_literal.c -o build/test/test_compound_literal.s45
+compile_link_test "src/test-resources/test_compound_literal.c" "build/test/test_compound_literal.prg" ""
 if [ $? -ne 0 ]; then
-    echo "FAIL: Compilation failed for test_compound_literal.c"
+    echo "FAIL: Compilation/linking failed for test_compound_literal.c"
     failed=$((failed + 1))
 else
-    $AS build/test/test_compound_literal.s45 -o build/test/test_compound_literal.prg
-    if [ $? -ne 0 ]; then
-        echo "FAIL: Assembly failed for test_compound_literal.s45"
-        failed=$((failed + 1))
-    else
         OUTPUT=$(echo -e "load build/test/test_compound_literal.prg\nsetpc \$2000\nstep 5000000\nm \$4000 7\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
         if echo "$OUTPUT" | grep -qi "4000: 1e 2a 07 2c 01 14 00"; then
@@ -545,16 +530,11 @@ fi
 
 echo "Testing long type (32-bit) operations..."
 
-$CC -O0 src/test-resources/test_long_mmemu.c -o build/test/test_long_mmemu.s45 2>/dev/null
+compile_link_test "src/test-resources/test_long_mmemu.c" "build/test/test_long_mmemu.prg" "-O0"
 if [ $? -ne 0 ]; then
-    echo "FAIL: Compilation failed for test_long_mmemu.c"
+    echo "FAIL: Compilation/linking failed for test_long_mmemu.c"
     failed=$((failed + 1))
 else
-    $AS build/test/test_long_mmemu.s45 -o build/test/test_long_mmemu.prg
-    if [ $? -ne 0 ]; then
-        echo "FAIL: Assembly failed for test_long_mmemu.s45"
-        failed=$((failed + 1))
-    else
         OUTPUT=$(echo -e "load build/test/test_long_mmemu.prg\nsetpc \$2000\nstep 5000000\nm \$4000 12\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
         if echo "$OUTPUT" | grep -q "4000: 04 C0 01 A0 2A A0 00 E0 93 04 00 AA"; then
@@ -627,16 +607,11 @@ fi
 
 echo "Testing zpCall mixed convention (-fzpcall calling variadic)..."
 
-$CC -fzpcall src/test-resources/test_zpcall_mixed.c -o build/test/test_zpcall_mixed.s45
+compile_link_test "src/test-resources/test_zpcall_mixed.c" "build/test/test_zpcall_mixed.prg" "-fzpcall"
 if [ $? -ne 0 ]; then
-    echo "FAIL: Compilation failed for test_zpcall_mixed.c"
+    echo "FAIL: Compilation/linking failed for test_zpcall_mixed.c"
     failed=$((failed + 1))
 else
-    $AS build/test/test_zpcall_mixed.s45 -o build/test/test_zpcall_mixed.prg
-    if [ $? -ne 0 ]; then
-        echo "FAIL: Assembly failed for test_zpcall_mixed.s45"
-        failed=$((failed + 1))
-    else
         OUTPUT=$(echo -e "load build/test/test_zpcall_mixed.prg\nsetpc \$2000\nstep 5000000\nm \$4000 9\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
         # Expected: 3C 00 48 00 96 00 63 50 AA
