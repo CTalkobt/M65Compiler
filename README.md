@@ -1,4 +1,4 @@
-# Mega65 C Compiler Suite v1.0.4
+# Mega65 C Compiler Suite v1.0.5
 
 A modern development toolchain for the MEGA65 (45GS02) home computer. It consists of:
 

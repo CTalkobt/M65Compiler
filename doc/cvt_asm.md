@@ -1,6 +1,6 @@
 # cvt_asm — Assembler Format Converter
 
-**Status:** v1.0.4 (Initial Implementation)  
+**Status:** v1.0.5 (Stable)  
 **Purpose:** Convert assembly source code between different 6502 assembler formats.
 
 ---

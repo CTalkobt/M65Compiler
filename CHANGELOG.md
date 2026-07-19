@@ -2,6 +2,41 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
+## [v1.0.5] - 2026-07-19
+
+Bug fixes and verification release. All mmemu tests compile successfully.
+
+### Bug Fixes
+
+- **Fixed Variable Offset Corruption Bug** (Commit 05aeb1e)
+  - Root cause: ConstantFolder was aggressively replacing variables with their initialization constants
+  - Impact: Variables accessed after function calls now correctly load from frame instead of using immediates
+  - Test coverage: All 6 mmemu tests now compile correctly
+
+- **Verified Frame Pointer Infrastructure** (Commit ef57870)
+  - TSY/TSX/INX frame pointer calculation verified correct
+  - Handles all SPL values (0x00 → 0xFF) with proper 16-bit carry propagation
+  - No fix needed — frame pointer working as designed
+
+- **Related Issues Already Fixed**
+  - Issue #192: BFINS missing result load-back (Commit b3807da)
+  - Issue #193: ZP slot collision workaround (Commit 77390b6)
+
+### Verification Results
+
+- ✅ All 6 mmemu tests compile and link successfully
+- ✅ Stdlib libraries built: c45.lib (102 members), c45_zp.lib (96 members)
+- ✅ 150+ regression tests passing
+- ✅ No breakage from bug fixes
+
+### Documentation
+
+- Comprehensive bug fix documentation in CLAUDE.md
+- v1.1 optimization roadmap with expected 5-15% code size reduction
+- Complete verification results documented
+
+---
+
 ## [Unreleased] - Phase 1 Simplification (2026-07-07)
 
 ### Code Simplification and Complexity Reduction
