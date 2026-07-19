@@ -226,6 +226,7 @@ struct Function {
     std::map<uint32_t, int> vregSizes;
  // override sizes for array vRegs (bytes)
     std::map<std::string, uint32_t> localNames; // name (without _l_ or _p_ prefix) -> vregId
+    std::vector<std::string> localNamesOrder; // preserves declaration order of local variables
     std::set<uint32_t> memoryVregs;    // vRegs that MUST be in memory (e.g. volatile or address-taken)
     std::set<uint32_t> registerVregs;  // vRegs declared with 'register' keyword (prefer ZP allocation)
 

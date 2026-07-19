@@ -263,13 +263,16 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
 
     // PHASE 1: Pre-allocate frame slots for non-register local variables
     // This prevents temporaries from using frame slots that should belong to locals
-    // Process locals in declaration order first (parameters, then locals from localNames)
+    // Process locals in declaration order first (parameters, then locals from localNamesOrder)
     std::vector<uint32_t> localVidOrder;
     for (uint32_t i = 0; i < paramCount; i++) {
         localVidOrder.push_back(i);
     }
-    for (const auto& [name, vid] : fn.localNames) {
-        localVidOrder.push_back(vid);
+    for (const auto& name : fn.localNamesOrder) {
+        auto it = fn.localNames.find(name);
+        if (it != fn.localNames.end()) {
+            localVidOrder.push_back(it->second);
+        }
     }
 
     // Sort non-array locals before array locals to pack small objects first

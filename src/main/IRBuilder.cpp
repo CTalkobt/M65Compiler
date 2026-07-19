@@ -1074,6 +1074,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
     localDeclLocs_[node.name] = loc(node);
     if (currentFunc_) {
         currentFunc_->localNames[node.name] = vreg.vregId;
+        currentFunc_->localNamesOrder.push_back(node.name);
         if (node.isRegister) {
             currentFunc_->registerVregs.insert(vreg.vregId);
         }
