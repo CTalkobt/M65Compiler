@@ -130,7 +130,6 @@ export class CompletionProvider {
 
   private getPartialWordAtPosition(line: string, column: number): string {
     let start = column - 1;
-    let end = column;
 
     // Find start of word (skip backwards over alphanumeric/underscore/dot)
     while (start >= 0 && /[a-zA-Z0-9_.]/.test(line[start])) {

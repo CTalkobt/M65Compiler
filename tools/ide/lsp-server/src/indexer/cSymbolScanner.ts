@@ -11,7 +11,6 @@ export class CSymbolScanner {
     const typedefPattern = /^\s*typedef\s+(?:struct|union|enum)?\s*(\w+)/;
     const structPattern = /^\s*(?:typedef\s+)?struct\s+(\w+)\s*\{?/;
     const enumPattern = /^\s*(?:typedef\s+)?enum\s+(\w+)\s*\{?/;
-    const varDeclPattern = /^\s*(?:static\s+|extern\s+|const\s+|volatile\s+)*[\w*\s]+\s+(\w+)\s*[=;]/;
     const definePattern = /^\s*#define\s+(\w+)/;
 
     for (let lineNum = 0; lineNum < lines.length; lineNum++) {

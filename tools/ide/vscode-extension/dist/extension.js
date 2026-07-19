@@ -10277,9 +10277,9 @@ var require_features = __commonJS({
   }
 });
 
-// ../node_modules/vscode-languageclient/node_modules/balanced-match/dist/commonjs/index.js
+// ../node_modules/balanced-match/dist/commonjs/index.js
 var require_commonjs = __commonJS({
-  "../node_modules/vscode-languageclient/node_modules/balanced-match/dist/commonjs/index.js"(exports2) {
+  "../node_modules/balanced-match/dist/commonjs/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.range = exports2.balanced = void 0;
@@ -10339,9 +10339,9 @@ var require_commonjs = __commonJS({
   }
 });
 
-// ../node_modules/vscode-languageclient/node_modules/brace-expansion/dist/commonjs/index.js
+// ../node_modules/brace-expansion/dist/commonjs/index.js
 var require_commonjs2 = __commonJS({
-  "../node_modules/vscode-languageclient/node_modules/brace-expansion/dist/commonjs/index.js"(exports2) {
+  "../node_modules/brace-expansion/dist/commonjs/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.EXPANSION_MAX = void 0;
@@ -10512,9 +10512,9 @@ var require_commonjs2 = __commonJS({
   }
 });
 
-// ../node_modules/vscode-languageclient/node_modules/minimatch/dist/commonjs/assert-valid-pattern.js
+// ../node_modules/minimatch/dist/commonjs/assert-valid-pattern.js
 var require_assert_valid_pattern = __commonJS({
-  "../node_modules/vscode-languageclient/node_modules/minimatch/dist/commonjs/assert-valid-pattern.js"(exports2) {
+  "../node_modules/minimatch/dist/commonjs/assert-valid-pattern.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.assertValidPattern = void 0;
@@ -10531,9 +10531,9 @@ var require_assert_valid_pattern = __commonJS({
   }
 });
 
-// ../node_modules/vscode-languageclient/node_modules/minimatch/dist/commonjs/brace-expressions.js
+// ../node_modules/minimatch/dist/commonjs/brace-expressions.js
 var require_brace_expressions = __commonJS({
-  "../node_modules/vscode-languageclient/node_modules/minimatch/dist/commonjs/brace-expressions.js"(exports2) {
+  "../node_modules/minimatch/dist/commonjs/brace-expressions.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.parseClass = void 0;
@@ -10649,9 +10649,9 @@ var require_brace_expressions = __commonJS({
   }
 });
 
-// ../node_modules/vscode-languageclient/node_modules/minimatch/dist/commonjs/unescape.js
+// ../node_modules/minimatch/dist/commonjs/unescape.js
 var require_unescape = __commonJS({
-  "../node_modules/vscode-languageclient/node_modules/minimatch/dist/commonjs/unescape.js"(exports2) {
+  "../node_modules/minimatch/dist/commonjs/unescape.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.unescape = void 0;
@@ -10665,9 +10665,9 @@ var require_unescape = __commonJS({
   }
 });
 
-// ../node_modules/vscode-languageclient/node_modules/minimatch/dist/commonjs/ast.js
+// ../node_modules/minimatch/dist/commonjs/ast.js
 var require_ast = __commonJS({
-  "../node_modules/vscode-languageclient/node_modules/minimatch/dist/commonjs/ast.js"(exports2) {
+  "../node_modules/minimatch/dist/commonjs/ast.js"(exports2) {
     "use strict";
     var _a;
     Object.defineProperty(exports2, "__esModule", { value: true });
@@ -11361,9 +11361,9 @@ var require_ast = __commonJS({
   }
 });
 
-// ../node_modules/vscode-languageclient/node_modules/minimatch/dist/commonjs/escape.js
+// ../node_modules/minimatch/dist/commonjs/escape.js
 var require_escape = __commonJS({
-  "../node_modules/vscode-languageclient/node_modules/minimatch/dist/commonjs/escape.js"(exports2) {
+  "../node_modules/minimatch/dist/commonjs/escape.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.escape = void 0;
@@ -11377,9 +11377,9 @@ var require_escape = __commonJS({
   }
 });
 
-// ../node_modules/vscode-languageclient/node_modules/minimatch/dist/commonjs/index.js
+// ../node_modules/minimatch/dist/commonjs/index.js
 var require_commonjs3 = __commonJS({
-  "../node_modules/vscode-languageclient/node_modules/minimatch/dist/commonjs/index.js"(exports2) {
+  "../node_modules/minimatch/dist/commonjs/index.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.unescape = exports2.escape = exports2.AST = exports2.Minimatch = exports2.match = exports2.makeRe = exports2.braceExpand = exports2.defaults = exports2.filter = exports2.GLOBSTAR = exports2.sep = exports2.minimatch = void 0;
@@ -23226,9 +23226,9 @@ __export(extension_exports, {
   deactivate: () => deactivate
 });
 module.exports = __toCommonJS(extension_exports);
-var vscode = __toESM(require("vscode"));
-var path = __toESM(require("path"));
-var import_node = __toESM(require_main3());
+var vscode = __toESM(require("vscode"), 1);
+var path = __toESM(require("path"), 1);
+var import_node = __toESM(require_main3(), 1);
 var client;
 async function activate(context) {
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];

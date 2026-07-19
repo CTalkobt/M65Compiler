@@ -5,7 +5,6 @@ import * as os from 'os';
 import { parseDiagnostics } from './parseDiagnostics';
 import { ParsedDiagnostic } from './diagnosticTypes';
 
-const DEFAULT_CA45_PATH = 'bin/ca45';
 const TIMEOUT_MS = 10000;
 
 export function runAssembler(

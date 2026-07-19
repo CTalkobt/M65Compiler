@@ -5,7 +5,6 @@ import * as os from 'os';
 import { parseDiagnostics } from './parseDiagnostics';
 import { ParsedDiagnostic } from './diagnosticTypes';
 
-const DEFAULT_CC45_PATH = 'bin/cc45';
 const TIMEOUT_MS = 10000;
 
 export function runCompiler(

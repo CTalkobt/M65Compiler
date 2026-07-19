@@ -3,6 +3,7 @@
   "displayName": "MEGA65 CC45/CA45 Compiler",
   "description": "Language support for MEGA65 C compiler (cc45) and assembler (ca45)",
   "version": "0.1.0",
+  "type": "module",
   "publisher": "m65",
   "license": "MIT",
   "repository": {
@@ -84,12 +85,13 @@
     ]
   },
   "devDependencies": {
+    "@eslint/js": "^9.0.0",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.75.0",
-    "@typescript-eslint/eslint-plugin": "^6.0.0",
-    "@typescript-eslint/parser": "^6.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.64.0",
+    "@typescript-eslint/parser": "^8.64.0",
     "esbuild": "^0.19.0",
-    "eslint": "^8.0.0",
+    "eslint": "^10.7.0",
     "typescript": "^5.0.0",
     "vsce": "^2.15.0"
   },
