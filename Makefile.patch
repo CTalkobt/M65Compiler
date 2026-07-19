@@ -1,6 +1,0 @@
---- a/Makefile
-+++ b/Makefile
-@@ -340,7 +340,7 @@ $(OBJ_DIR)/test_validation_addressing.o: src/test/test_validation_addressing.cpp
-
--$(OBJ_DIR)/test_validation_directives.o: src/test/test_validation_directives.cpp
-+$(OBJ_DIR)/test_validation_directives.o: src/test-resources/test_validation_directives.cpp
