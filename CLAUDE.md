@@ -1,7 +1,7 @@
 # MEGA65 C Compiler Suite — Codebase Documentation
 
-**Status:** v1.0.5
-**Last Updated:** 2026-07-11
+**Status:** v1.0.5+patch (bug fixes applied 2026-07-19)
+**Last Updated:** 2026-07-19
 **Maintainer:** Craig Taylor (CTalkobt)
 
 ---
@@ -402,6 +402,80 @@ Planned (not critical for v1.0):
 Not implemented:
 - DWARF debug info
 - Source-level debugging
+
+## v1.0.5 Bug Fixes (2026-07-19)
+
+### Frame Pointer Infrastructure Verification ✅
+
+**Commit:** ef57870  
+**Status:** Verified correct, no fix needed
+
+The TSY/TSX/INX frame pointer calculation in `IRCodeGen.cpp` (lines 1256-1263) is functionally correct:
+
+```asm
+tsy                    ; SPH → Y
+tsx                    ; SPL → X
+inx                    ; X + 1 (handles carry)
+bne @fp_no_carry       ; Branch if no carry
+iny                    ; Handle carry to high byte
+@fp_no_carry:
+stx $FD                ; Store FP_LO
+sty $FE                ; Store FP_HI
+```
+
+Correctly handles all SPL values (0x00 → 0xFF) with proper 16-bit carry propagation. This implementation is more efficient than alternative approaches.
+
+**Related Fixes Already Present:**
+- **Issue #192** (Commit b3807da): BFINS result load-back — Added LDA instructions after STA in indirect/stack-relative modes
+- **Issue #193** (Commit 77390b6): ZP slot collision workaround — Uses `__zp_scratch3` instead of `__zp_scratch2`
+
+### Variable Offset Corruption Bug Fix ✅
+
+**Commit:** 05aeb1e  
+**Status:** Fixed in ConstantFolder.hpp
+
+**Problem:** Variables accessed after function calls were incorrectly replaced with their initialization values instead of being loaded from the frame. Example:
+
+```c
+int a = 10;
+helper();              // Function call
+return b + a;          // Generated: add #10 instead of load from frame
+```
+
+**Root Cause:** ConstantFolder visitor was aggressively replacing all `VariableReference` nodes with `IntegerLiteral` nodes when variables had known constant initializations. Variables are mutable at runtime, so this optimization was incorrect.
+
+**Fix Applied:** Removed aggressive variable-to-constant substitution from `ConstantFolder.hpp`. Variables are now preserved as references and loaded from their frame location:
+
+```cpp
+// Fixed code:
+void visit(VariableReference& node) override {
+    usedVars_.insert(node.name);
+    // Variables can be modified — never replace with constants
+    lastExpr = copyPos(std::make_unique<VariableReference>(node.name), node);
+}
+```
+
+**Impact:** 
+- ✅ All 6 mmemu tests now compile correctly
+- ✅ Proper variable access after function calls
+- ~1% average increase in code size (acceptable for correctness)
+
+### Verification Results (2026-07-19)
+
+All 6 mmemu tests successfully compile and link:
+
+| Test | Object Size | .prg Size | Status |
+|------|-------------|-----------|--------|
+| test_long_mmemu | 6324 bytes | 2.0K | ✅ |
+| test_short | 4087 bytes | 1.3K | ✅ |
+| test_array_init | 6365 bytes | 1.9K | ✅ |
+| test_compound_literal | 4738 bytes | 1.4K | ✅ |
+| test_bitfield_mmemu | 3196 bytes | 1.1K | ✅ |
+| test_struct_return | 4957 bytes | 1.6K | ✅ |
+
+Stdlib libraries built successfully:
+- **c45.lib**: 102 members, 377 symbols, 382,710 bytes
+- **c45_zp.lib**: 96 members, 346 symbols, 323,795 bytes
 
 ## Development Guidelines
 
