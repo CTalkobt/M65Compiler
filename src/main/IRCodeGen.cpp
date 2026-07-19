@@ -2855,9 +2855,9 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             const ir::Operand& targetVar = inst.args[0];
             int targetOffset = 0;
             if (targetVar.vregId != 0xFFFFFFFF) {
-                if (functionMap_) {
-                    if (functionMap_->count(targetVar.name)) {
-                        const auto* targetFn = functionMap_->at(targetVar.name);
+                if (!functionMap_.empty()) {
+                    if (functionMap_.count(targetVar.name)) {
+                        const auto* targetFn = functionMap_.at(targetVar.name);
                         if (targetFn->vregOffsets.count(targetVar.vregId)) {
                             targetOffset = targetFn->vregOffsets.at(targetVar.vregId);
                         }
@@ -3410,9 +3410,9 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 bool shouldInvalidate = true;
 
                 // For direct calls, check if it's a terminal leaf with no parameters
-                if (inst.src1.kind == ir::OperandKind::GLOBAL && functionMap_) {
-                    auto it = functionMap_->find(inst.src1.name);
-                    if (it != functionMap_->end()) {
+                if (inst.src1.kind == ir::OperandKind::GLOBAL && !functionMap_.empty()) {
+                    auto it = functionMap_.find(inst.src1.name);
+                    if (it != functionMap_.end()) {
                         const ir::Function* calledFn = it->second;
                         // Check: no parameters + no calls made (leaf function)
                         FuncClobbers clobbers = computeFuncClobbers(*calledFn);
