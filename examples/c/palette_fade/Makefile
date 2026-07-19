@@ -28,8 +28,8 @@ all: $(TARGET)
 palette_fade.o45: palette_fade.c
 	$(CC45) -Rcodegen -fzpcall $(INCLUDES) -c palette_fade.c -o palette_fade.o45
 
-palette_fade_asm.o45: palette_fade_asm.s
-	$(CA45) -c palette_fade_asm.s -o palette_fade_asm.o45
+palette_fade_asm.o45: palette_fade_asm.s45
+	$(CA45) -c palette_fade_asm.s45 -o palette_fade_asm.o45
 
 $(CRT0) $(STDLIB):
 	$(MAKE) -C $(ROOT)/lib
@@ -54,7 +54,7 @@ disasm: palette_fade.o45 palette_fade_asm.o45
 	@echo "Disassembly written to $(DISASM_C) and $(DISASM_ASM)"
 
 clean:
-	rm -f palette_fade.o45 palette_fade.o45.s palette_fade_asm.o45 $(TARGET) $(DISASM_C) $(DISASM_ASM) palette_fade.map
+	rm -f palette_fade.o45 palette_fade.o45.s45 palette_fade_asm.o45 $(TARGET) $(DISASM_C) $(DISASM_ASM) palette_fade.map
 
 run: $(TARGET)
 	xemu-xmega65 -prg $(TARGET)

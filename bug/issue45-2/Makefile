@@ -15,7 +15,7 @@ all: 20.prg
 main.o45: main.c
 	$(CC45) -c $< -o $@
 
-%.o45: %.s
+%.o45: %.s45
 	$(CA45) -c $< -o $@
 
 20.prg: $(OBJS)
@@ -35,6 +35,6 @@ main.o45: main.c
 	fi
 
 clean:
-	rm -f *.o45 *.o45.s *.prg *.report
+	rm -f *.o45 *.o45.s45 *.prg *.report
 
 .PHONY: all clean

@@ -1,4 +1,5 @@
 #include "IRBuilder.hpp"
+#include "Diagnostic.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -108,7 +109,8 @@ void IRBuilder::generate(TranslationUnit& unit) {
                 }
             }
             if (devirtCount > 0) {
-                warnings_.push_back("note: devirtualized " + std::to_string(devirtCount) + " virtual call(s)");
+                warnings_.push_back(formatDiagnostic(module_.sourceFile, 0, 0, Severity::Note,
+                    "devirtualized " + std::to_string(devirtCount) + " virtual call(s)"));
             }
         }
     }
@@ -188,18 +190,18 @@ void IRBuilder::generate(TranslationUnit& unit) {
                 if (params[i] == ir::Type::I16 && allConst[i]) {
                     // All values fit in unsigned char
                     std::stringstream ss;
-                    ss << funcDeclLines[name] << ": note: parameter " << (i + 1)
-                       << " of '" << cleanName
+                    ss << "parameter " << (i + 1) << " of '" << cleanName
                        << "' could be 'unsigned char' (all call sites pass 0-255)";
-                    warnings_.push_back(ss.str());
+                    warnings_.push_back(formatDiagnostic(module_.sourceFile, funcDeclLines[name], 0,
+                        Severity::Note, ss.str()));
                 } else if (params[i] == ir::Type::I16 && !allConst[i] &&
                            allNonNegPtr && i < allNonNegPtr->size() && (*allNonNegPtr)[i]) {
                     // All values non-negative but some > 255 — suggest unsigned int
                     std::stringstream ss;
-                    ss << funcDeclLines[name] << ": note: parameter " << (i + 1)
-                       << " of '" << cleanName
+                    ss << "parameter " << (i + 1) << " of '" << cleanName
                        << "' could be 'unsigned int' (all call sites pass non-negative values)";
-                    warnings_.push_back(ss.str());
+                    warnings_.push_back(formatDiagnostic(module_.sourceFile, funcDeclLines[name], 0,
+                        Severity::Note, ss.str()));
                 }
             }
         }
@@ -822,13 +824,12 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     for (const auto& [name, vregOp] : locals_) {
         if (usedVregs_.find(vregOp.vregId) == usedVregs_.end() &&
             externalUsedVars_.find(name) == externalUsedVars_.end()) {
-            std::stringstream ss;
-            ss << "warning: unused variable '" << name << "'";
             ir::SourceLoc sl = localDeclLocs_[name];
-            if (sl.valid()) {
-                ss << " at " << sl.file << ":" << sl.line;
-            }
-            warnings_.push_back(ss.str());
+            int line = sl.valid() ? sl.line : node.line;
+            std::string file = sl.valid() ? sl.file : node.sourceFile;
+            int col = sl.valid() ? sl.column : node.column;
+            warnings_.push_back(formatDiagnostic(file, line, col, Severity::Warning,
+                "unused variable '" + name + "'"));
         }
     }
 
@@ -1051,7 +1052,12 @@ void IRBuilder::visit(VariableDeclaration& node) {
     locals_[node.name] = vreg;
     localRegister_[node.name] = node.isRegister;
     localDeclLocs_[node.name] = loc(node);
-    if (currentFunc_) currentFunc_->localNames[node.name] = vreg.vregId;
+    if (currentFunc_) {
+        currentFunc_->localNames[node.name] = vreg.vregId;
+        if (node.isRegister) {
+            currentFunc_->registerVregs.insert(vreg.vregId);
+        }
+    }
     localTypes_[node.name] = t;
     localTypeNames_[node.name] = node.type;
     localSigned_[node.name] = node.isSigned;
@@ -1268,10 +1274,9 @@ void IRBuilder::visit(IntegerLiteral& node) {
     if (t == ir::Type::I16 && node.castType.empty() && (node.value > 65535 || node.value < -32768)) {
         t = ir::Type::I32;
         std::stringstream ss;
-        ss << "warning: integer literal " << node.value << " exceeds 16-bit range, promoted to long";
-        ir::SourceLoc sl = loc(node);
-        if (sl.valid()) ss << " at " << sl.file << ":" << sl.line;
-        warnings_.push_back(ss.str());
+        ss << "integer literal " << node.value << " exceeds 16-bit range, promoted to long";
+        warnings_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+            Severity::Warning, ss.str()));
     }
     auto dest = allocVreg(t);
     ir::Inst inst;
@@ -1495,7 +1500,8 @@ void IRBuilder::visit(Assignment& node) {
         for (const auto& [sname, sinfo] : structs_) {
             auto mit = sinfo.members.find(ma->memberName);
             if (mit != sinfo.members.end() && mit->second.isConst) {
-                errors_.push_back("Compile Error: Assignment to read-only location");
+                errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                    Severity::Error, "Compile Error: Assignment to read-only location"));
                 return;
             }
         }
@@ -1503,7 +1509,8 @@ void IRBuilder::visit(Assignment& node) {
     if (auto* vr = dynamic_cast<VariableReference*>(node.target.get())) {
         auto cit = localConst_.find(vr->name);
         if (cit != localConst_.end() && cit->second) {
-            errors_.push_back("Compile Error: Assignment to read-only location");
+            errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                Severity::Error, "Compile Error: Assignment to read-only location"));
             return;
         }
     }
@@ -1518,7 +1525,8 @@ void IRBuilder::visit(Assignment& node) {
                     auto ptit = localPointedToType_.find(vr->name);
                     bool isMultiPtr = (ptit != localPointedToType_.end() && ptit->second == ir::Type::PTR);
                     if (!isMultiPtr) {
-                        errors_.push_back("Compile Error: Assignment to read-only location");
+                        errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                            Severity::Error, "Compile Error: Assignment to read-only location"));
                         return;
                     }
                 }
@@ -1674,12 +1682,24 @@ void IRBuilder::visit(Assignment& node) {
             ir::Inst bfins;
             bfins.op = ir::Op::BFINS;
             bfins.resultType = memberType;
+            auto bfinsResult = allocVreg(memberType);
+            bfins.dest = bfinsResult;  // Allocate vreg to hold modified value
             bfins.src1 = rhs;
             bfins.src2 = addr;
             bfins.args.push_back(ir::Operand::imm(bitOffset, ir::Type::I8));
             bfins.args.push_back(ir::Operand::imm(bitWidth, ir::Type::I8));
             bfins.loc = loc(node);
             emit(bfins);
+
+            // Store the modified value back to the original storage location
+            ir::Inst store;
+            store.op = ir::Op::STORE;
+            store.src1 = bfinsResult;
+            store.src2 = addr;
+            store.resultType = ir::Type::VOID;
+            store.loc = loc(node);
+            emit(store);
+
             lastValue_ = rhs;
             return;
         }
@@ -2184,12 +2204,14 @@ void IRBuilder::visit(UnaryOperation& node) {
         if (auto* vr = dynamic_cast<VariableReference*>(node.operand.get())) {
             auto rit = localRegister_.find(vr->name);
             if (rit != localRegister_.end() && rit->second) {
-                errors_.push_back("Compile Error: Cannot take address of register variable");
+                errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                    Severity::Error, "Compile Error: Cannot take address of register variable"));
                 return;
             }
             auto grit = globalRegister_.find(vr->name);
             if (grit != globalRegister_.end() && grit->second) {
-                errors_.push_back("Compile Error: Cannot take address of register variable");
+                errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                    Severity::Error, "Compile Error: Cannot take address of register variable"));
                 return;
             }
             auto it = locals_.find(vr->name);
@@ -2225,7 +2247,8 @@ void IRBuilder::visit(UnaryOperation& node) {
             int accOffset = 0;
             auto* mit = findStructMember(sName, ma->memberName, accOffset);
             if (mit && mit->bitWidth > 0) {
-                errors_.push_back("Compile Error: Cannot take address of bitfield member");
+                errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                    Severity::Error, "Compile Error: Cannot take address of bitfield member"));
                 return;
             }
             bool oldAddrMode = computeAddressOnly_;
@@ -2290,7 +2313,8 @@ void IRBuilder::visit(UnaryOperation& node) {
         if (auto* vr = dynamic_cast<VariableReference*>(node.operand.get())) {
             auto cit = localConst_.find(vr->name);
             if (cit != localConst_.end() && cit->second) {
-                errors_.push_back("Compile Error: Assignment to read-only location");
+                errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                    Severity::Error, "Compile Error: Assignment to read-only location"));
             }
         }
         if (auto* deref = dynamic_cast<UnaryOperation*>(node.operand.get())) {
@@ -2301,7 +2325,8 @@ void IRBuilder::visit(UnaryOperation& node) {
                         auto ptit = localPointedToType_.find(vr->name);
                         bool isMultiPtr = (ptit != localPointedToType_.end() && ptit->second == ir::Type::PTR);
                         if (!isMultiPtr) {
-                            errors_.push_back("Compile Error: Increment/decrement of read-only location");
+                            errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                                Severity::Error, "Compile Error: Increment/decrement of read-only location"));
                         }
                     }
                 }
@@ -2313,7 +2338,8 @@ void IRBuilder::visit(UnaryOperation& node) {
             int accOffset = 0;
             auto* mit = findStructMember(sName, ma->memberName, accOffset);
             if (mit && mit->isConst) {
-                errors_.push_back("Compile Error: Increment/decrement of read-only member");
+                errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                    Severity::Error, "Compile Error: Increment/decrement of read-only member"));
             }
         }
 
@@ -2363,7 +2389,63 @@ void IRBuilder::visit(UnaryOperation& node) {
         inst.loc = loc(node);
         emit(inst);
 
-        // Store back to the variable
+        // Store back to the variable (handle bitfield specially)
+        if (auto* ma = dynamic_cast<MemberAccess*>(node.operand.get())) {
+            // Check if this is a bitfield member
+            int bitWidth = 0, bitOffset = 0, memberOffset = 0;
+            ir::Type memberType = ir::Type::I16;
+            for (const auto& [sname, sinfo] : structs_) {
+                auto mit = sinfo.members.find(ma->memberName);
+                if (mit != sinfo.members.end() && mit->second.bitWidth > 0) {
+                    bitWidth = mit->second.bitWidth;
+                    bitOffset = mit->second.bitOffset;
+                    memberOffset = mit->second.offset;
+                    memberType = mapType(mit->second.type, mit->second.pointerLevel);
+                    break;
+                }
+            }
+
+            if (bitWidth > 0) {
+                // Bitfield store: use BFINS
+                ma->structExpr->accept(*this);
+                auto base = lastValue_;
+                auto addrVreg = allocVreg(ir::Type::PTR);
+                ir::Inst add;
+                add.op = ir::Op::ADD;
+                add.dest = addrVreg;
+                add.resultType = ir::Type::PTR;
+                add.src1 = base;
+                add.src2 = ir::Operand::imm(memberOffset, ir::Type::I16);
+                add.loc = loc(node);
+                emit(add);
+
+                ir::Inst bfins;
+                bfins.op = ir::Op::BFINS;
+                bfins.resultType = memberType;
+                auto bfinsResult = allocVreg(memberType);
+                bfins.dest = bfinsResult;
+                bfins.src1 = dest;  // The incremented value
+                bfins.src2 = addrVreg;
+                bfins.args.push_back(ir::Operand::imm(bitOffset, ir::Type::I8));
+                bfins.args.push_back(ir::Operand::imm(bitWidth, ir::Type::I8));
+                bfins.loc = loc(node);
+                emit(bfins);
+
+                // Store the modified value back
+                ir::Inst store;
+                store.op = ir::Op::STORE;
+                store.src1 = bfinsResult;
+                store.src2 = addrVreg;
+                store.resultType = ir::Type::VOID;
+                store.loc = loc(node);
+                emit(store);
+
+                lastValue_ = isPost ? oldVal : dest;
+                return;
+            }
+        }
+
+        // Regular (non-bitfield) store
         ir::Operand addr;
         if (auto* vr = dynamic_cast<VariableReference*>(node.operand.get())) {
             auto lit = locals_.find(vr->name);
@@ -2686,8 +2768,8 @@ void IRBuilder::visit(FunctionCall& node) {
                             // Check if the variable itself is const (not pointer-to-const)
                             // For `const int x`, localConst_["x"] = true
                             if (cit != localConst_.end() && cit->second) {
-                                warnings_.push_back(
-                                    "warning: passing argument discards 'const' qualifier");
+                                warnings_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                                    Severity::Warning, "passing argument discards 'const' qualifier"));
                             }
                         }
                     }
@@ -2939,7 +3021,8 @@ void IRBuilder::visit(FunctionCall& node) {
                 if (it != functionReturnTypes_.end()) {
                     retType = it->second;
                 } else {
-                    warnings_.push_back("warning: implicit declaration of function '" + node.name + "'");
+                    warnings_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                        Severity::Warning, "implicit declaration of function '" + node.name + "'"));
                 }
 
                 if (retType == ir::Type::VOID) {
@@ -4218,11 +4301,13 @@ void IRBuilder::visit(StructDefinition& node) {
 }
 void IRBuilder::visit(BuiltinVaStart& node) {
     if (!dynamic_cast<VariableReference*>(node.ap.get())) {
-        errors_.push_back("Compile Error: va_start: first argument must be a variable");
+        errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+            Severity::Error, "Compile Error: va_start: first argument must be a variable"));
         return;
     }
     if (currentFuncParams_.find(node.lastParamName) == currentFuncParams_.end()) {
-        errors_.push_back("Compile Error: va_start: '" + node.lastParamName + "' is not a parameter");
+        errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+            Severity::Error, "Compile Error: va_start: '" + node.lastParamName + "' is not a parameter"));
         return;
     }
     // va_start(ap, last_param): compute address past last named param

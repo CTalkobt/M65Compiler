@@ -44,8 +44,8 @@ The compilation process follows a multi-pass pipeline:
 ### Direct to Binary
 Compile C to assembly, then assemble to a PRG:
 ```bash
-./bin/cc45 input.c -o output.s          # Compile to assembly
-./bin/ca45 output.s -o output.prg       # Assemble to PRG binary
+./bin/cc45 input.c -o output.s45        # Compile to assembly
+./bin/ca45 output.s45 -o output.prg     # Assemble to PRG binary
 ```
 
 ### Relocatable Objects (multi-file workflow)
@@ -64,7 +64,7 @@ Compile C files to `.o45` relocatable objects for separate compilation and linki
 
 Assembly files can also produce `.o45` objects directly:
 ```bash
-./bin/ca45 -c module.s -o module.o45    # Assemble to object
+./bin/ca45 -c module.s45 -o module.o45  # Assemble to object
 ```
 
 For a full list of command-line options, use the `-?` flag:

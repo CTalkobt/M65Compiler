@@ -3,7 +3,7 @@
 
 CC="./bin/cc45"
 TEMP_C="test_const.c"
-TEMP_S="test_const.s"
+TEMP_S="test_const.s45"
 
 echo "Testing const keyword in compiler..."
 

@@ -28,13 +28,13 @@ echo "Phase 1: Per-function clobber tracking"
 echo "======================================="
 
 # Compile test program to assembly
-$CC -S src/test-resources/test_clobber_tracking.c -o build/test/test_clobber_tracking.s 2>/dev/null
+$CC -S src/test-resources/test_clobber_tracking.c -o build/test/test_clobber_tracking.s45 2>/dev/null
 check "test_clobber_tracking.c compiles" "[ $? -eq 0 ]"
 
-$AS build/test/test_clobber_tracking.s -o build/test/test_clobber_tracking.prg 2>/dev/null
-check "test_clobber_tracking.s assembles" "[ $? -eq 0 ]"
+$AS build/test/test_clobber_tracking.s45 -o build/test/test_clobber_tracking.prg 2>/dev/null
+check "test_clobber_tracking.s45 assembles" "[ $? -eq 0 ]"
 
-ASM="build/test/test_clobber_tracking.s"
+ASM="build/test/test_clobber_tracking.s45"
 
 # Extract per-function clobber info: find proc name, then its func_flags/reg_clobbers
 extract_func_info() {
@@ -83,7 +83,7 @@ echo "========================================="
 # Test: assembler uses .reg_clobbers at JSR sites
 # We assemble a hand-written test where redundant loads should be eliminated
 
-cat > build/test/test_phase2.s << 'EOF'
+cat > build/test/test_phase2.s45 << 'EOF'
 .org $2000
 __sp_base = $0101
 __zp_scratch = $08
@@ -138,7 +138,7 @@ proc _test_no_eliminate
     endproc
 EOF
 
-$AS build/test/test_phase2.s -o build/test/test_phase2_opt.bin 2>/dev/null
+$AS build/test/test_phase2.s45 -o build/test/test_phase2_opt.bin 2>/dev/null
 check "Phase 2 test assembles" "[ $? -eq 0 ]"
 
 # Get binary size — the optimized version should be smaller than
@@ -146,8 +146,8 @@ check "Phase 2 test assembles" "[ $? -eq 0 ]"
 OPT_SIZE=$(wc -c < build/test/test_phase2_opt.bin)
 
 # Create unoptimized version: change _only_a to clobber A, X (prevents elimination)
-sed 's/reg_clobbers A$/reg_clobbers A, X/' build/test/test_phase2.s > build/test/test_phase2_noopt.s
-$AS build/test/test_phase2_noopt.s -o build/test/test_phase2_noopt.bin 2>/dev/null
+sed 's/reg_clobbers A$/reg_clobbers A, X/' build/test/test_phase2.s45 > build/test/test_phase2_noopt.s45
+$AS build/test/test_phase2_noopt.s45 -o build/test/test_phase2_noopt.bin 2>/dev/null
 NOOPT_SIZE=$(wc -c < build/test/test_phase2_noopt.bin)
 
 check "optimized binary not larger than unoptimized ($OPT_SIZE <= $NOOPT_SIZE)" "[ $OPT_SIZE -le $NOOPT_SIZE ]"

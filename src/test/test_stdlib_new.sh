@@ -1,5 +1,5 @@
 #!/bin/bash
-# test_stdlib_new.sh — Test new stdlib functions (qsort, bsearch, memchr, etc.)
+# test_stdlib_new.s45h — Test new stdlib functions (qsort, bsearch, memchr, etc.)
 
 CC=bin/cc45
 AS=bin/ca45

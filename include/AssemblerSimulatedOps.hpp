@@ -82,7 +82,6 @@ public:
     static void dispatch_Mod16(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_Mod32(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_StructElem(AssemblerParser* p, M65Emitter& e, Stmt* s);
-    static void dispatch_AddrElem(AssemblerParser* p, M65Emitter& e, Stmt* s);
 
     // Original emit functions (implementations unchanged)
     static void emitExpressionCode(AssemblerParser* parser, M65Emitter& e, const std::string& target, int tokenIndex, const std::string& scopePrefix);

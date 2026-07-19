@@ -1,0 +1,160 @@
+{
+  "directives": [
+    {
+      "name": "byte",
+      "description": "Emit one or more bytes",
+      "syntax": ".byte <expr> [, <expr>...]",
+      "example": ".byte 0x42, 0x43"
+    },
+    {
+      "name": "word",
+      "description": "Emit one or more 16-bit words (little-endian)",
+      "syntax": ".word <expr> [, <expr>...]",
+      "example": ".word 0x1234, 0x5678"
+    },
+    {
+      "name": "long",
+      "description": "Emit one or more 32-bit values (little-endian)",
+      "syntax": ".long <expr> [, <expr>...]",
+      "example": ".long 0x12345678"
+    },
+    {
+      "name": "ascii",
+      "description": "Emit ASCII string (no null terminator)",
+      "syntax": ".ascii \"text\"",
+      "example": ".ascii \"hello\""
+    },
+    {
+      "name": "asciiz",
+      "description": "Emit null-terminated ASCII string",
+      "syntax": ".asciiz \"text\"",
+      "example": ".asciiz \"hello\""
+    },
+    {
+      "name": "text",
+      "description": "Enter text/code section",
+      "syntax": ".text",
+      "example": ".text"
+    },
+    {
+      "name": "data",
+      "description": "Enter data section",
+      "syntax": ".data",
+      "example": ".data"
+    },
+    {
+      "name": "align",
+      "description": "Align to boundary",
+      "syntax": ".align <expr>",
+      "example": ".align 256"
+    },
+    {
+      "name": "global",
+      "description": "Make symbol globally visible (export)",
+      "syntax": ".global <label>",
+      "example": ".global main"
+    },
+    {
+      "name": "extern",
+      "description": "Reference external symbol (import)",
+      "syntax": ".extern <label>",
+      "example": ".extern malloc"
+    },
+    {
+      "name": "o45",
+      "description": "Generate .o45 relocatable object format",
+      "syntax": ".o45",
+      "example": ".o45"
+    },
+    {
+      "name": "func_flags",
+      "description": "Set function metadata flags",
+      "syntax": ".func_flags <flags>",
+      "example": ".func_flags leaf"
+    },
+    {
+      "name": "reg_clobbers",
+      "description": "Declare which registers are clobbered by function",
+      "syntax": ".reg_clobbers <mask>",
+      "example": ".reg_clobbers 0x03"
+    },
+    {
+      "name": "flag_clobbers",
+      "description": "Declare which CPU flags are clobbered",
+      "syntax": ".flag_clobbers <mask>",
+      "example": ".flag_clobbers 0xFF"
+    },
+    {
+      "name": "zp_uses",
+      "description": "Declare zero-page locations used by function",
+      "syntax": ".zp_uses <addr>",
+      "example": ".zp_uses 0x20"
+    },
+    {
+      "name": "zp_clobbers",
+      "description": "Declare zero-page locations clobbered by function",
+      "syntax": ".zp_clobbers <addr>",
+      "example": ".zp_clobbers 0x20-0x2F"
+    },
+    {
+      "name": "loc",
+      "description": "Emit debug location info (source line mapping)",
+      "syntax": ".loc <file> <line> <column>",
+      "example": ".loc main.c 42 0"
+    },
+    {
+      "name": "if",
+      "description": "Start conditional assembly block",
+      "syntax": ".if <expr>",
+      "example": ".if DEBUG"
+    },
+    {
+      "name": "else",
+      "description": "Else branch for conditional assembly",
+      "syntax": ".else",
+      "example": ".else"
+    },
+    {
+      "name": "endif",
+      "description": "End conditional assembly block",
+      "syntax": ".endif",
+      "example": ".endif"
+    },
+    {
+      "name": "ifdef",
+      "description": "Conditional assembly if symbol defined",
+      "syntax": ".ifdef <symbol>",
+      "example": ".ifdef DEBUG"
+    },
+    {
+      "name": "ifndef",
+      "description": "Conditional assembly if symbol not defined",
+      "syntax": ".ifndef <symbol>",
+      "example": ".ifndef RELEASE"
+    },
+    {
+      "name": "cpu",
+      "description": "Specify CPU type for assembler",
+      "syntax": ".cpu \"65c02\" or \"45gs02\"",
+      "example": ".cpu \"45gs02\""
+    },
+    {
+      "name": "screencode",
+      "description": "Emit screencode string",
+      "syntax": ".screencode \"text\"",
+      "example": ".screencode \"hello\""
+    },
+    {
+      "name": "fill",
+      "description": "Fill memory with value",
+      "syntax": ".fill <count>, <value>",
+      "example": ".fill 256, 0xFF"
+    },
+    {
+      "name": "space",
+      "description": "Reserve space (same as .fill with 0)",
+      "syntax": ".space <count>",
+      "example": ".space 256"
+    }
+  ]
+}

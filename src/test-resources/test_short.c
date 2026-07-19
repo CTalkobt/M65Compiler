@@ -28,4 +28,5 @@ void main() {
     r[5] = arr[1];         // 200 = 0xC8
     r[6] = 0xAA;           // marker
 
+    __asm__("brk");        // Signal test complete to mmemu
 }

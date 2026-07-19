@@ -20,6 +20,7 @@ public:
     void setLineToFileMap(const std::map<int, std::pair<std::string, int>>& map) {
         lineToFileMap_ = map;
     }
+    // cppcheck-suppress danglingLifetime
     void setFunctionMap(const std::map<std::string, const ir::Function*>* map) {
         if (map) functionMap_ = *map;
         else functionMap_.clear();
@@ -36,6 +37,11 @@ private:
     void emitBlank();
     void emitStackCleanup(int frameSize);
 
+    // Debug metadata emission
+    std::string formatDebugType(ir::Type type);
+    void emitDebugVariable(const std::string& functionName, const std::string& varName,
+                          int offset, ir::Type type, const std::string& scope);
+
     // Codegen reasoning trace (enabled by -Rcodegen)
     bool emitReasons_ = false;
 
@@ -46,6 +52,9 @@ private:
     void emitFunction(const ir::Function& fn, bool relocMode, bool isMainWithZPSave = false);
     void emitInst(const ir::Inst& inst);
 
+    // Check if frame-relative addressing is used after the current instruction
+    bool frameAddrUsedAfterCall() const;
+
     // vReg frame slot management (per-function)
     std::map<uint32_t, int> vregOffset_;  // vregId → frame offset
     std::map<uint32_t, ir::Type> vregType_; // vregId → type
@@ -53,8 +62,18 @@ private:
     int labelCounter_ = 0;
 
     void resetFrame();
-    int allocSlot(uint32_t vregId, ir::Type type);
-    int slotOf(uint32_t vregId);
+
+    // ZP allocator for frame address tracking
+    struct ZPReg { bool inUse = false; };
+    std::vector<ZPReg> zpRegs_;
+    uint32_t zeroPageAvail_ = 248;  // Available ZP space (usually $08-$FF)
+    int frameAddrZPIndex_ = -1;  // allocated ZP index for frame address (2 bytes), -1 if not allocated
+    bool frameAddrCacheValid_ = true;  // Frame pointer cache valid flag (invalidated after function calls)
+
+    int allocateZP(int size);
+    void freeZP(int index, int size);
+    std::string zpAddr(int index) const;  // Return ZP address string like "$08"
+    void loadFrameAddr(int offset = 0);  // Load frame address into A:X, using cache if available
 
     // Describe a vReg for codegen reasoning comments
     std::string vregDesc(uint32_t vregId);
@@ -73,8 +92,14 @@ private:
     // If the vReg is in A:X, spills it to __zp_scratch first and returns the ZP addr.
     std::string src2MemOperand(const ir::Operand& op);
 
-    // Pre-scan a function to allocate frame slots for all vRegs
-    void prescanFunction(const ir::Function& fn);
+    // Emit inline address calculation: result = base + index*stride
+    // Result is returned in A:X and optionally stored to destZP (if non-empty)
+    // baseStr can be "#symbol" (immediate) or memory operand
+    // indexOp is the array index (can be immediate, operand, or vReg)
+    // destZP is optional destination ZP address (e.g., "__zp_scratch"); if empty, result stays in A:X
+    void emitArrayElemAddr(const std::string& baseStr, const ir::Operand& indexOp, int stride,
+                           const std::string& destZP = "");
+
 
     // Bug #3 fix: Allocate register variables to zero page
     // Called during emitFunction to ensure register variables get ZP allocation

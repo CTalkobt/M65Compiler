@@ -15,11 +15,11 @@ $(PRG): $(OBJS)
 main_jmp.o45: main_jmp.c
 	$(CC45) -c $< -o $@
 
-bug_jmp_reloc.o45: bug_jmp_reloc.s
+bug_jmp_reloc.o45: bug_jmp_reloc.s45
 	$(CA45) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(PRG) map.txt main_jmp.o45.s
+	rm -f $(OBJS) $(PRG) map.txt main_jmp.o45.s45
 
 disasm:
 	$(OBJDUMP45) -d -m map.txt $(PRG)

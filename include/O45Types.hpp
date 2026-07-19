@@ -109,6 +109,7 @@ struct O45FuncAttr {
 
 // Bit values for O45FuncAttr::flags
 constexpr uint8_t OPT_LINEINFO        = 0x11;  // debug line info table
+constexpr uint8_t OPT_DEBUG_SYMBOLS   = 0x12;  // variable/function debug metadata
 
 constexpr uint8_t FUNC_FLAG_LEAF      = 0x01;  // no calls to other functions
 constexpr uint8_t FUNC_FLAG_REENTRANT = 0x02;  // re-entrant safe (no global state, stack-only locals)

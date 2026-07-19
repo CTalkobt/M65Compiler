@@ -135,7 +135,7 @@ void ConstantFolder::visit(GenericSelection& node) {
 
 void ConstantFolder::visit(SizeofExpression& node) {
     if (node.isType) {
-        int size = getTypeSizeForStruct(node.typeName, node.pointerLevel, -1);
+        int size = TypeInfo::getTypeSize(node.typeName, node.pointerLevel, -1, structs);
         if (node.pointerLevel == 0) {
             for (int d : node.arrayDims) {
                 if (d > 0) size *= d;

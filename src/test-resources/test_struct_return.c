@@ -40,4 +40,5 @@ void main() {
     // Success marker
     results[6] = 0xAA;
 
+    __asm__("brk");        // Signal test complete to mmemu
 }

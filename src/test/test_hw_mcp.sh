@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# test_hw_mcp.sh — Hardware I/O tests for MEGA65 via mmemu MCP
+# test_hw_mcp.s45h — Hardware I/O tests for MEGA65 via mmemu MCP
 #
 # These tests require the mmemu MCP server for mega65 mode with MAP clear.
 # The CLI step engine doesn't properly apply MAP instruction changes (mmemu#80).

@@ -1,0 +1,127 @@
+name: IDE Tooling (LSP Server & VS Code Extension)
+
+on:
+  push:
+    paths:
+      - 'tools/ide/**'
+      - '.github/workflows/ide-tooling.yml'
+  pull_request:
+    paths:
+      - 'tools/ide/**'
+      - '.github/workflows/ide-tooling.yml'
+
+jobs:
+  lsp-server:
+    name: LSP Server Build & Test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: 'tools/ide/lsp-server/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: tools/ide/lsp-server
+        run: npm ci
+
+      - name: Lint
+        working-directory: tools/ide/lsp-server
+        run: npm run lint
+
+      - name: Build
+        working-directory: tools/ide/lsp-server
+        run: npm run build
+
+      - name: Test
+        working-directory: tools/ide/lsp-server
+        run: npm test
+
+  vscode-extension:
+    name: VS Code Extension Package & Build
+    runs-on: ubuntu-latest
+    needs: lsp-server
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: 'tools/ide/vscode-extension/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: tools/ide/vscode-extension
+        run: npm ci
+
+      - name: Lint
+        working-directory: tools/ide/vscode-extension
+        run: npm run lint
+
+      - name: Build
+        working-directory: tools/ide/vscode-extension
+        run: npm run build
+
+      - name: Package extension (.vsix)
+        working-directory: tools/ide/vscode-extension
+        run: npm run package
+
+      - name: Upload extension artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-extension-${{ matrix.node-version }}
+          path: tools/ide/vscode-extension/*.vsix
+          retention-days: 14
+
+  integration:
+    name: Integration Verification
+    runs-on: ubuntu-latest
+    needs: vscode-extension
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check LSP server executable exists
+        run: |
+          if [ ! -f "tools/ide/lsp-server/dist/server.js" ]; then
+            echo "LSP server dist/server.js not found"
+            exit 1
+          fi
+
+      - name: Verify extension package structure
+        run: |
+          # Check that essential files exist in built extension
+          if [ ! -d "tools/ide/vscode-extension/dist" ]; then
+            echo "Extension dist directory not found"
+            exit 1
+          fi
+
+          if [ ! -f "tools/ide/vscode-extension/package.json" ]; then
+            echo "Extension package.json not found"
+            exit 1
+          fi
+
+      - name: Verify syntax highlighting
+        run: |
+          # Check that TextMate grammar file is present
+          if [ ! -f "tools/ide/vscode-extension/syntaxes/m65-asm.tmLanguage.json" ]; then
+            echo "TextMate grammar file not found"
+            exit 1
+          fi
+
+      - name: Verify language configuration
+        run: |
+          # Check that language configuration is present
+          if [ ! -f "tools/ide/vscode-extension/language-configuration/m65-asm.language-configuration.json" ]; then
+            echo "Language configuration not found"
+            exit 1
+          fi

@@ -1,0 +1,39 @@
+{
+  "name": "@m65/cc45-lsp-server",
+  "version": "0.1.0",
+  "description": "Language Server Protocol server for MEGA65 C compiler (cc45) and assembler (ca45)",
+  "main": "dist/server.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "lint": "eslint src/**/*.ts",
+    "test": "node --import tsx/esm --test src/**/*.test.ts",
+    "prepack": "npm run build"
+  },
+  "keywords": [
+    "lsp",
+    "language-server",
+    "cc45",
+    "ca45",
+    "mega65",
+    "6502"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "vscode-languageserver": "^10.1.0",
+    "vscode-languageserver-textdocument": "^1.0.13"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

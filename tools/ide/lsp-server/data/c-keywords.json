@@ -1,0 +1,179 @@
+{
+  "keywords": [
+    {
+      "name": "char",
+      "description": "Single byte signed integer type (-128 to 127)",
+      "type": "type"
+    },
+    {
+      "name": "short",
+      "description": "Two byte signed integer type (-32768 to 32767)",
+      "type": "type"
+    },
+    {
+      "name": "int",
+      "description": "Two or four byte signed integer type",
+      "type": "type"
+    },
+    {
+      "name": "long",
+      "description": "Four byte signed integer type (-2147483648 to 2147483647)",
+      "type": "type"
+    },
+    {
+      "name": "long long",
+      "description": "Eight byte signed integer type",
+      "type": "type"
+    },
+    {
+      "name": "unsigned",
+      "description": "Unsigned integer qualifier (0 to 2^bits-1)",
+      "type": "qualifier"
+    },
+    {
+      "name": "float",
+      "description": "Floating point (40-bit CBM format, 5 bytes)",
+      "type": "type"
+    },
+    {
+      "name": "double",
+      "description": "Double precision floating point (40-bit CBM format, 5 bytes)",
+      "type": "type"
+    },
+    {
+      "name": "void",
+      "description": "No return type or empty parameter list",
+      "type": "type"
+    },
+    {
+      "name": "struct",
+      "description": "Structure type containing multiple members",
+      "type": "keyword"
+    },
+    {
+      "name": "union",
+      "description": "Union type with overlapping members",
+      "type": "keyword"
+    },
+    {
+      "name": "enum",
+      "description": "Enumeration type with named integer constants",
+      "type": "keyword"
+    },
+    {
+      "name": "typedef",
+      "description": "Define a type alias",
+      "type": "keyword"
+    },
+    {
+      "name": "const",
+      "description": "Read-only qualifier; value cannot be modified",
+      "type": "qualifier"
+    },
+    {
+      "name": "volatile",
+      "description": "Volatile qualifier; value may change unexpectedly",
+      "type": "qualifier"
+    },
+    {
+      "name": "static",
+      "description": "Static storage duration or internal linkage",
+      "type": "keyword"
+    },
+    {
+      "name": "extern",
+      "description": "External linkage; symbol defined elsewhere",
+      "type": "keyword"
+    },
+    {
+      "name": "register",
+      "description": "Hint to allocate variable in register (rarely used)",
+      "type": "keyword"
+    },
+    {
+      "name": "inline",
+      "description": "Inline function; expand at call site",
+      "type": "keyword"
+    },
+    {
+      "name": "if",
+      "description": "Conditional statement",
+      "type": "keyword"
+    },
+    {
+      "name": "else",
+      "description": "Alternative clause for if statement",
+      "type": "keyword"
+    },
+    {
+      "name": "switch",
+      "description": "Multi-way branch statement",
+      "type": "keyword"
+    },
+    {
+      "name": "case",
+      "description": "Case label in switch statement",
+      "type": "keyword"
+    },
+    {
+      "name": "default",
+      "description": "Default label in switch statement",
+      "type": "keyword"
+    },
+    {
+      "name": "while",
+      "description": "While loop",
+      "type": "keyword"
+    },
+    {
+      "name": "do",
+      "description": "Do-while loop; condition checked after body",
+      "type": "keyword"
+    },
+    {
+      "name": "for",
+      "description": "For loop with init, condition, increment",
+      "type": "keyword"
+    },
+    {
+      "name": "break",
+      "description": "Break out of loop or switch",
+      "type": "keyword"
+    },
+    {
+      "name": "continue",
+      "description": "Skip to next loop iteration",
+      "type": "keyword"
+    },
+    {
+      "name": "return",
+      "description": "Return from function with optional value",
+      "type": "keyword"
+    },
+    {
+      "name": "goto",
+      "description": "Unconditional jump to label",
+      "type": "keyword"
+    },
+    {
+      "name": "sizeof",
+      "description": "Get size of type or value in bytes",
+      "type": "operator"
+    },
+    {
+      "name": "_Bool",
+      "description": "Boolean type (0 or 1)",
+      "type": "type"
+    },
+    {
+      "name": "_Alignas",
+      "description": "Specify alignment requirement",
+      "type": "qualifier"
+    },
+    {
+      "name": "_Generic",
+      "description": "Generic selection based on type",
+      "type": "keyword"
+    }
+  ]
+}

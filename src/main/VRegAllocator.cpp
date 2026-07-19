@@ -1,5 +1,6 @@
 #include "VRegAllocator.hpp"
 #include <algorithm>
+#include <iostream>
 
 // ============================================================================
 // Flatten function instructions into linear sequence
@@ -260,7 +261,70 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
     for (const auto& [name, vid] : fn.localNames) localVarVregs.insert(vid);
     for (uint32_t i = 0; i < paramCount; i++) localVarVregs.insert(i);
 
+    // PHASE 1: Pre-allocate frame slots for non-register local variables
+    // This prevents temporaries from using frame slots that should belong to locals
+    // Process locals in declaration order first (parameters, then locals from localNames)
+    std::vector<uint32_t> localVidOrder;
+    for (uint32_t i = 0; i < paramCount; i++) {
+        localVidOrder.push_back(i);
+    }
+    for (const auto& [name, vid] : fn.localNames) {
+        localVidOrder.push_back(vid);
+    }
+
+    // Sort non-array locals before array locals to pack small objects first
+    // This prevents temporaries from being allocated between small and large locals
+    std::stable_sort(localVidOrder.begin() + paramCount, localVidOrder.end(),
+        [&fn](uint32_t a, uint32_t b) {
+            bool aIsArray = fn.vregSizes.count(a) > 0;
+            bool bIsArray = fn.vregSizes.count(b) > 0;
+            if (aIsArray != bIsArray) return !aIsArray;  // non-arrays before arrays
+            if (aIsArray && bIsArray) {
+                // Both arrays: sort by size, smaller first
+                int aSize = fn.vregSizes.at(a);
+                int bSize = fn.vregSizes.at(b);
+                return aSize < bSize;
+            }
+            return false;  // maintain original order for non-arrays
+        });
+
+    for (uint32_t vid : localVidOrder) {
+        if (registerVregs_.count(vid)) continue;        // Skip register vars (handle in phase 2)
+
+        // Find this vreg's live range to get type info
+        auto it = std::find_if(ranges_.begin(), ranges_.end(),
+            [vid](const LiveRange& lr) { return lr.vregId == vid; });
+
+        // Determine type: prefer explicit type info, fall back to live range type
+        ir::Type vtype = ir::Type::I16;  // default
+        if (fn.vregTypes.count(vid)) {
+            vtype = fn.vregTypes.at(vid);
+        } else if (it != ranges_.end()) {
+            vtype = it->type;
+        }
+
+        // Allocate frame slot for this local variable
+        int fsize = ir::typeSize(vtype);
+        if (fsize < 2) fsize = 2;
+        if (fn.vregSizes.count(vid)) {
+            fsize = fn.vregSizes.at(vid);
+        }
+
+        int foff = allocFrameSlot(vtype, fsize);
+        allocs_[vid] = {VRegAllocator::IN_FRAME, foff, vtype};
+        frameAllocMap[vid] = {foff, fsize};
+    }
+
+    // PHASE 2: Allocate temporaries and register variables
     for (auto& lr : ranges_) {
+        // Skip if already allocated in phase 1
+        if (allocs_.count(lr.vregId)) continue;
+
+        // Skip non-register locals — they were pre-allocated in phase 1
+        if (localVarVregs.count(lr.vregId) && !registerVregs_.count(lr.vregId)) {
+            continue;  // Skip non-register locals
+        }
+
         int span = lr.lastUse - lr.firstDef;
 
         // Expire ZP and frame slots for temporaries whose live ranges have ended.
@@ -326,7 +390,9 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
         // Bug #179 fix: Locals (including parameters) MUST go to FRAME, never ZP.
         // They may be accessed by linked functions that expect frame offsets,
         // and reusing ZP across different locals causes address mismatches.
+        // EXCEPTION: Register variables (register keyword) are explicitly marked for ZP
         bool isLocal = localVarVregs.count(lr.vregId) > 0;
+        bool isRegisterVar = registerVregs_.count(lr.vregId) > 0;
 
         if (canUseAX && span <= 1 && !isLocal) {
             // Short-lived, no conflict — keep in A:X (only for non-locals)
@@ -335,14 +401,16 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
             for (int i = lr.firstDef; i <= lr.lastUse && i < (int)axState_.size(); i++) {
                 axState_[i] = (int)lr.vregId;
             }
-        } else if (!crossesCall && !isLocal) {
-            // Try ZP for medium-lived non-local vRegs that don't cross calls
-            // Locals must go to FRAME (see comment above)
+        } else if (!crossesCall && (!isLocal || isRegisterVar)) {
+            // Try ZP for:
+            // - medium-lived non-local vRegs that don't cross calls, OR
+            // - register variables (even if they're locals, register keyword overrides frame allocation)
             int zpAddr = allocZpSlot(lr.type);
             if (zpAddr >= 0) {
                 allocs_[lr.vregId] = {IN_ZP, zpAddr, lr.type};
                 zpAllocMap[lr.vregId] = zpAddr;
             } else {
+                // ZP pool exhausted, fall back to FRAME
                 int foff = allocFrameSlot(lr.type);
                 int fsize = ir::typeSize(lr.type); if (fsize < 2) fsize = 2;
                 allocs_[lr.vregId] = {IN_FRAME, foff, lr.type};

@@ -69,8 +69,8 @@ source docker-aliases.sh
 This creates convenient command aliases so you can use tools naturally:
 
 ```bash
-cc45 hello.c -o hello.s       # Compile C to assembly
-ca45 hello.s -o hello.prg     # Assemble to binary
+cc45 hello.c -o hello.s45     # Compile C to assembly
+ca45 hello.s45 -o hello.prg   # Assemble to binary
 ln45 *.o45 -o output.prg      # Link object files
 disk45 create game.d81        # Create disk image
 nm45 object.o45               # Inspect symbols
@@ -84,7 +84,7 @@ The default entry point is `cc45`, so you can compile C code directly:
 
 ```bash
 docker run -v $(pwd):/work mega65-cc45:latest hello.c -o hello.prg
-docker run -v $(pwd):/work mega65-cc45:latest -S hello.c -o hello.s    # Assembly output
+docker run -v $(pwd):/work mega65-cc45:latest -S hello.c -o hello.s45  # Assembly output
 docker run -v $(pwd):/work mega65-cc45:latest -c hello.c -o hello.o45  # Object file
 ```
 
@@ -94,7 +94,7 @@ To invoke other tools, use the `--entrypoint` flag:
 
 #### Assembler (ca45)
 ```bash
-docker run -v $(pwd):/work --entrypoint ca45 mega65-cc45:latest program.s -o program.prg
+docker run -v $(pwd):/work --entrypoint ca45 mega65-cc45:latest program.s45 -o program.prg
 ```
 
 #### Preprocessor (cp45)
@@ -164,7 +164,7 @@ objdump45 -d main.o45
 ### Library Path
 - Headers are located at `/app/lib/cc45/include/`
 - Standard library archives: `/app/lib/cc45/c45.lib` (stack convention) and `/app/lib/cc45/c45_zp.lib` (ZP convention)
-- Startup files: `/app/lib/cc45/crt*.s`
+- Startup files: `/app/lib/cc45/crt*.s45`
 
 ### Available Tools (in `/app/bin/`)
 - `cc45` — C compiler (default)
@@ -212,7 +212,7 @@ Or use the `--rm` flag (already in alias script) to clean up containers.
 Pass include paths to the compiler:
 
 ```bash
-cc45 -I/path/to/headers hello.c -o hello.s
+cc45 -I/path/to/headers hello.c -o hello.s45
 ```
 
 ### Linking with Standard Library

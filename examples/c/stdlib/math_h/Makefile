@@ -28,4 +28,4 @@ all: $(TARGETS)
 	$(LN45) -basic -o $@ $(CRT0) $< $(STDLIB)
 
 clean:
-	rm -f *.o45 *.o45.s *.prg
+	rm -f *.o45 *.o45.s45 *.prg

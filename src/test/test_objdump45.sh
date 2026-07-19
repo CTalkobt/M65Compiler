@@ -42,14 +42,14 @@ assert_exit() {
 
 # ─── Build test input: a .o45 with code, data, imports, exports, relocs ──────
 
-cat > "$BUILD/objdump_test.s" << 'EOF'
+cat > "$BUILD/objdump_test.s45" << 'EOF'
 .extern _printf
 
 .global _main
 .global _count
 .weak _default_handler
 
-.segment "code"
+.s45egment "code"
 * = $2000
 
 _main:
@@ -64,12 +64,12 @@ _done:
 _default_handler:
     rti
 
-.segment "data"
+.s45egment "data"
 _count: .byte $05
 EOF
 
 echo "=== Assembling test input ==="
-$AS -c "$BUILD/objdump_test.s" -o "$BUILD/objdump_test.o45" 2>&1
+$AS -c "$BUILD/objdump_test.s45" -o "$BUILD/objdump_test.o45" 2>&1
 if [ $? -ne 0 ]; then
     echo "FATAL: failed to assemble test input"
     exit 1
@@ -254,9 +254,9 @@ fi
 echo ""
 echo "--- Test: disassembly instruction accuracy ---"
 
-cat > "$BUILD/objdump_accuracy.s" << 'EOF'
+cat > "$BUILD/objdump_accuracy.s45" << 'EOF'
 .global _test
-.segment "code"
+.s45egment "code"
 * = $1000
 
 _test:
@@ -274,7 +274,7 @@ _test:
     rts #2
 EOF
 
-$AS -c "$BUILD/objdump_accuracy.s" -o "$BUILD/objdump_accuracy.o45" 2>&1
+$AS -c "$BUILD/objdump_accuracy.s45" -o "$BUILD/objdump_accuracy.o45" 2>&1
 if [ $? -eq 0 ]; then
     OUT=$($OD -d "$BUILD/objdump_accuracy.o45" 2>&1)
     assert_exit "accuracy test exits 0" $? 0
@@ -299,11 +299,11 @@ fi
 echo ""
 echo "--- Test: branch target annotation ---"
 
-cat > "$BUILD/objdump_branch.s" << 'EOF'
+cat > "$BUILD/objdump_branch.s45" << 'EOF'
 .global _start
 .global _loop
 .global _end
-.segment "code"
+.s45egment "code"
 * = $3000
 
 _start:
@@ -316,7 +316,7 @@ _end:
     rts
 EOF
 
-$AS -c "$BUILD/objdump_branch.s" -o "$BUILD/objdump_branch.o45" 2>&1
+$AS -c "$BUILD/objdump_branch.s45" -o "$BUILD/objdump_branch.o45" 2>&1
 if [ $? -eq 0 ]; then
     OUT=$($OD -d "$BUILD/objdump_branch.o45" 2>&1)
     assert_exit "branch annotation exits 0" $? 0
@@ -332,11 +332,11 @@ fi
 echo ""
 echo "--- Test: symbolic annotation on data access ---"
 
-cat > "$BUILD/objdump_symref.s" << 'EOF'
+cat > "$BUILD/objdump_symref.s45" << 'EOF'
 .global _main
 .global _counter
 .global _table
-.segment "code"
+.s45egment "code"
 * = $4000
 
 _main:
@@ -350,12 +350,12 @@ _main:
     jmp _main
     rts
 
-.segment "data"
+.s45egment "data"
 _counter: .byte $00
 _table: .byte $01, $02, $03
 EOF
 
-$AS -c "$BUILD/objdump_symref.s" -o "$BUILD/objdump_symref.o45" 2>&1
+$AS -c "$BUILD/objdump_symref.s45" -o "$BUILD/objdump_symref.o45" 2>&1
 if [ $? -eq 0 ]; then
     OUT=$($OD -d "$BUILD/objdump_symref.o45" 2>&1)
     assert_exit "symref exits 0" $? 0
@@ -379,14 +379,14 @@ fi
 echo ""
 echo "--- Test: PRG disassembly ---"
 
-cat > "$BUILD/objdump_prg.s" << 'EOF'
+cat > "$BUILD/objdump_prg.s45" << 'EOF'
 .org $0810
     lda #$42
     jsr $FFD2
     rts
 EOF
 
-$AS "$BUILD/objdump_prg.s" -o "$BUILD/objdump_prg.prg" 2>&1
+$AS "$BUILD/objdump_prg.s45" -o "$BUILD/objdump_prg.prg" 2>&1
 if [ $? -eq 0 ]; then
     # Test -f on PRG (shows format and base address)
     OUT=$($OD -f "$BUILD/objdump_prg.prg" 2>&1)
@@ -455,14 +455,14 @@ fi
 echo ""
 echo "--- Test: BASIC upstart PRG ---"
 
-cat > "$BUILD/objdump_basic.s" << 'EOF'
+cat > "$BUILD/objdump_basic.s45" << 'EOF'
 .basicUpstart $080D
     lda #$00
     sta $D020
     rts
 EOF
 
-$AS "$BUILD/objdump_basic.s" -o "$BUILD/objdump_basic.prg" 2>&1
+$AS "$BUILD/objdump_basic.s45" -o "$BUILD/objdump_basic.prg" 2>&1
 if [ $? -eq 0 ]; then
     OUT=$($OD -fd "$BUILD/objdump_basic.prg" 2>&1)
     assert_exit "basic prg exits 0" $? 0
@@ -479,27 +479,27 @@ echo ""
 echo "--- Test: -m map file with PRG ---"
 
 # Build a linked PRG with a map file
-cat > "$BUILD/objdump_map_a.s" << 'EOF'
+cat > "$BUILD/objdump_map_a.s45" << 'EOF'
 .global _main
-.segment "code"
+.s45egment "code"
 _main:
     jsr _helper
     rts
 EOF
 
-cat > "$BUILD/objdump_map_b.s" << 'EOF'
+cat > "$BUILD/objdump_map_b.s45" << 'EOF'
 .global _helper
 .global _data
-.segment "code"
+.s45egment "code"
 _helper:
     lda _data
     rts
-.segment "data"
+.s45egment "data"
 _data: .byte $42
 EOF
 
-$AS -c "$BUILD/objdump_map_a.s" -o "$BUILD/objdump_map_a.o45" 2>&1
-$AS -c "$BUILD/objdump_map_b.s" -o "$BUILD/objdump_map_b.o45" 2>&1
+$AS -c "$BUILD/objdump_map_a.s45" -o "$BUILD/objdump_map_a.o45" 2>&1
+$AS -c "$BUILD/objdump_map_b.s45" -o "$BUILD/objdump_map_b.o45" 2>&1
 LN="./bin/ln45"
 if [ -x "$LN" ]; then
     $LN -basic -M "$BUILD/objdump_map.txt" -o "$BUILD/objdump_map.prg" \

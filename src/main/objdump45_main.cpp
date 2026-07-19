@@ -266,6 +266,8 @@ static void printFileHeader(const O45File& obj, const std::string& filename) {
                 case OPT_ASM:     name = "ASM"; break;
                 case OPT_AUTHOR:  name = "AUTHOR"; break;
                 case OPT_CREATED: name = "CREATED"; break;
+                case OPT_LINEINFO: name = "LINEINFO"; break;
+                case OPT_DEBUG_SYMBOLS: name = "DEBUG_SYMBOLS"; break;
             }
             printf("  option: %s", name);
             bool isText = true;

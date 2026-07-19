@@ -28,7 +28,7 @@ $(TARGET): main.o45 $(STDLIB)
 	$(LN45) -basic -o $(TARGET) main.o45 $(STDLIB)
 
 clean:
-	rm -f main.o45 main.o45.s $(TARGET)
+	rm -f main.o45 main.o45.s45 $(TARGET)
 
 run: $(TARGET)
 	xemu-xmega65 -prg $(TARGET)

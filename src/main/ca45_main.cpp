@@ -12,6 +12,7 @@
 #include "M65Emitter.hpp"
 #include "O45Emitter.hpp"
 #include "Version.hpp"
+#include "Diagnostic.hpp"
 
 static void writeListing(const std::string& filename, const AssemblerParser& parser, const std::string& source) {
     std::ofstream out(filename);
@@ -250,7 +251,7 @@ int main(int argc, char** argv) {
     try {
         source = preprocessor.process(sourceRaw, initialSymbols, includePaths, input_file);
     } catch (const std::exception& e) {
-        std::cerr << "Preprocessor Error: " << e.what() << std::endl;
+        std::cerr << formatDiagnostic(input_file, 1, 1, Severity::Error, e.what()) << std::endl;
         return 1;
     }
 
@@ -268,6 +269,7 @@ int main(int argc, char** argv) {
     }
 
     AssemblerParser parser(tokens, predefinedSymbols);
+    parser.setSourceFile(input_file);
     parser.verboseOptimizer = verboseOptimizer;
     parser.traceMachState = traceMachState;
     parser.enableExperimental = enableExperimental;
@@ -278,7 +280,7 @@ int main(int argc, char** argv) {
 
         if (parser.hasErrors()) {
             for (const auto& err : parser.getErrors()) {
-                std::cerr << input_file << ":" << err << std::endl;
+                std::cerr << err << std::endl;
             }
             return 1;
         }

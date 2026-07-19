@@ -5,7 +5,7 @@
 # Cast fold tests
 CC="./bin/cc45"
 TEMP_C="test_cast_fold_tmp.c"
-TEMP_S="test_cast_fold_tmp.s"
+TEMP_S="test_cast_fold_tmp.s45"
 
 passed=0
 failed=0

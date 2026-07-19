@@ -6,6 +6,7 @@
 #include "M65Emitter.hpp"
 #include "O45Types.hpp"
 #include "StringUtil.hpp"
+#include "Diagnostic.hpp"
 #include <stdexcept>
 #include <iostream>
 #include <iomanip>
@@ -129,7 +130,7 @@ const AssemblerToken& AssemblerParser::expect(AssemblerTokenType type, const std
     throw std::runtime_error(message + " at " + std::to_string(peek().line) + ":" + std::to_string(peek().column));
 }
 
-bool AssemblerParser::isStackRelativeOperand(int tokenIndex, uint32_t& offset, const std::string& scopePrefix) {
+bool AssemblerParser::isStackRelativeOperand(int tokenIndex, uint32_t& offset, const std::string& scopePrefix, const Statement* stmt) {
     if (tokenIndex < 0 || tokenIndex >= (int)tokens.size()) return false;
     int idx = tokenIndex;
     try {
@@ -140,13 +141,23 @@ bool AssemblerParser::isStackRelativeOperand(int tokenIndex, uint32_t& offset, c
             try {
                 offset = ast->getValue(this);
             } catch (const std::exception& e) {
-                addError("isStackRelativeOperand: failed to evaluate offset expression: " + std::string(e.what()));
+                if (stmt) {
+                    addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                        "failed to evaluate offset expression: " + std::string(e.what())));
+                } else {
+                    addError("isStackRelativeOperand: failed to evaluate offset expression: " + std::string(e.what()));
+                }
                 offset = 0;
             }
             return true;
         }
     } catch (const std::exception& e) {
-        addError("isStackRelativeOperand: expression parsing failed: " + std::string(e.what()));
+        if (stmt) {
+            addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                "expression parsing failed: " + std::string(e.what())));
+        } else {
+            addError("isStackRelativeOperand: expression parsing failed: " + std::string(e.what()));
+        }
     }
     return false;
 }
@@ -578,6 +589,14 @@ void AssemblerParser::pass1() {
                 }
                 stmt->size = 0;
             }
+            else if (stmt->dir.name == "frameptr_zp") {
+                // .frameptr_zp $FD — Set ZP location for frame pointer (for frame-relative addressing)
+                AssemblerToken tok = advance(); // consume the next token
+                uint8_t fp = (uint8_t)parseNumericLiteral(tok.value);
+                framePointerZP = fp;
+                stmt->dir.arguments.push_back(tok.value);  // Store for use in generator
+                stmt->size = 0;
+            }
             else if (stmt->dir.name == "zp_uses" || stmt->dir.name == "zp_clobbers" || stmt->dir.name == "zp_release") {
                 // .zp_uses $03, $04, $05   — ZP slots read as parameters
                 // .zp_clobbers $03, $04    — ZP slots written by this function
@@ -771,7 +790,7 @@ void AssemblerParser::pass1() {
                     stmt->size = 0;
                 }
                 else if (stmt->dir.name == "cpu") stmt->size = 0;
-                else stmt->size = calculateDirectiveSize(stmt->dir, pc);
+                else stmt->size = calculateDirectiveSize(stmt->dir, pc, stmt.get());
             }
         }
         else if (peek().type == AssemblerTokenType::STAR && pos + 1 < tokens.size() && tokens[pos+1].type == AssemblerTokenType::EQUALS) {
@@ -902,7 +921,6 @@ void AssemblerParser::pass1() {
             else if (fullMnemonic == "bfins16.ind") { SIMOP(BFINS16_IND, dispatch_BFIns); }
             else if (fullMnemonic == "bfins32") { SIMOP(BFINS32, dispatch_BFIns); }
             else if (fullMnemonic == "struct_elem.16" || fullMnemonic == "struct_elem") { SIMOP(STRUCT_ELEM, dispatch_StructElem); }
-            else if (fullMnemonic == "addr_elem.16" || fullMnemonic == "addr_elem") { SIMOP(ADDR_ELEM_SIM, dispatch_AddrElem); }
             #undef SIMOP
 
             if (stmt->instr.mnemonic == "expr") {
@@ -1043,7 +1061,8 @@ void AssemblerParser::pass1() {
                 if (stmt->instr.mnemonic == "nop") throw std::runtime_error("nop disallowed");
                 if (stmt->instr.mnemonic == "proc") {
                     if (currentProc != nullptr) {
-                        addError("Error: nested 'proc' not allowed (inside '" + currentProc->name + "')");
+                        addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                            "nested 'proc' not allowed (inside '" + currentProc->name + "')"));
                     }
                     std::string pN = advance().value;
                     stmt->label = pN;
@@ -1090,7 +1109,8 @@ void AssemblerParser::pass1() {
                         currentProc = pass1ProcStack.empty() ? nullptr : pass1ProcStack.back();
                         if (!pass1ProcStack.empty()) pass1ProcStack.pop_back();
                     } else {
-                        addError("Error: 'endproc' outside of procedure scope");
+                        addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                            "'endproc' outside of procedure scope"));
                     }
                     if (!scopeStack.empty()) scopeStack.pop_back();
                     // Always plain RTS (1 byte) — caller handles stack cleanup
@@ -1106,7 +1126,7 @@ void AssemblerParser::pass1() {
                         }
                         else stmt->instr.callArgs.push_back(advance().value);
                     }
-                    stmt->size = calculateInstructionSize(stmt->instr, pc, stmt->scopePrefix);
+                    stmt->size = calculateInstructionSize(stmt->instr, pc, stmt->scopePrefix, stmt.get());
                 }
                 else if (stmt->instr.mnemonic == "zero") {
                     stmt->type = Statement::ZERO; stmt->emitFn = AssemblerSimulatedOps::dispatch_Zero; stmt->instr.operandTokenIndex = (int)pos;
@@ -1219,13 +1239,14 @@ void AssemblerParser::pass1() {
                         std::vector<uint8_t> d; emitPHWStackCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                         stmt->size = d.size();
                     } else {
-                        stmt->size = calculateInstructionSize(stmt->instr, pc, stmt->scopePrefix);
+                        stmt->size = calculateInstructionSize(stmt->instr, pc, stmt->scopePrefix, stmt.get());
                     }
                 }
             }
           } catch (const std::exception& ex) {
             int errLine = stmt->line;
-            errors.push_back("line " + std::to_string(errLine) + ": Error parsing instruction '" + stmt->instr.mnemonic + "': " + ex.what());
+            errors.push_back(formatDiagnostic(stmt->sourceFile, errLine, 1, Severity::Error,
+                "Error parsing instruction '" + stmt->instr.mnemonic + "': " + ex.what()));
             while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
             continue;
           }
@@ -1233,7 +1254,8 @@ void AssemblerParser::pass1() {
         else if (stmt->label.empty()) {
             std::string badToken = peek().value;
             int badLine = peek().line;
-            errors.push_back("line " + std::to_string(badLine) + ": Unknown instruction '" + badToken + "'");
+            errors.push_back(formatDiagnostic(stmt->sourceFile, badLine, 1, Severity::Error,
+                "Unknown instruction '" + badToken + "'"));
             while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
             continue;
         }
@@ -1242,7 +1264,8 @@ void AssemblerParser::pass1() {
     }
 
     if (currentProc) {
-        addError("Error: unclosed 'proc " + currentProc->name + "' at end of file");
+        addError(formatDiagnostic("(assembler)", 0, 1, Severity::Error,
+            "unclosed 'proc " + currentProc->name + "' at end of file"));
     }
 }
 
@@ -1385,51 +1408,51 @@ void AssemblerParser::emitMod32Code(std::vector<uint8_t>& binary, bool isSigned,
 }
 
 void AssemblerParser::emitLDA_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP);
     AssemblerSimulatedOps::emitLDA_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitSTA_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP);
     AssemblerSimulatedOps::emitSTA_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitLDAX_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP);
     AssemblerSimulatedOps::emitLDAX_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitSTAX_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP);
     AssemblerSimulatedOps::emitSTAX_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitLDAY_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP);
     AssemblerSimulatedOps::emitLDAY_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitSTAY_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP);
     AssemblerSimulatedOps::emitSTAY_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitLDAZ_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP);
     AssemblerSimulatedOps::emitLDAZ_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitSTAZ_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP);
     AssemblerSimulatedOps::emitSTAZ_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitLDAXYZ_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP);
     AssemblerSimulatedOps::emitLDAXYZ_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitSTAXYZ_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP);
     AssemblerSimulatedOps::emitSTAXYZ_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitLEAX_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP);
     AssemblerSimulatedOps::emitLEAX_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitMOVE_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP);
     AssemblerSimulatedOps::emitMOVE_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitBFExtCode(std::vector<uint8_t>& binary, bool is16, int tokenIndex, const std::string& scopePrefix) {
@@ -1441,11 +1464,21 @@ void AssemblerParser::emitBFInsCode(std::vector<uint8_t>& binary, bool is16, int
     AssemblerSimulatedOps::emitBFInsCode(this, e, is16, mode, tokenIndex, scopePrefix);
 }
 
-int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t currentAddr, const std::string& scopePrefix) {
+int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t currentAddr, const std::string& scopePrefix, const Statement* stmt) {
     if (instr.mnemonic == "proc") return 0;
     if (instr.mnemonic == "endproc") return 1; // always plain RTS
     if (instr.mnemonic == "push" || instr.mnemonic == "pop") {
         return AssemblerSimulatedOps::getPushPopSize(this, instr.mnemonic == "push", instr.operand, instr.operandTokenIndex, scopePrefix);
+    }
+
+    // Calculate size for simulated ops (ldax.fp, stax.fp, leax.fp, move.fp, etc.)
+    // Use the same emitFn dispatch as pass1 to get accurate sizes
+    if (stmt && stmt->emitFn) {
+        std::vector<uint8_t> d;
+        M65Emitter sizer(d, getZPStart()); sizer.setSpBase(getSpBase()); sizer.setScratchZP(getScratchZP());
+        sizer.setFramePointerZP(framePointerZP);  // Important: use current frame pointer state!
+        stmt->emitFn(this, sizer, const_cast<Statement*>(stmt));
+        return (int)d.size();
     }
 
     AddressingMode resolvedMode = instr.mode;
@@ -1539,8 +1572,14 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
                 try {
                     v = std::stoul(instr.operand);
                 } catch (...) {
-                    addError("RTN instruction: undefined operand '" + instr.operand +
-                        "' (not a symbol or numeric literal)");
+                    if (stmt) {
+                        addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                            "RTN instruction: undefined operand '" + instr.operand +
+                            "' (not a symbol or numeric literal)"));
+                    } else {
+                        addError("RTN instruction: undefined operand '" + instr.operand +
+                            "' (not a symbol or numeric literal)");
+                    }
                     return 2; // Conservative: assume non-zero operand
                 }
             }
@@ -1559,14 +1598,19 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
     }
 }
 
-int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t currentAddr) {
+int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t currentAddr, const Statement* stmt) {
     if (dir.name == "byte") return (int)dir.arguments.size();
     if (dir.name == "word") return (int)dir.arguments.size() * 2;
     if (dir.name == "dword" || dir.name == "long") return (int)dir.arguments.size() * 4;
     if (dir.name == "float") return (int)dir.arguments.size() * 5;
     if (dir.name == "text" || dir.name == "ascii" || dir.name == "screencode") {
         if (dir.arguments.empty()) {
-            addError("Directive ." + dir.name + " requires string argument");
+            if (stmt) {
+                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                    "Directive ." + dir.name + " requires string argument"));
+            } else {
+                addError("Directive ." + dir.name + " requires string argument");
+            }
             return 0;
         }
         int len = (int)dir.arguments[0].size();
@@ -1578,72 +1622,133 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
     }
     if (dir.name == "res") {
         if (dir.arguments.empty()) {
-            addError("Directive .res requires size argument");
+            if (stmt) {
+                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                    "Directive .res requires size argument"));
+            } else {
+                addError("Directive .res requires size argument");
+            }
             return 0;
         }
         try {
             return (int)evaluateExpressionAt(dir.tokenIndex, "");
         } catch (const std::exception& e) {
-            addError("Directive .res: failed to evaluate size: " + std::string(e.what()));
+            if (stmt) {
+                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                    "Directive .res: failed to evaluate size: " + std::string(e.what())));
+            } else {
+                addError("Directive .res: failed to evaluate size: " + std::string(e.what()));
+            }
             return 0;
         }
     }
     if (dir.name == "array") {
         if (dir.arguments.empty()) {
-            addError("Directive .array requires size argument");
+            if (stmt) {
+                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                    "Directive .array requires size argument"));
+            } else {
+                addError("Directive .array requires size argument");
+            }
             return 0;
         }
         try {
             return (int)parseNumericLiteral(dir.arguments[0]);
         } catch (const std::exception& e) {
-            addError("Directive .array: failed to parse size: " + std::string(e.what()));
+            if (stmt) {
+                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                    "Directive .array: failed to parse size: " + std::string(e.what())));
+            } else {
+                addError("Directive .array: failed to parse size: " + std::string(e.what()));
+            }
             return 0;
         }
     }
     if (dir.name == "align" || dir.name == "balign") {
         if (dir.arguments.empty()) {
-            addError("Directive ." + dir.name + " requires alignment argument");
+            if (stmt) {
+                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                    "Directive ." + dir.name + " requires alignment argument"));
+            } else {
+                addError("Directive ." + dir.name + " requires alignment argument");
+            }
             return 0;
         }
         try {
             uint32_t align = parseNumericLiteral(dir.arguments[0]);
             if (align == 0) {
-                addError("Directive ." + dir.name + ": alignment must be non-zero");
+                if (stmt) {
+                    addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                        "Directive ." + dir.name + ": alignment must be non-zero"));
+                } else {
+                    addError("Directive ." + dir.name + ": alignment must be non-zero");
+                }
                 return 0;
             }
             return (align - (currentAddr % align)) % align;
         } catch (const std::exception& e) {
-            addError("Directive ." + dir.name + ": failed to parse alignment: " + std::string(e.what()));
+            if (stmt) {
+                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                    "Directive ." + dir.name + ": failed to parse alignment: " + std::string(e.what())));
+            } else {
+                addError("Directive ." + dir.name + ": failed to parse alignment: " + std::string(e.what()));
+            }
             return 0;
         }
     }
     if (dir.name == "fillto") {
         if (dir.arguments.empty()) {
-            addError("Directive .fillto requires target address argument");
+            if (stmt) {
+                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                    "Directive .fillto requires target address argument"));
+            } else {
+                addError("Directive .fillto requires target address argument");
+            }
             return 0;
         }
         try {
             uint32_t target = evaluateExpressionAt(dir.tokenIndex, "");
             if (target < currentAddr) {
-                addError("Directive .fillto: target address 0x" + std::to_string(target) +
-                    " is before current PC 0x" + std::to_string(currentAddr));
+                if (stmt) {
+                    addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                        "Directive .fillto: target address 0x" + std::to_string(target) +
+                        " is before current PC 0x" + std::to_string(currentAddr)));
+                } else {
+                    addError("Directive .fillto: target address 0x" + std::to_string(target) +
+                        " is before current PC 0x" + std::to_string(currentAddr));
+                }
                 return 0;
             }
             return (int)(target - currentAddr);
         } catch (const std::exception& e) {
-            addError("Directive .fillto: failed to evaluate target address: " + std::string(e.what()));
+            if (stmt) {
+                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                    "Directive .fillto: failed to evaluate target address: " + std::string(e.what())));
+            } else {
+                addError("Directive .fillto: failed to evaluate target address: " + std::string(e.what()));
+            }
             return 0;
         }
     }
     if (dir.name == "import" || dir.name == "incbin") {
         if (dir.arguments.empty()) {
-            addError("Directive ." + dir.name + " requires filename argument");
+            if (stmt) {
+                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                    "Directive ." + dir.name + " requires filename argument"));
+            } else {
+                addError("Directive ." + dir.name + " requires filename argument");
+            }
             return 0;
         }
         std::string filename;
         if (dir.name == "import") {
             if (dir.arguments.size() < 2 || dir.arguments[0] != "binary") {
-                addError("Directive .import requires 'binary' keyword: .import binary \"filename\"");
+                if (stmt) {
+                    addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                        "Directive .import requires 'binary' keyword: .import binary \"filename\""));
+                } else {
+                    addError("Directive .import requires 'binary' keyword: .import binary \"filename\"");
+                }
                 return 0;
             }
             filename = dir.arguments[1];
@@ -1656,7 +1761,12 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
         }
         std::ifstream file(filename, std::ios::binary | std::ios::ate);
         if (!file) {
-            addError("Directive ." + dir.name + ": cannot open binary file '" + filename + "'");
+            if (stmt) {
+                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                    "Directive ." + dir.name + ": cannot open binary file '" + filename + "'"));
+            } else {
+                addError("Directive ." + dir.name + ": cannot open binary file '" + filename + "'");
+            }
             return 0;
         }
         return (int)file.tellg();
@@ -1764,7 +1874,7 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                 isDeadCode = false;
             } else if (isDeadCode && s->type != Statement::DIRECTIVE && s->type != Statement::BASIC_UPSTART) s->size = 0;
             else {
-                if (s->type == Statement::INSTRUCTION) s->size = calculateInstructionSize(s->instr, cP, s->scopePrefix);
+                if (s->type == Statement::INSTRUCTION) s->size = calculateInstructionSize(s->instr, cP, s->scopePrefix, s.get());
                 else if (s->isSimulatedOp()) {
                     // DMA buffer allocation for FILL/COPY (must happen before sizing)
                     if (s->type == Statement::FILL && fillDmaFirstFillAddr_ == 0xFFFFFFFF) {
@@ -1803,7 +1913,7 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                         else if (s->dir.varType == Directive::INC) { symbolTable[s->dir.varName].value++; }
                         else if (s->dir.varType == Directive::DEC) { symbolTable[s->dir.varName].value--; }
                     }
-                    s->size = calculateDirectiveSize(s->dir, cP);
+                    s->size = calculateDirectiveSize(s->dir, cP, s.get());
                 }
                 else if (s->type == Statement::BASIC_UPSTART) s->size = 12;
             }

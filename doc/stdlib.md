@@ -28,7 +28,7 @@ typedef uint16_t     size_t;
 
 ## 2. Memory Management (`stdlib.h`)
 
-Dynamic memory allocation using a sorted free-list allocator. Enabled via `#pragma cc45 heap`. All functions are hand-written 45GS02 assembly in `lib/stdlib/malloc.s`.
+Dynamic memory allocation using a sorted free-list allocator. Enabled via `#pragma cc45 heap`. All functions are hand-written 45GS02 assembly in `lib/stdlib/malloc.s45`.
 
 - **`malloc(size_t size)`**: First-fit allocation from sorted free list. Block splitting when remainder >= 4 bytes. Returns NULL for `malloc(0)`. Auto-initializes heap on first call. **Implemented.**
 - **`free(void *ptr)`**: Returns block to sorted free list. Coalesces adjacent free blocks (both forward and backward). `free(NULL)` is a no-op. **Implemented.**
@@ -45,7 +45,7 @@ Dynamic memory allocation using a sorted free-list allocator. Enabled via `#prag
 
 ## 3. String & Memory Operations (`string.h`)
 
-All string and memory functions are implemented in hand-written 45GS02 assembly (`lib/stdlib/*.s`) and archived in `c45.lib`. Validated via mmemu emulator tests.
+All string and memory functions are implemented in hand-written 45GS02 assembly (`lib/stdlib/*.s45`) and archived in `c45.lib`. Validated via mmemu emulator tests.
 
 **String functions:**
 - **`strlen(char *s)`**: Calculate string length. **Implemented.**
@@ -71,7 +71,7 @@ All string and memory functions are implemented in hand-written 45GS02 assembly 
 
 ## 4. Character Utilities (`ctype.h`)
 
-All character classification and conversion functions are implemented in hand-written 45GS02 assembly (`lib/stdlib/*.s`) and archived in `c45.lib`. They operate on **PETSCII** character codes (the MEGA65's native character set).
+All character classification and conversion functions are implemented in hand-written 45GS02 assembly (`lib/stdlib/*.s45`) and archived in `c45.lib`. They operate on **PETSCII** character codes (the MEGA65's native character set).
 
 **PETSCII character ranges:**
 - Digits `'0'`–`'9'` = `$30`–`$39`
@@ -197,7 +197,7 @@ int putchar(int c) {
 }
 ```
 
-Alternatively, these can be pure assembly (`.s` files) assembled with `ca45`.
+Alternatively, these can be pure assembly (`.s45` files) assembled with `ca45`.
 
 ## 7. Error Handling (`errno.h`)
 
@@ -221,7 +221,7 @@ Save and restore execution context for non-local control flow (error recovery, c
 - **`setjmp(jmp_buf env)`**: Saves the current PC and SP into `env`. Returns 0 on initial call. When `longjmp` restores this context, `setjmp` returns the value passed to `longjmp` (or 1 if that value was 0, per C standard). **Implemented.**
 - **`longjmp(jmp_buf env, int val)`**: Restores the execution context saved in `env`, causing the corresponding `setjmp` to return `val`. Does not return. **Implemented.**
 
-Both functions are hand-written 45GS02 assembly (`lib/stdlib/setjmp.s`).
+Both functions are hand-written 45GS02 assembly (`lib/stdlib/setjmp.s45`).
 
 ## 9. MEGA65 Hardware (`mega65.h`)
 
@@ -467,7 +467,7 @@ Minimal timing functions based on the MEGA65 jiffy clock (KERNAL RDTIM, 60Hz).
 - `clock()` wraps at 65535 ticks (~18 minutes at 60Hz)
 - PAL systems run at ~50Hz but `CLOCKS_PER_SEC` is defined as 60 (NTSC)
 
-## 10. Runtime Startup (`crt0.s`)
+## 10. Runtime Startup (`crt0.s45`)
 
 The assembly entry point that prepares the environment for `main()`.
 
@@ -481,7 +481,7 @@ The assembly entry point that prepares the environment for `main()`.
 
 ### Linker Considerations
 
-The `ca45` assembler supports `.org` and segment directives (`.segment code/data/bss`). The `crt0.s` startup should use equates for segment boundaries that are resolved at assemble/link time. The proposed `ln45` linker (see `doc/ln45.md`) will handle final address resolution when multiple object files are combined.
+The `ca45` assembler supports `.org` and segment directives (`.segment code/data/bss`). The `crt0.s45` startup should use equates for segment boundaries that are resolved at assemble/link time. The proposed `ln45` linker (see `doc/ln45.md`) will handle final address resolution when multiple object files are combined.
 
 ## 11. Source Tree Placement
 
@@ -510,14 +510,14 @@ ccomp/
 │   │   ├── cbm.h       # CBM KERNAL interface (see doc/stdcbm.md)
 │   │   └── mega65.h    # MEGA65 hardware registers (VIC-IV struct overlay)
 │   ├── stdlib/          # Library function implementations
-│   │   ├── strlen.s     # Hand-written 45GS02 assembly (29 files)
-│   │   ├── strcpy.s
+│   │   ├── strlen.s45     # Hand-written 45GS02 assembly (29 files)
+│   │   ├── strcpy.s45
 │   │   ├── malloc.s
 │   │   ├── printf.c     # C implementations (compiled via cc45)
 │   │   ├── sprintf.c
 │   │   └── sscanf.c
 │   ├── stdlib_zp/       # ZP calling convention variants
-│   ├── crt0.s           # Startup code (stack convention)
+│   ├── crt0.s45           # Startup code (stack convention)
 │   ├── crt0_mega65.s    # MEGA65-specific startup
 │   ├── crt0_zp.s        # Startup code (ZP convention)
 │   ├── crt0_mega65_zp.s # MEGA65-specific startup (ZP)
@@ -658,7 +658,7 @@ All phases are complete:
 | Phase | Components | Status |
 |-------|-----------|--------|
 | 1. Headers | `stdint.h`, `stddef.h`, `stdbool.h`, `limits.h`, `stdarg.h` | Complete |
-| 2. Core runtime | `crt0.s`, `putchar`, `puts`, `exit`, CRT pragmas | Complete |
+| 2. Core runtime | `crt0.s45`, `putchar`, `puts`, `exit`, CRT pragmas | Complete |
 | 3. String/memory | 18 functions in `string.h` (12 asm + 6 C) | Complete |
 | 4. Utilities | `ctype.h` (13 functions), `abs`, `atoi`, `itoa`, `ltoa`, `rand`, `srand`, `strtol`, `strtoul` | Complete |
 | 5. Heap | `malloc`, `free`, `calloc`, `realloc` with `#pragma cc45 heap` | Complete |

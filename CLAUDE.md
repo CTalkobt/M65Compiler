@@ -40,8 +40,8 @@ PRG Executable or Flat Binary
 ### Key Design Decisions
 
 1. **Calling Conventions**: Two modes supported (both fully implemented):
-   - **Stack convention** (default): Parameters on stack, return value in AXYZ (for long)
-   - **ZP calling convention** (-fzpcall): Parameters in fixed ZP region, faster, with per-function clobber tracking
+   - **Stack convention** (default): Parameters on stack, return value in AXYZ (for long). Frame pointer ($FD/$FE) set up lazily only when needed. Struct returns via static temporary location to avoid return-value corruption. See `doc/calling-conventions.md` for details.
+   - **ZP calling convention** (`-fzpcall`): Parameters in fixed ZP region ($20-$2A), faster, with per-function clobber tracking. No stack overhead. See `doc/calling-conventions.md` for parameter map and restrictions.
    - Linker enforces one-directional calling convention safety: ZP callers cannot call stack callees (error); stack callers can call ZP callees (safe)
    - Automatic bridge thunk generation at linker level with `-Wthunk` warning mode
 
@@ -156,7 +156,7 @@ src/test-resources/
   test_assembler.sh      # Assembler unit test driver
   validation/            # Error condition validation tests (Units 1-8)
   examples/              # Practical examples with makefiles
-  *.c / *.s              # Individual test cases
+  *.c / *.s45            # Individual test cases
 ```
 
 ### Test Categories
@@ -424,7 +424,7 @@ Not implemented:
 
 #### Adding a Standard Library Function
 
-1. Implement in `lib/src/func_name.s` (hand-written 45GS02 asm or `func_name.c`)
+1. Implement in `lib/src/func_name.s45` (hand-written 45GS02 asm or `func_name.c`)
 2. Declare in `lib/include/<header>.h`
 3. Add export to `lib/Makefile` or `.o45` archive
 4. Add test in `src/test-resources/test_*.c`
@@ -451,7 +451,7 @@ cd src/test-resources
 ### Compiler Output
 
 ```bash
-./bin/cc45 -S input.c -o input.s    # Generate assembly (useful for inspection)
+./bin/cc45 -S input.c -o input.s45  # Generate assembly (useful for inspection)
 ./bin/cc45 -C input.c               # Print AST to stderr during parsing
 ./bin/cc45 input.c 2>&1 | head -50  # First 50 lines of output/errors
 ```
@@ -459,8 +459,8 @@ cd src/test-resources
 ### Assembler Output
 
 ```bash
-./bin/ca45 input.s -o output.prg          # Assemble to binary
-./bin/ca45 -c input.s -o output.o45       # Generate relocatable object
+./bin/ca45 input.s45 -o output.prg        # Assemble to binary
+./bin/ca45 -c input.s45 -o output.o45     # Generate relocatable object
 ./bin/nm45 output.o45                     # Inspect symbol table
 ./bin/objdump45 -d output.o45             # Disassemble
 ./bin/objdump45 -r output.o45             # Show relocations
@@ -541,6 +541,7 @@ Full documentation: `doc/disk45.md`
 
 - **MEGA65 Hardware**: https://github.com/MEGA65/mega65-core
 - **45GS02 CPU**: Extended 6502 with Q register (AXYZ) and 32-bit operations
+- **Calling Conventions**: `doc/calling-conventions.md` — Stack and ZP calling conventions, frame pointer mechanics, struct returns
 - **Test Coverage**: 282 unit tests pass (`make test`), 176 assembler validation tests (Units 1-7), 55 segment emission tests, semantic/parser error tests. 5 hardware I/O tests require mmemu MCP (mega65 mode with MAP clear — see mmemu#79, #80)
 - **GTE (GCC Torture Tests)**: 560/581 (96.4%) — comprehensive C language compatibility validation (includes 95 float/double tests, 7 complex tests). Remaining 21: 9 unfixable (sys/mman.h, stdout/FILE*, __builtin_va_arg_pack, #define L), 8 nested function closure issues, 4 parser edge cases
 - **Standards**: C99 preprocessor, C89/C99 subset for language features
@@ -548,6 +549,7 @@ Full documentation: `doc/disk45.md`
 ---
 
 **For the latest status, see:**
+- `doc/calling-conventions.md` — Detailed calling convention documentation
 - ROADMAP.md — Current work and release timeline
 - CHANGELOG.md — Recent changes and commits
 - .plan/todo.md — Future optimizations and research items

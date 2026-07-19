@@ -25,6 +25,9 @@ public:
     // Analyze a function: compute live ranges and assign allocations
     void analyze(const ir::Function& fn, uint8_t zpStart = 0x20, int zpSlots = 64);
 
+    // Set which vregs should be prioritized for ZP allocation (for register keyword)
+    void setRegisterVregs(const std::set<uint32_t>& regs) { registerVregs_ = regs; }
+
     // Get the allocation for a vReg
     Allocation getAlloc(uint32_t vregId) const;
 
@@ -48,6 +51,9 @@ private:
     // A:X state: which vReg is in A:X at each instruction index
     // -1 means A:X is empty/unknown
     std::vector<int> axState_;
+
+    // vRegs declared with 'register' keyword (should be prioritized for ZP)
+    std::set<uint32_t> registerVregs_;
 
     // ZP pool
     uint8_t zpStart_ = 0x20;

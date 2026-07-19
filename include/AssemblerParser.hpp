@@ -40,6 +40,7 @@ public:
     friend std::vector<uint8_t> emitO45(AssemblerParser&, const std::string&);
     AssemblerParser(const std::vector<AssemblerToken>& tokens);
     AssemblerParser(const std::vector<AssemblerToken>& tokens, const std::map<std::string, uint32_t>& predefinedSymbols);
+    void setSourceFile(const std::string& filename) { currentSourceFile_ = filename; }
     void pass1();
     bool optimize();
     bool verboseOptimizer = false;
@@ -53,6 +54,8 @@ public:
     uint8_t getScratchZP() const;
     uint32_t getPC() const { return pc; }
     uint32_t getFirstOrgAddress() const { return firstOrgAddress; }
+    uint8_t getFramePointerZP() const { return framePointerZP; }
+    bool hasFramePointer() const { return framePointerZP != 0; }
     Symbol* resolveSymbol(const std::string& name, const std::string& scopePrefix = "");
     bool hasErrors() const { return !errors.empty(); }
     const std::vector<std::string>& getErrors() const { return errors; }
@@ -138,6 +141,7 @@ private:
 
     std::shared_ptr<ProcContext> currentProc;
     std::map<uint32_t, std::shared_ptr<ProcContext>> procedures;
+    uint8_t framePointerZP = 0; // 0 = disabled; when set, stack ops use ($FP),Y
 
     struct Segment {
         std::string name;
@@ -182,7 +186,7 @@ public:
                     LSL32, LSR32, ROL32, ROR32, ASR32, SXT16,
                     ADDS32, SUBS32, CMP_S32, NEG_S32, ABS_S32,
                     ASR_S32, LSL_S32, LSR_S32, ROL_S32, ROR_S32,
-                    STRUCT_ELEM, ADDR_ELEM_SIM } type = NONE;
+                    STRUCT_ELEM } type = NONE;
         Instruction instr;
         Directive dir;
         std::string label;
@@ -242,8 +246,8 @@ private:
     bool match(AssemblerTokenType type);
     const AssemblerToken& expect(AssemblerTokenType type, const std::string& message);
 
-    int calculateInstructionSize(const Instruction& instr, uint32_t currentAddr = 0, const std::string& scopePrefix = "");
-    int calculateDirectiveSize(const Directive& dir, uint32_t currentAddr = 0);
+    int calculateInstructionSize(const Instruction& instr, uint32_t currentAddr = 0, const std::string& scopePrefix = "", const Statement* stmt = nullptr);
+    int calculateDirectiveSize(const Directive& dir, uint32_t currentAddr = 0, const Statement* stmt = nullptr);
     int calculateExprSize(int tokenIndex, const std::string& scopePrefix = "");
     uint32_t evaluateExpressionAt(int index, const std::string& scopePrefix = "");
     void emitExpressionCode(std::vector<uint8_t>& binary, const std::string& target, int tokenIndex, const std::string& scopePrefix = "");
@@ -305,7 +309,7 @@ private:
     void emitDivS32Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
     void emitMod16Code(std::vector<uint8_t>& binary, bool isSigned, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
     void emitMod32Code(std::vector<uint8_t>& binary, bool isSigned, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
-    bool isStackRelativeOperand(int tokenIndex, uint32_t& offset, const std::string& scopePrefix);
+    bool isStackRelativeOperand(int tokenIndex, uint32_t& offset, const std::string& scopePrefix, const Statement* stmt = nullptr);
 
     // Frame-pointer pseudo-ops
     void emitLDA_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");
