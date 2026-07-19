@@ -129,9 +129,87 @@ private:
     std::set<uint32_t> localSlotVregs_;
 
     // Track vregs defined by CONST instructions (for direct-address store optimization)
+    // Phase 1: Keep for backward compatibility; paralleled by MachineState tracking
     std::map<uint32_t, int64_t> vregConstVal_;
     // CONST vregs only used as STORE addresses — skip emission and frame allocation
     std::set<uint32_t> suppressedVregs_;
+
+    // Phase 1: MachineState-based helpers for constant queries
+    // Returns true if a vreg's value is a known constant and optionally retrieves it
+    bool vregIsConst(uint32_t vregId, int64_t* outVal = nullptr) const;
+    // Track which register holds a vreg's value (if it's a constant or in a register)
+    RegId findVregInRegister(uint32_t vregId) const;
+    // Update MachineState when a constant is loaded into a register
+    void updateMachineStateForLoad(uint32_t vregId, RegId destReg);
+
+    // Phase 2: MachineState-based helpers for memory queries
+    // Returns true if a ZP location holds a known constant
+    bool zpIsConst(uint8_t addr, int64_t* outVal = nullptr) const;
+    // Returns true if a stack offset holds a known constant
+    bool stackIsConst(uint8_t offset, int64_t* outVal = nullptr) const;
+    // Returns true if an absolute address holds a known constant
+    bool absMemIsConst(uint16_t addr, int64_t* outVal = nullptr) const;
+    // Update MachineState after loading from a ZP location
+    void updateZPFromLoad(uint8_t addr, RegId destReg);
+    // Update MachineState after loading from a stack offset
+    void updateStackFromLoad(uint8_t offset, RegId destReg);
+    // Check if a register already holds a specific ZP value
+    bool regHoldsZPValue(RegId r, uint8_t zpAddr) const;
+
+    // Phase 3: MachineState-based helpers for range queries
+    // Returns true if a vreg is known to be within [lo..hi]
+    bool vregInRange(uint32_t vregId, int64_t lo, int64_t hi) const;
+    // Returns true if a ZP location is known to be within [lo..hi]
+    bool zpInRange(uint8_t addr, int64_t lo, int64_t hi) const;
+    // Check if a comparison instruction is redundant given a known value
+    // outAlwaysTrue: set to true if condition is always true, false if always false
+    bool compareCanBeEliminated(const ir::Inst& cmp, int64_t val, bool& outAlwaysTrue) const;
+    // Update range after CONST emission (exact constant = range [val,val])
+    void updateRangeFromConstant(uint32_t vregId, int64_t val);
+    // Update range from detected loop bounds
+    void updateRangeFromLoop(uint32_t vregId, int64_t lo, int64_t hi);
+
+    // Phase 4: Register capability tracking for smart register selection
+    // Query if a register can perform a specific operation
+    bool registerCanDoALU(RegId r) const;
+    // Query if a register can be incremented/decremented
+    bool registerCanIncrement(RegId r) const;
+    // Query if a register can do shift operations
+    bool registerCanShift(RegId r) const;
+    // Get priority score for register (higher = prefer when equal cost)
+    int getRegisterPriority(RegId r) const;
+
+    // Phase 5: Memory operation optimization helpers
+    // Check if a memory location can be directly incremented (inc $addr instead of load/inc/store)
+    bool memLocationCanDirectIncrement(uint32_t vregId) const;
+    // Check if a memory location can be directly shifted (asl $addr instead of load/asl/store)
+    bool memLocationCanDirectShift(uint32_t vregId) const;
+
+    // Phase 5a: Smart register selection and memory operation infrastructure
+    // Select best register to load a value based on next operation's requirements
+    RegId selectLoadDestinationReg(uint32_t vregId, ir::Type type);
+    // Find best register given next operation type (ALU/shift/inc/etc)
+    RegId findBestRegisterForLoad(uint32_t vregId, ir::Type type, const ir::Inst* nextOp);
+    // Check if direct inc/dec is safe and beneficial
+    bool canUseDirectMemIncrement(uint32_t vregId) const;
+    // Check if direct shift is safe and beneficial
+    bool canUseDirectMemShift(uint32_t vregId, ir::Op shiftOp) const;
+    // Cost-benefit: should we prefer direct memory operation?
+    bool shouldPreferMemoryOp(uint32_t vregId, ir::Op opType) const;
+    // Check if a register can perform a given operation
+    bool canRegPerformOp(RegId r, ir::Op op) const;
+    // Get register selection priority (lower = prefer)
+    int getRegisterSelectPriority(RegId r) const;
+    // Emit direct memory increment: inc/dec at vReg location
+    void emitDirectMemIncrement(uint32_t vregId, ir::Op opType);
+    // Emit direct memory shift: asl/lsr/etc at vReg location
+    void emitDirectMemShift(uint32_t vregId, ir::Op shiftOp);
+    // Update MachineState after direct memory operation
+    void updateMachineStateAfterMemOp(uint32_t vregId);
+    // Record which register holds a vreg's value (for store forwarding)
+    void recordVregInRegister(uint32_t vregId, RegId reg);
+    // Clear register tracking when clobbered
+    void clearRegTracking(RegId reg);
 
     // Source location tracking for .loc directives
     int lastLocLine_ = -1;
@@ -151,6 +229,11 @@ private:
     // Store-forwarding: track which vreg's result is currently live in A:X
     // from the most recent instruction. -1 = unknown/not in AX.
     int32_t resultInAX_ = -1;
+
+    // Phase 5a: Track which vreg's value each register holds (for store forwarding)
+    // regHoldsVreg_[r] = vregId (-1 if unknown/multiple/clobbered)
+    // Indexed by RegId: 0=A, 1=X, 2=Y, 3=Z, 4=SP
+    int32_t regHoldsVreg_[5] = {-1, -1, -1, -1, -1};
 
     // Next block label for no-op branch elimination
     std::string nextBlockLabel_;
