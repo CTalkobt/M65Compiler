@@ -63,16 +63,11 @@ public:
 
     void visit(VariableReference& node) override {
         usedVars_.insert(node.name);
-        if (knownConstants.count(node.name)) {
-            auto& ci = knownConstants[node.name];
-            auto lit = std::make_unique<IntegerLiteral>(ci.value);
-            lit->castType = ci.type;
-            lit->castPointerLevel = ci.pointerLevel;
-            lit->castIsSigned = ci.isSigned;
-            lastExpr = copyPos(std::move(lit), node);
-        } else {
-            lastExpr = copyPos(std::make_unique<VariableReference>(node.name), node);
-        }
+        // PHASE 2 FIX: Don't replace variable references with their initialization values.
+        // Variables can be modified, and their values can change at runtime.
+        // Replacing them with literals breaks code that accesses variables after function calls.
+        // Just return the variable reference as-is.
+        lastExpr = copyPos(std::make_unique<VariableReference>(node.name), node);
     }
 
     void visit(Assignment& node) override {
