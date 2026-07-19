@@ -2290,11 +2290,14 @@ void AssemblerSimulatedOps::emitBFInsCode(AssemblerParser* parser, M65Emitter& e
         if (mode == 1) {
             e.lda_stack(addr + 1); // +1 because we pushed 1 byte
             e.and_imm(~shiftedMask16 & 0xFF); e.ora_zp(e.scratchZP()); e.sta_stack(addr + 1);
+            e.lda_stack(addr + 1); // load lo byte result back into A
         } else if (mode == 2) {
             e.ldy_imm(0);
             e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
             e.and_imm(~shiftedMask16 & 0xFF); e.ora_zp(e.scratchZP());
             e.emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
+            e.ldy_imm(0);
+            e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
         } else {
             if (addrIsZP) {
                 e.lda_imm(shiftedMask16 & 0xFF);
@@ -2311,11 +2314,14 @@ void AssemblerSimulatedOps::emitBFInsCode(AssemblerParser* parser, M65Emitter& e
         if (mode == 1) {
             e.lda_stack(addr + 1); // stack restored now
             e.and_imm((~shiftedMask16 >> 8) & 0xFF); e.ora_zp(e.scratchZP()); e.sta_stack(addr + 1);
+            e.lda_stack(addr + 1); // load hi byte result back into A
         } else if (mode == 2) {
             e.ldy_imm(1);
             e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
             e.and_imm((~shiftedMask16 >> 8) & 0xFF); e.ora_zp(e.scratchZP());
             e.emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
+            e.ldy_imm(1);
+            e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
         } else {
             if (addrIsZP) {
                 e.lda_imm((shiftedMask16 >> 8) & 0xFF);
@@ -2387,6 +2393,7 @@ void AssemblerSimulatedOps::emitBFInsCode(AssemblerParser* parser, M65Emitter& e
         e.and_imm(~shiftedMask8 & 0xFF); // clear field bits
         e.ora_zp(e.scratchZP());             // OR in new bits
         e.sta_stack(addr);           // store back
+        e.lda_stack(addr);           // load result back into A
     } else {
         // Indirect via ZP pointer
         e.and_imm(mask8);
@@ -2398,6 +2405,8 @@ void AssemblerSimulatedOps::emitBFInsCode(AssemblerParser* parser, M65Emitter& e
         e.and_imm(~shiftedMask8 & 0xFF);
         e.ora_zp(e.scratchZP());
         e.emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
+        e.ldy_imm(0);
+        e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
     }
 }
 
