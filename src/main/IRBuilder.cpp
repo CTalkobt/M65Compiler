@@ -682,6 +682,15 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         std::vector<ParamInfo> pinfo;
         std::vector<ir::Type> ptypes;
         std::vector<bool> psigned;
+
+        // Detect struct returns: function returns struct by value (not pointer)
+        bool isStructReturn = node.returnPointerLevel == 0 && node.returnType.rfind("struct ", 0) == 0 &&
+                              getTypeSize(node.returnType, 0) > 2;
+        if (isStructReturn) {
+            structReturningFunctions_.insert(node.name);
+            // No hidden return pointer - struct returned in AXYZ, caller copies to destination
+        }
+
         for (const auto& p : node.parameters) {
             pinfo.push_back({p.isConst, p.pointerLevel});
             ptypes.push_back(mapType(p.type, p.pointerLevel));
@@ -729,6 +738,16 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         if (shouldInline && stmtCount <= INLINE_MAX_STMTS) {
             inlineCandidates_[node.name] = &node;
         }
+    }
+
+    // Detect struct returns for function definition
+    bool isStructReturn = node.returnPointerLevel == 0 && node.returnType.rfind("struct ", 0) == 0 &&
+                          getTypeSize(node.returnType, 0) > 2;
+
+    if (isStructReturn) {
+        // Mark as struct-returning function (no hidden parameters needed)
+        // Struct value is returned in AXYZ and caller copies to destination
+        structReturningFunctions_.insert(node.name);
     }
 
     for (const auto& p : node.parameters) {
@@ -798,6 +817,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     for (const auto& p : node.parameters) {
         currentFuncParams_.insert(p.name);
     }
+
     for (const auto& p : node.parameters) {
         ir::Type pt = mapType(p.type, p.pointerLevel);
         auto vreg = allocVreg(pt);
@@ -2780,6 +2800,23 @@ void IRBuilder::visit(FunctionCall& node) {
 
     // Evaluate arguments
     std::vector<ir::Operand> args;
+
+    // For struct-returning functions: just call normally, struct returned in AXYZ
+    // No hidden parameters needed - simpler and cleaner
+    ir::Operand structDest;
+    if (structReturningFunctions_.count(node.name) > 0) {
+        // Get return type to determine size
+        ir::Type retType = ir::Type::I16;
+        auto it = functionReturnTypes_.find(node.name);
+        if (it != functionReturnTypes_.end()) retType = it->second;
+
+        // Allocate a vreg for the struct destination
+        structDest = allocVreg(retType);
+        if (currentFunc_) {
+            currentFunc_->memoryVregs.insert(structDest.vregId);
+        }
+    }
+
     for (auto& arg : node.arguments) {
         arg->accept(*this);
         args.push_back(lastValue_);
@@ -2788,7 +2825,7 @@ void IRBuilder::visit(FunctionCall& node) {
     ir::Inst inst;
     inst.args = args;
     inst.loc = loc(node);
-    
+
     // Determine calling convention
     bool isVariadic = variadicFunctions_.count(node.name) > 0;
     inst.callConv = (zpCallMode && !isVariadic) ? ir::CallConv::ZP : ir::CallConv::STACK;
@@ -3025,7 +3062,19 @@ void IRBuilder::visit(FunctionCall& node) {
                         Severity::Warning, "implicit declaration of function '" + node.name + "'"));
                 }
 
-                if (retType == ir::Type::VOID) {
+                // For struct-returning functions, use the allocated structDest vreg
+                // and emit a normal CALL (struct value returned in AXYZ)
+                if (structReturningFunctions_.count(node.name) > 0) {
+                    // Struct function returns struct value in AXYZ (4 bytes for I32)
+                    // Call it with struct return type (I32)
+                    inst.op = ir::Op::CALL;
+                    inst.dest = structDest;
+                    inst.resultType = retType;
+                    emit(inst);
+
+                    lastValue_ = structDest;  // Return the allocated destination
+                    lastValueSigned_ = false;
+                } else if (retType == ir::Type::VOID) {
                     inst.op = ir::Op::CALL_VOID;
                     inst.resultType = ir::Type::VOID;
                     emit(inst);
@@ -3081,6 +3130,33 @@ void IRBuilder::visit(ReturnStatement& node) {
         emit(br);
         // Start a new block for any code after this return (dead, but keeps IR well-formed)
         startBlock(newLabel("inline_after_ret"));
+        return;
+    }
+
+    // Struct-returning functions return struct value in AXYZ (4 bytes)
+    // The call site will copy AXYZ to the destination vreg via special COPY handling
+    bool isStructReturn = false;
+    if (node.expression && currentFunc_) {
+        std::string funcNameToCheck = currentFunc_->name;
+        // Remove "_" prefix if present
+        if (funcNameToCheck[0] == '_') {
+            funcNameToCheck = funcNameToCheck.substr(1);
+        }
+        isStructReturn = structReturningFunctions_.count(funcNameToCheck) > 0;
+    }
+    if (isStructReturn) {
+        // For struct returns: return the struct value (I32 = 4 bytes)
+        node.expression->accept(*this);
+        auto structVal = lastValue_;
+        ir::Type retType = currentFunc_->returnType;
+
+        // Emit normal RET with struct value
+        ir::Inst ret;
+        ret.op = ir::Op::RET;
+        ret.src1 = structVal;
+        ret.resultType = retType;  // I32 for 4-byte struct
+        ret.loc = loc(node);
+        emit(ret);
         return;
     }
 

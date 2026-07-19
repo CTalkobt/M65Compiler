@@ -473,7 +473,7 @@ long Preprocessor::evaluateExpression(const std::string& expr) {
     return parseOr();
 }
 
-std::string Preprocessor::process(const std::string& source, 
+std::string Preprocessor::process(const std::string& source,
                                   const std::map<std::string, std::string>& initialSymbols,
                                   const std::vector<std::string>& includePaths,
                                   const std::string& currentFile) {
@@ -884,6 +884,20 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         output << "__asm__(\".set_bp " + bpVal + "\");\n";
                     } else if (cc45Arg == "weak") {
                         output << "__asm__(\".weak_next\");\n";
+                    } else if (cc45Arg == "unroll") {
+                        std::string countStr;
+                        if (ss >> countStr) {
+                            output << "asm(\".crt_unroll " + countStr + "\");\n";
+                        } else {
+                            output << "asm(\".crt_unroll\");\n";
+                        }
+                    } else if (cc45Arg == "unroll_default") {
+                        std::string countStr;
+                        if (ss >> countStr) {
+                            output << "asm(\".crt_unroll_def " + countStr + "\");\n";
+                        } else {
+                            output << "\n";
+                        }
                     } else {
                         output << "\n";
                     }
@@ -963,6 +977,20 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         else if (cc45Arg == "no_zp_save") output << "__asm__(\".no_zp_save\");\n";
                         else if (cc45Arg == "set_bp") { std::string bv; ps >> bv; output << "__asm__(\".set_bp " + bv + "\");\n"; }
                         else if (cc45Arg == "weak") output << "__asm__(\".weak_next\");\n";
+                        else if (cc45Arg == "unroll") {
+                            std::string countStr;
+                            if (ps >> countStr) {
+                                output << "asm(\".crt_unroll " + countStr + "\");\n";
+                            } else {
+                                output << "asm(\".crt_unroll\");\n";
+                            }
+                        }
+                        else if (cc45Arg == "unroll_default") {
+                            std::string countStr;
+                            if (ps >> countStr) {
+                                output << "asm(\".crt_unroll_def " + countStr + "\");\n";
+                            }
+                        }
                     } else if (isCompiler && pragmaArg.substr(0, 9) == "encoding(") {
                         std::string enc = pragmaArg.substr(9);
                         if (!enc.empty() && enc.back() == ')') enc.pop_back();
