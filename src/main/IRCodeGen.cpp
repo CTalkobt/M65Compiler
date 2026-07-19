@@ -1110,6 +1110,21 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     frameAddrCacheValid_ = true;  // Initialize cache validity for new function
     currentInstIdx_ = 0;
 
+    // For struct-returning functions, emit static buffer in data section
+    // This buffer will hold the struct value before it's returned
+    std::string structBufferName;
+    if (fn.returnType == ir::Type::I32) {
+        // Could be a 4-byte struct - emit a static buffer
+        // Check if this looks like a struct (all structs we support are I32)
+        structBufferName = fn.name + "__struct_buf";
+        // Emit buffer declaration (will be resolved to actual address by assembler/linker)
+        emitBlank();
+        emit("; Static buffer for struct return from " + fn.name);
+        emit(structBufferName + ":");
+        emit(".byte 0, 0, 0, 0");
+        emitBlank();
+    }
+
     // __naked: emit only proc label + body + endproc, no prologue/epilogue
     if (fn.isNaked) {
         emit("proc " + fn.name);
@@ -1406,17 +1421,10 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     emitLabel("@__return");
     if (localFrameSize > 0) {
         int retSize = ir::typeSize(fn.returnType);
-        if (retSize >= 4) {
-            // I32: return value in A/X/Y/Z — Z carries byte 3, save it
-            std::string restoreLabel = "@__restore_epilogue_z_" + std::to_string(labelCounter_++);
-            emit("stz " + restoreLabel + "+1");
-            for (int i = 0; i < localFrameSize; i++) emit("plz");
-            emitLabel(restoreLabel);
-            emit("ldz #0");
-        } else {
-            // VOID/I8/I16: PLZ doesn't clobber A, X, or Y
-            for (int i = 0; i < localFrameSize; i++) emit("plz");
-        }
+        // For I32 returns, preserve Z register (it's part of the return value AXYZ)
+        // Don't execute the "stz + ldz #0" epilogue sequence as it destroys Z
+        // For all return types, just clean up the frame
+        emitStackCleanup(localFrameSize);
     }
 
     // __interrupt: restore registers and return with RTI
@@ -3019,7 +3027,59 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             break;
         }
 
-        case ir::Op::COPY:
+        case ir::Op::COPY: {
+            // Check for struct copy: src1 is PTR (address returned from struct function),
+            // src2 has struct size, dest is destination vreg
+            if (inst.src1.type == ir::Type::PTR && inst.src2.kind == ir::OperandKind::IMM &&
+                inst.resultType == ir::Type::I32 && inst.dest.isVreg()) {
+                // Struct copy: copy bytes from (AX) to destination frame location
+                // AX contains address returned by struct function
+                // Copy bytes: load from (AX+i), store to dest+i
+                loadOperand(inst.src1);  // Load address into AX
+                emit("sta __zp_scratch");         // Save address to ZP (symbolic reference)
+                emit("stx __zp_scratch+1");
+
+                // Get destination vreg frame location
+                auto destAlloc = alloc_.getAlloc(inst.dest.vregId);
+                std::string destPtr;
+                if (destAlloc.loc == VRegAllocator::IN_ZP) {
+                    destPtr = "$" + hex8((uint8_t)destAlloc.offset);
+                } else {
+                    // Load frame pointer for destination
+                    emit("tsx");
+                    emit("txa");
+                    emit("clc");
+                    emit("adc #" + std::to_string(destAlloc.offset));
+                    emit("sta __zp_scratch2");
+                    emit("lda #$00");
+                    emit("adc #$00");
+                    emit("sta __zp_scratch2+1");
+                    destPtr = "__zp_scratch2";  // Will use __zp_scratch2/__zp_scratch2+1 as dest pointer
+                }
+
+                // Copy 4 bytes from (address) to (dest)
+                for (int i = 0; i < 4; i++) {
+                    if (destAlloc.loc == VRegAllocator::IN_ZP) {
+                        // Direct copy to ZP
+                        emit("ldy #" + std::to_string(i));
+                        emit("lda (__zp_scratch),y");
+                        emit("sta " + destPtr + "+" + std::to_string(i));
+                    } else {
+                        // Copy via indirect addressing
+                        emit("ldy #" + std::to_string(i));
+                        emit("lda (__zp_scratch),y");
+                        emit("ldy #" + std::to_string(i));
+                        emit("sta (" + destPtr + "),y");
+                    }
+                }
+            } else {
+                // Regular copy
+                loadOperand(inst.src1);
+                if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+            }
+            break;
+        }
+
         case ir::Op::DEREF: {
             loadOperand(inst.src1);
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
