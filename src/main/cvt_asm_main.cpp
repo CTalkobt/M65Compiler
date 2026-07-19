@@ -28,6 +28,7 @@
 #include "Version.hpp"
 #include "MacroUtils.hpp"
 #include "ThreadPool.hpp"
+#include "ConfigFile.hpp"
 #include <chrono>
 #include <atomic>
 
@@ -769,17 +770,22 @@ static bool validateRoundTrip(const std::string& inputFile,
 int main(int argc, char** argv) {
     registerFormats();
 
+    // Phase 5a: Load configuration file
+    ConfigFile config;
+    config.load();
+    const auto& configSettings = config.getSettings();
+
     std::vector<std::string> inputFiles;
     std::string inputFormat = "";  // Empty means auto-detect
-    std::string targetFormat = "ca45";
-    std::string outputDir;
+    std::string targetFormat = configSettings.default_format;  // Use config default
+    std::string outputDir = configSettings.output_dir;  // Use config default
     bool verbose = false;
-    bool validateMode = false;
+    bool validateMode = configSettings.validate_round_trip;  // Use config default
     bool statsMode = false;
-    bool metricsMode = false;  // Phase 4a
-    bool clearCache = false;   // Phase 4a
-    bool parallelMode = false;  // Phase 4b
-    int numThreads = 0;         // Phase 4b (0 = auto-detect)
+    bool metricsMode = configSettings.metrics_default;  // Phase 5a: Use config default
+    bool clearCache = configSettings.clear_cache_per_batch;  // Phase 5a: Use config default
+    bool parallelMode = configSettings.parallel_default;  // Phase 5a: Use config default
+    int numThreads = configSettings.default_threads;  // Phase 5a: Use config default
 
     // Parse command line arguments
     for (int i = 1; i < argc; ++i) {
@@ -803,6 +809,13 @@ int main(int argc, char** argv) {
             parallelMode = true;
         } else if (arg == "--threads" && i + 1 < argc) {  // Phase 4b
             numThreads = std::atoi(argv[++i]);
+        } else if (arg == "--init-config") {  // Phase 5a
+            ConfigFile::writeDefault(".cvtasmrc");
+            std::cout << "Created .cvtasmrc with default configuration.\n";
+            return 0;
+        } else if (arg == "--show-config") {  // Phase 5a
+            config.printConfig();
+            return 0;
         } else if (arg == "-l" || arg == "--list-formats") {
             listFormats();
             return 0;
