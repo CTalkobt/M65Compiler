@@ -1226,11 +1226,26 @@ void IRBuilder::visit(VariableDeclaration& node) {
             } else {
                 // Non-struct initializer list — evaluate and store last value
                 node.initializer->accept(*this);
+
+                // IMPORTANT: Use ADDR_LOCAL to explicitly compute frame address before store.
+                // This ensures correctness when variables are allocated to frame locations.
+                // While IRCodeGen may optimize this to direct frame store for IN_FRAME vregs,
+                // the explicit address computation makes the IR more robust and correct.
+                // Test case: src/test-resources/test_scalar_init.c
+                auto addr = allocVreg(ir::Type::PTR);
+                ir::Inst addrInst;
+                addrInst.op = ir::Op::ADDR_LOCAL;
+                addrInst.dest = addr;
+                addrInst.resultType = ir::Type::PTR;
+                addrInst.src1 = ir::Operand::vreg(vreg.vregId, ir::Type::PTR);
+                addrInst.loc = loc(node);
+                emit(addrInst);
+
                 ir::Inst store;
                 store.op = ir::Op::STORE;
                 store.resultType = t;
                 store.src1 = lastValue_;
-                store.src2 = vreg;
+                store.src2 = addr;
                 store.loc = loc(node);
                 emit(store);
             }
