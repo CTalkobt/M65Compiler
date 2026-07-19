@@ -23,7 +23,7 @@
     "build": "tsc && esbuild src/extension.ts --bundle --platform=node --target=es2020 --external:vscode --outfile=dist/extension.js",
     "watch": "tsc --watch",
     "lint": "eslint src/**/*.ts",
-    "package": "vsce package"
+    "package": "npx @vscode/vsce package"
   },
   "activationEvents": [
     "onLanguage:c",
@@ -90,10 +90,10 @@
     "@types/vscode": "^1.75.0",
     "@typescript-eslint/eslint-plugin": "^8.64.0",
     "@typescript-eslint/parser": "^8.64.0",
+    "@vscode/vsce": "^2.22.0",
     "esbuild": "^0.19.0",
     "eslint": "^10.7.0",
-    "typescript": "^5.0.0",
-    "vsce": "^2.15.0"
+    "typescript": "^5.0.0"
   },
   "dependencies": {
     "vscode-languageclient": "^10.1.0"
