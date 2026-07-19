@@ -479,7 +479,7 @@ int main(int argc, char** argv) {
             std::cout << "  -c             Produce .o45 relocatable object file (compile+assemble, no link)" << std::endl;
             std::cout << "  -o <filename>  Specify output filename" << std::endl;
             std::cout << "                   (default: out.prg for full pipeline, out.o45 with -c, out.s with -S)" << std::endl;
-            std::cout << "                 Automatically infers type from extension (.prg, .o45, .s)" << std::endl;
+            std::cout << "                 Automatically infers type from extension (.prg, .o45, .s, .s45)" << std::endl;
             std::cout << "  -l <level>     Listing level: 1=Standard (default), 2=Expanded" << std::endl;
             std::cout << "  -v             Enable verbose output (phase info)" << std::endl;
             std::cout << "  -vv            Extra verbose output (token dumps, AST)" << std::endl;
@@ -666,7 +666,7 @@ int main(int argc, char** argv) {
         size_t dot = output_file.rfind('.');
         if (dot != std::string::npos) {
             std::string ext = output_file.substr(dot);
-            if (ext == ".s") {
+            if (ext == ".s" || ext == ".s45") {
                 assemblyOnly = true;
             } else if (ext == ".o45") {
                 objectFileOnly = true;
