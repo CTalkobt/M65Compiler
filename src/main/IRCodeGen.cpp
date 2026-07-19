@@ -3522,14 +3522,17 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         case ir::Op::BFINS: {
             // src1: new field value, src2: address of storage unit
             // dest: vreg to hold the modified value
+            // NOTE: Issue #193 fix — use dedicated ZP slot for frame address pointer
+            // to prevent collision with bitfield value temporaries
             std::string addrStr;
             if (inst.src2.kind == ir::OperandKind::GLOBAL) {
                 addrStr = inst.src2.name;
             } else {
                 loadVreg(inst.src2.vregId);
-                emit("sta __zp_scratch2");
-                emit("stx __zp_scratch2+1");
-                addrStr = "__zp_scratch2";
+                // Use __zp_scratch3 for frame address (reserved, won't be reused for temps)
+                emit("sta __zp_scratch3");
+                emit("stx __zp_scratch3+1");
+                addrStr = "__zp_scratch3";
             }
             loadOperand(inst.src1); // AX = new value
             int offset = (int)inst.args[0].immVal;
