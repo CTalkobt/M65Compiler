@@ -25,10 +25,10 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
-          cache-dependency-path: 'tools/ide/lsp-server/package-lock.json'
+          cache-dependency-path: 'tools/ide/package-lock.json'
 
       - name: Install dependencies
-        working-directory: tools/ide/lsp-server
+        working-directory: tools/ide
         run: npm ci
 
       - name: Lint
@@ -58,10 +58,10 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
-          cache-dependency-path: 'tools/ide/vscode-extension/package-lock.json'
+          cache-dependency-path: 'tools/ide/package-lock.json'
 
       - name: Install dependencies
-        working-directory: tools/ide/vscode-extension
+        working-directory: tools/ide
         run: npm ci
 
       - name: Lint

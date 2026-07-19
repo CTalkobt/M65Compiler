@@ -12,10 +12,11 @@
     "test": "npm test -w lsp-server"
   },
   "devDependencies": {
+    "@eslint/js": "^9.0.0",
     "@types/node": "^20.0.0",
-    "@typescript-eslint/eslint-plugin": "^6.0.0",
-    "@typescript-eslint/parser": "^6.0.0",
-    "eslint": "^8.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.64.0",
+    "@typescript-eslint/parser": "^8.64.0",
+    "eslint": "^10.7.0",
     "typescript": "^5.0.0"
   }
 }

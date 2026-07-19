@@ -2,7 +2,6 @@ import {
   Connection,
   HoverParams,
   Hover,
-  MarkupKind,
   TextDocument,
 } from 'vscode-languageserver/node';
 import * as fs from 'fs';
