@@ -302,7 +302,7 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
                 default:       base = 0; objOffset = 0; break;
             }
             uint32_t finalAddr;
-            if (segId == SEG_TEXT && !input.textRemaps.empty() && input.textRemaps.size() > 1) {
+            if (segId == SEG_TEXT && !input.textRemaps.empty()) {
                 // Symbol offset is within the object's original text body;
                 // remap to position in the merged text body.
                 finalAddr = base + input.remapTextOffset(exp.offset);

@@ -29,3 +29,5 @@ bin/disk45
 bin/ln45
 bin/nm45
 bin/objdump45
+hyper_serial.log
+test_short_final.prg
