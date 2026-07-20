@@ -872,7 +872,9 @@ bool AssemblerOptimizer::optimizeInternal(
                 break;
             }
 
-            // Now collect consecutive instructions until we hit a non-instruction
+            // Now collect consecutive instructions until we hit a non-instruction.
+            // NOTE: We skip directives (.local, .frameptr_zp, etc.) that appear between
+            // instructions and endproc, as these are metadata and shouldn't affect tail matching.
             while ((int)j >= 0) {
                 auto* prev = parser->statements[j].get();
                 if (prev->deleted) {
@@ -881,8 +883,11 @@ bool AssemblerOptimizer::optimizeInternal(
                 }
                 // Stop at labels (they're targets and shouldn't be part of the tail)
                 if (!prev->label.empty()) break;
-                // Stop at directives
-                if (prev->type == AssemblerParser::Statement::DIRECTIVE) break;
+                // Skip over directives (they're metadata, not code)
+                if (prev->type == AssemblerParser::Statement::DIRECTIVE) {
+                    --j;
+                    continue;
+                }
                 // Only collect instructions
                 if (prev->type != AssemblerParser::Statement::INSTRUCTION) break;
                 tailIndices.push_back(j);
