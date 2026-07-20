@@ -183,6 +183,19 @@ bool O45Linker::layoutSegments(std::string& errorMsg) {
             for (const auto& sa : textAttrs) {
                 chunksByName[sa.name].push_back({i, sa.offset, sa.length, sa.name});
             }
+
+            // Check if segAttrs cover the entire text body.
+            // If not, add any uncovered bytes as a "code" chunk.
+            uint32_t textLen = (uint32_t)input.obj.textBody.size();
+            uint32_t covered = 0;
+            for (const auto& sa : textAttrs) {
+                uint32_t segEnd = sa.offset + sa.length;
+                if (segEnd > covered) covered = segEnd;
+            }
+            if (covered < textLen) {
+                // There are uncovered bytes at the end — add them as "code" chunk
+                chunksByName["code"].push_back({i, covered, textLen - covered, "code"});
+            }
         }
     }
 
