@@ -440,8 +440,12 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
             auto srcAst = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
             if (!srcAst) return;
             if (isImm) {
-                uint32_t val = srcAst->getValue(parser); e.lda_imm(val & 0xFF); uint8_t val2 = (val >> 8) & 0xFF;
-                if (reg2 == 'X') e.ldx_imm(val2); else if (reg2 == 'Y') e.ldy_imm(val2); else if (reg2 == 'Z') e.ldz_imm(val2);
+                // Get symbol name from the token after '#'
+                int symIdx = tokenIndex;
+                if (symIdx < (int)parser->tokens.size() && parser->tokens[symIdx].type == AssemblerTokenType::HASH) symIdx++;
+                std::string srcName = (symIdx < (int)parser->tokens.size()) ? parser->tokens[symIdx].value : "";
+                // Use emitLoadAddrConst which handles symbol relocations
+                emitLoadAddrConst(parser, e, srcName, 0, reg2);
             } else {
                 uint32_t addr = 0;
                 try {
