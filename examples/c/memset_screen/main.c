@@ -7,7 +7,7 @@
 #include <mega65.h>
 
 #define SCREEN  ((char *)0x0800)
-#define SCRSIZE (40 * 25)
+#define SCRSIZE (80 * 25)
 
 int main() {
     unsigned char ch;
