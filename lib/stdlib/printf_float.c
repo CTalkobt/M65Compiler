@@ -90,6 +90,18 @@ static int fp_emit_buf(char *buf, int skip_minus) {
     return c;
 }
 
+static int fp_emit_int(int val, int base, int skip_minus) {
+    char tmp[18];
+    itoa(val, tmp, base);
+    return fp_emit_buf(tmp, skip_minus);
+}
+
+static int fp_emit_long(long val, int base, int skip_minus) {
+    char tmp[34];
+    ltoa(val, tmp, base);
+    return fp_emit_buf(tmp, skip_minus);
+}
+
 int printf(char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
@@ -109,21 +121,11 @@ int printf(char *fmt, ...) {
         }
 
         if (*fmt == 'L' || *fmt == 'l') {
-            char tmp[34];
             fmt = fmt + 1;
-            if (*fmt == 'D' || *fmt == 'd') {
-                ltoa(va_arg(ap, long), tmp, 10);
-                count = count + fp_emit_buf(tmp, 0);
-            } else if (*fmt == 'U' || *fmt == 'u') {
-                ltoa(va_arg(ap, long), tmp, 10);
-                count = count + fp_emit_buf(tmp, 1);
-            } else if (*fmt == 'X' || *fmt == 'x') {
-                ltoa(va_arg(ap, long), tmp, 16);
-                count = count + fp_emit_buf(tmp, 0);
-            } else if (*fmt == 'O' || *fmt == 'o') {
-                ltoa(va_arg(ap, long), tmp, 8);
-                count = count + fp_emit_buf(tmp, 0);
-            }
+            if (*fmt == 'D' || *fmt == 'd') count = count + fp_emit_long(va_arg(ap, long), 10, 0);
+            else if (*fmt == 'U' || *fmt == 'u') count = count + fp_emit_long(va_arg(ap, long), 10, 1);
+            else if (*fmt == 'X' || *fmt == 'x') count = count + fp_emit_long(va_arg(ap, long), 16, 0);
+            else if (*fmt == 'O' || *fmt == 'o') count = count + fp_emit_long(va_arg(ap, long), 8, 0);
             fmt = fmt + 1;
             continue;
         }
@@ -132,23 +134,11 @@ int printf(char *fmt, ...) {
             char tmp[24];
             printf_float(tmp, va_arg(ap, float));
             count = count + fp_emit_buf(tmp, 0);
-        } else if (*fmt == 'D' || *fmt == 'd') {
-            char tmp[18];
-            itoa(va_arg(ap, int), tmp, 10);
-            count = count + fp_emit_buf(tmp, 0);
-        } else if (*fmt == 'U' || *fmt == 'u') {
-            char tmp[18];
-            itoa(va_arg(ap, int), tmp, 10);
-            count = count + fp_emit_buf(tmp, 1);
-        } else if (*fmt == 'X' || *fmt == 'x') {
-            char tmp[18];
-            itoa(va_arg(ap, int), tmp, 16);
-            count = count + fp_emit_buf(tmp, 0);
-        } else if (*fmt == 'O' || *fmt == 'o') {
-            char tmp[18];
-            itoa(va_arg(ap, int), tmp, 8);
-            count = count + fp_emit_buf(tmp, 0);
-        } else if (*fmt == 'S' || *fmt == 's') {
+        } else if (*fmt == 'D' || *fmt == 'd') count = count + fp_emit_int(va_arg(ap, int), 10, 0);
+        else if (*fmt == 'U' || *fmt == 'u') count = count + fp_emit_int(va_arg(ap, int), 10, 1);
+        else if (*fmt == 'X' || *fmt == 'x') count = count + fp_emit_int(va_arg(ap, int), 16, 0);
+        else if (*fmt == 'O' || *fmt == 'o') count = count + fp_emit_int(va_arg(ap, int), 8, 0);
+        else if (*fmt == 'S' || *fmt == 's') {
             char *s = (char *)va_arg(ap, int);
             while (*s) { putchar(*s); count = count + 1; s = s + 1; }
         } else if (*fmt == 'C' || *fmt == 'c') {
