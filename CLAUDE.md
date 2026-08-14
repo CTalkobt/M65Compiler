@@ -17,7 +17,7 @@ The MEGA65 C Compiler Suite is a modern toolchain for developing 6502-compatible
 - **nm45** — Symbol table inspector for `.o45` and `.o65` object files
 - **objdump45** — Object file disassembler with symbolic annotation
 - **cp45** — C preprocessor
-- **basic45** — BASIC program generator with PETSCII encoding and symbol substitution
+- **basic45** — BASIC program generator with PETSCII encoding, symbol substitution, preprocessor (#define, #ifdef, #include), documentation generation, and line increment control
 - **disk45** — CBM disk/tape image utility (25 formats, FUSE mount, SQLite catalog, 40+ commands)
 
 ## Architecture

@@ -24,6 +24,9 @@ basic45 [options] <input.bas> -o <output.prg>
 - **`--load <addr>`** — Load address in hex (default: 0x0801)
 - **`--labels`** — Enable label support (use symbolic labels instead of line numbers)
 - **`--label-table <file>`** — Output label→line number mapping table
+- **`--docs <file>`** — Generate markdown documentation to file
+- **`--increment <n>`** — Line number increment (default: 10)
+- **`-I <path>`** — Add include search path for `#include` directives
 - **`--list-tokens`** — List all supported BASIC keywords and exit
 - **`-v, --verbose`** — Verbose output
 - **`--version`** — Show version
@@ -66,7 +69,149 @@ cc45 routines.c -o routines.prg -E symbols.txt
 basic45 program.bas --labels --symbols symbols.txt -o program.prg
 ```
 
+### With documentation generation
+```bash
+basic45 program.bas --labels --docs program.md -o program.prg
+```
+
+## Documentation Generation
+
+The `--docs` option automatically generates markdown documentation from your BASIC source code, extracting labeled sections, subroutines, and comments.
+
+### How It Works
+
+When you enable documentation generation with `--docs <file>`, basic45:
+
+1. **Extracts labeled sections** — Identifies all labels (in label mode) and subroutines
+2. **Collects comments** — Associates comments (lines starting with `#`) with the following label/section
+3. **Generates markdown** — Outputs a structured markdown document with program sections
+
+### Expected Output Format
+
+The generated markdown file follows this structure:
+
+```markdown
+# Program Name
+
+## Program Structure
+
+### 1. main_loop (Line 10)
+This is the main loop that handles game input and rendering.
+
+### 2. update_physics (Line 50)
+Updates object positions and handles collision detection.
+
+### 3. render_screen (Line 100)
+Draws all objects to the MEGA65 screen.
+```
+
+**Key features:**
+- Automatically numbered sections
+- Line numbers for each labeled section
+- Comments from the BASIC source preserved and associated with sections
+- Blank lines and preprocessor directives ignored
+
+### Comment Association
+
+Comments placed immediately before a label are associated with that section:
+
+```basic
+# Initialize the game state
+# and enter the main loop
+main_loop:
+print "game started"
+sys {game_init}
+
+# Handle user input and update game state
+update:
+print "waiting for input"
+```
+
+This generates documentation like:
+
+```markdown
+### 1. main_loop (Line 10)
+Initialize the game state and enter the main loop
+
+### 2. update (Line 50)
+Handle user input and update game state
+```
+
+### Workflow Example
+
+Complete workflow with documentation:
+
+```bash
+# 1. Compile C routines to executable and generate symbols
+cc45 game_logic.c -o game_logic.prg -E symbols.txt
+
+# 2. Generate BASIC program with documentation
+basic45 game.bas --labels --symbols symbols.txt --docs game.md -o game.prg
+
+# 3. View the generated documentation
+cat game.md
+
+# 4. Keep documentation up-to-date when source changes
+basic45 game.bas --labels --symbols symbols.txt --docs game.md -o game.prg
+```
+
 ## Input Format
+
+### Preprocessor Features
+
+basic45 includes a full C-style preprocessor that processes source before compilation:
+
+**Macro definitions:**
+```basic
+#define MAX_HEALTH 100
+#define SCREEN_ADDR 0xD000
+
+print MAX_HEALTH
+poke SCREEN_ADDR, 0
+```
+
+**Conditional compilation:**
+```basic
+#define DEBUG 1
+
+#ifdef DEBUG
+print "debug mode active"
+#endif
+
+#ifndef RELEASE
+print "not a release build"
+#endif
+
+#ifdef NDEBUG
+#else
+print "assertions enabled"
+#endif
+```
+
+**File inclusion:**
+```basic
+#include "sprite_data.bas"
+#include "common_routines.bas"
+```
+
+Use `-I <path>` to add include search paths:
+```bash
+basic45 program.bas -I ./includes/ -I ./lib/ -o program.prg
+```
+
+**Common patterns:**
+```basic
+#define SPRITE_WIDTH 16
+#define SPRITE_HEIGHT 16
+#define MAX_SPRITES 10
+
+# Create reusable library files with #include
+#include "sprite_lib.bas"
+
+#ifdef ENABLE_SOUND
+#include "sound.bas"
+#endif
+```
 
 ### Lines and Statements
 
@@ -86,6 +231,33 @@ print "hello"
 sys 2000
 goto start
 ```
+
+### Line Increment Control
+
+By default, auto-generated line numbers increment by 10 (10, 20, 30, ...). Use `--increment` to change this:
+
+**Default (10):**
+```bash
+basic45 program.bas --labels -o program.prg
+# Generated line numbers: 10, 20, 30, 40, ...
+```
+
+**Increment by 1:**
+```bash
+basic45 program.bas --labels --increment 1 -o program.prg
+# Generated line numbers: 1, 2, 3, 4, ...
+```
+
+**Increment by 5:**
+```bash
+basic45 program.bas --labels --increment 5 -o program.prg
+# Generated line numbers: 5, 10, 15, 20, ...
+```
+
+This is useful when:
+- You need tightly packed line numbers (increment 1)
+- You want extra space for future edits (increment 100)
+- You're porting code from existing BASIC programs with specific line number spacing
 
 ### Labels and Comments (Label Mode)
 
