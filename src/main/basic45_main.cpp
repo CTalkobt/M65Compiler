@@ -14,11 +14,13 @@ struct Options {
     std::string inputFile;
     std::string outputFile;
     std::string symbolFile;
+    std::string labelTableFile;
     uint16_t loadAddress = 0x0801;
     bool verbose = false;
     bool showVersion = false;
     bool showHelp = false;
     bool listTokens = false;
+    bool useLabels = false;
 };
 
 class SymbolTable {
@@ -75,13 +77,15 @@ private:
 static void printUsage(const char* progName) {
     std::cout << "Usage: " << progName << " [options] <input.bas> -o <output.prg>" << std::endl;
     std::cout << "Options:" << std::endl;
-    std::cout << "  -o <file>        Output file (default: output.prg)" << std::endl;
-    std::cout << "  --symbols <f>    Load symbol table from file (cc45 -E output)" << std::endl;
-    std::cout << "  --load <addr>    Load address in hex (default: 0x0801)" << std::endl;
-    std::cout << "  --list-tokens    List all supported BASIC keywords and exit" << std::endl;
-    std::cout << "  -v, --verbose    Verbose output" << std::endl;
-    std::cout << "  --version        Show version" << std::endl;
-    std::cout << "  -h, --help       Show this help" << std::endl;
+    std::cout << "  -o <file>           Output file (default: output.prg)" << std::endl;
+    std::cout << "  --symbols <f>       Load symbol table from file (cc45 -E output)" << std::endl;
+    std::cout << "  --load <addr>       Load address in hex (default: 0x0801)" << std::endl;
+    std::cout << "  --labels            Enable label support (instead of line numbers)" << std::endl;
+    std::cout << "  --label-table <f>   Output label→line number mapping to file" << std::endl;
+    std::cout << "  --list-tokens       List all supported BASIC keywords and exit" << std::endl;
+    std::cout << "  -v, --verbose       Verbose output" << std::endl;
+    std::cout << "  --version           Show version" << std::endl;
+    std::cout << "  -h, --help          Show this help" << std::endl;
 }
 
 static Options parseArgs(int argc, char* argv[]) {
@@ -99,6 +103,10 @@ static Options parseArgs(int argc, char* argv[]) {
             iss >> std::hex >> opts.loadAddress;
         } else if (arg == "-v" || arg == "--verbose") {
             opts.verbose = true;
+        } else if (arg == "--labels") {
+            opts.useLabels = true;
+        } else if (arg == "--label-table" && i + 1 < argc) {
+            opts.labelTableFile = argv[++i];
         } else if (arg == "--list-tokens") {
             opts.listTokens = true;
         } else if (arg == "--version") {
@@ -233,12 +241,22 @@ int main(int argc, char* argv[]) {
     }
 
     BasicEmitter emitter(opts.loadAddress);
-    auto binary = emitter.emitBinary(sourceCode);
+    auto binary = emitter.emitBinary(sourceCode, opts.useLabels);
 
     writeFile(opts.outputFile, binary);
 
+    if (!opts.labelTableFile.empty()) {
+        emitter.outputLabelTable(opts.labelTableFile);
+        if (opts.verbose) {
+            std::cout << "Label table written to: " << opts.labelTableFile << std::endl;
+        }
+    }
+
     if (opts.verbose) {
         std::cout << "Generated " << binary.size() << " bytes" << std::endl;
+        if (opts.useLabels) {
+            std::cout << "Labels enabled" << std::endl;
+        }
     }
 
     return 0;

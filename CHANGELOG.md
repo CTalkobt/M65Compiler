@@ -2,6 +2,35 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
+## [Unreleased] - basic45 Label Support (2026-08-13)
+
+### basic45 Enhancements
+
+#### Label Support (--labels flag)
+- **New:** `--labels` command-line flag enables symbolic label mode (replaces explicit line numbers)
+- **New:** `--label-table <file>` flag outputs label→line number mapping table (tab-separated format)
+- **Features:**
+  - Labels defined with `identifier:` syntax at start of line
+  - `#` comments at line start are silently stripped (not emitted as REM statements)
+  - Empty lines are skipped (not included in output)
+  - Auto-generated line numbers: 10, 20, 30, ... (10-increment)
+  - GOTO/GOSUB statements automatically resolve label references to line numbers
+  - Backward compatible: normal mode still requires explicit line numbers
+- **Testing:** 11 comprehensive tests covering labels, comments, empty lines, GOTO/GOSUB resolution
+- **Example:**
+  ```basic
+  # This is a comment
+  start:
+  print "hello"
+  
+  loop:
+  x = x + 1
+  if x < 5 then goto loop
+  ```
+  Compile with: `basic45 program.bas --labels -o program.prg`
+
+---
+
 ## [Unreleased] - Phase 1 Simplification (2026-07-07)
 
 ### Code Simplification and Complexity Reduction

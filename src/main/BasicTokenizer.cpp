@@ -207,37 +207,81 @@ void BasicTokenizer::initializeKeywords() {
 std::vector<BasicToken> BasicTokenizer::tokenize(const std::string& source) {
     std::vector<BasicToken> tokens;
     size_t pos = 0;
+    bool lineStart = true;
+    bool hasNonWhitespace = false;
 
     while (pos < source.length()) {
         char c = source[pos];
 
+        // Skip # comments (entire line)
+        if (lineStart && c == '#') {
+            while (pos < source.length() && source[pos] != '\n') {
+                pos++;
+            }
+            if (pos < source.length() && source[pos] == '\n') {
+                pos++;
+            }
+            lineStart = true;
+            hasNonWhitespace = false;
+            continue;
+        }
+
         if (std::isspace(c)) {
             if (c == '\n') {
-                BasicToken eol;
-                eol.type = BasicToken::EOL;
-                tokens.push_back(eol);
+                // Only emit EOL if line had non-whitespace content
+                if (hasNonWhitespace) {
+                    BasicToken eol;
+                    eol.type = BasicToken::EOL;
+                    tokens.push_back(eol);
+                }
+                lineStart = true;
+                hasNonWhitespace = false;
             }
             pos++;
         } else if (c == '"') {
+            hasNonWhitespace = true;
+            lineStart = false;
             tokens.push_back(parseString(source, pos));
         } else if (std::isdigit(c)) {
+            hasNonWhitespace = true;
+            lineStart = false;
             tokens.push_back(parseNumber(source, pos));
         } else if (std::isalpha(c) || c == '_') {
+            hasNonWhitespace = true;
+            lineStart = false;
             BasicToken token = parseIdentifier(source, pos);
+
+            // Check for label (identifier followed by :)
+            if (pos < source.length() && source[pos] == ':') {
+                token.type = BasicToken::LABEL;
+                pos++;  // skip the :
+            }
+
             tokens.push_back(token);
         } else if (c == ':') {
+            hasNonWhitespace = true;
+            lineStart = false;
             BasicToken sep;
             sep.type = BasicToken::OPERATOR;
             sep.value = ":";
             tokens.push_back(sep);
             pos++;
         } else {
+            hasNonWhitespace = true;
+            lineStart = false;
             BasicToken op;
             op.type = BasicToken::OPERATOR;
             op.value = c;
             tokens.push_back(op);
             pos++;
         }
+    }
+
+    // Emit final EOL if needed
+    if (hasNonWhitespace) {
+        BasicToken eol;
+        eol.type = BasicToken::EOL;
+        tokens.push_back(eol);
     }
 
     BasicToken eof;

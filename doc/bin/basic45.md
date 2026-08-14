@@ -22,15 +22,36 @@ basic45 [options] <input.bas> -o <output.prg>
 - **`-o <file>`** — Output file (default: `input.prg`)
 - **`--symbols <file>`** — Load symbol table for address substitution
 - **`--load <addr>`** — Load address in hex (default: 0x0801)
+- **`--labels`** — Enable label support (use symbolic labels instead of line numbers)
+- **`--label-table <file>`** — Output label→line number mapping table
+- **`--list-tokens`** — List all supported BASIC keywords and exit
 - **`-v, --verbose`** — Verbose output
 - **`--version`** — Show version
 - **`-h, --help`** — Show help
 
-## Example
+## Examples
 
-### Basic usage
+### Basic usage (normal mode with line numbers)
 ```bash
 basic45 mygame.bas -o mygame.prg
+```
+
+### Label mode
+```bash
+basic45 mygame.bas --labels -o mygame.prg
+```
+
+### Label mode with mapping table
+```bash
+basic45 mygame.bas --labels --label-table labels.txt -o mygame.prg
+cat labels.txt
+```
+
+Output:
+```
+Label           Line Number     Memory Address
+main_loop       20              0x0803
+sub1            60              0x0835
 ```
 
 ### With symbol substitution
@@ -39,17 +60,60 @@ cc45 routines.c -o routines.prg -E symbols.txt
 basic45 program.bas --symbols symbols.txt -o program.prg
 ```
 
+### Combined: labels + symbol substitution
+```bash
+cc45 routines.c -o routines.prg -E symbols.txt
+basic45 program.bas --labels --symbols symbols.txt -o program.prg
+```
+
 ## Input Format
 
 ### Lines and Statements
 
-Each line must start with a line number. Statements are separated by `:`.
+Each line must start with a line number (in normal mode) or a label/statement (in label mode). Statements are separated by `:`.
 
+**Normal mode (with line numbers):**
 ```basic
 10 print "hello"
 20 sys 2000
 30 goto 10
 ```
+
+**Label mode** (with `--labels` flag):
+```basic
+start:
+print "hello"
+sys 2000
+goto start
+```
+
+### Labels and Comments (Label Mode)
+
+When `--labels` is enabled:
+
+- **Labels** — Identifier followed by `:` at the start of a line marks a label
+  ```basic
+  main_loop:
+  print "in loop"
+  goto main_loop
+  ```
+
+- **Comments** — Lines starting with `#` are stripped (not emitted as REM)
+  ```basic
+  # This comment is silently removed
+  print "hello"
+  # Another comment
+  ```
+
+- **Empty lines** — Blank lines are skipped and not included in output
+  ```basic
+  print "line 1"
+  
+  print "line 2"  # These become consecutive lines
+  ```
+
+- **Line number generation** — Line numbers are auto-generated (10, 20, 30, ...)
+- **Label resolution** — GOTO/GOSUB with label names are automatically resolved to line numbers
 
 ### Strings and Escape Sequences
 
@@ -118,7 +182,8 @@ Plus 40+ additional v7 tokens.
 
 - BASIC programs must fit in available memory after the $0801 load address
 - Symbol substitution only supports numeric addresses (not expressions)
-- Line numbers must be in ascending order
+- **Normal mode**: Line numbers must be in ascending order
+- **Label mode**: Undefined labels in GOTO/GOSUB will cause runtime errors (no compile-time validation)
 
 ## Integration with cc45
 

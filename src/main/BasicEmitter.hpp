@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <map>
 #include "BasicTokenizer.hpp"
 
 struct BasicLine {
@@ -16,12 +17,17 @@ public:
     BasicEmitter(uint16_t loadAddr = 0x0801);
 
     std::vector<uint8_t> emit(const std::vector<BasicLine>& lines);
-    std::vector<uint8_t> emitBinary(const std::string& sourceCode);
+    std::vector<uint8_t> emitBinary(const std::string& sourceCode, bool useLabels = false);
+
+    const std::map<std::string, uint16_t>& getLabelMap() const;
+    void outputLabelTable(const std::string& filename) const;
 
 private:
     uint16_t loadAddress;
+    std::map<std::string, uint16_t> labelMap;
 
     std::vector<uint8_t> emitLoadAddress();
     std::vector<uint8_t> emitLine(const BasicLine& line, uint16_t nextLineAddr);
     std::vector<uint8_t> emitToken(const BasicToken& token);
+    std::vector<BasicLine> processLabels(std::vector<BasicLine>& lines);
 };

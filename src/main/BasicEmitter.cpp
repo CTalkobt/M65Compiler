@@ -4,10 +4,14 @@
 #include <sstream>
 #include <regex>
 #include <stdexcept>
+#include <fstream>
+#include <iomanip>
+#include <map>
+#include <iostream>
 
 BasicEmitter::BasicEmitter(uint16_t loadAddr) : loadAddress(loadAddr) {}
 
-std::vector<uint8_t> BasicEmitter::emitBinary(const std::string& sourceCode) {
+std::vector<uint8_t> BasicEmitter::emitBinary(const std::string& sourceCode, bool useLabels) {
     BasicTokenizer tokenizer;
     PETSCIIEncoder petscii;
 
@@ -41,12 +45,30 @@ std::vector<uint8_t> BasicEmitter::emitBinary(const std::string& sourceCode) {
                 lines.push_back(line);
             }
             break;
+        } else if (token.type == BasicToken::LABEL) {
+            // Label at start of line (no explicit line number)
+            if (useLabels) {
+                currentLineTokens.push_back(token);  // Keep label token for processing
+                lineNumExpected = false;
+                if (currentLineNum == 0) {
+                    currentLineNum = 1;  // Placeholder - will be replaced by processLabels
+                }
+            }
         } else if (lineNumExpected && token.type == BasicToken::NUMBER) {
             currentLineNum = static_cast<uint16_t>(std::stoi(token.value));
             lineNumExpected = false;
+        } else if (lineNumExpected && useLabels && token.type != BasicToken::LABEL) {
+            // In label mode, if we see a statement without a line number or label, use placeholder
+            currentLineNum = 1;
+            lineNumExpected = false;
+            currentLineTokens.push_back(token);
         } else {
             currentLineTokens.push_back(token);
         }
+    }
+
+    if (useLabels) {
+        lines = processLabels(lines);
     }
 
     return emit(lines);
@@ -163,7 +185,104 @@ std::vector<uint8_t> BasicEmitter::emitToken(const BasicToken& token) {
         case BasicToken::EOL:
         case BasicToken::END_OF_FILE:
             break;
+
+        case BasicToken::LABEL:
+            // Labels are not emitted in the binary
+            break;
     }
 
     return result;
+}
+
+std::vector<BasicLine> BasicEmitter::processLabels(std::vector<BasicLine>& lines) {
+    std::vector<BasicLine> processedLines;
+    labelMap.clear();
+
+    uint16_t nextLineNum = 10;
+
+    // First pass: collect labels and build mapping
+    for (size_t idx = 0; idx < lines.size(); idx++) {
+        auto& line = lines[idx];
+        if (!line.tokens.empty() && line.tokens[0].type == BasicToken::LABEL) {
+            labelMap[line.tokens[0].value] = nextLineNum;
+        }
+        nextLineNum += 10;
+    }
+
+    // Second pass: process tokens and generate line numbers
+    nextLineNum = 10;
+    for (auto& line : lines) {
+        BasicLine newLine;
+        newLine.lineNumber = nextLineNum;
+
+        // Skip label token if present, process remaining tokens
+        size_t startIdx = 0;
+        if (!line.tokens.empty() && line.tokens[0].type == BasicToken::LABEL) {
+            startIdx = 1;
+        }
+
+        // Process tokens, resolving label references
+        for (size_t i = startIdx; i < line.tokens.size(); i++) {
+            const auto& token = line.tokens[i];
+
+            // Check if this is a GOTO/GOSUB followed by a label reference
+            if ((token.type == BasicToken::KEYWORD &&
+                 (token.value == "GOTO" || token.value == "GOSUB")) &&
+                i + 1 < line.tokens.size() &&
+                line.tokens[i + 1].type == BasicToken::IDENTIFIER) {
+
+                // Add the GOTO/GOSUB token
+                newLine.tokens.push_back(token);
+
+                // Replace the label reference with its line number
+                const std::string& labelName = line.tokens[i + 1].value;
+                auto it = labelMap.find(labelName);
+                if (it != labelMap.end()) {
+                    BasicToken lineNumToken;
+                    lineNumToken.type = BasicToken::NUMBER;
+                    lineNumToken.value = std::to_string(it->second);
+                    newLine.tokens.push_back(lineNumToken);
+                    i++;  // Skip the label reference token
+                } else {
+                    // Undefined label - keep as-is (will cause runtime error)
+                    newLine.tokens.push_back(line.tokens[i + 1]);
+                    i++;
+                }
+            } else {
+                newLine.tokens.push_back(token);
+            }
+        }
+
+        processedLines.push_back(newLine);
+        nextLineNum += 10;
+    }
+
+    return processedLines;
+}
+
+const std::map<std::string, uint16_t>& BasicEmitter::getLabelMap() const {
+    return labelMap;
+}
+
+void BasicEmitter::outputLabelTable(const std::string& filename) const {
+    std::ofstream file(filename);
+    if (!file) {
+        std::cerr << "Warning: Could not open label table file: " << filename << std::endl;
+        return;
+    }
+
+    file << "Label\tLine Number\tMemory Address\n";
+    uint16_t memAddr = loadAddress + 2;
+
+    if (labelMap.empty()) {
+        // No labels to output
+        return;
+    }
+
+    for (const auto& [label, lineNum] : labelMap) {
+        file << label << "\t" << lineNum << "\t0x" << std::hex << std::setw(4)
+             << std::setfill('0') << memAddr << std::dec << "\n";
+        // Estimate address (simplified - actual calculation requires line sizes)
+        memAddr += 50;  // Rough estimate
+    }
 }

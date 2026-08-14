@@ -12,6 +12,7 @@ struct BasicToken {
         NUMBER,
         IDENTIFIER,
         OPERATOR,
+        LABEL,
         EOL,
         END_OF_FILE
     };
