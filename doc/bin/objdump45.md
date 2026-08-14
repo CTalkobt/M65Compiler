@@ -192,4 +192,4 @@ Format detection: `objdump45` first attempts to parse the file as `.o45`/`.o65`.
 - [ar45](ar45.md) — Archiver for `.lib` archives
 - [ca45](ca45.md) — Assembler (produces `.o45` with `-c`)
 - [cc45](cc45.md) — C compiler (produces `.o45` with `-c`)
-- [lib45.md](lib45.md) — `.o45` format specification
+- [../architecture/lib45.md](../architecture/lib45.md) — `.o45` format specification

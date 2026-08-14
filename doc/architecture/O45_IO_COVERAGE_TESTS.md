@@ -126,7 +126,7 @@ Focus on:
 ## Related Coverage Analysis
 
 See also:
-- `doc/COVERAGE_ANALYSIS.md` - Full code coverage report (2026-07-17)
+- `COVERAGE_ANALYSIS.md` - Full code coverage report (2026-07-17)
 - Coverage before tests: **O45Writer 53.64%, O45Reader 52.63%, O45Linker 58.81%, O45Archive 40.57%**
 - Target after tests: **>70% across all O45 modules**
 

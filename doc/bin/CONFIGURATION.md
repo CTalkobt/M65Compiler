@@ -333,4 +333,4 @@ cc45 -O2 program.c
 - [cc45.md](cc45.md) — C compiler documentation
 - [ca45.md](ca45.md) — Assembler documentation
 - [ln45.md](ln45.md) — Linker documentation
-- [CLAUDE.md](../CLAUDE.md) — Overall toolchain architecture
+- [CLAUDE.md](../../CLAUDE.md) — Overall toolchain architecture

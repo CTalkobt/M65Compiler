@@ -22,6 +22,7 @@ AR_TARGET = $(BIN_DIR)/ar45
 OD_TARGET = $(BIN_DIR)/objdump45
 DISK_TARGET = $(BIN_DIR)/disk45
 CVT_ASM_TARGET = $(BIN_DIR)/cvt_asm
+BASIC_TARGET = $(BIN_DIR)/basic45
 
 CC_SOURCES = $(SRC_DIR)/cc45_main.cpp
 CA_SOURCES = $(SRC_DIR)/ca45_main.cpp
@@ -57,11 +58,13 @@ endif
 
 CVT_ASM_OBJECTS = $(OBJ_DIR)/cvt_asm_main.o $(OBJ_DIR)/AsmParser.o $(OBJ_DIR)/AsmWriter.o $(OBJ_DIR)/Ca45Parser.o $(OBJ_DIR)/Ca45Writer.o $(OBJ_DIR)/Ca65Parser.o $(OBJ_DIR)/Ca65Writer.o $(OBJ_DIR)/AcmeParser.o $(OBJ_DIR)/AcmeWriter.o $(OBJ_DIR)/OscarParser.o $(OBJ_DIR)/OscarWriter.o $(OBJ_DIR)/Merlin64Parser.o $(OBJ_DIR)/Merlin64Writer.o $(OBJ_DIR)/X65Parser.o $(OBJ_DIR)/X65Writer.o $(OBJ_DIR)/FormatDetection.o $(OBJ_DIR)/KickAssemblerParser.o $(OBJ_DIR)/KickAssemblerWriter.o $(OBJ_DIR)/AssemblerLexer.o $(OBJ_DIR)/AssemblerParser.o $(OBJ_DIR)/AssemblerExpression.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o $(OBJ_DIR)/AssemblerOptimizer.o $(OBJ_DIR)/AssemblerSimulatedOps.o $(OBJ_DIR)/AssemblerGenerator.o $(OBJ_DIR)/OpEffect.o $(COMMON_OBJECTS)
 
-all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET) $(NM_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET)
+BASIC_OBJECTS = $(OBJ_DIR)/basic45_main.o $(OBJ_DIR)/BasicTokenizer.o $(OBJ_DIR)/PETSCIIEncoder.o $(OBJ_DIR)/BasicEmitter.o $(OBJ_DIR)/BasicPreprocessor.o $(OBJ_DIR)/BasicDocGenerator.o
+
+all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET) $(NM_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET) $(BASIC_TARGET)
 
 man: $(MAN_DIR)/cc45.1 $(MAN_DIR)/ca45.1 $(MAN_DIR)/cp45.1 $(MAN_DIR)/ln45.1 $(MAN_DIR)/nm45.1 $(MAN_DIR)/ar45.1 $(MAN_DIR)/objdump45.1
 
-$(MAN_DIR)/%.1: doc/%.md
+$(MAN_DIR)/%.1: doc/bin/%.md
 	@mkdir -p $(MAN_DIR)
 	pandoc -s -t man $< -o $@ -M title="$(basename $(notdir $@))" -M section="1" -M date="$(shell date +%F)" -M footer="$(basename $(notdir $@)) manual" -M header="User Commands"
 
@@ -101,6 +104,10 @@ $(CVT_ASM_TARGET): $(CVT_ASM_OBJECTS)
 	@mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
+$(BASIC_TARGET): $(BASIC_OBJECTS)
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $^
+
 # disk45 FUSE module needs FUSE3 headers
 $(OBJ_DIR)/disk45_fuse.o: $(SRC_DIR)/disk45_fuse.cpp | $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) $(FUSE3_CFLAGS) -c -o $@ $<
@@ -126,6 +133,8 @@ clean:
 	@$(MAKE) -C lib clean
 
 test: all lib
+	@echo "Validating documentation structure and links..."
+	@python3 src/test/check_docs.py
 	@echo "Running compiler tests..."
 	@bash src/test/test_compiler.sh
 	@echo "Running assembler feature tests..."

@@ -474,6 +474,6 @@ To pass custom flags, create `cc45.flags` or `ca45.flags` in workspace root:
 ## Related Documentation
 
 - [LSP Server Architecture](README.md)
-- [Compiler Configuration](../../../doc/cc45.md)
-- [Assembler Guide](../../../doc/ca45.md)
-- [Standard Library](../../../doc/stdlib45.md)
+- [Compiler Configuration](../../../doc/bin/cc45.md)
+- [Assembler Guide](../../../doc/bin/ca45.md)
+- [Standard Library](../../../doc/architecture/stdlib.md)

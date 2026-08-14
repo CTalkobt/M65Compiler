@@ -37,6 +37,73 @@ Bug fixes and verification release. All mmemu tests compile successfully.
 
 ---
 
+## [Unreleased] - basic45 Preprocessor & Advanced Features (2026-08-13)
+
+### basic45 Preprocessor and Advanced Features
+
+#### Preprocessor Support (#include, #define, #ifdef)
+- **New:** `BasicPreprocessor` class implements C-like preprocessing
+  - `#include "filename"` — File inclusion with recursive support
+  - `#define NAME VALUE` — Compile-time constant definitions
+  - `#ifdef SYMBOL` / `#ifndef SYMBOL` / `#else` / `#endif` — Conditional compilation
+  - Circular include detection and error reporting
+- **New:** `-I <path>` flag to add include search directories
+- **Features:**
+  - Macro expansion with word-boundary checking
+  - Nested conditional compilation support
+  - Max include depth limit (100) to prevent runaway includes
+
+#### Documentation Generation
+- **New:** `BasicDocGenerator` class extracts program structure
+- **New:** `--docs <file>` flag generates markdown documentation
+- **Output:** Section numbering, label names, line numbers
+- **Format:** Markdown for easy integration with project docs
+
+#### Line Number Customization
+- **New:** `--increment <n>` flag for custom line number increments
+- **Examples:** `--increment 1` (dense), `--increment 100` (sparse)
+- **Default:** 10 (preserves backward compatibility)
+
+#### Test Coverage
+- 11 new tests for preprocessor features (100% pass rate)
+- Tests cover: #define, #ifdef, #ifndef, #else, includes, increments, docs
+- All existing 11 label tests still passing
+
+#### Example Programs
+- **stdlib_basic.bas** — Standard library with constant definitions
+- **preproc_demo.bas** — Demonstrates #include and #ifdef usage
+
+---
+
+## [Unreleased] - basic45 Label Support (2026-08-13)
+
+### basic45 Enhancements
+
+#### Label Support (--labels flag)
+- **New:** `--labels` command-line flag enables symbolic label mode (replaces explicit line numbers)
+- **New:** `--label-table <file>` flag outputs label→line number mapping table (tab-separated format)
+- **Features:**
+  - Labels defined with `identifier:` syntax at start of line
+  - `#` comments at line start are silently stripped (not emitted as REM statements)
+  - Empty lines are skipped (not included in output)
+  - Auto-generated line numbers: 10, 20, 30, ... (10-increment)
+  - GOTO/GOSUB statements automatically resolve label references to line numbers
+  - Backward compatible: normal mode still requires explicit line numbers
+- **Testing:** 11 comprehensive tests covering labels, comments, empty lines, GOTO/GOSUB resolution
+- **Example:**
+  ```basic
+  # This is a comment
+  start:
+  print "hello"
+  
+  loop:
+  x = x + 1
+  if x < 5 then goto loop
+  ```
+  Compile with: `basic45 program.bas --labels -o program.prg`
+
+---
+
 ## [Unreleased] - Phase 1 Simplification (2026-07-07)
 
 ### Code Simplification and Complexity Reduction
@@ -516,7 +583,7 @@ Future work for v1.1+
     - **nm45 symbol display**: Updated `nm45 -f` to display calling convention and function flags in symbol listings. Example: `[zp_call leaf uses:- clobbers:- ...]`.
     - **objdump45 symbol table**: Added function attribute display to symbol table output, showing convention and flags for each exported function.
 - **Documentation**:
-    - **`doc/lib45.md` Section 4.4**: Complete specification of function attribute records: marker byte `$FA`, flags byte (LEAF, REENTRANT, ZP_CONV), register/flag clobber masks, ZP usage/clobber bitmasks. Documents linker enforcement rule (ZP→stack errors, stack→ZP permitted).
+    - **`doc/architecture/lib45.md` Section 4.4**: Complete specification of function attribute records: marker byte `$FA`, flags byte (LEAF, REENTRANT, ZP_CONV), register/flag clobber masks, ZP usage/clobber bitmasks. Documents linker enforcement rule (ZP→stack errors, stack→ZP permitted).
 
 ## [Unreleased] - 2026-05-08
 
@@ -528,7 +595,7 @@ Future work for v1.1+
     - **Dead code elimination after infinite loops (Issue #26)** (7724cfa): The assembler now detects and removes unreachable code that follows infinite loops (e.g., code after `while(1)` constructs). Instructions after `BRA` loops are recognized as dead code and eliminated, reducing binary size and improving code clarity.
     - **Fix BinaryExpr reentrancy bug in assembler expression evaluator (Issue #35)** (8bb0764): Fixed a critical bug where recursive evaluation of binary expressions in the assembler's expression evaluator could cause incorrect operand values or hangs. The fix ensures that complex nested expressions are evaluated correctly even when the evaluator processes sub-expressions recursively.
     - **3-operand MOVE/FILL test coverage**: Added comprehensive test cases for the 3-operand syntax (`MOVE src, dest, len` and `FILL dest, len`) that was previously undocumented. The syntax allows explicit specification of source, destination, and length operands without requiring preloaded register pairs. Tests include: immediate operands, register pair operands, symbol operands, stack-relative operands, and mixed operand types. All 9 new C++ tests pass; assembly examples in `test_fill_advanced.s45` demonstrate practical usage. Parser support for 3-operand syntax was already implemented in `AssemblerSimulatedOps::emitMoveCode()` — tests validate and document this capability.
-- **Documentation**: Updated `doc/opcodes.md` with complete syntax documentation for 2-operand and 3-operand forms of `MOVE` and `FILL`, including usage examples.
+- **Documentation**: Updated `doc/architecture/opcodes.md` with complete syntax documentation for 2-operand and 3-operand forms of `MOVE` and `FILL`, including usage examples.
 
 ## [Unreleased] - 2026-05-05
 
@@ -979,7 +1046,7 @@ Future work for v1.1+
     - Added support for `#undef`, `#line`, `#error`, `#warning`, and `#pragma` directives.
     - Implemented expansion of standard predefined macros: `__FILE__`, `__LINE__`, `__DATE__`, and `__TIME__`.
 - **Documentation**:
-    - Renamed preprocessor documentation to `doc/cp45.md` to align with toolchain naming conventions.
+    - Renamed preprocessor documentation to `doc/bin/cp45.md` to align with toolchain naming conventions.
 - **Assembler (ca45)**:
     - Implemented a suite of high-level simulated opcodes:
         - `ldax / lday / ldaz`: 16-bit word loads with support for immediate (`#`), stack-relative (`offset, s`), zero page, and absolute addressing.

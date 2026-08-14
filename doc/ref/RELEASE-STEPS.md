@@ -126,7 +126,7 @@ Review:
 - [ ] `CLAUDE.md` — reflects current feature set, version updated
 - [ ] `ROADMAP.md` — milestones and status up to date
 - [ ] `README.md` — installation instructions, feature list current
-- [ ] `doc/cc45.md`, `doc/ca45.md`, `doc/ln45.md`, `doc/stdlib.md` — tool docs current
+- [ ] `doc/bin/cc45.md`, `doc/bin/ca45.md`, `doc/bin/ln45.md`, `doc/architecture/stdlib.md` — tool docs current
 
 ---
 

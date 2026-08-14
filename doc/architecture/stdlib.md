@@ -11,7 +11,7 @@ These files define the fundamental types and constants required for C compliance
 - **`<stdbool.h>`**: Boolean type support. Defines `bool` as `_Bool` (a native 1-byte type that normalizes any non-zero value to `1`), `true` as `1`, `false` as `0`, and `__bool_true_false_are_defined` as `1`.
 - **`<limits.h>`**: Implementation-defined limits (`CHAR_BIT=8`, `INT_MAX=65535`, `INT_MIN=0` for unsigned; `SCHAR_MIN=-128`, `SCHAR_MAX=127` for signed char; `LONG_MAX`, `LONG_MIN`, etc. for 32-bit).
 - **`<float.h>`**: Floating-point limits and characteristics for Commodore 40-bit MFLUT float format (`FLT_MANT_DIG=32`, `FLT_DIG=9`, `FLT_MIN_EXP=-127`, `FLT_MAX_EXP=127`, `FLT_MIN=2.9387359e-39`, `FLT_MAX=1.7014118e38`, `FLT_EPSILON=4.6566129e-10`).
-- **`<stdarg.h>`**: Variadic function support. Defines `va_list` (typedef to `unsigned int` — a 16-bit stack offset into the caller's arguments), `va_start`, `va_arg`, and `va_end` as macros wrapping `__builtin_va_start`, `__builtin_va_arg`, and `__builtin_va_end`. Variadic functions always use stack-based argument passing, even when compiled with `-fzpcall`. See "Variadic Functions" in [cc45.md](cc45.md#variadic-functions) for comprehensive details.
+- **`<stdarg.h>`**: Variadic function support. Defines `va_list` (typedef to `unsigned int` — a 16-bit stack offset into the caller's arguments), `va_start`, `va_arg`, and `va_end` as macros wrapping `__builtin_va_start`, `__builtin_va_arg`, and `__builtin_va_end`. Variadic functions always use stack-based argument passing, even when compiled with `-fzpcall`. See "Variadic Functions" in [../bin/cc45.md](../bin/cc45.md#variadic-functions) for comprehensive details.
 
 ### Implementation Notes for Core Headers
 
@@ -481,7 +481,7 @@ The assembly entry point that prepares the environment for `main()`.
 
 ### Linker Considerations
 
-The `ca45` assembler supports `.org` and segment directives (`.segment code/data/bss`). The `crt0.s45` startup should use equates for segment boundaries that are resolved at assemble/link time. The proposed `ln45` linker (see `doc/ln45.md`) will handle final address resolution when multiple object files are combined.
+The `ca45` assembler supports `.org` and segment directives (`.segment code/data/bss`). The `crt0.s45` startup should use equates for segment boundaries that are resolved at assemble/link time. The proposed `ln45` linker (see `../bin/ln45.md`) will handle final address resolution when multiple object files are combined.
 
 ## 11. Source Tree Placement
 
@@ -507,7 +507,7 @@ ccomp/
 │   │   ├── stdlib.h
 │   │   ├── stdio.h
 │   │   ├── ctype.h
-│   │   ├── cbm.h       # CBM KERNAL interface (see doc/stdcbm.md)
+│   │   ├── cbm.h       # CBM KERNAL interface (see stdcbm.md)
 │   │   └── mega65.h    # MEGA65 hardware registers (VIC-IV struct overlay)
 │   ├── stdlib/          # Library function implementations
 │   │   ├── strlen.s45     # Hand-written 45GS02 assembly (29 files)
@@ -685,6 +685,6 @@ All `cc45` features required by the standard library are implemented:
 ## See Also
 
 - [stdcbm.md](stdcbm.md) — CBM KERNAL interface (`cbm.h`)
-- [cc45.md](cc45.md) — C compiler (CRT pragmas, inline assembly, calling conventions)
-- [ln45.md](ln45.md) — Linker (library linking, memory layout)
-- [ar45.md](ar45.md) — Archiver (`.lib` archive management)
+- [../bin/cc45.md](../bin/cc45.md) — C compiler (CRT pragmas, inline assembly, calling conventions)
+- [../bin/ln45.md](../bin/ln45.md) — Linker (library linking, memory layout)
+- [../bin/ar45.md](../bin/ar45.md) — Archiver (`.lib` archive management)

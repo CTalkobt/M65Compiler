@@ -1,6 +1,6 @@
 # MEGA65 Calling Conventions — Quick Reference
 
-**v1.0.4** | For detailed information, see `doc/calling-conventions-v1.0.4-actual.md`
+**v1.0.4** | For detailed information, see `calling-conventions-v1.0.4-actual.md`
 
 ---
 
@@ -336,9 +336,9 @@ nm45 output.o45                  # Inspect symbols
 
 ## See Also
 
-- **Full Reference:** `doc/calling-conventions-v1.0.4-actual.md`
-- **Corrections:** `doc/v1.0.5-calling-conventions-corrections.md`
+- **Full Reference:** `calling-conventions-v1.0.4-actual.md`
+- **Corrections:** `v1.0.5-calling-conventions-corrections.md`
 - **Optimizer Guide:** `doc/optimizer.md`
-- **Object Format:** `doc/lib45.md`
-- **Standard Library:** `doc/stdlib.md`
+- **Object Format:** `lib45.md`
+- **Standard Library:** `stdlib.md`
 
