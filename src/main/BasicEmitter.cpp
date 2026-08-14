@@ -9,7 +9,8 @@
 #include <map>
 #include <iostream>
 
-BasicEmitter::BasicEmitter(uint16_t loadAddr) : loadAddress(loadAddr) {}
+BasicEmitter::BasicEmitter(uint16_t loadAddr, uint16_t lineInc)
+    : loadAddress(loadAddr), lineIncrement(lineInc) {}
 
 std::vector<uint8_t> BasicEmitter::emitBinary(const std::string& sourceCode, bool useLabels) {
     BasicTokenizer tokenizer;
@@ -198,7 +199,7 @@ std::vector<BasicLine> BasicEmitter::processLabels(std::vector<BasicLine>& lines
     std::vector<BasicLine> processedLines;
     labelMap.clear();
 
-    uint16_t nextLineNum = 10;
+    uint16_t nextLineNum = lineIncrement;
 
     // First pass: collect labels and build mapping
     for (size_t idx = 0; idx < lines.size(); idx++) {
@@ -206,11 +207,11 @@ std::vector<BasicLine> BasicEmitter::processLabels(std::vector<BasicLine>& lines
         if (!line.tokens.empty() && line.tokens[0].type == BasicToken::LABEL) {
             labelMap[line.tokens[0].value] = nextLineNum;
         }
-        nextLineNum += 10;
+        nextLineNum += lineIncrement;
     }
 
     // Second pass: process tokens and generate line numbers
-    nextLineNum = 10;
+    nextLineNum = lineIncrement;
     for (auto& line : lines) {
         BasicLine newLine;
         newLine.lineNumber = nextLineNum;
@@ -254,7 +255,7 @@ std::vector<BasicLine> BasicEmitter::processLabels(std::vector<BasicLine>& lines
         }
 
         processedLines.push_back(newLine);
-        nextLineNum += 10;
+        nextLineNum += lineIncrement;
     }
 
     return processedLines;

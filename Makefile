@@ -58,7 +58,7 @@ endif
 
 CVT_ASM_OBJECTS = $(OBJ_DIR)/cvt_asm_main.o $(OBJ_DIR)/AsmParser.o $(OBJ_DIR)/AsmWriter.o $(OBJ_DIR)/Ca45Parser.o $(OBJ_DIR)/Ca45Writer.o $(OBJ_DIR)/Ca65Parser.o $(OBJ_DIR)/Ca65Writer.o $(OBJ_DIR)/AcmeParser.o $(OBJ_DIR)/AcmeWriter.o $(OBJ_DIR)/OscarParser.o $(OBJ_DIR)/OscarWriter.o $(OBJ_DIR)/Merlin64Parser.o $(OBJ_DIR)/Merlin64Writer.o $(OBJ_DIR)/X65Parser.o $(OBJ_DIR)/X65Writer.o $(OBJ_DIR)/FormatDetection.o $(OBJ_DIR)/KickAssemblerParser.o $(OBJ_DIR)/KickAssemblerWriter.o $(OBJ_DIR)/AssemblerLexer.o $(OBJ_DIR)/AssemblerParser.o $(OBJ_DIR)/AssemblerExpression.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o $(OBJ_DIR)/AssemblerOptimizer.o $(OBJ_DIR)/AssemblerSimulatedOps.o $(OBJ_DIR)/AssemblerGenerator.o $(OBJ_DIR)/OpEffect.o $(COMMON_OBJECTS)
 
-BASIC_OBJECTS = $(OBJ_DIR)/basic45_main.o $(OBJ_DIR)/BasicTokenizer.o $(OBJ_DIR)/PETSCIIEncoder.o $(OBJ_DIR)/BasicEmitter.o
+BASIC_OBJECTS = $(OBJ_DIR)/basic45_main.o $(OBJ_DIR)/BasicTokenizer.o $(OBJ_DIR)/PETSCIIEncoder.o $(OBJ_DIR)/BasicEmitter.o $(OBJ_DIR)/BasicPreprocessor.o $(OBJ_DIR)/BasicDocGenerator.o
 
 all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET) $(NM_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET) $(BASIC_TARGET)
 

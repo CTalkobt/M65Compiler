@@ -9,18 +9,24 @@
 #include <cstdio>
 #include "BasicEmitter.hpp"
 #include "PETSCIIEncoder.hpp"
+#include "BasicPreprocessor.hpp"
+#include "BasicDocGenerator.hpp"
 
 struct Options {
     std::string inputFile;
     std::string outputFile;
     std::string symbolFile;
     std::string labelTableFile;
+    std::string docsFile;
+    std::string includePath;
     uint16_t loadAddress = 0x0801;
+    uint16_t lineIncrement = 10;
     bool verbose = false;
     bool showVersion = false;
     bool showHelp = false;
     bool listTokens = false;
     bool useLabels = false;
+    bool generateDocs = false;
 };
 
 class SymbolTable {
@@ -82,6 +88,9 @@ static void printUsage(const char* progName) {
     std::cout << "  --load <addr>       Load address in hex (default: 0x0801)" << std::endl;
     std::cout << "  --labels            Enable label support (instead of line numbers)" << std::endl;
     std::cout << "  --label-table <f>   Output label→line number mapping to file" << std::endl;
+    std::cout << "  --increment <n>     Line number increment (default: 10)" << std::endl;
+    std::cout << "  --docs <f>          Generate markdown documentation to file" << std::endl;
+    std::cout << "  -I <path>           Add include search path for #include" << std::endl;
     std::cout << "  --list-tokens       List all supported BASIC keywords and exit" << std::endl;
     std::cout << "  -v, --verbose       Verbose output" << std::endl;
     std::cout << "  --version           Show version" << std::endl;
@@ -107,6 +116,14 @@ static Options parseArgs(int argc, char* argv[]) {
             opts.useLabels = true;
         } else if (arg == "--label-table" && i + 1 < argc) {
             opts.labelTableFile = argv[++i];
+        } else if (arg == "--increment" && i + 1 < argc) {
+            std::istringstream iss(argv[++i]);
+            iss >> opts.lineIncrement;
+        } else if (arg == "--docs" && i + 1 < argc) {
+            opts.docsFile = argv[++i];
+            opts.generateDocs = true;
+        } else if (arg == "-I" && i + 1 < argc) {
+            opts.includePath = argv[++i];
         } else if (arg == "--list-tokens") {
             opts.listTokens = true;
         } else if (arg == "--version") {
@@ -227,9 +244,27 @@ int main(int argc, char* argv[]) {
         std::cout << "Input:  " << opts.inputFile << std::endl;
         std::cout << "Output: " << opts.outputFile << std::endl;
         std::cout << "Load:   $" << std::hex << opts.loadAddress << std::dec << std::endl;
+        if (opts.lineIncrement != 10) {
+            std::cout << "Line increment: " << opts.lineIncrement << std::endl;
+        }
     }
 
     std::string sourceCode = readFile(opts.inputFile);
+
+    // Preprocess (handle #include, #define, #ifdef, etc.)
+    BasicPreprocessor preprocessor;
+    if (!opts.includePath.empty()) {
+        preprocessor.addIncludePath(opts.includePath);
+    }
+    try {
+        sourceCode = preprocessor.preprocess(sourceCode, opts.inputFile);
+        if (opts.verbose && !preprocessor.getIncludedFiles().empty()) {
+            std::cout << "Included files: " << preprocessor.getIncludedFiles().size() << std::endl;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Preprocessor error: " << e.what() << std::endl;
+        return 1;
+    }
 
     SymbolTable symbols;
     if (!opts.symbolFile.empty()) {
@@ -240,7 +275,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    BasicEmitter emitter(opts.loadAddress);
+    BasicEmitter emitter(opts.loadAddress, opts.lineIncrement);
     auto binary = emitter.emitBinary(sourceCode, opts.useLabels);
 
     writeFile(opts.outputFile, binary);
@@ -249,6 +284,20 @@ int main(int argc, char* argv[]) {
         emitter.outputLabelTable(opts.labelTableFile);
         if (opts.verbose) {
             std::cout << "Label table written to: " << opts.labelTableFile << std::endl;
+        }
+    }
+
+    if (opts.generateDocs && !opts.docsFile.empty()) {
+        BasicDocGenerator docGen;
+        std::string docs = docGen.generateMarkdown(sourceCode, opts.inputFile);
+        std::ofstream docFile(opts.docsFile);
+        if (docFile) {
+            docFile << docs;
+            if (opts.verbose) {
+                std::cout << "Documentation written to: " << opts.docsFile << std::endl;
+            }
+        } else {
+            std::cerr << "Warning: Could not write documentation file: " << opts.docsFile << std::endl;
         }
     }
 
