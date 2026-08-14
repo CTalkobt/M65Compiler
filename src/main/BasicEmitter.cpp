@@ -21,7 +21,7 @@ std::vector<uint8_t> BasicEmitter::emitBinary(const std::string& sourceCode) {
     for (size_t i = 0; i < tokens.size(); i++) {
         const auto& token = tokens[i];
 
-        if (token.type == BasicToken::EOL || token.type == BasicToken::END_OF_FILE) {
+        if (token.type == BasicToken::EOL) {
             if (currentLineNum > 0 && !currentLineTokens.empty()) {
                 BasicLine line;
                 line.lineNumber = currentLineNum;
@@ -32,9 +32,15 @@ std::vector<uint8_t> BasicEmitter::emitBinary(const std::string& sourceCode) {
                 currentLineNum = 0;
             }
             lineNumExpected = true;
-            if (token.type == BasicToken::END_OF_FILE) {
-                break;
+        } else if (token.type == BasicToken::END_OF_FILE) {
+            // Save the last line if it has tokens
+            if (currentLineNum > 0 && !currentLineTokens.empty()) {
+                BasicLine line;
+                line.lineNumber = currentLineNum;
+                line.tokens = currentLineTokens;
+                lines.push_back(line);
             }
+            break;
         } else if (lineNumExpected && token.type == BasicToken::NUMBER) {
             currentLineNum = static_cast<uint16_t>(std::stoi(token.value));
             lineNumExpected = false;
@@ -52,21 +58,29 @@ std::vector<uint8_t> BasicEmitter::emit(const std::vector<BasicLine>& lines) {
     result = emitLoadAddress();
 
     std::vector<uint8_t> programData;
+    uint16_t currentAddr = loadAddress + 2;  // Address where program starts (after load address bytes)
 
     for (size_t i = 0; i < lines.size(); i++) {
+        // Calculate where the next line will start
         uint16_t nextLineAddr;
         if (i + 1 < lines.size()) {
-            nextLineAddr = loadAddress + result.size() + programData.size() + 8;
+            // Temporarily emit line to know its size
+            auto tempLine = emitLine(lines[i], 0);
+            nextLineAddr = currentAddr + tempLine.size();
         } else {
+            // Last line: next address is 0 (program end)
             nextLineAddr = 0;
         }
 
+        // Now emit with the correct next address
         auto lineData = emitLine(lines[i], nextLineAddr);
         programData.insert(programData.end(), lineData.begin(), lineData.end());
+        currentAddr += lineData.size();
     }
 
     result.insert(result.end(), programData.begin(), programData.end());
 
+    // Program end marker
     result.push_back(0x00);
     result.push_back(0x00);
 
