@@ -57,25 +57,27 @@ std::vector<uint8_t> BasicEmitter::emit(const std::vector<BasicLine>& lines) {
 
     result = emitLoadAddress();
 
-    std::vector<uint8_t> programData;
-    uint16_t currentAddr = loadAddress + 2;  // Address where program starts (after load address bytes)
-
+    // First pass: emit all lines with dummy address (0) to get their exact sizes
+    std::vector<std::vector<uint8_t>> lineDataList;
     for (size_t i = 0; i < lines.size(); i++) {
-        // Calculate where the next line will start
-        uint16_t nextLineAddr;
-        if (i + 1 < lines.size()) {
-            // Temporarily emit line to know its size
-            auto tempLine = emitLine(lines[i], 0);
-            nextLineAddr = currentAddr + tempLine.size();
-        } else {
-            // Last line: next address is 0 (program end)
-            nextLineAddr = 0;
-        }
+        auto lineData = emitLine(lines[i], 0);  // Use dummy address
+        lineDataList.push_back(lineData);
+    }
 
-        // Now emit with the correct next address
+    // Calculate actual line addresses
+    std::vector<uint16_t> lineAddrs;
+    uint16_t currentAddr = loadAddress + 2;  // Start after load address
+    for (size_t i = 0; i < lines.size(); i++) {
+        lineAddrs.push_back(currentAddr);
+        currentAddr += lineDataList[i].size();
+    }
+
+    // Second pass: emit lines with correct addresses
+    std::vector<uint8_t> programData;
+    for (size_t i = 0; i < lines.size(); i++) {
+        uint16_t nextLineAddr = (i + 1 < lines.size()) ? lineAddrs[i + 1] : 0;
         auto lineData = emitLine(lines[i], nextLineAddr);
         programData.insert(programData.end(), lineData.begin(), lineData.end());
-        currentAddr += lineData.size();
     }
 
     result.insert(result.end(), programData.begin(), programData.end());
