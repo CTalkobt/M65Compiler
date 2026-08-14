@@ -2,6 +2,44 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
+## [Unreleased] - basic45 Preprocessor & Advanced Features (2026-08-13)
+
+### basic45 Preprocessor and Advanced Features
+
+#### Preprocessor Support (#include, #define, #ifdef)
+- **New:** `BasicPreprocessor` class implements C-like preprocessing
+  - `#include "filename"` — File inclusion with recursive support
+  - `#define NAME VALUE` — Compile-time constant definitions
+  - `#ifdef SYMBOL` / `#ifndef SYMBOL` / `#else` / `#endif` — Conditional compilation
+  - Circular include detection and error reporting
+- **New:** `-I <path>` flag to add include search directories
+- **Features:**
+  - Macro expansion with word-boundary checking
+  - Nested conditional compilation support
+  - Max include depth limit (100) to prevent runaway includes
+
+#### Documentation Generation
+- **New:** `BasicDocGenerator` class extracts program structure
+- **New:** `--docs <file>` flag generates markdown documentation
+- **Output:** Section numbering, label names, line numbers
+- **Format:** Markdown for easy integration with project docs
+
+#### Line Number Customization
+- **New:** `--increment <n>` flag for custom line number increments
+- **Examples:** `--increment 1` (dense), `--increment 100` (sparse)
+- **Default:** 10 (preserves backward compatibility)
+
+#### Test Coverage
+- 11 new tests for preprocessor features (100% pass rate)
+- Tests cover: #define, #ifdef, #ifndef, #else, includes, increments, docs
+- All existing 11 label tests still passing
+
+#### Example Programs
+- **stdlib_basic.bas** — Standard library with constant definitions
+- **preproc_demo.bas** — Demonstrates #include and #ifdef usage
+
+---
+
 ## [Unreleased] - basic45 Label Support (2026-08-13)
 
 ### basic45 Enhancements
