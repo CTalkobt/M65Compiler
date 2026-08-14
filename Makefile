@@ -539,7 +539,7 @@ coverage: coverage-build
 
 install: all lib
 	install -d $(DESTDIR)$(BINDIR)
-	install -m 755 $(CC_TARGET) $(CA_TARGET) $(NM_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DESTDIR)$(BINDIR)
+	install -m 755 $(CC_TARGET) $(CA_TARGET) $(NM_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET) $(BASIC_TARGET) $(DESTDIR)$(BINDIR)
 	ln -sf cc45 $(DESTDIR)$(BINDIR)/cp45
 	install -d $(DESTDIR)$(LIBDIR)
 	install -m 644 lib/build/c45.lib lib/build/c45_zp.lib $(DESTDIR)$(LIBDIR)
@@ -568,7 +568,8 @@ docker:
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/cc45 $(DESTDIR)$(BINDIR)/ca45 $(DESTDIR)$(BINDIR)/cp45
 	rm -f $(DESTDIR)$(BINDIR)/nm45 $(DESTDIR)$(BINDIR)/ln45 $(DESTDIR)$(BINDIR)/ar45
-	rm -f $(DESTDIR)$(BINDIR)/objdump45 $(DESTDIR)$(BINDIR)/disk45
+	rm -f $(DESTDIR)$(BINDIR)/objdump45 $(DESTDIR)$(BINDIR)/disk45 $(DESTDIR)$(BINDIR)/cvt_asm
+	rm -f $(DESTDIR)$(BINDIR)/basic45
 	rm -rf $(DESTDIR)$(LIBDIR)
 	rm -rf $(DESTDIR)$(INCDIR)
 	rm -f $(DESTDIR)$(MANDIR)/cc45.1 $(DESTDIR)$(MANDIR)/ca45.1 $(DESTDIR)$(MANDIR)/cp45.1
