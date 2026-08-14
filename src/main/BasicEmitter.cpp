@@ -3,6 +3,7 @@
 #include <cstring>
 #include <sstream>
 #include <regex>
+#include <stdexcept>
 
 BasicEmitter::BasicEmitter(uint16_t loadAddr) : loadAddress(loadAddr) {}
 
@@ -11,25 +12,32 @@ std::vector<uint8_t> BasicEmitter::emitBinary(const std::string& sourceCode) {
     PETSCIIEncoder petscii;
 
     std::vector<BasicLine> lines;
-    uint16_t currentLineNum = 10;
     std::vector<BasicToken> currentLineTokens;
+    uint16_t currentLineNum = 0;
+    bool lineNumExpected = true;
 
     auto tokens = tokenizer.tokenize(sourceCode);
 
-    for (const auto& token : tokens) {
+    for (size_t i = 0; i < tokens.size(); i++) {
+        const auto& token = tokens[i];
+
         if (token.type == BasicToken::EOL || token.type == BasicToken::END_OF_FILE) {
-            if (!currentLineTokens.empty()) {
+            if (currentLineNum > 0 && !currentLineTokens.empty()) {
                 BasicLine line;
                 line.lineNumber = currentLineNum;
                 line.tokens = currentLineTokens;
                 lines.push_back(line);
 
                 currentLineTokens.clear();
-                currentLineNum += 10;
+                currentLineNum = 0;
             }
+            lineNumExpected = true;
             if (token.type == BasicToken::END_OF_FILE) {
                 break;
             }
+        } else if (lineNumExpected && token.type == BasicToken::NUMBER) {
+            currentLineNum = static_cast<uint16_t>(std::stoi(token.value));
+            lineNumExpected = false;
         } else {
             currentLineTokens.push_back(token);
         }
