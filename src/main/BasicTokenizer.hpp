@@ -28,6 +28,7 @@ public:
     std::vector<BasicToken> tokenize(const std::string& source);
     uint8_t getKeywordToken(const std::string& keyword) const;
     bool isKeyword(const std::string& word) const;
+    const std::unordered_map<std::string, uint8_t>& getKeywords() const;
 
 private:
     std::unordered_map<std::string, uint8_t> keywords;

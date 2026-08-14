@@ -227,3 +227,7 @@ uint8_t BasicTokenizer::getKeywordToken(const std::string& keyword) const {
 bool BasicTokenizer::isKeyword(const std::string& word) const {
     return keywords.find(word) != keywords.end();
 }
+
+const std::unordered_map<std::string, uint8_t>& BasicTokenizer::getKeywords() const {
+    return keywords;
+}

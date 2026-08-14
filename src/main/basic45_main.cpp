@@ -4,7 +4,9 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <algorithm>
 #include <cstring>
+#include <cstdio>
 #include "BasicEmitter.hpp"
 #include "PETSCIIEncoder.hpp"
 
@@ -16,6 +18,7 @@ struct Options {
     bool verbose = false;
     bool showVersion = false;
     bool showHelp = false;
+    bool listTokens = false;
 };
 
 class SymbolTable {
@@ -72,12 +75,13 @@ private:
 static void printUsage(const char* progName) {
     std::cout << "Usage: " << progName << " [options] <input.bas> -o <output.prg>" << std::endl;
     std::cout << "Options:" << std::endl;
-    std::cout << "  -o <file>      Output file (default: output.prg)" << std::endl;
-    std::cout << "  --symbols <f>  Load symbol table from file (cc45 -E output)" << std::endl;
-    std::cout << "  --load <addr>  Load address in hex (default: 0x0801)" << std::endl;
-    std::cout << "  -v, --verbose  Verbose output" << std::endl;
-    std::cout << "  --version      Show version" << std::endl;
-    std::cout << "  -h, --help     Show this help" << std::endl;
+    std::cout << "  -o <file>        Output file (default: output.prg)" << std::endl;
+    std::cout << "  --symbols <f>    Load symbol table from file (cc45 -E output)" << std::endl;
+    std::cout << "  --load <addr>    Load address in hex (default: 0x0801)" << std::endl;
+    std::cout << "  --list-tokens    List all supported BASIC keywords and exit" << std::endl;
+    std::cout << "  -v, --verbose    Verbose output" << std::endl;
+    std::cout << "  --version        Show version" << std::endl;
+    std::cout << "  -h, --help       Show this help" << std::endl;
 }
 
 static Options parseArgs(int argc, char* argv[]) {
@@ -95,6 +99,8 @@ static Options parseArgs(int argc, char* argv[]) {
             iss >> std::hex >> opts.loadAddress;
         } else if (arg == "-v" || arg == "--verbose") {
             opts.verbose = true;
+        } else if (arg == "--list-tokens") {
+            opts.listTokens = true;
         } else if (arg == "--version") {
             opts.showVersion = true;
         } else if (arg == "-h" || arg == "--help") {
@@ -142,8 +148,39 @@ static void writeFile(const std::string& filename, const std::vector<uint8_t>& d
     }
 }
 
+static void printTokens() {
+    BasicTokenizer tokenizer;
+    const auto& keywords = tokenizer.getKeywords();
+
+    std::vector<std::pair<uint8_t, std::string>> sorted;
+    for (const auto& kw : keywords) {
+        sorted.push_back({kw.second, kw.first});
+    }
+    std::sort(sorted.begin(), sorted.end());
+
+    std::cout << "BASIC v7 Keywords (total: " << sorted.size() << ")" << std::endl;
+    std::cout << std::endl;
+
+    int col = 0;
+    for (const auto& token : sorted) {
+        printf("0x%02X %-12s  ", token.first, token.second.c_str());
+        col++;
+        if (col % 4 == 0) {
+            std::cout << std::endl;
+        }
+    }
+    if (col % 4 != 0) {
+        std::cout << std::endl;
+    }
+}
+
 int main(int argc, char* argv[]) {
     Options opts = parseArgs(argc, argv);
+
+    if (opts.listTokens) {
+        printTokens();
+        return 0;
+    }
 
     if (opts.showVersion) {
         std::cout << "basic45 v1.0" << std::endl;
