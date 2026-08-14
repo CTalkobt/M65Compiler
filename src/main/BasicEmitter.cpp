@@ -101,6 +101,9 @@ std::vector<uint8_t> BasicEmitter::emitToken(const BasicToken& token) {
     switch (token.type) {
         case BasicToken::KEYWORD:
             result.push_back(token.tokenByte);
+            if (token.escapeByte != 0) {
+                result.push_back(token.escapeByte);
+            }
             break;
 
         case BasicToken::STRING: {

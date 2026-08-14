@@ -392,4 +392,4 @@ Typical conversion time for a 1000-line assembly file: <100ms.
 
 - `ca45.md` — ca45 assembler documentation
 - `.../calling-conventions.md` — MEGA65 calling conventions
-- `lib45.md` — .o45 relocatable object format
+- `../architecture/lib45.md` — .o45 relocatable object format

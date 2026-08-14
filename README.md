@@ -117,12 +117,12 @@ This compiles C source files from `src/test-resources/`, assembles them, and exe
 **Prerequisite:** The emulator-based tests (`make test-mmemu`) require [mmemu-cli](https://github.com/CTalkobt/mmsim) to be installed and available on your `PATH`.
 
 For detailed information on each tool, refer to:
-- [doc/cc45.md](doc/cc45.md) — Compiler Usage and Features
-- [doc/ca45.md](doc/ca45.md) — Assembler Syntax and Reference
-- [doc/nm45.md](doc/nm45.md) — Symbol Lister for `.o45` Object Files
-- [doc/objdump45.md](doc/objdump45.md) — Object File Inspector and Disassembler
-- [doc/cp45.md](doc/cp45.md) — Preprocessor Features and Usage
-- [doc/opcodes.md](doc/opcodes.md) — 45GS02 Instruction Reference
-- [doc/lib45.md](doc/lib45.md) — `.o45` Relocatable Object Format Specification
-- [doc/ln45.md](doc/ln45.md) — Linker Usage and Reference
-- [doc/ar45.md](doc/ar45.md) — Archiver Usage and Reference
+- [doc/bin/cc45.md](doc/bin/cc45.md) — Compiler Usage and Features
+- [doc/bin/ca45.md](doc/bin/ca45.md) — Assembler Syntax and Reference
+- [doc/bin/nm45.md](doc/bin/nm45.md) — Symbol Lister for `.o45` Object Files
+- [doc/bin/objdump45.md](doc/bin/objdump45.md) — Object File Inspector and Disassembler
+- [doc/bin/cp45.md](doc/bin/cp45.md) — Preprocessor Features and Usage
+- [doc/architecture/opcodes.md](doc/architecture/opcodes.md) — 45GS02 Instruction Reference
+- [doc/architecture/lib45.md](doc/architecture/lib45.md) — `.o45` Relocatable Object Format Specification
+- [doc/bin/ln45.md](doc/bin/ln45.md) — Linker Usage and Reference
+- [doc/bin/ar45.md](doc/bin/ar45.md) — Archiver Usage and Reference

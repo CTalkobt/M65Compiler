@@ -151,6 +151,7 @@ static void writeFile(const std::string& filename, const std::vector<uint8_t>& d
 static void printTokens() {
     BasicTokenizer tokenizer;
     const auto& keywords = tokenizer.getKeywords();
+    const auto& escapeKeywords = tokenizer.getEscapeKeywords();
 
     std::vector<std::pair<uint8_t, std::string>> sorted;
     for (const auto& kw : keywords) {
@@ -158,7 +159,7 @@ static void printTokens() {
     }
     std::sort(sorted.begin(), sorted.end());
 
-    std::cout << "BASIC v7 Keywords (total: " << sorted.size() << ")" << std::endl;
+    std::cout << "MEGA65 BASIC 65 Single-byte Keywords (total: " << sorted.size() << ")" << std::endl;
     std::cout << std::endl;
 
     int col = 0;
@@ -170,6 +171,28 @@ static void printTokens() {
         }
     }
     if (col % 4 != 0) {
+        std::cout << std::endl;
+    }
+
+    std::cout << std::endl;
+    std::cout << "MEGA65 BASIC 65 Two-byte Keywords (0xFE + escape byte, total: " << escapeKeywords.size() << ")" << std::endl;
+    std::cout << std::endl;
+
+    std::vector<std::pair<uint8_t, std::string>> escapeSorted;
+    for (const auto& kw : escapeKeywords) {
+        escapeSorted.push_back({kw.second, kw.first});
+    }
+    std::sort(escapeSorted.begin(), escapeSorted.end());
+
+    col = 0;
+    for (const auto& token : escapeSorted) {
+        printf("0xFE%02X %-14s  ", token.first, token.second.c_str());
+        col++;
+        if (col % 3 == 0) {
+            std::cout << std::endl;
+        }
+    }
+    if (col % 3 != 0) {
         std::cout << std::endl;
     }
 }

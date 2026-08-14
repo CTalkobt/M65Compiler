@@ -2,7 +2,7 @@
 
 // IR (Intermediate Representation) for cc45.
 // Simple 3-address code with virtual registers.
-// See doc/ir.md for the human-readable text format specification.
+// See doc/architecture/ir.md for the human-readable text format specification.
 
 #include <cstdint>
 #include <map>

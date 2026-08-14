@@ -217,4 +217,4 @@ All functions are declared `static` in the header and use `__asm__` inline assem
 ## See Also
 
 - [stdlib.md](stdlib.md) — Standard C library overview
-- [cc45.md](cc45.md) — C compiler (inline assembly, calling conventions)
+- [../bin/cc45.md](../bin/cc45.md) — C compiler (inline assembly, calling conventions)
