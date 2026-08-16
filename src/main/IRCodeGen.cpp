@@ -1832,18 +1832,34 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         break;
                     }
                     if (destAlloc.loc == VRegAllocator::IN_FRAME && inst.resultType == ir::Type::I16) {
-                        // Direct store to frame via staz.fp — load hi into Z, skip X entirely
+                        // Direct store to frame — use SAC addressing if enabled, otherwise .fp pseudo-op
                         std::string r = irDesc("val=" + std::to_string(val) + " → direct frame store");
-                        std::string sym = "__vr" + std::to_string(nextInst->src2.vregId);
                         uint8_t b0 = val & 0xFF;
                         uint8_t b1 = (val >> 8) & 0xFF;
                         emit("lda #" + std::to_string((int)b0), r);
-                        if (b1 == b0) {
-                            emit("taz", r);
+
+                        if (currentFunctionUseSAC_ && vregOffset_.count(nextInst->src2.vregId)) {
+                            // SAC mode: Use direct AR addressing
+                            uint32_t offset = vregOffset_[nextInst->src2.vregId];
+                            std::string loAddr = currentFunctionName_ + ":ar+" + std::to_string(offset);
+                            std::string hiAddr = currentFunctionName_ + ":ar+" + std::to_string(offset + 1);
+                            emit("sta " + loAddr, r);
+                            if (b1 == b0) {
+                                emit("sta " + hiAddr, r);
+                            } else {
+                                emit("lda #" + std::to_string((int)b1), r);
+                                emit("sta " + hiAddr, r);
+                            }
                         } else {
-                            emit("ldz #" + std::to_string((int)b1), r);
+                            // Non-SAC: Frame-relative via staz.fp pseudo-op
+                            std::string sym = "__vr" + std::to_string(nextInst->src2.vregId);
+                            if (b1 == b0) {
+                                emit("taz", r);
+                            } else {
+                                emit("ldz #" + std::to_string((int)b1), r);
+                            }
+                            emit("staz.fp " + sym, r);
                         }
-                        emit("staz.fp " + sym, r);
                         resultInAX_ = -2;
                         ms_.invalidateAll();
                         break;
