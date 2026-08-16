@@ -111,6 +111,8 @@ private:
     int stringCount_ = 0;
 
     // Current function metadata
+    std::string currentFunctionName_;  // name of function being emitted
+    bool currentFunctionUseSAC_ = false;  // whether current function uses SAC
     bool relocMode_ = false;
     bool zpCallMode_ = false;
     bool staticAllocMode_ = false;  // -fstaticalloc (SAC)

@@ -183,12 +183,24 @@ void IRCodeGen::loadVreg(uint32_t vregId) {
         case VRegAllocator::IN_FRAME: {
             if (vregOffset_.count(vregId)) {
                 std::string offset = std::to_string(vregOffset_[vregId]);
-                if (alloc.type == ir::Type::I32) {
-                    emit("ldaxyz.fp " + offset, r);
-                } else if (alloc.type == ir::Type::I8) {
-                    emit("lda.fp " + offset, r);
+                // For SAC functions, emit absolute addressing to activation record
+                if (currentFunctionUseSAC_) {
+                    std::string arAddr = currentFunctionName_ + "__ar+" + offset;
+                    if (alloc.type == ir::Type::I32) {
+                        emit("ldaxyz " + arAddr, r);
+                    } else if (alloc.type == ir::Type::I8) {
+                        emit("lda " + arAddr, r);
+                    } else {
+                        emit("ldax " + arAddr, r);
+                    }
                 } else {
-                    emit("ldax.fp " + offset, r);
+                    if (alloc.type == ir::Type::I32) {
+                        emit("ldaxyz.fp " + offset, r);
+                    } else if (alloc.type == ir::Type::I8) {
+                        emit("lda.fp " + offset, r);
+                    } else {
+                        emit("ldax.fp " + offset, r);
+                    }
                 }
             }
             break;
@@ -203,8 +215,15 @@ void IRCodeGen::loadVregA(uint32_t vregId) {
     switch (alloc.loc) {
         case VRegAllocator::IN_AX:
             if (alloc_.isInAX(vregId, currentInstIdx_)) return;
-            if (vregOffset_.count(vregId))
-                emit("lda.fp " + std::to_string(vregOffset_[vregId]), r);
+            if (vregOffset_.count(vregId)) {
+                // For SAC functions, emit absolute addressing to activation record
+                if (currentFunctionUseSAC_) {
+                    std::string arAddr = currentFunctionName_ + "__ar+" + std::to_string(vregOffset_[vregId]);
+                    emit("lda " + arAddr, r);
+                } else {
+                    emit("lda.fp " + std::to_string(vregOffset_[vregId]), r);
+                }
+            }
             break;
         case VRegAllocator::IN_ZP: {
             std::stringstream ss;
@@ -213,8 +232,15 @@ void IRCodeGen::loadVregA(uint32_t vregId) {
             break;
         }
         case VRegAllocator::IN_FRAME:
-            if (vregOffset_.count(vregId))
-                emit("lda.fp " + std::to_string(vregOffset_[vregId]), r);
+            if (vregOffset_.count(vregId)) {
+                // For SAC functions, emit absolute addressing to activation record
+                if (currentFunctionUseSAC_) {
+                    std::string arAddr = currentFunctionName_ + "__ar+" + std::to_string(vregOffset_[vregId]);
+                    emit("lda " + arAddr, r);
+                } else {
+                    emit("lda.fp " + std::to_string(vregOffset_[vregId]), r);
+                }
+            }
             break;
     }
 }
@@ -247,15 +273,31 @@ void IRCodeGen::storeVreg(uint32_t vregId) {
             break;
         }
         case VRegAllocator::IN_FRAME: {
-            std::string sym = "__vr" + std::to_string(vregId);
-            if (alloc.type == ir::Type::I32) {
-                emit("staxyz.fp " + sym);
-            } else if (alloc.type == ir::Type::I8) {
-                emit("sta.fp " + sym);
-            } else if (valueByte_[1] == REG_Z) {
-                emit("staz.fp " + sym);
+            if (currentFunctionUseSAC_) {
+                // For SAC functions, emit absolute addressing to activation record
+                if (vregOffset_.count(vregId)) {
+                    std::string arAddr = currentFunctionName_ + "__ar+" + std::to_string(vregOffset_[vregId]);
+                    if (alloc.type == ir::Type::I32) {
+                        emit("staxyz " + arAddr);
+                    } else if (alloc.type == ir::Type::I8) {
+                        emit("sta " + arAddr);
+                    } else if (valueByte_[1] == REG_Z) {
+                        emit("staz " + arAddr);
+                    } else {
+                        emit("stax " + arAddr);
+                    }
+                }
             } else {
-                emit("stax.fp " + sym);
+                std::string sym = "__vr" + std::to_string(vregId);
+                if (alloc.type == ir::Type::I32) {
+                    emit("staxyz.fp " + sym);
+                } else if (alloc.type == ir::Type::I8) {
+                    emit("sta.fp " + sym);
+                } else if (valueByte_[1] == REG_Z) {
+                    emit("staz.fp " + sym);
+                } else {
+                    emit("stax.fp " + sym);
+                }
             }
             break;
         }
@@ -956,6 +998,9 @@ IRCodeGen::FuncClobbers IRCodeGen::computeFuncClobbers(const ir::Function& fn) {
 void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMainWithZPSave) {
     emitComment("function " + fn.name);
 
+    // Set current function context (used by loadVreg/storeVreg for SAC addressing)
+    currentFunctionName_ = fn.name;
+
     // Bug #179 fix: Skip prescan here. Prescan runs before the allocator and doesn't know
     // which vRegs will be allocated to ZP vs frame. This causes overlapping frame offsets.
     // Instead, we allocate based on allocator decisions below.
@@ -1178,6 +1223,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         }
     }
 
+    // Store SAC mode for this function (used by loadVreg/storeVreg for addressing)
+    currentFunctionUseSAC_ = useSAC;
+
     // proc directive with parameter specs
     // For regparm, first param is in A/AX — not on stack, not in proc line
     std::string procLine = "proc " + fn.name;
@@ -1337,8 +1385,12 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     }
 
     // Param .var overrides
-    bool useStackParams = !zpCallMode_ || fn.isVariadic;
-    if (useStackParams) {
+    // For SAC functions, parameters are at fixed AR offsets, not stack/ZP offsets
+    bool useStackParams = (!zpCallMode_ || fn.isVariadic) && !useSAC;
+    if (useSAC) {
+        // SAC convention: skip .var directives for now (Phase 1)
+        // Parameters are accessed via absolute AR addressing, not via symbolic .var names
+    } else if (useStackParams) {
         // Stack convention (or variadic in zpCall mode): args pushed right-to-left,
         // first param is closest to SP (smallest offset past frame + return address).
         int pOff = localFrameSize + 2;
@@ -1368,8 +1420,10 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         }
     }
 
-    // Emit debug metadata for parameters
-    if (useStackParams) {
+    // Emit debug metadata for parameters (skip for SAC functions)
+    if (useSAC) {
+        // SAC convention: parameters are at absolute AR addresses, skip traditional debug metadata
+    } else if (useStackParams) {
         // Stack convention: parameters on stack
         int pOff = localFrameSize + 2;
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
@@ -1402,7 +1456,8 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     emitBlank();
 
     // Copy params into vReg frame slots
-    if (useStackParams) {
+    // For SAC functions, skip this — parameters are already at their AR addresses
+    if (useStackParams && !useSAC) {
         // Stack convention: params are on the stack, copy to ZP temps
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
             uint32_t vid = (uint32_t)i;
@@ -1433,8 +1488,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 storeVreg(vid);
             }
         }
-    } else {
+    } else if (!useSAC) {
         // ZP call convention: params already in ZP block, copy to vReg slots
+        // For SAC functions, skip this — parameters are already at their AR addresses
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
             uint32_t vid = (uint32_t)i;
             if (fn.isRegparm && i == 0) {
