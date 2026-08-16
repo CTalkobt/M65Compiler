@@ -82,13 +82,13 @@ uint32_t VariableNode::getValue(AssemblerParser* parser) const {
     Symbol* sym = parser->resolveSymbol(name, scopePrefix);
     if (sym) return sym->value;
 
-    // Special handling for SAC AR symbols: functionname:ar+offset
+    // Special handling for SAC AR symbols: functionname:__ar+offset
     // Maps to symbol functionname__ar with offset applied
-    if (name.find(":ar+") != std::string::npos || name.find(":ar-") != std::string::npos) {
-        size_t arPos = name.find(":ar");
+    if (name.find(":__ar+") != std::string::npos || name.find(":__ar-") != std::string::npos) {
+        size_t arPos = name.find(":__ar");
         if (arPos != std::string::npos) {
             std::string funcName = name.substr(0, arPos);
-            std::string offsetStr = name.substr(arPos + 3);  // Skip ":ar"
+            std::string offsetStr = name.substr(arPos + 5);  // Skip ":__ar" (5 characters)
 
             // Convert functionname to functionname__ar (with double underscore)
             std::string arSymbol = funcName + "__ar";
@@ -175,8 +175,8 @@ bool VariableNode::isConstant(AssemblerParser* parser) const {
     Symbol* sym = parser->resolveSymbol(name, scopePrefix);
     if (!sym) {
         // Check for SAC AR symbols
-        if (name.find(":ar") != std::string::npos) {
-            size_t arPos = name.find(":ar");
+        if (name.find(":__ar") != std::string::npos) {
+            size_t arPos = name.find(":__ar");
             if (arPos != std::string::npos) {
                 std::string funcName = name.substr(0, arPos);
                 std::string arSymbol = funcName + "__ar";
@@ -190,8 +190,8 @@ bool VariableNode::is16Bit(AssemblerParser* parser) const {
     Symbol* sym = parser->resolveSymbol(name, scopePrefix);
     if (!sym) {
         // Check for SAC AR symbols
-        if (name.find(":ar") != std::string::npos) {
-            size_t arPos = name.find(":ar");
+        if (name.find(":__ar") != std::string::npos) {
+            size_t arPos = name.find(":__ar");
             if (arPos != std::string::npos) {
                 std::string funcName = name.substr(0, arPos);
                 std::string arSymbol = funcName + "__ar";
@@ -206,15 +206,15 @@ void VariableNode::emit(M65Emitter& e, AssemblerParser* parser, int width, const
     Symbol* sym = parser->resolveSymbol(name, scopePrefix);
     if (!sym) {
         // Check for SAC AR symbols
-        if (name.find(":ar") != std::string::npos) {
-            size_t arPos = name.find(":ar");
+        if (name.find(":__ar") != std::string::npos) {
+            size_t arPos = name.find(":__ar");
             if (arPos != std::string::npos) {
                 std::string funcName = name.substr(0, arPos);
                 std::string arSymbol = funcName + "__ar";
                 sym = parser->resolveSymbol(arSymbol, scopePrefix);
                 // Parse offset and add to symbol value if found
                 if (sym) {
-                    std::string offsetStr = name.substr(arPos + 3);  // Skip ":ar"
+                    std::string offsetStr = name.substr(arPos + 3);  // Skip ":__ar"
                     int offset = 0;
                     if (!offsetStr.empty()) {
                         if (offsetStr[0] == '+') offsetStr = offsetStr.substr(1);
@@ -810,13 +810,13 @@ std::unique_ptr<ExprAST> parseExprAST(const std::vector<AssemblerToken>& tokens,
                     return node;
                 }
             }
-            // Check for SAC AR symbol syntax: functionname:ar+offset or functionname:ar-offset
+            // Check for SAC AR symbol syntax: functionname:__ar+offset or functionname:__ar-offset
             std::string varName = t.value;
             if (idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::COLON &&
                 idx + 1 < (int)tokens.size() && tokens[idx + 1].type == AssemblerTokenType::IDENTIFIER &&
-                tokens[idx + 1].value == "ar") {
-                idx += 2;  // consume ':' and 'ar'
-                varName += ":ar";
+                tokens[idx + 1].value == "__ar") {
+                idx += 2;  // consume ':' and '__ar'
+                varName += ":__ar";
 
                 // Now check for optional +/- offset
                 if (idx < (int)tokens.size() &&

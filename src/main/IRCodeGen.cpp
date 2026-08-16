@@ -184,17 +184,17 @@ void IRCodeGen::loadVreg(uint32_t vregId) {
             if (vregOffset_.count(vregId)) {
                 if (currentFunctionUseSAC_) {
                     // SAC: Direct absolute addressing to AR buffer
-                    std::string arOffset = currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId]);
+                    std::string arOffset = currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId]);
                     if (alloc.type == ir::Type::I32) {
                         emit("lda " + arOffset, r);
-                        emit("ldx " + currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId] + 1), r);
-                        emit("ldy " + currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId] + 2), r);
-                        emit("ldz " + currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId] + 3), r);
+                        emit("ldx " + currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId] + 1), r);
+                        emit("ldy " + currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId] + 2), r);
+                        emit("ldz " + currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId] + 3), r);
                     } else if (alloc.type == ir::Type::I8) {
                         emit("lda " + arOffset, r);
                     } else {
                         emit("lda " + arOffset, r);
-                        emit("ldx " + currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId] + 1), r);
+                        emit("ldx " + currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId] + 1), r);
                     }
                 } else {
                     // Non-SAC: FP-relative addressing through pseudo-ops
@@ -223,7 +223,7 @@ void IRCodeGen::loadVregA(uint32_t vregId) {
             if (vregOffset_.count(vregId)) {
                 // For SAC functions, use direct absolute addressing to AR
                 if (currentFunctionUseSAC_) {
-                    std::string arAddr = currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId]);
+                    std::string arAddr = currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId]);
                     emit("lda " + arAddr, r);
                 } else {
                     emit("lda.fp " + std::to_string(vregOffset_[vregId]), r);
@@ -239,7 +239,7 @@ void IRCodeGen::loadVregA(uint32_t vregId) {
         case VRegAllocator::IN_FRAME:
             if (vregOffset_.count(vregId)) {
                 if (currentFunctionUseSAC_) {
-                    std::string arAddr = currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId]);
+                    std::string arAddr = currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId]);
                     emit("lda " + arAddr, r);
                 } else {
                     std::string sym = "__vr" + std::to_string(vregId);
@@ -281,21 +281,21 @@ void IRCodeGen::storeVreg(uint32_t vregId) {
             // SAC: Direct absolute addressing to AR buffer (faster, no $FD/$FE needed)
             // Non-SAC: FP-relative addressing through pseudo-ops
             if (currentFunctionUseSAC_) {
-                // Direct absolute: functionname:ar+offset (linker relocates)
-                std::string arOffset = currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId]);
+                // Direct absolute: functionname:__ar+offset (linker relocates)
+                std::string arOffset = currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId]);
                 if (alloc.type == ir::Type::I32) {
                     emit("sta " + arOffset);
-                    emit("stx " + currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId] + 1));
-                    emit("sty " + currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId] + 2));
-                    emit("stz " + currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId] + 3));
+                    emit("stx " + currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId] + 1));
+                    emit("sty " + currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId] + 2));
+                    emit("stz " + currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId] + 3));
                 } else if (alloc.type == ir::Type::I8) {
                     emit("sta " + arOffset);
                 } else if (valueByte_[1] == REG_Z) {
                     emit("sta " + arOffset);
-                    emit("stz " + currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId] + 1));
+                    emit("stz " + currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId] + 1));
                 } else {
                     emit("sta " + arOffset);
-                    emit("stx " + currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId] + 1));
+                    emit("stx " + currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId] + 1));
                 }
             } else {
                 // FP-relative: use pseudo-ops that expand to indirect addressing
@@ -1836,8 +1836,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         if (currentFunctionUseSAC_ && vregOffset_.count(nextInst->src2.vregId)) {
                             // SAC mode: Use direct AR addressing
                             uint32_t offset = vregOffset_[nextInst->src2.vregId];
-                            std::string loAddr = currentFunctionName_ + ":ar+" + std::to_string(offset);
-                            std::string hiAddr = currentFunctionName_ + ":ar+" + std::to_string(offset + 1);
+                            std::string loAddr = currentFunctionName_ + ":__ar+" + std::to_string(offset);
+                            std::string hiAddr = currentFunctionName_ + ":__ar+" + std::to_string(offset + 1);
                             emit("sta " + loAddr, r);
                             if (b1 == b0) {
                                 emit("sta " + hiAddr, r);
