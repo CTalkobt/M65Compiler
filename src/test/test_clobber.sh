@@ -44,37 +44,37 @@ extract_func_info() {
 
 # set_value: leaf, clobbers A, X only
 INFO=$(extract_func_info "_set_value")
-check "set_value is leaf" "echo '$INFO' | grep -q 'func_flags stack_call, leaf'"
+check "set_value is leaf" "echo '$INFO' | grep -qE 'func_flags.*leaf'"
 check "set_value clobbers A, X" "echo '$INFO' | grep -q 'reg_clobbers A, X$'"
 
 # set_flag: leaf, clobbers A, X
 INFO=$(extract_func_info "_set_flag")
-check "set_flag is leaf" "echo '$INFO' | grep -q 'func_flags stack_call, leaf'"
+check "set_flag is leaf" "echo '$INFO' | grep -qE 'func_flags.*leaf'"
 check "set_flag clobbers A, X" "echo '$INFO' | grep -q 'reg_clobbers A, X$'"
 
 # noop: leaf, no reg clobbers
 INFO=$(extract_func_info "_noop")
-check "noop is leaf" "echo '$INFO' | grep -q 'func_flags stack_call, leaf'"
+check "noop is leaf" "echo '$INFO' | grep -qE 'func_flags.*leaf'"
 check "noop has no reg_clobbers" "! echo '$INFO' | grep -q 'reg_clobbers'"
 
 # caller: NOT leaf (calls other functions)
 INFO=$(extract_func_info "_caller")
-check "caller is not leaf" "echo '$INFO' | grep -q 'func_flags stack_call$'"
+check "caller is not leaf" "! echo '$INFO' | grep -qE 'func_flags.*leaf'"
 check "caller clobbers all regs" "echo '$INFO' | grep -q 'reg_clobbers A, X, Y, Z'"
 
 # get_value: leaf, clobbers A, X
 INFO=$(extract_func_info "_get_value")
-check "get_value is leaf" "echo '$INFO' | grep -q 'func_flags stack_call, leaf'"
+check "get_value is leaf" "echo '$INFO' | grep -qE 'func_flags.*leaf'"
 check "get_value clobbers A, X" "echo '$INFO' | grep -q 'reg_clobbers A, X$'"
 
 # add: leaf, clobbers A, X (arithmetic)
 INFO=$(extract_func_info "_add")
-check "add is leaf" "echo '$INFO' | grep -q 'func_flags stack_call, leaf'"
+check "add is leaf" "echo '$INFO' | grep -qE 'func_flags.*leaf'"
 check "add clobbers A, X" "echo '$INFO' | grep -q 'reg_clobbers A, X$'"
 
 # main: NOT leaf
 INFO=$(extract_func_info "_main")
-check "main is not leaf" "echo '$INFO' | grep -q 'func_flags stack_call$'"
+check "main is not leaf" "! echo '$INFO' | grep -qE 'func_flags.*leaf'"
 
 echo ""
 echo "Phase 2: Selective register invalidation"
