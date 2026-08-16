@@ -1404,10 +1404,14 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     std::set<std::string> paramNamesSet(fn.paramNames.begin(), fn.paramNames.end());
 
     // Populate parameterVregs_ for SAC addressing logic
-    // Parameters must always use FP-relative addressing, not AR-relative
+    // IMPORTANT: This should be EMPTY for SAC functions!
+    // Vreg allocation: vregs 0..N-1 are PARAMETER STORAGE (should use AR-relative in SAC)
+    // Named parameters in localNames are FORMAL PARAMETERS (use FP-relative for stack access)
     parameterVregs_.clear();
     for (const auto& [name, vregId] : fn.localNames) {
         if (paramNamesSet.count(name) > 0) {
+            // These are named parameters - use FP-relative (they're passed on stack)
+            // But only for non-SAC or when parameters are in localNames separately
             parameterVregs_.insert(vregId);
         }
     }
@@ -1517,8 +1521,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     emitBlank();
 
     // Copy params into vReg frame slots
-    // For SAC functions, skip this — parameters are already at their AR addresses
-    if (useStackParams && !useSAC) {
+    // All stack-convention functions load parameters (including SAC)
+    // Parameters on stack are loaded into vregs (AR for SAC, stack for non-SAC)
+    if (useStackParams) {
         // Stack convention: params are on the stack, copy to ZP temps
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
             uint32_t vid = (uint32_t)i;
