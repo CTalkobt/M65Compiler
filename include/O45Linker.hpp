@@ -183,6 +183,7 @@ private:
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void colorStaticAllocRegisters();  // Phase 2: Assign overlapping AR addresses via graph coloring
+    void patchStaticAllocAddresses();  // Phase 3: Apply computed AR addresses to symbol table
     void generateThunks();
     void mergeLineMaps();
 

@@ -717,6 +717,9 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     // Phase 2: Assign overlapping AR addresses via call-graph coloring
     colorStaticAllocRegisters();
 
+    // Phase 3: Patch static allocation symbol addresses in global symbol table
+    patchStaticAllocAddresses();
+
     // Generate thunks for convention mismatches (appends to mergedText_)
     generateThunks();
 
@@ -1200,6 +1203,33 @@ void O45Linker::colorStaticAllocRegisters() {
     for (const auto& [func, color] : arColor) {
         uint32_t bssBase = bssBase_;
         arBaseAddresses_[func] = bssBase + colorToBssBase[color];
+    }
+}
+
+// 3.4b — Phase 3: Patch static allocation symbol addresses
+// Apply computed AR base addresses to global symbol table
+void O45Linker::patchStaticAllocAddresses() {
+    if (arBaseAddresses_.empty()) return;  // No SAC functions to patch
+
+    // For each computed AR base address, update the global symbol map
+    // This replaces the placeholder BSS address with the final overlay address
+    for (const auto& [funcName, arBaseAddr] : arBaseAddresses_) {
+        // Symbol name pattern: <func>__ar (e.g., "main__ar")
+        std::string arSymbolName = funcName + "__ar";
+
+        // Check if symbol exists in global symbol table
+        auto it = globalSymbols_.find(arSymbolName);
+        if (it != globalSymbols_.end()) {
+            // Update address to computed overlay address
+            globalSymbols_[arSymbolName] = arBaseAddr;
+        } else {
+            // Symbol should exist if function was compiled with SAC
+            // This is a warning-level issue, not an error (symbol may not be exported)
+            if (warnStream_) {
+                *warnStream_ << "warning: SAC function '" << funcName
+                            << "' has no __ar symbol in global symbol table\n";
+            }
+        }
     }
 }
 
