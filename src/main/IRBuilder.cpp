@@ -715,6 +715,8 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     fn.isStatic = node.isStatic || node.isInline;
     fn.isWeak = weakNextFunction_;
     weakNextFunction_ = false;
+    fn.isRecurse = recurseNextFunction_;
+    recurseNextFunction_ = false;
     fn.isInterrupt = node.isInterrupt;
     fn.declLine = node.line;
     fn.isNaked = node.isNaked;
@@ -4186,6 +4188,10 @@ void IRBuilder::visit(LabelledStatement& node) {
 void IRBuilder::visit(AsmStatement& node) {
     if (node.code == ".weak_next") {
         weakNextFunction_ = true;
+        return;
+    }
+    if (node.code == ".recurse_next") {
+        recurseNextFunction_ = true;
         return;
     }
     if (node.code == ".no_zp_save") {

@@ -418,6 +418,7 @@ int main(int argc, char** argv) {
     int listingLevel = 1;
     uint32_t zeroPageStart = 0x08;
     bool zpCallMode = false;
+    bool staticAllocMode = false;  // -fstaticalloc (SAC)
     bool inlineFunctions = false;
     bool emitIR = false;
     bool emitReasons = false;
@@ -514,6 +515,10 @@ int main(int argc, char** argv) {
             zpCallMode = true;
         } else if (arg == "-fno-zpcall") {
             zpCallMode = false;
+        } else if (arg == "-fstaticalloc") {
+            staticAllocMode = true;
+        } else if (arg == "-fno-staticalloc") {
+            staticAllocMode = false;
         } else if (arg == "-finline-functions") {
             inlineFunctions = true;
         } else if (arg == "-fno-inline-functions") {
@@ -725,6 +730,7 @@ int main(int argc, char** argv) {
         // IR pipeline: AST → IRBuilder → IR → IRCodeGen → assembly
         IRBuilder irBuilder;
         irBuilder.zpCallMode = zpCallMode;
+        irBuilder.staticAllocMode = staticAllocMode;
         irBuilder.inlineFunctions = inlineFunctions;
         irBuilder.setSourceInfo(input_file);
 
@@ -826,7 +832,7 @@ int main(int argc, char** argv) {
         }
         IRCodeGen irCodeGen(asmOut);
         irCodeGen.setLineToFileMap(lineToFileMap);
-        irCodeGen.generate(irBuilder.getModule(), zeroPageStart, true, zpCallMode, emitReasons);
+        irCodeGen.generate(irBuilder.getModule(), zeroPageStart, true, zpCallMode, emitReasons, staticAllocMode);
         asmOut.close();
 
         if (verboseLevel >= 1) {

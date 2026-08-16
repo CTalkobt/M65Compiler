@@ -165,6 +165,7 @@ struct SourceLoc {
 enum class CallConv : uint8_t {
     STACK,      // standard right-to-left push
     ZP,         // parameters in zero-page block
+    STATIC,     // static activation record (Phase 1: no address sharing)
 };
 
 struct Inst {
@@ -215,6 +216,7 @@ struct Function {
     bool isNaked = false;
     bool isRegparm = false;
     bool isNested = false;
+    bool isRecurse = false;      // opt-out of static allocation (SAC)
     int staticLinkVreg = -1; // vreg holding the static link to parent frame
     int declLine = 0;                   // source line of function declaration
 

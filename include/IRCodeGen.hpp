@@ -14,7 +14,7 @@ public:
     // Generate assembly for the entire module.
     // relocMode: true = .o45 (emit .global/.extern, no startup stub)
     //            false = PRG (emit .org $2000 + startup stub)
-    void generate(const ir::Module& mod, uint32_t zpStart = 0x08, bool relocMode = false, bool zpCallMode = false, bool emitReasons = false);
+    void generate(const ir::Module& mod, uint32_t zpStart = 0x08, bool relocMode = false, bool zpCallMode = false, bool emitReasons = false, bool staticAllocMode = false);
 
     // Set the line-to-file mapping from Lexer for proper source file attribution in .loc directives
     void setLineToFileMap(const std::map<int, std::pair<std::string, int>>& map) {
@@ -113,6 +113,7 @@ private:
     // Current function metadata
     bool relocMode_ = false;
     bool zpCallMode_ = false;
+    bool staticAllocMode_ = false;  // -fstaticalloc (SAC)
     bool useStackParams_ = false;  // frame pointer setup required for current function
 
     // Frame management

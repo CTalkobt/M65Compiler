@@ -430,10 +430,11 @@ void IRCodeGen::emitStackCleanup(int frameSize) {
 // Module-level emission
 // ============================================================================
 
-void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode, bool zpCallMode, bool emitReasons) {
+void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode, bool zpCallMode, bool emitReasons, bool staticAllocMode) {
     emitReasons_ = emitReasons;
     relocMode_ = relocMode;
     zpCallMode_ = zpCallMode;
+    staticAllocMode_ = staticAllocMode;
     zeroPageStart_ = zpStart;
     sourceFile_ = mod.sourceFile;
 

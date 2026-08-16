@@ -12,7 +12,7 @@ BUG_DIR = os.path.join(ARCH_DIR, "bug")
 # Set of allowed tools/programs for doc/bin
 ALLOWED_BIN_DOCS = {
     "ar45.md", "ca45.md", "cc45.md", "cp45.md", "cvt_asm.md",
-    "disk45.md", "ln45.md", "nm45.md", "objdump45.md", "CONFIGURATION.md"
+    "disk45.md", "ln45.md", "nm45.md", "objdump45.md", "basic45.md", "CONFIGURATION.md"
 }
 
 def check_structure():
@@ -24,8 +24,8 @@ def check_structure():
             if entry.name != "README.md":
                 errors.append(f"File '{entry.name}' should not be in the doc/ root. Please move it to doc/bin/ or doc/architecture/.")
         elif entry.is_dir():
-            if entry.name not in {"bin", "architecture"}:
-                errors.append(f"Unexpected subdirectory '{entry.name}' in doc/. Only 'bin' and 'architecture' are allowed.")
+            if entry.name not in {"bin", "architecture", "archive", "ref"}:
+                errors.append(f"Unexpected subdirectory '{entry.name}' in doc/. Only 'bin', 'architecture', 'archive', and 'ref' are allowed.")
 
     # 2. Check doc/bin folder structure
     if not os.path.exists(BIN_DIR):

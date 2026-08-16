@@ -22,6 +22,7 @@ public:
     const std::vector<std::string>& getWarnings() const { return warnings_; }
 
     bool zpCallMode = false;
+    bool staticAllocMode = false;  // -fstaticalloc (SAC)
     bool inlineFunctions = false;
 
     // ASTVisitor interface
@@ -99,6 +100,7 @@ private:
     ir::Operand lastValue_;
     bool computeAddressOnly_ = false;
     bool weakNextFunction_ = false;
+    bool recurseNextFunction_ = false;  // #pragma cc45 recurse
 
     // Variable tracking: name → allocated vReg (address operand for locals)
     std::map<std::string, ir::Operand> locals_;

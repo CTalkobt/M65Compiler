@@ -111,9 +111,11 @@ struct O45FuncAttr {
 constexpr uint8_t OPT_LINEINFO        = 0x11;  // debug line info table
 constexpr uint8_t OPT_DEBUG_SYMBOLS   = 0x12;  // variable/function debug metadata
 
-constexpr uint8_t FUNC_FLAG_LEAF      = 0x01;  // no calls to other functions
-constexpr uint8_t FUNC_FLAG_REENTRANT = 0x02;  // re-entrant safe (no global state, stack-only locals)
-constexpr uint8_t FUNC_FLAG_ZP_CONV   = 0x04;  // ZP calling convention (0 = stack-based)
+constexpr uint8_t FUNC_FLAG_LEAF         = 0x01;  // no calls to other functions
+constexpr uint8_t FUNC_FLAG_REENTRANT    = 0x02;  // re-entrant safe (no global state, stack-only locals)
+constexpr uint8_t FUNC_FLAG_ZP_CONV      = 0x04;  // ZP calling convention (0 = stack-based)
+constexpr uint8_t FUNC_FLAG_STATIC_ALLOC = 0x08;  // uses SAC (static activation record)
+constexpr uint8_t FUNC_FLAG_ISR          = 0x10;  // interrupt handler
 
 // --- Patch sizes per relocation type ---
 constexpr int o45RelocPatchSize(uint8_t rtype) {
