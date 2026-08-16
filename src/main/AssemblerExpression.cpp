@@ -82,6 +82,35 @@ uint32_t VariableNode::getValue(AssemblerParser* parser) const {
     Symbol* sym = parser->resolveSymbol(name, scopePrefix);
     if (sym) return sym->value;
 
+    // Special handling for SAC AR symbols: functionname:ar+offset
+    // Maps to symbol functionname__ar with offset applied
+    if (name.find(":ar+") != std::string::npos || name.find(":ar-") != std::string::npos) {
+        size_t arPos = name.find(":ar");
+        if (arPos != std::string::npos) {
+            std::string funcName = name.substr(0, arPos);
+            std::string offsetStr = name.substr(arPos + 3);  // Skip ":ar"
+
+            // Convert functionname to functionname__ar (with double underscore)
+            std::string arSymbol = funcName + "__ar";
+            Symbol* arSym = parser->resolveSymbol(arSymbol, scopePrefix);
+
+            if (arSym) {
+                // Parse offset (e.g., "+0", "+16", "-2")
+                int offset = 0;
+                if (!offsetStr.empty()) {
+                    if (offsetStr[0] == '+') offsetStr = offsetStr.substr(1);
+                    try {
+                        offset = std::stoi(offsetStr);
+                    } catch (...) {
+                        // If offset parsing fails, return AR base address
+                        return arSym->value;
+                    }
+                }
+                return arSym->value + offset;
+            }
+        }
+    }
+
     // Symbol not found — could be forward reference or error
     // Only treat as fatal error if it's a local variable (@ prefix) or other
     // definitely-should-exist symbol. External/weak symbols are OK to defer.
@@ -144,16 +173,66 @@ uint32_t VariableNode::getValue(AssemblerParser* parser) const {
 }
 bool VariableNode::isConstant(AssemblerParser* parser) const {
     Symbol* sym = parser->resolveSymbol(name, scopePrefix);
+    if (!sym) {
+        // Check for SAC AR symbols
+        if (name.find(":ar") != std::string::npos) {
+            size_t arPos = name.find(":ar");
+            if (arPos != std::string::npos) {
+                std::string funcName = name.substr(0, arPos);
+                std::string arSymbol = funcName + "__ar";
+                sym = parser->resolveSymbol(arSymbol, scopePrefix);
+            }
+        }
+    }
     return sym ? !sym->isAddress : false;
 }
 bool VariableNode::is16Bit(AssemblerParser* parser) const {
     Symbol* sym = parser->resolveSymbol(name, scopePrefix);
+    if (!sym) {
+        // Check for SAC AR symbols
+        if (name.find(":ar") != std::string::npos) {
+            size_t arPos = name.find(":ar");
+            if (arPos != std::string::npos) {
+                std::string funcName = name.substr(0, arPos);
+                std::string arSymbol = funcName + "__ar";
+                sym = parser->resolveSymbol(arSymbol, scopePrefix);
+            }
+        }
+    }
     return sym ? sym->size > 1 : true;
 }
 void VariableNode::emit(M65Emitter& e, AssemblerParser* parser, int width, const std::string&) {
     if (!parser) return;
     Symbol* sym = parser->resolveSymbol(name, scopePrefix);
-    if (!sym) return;
+    if (!sym) {
+        // Check for SAC AR symbols
+        if (name.find(":ar") != std::string::npos) {
+            size_t arPos = name.find(":ar");
+            if (arPos != std::string::npos) {
+                std::string funcName = name.substr(0, arPos);
+                std::string arSymbol = funcName + "__ar";
+                sym = parser->resolveSymbol(arSymbol, scopePrefix);
+                // Parse offset and add to symbol value if found
+                if (sym) {
+                    std::string offsetStr = name.substr(arPos + 3);  // Skip ":ar"
+                    int offset = 0;
+                    if (!offsetStr.empty()) {
+                        if (offsetStr[0] == '+') offsetStr = offsetStr.substr(1);
+                        try {
+                            offset = std::stoi(offsetStr);
+                        } catch (...) {
+                            // offset stays 0
+                        }
+                    }
+                    uint32_t finalValue = sym->value + offset;
+                    e.lda_imm(finalValue & 0xFF);
+                    if (width >= 16) e.ldx_imm((finalValue >> 8) & 0xFF);
+                    return;
+                }
+            }
+        }
+        return;
+    }
     if (!sym->isAddress) {
         e.lda_imm(sym->value & 0xFF);
         if (width >= 16) e.ldx_imm((sym->value >> 8) & 0xFF);
@@ -731,7 +810,33 @@ std::unique_ptr<ExprAST> parseExprAST(const std::vector<AssemblerToken>& tokens,
                     return node;
                 }
             }
-            return std::make_unique<VariableNode>(t.value, scopePrefix);
+            // Check for SAC AR symbol syntax: functionname:ar+offset or functionname:ar-offset
+            std::string varName = t.value;
+            if (idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::COLON &&
+                idx + 1 < (int)tokens.size() && tokens[idx + 1].type == AssemblerTokenType::IDENTIFIER &&
+                tokens[idx + 1].value == "ar") {
+                idx += 2;  // consume ':' and 'ar'
+                varName += ":ar";
+
+                // Now check for optional +/- offset
+                if (idx < (int)tokens.size() &&
+                    (tokens[idx].type == AssemblerTokenType::PLUS ||
+                     tokens[idx].type == AssemblerTokenType::MINUS)) {
+                    std::string op = tokens[idx].value;
+                    idx++;
+                    if (idx < (int)tokens.size() &&
+                        (tokens[idx].type == AssemblerTokenType::DECIMAL_LITERAL ||
+                         tokens[idx].type == AssemblerTokenType::HEX_LITERAL)) {
+                        std::string numVal = tokens[idx].value;
+                        if (tokens[idx].type == AssemblerTokenType::HEX_LITERAL) {
+                            numVal = numVal.substr(1);  // Remove '$' prefix
+                        }
+                        idx++;
+                        varName += op + numVal;
+                    }
+                }
+            }
+            return std::make_unique<VariableNode>(varName, scopePrefix);
         }
         if (t.type == AssemblerTokenType::STAR) {
             // * as current PC when followed by +, -, or end of expression
