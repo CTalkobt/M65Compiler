@@ -168,6 +168,11 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         // calculateInstructionSize correctly resolves them to BASE_PAGE in pass2
         // without writing the resolved mode back).
         AddressingMode resolvedMode = stmt->instr.mode;
+
+        // Check if operand is an AR reference (e.g., _main:__ar+2) to force ABSOLUTE mode
+        std::string operand = stmt->instr.operand;
+        bool isArRef = operand.find(":__ar") != std::string::npos;
+
         if (!stmt->instr.forceMode && stmt->instr.operandTokenIndex != -1 &&
             (resolvedMode == AddressingMode::BASE_PAGE || resolvedMode == AddressingMode::ABSOLUTE ||
              resolvedMode == AddressingMode::BASE_PAGE_X || resolvedMode == AddressingMode::ABSOLUTE_X ||
@@ -175,7 +180,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             try {
                 uint32_t val = parser.evaluateExpressionAt(stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 bool fitsIn8 = (val <= 0xFF);
-                bool forceAbs = (stmt->instr.mnemonic == "jsr" || stmt->instr.mnemonic == "jmp");
+                bool forceAbs = (stmt->instr.mnemonic == "jsr" || stmt->instr.mnemonic == "jmp") || isArRef;
                 if (fitsIn8 && !forceAbs && stmt->instr.operandTokenIndex < (int)parser.tokens.size() &&
                     parser.tokens[stmt->instr.operandTokenIndex].type == AssemblerTokenType::IDENTIFIER) {
                     std::string symName = stmt->scopePrefix + parser.tokens[stmt->instr.operandTokenIndex].value;
@@ -205,7 +210,6 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         if (branches.count(stmt->instr.mnemonic)) continue;
 
         // Resolve the operand to see if it references a relocatable symbol
-        std::string operand = stmt->instr.operand;
         if (operand.empty()) continue;
 
         // Skip numeric literals — they're absolute addresses, not relocatable
@@ -214,26 +218,32 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         // Check for SAC AR symbol relocation first (e.g., _main:__ar+2)
         AssemblerParser::ArRelocation arReloc = parser.tryParseArRelocation(operand);
         if (arReloc.isArReloc) {
-            // This is an AR relocation — create a relocation record with addend
-            Symbol* arSym = parser.resolveSymbol(arReloc.arSymbol, stmt->scopePrefix);
-            if (arSym && !arSym->segment.empty()) {
-                std::string srcSeg = stmt->segmentName;
-                uint32_t srcBase = globalBase;
-                if (parser.segments.count(srcSeg)) {
-                    srcBase = parser.segments.at(srcSeg)->startAddress;
-                    if (srcBase == 0xFFFFFFFF) srcBase = 0;
-                }
-                uint32_t patchOffset = (stmt->address + 1) - srcBase;
-
-                O45Reloc reloc;
-                reloc.offset = patchOffset;
-                reloc.type = R_WORD;
-                reloc.segment = segIdFromName(arSym->segment);
-                reloc.addend = arReloc.addend;  // Store the offset as addend
-
-                segRelocs[srcSeg].push_back(reloc);
-                continue;  // Skip further processing for this operand
+            // This is an AR relocation — create an external reference
+            // To avoid addend encoding complexity, use the offset as part of the symbol name
+            std::string arSymbolWithOffset = arReloc.arSymbol;
+            if (arReloc.addend != 0) {
+                arSymbolWithOffset += "_" + std::to_string(arReloc.addend);
             }
+
+            std::string srcSeg = stmt->segmentName;
+            uint32_t srcBase = globalBase;
+            if (parser.segments.count(srcSeg)) {
+                srcBase = parser.segments.at(srcSeg)->startAddress;
+                if (srcBase == 0xFFFFFFFF) srcBase = 0;
+            }
+            uint32_t patchOffset = (stmt->address + 1) - srcBase;
+
+            // Add as import and create external relocation
+            syms.addImport(arSymbolWithOffset);
+
+            O45Reloc reloc;
+            reloc.offset = patchOffset;
+            reloc.type = R_WORD;
+            reloc.segment = SEG_EXTERNAL;
+            reloc.symbolIndex = syms.getImportIndex(arSymbolWithOffset);
+
+            segRelocs[srcSeg].push_back(reloc);
+            continue;  // Skip further processing for this operand
         }
 
         // Try resolving the full operand as a symbol first (simple case: bare label)

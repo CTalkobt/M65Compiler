@@ -377,7 +377,24 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
     std::set<std::string> importedSymbols;
     for (const auto& input : objects_) {
         for (const auto& imp : input.obj.imports) {
-            if (!globalSymbols_.count(imp.name)) {
+            bool satisfied = false;
+
+            // Check if this symbol exists directly
+            if (globalSymbols_.count(imp.name)) {
+                satisfied = true;
+            } else {
+                // Check if this is an AR symbol with embedded offset (e.g., "_add__ar_2")
+                // If so, try to resolve the base AR symbol instead
+                size_t arPos = imp.name.find("__ar_");
+                if (arPos != std::string::npos && arPos + 5 < imp.name.length()) {
+                    std::string baseName = imp.name.substr(0, arPos + 4);  // Get symbolname__ar
+                    if (globalSymbols_.count(baseName)) {
+                        satisfied = true;
+                    }
+                }
+            }
+
+            if (!satisfied) {
                 errorMsg = "undefined symbol '" + imp.name + "' (referenced in " +
                            input.filename + ")";
                 return false;
@@ -457,33 +474,57 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
                 return false;
             }
             const std::string& symName = input.obj.imports[r.symbolIndex].name;
-            auto it = globalSymbols_.find(symName);
+
+            // Check if this is an AR symbol with embedded offset (e.g., "_add__ar_2")
+            // and resolve to the base symbol if needed
+            std::string lookupName = symName;
+            uint32_t arOffset = 0;
+            size_t arPos = symName.find("__ar_");
+            if (arPos != std::string::npos && arPos + 5 < symName.length()) {
+                std::string offsetStr = symName.substr(arPos + 5);
+                try {
+                    arOffset = std::stoi(offsetStr);
+                    lookupName = symName.substr(0, arPos + 4);  // Get symbolname__ar
+                } catch (...) {
+                    // Failed to parse, use original name
+                }
+            }
+
+            auto it = globalSymbols_.find(lookupName);
             if (it == globalSymbols_.end()) {
                 errorMsg = "undefined symbol '" + symName + "' in " + input.filename;
                 return false;
             }
             std::cerr << "DEBUG [External Reloc]: Symbol '" << symName << "' = 0x" << std::hex << it->second << std::dec << std::endl;
-            // Read existing value at patch site as addend (e.g., __sp_base+offset
-            // has the offset baked in by the assembler)
-            uint32_t addend = 0;
-            if (r.type == R_HIGH) {
-                // For R_HIGH relocations, reconstruct 16-bit addend from:
-                // - High byte at patch site
-                // - Low byte stored in extra field (see issue #36)
-                uint8_t hi = body[patchPos];
-                uint8_t lo = r.extra;
-                uint16_t w = (hi << 8) | lo;
-                addend = (uint32_t)(int32_t)(int16_t)w; // sign-extend 16-bit addend
+
+            // Use the AR offset extracted above (if it's an AR symbol with offset)
+            // Otherwise, read the addend from the patch site
+            uint32_t addend = arOffset;
+            if (addend == 0 && r.addend != 0) {
+                // Use explicit addend from relocation record if no AR offset was parsed
+                addend = (uint32_t)r.addend;
             } else {
-                int pSize = o45RelocPatchSize((uint8_t)r.type);
-                for (int i = 0; i < pSize && (patchPos + i) < body.size(); i++) {
-                    addend |= ((uint32_t)body[patchPos + i]) << (i * 8);
-                }
-                // Sign-extend addend if it's smaller than 32-bit
-                if (pSize == 1) addend = (uint32_t)(int32_t)(int8_t)(uint8_t)addend;
-                else if (pSize == 2) addend = (uint32_t)(int32_t)(int16_t)(uint16_t)addend;
-                else if (pSize == 3) {
-                    if (addend & 0x800000) addend |= 0xFF000000;
+                // Read existing value at patch site as addend (e.g., __sp_base+offset
+                // has the offset baked in by the assembler)
+                if (r.type == R_HIGH) {
+                    // For R_HIGH relocations, reconstruct 16-bit addend from:
+                    // - High byte at patch site
+                    // - Low byte stored in extra field (see issue #36)
+                    uint8_t hi = body[patchPos];
+                    uint8_t lo = r.extra;
+                    uint16_t w = (hi << 8) | lo;
+                    addend = (uint32_t)(int32_t)(int16_t)w; // sign-extend 16-bit addend
+                } else {
+                    int pSize = o45RelocPatchSize((uint8_t)r.type);
+                    for (int i = 0; i < pSize && (patchPos + i) < body.size(); i++) {
+                        addend |= ((uint32_t)body[patchPos + i]) << (i * 8);
+                    }
+                    // Sign-extend addend if it's smaller than 32-bit
+                    if (pSize == 1) addend = (uint32_t)(int32_t)(int8_t)(uint8_t)addend;
+                    else if (pSize == 2) addend = (uint32_t)(int32_t)(int16_t)(uint16_t)addend;
+                    else if (pSize == 3) {
+                        if (addend & 0x800000) addend |= 0xFF000000;
+                    }
                 }
             }
             targetAddr = it->second + addend;
@@ -508,44 +549,36 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
                 default: break;
             }
 
-            // Determine the segment-relative offset:
-            // If the relocation has an explicit addend (e.g., SAC AR relocations),
-            // use it directly; otherwise read the existing value from the patch site.
-            uint32_t segRelOff;
-            if (r.addend != 0 || (body[patchPos] == 0 && body[patchPos + 1] == 0)) {
-                // Use explicit addend (SAC AR relocations have addend, embedded value is 0x0000)
-                segRelOff = (uint32_t)r.addend;
+            // Determine the segment-relative offset by reading from patch site
+            // The existing value is the assembly-time absolute address of the target.
+            // We subtract the object's original segment base to get the segment-relative
+            // offset, then add the final segment base + object's offset in merged segment.
+            uint32_t existingVal = 0;
+            uint32_t origBase = 0;
+
+            if (r.type == R_HIGH) {
+                // extra = original low byte, patch site = high byte
+                uint8_t hi = body[patchPos];
+                uint8_t lo = r.extra;
+                existingVal = (hi << 8) | lo;
             } else {
-                // Read the existing value at the patch site and compute target address.
-                // The existing value is the assembly-time absolute address of the target.
-                // We subtract the object's original segment base to get the segment-relative
-                // offset, then add the final segment base + object's offset in merged segment.
-                uint32_t existingVal = 0;
-                if (r.type == R_HIGH) {
-                    // extra = original low byte, patch site = high byte
-                    uint8_t hi = body[patchPos];
-                    uint8_t lo = r.extra;
-                    existingVal = (hi << 8) | lo;
-                } else {
-                    int patchSize = o45RelocPatchSize((uint8_t)r.type);
-                    for (int i = 0; i < patchSize && (patchPos + i) < body.size(); i++) {
-                        existingVal |= ((uint32_t)body[patchPos + i]) << (i * 8);
-                    }
+                int patchSize = o45RelocPatchSize((uint8_t)r.type);
+                for (int i = 0; i < patchSize && (patchPos + i) < body.size(); i++) {
+                    existingVal |= ((uint32_t)body[patchPos + i]) << (i * 8);
                 }
-
-                // Subtract the object's original base for the target segment to get
-                // the segment-relative offset
-                uint32_t origBase = 0;
-                switch (r.segment) {
-                    case SEG_TEXT: origBase = input.obj.tbase; break;
-                    case SEG_DATA: origBase = input.obj.dbase; break;
-                    case SEG_BSS:  origBase = input.obj.bbase; break;
-                    case SEG_ZP:   origBase = input.obj.zbase; break;
-                    default: break;
-                }
-
-                segRelOff = existingVal - origBase;
             }
+
+            // Subtract the object's original base for the target segment to get
+            // the segment-relative offset
+            switch (r.segment) {
+                case SEG_TEXT: origBase = input.obj.tbase; break;
+                case SEG_DATA: origBase = input.obj.dbase; break;
+                case SEG_BSS:  origBase = input.obj.bbase; break;
+                case SEG_ZP:   origBase = input.obj.zbase; break;
+                default: break;
+            }
+
+            uint32_t segRelOff = existingVal - origBase;
 
             if (r.segment == SEG_TEXT && !input.textRemaps.empty() && input.textRemaps.size() > 1) {
                 targetAddr = segBase + input.remapTextOffset(segRelOff);
