@@ -464,16 +464,11 @@ void IRCodeGen::emitArrayElemAddr(const std::string& baseStr, const ir::Operand&
     }
 
     // Add base + scaled index
-    // Emit the full add.16 sequence directly to avoid assembler pseudo-op expansion issues
-    uint32_t scratch3Addr = zeroPageStart_ + 4;
-    uint8_t lo = (uint8_t)scratch3Addr;
-    uint8_t hi = (uint8_t)(scratch3Addr + 1);
-
     emit("clc", "Add low bytes");
-    emit("adc $" + hex8(lo), "Add scratch3 low");
+    emit("adc __zp_scratch3", "Add scratch3 low");
     emit("pha", "Push A");
     emit("txa", "Transfer X to A");
-    emit("adc $" + hex8(hi), "Add scratch3 high with carry");
+    emit("adc __zp_scratch3+1", "Add scratch3 high with carry");
     emit("tax", "Transfer A to X");
     emit("pla", "Pop into A");
 
