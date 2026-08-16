@@ -1069,6 +1069,70 @@ void IRBuilder::visit(VariableDeclaration& node) {
         return;
     }
 
+    // Local static variables: allocate in DATA segment, not in frame/AR
+    if (node.isStatic && currentFunc_) {
+        // Create unique global name: _funcname__local_staticname
+        std::string globalName = "_" + currentFunc_->name + "__local_" + node.name;
+
+        ir::Module::GlobalVar gv;
+        gv.name = globalName;
+        gv.type = t;
+        gv.size = getTypeSize(node.type, node.pointerLevel);
+        if (node.arraySize() > 0) gv.size *= node.arraySize();
+        gv.isConst = node.isConst;
+        gv.isStatic = true;  // File-scoped
+
+        // Process initializer for one-time startup initialization
+        if (node.initializer) {
+            if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
+                gv.hasInitValue = true;
+                gv.initValue = lit->value;
+            } else if (auto* flit = dynamic_cast<FloatLiteral*>(node.initializer.get())) {
+                gv.hasInitValue = true;
+                std::memcpy(&gv.initValue, &flit->value, sizeof(double));
+            } else if (auto* slit = dynamic_cast<StringLiteral*>(node.initializer.get())) {
+                std::string label = "__str_" + std::to_string(nextLabel_++);
+                ir::Module::StringLiteral sl;
+                sl.label = label;
+                sl.value = slit->value;
+                sl.isAscii = slit->isAscii || (currentStringEncoding_ == StringEncoding::ASCII);
+                sl.encoding = slit->isAscii ? 1 : (currentStringEncoding_ == StringEncoding::SCREENCODE ? 2 : 0);
+                module_.strings.push_back(sl);
+                gv.hasInitValue = true;
+                gv.initLabels.push_back(label);
+            } else if (auto* cast = dynamic_cast<CastExpression*>(node.initializer.get())) {
+                if (auto* clit = dynamic_cast<IntegerLiteral*>(cast->expression.get())) {
+                    gv.hasInitValue = true;
+                    gv.initValue = clit->value;
+                }
+            }
+        } else {
+            // No initializer: default-initialize to zero
+            gv.hasInitValue = true;
+            gv.initValue = 0;
+        }
+
+        module_.globals.push_back(gv);
+
+        // Create operand for this global (used in variable references)
+        auto globalOp = ir::Operand::global(globalName);
+        locals_[node.name] = globalOp;
+        localTypes_[node.name] = t;
+        localTypeNames_[node.name] = node.type;
+        localSigned_[node.name] = node.isSigned;
+        localConst_[node.name] = node.isConst && node.pointerLevel == 0;
+        localPointsToConst_[node.name] = node.isConst && node.pointerLevel > 0;
+        localDeclLocs_[node.name] = loc(node);
+
+        if (node.pointerLevel > 0) {
+            localPointedToType_[node.name] = mapType(node.type, node.pointerLevel - 1);
+        }
+        if (!node.arrayDims.empty()) {
+            localArrayDims_[node.name] = node.arrayDims;
+        }
+        return;  // Skip normal local variable allocation
+    }
+
     // Local variable — allocate a vReg
     auto vreg = allocVreg(t);
     locals_[node.name] = vreg;
@@ -1153,8 +1217,8 @@ void IRBuilder::visit(VariableDeclaration& node) {
         }
     }
 
-    // Emit initializer
-    if (node.initializer) {
+    // Emit initializer (skip for local statics - they're initialized at startup in DATA segment)
+    if (node.initializer && !node.isStatic) {
         if (auto* initList = dynamic_cast<InitializerList*>(node.initializer.get())) {
             if (!node.arrayDims.empty()) {
                 // Array initializer: store each element at base + i*elemSize
