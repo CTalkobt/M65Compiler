@@ -1147,6 +1147,37 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         return;
     }
 
+    // Phase 1 SAC eligibility: static allocation convention (Phase 1: non-overlapping)
+    // Function uses SAC only if ALL criteria hold:
+    // 1. -fstaticalloc flag enabled (TU-wide opt-in)
+    // 2. Not marked #pragma cc55 recurse (function-level opt-out)
+    // 3. Not __interrupt, __naked, or variadic
+    // Linker will verify runtime-checkable constraints (4-5): not reachable from ISR, no cycles
+    bool useSAC = staticAllocMode_ && !fn.isRecurse && !fn.isInterrupt &&
+                  !fn.isNaked && !fn.isVariadic;
+
+    // Compile-time self-recursion check (not authoritative, but good UX)
+    // Scan for direct calls to this function name
+    if (useSAC) {
+        bool hasSelfCall = false;
+        for (const auto& blk : fn.blocks) {
+            for (const auto& inst : blk.insts) {
+                if (inst.op == ir::Op::CALL && inst.src1.isGlobal()) {
+                    if (inst.src1.globalName == fn.name) {
+                        hasSelfCall = true;
+                        break;
+                    }
+                }
+            }
+            if (hasSelfCall) break;
+        }
+        if (hasSelfCall) {
+            std::cerr << fn.name << ": error: static allocation (SAC) function cannot be recursive"
+                      << " (add #pragma cc45 recurse before function declaration to opt out)\n";
+            useSAC = false;  // Disable SAC for this function; will still be emitted with flag for linker check
+        }
+    }
+
     // proc directive with parameter specs
     // For regparm, first param is in A/AX — not on stack, not in proc line
     std::string procLine = "proc " + fn.name;
@@ -1205,27 +1236,40 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // Allocate frame only for frame-allocated vRegs
     int localFrameSize = frameSize_;
     localFrameSize_ = localFrameSize;  // save for RET cleanup
-    if (localFrameSize > 128) {
-        // Frame + params + return addr + dynamic pushes must fit in uint8_t offsets
-        std::cerr << fn.name << ": warning: large frame (" << localFrameSize
-                  << " bytes) may cause incorrect stack-relative addressing\n";
-    }
-    if (localFrameSize > 0) {
-        emitComment("frame: " + std::to_string(localFrameSize) + " bytes (frame-allocated vRegs only)");
-        // Push frame in 2-byte chunks; if odd size, push final byte separately
-        for (int i = 0; i < localFrameSize - 1; i += 2) {
-            emit("phw #0");
+
+    // For SAC functions, emit static activation record (AR) instead of stack frame
+    if (useSAC) {
+        // Emit AR as a BSS symbol (uninitialized static storage)
+        std::string arSymbol = fn.name + "__ar";
+        emitComment("static activation record (SAC): " + std::to_string(localFrameSize) + " bytes");
+        emit(arSymbol + ":");
+        emit(".fill " + std::to_string(localFrameSize));
+        emitBlank();
+    } else {
+        // Traditional stack frame: push zeros onto hardware stack
+        if (localFrameSize > 128) {
+            // Frame + params + return addr + dynamic pushes must fit in uint8_t offsets
+            std::cerr << fn.name << ": warning: large frame (" << localFrameSize
+                      << " bytes) may cause incorrect stack-relative addressing\n";
         }
-        if (localFrameSize % 2 == 1) {
-            emit("lda #0");
-            emit("pha");  // Push final odd byte
+        if (localFrameSize > 0) {
+            emitComment("frame: " + std::to_string(localFrameSize) + " bytes (frame-allocated vRegs only)");
+            // Push frame in 2-byte chunks; if odd size, push final byte separately
+            for (int i = 0; i < localFrameSize - 1; i += 2) {
+                emit("phw #0");
+            }
+            if (localFrameSize % 2 == 1) {
+                emit("lda #0");
+                emit("pha");  // Push final odd byte
+            }
         }
     }
 
-    // Set up ZP frame pointer for stack-relative access (only for stack calling convention)
+    // Set up ZP frame pointer for stack-relative access (only for stack calling convention, not SAC)
     // FP = __sp_base + SPL at function entry. Store in $FD/$FE.
     // This maintains the frame pointer for use by inline assembly or future optimizations.
-    useStackParams_ = !zpCallMode_ || fn.isVariadic;
+    // SAC functions don't use FP since all locals are at fixed absolute addresses.
+    useStackParams_ = !useSAC && (!zpCallMode_ || fn.isVariadic);
     if (useStackParams_) {
         // Calculate frame pointer: SPL + 1
         // Using TSY/TSX/INX is more efficient than TSX/TXA/ADC
@@ -1426,7 +1470,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     // Common return point — clean up frame, then endproc emits rts
     emitLabel("@__return");
-    if (localFrameSize > 0) {
+
+    // SAC functions don't have a stack frame to clean up
+    if (!useSAC && localFrameSize > 0) {
         int retSize = ir::typeSize(fn.returnType);
         // For I32 returns, preserve Z register (it's part of the return value AXYZ)
         // Don't execute the "stz + ldz #0" epilogue sequence as it destroys Z
@@ -1440,10 +1486,15 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         emit("rti");
     }
 
+    // Non-interrupt functions return with RTS (SAC or stack-based)
+    // (Plain rts without plz for SAC; with plz cleanup for stack-based functions above)
+
     // Function attribute directives with per-function clobber analysis
     auto fc = computeFuncClobbers(fn);
     {
         std::string funcFlags = (zpCallMode_ && !fn.isVariadic) ? "zp_call" : "stack_call";
+        if (useSAC) funcFlags += ", static_alloc";
+        if (fn.isInterrupt) funcFlags += ", isr";
         if (fc.isLeaf) funcFlags += ", leaf";
         emit(".func_flags " + funcFlags);
     }
