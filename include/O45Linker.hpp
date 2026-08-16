@@ -175,6 +175,7 @@ private:
     void buildCallGraph();
     void computeTransitiveClobbers();
     void emitDiagnostics();
+    void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void generateThunks();
     void mergeLineMaps();
 

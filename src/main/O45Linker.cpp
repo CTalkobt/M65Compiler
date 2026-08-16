@@ -703,8 +703,9 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     buildCallGraph();
     computeTransitiveClobbers();
     emitDiagnostics();
+    verifyStaticAllocSafety();  // Verify SAC constraints before thunk generation
 
-    // Check for calling convention errors
+    // Check for calling convention errors and SAC violations
     if (!convErrors_.empty()) {
         errorMsg = convErrors_[0];
         for (size_t i = 1; i < convErrors_.size(); i++)
@@ -904,6 +905,106 @@ void O45Linker::emitDiagnostics() {
             } else if (warnStream_) {
                 *warnStream_ << "ln45: warning: " << msg << " (generating thunk)" << std::endl;
             }
+        }
+    }
+}
+
+// 3.3b — Verify Static Allocation Convention (SAC) constraints
+// SAC functions must not be recursive (directly or indirectly) and must not be reachable from ISRs
+void O45Linker::verifyStaticAllocSafety() {
+    // Collect functions using SAC (static allocation convention)
+    std::set<std::string> sacFuncs;
+    for (const auto& [name, attrs] : funcAttrs_) {
+        if ((attrs.flags & FUNC_FLAG_STATIC_ALLOC) != 0) {
+            sacFuncs.insert(name);
+        }
+    }
+
+    if (sacFuncs.empty()) return;  // No SAC functions, nothing to verify
+
+    // Find ISR functions (interrupt handlers)
+    std::set<std::string> isrFuncs;
+    for (const auto& [name, attrs] : funcAttrs_) {
+        if ((attrs.flags & FUNC_FLAG_ISR) != 0) {
+            isrFuncs.insert(name);
+        }
+    }
+
+    // Check 1: Recursive cycle detection via simple DFS
+    // For each SAC function, check if it can reach itself
+    for (const auto& sacFunc : sacFuncs) {
+        // BFS/DFS from sacFunc to detect if it calls itself transitively
+        std::set<std::string> visited;
+        std::vector<std::string> toVisit;
+        bool hasRecursion = false;
+
+        auto it = callGraph_.find(sacFunc);
+        if (it != callGraph_.end()) {
+            for (const auto& callee : it->second) {
+                toVisit.push_back(callee);
+            }
+        }
+
+        while (!toVisit.empty() && !hasRecursion) {
+            std::string curr = toVisit.back();
+            toVisit.pop_back();
+
+            if (visited.count(curr)) continue;
+            visited.insert(curr);
+
+            if (curr == sacFunc) {
+                hasRecursion = true;
+                break;
+            }
+
+            auto it2 = callGraph_.find(curr);
+            if (it2 != callGraph_.end()) {
+                for (const auto& next : it2->second) {
+                    if (!visited.count(next)) {
+                        toVisit.push_back(next);
+                    }
+                }
+            }
+        }
+
+        if (hasRecursion) {
+            convErrors_.push_back("error: '" + sacFunc + "' uses static allocation but is recursive "
+                                  "(add #pragma cc45 recurse before function declaration to opt out)");
+        }
+    }
+
+    // Check 2: ISR reachability detection
+    // Build set of functions reachable from any ISR
+    std::set<std::string> isrReachable;
+    for (const auto& isr : isrFuncs) {
+        std::set<std::string> visited;
+        std::vector<std::string> toVisit;
+        toVisit.push_back(isr);
+
+        while (!toVisit.empty()) {
+            std::string curr = toVisit.back();
+            toVisit.pop_back();
+
+            if (visited.count(curr)) continue;
+            visited.insert(curr);
+            isrReachable.insert(curr);
+
+            auto it = callGraph_.find(curr);
+            if (it != callGraph_.end()) {
+                for (const auto& next : it->second) {
+                    if (!visited.count(next)) {
+                        toVisit.push_back(next);
+                    }
+                }
+            }
+        }
+    }
+
+    // Check if any SAC function is reachable from an ISR
+    for (const auto& sacFunc : sacFuncs) {
+        if (isrReachable.count(sacFunc)) {
+            convErrors_.push_back("error: '" + sacFunc + "' uses static allocation but is reachable from ISR handler "
+                                  "(add #pragma cc45 recurse before function declaration to opt out)");
         }
     }
 }
