@@ -183,8 +183,11 @@ void IRCodeGen::loadVreg(uint32_t vregId) {
         case VRegAllocator::IN_FRAME: {
             if (vregOffset_.count(vregId)) {
                 std::string offset = std::to_string(vregOffset_[vregId]);
-                // For SAC functions, emit absolute addressing to activation record
-                if (currentFunctionUseSAC_) {
+                // For SAC functions, use AR-relative addressing for local vregs only
+                // Parameters must always use FP-relative addressing (they're on stack)
+                bool isParameter = parameterVregs_.count(vregId) > 0;
+                if (currentFunctionUseSAC_ && !isParameter) {
+                    // Local vreg: use AR-relative addressing
                     std::string arAddr = currentFunctionName_ + "__ar+" + offset;
                     if (alloc.type == ir::Type::I32) {
                         emit("ldaxyz " + arAddr, r);
@@ -194,6 +197,7 @@ void IRCodeGen::loadVreg(uint32_t vregId) {
                         emit("ldax " + arAddr, r);
                     }
                 } else {
+                    // Parameter or non-SAC: use FP-relative addressing
                     if (alloc.type == ir::Type::I32) {
                         emit("ldaxyz.fp " + offset, r);
                     } else if (alloc.type == ir::Type::I8) {
@@ -216,8 +220,10 @@ void IRCodeGen::loadVregA(uint32_t vregId) {
         case VRegAllocator::IN_AX:
             if (alloc_.isInAX(vregId, currentInstIdx_)) return;
             if (vregOffset_.count(vregId)) {
-                // For SAC functions, emit absolute addressing to activation record
-                if (currentFunctionUseSAC_) {
+                // For SAC functions, use AR-relative addressing for local vregs only
+                // Parameters must always use FP-relative addressing (they're on stack)
+                bool isParameter = parameterVregs_.count(vregId) > 0;
+                if (currentFunctionUseSAC_ && !isParameter) {
                     std::string arAddr = currentFunctionName_ + "__ar+" + std::to_string(vregOffset_[vregId]);
                     emit("lda " + arAddr, r);
                 } else {
@@ -273,8 +279,11 @@ void IRCodeGen::storeVreg(uint32_t vregId) {
             break;
         }
         case VRegAllocator::IN_FRAME: {
-            if (currentFunctionUseSAC_) {
-                // For SAC functions, emit absolute addressing to activation record
+            // For SAC functions, use AR-relative addressing for local vregs only
+            // Parameters must always use FP-relative addressing (they're on stack)
+            bool isParameter = parameterVregs_.count(vregId) > 0;
+            if (currentFunctionUseSAC_ && !isParameter) {
+                // Local vreg: use AR-relative addressing
                 if (vregOffset_.count(vregId)) {
                     std::string arAddr = currentFunctionName_ + "__ar+" + std::to_string(vregOffset_[vregId]);
                     if (alloc.type == ir::Type::I32) {
@@ -288,6 +297,7 @@ void IRCodeGen::storeVreg(uint32_t vregId) {
                     }
                 }
             } else {
+                // Parameter or non-SAC: use FP-relative addressing
                 std::string sym = "__vr" + std::to_string(vregId);
                 if (alloc.type == ir::Type::I32) {
                     emit("staxyz.fp " + sym);
@@ -1334,24 +1344,24 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         emit(".code");  // Switch back to code segment
     }
 
-    // ALL functions push stack frame for compatibility with existing code
-    // For traditional functions: vregs are on the stack
-    // For SAC functions: vregs WILL BE optimized to use AR later, but for now use stack
-    // This ensures FP-relative addressing works correctly for parameter access
-    if (localFrameSize > 128) {
-        // Frame + params + return addr + dynamic pushes must fit in uint8_t offsets
-        std::cerr << fn.name << ": warning: large frame (" << localFrameSize
-                  << " bytes) may cause incorrect stack-relative addressing\n";
-    }
-    if (localFrameSize > 0) {
-        emitComment("frame: " + std::to_string(localFrameSize) + " bytes (frame-allocated vRegs only)");
-        // Push frame in 2-byte chunks; if odd size, push final byte separately
-        for (int i = 0; i < localFrameSize - 1; i += 2) {
-            emit("phw #0");
+    // Push stack frame only for non-SAC functions
+    // SAC functions use static AR buffers instead of stack frames
+    if (!useSAC) {
+        if (localFrameSize > 128) {
+            // Frame + params + return addr + dynamic pushes must fit in uint8_t offsets
+            std::cerr << fn.name << ": warning: large frame (" << localFrameSize
+                      << " bytes) may cause incorrect stack-relative addressing\n";
         }
-        if (localFrameSize % 2 == 1) {
-            emit("lda #0");
-            emit("pha");  // Push final odd byte
+        if (localFrameSize > 0) {
+            emitComment("frame: " + std::to_string(localFrameSize) + " bytes (frame-allocated vRegs only)");
+            // Push frame in 2-byte chunks; if odd size, push final byte separately
+            for (int i = 0; i < localFrameSize - 1; i += 2) {
+                emit("phw #0");
+            }
+            if (localFrameSize % 2 == 1) {
+                emit("lda #0");
+                emit("pha");  // Push final odd byte
+            }
         }
     }
 
@@ -1393,6 +1403,15 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // Identify which localNames are parameters
     std::set<std::string> paramNamesSet(fn.paramNames.begin(), fn.paramNames.end());
 
+    // Populate parameterVregs_ for SAC addressing logic
+    // Parameters must always use FP-relative addressing, not AR-relative
+    parameterVregs_.clear();
+    for (const auto& [name, vregId] : fn.localNames) {
+        if (paramNamesSet.count(name) > 0) {
+            parameterVregs_.insert(vregId);
+        }
+    }
+
     // Emit .local/.var aliases for named variables (to support inline asm)
     for (const auto& [name, vregId] : fn.localNames) {
         bool isParam = paramNamesSet.count(name) > 0;
@@ -1426,15 +1445,16 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     }
 
     // Param .var overrides
-    // For SAC functions, parameters are at fixed AR offsets, not stack/ZP offsets
-    bool useStackParams = (!zpCallMode_ || fn.isVariadic) && !useSAC;
-    if (useSAC) {
-        // SAC convention: skip .var directives for now (Phase 1)
-        // Parameters are accessed via absolute AR addressing, not via symbolic .var names
-    } else if (useStackParams) {
+    // For SAC functions, parameters are still on the stack (accessed via FP)
+    // Only local vregs are allocated to the AR buffer
+    // In SAC mode, frame is NOT pushed, so parameter offsets are 2 bytes less
+    bool useStackParams = (!zpCallMode_ || fn.isVariadic);
+    if (useStackParams) {
         // Stack convention (or variadic in zpCall mode): args pushed right-to-left,
         // first param is closest to SP (smallest offset past frame + return address).
-        int pOff = localFrameSize + 2;
+        // In SAC mode, no frame is pushed, so offset is 2 (just return address)
+        // In non-SAC mode, offset is 2 + frame size
+        int pOff = useSAC ? 2 : (localFrameSize + 2);
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
             int ps = ir::typeSize(fn.paramTypes[i]);
             if (ps < 2) ps = 2;
@@ -1461,12 +1481,12 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         }
     }
 
-    // Emit debug metadata for parameters (skip for SAC functions)
-    if (useSAC) {
-        // SAC convention: parameters are at absolute AR addresses, skip traditional debug metadata
-    } else if (useStackParams) {
+    // Emit debug metadata for parameters
+    if (useStackParams) {
         // Stack convention: parameters on stack
-        int pOff = localFrameSize + 2;
+        // In SAC mode, no frame is pushed, so offset is 2 (just return address)
+        // In non-SAC mode, offset is 2 + frame size
+        int pOff = useSAC ? 2 : (localFrameSize + 2);
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
             int ps = ir::typeSize(fn.paramTypes[i]);
             if (ps < 2) ps = 2;
@@ -1529,9 +1549,8 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 storeVreg(vid);
             }
         }
-    } else if (!useSAC) {
-        // ZP call convention: params already in ZP block, copy to vReg slots
-        // For SAC functions, skip this — parameters are already at their AR addresses
+    } else if (zpCallMode_ && !useSAC) {
+        // ZP call convention (non-SAC): params already in ZP block, copy to vReg slots
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
             uint32_t vid = (uint32_t)i;
             if (fn.isRegparm && i == 0) {

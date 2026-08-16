@@ -131,6 +131,10 @@ private:
     // STORE to a non-slot = indirect write through pointer.
     std::set<uint32_t> localSlotVregs_;
 
+    // Track which vRegs are function parameters (for SAC parameter addressing)
+    // Parameters always use FP-relative addressing, never AR-relative
+    std::set<uint32_t> parameterVregs_;
+
     // Track vregs defined by CONST instructions (for direct-address store optimization)
     // Phase 1: Keep for backward compatibility; paralleled by MachineState tracking
     std::map<uint32_t, int64_t> vregConstVal_;
