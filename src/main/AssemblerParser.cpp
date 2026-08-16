@@ -91,6 +91,25 @@ Symbol* AssemblerParser::resolveSymbol(const std::string& name, const std::strin
         if (p == std::string::npos) current = "";
         else current = current.substr(0, p + 1);
     }
+
+    // For global symbols not found with the given scope prefix, search all scopes
+    // This handles the case where .global is declared at top level but the label
+    // is defined inside a procedure (e.g., .global _foo__ar followed by proc _foo ... _foo__ar: ...)
+    if (scopePrefix.empty() && globalSymbols.count(name)) {
+        // Try to find the symbol in any scope by searching the symbol table
+        for (const auto& [symName, sym] : symbolTable) {
+            // Check if the symbol name ends with our target name (after the scope prefix)
+            if (symName.length() > name.length()) {
+                size_t namePos = symName.length() - name.length();
+                if (symName.substr(namePos) == name &&
+                    (namePos == 0 || symName[namePos - 1] == ':')) {
+                    // Found a scoped version of this global symbol
+                    return &symbolTable.at(symName);
+                }
+            }
+        }
+    }
+
     return nullptr;
 }
 
