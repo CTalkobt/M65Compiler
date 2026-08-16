@@ -1,5 +1,8 @@
     .o45
     .extern __sp_base
+    .global _add_short__ar
+    .global _main__ar
+    .global _mul_short__ar
     .weak __static_chain
     .weak __zp_scratch
     .weak __zp_scratch2
@@ -29,50 +32,43 @@ _r:
 ; function _add_short
     proc _add_short, W#@_p_a, W#@_p_b
     .var _fp = 0
-    .loc "src/test-resources/test_short.c", 7
-; frame: 4 bytes (frame-allocated vRegs only)
-    phw #0
-    phw #0
-    tsy
-    tsx
-    inx
-    bne @__fp_no_carry_0
-    iny
-@__fp_no_carry_0:
-    stx $FD
-    sty $FE
-    .frameptr_zp $FD
+    .loc "/home/duck/m65/inpg/m65compiler/src/test-resources/test_short.c", 7
+; static activation record (SAC): 4 bytes
+    .bss
+    _add_short__ar:
+    .fill 4
+    .code
+    .sac
+    .var ar = _add_short__ar
     leax.fp 0
     sta $10
     stx $10+1
-    .local __vr0 = 0
-    .local __vr1 = 2
-    .var @_p_a = 6
-    .var @_p_b = 8
-; .debug_var: __add_short @_p_a offset=6 size=2 type=int16 scope=parameter
-; .debug_var: __add_short @_p_b offset=8 size=2 type=int16 scope=parameter
+    .var @_p_a = 2
+    .var @_p_b = 4
+; .debug_var: __add_short @_p_a offset=2 size=2 type=int16 scope=parameter
+; .debug_var: __add_short @_p_b offset=4 size=2 type=int16 scope=parameter
 
     ldax.fp @_p_a
-    stax.fp __vr0
+    sta _add_short:ar+0
+    stx _add_short:ar+1
     ldax.fp @_p_b
-    stax.fp __vr1
+    sta _add_short:ar+2
+    stx _add_short:ar+3
 @entry:
-    .loc "src/test-resources/test_short.c", 8
-    ldax.fp 2
+    .loc "/home/duck/m65/inpg/m65compiler/src/test-resources/test_short.c", 8
+    lda _add_short:ar+2
+    ldx _add_short:ar+3
     sta __zp_scratch2
     stx __zp_scratch2+1
-    ldax.fp 0
+    lda _add_short:ar+0
+    ldx _add_short:ar+1
     add.16 .AX, __zp_scratch2
     sta $20
     stx $21
     lda $20
     ldx $21
 @__return:
-    plz
-    plz
-    plz
-    plz
-    .func_flags stack_call, leaf
+    .func_flags stack_call, static_alloc, leaf
     .reg_clobbers A, X
     .flag_clobbers C, N, Z, V
     .frame_size 4
@@ -81,50 +77,43 @@ _r:
 ; function _mul_short
     proc _mul_short, W#@_p_a, W#@_p_b
     .var _fp = 0
-    .loc "src/test-resources/test_short.c", 11
-; frame: 4 bytes (frame-allocated vRegs only)
-    phw #0
-    phw #0
-    tsy
-    tsx
-    inx
-    bne @__fp_no_carry_1
-    iny
-@__fp_no_carry_1:
-    stx $FD
-    sty $FE
-    .frameptr_zp $FD
+    .loc "/home/duck/m65/inpg/m65compiler/src/test-resources/test_short.c", 11
+; static activation record (SAC): 4 bytes
+    .bss
+    _mul_short__ar:
+    .fill 4
+    .code
+    .sac
+    .var ar = _mul_short__ar
     leax.fp 0
     sta $12
     stx $12+1
-    .local __vr0 = 0
-    .local __vr1 = 2
-    .var @_p_a = 6
-    .var @_p_b = 8
-; .debug_var: __mul_short @_p_a offset=6 size=2 type=int16 scope=parameter
-; .debug_var: __mul_short @_p_b offset=8 size=2 type=int16 scope=parameter
+    .var @_p_a = 2
+    .var @_p_b = 4
+; .debug_var: __mul_short @_p_a offset=2 size=2 type=int16 scope=parameter
+; .debug_var: __mul_short @_p_b offset=4 size=2 type=int16 scope=parameter
 
     ldax.fp @_p_a
-    stax.fp __vr0
+    sta _mul_short:ar+0
+    stx _mul_short:ar+1
     ldax.fp @_p_b
-    stax.fp __vr1
+    sta _mul_short:ar+2
+    stx _mul_short:ar+3
 @entry:
-    .loc "src/test-resources/test_short.c", 12
-    ldax.fp 2
+    .loc "/home/duck/m65/inpg/m65compiler/src/test-resources/test_short.c", 12
+    lda _mul_short:ar+2
+    ldx _mul_short:ar+3
     sta __zp_scratch2
     stx __zp_scratch2+1
-    ldax.fp 0
+    lda _mul_short:ar+0
+    ldx _mul_short:ar+1
     mul.16 .AX, __zp_scratch2
     sta $20
     stx $21
     lda $20
     ldx $21
 @__return:
-    plz
-    plz
-    plz
-    plz
-    .func_flags stack_call, leaf
+    .func_flags stack_call, static_alloc, leaf
     .reg_clobbers A, X
     .flag_clobbers C, N, Z, V
     .frame_size 4
@@ -133,38 +122,17 @@ _r:
 ; function _main
     proc _main
     .var _fp = 0
-    .loc "src/test-resources/test_short.c", 15
-; frame: 20 bytes (frame-allocated vRegs only)
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    tsy
-    tsx
-    inx
-    bne @__fp_no_carry_2
-    iny
-@__fp_no_carry_2:
-    stx $FD
-    sty $FE
-    .frameptr_zp $FD
+    .loc "/home/duck/m65/inpg/m65compiler/src/test-resources/test_short.c", 15
+; static activation record (SAC): 16 bytes
+    .bss
+    _main__ar:
+    .fill 16
+    .code
+    .sac
+    .var ar = _main__ar
     leax.fp 0
     sta $14
     stx $14+1
-    .local __vr0 = 0
-    .local __vr2 = 2
-    .local __vr4 = 4
-    .local __vr6 = 6
-    .local __vr8 = 10
-    .local __vr16 = 8
-    .local __vr32 = 16
-    .local __vr33 = 18
     .local @_l_arr = 10
     .local @_l_neg = 6
     .local @_l_p = 8
@@ -179,19 +147,21 @@ _r:
 ; .debug_var: __main @_l_z offset=4 size=2 type=int16 scope=local
 
 @entry:
-    .loc "src/test-resources/test_short.c", 16
+    .loc "/home/duck/m65/inpg/m65compiler/src/test-resources/test_short.c", 16
     lda #10
     ldz #0
     staz.fp __vr0
-    .loc "src/test-resources/test_short.c", 17
+    .loc "/home/duck/m65/inpg/m65compiler/src/test-resources/test_short.c", 17
     lda #20
     ldz #0
     staz.fp __vr2
-    .loc "src/test-resources/test_short.c", 18
-    ldax.fp 2
+    .loc "/home/duck/m65/inpg/m65compiler/src/test-resources/test_short.c", 18
+    lda _main:ar+2
+    ldx _main:ar+3
     sta $28
     stx $29
-    ldax.fp 0
+    lda _main:ar+0
+    ldx _main:ar+1
     sta $2A
     stx $2B
     lda $28
@@ -213,12 +183,13 @@ _r:
     stx $21
     lda $20
     ldx $21
-    stax.fp __vr4
-    .loc "src/test-resources/test_short.c", 19
+    sta _main:ar+4
+    stx _main:ar+5
+    .loc "/home/duck/m65/inpg/m65compiler/src/test-resources/test_short.c", 19
     lda #251
     ldz #255
     staz.fp __vr6
-    .loc "src/test-resources/test_short.c", 20
+    .loc "/home/duck/m65/inpg/m65compiler/src/test-resources/test_short.c", 20
     leax.fp 10
     sta $20
     stx $21
@@ -270,17 +241,19 @@ _r:
     txa
     iny
     sta (__zp_scratch),y
-    .loc "src/test-resources/test_short.c", 21
+    .loc "/home/duck/m65/inpg/m65compiler/src/test-resources/test_short.c", 21
     lda $14
     ldx $14+1
     sta $20
     stx $21
     lda $20
     ldx $21
-    stax.fp __vr16
-    ldax.fp 4
+    sta _main:ar+8
+    stx _main:ar+9
+    lda _main:ar+4
+    ldx _main:ar+5
     sta $20
-    .loc "src/test-resources/test_short.c", 23
+    .loc "/home/duck/m65/inpg/m65compiler/src/test-resources/test_short.c", 23
     lda _r
     ldx _r+1
     sta $22
@@ -309,8 +282,9 @@ _r:
     pla
     ldy #0
     sta (__zp_scratch),y
-    .loc "src/test-resources/test_short.c", 24
-    ldax.fp 6
+    .loc "/home/duck/m65/inpg/m65compiler/src/test-resources/test_short.c", 24
+    lda _main:ar+6
+    ldx _main:ar+7
     clc
     adc #10
     sta $22
@@ -347,7 +321,7 @@ _r:
     pla
     ldy #0
     sta (__zp_scratch),y
-    .loc "src/test-resources/test_short.c", 25
+    .loc "/home/duck/m65/inpg/m65compiler/src/test-resources/test_short.c", 25
     lda #2
     sta $20
     lda _r
@@ -379,7 +353,7 @@ _r:
     pla
     ldy #0
     sta (__zp_scratch),y
-    .loc "src/test-resources/test_short.c", 26
+    .loc "/home/duck/m65/inpg/m65compiler/src/test-resources/test_short.c", 26
     lda #4
     ldx #0
     push .ax
@@ -429,8 +403,9 @@ _r:
     pla
     ldy #0
     sta (__zp_scratch),y
-    .loc "src/test-resources/test_short.c", 27
-    ldax.fp 8
+    .loc "/home/duck/m65/inpg/m65compiler/src/test-resources/test_short.c", 27
+    lda _main:ar+8
+    ldx _main:ar+9
     sta __zp_scratch
     stx __zp_scratch+1
     ldy #0
@@ -474,7 +449,7 @@ _r:
     pla
     ldy #0
     sta (__zp_scratch),y
-    .loc "src/test-resources/test_short.c", 28
+    .loc "/home/duck/m65/inpg/m65compiler/src/test-resources/test_short.c", 28
     leax.fp 10
     sta $20
     stx $21
@@ -539,7 +514,7 @@ _r:
     pla
     ldy #0
     sta (__zp_scratch),y
-    .loc "src/test-resources/test_short.c", 29
+    .loc "/home/duck/m65/inpg/m65compiler/src/test-resources/test_short.c", 29
     lda #170
     sta $20
     lda _r
@@ -571,33 +546,13 @@ _r:
     pla
     ldy #0
     sta (__zp_scratch),y
-    .loc "src/test-resources/test_short.c", 31
+    .loc "/home/duck/m65/inpg/m65compiler/src/test-resources/test_short.c", 31
     brk
 @__return:
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    .func_flags stack_call
+    .func_flags stack_call, static_alloc
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
-    .frame_size 20
+    .frame_size 16
     endproc
 
 
