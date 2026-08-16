@@ -137,6 +137,10 @@ private:
     // CONST vregs only used as STORE addresses — skip emission and frame allocation
     std::set<uint32_t> suppressedVregs_;
 
+    // Track which functions use SAC (Static Allocation Convention)
+    // Used to emit .global declarations for __ar symbols in preamble
+    std::set<std::string> sacFunctions_;
+
     // Phase 1: MachineState-based helpers for constant queries
     // Returns true if a vreg's value is a known constant and optionally retrieves it
     bool vregIsConst(uint32_t vregId, int64_t* outVal = nullptr) const;

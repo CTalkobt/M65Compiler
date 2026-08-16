@@ -508,9 +508,43 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         functionClobberMasks_[fn.name] = regMask;
     }
 
+    // Phase 3: Pre-scan functions to identify which ones use SAC
+    // (Static Allocation Convention — uses __ar symbols instead of stack frame)
+    sacFunctions_.clear();
+    if (staticAllocMode) {
+        for (const auto& fn : mod.functions) {
+            // SAC eligibility: enabled globally, not recursive, not interrupt/naked/variadic
+            bool useSAC = !fn.isRecurse && !fn.isInterrupt && !fn.isNaked && !fn.isVariadic;
+            if (useSAC) {
+                // Quick self-recursion check
+                bool hasSelfCall = false;
+                for (const auto& blk : fn.blocks) {
+                    for (const auto& inst : blk.insts) {
+                        if (inst.op == ir::Op::CALL && inst.src1.kind == ir::OperandKind::GLOBAL) {
+                            if (inst.src1.name == fn.name) {
+                                hasSelfCall = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (hasSelfCall) break;
+                }
+                if (!hasSelfCall) {
+                    sacFunctions_.insert(fn.name);  // Mark as SAC-eligible
+                }
+            }
+        }
+    }
+
     if (relocMode) {
         emit(".o45");
         emit(".extern __sp_base");
+
+        // Emit .global declarations for SAC __ar symbols
+        // These will be patched by linker with computed overlay addresses
+        for (const auto& name : sacFunctions_) {
+            emit(".global " + name + "__ar");
+        }
     } else {
         // Standalone PRG mode: emit startup stub
         bool hasMain = false;
@@ -1225,6 +1259,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     // Store SAC mode for this function (used by loadVreg/storeVreg for addressing)
     currentFunctionUseSAC_ = useSAC;
+    if (useSAC) {
+        sacFunctions_.insert(fn.name);  // Track for .global __ar symbol emission
+    }
 
     // proc directive with parameter specs
     // For regparm, first param is in A/AX — not on stack, not in proc line
@@ -1288,6 +1325,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // For SAC functions, emit static activation record (AR) instead of stack frame
     if (useSAC) {
         // Emit AR as a BSS symbol (uninitialized static storage)
+        // Symbol is exported at top level via .global in CodeGenerator
         std::string arSymbol = fn.name + "__ar";
         emitComment("static activation record (SAC): " + std::to_string(localFrameSize) + " bytes");
         emit(arSymbol + ":");
