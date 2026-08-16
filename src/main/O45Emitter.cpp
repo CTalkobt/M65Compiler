@@ -211,6 +211,31 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         // Skip numeric literals — they're absolute addresses, not relocatable
         if (operand[0] == '$' || operand[0] == '%' || (operand[0] >= '0' && operand[0] <= '9')) continue;
 
+        // Check for SAC AR symbol relocation first (e.g., _main:__ar+2)
+        AssemblerParser::ArRelocation arReloc = parser.tryParseArRelocation(operand);
+        if (arReloc.isArReloc) {
+            // This is an AR relocation — create a relocation record with addend
+            Symbol* arSym = parser.resolveSymbol(arReloc.arSymbol, stmt->scopePrefix);
+            if (arSym && !arSym->segment.empty()) {
+                std::string srcSeg = stmt->segmentName;
+                uint32_t srcBase = globalBase;
+                if (parser.segments.count(srcSeg)) {
+                    srcBase = parser.segments.at(srcSeg)->startAddress;
+                    if (srcBase == 0xFFFFFFFF) srcBase = 0;
+                }
+                uint32_t patchOffset = (stmt->address + 1) - srcBase;
+
+                O45Reloc reloc;
+                reloc.offset = patchOffset;
+                reloc.type = R_WORD;
+                reloc.segment = segIdFromName(arSym->segment);
+                reloc.addend = arReloc.addend;  // Store the offset as addend
+
+                segRelocs[srcSeg].push_back(reloc);
+                continue;  // Skip further processing for this operand
+            }
+        }
+
         // Try resolving the full operand as a symbol first (simple case: bare label)
         std::string symName = operand;
         Symbol* sym = parser.resolveSymbol(symName, stmt->scopePrefix);
