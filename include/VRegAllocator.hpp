@@ -71,6 +71,9 @@ private:
     void freeZpSlot(int zpAddr, ir::Type type);
     int allocFrameSlot(ir::Type type, int overrideSize = 0);
     void freeFrameSlot(int offset, int size);
+    int findNonConflictingFrameOffset(const LiveRange& lr, int size,
+                                      const std::vector<LiveRange>& allRanges,
+                                      const std::map<uint32_t, Allocation>& existingAllocs);
 
     // Flatten all instructions in a function to a linear index
     struct FlatInst {

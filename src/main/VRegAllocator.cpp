@@ -222,6 +222,64 @@ void VRegAllocator::freeFrameSlot(int offset, int size) {
     freeFrameSlots_.push_back({offset, size});
 }
 
+// Helper: check if two live ranges overlap
+static bool liveRangesOverlap(const VRegAllocator::LiveRange& a, const VRegAllocator::LiveRange& b) {
+    // Two ranges [a.first, a.last] and [b.first, b.last] overlap if:
+    // NOT (a.last < b.first OR b.last < a.first)
+    return !(a.lastUse < b.firstDef || b.lastUse < a.firstDef);
+}
+
+// Helper: try to find a non-conflicting offset for a vreg in the frame
+// by checking if the vreg's live range overlaps with others using that offset
+int VRegAllocator::findNonConflictingFrameOffset(const LiveRange& lr, int size,
+                                                   const std::vector<LiveRange>& allRanges,
+                                                   const std::map<uint32_t, Allocation>& existingAllocs) {
+    // Try each possible offset starting from 0
+    for (int candidate = 0; candidate < 256; candidate += 2) {  // 2-byte alignment
+        bool conflicts = false;
+
+        // Check if any vreg currently allocated to [candidate, candidate+size) overlaps with lr
+        for (const auto& [existingVid, alloc] : existingAllocs) {
+            if (alloc.loc != IN_FRAME) continue;
+
+            // Check if offset ranges overlap
+            int existingSize = 2;  // typical size
+            for (const auto& r : allRanges) {
+                if (r.vregId == existingVid) {
+                    existingSize = ir::typeSize(r.type);
+                    if (existingSize < 2) existingSize = 2;
+                    break;
+                }
+            }
+
+            int existingStart = alloc.offset;
+            int existingEnd = alloc.offset + existingSize;
+            int candidateEnd = candidate + size;
+
+            // Ranges [existingStart, existingEnd) and [candidate, candidateEnd) overlap if:
+            if (!(existingEnd <= candidate || candidateEnd <= existingStart)) {
+                // Check if the live ranges actually overlap in time
+                for (const auto& existingRange : allRanges) {
+                    if (existingRange.vregId == existingVid) {
+                        if (liveRangesOverlap(lr, existingRange)) {
+                            conflicts = true;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            if (conflicts) break;
+        }
+
+        if (!conflicts) {
+            return candidate;
+        }
+    }
+
+    return -1;  // No conflict-free offset found
+}
+
 void VRegAllocator::assignLocations(const ir::Function& fn) {
     allocs_.clear();
     frameSize_ = 0;
@@ -319,6 +377,9 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
     }
 
     // PHASE 2: Allocate temporaries and register variables
+    // Track frame offsets currently in use for smart coalescing
+    std::map<int, uint32_t> offsetToVregId;  // offset → vreg currently using it
+
     for (auto& lr : ranges_) {
         // Skip if already allocated in phase 1
         if (allocs_.count(lr.vregId)) continue;
@@ -346,7 +407,7 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
             }
             for (auto vid : expired) zpAllocMap.erase(vid);
         }
-        // Expire frame slots
+        // Expire frame slots and clean offsetToVregId mapping
         {
             std::vector<uint32_t> expired;
             for (auto& [vid, fsi] : frameAllocMap) {
@@ -355,6 +416,10 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
                     if (r.vregId == vid && r.lastUse < lr.firstDef) {
                         expired.push_back(vid);
                         freeFrameSlot(fsi.offset, fsi.size);
+                        // Remove offset mapping
+                        for (int off = fsi.offset; off < fsi.offset + fsi.size; off++) {
+                            offsetToVregId.erase(off);
+                        }
                         break;
                     }
                 }
@@ -381,7 +446,12 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
             int size = fn.vregSizes.count(lr.vregId) ? fn.vregSizes.at(lr.vregId) : ir::typeSize(lr.type);
             int foff = allocFrameSlot(lr.type, size);
             allocs_[lr.vregId] = {IN_FRAME, foff, lr.type};
-            frameAllocMap[lr.vregId] = {foff, size < 2 ? 2 : size};
+            int fsize = size < 2 ? 2 : size;
+            frameAllocMap[lr.vregId] = {foff, fsize};
+            // Mark offsets as occupied
+            for (int i = 0; i < fsize; i++) {
+                offsetToVregId[foff + i] = lr.vregId;
+            }
             continue;
         }
 
@@ -413,17 +483,38 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
                 allocs_[lr.vregId] = {IN_ZP, zpAddr, lr.type};
                 zpAllocMap[lr.vregId] = zpAddr;
             } else {
-                // ZP pool exhausted, fall back to FRAME
-                int foff = allocFrameSlot(lr.type);
+                // ZP pool exhausted, fall back to FRAME with smart coalescing
                 int fsize = ir::typeSize(lr.type); if (fsize < 2) fsize = 2;
+                int foff = findNonConflictingFrameOffset(lr, fsize, ranges_, allocs_);
+                if (foff < 0) {
+                    foff = allocFrameSlot(lr.type);
+                }
+                // Mark offsets as occupied
+                for (int i = 0; i < fsize; i++) {
+                    offsetToVregId[foff + i] = lr.vregId;
+                }
                 allocs_[lr.vregId] = {IN_FRAME, foff, lr.type};
                 frameAllocMap[lr.vregId] = {foff, fsize};
             }
         } else {
             // Either: crosses a call (ZP is clobbered), or is a local (must use frame)
             // In both cases, locals and call-crossing vRegs go to FRAME
-            int foff = allocFrameSlot(lr.type);
             int fsize = ir::typeSize(lr.type); if (fsize < 2) fsize = 2;
+
+            // Smart frame allocation with conflict-aware coalescing:
+            // Try to find an offset that doesn't conflict with active live ranges
+            int foff = findNonConflictingFrameOffset(lr, fsize, ranges_, allocs_);
+
+            if (foff < 0) {
+                // No conflict-free slot found, allocate new space
+                foff = allocFrameSlot(lr.type);
+            }
+
+            // Mark all bytes of this offset as occupied by this vreg
+            for (int i = 0; i < fsize; i++) {
+                offsetToVregId[foff + i] = lr.vregId;
+            }
+
             allocs_[lr.vregId] = {IN_FRAME, foff, lr.type};
             frameAllocMap[lr.vregId] = {foff, fsize};
         }
