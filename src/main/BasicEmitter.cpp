@@ -83,7 +83,7 @@ std::vector<uint8_t> BasicEmitter::emit(const std::vector<BasicLine>& lines) {
     // First pass: emit all lines with dummy address (0) to get their exact sizes
     std::vector<std::vector<uint8_t>> lineDataList;
     for (size_t i = 0; i < lines.size(); i++) {
-        auto lineData = emitLine(lines[i], 0);  // Use dummy address
+        auto lineData = emitLineWithSpaces(lines[i], 0);  // Use dummy address, with spaces
         lineDataList.push_back(lineData);
     }
 
@@ -99,7 +99,7 @@ std::vector<uint8_t> BasicEmitter::emit(const std::vector<BasicLine>& lines) {
     std::vector<uint8_t> programData;
     for (size_t i = 0; i < lines.size(); i++) {
         uint16_t nextLineAddr = (i + 1 < lines.size()) ? lineAddrs[i + 1] : 0;
-        auto lineData = emitLine(lines[i], nextLineAddr);
+        auto lineData = emitLineWithSpaces(lines[i], nextLineAddr);
         programData.insert(programData.end(), lineData.begin(), lineData.end());
     }
 
@@ -191,6 +191,42 @@ std::vector<uint8_t> BasicEmitter::emitToken(const BasicToken& token) {
             // Labels are not emitted in the binary
             break;
     }
+
+    return result;
+}
+
+std::vector<uint8_t> BasicEmitter::emitLineWithSpaces(const BasicLine& line, uint16_t nextLineAddr) {
+    std::vector<uint8_t> result;
+
+    result.push_back(static_cast<uint8_t>(nextLineAddr & 0xFF));
+    result.push_back(static_cast<uint8_t>((nextLineAddr >> 8) & 0xFF));
+
+    result.push_back(static_cast<uint8_t>(line.lineNumber & 0xFF));
+    result.push_back(static_cast<uint8_t>((line.lineNumber >> 8) & 0xFF));
+
+    for (size_t i = 0; i < line.tokens.size(); i++) {
+        const auto& token = line.tokens[i];
+        auto tokenData = emitToken(token);
+        result.insert(result.end(), tokenData.begin(), tokenData.end());
+
+        // Add space after keywords when followed by identifier, number, or variable
+        if (token.type == BasicToken::KEYWORD && i + 1 < line.tokens.size()) {
+            const auto& nextToken = line.tokens[i + 1];
+            if (nextToken.type == BasicToken::IDENTIFIER ||
+                nextToken.type == BasicToken::NUMBER ||
+                nextToken.type == BasicToken::OPERATOR) {
+                // Don't add space before certain operators like (),:
+                if (nextToken.type == BasicToken::OPERATOR &&
+                    (nextToken.value == "(" || nextToken.value == "," || nextToken.value == ":")) {
+                    // Skip space for these operators
+                } else {
+                    result.push_back(0x20);  // Space character
+                }
+            }
+        }
+    }
+
+    result.push_back(0x00);
 
     return result;
 }

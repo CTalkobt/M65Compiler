@@ -251,8 +251,22 @@ std::vector<BasicToken> BasicTokenizer::tokenize(const std::string& source) {
             lineStart = false;
             BasicToken token = parseIdentifier(source, pos);
 
-            // Check for label (identifier followed by :)
-            if (pos < source.length() && source[pos] == ':') {
+            // Check for label: only treat identifier: as a label if it's a valid label position
+            // Valid positions: after line number at start of line, or after a statement separator (:)
+            // NOT valid: in the middle of a statement like GET A$: or IF X:
+            bool isLabel = false;
+            if (pos < source.length() && source[pos] == ':' && token.type == BasicToken::IDENTIFIER) {
+                // Only treat as label if previous token is a line number or statement separator
+                if (!tokens.empty()) {
+                    BasicToken& lastToken = tokens.back();
+                    // After line number: tokens[0] is line number, tokens[1] might be label
+                    // After colon: previous token is a colon operator
+                    isLabel = (lastToken.type == BasicToken::OPERATOR && lastToken.value == ":") ||
+                              (tokens.size() == 1 && lastToken.type == BasicToken::NUMBER);
+                }
+            }
+
+            if (isLabel) {
                 token.type = BasicToken::LABEL;
                 pos++;  // skip the :
             }

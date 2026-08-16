@@ -12,6 +12,8 @@
 #include "O45FormatUtil.hpp"
 #include "AssemblerOpcodeDatabase.hpp"
 #include "AssemblerTypes.hpp"
+#include "BasicTokenizer.hpp"
+#include "BasicEmitter.hpp"
 #include "Version.hpp"
 
 // TODO: Add binary diff mode (-D) for comparing two .prg/.o45 files.
@@ -741,6 +743,161 @@ static bool hasExtension(const std::string& filename, const std::string& ext) {
     return tail == ext;
 }
 
+// ─── BASIC Program Dumping ──────────────────────────────────────────────────
+
+static bool readBasicPrg(const std::string& filename, std::vector<BasicLine>& lines) {
+    std::ifstream file(filename, std::ios::binary);
+    if (!file) return false;
+
+    uint8_t loadLow, loadHigh;
+    file.read((char*)&loadLow, 1);
+    file.read((char*)&loadHigh, 1);
+    if (!file) return false;
+
+    uint16_t loadAddr = loadLow | (loadHigh << 8);
+    uint16_t currentAddr = loadAddr;
+
+    while (file) {
+        uint8_t nextLow, nextHigh;
+        file.read((char*)&nextLow, 1);
+        file.read((char*)&nextHigh, 1);
+        if (!file || (nextLow == 0 && nextHigh == 0)) break;
+
+        uint16_t nextAddr = nextLow | (nextHigh << 8);
+
+        uint8_t lineLow, lineHigh;
+        file.read((char*)&lineLow, 1);
+        file.read((char*)&lineHigh, 1);
+        if (!file) break;
+
+        uint16_t lineNum = lineLow | (lineHigh << 8);
+
+        std::vector<uint8_t> tokens;
+        uint8_t byte;
+        while (file.read((char*)&byte, 1)) {
+            if (byte == 0) break;
+            tokens.push_back(byte);
+        }
+
+        BasicLine line;
+        line.lineNumber = lineNum;
+        line.lineAddr = currentAddr;
+        line.nextLineAddr = nextAddr;
+        line.tokens = tokens;
+        lines.push_back(line);
+
+        currentAddr = nextAddr;
+    }
+
+    return true;
+}
+
+static void dumpBasicProgram(const std::string& filename, bool showHex) {
+    std::vector<BasicLine> lines;
+    if (!readBasicPrg(filename, lines)) {
+        std::cerr << "objdump45: Cannot read BASIC program: " << filename << std::endl;
+        return;
+    }
+
+    BasicTokenizer tokenizer;
+    std::map<uint8_t, std::string> byteToKeyword;
+    std::map<uint8_t, std::string> escapeByteToKeyword;
+
+    for (const auto& kw : tokenizer.getKeywords()) {
+        byteToKeyword[kw.second] = kw.first;
+    }
+    for (const auto& kw : tokenizer.getEscapeKeywords()) {
+        escapeByteToKeyword[kw.second] = kw.first;
+    }
+
+    printf("\nBASIC Program: %s (%zu lines)\n", filename.c_str(), lines.size());
+    printf("─────────────────────────────────\n");
+    printf("Format: LineNum @Address -> NextAddr [HEX data...]\n\n");
+
+    for (const auto& line : lines) {
+        if (showHex) {
+            printf("%5u @%04X->%04X [HEX] ", line.lineNumber, line.lineAddr, line.nextLineAddr);
+            for (uint8_t byte : line.tokens) {
+                printf("%02X ", byte);
+            }
+            printf("\n");
+        }
+
+        printf("%5u @%04X->%04X ", line.lineNumber, line.lineAddr, line.nextLineAddr);
+        printf(" ");
+
+        size_t i = 0;
+        while (i < line.tokens.size()) {
+            uint8_t byte = line.tokens[i];
+
+            if (byte >= 0x80) {
+                if (byte == 0xFE) {
+                    if (i + 1 < line.tokens.size()) {
+                        uint8_t escapeByte = line.tokens[i + 1];
+                        auto it = escapeByteToKeyword.find(escapeByte);
+                        if (it != escapeByteToKeyword.end()) {
+                            printf("%s ", it->second.c_str());
+                        } else {
+                            printf("[FE%02X] ", escapeByte);
+                        }
+                        i += 2;
+                    } else {
+                        printf("[FE??] ");
+                        i++;
+                    }
+                } else {
+                    auto it = byteToKeyword.find(byte);
+                    if (it != byteToKeyword.end()) {
+                        printf("%s ", it->second.c_str());
+                    } else {
+                        printf("[%02X] ", byte);
+                    }
+                    i++;
+                }
+            } else if (byte == 0x22) {
+                printf("\"");
+                i++;
+                while (i < line.tokens.size() && line.tokens[i] != 0x22) {
+                    printf("%c", line.tokens[i]);
+                    i++;
+                }
+                if (i < line.tokens.size()) {
+                    printf("\" ");
+                    i++;
+                } else {
+                    printf("\" [UNTERMINATED] ");
+                }
+            } else if ((byte >= 0x30 && byte <= 0x39) || byte == 0x2E) {
+                printf("%c", byte);
+                i++;
+            } else if ((byte >= 0x41 && byte <= 0x5A) || (byte >= 0x61 && byte <= 0x7A) ||
+                       byte == 0x5F || (byte >= 0x30 && byte <= 0x39)) {
+                while (i < line.tokens.size()) {
+                    byte = line.tokens[i];
+                    if ((byte >= 0x41 && byte <= 0x5A) || (byte >= 0x61 && byte <= 0x7A) ||
+                        byte == 0x5F || (byte >= 0x30 && byte <= 0x39)) {
+                        printf("%c", byte);
+                        i++;
+                    } else {
+                        break;
+                    }
+                }
+                printf(" ");
+            } else {
+                printf("%c", byte);
+                if (byte != 0x28 && byte != 0x29 && byte != 0x2C && byte != 0x3A &&
+                    byte != 0x3B && byte != 0x3D && byte != 0x3C && byte != 0x3E &&
+                    byte != 0x2B && byte != 0x2D && byte != 0x2A && byte != 0x2F) {
+                    printf(" ");
+                }
+                i++;
+            }
+        }
+
+        printf("\n");
+    }
+}
+
 static void printUsage(const char* progName) {
     std::cout << "Usage: " << progName << " [options] <file> [...]" << std::endl;
     std::cout << "Display information from .o45/.o65 object files, .prg, or raw binaries." << std::endl;
@@ -753,6 +910,8 @@ static void printUsage(const char* progName) {
     std::cout << "  -s       Display full contents of all sections (hex dump)" << std::endl;
     std::cout << "  -d       Disassemble executable sections" << std::endl;
     std::cout << "  -a       Display all information" << std::endl;
+    std::cout << "  -bas     Dump BASIC program (for .prg files only)" << std::endl;
+    std::cout << "  -x       Show hex dump (with -bas option)" << std::endl;
     std::cout << "  -b ADDR  Set base address for raw binary files (default: $0000)" << std::endl;
     std::cout << "  -m FILE  Load symbols from linker map file (ln45 -M output)" << std::endl;
     std::cout << "  -V       Display version" << std::endl;
@@ -760,7 +919,7 @@ static void printUsage(const char* progName) {
     std::cout << std::endl;
     std::cout << "Supported formats:" << std::endl;
     std::cout << "  .o45/.o65  Relocatable object files (full header/symbol/reloc support)" << std::endl;
-    std::cout << "  .prg       PRG files (2-byte load address header, auto-detected)" << std::endl;
+    std::cout << "  .prg       PRG files (2-byte load address header, auto-detected, -bas for BASIC dump)" << std::endl;
     std::cout << "  .bin       Raw binary files (use -b to set base address)" << std::endl;
 }
 
@@ -772,6 +931,8 @@ int main(int argc, char** argv) {
     bool showContents = false;
     bool showDisasm = false;
     bool showAll = false;
+    bool showBasic = false;
+    bool showHex = false;
     uint32_t baseAddr = 0;
     bool baseAddrSet = false;
     std::string mapFile;
@@ -804,6 +965,10 @@ int main(int argc, char** argv) {
                 return 1;
             }
             mapFile = argv[++i];
+        } else if (arg == "-bas") {
+            showBasic = true;
+        } else if (arg == "-x") {
+            showHex = true;
         } else if (arg[0] == '-' && arg.size() > 1) {
             // Parse combined flags like -fdh
             for (size_t j = 1; j < arg.size(); j++) {
@@ -815,6 +980,7 @@ int main(int argc, char** argv) {
                     case 's': showContents = true; break;
                     case 'd': showDisasm = true; break;
                     case 'a': showAll = true; break;
+                    case 'x': showHex = true; break;
                     default:
                         std::cerr << "objdump45: unknown option '-" << arg[j] << "'" << std::endl;
                         return 1;
@@ -829,10 +995,10 @@ int main(int argc, char** argv) {
         showFileHeader = showSections = showSymbols = showRelocs = showContents = showDisasm = true;
     }
 
-    // If no display options given, default to showing file header
+    // If no display options given, default to showing file header (unless -bas is specified)
     if (!showFileHeader && !showSections && !showSymbols && !showRelocs &&
-        !showContents && !showDisasm) {
-        std::cerr << "objdump45: no display option specified (use -f, -h, -t, -r, -s, -d, or -a)" << std::endl;
+        !showContents && !showDisasm && !showBasic) {
+        std::cerr << "objdump45: no display option specified (use -f, -h, -t, -r, -s, -d, -a, or -bas)" << std::endl;
         printUsage(argv[0]);
         return 1;
     }
@@ -883,6 +1049,13 @@ int main(int argc, char** argv) {
         } else {
             // ── Raw binary or PRG ──
             bool isPrg = hasExtension(filename, ".prg");
+
+            // Check for BASIC dump mode
+            if (showBasic && isPrg) {
+                dumpBasicProgram(filename, showHex);
+                continue;
+            }
+
             uint32_t base = baseAddr;
             std::vector<uint8_t> body;
 

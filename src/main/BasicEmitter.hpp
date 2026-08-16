@@ -23,14 +23,17 @@ public:
     void outputLabelTable(const std::string& filename) const;
 
     void setLineIncrement(uint16_t increment) { lineIncrement = increment; }
+    void setPreserveSpaces(bool preserve) { preserveSpaces = preserve; }
 
 private:
     uint16_t loadAddress;
     uint16_t lineIncrement;
+    bool preserveSpaces = false;
     std::map<std::string, uint16_t> labelMap;
 
     std::vector<uint8_t> emitLoadAddress();
     std::vector<uint8_t> emitLine(const BasicLine& line, uint16_t nextLineAddr);
+    std::vector<uint8_t> emitLineWithSpaces(const BasicLine& line, uint16_t nextLineAddr);
     std::vector<uint8_t> emitToken(const BasicToken& token);
     std::vector<BasicLine> processLabels(std::vector<BasicLine>& lines);
 };

@@ -27,6 +27,7 @@ struct Options {
     bool listTokens = false;
     bool useLabels = false;
     bool generateDocs = false;
+    bool preserveSpaces = false;
 };
 
 class SymbolTable {
@@ -91,6 +92,7 @@ static void printUsage(const char* progName) {
     std::cout << "  --increment <n>     Line number increment (default: 10)" << std::endl;
     std::cout << "  --docs <f>          Generate markdown documentation to file" << std::endl;
     std::cout << "  -I <path>           Add include search path for #include" << std::endl;
+    std::cout << "  --preserve-spaces   Preserve spaces in tokenized output for listing display" << std::endl;
     std::cout << "  --list-tokens       List all supported BASIC keywords and exit" << std::endl;
     std::cout << "  -v, --verbose       Verbose output" << std::endl;
     std::cout << "  --version           Show version" << std::endl;
@@ -124,6 +126,8 @@ static Options parseArgs(int argc, char* argv[]) {
             opts.generateDocs = true;
         } else if (arg == "-I" && i + 1 < argc) {
             opts.includePath = argv[++i];
+        } else if (arg == "--preserve-spaces") {
+            opts.preserveSpaces = true;
         } else if (arg == "--list-tokens") {
             opts.listTokens = true;
         } else if (arg == "--version") {
@@ -276,6 +280,9 @@ int main(int argc, char* argv[]) {
     }
 
     BasicEmitter emitter(opts.loadAddress, opts.lineIncrement);
+    if (opts.preserveSpaces) {
+        emitter.setPreserveSpaces(true);
+    }
     auto binary = emitter.emitBinary(sourceCode, opts.useLabels);
 
     writeFile(opts.outputFile, binary);
