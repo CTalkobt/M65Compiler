@@ -1,7 +1,7 @@
 # MEGA65 C Compiler Suite — Codebase Documentation
 
-**Status:** v1.0.5 (Release)
-**Last Updated:** 2026-07-19
+**Status:** v1.0.5+ (SAC Implementation - 2026-08-16)
+**Last Updated:** 2026-08-16
 **Maintainer:** Craig Taylor (CTalkobt)
 
 ---
@@ -40,10 +40,11 @@ PRG Executable or Flat Binary
 
 ### Key Design Decisions
 
-1. **Calling Conventions**: Two modes supported (both fully implemented):
+1. **Calling Conventions**: Three modes supported (all fully implemented):
    - **Stack convention** (default): Parameters on stack, return value in AXYZ (for long). Frame pointer ($FD/$FE) set up lazily only when needed. Struct returns via static temporary location to avoid return-value corruption. See `doc/architecture/calling-conventions.md` for details.
    - **ZP calling convention** (`-fzpcall`): Parameters in fixed ZP region ($20-$2A), faster, with per-function clobber tracking. No stack overhead. See `doc/architecture/calling-conventions.md` for parameter map and restrictions.
-   - Linker enforces one-directional calling convention safety: ZP callers cannot call stack callees (error); stack callers can call ZP callees (safe)
+   - **Static Allocation Convention (SAC)** (`-fstaticalloc`): Alternative to stack convention for non-recursive functions. Uses static BSS-allocated activation records instead of stack frames. Parameters still passed on stack but stored in static AR buffer. No frame push overhead. Functions with no recursion benefit from smaller code and predictable memory layout. See `doc/architecture/calling-conventions.md` for SAC details.
+   - Linker enforces one-directional calling convention safety: ZP callers cannot call stack callees (error); stack callers can call ZP callees (safe); SAC compatible with stack/ZP modes
    - Automatic bridge thunk generation at linker level with `-Wthunk` warning mode
 
 2. **Optimization Framework** (extensive, production-ready):
@@ -249,7 +250,7 @@ ln45 (Link: Combine .o45 objects + libraries → PRG/Binary)
 - **Operators**: All C arithmetic, logical, bitwise, comparison, ternary, cast, sizeof, `_Alignof`, `_Generic`, comma operator, Elvis operator (`?:`)
 - **Control Flow**: if/else, while, do-while, for, switch/case (with GCC range syntax `case A ... Z:`), break, continue, return, goto, computed goto (`&&label`, `goto *expr`)
 - **Inline Assembly**: `asm("...")` and `__asm__("...")` with full variable access via naming prefixes
-- **Pragmas**: `#pragma once`, `#pragma cc45 <option>` (heap, no_bssinit, no_0100_stack, no_zp_save, exit_rts/halt/brk, set_bp, weak)
+- **Pragmas**: `#pragma once`, `#pragma cc45 <option>` (heap, no_bssinit, no_0100_stack, no_zp_save, exit_rts/halt/brk, set_bp, weak, no_static_alloc)
 - **Compound Literals**: `(int){42}`, `(struct Point){1,2}`, `(int[3]){1,2,3}`, `(int[]){...}` array casts
 - **Bitfields**: `struct S { int x:4; unsigned y:4; long z:24; }` with optimized TRB/TSB codegen, 32-bit storage units, unnamed bitfield padding
 - **Alignment**: `_Alignas(N)` for globals, locals, and struct members
@@ -397,6 +398,31 @@ Planned (not critical for v1.0):
 - Per-function calling convention attribute in `.o45`
 - Linker-generated convention thunks on mismatch (stack ↔ ZP)
 - `--no-thunks` flag and `-Wthunk` warning
+
+### Static Allocation Convention (SAC) - v1.0.5+
+
+**Status**: ✅ Fully implemented (8 phases, production-ready)
+
+**Supported**:
+- `-fstaticalloc` flag for static AR buffer allocation
+- Function-level pragma: `#pragma cc45 no_static_alloc` to override
+- 0+ parameter functions (fixed-size AR buffers)
+- Nested SAC function calls
+- Interoperability with stack/ZP conventions
+- Correct parameter passing (stack → AR)
+- Proper register preservation and return values
+
+**Verified**:
+- Assembly correctness (AR-relative addressing throughout)
+- No regressions (270+ unit tests pass)
+- Extended test suite (5 comprehensive programs)
+- Edge cases: 0-parameter, 5+ parameter, local variables, nested calls
+
+**Future Optimizations**:
+- Leaf function detection and marking
+- Register pressure optimization
+- Cross-module inlining
+- Recursive function fallback (currently manual via pragma)
 
 ### Debugging & Introspection
 
