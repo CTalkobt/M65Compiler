@@ -973,7 +973,20 @@ void AssemblerParser::pass1() {
             else if (fullMnemonic == "struct_elem.16" || fullMnemonic == "struct_elem") { SIMOP(STRUCT_ELEM, dispatch_StructElem); }
             #undef SIMOP
 
-            if (stmt->instr.mnemonic == "expr") {
+            // Calculate sizes for SIMOP statements that need pre-emission size calculation
+            if (stmt->instr.mnemonic == "fill" || stmt->instr.mnemonic == "fill.sp") {
+                stmt->instr.operandTokenIndex = (int)pos;
+                while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
+                std::vector<uint8_t> d; emitFillCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix, stmt->instr.mnemonic == "fill.sp");
+                stmt->size = d.size();
+            }
+            else if (stmt->instr.mnemonic == "move" || stmt->instr.mnemonic == "move.sp") {
+                stmt->instr.operandTokenIndex = (int)pos;
+                while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
+                std::vector<uint8_t> d; emitMoveCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix, stmt->instr.mnemonic == "move.sp");
+                stmt->size = d.size();
+            }
+            else if (stmt->instr.mnemonic == "expr") {
                 stmt->type = Statement::EXPR; stmt->emitFn = AssemblerSimulatedOps::dispatch_Expr;
                 const auto& trg = advance();
                 stmt->exprTarget = (trg.type == AssemblerTokenType::REGISTER ? "." : "") + trg.value;
@@ -1672,13 +1685,13 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
             len--;
         return len;
     }
-    if (dir.name == "res") {
+    if (dir.name == "res" || dir.name == "fill" || dir.name == "space") {
         if (dir.arguments.empty()) {
             if (stmt) {
                 addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
-                    "Directive .res requires size argument"));
+                    "Directive ." + dir.name + " requires size argument"));
             } else {
-                addError("Directive .res requires size argument");
+                addError("Directive ." + dir.name + " requires size argument");
             }
             return 0;
         }
@@ -1687,9 +1700,9 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
         } catch (const std::exception& e) {
             if (stmt) {
                 addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
-                    "Directive .res: failed to evaluate size: " + std::string(e.what())));
+                    "Directive ." + dir.name + ": failed to evaluate size: " + std::string(e.what())));
             } else {
-                addError("Directive .res: failed to evaluate size: " + std::string(e.what()));
+                addError("Directive ." + dir.name + ": failed to evaluate size: " + std::string(e.what()));
             }
             return 0;
         }
