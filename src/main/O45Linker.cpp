@@ -1015,6 +1015,7 @@ void O45Linker::verifyStaticAllocSafety() {
 
 // 3.4 — Phase 2: Color static allocation registers (call-graph based AR overlay)
 // Assigns overlapping BSS addresses to non-conflicting SAC functions
+// Stream D refinement: Track ISR-only reachability for fine-grained coloring
 void O45Linker::colorStaticAllocRegisters() {
     // Collect all SAC functions and their frame sizes
     std::vector<std::string> sacFuncs;
@@ -1029,7 +1030,74 @@ void O45Linker::colorStaticAllocRegisters() {
 
     if (sacFuncs.empty()) return;  // No SAC functions to color
 
+    // Stream D: Identify ISR-only reachable functions for refined coloring
+    // Functions reachable only from ISRs (not from mainline) can use separate AR zone
+    std::set<std::string> isrReachable, mainlineReachable, isrOnlyReachable;
+
+    // Find functions reachable from ISR handlers
+    for (const auto& [name, attr] : funcAttrs_) {
+        if ((attr.flags & FUNC_FLAG_ISR) != 0) {
+            std::set<std::string> visited;
+            std::queue<std::string> q;
+            q.push(name);
+            visited.insert(name);
+            while (!q.empty()) {
+                auto curr = q.front(); q.pop();
+                isrReachable.insert(curr);
+                auto it = callGraph_.find(curr);
+                if (it != callGraph_.end()) {
+                    for (const auto& callee : it->second) {
+                        if (!visited.count(callee)) {
+                            visited.insert(callee);
+                            q.push(callee);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Find functions reachable from common entry points (main, startup code)
+    for (const auto& [name, _] : callGraph_) {
+        // Treat functions called from nothing (no incoming edges) as entry points
+        bool hasIncomingEdge = false;
+        for (const auto& [caller, callees] : callGraph_) {
+            if (callees.count(name)) {
+                hasIncomingEdge = true;
+                break;
+            }
+        }
+        if (!hasIncomingEdge) {
+            // Entry point found; mark all reachable as mainline-reachable
+            std::set<std::string> visited;
+            std::queue<std::string> q;
+            q.push(name);
+            visited.insert(name);
+            while (!q.empty()) {
+                auto curr = q.front(); q.pop();
+                mainlineReachable.insert(curr);
+                auto it = callGraph_.find(curr);
+                if (it != callGraph_.end()) {
+                    for (const auto& callee : it->second) {
+                        if (!visited.count(callee)) {
+                            visited.insert(callee);
+                            q.push(callee);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Functions reachable only from ISRs (not from mainline)
+    for (const auto& func : isrReachable) {
+        if (!mainlineReachable.count(func)) {
+            isrOnlyReachable.insert(func);
+        }
+    }
+
     // Build conflict graph: two functions conflict if one is reachable from the other
+    // Stream D refinement: ISR-only functions don't conflict with mainline-only functions
     // Non-conflicting functions can share the same AR addresses (overlapped)
     std::map<std::string, std::set<std::string>> conflicts;
     for (const auto& func : sacFuncs) {
@@ -1053,6 +1121,18 @@ void O45Linker::colorStaticAllocRegisters() {
         // Also mark as conflicting any function that can reach this function
         for (const auto& other : sacFuncs) {
             if (other == func) continue;
+
+            // Stream D: Skip conflict if one is ISR-only and other is mainline-only
+            // They can never execute concurrently on the call stack
+            bool funcIsISROnly = isrOnlyReachable.count(func) && !mainlineReachable.count(func);
+            bool otherIsISROnly = isrOnlyReachable.count(other) && !mainlineReachable.count(other);
+            bool funcIsMainlineOnly = mainlineReachable.count(func) && !isrReachable.count(func);
+            bool otherIsMainlineOnly = mainlineReachable.count(other) && !isrReachable.count(other);
+
+            if ((funcIsISROnly && otherIsMainlineOnly) || (funcIsMainlineOnly && otherIsISROnly)) {
+                continue;  // No conflict: different execution contexts
+            }
+
             auto it = callGraph_.find(other);
             if (it != callGraph_.end()) {
                 for (const auto& callee : it->second) {
