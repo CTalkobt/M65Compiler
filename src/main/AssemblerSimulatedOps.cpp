@@ -234,6 +234,44 @@ void AssemblerSimulatedOps::emitStackIncDec8Code(AssemblerParser* parser, M65Emi
     }
 }
 
+// Helper: Check if symbol is a ZP scratch register and return its address
+static bool isZPScratchSymbol(const std::string& name, uint32_t& outAddr) {
+    // Match any symbol starting with "__zp_scratch"
+    if (name.find("__zp_scratch") == 0) {
+        // Extract number suffix (if any)
+        std::string suffix = name.substr(12);
+
+        // Parse number from suffix
+        int num = 0;  // Default for __zp_scratch
+        if (!suffix.empty()) {
+            try {
+                // Find first non-digit character
+                size_t endPos = 0;
+                while (endPos < suffix.size() && std::isdigit(suffix[endPos])) {
+                    endPos++;
+                }
+                if (endPos > 0) {
+                    num = std::stoi(suffix.substr(0, endPos));
+                }
+            } catch(...) {}
+        }
+
+        // Map number to address
+        if (num == 0) {
+            outAddr = 0x08;  // __zp_scratch
+        } else if (num >= 2 && num <= 4) {
+            outAddr = 0x08 + (num - 1) * 2;  // __zp_scratch2-4
+        } else if (num == 1) {
+            outAddr = 0x06;  // __zp_scratch1 (if used)
+        } else {
+            return false;  // Unknown zp scratch number
+        }
+
+        return true;
+    }
+    return false;
+}
+
 void AssemblerSimulatedOps::emitAddSub16Code(AssemblerParser* parser, M65Emitter& e, bool isAdd, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
     int idx = tokenIndex;
     bool isImmediate = (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) ||
@@ -258,16 +296,61 @@ void AssemblerSimulatedOps::emitAddSub16Code(AssemblerParser* parser, M65Emitter
                 e.pla();
             } else {
                 uint32_t addr = 0;
-                try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
-                catch(...) {
-                     std::string src = parser->tokens[tokenIndex].value;
-                     if (parser->tokens[tokenIndex].type == AssemblerTokenType::REGISTER) src = "." + src;
-                     Symbol* sym = parser->resolveSymbol(src, scopePrefix);
-                     if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(src); } catch(...) { addr = 0; } }
+                int srcIdx = idx;
+                std::string src;
+                if (srcIdx < (int)parser->tokens.size()) {
+                    src = parser->tokens[srcIdx].value;
+                    if (parser->tokens[srcIdx].type == AssemblerTokenType::REGISTER) src = "." + src;
                 }
-                if (isAdd) e.adc_addr(addr); else e.sbc_addr(addr);
+
+                // Check if this is a __zp_scratch<#> symbol — these are always zero page
+                bool isZPScratch = false;
+                // Direct string matching for __zp_scratch symbols
+                if (src.find("__zp_scratch3") != std::string::npos) {
+                    addr = 0x0C;
+                    isZPScratch = true;
+                } else if (src.find("__zp_scratch2") != std::string::npos) {
+                    addr = 0x0A;
+                    isZPScratch = true;
+                } else if (src.find("__zp_scratch4") != std::string::npos) {
+                    addr = 0x0E;
+                    isZPScratch = true;
+                } else if (src.find("__zp_scratch") != std::string::npos && src.find("__zp_scratch2") == std::string::npos && src.find("__zp_scratch3") == std::string::npos && src.find("__zp_scratch4") == std::string::npos) {
+                    addr = 0x08;
+                    isZPScratch = true;
+                }
+                if (!isZPScratch) {
+                    // Try direct symbol resolution
+                    Symbol* sym = parser->resolveSymbol(src, scopePrefix);
+                    if (!sym && !scopePrefix.empty()) {
+                        sym = parser->resolveSymbol(src, "");  // Try global scope
+                    }
+
+                    if (sym) {
+                        addr = sym->value;
+                    } else {
+                        // Fall back to expression evaluation
+                        try { addr = parser->evaluateExpressionAt(idx, scopePrefix); }
+                        catch(...) {
+                            // Final fallback to numeric literal
+                            try { addr = parseNumericLiteral(src); }
+                            catch(...) { addr = 0; }
+                        }
+                    }
+                }
+
+                // For __zp_scratch symbols, directly emit ZP mode to avoid MachineState caching issues
+                if (isZPScratch) {
+                    if (isAdd) e.adc_zp((uint8_t)addr); else e.sbc_zp((uint8_t)addr);
+                } else {
+                    if (isAdd) e.adc_addr(addr); else e.sbc_addr(addr);
+                }
                 e.pha(); if (reg2 == 'X') e.txa(); else if (reg2 == 'Y') e.tya(); else if (reg2 == 'Z') e.tza();
-                if (isAdd) e.adc_addr(addr + 1); else e.sbc_addr(addr + 1);
+                if (isZPScratch) {
+                    if (isAdd) e.adc_zp((uint8_t)(addr + 1)); else e.sbc_zp((uint8_t)(addr + 1));
+                } else {
+                    if (isAdd) e.adc_addr(addr + 1); else e.sbc_addr(addr + 1);
+                }
                 if (reg2 == 'X') e.tax(); else if (reg2 == 'Y') e.tay(); else if (reg2 == 'Z') e.taz();
                 e.pla();
             }
@@ -282,15 +365,49 @@ void AssemblerSimulatedOps::emitAddSub16Code(AssemblerParser* parser, M65Emitter
                 e.lda_addr(dAddr+1); if (isAdd) e.adc_imm((val >> 8) & 0xFF); else e.sbc_imm((val >> 8) & 0xFF); e.sta_addr(dAddr+1);
             } else {
                 uint32_t sAddr = 0;
-                try { sAddr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
-                catch(...) {
-                     std::string src = parser->tokens[tokenIndex].value;
-                     if (parser->tokens[tokenIndex].type == AssemblerTokenType::REGISTER) src = "." + src;
-                     Symbol* symS = parser->resolveSymbol(src, scopePrefix);
-                     if (symS) sAddr = symS->value; else { try { sAddr = parseNumericLiteral(src); } catch(...) { sAddr = 0; } }
+                int srcIdx = idx;
+                std::string src;
+                if (srcIdx < (int)parser->tokens.size()) {
+                    src = parser->tokens[srcIdx].value;
+                    if (parser->tokens[srcIdx].type == AssemblerTokenType::REGISTER) src = "." + src;
                 }
-                e.lda_addr(dAddr); if (isAdd) e.adc_addr(sAddr); else e.sbc_addr(sAddr); e.sta_addr(dAddr);
-                e.lda_addr(dAddr+1); if (isAdd) e.adc_addr(sAddr+1); else e.sbc_addr(sAddr+1); e.sta_addr(dAddr+1);
+
+                // Check if this is a __zp_scratch<#> symbol — these are always zero page
+                bool isZPScratchMem = isZPScratchSymbol(src, sAddr);
+                if (!isZPScratchMem) {
+                    // Try direct symbol resolution
+                    Symbol* symS = parser->resolveSymbol(src, scopePrefix);
+                    if (!symS && !scopePrefix.empty()) {
+                        symS = parser->resolveSymbol(src, "");  // Try global scope
+                    }
+
+                    if (symS) {
+                        sAddr = symS->value;
+                    } else {
+                        // Fall back to expression evaluation
+                        try { sAddr = parser->evaluateExpressionAt(idx, scopePrefix); }
+                        catch(...) {
+                            // Final fallback to numeric literal
+                            try { sAddr = parseNumericLiteral(src); }
+                            catch(...) { sAddr = 0; }
+                        }
+                    }
+                }
+
+                e.lda_addr(dAddr);
+                if (isZPScratchMem) {
+                    if (isAdd) e.adc_zp((uint8_t)sAddr); else e.sbc_zp((uint8_t)sAddr);
+                } else {
+                    if (isAdd) e.adc_addr(sAddr); else e.sbc_addr(sAddr);
+                }
+                e.sta_addr(dAddr);
+                e.lda_addr(dAddr+1);
+                if (isZPScratchMem) {
+                    if (isAdd) e.adc_zp((uint8_t)(sAddr+1)); else e.sbc_zp((uint8_t)(sAddr+1));
+                } else {
+                    if (isAdd) e.adc_addr(sAddr+1); else e.sbc_addr(sAddr+1);
+                }
+                e.sta_addr(dAddr+1);
             }
         }
     };
@@ -319,8 +436,20 @@ void AssemblerSimulatedOps::emitBitwise16Code(AssemblerParser* parser, M65Emitte
             std::string src = parser->tokens[tokenIndex].value;
             if (parser->tokens[tokenIndex].type == AssemblerTokenType::REGISTER) src = "." + src;
             else if (!src.empty() && src[0] != '.' && (src=="A"||src=="X"||src=="Y"||src=="Z"||src=="a"||src=="x"||src=="y"||src=="z")) src = "." + src;
+
+            // Try to resolve symbol first (most common case)
             Symbol* sym = parser->resolveSymbol(src, scopePrefix);
-            uint32_t addr = 0; if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(src); } catch(...) { addr = 0; } }
+            if (!sym && !scopePrefix.empty()) {
+                sym = parser->resolveSymbol(src, "");  // Try global scope
+            }
+
+            uint32_t addr = 0;
+            if (sym) {
+                addr = sym->value;
+            } else {
+                try { addr = parseNumericLiteral(src); }
+                catch(...) { addr = 0; }
+            }
             if (M == "AND.16") e.and_addr(addr); else if (M == "ORA.16") e.ora_addr(addr); else if (M == "EOR.16") e.eor_addr(addr);
             e.pha(); e.txa();
             if (M == "AND.16") e.and_addr(addr + 1); else if (M == "ORA.16") e.ora_addr(addr + 1); else if (M == "EOR.16") e.eor_addr(addr + 1);

@@ -182,26 +182,29 @@ void IRCodeGen::loadVreg(uint32_t vregId) {
         }
         case VRegAllocator::IN_FRAME: {
             if (vregOffset_.count(vregId)) {
-                std::string offset = std::to_string(vregOffset_[vregId]);
-                // For SAC functions, ALL frame-allocated vregs use AR-relative addressing
                 if (currentFunctionUseSAC_) {
-                    // All vregs in SAC: use AR-relative addressing
-                    std::string arAddr = currentFunctionName_ + "__ar+" + offset;
+                    // SAC: Direct absolute addressing to AR buffer
+                    std::string arOffset = currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId]);
                     if (alloc.type == ir::Type::I32) {
-                        emit("ldaxyz " + arAddr, r);
+                        emit("lda " + arOffset, r);
+                        emit("ldx " + currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId] + 1), r);
+                        emit("ldy " + currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId] + 2), r);
+                        emit("ldz " + currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId] + 3), r);
                     } else if (alloc.type == ir::Type::I8) {
-                        emit("lda " + arAddr, r);
+                        emit("lda " + arOffset, r);
                     } else {
-                        emit("ldax " + arAddr, r);
+                        emit("lda " + arOffset, r);
+                        emit("ldx " + currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId] + 1), r);
                     }
                 } else {
-                    // Parameter or non-SAC: use FP-relative addressing
+                    // Non-SAC: FP-relative addressing through pseudo-ops
+                    std::string sym = "__vr" + std::to_string(vregId);
                     if (alloc.type == ir::Type::I32) {
-                        emit("ldaxyz.fp " + offset, r);
+                        emit("ldaxyz.fp " + sym, r);
                     } else if (alloc.type == ir::Type::I8) {
-                        emit("lda.fp " + offset, r);
+                        emit("lda.fp " + sym, r);
                     } else {
-                        emit("ldax.fp " + offset, r);
+                        emit("ldax.fp " + sym, r);
                     }
                 }
             }
@@ -218,9 +221,9 @@ void IRCodeGen::loadVregA(uint32_t vregId) {
         case VRegAllocator::IN_AX:
             if (alloc_.isInAX(vregId, currentInstIdx_)) return;
             if (vregOffset_.count(vregId)) {
-                // For SAC functions, ALL frame-allocated vregs use AR-relative addressing
+                // For SAC functions, use direct absolute addressing to AR
                 if (currentFunctionUseSAC_) {
-                    std::string arAddr = currentFunctionName_ + "__ar+" + std::to_string(vregOffset_[vregId]);
+                    std::string arAddr = currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId]);
                     emit("lda " + arAddr, r);
                 } else {
                     emit("lda.fp " + std::to_string(vregOffset_[vregId]), r);
@@ -235,12 +238,12 @@ void IRCodeGen::loadVregA(uint32_t vregId) {
         }
         case VRegAllocator::IN_FRAME:
             if (vregOffset_.count(vregId)) {
-                // For SAC functions, emit absolute addressing to activation record
                 if (currentFunctionUseSAC_) {
-                    std::string arAddr = currentFunctionName_ + "__ar+" + std::to_string(vregOffset_[vregId]);
+                    std::string arAddr = currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId]);
                     emit("lda " + arAddr, r);
                 } else {
-                    emit("lda.fp " + std::to_string(vregOffset_[vregId]), r);
+                    std::string sym = "__vr" + std::to_string(vregId);
+                    emit("lda.fp " + sym, r);
                 }
             }
             break;
@@ -275,24 +278,27 @@ void IRCodeGen::storeVreg(uint32_t vregId) {
             break;
         }
         case VRegAllocator::IN_FRAME: {
-            // For SAC functions, ALL frame-allocated vregs use AR-relative addressing
-            // (Formal parameters on stack are accessed via ldax.fp @_p_a, not via vregs)
+            // SAC: Direct absolute addressing to AR buffer (faster, no $FD/$FE needed)
+            // Non-SAC: FP-relative addressing through pseudo-ops
             if (currentFunctionUseSAC_) {
-                // All vregs in SAC: use AR-relative addressing
-                if (vregOffset_.count(vregId)) {
-                    std::string arAddr = currentFunctionName_ + "__ar+" + std::to_string(vregOffset_[vregId]);
-                    if (alloc.type == ir::Type::I32) {
-                        emit("staxyz " + arAddr);
-                    } else if (alloc.type == ir::Type::I8) {
-                        emit("sta " + arAddr);
-                    } else if (valueByte_[1] == REG_Z) {
-                        emit("staz " + arAddr);
-                    } else {
-                        emit("stax " + arAddr);
-                    }
+                // Direct absolute: functionname:ar+offset (linker relocates)
+                std::string arOffset = currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId]);
+                if (alloc.type == ir::Type::I32) {
+                    emit("sta " + arOffset);
+                    emit("stx " + currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId] + 1));
+                    emit("sty " + currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId] + 2));
+                    emit("stz " + currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId] + 3));
+                } else if (alloc.type == ir::Type::I8) {
+                    emit("sta " + arOffset);
+                } else if (valueByte_[1] == REG_Z) {
+                    emit("sta " + arOffset);
+                    emit("stz " + currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId] + 1));
+                } else {
+                    emit("sta " + arOffset);
+                    emit("stx " + currentFunctionName_ + ":ar+" + std::to_string(vregOffset_[vregId] + 1));
                 }
             } else {
-                // Parameter or non-SAC: use FP-relative addressing
+                // FP-relative: use pseudo-ops that expand to indirect addressing
                 std::string sym = "__vr" + std::to_string(vregId);
                 if (alloc.type == ir::Type::I32) {
                     emit("staxyz.fp " + sym);
@@ -458,7 +464,18 @@ void IRCodeGen::emitArrayElemAddr(const std::string& baseStr, const ir::Operand&
     }
 
     // Add base + scaled index
-    emit("add.16 .AX, __zp_scratch3");   // A:X = base + scaled_index
+    // Emit the full add.16 sequence directly to avoid assembler pseudo-op expansion issues
+    uint32_t scratch3Addr = zeroPageStart_ + 4;
+    uint8_t lo = (uint8_t)scratch3Addr;
+    uint8_t hi = (uint8_t)(scratch3Addr + 1);
+
+    emit("clc", "Add low bytes");
+    emit("adc $" + hex8(lo), "Add scratch3 low");
+    emit("pha", "Push A");
+    emit("txa", "Transfer X to A");
+    emit("adc $" + hex8(hi), "Add scratch3 high with carry");
+    emit("tax", "Transfer A to X");
+    emit("pla", "Pop into A");
 
     // Step 4: Store to destZP if provided
     if (!destZP.empty()) {
@@ -489,6 +506,13 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     zpRegs_.clear();
     for (uint32_t i = 0; i < zeroPageAvail_; ++i)
         zpRegs_.push_back({false});
+
+    // Reserve ZP scratch area for __zp_scratch symbols:
+    // zpAddr(index) returns zeroPageStart_ + index, so to reserve $08-$0F (8 bytes),
+    // we need to mark zpRegs_[0-7] as inUse since zpAddr(0) = $08, zpAddr(7) = $0F
+    for (uint32_t i = 0; i < 8 && i < zpRegs_.size(); ++i) {
+        zpRegs_[i].inUse = true;
+    }
 
     // Pre-scan all functions to compute frame offsets (needed for capture)
     // Bug #179 fix: Skip prescan for all functions.
@@ -615,11 +639,13 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     emit(symDir + " __zp_scratch2");
     emit(symDir + " __zp_scratch3");
     emit(symDir + " __zp_scratch4");
+    emit(".global cc45.zeroPageStart");  // Assembler uses this to determine ZP start
     emit("__static_chain = " + hex8(zeroPageStart_ - 2));
     emit("__zp_scratch = " + hex8(zeroPageStart_));
     emit("__zp_scratch2 = " + hex8(zeroPageStart_ + 2));
     emit("__zp_scratch3 = " + hex8(zeroPageStart_ + 4));
     emit("__zp_scratch4 = " + hex8(zeroPageStart_ + 6));
+    emit("cc45.zeroPageStart = " + hex8(zeroPageStart_));
     emitBlank();
 
     // Emit extern declarations
@@ -1337,6 +1363,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         emit(arSymbol + ":");
         emit(".fill " + std::to_string(localFrameSize));
         emit(".code");  // Switch back to code segment
+        emit(".sac");   // Tell assembler this function uses SAC (direct AR addressing)
+        // Declare scoped AR variable for direct absolute addressing
+        emit(".var ar = " + arSymbol);
     }
 
     // Push stack frame only for non-SAC functions
@@ -1361,22 +1390,24 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     }
 
     // Set up ZP frame pointer for local variable access
-    // For stack calling convention (including SAC): FP = __sp_base + SPL at function entry
-    // FP is used for parameter access; vregs are either on stack or in AR buffer
     useStackParams_ = !zpCallMode_ || fn.isVariadic;  // Stack params for all non-ZP functions
     if (useStackParams_) {
-        // Calculate frame pointer: SPL + 1 (for parameter access)
-        // Using TSY/TSX/INX is more efficient than TSX/TXA/ADC
-        emit("tsy");           // SPH → Y
-        emit("tsx");           // SPL → X
-        emit("inx");           // X = SPL + 1 (sets carry if wrapped)
-        std::string noCarryLabel = "@__fp_no_carry_" + std::to_string(labelCounter_++);
-        emit("bne " + noCarryLabel);  // Skip if X != 0 (no carry)
-        emit("iny");           // If carry, increment Y (SPH)
-        emitLabel(noCarryLabel);
-        emit("stx $FD");       // Store low byte
-        emit("sty $FE");       // Store high byte
-        emit(".frameptr_zp $FD");
+        if (currentFunctionUseSAC_) {
+            // SAC: Direct absolute addressing used; no FP setup needed
+            // The scoped symbol (functionname:ar) is resolved by assembler
+        } else {
+            // Stack convention: Calculate frame pointer from SP: FP = __sp_base + SPL + 1
+            emit("tsy");           // SPH → Y
+            emit("tsx");           // SPL → X
+            emit("inx");           // X = SPL + 1 (sets carry if wrapped)
+            std::string noCarryLabel = "@__fp_no_carry_" + std::to_string(labelCounter_++);
+            emit("bne " + noCarryLabel);  // Skip if X != 0 (no carry)
+            emit("iny");           // If carry, increment Y (SPH)
+            emitLabel(noCarryLabel);
+            emit("stx $FD");       // Store low byte
+            emit("sty $FE");       // Store high byte
+            emit(".frameptr_zp $FD");
+        }
     }
 
     // Compute and cache frame address in dedicated ZP slot if function uses frame-relative access

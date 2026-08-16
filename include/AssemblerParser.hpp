@@ -56,6 +56,7 @@ public:
     uint32_t getFirstOrgAddress() const { return firstOrgAddress; }
     uint8_t getFramePointerZP() const { return framePointerZP; }
     bool hasFramePointer() const { return framePointerZP != 0; }
+    bool getSACMode() const { return sacMode; }
     Symbol* resolveSymbol(const std::string& name, const std::string& scopePrefix = "");
     bool hasErrors() const { return !errors.empty(); }
     const std::vector<std::string>& getErrors() const { return errors; }
@@ -143,6 +144,7 @@ private:
     std::shared_ptr<ProcContext> currentProc;
     std::map<uint32_t, std::shared_ptr<ProcContext>> procedures;
     uint8_t framePointerZP = 0; // 0 = disabled; when set, stack ops use ($FP),Y
+    bool sacMode = false; // When true, FP contains AR address directly (use direct addressing)
 
     struct Segment {
         std::string name;

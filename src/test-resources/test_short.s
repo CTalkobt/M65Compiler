@@ -5,11 +5,13 @@
     .weak __zp_scratch2
     .weak __zp_scratch3
     .weak __zp_scratch4
+    .global cc45.zeroPageStart
     __static_chain = $06
     __zp_scratch = $08
     __zp_scratch2 = $0A
     __zp_scratch3 = $0C
     __zp_scratch4 = $0E
+    cc45.zeroPageStart = $08
 
     .global _r
     .global _add_short
@@ -28,9 +30,7 @@ _r:
     proc _add_short, W#@_p_a, W#@_p_b
     .var _fp = 0
     .loc "src/test-resources/test_short.c", 7
-; frame: 8 bytes (frame-allocated vRegs only)
-    phw #0
-    phw #0
+; frame: 4 bytes (frame-allocated vRegs only)
     phw #0
     phw #0
     tsy
@@ -43,14 +43,14 @@ _r:
     sty $FE
     .frameptr_zp $FD
     leax.fp 0
-    sta $08
-    stx $08+1
-    .local __vr0 = 4
-    .local __vr1 = 6
-    .var @_p_a = 10
-    .var @_p_b = 12
-; .debug_var: __add_short @_p_a offset=10 size=2 type=int16 scope=parameter
-; .debug_var: __add_short @_p_b offset=12 size=2 type=int16 scope=parameter
+    sta $10
+    stx $10+1
+    .local __vr0 = 0
+    .local __vr1 = 2
+    .var @_p_a = 6
+    .var @_p_b = 8
+; .debug_var: __add_short @_p_a offset=6 size=2 type=int16 scope=parameter
+; .debug_var: __add_short @_p_b offset=8 size=2 type=int16 scope=parameter
 
     ldax.fp @_p_a
     stax.fp __vr0
@@ -58,10 +58,10 @@ _r:
     stax.fp __vr1
 @entry:
     .loc "src/test-resources/test_short.c", 8
-    ldax.fp 6
+    ldax.fp 2
     sta __zp_scratch2
     stx __zp_scratch2+1
-    ldax.fp 4
+    ldax.fp 0
     add.16 .AX, __zp_scratch2
     sta $20
     stx $21
@@ -72,22 +72,17 @@ _r:
     plz
     plz
     plz
-    plz
-    plz
-    plz
-    plz
     .func_flags stack_call, leaf
     .reg_clobbers A, X
     .flag_clobbers C, N, Z, V
+    .frame_size 4
     endproc
 
 ; function _mul_short
     proc _mul_short, W#@_p_a, W#@_p_b
     .var _fp = 0
     .loc "src/test-resources/test_short.c", 11
-; frame: 8 bytes (frame-allocated vRegs only)
-    phw #0
-    phw #0
+; frame: 4 bytes (frame-allocated vRegs only)
     phw #0
     phw #0
     tsy
@@ -100,14 +95,14 @@ _r:
     sty $FE
     .frameptr_zp $FD
     leax.fp 0
-    sta $0A
-    stx $0A+1
-    .local __vr0 = 4
-    .local __vr1 = 6
-    .var @_p_a = 10
-    .var @_p_b = 12
-; .debug_var: __mul_short @_p_a offset=10 size=2 type=int16 scope=parameter
-; .debug_var: __mul_short @_p_b offset=12 size=2 type=int16 scope=parameter
+    sta $12
+    stx $12+1
+    .local __vr0 = 0
+    .local __vr1 = 2
+    .var @_p_a = 6
+    .var @_p_b = 8
+; .debug_var: __mul_short @_p_a offset=6 size=2 type=int16 scope=parameter
+; .debug_var: __mul_short @_p_b offset=8 size=2 type=int16 scope=parameter
 
     ldax.fp @_p_a
     stax.fp __vr0
@@ -115,10 +110,10 @@ _r:
     stax.fp __vr1
 @entry:
     .loc "src/test-resources/test_short.c", 12
-    ldax.fp 6
+    ldax.fp 2
     sta __zp_scratch2
     stx __zp_scratch2+1
-    ldax.fp 4
+    ldax.fp 0
     mul.16 .AX, __zp_scratch2
     sta $20
     stx $21
@@ -129,13 +124,10 @@ _r:
     plz
     plz
     plz
-    plz
-    plz
-    plz
-    plz
     .func_flags stack_call, leaf
     .reg_clobbers A, X
     .flag_clobbers C, N, Z, V
+    .frame_size 4
     endproc
 
 ; function _main
@@ -163,28 +155,28 @@ _r:
     sty $FE
     .frameptr_zp $FD
     leax.fp 0
-    sta $0C
-    stx $0C+1
-    .local __vr0 = 4
-    .local __vr2 = 6
-    .local __vr4 = 8
-    .local __vr6 = 0
+    sta $14
+    stx $14+1
+    .local __vr0 = 0
+    .local __vr2 = 2
+    .local __vr4 = 4
+    .local __vr6 = 6
     .local __vr8 = 10
-    .local __vr16 = 2
+    .local __vr16 = 8
     .local __vr32 = 16
     .local __vr33 = 18
     .local @_l_arr = 10
-    .local @_l_neg = 0
-    .local @_l_p = 2
-    .local @_l_x = 4
-    .local @_l_y = 6
-    .local @_l_z = 8
+    .local @_l_neg = 6
+    .local @_l_p = 8
+    .local @_l_x = 0
+    .local @_l_y = 2
+    .local @_l_z = 4
 ; .debug_var: __main @_l_arr offset=10 size=2 type=int16 scope=local
-; .debug_var: __main @_l_neg offset=0 size=2 type=int16 scope=local
-; .debug_var: __main @_l_p offset=2 size=2 type=ptr scope=local
-; .debug_var: __main @_l_x offset=4 size=2 type=int16 scope=local
-; .debug_var: __main @_l_y offset=6 size=2 type=int16 scope=local
-; .debug_var: __main @_l_z offset=8 size=2 type=int16 scope=local
+; .debug_var: __main @_l_neg offset=6 size=2 type=int16 scope=local
+; .debug_var: __main @_l_p offset=8 size=2 type=ptr scope=local
+; .debug_var: __main @_l_x offset=0 size=2 type=int16 scope=local
+; .debug_var: __main @_l_y offset=2 size=2 type=int16 scope=local
+; .debug_var: __main @_l_z offset=4 size=2 type=int16 scope=local
 
 @entry:
     .loc "src/test-resources/test_short.c", 16
@@ -196,10 +188,10 @@ _r:
     ldz #0
     staz.fp __vr2
     .loc "src/test-resources/test_short.c", 18
-    ldax.fp 6
+    ldax.fp 2
     sta $28
     stx $29
-    ldax.fp 4
+    ldax.fp 0
     sta $2A
     stx $2B
     lda $28
@@ -279,13 +271,14 @@ _r:
     iny
     sta (__zp_scratch),y
     .loc "src/test-resources/test_short.c", 21
-    leax.fp 4
+    lda $14
+    ldx $14+1
     sta $20
     stx $21
     lda $20
     ldx $21
     stax.fp __vr16
-    ldax.fp 8
+    ldax.fp 4
     sta $20
     .loc "src/test-resources/test_short.c", 23
     lda _r
@@ -304,14 +297,20 @@ _r:
     stx __zp_scratch3+1
     lda $22
     ldx $22+1
-    add.16 .AX, __zp_scratch3
+    clc
+    adc $0C
+    pha
+    txa
+    adc $0D
+    tax
+    pla
     sta __zp_scratch
     stx __zp_scratch+1
     pla
     ldy #0
     sta (__zp_scratch),y
     .loc "src/test-resources/test_short.c", 24
-    ldax.fp 0
+    ldax.fp 6
     clc
     adc #10
     sta $22
@@ -336,7 +335,13 @@ _r:
     stx __zp_scratch3+1
     lda $20
     ldx $20+1
-    add.16 .AX, __zp_scratch3
+    clc
+    adc $0C
+    pha
+    txa
+    adc $0D
+    tax
+    pla
     sta __zp_scratch
     stx __zp_scratch+1
     pla
@@ -362,7 +367,13 @@ _r:
     stx __zp_scratch3+1
     lda $22
     ldx $22+1
-    add.16 .AX, __zp_scratch3
+    clc
+    adc $0C
+    pha
+    txa
+    adc $0D
+    tax
+    pla
     sta __zp_scratch
     stx __zp_scratch+1
     pla
@@ -406,14 +417,20 @@ _r:
     stx __zp_scratch3+1
     lda $20
     ldx $20+1
-    add.16 .AX, __zp_scratch3
+    clc
+    adc $0C
+    pha
+    txa
+    adc $0D
+    tax
+    pla
     sta __zp_scratch
     stx __zp_scratch+1
     pla
     ldy #0
     sta (__zp_scratch),y
     .loc "src/test-resources/test_short.c", 27
-    ldax.fp 2
+    ldax.fp 8
     sta __zp_scratch
     stx __zp_scratch+1
     ldy #0
@@ -445,7 +462,13 @@ _r:
     stx __zp_scratch3+1
     lda $20
     ldx $20+1
-    add.16 .AX, __zp_scratch3
+    clc
+    adc $0C
+    pha
+    txa
+    adc $0D
+    tax
+    pla
     sta __zp_scratch
     stx __zp_scratch+1
     pla
@@ -466,7 +489,13 @@ _r:
     stx __zp_scratch3+1
     lda $20
     ldx $20+1
-    add.16 .AX, __zp_scratch3
+    clc
+    adc $0C
+    pha
+    txa
+    adc $0D
+    tax
+    pla
     sta __zp_scratch
     stx __zp_scratch+1
     ldy #0
@@ -498,7 +527,13 @@ _r:
     stx __zp_scratch3+1
     lda $22
     ldx $22+1
-    add.16 .AX, __zp_scratch3
+    clc
+    adc $0C
+    pha
+    txa
+    adc $0D
+    tax
+    pla
     sta __zp_scratch
     stx __zp_scratch+1
     pla
@@ -524,7 +559,13 @@ _r:
     stx __zp_scratch3+1
     lda $22
     ldx $22+1
-    add.16 .AX, __zp_scratch3
+    clc
+    adc $0C
+    pha
+    txa
+    adc $0D
+    tax
+    pla
     sta __zp_scratch
     stx __zp_scratch+1
     pla
@@ -556,6 +597,7 @@ _r:
     .func_flags stack_call
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
+    .frame_size 20
     endproc
 
 

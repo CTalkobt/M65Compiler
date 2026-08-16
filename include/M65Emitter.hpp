@@ -30,6 +30,9 @@ public:
     uint8_t framePointerZP() const { return framePointerZP_; }
     bool hasFramePointer() const { return framePointerZP_ != 0; }
 
+    void setSACMode(bool sac) { sacMode_ = sac; }
+    bool isSACMode() const { return sacMode_; }
+
     // Emit FP setup: save old FP, compute new FP from current SP
     void setupFramePointer();
     // Emit FP restore: pop old FP from stack
@@ -354,6 +357,7 @@ private:
     uint8_t scratchZP2_ = 0x04;
     uint8_t scratchZP3_ = 0x06;
     uint8_t framePointerZP_ = 0; // 0 = disabled; when set, stack ops use ($FP),Y
+    bool sacMode_ = false; // SAC: FP contains AR address, not a pointer to dereference
     uint32_t currentAddress = 0;
     bool addressSet = false;
     MachineState ms_;     // Unified register/flag value tracking

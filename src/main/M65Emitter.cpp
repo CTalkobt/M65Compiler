@@ -494,7 +494,10 @@ void M65Emitter::ldz_stack(uint8_t offset) {
 }
 void M65Emitter::sta_stack(uint8_t offset) {
     ms_.storeStack(offset, REG_A);
-    if (hasFramePointer()) {
+    if (sacMode_ || hasFramePointer()) {
+        // Both SAC and stack modes use indirect addressing through FP
+        // In SAC: $FD/$FE point to AR buffer at fixed address
+        // In stack: $FD/$FE point to stack frame
         ldy_imm(offset);
         emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
     } else {
@@ -505,7 +508,8 @@ void M65Emitter::sta_stack(uint8_t offset) {
 }
 void M65Emitter::stx_stack(uint8_t offset) {
     ms_.storeStack(offset, REG_X);
-    if (hasFramePointer()) {
+    if (sacMode_ || hasFramePointer()) {
+        // Both SAC and stack modes use indirect addressing through FP
         ldy_imm(offset);
         emitInstruction("stx", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
     } else {
@@ -533,8 +537,8 @@ void M65Emitter::sty_stack(uint8_t offset) {
 }
 void M65Emitter::stz_stack(uint8_t offset) {
     ms_.storeStack(offset, REG_Z);
-    if (hasFramePointer()) {
-        // STZ doesn't support indirect addressing, so use A as intermediate
+    if (sacMode_ || hasFramePointer()) {
+        // Both SAC and stack modes: STZ doesn't support indirect addressing, use A as intermediate
         sta_zp(scratchZP_);  // save A
         tza();               // A = Z
         ldy_imm(offset);

@@ -418,7 +418,7 @@ int main(int argc, char** argv) {
     int listingLevel = 1;
     uint32_t zeroPageStart = 0x08;
     bool zpCallMode = false;
-    bool staticAllocMode = false;  // -fstaticalloc (SAC)
+    bool staticAllocMode = true;  // -fstaticalloc (SAC) — enabled by default, use -fno-staticalloc to disable
     bool inlineFunctions = false;
     bool emitIR = false;
     bool emitReasons = false;
@@ -998,7 +998,10 @@ int main(int argc, char** argv) {
         }
 
         // Link with crt0 first (sets entry point), then user object, then libraries
-        std::string linkCommand = ln45Path + " " + crt0Path + " " + objFile + " " + libPath + " -o " + prgFile;
+        // Pass the ZP base address to the linker so it matches compiler expectations
+        std::stringstream zpArg;
+        zpArg << std::hex << zeroPageStart;
+        std::string linkCommand = ln45Path + " " + crt0Path + " " + objFile + " " + libPath + " -z 0x" + zpArg.str() + " -o " + prgFile;
 
         // Capture and display linker output with a prefix so it's clear where it comes from
         FILE* linkerPipe = popen(linkCommand.c_str(), "r");
