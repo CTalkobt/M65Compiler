@@ -79,6 +79,14 @@ public:
     bool areAddressesFinalized() const { return addressesFinalized_; }
     void finalizeAddresses() { addressesFinalized_ = true; }
 
+    // Helper for detecting SAC AR symbol relocations (e.g., _main:__ar+2)
+    struct ArRelocation {
+        bool isArReloc = false;
+        std::string arSymbol;     // e.g., "_main__ar"
+        int32_t addend = 0;       // e.g., 2 (for offset)
+    };
+    ArRelocation tryParseArRelocation(const std::string& operand) const;
+
     struct ProcContext {
         std::string name;
         int totalParamSize;

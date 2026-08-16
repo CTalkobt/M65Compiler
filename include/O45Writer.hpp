@@ -24,6 +24,7 @@ struct O45Reloc {
     O45Segment segment;       // target segment (SEG_TEXT, SEG_DATA, ... or SEG_EXTERNAL)
     uint32_t symbolIndex = 0; // import table index (only when segment == SEG_EXTERNAL)
     uint8_t extra = 0;        // extra byte for R_HIGH (low byte for underflow correction)
+    int32_t addend = 0;       // addend to add to symbol value during relocation
 };
 
 // Encodes a list of O45Reloc entries into the .o65/.o45 delta-offset byte stream.

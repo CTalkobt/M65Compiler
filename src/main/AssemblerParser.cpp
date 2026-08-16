@@ -2027,3 +2027,35 @@ std::vector<AssemblerParser::SegmentView> AssemblerParser::getSegmentViews() con
     }
     return views;
 }
+
+AssemblerParser::ArRelocation AssemblerParser::tryParseArRelocation(const std::string& operand) const {
+    ArRelocation result;
+
+    // Check for pattern: functionname:__ar+offset or functionname:__ar-offset
+    size_t arPos = operand.find(":__ar");
+    if (arPos == std::string::npos) {
+        return result; // Not an AR relocation
+    }
+
+    // Extract function name (everything before :__ar)
+    std::string funcName = operand.substr(0, arPos);
+    std::string restOfOperand = operand.substr(arPos + 5);  // Skip ":__ar" (5 characters)
+
+    // Build the AR symbol name (functionname__ar)
+    result.arSymbol = funcName + "__ar";
+
+    // Parse the offset (e.g., "+2", "-4", or empty for "+0")
+    result.addend = 0;
+    if (!restOfOperand.empty()) {
+        try {
+            // restOfOperand starts with + or -, followed by digits
+            result.addend = std::stoi(restOfOperand);
+        } catch (...) {
+            // Failed to parse offset, treat as 0
+            result.addend = 0;
+        }
+    }
+
+    result.isArReloc = true;
+    return result;
+}
