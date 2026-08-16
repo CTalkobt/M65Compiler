@@ -1069,6 +1069,50 @@ void IRBuilder::visit(VariableDeclaration& node) {
         return;
     }
 
+    // Local static variables: allocate as globals, not frame locals
+    if (node.isStatic && currentFunc_) {
+        // Create unique global name
+        std::string globalName = "_" + currentFunc_->name + "__local_" + node.name;
+
+        // Add to globals list (DATA segment)
+        ir::Module::GlobalVar gv;
+        gv.name = globalName;
+        gv.type = t;
+        gv.size = getTypeSize(node.type, node.pointerLevel);
+        if (node.arraySize() > 0) gv.size *= node.arraySize();
+        gv.isConst = node.isConst;
+        gv.isStatic = true;
+
+        // Handle initializer
+        if (node.initializer) {
+            if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
+                gv.hasInitValue = true;
+                gv.initValue = lit->value;
+            } else if (auto* flit = dynamic_cast<FloatLiteral*>(node.initializer.get())) {
+                gv.hasInitValue = true;
+                std::memcpy(&gv.initValue, &flit->value, sizeof(double));
+            }
+        } else {
+            gv.hasInitValue = true;
+            gv.initValue = 0;
+        }
+
+        module_.globals.push_back(gv);
+
+        // Store mapping for scope lookup
+        locals_[node.name] = ir::Operand::global(globalName);
+        localTypes_[node.name] = t;
+        localTypeNames_[node.name] = node.type;
+        localSigned_[node.name] = node.isSigned;
+        localConst_[node.name] = node.isConst && node.pointerLevel == 0;
+        localPointsToConst_[node.name] = node.isConst && node.pointerLevel > 0;
+        localDeclLocs_[node.name] = loc(node);
+        if (node.pointerLevel > 0) {
+            localPointedToType_[node.name] = mapType(node.type, node.pointerLevel - 1);
+        }
+        return;  // Skip frame allocation
+    }
+
     // Local variable — allocate a vReg
     auto vreg = allocVreg(t);
     locals_[node.name] = vreg;
