@@ -1162,8 +1162,8 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         bool hasSelfCall = false;
         for (const auto& blk : fn.blocks) {
             for (const auto& inst : blk.insts) {
-                if (inst.op == ir::Op::CALL && inst.src1.isGlobal()) {
-                    if (inst.src1.globalName == fn.name) {
+                if (inst.op == ir::Op::CALL && inst.src1.kind == ir::OperandKind::GLOBAL) {
+                    if (inst.src1.name == fn.name) {
                         hasSelfCall = true;
                         break;
                     }
