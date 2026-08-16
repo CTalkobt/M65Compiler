@@ -497,11 +497,14 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
             }
             std::cerr << "DEBUG [External Reloc]: Symbol '" << symName << "' = 0x" << std::hex << it->second << std::dec << std::endl;
 
-            // Use the AR offset extracted above (if it's an AR symbol with offset)
-            // Otherwise, read the addend from the patch site
-            uint32_t addend = arOffset;
-            if (addend == 0 && r.addend != 0) {
-                // Use explicit addend from relocation record if no AR offset was parsed
+            // If AR offset was parsed from symbol name, use it as the addend.
+            // Otherwise, read the addend from the patch site.
+            uint32_t addend = 0;
+            if (arOffset > 0) {
+                // AR symbol with offset (e.g., "_add_short__ar_1") — use extracted offset
+                addend = arOffset;
+            } else if (r.addend != 0) {
+                // Use explicit addend from relocation record if available
                 addend = (uint32_t)r.addend;
             } else {
                 // Read existing value at patch site as addend (e.g., __sp_base+offset
@@ -528,6 +531,11 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
                 }
             }
             targetAddr = it->second + addend;
+
+            if (arOffset > 0) {
+                std::cerr << "DEBUG [AR Reloc]: Symbol '" << symName << "' base=0x" << std::hex << it->second
+                         << " arOffset=" << std::dec << arOffset << " targetAddr=0x" << std::hex << targetAddr << std::dec << std::endl;
+            }
 
             // Check for thunk override (convention bridge)
             if (objIdx >= 0) {
