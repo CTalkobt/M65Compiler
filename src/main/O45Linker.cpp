@@ -1,6 +1,7 @@
 #include "O45Linker.hpp"
 #include <algorithm>
 #include <iomanip>
+#include <queue>
 #include <sstream>
 #include <cstring>
 
@@ -713,6 +714,9 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
         return {};
     }
 
+    // Phase 2: Assign overlapping AR addresses via call-graph coloring
+    colorStaticAllocRegisters();
+
     // Generate thunks for convention mismatches (appends to mergedText_)
     generateThunks();
 
@@ -1009,7 +1013,117 @@ void O45Linker::verifyStaticAllocSafety() {
     }
 }
 
-// 3.4 — Generate convention bridge thunks.
+// 3.4 — Phase 2: Color static allocation registers (call-graph based AR overlay)
+// Assigns overlapping BSS addresses to non-conflicting SAC functions
+void O45Linker::colorStaticAllocRegisters() {
+    // Collect all SAC functions and their frame sizes
+    std::vector<std::string> sacFuncs;
+    std::map<std::string, uint32_t> frameSizes;
+
+    for (const auto& [name, attr] : funcAttrs_) {
+        if ((attr.flags & FUNC_FLAG_STATIC_ALLOC) != 0) {
+            sacFuncs.push_back(name);
+            frameSizes[name] = attr.frameSize;
+        }
+    }
+
+    if (sacFuncs.empty()) return;  // No SAC functions to color
+
+    // Build conflict graph: two functions conflict if one is reachable from the other
+    // Non-conflicting functions can share the same AR addresses (overlapped)
+    std::map<std::string, std::set<std::string>> conflicts;
+    for (const auto& func : sacFuncs) {
+        conflicts[func] = std::set<std::string>();
+        // Mark as conflicting any function reachable FROM this function
+        std::set<std::string> reachable;
+        std::queue<std::string> q;
+        q.push(func);
+        while (!q.empty()) {
+            auto curr = q.front(); q.pop();
+            auto it = callGraph_.find(curr);
+            if (it != callGraph_.end()) {
+                for (const auto& callee : it->second) {
+                    if (!reachable.count(callee)) {
+                        reachable.insert(callee);
+                        q.push(callee);
+                    }
+                }
+            }
+        }
+        // Also mark as conflicting any function that can reach this function
+        for (const auto& other : sacFuncs) {
+            if (other == func) continue;
+            auto it = callGraph_.find(other);
+            if (it != callGraph_.end()) {
+                for (const auto& callee : it->second) {
+                    if (callee == func) {
+                        conflicts[func].insert(other);
+                        break;
+                    }
+                }
+            }
+            if (reachable.count(other)) {
+                conflicts[func].insert(other);
+            }
+        }
+    }
+
+    // Greedy graph coloring: assign each function to an AR slot
+    // Color = AR slot ID; functions with same color share AR space (overlay)
+    std::map<std::string, uint32_t> arColor;
+    std::vector<std::vector<std::string>> usedFuncsPerColor;
+
+    for (const auto& func : sacFuncs) {
+        // Find smallest color (AR slot) that doesn't conflict
+        uint32_t color = 0;
+        bool found = false;
+        while (!found) {
+            bool canUse = true;
+            // Check if any function with this color conflicts with 'func'
+            if (color < usedFuncsPerColor.size()) {
+                for (const auto& other : usedFuncsPerColor[color]) {
+                    if (conflicts[func].count(other) || conflicts[other].count(func)) {
+                        canUse = false;
+                        break;
+                    }
+                }
+            }
+            if (canUse) {
+                arColor[func] = color;
+                if (color >= usedFuncsPerColor.size()) {
+                    usedFuncsPerColor.resize(color + 1);
+                }
+                usedFuncsPerColor[color].push_back(func);
+                found = true;
+            } else {
+                color++;
+            }
+        }
+    }
+
+    // Compute final BSS-relative AR base addresses
+    // Each color (slot) gets contiguous BSS space; functions with same color overlay
+    uint32_t currentBssOffset = 0;
+    std::vector<uint32_t> colorToBssBase;
+
+    for (size_t color = 0; color < usedFuncsPerColor.size(); color++) {
+        colorToBssBase.push_back(currentBssOffset);
+        // Compute max frame size for this color (all functions sharing this slot)
+        uint32_t maxFrameSize = 0;
+        for (const auto& func : usedFuncsPerColor[color]) {
+            maxFrameSize = std::max(maxFrameSize, frameSizes[func]);
+        }
+        currentBssOffset += maxFrameSize;
+    }
+
+    // Populate arBaseAddresses_ map with final BSS-relative addresses
+    for (const auto& [func, color] : arColor) {
+        uint32_t bssBase = bssBase_;
+        arBaseAddresses_[func] = bssBase + colorToBssBase[color];
+    }
+}
+
+// 3.5 — Generate convention bridge thunks.
 // Appended to mergedText_, symbol addresses updated for relocation patching.
 void O45Linker::generateThunks() {
     if (thunkMode_ == THUNK_ERROR) return;

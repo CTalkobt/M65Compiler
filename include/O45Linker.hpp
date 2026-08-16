@@ -167,6 +167,12 @@ private:
     // Per-call-site override: (objectIdx, relocIdx) → thunk target address
     std::map<std::pair<int,int>, uint32_t> callSiteOverrides_;
 
+    // Phase 2: Static allocation register (AR) base addresses
+    // Maps SAC function name → final BSS-relative AR base address
+    std::map<std::string, uint32_t> arBaseAddresses_;
+    // Tracks which functions are address-taken (can't be colored/overlapped)
+    std::set<std::string> addressTakenFunctions_;
+
     bool resolveLibraries(std::string& errorMsg);
     bool layoutSegments(std::string& errorMsg);
     bool resolveSymbols(std::string& errorMsg);
@@ -176,6 +182,7 @@ private:
     void computeTransitiveClobbers();
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
+    void colorStaticAllocRegisters();  // Phase 2: Assign overlapping AR addresses via graph coloring
     void generateThunks();
     void mergeLineMaps();
 
