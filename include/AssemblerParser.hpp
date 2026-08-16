@@ -90,6 +90,7 @@ public:
         uint8_t regClobbersMask = 0;   // bit 0=A, 1=X, 2=Y, 3=Z
         uint8_t flagClobbersMask = 0;  // bit 0=C, 1=N, 2=Z, 3=V
         uint8_t funcFlags = 0;         // bit 0=leaf, bit 1=interrupt-safe
+        uint16_t frameSize = 0;        // activation record / frame size in bytes (Phase 2)
         bool hasFuncAttrs = false;     // true if any .zp_*/reg_*/flag_* directive was used
     };
 

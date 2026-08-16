@@ -680,6 +680,30 @@ void AssemblerParser::pass1() {
                 }
                 stmt->size = 0;
             }
+            else if (stmt->dir.name == "frame_size") {
+                // .frame_size N  (Phase 2: frame/activation record size in bytes)
+                if (!currentProc) {
+                    errors.push_back("Error: .frame_size outside proc/endproc block");
+                } else {
+                    if (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
+                        std::string sizeStr = advance().value;
+                        try {
+                            int size = std::stoi(sizeStr);
+                            if (size < 0 || size > 65535) {
+                                errors.push_back("Error: .frame_size must be between 0 and 65535");
+                            } else {
+                                currentProc->frameSize = (uint16_t)size;
+                                currentProc->hasFuncAttrs = true;
+                            }
+                        } catch (...) {
+                            errors.push_back("Error: .frame_size requires numeric argument");
+                        }
+                    } else {
+                        errors.push_back("Error: .frame_size requires numeric argument");
+                    }
+                }
+                stmt->size = 0;
+            }
             else if (stmt->dir.name == "vtable_entry") {
                 // .vtable_entry vtable_name, slot, function_name
                 // Phase 4: metadata for linker devirtualization (no bytes emitted)

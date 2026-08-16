@@ -148,6 +148,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         attr.zpClobbers = proc->zpClobbersMask;
         attr.zpRelease = proc->zpReleaseMask;
         attr.paramSize = (uint8_t)proc->totalParamSize;
+        attr.frameSize = proc->frameSize;  // Phase 2: frame size for overlay coloring
         syms.setFuncAttr(proc->name, attr);
     }
 

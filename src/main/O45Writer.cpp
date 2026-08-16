@@ -270,6 +270,7 @@ void O45Writer::emitExports(std::vector<uint8_t>& out) const {
             writeU32(out, fa.zpClobbers);
             writeU32(out, fa.zpRelease);
             out.push_back(fa.paramSize);
+            writeU16(out, fa.frameSize);  // Phase 2: frame size for overlay coloring
         }
     }
 }

@@ -1570,6 +1570,10 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         if (fc.flags & 0x08) flags += "V, ";
         if (!flags.empty()) { flags.pop_back(); flags.pop_back(); emit(".flag_clobbers " + flags); }
     }
+    {
+        // Emit frame size for Phase 2 call-graph overlay coloring
+        emit(".frame_size " + std::to_string(localFrameSize_));
+    }
 
     emit("endproc");
     emitBlank();

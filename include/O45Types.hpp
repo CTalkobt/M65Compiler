@@ -93,9 +93,10 @@ constexpr uint8_t  OPT_OS_MEGA65     = 0x05;
 
 // --- Function attribute record ---
 // Appended after an export entry in the export table when the function has
-// ZP calling convention metadata. Identified by the $FA marker byte.
+// ZP calling convention metadata or SAC metadata. Identified by the $FA marker byte.
+// Phase 2 addition: frameSize tracks activation record size for call-graph overlay coloring.
 constexpr uint8_t  O45_FUNCATTR_MARKER = 0xFA;
-constexpr int      O45_FUNCATTR_SIZE   = 17;   // total bytes per record (including marker)
+constexpr int      O45_FUNCATTR_SIZE   = 19;   // total bytes per record (including marker, now with frameSize)
 
 struct O45FuncAttr {
     uint8_t flags = 0;           // see FUNC_FLAG_* constants
@@ -105,6 +106,7 @@ struct O45FuncAttr {
     uint32_t zpClobbers = 0;     // bitmask: ZP slots written
     uint32_t zpRelease = 0;      // bitmask: ZP slots consumed
     uint8_t paramSize = 0;       // total parameter bytes (for thunk generation)
+    uint16_t frameSize = 0;      // activation record / frame size in bytes (Phase 2)
 };
 
 // Bit values for O45FuncAttr::flags

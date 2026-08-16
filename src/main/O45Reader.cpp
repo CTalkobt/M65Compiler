@@ -215,9 +215,9 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
         off += fw;
 
         // Check for function attribute record ($FA marker)
-        // Supports both old (16 byte) and new (17 byte, with paramSize) formats
+        // Supports old (17 byte), current (18 byte with paramSize), and new (19 byte with frameSize) formats
         if (off < data.size() && data[off] == O45_FUNCATTR_MARKER) {
-            if (off + 16 > data.size()) {  // minimum 16 bytes (old format)
+            if (off + 16 > data.size()) {  // minimum 16 bytes (old format without marker)
                 errorMsg = "truncated function attribute record";
                 return false;
             }
@@ -232,6 +232,10 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
             // paramSize byte (always present in current format)
             if (off < data.size()) {
                 exp.funcAttr.paramSize = data[off++];
+            }
+            // frameSize (uint16, Phase 2) - present in 19-byte format
+            if (off + 1 < data.size()) {
+                exp.funcAttr.frameSize = readU16(&data[off]); off += 2;
             }
         }
 
