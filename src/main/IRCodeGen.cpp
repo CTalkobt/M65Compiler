@@ -183,11 +183,9 @@ void IRCodeGen::loadVreg(uint32_t vregId) {
         case VRegAllocator::IN_FRAME: {
             if (vregOffset_.count(vregId)) {
                 std::string offset = std::to_string(vregOffset_[vregId]);
-                // For SAC functions, use AR-relative addressing for local vregs only
-                // Parameters must always use FP-relative addressing (they're on stack)
-                bool isParameter = parameterVregs_.count(vregId) > 0;
-                if (currentFunctionUseSAC_ && !isParameter) {
-                    // Local vreg: use AR-relative addressing
+                // For SAC functions, ALL frame-allocated vregs use AR-relative addressing
+                if (currentFunctionUseSAC_) {
+                    // All vregs in SAC: use AR-relative addressing
                     std::string arAddr = currentFunctionName_ + "__ar+" + offset;
                     if (alloc.type == ir::Type::I32) {
                         emit("ldaxyz " + arAddr, r);
@@ -220,10 +218,8 @@ void IRCodeGen::loadVregA(uint32_t vregId) {
         case VRegAllocator::IN_AX:
             if (alloc_.isInAX(vregId, currentInstIdx_)) return;
             if (vregOffset_.count(vregId)) {
-                // For SAC functions, use AR-relative addressing for local vregs only
-                // Parameters must always use FP-relative addressing (they're on stack)
-                bool isParameter = parameterVregs_.count(vregId) > 0;
-                if (currentFunctionUseSAC_ && !isParameter) {
+                // For SAC functions, ALL frame-allocated vregs use AR-relative addressing
+                if (currentFunctionUseSAC_) {
                     std::string arAddr = currentFunctionName_ + "__ar+" + std::to_string(vregOffset_[vregId]);
                     emit("lda " + arAddr, r);
                 } else {
@@ -279,11 +275,10 @@ void IRCodeGen::storeVreg(uint32_t vregId) {
             break;
         }
         case VRegAllocator::IN_FRAME: {
-            // For SAC functions, use AR-relative addressing for local vregs only
-            // Parameters must always use FP-relative addressing (they're on stack)
-            bool isParameter = parameterVregs_.count(vregId) > 0;
-            if (currentFunctionUseSAC_ && !isParameter) {
-                // Local vreg: use AR-relative addressing
+            // For SAC functions, ALL frame-allocated vregs use AR-relative addressing
+            // (Formal parameters on stack are accessed via ldax.fp @_p_a, not via vregs)
+            if (currentFunctionUseSAC_) {
+                // All vregs in SAC: use AR-relative addressing
                 if (vregOffset_.count(vregId)) {
                     std::string arAddr = currentFunctionName_ + "__ar+" + std::to_string(vregOffset_[vregId]);
                     if (alloc.type == ir::Type::I32) {
@@ -1392,11 +1387,13 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         emit("stx " + frameAddrZP + "+1");
     }
 
-    // Emit .local for frame-allocated vRegs only
-    for (const auto& [vregId, offset] : vregOffset_) {
-        auto alloc = alloc_.getAlloc(vregId);
-        if (alloc.loc == VRegAllocator::IN_FRAME) {
-            emit(".local __vr" + std::to_string(vregId) + " = " + std::to_string(offset));
+    // Emit .local for frame-allocated vRegs only (skipped in SAC mode, which uses AR-relative)
+    if (!currentFunctionUseSAC_) {
+        for (const auto& [vregId, offset] : vregOffset_) {
+            auto alloc = alloc_.getAlloc(vregId);
+            if (alloc.loc == VRegAllocator::IN_FRAME) {
+                emit(".local __vr" + std::to_string(vregId) + " = " + std::to_string(offset));
+            }
         }
     }
 
