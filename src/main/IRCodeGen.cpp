@@ -1322,42 +1322,45 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     int localFrameSize = frameSize_;
     localFrameSize_ = localFrameSize;  // save for RET cleanup
 
-    // For SAC functions, emit static activation record (AR) instead of stack frame
+    // For SAC functions, emit static activation record (AR) declaration and allocation
     if (useSAC) {
         // Emit AR as a BSS symbol (uninitialized static storage)
         // Symbol is exported at top level via .global in CodeGenerator
         std::string arSymbol = fn.name + "__ar";
         emitComment("static activation record (SAC): " + std::to_string(localFrameSize) + " bytes");
+        emit(".bss");  // Switch to BSS segment
         emit(arSymbol + ":");
         emit(".fill " + std::to_string(localFrameSize));
-        emitBlank();
-    } else {
-        // Traditional stack frame: push zeros onto hardware stack
-        if (localFrameSize > 128) {
-            // Frame + params + return addr + dynamic pushes must fit in uint8_t offsets
-            std::cerr << fn.name << ": warning: large frame (" << localFrameSize
-                      << " bytes) may cause incorrect stack-relative addressing\n";
+        emit(".code");  // Switch back to code segment
+    }
+
+    // ALL functions push stack frame for compatibility with existing code
+    // For traditional functions: vregs are on the stack
+    // For SAC functions: vregs WILL BE optimized to use AR later, but for now use stack
+    // This ensures FP-relative addressing works correctly for parameter access
+    if (localFrameSize > 128) {
+        // Frame + params + return addr + dynamic pushes must fit in uint8_t offsets
+        std::cerr << fn.name << ": warning: large frame (" << localFrameSize
+                  << " bytes) may cause incorrect stack-relative addressing\n";
+    }
+    if (localFrameSize > 0) {
+        emitComment("frame: " + std::to_string(localFrameSize) + " bytes (frame-allocated vRegs only)");
+        // Push frame in 2-byte chunks; if odd size, push final byte separately
+        for (int i = 0; i < localFrameSize - 1; i += 2) {
+            emit("phw #0");
         }
-        if (localFrameSize > 0) {
-            emitComment("frame: " + std::to_string(localFrameSize) + " bytes (frame-allocated vRegs only)");
-            // Push frame in 2-byte chunks; if odd size, push final byte separately
-            for (int i = 0; i < localFrameSize - 1; i += 2) {
-                emit("phw #0");
-            }
-            if (localFrameSize % 2 == 1) {
-                emit("lda #0");
-                emit("pha");  // Push final odd byte
-            }
+        if (localFrameSize % 2 == 1) {
+            emit("lda #0");
+            emit("pha");  // Push final odd byte
         }
     }
 
-    // Set up ZP frame pointer for stack-relative access (only for stack calling convention, not SAC)
-    // FP = __sp_base + SPL at function entry. Store in $FD/$FE.
-    // This maintains the frame pointer for use by inline assembly or future optimizations.
-    // SAC functions don't use FP since all locals are at fixed absolute addresses.
-    useStackParams_ = !useSAC && (!zpCallMode_ || fn.isVariadic);
+    // Set up ZP frame pointer for local variable access
+    // For stack calling convention (including SAC): FP = __sp_base + SPL at function entry
+    // FP is used for parameter access; vregs are either on stack or in AR buffer
+    useStackParams_ = !zpCallMode_ || fn.isVariadic;  // Stack params for all non-ZP functions
     if (useStackParams_) {
-        // Calculate frame pointer: SPL + 1
+        // Calculate frame pointer: SPL + 1 (for parameter access)
         // Using TSY/TSX/INX is more efficient than TSX/TXA/ADC
         emit("tsy");           // SPH → Y
         emit("tsx");           // SPL → X
