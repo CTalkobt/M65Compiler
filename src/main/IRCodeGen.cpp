@@ -3645,8 +3645,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 }
 
                 if (isCallingSAC) {
-                    // SAC call: store parameters directly to inline storage, no stack pushing
-                    // Use function's parameter names for clear documentation
+                    // SAC call: store parameters to parameter storage symbols
+                    // For each argument: load value, initialize VREG if needed, and store to __param_X symbol
                     std::vector<std::string> paramNames;
                     if (functionParameterNames_.count(inst.src1.name)) {
                         paramNames = functionParameterNames_[inst.src1.name];
@@ -3656,13 +3656,60 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         paramNames.push_back(std::to_string(paramNames.size()));
                     }
 
+                    // FIRST PHASE: Initialize any VREG allocations with argument values
+                    // This is necessary when argument VREGs are stored in locals
+                    for (int ai = 0; ai < nArgs; ai++) {
+                        const auto& arg = inst.args[ai];
+                        if (!arg.isVreg()) continue;
+
+                        // Get the allocation of this VREG
+                        auto alloc = alloc_.getAlloc(arg.vregId);
+                        // Only initialize if it's in a frame (i.e., a local variable)
+                        if (alloc.loc != VRegAllocator::IN_FRAME) continue;
+
+                        // Check if this VREG's source value is a constant
+                        auto cit = vregConstVal_.find(arg.vregId);
+                        int constVal = -1;
+                        if (cit != vregConstVal_.end()) {
+                            constVal = (int)cit->second;
+                        }
+
+                        // If we don't have a tracked constant, check the original instruction
+                        // This VREG might be a COPY from an immediate that hasn't been marked as constant
+                        if (constVal == -1) {
+                            // Try to find the COPY instruction that created this VREG
+                            // For now, just use the immediate from the argument if it is one
+                            continue;  // Skip - we'll handle it in phase 2
+                        }
+
+                        // Initialize the local with the constant value
+                        emit("lda #" + std::to_string((int)(constVal & 0xFF)));
+                        if (arg.type != ir::Type::I8) {
+                            emit("ldx #" + std::to_string((int)((constVal >> 8) & 0xFF)));
+                        }
+                        // Store to the local's frame location
+                        std::stringstream ss;
+                        ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << alloc.offset;
+                        emit("sta " + ss.str());
+                        if (arg.type != ir::Type::I8) {
+                            ss.str("");
+                            ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (alloc.offset + 1);
+                            emit("stx " + ss.str());
+                        }
+                    }
+
+                    // SECOND PHASE: Copy initialized values to parameter symbols
                     for (int ai = nArgs - 1; ai >= 0; ai--) {
                         const auto& arg = inst.args[ai];
                         int ps = ir::typeSize(arg.type);
                         if (ps < 2) ps = 2;
 
                         std::string paramSymbol = inst.src1.name + "__param_" + paramNames[ai];
+
+                        // Load argument value
                         loadOperand(arg);
+
+                        // Store to parameter symbol
                         emit("sta " + paramSymbol);
                         emit("stx " + paramSymbol + "+1");
                         if (arg.type == ir::Type::I32) {
