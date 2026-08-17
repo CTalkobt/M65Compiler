@@ -74,6 +74,11 @@ public:
         return specializedParams_;
     }
 
+    // Phase 52: After a successful link, retrieve function specialization analysis
+    const std::map<std::string, SpecializationAnalysis>& getSpecializationAnalysis() const {
+        return specializationAnalysis_;
+    }
+
     // Query if a specific parameter is specialized (constant)
     bool isParameterSpecialized(const std::string& funcName, int paramIdx, int64_t& outValue) const {
         auto it = specializedParams_.find(funcName);
@@ -207,6 +212,10 @@ private:
     // Maps function name → O45IRFunction with cross-file call information
     std::map<std::string, O45IRFunction> mergedIRFunctions_;
 
+    // Phase 52: Specialization analysis results
+    // Maps function name → specialization analysis (patterns, frequencies, profitability)
+    std::map<std::string, SpecializationAnalysis> specializationAnalysis_;
+
     bool resolveLibraries(std::string& errorMsg);
     bool layoutSegments(std::string& errorMsg);
     bool resolveSymbols(std::string& errorMsg);
@@ -216,6 +225,7 @@ private:
     void computeTransitiveClobbers();
     void analyzeConstantParameters();  // Cross-file parameter analysis from .param_const metadata
     void analyzeIRMetadata();           // Phase 50: Extract constant parameters from embedded IR
+    void analyzeSpecializations();      // Phase 52: Analyze profitable specialization patterns
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata

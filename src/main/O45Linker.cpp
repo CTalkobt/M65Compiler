@@ -756,6 +756,7 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     computeTransitiveClobbers();
     analyzeConstantParameters();  // Cross-file parameter analysis
     analyzeIRMetadata();           // Phase 50: Extract constant parameters from embedded IR
+    analyzeSpecializations();      // Phase 52: Analyze profitable specialization patterns
     emitDiagnostics();
     verifyStaticAllocSafety();  // Verify SAC constraints before thunk generation
     validateSACParameters();      // Phase 3: Validate SAC parameter metadata
@@ -1101,6 +1102,79 @@ void O45Linker::analyzeIRMetadata() {
                                 << " call sites: " << constantValue << std::endl;
                 }
             }
+        }
+    }
+}
+
+// Phase 52: Analyze profitable function specialization patterns
+// Detects call patterns (constant parameter combinations) and identifies
+// which functions would benefit from specialization (multiple distinct patterns)
+void O45Linker::analyzeSpecializations() {
+    specializationAnalysis_.clear();
+
+    // Analyze each merged IR function
+    for (const auto& [funcName, irFunc] : mergedIRFunctions_) {
+        if (irFunc.callSites.empty()) {
+            continue;  // No call sites to analyze
+        }
+
+        SpecializationAnalysis analysis;
+        analysis.functionName = funcName;
+
+        // Collect all unique call patterns
+        std::map<SpecializationPattern, int> patternCounts;
+        for (const auto& site : irFunc.callSites) {
+            SpecializationPattern pattern;
+
+            // Extract constant parameter values for this call site
+            bool allConstant = true;
+            for (size_t i = 0; i < site.paramValues.size(); i++) {
+                if (i >= site.paramIsConst.size() || !site.paramIsConst[i]) {
+                    allConstant = false;
+                    break;
+                }
+                pattern.push_back(site.paramValues[i]);
+            }
+
+            // Only consider call sites where all parameters are constant
+            if (allConstant && !pattern.empty()) {
+                patternCounts[pattern]++;
+                analysis.totalCalls++;
+            }
+        }
+
+        // Populate analysis results
+        for (const auto& [pattern, count] : patternCounts) {
+            analysis.patterns.push_back(pattern);
+            analysis.patternCounts.push_back(count);
+        }
+
+        // Determine profitability
+        // Profitable if: (1) multiple distinct patterns, OR (2) single pattern called frequently
+        if (analysis.patterns.size() >= 2) {
+            // Multiple patterns: worth specializing top patterns
+            analysis.isProfitable = true;
+
+            // Calculate top pattern frequency
+            if (!analysis.patternCounts.empty()) {
+                int maxCount = *std::max_element(analysis.patternCounts.begin(),
+                                                analysis.patternCounts.end());
+                analysis.topPatternFrequency = (float)maxCount / (float)analysis.totalCalls;
+            }
+        } else if (analysis.patterns.size() == 1 && analysis.totalCalls >= 5) {
+            // Single pattern called 5+ times: worth generating 1 specialization
+            analysis.isProfitable = true;
+            analysis.topPatternFrequency = 1.0f;
+        }
+
+        if (warnStream_ && analysis.isProfitable) {
+            *warnStream_ << "INFO: Function " << funcName << " has " << analysis.patterns.size()
+                        << " specialization pattern(s), " << analysis.totalCalls << " total calls"
+                        << " (top frequency: " << (analysis.topPatternFrequency * 100.0f) << "%)" << std::endl;
+        }
+
+        if (analysis.isProfitable) {
+            specializationAnalysis_[funcName] = analysis;
         }
     }
 }

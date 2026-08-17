@@ -264,3 +264,31 @@ struct O45IRMetadata {
         return majorVersion == O45_IR_VERSION_MAJOR;  // Major must match
     }
 };
+
+// =============================================================================
+// Function Specialization Support (Phase 52)
+// =============================================================================
+
+// A specialization pattern: vector of constant values for parameters
+// E.g., for function(int a, int b): pattern {10, 2} or {5, 2}
+using SpecializationPattern = std::vector<int64_t>;
+
+// Specialization profile for a function
+struct FunctionSpecialization {
+    std::string originalName;           // Original function name (e.g., "_calculate")
+    SpecializationPattern pattern;      // Constant parameter pattern (e.g., {10, 2})
+    std::string specializedName;        // Generated name (e.g., "_calculate_10_2")
+    int callCount = 0;                  // How many times this pattern is called
+    double estimatedBenefit = 0.0;      // Expected code size reduction (%)
+    bool isGenerated = false;           // Whether this specialization was created
+};
+
+// Specialization analysis results
+struct SpecializationAnalysis {
+    std::string functionName;           // Original function name
+    std::vector<SpecializationPattern> patterns;  // Observed call patterns
+    std::vector<int> patternCounts;     // Call count for each pattern
+    int totalCalls = 0;                 // Total call count
+    bool isProfitable = false;          // Worth generating specialization
+    float topPatternFrequency = 0.0f;   // Frequency of most common pattern
+};
