@@ -700,20 +700,20 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
 }
 
 bool O45Linker::applyRelocations(std::string& errorMsg) {
-    std::cout << "DEBUG: applyRelocations called with " << objects_.size() << " objects" << std::endl;
+    //std::cout << "DEBUG: applyRelocations called with " << objects_.size() << " objects" << std::endl;
     for (int objIdx = 0; objIdx < (int)objects_.size(); objIdx++) {
         auto& input = objects_[objIdx];
-        std::cout << "DEBUG: Processing object " << objIdx << ": " << input.filename << std::endl;
+        //std::cout << "DEBUG: Processing object " << objIdx << ": " << input.filename << std::endl;
         // Text relocations
         auto textRelocs = O45RelocDecoder::decode(input.obj.textRelocs);
-        std::cout << "DEBUG: Decoded " << textRelocs.size() << " TEXT relocations from " << input.filename << std::endl;
+        //std::cout << "DEBUG: Decoded " << textRelocs.size() << " TEXT relocations from " << input.filename << std::endl;
         for (const auto& r : textRelocs) {
             const char* segName = "";
             if (r.segment == SEG_EXTERNAL) segName = "EXTERN";
             else if (r.segment == SEG_TEXT) segName = "TEXT";
             else if (r.segment == SEG_DATA) segName = "DATA";
-            std::cout << "  TEXT Reloc at offset 0x" << std::hex << r.offset << " type 0x" << (int)r.type
-                      << " seg " << segName << " extra 0x" << (int)r.extra << std::dec << std::endl;
+            //std::cout << "  TEXT Reloc at offset 0x" << std::hex << r.offset << " type 0x" << (int)r.type
+            //          << " seg " << segName << " extra 0x" << (int)r.extra << std::dec << std::endl;
         }
         if (!applyRelocs(textRelocs, mergedText_, textBase_, input.textOffset,
                          input, errorMsg, objIdx)) {
@@ -722,9 +722,9 @@ bool O45Linker::applyRelocations(std::string& errorMsg) {
 
         // Data relocations
         auto dataRelocs = O45RelocDecoder::decode(input.obj.dataRelocs);
-        std::cout << "DEBUG: Decoded " << dataRelocs.size() << " DATA relocations from " << input.filename << std::endl;
+        //std::cout << "DEBUG: Decoded " << dataRelocs.size() << " DATA relocations from " << input.filename << std::endl;
         for (const auto& r : dataRelocs) {
-            std::cout << "  DATA Reloc at offset 0x" << std::hex << r.offset << " type 0x" << (int)r.type << " seg " << (int)r.segment << " extra 0x" << (int)r.extra << std::dec << std::endl;
+            //std::cout << "  DATA Reloc at offset 0x" << std::hex << r.offset << " type 0x" << (int)r.type << " seg " << (int)r.segment << " extra 0x" << (int)r.extra << std::dec << std::endl;
         }
         if (!applyRelocs(dataRelocs, mergedData_, dataBase_, input.dataOffset,
                          input, errorMsg, -1)) {

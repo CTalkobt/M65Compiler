@@ -274,8 +274,8 @@ static bool isZPScratchSymbol(const std::string& name, uint32_t& outAddr) {
 }
 
 void AssemblerSimulatedOps::emitAddSub16Code(AssemblerParser* parser, M65Emitter& e, bool isAdd, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
-    printf("DEBUG emitAddSub16Code: dest='%s', tokenIndex=%d, isAdd=%d\n", dest.c_str(), tokenIndex, isAdd);
-    fflush(stdout);
+    //printf("DEBUG emitAddSub16Code: dest='%s', tokenIndex=%d, isAdd=%d\n", dest.c_str(), tokenIndex, isAdd);
+    //fflush(stdout);
     int idx = tokenIndex;
     bool isImmediate = (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) ||
                        (idx > 0 && parser->tokens[idx - 1].type == AssemblerTokenType::HASH);
@@ -283,12 +283,12 @@ void AssemblerSimulatedOps::emitAddSub16Code(AssemblerParser* parser, M65Emitter
 
     // Save operand token position BEFORE parseExprAST advances idx
     int operandTokenIdx = idx;
-    std::cerr << "DEBUG add16: tokenIndex=" << tokenIndex << ", idx after hash=" << idx
-              << ", isImmediate=" << isImmediate;
-    if (operandTokenIdx < (int)parser->tokens.size()) {
-        std::cerr << ", token[" << operandTokenIdx << "].value='" << parser->tokens[operandTokenIdx].value << "'";
-    }
-    std::cerr << std::endl;
+    //std::cerr << "DEBUG add16: tokenIndex=" << tokenIndex << ", idx after hash=" << idx
+    //          << ", isImmediate=" << isImmediate;
+    //if (operandTokenIdx < (int)parser->tokens.size()) {
+    //    std::cerr << ", token[" << operandTokenIdx << "].value='" << parser->tokens[operandTokenIdx].value << "'";
+    //}
+    //std::cerr << std::endl;
 
     auto srcAst = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
     if (!srcAst) return;
@@ -314,8 +314,8 @@ void AssemblerSimulatedOps::emitAddSub16Code(AssemblerParser* parser, M65Emitter
                 if (operandTokenIdx < (int)parser->tokens.size()) {
                     src = parser->tokens[operandTokenIdx].value;
                     if (parser->tokens[operandTokenIdx].type == AssemblerTokenType::REGISTER) src = "." + src;
-                    fprintf(stderr, "DEBUG add16: operandTokenIdx=%d, token.value='%s', token.type=%d\n",
-                            operandTokenIdx, src.c_str(), (int)parser->tokens[operandTokenIdx].type);
+                    //fprintf(stderr, "DEBUG add16: operandTokenIdx=%d, token.value='%s', token.type=%d\n",
+                    //        operandTokenIdx, src.c_str(), (int)parser->tokens[operandTokenIdx].type);
                 }
 
                 // Check if this is a __zp_scratch<#> symbol — these are always zero page
@@ -2982,8 +2982,8 @@ void AssemblerSimulatedOps::dispatch_StackIncDec8(AssemblerParser* p, M65Emitter
     emitStackIncDec8Code(p, e, s->type == Stmt::STACK_INC8, s->instr.operandTokenIndex, s->scopePrefix);
 }
 void AssemblerSimulatedOps::dispatch_AddSub16(AssemblerParser* p, M65Emitter& e, Stmt* s) {
-    printf("DEBUG dispatch_AddSub16: operand='%s', exprTokenIndex=%d\n", s->instr.operand.c_str(), s->exprTokenIndex);
-    fflush(stdout);
+    //printf("DEBUG dispatch_AddSub16: operand='%s', exprTokenIndex=%d\n", s->instr.operand.c_str(), s->exprTokenIndex);
+    //fflush(stdout);
     bool isAdd = (s->type == Stmt::ADD16 || s->type == Stmt::ADDS16);
     emitAddSub16Code(p, e, isAdd, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
 }

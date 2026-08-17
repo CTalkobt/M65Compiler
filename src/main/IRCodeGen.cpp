@@ -3627,8 +3627,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
                 if ((inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) &&
                     inst.src1.kind == ir::OperandKind::GLOBAL) {
-                    fprintf(stderr, "DEBUG: Call to '%s' isCallingSAC=%d (sacFunctions_size=%lu)\n",
-                            inst.src1.name.c_str(), (int)isCallingSAC, sacFunctions_.size());
+                    //fprintf(stderr, "DEBUG: Call to '%s' isCallingSAC=%d (sacFunctions_size=%lu)\n",
+                    //        inst.src1.name.c_str(), (int)isCallingSAC, sacFunctions_.size());
                 }
 
                 auto isSimpleArg = [&](const ir::Operand& arg) -> bool {
