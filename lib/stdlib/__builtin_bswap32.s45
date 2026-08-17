@@ -8,7 +8,7 @@
 
 proc ___builtin_bswap32, D#_p_x
     .var _fp = 0
-    ldaxyz.fp _p_x
+    ldaxyz.param _p_x
     ; Input in A, X, Y, Z (A=b0, X=b1, Y=b2, Z=b3)
     
     ; Swap A with Z, X with Y

@@ -5,7 +5,7 @@
 
 proc ___builtin_clz, W#_p_x
     .var _fp = 0
-    ldax.fp _p_x
+    ldax.param _p_x
     sta $20
     stx $21
     ldx #0          ; counter
