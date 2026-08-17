@@ -1361,6 +1361,18 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     // Store SAC mode for this function (used by loadVreg/storeVreg for addressing)
     currentFunctionUseSAC_ = useSAC;
+
+    // Track parameter names for all functions (needed for SAC call site naming)
+    std::vector<std::string> paramNames;
+    for (size_t i = 0; i < fn.paramNames.size(); i++) {
+        if (i < fn.paramNames.size() && !fn.paramNames[i].empty()) {
+            paramNames.push_back(fn.paramNames[i]);
+        } else {
+            paramNames.push_back(std::to_string(i));
+        }
+    }
+    functionParameterNames_[fn.name] = paramNames;
+
     if (useSAC) {
         sacFunctions_.insert(fn.name);  // Track for .global __ar symbol emission
 
@@ -1369,6 +1381,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         emitComment("SAC inline storage: " + std::to_string(frameSize_) + " bytes");
 
         // Emit storage for parameters
+        // Use parameter names for documentation, fall back to indices if unavailable
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
             int ps = ir::typeSize(fn.paramTypes[i]);
             if (ps < 2) ps = 2;  // Minimum 2 bytes
@@ -3643,12 +3656,22 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
                 if (isCallingSAC) {
                     // SAC call: store parameters directly to inline storage, no stack pushing
+                    // Use function's parameter names for clear documentation
+                    std::vector<std::string> paramNames;
+                    if (functionParameterNames_.count(inst.src1.name)) {
+                        paramNames = functionParameterNames_[inst.src1.name];
+                    }
+                    // Fall back to indices if no parameter names available
+                    while (paramNames.size() < (size_t)nArgs) {
+                        paramNames.push_back(std::to_string(paramNames.size()));
+                    }
+
                     for (int ai = nArgs - 1; ai >= 0; ai--) {
                         const auto& arg = inst.args[ai];
                         int ps = ir::typeSize(arg.type);
                         if (ps < 2) ps = 2;
 
-                        std::string paramSymbol = inst.src1.name + "__param_" + std::to_string(ai);
+                        std::string paramSymbol = inst.src1.name + "__param_" + paramNames[ai];
                         loadOperand(arg);
                         emit("sta " + paramSymbol);
                         emit("stx " + paramSymbol + "+1");

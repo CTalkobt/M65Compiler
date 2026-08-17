@@ -151,6 +151,10 @@ private:
     // Used to emit .global declarations for __ar symbols in preamble
     std::set<std::string> sacFunctions_;
 
+    // Track parameter names for each function (for SAC naming consistency)
+    // Maps function name → vector of parameter names
+    std::map<std::string, std::vector<std::string>> functionParameterNames_;
+
     // Phase 1: MachineState-based helpers for constant queries
     // Returns true if a vreg's value is a known constant and optionally retrieves it
     bool vregIsConst(uint32_t vregId, int64_t* outVal = nullptr) const;
