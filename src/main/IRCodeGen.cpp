@@ -1833,6 +1833,20 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // (Plain rts without plz for SAC; with plz cleanup for stack-based functions above)
     emit("rts");
 
+    // Emit parameter constant metadata for cross-file optimization analysis
+    // Linker can use this to detect parameters that are ALWAYS constant across all files
+    if (useSAC && relocMode_ && sacConstParams_.count(fn.name)) {
+        const auto& params = sacConstParams_[fn.name];
+        for (const auto& [paramIdx, info] : params) {
+            if (info.isConstant) {
+                // Emit metadata: .param_const function_name param_index value
+                // Linker collects this from all object files to find truly-constant params
+                emit(".param_const " + fn.name + " " + std::to_string(paramIdx) +
+                     " " + std::to_string(info.value));
+            }
+        }
+    }
+
     // Function attribute directives with per-function clobber analysis
     auto fc = computeFuncClobbers(fn);
     {
