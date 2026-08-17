@@ -45,6 +45,17 @@ static std::vector<uint8_t> encodeFloat(double val) {
 std::vector<uint8_t> AssemblerGenerator::generate(AssemblerParser* parser, bool isPrg) {
     std::vector<uint8_t> binary;
     uint32_t start = parser->getFirstOrgAddress();
+
+    // For PRG files with no explicit .org, check for BASIC_UPSTART directive
+    if (isPrg && start == 0xFFFFFFFF) {
+        for (const auto& stmt : parser->statements) {
+            if (stmt->type == AssemblerParser::Statement::BASIC_UPSTART) {
+                start = 0x2000;  // Standard MEGA65 code entry point
+                break;
+            }
+        }
+    }
+
     if (isPrg && start != 0xFFFFFFFF) {
         binary.push_back((uint8_t)(start & 0xFF));
         binary.push_back((uint8_t)(start >> 8));
