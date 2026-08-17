@@ -3545,7 +3545,19 @@ void AssemblerSimulatedOps::dispatch_STZ_Param(AssemblerParser* p, M65Emitter& e
     // Same as LDX.param - delegate to FP behavior
 }
 void AssemblerSimulatedOps::dispatch_LDAX_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
-    emitLDAX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+    if (e.isSACMode()) {
+        // SAC: Parameters are on stack, NOT in FP-relative location
+        // Load using stack-relative addressing (like stack convention but with explicit offsets)
+        uint8_t offset = (uint8_t)p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
+        // Load hi byte first, save to scratch, then load lo byte
+        e.lda_stack(offset + 1);      // hi byte at stack[offset+1]
+        e.sta_scratch();               // save hi to scratch
+        e.lda_stack(offset);           // lo byte at stack[offset]
+        e.ldx_scratch();               // X = hi byte
+    } else {
+        // Stack mode: Use FP-relative addressing
+        emitLDAX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+    }
 }
 void AssemblerSimulatedOps::dispatch_STAX_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
     emitSTAX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
