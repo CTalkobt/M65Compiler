@@ -1,6 +1,5 @@
 #include "O45Reader.hpp"
 #include <cstring>
-#include <iostream>
 
 static uint16_t readU16(const uint8_t* p) { return p[0] | (p[1] << 8); }
 static uint32_t readU32(const uint8_t* p) { return p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24); }
@@ -205,18 +204,12 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
     for (uint32_t i = 0; i < exportCount; i++) {
         O45File::Export exp;
         size_t end = off;
-        // DEBUG: Show position and data
-        if (off < data.size()) {
-            std::cerr << "DEBUG: export[" << i << "] at offset=" << off << ", data[off]=" << (int)(data[off]) << " ('" << (char)data[off] << "')\n";
-        }
         while (end < data.size() && data[end] != 0) end++;
         if (end >= data.size()) {
-            std::cerr << "ERROR: truncated export name at export[" << i << "], offset=" << off << ", searched to end=" << data.size() << "\n";
             errorMsg = "truncated export name";
             return false;
         }
         exp.name.assign(data.begin() + off, data.begin() + end);
-        std::cerr << "DEBUG: export[" << i << "] name='" << exp.name << "'\n";
         off = end + 1;
         // segment byte + offset (2 or 4 bytes)
         if (off + 1 + fw > data.size()) { errorMsg = "truncated export entry"; return false; }
