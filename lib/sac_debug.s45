@@ -6,27 +6,46 @@
     .global __sac_debug_exit
 
     ; __sac_debug_enter: Called at SAC function entry
-    ; Parameters:
-    ;   A:X = AR buffer address (low:high)
-    ;   Y   = AR size in bytes
+    ; Parameters (registers):
+    ;   A = AR buffer address (low byte)
+    ;   X = AR buffer address (high byte)
+    ;   Y = AR size in bytes
     ;
-    ; This stub implementation does nothing.
-    ; Users can replace with actual debug output (e.g., printf, UART, screen writes)
+    ; Output via printf using stack calling convention
 __sac_debug_enter:
-    ; Stub: just return
-    ; In a real implementation, this might:
-    ; - Print "ENTER funcName: AR=0xXXXX (size=N)"
-    ; - Output to screen memory ($0400) or UART
-    ; - Use printf for formatted output
+    ; Push parameters for printf (stack convention, reverse order)
+    ; printf(format, ar_addr_16bit, ar_size_16bit)
+
+    ; Push AR_SIZE as 16-bit value (high byte, then low)
+    lda #$00             ; AR size is always < 256, so high byte is 0
+    pha
+    phy                  ; Push Y (AR size low byte)
+
+    ; Push AR_ADDRESS as 16-bit value (high byte, then low)
+    phx                  ; Push X (AR address high byte)
+    pha                  ; Push A (AR address low byte)
+
+    ; Call printf with format string
+    lda #<sac_enter_fmt
+    ldx #>sac_enter_fmt
+    jsr printf
+
+    ; printf will clean up its own stack parameters
     rts
 
     ; __sac_debug_exit: Called at SAC function exit
-    ; This stub implementation does nothing.
-    ; Users can replace with actual debug output (e.g., printf, UART, screen writes)
+    ; No parameters
 __sac_debug_exit:
-    ; Stub: just return
-    ; In a real implementation, this might:
-    ; - Print "EXIT funcName"
-    ; - Output to screen memory ($0400) or UART
-    ; - Use printf for formatted output
+    ; Call printf with exit message
+    lda #<sac_exit_fmt
+    ldx #>sac_exit_fmt
+    jsr printf
+
     rts
+
+    .data
+sac_enter_fmt:
+    .asciiz "SAC ENTER: AR=$%04X size=%d\n"
+
+sac_exit_fmt:
+    .asciiz "SAC EXIT\n"
