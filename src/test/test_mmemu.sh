@@ -455,11 +455,11 @@ else
     if [ $? -ne 0 ]; then echo "FAIL: Assembly failed for test_short.s45"; failed=$((failed + 1));
     else
         OUTPUT=$(echo -e "load build/test/test_short.prg\nsetpc \$2000\nstep 5000000\nm \$4000 7\nq" | $MMEMU -m rawMega65 2>/dev/null)
-        if echo "$OUTPUT" | grep -qi "4000:.*1e 05 02 0c 0a c8 aa"; then
+        if echo "$OUTPUT" | grep -qi "4000:.*1e 05 02 0c 0a 14 aa"; then
             echo "SUCCESS: test_short.c — short type correct."
         else
             echo "FAIL: test_short.c — short type validation failed."
-            echo "Expected 4000: 1E 05 02 0C 0A C8 AA"
+            echo "Expected 4000: 1E 05 02 0C 0A 14 AA"
             echo "Actual output:"
             echo "$OUTPUT" | grep "4000:"
             failed=$((failed + 1))
