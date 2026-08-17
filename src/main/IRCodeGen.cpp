@@ -1505,8 +1505,14 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     emit(procLine);
 
     // Mark SAC functions for assembler
+    // Phase 51: Skip for zero-alloc leaves (all parameters constant)
     if (currentFunctionUseSAC_) {
-        emit(".sac");
+        bool isZeroAlloc = isZeroAllocLeaf(fn.name, fn);
+        if (!isZeroAlloc) {
+            emit(".sac");
+        } else {
+            emitComment("Phase 51: zero-alloc leaf (all parameters constant)");
+        }
     }
 
     // Reset source location tracking for this function
@@ -4539,6 +4545,32 @@ void IRCodeGen::detectZeroAllocLeaves(const ir::Function& fn) {
     
     // All checks passed - this is a zero-alloc leaf
     zeroAllocLeaves_.insert(fn.name);
+}
+
+// Phase 51: Zero-alloc leaf detection
+// Returns true if ALL parameters of a SAC function are constant (no AR allocation needed)
+bool IRCodeGen::isZeroAllocLeaf(const std::string& funcName, const ir::Function& fn) const {
+    // Only applies to SAC functions with parameters
+    if (fn.paramTypes.empty()) {
+        return true;  // Functions with no parameters are zero-alloc leaves
+    }
+
+    // Check if all parameters are in specializedParams
+    auto it = specializedParams_.find(funcName);
+    if (it == specializedParams_.end()) {
+        return false;  // No specialization info for this function
+    }
+
+    const auto& paramMap = it->second;
+
+    // Every parameter must be specialized (constant)
+    for (size_t paramIdx = 0; paramIdx < fn.paramTypes.size(); paramIdx++) {
+        if (paramMap.find(paramIdx) == paramMap.end()) {
+            return false;  // Parameter not in specialization map
+        }
+    }
+
+    return true;  // All parameters are constant
 }
 
 // Phase 47: IR Metadata Collection

@@ -32,6 +32,27 @@ public:
     // Phase 49: Get collected IR metadata for output
     O45IRMetadata getIRMetadata() const;
 
+    // Phase 51: Set specialized (constant) parameters for functions
+    // Maps function name → parameter index → constant value
+    // Used during code generation to skip parameter loading for constant parameters
+    void setSpecializedParams(const std::map<std::string, std::map<int, int64_t>>& params) {
+        specializedParams_ = params;
+    }
+
+    // Phase 51: Check if a function is a zero-alloc leaf
+    // Returns true if ALL parameters are constant (no AR needed)
+    bool isZeroAllocLeaf(const std::string& funcName, const ir::Function& fn) const;
+
+    // Phase 51: Get constant value for a parameter (if it's specialized)
+    bool getParameterConstant(const std::string& funcName, int paramIdx, int64_t& outValue) const {
+        auto it = specializedParams_.find(funcName);
+        if (it == specializedParams_.end()) return false;
+        auto pit = it->second.find(paramIdx);
+        if (pit == it->second.end()) return false;
+        outValue = pit->second;
+        return true;
+    }
+
 private:
     std::ostream& out_;
     uint32_t zeroPageStart_ = 0x08;
@@ -338,4 +359,9 @@ private:
     void recordCallSite(const std::string& calleeFunc, uint32_t instructionOffset,
                        const std::vector<ir::Operand>& args);
     void finalizeIRForFunction();
+
+    // Phase 51: Specialized parameters for cross-file optimization
+    // Maps function name → parameter index → constant value
+    // Used to skip parameter initialization for constant parameters
+    std::map<std::string, std::map<int, int64_t>> specializedParams_;
 };
