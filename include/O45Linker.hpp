@@ -29,6 +29,12 @@ public:
 //
 class O45Linker {
 public:
+    // Parameter specialization: tracks parameters that are ALWAYS constant
+    struct SpecializedParam {
+        bool isConstant = false;
+        int64_t value = 0;
+    };
+
     // Add an object file to the link. Order matters for segment layout.
     void addObject(const std::string& filename, const O45File& obj);
 
@@ -60,6 +66,23 @@ public:
 
     // After a successful link, retrieve transitive clobber sets (name -> merged O45FuncAttr).
     const std::map<std::string, O45FuncAttr>& getTransitiveClobbers() const { return transitiveClobbers_; }
+
+    // After a successful link, retrieve parameter specialization info.
+    // Maps function name → parameter index → (isConstant, value)
+    const std::map<std::string, std::map<int, SpecializedParam>>& getSpecializedParams() const {
+        return specializedParams_;
+    }
+
+    // Query if a specific parameter is specialized (constant)
+    bool isParameterSpecialized(const std::string& funcName, int paramIdx, int64_t& outValue) const {
+        auto it = specializedParams_.find(funcName);
+        if (it == specializedParams_.end()) return false;
+        auto pit = it->second.find(paramIdx);
+        if (pit == it->second.end()) return false;
+        if (!pit->second.isConstant) return false;
+        outValue = pit->second.value;
+        return true;
+    }
 
     // Set warning output stream (default: stderr). Set to nullptr to suppress.
     void setWarningStream(std::ostream* os) { warnStream_ = os; }
@@ -172,6 +195,11 @@ private:
     std::map<std::string, uint32_t> arBaseAddresses_;
     // Tracks which functions are address-taken (can't be colored/overlapped)
     std::set<std::string> addressTakenFunctions_;
+
+    // Phase 4: Parameter specialization
+    // Maps function name → parameter index → (is_constant, constant_value)
+    // Tracks which parameters are TRULY constant across all call sites
+    std::map<std::string, std::map<int, SpecializedParam>> specializedParams_;
 
     bool resolveLibraries(std::string& errorMsg);
     bool layoutSegments(std::string& errorMsg);

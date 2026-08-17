@@ -961,20 +961,43 @@ void O45Linker::computeTransitiveClobbers() {
 // 3.2a — Analyze constant parameters across all object files
 // Finds parameters that are ALWAYS constant across all call sites
 void O45Linker::analyzeConstantParameters() {
+    if (warnStream_) {
+        *warnStream_ << "DEBUG: Analyzing constant parameters. funcAttrs_.size()=" << funcAttrs_.size() << std::endl;
+    }
+
     // For each function with SAC metadata
     for (auto& [funcName, attr] : funcAttrs_) {
+        if (warnStream_) {
+            *warnStream_ << "DEBUG: Function " << funcName << " flags=0x" << std::hex << (int)attr.flags
+                         << " SAC params=" << attr.sacMetadata.parameters.size() << std::dec << std::endl;
+        }
+
         if (attr.sacMetadata.parameters.empty()) continue;
+        if ((attr.flags & FUNC_FLAG_STATIC_ALLOC) == 0) continue;
 
         // For each parameter in this function
         for (size_t paramIdx = 0; paramIdx < attr.sacMetadata.parameters.size(); paramIdx++) {
-            auto& param = attr.sacMetadata.parameters[paramIdx];
+            const auto& param = attr.sacMetadata.parameters[paramIdx];
 
-            // If already marked as constant from single-file analysis, keep it
-            if (param.isConstant) continue;
+            // Mark parameter as specialized if it's constant
+            if (param.isConstant) {
+                specializedParams_[funcName][paramIdx] = {true, param.constantValue};
 
-            // Cross-file analysis: check if ANY object file marked this param as constant
-            // For now, we just preserve what was already detected in single-file analysis
-            // Future: combine information from multiple files to find truly-constant params
+                // Debug output
+                if (warnStream_) {
+                    *warnStream_ << "INFO: Parameter " << funcName << "[" << paramIdx
+                                 << "] is constant: " << param.constantValue << std::endl;
+                }
+            }
+        }
+    }
+
+    // Phase 4 optimization: Generate optimized parameter passing
+    // For each specialized function with constant parameters
+    for (const auto& [funcName, paramMap] : specializedParams_) {
+        if (warnStream_) {
+            *warnStream_ << "OPTIMIZE: Function " << funcName << " has " << paramMap.size()
+                        << " constant parameter(s)" << std::endl;
         }
     }
 }

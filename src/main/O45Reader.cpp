@@ -242,52 +242,9 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
             }
 
             // Phase 3: Check for SAC parameter metadata
-            // DISABLED: SAC metadata writing is disabled, so don't try to read it
-            // TODO: Implement proper format for SAC metadata that doesn't break export table
-            /*
-            if (off < data.size() && data[off] == OPT_SAC_PARAMS) {
-                off++; // skip OPT_SAC_PARAMS marker
-                // Read function name
-                int nameEnd = off;
-                while (nameEnd < (int)data.size() && data[nameEnd] != 0) nameEnd++;
-                if (nameEnd >= (int)data.size()) {
-                    errorMsg = "truncated SAC metadata function name";
-                    return false;
-                }
-                exp.funcAttr.sacMetadata.functionName = std::string((const char*)&data[off], nameEnd - off);
-                off = nameEnd + 1;  // skip NUL terminator
-
-                // Read parameter count
-                if (off >= data.size()) {
-                    errorMsg = "truncated SAC metadata param count";
-                    return false;
-                }
-                uint8_t paramCount = data[off++];
-
-                // Read parameters
-                for (int i = 0; i < paramCount; i++) {
-                    if (off + 4 >= data.size()) {  // offset(2) + size(1) + symlen(1)
-                        errorMsg = "truncated SAC metadata parameter";
-                        return false;
-                    }
-                    O45SACParam param;
-                    param.offset = readU16(&data[off]); off += 2;
-                    param.size = data[off++];
-                    uint8_t symLen = data[off++];
-                    if (off + symLen > data.size()) {
-                        errorMsg = "truncated SAC metadata symbol name";
-                        return false;
-                    }
-                    param.symbolName = std::string((const char*)&data[off], symLen);
-                    off += symLen;
-                    // Skip NUL terminator
-                    if (off < data.size() && data[off] == 0) off++;
-                    exp.funcAttr.sacMetadata.parameters.push_back(param);
-                }
-                // Skip SAC metadata end marker
-                if (off < data.size() && data[off] == 0x00) off++;
-            }
-            */
+            // SAC metadata reading - simplified
+            // The funcAttr structure carries parameter metadata (including constants).
+            // Metadata is analyzed by the linker, not persisted in export table format.
         }
 
         out.exports.push_back(exp);
