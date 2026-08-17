@@ -3617,6 +3617,11 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 int nArgs = (int)inst.args.size();
 
                 // Classify args: true = simple (can push inline)
+                // Check if this is a SAC function call - if so, store parameters to inline storage
+                bool isCallingSAC = (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) &&
+                                   inst.src1.kind == ir::OperandKind::GLOBAL &&
+                                   sacFunctions_.count(inst.src1.name);
+
                 auto isSimpleArg = [&](const ir::Operand& arg) -> bool {
                     if (arg.isImm()) return true;
                     if (arg.kind == ir::OperandKind::GLOBAL) return true;
@@ -3630,7 +3635,24 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     if (!isSimpleArg(inst.args[ai])) { allSimple = false; break; }
                 }
 
-                if (allSimple) {
+                if (isCallingSAC) {
+                    // SAC call: store parameters directly to inline storage, no stack pushing
+                    for (int ai = nArgs - 1; ai >= 0; ai--) {
+                        const auto& arg = inst.args[ai];
+                        int ps = ir::typeSize(arg.type);
+                        if (ps < 2) ps = 2;
+
+                        std::string paramSymbol = inst.src1.name + "__param_" + std::to_string(ai);
+                        loadOperand(arg);
+                        emit("sta " + paramSymbol);
+                        emit("stx " + paramSymbol + "+1");
+                        if (arg.type == ir::Type::I32) {
+                            emit("sty " + paramSymbol + "+2");
+                            emit("stz " + paramSymbol + "+3");
+                        }
+                    }
+                    argBytes = 0;  // No stack cleanup needed
+                } else if (allSimple) {
                     // Fast path: push all args inline right-to-left
                     // Use phw #imm16 for constant 16-bit args (3 bytes vs 6)
                     for (int ai = nArgs - 1; ai >= 0; ai--) {
@@ -3791,9 +3813,9 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     emit("jsr $0000");
                 }
 
-                // Caller-side stack cleanup: skip over parameters WITHOUT modifying the stack pointer
-                // Save result to ZP scratch, pop parameters, restore result
-                if (argBytes > 0) {
+                // Caller-side stack cleanup: skip for SAC calls (no stack parameters were used)
+                // For non-SAC: save result to ZP scratch, pop parameters, restore result
+                if (argBytes > 0 && !isCallingSAC) {
                     // Save result to __zp_scratch4 (safe, not clobbered by frame operations)
                     emit("sta __zp_scratch4");     // Save A (result low byte)
                     emit("stx __zp_scratch4+1");   // Save X (result high byte)
@@ -3804,8 +3826,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     if (needY) emit("sty __zp_scratch4+2");  // Save Y
                     if (needZ) emit("stz __zp_scratch4+3");  // Save Z
 
-                    // Pop parameters using PLZ (discards into Z register, no side effects)
-                    for (int i = 0; i < argBytes; i++) {
+                    // Pop parameters using PLZ (4 bytes per plz instruction)
+                    for (int i = 0; i < argBytes; i += 4) {
                         emit("plz");
                     }
 
