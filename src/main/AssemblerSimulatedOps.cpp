@@ -3509,3 +3509,116 @@ void AssemblerSimulatedOps::dispatch_StructElem(AssemblerParser* p, M65Emitter& 
     }
 }
 
+// ============================================================================
+// Parameter and Local Variable Access (Method-Agnostic Instructions)
+// ============================================================================
+// These instructions are interpreted based on function flags:
+// - SAC mode (.sac directive): use absolute SP+offset addressing
+// - Stack mode (default): use frame-pointer relative addressing (.fp)
+
+// Dispatch functions for .param instructions (delegate to .fp for now)
+void AssemblerSimulatedOps::dispatch_LDA_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDA_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STA_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTA_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDX_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    // TODO: Implement LDX.param
+}
+void AssemblerSimulatedOps::dispatch_STX_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    // TODO: Implement STX.param
+}
+void AssemblerSimulatedOps::dispatch_LDY_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    // TODO: Implement LDY.param
+}
+void AssemblerSimulatedOps::dispatch_STY_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    // TODO: Implement STY.param
+}
+void AssemblerSimulatedOps::dispatch_LDZ_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    // TODO: Implement LDZ.param
+}
+void AssemblerSimulatedOps::dispatch_STZ_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    // TODO: Implement STZ.param
+}
+void AssemblerSimulatedOps::dispatch_LDAX_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDAX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STAX_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTAX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDAY_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDAY_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STAY_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTAY_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDAZ_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDAZ_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STAZ_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTAZ_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDAXYZ_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDAXYZ_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STAXYZ_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTAXYZ_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LEAX_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLEAX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+
+// Dispatch functions for .local instructions (delegate to .fp for now)
+void AssemblerSimulatedOps::dispatch_LDA_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDA_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STA_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTA_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDX_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    // TODO: Implement LDX.local
+}
+void AssemblerSimulatedOps::dispatch_STX_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    // TODO: Implement STX.local
+}
+void AssemblerSimulatedOps::dispatch_LDY_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    // TODO: Implement LDY.local
+}
+void AssemblerSimulatedOps::dispatch_STY_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    // TODO: Implement STY.local
+}
+void AssemblerSimulatedOps::dispatch_LDZ_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    // TODO: Implement LDZ.local
+}
+void AssemblerSimulatedOps::dispatch_STZ_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    // TODO: Implement STZ.local
+}
+void AssemblerSimulatedOps::dispatch_LDAX_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDAX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STAX_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTAX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDAY_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDAY_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STAY_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTAY_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDAZ_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDAZ_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STAZ_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTAZ_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDAXYZ_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDAXYZ_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STAXYZ_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTAXYZ_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LEAX_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLEAX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+

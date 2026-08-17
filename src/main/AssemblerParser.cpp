@@ -971,6 +971,42 @@ void AssemblerParser::pass1() {
             else if (fullMnemonic == "bfins16.ind") { SIMOP(BFINS16_IND, dispatch_BFIns); }
             else if (fullMnemonic == "bfins32") { SIMOP(BFINS32, dispatch_BFIns); }
             else if (fullMnemonic == "struct_elem.16" || fullMnemonic == "struct_elem") { SIMOP(STRUCT_ELEM, dispatch_StructElem); }
+            // Parameter and local variable access (method-agnostic, interpreted based on function flags)
+            else if (fullMnemonic == "lda.param") { SIMOP(LDA_PARAM, dispatch_LDA_Param); }
+            else if (fullMnemonic == "sta.param") { SIMOP(STA_PARAM, dispatch_STA_Param); }
+            else if (fullMnemonic == "ldx.param") { SIMOP(LDX_PARAM, dispatch_LDX_Param); }
+            else if (fullMnemonic == "stx.param") { SIMOP(STX_PARAM, dispatch_STX_Param); }
+            else if (fullMnemonic == "ldy.param") { SIMOP(LDY_PARAM, dispatch_LDY_Param); }
+            else if (fullMnemonic == "sty.param") { SIMOP(STY_PARAM, dispatch_STY_Param); }
+            else if (fullMnemonic == "ldz.param") { SIMOP(LDZ_PARAM, dispatch_LDZ_Param); }
+            else if (fullMnemonic == "stz.param") { SIMOP(STZ_PARAM, dispatch_STZ_Param); }
+            else if (fullMnemonic == "ldax.param") { SIMOP(LDAX_PARAM, dispatch_LDAX_Param); }
+            else if (fullMnemonic == "stax.param") { SIMOP(STAX_PARAM, dispatch_STAX_Param); }
+            else if (fullMnemonic == "lday.param") { SIMOP(LDAY_PARAM, dispatch_LDAY_Param); }
+            else if (fullMnemonic == "stay.param") { SIMOP(STAY_PARAM, dispatch_STAY_Param); }
+            else if (fullMnemonic == "ldaz.param") { SIMOP(LDAZ_PARAM, dispatch_LDAZ_Param); }
+            else if (fullMnemonic == "staz.param") { SIMOP(STAZ_PARAM, dispatch_STAZ_Param); }
+            else if (fullMnemonic == "ldaxyz.param") { SIMOP(LDAXYZ_PARAM, dispatch_LDAXYZ_Param); }
+            else if (fullMnemonic == "staxyz.param") { SIMOP(STAXYZ_PARAM, dispatch_STAXYZ_Param); }
+            else if (fullMnemonic == "leax.param") { SIMOP(LEAX_PARAM, dispatch_LEAX_Param); }
+            // Local variable access
+            else if (fullMnemonic == "lda.local") { SIMOP(LDA_LOCAL, dispatch_LDA_Local); }
+            else if (fullMnemonic == "sta.local") { SIMOP(STA_LOCAL, dispatch_STA_Local); }
+            else if (fullMnemonic == "ldx.local") { SIMOP(LDX_LOCAL, dispatch_LDX_Local); }
+            else if (fullMnemonic == "stx.local") { SIMOP(STX_LOCAL, dispatch_STX_Local); }
+            else if (fullMnemonic == "ldy.local") { SIMOP(LDY_LOCAL, dispatch_LDY_Local); }
+            else if (fullMnemonic == "sty.local") { SIMOP(STY_LOCAL, dispatch_STY_Local); }
+            else if (fullMnemonic == "ldz.local") { SIMOP(LDZ_LOCAL, dispatch_LDZ_Local); }
+            else if (fullMnemonic == "stz.local") { SIMOP(STZ_LOCAL, dispatch_STZ_Local); }
+            else if (fullMnemonic == "ldax.local") { SIMOP(LDAX_LOCAL, dispatch_LDAX_Local); }
+            else if (fullMnemonic == "stax.local") { SIMOP(STAX_LOCAL, dispatch_STAX_Local); }
+            else if (fullMnemonic == "lday.local") { SIMOP(LDAY_LOCAL, dispatch_LDAY_Local); }
+            else if (fullMnemonic == "stay.local") { SIMOP(STAY_LOCAL, dispatch_STAY_Local); }
+            else if (fullMnemonic == "ldaz.local") { SIMOP(LDAZ_LOCAL, dispatch_LDAZ_Local); }
+            else if (fullMnemonic == "staz.local") { SIMOP(STAZ_LOCAL, dispatch_STAZ_Local); }
+            else if (fullMnemonic == "ldaxyz.local") { SIMOP(LDAXYZ_LOCAL, dispatch_LDAXYZ_Local); }
+            else if (fullMnemonic == "staxyz.local") { SIMOP(STAXYZ_LOCAL, dispatch_STAXYZ_Local); }
+            else if (fullMnemonic == "leax.local") { SIMOP(LEAX_LOCAL, dispatch_LEAX_Local); }
             #undef SIMOP
 
             // Calculate sizes for SIMOP statements that need pre-emission size calculation
