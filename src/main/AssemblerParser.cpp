@@ -1111,7 +1111,8 @@ void AssemblerParser::pass1() {
                         }
                         if (match(AssemblerTokenType::COMMA)) {
                             stmt->exprTokenIndex = (int)pos;
-                            while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
+                            // DON'T skip remaining tokens - leave pos at the start of the operand
+                            // The emitFn will parse it correctly using exprTokenIndex
                         }
                     }
                 }
