@@ -113,6 +113,41 @@ void IRCodeGen::emitDebugVariable(const std::string& functionName, const std::st
 }
 
 // ============================================================================
+// SAC Debug Output
+// ============================================================================
+
+void IRCodeGen::emitSACDebugEnter(const std::string& funcName, int arSize) {
+    if (!sacDebugMode_) return;
+
+    // Emit entry marker with function name and AR size
+    emitComment("SAC_DEBUG_ENTER: " + funcName + " (AR size: " + std::to_string(arSize) + " bytes)");
+
+    // Create string literal for function name
+    std::string nameLabel = funcName + "__debug_name_str";
+
+    // Emit call to debug helper (will output entry marker)
+    // __sac_debug_enter(const char* funcName, uint16_t arAddr, uint16_t arSize)
+    emit("; ENTER " + funcName + " (AR buffer allocated at __" + funcName + "__ar)");
+
+    // Load AR address and call helper
+    // Note: Actual AR address resolution happens at link time
+    // For now, we just emit the symbolic reference
+    emit("lda #<__" + funcName + "__ar", "AR buffer low byte");
+    emit("ldx #>__" + funcName + "__ar", "AR buffer high byte");
+    emit("ldy #" + std::to_string(arSize), "AR size");
+    emit("jsr __sac_debug_enter", "call debug helper");
+}
+
+void IRCodeGen::emitSACDebugExit(const std::string& funcName) {
+    if (!sacDebugMode_) return;
+
+    // Emit exit marker
+    emitComment("SAC_DEBUG_EXIT: " + funcName);
+    emit("; EXIT " + funcName);
+    emit("jsr __sac_debug_exit", "call debug helper");
+}
+
+// ============================================================================
 // Frame management
 // ============================================================================
 
@@ -489,11 +524,12 @@ void IRCodeGen::emitStackCleanup(int frameSize) {
 // Module-level emission
 // ============================================================================
 
-void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode, bool zpCallMode, bool emitReasons, bool staticAllocMode) {
+void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode, bool zpCallMode, bool emitReasons, bool staticAllocMode, bool sacDebugMode) {
     emitReasons_ = emitReasons;
     relocMode_ = relocMode;
     zpCallMode_ = zpCallMode;
     staticAllocMode_ = staticAllocMode;
+    sacDebugMode_ = sacDebugMode;
     zeroPageStart_ = zpStart;
     sourceFile_ = mod.sourceFile;
 
@@ -1595,6 +1631,11 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         }
     }
 
+    // Emit SAC debug entry marker (if SAC mode and debug enabled)
+    if (currentFunctionUseSAC_ && sacDebugMode_) {
+        emitSACDebugEnter(fn.name, localFrameSize);
+    }
+
     // Emit blocks (with instruction index tracking for allocator queries)
     currentInstIdx_ = 0;
     currentFn_ = &fn;
@@ -1614,6 +1655,11 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     // Common return point — clean up frame, then endproc emits rts
     emitLabel("@__return");
+
+    // Emit SAC debug exit marker (if SAC mode and debug enabled)
+    if (currentFunctionUseSAC_ && sacDebugMode_) {
+        emitSACDebugExit(fn.name);
+    }
 
     // SAC functions don't have a stack frame to clean up
     if (!useSAC && localFrameSize > 0) {

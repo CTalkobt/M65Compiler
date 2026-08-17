@@ -873,12 +873,29 @@ void O45Linker::buildCallGraph() {
                 if (r.symbolIndex >= input.obj.imports.size()) continue;
                 callee = input.obj.imports[r.symbolIndex].name;
             } else if (r.segment == SEG_TEXT) {
-                // Internal call — look up in exports to get the function name
-                // The symbol index for TEXT relocations points to an export within this object
-                if (r.symbolIndex >= input.obj.exports.size()) continue;
-                const auto& exp = input.obj.exports[r.symbolIndex];
-                if (exp.segmentId() != SEG_TEXT) continue; // Skip non-text symbols
-                callee = exp.name;
+                // Internal call — use reverse lookup to find target function
+                // The relocation points to a 16-bit address within the text segment.
+                // Read the relocated value and find which function it belongs to.
+                if (r.offset + 1 >= input.obj.textBody.size()) continue;
+
+                // Read the 16-bit value at the relocation site (little-endian)
+                uint16_t targetOff = input.obj.textBody[r.offset] |
+                                     (input.obj.textBody[r.offset + 1] << 8);
+
+                // Find which export this offset falls within
+                bool found = false;
+                for (const auto& exp : input.obj.exports) {
+                    if (exp.segmentId() != SEG_TEXT) continue;
+                    // Check if targetOff is within this function's range
+                    // For now, assume each function spans from its offset to the next export's offset
+                    // This is approximate but good enough for call graph detection
+                    if (exp.offset == targetOff) {
+                        callee = exp.name;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) continue; // Could not resolve target
             } else {
                 continue; // Ignore other segment types
             }
@@ -887,7 +904,9 @@ void O45Linker::buildCallGraph() {
             uint32_t siteInMerged = input.textOffset + r.offset;
             for (const auto& fn : funcs) {
                 if (siteInMerged >= fn.startOff && siteInMerged < fn.endOff) {
-                    callGraph_[fn.name].insert(callee);
+                    if (!callee.empty()) {
+                        callGraph_[fn.name].insert(callee);
+                    }
                     break;
                 }
             }
@@ -1207,16 +1226,31 @@ void O45Linker::colorStaticAllocRegisters() {
     std::vector<std::vector<std::string>> usedFuncsPerColor;
 
     for (const auto& func : sacFuncs) {
-        // NOTE: Call graph detection appears incomplete for internal function calls.
-        // As a safety measure, assign each function its own color to prevent AR buffer
-        // overlap until call graph is fixed. This is suboptimal but ensures correctness.
-        uint32_t color = usedFuncsPerColor.size();
-
-        arColor[func] = color;
-        if (color >= usedFuncsPerColor.size()) {
-            usedFuncsPerColor.resize(color + 1);
+        // Find smallest color (AR slot) that doesn't conflict
+        uint32_t color = 0;
+        bool found = false;
+        while (!found) {
+            bool canUse = true;
+            // Check if any function with this color conflicts with 'func'
+            if (color < usedFuncsPerColor.size()) {
+                for (const auto& other : usedFuncsPerColor[color]) {
+                    if (conflicts[func].count(other) || conflicts[other].count(func)) {
+                        canUse = false;
+                        break;
+                    }
+                }
+            }
+            if (canUse) {
+                arColor[func] = color;
+                if (color >= usedFuncsPerColor.size()) {
+                    usedFuncsPerColor.resize(color + 1);
+                }
+                usedFuncsPerColor[color].push_back(func);
+                found = true;
+            } else {
+                color++;
+            }
         }
-        usedFuncsPerColor[color].push_back(func);
     }
 
     // Compute final BSS-relative AR base addresses

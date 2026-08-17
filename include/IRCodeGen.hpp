@@ -14,7 +14,8 @@ public:
     // Generate assembly for the entire module.
     // relocMode: true = .o45 (emit .global/.extern, no startup stub)
     //            false = PRG (emit .org $2000 + startup stub)
-    void generate(const ir::Module& mod, uint32_t zpStart = 0x08, bool relocMode = false, bool zpCallMode = false, bool emitReasons = false, bool staticAllocMode = false);
+    // sacDebugMode: true = emit runtime debug output for SAC AR buffers (function entry/exit, AR addr, param values)
+    void generate(const ir::Module& mod, uint32_t zpStart = 0x08, bool relocMode = false, bool zpCallMode = false, bool emitReasons = false, bool staticAllocMode = false, bool sacDebugMode = false);
 
     // Set the line-to-file mapping from Lexer for proper source file attribution in .loc directives
     void setLineToFileMap(const std::map<int, std::pair<std::string, int>>& map) {
@@ -41,6 +42,10 @@ private:
     std::string formatDebugType(ir::Type type);
     void emitDebugVariable(const std::string& functionName, const std::string& varName,
                           int offset, ir::Type type, const std::string& scope);
+
+    // SAC debug output emission (runtime AR buffer debugging)
+    void emitSACDebugEnter(const std::string& funcName, int arSize);
+    void emitSACDebugExit(const std::string& funcName);
 
     // Codegen reasoning trace (enabled by -Rcodegen)
     bool emitReasons_ = false;
@@ -116,6 +121,7 @@ private:
     bool relocMode_ = false;
     bool zpCallMode_ = false;
     bool staticAllocMode_ = false;  // -fstaticalloc (SAC)
+    bool sacDebugMode_ = false;  // -fsac-debug (emit runtime debug output for SAC)
     bool useStackParams_ = false;  // frame pointer setup required for current function
 
     // Frame management

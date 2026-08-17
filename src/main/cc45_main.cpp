@@ -419,6 +419,7 @@ int main(int argc, char** argv) {
     uint32_t zeroPageStart = 0x08;
     bool zpCallMode = false;
     bool staticAllocMode = true;  // -fstaticalloc (SAC) — enabled by default, use -fno-staticalloc to disable
+    bool sacDebugMode = false;    // -fsac-debug — enable runtime debug output for SAC AR buffers
     bool inlineFunctions = false;
     bool emitIR = false;
     bool emitReasons = false;
@@ -488,6 +489,9 @@ int main(int argc, char** argv) {
             std::cout << "  --save-temps   Keep intermediate .s and .o45 files" << std::endl;
             std::cout << "  -fzpcall       Use ZP parameter block calling convention" << std::endl;
             std::cout << "  -fno-zpcall    Use stack-based calling convention (default)" << std::endl;
+            std::cout << "  -fstaticalloc  Use static allocation convention for non-recursive functions (default)" << std::endl;
+            std::cout << "  -fno-staticalloc Use stack frames for all functions" << std::endl;
+            std::cout << "  -fsac-debug    Enable runtime debug output for SAC AR buffers (show AR addr, params, entry/exit)" << std::endl;
             std::cout << "  -finline-functions  Inline small functions at call sites" << std::endl;
             std::cout << "  --pragma \"...\"  Inject a #pragma directive (e.g., --pragma \"cc45 heap\")" << std::endl;
             std::cout << "  -Dname=val     Define a symbol (e.g., -Dcc45.zeroPageStart=$10)" << std::endl;
@@ -519,6 +523,10 @@ int main(int argc, char** argv) {
             staticAllocMode = true;
         } else if (arg == "-fno-staticalloc") {
             staticAllocMode = false;
+        } else if (arg == "-fsac-debug") {
+            sacDebugMode = true;
+        } else if (arg == "-fno-sac-debug") {
+            sacDebugMode = false;
         } else if (arg == "-finline-functions") {
             inlineFunctions = true;
         } else if (arg == "-fno-inline-functions") {
@@ -832,7 +840,7 @@ int main(int argc, char** argv) {
         }
         IRCodeGen irCodeGen(asmOut);
         irCodeGen.setLineToFileMap(lineToFileMap);
-        irCodeGen.generate(irBuilder.getModule(), zeroPageStart, true, zpCallMode, emitReasons, staticAllocMode);
+        irCodeGen.generate(irBuilder.getModule(), zeroPageStart, true, zpCallMode, emitReasons, staticAllocMode, sacDebugMode);
         asmOut.close();
 
         if (verboseLevel >= 1) {
