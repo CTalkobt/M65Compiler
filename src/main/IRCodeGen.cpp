@@ -1154,6 +1154,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // Set current function context (used by loadVreg/storeVreg for SAC addressing)
     currentFunctionName_ = fn.name;
 
+    // Phase 47: Initialize IR tracking for this function
+    initIRForFunction(fn.name, fn);
+
     // Bug #179 fix: Skip prescan here. Prescan runs before the allocator and doesn't know
     // which vRegs will be allocated to ZP vs frame. This causes overlapping frame offsets.
     // Instead, we allocate based on allocator decisions below.
@@ -1880,6 +1883,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     emit("endproc");
     emitBlank();
+
+    // Phase 47: Finalize IR tracking for this function
+    finalizeIRForFunction();
 }
 
 // ============================================================================
@@ -4533,4 +4539,151 @@ void IRCodeGen::detectZeroAllocLeaves(const ir::Function& fn) {
     
     // All checks passed - this is a zero-alloc leaf
     zeroAllocLeaves_.insert(fn.name);
+}
+
+// Phase 47: IR Metadata Collection
+// Initialize IR tracking for a function
+void IRCodeGen::initIRForFunction(const std::string& funcName, const ir::Function& fn) {
+    if (!emitIRMetadata_) return;
+
+    currentFunctionForIR_ = funcName;
+    currentFunctionCallCount_ = 0;
+
+    O45IRFunction irFunc;
+    irFunc.functionName = funcName;
+
+    // Compute signature hash (simple: hash of parameter count + types)
+    uint32_t hash = 0x5381;  // DJB2 initial value
+    for (const auto& paramType : fn.paramTypes) {
+        hash = ((hash << 5) + hash) ^ (uint32_t)paramType;
+    }
+    irFunc.signatureHash = hash;
+
+    // Collect parameter information
+    for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+        O45IRParam param;
+        if (i < fn.paramNames.size()) {
+            param.name = fn.paramNames[i];
+        }
+
+        // Map IR type to O45IRType
+        switch (fn.paramTypes[i]) {
+            case ir::Type::I8:    param.type = IR_TYPE_I8; break;
+            case ir::Type::I16:   param.type = IR_TYPE_I16; break;
+            case ir::Type::I32:   param.type = IR_TYPE_I32; break;
+            case ir::Type::I_N:   param.type = IR_TYPE_I32; break;  // Treat as I32
+            case ir::Type::F32:   param.type = IR_TYPE_FLOAT; break;
+            case ir::Type::PTR:   param.type = IR_TYPE_PTR; break;
+            default:              param.type = IR_TYPE_UNKNOWN; break;
+        }
+
+        // Check if this parameter is marked as constant
+        if (sacConstParams_.count(funcName) && sacConstParams_[funcName].count(i)) {
+            const auto& constInfo = sacConstParams_[funcName][i];
+            if (constInfo.isConstant) {
+                param.flags |= O45_IR_PARAM_IS_CONST;
+                param.constValue = constInfo.value;
+            }
+        }
+
+        param.flags |= O45_IR_PARAM_IS_USED;  // Mark as used (verified by compiler)
+        irFunc.parameters.push_back(param);
+    }
+
+    irFunctionMap_[funcName] = irFunc;
+}
+
+// Record a call site with actual parameter values
+void IRCodeGen::recordCallSite(const std::string& calleeFunc, uint32_t instructionOffset,
+                               const std::vector<ir::Operand>& args) {
+    if (!emitIRMetadata_ || currentFunctionForIR_.empty()) return;
+
+    auto it = irFunctionMap_.find(currentFunctionForIR_);
+    if (it == irFunctionMap_.end()) return;
+
+    O45IRCallSite callSite;
+    callSite.instructionOffset = instructionOffset;
+    callSite.calleeName = calleeFunc;
+
+    // Analyze parameter values
+    for (const auto& arg : args) {
+        callSite.paramIsConst.push_back(0);  // Optimistically assume not constant
+        callSite.paramValues.push_back(0);
+
+        // Try to extract constant value if this is an immediate
+        if (arg.isImm()) {
+            callSite.paramIsConst.back() = 1;
+            callSite.paramValues.back() = arg.immVal;
+        }
+    }
+
+    it->second.callSites.push_back(callSite);
+
+    // Update call graph
+    bool foundEntry = false;
+    for (auto& entry : it->second.callGraph) {
+        if (entry.calleeName == calleeFunc) {
+            entry.callCount++;
+            foundEntry = true;
+            break;
+        }
+    }
+
+    if (!foundEntry) {
+        O45IRCallGraphEntry entry;
+        entry.calleeName = calleeFunc;
+        entry.callCount = 1;
+        it->second.callGraph.push_back(entry);
+    }
+
+    currentFunctionCallCount_++;
+}
+
+// Finalize IR for current function
+void IRCodeGen::finalizeIRForFunction() {
+    if (!emitIRMetadata_ || currentFunctionForIR_.empty()) return;
+
+    auto it = irFunctionMap_.find(currentFunctionForIR_);
+    if (it != irFunctionMap_.end()) {
+        // Analyze call patterns for constant parameters
+        for (auto& entry : it->second.callGraph) {
+            // Check if all calls pass same constants for each parameter
+            bool allCallsConstant = true;
+            int64_t firstConstValue = 0;
+
+            for (const auto& site : it->second.callSites) {
+                if (site.calleeName == entry.calleeName) {
+                    // Check if first parameter is constant in all calls
+                    if (site.paramIsConst.empty() || !site.paramIsConst[0]) {
+                        allCallsConstant = false;
+                        break;
+                    }
+                }
+            }
+
+            entry.allCallsConstant = allCallsConstant;
+        }
+    }
+
+    currentFunctionForIR_.clear();
+    currentFunctionCallCount_ = 0;
+}
+
+// Get collected IR metadata for .o45 output
+O45IRMetadata IRCodeGen::getIRMetadata() const {
+    O45IRMetadata metadata;
+
+    if (!emitIRMetadata_) {
+        metadata.majorVersion = 0;  // No IR
+        return metadata;
+    }
+
+    metadata.majorVersion = O45_IR_VERSION_MAJOR;
+    metadata.minorVersion = O45_IR_VERSION_MINOR;
+
+    for (const auto& [funcName, irFunc] : irFunctionMap_) {
+        metadata.functions.push_back(irFunc);
+    }
+
+    return metadata;
 }

@@ -2,6 +2,7 @@
 #include "IR.hpp"
 #include "VRegAllocator.hpp"
 #include "MachineState.hpp"
+#include "O45IRSerializer.hpp"
 #include <ostream>
 #include <map>
 #include <string>
@@ -317,4 +318,24 @@ private:
     // Phase 2: Fine-grained register invalidation tracking
     // Maps function name → clobber mask for selective invalidation at call sites
     std::map<std::string, int> functionClobberMasks_;
+
+    // Phase 47: IR Metadata Tracking for .o45 Serialization
+    // Track IR information for each function to enable cross-file optimizations
+    bool emitIRMetadata_ = true;  // Enable IR emission by default
+
+    // IR tracking: function name → O45IRFunction metadata
+    std::map<std::string, O45IRFunction> irFunctionMap_;
+
+    // Track current function being emitted (for call site tracking)
+    std::string currentFunctionForIR_;
+    uint32_t currentFunctionCallCount_ = 0;
+
+    // Methods for IR collection and emission
+    void initIRForFunction(const std::string& funcName, const ir::Function& fn);
+    void recordCallSite(const std::string& calleeFunc, uint32_t instructionOffset,
+                       const std::vector<ir::Operand>& args);
+    void finalizeIRForFunction();
+
+    // Get collected IR metadata for output
+    O45IRMetadata getIRMetadata() const;
 };
