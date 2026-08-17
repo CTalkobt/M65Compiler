@@ -285,6 +285,8 @@ void O45Writer::emitExports(std::vector<uint8_t>& out) const {
                     out.push_back(param.size);
                     writeString(out, param.symbolName);
                 }
+                // Emit end marker for SAC metadata
+                out.push_back(0x00);
             }
         }
     }

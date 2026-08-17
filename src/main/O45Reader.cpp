@@ -278,6 +278,8 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
                     if (off < data.size() && data[off] == 0) off++;
                     exp.funcAttr.sacMetadata.parameters.push_back(param);
                 }
+                // Skip SAC metadata end marker
+                if (off < data.size() && data[off] == 0x00) off++;
             }
         }
 
