@@ -1664,32 +1664,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // For stack convention: load into vregs via FP-relative addressing
     if (useStackParams) {
         if (useSAC) {
-            // SAC: Load parameters from stack into inline storage via direct addressing
-            emitComment("load SAC parameters from stack");
-            for (size_t i = 0; i < fn.paramTypes.size(); i++) {
-                std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
-                    ? fn.paramNames[i] : std::to_string(i);
-                std::string paramSymbol = fn.name + "__param_" + pName;
-
-                if (fn.paramTypes[i] == ir::Type::F32) {
-                    // 5-byte float: use FP-relative addressing to load from stack
-                    for (int bi = 0; bi < 5; bi++) {
-                        emit("lda.param @_p_" + pName + "+" + std::to_string(bi));
-                        emit("sta " + paramSymbol + "+" + std::to_string(bi));
-                    }
-                } else if (fn.paramTypes[i] == ir::Type::I32) {
-                    emit("ldaxyz.param @_p_" + pName);
-                    emit("sta " + paramSymbol);
-                    emit("stx " + paramSymbol + "+1");
-                    emit("sty " + paramSymbol + "+2");
-                    emit("stz " + paramSymbol + "+3");
-                } else {
-                    // 16-bit or smaller
-                    emit("ldax.param @_p_" + pName);
-                    emit("sta " + paramSymbol);
-                    emit("stx " + paramSymbol + "+1");
-                }
-            }
+            // SAC: Parameters already in inline storage (placed there by caller)
+            // No parameter loading needed - caller bypassed stack entirely
+            // Do NOT emit "load from stack" code - it would overwrite caller's storage!
         } else {
             // Stack convention: params are on the stack, copy to vregs
             for (size_t i = 0; i < fn.paramTypes.size(); i++) {
