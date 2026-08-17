@@ -170,11 +170,19 @@ private:
     // Maps function_name → is_leaf (true if function makes no CALL/CALL_VOID instructions)
     std::set<std::string> leafFunctions_;
 
+    // SAC zero-alloc leaf functions: leaf functions with only constant params and no locals
+    // These skip AR allocation entirely for maximum code reduction (4-12 bytes per function)
+    // Maps function_name → has_no_alloc_needed
+    std::set<std::string> zeroAllocLeaves_;
+
     // Analyze function calls to detect constant parameters (pre-pass before code generation)
     void analyzeConstantParameters(const ir::Module& mod);
 
     // Detect which functions are leaves (don't call other functions)
     void detectLeafFunctions(const ir::Module& mod);
+
+    // Detect zero-alloc leaves (leaf + no locals + all constant params)
+    void detectZeroAllocLeaves(const ir::Function& fn);
 
     // Phase 1: MachineState-based helpers for constant queries
     // Returns true if a vreg's value is a known constant and optionally retrieves it

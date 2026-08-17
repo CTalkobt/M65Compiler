@@ -1399,9 +1399,21 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     if (useSAC) {
         sacFunctions_.insert(fn.name);  // Track for .global __ar symbol emission
 
+        // Detect zero-alloc leaves (leaf + no locals + all constant params)
+        detectZeroAllocLeaves(fn);
+
         // Emit SAC storage declarations BEFORE function entrance
         // This places them at known addresses accessible at runtime
-        emitComment("SAC inline storage: " + std::to_string(frameSize_) + " bytes");
+        // Skip for zero-alloc leaves (no storage needed at all)
+        bool isZeroAlloc = zeroAllocLeaves_.count(fn.name) > 0;
+        if (!isZeroAlloc) {
+            emitComment("SAC inline storage: " + std::to_string(frameSize_) + " bytes");
+        } else {
+            emitComment("SAC zero-alloc leaf: no storage overhead");
+        }
+
+        // Skip storage emission entirely for zero-alloc leaves
+        if (!isZeroAlloc) {
 
         // Emit storage for parameters
         // Use parameter names for documentation, fall back to indices if unavailable
@@ -1468,6 +1480,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 }
             }
         }
+        }  // Close if (!isZeroAlloc)
     }
 
     // proc directive with parameter specs
@@ -1825,6 +1838,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     {
         std::string funcFlags = (zpCallMode_ && !fn.isVariadic) ? "zp_call" : "stack_call";
         if (useSAC) funcFlags += ", static_alloc";
+        if (zeroAllocLeaves_.count(fn.name)) funcFlags += ", zeroalloc";
         if (fn.isInterrupt) funcFlags += ", isr";
         if (fc.isLeaf) funcFlags += ", leaf";
         emit(".func_flags " + funcFlags);
@@ -4469,4 +4483,40 @@ void IRCodeGen::detectLeafFunctions(const ir::Module& mod) {
             leafFunctions_.insert(fn.name);
         }
     }
+}
+
+// Detect zero-alloc leaf functions: leaf + no locals + all constant params
+void IRCodeGen::detectZeroAllocLeaves(const ir::Function& fn) {
+    // Must be a leaf function
+    if (!leafFunctions_.count(fn.name)) return;
+    
+    // Must have no local variables (or only register-allocated ones)
+    bool hasLocals = false;
+    for (const auto& [vregId, offset] : vregOffset_) {
+        auto alloc = alloc_.getAlloc(vregId);
+        if (alloc.loc == VRegAllocator::IN_FRAME) {
+            hasLocals = true;
+            break;
+        }
+    }
+    if (hasLocals) return;
+    
+    // If no parameters, this is a pure zero-alloc leaf
+    if (fn.paramTypes.empty()) {
+        zeroAllocLeaves_.insert(fn.name);
+        return;
+    }
+    
+    // Check if ALL parameters are constant
+    if (!sacConstParams_.count(fn.name)) return;
+    
+    const auto& params = sacConstParams_[fn.name];
+    for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+        if (!params.count((int)i) || !params.at((int)i).isConstant) {
+            return;  // Found a non-constant parameter
+        }
+    }
+    
+    // All checks passed - this is a zero-alloc leaf
+    zeroAllocLeaves_.insert(fn.name);
 }
