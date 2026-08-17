@@ -417,6 +417,7 @@ int main(int argc, char** argv) {
     OptimizationFlags irOptFlags = OptimizationFlags::fromLevel(2);  // IR optimizer flags
     int listingLevel = 1;
     uint32_t zeroPageStart = 0x08;
+    uint32_t prgBase = 0x2000;     // --prg-base: load address for standalone PRG mode
     bool zpCallMode = false;
     bool staticAllocMode = true;  // -fstaticalloc (SAC) — enabled by default, use -fno-staticalloc to disable
     bool sacDebugMode = false;    // -fsac-debug — enable runtime debug output for SAC AR buffers
@@ -489,6 +490,7 @@ int main(int argc, char** argv) {
             std::cout << "  --save-temps   Keep intermediate .s and .o45 files" << std::endl;
             std::cout << "  -fzpcall       Use ZP parameter block calling convention" << std::endl;
             std::cout << "  -fno-zpcall    Use stack-based calling convention (default)" << std::endl;
+            std::cout << "  --prg-base <addr>  Set PRG load address in hex (default: $2000)" << std::endl;
             std::cout << "  -fstaticalloc  Use static allocation convention for non-recursive functions (default)" << std::endl;
             std::cout << "  -fno-staticalloc Use stack frames for all functions" << std::endl;
             std::cout << "  -fsac-debug    Enable runtime debug output for SAC AR buffers (show AR addr, params, entry/exit)" << std::endl;
@@ -527,6 +529,8 @@ int main(int argc, char** argv) {
             sacDebugMode = true;
         } else if (arg == "-fno-sac-debug") {
             sacDebugMode = false;
+        } else if (arg == "--prg-base" && i + 1 < allArgs.size()) {
+            prgBase = std::stoul(allArgs[++i], nullptr, 16);
         } else if (arg == "-finline-functions") {
             inlineFunctions = true;
         } else if (arg == "-fno-inline-functions") {
@@ -840,7 +844,10 @@ int main(int argc, char** argv) {
         }
         IRCodeGen irCodeGen(asmOut);
         irCodeGen.setLineToFileMap(lineToFileMap);
-        irCodeGen.generate(irBuilder.getModule(), zeroPageStart, true, zpCallMode, emitReasons, staticAllocMode, sacDebugMode);
+        // For -S mode without -c (standalone assembly), use non-relocatable mode with PRG base
+        // For -c mode or full link mode, use relocatable mode (.o45)
+        bool useReloc = objectFileOnly;  // Only use relocatable for -c (object file)
+        irCodeGen.generate(irBuilder.getModule(), zeroPageStart, useReloc, zpCallMode, emitReasons, staticAllocMode, sacDebugMode, prgBase);
         asmOut.close();
 
         if (verboseLevel >= 1) {

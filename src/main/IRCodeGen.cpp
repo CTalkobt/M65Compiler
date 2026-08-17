@@ -558,7 +558,7 @@ void IRCodeGen::emitStackCleanup(int frameSize) {
 // Module-level emission
 // ============================================================================
 
-void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode, bool zpCallMode, bool emitReasons, bool staticAllocMode, bool sacDebugMode) {
+void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode, bool zpCallMode, bool emitReasons, bool staticAllocMode, bool sacDebugMode, uint32_t prgBase) {
     emitReasons_ = emitReasons;
     relocMode_ = relocMode;
     zpCallMode_ = zpCallMode;
@@ -648,7 +648,10 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         for (const auto& fn : mod.functions) {
             if (fn.name == "_main") { hasMain = true; break; }
         }
-        out_ << "* = $2000\n";
+        // Emit PRG load address
+        std::stringstream ss;
+        ss << "* = $" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << prgBase;
+        out_ << ss.str() << "\n";
         emit("__sp_base = $0101");
 
         // --- Set Base Page register ---

@@ -13,9 +13,10 @@ public:
 
     // Generate assembly for the entire module.
     // relocMode: true = .o45 (emit .global/.extern, no startup stub)
-    //            false = PRG (emit .org $2000 + startup stub)
+    //            false = PRG (emit .org + startup stub)
+    // prgBase: load address for PRG mode (default 0x2000), ignored if relocMode=true
     // sacDebugMode: true = emit runtime debug output for SAC AR buffers (function entry/exit, AR addr, param values)
-    void generate(const ir::Module& mod, uint32_t zpStart = 0x08, bool relocMode = false, bool zpCallMode = false, bool emitReasons = false, bool staticAllocMode = false, bool sacDebugMode = false);
+    void generate(const ir::Module& mod, uint32_t zpStart = 0x08, bool relocMode = false, bool zpCallMode = false, bool emitReasons = false, bool staticAllocMode = false, bool sacDebugMode = false, uint32_t prgBase = 0x2000);
 
     // Set the line-to-file mapping from Lexer for proper source file attribution in .loc directives
     void setLineToFileMap(const std::map<int, std::pair<std::string, int>>& map) {
