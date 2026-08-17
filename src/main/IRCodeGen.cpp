@@ -1424,8 +1424,12 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     useStackParams_ = !zpCallMode_ || fn.isVariadic;  // Stack params for all non-ZP functions
     if (useStackParams_) {
         if (currentFunctionUseSAC_) {
-            // SAC: Direct absolute addressing used; no FP setup needed
-            // The scoped symbol (functionname:ar) is resolved by assembler
+            // SAC: FP must point to AR buffer so that .param/.local dispatch can use FP indirect addressing
+            // Load AR buffer address into FP
+            emit("lda #<" + currentFunctionName_ + "__ar");
+            emit("ldx #>" + currentFunctionName_ + "__ar");
+            emit("sta $FD");
+            emit("stx $FE");
         } else {
             // Stack convention: Calculate frame pointer from SP: FP = __sp_base + SPL + 1
             emit("tsy");           // SPH → Y
@@ -1678,6 +1682,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     // Non-interrupt functions return with RTS (SAC or stack-based)
     // (Plain rts without plz for SAC; with plz cleanup for stack-based functions above)
+    emit("rts");
 
     // Function attribute directives with per-function clobber analysis
     auto fc = computeFuncClobbers(fn);
