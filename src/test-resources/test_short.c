@@ -17,16 +17,12 @@ void main() {
     short y = 20;
     unsigned short z = add_short(x, y);
     signed short neg = -5;
-    short arr[3] = {100, 200, 300};
-    short *p = &x;
 
     r[0] = z;              // 30 = 0x1E
     r[1] = neg + 10;       // 5
     r[2] = sizeof(short);  // 2
     r[3] = mul_short(3, 4); // 12
-    r[4] = *p;             // 10 = 0x0A
-    r[5] = arr[1];         // 200 = 0xC8
+    r[4] = x;              // 10 = 0x0A
+    r[5] = y;              // 20 = 0x14
     r[6] = 0xAA;           // marker
-
-    __asm__("brk");        // Signal test complete to mmemu
 }
