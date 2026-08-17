@@ -636,7 +636,7 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         // The linker ignores this for .o45 files, but ca45 uses it for PRG generation
         std::stringstream ss;
         ss << ".org $" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << prgBase;
-        emitRaw(ss.str());
+        emit(ss.str());
         // __sp_base is weak — linker may provide it, or we use default
         emit(".weak __sp_base");
         emit("__sp_base = $0101");  // Default stack page
