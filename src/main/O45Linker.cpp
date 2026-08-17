@@ -1,6 +1,7 @@
 #include "O45Linker.hpp"
 #include <algorithm>
 #include <iomanip>
+#include <numeric>
 #include <queue>
 #include <sstream>
 #include <cstring>
@@ -1176,6 +1177,70 @@ void O45Linker::analyzeSpecializations() {
         if (analysis.isProfitable) {
             specializationAnalysis_[funcName] = analysis;
         }
+    }
+}
+
+// Phase 53: Get specializations recommended for generation
+// Returns map of function name → patterns to specialize (top patterns only)
+std::map<std::string, std::vector<SpecializationPattern>> O45Linker::getRecommendedSpecializations() const {
+    std::map<std::string, std::vector<SpecializationPattern>> recommended;
+
+    for (const auto& [funcName, analysis] : specializationAnalysis_) {
+        if (!analysis.isProfitable) continue;
+
+        std::vector<SpecializationPattern> patterns;
+
+        // For multiple patterns: specialize top 1-2 patterns (by frequency)
+        if (analysis.patterns.size() >= 2) {
+            // Sort patterns by call count (descending)
+            std::vector<size_t> indices(analysis.patterns.size());
+            std::iota(indices.begin(), indices.end(), 0);
+            std::sort(indices.begin(), indices.end(),
+                     [&](size_t a, size_t b) {
+                         return analysis.patternCounts[a] > analysis.patternCounts[b];
+                     });
+
+            // Take top 1 or 2 patterns (if second pattern is >10% of calls)
+            patterns.push_back(analysis.patterns[indices[0]]);
+            if (indices.size() > 1 && analysis.patternCounts[indices[1]] >= analysis.totalCalls / 10) {
+                patterns.push_back(analysis.patterns[indices[1]]);
+            }
+        } else if (analysis.patterns.size() == 1) {
+            patterns.push_back(analysis.patterns[0]);
+        }
+
+        if (!patterns.empty()) {
+            recommended[funcName] = patterns;
+        }
+    }
+
+    return recommended;
+}
+
+// Phase 53: Write specialization report for compiler/debugging
+void O45Linker::writeSpecializationReport(std::ostream& out) const {
+    out << "=== Function Specialization Report ===\n\n";
+
+    for (const auto& [funcName, analysis] : specializationAnalysis_) {
+        out << "Function: " << funcName << "\n";
+        out << "  Total calls: " << analysis.totalCalls << "\n";
+        out << "  Patterns: " << analysis.patterns.size() << "\n";
+
+        for (size_t i = 0; i < analysis.patterns.size(); i++) {
+            const auto& pattern = analysis.patterns[i];
+            int count = analysis.patternCounts[i];
+            float freq = (float)count / (float)analysis.totalCalls * 100.0f;
+
+            out << "    Pattern " << (i + 1) << ": {";
+            for (size_t j = 0; j < pattern.size(); j++) {
+                if (j > 0) out << ", ";
+                out << pattern[j];
+            }
+            out << "} - " << count << " calls (" << freq << "%)\n";
+        }
+
+        out << "  Profitable: " << (analysis.isProfitable ? "YES" : "NO") << "\n";
+        out << "\n";
     }
 }
 

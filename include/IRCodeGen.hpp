@@ -53,6 +53,16 @@ public:
         return true;
     }
 
+    // Phase 53: Set specialization info for function version generation
+    // Maps function name → {pattern → specialization info}
+    void setSpecializationAnalysis(const std::map<std::string, SpecializationAnalysis>& analysis) {
+        specializationAnalysis_ = analysis;
+    }
+
+    // Phase 53: Generate specialization name from pattern
+    // E.g., _calculate + {10, 2} → _calculate_10_2
+    std::string generateSpecializationName(const std::string& funcName, const SpecializationPattern& pattern) const;
+
 private:
     std::ostream& out_;
     uint32_t zeroPageStart_ = 0x08;
@@ -364,4 +374,13 @@ private:
     // Maps function name → parameter index → constant value
     // Used to skip parameter initialization for constant parameters
     std::map<std::string, std::map<int, int64_t>> specializedParams_;
+
+    // Phase 53: Specialization analysis from linker
+    // Maps function name → specialization analysis (patterns, frequencies)
+    std::map<std::string, SpecializationAnalysis> specializationAnalysis_;
+
+    // Phase 53: Track current specialization context during code generation
+    // Current function being emitted with specialization
+    std::string currentSpecializationName_;
+    SpecializationPattern currentSpecializationPattern_;
 };

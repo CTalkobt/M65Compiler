@@ -79,6 +79,13 @@ public:
         return specializationAnalysis_;
     }
 
+    // Phase 53: Get specializations recommended for generation
+    // Returns map of function name → patterns to specialize
+    std::map<std::string, std::vector<SpecializationPattern>> getRecommendedSpecializations() const;
+
+    // Phase 53: Write specialization report for compiler/debugging
+    void writeSpecializationReport(std::ostream& out) const;
+
     // Query if a specific parameter is specialized (constant)
     bool isParameterSpecialized(const std::string& funcName, int paramIdx, int64_t& outValue) const {
         auto it = specializedParams_.find(funcName);

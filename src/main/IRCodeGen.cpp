@@ -4547,6 +4547,16 @@ void IRCodeGen::detectZeroAllocLeaves(const ir::Function& fn) {
     zeroAllocLeaves_.insert(fn.name);
 }
 
+// Phase 53: Generate specialization name from pattern
+// E.g., _calculate + {10, 2} → _calculate_10_2
+std::string IRCodeGen::generateSpecializationName(const std::string& funcName, const SpecializationPattern& pattern) const {
+    std::string name = funcName;
+    for (size_t i = 0; i < pattern.size(); i++) {
+        name += "_" + std::to_string(pattern[i]);
+    }
+    return name;
+}
+
 // Phase 51: Zero-alloc leaf detection
 // Returns true if ALL parameters of a SAC function are constant (no AR allocation needed)
 bool IRCodeGen::isZeroAllocLeaf(const std::string& funcName, const ir::Function& fn) const {
