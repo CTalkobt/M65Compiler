@@ -10,11 +10,11 @@ AR45 = ../bin/ar45
 BUILD = build
 
 # CRT0 modules (stack convention)
-CRT_SOURCES = crt0.s45 crt0_mega65.s45 crt_heap.s45 crt_bssinit.s45
+CRT_SOURCES = crt0.s45 crt0_mega65.s45 crt_heap.s45 crt_bssinit.s45 sac_debug.s45
 CRT_OBJECTS = $(patsubst %.s45,$(BUILD)/%.o45,$(CRT_SOURCES))
 
 # CRT0 modules (ZP convention)
-CRT_ZP_SOURCES = crt0_zp.s45 crt0_mega65_zp.s45 crt_heap_zp.s45 crt_bssinit_zp.s45
+CRT_ZP_SOURCES = crt0_zp.s45 crt0_mega65_zp.s45 crt_heap_zp.s45 crt_bssinit_zp.s45 sac_debug.s45
 CRT_ZP_OBJECTS = $(patsubst %.s45,$(BUILD)/%.o45,$(CRT_ZP_SOURCES))
 
 # Stdlib modules — stack convention (assembly + C)
