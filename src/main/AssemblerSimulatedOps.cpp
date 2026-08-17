@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <stdexcept>
 #include <sstream>
+#include <iostream>
 
 void AssemblerSimulatedOps::emitExpressionCode(AssemblerParser* parser, M65Emitter& e, const std::string& target, int tokenIndex, const std::string& scopePrefix) {
     int idx = tokenIndex;

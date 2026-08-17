@@ -1111,18 +1111,23 @@ void O45Linker::validateSACParameters() {
                     "' references undefined parameter symbol '" + param.symbolName + "'");
             } else {
                 // Verify parameter is in BSS or DATA segment
-                auto seg = symIt->second.segment;
-                if (seg != SEG_BSS && seg != SEG_DATA) {
-                    convErrors_.push_back("error: SAC parameter '" + param.symbolName +
-                        "' must be in BSS or DATA segment, but is in " + o45SegmentName(seg));
+                auto segIt = symbolSegment_.find(param.symbolName);
+                if (segIt != symbolSegment_.end()) {
+                    uint8_t seg = segIt->second;
+                    if (seg != SEG_BSS && seg != SEG_DATA) {
+                        convErrors_.push_back("error: SAC parameter '" + param.symbolName +
+                            "' must be in BSS or DATA segment, but is in segment " + std::to_string(seg));
+                    }
                 }
 
                 // Check that offset matches symbol value
-                uint32_t expectedOffset = symIt->second.value;
+                uint32_t expectedOffset = symIt->second;
                 if (expectedOffset != param.offset) {
-                    warnStream_ << "warning: SAC parameter '" << param.symbolName <<
-                        "' offset mismatch: metadata says " << param.offset <<
-                        " but symbol is at " << expectedOffset << std::endl;
+                    if (warnStream_) {
+                        *warnStream_ << "warning: SAC parameter '" << param.symbolName <<
+                            "' offset mismatch: metadata says " << param.offset <<
+                            " but symbol is at " << expectedOffset << std::endl;
+                    }
                 }
             }
         }

@@ -160,7 +160,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                 if (symName.find(paramPrefix) == 0) {
                     O45SACParam param;
                     param.symbolName = symName;
-                    param.offset = sym.address;  // Will be relative to AR base after linking
+                    param.offset = sym.value;  // Will be relative to AR base after linking
                     param.size = 2;  // TODO: track actual parameter size from AST
                     attr.sacMetadata.parameters.push_back(param);
                 }
