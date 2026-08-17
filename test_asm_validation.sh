@@ -4,8 +4,8 @@
 # Tests compiler correctness by examining generated assembly and binary
 # No emulator required - validates code structure, parameters, and calling conventions
 
-CC="./bin/cc45"
-AS="./bin/ca45"
+CC="./wt.docker/bin/cc45"
+AS="./wt.docker/bin/ca45"
 mkdir -p build/test
 
 failed=0
