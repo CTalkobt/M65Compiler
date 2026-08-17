@@ -30,44 +30,37 @@ _r:
     .segment "code"
 
 ; function _add_short
+; SAC inline storage: 4 bytes
+    .global _add_short__param_a
+    _add_short__param_a: .word 0
+    .global _add_short__param_b
+    _add_short__param_b: .word 0
+    _add_short__local_0: .word 0
+    _add_short__local_1: .word 0
     proc _add_short, W#@_p_a, W#@_p_b
+    .sac
     .var _fp = 0
     .loc "src/test-resources/test_short.c", 7
-; static activation record (SAC): 4 bytes
-    .bss
-    _add_short__ar:
-    .fill 4
-    .code
-    .sac
-    .var ar = _add_short__ar
-    leax.local 0
-    sta $10
-    stx $10+1
     .var @_p_a = 2
     .var @_p_b = 4
 ; .debug_var: __add_short @_p_a offset=2 size=2 type=int16 scope=parameter
 ; .debug_var: __add_short @_p_b offset=4 size=2 type=int16 scope=parameter
 
-    ldax.param @_p_a
-    sta _add_short:__ar+0
-    stx _add_short:__ar+1
-    ldax.param @_p_b
-    sta _add_short:__ar+2
-    stx _add_short:__ar+3
 @entry:
     .loc "src/test-resources/test_short.c", 8
-    lda _add_short:__ar+2
-    ldx _add_short:__ar+3
+    lda _add_short__param_b
+    ldx _add_short__param_b+1
     sta __zp_scratch2
     stx __zp_scratch2+1
-    lda _add_short:__ar+0
-    ldx _add_short:__ar+1
+    lda _add_short__param_a
+    ldx _add_short__param_a+1
     add.16 .AX, __zp_scratch2
     sta $20
     stx $21
     lda $20
     ldx $21
 @__return:
+    rts
     .func_flags stack_call, static_alloc, leaf
     .reg_clobbers A, X
     .flag_clobbers C, N, Z, V
@@ -75,44 +68,37 @@ _r:
     endproc
 
 ; function _mul_short
+; SAC inline storage: 4 bytes
+    .global _mul_short__param_a
+    _mul_short__param_a: .word 0
+    .global _mul_short__param_b
+    _mul_short__param_b: .word 0
+    _mul_short__local_0: .word 0
+    _mul_short__local_1: .word 0
     proc _mul_short, W#@_p_a, W#@_p_b
+    .sac
     .var _fp = 0
     .loc "src/test-resources/test_short.c", 11
-; static activation record (SAC): 4 bytes
-    .bss
-    _mul_short__ar:
-    .fill 4
-    .code
-    .sac
-    .var ar = _mul_short__ar
-    leax.local 0
-    sta $12
-    stx $12+1
     .var @_p_a = 2
     .var @_p_b = 4
 ; .debug_var: __mul_short @_p_a offset=2 size=2 type=int16 scope=parameter
 ; .debug_var: __mul_short @_p_b offset=4 size=2 type=int16 scope=parameter
 
-    ldax.param @_p_a
-    sta _mul_short:__ar+0
-    stx _mul_short:__ar+1
-    ldax.param @_p_b
-    sta _mul_short:__ar+2
-    stx _mul_short:__ar+3
 @entry:
     .loc "src/test-resources/test_short.c", 12
-    lda _mul_short:__ar+2
-    ldx _mul_short:__ar+3
+    lda _mul_short__param_b
+    ldx _mul_short__param_b+1
     sta __zp_scratch2
     stx __zp_scratch2+1
-    lda _mul_short:__ar+0
-    ldx _mul_short:__ar+1
+    lda _mul_short__param_a
+    ldx _mul_short__param_a+1
     mul.16 .AX, __zp_scratch2
     sta $20
     stx $21
     lda $20
     ldx $21
 @__return:
+    rts
     .func_flags stack_call, static_alloc, leaf
     .reg_clobbers A, X
     .flag_clobbers C, N, Z, V
@@ -120,19 +106,19 @@ _r:
     endproc
 
 ; function _main
+; SAC inline storage: 16 bytes
+    _main__local_0: .word 0
+    _main__local_2: .word 0
+    _main__local_4: .word 0
+    _main__local_6: .word 0
+    _main__local_8: .word 0
+    _main__local_16: .word 0
+    _main__local_32: .word 0
+    _main__local_33: .word 0
     proc _main
+    .sac
     .var _fp = 0
     .loc "src/test-resources/test_short.c", 15
-; static activation record (SAC): 16 bytes
-    .bss
-    _main__ar:
-    .fill 16
-    .code
-    .sac
-    .var ar = _main__ar
-    leax.local 0
-    sta $14
-    stx $14+1
     .local @_l_arr = 10
     .local @_l_neg = 6
     .local @_l_p = 8
@@ -149,49 +135,35 @@ _r:
 @entry:
     .loc "src/test-resources/test_short.c", 16
     lda #10
-    sta _main:__ar+0
+    sta _main__local_0
     lda #0
-    sta _main:__ar+1
+    sta _main__local_0+1
     .loc "src/test-resources/test_short.c", 17
     lda #20
-    sta _main:__ar+2
+    sta _main__local_2
     lda #0
-    sta _main:__ar+3
+    sta _main__local_2+1
     .loc "src/test-resources/test_short.c", 18
-    lda _main:__ar+2
-    ldx _main:__ar+3
-    sta $28
-    stx $29
-    lda _main:__ar+0
-    ldx _main:__ar+1
-    sta $2A
-    stx $2B
-    lda $28
-    ldx $29
-    push .ax
-    lda $2A
-    ldx $2B
-    push .ax
+    lda _main__local_2
+    ldx _main__local_2+1
+    sta _add_short__param_b
+    stx _add_short__param_b+1
+    lda _main__local_0
+    ldx _main__local_0+1
+    sta _add_short__param_a
+    stx _add_short__param_a+1
     jsr _add_short
-    sta __zp_scratch4
-    stx __zp_scratch4+1
-    plz
-    plz
-    plz
-    plz
-    lda __zp_scratch4
-    ldx __zp_scratch4+1
     sta $20
     stx $21
     lda $20
     ldx $21
-    sta _main:__ar+4
-    stx _main:__ar+5
+    sta _main__local_4
+    stx _main__local_4+1
     .loc "src/test-resources/test_short.c", 19
     lda #251
-    sta _main:__ar+6
+    sta _main__local_6
     lda #255
-    sta _main:__ar+7
+    sta _main__local_6+1
     .loc "src/test-resources/test_short.c", 20
     leax.local 10
     sta $20
@@ -245,16 +217,15 @@ _r:
     iny
     sta (__zp_scratch),y
     .loc "src/test-resources/test_short.c", 21
-    lda $14
-    ldx $14+1
+    leax.local 0
     sta $20
     stx $21
     lda $20
     ldx $21
-    sta _main:__ar+8
-    stx _main:__ar+9
-    lda _main:__ar+4
-    ldx _main:__ar+5
+    sta _main__local_16
+    stx _main__local_16+1
+    lda _main__local_4
+    ldx _main__local_4+1
     sta $20
     .loc "src/test-resources/test_short.c", 23
     lda _r
@@ -286,8 +257,8 @@ _r:
     ldy #0
     sta (__zp_scratch),y
     .loc "src/test-resources/test_short.c", 24
-    lda _main:__ar+6
-    ldx _main:__ar+7
+    lda _main__local_6
+    ldx _main__local_6+1
     clc
     adc #10
     sta $22
@@ -357,21 +328,15 @@ _r:
     ldy #0
     sta (__zp_scratch),y
     .loc "src/test-resources/test_short.c", 26
-    lda #4
-    ldx #0
-    push .ax
-    lda #3
-    ldx #0
-    push .ax
+    lda _main__local_33
+    ldx _main__local_33+1
+    sta _mul_short__param_b
+    stx _mul_short__param_b+1
+    lda _main__local_32
+    ldx _main__local_32+1
+    sta _mul_short__param_a
+    stx _mul_short__param_a+1
     jsr _mul_short
-    sta __zp_scratch4
-    stx __zp_scratch4+1
-    plz
-    plz
-    plz
-    plz
-    lda __zp_scratch4
-    ldx __zp_scratch4+1
     sta $20
     stx $21
     lda $20
@@ -407,8 +372,8 @@ _r:
     ldy #0
     sta (__zp_scratch),y
     .loc "src/test-resources/test_short.c", 27
-    lda _main:__ar+8
-    ldx _main:__ar+9
+    lda _main__local_16
+    ldx _main__local_16+1
     sta __zp_scratch
     stx __zp_scratch+1
     ldy #0
@@ -552,6 +517,7 @@ _r:
     .loc "src/test-resources/test_short.c", 31
     brk
 @__return:
+    rts
     .func_flags stack_call, static_alloc
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V

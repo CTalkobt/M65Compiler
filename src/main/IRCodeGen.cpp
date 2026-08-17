@@ -1382,12 +1382,14 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
         // Emit storage for parameters
         // Use parameter names for documentation, fall back to indices if unavailable
+        // Make symbols globally visible so caller and function can both reference them
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
             int ps = ir::typeSize(fn.paramTypes[i]);
             if (ps < 2) ps = 2;  // Minimum 2 bytes
             std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
                 ? fn.paramNames[i] : std::to_string(i);
             std::string paramSymbol = fn.name + "__param_" + pName;
+            emit(".global " + paramSymbol);
             if (ps == 2) {
                 emit(paramSymbol + ": .word 0");
             } else if (ps == 4) {
