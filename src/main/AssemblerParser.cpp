@@ -1111,8 +1111,17 @@ void AssemblerParser::pass1() {
                         }
                         if (match(AssemblerTokenType::COMMA)) {
                             stmt->exprTokenIndex = (int)pos;
-                            // DON'T skip remaining tokens - leave pos at the start of the operand
-                            // The emitFn will parse it correctly using exprTokenIndex
+                            // Parse and consume the second operand
+                            if (peek().type == AssemblerTokenType::REGISTER) {
+                                advance();
+                            } else {
+                                // Parse symbol/expression without advancing pos yet
+                                int idx = (int)pos;
+                                auto ast = parseExprAST(tokens, idx, symbolTable, stmt->scopePrefix);
+                                pos = idx;  // Now consume the tokens that were parsed
+                            }
+                            // Skip to end of line
+                            while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
                         }
                     }
                 }
