@@ -176,3 +176,86 @@ constexpr const char* o45SegmentName(O45Segment seg) {
         default:       return "???";
     }
 }
+
+// =============================================================================
+// IR Serialization Support (Phase 47 - Extended .o45 Format)
+// =============================================================================
+
+// IR Version tracking: Major.Minor
+// Major version mismatch = incompatible
+// Minor version mismatch = forward compatible
+constexpr uint8_t O45_IR_VERSION_MAJOR = 0;  // Initial version
+constexpr uint8_t O45_IR_VERSION_MINOR = 1;
+
+// Content type flags for exports
+// Indicates what data is present for each symbol
+constexpr uint8_t O45_CONTENT_FLAG_NATIVE_CODE = 0x01;  // Has native 6502 code
+constexpr uint8_t O45_CONTENT_FLAG_HAS_IR      = 0x02;  // Has IR metadata
+constexpr uint8_t O45_CONTENT_FLAG_RESERVED1   = 0x04;
+constexpr uint8_t O45_CONTENT_FLAG_RESERVED2   = 0x08;
+constexpr uint8_t O45_CONTENT_FLAG_IR_ENCODING = 0xF0;  // Bits 4-7: encoding type
+                                                       // 0 = uncompressed, 1 = RLE, 2 = LZ4
+
+// IR Type IDs for parameters and return values
+enum O45IRType : uint8_t {
+    IR_TYPE_VOID      = 0x00,
+    IR_TYPE_I8        = 0x01,
+    IR_TYPE_I16       = 0x02,
+    IR_TYPE_I32       = 0x03,
+    IR_TYPE_I64       = 0x04,
+    IR_TYPE_FLOAT     = 0x05,
+    IR_TYPE_PTR       = 0x06,
+    IR_TYPE_STRUCT    = 0x07,
+    IR_TYPE_UNKNOWN   = 0xFF,
+};
+
+// IR Parameter Flags
+constexpr uint8_t O45_IR_PARAM_IS_CONST   = 0x01;  // Parameter always receives constant
+constexpr uint8_t O45_IR_PARAM_IS_USED    = 0x02;  // Parameter is actually used in function
+constexpr uint8_t O45_IR_PARAM_IS_MODIFIED = 0x04; // Parameter is modified (written)
+
+// IR Call Site Information
+struct O45IRCallSite {
+    uint32_t instructionOffset = 0;      // Offset of JSR in code
+    std::string calleeName;              // Name of called function
+    std::vector<int64_t> paramValues;    // Actual parameter values passed (for constants)
+    std::vector<uint8_t> paramIsConst;   // Which parameters are constant
+};
+
+// IR Parameter Information
+struct O45IRParam {
+    O45IRType type = IR_TYPE_UNKNOWN;    // Parameter type
+    uint8_t flags = O45_IR_PARAM_IS_USED; // Flags (const, used, modified)
+    int64_t constValue = 0;              // Value if is_const flag set
+    std::string name;                    // Parameter name (optional)
+};
+
+// IR Call Graph Entry
+struct O45IRCallGraphEntry {
+    std::string calleeName;              // Called function name
+    uint16_t callCount = 0;              // Number of times called
+    bool allCallsConstant = false;       // All calls pass same constants
+};
+
+// IR Function Metadata
+struct O45IRFunction {
+    std::string functionName;            // Function name
+    uint32_t signatureHash = 0;          // Quick hash of signature for validation
+    std::vector<O45IRParam> parameters;  // Parameter information
+    std::vector<O45IRCallSite> callSites; // All call sites in this function
+    std::vector<O45IRCallGraphEntry> callGraph; // Functions this calls
+
+    // Quick validation
+    bool isValid() const { return !functionName.empty() && signatureHash != 0; }
+};
+
+// Complete IR metadata for a single object file
+struct O45IRMetadata {
+    uint8_t majorVersion = O45_IR_VERSION_MAJOR;
+    uint8_t minorVersion = O45_IR_VERSION_MINOR;
+    std::vector<O45IRFunction> functions;  // IR for each function
+
+    bool isCompatible() const {
+        return majorVersion == O45_IR_VERSION_MAJOR;  // Major must match
+    }
+};

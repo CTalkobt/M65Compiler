@@ -1,6 +1,7 @@
 #pragma once
 #include <vector>
 #include <string>
+#include <map>
 #include <cstdint>
 #include "O45Types.hpp"
 
@@ -63,6 +64,21 @@ struct O45File {
     };
     std::vector<std::string> lineFiles;   // file string table
     std::vector<LineInfo> lineInfos;
+
+    // IR Metadata (Phase 47 - Extended .o45 format)
+    uint8_t irMajorVersion = 0;          // 0 = no IR present
+    uint8_t irMinorVersion = 0;
+    O45IRMetadata irMetadata;            // Parsed IR information (if present)
+
+    // Per-export IR and content flags
+    struct ExportInfo {
+        uint8_t contentFlags = O45_CONTENT_FLAG_NATIVE_CODE;  // What this export contains
+    };
+    std::map<std::string, ExportInfo> exportInfo;  // Export name -> content/IR info
+
+    // Helper to check if IR is present
+    bool hasIRMetadata() const { return irMajorVersion != 0; }
+    bool isIRCompatible() const { return irMetadata.isCompatible(); }
 };
 
 // Reads and parses a .o45 or .o65 file from a byte vector.
