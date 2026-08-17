@@ -156,13 +156,22 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
 
             // Look for parameter symbols matching pattern: funcname__param_*
             std::string paramPrefix = proc->name + "__param_";
+            int paramIndex = 0;
             for (const auto& [symName, sym] : parser.symbolTable) {
                 if (symName.find(paramPrefix) == 0) {
                     O45SACParam param;
                     param.symbolName = symName;
                     param.offset = sym.value;  // Will be relative to AR base after linking
                     param.size = 2;  // TODO: track actual parameter size from AST
+
+                    // Check if this parameter has a constant value from .param_const directive
+                    if (proc->paramConstants.find(paramIndex) != proc->paramConstants.end()) {
+                        param.isConstant = true;
+                        param.constantValue = proc->paramConstants.at(paramIndex);
+                    }
+
                     attr.sacMetadata.parameters.push_back(param);
+                    paramIndex++;
                 }
             }
         }

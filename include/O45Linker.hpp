@@ -180,6 +180,7 @@ private:
     void buildFuncAttrs();
     void buildCallGraph();
     void computeTransitiveClobbers();
+    void analyzeConstantParameters();  // Cross-file parameter analysis from .param_const metadata
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata

@@ -111,6 +111,8 @@ struct O45SACParam {
     uint16_t offset = 0;         // offset in activation record
     uint8_t size = 0;            // parameter size in bytes
     std::string symbolName;      // symbol name (e.g., "_add_short__param_a")
+    bool isConstant = false;     // true if all call sites pass same constant value
+    int64_t constantValue = 0;   // value if isConstant is true
 };
 
 struct O45SACMetadata {

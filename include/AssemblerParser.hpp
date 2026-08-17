@@ -101,6 +101,7 @@ public:
         uint8_t funcFlags = 0;         // bit 0=leaf, bit 1=interrupt-safe
         uint16_t frameSize = 0;        // activation record / frame size in bytes (Phase 2)
         bool hasFuncAttrs = false;     // true if any .zp_*/reg_*/flag_* directive was used
+        std::map<int, int64_t> paramConstants;  // parameter index → constant value (.param_const directives)
     };
 
     // Function attribute metadata (for .o45 export)

@@ -712,6 +712,34 @@ void AssemblerParser::pass1() {
                 }
                 stmt->size = 0;
             }
+            else if (stmt->dir.name == "param_const") {
+                // .param_const function_name param_index value
+                // Cross-file constant parameter optimization metadata
+                if (!currentProc) {
+                    errors.push_back("Error: .param_const outside proc/endproc block");
+                } else {
+                    // Parse: function_name param_index value
+                    if (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
+                        std::string funcName = advance().value;
+                        if (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
+                            std::string paramIdxStr = advance().value;
+                            if (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
+                                std::string valueStr = advance().value;
+                                try {
+                                    int paramIdx = std::stoi(paramIdxStr);
+                                    int64_t value = std::stoll(valueStr);
+                                    // Store in current procedure's SAC metadata
+                                    // This will be emitted by O45Emitter
+                                    currentProc->paramConstants[paramIdx] = value;
+                                } catch (...) {
+                                    errors.push_back("Error: invalid param_const format");
+                                }
+                            }
+                        }
+                    }
+                }
+                stmt->size = 0;
+            }
             else if (stmt->dir.name == "frame_size") {
                 // .frame_size N  (Phase 2: frame/activation record size in bytes)
                 if (!currentProc) {

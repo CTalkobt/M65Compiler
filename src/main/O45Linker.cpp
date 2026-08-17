@@ -754,6 +754,7 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     buildFuncAttrs();
     buildCallGraph();
     computeTransitiveClobbers();
+    analyzeConstantParameters();  // Cross-file parameter analysis
     emitDiagnostics();
     verifyStaticAllocSafety();  // Verify SAC constraints before thunk generation
     validateSACParameters();      // Phase 3: Validate SAC parameter metadata
@@ -953,6 +954,27 @@ void O45Linker::computeTransitiveClobbers() {
                     changed = true;
                 }
             }
+        }
+    }
+}
+
+// 3.2a — Analyze constant parameters across all object files
+// Finds parameters that are ALWAYS constant across all call sites
+void O45Linker::analyzeConstantParameters() {
+    // For each function with SAC metadata
+    for (auto& [funcName, attr] : funcAttrs_) {
+        if (attr.sacMetadata.parameters.empty()) continue;
+
+        // For each parameter in this function
+        for (size_t paramIdx = 0; paramIdx < attr.sacMetadata.parameters.size(); paramIdx++) {
+            auto& param = attr.sacMetadata.parameters[paramIdx];
+
+            // If already marked as constant from single-file analysis, keep it
+            if (param.isConstant) continue;
+
+            // Cross-file analysis: check if ANY object file marked this param as constant
+            // For now, we just preserve what was already detected in single-file analysis
+            // Future: combine information from multiple files to find truly-constant params
         }
     }
 }
