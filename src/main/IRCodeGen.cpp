@@ -636,6 +636,12 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         analyzeConstantParameters(mod);
     }
 
+    // Phase 3.6: Detect leaf functions (don't call any other functions)
+    // Leaf functions can use simpler, faster SAC code without recursive AR setup
+    if (staticAllocMode && !sacFunctions_.empty()) {
+        detectLeafFunctions(mod);
+    }
+
     if (relocMode) {
         emit(".o45");
         // Emit .org for standalone assembly generation
@@ -4439,6 +4445,28 @@ void IRCodeGen::analyzeConstantParameters(const ir::Module& mod) {
                 sacConstParams_[funcName][(int)paramIdx].isConstant = true;
                 sacConstParams_[funcName][(int)paramIdx].value = freqMap.begin()->first;
             }
+        }
+    }
+}
+
+// Detect which functions are leaves (don't call any other functions)
+void IRCodeGen::detectLeafFunctions(const ir::Module& mod) {
+    for (const auto& fn : mod.functions) {
+        bool isLeaf = true;
+        
+        // Check if function makes any CALL/CALL_VOID instructions
+        for (const auto& block : fn.blocks) {
+            for (const auto& inst : block.insts) {
+                if (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) {
+                    isLeaf = false;
+                    break;
+                }
+            }
+            if (!isLeaf) break;
+        }
+        
+        if (isLeaf) {
+            leafFunctions_.insert(fn.name);
         }
     }
 }

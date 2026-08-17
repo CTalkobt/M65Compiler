@@ -165,8 +165,16 @@ private:
     };
     std::map<std::string, std::map<int, ConstParamInfo>> sacConstParams_;
 
+    // SAC leaf function optimization: functions that don't call any other functions
+    // Leaf functions can use simpler SAC code (no need for recursive AR setup)
+    // Maps function_name → is_leaf (true if function makes no CALL/CALL_VOID instructions)
+    std::set<std::string> leafFunctions_;
+
     // Analyze function calls to detect constant parameters (pre-pass before code generation)
     void analyzeConstantParameters(const ir::Module& mod);
+
+    // Detect which functions are leaves (don't call other functions)
+    void detectLeafFunctions(const ir::Module& mod);
 
     // Phase 1: MachineState-based helpers for constant queries
     // Returns true if a vreg's value is a known constant and optionally retrieves it
