@@ -944,6 +944,8 @@ void AssemblerParser::pass1() {
             else if (fullMnemonic == "asr.s32") { SIMOP(ASR_S32, dispatch_Shift32); }
             else if (fullMnemonic == "push") { SIMOP(PUSH, dispatch_PushPop); }
             else if (fullMnemonic == "pop") { SIMOP(POP, dispatch_PushPop); }
+            else if (fullMnemonic == "inc.16f") { SIMOP(INC16_FP, dispatch_INC16_FP); }
+            else if (fullMnemonic == "dec.16f") { SIMOP(DEC16_FP, dispatch_DEC16_FP); }
             else if (fullMnemonic == "bfext") { SIMOP(BFEXT, dispatch_BFExt); }
             else if (fullMnemonic == "bfext16") { SIMOP(BFEXT16, dispatch_BFExt); }
             else if (fullMnemonic == "bfext32") { SIMOP(BFEXT32, dispatch_BFExt); }
