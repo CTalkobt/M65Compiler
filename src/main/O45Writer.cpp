@@ -1,4 +1,5 @@
 #include "O45Writer.hpp"
+#include "O45IRSerializer.hpp"
 #include <stdexcept>
 // =============================================================================
 // O45RelocEncoder — converts high-level relocation entries into .o65/.o45
@@ -140,6 +141,19 @@ std::vector<uint8_t> O45Writer::emit() const {
     out.reserve(O45_HEADER_SIZE + text_.length + data_.length + 256);
 
     emitHeader(out);
+
+    // Phase 49: Emit IR metadata as an option if present
+    if (hasIR_) {
+        std::vector<uint8_t> irData = O45IRSerializer::serialize(irMetadata_);
+        // Emit as OPT_IR (custom option type)
+        if (irData.size() <= 253) {
+            uint8_t len = (uint8_t)(2 + irData.size());
+            out.push_back(len);
+            out.push_back(0x50);  // OPT_IR type (custom)
+            out.insert(out.end(), irData.begin(), irData.end());
+        }
+    }
+
     emitOptions(out);
 
     // Text segment body
@@ -210,6 +224,15 @@ void O45Writer::emitHeader(std::vector<uint8_t>& out) const {
 
     // Extended CPU ID byte (1 byte)
     out.push_back(cpuId_);
+
+    // Phase 49: IR Metadata version (2 bytes if present, 0,0 if not)
+    if (hasIR_) {
+        out.push_back(irMetadata_.majorVersion);
+        out.push_back(irMetadata_.minorVersion);
+    } else {
+        out.push_back(0);
+        out.push_back(0);
+    }
 }
 
 // --- Option headers ---
@@ -257,6 +280,20 @@ void O45Writer::emitExports(std::vector<uint8_t>& out) const {
         if (exp.weak) segByte |= O45_EXPORT_WEAK;
         out.push_back(segByte);
         writeU32(out, exp.offset);
+
+        // Phase 49: Emit content flags if IR is present
+        auto flagIt = exportContentFlags_.find(exp.name);
+        if (flagIt != exportContentFlags_.end() || hasIR_) {
+            out.push_back(O45_CONTENTFLAG_MARKER);  // $FB marker for content flags
+            uint8_t flags = O45_CONTENT_FLAG_NATIVE_CODE;
+            if (flagIt != exportContentFlags_.end()) {
+                flags = flagIt->second;
+            }
+            if (hasIR_) {
+                flags |= O45_CONTENT_FLAG_HAS_IR;
+            }
+            out.push_back(flags);
+        }
 
         // Emit function attribute record if present
         auto it = funcAttrs_.find(exp.name);

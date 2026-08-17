@@ -24,6 +24,9 @@
 #include "IROptimizer.hpp"
 #include "Version.hpp"
 #include "Diagnostic.hpp"
+#include "O45Reader.hpp"
+#include "O45Writer.hpp"
+#include "O45IRSerializer.hpp"
 
 class ASTPrinter : public ASTVisitor {
 public:
@@ -733,6 +736,11 @@ int main(int argc, char** argv) {
     if (dotPos != std::string::npos) baseName = baseName.substr(0, dotPos);
     std::string asmFile = assemblyOnly ? output_file : (baseName + ".s");
 
+    // Phase 49: IR metadata collection for .o45 embedding
+    O45IRMetadata irMetadata;
+    irMetadata.majorVersion = 0;
+    irMetadata.minorVersion = 0;
+
     Parser parser(tokens);
     try {
         if (verboseLevel >= 1) std::cout << "Parsing " << input_file << "..." << std::endl;
@@ -850,6 +858,10 @@ int main(int argc, char** argv) {
         irCodeGen.generate(irBuilder.getModule(), zeroPageStart, useReloc, zpCallMode, emitReasons, staticAllocMode, sacDebugMode, prgBase);
         asmOut.close();
 
+        // Phase 49: Collect IR metadata for later embedding in .o45
+        // This will be added to the object file after ca45 assembles it
+        irMetadata = irCodeGen.getIRMetadata();
+
         if (verboseLevel >= 1) {
             std::cout << "Generated assembly in " << asmFile << std::endl;
             std::cout << "Code generation complete." << std::endl;
@@ -960,6 +972,76 @@ int main(int argc, char** argv) {
     if (asmRet != 0) {
         std::cerr << "Assembler failed with return code " << asmRet << std::endl;
         return 1;
+    }
+
+    // Phase 49: Post-process .o45 to embed IR metadata if present
+    if (irMetadata.majorVersion != 0 || irMetadata.functions.size() > 0) {
+        if (verboseLevel >= 1) std::cout << "Embedding IR metadata in " << objFile << "..." << std::endl;
+
+        // Read the .o45 file
+        std::ifstream o45In(objFile, std::ios::binary);
+        if (!o45In.is_open()) {
+            std::cerr << "Failed to read object file: " << objFile << std::endl;
+            return 1;
+        }
+        std::vector<uint8_t> o45Data((std::istreambuf_iterator<char>(o45In)), std::istreambuf_iterator<char>());
+        o45In.close();
+
+        // Parse the .o45 file
+        O45File o45File;
+        std::string o45Error;
+        if (!O45Reader::read(o45Data, o45File, o45Error)) {
+            std::cerr << "Failed to parse object file: " << o45Error << std::endl;
+            return 1;
+        }
+
+        // Re-generate the .o45 with IR metadata embedded
+        // Create a new writer with the same segments but now with IR data
+        O45Writer writer;
+        writer.setMode(o45File.mode);
+        writer.setCpuId(o45File.cpuId);
+        writer.setTextSegment(o45File.tbase, o45File.textBody);
+        writer.setDataSegment(o45File.dbase, o45File.dataBody);
+        writer.setBssSegment(o45File.bbase, o45File.blen);
+        writer.setZpSegment(o45File.zbase, o45File.zlen);
+        writer.setTextRelocations(o45File.textRelocs);
+        writer.setDataRelocations(o45File.dataRelocs);
+
+        // Add imports and exports from the parsed file
+        for (const auto& imp : o45File.imports) {
+            writer.addImport(imp.name);
+        }
+        for (const auto& exp : o45File.exports) {
+            writer.addExport(exp.name, (O45Segment)(exp.segment & O45_EXPORT_SEG_MASK), exp.offset, exp.isWeak());
+            if (exp.hasFuncAttr) {
+                writer.setFuncAttr(exp.name, exp.funcAttr);
+            }
+        }
+
+        // Add options
+        for (const auto& opt : o45File.options) {
+            writer.addOptionRaw(opt.type, opt.data);
+        }
+
+        // Set IR metadata
+        if (irMetadata.majorVersion != 0 || irMetadata.functions.size() > 0) {
+            writer.setIRMetadata(irMetadata);
+            if (verboseLevel >= 1) {
+                std::cout << "  IR metadata: " << irMetadata.functions.size() << " functions" << std::endl;
+            }
+        }
+
+        // Emit the new .o45 file with IR
+        std::vector<uint8_t> newO45Data = writer.emit();
+        std::ofstream o45Out(objFile, std::ios::binary);
+        if (!o45Out.is_open()) {
+            std::cerr << "Failed to write object file: " << objFile << std::endl;
+            return 1;
+        }
+        o45Out.write((const char*)newO45Data.data(), newO45Data.size());
+        o45Out.close();
+
+        if (verboseLevel >= 1) std::cout << "IR metadata embedded successfully." << std::endl;
     }
 
     // STEP 2: Link .o45 → .prg (unless -c specified)

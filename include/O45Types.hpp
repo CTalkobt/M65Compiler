@@ -107,6 +107,11 @@ constexpr uint8_t  OPT_OS_MEGA65     = 0x05;
 constexpr uint8_t  O45_FUNCATTR_MARKER = 0xFA;
 constexpr int      O45_FUNCATTR_SIZE   = 19;   // total bytes per record (including marker, now with frameSize)
 
+// Phase 49: Content flag record for exports
+// Appended after an export entry to indicate what type of content it has (native code, IR, etc.)
+// Identified by the $FB marker byte.
+constexpr uint8_t  O45_CONTENTFLAG_MARKER = 0xFB;
+
 struct O45SACParam {
     uint16_t offset = 0;         // offset in activation record
     uint8_t size = 0;            // parameter size in bytes

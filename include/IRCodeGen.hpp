@@ -29,6 +29,9 @@ public:
         else functionMap_.clear();
     }
 
+    // Phase 49: Get collected IR metadata for output
+    O45IRMetadata getIRMetadata() const;
+
 private:
     std::ostream& out_;
     uint32_t zeroPageStart_ = 0x08;
@@ -335,7 +338,4 @@ private:
     void recordCallSite(const std::string& calleeFunc, uint32_t instructionOffset,
                        const std::vector<ir::Operand>& args);
     void finalizeIRForFunction();
-
-    // Get collected IR metadata for output
-    O45IRMetadata getIRMetadata() const;
 };

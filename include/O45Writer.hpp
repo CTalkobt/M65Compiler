@@ -4,6 +4,7 @@
 #include <map>
 #include <cstdint>
 #include "O45Types.hpp"
+#include "O45IRSerializer.hpp"
 
 // Writes a complete .o45 relocatable object file.
 //
@@ -58,6 +59,12 @@ public:
     void addExport(const std::string& name, O45Segment seg, uint32_t offset, bool weak = false);
     void setFuncAttr(const std::string& name, const O45FuncAttr& attr);
 
+    // Phase 47: IR Metadata support
+    void setIRMetadata(const O45IRMetadata& ir) { irMetadata_ = ir; hasIR_ = true; }
+    void setExportContentFlags(const std::string& exportName, uint8_t flags) {
+        exportContentFlags_[exportName] = flags;
+    }
+
     // Add a string option (NUL-terminated in output). For OPT_FNAME, OPT_ASM, OPT_AUTHOR, OPT_CREATED.
     void addOption(uint8_t type, const std::string& value);
 
@@ -100,6 +107,11 @@ private:
     };
     std::vector<ExportEntry> exports_;
     std::map<std::string, O45FuncAttr> funcAttrs_; // export name → function attributes
+
+    // Phase 47: IR Metadata for cross-file optimization
+    bool hasIR_ = false;
+    O45IRMetadata irMetadata_;
+    std::map<std::string, uint8_t> exportContentFlags_;  // export name → content type flags
 
     struct OptionEntry {
         uint8_t type;
