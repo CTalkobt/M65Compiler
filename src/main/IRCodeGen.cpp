@@ -218,18 +218,28 @@ void IRCodeGen::loadVreg(uint32_t vregId) {
         case VRegAllocator::IN_FRAME: {
             if (vregOffset_.count(vregId)) {
                 if (currentFunctionUseSAC_) {
-                    // SAC: Direct absolute addressing to AR buffer
-                    std::string arOffset = currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId]);
-                    if (alloc.type == ir::Type::I32) {
-                        emit("lda " + arOffset, r);
-                        emit("ldx " + currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId] + 1), r);
-                        emit("ldy " + currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId] + 2), r);
-                        emit("ldz " + currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId] + 3), r);
-                    } else if (alloc.type == ir::Type::I8) {
-                        emit("lda " + arOffset, r);
+                    // SAC: Direct absolute addressing to inline storage symbols
+                    std::string storageSymbol;
+                    if (vregId < currentFn_->paramTypes.size()) {
+                        // This is a parameter vreg
+                        std::string pName = (vregId < currentFn_->paramNames.size() && !currentFn_->paramNames[vregId].empty())
+                            ? currentFn_->paramNames[vregId] : std::to_string(vregId);
+                        storageSymbol = currentFunctionName_ + "__param_" + pName;
                     } else {
-                        emit("lda " + arOffset, r);
-                        emit("ldx " + currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId] + 1), r);
+                        // This is a local vreg
+                        storageSymbol = currentFunctionName_ + "__local_" + std::to_string(vregId);
+                    }
+
+                    if (alloc.type == ir::Type::I32) {
+                        emit("lda " + storageSymbol, r);
+                        emit("ldx " + storageSymbol + "+1", r);
+                        emit("ldy " + storageSymbol + "+2", r);
+                        emit("ldz " + storageSymbol + "+3", r);
+                    } else if (alloc.type == ir::Type::I8) {
+                        emit("lda " + storageSymbol, r);
+                    } else {
+                        emit("lda " + storageSymbol, r);
+                        emit("ldx " + storageSymbol + "+1", r);
                     }
                 } else {
                     // Non-SAC: FP-relative addressing through pseudo-ops
@@ -256,10 +266,17 @@ void IRCodeGen::loadVregA(uint32_t vregId) {
         case VRegAllocator::IN_AX:
             if (alloc_.isInAX(vregId, currentInstIdx_)) return;
             if (vregOffset_.count(vregId)) {
-                // For SAC functions, use direct absolute addressing to AR
+                // For SAC functions, use direct absolute addressing to inline storage
                 if (currentFunctionUseSAC_) {
-                    std::string arAddr = currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId]);
-                    emit("lda " + arAddr, r);
+                    std::string storageSymbol;
+                    if (vregId < currentFn_->paramTypes.size()) {
+                        std::string pName = (vregId < currentFn_->paramNames.size() && !currentFn_->paramNames[vregId].empty())
+                            ? currentFn_->paramNames[vregId] : std::to_string(vregId);
+                        storageSymbol = currentFunctionName_ + "__param_" + pName;
+                    } else {
+                        storageSymbol = currentFunctionName_ + "__local_" + std::to_string(vregId);
+                    }
+                    emit("lda " + storageSymbol, r);
                 } else {
                     emit("lda.local " + std::to_string(vregOffset_[vregId]), r);
                 }
@@ -274,8 +291,15 @@ void IRCodeGen::loadVregA(uint32_t vregId) {
         case VRegAllocator::IN_FRAME:
             if (vregOffset_.count(vregId)) {
                 if (currentFunctionUseSAC_) {
-                    std::string arAddr = currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId]);
-                    emit("lda " + arAddr, r);
+                    std::string storageSymbol;
+                    if (vregId < currentFn_->paramTypes.size()) {
+                        std::string pName = (vregId < currentFn_->paramNames.size() && !currentFn_->paramNames[vregId].empty())
+                            ? currentFn_->paramNames[vregId] : std::to_string(vregId);
+                        storageSymbol = currentFunctionName_ + "__param_" + pName;
+                    } else {
+                        storageSymbol = currentFunctionName_ + "__local_" + std::to_string(vregId);
+                    }
+                    emit("lda " + storageSymbol, r);
                 } else {
                     std::string sym = "__vr" + std::to_string(vregId);
                     emit("lda.local " + sym, r);
@@ -313,24 +337,34 @@ void IRCodeGen::storeVreg(uint32_t vregId) {
             break;
         }
         case VRegAllocator::IN_FRAME: {
-            // SAC: Direct absolute addressing to AR buffer (faster, no $FD/$FE needed)
+            // SAC: Direct absolute addressing to inline storage symbols
             // Non-SAC: FP-relative addressing through pseudo-ops
             if (currentFunctionUseSAC_) {
-                // Direct absolute: functionname:__ar+offset (linker relocates)
-                std::string arOffset = currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId]);
-                if (alloc.type == ir::Type::I32) {
-                    emit("sta " + arOffset);
-                    emit("stx " + currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId] + 1));
-                    emit("sty " + currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId] + 2));
-                    emit("stz " + currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId] + 3));
-                } else if (alloc.type == ir::Type::I8) {
-                    emit("sta " + arOffset);
-                } else if (valueByte_[1] == REG_Z) {
-                    emit("sta " + arOffset);
-                    emit("stz " + currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId] + 1));
+                // Direct absolute: inline storage symbols
+                std::string storageSymbol;
+                if (vregId < currentFn_->paramTypes.size()) {
+                    // This is a parameter vreg
+                    std::string pName = (vregId < currentFn_->paramNames.size() && !currentFn_->paramNames[vregId].empty())
+                        ? currentFn_->paramNames[vregId] : std::to_string(vregId);
+                    storageSymbol = currentFunctionName_ + "__param_" + pName;
                 } else {
-                    emit("sta " + arOffset);
-                    emit("stx " + currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId] + 1));
+                    // This is a local vreg
+                    storageSymbol = currentFunctionName_ + "__local_" + std::to_string(vregId);
+                }
+
+                if (alloc.type == ir::Type::I32) {
+                    emit("sta " + storageSymbol);
+                    emit("stx " + storageSymbol + "+1");
+                    emit("sty " + storageSymbol + "+2");
+                    emit("stz " + storageSymbol + "+3");
+                } else if (alloc.type == ir::Type::I8) {
+                    emit("sta " + storageSymbol);
+                } else if (valueByte_[1] == REG_Z) {
+                    emit("sta " + storageSymbol);
+                    emit("stz " + storageSymbol + "+1");
+                } else {
+                    emit("sta " + storageSymbol);
+                    emit("stx " + storageSymbol + "+1");
                 }
             } else {
                 // FP-relative: use pseudo-ops that expand to indirect addressing
@@ -1241,6 +1275,11 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // This causes incorrect frame offsets that overlap between locals and temporaries.
     vregSizes_ = fn.vregSizes;  // Still need vregSizes for size overrides
 
+    // Determine SAC mode early (needed for frame address allocation decision)
+    // SAC enabled if: (1) -fstaticalloc flag enabled, (2) not recursive, (3) not interrupt/naked/variadic
+    bool earlyUseSAC = staticAllocMode_ && !fn.isRecurse && !fn.isInterrupt &&
+                       !fn.isNaked && !fn.isVariadic;
+
     // Don't resetFrame() here — vregOffset_ was already populated by allocator at lines 958-968
     frameAddrZPIndex_ = -1;  // reset for new function
 
@@ -1250,8 +1289,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // vregOffset_ was already populated above, no need for allocSlot calls
 
     // Allocate a dedicated ZP slot for frame address (2 bytes) if function has frame
+    // (NOT needed for SAC functions, which use direct absolute addressing)
     // This prevents leax.fp results from being clobbered by intermediate operations
-    if (frameSize_ > 0) {
+    if (frameSize_ > 0 && !earlyUseSAC) {
         frameAddrZPIndex_ = allocateZP(2);
     }
 
@@ -1323,6 +1363,44 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     currentFunctionUseSAC_ = useSAC;
     if (useSAC) {
         sacFunctions_.insert(fn.name);  // Track for .global __ar symbol emission
+
+        // Emit SAC storage declarations BEFORE function entrance
+        // This places them at known addresses accessible at runtime
+        emitComment("SAC inline storage: " + std::to_string(frameSize_) + " bytes");
+
+        // Emit storage for parameters
+        for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+            int ps = ir::typeSize(fn.paramTypes[i]);
+            if (ps < 2) ps = 2;  // Minimum 2 bytes
+            std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
+                ? fn.paramNames[i] : std::to_string(i);
+            std::string paramSymbol = fn.name + "__param_" + pName;
+            if (ps == 2) {
+                emit(paramSymbol + ": .word 0");
+            } else if (ps == 4) {
+                emit(paramSymbol + ": .long 0");
+            } else {
+                emit(paramSymbol + ": .fill " + std::to_string(ps));
+            }
+        }
+
+        // Emit storage for locals
+        for (const auto& [vregId, offset] : vregOffset_) {
+            auto alloc = alloc_.getAlloc(vregId);
+            if (alloc.loc == VRegAllocator::IN_FRAME) {
+                std::string localSymbol = fn.name + "__local_" + std::to_string(vregId);
+                ir::Type varType = vregType_.count(vregId) ? vregType_[vregId] : ir::Type::I16;
+                int varSize = ir::typeSize(varType);
+                if (varSize < 2) varSize = 2;
+                if (varSize == 2) {
+                    emit(localSymbol + ": .word 0");
+                } else if (varSize == 4) {
+                    emit(localSymbol + ": .long 0");
+                } else {
+                    emit(localSymbol + ": .fill " + std::to_string(varSize));
+                }
+            }
+        }
     }
 
     // proc directive with parameter specs
@@ -1342,6 +1420,11 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         }
     }
     emit(procLine);
+
+    // Mark SAC functions for assembler
+    if (currentFunctionUseSAC_) {
+        emit(".sac");
+    }
 
     // Reset source location tracking for this function
     lastLocLine_ = -1;
@@ -1384,20 +1467,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     int localFrameSize = frameSize_;
     localFrameSize_ = localFrameSize;  // save for RET cleanup
 
-    // For SAC functions, emit static activation record (AR) declaration and allocation
-    if (useSAC) {
-        // Emit AR as a BSS symbol (uninitialized static storage)
-        // Symbol is exported at top level via .global in CodeGenerator
-        std::string arSymbol = fn.name + "__ar";
-        emitComment("static activation record (SAC): " + std::to_string(localFrameSize) + " bytes");
-        emit(".bss");  // Switch to BSS segment
-        emit(arSymbol + ":");
-        emit(".fill " + std::to_string(localFrameSize));
-        emit(".code");  // Switch back to code segment
-        emit(".sac");   // Tell assembler this function uses SAC (direct AR addressing)
-        // Declare scoped AR variable for direct absolute addressing
-        emit(".var ar = " + arSymbol);
-    }
+    // SAC storage is now emitted BEFORE proc directive for correct memory placement
 
     // Push stack frame only for non-SAC functions
     // SAC functions use static AR buffers instead of stack frames
@@ -1420,33 +1490,26 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         }
     }
 
-    // Set up ZP frame pointer for local variable access
+    // Set up ZP frame pointer for local variable access (stack convention only)
+    // SAC functions use direct absolute addressing to inline storage, no FP needed
     useStackParams_ = !zpCallMode_ || fn.isVariadic;  // Stack params for all non-ZP functions
-    if (useStackParams_) {
-        if (currentFunctionUseSAC_) {
-            // SAC: FP must point to AR buffer so that .param/.local dispatch can use FP indirect addressing
-            // Load AR buffer address into FP
-            emit("lda #<" + currentFunctionName_ + "__ar");
-            emit("ldx #>" + currentFunctionName_ + "__ar");
-            emit("sta $FD");
-            emit("stx $FE");
-        } else {
-            // Stack convention: Calculate frame pointer from SP: FP = __sp_base + SPL + 1
-            emit("tsy");           // SPH → Y
-            emit("tsx");           // SPL → X
-            emit("inx");           // X = SPL + 1 (sets carry if wrapped)
-            std::string noCarryLabel = "@__fp_no_carry_" + std::to_string(labelCounter_++);
-            emit("bne " + noCarryLabel);  // Skip if X != 0 (no carry)
-            emit("iny");           // If carry, increment Y (SPH)
-            emitLabel(noCarryLabel);
-            emit("stx $FD");       // Store low byte
-            emit("sty $FE");       // Store high byte
-            emit(".frameptr_zp $FD");
-        }
+    if (useStackParams_ && !useSAC) {
+        // Stack convention only: Calculate frame pointer from SP: FP = __sp_base + SPL + 1
+        emit("tsy");           // SPH → Y
+        emit("tsx");           // SPL → X
+        emit("inx");           // X = SPL + 1 (sets carry if wrapped)
+        std::string noCarryLabel = "@__fp_no_carry_" + std::to_string(labelCounter_++);
+        emit("bne " + noCarryLabel);  // Skip if X != 0 (no carry)
+        emit("iny");           // If carry, increment Y (SPH)
+        emitLabel(noCarryLabel);
+        emit("stx $FD");       // Store low byte
+        emit("sty $FE");       // Store high byte
+        emit(".frameptr_zp $FD");
     }
 
     // Compute and cache frame address in dedicated ZP slot if function uses frame-relative access
-    if (frameAddrZPIndex_ >= 0) {
+    // (NOT needed for SAC functions, which use direct absolute addressing)
+    if (frameAddrZPIndex_ >= 0 && !currentFunctionUseSAC_) {
         std::string frameAddrZP = zpAddr(frameAddrZPIndex_);
         emit("leax.local 0");
         emit("sta " + frameAddrZP);
@@ -1583,38 +1646,67 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     emitBlank();
 
-    // Copy params into vReg frame slots
-    // All stack-convention functions load parameters (including SAC)
-    // Parameters on stack are loaded into vregs (AR for SAC, stack for non-SAC)
+    // Load parameters from stack into storage
+    // For SAC: load into inline storage using direct addressing
+    // For stack convention: load into vregs via FP-relative addressing
     if (useStackParams) {
-        // Stack convention: params are on the stack, copy to ZP temps
-        for (size_t i = 0; i < fn.paramTypes.size(); i++) {
-            uint32_t vid = (uint32_t)i;
-            if (fn.isNested && i == fn.paramTypes.size() - 1 && fn.staticLinkVreg != -1) {
-                // vid = (uint32_t)fn.staticLinkVreg; // Wait! No more hidden param!
-            }
+        if (useSAC) {
+            // SAC: Load parameters from stack into inline storage via direct addressing
+            emitComment("load SAC parameters from stack");
+            for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+                std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
+                    ? fn.paramNames[i] : std::to_string(i);
+                std::string paramSymbol = fn.name + "__param_" + pName;
 
-            if (fn.isRegparm && i == 0) {
-                // First param already in A (I8) or AX (I16) — just store
-                storeVreg(vid);
-                continue;
-            }
-            std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
-                ? fn.paramNames[i] : std::to_string(i);
-            if (fn.paramTypes[i] == ir::Type::F32) {
-                // 5-byte float: copy from stack frame to ZP vreg
-                auto alloc = alloc_.getAlloc(vid);
-                std::string za = "$" + hex8((uint8_t)alloc.offset);
-                for (int bi = 0; bi < 5; bi++) {
-                    emit("lda.param @_p_" + pName + "+" + std::to_string(bi));
-                    emit("sta " + za + "+" + std::to_string(bi));
+                if (fn.paramTypes[i] == ir::Type::F32) {
+                    // 5-byte float: use FP-relative addressing to load from stack
+                    for (int bi = 0; bi < 5; bi++) {
+                        emit("lda.param @_p_" + pName + "+" + std::to_string(bi));
+                        emit("sta " + paramSymbol + "+" + std::to_string(bi));
+                    }
+                } else if (fn.paramTypes[i] == ir::Type::I32) {
+                    emit("ldaxyz.param @_p_" + pName);
+                    emit("sta " + paramSymbol);
+                    emit("stx " + paramSymbol + "+1");
+                    emit("sty " + paramSymbol + "+2");
+                    emit("stz " + paramSymbol + "+3");
+                } else {
+                    // 16-bit or smaller
+                    emit("ldax.param @_p_" + pName);
+                    emit("sta " + paramSymbol);
+                    emit("stx " + paramSymbol + "+1");
                 }
-            } else if (fn.paramTypes[i] == ir::Type::I32) {
-                emit("ldaxyz.param @_p_" + pName);
-                storeVreg(vid);
-            } else {
-                emit("ldax.param @_p_" + pName);
-                storeVreg(vid);
+            }
+        } else {
+            // Stack convention: params are on the stack, copy to vregs
+            for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+                uint32_t vid = (uint32_t)i;
+                if (fn.isNested && i == fn.paramTypes.size() - 1 && fn.staticLinkVreg != -1) {
+                    // vid = (uint32_t)fn.staticLinkVreg; // Wait! No more hidden param!
+                }
+
+                if (fn.isRegparm && i == 0) {
+                    // First param already in A (I8) or AX (I16) — just store
+                    storeVreg(vid);
+                    continue;
+                }
+                std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
+                    ? fn.paramNames[i] : std::to_string(i);
+                if (fn.paramTypes[i] == ir::Type::F32) {
+                    // 5-byte float: copy from stack frame to ZP vreg
+                    auto alloc = alloc_.getAlloc(vid);
+                    std::string za = "$" + hex8((uint8_t)alloc.offset);
+                    for (int bi = 0; bi < 5; bi++) {
+                        emit("lda.param @_p_" + pName + "+" + std::to_string(bi));
+                        emit("sta " + za + "+" + std::to_string(bi));
+                    }
+                } else if (fn.paramTypes[i] == ir::Type::I32) {
+                    emit("ldaxyz.param @_p_" + pName);
+                    storeVreg(vid);
+                } else {
+                    emit("ldax.param @_p_" + pName);
+                    storeVreg(vid);
+                }
             }
         }
     } else if (zpCallMode_ && !useSAC) {
@@ -1885,16 +1977,22 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         emit("lda #" + std::to_string((int)b0), r);
 
                         if (currentFunctionUseSAC_ && vregOffset_.count(nextInst->src2.vregId)) {
-                            // SAC mode: Use direct AR addressing
-                            uint32_t offset = vregOffset_[nextInst->src2.vregId];
-                            std::string loAddr = currentFunctionName_ + ":__ar+" + std::to_string(offset);
-                            std::string hiAddr = currentFunctionName_ + ":__ar+" + std::to_string(offset + 1);
-                            emit("sta " + loAddr, r);
+                            // SAC mode: Use direct inline storage addressing
+                            uint32_t vregId = nextInst->src2.vregId;
+                            std::string storageSymbol;
+                            if (vregId < currentFn_->paramTypes.size()) {
+                                std::string pName = (vregId < currentFn_->paramNames.size() && !currentFn_->paramNames[vregId].empty())
+                                    ? currentFn_->paramNames[vregId] : std::to_string(vregId);
+                                storageSymbol = currentFunctionName_ + "__param_" + pName;
+                            } else {
+                                storageSymbol = currentFunctionName_ + "__local_" + std::to_string(vregId);
+                            }
+                            emit("sta " + storageSymbol, r);
                             if (b1 == b0) {
-                                emit("sta " + hiAddr, r);
+                                emit("sta " + storageSymbol + "+1", r);
                             } else {
                                 emit("lda #" + std::to_string((int)b1), r);
-                                emit("sta " + hiAddr, r);
+                                emit("sta " + storageSymbol + "+1", r);
                             }
                         } else {
                             // Non-SAC: Frame-relative via staz.fp pseudo-op

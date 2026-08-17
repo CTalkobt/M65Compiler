@@ -1143,13 +1143,7 @@ void CodeGenerator::visit(TranslationUnit& node) {
             }
         }
 
-        // Emit .global for SAC __ar symbols (static activation records)
-        // These are exported even though they may not be referenced externally,
-        // so the linker can patch them with computed overlay addresses
-        for (const auto& name : definedFunctions) {
-            if (staticFunctions.count(name)) continue;
-            out << ".global _" << name << "__ar" << std::endl;
-        }
+        // NOTE: Old BSS __ar symbols removed - now using inline SAC storage instead
 
         // Emit .extern __sp_base for relocatable code (linker provides from CRT)
         out << ".extern __sp_base" << std::endl;
