@@ -190,7 +190,7 @@ void IRCodeGen::loadVreg(uint32_t vregId) {
             if (alloc_.isInAX(vregId, currentInstIdx_)) return; // no-op!
             // Fell through from A:X to somewhere — treat as frame
             if (vregOffset_.count(vregId)) {
-                emit("ldax.fp " + std::to_string(vregOffset_[vregId]), r);
+                emit("ldax.local " + std::to_string(vregOffset_[vregId]), r);
             }
             break;
         case VRegAllocator::IN_ZP: {
@@ -235,11 +235,11 @@ void IRCodeGen::loadVreg(uint32_t vregId) {
                     // Non-SAC: FP-relative addressing through pseudo-ops
                     std::string sym = "__vr" + std::to_string(vregId);
                     if (alloc.type == ir::Type::I32) {
-                        emit("ldaxyz.fp " + sym, r);
+                        emit("ldaxyz.local " + sym, r);
                     } else if (alloc.type == ir::Type::I8) {
-                        emit("lda.fp " + sym, r);
+                        emit("lda.local " + sym, r);
                     } else {
-                        emit("ldax.fp " + sym, r);
+                        emit("ldax.local " + sym, r);
                     }
                 }
             }
@@ -261,7 +261,7 @@ void IRCodeGen::loadVregA(uint32_t vregId) {
                     std::string arAddr = currentFunctionName_ + ":__ar+" + std::to_string(vregOffset_[vregId]);
                     emit("lda " + arAddr, r);
                 } else {
-                    emit("lda.fp " + std::to_string(vregOffset_[vregId]), r);
+                    emit("lda.local " + std::to_string(vregOffset_[vregId]), r);
                 }
             }
             break;
@@ -278,7 +278,7 @@ void IRCodeGen::loadVregA(uint32_t vregId) {
                     emit("lda " + arAddr, r);
                 } else {
                     std::string sym = "__vr" + std::to_string(vregId);
-                    emit("lda.fp " + sym, r);
+                    emit("lda.local " + sym, r);
                 }
             }
             break;
@@ -336,13 +336,13 @@ void IRCodeGen::storeVreg(uint32_t vregId) {
                 // FP-relative: use pseudo-ops that expand to indirect addressing
                 std::string sym = "__vr" + std::to_string(vregId);
                 if (alloc.type == ir::Type::I32) {
-                    emit("staxyz.fp " + sym);
+                    emit("staxyz.local " + sym);
                 } else if (alloc.type == ir::Type::I8) {
-                    emit("sta.fp " + sym);
+                    emit("sta.local " + sym);
                 } else if (valueByte_[1] == REG_Z) {
-                    emit("staz.fp " + sym);
+                    emit("staz.local " + sym);
                 } else {
-                    emit("stax.fp " + sym);
+                    emit("stax.local " + sym);
                 }
             }
             break;
@@ -1444,7 +1444,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // Compute and cache frame address in dedicated ZP slot if function uses frame-relative access
     if (frameAddrZPIndex_ >= 0) {
         std::string frameAddrZP = zpAddr(frameAddrZPIndex_);
-        emit("leax.fp 0");
+        emit("leax.local 0");
         emit("sta " + frameAddrZP);
         emit("stx " + frameAddrZP + "+1");
     }
@@ -1602,14 +1602,14 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 auto alloc = alloc_.getAlloc(vid);
                 std::string za = "$" + hex8((uint8_t)alloc.offset);
                 for (int bi = 0; bi < 5; bi++) {
-                    emit("lda.fp @_p_" + pName + "+" + std::to_string(bi));
+                    emit("lda.param @_p_" + pName + "+" + std::to_string(bi));
                     emit("sta " + za + "+" + std::to_string(bi));
                 }
             } else if (fn.paramTypes[i] == ir::Type::I32) {
-                emit("ldaxyz.fp @_p_" + pName);
+                emit("ldaxyz.param @_p_" + pName);
                 storeVreg(vid);
             } else {
-                emit("ldax.fp @_p_" + pName);
+                emit("ldax.param @_p_" + pName);
                 storeVreg(vid);
             }
         }
@@ -1899,7 +1899,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                             } else {
                                 emit("ldz #" + std::to_string((int)b1), r);
                             }
-                            emit("staz.fp " + sym, r);
+                            emit("staz.local " + sym, r);
                         }
                         resultInAX_ = -2;
                         ms_.invalidateAll();
@@ -2863,7 +2863,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         emit("lda " + vs.str());
                     } else if (valAlloc.loc == VRegAllocator::IN_FRAME) {
                         if (vregOffset_.count(inst.src1.vregId))
-                            emit("lda.fp " + std::to_string(vregOffset_[inst.src1.vregId]));
+                            emit("lda.local " + std::to_string(vregOffset_[inst.src1.vregId]));
                     } else {
                         loadOperand(inst.src1);
                     }
@@ -2980,7 +2980,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                                 emit("lda " + vs.str());
                             } else if (valAlloc.loc == VRegAllocator::IN_FRAME) {
                                 if (vregOffset_.count(inst.src1.vregId))
-                                    emit("lda.fp " + std::to_string(vregOffset_[inst.src1.vregId]));
+                                    emit("lda.local " + std::to_string(vregOffset_[inst.src1.vregId]));
                             } else {
                                 loadOperand(inst.src1);
                             }
@@ -3051,7 +3051,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 throw std::runtime_error("TRAMPOLINE: buffer vreg " + std::to_string(bufVregId) +
                     " not allocated on stack (vregOffset_ map has " + std::to_string(vregOffset_.size()) + " entries)");
             }
-            emit("leax.fp " + std::to_string(vregOffset_.at(bufVregId)));
+            emit("leax.local " + std::to_string(vregOffset_.at(bufVregId)));
             emit("sta $08");
             emit("stx $09");
 
@@ -3185,7 +3185,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         emit("lda " + frameAddrZP);
                         emit("ldx " + frameAddrZP + "+1");
                     } else {
-                        emit("leax.fp " + std::to_string(offset));
+                        emit("leax.local " + std::to_string(offset));
                     }
                 } else {
                     // Get allocation from VRegAllocator (should have already allocated)
@@ -3201,7 +3201,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                             emit("lda " + frameAddrZP);
                             emit("ldx " + frameAddrZP + "+1");
                         } else {
-                            emit("leax.fp " + std::to_string(offset));
+                            emit("leax.local " + std::to_string(offset));
                         }
                     } else {
                         // Should not reach here - VRegAllocator should have allocated
@@ -3216,7 +3216,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     emit("lda " + frameAddrZP);
                     emit("ldx " + frameAddrZP + "+1");
                 } else {
-                    emit("leax.fp " + std::to_string(offset));
+                    emit("leax.local " + std::to_string(offset));
                 }
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
@@ -3888,7 +3888,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             // the caller pushes everything for variadic calls). So named params are on the
             // stack at their proc-declared offsets, and variadic args follow.
             std::string pName = inst.asmText;
-            emit("leax.fp @_p_" + pName);
+            emit("leax.param @_p_" + pName);
             emit("add.16 .AX, #2");
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
@@ -4129,9 +4129,9 @@ void IRCodeGen::loadFrameAddr(int offset) {
         // - Stack mode: uses recalculated $FD/$FE from return value handling
         // - ZpCall mode: computes fresh from current stack pointer
         if (offset == 0) {
-            emit("leax.fp 0");
+            emit("leax.local 0");
         } else {
-            emit("leax.fp " + std::to_string(offset));
+            emit("leax.local " + std::to_string(offset));
         }
     }
 }
