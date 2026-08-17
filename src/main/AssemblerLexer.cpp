@@ -223,8 +223,6 @@ AssemblerToken AssemblerLexer::lexIdentifierOrInstruction() {
         "LDAX.PARAM", "STAX.PARAM", "LDAY.PARAM", "STAY.PARAM", "LDAZ.PARAM", "STAZ.PARAM", "LDAXYZ.PARAM", "STAXYZ.PARAM", "LEAX.PARAM",
         "LDA.LOCAL", "STA.LOCAL", "LDX.LOCAL", "STX.LOCAL", "LDY.LOCAL", "STY.LOCAL", "LDZ.LOCAL", "STZ.LOCAL",
         "LDAX.LOCAL", "STAX.LOCAL", "LDAY.LOCAL", "STAY.LOCAL", "LDAZ.LOCAL", "STAZ.LOCAL", "LDAXYZ.LOCAL", "STAXYZ.LOCAL", "LEAX.LOCAL",
-        // Deprecated .fp instructions (kept for stdlib compatibility, new code uses .param/.local)
-        "LDA.FP", "STA.FP", "LDAX.FP", "STAX.FP", "LDAY.FP", "STAY.FP", "LDAZ.FP", "STAZ.FP", "LDAXYZ.FP", "STAXYZ.FP", "LEAX.FP", "MOVE.FP", "INC.FP", "DEC.FP", "INC.16F", "DEC.16F",
         "BFEXT", "BFEXT16", "BFEXT32", "BFINS", "BFINS.SP", "BFINS.IND", "BFINS16", "BFINS16.SP", "BFINS16.IND", "BFINS32",
         "STRUCT_ELEM", "STRUCT_ELEM.16", "ADDR_ELEM", "ADDR_ELEM.16"
     };
