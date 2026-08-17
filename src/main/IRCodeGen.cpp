@@ -632,13 +632,16 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
 
     if (relocMode) {
         emit(".o45");
-        emit(".extern __sp_base");
+        // __sp_base is weak — linker may provide it, or we use default
+        emit(".weak __sp_base");
+        emit("__sp_base = $0101");  // Default stack page
 
-        // Emit .global declarations for SAC __ar symbols
-        // These will be patched by linker with computed overlay addresses
-        for (const auto& name : sacFunctions_) {
-            emit(".global " + name + "__ar");
-        }
+        // SAC __ar symbols are linker-computed overlay addresses
+        // Don't export them — they will be defined by the linker's overlay allocation pass
+        // (Exporting undefined symbols corrupts the export table)
+        // for (const auto& name : sacFunctions_) {
+        //     emit(".global " + name + "__ar");
+        // }
     } else {
         // Standalone PRG mode: emit startup stub
         bool hasMain = false;
