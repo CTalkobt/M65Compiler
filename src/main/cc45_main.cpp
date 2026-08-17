@@ -844,9 +844,9 @@ int main(int argc, char** argv) {
         }
         IRCodeGen irCodeGen(asmOut);
         irCodeGen.setLineToFileMap(lineToFileMap);
-        // For -S mode without -c (standalone assembly), use non-relocatable mode with PRG base
-        // For -c mode or full link mode, use relocatable mode (.o45)
-        bool useReloc = objectFileOnly;  // Only use relocatable for -c (object file)
+        // For -S mode, still use relocatable mode, but we'll emit BASIC_UPSTART to signal load address
+        // This allows ca45 to emit the PRG load address header
+        bool useReloc = true;  // Always use relocatable for assembly generation
         irCodeGen.generate(irBuilder.getModule(), zeroPageStart, useReloc, zpCallMode, emitReasons, staticAllocMode, sacDebugMode, prgBase);
         asmOut.close();
 
