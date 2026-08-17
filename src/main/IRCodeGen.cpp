@@ -715,7 +715,7 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     emit(symDir + " __zp_scratch2");
     emit(symDir + " __zp_scratch3");
     emit(symDir + " __zp_scratch4");
-    emit(".global cc45.zeroPageStart");  // Assembler uses this to determine ZP start
+    emit(symDir + " cc45.zeroPageStart");  // Weak in relocatable mode to avoid duplicate symbol errors
     emit("__static_chain = " + hex8(zeroPageStart_ - 2));
     emit("__zp_scratch = " + hex8(zeroPageStart_));
     emit("__zp_scratch2 = " + hex8(zeroPageStart_ + 2));
