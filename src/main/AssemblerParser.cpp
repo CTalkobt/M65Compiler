@@ -11,6 +11,7 @@
 #include <iostream>
 #include <iomanip>
 #include <fstream>
+#include <cstdio>
 #include <algorithm>
 #include <memory>
 #include <cmath>
@@ -391,6 +392,12 @@ void AssemblerParser::pass1() {
         stmt->segmentName = currentSegment->name;
         stmt->sourceFile = currentSourceFile_;
         stmt->sourceLine = currentSourceLine_;
+
+        {
+            FILE* f = fopen("/tmp/debug_add16.log", "a");
+            fprintf(f, "Token at pos %zu: type=%d value='%s'\n", pos, (int)peek().type, peek().value.c_str());
+            fclose(f);
+        }
 
         if ((peek().type == AssemblerTokenType::IDENTIFIER || peek().type == AssemblerTokenType::INSTRUCTION) && pos + 1 < tokens.size() && tokens[pos+1].type == AssemblerTokenType::COLON) {
             std::string labelName = advance().value;
@@ -866,7 +873,20 @@ void AssemblerParser::pass1() {
             using S = AssemblerSimulatedOps;
             #define SIMOP(T, F) stmt->type = Statement::T; stmt->emitFn = S::F
 
-            if (fullMnemonic == "add.16") { SIMOP(ADD16, dispatch_AddSub16); }
+            {
+                FILE* f = fopen("/tmp/debug_add16.log", "a");
+                fprintf(f, "DEBUG: Instruction mnemonic='%s'\n", fullMnemonic.c_str());
+                fclose(f);
+            }
+
+            if (fullMnemonic == "add.16") {
+                {
+                    FILE* f = fopen("/tmp/debug_add16.log", "a");
+                    fprintf(f, "DEBUG: Recognized add.16 instruction at pos %zu\n", pos);
+                    fclose(f);
+                }
+                SIMOP(ADD16, dispatch_AddSub16);
+            }
             else if (fullMnemonic == "sub.16") { SIMOP(SUB16, dispatch_AddSub16); }
             else if (fullMnemonic == "add.s16") { SIMOP(ADDS16, dispatch_AddSub16); }
             else if (fullMnemonic == "sub.s16") { SIMOP(SUBS16, dispatch_AddSub16); }
