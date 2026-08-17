@@ -630,6 +630,12 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         }
     }
 
+    // Phase 3.5: Analyze SAC function calls to detect constant parameters
+    // (optimization: skip initialization for parameters that always receive the same constant)
+    if (staticAllocMode && !sacFunctions_.empty()) {
+        analyzeConstantParameters(mod);
+    }
+
     if (relocMode) {
         emit(".o45");
         // Emit .org for standalone assembly generation
@@ -1394,6 +1400,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         // Emit storage for parameters
         // Use parameter names for documentation, fall back to indices if unavailable
         // Make symbols globally visible so caller and function can both reference them
+        // For constant parameters, use pre-initialized values
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
             int ps = ir::typeSize(fn.paramTypes[i]);
             if (ps < 2) ps = 2;  // Minimum 2 bytes
@@ -1401,12 +1408,40 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 ? fn.paramNames[i] : std::to_string(i);
             std::string paramSymbol = fn.name + "__param_" + pName;
             emit(".global " + paramSymbol);
-            if (ps == 2) {
-                emit(paramSymbol + ": .word 0");
-            } else if (ps == 4) {
-                emit(paramSymbol + ": .long 0");
+
+            // Check if this is a constant parameter
+            int64_t constValue = 0;
+            bool isConstParam = false;
+            if (sacConstParams_.count(fn.name)) {
+                const auto& params = sacConstParams_[fn.name];
+                if (params.count((int)i) && params.at((int)i).isConstant) {
+                    isConstParam = true;
+                    constValue = params.at((int)i).value;
+                }
+            }
+
+            // Emit storage with constant value if applicable
+            if (isConstParam) {
+                if (ps == 2) {
+                    emit(paramSymbol + ": .word " + std::to_string((int)(constValue & 0xFFFF)));
+                } else if (ps == 4) {
+                    emit(paramSymbol + ": .long " + std::to_string((int)(constValue & 0xFFFFFFFF)));
+                } else {
+                    // For larger sizes, initialize first word with constant, rest with zeros
+                    emit(paramSymbol + ": .word " + std::to_string((int)(constValue & 0xFFFF)));
+                    for (int j = 2; j < ps; j += 2) {
+                        emit(".word 0");
+                    }
+                }
             } else {
-                emit(paramSymbol + ": .fill " + std::to_string(ps));
+                // No pre-initialization, use zeros
+                if (ps == 2) {
+                    emit(paramSymbol + ": .word 0");
+                } else if (ps == 4) {
+                    emit(paramSymbol + ": .long 0");
+                } else {
+                    emit(paramSymbol + ": .fill " + std::to_string(ps));
+                }
             }
         }
 
@@ -3666,6 +3701,22 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
                         std::string paramSymbol = inst.src1.name + "__param_" + paramNames[ai];
 
+                        // Check if this is a constant parameter (optimization: skip initialization)
+                        bool isConstParameter = false;
+                        if (sacConstParams_.count(inst.src1.name)) {
+                            const auto& params = sacConstParams_[inst.src1.name];
+                            if (params.count(ai) && params.at(ai).isConstant) {
+                                // This parameter always receives the same constant value
+                                // Skip initialization — parameter storage is pre-initialized by linker
+                                isConstParameter = true;
+                            }
+                        }
+
+                        // Skip both load and store for constant parameters
+                        if (isConstParameter) {
+                            continue;
+                        }
+
                         // Check if we can emit a direct constant load
                         bool emittedConst = false;
                         if (arg.isImm()) {
@@ -4323,3 +4374,71 @@ void IRCodeGen::loadFrameAddr(int offset) {
 // Get optimal ZP address pair for indirect addressing
 // If vreg is a frame address at offset 0 and we have a cache, use cached location directly
 // Otherwise, load vreg and return location where it was stored
+
+// Analyze all CALL instructions to detect SAC functions with constant parameters
+void IRCodeGen::analyzeConstantParameters(const ir::Module& mod) {
+    // First pass: build a map of VREG ID → constant value for each function
+    std::map<std::string, std::map<uint32_t, int64_t>> vregConstVals;
+
+    for (const auto& fn : mod.functions) {
+        for (const auto& block : fn.blocks) {
+            for (const auto& inst : block.insts) {
+                // Track CONST instructions to build vregConstVals map
+                if (inst.op == ir::Op::CONST && inst.dest.isVreg()) {
+                    vregConstVals[fn.name][inst.dest.vregId] = inst.src1.immVal;
+                }
+            }
+        }
+    }
+
+    // Second pass: collect parameter values from all call sites
+    std::map<std::string, std::vector<std::map<int64_t, int>>> paramValueFreq;
+
+    for (const auto& fn : mod.functions) {
+        for (const auto& block : fn.blocks) {
+            for (const auto& inst : block.insts) {
+                if ((inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) &&
+                    sacFunctions_.count(inst.src1.name)) {
+
+                    // This is a call to a SAC function
+                    const std::string& calleeFunc = inst.src1.name;
+                    int paramIdx = 0;
+
+                    // Process each argument
+                    for (const auto& arg : inst.args) {
+                        if (paramValueFreq[calleeFunc].size() <= (size_t)paramIdx) {
+                            paramValueFreq[calleeFunc].resize(paramIdx + 1);
+                        }
+
+                        // Check if argument is a constant
+                        if (arg.isImm()) {
+                            paramValueFreq[calleeFunc][paramIdx][(int64_t)arg.immVal]++;
+                        } else if (arg.isVreg() && vregConstVals[fn.name].count(arg.vregId)) {
+                            // VREG with tracked constant value
+                            int64_t constVal = vregConstVals[fn.name][arg.vregId];
+                            paramValueFreq[calleeFunc][paramIdx][constVal]++;
+                        } else {
+                            // Non-constant parameter
+                            paramValueFreq[calleeFunc][paramIdx][-999999]++;
+                        }
+                        paramIdx++;
+                    }
+                }
+            }
+        }
+    }
+
+    // Third pass: for each SAC function, check if each parameter always gets the same constant
+    for (const auto& [funcName, paramFreqs] : paramValueFreq) {
+        for (size_t paramIdx = 0; paramIdx < paramFreqs.size(); paramIdx++) {
+            const auto& freqMap = paramFreqs[paramIdx];
+
+            // If this parameter has exactly one value across all call sites
+            // AND that value is not the non-constant marker, it's a constant parameter
+            if (freqMap.size() == 1 && freqMap.begin()->first != -999999) {
+                sacConstParams_[funcName][(int)paramIdx].isConstant = true;
+                sacConstParams_[funcName][(int)paramIdx].value = freqMap.begin()->first;
+            }
+        }
+    }
+}

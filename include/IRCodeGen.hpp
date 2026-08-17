@@ -156,6 +156,18 @@ private:
     // Maps function name → vector of parameter names
     std::map<std::string, std::vector<std::string>> functionParameterNames_;
 
+    // SAC constant parameter optimization: track which parameters always receive the same constant
+    // Maps function_name → parameter_index → constant_value (optional)
+    // If a parameter has an entry, all call sites pass that constant; -1 means no constant
+    struct ConstParamInfo {
+        bool isConstant = false;
+        int64_t value = 0;
+    };
+    std::map<std::string, std::map<int, ConstParamInfo>> sacConstParams_;
+
+    // Analyze function calls to detect constant parameters (pre-pass before code generation)
+    void analyzeConstantParameters(const ir::Module& mod);
+
     // Phase 1: MachineState-based helpers for constant queries
     // Returns true if a vreg's value is a known constant and optionally retrieves it
     bool vregIsConst(uint32_t vregId, int64_t* outVal = nullptr) const;
