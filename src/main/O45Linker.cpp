@@ -756,6 +756,7 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     computeTransitiveClobbers();
     emitDiagnostics();
     verifyStaticAllocSafety();  // Verify SAC constraints before thunk generation
+    validateSACParameters();      // Phase 3: Validate SAC parameter metadata
 
     // Check for calling convention errors and SAC violations
     if (!convErrors_.empty()) {
@@ -1082,6 +1083,48 @@ void O45Linker::verifyStaticAllocSafety() {
         if (isrReachable.count(sacFunc)) {
             convErrors_.push_back("error: '" + sacFunc + "' uses static allocation but is reachable from ISR handler "
                                   "(add #pragma cc45 recurse before function declaration to opt out)");
+        }
+    }
+}
+
+// 3.3c — Validate SAC parameter metadata
+// Phase 3: Checks that SAC parameters are properly defined and accessible
+void O45Linker::validateSACParameters() {
+    // Collect SAC functions and their parameter metadata
+    std::map<std::string, const O45SACMetadata*> sacParamMetadata;
+
+    for (const auto& [name, attr] : funcAttrs_) {
+        if ((attr.flags & FUNC_FLAG_STATIC_ALLOC) != 0 && !attr.sacMetadata.parameters.empty()) {
+            sacParamMetadata[name] = &attr.sacMetadata;
+        }
+    }
+
+    if (sacParamMetadata.empty()) return;  // No SAC parameter metadata to validate
+
+    // For each SAC function with parameter metadata
+    for (const auto& [funcName, metadata] : sacParamMetadata) {
+        for (const auto& param : metadata->parameters) {
+            // Check if parameter symbol is defined in the symbol table
+            auto symIt = globalSymbols_.find(param.symbolName);
+            if (symIt == globalSymbols_.end()) {
+                convErrors_.push_back("warning: SAC function '" + funcName +
+                    "' references undefined parameter symbol '" + param.symbolName + "'");
+            } else {
+                // Verify parameter is in BSS or DATA segment
+                auto seg = symIt->second.segment;
+                if (seg != SEG_BSS && seg != SEG_DATA) {
+                    convErrors_.push_back("error: SAC parameter '" + param.symbolName +
+                        "' must be in BSS or DATA segment, but is in " + o45SegmentName(seg));
+                }
+
+                // Check that offset matches symbol value
+                uint32_t expectedOffset = symIt->second.value;
+                if (expectedOffset != param.offset) {
+                    warnStream_ << "warning: SAC parameter '" << param.symbolName <<
+                        "' offset mismatch: metadata says " << param.offset <<
+                        " but symbol is at " << expectedOffset << std::endl;
+                }
+            }
         }
     }
 }

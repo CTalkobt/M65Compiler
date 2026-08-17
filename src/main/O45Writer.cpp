@@ -271,6 +271,21 @@ void O45Writer::emitExports(std::vector<uint8_t>& out) const {
             writeU32(out, fa.zpRelease);
             out.push_back(fa.paramSize);
             writeU16(out, fa.frameSize);  // Phase 2: frame size for overlay coloring
+
+            // Phase 3: Emit SAC parameter metadata if present
+            if (!fa.sacMetadata.parameters.empty()) {
+                out.push_back(OPT_SAC_PARAMS);  // SAC params marker
+                // Write function name
+                writeString(out, fa.sacMetadata.functionName);
+                // Write parameter count
+                out.push_back((uint8_t)fa.sacMetadata.parameters.size());
+                // Write each parameter
+                for (const auto& param : fa.sacMetadata.parameters) {
+                    writeU16(out, param.offset);
+                    out.push_back(param.size);
+                    writeString(out, param.symbolName);
+                }
+            }
         }
     }
 }

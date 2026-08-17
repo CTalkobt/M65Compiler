@@ -149,6 +149,24 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         attr.zpRelease = proc->zpReleaseMask;
         attr.paramSize = (uint8_t)proc->totalParamSize;
         attr.frameSize = proc->frameSize;  // Phase 2: frame size for overlay coloring
+
+        // Phase 3: Collect SAC parameter metadata for SAC functions
+        if ((attr.flags & FUNC_FLAG_STATIC_ALLOC) != 0) {
+            attr.sacMetadata.functionName = proc->name;
+
+            // Look for parameter symbols matching pattern: funcname__param_*
+            std::string paramPrefix = proc->name + "__param_";
+            for (const auto& [symName, sym] : parser.symbolTable) {
+                if (symName.find(paramPrefix) == 0) {
+                    O45SACParam param;
+                    param.symbolName = symName;
+                    param.offset = sym.address;  // Will be relative to AR base after linking
+                    param.size = 2;  // TODO: track actual parameter size from AST
+                    attr.sacMetadata.parameters.push_back(param);
+                }
+            }
+        }
+
         syms.setFuncAttr(proc->name, attr);
     }
 

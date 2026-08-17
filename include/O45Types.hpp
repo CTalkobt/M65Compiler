@@ -1,5 +1,7 @@
 #pragma once
 #include <cstdint>
+#include <string>
+#include <vector>
 
 // =============================================================================
 // .o45 Relocatable Object Format — Constants and Types
@@ -82,6 +84,7 @@ constexpr uint8_t  OPT_CREATED       = 0x05;
 
 // Extended option types (.o45 specific)
 constexpr uint8_t  OPT_SEGATTR       = 0x10; // sub-segment attribute (see below)
+constexpr uint8_t  OPT_SAC_PARAMS    = 0x13; // SAC parameter metadata (see below)
 
 // OS identifier for MEGA65
 constexpr uint8_t  OPT_OS_MEGA65     = 0x05;
@@ -91,12 +94,29 @@ constexpr uint8_t  OPT_OS_MEGA65     = 0x05;
 // Payload: seg_id(1) + offset(4 LE) + length(4 LE) + name(NUL-terminated)
 // The linker uses these to order sub-segments (e.g., "init" before "code").
 
+// --- SAC parameter metadata record (OPT_SAC_PARAMS) ---
+// Describes parameters for a SAC (Static Allocation Convention) function.
+// Payload: func_name_len(1) + func_name(string) + param_count(1) + parameters
+// Each parameter: offset(2 LE) + size(1) + sym_name_len(1) + sym_name(string)
+// The linker uses this to validate parameter passing and potentially initialize storage.
+
 // --- Function attribute record ---
 // Appended after an export entry in the export table when the function has
 // ZP calling convention metadata or SAC metadata. Identified by the $FA marker byte.
 // Phase 2 addition: frameSize tracks activation record size for call-graph overlay coloring.
 constexpr uint8_t  O45_FUNCATTR_MARKER = 0xFA;
 constexpr int      O45_FUNCATTR_SIZE   = 19;   // total bytes per record (including marker, now with frameSize)
+
+struct O45SACParam {
+    uint16_t offset = 0;         // offset in activation record
+    uint8_t size = 0;            // parameter size in bytes
+    std::string symbolName;      // symbol name (e.g., "_add_short__param_a")
+};
+
+struct O45SACMetadata {
+    std::string functionName;    // function name
+    std::vector<O45SACParam> parameters;  // parameter list
+};
 
 struct O45FuncAttr {
     uint8_t flags = 0;           // see FUNC_FLAG_* constants
@@ -107,6 +127,7 @@ struct O45FuncAttr {
     uint32_t zpRelease = 0;      // bitmask: ZP slots consumed
     uint8_t paramSize = 0;       // total parameter bytes (for thunk generation)
     uint16_t frameSize = 0;      // activation record / frame size in bytes (Phase 2)
+    O45SACMetadata sacMetadata;  // SAC parameter metadata (Phase 3)
 };
 
 // Bit values for O45FuncAttr::flags
