@@ -449,13 +449,13 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
             patchPos = objOffset + r.offset;
         }
 
-        // Log all relocations before processing
-        if (r.segment == SEG_TEXT || r.segment == SEG_DATA) {
-            std::cerr << "DEBUG [Reloc " << rIdx << "]: " << segName
-                      << " reloc in " << input.filename
-                      << " at offset 0x" << std::hex << r.offset << " (patch pos 0x" << patchPos << ")"
-                      << " type=" << (int)r.type << " seg=" << (int)r.segment << std::dec << std::endl;
-        }
+        // Log all relocations before processing (disabled for production)
+        //if (r.segment == SEG_TEXT || r.segment == SEG_DATA) {
+        //    std::cerr << "DEBUG [Reloc " << rIdx << "]: " << segName
+        //              << " reloc in " << input.filename
+        //              << " at offset 0x" << std::hex << r.offset << " (patch pos 0x" << patchPos << ")"
+        //              << " type=" << (int)r.type << " seg=" << (int)r.segment << std::dec << std::endl;
+        //}
 
         if (patchPos >= body.size()) {
             errorMsg = "relocation offset " + std::to_string(patchPos) +
@@ -689,11 +689,11 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
             std::cerr << "==================================================\n" << std::endl;
         }
 
-        // DEBUG: Log TEXT relocations patch result
-        if (objIdx >= 0 && r.segment == SEG_TEXT) {
-            std::cerr << "DEBUG [TEXT Patch]: Patched 0x" << std::hex << patchPos << " with targetAddr=0x" << targetAddr;
-            std::cerr << " type=" << (int)r.type << std::dec << " (" << (int)patchSize << " bytes)" << std::endl;
-        }
+        // DEBUG: Log TEXT relocations patch result (disabled for production)
+        //if (objIdx >= 0 && r.segment == SEG_TEXT) {
+        //    std::cerr << "DEBUG [TEXT Patch]: Patched 0x" << std::hex << patchPos << " with targetAddr=0x" << targetAddr;
+        //    std::cerr << " type=" << (int)r.type << std::dec << " (" << (int)patchSize << " bytes)" << std::endl;
+        //}
     }
 
     return true;

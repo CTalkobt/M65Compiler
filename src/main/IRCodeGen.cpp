@@ -3646,7 +3646,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
                 if (isCallingSAC) {
                     // SAC call: store parameters directly to parameter storage
-                    // For immediate arguments, emit direct loads without VREG indirection
+                    // For immediate/constant VREG arguments, emit direct loads using vregConstVal_
+
                     std::vector<std::string> paramNames;
                     if (functionParameterNames_.count(inst.src1.name)) {
                         paramNames = functionParameterNames_[inst.src1.name];
@@ -3657,7 +3658,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     }
 
                     // Process arguments right-to-left (C convention)
-                    // For immediate arguments, emit direct loads to parameter storage
+                    // For constant VREGs, emit direct loads using tracked constant values
                     for (int ai = nArgs - 1; ai >= 0; ai--) {
                         const auto& arg = inst.args[ai];
                         int ps = ir::typeSize(arg.type);
@@ -3665,8 +3666,10 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
                         std::string paramSymbol = inst.src1.name + "__param_" + paramNames[ai];
 
-                        // For immediate arguments, emit direct loads (bypass VREG indirection)
+                        // Check if we can emit a direct constant load
+                        bool emittedConst = false;
                         if (arg.isImm()) {
+                            // Direct immediate argument
                             emit("lda #" + std::to_string((int)(arg.immVal & 0xFF)));
                             if (arg.type == ir::Type::I32) {
                                 emit("ldx #" + std::to_string((int)((arg.immVal >> 8) & 0xFF)));
@@ -3675,8 +3678,27 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                             } else if (arg.type != ir::Type::I8) {
                                 emit("ldx #" + std::to_string((int)((arg.immVal >> 8) & 0xFF)));
                             }
-                        } else {
-                            // For non-immediate arguments (VREGs), use standard load mechanism
+                            emittedConst = true;
+                        } else if (arg.isVreg()) {
+                            // Check if this VREG has a tracked constant value
+                            auto cit = vregConstVal_.find(arg.vregId);
+                            if (cit != vregConstVal_.end()) {
+                                // Emit direct constant load using tracked value
+                                int constVal = (int)cit->second;
+                                emit("lda #" + std::to_string((int)(constVal & 0xFF)));
+                                if (arg.type == ir::Type::I32) {
+                                    emit("ldx #" + std::to_string((int)((constVal >> 8) & 0xFF)));
+                                    emit("ldy #" + std::to_string((int)((constVal >> 16) & 0xFF)));
+                                    emit("ldz #" + std::to_string((int)((constVal >> 24) & 0xFF)));
+                                } else if (arg.type != ir::Type::I8) {
+                                    emit("ldx #" + std::to_string((int)((constVal >> 8) & 0xFF)));
+                                }
+                                emittedConst = true;
+                            }
+                        }
+
+                        // If not a constant, load normally from the VREG
+                        if (!emittedConst) {
                             loadOperand(arg);
                         }
 
