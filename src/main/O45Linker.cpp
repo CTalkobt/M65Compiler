@@ -1081,7 +1081,6 @@ void O45Linker::colorStaticAllocRegisters() {
             frameSizes[name] = attr.frameSize;
         }
     }
-
     if (sacFuncs.empty()) return;  // No SAC functions to color
 
     // Stream D: Identify ISR-only reachable functions for refined coloring
@@ -1208,31 +1207,16 @@ void O45Linker::colorStaticAllocRegisters() {
     std::vector<std::vector<std::string>> usedFuncsPerColor;
 
     for (const auto& func : sacFuncs) {
-        // Find smallest color (AR slot) that doesn't conflict
-        uint32_t color = 0;
-        bool found = false;
-        while (!found) {
-            bool canUse = true;
-            // Check if any function with this color conflicts with 'func'
-            if (color < usedFuncsPerColor.size()) {
-                for (const auto& other : usedFuncsPerColor[color]) {
-                    if (conflicts[func].count(other) || conflicts[other].count(func)) {
-                        canUse = false;
-                        break;
-                    }
-                }
-            }
-            if (canUse) {
-                arColor[func] = color;
-                if (color >= usedFuncsPerColor.size()) {
-                    usedFuncsPerColor.resize(color + 1);
-                }
-                usedFuncsPerColor[color].push_back(func);
-                found = true;
-            } else {
-                color++;
-            }
+        // NOTE: Call graph detection appears incomplete for internal function calls.
+        // As a safety measure, assign each function its own color to prevent AR buffer
+        // overlap until call graph is fixed. This is suboptimal but ensures correctness.
+        uint32_t color = usedFuncsPerColor.size();
+
+        arColor[func] = color;
+        if (color >= usedFuncsPerColor.size()) {
+            usedFuncsPerColor.resize(color + 1);
         }
+        usedFuncsPerColor[color].push_back(func);
     }
 
     // Compute final BSS-relative AR base addresses
