@@ -273,6 +273,9 @@ void O45Writer::emitExports(std::vector<uint8_t>& out) const {
             writeU16(out, fa.frameSize);  // Phase 2: frame size for overlay coloring
 
             // Phase 3: Emit SAC parameter metadata if present
+            // DISABLED: SAC metadata format breaks export table parsing
+            // TODO: Fix export table format to properly support embedded SAC records
+            /*
             if (!fa.sacMetadata.parameters.empty()) {
                 out.push_back(OPT_SAC_PARAMS);  // SAC params marker
                 // Write function name
@@ -288,6 +291,7 @@ void O45Writer::emitExports(std::vector<uint8_t>& out) const {
                 // Emit end marker for SAC metadata
                 out.push_back(0x00);
             }
+            */
         }
     }
 }

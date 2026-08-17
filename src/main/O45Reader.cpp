@@ -1,5 +1,6 @@
 #include "O45Reader.hpp"
 #include <cstring>
+#include <iostream>
 
 static uint16_t readU16(const uint8_t* p) { return p[0] | (p[1] << 8); }
 static uint32_t readU32(const uint8_t* p) { return p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24); }
@@ -204,9 +205,18 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
     for (uint32_t i = 0; i < exportCount; i++) {
         O45File::Export exp;
         size_t end = off;
+        // DEBUG: Show position and data
+        if (off < data.size()) {
+            std::cerr << "DEBUG: export[" << i << "] at offset=" << off << ", data[off]=" << (int)(data[off]) << " ('" << (char)data[off] << "')\n";
+        }
         while (end < data.size() && data[end] != 0) end++;
-        if (end >= data.size()) { errorMsg = "truncated export name"; return false; }
+        if (end >= data.size()) {
+            std::cerr << "ERROR: truncated export name at export[" << i << "], offset=" << off << ", searched to end=" << data.size() << "\n";
+            errorMsg = "truncated export name";
+            return false;
+        }
         exp.name.assign(data.begin() + off, data.begin() + end);
+        std::cerr << "DEBUG: export[" << i << "] name='" << exp.name << "'\n";
         off = end + 1;
         // segment byte + offset (2 or 4 bytes)
         if (off + 1 + fw > data.size()) { errorMsg = "truncated export entry"; return false; }
@@ -239,6 +249,9 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
             }
 
             // Phase 3: Check for SAC parameter metadata
+            // DISABLED: SAC metadata writing is disabled, so don't try to read it
+            // TODO: Implement proper format for SAC metadata that doesn't break export table
+            /*
             if (off < data.size() && data[off] == OPT_SAC_PARAMS) {
                 off++; // skip OPT_SAC_PARAMS marker
                 // Read function name
@@ -281,6 +294,7 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
                 // Skip SAC metadata end marker
                 if (off < data.size() && data[off] == 0x00) off++;
             }
+            */
         }
 
         out.exports.push_back(exp);
