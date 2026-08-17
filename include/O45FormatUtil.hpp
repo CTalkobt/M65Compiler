@@ -12,6 +12,7 @@ inline std::string formatFuncAttr(const O45FuncAttr& fa, uint32_t zpStart) {
     else                                result += "stack_call ";
     if (fa.flags & FUNC_FLAG_LEAF)     result += "leaf ";
     if (fa.flags & FUNC_FLAG_REENTRANT) result += "reentrant ";
+    if (fa.flags & FUNC_FLAG_ZERO_ALLOC) result += "zeroalloc ";
 
     // Format ZP mask as address range
     auto fmtZpMask = [&](uint32_t mask) -> std::string {

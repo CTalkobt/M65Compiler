@@ -704,6 +704,7 @@ void AssemblerParser::pass1() {
                         else if (flag == "leaf")       currentProc->funcFlags |= FUNC_FLAG_LEAF;
                         else if (flag == "reentrant")  currentProc->funcFlags |= FUNC_FLAG_REENTRANT;
                         else if (flag == "static_alloc") currentProc->funcFlags |= FUNC_FLAG_STATIC_ALLOC;
+                        else if (flag == "zeroalloc")   currentProc->funcFlags |= FUNC_FLAG_ZERO_ALLOC;
                         else if (flag == "isr")        currentProc->funcFlags |= FUNC_FLAG_ISR;
                         else errors.push_back("Error: unknown flag '" + flag + "' in .func_flags");
                     }

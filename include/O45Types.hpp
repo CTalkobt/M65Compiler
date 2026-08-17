@@ -139,6 +139,7 @@ constexpr uint8_t FUNC_FLAG_REENTRANT    = 0x02;  // re-entrant safe (no global 
 constexpr uint8_t FUNC_FLAG_ZP_CONV      = 0x04;  // ZP calling convention (0 = stack-based)
 constexpr uint8_t FUNC_FLAG_STATIC_ALLOC = 0x08;  // uses SAC (static activation record)
 constexpr uint8_t FUNC_FLAG_ISR          = 0x10;  // interrupt handler
+constexpr uint8_t FUNC_FLAG_ZERO_ALLOC   = 0x20;  // SAC leaf with no locals and all constant params
 
 // --- Patch sizes per relocation type ---
 constexpr int o45RelocPatchSize(uint8_t rtype) {
