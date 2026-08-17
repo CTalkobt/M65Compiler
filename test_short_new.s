@@ -40,7 +40,7 @@ _r:
     .code
     .sac
     .var ar = _add_short__ar
-    leax.fp 0
+    leax.local 0
     sta $10
     stx $10+1
     .var @_p_a = 2
@@ -48,18 +48,12 @@ _r:
 ; .debug_var: __add_short @_p_a offset=2 size=2 type=int16 scope=parameter
 ; .debug_var: __add_short @_p_b offset=4 size=2 type=int16 scope=parameter
 
-    ldax.fp @_p_a
+    ldax.param @_p_a
     sta _add_short:__ar+0
     stx _add_short:__ar+1
-    ldax.fp @_p_b
+    ldax.param @_p_b
     sta _add_short:__ar+2
     stx _add_short:__ar+3
-; SAC_DEBUG_ENTER: _add_short (AR size: 4 bytes)
-    ; ENTER _add_short (AR buffer allocated at ___add_short__ar)
-    lda #<___add_short__ar
-    ldx #>___add_short__ar
-    ldy #4
-    jsr __sac_debug_enter
 @entry:
     .loc "src/test-resources/test_short.c", 8
     lda _add_short:__ar+2
@@ -74,9 +68,6 @@ _r:
     lda $20
     ldx $21
 @__return:
-; SAC_DEBUG_EXIT: _add_short
-    ; EXIT _add_short
-    jsr __sac_debug_exit
     .func_flags stack_call, static_alloc, leaf
     .reg_clobbers A, X
     .flag_clobbers C, N, Z, V
@@ -94,7 +85,7 @@ _r:
     .code
     .sac
     .var ar = _mul_short__ar
-    leax.fp 0
+    leax.local 0
     sta $12
     stx $12+1
     .var @_p_a = 2
@@ -102,18 +93,12 @@ _r:
 ; .debug_var: __mul_short @_p_a offset=2 size=2 type=int16 scope=parameter
 ; .debug_var: __mul_short @_p_b offset=4 size=2 type=int16 scope=parameter
 
-    ldax.fp @_p_a
+    ldax.param @_p_a
     sta _mul_short:__ar+0
     stx _mul_short:__ar+1
-    ldax.fp @_p_b
+    ldax.param @_p_b
     sta _mul_short:__ar+2
     stx _mul_short:__ar+3
-; SAC_DEBUG_ENTER: _mul_short (AR size: 4 bytes)
-    ; ENTER _mul_short (AR buffer allocated at ___mul_short__ar)
-    lda #<___mul_short__ar
-    ldx #>___mul_short__ar
-    ldy #4
-    jsr __sac_debug_enter
 @entry:
     .loc "src/test-resources/test_short.c", 12
     lda _mul_short:__ar+2
@@ -128,9 +113,6 @@ _r:
     lda $20
     ldx $21
 @__return:
-; SAC_DEBUG_EXIT: _mul_short
-    ; EXIT _mul_short
-    jsr __sac_debug_exit
     .func_flags stack_call, static_alloc, leaf
     .reg_clobbers A, X
     .flag_clobbers C, N, Z, V
@@ -148,7 +130,7 @@ _r:
     .code
     .sac
     .var ar = _main__ar
-    leax.fp 0
+    leax.local 0
     sta $14
     stx $14+1
     .local @_l_arr = 10
@@ -164,12 +146,6 @@ _r:
 ; .debug_var: __main @_l_y offset=2 size=2 type=int16 scope=local
 ; .debug_var: __main @_l_z offset=4 size=2 type=int16 scope=local
 
-; SAC_DEBUG_ENTER: _main (AR size: 16 bytes)
-    ; ENTER _main (AR buffer allocated at ___main__ar)
-    lda #<___main__ar
-    ldx #>___main__ar
-    ldy #16
-    jsr __sac_debug_enter
 @entry:
     .loc "src/test-resources/test_short.c", 16
     lda #10
@@ -217,7 +193,7 @@ _r:
     lda #255
     sta _main:__ar+7
     .loc "src/test-resources/test_short.c", 20
-    leax.fp 10
+    leax.local 10
     sta $20
     stx $21
     lda #100
@@ -477,7 +453,7 @@ _r:
     ldy #0
     sta (__zp_scratch),y
     .loc "src/test-resources/test_short.c", 28
-    leax.fp 10
+    leax.local 10
     sta $20
     stx $21
     lda #1
@@ -576,9 +552,6 @@ _r:
     .loc "src/test-resources/test_short.c", 31
     brk
 @__return:
-; SAC_DEBUG_EXIT: _main
-    ; EXIT _main
-    jsr __sac_debug_exit
     .func_flags stack_call, static_alloc
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V

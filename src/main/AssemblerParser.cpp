@@ -944,22 +944,6 @@ void AssemblerParser::pass1() {
             else if (fullMnemonic == "asr.s32") { SIMOP(ASR_S32, dispatch_Shift32); }
             else if (fullMnemonic == "push") { SIMOP(PUSH, dispatch_PushPop); }
             else if (fullMnemonic == "pop") { SIMOP(POP, dispatch_PushPop); }
-            else if (fullMnemonic == "lda.fp") { SIMOP(LDA_FP, dispatch_LDA_FP); }
-            else if (fullMnemonic == "sta.fp") { SIMOP(STA_FP, dispatch_STA_FP); }
-            else if (fullMnemonic == "ldax.fp") { SIMOP(LDAX_FP, dispatch_LDAX_FP); }
-            else if (fullMnemonic == "stax.fp") { SIMOP(STAX_FP, dispatch_STAX_FP); }
-            else if (fullMnemonic == "lday.fp") { SIMOP(LDAY_FP, dispatch_LDAY_FP); }
-            else if (fullMnemonic == "stay.fp") { SIMOP(STAY_FP, dispatch_STAY_FP); }
-            else if (fullMnemonic == "ldaz.fp") { SIMOP(LDAZ_FP, dispatch_LDAZ_FP); }
-            else if (fullMnemonic == "staz.fp") { SIMOP(STAZ_FP, dispatch_STAZ_FP); }
-            else if (fullMnemonic == "ldaxyz.fp") { SIMOP(LDAXYZ_FP, dispatch_LDAXYZ_FP); }
-            else if (fullMnemonic == "staxyz.fp") { SIMOP(STAXYZ_FP, dispatch_STAXYZ_FP); }
-            else if (fullMnemonic == "leax.fp") { SIMOP(LEAX_FP, dispatch_LEAX_FP); }
-            else if (fullMnemonic == "move.fp") { SIMOP(MOVE_FP, dispatch_MOVE_FP); }
-            else if (fullMnemonic == "inc.fp") { SIMOP(INC_FP, dispatch_INC_FP); }
-            else if (fullMnemonic == "dec.fp") { SIMOP(DEC_FP, dispatch_DEC_FP); }
-            else if (fullMnemonic == "inc.16f") { SIMOP(INC16_FP, dispatch_INC16_FP); }
-            else if (fullMnemonic == "dec.16f") { SIMOP(DEC16_FP, dispatch_DEC16_FP); }
             else if (fullMnemonic == "bfext") { SIMOP(BFEXT, dispatch_BFExt); }
             else if (fullMnemonic == "bfext16") { SIMOP(BFEXT16, dispatch_BFExt); }
             else if (fullMnemonic == "bfext32") { SIMOP(BFEXT32, dispatch_BFExt); }
