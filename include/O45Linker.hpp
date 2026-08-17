@@ -9,6 +9,7 @@
 #include "O45Reader.hpp"
 #include "O45Writer.hpp"
 #include "O45Archive.hpp"
+#include "O45IRSerializer.hpp"
 
 // Decodes a raw relocation byte stream (as stored in O45File::textRelocs/dataRelocs)
 // back into a list of high-level O45Reloc entries.
@@ -201,6 +202,11 @@ private:
     // Tracks which parameters are TRULY constant across all call sites
     std::map<std::string, std::map<int, SpecializedParam>> specializedParams_;
 
+    // Phase 50: IR Metadata analysis
+    // Merged IR metadata from all objects (across compilation units)
+    // Maps function name → O45IRFunction with cross-file call information
+    std::map<std::string, O45IRFunction> mergedIRFunctions_;
+
     bool resolveLibraries(std::string& errorMsg);
     bool layoutSegments(std::string& errorMsg);
     bool resolveSymbols(std::string& errorMsg);
@@ -209,6 +215,7 @@ private:
     void buildCallGraph();
     void computeTransitiveClobbers();
     void analyzeConstantParameters();  // Cross-file parameter analysis from .param_const metadata
+    void analyzeIRMetadata();           // Phase 50: Extract constant parameters from embedded IR
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata

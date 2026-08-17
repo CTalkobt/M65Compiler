@@ -755,6 +755,7 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     buildCallGraph();
     computeTransitiveClobbers();
     analyzeConstantParameters();  // Cross-file parameter analysis
+    analyzeIRMetadata();           // Phase 50: Extract constant parameters from embedded IR
     emitDiagnostics();
     verifyStaticAllocSafety();  // Verify SAC constraints before thunk generation
     validateSACParameters();      // Phase 3: Validate SAC parameter metadata
@@ -998,6 +999,108 @@ void O45Linker::analyzeConstantParameters() {
         if (warnStream_) {
             *warnStream_ << "OPTIMIZE: Function " << funcName << " has " << paramMap.size()
                         << " constant parameter(s)" << std::endl;
+        }
+    }
+}
+
+// Phase 50: Analyze IR metadata from all linked objects
+// Extract constant parameters across compilation units and build merged IR function map
+void O45Linker::analyzeIRMetadata() {
+    mergedIRFunctions_.clear();
+
+    // Collect IR metadata from all objects
+    for (const auto& obj : objects_) {
+        if (!obj.obj.hasIRMetadata()) {
+            continue;  // Object has no IR metadata
+        }
+
+        if (warnStream_) {
+            *warnStream_ << "DEBUG: Object " << obj.filename << " has IR metadata (v"
+                        << (int)obj.obj.irMajorVersion << "." << (int)obj.obj.irMinorVersion << ")"
+                        << " with " << obj.obj.irMetadata.functions.size() << " functions" << std::endl;
+        }
+
+        // Merge functions from this object's IR
+        for (const auto& irFunc : obj.obj.irMetadata.functions) {
+            auto it = mergedIRFunctions_.find(irFunc.functionName);
+            if (it == mergedIRFunctions_.end()) {
+                // First occurrence of this function
+                mergedIRFunctions_[irFunc.functionName] = irFunc;
+            } else {
+                // Merge call information from multiple compilation units
+                auto& merged = it->second;
+                merged.callSites.insert(merged.callSites.end(),
+                                       irFunc.callSites.begin(),
+                                       irFunc.callSites.end());
+
+                // Update call graph
+                for (const auto& callEntry : irFunc.callGraph) {
+                    auto cgIt = std::find_if(merged.callGraph.begin(), merged.callGraph.end(),
+                                            [&](const O45IRCallGraphEntry& e) {
+                                                return e.calleeName == callEntry.calleeName;
+                                            });
+                    if (cgIt != merged.callGraph.end()) {
+                        cgIt->callCount += callEntry.callCount;
+                    } else {
+                        merged.callGraph.push_back(callEntry);
+                    }
+                }
+            }
+        }
+    }
+
+    // Analyze merged IR to detect constant parameters
+    for (auto& [funcName, irFunc] : mergedIRFunctions_) {
+        if (warnStream_) {
+            *warnStream_ << "DEBUG: Analyzing IR for function " << funcName
+                        << " with " << irFunc.parameters.size() << " params and "
+                        << irFunc.callSites.size() << " call sites" << std::endl;
+        }
+
+        // For each parameter in this function
+        for (size_t paramIdx = 0; paramIdx < irFunc.parameters.size(); paramIdx++) {
+            const auto& param = irFunc.parameters[paramIdx];
+
+            // Check if all call sites pass the same constant value for this parameter
+            if (irFunc.callSites.empty()) {
+                continue;  // No call sites to analyze
+            }
+
+            bool allConstant = true;
+            int64_t constantValue = 0;
+
+            for (size_t siteIdx = 0; siteIdx < irFunc.callSites.size(); siteIdx++) {
+                const auto& site = irFunc.callSites[siteIdx];
+
+                if (paramIdx >= site.paramValues.size()) {
+                    allConstant = false;
+                    break;
+                }
+
+                if (!site.paramIsConst[paramIdx]) {
+                    allConstant = false;
+                    break;
+                }
+
+                int64_t siteValue = site.paramValues[paramIdx];
+                if (siteIdx == 0) {
+                    constantValue = siteValue;
+                } else if (siteValue != constantValue) {
+                    allConstant = false;
+                    break;
+                }
+            }
+
+            // If all call sites pass the same constant, mark this parameter as specialized
+            if (allConstant && !irFunc.callSites.empty()) {
+                specializedParams_[funcName][paramIdx] = {true, constantValue};
+
+                if (warnStream_) {
+                    *warnStream_ << "INFO: IR Analysis - Parameter " << funcName << "[" << paramIdx
+                                << "] is constant across all " << irFunc.callSites.size()
+                                << " call sites: " << constantValue << std::endl;
+                }
+            }
         }
     }
 }
