@@ -3714,3 +3714,150 @@ std::string O45Linker::generateDispatcherPipelineSummary() {
 std::string O45Linker::createPipelineSummary() {
     return generateDispatcherPipelineSummary();
 }
+
+// Phase 72: Detect performance regressions
+O45Linker::RegressionAnalysis O45Linker::detectRegression(const BenchmarkResult& baseline,
+                                                           const BenchmarkResult& current) {
+    RegressionAnalysis analysis;
+
+    analysis.programName = current.programName;
+    analysis.baselineCompression = baseline.compressionPercent;
+    analysis.currentCompression = current.compressionPercent;
+    analysis.compressionDelta = current.compressionPercent - baseline.compressionPercent;
+    analysis.baselineCodeSize = baseline.optimizedSize;
+    analysis.currentCodeSize = current.optimizedSize;
+    analysis.codeSizeDelta = current.optimizedSize - baseline.optimizedSize;
+
+    // Determine regression status
+    const float REGRESSION_THRESHOLD = -0.5f;  // Less than 0.5% worse triggers warning
+
+    if (analysis.compressionDelta < REGRESSION_THRESHOLD) {
+        // Compression got significantly worse
+        analysis.isRegression = true;
+        analysis.regressionPercent = -analysis.compressionDelta;
+        analysis.status = "REGRESSED";
+    } else if (analysis.compressionDelta > 0.5f) {
+        // Compression improved
+        analysis.isRegression = false;
+        analysis.regressionPercent = analysis.compressionDelta;
+        analysis.status = "IMPROVED";
+    } else {
+        // Within normal variance
+        analysis.isRegression = false;
+        analysis.regressionPercent = 0.0f;
+        analysis.status = "STABLE";
+    }
+
+    return analysis;
+}
+
+// Phase 72: Generate regression report
+std::string O45Linker::generateRegressionReport(const RegressionAnalysis& analysis) {
+    std::ostringstream out;
+
+    // Header
+    out << "=== Performance Regression Analysis Report ===\n\n";
+    out << "Program: " << analysis.programName << "\n";
+    out << std::string(50, '=') << "\n\n";
+
+    // 1. Regression Status
+    out << "1. Regression Status\n";
+    out << "   Status: " << analysis.status << "\n";
+    if (analysis.isRegression) {
+        out << "   Severity: ⚠️  WARNING - Regression detected\n";
+    } else if (analysis.regressionPercent > 0.5f) {
+        out << "   Severity: ✓ POSITIVE - Improvement detected\n";
+    } else {
+        out << "   Severity: ◯ NEUTRAL - Within normal variance\n";
+    }
+    out << "\n";
+
+    // 2. Compression Metrics
+    out << "2. Compression Analysis\n";
+    out << "   Baseline compression:  " << std::fixed << std::setprecision(2)
+        << analysis.baselineCompression << "%\n";
+    out << "   Current compression:   " << std::fixed << std::setprecision(2)
+        << analysis.currentCompression << "%\n";
+    out << "   Delta:                 " << std::fixed << std::setprecision(2)
+        << (analysis.compressionDelta > 0 ? "+" : "") << analysis.compressionDelta << " percentage points\n";
+    out << "\n";
+
+    // 3. Code Size Metrics
+    out << "3. Code Size Analysis\n";
+    out << "   Baseline optimized:    " << analysis.baselineCodeSize << " bytes\n";
+    out << "   Current optimized:     " << analysis.currentCodeSize << " bytes\n";
+    out << "   Delta:                 " << (analysis.codeSizeDelta > 0 ? "+" : "")
+        << analysis.codeSizeDelta << " bytes\n";
+    if (analysis.baselineCodeSize > 0) {
+        float percentChange = (float)analysis.codeSizeDelta / (float)analysis.baselineCodeSize * 100.0f;
+        out << "   Percent change:        " << std::fixed << std::setprecision(2)
+            << (percentChange > 0 ? "+" : "") << percentChange << "%\n";
+    }
+    out << "\n";
+
+    // 4. Analysis & Interpretation
+    out << "4. Analysis & Interpretation\n";
+    if (analysis.isRegression) {
+        out << "   ⚠️  REGRESSION DETECTED\n";
+        out << "   Compression decreased by " << std::fixed << std::setprecision(2)
+            << analysis.regressionPercent << " percentage points\n";
+        out << "   \n";
+        out << "   Possible causes:\n";
+        out << "   • Changes in function specialization patterns\n";
+        out << "   • Increased dispatcher overhead\n";
+        out << "   • Different optimization phase behavior\n";
+        out << "   • Compiler/linker version differences\n";
+        out << "   \n";
+        out << "   Recommended actions:\n";
+        out << "   1. Review recent changes to compiler/linker\n";
+        out << "   2. Compare specialization patterns with baseline\n";
+        out << "   3. Check dispatcher overhead metrics\n";
+        out << "   4. Investigate optimization phase interactions\n";
+    } else if (analysis.regressionPercent > 0.5f) {
+        out << "   ✓ IMPROVEMENT DETECTED\n";
+        out << "   Compression improved by " << std::fixed << std::setprecision(2)
+            << analysis.regressionPercent << " percentage points\n";
+        out << "   Code size reduced by " << analysis.codeSizeDelta << " bytes\n";
+        out << "   \n";
+        out << "   This is a positive result. Consider:\n";
+        out << "   • Documenting what caused the improvement\n";
+        out << "   • Making this the new baseline\n";
+        out << "   • Applying similar optimizations to other programs\n";
+    } else {
+        out << "   ◯ STABLE\n";
+        out << "   Performance metrics are within normal variance\n";
+        out << "   Change: " << std::fixed << std::setprecision(2)
+            << analysis.compressionDelta << " percentage points\n";
+    }
+    out << "\n";
+
+    // 5. Recommendations
+    out << "5. Recommendations\n";
+    if (analysis.isRegression) {
+        out << "   Priority: HIGH\n";
+        out << "   Action: Investigate and resolve regression\n";
+        out << "   Timeline: Address within next build cycle\n";
+    } else if (analysis.regressionPercent > 0.5f) {
+        out << "   Priority: LOW (positive result)\n";
+        out << "   Action: Document improvement and update baseline\n";
+        out << "   Timeline: Update baseline for future comparisons\n";
+    } else {
+        out << "   Priority: LOW (within variance)\n";
+        out << "   Action: Continue normal monitoring\n";
+        out << "   Timeline: Ongoing regression detection\n";
+    }
+    out << "\n";
+
+    return out.str();
+}
+
+// Phase 72: Analyze regressions (internal helper)
+O45Linker::RegressionAnalysis O45Linker::analyzeRegressions(const BenchmarkResult& baseline,
+                                                             const BenchmarkResult& current) {
+    return detectRegression(baseline, current);
+}
+
+// Phase 72: Format regression report (internal helper)
+std::string O45Linker::formatRegressionReport(const RegressionAnalysis& analysis) {
+    return generateRegressionReport(analysis);
+}

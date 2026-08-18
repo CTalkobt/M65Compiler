@@ -237,6 +237,23 @@ public:
     // Phase 71: Dispatcher pipeline final status report
     std::string generateDispatcherPipelineSummary();
 
+    // Phase 72: Performance regression detection
+    struct RegressionAnalysis {
+        std::string programName;             // Program name
+        float baselineCompression = 0.0f;    // Previous compression %
+        float currentCompression = 0.0f;     // Current compression %
+        float compressionDelta = 0.0f;       // Change (positive = improvement)
+        int baselineCodeSize = 0;            // Previous code size
+        int currentCodeSize = 0;             // Current code size
+        int codeSizeDelta = 0;               // Change in bytes
+        bool isRegression = false;           // Compression got worse
+        float regressionPercent = 0.0f;      // Magnitude of regression
+        std::string status;                  // "IMPROVED", "REGRESSED", "STABLE"
+    };
+    RegressionAnalysis detectRegression(const BenchmarkResult& baseline,
+                                        const BenchmarkResult& current);
+    std::string generateRegressionReport(const RegressionAnalysis& analysis);
+
     // Query if a specific parameter is specialized (constant)
     bool isParameterSpecialized(const std::string& funcName, int paramIdx, int64_t& outValue) const {
         auto it = specializedParams_.find(funcName);
@@ -435,6 +452,8 @@ private:
     bool writeBenchmarkFile(const BenchmarkResult& result, const std::string& filepath);  // Phase 70: Write benchmark file
     bool writeComparisonFile(const BenchmarkComparison& comparison, const std::string& filepath);  // Phase 70: Write comparison file
     std::string createPipelineSummary();  // Phase 71: Create pipeline summary
+    RegressionAnalysis analyzeRegressions(const BenchmarkResult& baseline, const BenchmarkResult& current);  // Phase 72: Analyze regressions
+    std::string formatRegressionReport(const RegressionAnalysis& analysis);  // Phase 72: Format regression report
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata
