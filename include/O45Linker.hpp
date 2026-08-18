@@ -234,6 +234,9 @@ public:
     std::string exportBenchmarkJSON(const BenchmarkResult& result);
     std::string exportComparisonJSON(const BenchmarkComparison& comparison);
 
+    // Phase 71: Dispatcher pipeline final status report
+    std::string generateDispatcherPipelineSummary();
+
     // Query if a specific parameter is specialized (constant)
     bool isParameterSpecialized(const std::string& funcName, int paramIdx, int64_t& outValue) const {
         auto it = specializedParams_.find(funcName);
@@ -431,6 +434,7 @@ private:
     std::string formatComparisonReport(const BenchmarkComparison& comparison);  // Phase 69: Format comparison
     bool writeBenchmarkFile(const BenchmarkResult& result, const std::string& filepath);  // Phase 70: Write benchmark file
     bool writeComparisonFile(const BenchmarkComparison& comparison, const std::string& filepath);  // Phase 70: Write comparison file
+    std::string createPipelineSummary();  // Phase 71: Create pipeline summary
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata
