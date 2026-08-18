@@ -1564,7 +1564,7 @@ void O45Linker::integrateDispatcherAssembly() {
     // If no dispatcher assembly generated, nothing to do
     if (dispatcherAssemblyOutput_.empty()) {
         if (warnStream_) {
-            *warnStream_ << "ln45: Phase 58: No dispatcher assembly to integrate\n";
+            *warnStream_ << "ln45: No dispatcher assembly to integrate\n";
         }
         return;
     }
@@ -1578,9 +1578,9 @@ void O45Linker::integrateDispatcherAssembly() {
     }
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Phase 58: Integrating " << dispatcherCount
+        *warnStream_ << "ln45: Integrating " << dispatcherCount
                     << " dispatcher stubs into link output\n";
-        *warnStream_ << "ln45: Phase 58: Dispatcher assembly size: "
+        *warnStream_ << "ln45: Dispatcher assembly size: "
                     << dispatcherAssemblyOutput_.size() << " bytes (source)\n";
     }
 
@@ -1603,7 +1603,7 @@ void O45Linker::integrateDispatcherAssembly() {
 
     // Log dispatcher function names for verification
     if (warnStream_) {
-        *warnStream_ << "ln45: Phase 58: Integrated dispatchers for:\n";
+        *warnStream_ << "ln45: Integrated dispatchers for:\n";
         for (const auto& [funcName, analysis] : dispatcherAnalysis_) {
             for (const auto& dispatcher : analysis.dispatchers) {
                 *warnStream_ << "  - " << dispatcher.dispatcherName << "\n";
@@ -1620,7 +1620,7 @@ void O45Linker::emitDispatcherAssemblyOutput() {
     // If no dispatcher assembly, nothing to emit
     if (dispatcherAssemblyOutput_.empty()) {
         if (warnStream_) {
-            *warnStream_ << "ln45: Phase 59: No dispatcher assembly to emit\n";
+            *warnStream_ << "ln45: No dispatcher assembly to emit\n";
         }
         return;
     }
@@ -1631,7 +1631,7 @@ void O45Linker::emitDispatcherAssemblyOutput() {
     }
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Phase 59: Emitting " << dispatcherStubsEmitted_
+        *warnStream_ << "ln45: Emitting " << dispatcherStubsEmitted_
                     << " dispatcher stubs to output\n";
     }
 
@@ -1663,9 +1663,9 @@ void O45Linker::emitDispatcherAssemblyOutput() {
 
     // Log dispatcher details
     if (warnStream_) {
-        *warnStream_ << "ln45: Phase 59: Dispatcher assembly size: "
+        *warnStream_ << "ln45: Dispatcher assembly size: "
                     << dispatcherAssemblyOutput_.size() << " bytes (source)\n";
-        *warnStream_ << "ln45: Phase 59: Dispatcher stubs emitted:\n";
+        *warnStream_ << "ln45: Dispatcher stubs emitted:\n";
 
         // List each dispatcher being emitted
         int count = 0;
@@ -1686,7 +1686,7 @@ void O45Linker::emitDispatcherAssemblyOutput() {
 
     // Mark as emitted
     if (warnStream_) {
-        *warnStream_ << "ln45: Phase 59: Dispatcher assembly ready for output\n";
+        *warnStream_ << "ln45: Dispatcher assembly ready for output\n";
     }
 
     // Future implementation note:
@@ -1711,7 +1711,7 @@ bool O45Linker::writeDispatcherAssemblyFile(const std::string& filepath, std::st
     // If no dispatcher assembly, nothing to write
     if (dispatcherAssemblyOutput_.empty()) {
         if (warnStream_) {
-            *warnStream_ << "ln45: Phase 60: No dispatcher assembly to write\n";
+            *warnStream_ << "ln45: No dispatcher assembly to write\n";
         }
         return true;  // Not an error - just no dispatcher code
     }
@@ -1723,7 +1723,7 @@ bool O45Linker::writeDispatcherAssemblyFile(const std::string& filepath, std::st
     }
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Phase 60: Writing dispatcher assembly to '" << outputFile << "'\n";
+        *warnStream_ << "ln45: Writing dispatcher assembly to '" << outputFile << "'\n";
     }
 
     // Open file for writing
@@ -1731,7 +1731,7 @@ bool O45Linker::writeDispatcherAssemblyFile(const std::string& filepath, std::st
     if (!file.is_open()) {
         errorMsg = "cannot open dispatcher assembly file for writing: " + outputFile;
         if (warnStream_) {
-            *warnStream_ << "ln45: Phase 60: ERROR: " << errorMsg << "\n";
+            *warnStream_ << "ln45: ERROR: " << errorMsg << "\n";
         }
         return false;
     }
@@ -1744,7 +1744,7 @@ bool O45Linker::writeDispatcherAssemblyFile(const std::string& filepath, std::st
         errorMsg = "error writing dispatcher assembly to file: " + outputFile;
         file.close();
         if (warnStream_) {
-            *warnStream_ << "ln45: Phase 60: ERROR: " << errorMsg << "\n";
+            *warnStream_ << "ln45: ERROR: " << errorMsg << "\n";
         }
         return false;
     }
@@ -1755,10 +1755,10 @@ bool O45Linker::writeDispatcherAssemblyFile(const std::string& filepath, std::st
     dispatcherAssemblyFilePath_ = outputFile;
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Phase 60: Wrote " << dispatcherAssemblyOutput_.size()
+        *warnStream_ << "ln45: Wrote " << dispatcherAssemblyOutput_.size()
                     << " bytes to dispatcher assembly file\n";
-        *warnStream_ << "ln45: Phase 60: Dispatcher assembly ready for ca45 assembler\n";
-        *warnStream_ << "ln45: Phase 60: Next: ca45 " << outputFile
+        *warnStream_ << "ln45: Dispatcher assembly ready for ca45 assembler\n";
+        *warnStream_ << "ln45: Next: ca45 " << outputFile
                     << " -o dispatcher.o45\n";
     }
 
@@ -1774,7 +1774,7 @@ bool O45Linker::assembleDispatcherFile(const std::string& ca45Path, std::string&
     // Check if dispatcher assembly file was written
     if (dispatcherAssemblyFilePath_.empty()) {
         if (warnStream_) {
-            *warnStream_ << "ln45: Phase 61: No dispatcher assembly file to assemble\n";
+            *warnStream_ << "ln45: No dispatcher assembly file to assemble\n";
         }
         return true;  // Not an error - just no dispatcher code
     }
@@ -1789,16 +1789,16 @@ bool O45Linker::assembleDispatcherFile(const std::string& ca45Path, std::string&
     }
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Phase 61: Assembling dispatcher code with ca45\n";
-        *warnStream_ << "ln45: Phase 61: Input:  " << dispatcherAssemblyFilePath_ << "\n";
-        *warnStream_ << "ln45: Phase 61: Output: " << objectFile << "\n";
+        *warnStream_ << "ln45: Assembling dispatcher code with ca45\n";
+        *warnStream_ << "ln45: Input:  " << dispatcherAssemblyFilePath_ << "\n";
+        *warnStream_ << "ln45: Output: " << objectFile << "\n";
     }
 
     // Build ca45 command
     std::string command = ca45Path + " \"" + dispatcherAssemblyFilePath_ + "\" -o \"" + objectFile + "\"";
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Phase 61: Executing: " << command << "\n";
+        *warnStream_ << "ln45: Executing: " << command << "\n";
     }
 
     // Execute ca45 assembler
@@ -1807,7 +1807,7 @@ bool O45Linker::assembleDispatcherFile(const std::string& ca45Path, std::string&
         errorMsg = "ca45 assembler failed with status " + std::to_string(status) +
                    " (assembly file: " + dispatcherAssemblyFilePath_ + ")";
         if (warnStream_) {
-            *warnStream_ << "ln45: Phase 61: ERROR: " << errorMsg << "\n";
+            *warnStream_ << "ln45: ERROR: " << errorMsg << "\n";
         }
         return false;
     }
@@ -1817,7 +1817,7 @@ bool O45Linker::assembleDispatcherFile(const std::string& ca45Path, std::string&
     if (!objFile.good()) {
         errorMsg = "dispatcher object file not created: " + objectFile;
         if (warnStream_) {
-            *warnStream_ << "ln45: Phase 61: ERROR: " << errorMsg << "\n";
+            *warnStream_ << "ln45: ERROR: " << errorMsg << "\n";
         }
         return false;
     }
@@ -1828,10 +1828,10 @@ bool O45Linker::assembleDispatcherFile(const std::string& ca45Path, std::string&
     dispatchersAssembled_ = dispatcherStubsEmitted_;
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Phase 61: Dispatcher object file created successfully\n";
-        *warnStream_ << "ln45: Phase 61: Assembled " << dispatchersAssembled_
+        *warnStream_ << "ln45: Dispatcher object file created successfully\n";
+        *warnStream_ << "ln45: Assembled " << dispatchersAssembled_
                     << " dispatcher stubs\n";
-        *warnStream_ << "ln45: Phase 61: Next: Link dispatcher object into final binary\n";
+        *warnStream_ << "ln45: Next: Link dispatcher object into final binary\n";
     }
 
     return true;
@@ -1842,14 +1842,14 @@ bool O45Linker::relinkWithDispatcher(std::string& errorMsg, bool isPrg) {
     // Check if dispatcher object file is available
     if (dispatcherObjectFilePath_.empty()) {
         if (warnStream_) {
-            *warnStream_ << "ln45: Phase 62: No dispatcher object file to link\n";
+            *warnStream_ << "ln45: No dispatcher object file to link\n";
         }
         return true;  // Not an error - just no dispatcher code
     }
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Phase 62: Re-linking with dispatcher object\n";
-        *warnStream_ << "ln45: Phase 62: Loading dispatcher object: " << dispatcherObjectFilePath_ << "\n";
+        *warnStream_ << "ln45: Re-linking with dispatcher object\n";
+        *warnStream_ << "ln45: Loading dispatcher object: " << dispatcherObjectFilePath_ << "\n";
     }
 
     // Read dispatcher object file
@@ -1857,7 +1857,7 @@ bool O45Linker::relinkWithDispatcher(std::string& errorMsg, bool isPrg) {
     if (!objFile.is_open()) {
         errorMsg = "cannot open dispatcher object file: " + dispatcherObjectFilePath_;
         if (warnStream_) {
-            *warnStream_ << "ln45: Phase 62: ERROR: " << errorMsg << "\n";
+            *warnStream_ << "ln45: ERROR: " << errorMsg << "\n";
         }
         return false;
     }
@@ -1869,15 +1869,15 @@ bool O45Linker::relinkWithDispatcher(std::string& errorMsg, bool isPrg) {
     if (objData.empty()) {
         errorMsg = "dispatcher object file is empty: " + dispatcherObjectFilePath_;
         if (warnStream_) {
-            *warnStream_ << "ln45: Phase 62: ERROR: " << errorMsg << "\n";
+            *warnStream_ << "ln45: ERROR: " << errorMsg << "\n";
         }
         return false;
     }
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Phase 62: Loaded dispatcher object (" << objData.size()
+        *warnStream_ << "ln45: Loaded dispatcher object (" << objData.size()
                     << " bytes)\n";
-        *warnStream_ << "ln45: Phase 62: Adding dispatcher object to linker\n";
+        *warnStream_ << "ln45: Adding dispatcher object to linker\n";
     }
 
     // Parse dispatcher object file
@@ -1888,14 +1888,14 @@ bool O45Linker::relinkWithDispatcher(std::string& errorMsg, bool isPrg) {
     } catch (const std::exception& e) {
         errorMsg = std::string("failed to parse dispatcher object file: ") + e.what();
         if (warnStream_) {
-            *warnStream_ << "ln45: Phase 62: ERROR: " << errorMsg << "\n";
+            *warnStream_ << "ln45: ERROR: " << errorMsg << "\n";
         }
         return false;
     }
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Phase 62: Dispatcher object parsed successfully\n";
-        *warnStream_ << "ln45: Phase 62: Re-linking all objects with dispatcher\n";
+        *warnStream_ << "ln45: Dispatcher object parsed successfully\n";
+        *warnStream_ << "ln45: Re-linking all objects with dispatcher\n";
     }
 
     // Add dispatcher object to linker
@@ -1906,7 +1906,7 @@ bool O45Linker::relinkWithDispatcher(std::string& errorMsg, bool isPrg) {
 
     if (dispatcherBinary_.empty() && !errorMsg.empty()) {
         if (warnStream_) {
-            *warnStream_ << "ln45: Phase 62: ERROR: Re-linking failed: " << errorMsg << "\n";
+            *warnStream_ << "ln45: ERROR: Re-linking failed: " << errorMsg << "\n";
         }
         return false;
     }
@@ -1915,10 +1915,10 @@ bool O45Linker::relinkWithDispatcher(std::string& errorMsg, bool isPrg) {
     dispatcherLinked_ = true;
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Phase 62: Re-linking successful\n";
-        *warnStream_ << "ln45: Phase 62: Final binary size with dispatcher: " << dispatcherBinary_.size()
+        *warnStream_ << "ln45: Re-linking successful\n";
+        *warnStream_ << "ln45: Final binary size with dispatcher: " << dispatcherBinary_.size()
                     << " bytes\n";
-        *warnStream_ << "ln45: Phase 62: Dispatcher successfully integrated into final binary\n";
+        *warnStream_ << "ln45: Dispatcher successfully integrated into final binary\n";
     }
 
     return true;
@@ -1934,13 +1934,13 @@ bool O45Linker::verifyDispatcherSymbols(std::string& report) {
     if (!dispatcherLinked_) {
         report = "Dispatcher not linked - verification skipped";
         if (warnStream_) {
-            *warnStream_ << "ln45: Phase 63: " << report << "\n";
+            *warnStream_ << "ln45: " << report << "\n";
         }
         return true;  // Not an error
     }
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Phase 63: Verifying dispatcher symbol resolution\n";
+        *warnStream_ << "ln45: Verifying dispatcher symbol resolution\n";
     }
 
     // Count dispatcher-related symbols from dispatcherAnalysis
@@ -1957,13 +1957,13 @@ bool O45Linker::verifyDispatcherSymbols(std::string& report) {
     if (expectedDispatcherSymbols == 0) {
         report = "No dispatcher symbols to verify";
         if (warnStream_) {
-            *warnStream_ << "ln45: Phase 63: " << report << "\n";
+            *warnStream_ << "ln45: " << report << "\n";
         }
         return true;
     }
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Phase 63: Expected dispatcher symbols: " << expectedDispatcherSymbols << "\n";
+        *warnStream_ << "ln45: Expected dispatcher symbols: " << expectedDispatcherSymbols << "\n";
     }
 
     // Check global symbol table for dispatcher symbols
@@ -1979,13 +1979,13 @@ bool O45Linker::verifyDispatcherSymbols(std::string& report) {
             if (symInfo.address != 0 || symName.find("__dispatch_fallback") != std::string::npos) {
                 resolvedCount++;
                 if (warnStream_) {
-                    *warnStream_ << "ln45: Phase 63:   [OK] " << symName
+                    *warnStream_ << "ln45:   [OK] " << symName
                                 << " @ 0x" << std::hex << symInfo.address << std::dec << "\n";
                 }
             } else {
                 unresolved++;
                 if (warnStream_) {
-                    *warnStream_ << "ln45: Phase 63:   [UNRESOLVED] " << symName << "\n";
+                    *warnStream_ << "ln45:   [UNRESOLVED] " << symName << "\n";
                 }
             }
         }
@@ -2002,11 +2002,11 @@ bool O45Linker::verifyDispatcherSymbols(std::string& report) {
     report += allDispatcherSymbolsResolved_ ? "  Status: ALL RESOLVED\n" : "  Status: SOME UNRESOLVED\n";
 
     if (warnStream_) {
-        *warnStream_ << "ln45: Phase 63: " << report;
+        *warnStream_ << "ln45: " << report;
         if (allDispatcherSymbolsResolved_) {
-            *warnStream_ << "ln45: Phase 63: Dispatcher symbols verified successfully\n";
+            *warnStream_ << "ln45: Dispatcher symbols verified successfully\n";
         } else {
-            *warnStream_ << "ln45: Phase 63: WARNING: Some dispatcher symbols unresolved\n";
+            *warnStream_ << "ln45: WARNING: Some dispatcher symbols unresolved\n";
         }
     }
 
