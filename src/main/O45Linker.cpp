@@ -762,6 +762,7 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     analyzeInlining();             // Phase 55: Analyze cross-module inlining
     generateDispatchers();         // Phase 56: Generate dispatcher stubs for multi-specialization
     integrateDispatcherAssembly(); // Phase 58: Integrate dispatcher assembly into output
+    emitDispatcherAssemblyOutput(); // Phase 59: Emit dispatcher assembly to output
     emitDiagnostics();
     verifyStaticAllocSafety();  // Verify SAC constraints before thunk generation
     validateSACParameters();      // Phase 3: Validate SAC parameter metadata
@@ -1608,6 +1609,97 @@ void O45Linker::integrateDispatcherAssembly() {
             }
         }
     }
+}
+
+// Phase 59: Emit dispatcher assembly to output
+void O45Linker::emitDispatcherAssemblyOutput() {
+    // Reset emission counter
+    dispatcherStubsEmitted_ = 0;
+
+    // If no dispatcher assembly, nothing to emit
+    if (dispatcherAssemblyOutput_.empty()) {
+        if (warnStream_) {
+            *warnStream_ << "ln45: Phase 59: No dispatcher assembly to emit\n";
+        }
+        return;
+    }
+
+    // Count dispatchers to be emitted
+    for (const auto& [funcName, analysis] : dispatcherAnalysis_) {
+        dispatcherStubsEmitted_ += analysis.dispatchersNeeded;
+    }
+
+    if (warnStream_) {
+        *warnStream_ << "ln45: Phase 59: Emitting " << dispatcherStubsEmitted_
+                    << " dispatcher stubs to output\n";
+    }
+
+    // Phase 59 Implementation Strategy:
+    //
+    // The dispatcher assembly needs to be included in the final binary.
+    // There are several approaches:
+    //
+    // Approach 1: Assembly file emission (current approach)
+    // - Write dispatcherAssemblyOutput_ to temporary .s45 file
+    // - Assemble with ca45: ca45 temp.s45 -o dispatcher.o45
+    // - Re-link with dispatcher object: linker.addObject("dispatcher.o45", obj)
+    // - Call linker.link() again to include dispatcher code
+    //
+    // Approach 2: Direct binary emission (more complex)
+    // - Parse dispatcher assembly patterns
+    // - Generate binary instructions directly
+    // - Add to mergedText_ segment
+    // - Create relocation entries for target references
+    // - Update symbol table with dispatcher addresses
+    //
+    // Approach 3: Assembly concatenation (hybrid)
+    // - Append dispatcherAssemblyOutput_ to main assembly
+    // - Let ca45 assemble everything together
+    // - Single assembly/link pass
+    //
+    // For now, we implement framework for emission and tracking.
+    // Actual binary generation deferred to post-link phase.
+
+    // Log dispatcher details
+    if (warnStream_) {
+        *warnStream_ << "ln45: Phase 59: Dispatcher assembly size: "
+                    << dispatcherAssemblyOutput_.size() << " bytes (source)\n";
+        *warnStream_ << "ln45: Phase 59: Dispatcher stubs emitted:\n";
+
+        // List each dispatcher being emitted
+        int count = 0;
+        for (const auto& [funcName, analysis] : dispatcherAnalysis_) {
+            for (const auto& dispatcher : analysis.dispatchers) {
+                if (count < 20) {  // Limit output to first 20
+                    *warnStream_ << "  [" << (count + 1) << "] " << dispatcher.dispatcherName
+                                << " (" << (int)dispatcher.estimatedCodeSize << " bytes)\n";
+                }
+                count++;
+            }
+        }
+
+        if (count > 20) {
+            *warnStream_ << "  ... and " << (count - 20) << " more\n";
+        }
+    }
+
+    // Mark as emitted
+    if (warnStream_) {
+        *warnStream_ << "ln45: Phase 59: Dispatcher assembly ready for output\n";
+    }
+
+    // Future implementation note:
+    // The dispatcherAssemblyOutput_ is now ready to be:
+    // 1. Written to a .s45 file for separate assembly
+    // 2. Concatenated with main assembly before ca45
+    // 3. Directly emitted as binary (Phase 60+)
+    // 4. Incorporated into linker output via object file
+    //
+    // For full integration, Phase 60 should:
+    // - Write assembly to temporary file (if needed)
+    // - Assemble with ca45
+    // - Link dispatcher object into final binary
+    // - Update symbol table with dispatcher addresses
 }
 
 // Phase 56: Generate dispatcher stubs for multi-specialization cases

@@ -125,6 +125,14 @@ public:
         return dispatcherAssemblyOutput_;
     }
 
+    // Phase 59: Get count of dispatcher stubs emitted
+    int getDispatcherStubsEmitted() const {
+        return dispatcherStubsEmitted_;
+    }
+
+    // Phase 59: Emit dispatcher assembly to output
+    void emitDispatcherAssemblyOutput();
+
     // Query if a specific parameter is specialized (constant)
     bool isParameterSpecialized(const std::string& funcName, int paramIdx, int64_t& outValue) const {
         auto it = specializedParams_.find(funcName);
@@ -278,6 +286,10 @@ private:
     // Generated assembly code for dispatcher stubs ready to emit
     std::string dispatcherAssemblyOutput_;
 
+    // Phase 59: Dispatcher output tracking
+    // Count of dispatcher stubs emitted to output
+    int dispatcherStubsEmitted_ = 0;
+
     bool resolveLibraries(std::string& errorMsg);
     bool layoutSegments(std::string& errorMsg);
     bool resolveSymbols(std::string& errorMsg);
@@ -294,6 +306,7 @@ private:
     std::string emitDispatcherAssembly() const;  // Phase 57: Emit dispatcher assembly code
     std::string emitDispatcherStub(const DispatcherStub& stub) const;  // Phase 57: Emit single dispatcher
     void integrateDispatcherAssembly();  // Phase 58: Integrate dispatcher assembly into output
+    void emitDispatcherAssemblyOutput();  // Phase 59: Emit dispatcher assembly to output
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata
