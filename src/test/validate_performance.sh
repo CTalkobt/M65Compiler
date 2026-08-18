@@ -148,17 +148,30 @@ test_cc45() {
     $BIN_DIR/cc45 $flags -S -o "$assembly" "$source" 2>/dev/null || true
 
     local binary_size=$(get_file_size "$binary")
+    local object_size=$(get_file_size "$object")
     local assembly_size=$(get_file_size "$assembly")
 
     echo -e "${GREEN}✓ Compilation completed${NC}\n"
-    print_result "Binary size" "$binary_size" "bytes"
-    print_result "Assembly size" "$assembly_size" "bytes"
 
-    # Size reduction
+    # Report both object and binary sizes
+    if [ "$binary_size" -gt 0 ]; then
+        print_result "Final .prg size" "$binary_size" "bytes"
+    else
+        print_result "Final .prg size" "---" "(linker issue)"
+    fi
+    print_result "Object file size" "$object_size" "bytes"
+    print_result "Assembly source size" "$assembly_size" "bytes"
+
+    # Size reduction (use binary if available, fallback to object)
+    local size_for_reduction="$binary_size"
+    if [ "$size_for_reduction" -eq 0 ]; then
+        size_for_reduction="$object_size"
+    fi
+
     if [ -f "$BUILD_DIR/fib_cc45_o0_size.txt" ]; then
         local baseline=$(cat "$BUILD_DIR/fib_cc45_o0_size.txt")
-        if [ "$baseline" -gt 0 ] && [ "$binary_size" -gt 0 ]; then
-            local reduction=$((100 - (binary_size * 100) / baseline))
+        if [ "$baseline" -gt 0 ] && [ "$size_for_reduction" -gt 0 ]; then
+            local reduction=$((100 - (size_for_reduction * 100) / baseline))
             print_result "Size reduction vs -O0" "$reduction" "%"
         fi
     fi
@@ -169,9 +182,17 @@ test_cc45() {
         local exec=$(measure_execution "$binary")
         print_result "Execution" "$exec" ""
         echo "$exec" > "$BUILD_DIR/fib_cc45_${level}_exec.txt"
+    else
+        echo -e "${YELLOW}Skipping execution measurement (no .prg binary)${NC}"
+        echo "---" > "$BUILD_DIR/fib_cc45_${level}_exec.txt"
     fi
 
-    echo "$binary_size" > "$BUILD_DIR/fib_cc45_${level}_size.txt"
+    # Store the actual .prg size, or object size as fallback
+    if [ "$binary_size" -gt 0 ]; then
+        echo "$binary_size" > "$BUILD_DIR/fib_cc45_${level}_size.txt"
+    else
+        echo "$object_size" > "$BUILD_DIR/fib_cc45_${level}_size.txt"
+    fi
 }
 
 # Test cc65 if available
@@ -264,12 +285,17 @@ generate_report() {
 
     echo ""
     echo "Notes:"
+    echo "  Size Metrics:"
+    echo "    If .prg linking succeeds: Final executable size"
+    echo "    If .prg linking fails:    Object (.o45) file size"
+    echo ""
     echo "  Execution Times:"
     echo "    '---'              = Unable to measure"
     echo "    'XXXXc (XXXms)'    = mmemu-cli: cycle count (estimated ms)"
     echo "    'XXXms'            = Wall-clock measurement (native execution)"
     echo "    'XXXms (fallback)' = Fallback time measurement"
     echo ""
+    echo "Tools Status:"
     if [ -z "$MMEMU_CLI" ]; then
         echo "  ⓘ mmemu-cli not found (cycle-accurate measurement unavailable)"
     else
