@@ -48,23 +48,81 @@ print_result() {
     printf "  %-40s %12s %s\n" "$label:" "$value" "$unit"
 }
 
-# Measure execution using mmemu-cli
+# Parse mmemu-cli output for execution metrics
+parse_mmemu_metrics() {
+    local output="$1"
+    local cycles=$(echo "$output" | grep -i "cycles" | head -1 | grep -o "[0-9]*" | head -1)
+
+    if [ ! -z "$cycles" ] && [ "$cycles" -gt 0 ]; then
+        # Convert cycles to approximate milliseconds (45GS02 @40MHz = 40M cycles/sec)
+        local ms=$((cycles / 40000))
+        if [ "$ms" -lt 1 ]; then
+            ms=1
+        fi
+        echo "${cycles}c (${ms}ms)"
+        return 0
+    fi
+    return 1
+}
+
+# Measure execution time using mmemu-cli with fallback to time command
 measure_execution() {
     local prg_file="$1"
-
-    if [ -z "$MMEMU_CLI" ]; then
-        echo "---"
-        return
-    fi
 
     if [ ! -f "$prg_file" ]; then
         echo "---"
         return
     fi
 
-    # Run program with emulator
-    local result=$(timeout 30 $MMEMU_CLI --prg "$prg_file" --headless >/dev/null 2>&1 && echo "Executed" || echo "---")
-    echo "$result"
+    # Try mmemu-cli first if available
+    if [ ! -z "$MMEMU_CLI" ]; then
+        local output=""
+        local exit_code=0
+        output=$(timeout 30 $MMEMU_CLI --prg "$prg_file" --headless 2>&1 || true)
+        exit_code=$?
+
+        # Check if program executed successfully
+        if [ $exit_code -eq 0 ] || [ $exit_code -eq 124 ]; then
+            # Try to parse metrics from output
+            local metrics=$(parse_mmemu_metrics "$output")
+            if [ ! -z "$metrics" ]; then
+                echo "$metrics"
+                return 0
+            fi
+
+            # If we got output but no metrics, try time-based measurement
+            if [ ! -z "$output" ]; then
+                # Program ran; use time command for wall-clock measurement
+                local time_output=""
+                time_output=$( { time timeout 30 $MMEMU_CLI --prg "$prg_file" --headless >/dev/null 2>&1; } 2>&1 | grep real)
+
+                if [ ! -z "$time_output" ]; then
+                    local ms=$(echo "$time_output" | grep -o "[0-9]*m[0-9]*\.[0-9]*s" | sed 's/m/*60000+/;s/s//;s/\./*/' | bc 2>/dev/null || echo "")
+                    if [ ! -z "$ms" ] && [ "$ms" -gt 0 ]; then
+                        echo "${ms}ms"
+                        return 0
+                    fi
+                fi
+            fi
+        fi
+    fi
+
+    # Fallback: Try time command if program is executable
+    if [ -x "$prg_file" ] || file "$prg_file" | grep -q "executable"; then
+        local time_output=""
+        time_output=$( { time timeout 5 "$prg_file" >/dev/null 2>&1; } 2>&1 | grep real 2>/dev/null || true)
+
+        if [ ! -z "$time_output" ]; then
+            local ms=$(echo "$time_output" | grep -o "[0-9]*m[0-9]*\.[0-9]*s" | sed 's/m/*60000+/;s/s//;s/\./*/' | bc 2>/dev/null || echo "")
+            if [ ! -z "$ms" ] && [ "$ms" -gt 0 ]; then
+                echo "${ms}ms (fallback)"
+                return 0
+            fi
+        fi
+    fi
+
+    # Unable to measure
+    echo "---"
 }
 
 # Test cc45 level
@@ -105,11 +163,12 @@ test_cc45() {
         fi
     fi
 
-    # Execution time measurement
-    if [ ! -z "$MMEMU_CLI" ] && [ "$binary_size" -gt 0 ]; then
+    # Execution time measurement (always try, even if no mmemu-cli)
+    if [ "$binary_size" -gt 0 ]; then
         echo -e "${YELLOW}Measuring execution...${NC}"
         local exec=$(measure_execution "$binary")
         print_result "Execution" "$exec" ""
+        echo "$exec" > "$BUILD_DIR/fib_cc45_${level}_exec.txt"
     fi
 
     echo "$binary_size" > "$BUILD_DIR/fib_cc45_${level}_size.txt"
@@ -153,6 +212,14 @@ test_cc65() {
         fi
     fi
 
+    # Execution time measurement (if binary exists)
+    if [ "$binary_size" -gt 0 ] && [ -f "$binary" ]; then
+        echo -e "${YELLOW}Measuring execution...${NC}"
+        local exec=$(measure_execution "$binary")
+        print_result "Execution" "$exec" ""
+        echo "$exec" > "$BUILD_DIR/fib_cc65_${level}_exec.txt"
+    fi
+
     echo "$binary_size" > "$BUILD_DIR/fib_cc65_${level}_size.txt"
 }
 
@@ -162,44 +229,56 @@ generate_report() {
 
     echo "Compiler & Optimization Summary:"
     echo ""
-    printf "%-42s %12s %12s %12s\n" "Configuration" "Size (bytes)" "Reduction" "Exec"
-    printf "%-42s %12s %12s %12s\n" "----------------------------------------------" "-----------" "---------" "----"
+    printf "%-42s %12s %12s %16s\n" "Configuration" "Size (bytes)" "Reduction" "Execution Time"
+    printf "%-42s %12s %12s %16s\n" "----------------------------------------------" "-----------" "---------" "----------------"
 
     local cc45_o0=$(cat "$BUILD_DIR/fib_cc45_o0_size.txt" 2>/dev/null || echo "0")
+    local cc45_o0_exec=$(cat "$BUILD_DIR/fib_cc45_o0_exec.txt" 2>/dev/null || echo "---")
 
     if [ "$cc45_o0" != "0" ]; then
-        printf "%-42s %12d %12s %12s\n" "cc45 -O0 (baseline)" "$cc45_o0" "-" "---"
+        printf "%-42s %12d %12s %16s\n" "cc45 -O0 (baseline)" "$cc45_o0" "-" "$cc45_o0_exec"
 
         for level in o1 o2 o3 o3_sac; do
             local size=$(cat "$BUILD_DIR/fib_cc45_${level}_size.txt" 2>/dev/null || echo "0")
+            local exec=$(cat "$BUILD_DIR/fib_cc45_${level}_exec.txt" 2>/dev/null || echo "---")
             if [ "$size" != "0" ]; then
                 local reduction=$((100 - (size * 100) / cc45_o0))
                 local label="cc45 -${level:0:2}"
                 if [ "$level" = "o3_sac" ]; then
                     label="cc45 -O3 +SAC"
                 fi
-                printf "%-42s %12d %12d%% %12s\n" "$label" "$size" "$reduction" "---"
+                printf "%-42s %12d %12d%% %16s\n" "$label" "$size" "$reduction" "$exec"
             fi
         done
     fi
 
     # cc65 if available
     local cc65_size=$(cat "$BUILD_DIR/fib_cc65_o0_size.txt" 2>/dev/null || echo "")
+    local cc65_exec=$(cat "$BUILD_DIR/fib_cc65_o0_exec.txt" 2>/dev/null || echo "---")
     if [ ! -z "$cc65_size" ] && [ "$cc65_size" != "0" ]; then
         if [ "$cc45_o0" != "0" ]; then
             local diff=$((cc65_size - cc45_o0))
-            printf "%-42s %12d %12s %12s\n" "cc65 -O0" "$cc65_size" "(+${diff})" "---"
+            printf "%-42s %12d %12s %16s\n" "cc65 -O0" "$cc65_size" "(+${diff})" "$cc65_exec"
         fi
     fi
 
     echo ""
     echo "Notes:"
-    echo "  '---' indicates data not available"
+    echo "  Execution Times:"
+    echo "    '---'              = Unable to measure"
+    echo "    'XXXXc (XXXms)'    = mmemu-cli: cycle count (estimated ms)"
+    echo "    'XXXms'            = Wall-clock measurement (native execution)"
+    echo "    'XXXms (fallback)' = Fallback time measurement"
+    echo ""
     if [ -z "$MMEMU_CLI" ]; then
-        echo "  Execution time not available (mmemu-cli not found)"
+        echo "  ⓘ mmemu-cli not found (cycle-accurate measurement unavailable)"
+    else
+        echo "  ✓ mmemu-cli available (cycle-accurate measurement)"
     fi
     if [ -z "$CC65" ]; then
-        echo "  cc65 not available (install cc65 to compare)"
+        echo "  ⓘ cc65 not available (6502 compiler comparison skipped)"
+    else
+        echo "  ✓ cc65 available (6502 comparison enabled)"
     fi
     echo ""
 }
