@@ -368,7 +368,7 @@ generate_report() {
                 local reduction=$((100 - (size * 100) / cc45_o0))
                 local label="cc45 -${level:0:2}"
                 if [ "$level" = "o3_sac" ]; then
-                    label="cc45 -O3 +SAC"
+                    label="cc45 -O3 -SAC"
                 fi
                 printf "%-42s %12d %12d%% %16s\n" "$label" "$size" "$reduction" "$exec"
             fi
@@ -466,7 +466,7 @@ main() {
     test_cc45 "o1" "-O1" "TEST 2: cc45 -O1 (Basic Optimization)"
     test_cc45 "o2" "-O2" "TEST 3: cc45 -O2 (Aggressive Optimization)"
     test_cc45 "o3" "-O3" "TEST 4: cc45 -O3 (Maximum Optimization)"
-    test_cc45 "o3_sac" "-O3 -fstaticalloc" "TEST 5: cc45 -O3 +SAC (Maximum + Static Allocation)"
+    test_cc45 "o3_sac" "-O3 -fstaticalloc" "TEST 5: cc45 -O3 -SAC (Maximum + Static Allocation)"
 
     # Test cc65 if available
     if [ ! -z "$CC65" ]; then
