@@ -293,6 +293,22 @@ public:
                                                   const std::vector<OptimizationMetrics>& metrics);
     std::string generateOrchestrationReport(const CrossProgramAnalysis& analysis);
 
+    // Phase 75: Runtime profiling integration
+    struct RuntimeProfile {
+        std::string programName;             // Program being profiled
+        float actualCompressionPercent = 0.0f;  // Measured compression
+        float estimatedCompressionPercent = 0.0f;  // Predicted compression
+        float compressionAccuracy = 0.0f;    // Accuracy % (actual/estimated)
+        int actualCodeSize = 0;              // Measured code size
+        int executionTimeMs = 0;             // Execution time in milliseconds
+        float performanceGainPercent = 0.0f; // Measured performance gain
+        bool validatesEstimate = false;      // Estimate was accurate
+        std::string feedbackAction;          // Improvement recommendation
+    };
+    RuntimeProfile integrateRuntimeProfile(const BenchmarkResult& estimate,
+                                          int actualCodeSize, int executionTimeMs);
+    std::string generateProfileReport(const RuntimeProfile& profile);
+
     // Query if a specific parameter is specialized (constant)
     bool isParameterSpecialized(const std::string& funcName, int paramIdx, int64_t& outValue) const {
         auto it = specializedParams_.find(funcName);
@@ -497,6 +513,8 @@ private:
     std::string formatTuningReport(const TuningAnalysis& analysis);  // Phase 73: Format tuning report
     CrossProgramAnalysis analyzePatterns(const std::vector<BenchmarkResult>& results, const std::vector<OptimizationMetrics>& metrics);  // Phase 74: Analyze patterns
     std::string formatOrchestrationReport(const CrossProgramAnalysis& analysis);  // Phase 74: Format orchestration report
+    RuntimeProfile collectProfileData(const BenchmarkResult& estimate, int actualSize, int execMs);  // Phase 75: Collect profile
+    std::string formatProfileReport(const RuntimeProfile& profile);  // Phase 75: Format profile report
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata

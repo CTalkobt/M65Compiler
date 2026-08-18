@@ -4196,3 +4196,103 @@ O45Linker::CrossProgramAnalysis O45Linker::analyzePatterns(const std::vector<Ben
 std::string O45Linker::formatOrchestrationReport(const CrossProgramAnalysis& analysis) {
     return generateOrchestrationReport(analysis);
 }
+
+// Phase 75: Integrate runtime profiling data
+O45Linker::RuntimeProfile O45Linker::integrateRuntimeProfile(const BenchmarkResult& estimate,
+                                                             int actualCodeSize, int executionTimeMs) {
+    RuntimeProfile profile;
+
+    profile.programName = estimate.programName;
+    profile.estimatedCompressionPercent = estimate.compressionPercent;
+    profile.actualCodeSize = actualCodeSize;
+    profile.executionTimeMs = executionTimeMs;
+
+    // Calculate actual compression
+    if (estimate.baselineSize > 0) {
+        int codeSavings = estimate.baselineSize - actualCodeSize;
+        profile.actualCompressionPercent = (float)codeSavings / (float)estimate.baselineSize * 100.0f;
+    }
+
+    // Calculate compression accuracy
+    if (profile.estimatedCompressionPercent > 0) {
+        float delta = std::abs(profile.actualCompressionPercent - profile.estimatedCompressionPercent);
+        profile.compressionAccuracy = 100.0f - delta;
+        if (profile.compressionAccuracy < 0) profile.compressionAccuracy = 0;
+    }
+
+    // Determine if estimate validates
+    profile.validatesEstimate = (profile.compressionAccuracy >= 85.0f);
+
+    // Generate feedback action
+    if (profile.compressionAccuracy >= 95.0f) {
+        profile.feedbackAction = "Estimates accurate; continue current strategy";
+    } else if (profile.compressionAccuracy >= 85.0f) {
+        profile.feedbackAction = "Good estimate accuracy; minor tuning suggested";
+    } else if (profile.compressionAccuracy >= 70.0f) {
+        profile.feedbackAction = "Moderate deviation; review specialization patterns";
+    } else {
+        profile.feedbackAction = "Poor estimate accuracy; re-analyze and retune";
+    }
+
+    // Calculate performance gain (hypothetical improvement if optimization applied)
+    if (executionTimeMs > 0) {
+        profile.performanceGainPercent = (float)(estimate.baselineSize - actualCodeSize) /
+                                        (float)executionTimeMs;
+    }
+
+    return profile;
+}
+
+// Phase 75: Generate profiling report
+std::string O45Linker::generateProfileReport(const RuntimeProfile& profile) {
+    std::ostringstream out;
+
+    out << "=== Runtime Profiling Integration Report ===\n\n";
+    out << "Program: " << profile.programName << "\n";
+    out << std::string(50, '=') << "\n\n";
+
+    out << "1. Compression Analysis\n";
+    out << "   Estimated: " << std::fixed << std::setprecision(1)
+        << profile.estimatedCompressionPercent << "%\n";
+    out << "   Actual:    " << std::fixed << std::setprecision(1)
+        << profile.actualCompressionPercent << "%\n";
+    out << "   Accuracy:  " << std::fixed << std::setprecision(1)
+        << profile.compressionAccuracy << "%\n\n";
+
+    out << "2. Code Size\n";
+    out << "   Measured size: " << profile.actualCodeSize << " bytes\n";
+    out << "   Estimate validated: " << (profile.validatesEstimate ? "YES" : "NO") << "\n\n";
+
+    out << "3. Execution Performance\n";
+    out << "   Execution time: " << profile.executionTimeMs << " ms\n";
+    out << "   Performance gain ratio: " << std::fixed << std::setprecision(2)
+        << profile.performanceGainPercent << "\n\n";
+
+    out << "4. Feedback & Recommendations\n";
+    out << "   " << profile.feedbackAction << "\n\n";
+
+    out << "5. Next Steps\n";
+    if (profile.validatesEstimate) {
+        out << "   ✓ Estimates validated\n";
+        out << "   ✓ Continue with current optimization strategy\n";
+        out << "   ✓ Update baseline for future comparisons\n";
+    } else {
+        out << "   ⚠ Re-analyze optimization parameters\n";
+        out << "   ⚠ Review specialization effectiveness\n";
+        out << "   ⚠ Adjust tuning based on actual results\n";
+    }
+    out << "\n";
+
+    return out.str();
+}
+
+// Phase 75: Collect profile data (internal helper)
+O45Linker::RuntimeProfile O45Linker::collectProfileData(const BenchmarkResult& estimate,
+                                                        int actualSize, int execMs) {
+    return integrateRuntimeProfile(estimate, actualSize, execMs);
+}
+
+// Phase 75: Format profile report (internal helper)
+std::string O45Linker::formatProfileReport(const RuntimeProfile& profile) {
+    return generateProfileReport(profile);
+}
