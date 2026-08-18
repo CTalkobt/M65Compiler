@@ -111,6 +111,12 @@ public:
     // Phase 56: Write dispatcher report for debugging
     void writeDispatcherReport(std::ostream& out) const;
 
+    // Phase 57: Emit dispatcher assembly code
+    std::string emitDispatcherAssembly() const;
+
+    // Phase 57: Generate assembly for a specific dispatcher stub
+    std::string emitDispatcherStub(const DispatcherStub& stub) const;
+
     // Query if a specific parameter is specialized (constant)
     bool isParameterSpecialized(const std::string& funcName, int paramIdx, int64_t& outValue) const {
         auto it = specializedParams_.find(funcName);
@@ -273,6 +279,8 @@ private:
     void analyzeCallRouting();          // Phase 54: Analyze call site routing to specializations
     void analyzeInlining();             // Phase 55: Analyze cross-module inlining opportunities
     void generateDispatchers();         // Phase 56: Generate dispatcher stubs for multi-specialization
+    std::string emitDispatcherAssembly() const;  // Phase 57: Emit dispatcher assembly code
+    std::string emitDispatcherStub(const DispatcherStub& stub) const;  // Phase 57: Emit single dispatcher
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata

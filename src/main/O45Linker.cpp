@@ -1451,6 +1451,108 @@ void O45Linker::writeInliningReport(std::ostream& out) const {
     }
 }
 
+// Phase 57: Emit dispatcher assembly code for all generated dispatchers
+std::string O45Linker::emitDispatcherAssembly() const {
+    std::string assembly;
+
+    // For each function with dispatcher analysis
+    for (const auto& [funcName, analysis] : dispatcherAnalysis_) {
+        // Emit each dispatcher stub for this function
+        for (const auto& dispatcher : analysis.dispatchers) {
+            if (dispatcher.generateDispatcher) {
+                assembly += emitDispatcherStub(dispatcher);
+                assembly += "\n";
+            }
+        }
+    }
+
+    return assembly;
+}
+
+// Phase 57: Generate assembly for a specific dispatcher stub
+std::string O45Linker::emitDispatcherStub(const DispatcherStub& stub) const {
+    std::string asm_code;
+
+    // Dispatcher header comment
+    asm_code += "; Dispatcher stub for multi-specialization\n";
+    asm_code += "; Routes calls to appropriate specialized versions\n";
+    asm_code += stub.dispatcherName + ":\n";
+
+    // Early exit: if no routes, just fall through to generic
+    if (stub.routes.empty()) {
+        asm_code += "    jmp " + stub.genericFunction + "\n";
+        return asm_code;
+    }
+
+    // Single route case: direct jump to specialized version
+    if (stub.routes.size() == 1) {
+        asm_code += "    jmp " + stub.routes[0].targetFunction + "\n";
+        return asm_code;
+    }
+
+    // Multiple routes: implement pattern matching dispatcher
+    // Strategy: Compare argument 1 (typically in A register or on stack)
+    // For each route: check if pattern matches, if so jump to target
+    // If no match, jump to generic function
+
+    asm_code += "; Pattern matching dispatcher\n";
+    asm_code += "; Check argument patterns and route to appropriate specialization\n";
+
+    // Extract unique patterns for comparison
+    std::map<uint32_t, std::vector<size_t>> patternMap;  // pattern value → route indices
+
+    for (size_t i = 0; i < stub.routes.size(); ++i) {
+        const auto& route = stub.routes[i];
+        if (!route.argumentPattern.empty()) {
+            // Use first argument as primary pattern key
+            uint32_t key = route.argumentPattern[0];
+            patternMap[key].push_back(i);
+        }
+    }
+
+    // Emit pattern matching code
+    // Assume argument 1 is in A register (or will be loaded)
+    bool firstCheck = true;
+    for (const auto& [patternValue, routeIndices] : patternMap) {
+        // Emit conditional check for this pattern
+        std::string checkLabel = stub.dispatcherName + "_check_" + std::to_string(patternValue);
+
+        if (!firstCheck) {
+            asm_code += checkLabel + ":\n";
+        }
+        firstCheck = false;
+
+        // Compare A register with pattern value
+        asm_code += "    cmp #" + std::to_string(patternValue) + "\n";
+
+        // Branch to next check if not equal
+        if (patternValue != patternMap.rbegin()->first) {  // Not the last pattern
+            std::string nextPattern = std::to_string(patternMap.upper_bound(patternValue)->first);
+            asm_code += "    bne " + stub.dispatcherName + "_check_" + nextPattern + "\n";
+        } else {
+            asm_code += "    bne " + stub.dispatcherName + "_fallback\n";
+        }
+
+        // If multiple specializations for this pattern, check second argument
+        if (routeIndices.size() > 1) {
+            asm_code += "    ; Multiple specializations for this pattern\n";
+            for (size_t idx : routeIndices) {
+                const auto& route = stub.routes[idx];
+                asm_code += "    jmp " + route.targetFunction + "\n";
+            }
+        } else {
+            // Single specialization for this pattern
+            asm_code += "    jmp " + stub.routes[routeIndices[0]].targetFunction + "\n";
+        }
+    }
+
+    // Fallback: jump to generic function if no pattern matched
+    asm_code += stub.dispatcherName + "_fallback:\n";
+    asm_code += "    jmp " + stub.genericFunction + "\n";
+
+    return asm_code;
+}
+
 // Phase 56: Generate dispatcher stubs for multi-specialization cases
 void O45Linker::generateDispatchers() {
     dispatcherAnalysis_.clear();
