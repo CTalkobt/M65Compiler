@@ -758,6 +758,7 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     analyzeConstantParameters();  // Cross-file parameter analysis
     analyzeIRMetadata();           // Phase 50: Extract constant parameters from embedded IR
     analyzeSpecializations();      // Phase 52: Analyze profitable specialization patterns
+    analyzeCallRouting();          // Phase 54: Analyze call site routing
     emitDiagnostics();
     verifyStaticAllocSafety();  // Verify SAC constraints before thunk generation
     validateSACParameters();      // Phase 3: Validate SAC parameter metadata
@@ -1240,6 +1241,113 @@ void O45Linker::writeSpecializationReport(std::ostream& out) const {
         }
 
         out << "  Profitable: " << (analysis.isProfitable ? "YES" : "NO") << "\n";
+        out << "\n";
+    }
+}
+
+// Phase 54: Analyze call site routing opportunities
+// Determines which calls can be routed to specializations vs dynamic dispatch
+void O45Linker::analyzeCallRouting() {
+    callRoutingAnalysis_.clear();
+
+    // For each function that has specializations
+    auto recommended = getRecommendedSpecializations();
+    for (const auto& [funcName, patterns] : recommended) {
+        CallRoutingAnalysis routing;
+        routing.functionName = funcName;
+        routing.needsDispatcher = patterns.size() > 1;  // Multiple specializations need dispatcher
+        routing.dispatcherName = funcName + "__dispatch";
+
+        // Find all call sites to this function from IR
+        // Build list of routable vs dynamic calls
+        int routableCount = 0;
+
+        for (const auto& [callerName, irFunc] : mergedIRFunctions_) {
+            // Look through call sites for calls to this function
+            for (const auto& callSite : irFunc.callSites) {
+                if (callSite.calleeName != funcName) continue;
+
+                CallSiteInfo siteInfo;
+                siteInfo.callSiteOffset = callSite.instructionOffset;
+                siteInfo.calleeName = funcName;
+
+                // Check if this call site has a matching specialization pattern
+                bool hasMatchingPattern = false;
+                for (const auto& pattern : patterns) {
+                    // Check if call site arguments match pattern
+                    if (callSite.paramValues.size() == pattern.size()) {
+                        bool matches = true;
+                        siteInfo.argumentPattern.clear();
+
+                        for (size_t i = 0; i < pattern.size(); i++) {
+                            if (!callSite.paramIsConst[i] || callSite.paramValues[i] != pattern[i]) {
+                                matches = false;
+                                break;
+                            }
+                            siteInfo.argumentPattern.push_back(callSite.paramValues[i]);
+                        }
+
+                        if (matches) {
+                            hasMatchingPattern = true;
+                            siteInfo.isConstantPattern = true;
+                            siteInfo.targetFunction = funcName + "__"; // Will be filled with pattern suffix
+                            for (int64_t v : pattern) {
+                                siteInfo.targetFunction += std::to_string(v) + "_";
+                            }
+                            siteInfo.targetFunction.pop_back();  // Remove trailing underscore
+                            routing.routableCalls.push_back(siteInfo);
+                            routableCount++;
+                            break;
+                        }
+                    }
+                }
+
+                if (!hasMatchingPattern) {
+                    siteInfo.isConstantPattern = false;
+                    routing.dynamicCalls.push_back(siteInfo);
+                }
+            }
+        }
+
+        routing.totalCalls = routableCount + (int)routing.dynamicCalls.size();
+        if (routing.totalCalls > 0) {
+            routing.routablePercentage = (float)routableCount / (float)routing.totalCalls * 100.0f;
+        }
+
+        if (warnStream_) {
+            *warnStream_ << "INFO: Call routing for " << funcName << ": "
+                        << routableCount << "/" << routing.totalCalls << " routable ("
+                        << routing.routablePercentage << "%)" << std::endl;
+        }
+
+        if (!routing.routableCalls.empty() || !routing.dynamicCalls.empty()) {
+            callRoutingAnalysis_[funcName] = routing;
+        }
+    }
+}
+
+// Phase 54: Write call routing report for debugging
+void O45Linker::writeCallRoutingReport(std::ostream& out) const {
+    out << "=== Call Routing Report ===\n\n";
+
+    for (const auto& [funcName, routing] : callRoutingAnalysis_) {
+        out << "Function: " << funcName << "\n";
+        out << "  Total calls: " << routing.totalCalls << "\n";
+        out << "  Routable: " << routing.routableCalls.size() << " (" << routing.routablePercentage << "%)\n";
+        out << "  Dynamic: " << routing.dynamicCalls.size() << "\n";
+
+        if (routing.needsDispatcher) {
+            out << "  Dispatcher: " << routing.dispatcherName << "\n";
+        }
+
+        if (!routing.routableCalls.empty()) {
+            out << "  Routable call sites:\n";
+            for (const auto& site : routing.routableCalls) {
+                out << "    -> " << site.targetFunction << " (offset 0x"
+                    << std::hex << site.callSiteOffset << std::dec << ")\n";
+            }
+        }
+
         out << "\n";
     }
 }

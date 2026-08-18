@@ -292,3 +292,37 @@ struct SpecializationAnalysis {
     bool isProfitable = false;          // Worth generating specialization
     float topPatternFrequency = 0.0f;   // Frequency of most common pattern
 };
+
+// =============================================================================
+// Call Site Routing (Phase 54)
+// =============================================================================
+
+// Information about a specific call site that can be routed
+struct CallSiteInfo {
+    uint32_t callSiteOffset = 0;        // Offset of JSR instruction in code
+    std::string calleeName;             // Called function
+    SpecializationPattern argumentPattern; // Detected constant arguments
+    std::string targetFunction;         // Specialized function to call
+    bool isConstantPattern = false;     // All arguments are constant
+    bool hasDispatcher = false;         // Uses dispatcher stub
+};
+
+// Routing table for a function
+struct FunctionRoutingTable {
+    std::string functionName;           // Function being called
+    std::vector<std::string> specializedVersions;  // Available specializations
+    std::vector<CallSiteInfo> callSites;           // Call sites for this function
+    bool usesDispatcher = false;        // Whether to use dispatcher
+    std::string dispatcherName;         // Generated dispatcher function name
+};
+
+// Call routing analysis: per-function information about where calls go
+struct CallRoutingAnalysis {
+    std::string functionName;           // Function being analyzed
+    std::string dispatcherName;         // Generated dispatcher function name
+    std::vector<CallSiteInfo> routableCalls;       // Calls that can be routed
+    std::vector<CallSiteInfo> dynamicCalls;        // Calls with non-constant args
+    int totalCalls = 0;                 // Total call count
+    float routablePercentage = 0.0f;    // % of calls that are routable
+    bool needsDispatcher = false;       // Whether dispatcher is needed
+};
