@@ -224,15 +224,8 @@ void O45Writer::emitHeader(std::vector<uint8_t>& out) const {
 
     // Extended CPU ID byte (1 byte)
     out.push_back(cpuId_);
-
-    // Phase 49: IR Metadata version (2 bytes if present, 0,0 if not)
-    if (hasIR_) {
-        out.push_back(irMetadata_.majorVersion);
-        out.push_back(irMetadata_.minorVersion);
-    } else {
-        out.push_back(0);
-        out.push_back(0);
-    }
+    // Total header: 41 bytes (fixed format per O45 spec)
+    // IR metadata is stored in options section, not header
 }
 
 // --- Option headers ---
