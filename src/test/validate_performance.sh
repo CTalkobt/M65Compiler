@@ -132,10 +132,33 @@ test_cc45() {
     local level="$1"
     local flags="$2"
     local description="$3"
+    local test_type="${4:-io}"  # "io" for I/O-heavy, "compute" for computation-heavy
 
     print_header "$description"
 
+    # Use computation-heavy test for better optimization differentiation
     local source="$TEST_DIR/test_short.c"
+    if [ "$test_type" = "compute" ]; then
+        source="/tmp/fib_compute_test.c"
+        # Create computation-heavy test if it doesn't exist
+        if [ ! -f "$source" ]; then
+            cat > "$source" << 'TESTEOF'
+int fib(int n) {
+    if (n <= 1) return n;
+    return fib(n - 1) + fib(n - 2);
+}
+
+int main() {
+    volatile int r0 = 0, r1 = 0, r2 = 0, r3 = 0;
+    r0 = fib(8);
+    r1 = fib(9);
+    r2 = fib(10);
+    r3 = fib(11);
+    return r0 + r1 + r2 + r3;
+}
+TESTEOF
+        fi
+    fi
     local object="$BUILD_DIR/fib_cc45_$level.o45"
     local binary="$BUILD_DIR/fib_cc45_${level}.prg"
     local assembly="$BUILD_DIR/fib_cc45_${level}.s45"
