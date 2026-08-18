@@ -167,6 +167,19 @@ public:
         return dispatcherBinary_;
     }
 
+    // Phase 63: Verify dispatcher symbol resolution
+    bool verifyDispatcherSymbols(std::string& report);
+
+    // Phase 63: Get dispatcher symbol verification count
+    int getDispatcherSymbolsVerified() const {
+        return dispatcherSymbolsVerified_;
+    }
+
+    // Phase 63: Check if all dispatcher symbols resolved
+    bool areAllDispatcherSymbolsResolved() const {
+        return allDispatcherSymbolsResolved_;
+    }
+
     // Query if a specific parameter is specialized (constant)
     bool isParameterSpecialized(const std::string& funcName, int paramIdx, int64_t& outValue) const {
         auto it = specializedParams_.find(funcName);
@@ -340,6 +353,12 @@ private:
     // Binary output after dispatcher linking
     std::vector<uint8_t> dispatcherBinary_;
 
+    // Phase 63: Symbol verification
+    // Number of dispatcher symbols verified
+    int dispatcherSymbolsVerified_ = 0;
+    // Whether all dispatcher symbols resolved
+    bool allDispatcherSymbolsResolved_ = false;
+
     bool resolveLibraries(std::string& errorMsg);
     bool layoutSegments(std::string& errorMsg);
     bool resolveSymbols(std::string& errorMsg);
@@ -360,6 +379,7 @@ private:
     bool writeDispatcherAssemblyFile(const std::string& filepath, std::string& errorMsg);  // Phase 60: Write to file
     bool assembleDispatcherFile(const std::string& ca45Path, std::string& errorMsg);  // Phase 61: Assemble with ca45
     bool relinkWithDispatcher(std::string& errorMsg, bool isPrg = false);  // Phase 62: Re-link with dispatcher
+    bool verifyDispatcherSymbols(std::string& report);  // Phase 63: Verify symbol resolution
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata

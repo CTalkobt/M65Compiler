@@ -1924,6 +1924,95 @@ bool O45Linker::relinkWithDispatcher(std::string& errorMsg, bool isPrg) {
     return true;
 }
 
+// Phase 63: Verify dispatcher symbol resolution
+bool O45Linker::verifyDispatcherSymbols(std::string& report) {
+    // Reset verification counters
+    dispatcherSymbolsVerified_ = 0;
+    allDispatcherSymbolsResolved_ = false;
+
+    // Check if dispatcher was linked
+    if (!dispatcherLinked_) {
+        report = "Dispatcher not linked - verification skipped";
+        if (warnStream_) {
+            *warnStream_ << "ln45: Phase 63: " << report << "\n";
+        }
+        return true;  // Not an error
+    }
+
+    if (warnStream_) {
+        *warnStream_ << "ln45: Phase 63: Verifying dispatcher symbol resolution\n";
+    }
+
+    // Count dispatcher-related symbols from dispatcherAnalysis
+    int expectedDispatcherSymbols = 0;
+    for (const auto& [funcName, analysis] : dispatcherAnalysis_) {
+        for (const auto& dispatcher : analysis.dispatchers) {
+            if (dispatcher.generateDispatcher) {
+                expectedDispatcherSymbols++;  // Dispatcher stub symbol
+                expectedDispatcherSymbols += dispatcher.routes.size();  // Route targets
+            }
+        }
+    }
+
+    if (expectedDispatcherSymbols == 0) {
+        report = "No dispatcher symbols to verify";
+        if (warnStream_) {
+            *warnStream_ << "ln45: Phase 63: " << report << "\n";
+        }
+        return true;
+    }
+
+    if (warnStream_) {
+        *warnStream_ << "ln45: Phase 63: Expected dispatcher symbols: " << expectedDispatcherSymbols << "\n";
+    }
+
+    // Check global symbol table for dispatcher symbols
+    int resolvedCount = 0;
+    int unresolved = 0;
+
+    for (const auto& [symName, symInfo] : symTab_) {
+        // Check if this is a dispatcher-related symbol
+        if (symName.find("__dispatch") != std::string::npos ||
+            symName.find("_dispatch_") != std::string::npos) {
+
+            // Verify symbol is resolved (has valid address)
+            if (symInfo.address != 0 || symName.find("__dispatch_fallback") != std::string::npos) {
+                resolvedCount++;
+                if (warnStream_) {
+                    *warnStream_ << "ln45: Phase 63:   [OK] " << symName
+                                << " @ 0x" << std::hex << symInfo.address << std::dec << "\n";
+                }
+            } else {
+                unresolved++;
+                if (warnStream_) {
+                    *warnStream_ << "ln45: Phase 63:   [UNRESOLVED] " << symName << "\n";
+                }
+            }
+        }
+    }
+
+    dispatcherSymbolsVerified_ = resolvedCount;
+    allDispatcherSymbolsResolved_ = (unresolved == 0 && resolvedCount > 0);
+
+    // Build report
+    report = "Dispatcher symbol verification:\n";
+    report += "  Expected: " + std::to_string(expectedDispatcherSymbols) + " symbols\n";
+    report += "  Resolved: " + std::to_string(resolvedCount) + " symbols\n";
+    report += "  Unresolved: " + std::to_string(unresolved) + " symbols\n";
+    report += allDispatcherSymbolsResolved_ ? "  Status: ALL RESOLVED\n" : "  Status: SOME UNRESOLVED\n";
+
+    if (warnStream_) {
+        *warnStream_ << "ln45: Phase 63: " << report;
+        if (allDispatcherSymbolsResolved_) {
+            *warnStream_ << "ln45: Phase 63: Dispatcher symbols verified successfully\n";
+        } else {
+            *warnStream_ << "ln45: Phase 63: WARNING: Some dispatcher symbols unresolved\n";
+        }
+    }
+
+    return true;
+}
+
 // Phase 56: Generate dispatcher stubs for multi-specialization cases
 void O45Linker::generateDispatchers() {
     dispatcherAnalysis_.clear();
