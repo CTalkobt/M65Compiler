@@ -117,6 +117,14 @@ public:
     // Phase 57: Generate assembly for a specific dispatcher stub
     std::string emitDispatcherStub(const DispatcherStub& stub) const;
 
+    // Phase 58: Integrate dispatcher assembly into link output
+    void integrateDispatcherAssembly();
+
+    // Phase 58: Get dispatcher assembly output for emission
+    const std::string& getDispatcherAssemblyOutput() const {
+        return dispatcherAssemblyOutput_;
+    }
+
     // Query if a specific parameter is specialized (constant)
     bool isParameterSpecialized(const std::string& funcName, int paramIdx, int64_t& outValue) const {
         auto it = specializedParams_.find(funcName);
@@ -266,6 +274,10 @@ private:
     // Maps function name → dispatcher stub information for multi-specialization routing
     std::map<std::string, DispatcherAnalysis> dispatcherAnalysis_;
 
+    // Phase 58: Dispatcher assembly output
+    // Generated assembly code for dispatcher stubs ready to emit
+    std::string dispatcherAssemblyOutput_;
+
     bool resolveLibraries(std::string& errorMsg);
     bool layoutSegments(std::string& errorMsg);
     bool resolveSymbols(std::string& errorMsg);
@@ -281,6 +293,7 @@ private:
     void generateDispatchers();         // Phase 56: Generate dispatcher stubs for multi-specialization
     std::string emitDispatcherAssembly() const;  // Phase 57: Emit dispatcher assembly code
     std::string emitDispatcherStub(const DispatcherStub& stub) const;  // Phase 57: Emit single dispatcher
+    void integrateDispatcherAssembly();  // Phase 58: Integrate dispatcher assembly into output
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata
