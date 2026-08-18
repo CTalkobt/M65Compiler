@@ -3256,3 +3256,181 @@ std::string O45Linker::generateBenchmarkReport(const BenchmarkResult& result) {
 std::string O45Linker::formatBenchmarkReport(const BenchmarkResult& result) {
     return generateBenchmarkReport(result);
 }
+
+// Phase 69: Compare multiple benchmark results
+O45Linker::BenchmarkComparison O45Linker::compareBenchmarks(const std::vector<BenchmarkResult>& results) {
+    BenchmarkComparison comparison;
+
+    if (results.empty()) {
+        return comparison;
+    }
+
+    comparison.results = results;
+
+    // Aggregate totals
+    float compressionSum = 0.0f;
+    float overheadRatioSum = 0.0f;
+    int recommendedCount = 0;
+
+    for (size_t i = 0; i < results.size(); ++i) {
+        const auto& result = results[i];
+
+        // Track totals
+        comparison.totalBaselineSize += result.baselineSize;
+        comparison.totalOptimizedSize += result.optimizedSize;
+        comparison.totalSavings += result.codeSizeReduction;
+
+        // Track averages
+        compressionSum += result.compressionPercent;
+        overheadRatioSum += result.overheadRatio;
+
+        // Count recommended
+        if (result.worthOptimizing) {
+            recommendedCount++;
+        }
+
+        // Track best and worst
+        if (comparison.bestProgram == -1 ||
+            result.compressionPercent > results[comparison.bestProgram].compressionPercent) {
+            comparison.bestProgram = i;
+        }
+        if (comparison.worstProgram == -1 ||
+            result.compressionPercent < results[comparison.worstProgram].compressionPercent) {
+            comparison.worstProgram = i;
+        }
+    }
+
+    // Calculate averages
+    comparison.avgCompressionPercent = compressionSum / (float)results.size();
+    comparison.avgOverheadRatio = overheadRatioSum / (float)results.size();
+    comparison.recommendedCount = recommendedCount;
+    comparison.recommendationRatio = (float)recommendedCount / (float)results.size() * 100.0f;
+
+    return comparison;
+}
+
+// Phase 69: Generate comparison report
+std::string O45Linker::generateComparisonReport(const BenchmarkComparison& comparison) {
+    std::ostringstream out;
+
+    if (comparison.results.empty()) {
+        out << "No benchmark results to compare.\n";
+        return out.str();
+    }
+
+    // Header
+    out << "=== Multi-Program Benchmark Comparison Report ===\n\n";
+    out << "Programs analyzed: " << comparison.results.size() << "\n";
+    out << std::string(55, '=') << "\n\n";
+
+    // 1. Overall Statistics
+    out << "1. Overall Statistics\n";
+    out << "   Total baseline size:   " << comparison.totalBaselineSize << " bytes\n";
+    out << "   Total optimized size:  " << comparison.totalOptimizedSize << " bytes\n";
+    out << "   Total savings:         " << comparison.totalSavings << " bytes";
+    if (comparison.totalBaselineSize > 0) {
+        float totalCompression = (float)comparison.totalSavings / (float)comparison.totalBaselineSize * 100.0f;
+        out << " (" << std::fixed << std::setprecision(1) << totalCompression << "%)";
+    }
+    out << "\n\n";
+
+    // 2. Average Metrics
+    out << "2. Average Metrics Across Programs\n";
+    out << "   Average compression:   " << std::fixed << std::setprecision(1)
+        << comparison.avgCompressionPercent << "%\n";
+    out << "   Average overhead:      " << std::fixed << std::setprecision(2)
+        << comparison.avgOverheadRatio << "x\n";
+    out << "   Programs recommended:  " << comparison.recommendedCount << " / "
+        << comparison.results.size() << " (" << std::fixed << std::setprecision(0)
+        << comparison.recommendationRatio << "%)\n\n";
+
+    // 3. Per-Program Summary
+    out << "3. Per-Program Summary\n";
+    for (size_t i = 0; i < comparison.results.size(); ++i) {
+        const auto& result = comparison.results[i];
+        out << "   " << (i + 1) << ". " << result.programName << "\n";
+        out << "      Size: " << result.baselineSize << " → " << result.optimizedSize
+            << " bytes (" << std::fixed << std::setprecision(1) << result.compressionPercent << "%)\n";
+        out << "      Overhead: " << std::fixed << std::setprecision(2) << result.overheadRatio << "x";
+        out << " [" << (result.worthOptimizing ? "RECOMMENDED" : "NOT RECOMMENDED") << "]\n";
+    }
+    out << "\n";
+
+    // 4. Best and Worst Performers
+    out << "4. Performance Ranking\n";
+    if (comparison.bestProgram >= 0) {
+        out << "   Best compression:   " << comparison.results[comparison.bestProgram].programName
+            << " (" << std::fixed << std::setprecision(1)
+            << comparison.results[comparison.bestProgram].compressionPercent << "%)\n";
+    }
+    if (comparison.worstProgram >= 0) {
+        out << "   Worst compression:  " << comparison.results[comparison.worstProgram].programName
+            << " (" << std::fixed << std::setprecision(1)
+            << comparison.results[comparison.worstProgram].compressionPercent << "%)\n";
+    }
+    out << "\n";
+
+    // 5. Recommendation Summary
+    out << "5. Optimization Recommendation Summary\n";
+    if (comparison.recommendationRatio >= 80.0f) {
+        out << "   Overall assessment:   HIGHLY RECOMMENDED for all programs\n";
+        out << "   Strategy:             Deploy dispatcher optimization across all builds\n";
+    } else if (comparison.recommendationRatio >= 50.0f) {
+        out << "   Overall assessment:   RECOMMENDED for majority of programs\n";
+        out << "   Strategy:             Selective deployment - enable for high-benefit programs\n";
+    } else if (comparison.recommendationRatio > 0.0f) {
+        out << "   Overall assessment:   LIMITED RECOMMENDATION\n";
+        out << "   Strategy:             Case-by-case evaluation required\n";
+    } else {
+        out << "   Overall assessment:   NOT RECOMMENDED\n";
+        out << "   Strategy:             Consider alternative optimizations\n";
+    }
+    out << "\n";
+
+    // 6. Insights and Patterns
+    out << "6. Insights and Patterns\n";
+    out << "   Average benefit:       " << std::fixed << std::setprecision(1)
+        << comparison.avgCompressionPercent << "% code reduction\n";
+    out << "   Average efficiency:    Dispatcher overhead = " << std::fixed << std::setprecision(2)
+        << comparison.avgOverheadRatio << "x specialization savings\n";
+
+    // Variability analysis
+    float maxCompression = comparison.results.empty() ? 0 : comparison.results[comparison.bestProgram].compressionPercent;
+    float minCompression = comparison.results.empty() ? 0 : comparison.results[comparison.worstProgram].compressionPercent;
+    float range = maxCompression - minCompression;
+
+    if (range < 5.0f) {
+        out << "   Result consistency:   CONSISTENT across all programs\n";
+    } else if (range < 15.0f) {
+        out << "   Result consistency:   MODERATE variation between programs\n";
+    } else {
+        out << "   Result consistency:   HIGH variation - program-specific benefits\n";
+    }
+    out << "\n";
+
+    // 7. Deployment Guidance
+    out << "7. Deployment Guidance\n";
+    if (comparison.recommendationRatio >= 80.0f) {
+        out << "   Action: Enable dispatcher optimization by default\n";
+        out << "   Rationale: Consistently beneficial across all test programs\n";
+    } else if (comparison.recommendationRatio >= 50.0f) {
+        out << "   Action: Enable for programs with >10% compression\n";
+        out << "   Rationale: Significant benefit with acceptable overhead\n";
+    } else {
+        out << "   Action: Evaluate per-program with profiling\n";
+        out << "   Rationale: Benefits vary widely; manual tuning recommended\n";
+    }
+    out << "\n";
+
+    return out.str();
+}
+
+// Phase 69: Aggregate benchmarks (internal helper)
+O45Linker::BenchmarkComparison O45Linker::aggregateBenchmarks(const std::vector<BenchmarkResult>& results) {
+    return compareBenchmarks(results);
+}
+
+// Phase 69: Format comparison report (internal helper)
+std::string O45Linker::formatComparisonReport(const BenchmarkComparison& comparison) {
+    return generateComparisonReport(comparison);
+}

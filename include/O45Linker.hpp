@@ -212,6 +212,22 @@ public:
     // Phase 68: Generate benchmark report with recommendations
     std::string generateBenchmarkReport(const BenchmarkResult& result);
 
+    // Phase 69: Multi-program benchmark comparison
+    struct BenchmarkComparison {
+        std::vector<BenchmarkResult> results;     // All benchmark results
+        float avgCompressionPercent = 0.0f;       // Average compression across programs
+        float avgOverheadRatio = 0.0f;            // Average overhead ratio
+        int totalBaselineSize = 0;                // Total baseline bytes
+        int totalOptimizedSize = 0;               // Total optimized bytes
+        int totalSavings = 0;                     // Total bytes saved
+        int bestProgram = -1;                     // Index of best compression
+        int worstProgram = -1;                    // Index of worst compression
+        int recommendedCount = 0;                 // Programs recommended for optimization
+        float recommendationRatio = 0.0f;         // Percentage recommended
+    };
+    BenchmarkComparison compareBenchmarks(const std::vector<BenchmarkResult>& results);
+    std::string generateComparisonReport(const BenchmarkComparison& comparison);
+
     // Query if a specific parameter is specialized (constant)
     bool isParameterSpecialized(const std::string& funcName, int paramIdx, int64_t& outValue) const {
         auto it = specializedParams_.find(funcName);
@@ -405,6 +421,8 @@ private:
     void analyzeInlining();             // Phase 55: Analyze cross-module inlining opportunities
     BenchmarkResult calculateBenchmarkMetrics(const std::string& programName);  // Phase 67: Calculate benchmark metrics
     std::string formatBenchmarkReport(const BenchmarkResult& result);  // Phase 68: Format report
+    BenchmarkComparison aggregateBenchmarks(const std::vector<BenchmarkResult>& results);  // Phase 69: Aggregate metrics
+    std::string formatComparisonReport(const BenchmarkComparison& comparison);  // Phase 69: Format comparison
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata
