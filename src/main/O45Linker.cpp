@@ -1,5 +1,6 @@
 #include "O45Linker.hpp"
 #include <algorithm>
+#include <fstream>
 #include <iomanip>
 #include <numeric>
 #include <queue>
@@ -1700,6 +1701,68 @@ void O45Linker::emitDispatcherAssemblyOutput() {
     // - Assemble with ca45
     // - Link dispatcher object into final binary
     // - Update symbol table with dispatcher addresses
+}
+
+// Phase 60: Write dispatcher assembly to file
+bool O45Linker::writeDispatcherAssemblyFile(const std::string& filepath, std::string& errorMsg) {
+    // Clear previous file path
+    dispatcherAssemblyFilePath_.clear();
+
+    // If no dispatcher assembly, nothing to write
+    if (dispatcherAssemblyOutput_.empty()) {
+        if (warnStream_) {
+            *warnStream_ << "ln45: Phase 60: No dispatcher assembly to write\n";
+        }
+        return true;  // Not an error - just no dispatcher code
+    }
+
+    // Add .s45 extension if not present
+    std::string outputFile = filepath;
+    if (outputFile.rfind(".s45") != outputFile.length() - 4) {
+        outputFile += ".s45";
+    }
+
+    if (warnStream_) {
+        *warnStream_ << "ln45: Phase 60: Writing dispatcher assembly to '" << outputFile << "'\n";
+    }
+
+    // Open file for writing
+    std::ofstream file(outputFile, std::ios::binary);
+    if (!file.is_open()) {
+        errorMsg = "cannot open dispatcher assembly file for writing: " + outputFile;
+        if (warnStream_) {
+            *warnStream_ << "ln45: Phase 60: ERROR: " << errorMsg << "\n";
+        }
+        return false;
+    }
+
+    // Write dispatcher assembly to file
+    file << dispatcherAssemblyOutput_;
+
+    // Check for write errors
+    if (!file.good()) {
+        errorMsg = "error writing dispatcher assembly to file: " + outputFile;
+        file.close();
+        if (warnStream_) {
+            *warnStream_ << "ln45: Phase 60: ERROR: " << errorMsg << "\n";
+        }
+        return false;
+    }
+
+    file.close();
+
+    // Store file path for tracking
+    dispatcherAssemblyFilePath_ = outputFile;
+
+    if (warnStream_) {
+        *warnStream_ << "ln45: Phase 60: Wrote " << dispatcherAssemblyOutput_.size()
+                    << " bytes to dispatcher assembly file\n";
+        *warnStream_ << "ln45: Phase 60: Dispatcher assembly ready for ca45 assembler\n";
+        *warnStream_ << "ln45: Phase 60: Next: ca45 " << outputFile
+                    << " -o dispatcher.o45\n";
+    }
+
+    return true;
 }
 
 // Phase 56: Generate dispatcher stubs for multi-specialization cases

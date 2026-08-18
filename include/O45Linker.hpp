@@ -133,6 +133,14 @@ public:
     // Phase 59: Emit dispatcher assembly to output
     void emitDispatcherAssemblyOutput();
 
+    // Phase 60: Write dispatcher assembly to file
+    bool writeDispatcherAssemblyFile(const std::string& filepath, std::string& errorMsg);
+
+    // Phase 60: Get dispatcher assembly file path
+    const std::string& getDispatcherAssemblyFilePath() const {
+        return dispatcherAssemblyFilePath_;
+    }
+
     // Query if a specific parameter is specialized (constant)
     bool isParameterSpecialized(const std::string& funcName, int paramIdx, int64_t& outValue) const {
         auto it = specializedParams_.find(funcName);
@@ -290,6 +298,10 @@ private:
     // Count of dispatcher stubs emitted to output
     int dispatcherStubsEmitted_ = 0;
 
+    // Phase 60: Dispatcher file output
+    // Path to dispatcher assembly file written
+    std::string dispatcherAssemblyFilePath_;
+
     bool resolveLibraries(std::string& errorMsg);
     bool layoutSegments(std::string& errorMsg);
     bool resolveSymbols(std::string& errorMsg);
@@ -307,6 +319,7 @@ private:
     std::string emitDispatcherStub(const DispatcherStub& stub) const;  // Phase 57: Emit single dispatcher
     void integrateDispatcherAssembly();  // Phase 58: Integrate dispatcher assembly into output
     void emitDispatcherAssemblyOutput();  // Phase 59: Emit dispatcher assembly to output
+    bool writeDispatcherAssemblyFile(const std::string& filepath, std::string& errorMsg);  // Phase 60: Write to file
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata
