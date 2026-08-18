@@ -1837,6 +1837,93 @@ bool O45Linker::assembleDispatcherFile(const std::string& ca45Path, std::string&
     return true;
 }
 
+// Phase 62: Re-link with dispatcher object
+bool O45Linker::relinkWithDispatcher(std::string& errorMsg, bool isPrg) {
+    // Check if dispatcher object file is available
+    if (dispatcherObjectFilePath_.empty()) {
+        if (warnStream_) {
+            *warnStream_ << "ln45: Phase 62: No dispatcher object file to link\n";
+        }
+        return true;  // Not an error - just no dispatcher code
+    }
+
+    if (warnStream_) {
+        *warnStream_ << "ln45: Phase 62: Re-linking with dispatcher object\n";
+        *warnStream_ << "ln45: Phase 62: Loading dispatcher object: " << dispatcherObjectFilePath_ << "\n";
+    }
+
+    // Read dispatcher object file
+    std::ifstream objFile(dispatcherObjectFilePath_, std::ios::binary);
+    if (!objFile.is_open()) {
+        errorMsg = "cannot open dispatcher object file: " + dispatcherObjectFilePath_;
+        if (warnStream_) {
+            *warnStream_ << "ln45: Phase 62: ERROR: " << errorMsg << "\n";
+        }
+        return false;
+    }
+
+    // Read file contents
+    std::vector<char> objData((std::istreambuf_iterator<char>(objFile)), std::istreambuf_iterator<char>());
+    objFile.close();
+
+    if (objData.empty()) {
+        errorMsg = "dispatcher object file is empty: " + dispatcherObjectFilePath_;
+        if (warnStream_) {
+            *warnStream_ << "ln45: Phase 62: ERROR: " << errorMsg << "\n";
+        }
+        return false;
+    }
+
+    if (warnStream_) {
+        *warnStream_ << "ln45: Phase 62: Loaded dispatcher object (" << objData.size()
+                    << " bytes)\n";
+        *warnStream_ << "ln45: Phase 62: Adding dispatcher object to linker\n";
+    }
+
+    // Parse dispatcher object file
+    O45File dispatcherObj;
+    try {
+        O45Reader reader;
+        dispatcherObj = reader.parse(reinterpret_cast<const uint8_t*>(objData.data()), objData.size());
+    } catch (const std::exception& e) {
+        errorMsg = std::string("failed to parse dispatcher object file: ") + e.what();
+        if (warnStream_) {
+            *warnStream_ << "ln45: Phase 62: ERROR: " << errorMsg << "\n";
+        }
+        return false;
+    }
+
+    if (warnStream_) {
+        *warnStream_ << "ln45: Phase 62: Dispatcher object parsed successfully\n";
+        *warnStream_ << "ln45: Phase 62: Re-linking all objects with dispatcher\n";
+    }
+
+    // Add dispatcher object to linker
+    addObject("dispatcher.o45", dispatcherObj);
+
+    // Re-link with dispatcher object included
+    dispatcherBinary_ = link(errorMsg, isPrg);
+
+    if (dispatcherBinary_.empty() && !errorMsg.empty()) {
+        if (warnStream_) {
+            *warnStream_ << "ln45: Phase 62: ERROR: Re-linking failed: " << errorMsg << "\n";
+        }
+        return false;
+    }
+
+    // Mark dispatcher as linked
+    dispatcherLinked_ = true;
+
+    if (warnStream_) {
+        *warnStream_ << "ln45: Phase 62: Re-linking successful\n";
+        *warnStream_ << "ln45: Phase 62: Final binary size with dispatcher: " << dispatcherBinary_.size()
+                    << " bytes\n";
+        *warnStream_ << "ln45: Phase 62: Dispatcher successfully integrated into final binary\n";
+    }
+
+    return true;
+}
+
 // Phase 56: Generate dispatcher stubs for multi-specialization cases
 void O45Linker::generateDispatchers() {
     dispatcherAnalysis_.clear();
