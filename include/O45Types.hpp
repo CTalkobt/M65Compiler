@@ -352,3 +352,37 @@ struct InliningAnalysis {
     int selectableCount = 0;            // Count of profitable candidates
     float averageBenefit = 0.0f;        // Average benefit ratio
 };
+
+// =============================================================================
+// Dispatcher Generation (Phase 56)
+// =============================================================================
+
+// Dispatcher route: maps argument pattern to target function
+struct DispatcherRoute {
+    std::vector<uint32_t> argumentPattern;  // Constant argument values
+    std::string targetFunction;             // Specialized version to call
+    uint32_t callCount = 0;                 // Times this pattern appears
+};
+
+// Dispatcher stub information
+struct DispatcherStub {
+    std::string dispatcherName;             // Name of dispatcher (_func__dispatch)
+    std::string genericFunction;            // Fallback generic function
+    std::vector<DispatcherRoute> routes;    // Pattern→target mappings
+    int totalRoutes = 0;                    // Number of routes
+    int routableCalls = 0;                  // Total calls to routable versions
+    int dynamicCalls = 0;                   // Calls handled by dispatcher
+    float estimatedCodeSize = 0.0f;         // Estimated dispatcher size
+    bool generateDispatcher = false;        // Should emit dispatcher code
+};
+
+// Dispatcher generation analysis results
+struct DispatcherAnalysis {
+    std::string functionName;               // Function being dispatched
+    std::vector<DispatcherStub> dispatchers;  // Dispatcher stubs to generate
+    int totalSpecializations = 0;           // Number of specialized versions
+    int dispatchersNeeded = 0;              // Count of stubs needed
+    int totalDispatchCodeSize = 0;          // Total bytes for all dispatchers
+    bool usesStaticRouting = false;         // All calls route to known versions
+    bool usesDynamicDispatch = false;       // Needs runtime dispatch logic
+};

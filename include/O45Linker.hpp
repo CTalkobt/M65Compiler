@@ -100,6 +100,17 @@ public:
     // Phase 55: Write inlining report for debugging
     void writeInliningReport(std::ostream& out) const;
 
+    // Phase 56: Generate dispatcher stubs for multi-specialization cases
+    void generateDispatchers();
+
+    // Phase 56: Get dispatcher analysis for a function
+    const std::map<std::string, DispatcherAnalysis>& getDispatcherAnalysis() const {
+        return dispatcherAnalysis_;
+    }
+
+    // Phase 56: Write dispatcher report for debugging
+    void writeDispatcherReport(std::ostream& out) const;
+
     // Query if a specific parameter is specialized (constant)
     bool isParameterSpecialized(const std::string& funcName, int paramIdx, int64_t& outValue) const {
         auto it = specializedParams_.find(funcName);
@@ -245,6 +256,10 @@ private:
     // Maps calling site → inlining candidates for cross-module optimization
     std::map<std::string, InliningAnalysis> inliningAnalysis_;
 
+    // Phase 56: Dispatcher generation analysis
+    // Maps function name → dispatcher stub information for multi-specialization routing
+    std::map<std::string, DispatcherAnalysis> dispatcherAnalysis_;
+
     bool resolveLibraries(std::string& errorMsg);
     bool layoutSegments(std::string& errorMsg);
     bool resolveSymbols(std::string& errorMsg);
@@ -257,6 +272,7 @@ private:
     void analyzeSpecializations();      // Phase 52: Analyze profitable specialization patterns
     void analyzeCallRouting();          // Phase 54: Analyze call site routing to specializations
     void analyzeInlining();             // Phase 55: Analyze cross-module inlining opportunities
+    void generateDispatchers();         // Phase 56: Generate dispatcher stubs for multi-specialization
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata

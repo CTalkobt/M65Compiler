@@ -760,6 +760,7 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     analyzeSpecializations();      // Phase 52: Analyze profitable specialization patterns
     analyzeCallRouting();          // Phase 54: Analyze call site routing
     analyzeInlining();             // Phase 55: Analyze cross-module inlining
+    generateDispatchers();         // Phase 56: Generate dispatcher stubs for multi-specialization
     emitDiagnostics();
     verifyStaticAllocSafety();  // Verify SAC constraints before thunk generation
     validateSACParameters();      // Phase 3: Validate SAC parameter metadata
@@ -1444,6 +1445,133 @@ void O45Linker::writeInliningReport(std::ostream& out) const {
                 << (cand.benefitRatio * 100.0f) << "%)";
             if (cand.isSpecialized) out << " [specialized]";
             out << "\n";
+        }
+
+        out << "\n";
+    }
+}
+
+// Phase 56: Generate dispatcher stubs for multi-specialization cases
+void O45Linker::generateDispatchers() {
+    dispatcherAnalysis_.clear();
+
+    // For each function with call routing information
+    for (const auto& [funcName, routing] : callRoutingAnalysis_) {
+        if (routing.specializedVersions.empty()) continue;
+
+        DispatcherAnalysis analysis;
+        analysis.functionName = funcName;
+        analysis.totalSpecializations = routing.specializedVersions.size();
+
+        // Only need dispatcher if 2+ specializations exist
+        if (analysis.totalSpecializations < 2) continue;
+
+        // Create dispatcher stub for this function
+        DispatcherStub dispatcher;
+        dispatcher.dispatcherName = funcName + "__dispatch";
+        dispatcher.genericFunction = funcName;
+
+        // Extract routes from call routing analysis
+        // Map each routable call to its target specialization
+        int dynamicDispatchCalls = 0;
+        for (const auto& callSite : routing.routableCalls) {
+            DispatcherRoute route;
+            route.targetFunction = callSite.targetFunction;
+            route.argumentPattern = callSite.argumentPattern;
+            route.callCount = 1;  // Each call site counted
+
+            dispatcher.routes.push_back(route);
+            dispatcher.routableCalls++;
+        }
+
+        // Dynamic calls (non-routable) handled by dispatcher
+        dispatcher.dynamicCalls = routing.totalCalls - routing.routableCalls.size();
+        dispatcher.totalRoutes = dispatcher.routes.size();
+
+        // Estimate dispatcher code size:
+        // Base: ~20-30 bytes (dispatcher prologue/epilogue)
+        // Per-route: ~8-12 bytes (pattern match + JSR to specialized version)
+        // Fallback: ~3 bytes (JMP to generic)
+        int estimatedRouteSize = dispatcher.routes.size() * 10;  // ~10 bytes per route
+        dispatcher.estimatedCodeSize = 25 + estimatedRouteSize + 3;  // Base + routes + fallback
+
+        // Determine if dispatcher is needed
+        // Generate dispatcher if:
+        // 1. 2+ specializations exist
+        // 2. 2+ distinct call patterns routable OR dynamic calls present
+        bool multiplePatterns = dispatcher.routes.size() > 1;
+        bool hasDynamicCalls = dispatcher.dynamicCalls > 0;
+        dispatcher.generateDispatcher = multiplePatterns || hasDynamicCalls;
+
+        // Determine routing strategy
+        if (dispatcher.dynamicCalls == 0 && dispatcher.routes.size() == 1) {
+            // All calls route to same specialization (single pattern)
+            analysis.usesStaticRouting = true;
+        } else {
+            // Multiple patterns or dynamic calls need runtime dispatch
+            analysis.usesDynamicDispatch = true;
+        }
+
+        if (dispatcher.generateDispatcher) {
+            analysis.dispatchers.push_back(dispatcher);
+            analysis.dispatchersNeeded++;
+            analysis.totalDispatchCodeSize += (int)dispatcher.estimatedCodeSize;
+
+            if (warnStream_) {
+                *warnStream_ << "INFO: Dispatcher for " << funcName << ": "
+                            << dispatcher.routes.size() << " routes, "
+                            << dispatcher.dynamicCalls << " dynamic calls, "
+                            << (int)dispatcher.estimatedCodeSize << " bytes estimated"
+                            << std::endl;
+            }
+        }
+
+        if (analysis.dispatchersNeeded > 0) {
+            dispatcherAnalysis_[funcName] = analysis;
+        }
+    }
+}
+
+// Phase 56: Write dispatcher report for debugging
+void O45Linker::writeDispatcherReport(std::ostream& out) const {
+    out << "=== Dispatcher Generation Report ===\n\n";
+
+    for (const auto& [funcName, analysis] : dispatcherAnalysis_) {
+        out << "Function: " << funcName << "\n";
+        out << "  Specializations: " << analysis.totalSpecializations << "\n";
+        out << "  Dispatchers needed: " << analysis.dispatchersNeeded << "\n";
+        out << "  Total dispatcher code: " << analysis.totalDispatchCodeSize << " bytes\n";
+        out << "  Routing strategy: ";
+        if (analysis.usesStaticRouting) out << "static (single pattern)";
+        else if (analysis.usesDynamicDispatch) out << "dynamic (runtime dispatch)";
+        else out << "none";
+        out << "\n";
+
+        for (const auto& dispatcher : analysis.dispatchers) {
+            out << "    Dispatcher: " << dispatcher.dispatcherName << "\n";
+            out << "      Routes: " << dispatcher.totalRoutes << "\n";
+            out << "      Routable calls: " << dispatcher.routableCalls << "\n";
+            out << "      Dynamic calls: " << dispatcher.dynamicCalls << "\n";
+            out << "      Estimated size: " << (int)dispatcher.estimatedCodeSize << " bytes\n";
+
+            for (size_t i = 0; i < dispatcher.routes.size() && i < 5; ++i) {
+                const auto& route = dispatcher.routes[i];
+                out << "        Route " << (i + 1) << ": ";
+                if (!route.argumentPattern.empty()) {
+                    out << "{";
+                    for (size_t j = 0; j < route.argumentPattern.size(); ++j) {
+                        if (j > 0) out << ", ";
+                        out << route.argumentPattern[j];
+                    }
+                    out << "} → " << route.targetFunction;
+                } else {
+                    out << "* → " << route.targetFunction;
+                }
+                out << "\n";
+            }
+            if (dispatcher.routes.size() > 5) {
+                out << "        ... and " << (dispatcher.routes.size() - 5) << " more routes\n";
+            }
         }
 
         out << "\n";
