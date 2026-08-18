@@ -1765,6 +1765,78 @@ bool O45Linker::writeDispatcherAssemblyFile(const std::string& filepath, std::st
     return true;
 }
 
+// Phase 61: Assemble dispatcher assembly file with ca45
+bool O45Linker::assembleDispatcherFile(const std::string& ca45Path, std::string& errorMsg) {
+    // Reset counters
+    dispatchersAssembled_ = 0;
+    dispatcherObjectFilePath_.clear();
+
+    // Check if dispatcher assembly file was written
+    if (dispatcherAssemblyFilePath_.empty()) {
+        if (warnStream_) {
+            *warnStream_ << "ln45: Phase 61: No dispatcher assembly file to assemble\n";
+        }
+        return true;  // Not an error - just no dispatcher code
+    }
+
+    // Derive output object filename from assembly filename
+    std::string objectFile = dispatcherAssemblyFilePath_;
+    size_t dotPos = objectFile.rfind(".s45");
+    if (dotPos != std::string::npos) {
+        objectFile = objectFile.substr(0, dotPos) + ".o45";
+    } else {
+        objectFile += ".o45";
+    }
+
+    if (warnStream_) {
+        *warnStream_ << "ln45: Phase 61: Assembling dispatcher code with ca45\n";
+        *warnStream_ << "ln45: Phase 61: Input:  " << dispatcherAssemblyFilePath_ << "\n";
+        *warnStream_ << "ln45: Phase 61: Output: " << objectFile << "\n";
+    }
+
+    // Build ca45 command
+    std::string command = ca45Path + " \"" + dispatcherAssemblyFilePath_ + "\" -o \"" + objectFile + "\"";
+
+    if (warnStream_) {
+        *warnStream_ << "ln45: Phase 61: Executing: " << command << "\n";
+    }
+
+    // Execute ca45 assembler
+    int status = system(command.c_str());
+    if (status != 0) {
+        errorMsg = "ca45 assembler failed with status " + std::to_string(status) +
+                   " (assembly file: " + dispatcherAssemblyFilePath_ + ")";
+        if (warnStream_) {
+            *warnStream_ << "ln45: Phase 61: ERROR: " << errorMsg << "\n";
+        }
+        return false;
+    }
+
+    // Verify object file was created
+    std::ifstream objFile(objectFile);
+    if (!objFile.good()) {
+        errorMsg = "dispatcher object file not created: " + objectFile;
+        if (warnStream_) {
+            *warnStream_ << "ln45: Phase 61: ERROR: " << errorMsg << "\n";
+        }
+        return false;
+    }
+    objFile.close();
+
+    // Store object file path and count
+    dispatcherObjectFilePath_ = objectFile;
+    dispatchersAssembled_ = dispatcherStubsEmitted_;
+
+    if (warnStream_) {
+        *warnStream_ << "ln45: Phase 61: Dispatcher object file created successfully\n";
+        *warnStream_ << "ln45: Phase 61: Assembled " << dispatchersAssembled_
+                    << " dispatcher stubs\n";
+        *warnStream_ << "ln45: Phase 61: Next: Link dispatcher object into final binary\n";
+    }
+
+    return true;
+}
+
 // Phase 56: Generate dispatcher stubs for multi-specialization cases
 void O45Linker::generateDispatchers() {
     dispatcherAnalysis_.clear();

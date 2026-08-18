@@ -141,6 +141,19 @@ public:
         return dispatcherAssemblyFilePath_;
     }
 
+    // Phase 61: Assemble dispatcher assembly file with ca45
+    bool assembleDispatcherFile(const std::string& ca45Path, std::string& errorMsg);
+
+    // Phase 61: Get dispatcher object file path
+    const std::string& getDispatcherObjectFilePath() const {
+        return dispatcherObjectFilePath_;
+    }
+
+    // Phase 61: Get count of dispatchers assembled
+    int getDispatchersAssembled() const {
+        return dispatchersAssembled_;
+    }
+
     // Query if a specific parameter is specialized (constant)
     bool isParameterSpecialized(const std::string& funcName, int paramIdx, int64_t& outValue) const {
         auto it = specializedParams_.find(funcName);
@@ -302,6 +315,12 @@ private:
     // Path to dispatcher assembly file written
     std::string dispatcherAssemblyFilePath_;
 
+    // Phase 61: Dispatcher object file
+    // Path to dispatcher object file (.o45) after assembly
+    std::string dispatcherObjectFilePath_;
+    // Count of dispatchers assembled
+    int dispatchersAssembled_ = 0;
+
     bool resolveLibraries(std::string& errorMsg);
     bool layoutSegments(std::string& errorMsg);
     bool resolveSymbols(std::string& errorMsg);
@@ -320,6 +339,7 @@ private:
     void integrateDispatcherAssembly();  // Phase 58: Integrate dispatcher assembly into output
     void emitDispatcherAssemblyOutput();  // Phase 59: Emit dispatcher assembly to output
     bool writeDispatcherAssemblyFile(const std::string& filepath, std::string& errorMsg);  // Phase 60: Write to file
+    bool assembleDispatcherFile(const std::string& ca45Path, std::string& errorMsg);  // Phase 61: Assemble with ca45
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata
