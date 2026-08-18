@@ -3861,3 +3861,179 @@ O45Linker::RegressionAnalysis O45Linker::analyzeRegressions(const BenchmarkResul
 std::string O45Linker::formatRegressionReport(const RegressionAnalysis& analysis) {
     return generateRegressionReport(analysis);
 }
+
+// Phase 73: Analyze tuning opportunities
+O45Linker::TuningAnalysis O45Linker::analyzeTuningOpportunities(const BenchmarkResult& result,
+                                                                const OptimizationMetrics& metrics) {
+    TuningAnalysis analysis;
+
+    // 1. Dispatcher overhead tuning
+    if (metrics.dispatcherOverhead > 50) {
+        TuningRecommendation rec;
+        rec.parameterName = "Dispatcher Stub Optimization";
+        rec.currentValue = std::to_string(metrics.dispatcherOverhead) + " bytes";
+        rec.recommendedValue = "Enable compression";
+        rec.expectedImprovement = 5.0f;
+        rec.rationale = "Dispatcher stubs exceed 50 bytes; enable pattern compression";
+        rec.priority = 2;  // Medium
+        analysis.recommendations.push_back(rec);
+    }
+
+    // 2. Compression ratio tuning
+    if (metrics.compressionRatio < 0.3f && metrics.estimatedCodeSavings > 100) {
+        TuningRecommendation rec;
+        rec.parameterName = "Inlining Threshold";
+        rec.currentValue = "Current (5% minimum)";
+        rec.recommendedValue = "Relaxed (3% minimum)";
+        rec.expectedImprovement = 7.5f;
+        rec.rationale = "Low compression ratio; relax inlining threshold";
+        rec.priority = 2;  // Medium
+        analysis.recommendations.push_back(rec);
+    }
+
+    // 3. Call optimization coverage
+    if (metrics.optimizedCallsPercent < 50.0f) {
+        TuningRecommendation rec;
+        rec.parameterName = "Specialization Aggressiveness";
+        rec.currentValue = "Conservative";
+        rec.recommendedValue = "Moderate";
+        rec.expectedImprovement = 10.0f;
+        rec.rationale = "Low call optimization coverage; increase specialization";
+        rec.priority = 1;  // High
+        analysis.recommendations.push_back(rec);
+    }
+
+    // 4. Overhead ratio tuning
+    if (metrics.estimatedCodeSavings > 0 && metrics.dispatcherOverhead > metrics.estimatedCodeSavings * 0.7f) {
+        TuningRecommendation rec;
+        rec.parameterName = "Dispatcher Selectivity";
+        rec.currentValue = "All patterns";
+        rec.recommendedValue = "Top patterns only";
+        rec.expectedImprovement = 8.0f;
+        rec.rationale = "Dispatcher overhead is high relative to savings";
+        rec.priority = 2;  // Medium
+        analysis.recommendations.push_back(rec);
+    }
+
+    // 5. Code size reduction potential
+    if (result.codeSizeReduction < 50 && result.baselineSize > 1000) {
+        TuningRecommendation rec;
+        rec.parameterName = "Cross-Module Optimization";
+        rec.currentValue = "Module-local";
+        rec.recommendedValue = "Cross-module enabled";
+        rec.expectedImprovement = 6.0f;
+        rec.rationale = "Low code reduction; enable cross-module analysis";
+        rec.priority = 3;  // Low
+        analysis.recommendations.push_back(rec);
+    }
+
+    // Calculate aggregate metrics
+    for (const auto& rec : analysis.recommendations) {
+        analysis.totalExpectedImprovement += rec.expectedImprovement;
+        if (rec.priority == 1) analysis.highPriorityCount++;
+    }
+
+    // Determine if tuning is recommended
+    analysis.shouldTune = (analysis.totalExpectedImprovement > 5.0f);
+
+    return analysis;
+}
+
+// Phase 73: Generate tuning report
+std::string O45Linker::generateTuningReport(const TuningAnalysis& analysis) {
+    std::ostringstream out;
+
+    // Header
+    out << "=== Automated Optimization Tuning Report ===\n\n";
+    out << "Generated: " << (analysis.recommendations.empty() ? "No tuning needed" :
+                              std::to_string(analysis.recommendations.size()) + " recommendations")
+        << "\n";
+    out << std::string(50, '=') << "\n\n";
+
+    if (analysis.recommendations.empty()) {
+        out << "Current configuration is well-tuned for this program.\n";
+        out << "No optimization parameter adjustments recommended.\n";
+        return out.str();
+    }
+
+    // 1. Summary
+    out << "1. Tuning Summary\n";
+    out << "   Recommendations: " << analysis.recommendations.size() << "\n";
+    out << "   High priority:   " << analysis.highPriorityCount << "\n";
+    out << "   Expected improvement: " << std::fixed << std::setprecision(1)
+        << analysis.totalExpectedImprovement << "%\n";
+    out << "   Tuning advised:  " << (analysis.shouldTune ? "YES" : "NO") << "\n\n";
+
+    // 2. Recommendations by Priority
+    out << "2. Recommendations by Priority\n\n";
+
+    // High priority
+    out << "   HIGH PRIORITY:\n";
+    for (size_t i = 0; i < analysis.recommendations.size(); ++i) {
+        const auto& rec = analysis.recommendations[i];
+        if (rec.priority == 1) {
+            out << "   " << (i + 1) << ". " << rec.parameterName << "\n";
+            out << "      Current:    " << rec.currentValue << "\n";
+            out << "      Recommend:  " << rec.recommendedValue << "\n";
+            out << "      Expected:   +" << std::fixed << std::setprecision(1)
+                << rec.expectedImprovement << "%\n";
+            out << "      Reason:     " << rec.rationale << "\n\n";
+        }
+    }
+
+    // Medium priority
+    out << "   MEDIUM PRIORITY:\n";
+    for (size_t i = 0; i < analysis.recommendations.size(); ++i) {
+        const auto& rec = analysis.recommendations[i];
+        if (rec.priority == 2) {
+            out << "   " << (i + 1) << ". " << rec.parameterName << "\n";
+            out << "      Current:    " << rec.currentValue << "\n";
+            out << "      Recommend:  " << rec.recommendedValue << "\n";
+            out << "      Expected:   +" << std::fixed << std::setprecision(1)
+                << rec.expectedImprovement << "%\n";
+            out << "      Reason:     " << rec.rationale << "\n\n";
+        }
+    }
+
+    // Low priority
+    out << "   LOW PRIORITY:\n";
+    for (size_t i = 0; i < analysis.recommendations.size(); ++i) {
+        const auto& rec = analysis.recommendations[i];
+        if (rec.priority == 3) {
+            out << "   " << (i + 1) << ". " << rec.parameterName << "\n";
+            out << "      Current:    " << rec.currentValue << "\n";
+            out << "      Recommend:  " << rec.recommendedValue << "\n";
+            out << "      Expected:   +" << std::fixed << std::setprecision(1)
+                << rec.expectedImprovement << "%\n";
+            out << "      Reason:     " << rec.rationale << "\n\n";
+        }
+    }
+
+    // 3. Implementation Guide
+    out << "3. Implementation Steps\n";
+    out << "   1. Apply high priority changes first\n";
+    out << "   2. Rebuild and benchmark\n";
+    out << "   3. If improved, apply medium priority changes\n";
+    out << "   4. Re-benchmark and compare\n";
+    out << "   5. Apply low priority only if major gains seen\n\n";
+
+    // 4. Expected Results
+    out << "4. Expected Results After Tuning\n";
+    out << "   Cumulative improvement: " << std::fixed << std::setprecision(1)
+        << analysis.totalExpectedImprovement << "%\n";
+    out << "   Implementation effort:  " << (analysis.highPriorityCount > 0 ? "MEDIUM" : "LOW") << "\n";
+    out << "   Risk level:             LOW (tuning is safe)\n\n";
+
+    return out.str();
+}
+
+// Phase 73: Optimize tuning parameters (internal helper)
+O45Linker::TuningAnalysis O45Linker::optimizeTuningParameters(const BenchmarkResult& result,
+                                                              const OptimizationMetrics& metrics) {
+    return analyzeTuningOpportunities(result, metrics);
+}
+
+// Phase 73: Format tuning report (internal helper)
+std::string O45Linker::formatTuningReport(const TuningAnalysis& analysis) {
+    return generateTuningReport(analysis);
+}

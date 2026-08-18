@@ -254,6 +254,25 @@ public:
                                         const BenchmarkResult& current);
     std::string generateRegressionReport(const RegressionAnalysis& analysis);
 
+    // Phase 73: Automated optimization tuning
+    struct TuningRecommendation {
+        std::string parameterName;           // Parameter to tune
+        std::string currentValue;            // Current setting
+        std::string recommendedValue;        // Suggested setting
+        float expectedImprovement = 0.0f;    // Expected % improvement
+        std::string rationale;               // Why this tuning helps
+        int priority = 0;                    // 1=high, 2=medium, 3=low
+    };
+    struct TuningAnalysis {
+        std::vector<TuningRecommendation> recommendations;  // All recommendations
+        float totalExpectedImprovement = 0.0f;              // Sum of improvements
+        int highPriorityCount = 0;                          // Tunings marked high priority
+        bool shouldTune = false;                            // Recommend tuning
+    };
+    TuningAnalysis analyzeTuningOpportunities(const BenchmarkResult& result,
+                                              const OptimizationMetrics& metrics);
+    std::string generateTuningReport(const TuningAnalysis& analysis);
+
     // Query if a specific parameter is specialized (constant)
     bool isParameterSpecialized(const std::string& funcName, int paramIdx, int64_t& outValue) const {
         auto it = specializedParams_.find(funcName);
@@ -454,6 +473,8 @@ private:
     std::string createPipelineSummary();  // Phase 71: Create pipeline summary
     RegressionAnalysis analyzeRegressions(const BenchmarkResult& baseline, const BenchmarkResult& current);  // Phase 72: Analyze regressions
     std::string formatRegressionReport(const RegressionAnalysis& analysis);  // Phase 72: Format regression report
+    TuningAnalysis optimizeTuningParameters(const BenchmarkResult& result, const OptimizationMetrics& metrics);  // Phase 73: Optimize tuning
+    std::string formatTuningReport(const TuningAnalysis& analysis);  // Phase 73: Format tuning report
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata
