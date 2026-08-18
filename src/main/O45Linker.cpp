@@ -3434,3 +3434,134 @@ O45Linker::BenchmarkComparison O45Linker::aggregateBenchmarks(const std::vector<
 std::string O45Linker::formatComparisonReport(const BenchmarkComparison& comparison) {
     return generateComparisonReport(comparison);
 }
+
+// Phase 70: Export benchmark result to JSON format
+std::string O45Linker::exportBenchmarkJSON(const BenchmarkResult& result) {
+    std::ostringstream json;
+
+    json << "{\n";
+    json << "  \"programName\": \"" << result.programName << "\",\n";
+    json << "  \"baselineSize\": " << result.baselineSize << ",\n";
+    json << "  \"optimizedSize\": " << result.optimizedSize << ",\n";
+    json << "  \"codeSizeReduction\": " << result.codeSizeReduction << ",\n";
+    json << "  \"compressionPercent\": " << std::fixed << std::setprecision(2)
+         << result.compressionPercent << ",\n";
+    json << "  \"dispatcherCodeSize\": " << result.dispatcherCodeSize << ",\n";
+    json << "  \"specializedVersionsCount\": " << result.specializedVersionsCount << ",\n";
+    json << "  \"routableCallsCount\": " << result.routableCallsCount << ",\n";
+    json << "  \"overheadRatio\": " << std::fixed << std::setprecision(2)
+         << result.overheadRatio << ",\n";
+    json << "  \"worthOptimizing\": " << (result.worthOptimizing ? "true" : "false") << "\n";
+    json << "}";
+
+    return json.str();
+}
+
+// Phase 70: Export comparison to JSON format
+std::string O45Linker::exportComparisonJSON(const BenchmarkComparison& comparison) {
+    std::ostringstream json;
+
+    json << "{\n";
+    json << "  \"programsAnalyzed\": " << comparison.results.size() << ",\n";
+    json << "  \"avgCompressionPercent\": " << std::fixed << std::setprecision(2)
+         << comparison.avgCompressionPercent << ",\n";
+    json << "  \"avgOverheadRatio\": " << std::fixed << std::setprecision(2)
+         << comparison.avgOverheadRatio << ",\n";
+    json << "  \"totalBaselineSize\": " << comparison.totalBaselineSize << ",\n";
+    json << "  \"totalOptimizedSize\": " << comparison.totalOptimizedSize << ",\n";
+    json << "  \"totalSavings\": " << comparison.totalSavings << ",\n";
+    json << "  \"bestProgram\": " << (comparison.bestProgram >= 0 ? "\"" + comparison.results[comparison.bestProgram].programName + "\"" : "null") << ",\n";
+    json << "  \"worstProgram\": " << (comparison.worstProgram >= 0 ? "\"" + comparison.results[comparison.worstProgram].programName + "\"" : "null") << ",\n";
+    json << "  \"recommendedCount\": " << comparison.recommendedCount << ",\n";
+    json << "  \"recommendationRatio\": " << std::fixed << std::setprecision(2)
+         << comparison.recommendationRatio << ",\n";
+    json << "  \"results\": [\n";
+
+    for (size_t i = 0; i < comparison.results.size(); ++i) {
+        json << "    {\n";
+        json << "      \"programName\": \"" << comparison.results[i].programName << "\",\n";
+        json << "      \"baselineSize\": " << comparison.results[i].baselineSize << ",\n";
+        json << "      \"optimizedSize\": " << comparison.results[i].optimizedSize << ",\n";
+        json << "      \"compressionPercent\": " << std::fixed << std::setprecision(2)
+             << comparison.results[i].compressionPercent << ",\n";
+        json << "      \"overheadRatio\": " << std::fixed << std::setprecision(2)
+             << comparison.results[i].overheadRatio << ",\n";
+        json << "      \"worthOptimizing\": " << (comparison.results[i].worthOptimizing ? "true" : "false") << "\n";
+        json << "    }";
+        if (i < comparison.results.size() - 1) json << ",";
+        json << "\n";
+    }
+
+    json << "  ]\n";
+    json << "}";
+
+    return json.str();
+}
+
+// Phase 70: Export benchmark result to file
+bool O45Linker::exportBenchmarkResult(const BenchmarkResult& result, const std::string& filepath) {
+    // Determine format from file extension
+    std::string ext;
+    size_t dotPos = filepath.rfind('.');
+    if (dotPos != std::string::npos) {
+        ext = filepath.substr(dotPos);
+    }
+
+    try {
+        std::ofstream file(filepath);
+        if (!file.is_open()) {
+            return false;
+        }
+
+        if (ext == ".json") {
+            file << exportBenchmarkJSON(result);
+        } else {
+            // Default to text format
+            file << generateBenchmarkReport(result);
+        }
+
+        file.close();
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+// Phase 70: Export comparison to file
+bool O45Linker::exportComparisonReport(const BenchmarkComparison& comparison, const std::string& filepath) {
+    // Determine format from file extension
+    std::string ext;
+    size_t dotPos = filepath.rfind('.');
+    if (dotPos != std::string::npos) {
+        ext = filepath.substr(dotPos);
+    }
+
+    try {
+        std::ofstream file(filepath);
+        if (!file.is_open()) {
+            return false;
+        }
+
+        if (ext == ".json") {
+            file << exportComparisonJSON(comparison);
+        } else {
+            // Default to text format
+            file << generateComparisonReport(comparison);
+        }
+
+        file.close();
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+// Phase 70: Write benchmark file (internal helper)
+bool O45Linker::writeBenchmarkFile(const BenchmarkResult& result, const std::string& filepath) {
+    return exportBenchmarkResult(result, filepath);
+}
+
+// Phase 70: Write comparison file (internal helper)
+bool O45Linker::writeComparisonFile(const BenchmarkComparison& comparison, const std::string& filepath) {
+    return exportComparisonReport(comparison, filepath);
+}

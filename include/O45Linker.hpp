@@ -228,6 +228,12 @@ public:
     BenchmarkComparison compareBenchmarks(const std::vector<BenchmarkResult>& results);
     std::string generateComparisonReport(const BenchmarkComparison& comparison);
 
+    // Phase 70: Export benchmark results to files
+    bool exportBenchmarkResult(const BenchmarkResult& result, const std::string& filepath);
+    bool exportComparisonReport(const BenchmarkComparison& comparison, const std::string& filepath);
+    std::string exportBenchmarkJSON(const BenchmarkResult& result);
+    std::string exportComparisonJSON(const BenchmarkComparison& comparison);
+
     // Query if a specific parameter is specialized (constant)
     bool isParameterSpecialized(const std::string& funcName, int paramIdx, int64_t& outValue) const {
         auto it = specializedParams_.find(funcName);
@@ -423,6 +429,8 @@ private:
     std::string formatBenchmarkReport(const BenchmarkResult& result);  // Phase 68: Format report
     BenchmarkComparison aggregateBenchmarks(const std::vector<BenchmarkResult>& results);  // Phase 69: Aggregate metrics
     std::string formatComparisonReport(const BenchmarkComparison& comparison);  // Phase 69: Format comparison
+    bool writeBenchmarkFile(const BenchmarkResult& result, const std::string& filepath);  // Phase 70: Write benchmark file
+    bool writeComparisonFile(const BenchmarkComparison& comparison, const std::string& filepath);  // Phase 70: Write comparison file
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata
