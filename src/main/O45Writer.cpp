@@ -276,17 +276,13 @@ void O45Writer::emitExports(std::vector<uint8_t>& out) const {
         out.push_back(segByte);
         writeU32(out, exp.offset);
 
-        // Phase 49: Emit content flags if IR is present
+        // Phase 49: Emit content flags if explicitly set
+        // NOTE: Content flag marker is not yet handled by O45Reader,
+        // so we only emit it if explicitly requested via exportContentFlags_
         auto flagIt = exportContentFlags_.find(exp.name);
-        if (flagIt != exportContentFlags_.end() || hasIR_) {
+        if (flagIt != exportContentFlags_.end()) {
             out.push_back(O45_CONTENTFLAG_MARKER);  // $FB marker for content flags
-            uint8_t flags = O45_CONTENT_FLAG_NATIVE_CODE;
-            if (flagIt != exportContentFlags_.end()) {
-                flags = flagIt->second;
-            }
-            if (hasIR_) {
-                flags |= O45_CONTENT_FLAG_HAS_IR;
-            }
+            uint8_t flags = flagIt->second;
             out.push_back(flags);
         }
 
