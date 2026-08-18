@@ -322,6 +322,7 @@ struct CallRoutingAnalysis {
     std::string dispatcherName;         // Generated dispatcher function name
     std::vector<CallSiteInfo> routableCalls;       // Calls that can be routed
     std::vector<CallSiteInfo> dynamicCalls;        // Calls with non-constant args
+    std::vector<std::string> specializedVersions;  // Available specializations
     int totalCalls = 0;                 // Total call count
     float routablePercentage = 0.0f;    // % of calls that are routable
     bool needsDispatcher = false;       // Whether dispatcher is needed
@@ -359,7 +360,7 @@ struct InliningAnalysis {
 
 // Dispatcher route: maps argument pattern to target function
 struct DispatcherRoute {
-    std::vector<uint32_t> argumentPattern;  // Constant argument values
+    std::vector<int64_t> argumentPattern;   // Constant argument values (SpecializationPattern)
     std::string targetFunction;             // Specialized version to call
     uint32_t callCount = 0;                 // Times this pattern appears
 };

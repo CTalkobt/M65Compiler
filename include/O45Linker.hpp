@@ -36,6 +36,9 @@ public:
         int64_t value = 0;
     };
 
+    // Specialization pattern: vector of constant parameter values
+    using SpecializationPattern = std::vector<int64_t>;
+
     // Add an object file to the link. Order matters for segment layout.
     void addObject(const std::string& filename, const O45File& obj);
 

@@ -1882,11 +1882,10 @@ bool O45Linker::relinkWithDispatcher(std::string& errorMsg, bool isPrg) {
 
     // Parse dispatcher object file
     O45File dispatcherObj;
-    try {
-        O45Reader reader;
-        dispatcherObj = reader.parse(reinterpret_cast<const uint8_t*>(objData.data()), objData.size());
-    } catch (const std::exception& e) {
-        errorMsg = std::string("failed to parse dispatcher object file: ") + e.what();
+    std::string parseError;
+    std::vector<uint8_t> objDataBytes(objData.begin(), objData.end());
+    if (!O45Reader::read(objDataBytes, dispatcherObj, parseError)) {
+        errorMsg = std::string("failed to parse dispatcher object file: ") + parseError;
         if (warnStream_) {
             *warnStream_ << "ln45: ERROR: " << errorMsg << "\n";
         }
@@ -1970,17 +1969,17 @@ bool O45Linker::verifyDispatcherSymbols(std::string& report) {
     int resolvedCount = 0;
     int unresolved = 0;
 
-    for (const auto& [symName, symInfo] : symTab_) {
+    for (const auto& [symName, symAddr] : globalSymbols_) {
         // Check if this is a dispatcher-related symbol
         if (symName.find("__dispatch") != std::string::npos ||
             symName.find("_dispatch_") != std::string::npos) {
 
             // Verify symbol is resolved (has valid address)
-            if (symInfo.address != 0 || symName.find("__dispatch_fallback") != std::string::npos) {
+            if (symAddr != 0 || symName.find("__dispatch_fallback") != std::string::npos) {
                 resolvedCount++;
                 if (warnStream_) {
                     *warnStream_ << "ln45:   [OK] " << symName
-                                << " @ 0x" << std::hex << symInfo.address << std::dec << "\n";
+                                << " @ 0x" << std::hex << symAddr << std::dec << "\n";
                 }
             } else {
                 unresolved++;

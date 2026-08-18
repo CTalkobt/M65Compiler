@@ -42,7 +42,7 @@ LIBDIR ?= $(PREFIX)/lib/cc45
 INCDIR ?= $(PREFIX)/include/cc45
 MANDIR ?= $(PREFIX)/share/man/man1
 
-.PHONY: all clean test man test-mmemu test-stdlib test-regression test-zpcall test-integration bench bench-save lib install install_local uninstall uninstall_local cppcheck coverage coverage-build coverage-clean coverage-report docker
+.PHONY: all clean test man test-mmemu test-stdlib test-regression test-zpcall test-integration bench bench-save lib install install_local uninstall uninstall_local cppcheck coverage coverage-build coverage-clean coverage-report docker validate_performance
 
 cppcheck:
 	cppcheck --enable=warning,performance,portability --inline-suppr -I include/ src/main/
@@ -555,6 +555,10 @@ install_local:
 
 uninstall_local:
 	@$(MAKE) uninstall PREFIX=$(HOME)/.local
+
+validate_performance: all
+	@echo "Validating performance with multi-level optimization benchmark..."
+	@bash src/test/validate_performance.sh
 
 docker:
 	@echo "Building Docker image..."
