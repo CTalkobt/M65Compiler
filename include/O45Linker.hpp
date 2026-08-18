@@ -183,6 +183,17 @@ public:
     // Phase 65: Generate dispatcher execution report
     std::string generateDispatcherReport();
 
+    // Phase 66: Calculate dispatcher optimization metrics
+    struct OptimizationMetrics {
+        int estimatedCodeSavings = 0;        // Bytes saved by specialization
+        float compressionRatio = 0.0f;       // (original - optimized) / original
+        int dispatcherOverhead = 0;          // Dispatcher stub code size
+        float netSavings = 0.0f;             // Total - overhead
+        int callOptimizationCount = 0;       // Calls that benefit from routing
+        float optimizedCallsPercent = 0.0f;  // Percentage of calls optimized
+    };
+    OptimizationMetrics calculateOptimizationMetrics();
+
     // Query if a specific parameter is specialized (constant)
     bool isParameterSpecialized(const std::string& funcName, int paramIdx, int64_t& outValue) const {
         auto it = specializedParams_.find(funcName);
@@ -374,16 +385,6 @@ private:
     void analyzeSpecializations();      // Phase 52: Analyze profitable specialization patterns
     void analyzeCallRouting();          // Phase 54: Analyze call site routing to specializations
     void analyzeInlining();             // Phase 55: Analyze cross-module inlining opportunities
-    void generateDispatchers();         // Phase 56: Generate dispatcher stubs for multi-specialization
-    std::string emitDispatcherAssembly() const;  // Phase 57: Emit dispatcher assembly code
-    std::string emitDispatcherStub(const DispatcherStub& stub) const;  // Phase 57: Emit single dispatcher
-    void integrateDispatcherAssembly();  // Phase 58: Integrate dispatcher assembly into output
-    void emitDispatcherAssemblyOutput();  // Phase 59: Emit dispatcher assembly to output
-    bool writeDispatcherAssemblyFile(const std::string& filepath, std::string& errorMsg);  // Phase 60: Write to file
-    bool assembleDispatcherFile(const std::string& ca45Path, std::string& errorMsg);  // Phase 61: Assemble with ca45
-    bool relinkWithDispatcher(std::string& errorMsg, bool isPrg = false);  // Phase 62: Re-link with dispatcher
-    bool verifyDispatcherSymbols(std::string& report);  // Phase 63: Verify symbol resolution
-    std::string generateDispatcherReport();  // Phase 65: Generate execution report
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata

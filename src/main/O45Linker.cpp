@@ -3028,3 +3028,48 @@ void O45Linker::writeMap(std::ostream& out) const {
         }
     }
 }
+
+// Phase 66: Calculate dispatcher optimization metrics
+O45Linker::OptimizationMetrics O45Linker::calculateOptimizationMetrics() {
+    OptimizationMetrics metrics;
+
+    // Estimate code savings from specialization
+    if (!inliningAnalysis_.empty()) {
+        for (const auto& [callingSite, analysis] : inliningAnalysis_) {
+            metrics.estimatedCodeSavings += analysis.totalSavingsPotential;
+        }
+    }
+
+    // Dispatcher overhead = total dispatcher code size
+    if (!dispatcherAnalysis_.empty()) {
+        for (const auto& [funcName, dispatcher] : dispatcherAnalysis_) {
+            metrics.dispatcherOverhead += dispatcher.totalDispatchCodeSize;
+        }
+    }
+
+    // Net savings = estimated savings - dispatcher overhead
+    metrics.netSavings = metrics.estimatedCodeSavings - metrics.dispatcherOverhead;
+
+    // Calculate compression ratio
+    if ((metrics.estimatedCodeSavings + metrics.dispatcherOverhead) > 0) {
+        metrics.compressionRatio = (float)metrics.netSavings / (float)(metrics.estimatedCodeSavings + metrics.dispatcherOverhead);
+    }
+
+    // Count optimized calls and calculate percentage
+    if (!callRoutingAnalysis_.empty()) {
+        int totalCalls = 0;
+        int routableCalls = 0;
+
+        for (const auto& [funcName, routing] : callRoutingAnalysis_) {
+            totalCalls += routing.totalCalls;
+            routableCalls += routing.routableCalls.size();
+        }
+
+        metrics.callOptimizationCount = routableCalls;
+        if (totalCalls > 0) {
+            metrics.optimizedCallsPercent = (float)routableCalls / (float)totalCalls * 100.0f;
+        }
+    }
+
+    return metrics;
+}
