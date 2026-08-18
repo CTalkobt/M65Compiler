@@ -273,6 +273,26 @@ public:
                                               const OptimizationMetrics& metrics);
     std::string generateTuningReport(const TuningAnalysis& analysis);
 
+    // Phase 74: Cross-program optimization orchestration
+    struct OptimizationPattern {
+        std::string patternName;             // Pattern identifier
+        int occurrenceCount = 0;             // How many programs have it
+        float averageImprovement = 0.0f;     // Average benefit across programs
+        std::vector<std::string> programs;   // Programs exhibiting pattern
+        std::string recommendation;          // What to do about this pattern
+    };
+    struct CrossProgramAnalysis {
+        std::vector<OptimizationPattern> commonPatterns;    // Shared patterns
+        float averageCompressionPercent = 0.0f;             // Average across all
+        int programsAnalyzed = 0;                           // Total programs
+        float aggregatedSavingsPotential = 0.0f;            // Total bytes saveable
+        std::string deploymentStrategy;                     // Unified strategy
+        int patternsFound = 0;                              // Number of patterns
+    };
+    CrossProgramAnalysis orchestrateOptimizations(const std::vector<BenchmarkResult>& results,
+                                                  const std::vector<OptimizationMetrics>& metrics);
+    std::string generateOrchestrationReport(const CrossProgramAnalysis& analysis);
+
     // Query if a specific parameter is specialized (constant)
     bool isParameterSpecialized(const std::string& funcName, int paramIdx, int64_t& outValue) const {
         auto it = specializedParams_.find(funcName);
@@ -475,6 +495,8 @@ private:
     std::string formatRegressionReport(const RegressionAnalysis& analysis);  // Phase 72: Format regression report
     TuningAnalysis optimizeTuningParameters(const BenchmarkResult& result, const OptimizationMetrics& metrics);  // Phase 73: Optimize tuning
     std::string formatTuningReport(const TuningAnalysis& analysis);  // Phase 73: Format tuning report
+    CrossProgramAnalysis analyzePatterns(const std::vector<BenchmarkResult>& results, const std::vector<OptimizationMetrics>& metrics);  // Phase 74: Analyze patterns
+    std::string formatOrchestrationReport(const CrossProgramAnalysis& analysis);  // Phase 74: Format orchestration report
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata
