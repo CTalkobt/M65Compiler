@@ -759,6 +759,7 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     analyzeIRMetadata();           // Phase 50: Extract constant parameters from embedded IR
     analyzeSpecializations();      // Phase 52: Analyze profitable specialization patterns
     analyzeCallRouting();          // Phase 54: Analyze call site routing
+    analyzeInlining();             // Phase 55: Analyze cross-module inlining
     emitDiagnostics();
     verifyStaticAllocSafety();  // Verify SAC constraints before thunk generation
     validateSACParameters();      // Phase 3: Validate SAC parameter metadata
@@ -1346,6 +1347,103 @@ void O45Linker::writeCallRoutingReport(std::ostream& out) const {
                 out << "    -> " << site.targetFunction << " (offset 0x"
                     << std::hex << site.callSiteOffset << std::dec << ")\n";
             }
+        }
+
+        out << "\n";
+    }
+}
+
+// Phase 55: Analyze cross-module inlining opportunities
+// Identifies functions that are profitable to inline based on call patterns and code size
+void O45Linker::analyzeInlining() {
+    inliningAnalysis_.clear();
+
+    // For each function with routing information
+    for (const auto& [funcName, routing] : callRoutingAnalysis_) {
+        if (routing.routableCalls.empty()) continue;
+
+        InliningAnalysis inlineAnalysis;
+        inlineAnalysis.callingSite = funcName;
+
+        // Estimate code sizes and inlining benefits
+        // For each routable call site, determine if inlining would help
+        for (const auto& callSite : routing.routableCalls) {
+            InliningCandidate candidate;
+            candidate.functionName = callSite.targetFunction;
+            candidate.specializationName = callSite.targetFunction;
+            candidate.isSpecialized = !callSite.argumentPattern.empty();
+            candidate.callCount = 1;  // Each call site is 1 call
+
+            // Estimate code sizes (simplified)
+            // Typical JSR overhead: 3-4 bytes (JSR + params setup/cleanup)
+            candidate.callSiteOverhead = 4;
+
+            // Specialized functions are typically smaller (constants pre-bound)
+            // Estimate: 30-100 bytes for typical specialized function
+            candidate.estimatedCodeSize = candidate.isSpecialized ? 50 : 80;
+
+            // Inlining saves JSR overhead but adds code at call site
+            // Net savings: callSiteOverhead if only called once, or proportional if multiple calls
+            candidate.estimatedSavings = candidate.callSiteOverhead;
+            candidate.benefitRatio = (float)candidate.estimatedSavings / (float)candidate.estimatedCodeSize;
+
+            // Profitable if: benefit ratio > 0.05 (5% savings)
+            // AND either: specialized (constants inline) OR called once
+            candidate.isProfitable = (candidate.benefitRatio > 0.05f) &&
+                                    (candidate.isSpecialized || candidate.callCount == 1);
+
+            if (candidate.isProfitable) {
+                inlineAnalysis.candidates.push_back(candidate);
+                inlineAnalysis.totalSavingsPotential += candidate.estimatedSavings;
+                inlineAnalysis.selectableCount++;
+            }
+        }
+
+        // Calculate average benefit
+        if (!inlineAnalysis.candidates.empty()) {
+            float totalBenefit = 0.0f;
+            for (const auto& c : inlineAnalysis.candidates) {
+                totalBenefit += c.benefitRatio;
+            }
+            inlineAnalysis.averageBenefit = totalBenefit / (float)inlineAnalysis.candidates.size();
+        }
+
+        if (!inlineAnalysis.candidates.empty()) {
+            if (warnStream_) {
+                *warnStream_ << "INFO: Inlining analysis for calls in " << funcName << ": "
+                            << inlineAnalysis.selectableCount << " candidates, "
+                            << inlineAnalysis.totalSavingsPotential << " bytes potential savings"
+                            << std::endl;
+            }
+            inliningAnalysis_[funcName] = inlineAnalysis;
+        }
+    }
+}
+
+// Phase 55: Get inlining candidates for a function
+std::vector<InliningCandidate> O45Linker::getInliningCandidates(const std::string& funcName) const {
+    auto it = inliningAnalysis_.find(funcName);
+    if (it == inliningAnalysis_.end()) return {};
+    return it->second.candidates;
+}
+
+// Phase 55: Write inlining report for debugging
+void O45Linker::writeInliningReport(std::ostream& out) const {
+    out << "=== Cross-Module Inlining Report ===\n\n";
+
+    for (const auto& [site, analysis] : inliningAnalysis_) {
+        out << "Calling context: " << site << "\n";
+        out << "  Inlining candidates: " << analysis.candidates.size() << "\n";
+        out << "  Profitable: " << analysis.selectableCount << "\n";
+        out << "  Total savings potential: " << analysis.totalSavingsPotential << " bytes\n";
+        out << "  Average benefit ratio: " << (analysis.averageBenefit * 100.0f) << "%\n";
+
+        for (const auto& cand : analysis.candidates) {
+            out << "    " << cand.functionName << ": "
+                << cand.estimatedSavings << " bytes ("
+                << (cand.benefitRatio * 100.0f) << "%)";
+            if (cand.isSpecialized) out << " [specialized]";
+            out << "\n";
         }
 
         out << "\n";

@@ -94,6 +94,12 @@ public:
     // Phase 54: Write call routing report for debugging
     void writeCallRoutingReport(std::ostream& out) const;
 
+    // Phase 55: Get inlining candidates for a function
+    std::vector<InliningCandidate> getInliningCandidates(const std::string& funcName) const;
+
+    // Phase 55: Write inlining report for debugging
+    void writeInliningReport(std::ostream& out) const;
+
     // Query if a specific parameter is specialized (constant)
     bool isParameterSpecialized(const std::string& funcName, int paramIdx, int64_t& outValue) const {
         auto it = specializedParams_.find(funcName);
@@ -235,6 +241,10 @@ private:
     // Maps function name → call routing information for specialization dispatch
     std::map<std::string, CallRoutingAnalysis> callRoutingAnalysis_;
 
+    // Phase 55: Inlining analysis
+    // Maps calling site → inlining candidates for cross-module optimization
+    std::map<std::string, InliningAnalysis> inliningAnalysis_;
+
     bool resolveLibraries(std::string& errorMsg);
     bool layoutSegments(std::string& errorMsg);
     bool resolveSymbols(std::string& errorMsg);
@@ -246,6 +256,7 @@ private:
     void analyzeIRMetadata();           // Phase 50: Extract constant parameters from embedded IR
     void analyzeSpecializations();      // Phase 52: Analyze profitable specialization patterns
     void analyzeCallRouting();          // Phase 54: Analyze call site routing to specializations
+    void analyzeInlining();             // Phase 55: Analyze cross-module inlining opportunities
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata

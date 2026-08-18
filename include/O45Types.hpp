@@ -326,3 +326,29 @@ struct CallRoutingAnalysis {
     float routablePercentage = 0.0f;    // % of calls that are routable
     bool needsDispatcher = false;       // Whether dispatcher is needed
 };
+
+// =============================================================================
+// Cross-Module Inlining (Phase 55)
+// =============================================================================
+
+// Inlining candidate information
+struct InliningCandidate {
+    std::string functionName;           // Function to inline
+    std::string specializationName;     // Specialized version (if applicable)
+    int callCount = 0;                  // How many times called
+    int estimatedCodeSize = 0;          // Estimated size of inlined code
+    int callSiteOverhead = 0;           // Size of JSR + params setup
+    int estimatedSavings = 0;           // Estimated bytes saved by inlining
+    float benefitRatio = 0.0f;          // Savings / code size ratio
+    bool isProfitable = false;          // Worth inlining
+    bool isSpecialized = false;         // Is this a specialized version
+};
+
+// Inlining analysis results
+struct InliningAnalysis {
+    std::string callingSite;            // Where the call is (context)
+    std::vector<InliningCandidate> candidates;  // Functions to consider inlining
+    int totalSavingsPotential = 0;      // Total bytes saveable by inlining
+    int selectableCount = 0;            // Count of profitable candidates
+    float averageBenefit = 0.0f;        // Average benefit ratio
+};
