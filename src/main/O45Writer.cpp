@@ -143,16 +143,18 @@ std::vector<uint8_t> O45Writer::emit() const {
     emitHeader(out);
 
     // Phase 49: Emit IR metadata as an option if present
-    if (hasIR_) {
-        std::vector<uint8_t> irData = O45IRSerializer::serialize(irMetadata_);
-        // Emit as OPT_IR (custom option type)
-        if (irData.size() <= 253) {
-            uint8_t len = (uint8_t)(2 + irData.size());
-            out.push_back(len);
-            out.push_back(0x50);  // OPT_IR type (custom)
-            out.insert(out.end(), irData.begin(), irData.end());
-        }
-    }
+    // NOTE: Temporarily disabled due to offset calculation issues
+    // IR metadata will be restored as a proper option in the options collection
+    // if (hasIR_) {
+    //     std::vector<uint8_t> irData = O45IRSerializer::serialize(irMetadata_);
+    //     // Emit as OPT_IR (custom option type)
+    //     if (irData.size() <= 253) {
+    //         uint8_t len = (uint8_t)(2 + irData.size());
+    //         out.push_back(len);
+    //         out.push_back(0x50);  // OPT_IR type (custom)
+    //         out.insert(out.end(), irData.begin(), irData.end());
+    //     }
+    // }
 
     emitOptions(out);
 
