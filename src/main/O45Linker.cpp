@@ -2013,6 +2013,119 @@ bool O45Linker::verifyDispatcherSymbols(std::string& report) {
     return true;
 }
 
+// Phase 65: Generate dispatcher execution report
+std::string O45Linker::generateDispatcherReport() {
+    std::ostringstream report;
+
+    report << "=== Dispatcher Execution Report ===\n\n";
+
+    // Section 1: Dispatcher Overview
+    report << "1. Dispatcher Pipeline Summary\n";
+    report << "   Status: ";
+    if (dispatcherLinked_ && allDispatcherSymbolsResolved_) {
+        report << "READY FOR EXECUTION\n";
+    } else if (dispatcherLinked_) {
+        report << "LINKED (with symbol warnings)\n";
+    } else {
+        report << "NOT LINKED\n";
+    }
+
+    // Section 2: Dispatcher Statistics
+    report << "\n2. Dispatcher Statistics\n";
+    int totalDispatcherFunctions = 0;
+    int totalDispatcherRoutes = 0;
+    for (const auto& [funcName, analysis] : dispatcherAnalysis_) {
+        totalDispatcherFunctions += analysis.dispatchersNeeded;
+        for (const auto& dispatcher : analysis.dispatchers) {
+            totalDispatcherRoutes += dispatcher.routes.size();
+        }
+    }
+    report << "   Total dispatcher stubs: " << totalDispatcherFunctions << "\n";
+    report << "   Total routing patterns: " << totalDispatcherRoutes << "\n";
+    report << "   Assembled dispatchers: " << dispatchersAssembled_ << "\n";
+    report << "   Verified symbols: " << dispatcherSymbolsVerified_ << "\n";
+
+    // Section 3: Specialized Functions
+    report << "\n3. Specialized Functions\n";
+    for (const auto& [funcName, analysis] : dispatcherAnalysis_) {
+        report << "   Function: " << funcName << "\n";
+        report << "     Specializations: " << analysis.totalSpecializations << "\n";
+        report << "     Dispatchers: " << analysis.dispatchersNeeded << "\n";
+        report << "     Strategy: ";
+        if (analysis.usesStaticRouting) {
+            report << "static (direct calls)\n";
+        } else if (analysis.usesDynamicDispatch) {
+            report << "dynamic (runtime dispatch)\n";
+        } else {
+            report << "unknown\n";
+        }
+    }
+
+    // Section 4: Call Routing Summary
+    report << "\n4. Call Routing Summary\n";
+    int totalCalls = 0;
+    int routableCalls = 0;
+    for (const auto& [funcName, routing] : callRoutingAnalysis_) {
+        totalCalls += routing.totalCalls;
+        routableCalls += routing.routableCalls.size();
+    }
+    report << "   Total analyzed calls: " << totalCalls << "\n";
+    report << "   Routable calls: " << routableCalls << "\n";
+    if (totalCalls > 0) {
+        float routablePercent = (float)routableCalls / totalCalls * 100.0f;
+        report << "   Routable coverage: " << routablePercent << "%\n";
+    }
+
+    // Section 5: Inlining Opportunities
+    report << "\n5. Inlining Opportunities\n";
+    int totalInliningCandidates = 0;
+    int profitableCandidates = 0;
+    for (const auto& [site, analysis] : inliningAnalysis_) {
+        totalInliningCandidates += analysis.candidates.size();
+        profitableCandidates += analysis.selectableCount;
+    }
+    report << "   Total inlining candidates: " << totalInliningCandidates << "\n";
+    report << "   Profitable candidates: " << profitableCandidates << "\n";
+    report << "   Total savings potential: ";
+    int totalSavings = 0;
+    for (const auto& [site, analysis] : inliningAnalysis_) {
+        totalSavings += analysis.totalSavingsPotential;
+    }
+    report << totalSavings << " bytes\n";
+
+    // Section 6: Binary Information
+    report << "\n6. Final Binary Information\n";
+    report << "   Dispatcher linked: " << (dispatcherLinked_ ? "yes" : "no") << "\n";
+    report << "   Binary size: " << dispatcherBinary_.size() << " bytes\n";
+    report << "   Symbols resolved: ";
+    report << (allDispatcherSymbolsResolved_ ? "all" : "partial") << "\n";
+
+    // Section 7: Execution Readiness
+    report << "\n7. Execution Readiness Checklist\n";
+    report << "   [" << (dispatcherLinked_ ? "✓" : "✗") << "] Dispatcher code linked\n";
+    report << "   [" << (allDispatcherSymbolsResolved_ ? "✓" : "✗") << "] All symbols resolved\n";
+    report << "   [" << (!dispatcherBinary_.empty() ? "✓" : "✗") << "] Binary available\n";
+    report << "   [" << (dispatcherSymbolsVerified_ > 0 ? "✓" : "✗") << "] Symbols verified ("
+           << dispatcherSymbolsVerified_ << " symbols)\n";
+
+    // Section 8: Next Steps
+    report << "\n8. Recommended Next Steps\n";
+    if (!dispatcherLinked_) {
+        report << "   1. Complete dispatcher assembly and linking (Phase 60-62)\n";
+    } else if (!allDispatcherSymbolsResolved_) {
+        report << "   1. Resolve remaining dispatcher symbols (Phase 63)\n";
+    } else if (dispatcherBinary_.empty()) {
+        report << "   1. Generate final binary output\n";
+    } else {
+        report << "   1. Load binary to MEGA65 emulator\n";
+        report << "   2. Test dispatcher routing with example programs\n";
+        report << "   3. Verify specialized versions are called correctly\n";
+        report << "   4. Benchmark performance vs non-optimized versions\n";
+    }
+
+    return report.str();
+}
+
 // Phase 56: Generate dispatcher stubs for multi-specialization cases
 void O45Linker::generateDispatchers() {
     dispatcherAnalysis_.clear();

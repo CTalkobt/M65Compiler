@@ -180,6 +180,9 @@ public:
         return allDispatcherSymbolsResolved_;
     }
 
+    // Phase 65: Generate dispatcher execution report
+    std::string generateDispatcherReport();
+
     // Query if a specific parameter is specialized (constant)
     bool isParameterSpecialized(const std::string& funcName, int paramIdx, int64_t& outValue) const {
         auto it = specializedParams_.find(funcName);
@@ -380,6 +383,7 @@ private:
     bool assembleDispatcherFile(const std::string& ca45Path, std::string& errorMsg);  // Phase 61: Assemble with ca45
     bool relinkWithDispatcher(std::string& errorMsg, bool isPrg = false);  // Phase 62: Re-link with dispatcher
     bool verifyDispatcherSymbols(std::string& report);  // Phase 63: Verify symbol resolution
+    std::string generateDispatcherReport();  // Phase 65: Generate execution report
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata
