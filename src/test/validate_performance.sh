@@ -359,20 +359,32 @@ generate_report() {
     local cc45_o0_exec=$(cat "$BUILD_DIR/fib_cc45_o0_exec.txt" 2>/dev/null || echo "---")
 
     if [ "$cc45_o0" != "0" ]; then
-        printf "%-42s %12d %12s %16s\n" "cc45 -O0 (baseline)" "$cc45_o0" "-" "$cc45_o0_exec"
+        printf "%-42s %12d %12s %16s\n" "cc45 -O0 (SAC enabled)" "$cc45_o0" "-" "$cc45_o0_exec"
 
-        for level in o1 o2 o3 o3_sac; do
+        for level in o1 o2 o3; do
             local size=$(cat "$BUILD_DIR/fib_cc45_${level}_size.txt" 2>/dev/null || echo "0")
             local exec=$(cat "$BUILD_DIR/fib_cc45_${level}_exec.txt" 2>/dev/null || echo "---")
             if [ "$size" != "0" ]; then
                 local reduction=$((100 - (size * 100) / cc45_o0))
-                local label="cc45 -${level:0:2}"
-                if [ "$level" = "o3_sac" ]; then
-                    label="cc45 -O3 -SAC"
-                fi
-                printf "%-42s %12d %12d%% %16s\n" "$label" "$size" "$reduction" "$exec"
+                printf "%-42s %12d %12d%% %16s\n" "cc45 -O${level:1:1} (SAC enabled)" "$size" "$reduction" "$exec"
             fi
         done
+
+        # Show SAC benefit comparison
+        echo ""
+        printf "%-42s %12s %12s %16s\n" "--- SAC Benefit (disabled for comparison) ---" "Size" "Overhead" "Savings"
+        local o0_nosac=$(cat "$BUILD_DIR/fib_cc45_o0_nosac_size.txt" 2>/dev/null || echo "0")
+        local o1_nosac=$(cat "$BUILD_DIR/fib_cc45_o1_nosac_size.txt" 2>/dev/null || echo "0")
+
+        if [ "$o0_nosac" != "0" ]; then
+            local sac_savings=$((o0_nosac - cc45_o0))
+            printf "%-42s %12d %12d bytes %6s\n" "cc45 -O0 (SAC disabled)" "$o0_nosac" "$sac_savings" "saved"
+        fi
+        if [ "$o1_nosac" != "0" ]; then
+            local o1=$(cat "$BUILD_DIR/fib_cc45_o1_size.txt" 2>/dev/null || echo "0")
+            local sac_savings=$((o1_nosac - o1))
+            printf "%-42s %12d %12d bytes %6s\n" "cc45 -O1 (SAC disabled)" "$o1_nosac" "$sac_savings" "saved"
+        fi
     fi
 
     # cc65 if available or unavailable
@@ -461,12 +473,15 @@ main() {
         exit 1
     fi
 
-    # Test cc45 levels
-    test_cc45 "o0" "-O0" "TEST 1: cc45 -O0 (No Optimization)"
-    test_cc45 "o1" "-O1" "TEST 2: cc45 -O1 (Basic Optimization)"
-    test_cc45 "o2" "-O2" "TEST 3: cc45 -O2 (Aggressive Optimization)"
-    test_cc45 "o3" "-O3" "TEST 4: cc45 -O3 (Maximum Optimization)"
-    test_cc45 "o3_sac" "-O3 -fstaticalloc" "TEST 5: cc45 -O3 -SAC (Maximum + Static Allocation)"
+    # Test cc45 levels (with SAC enabled by default)
+    test_cc45 "o0" "-O0" "TEST 1: cc45 -O0 (No Optimization, SAC default)"
+    test_cc45 "o1" "-O1" "TEST 2: cc45 -O1 (Basic Optimization, SAC default)"
+    test_cc45 "o2" "-O2" "TEST 3: cc45 -O2 (Aggressive Optimization, SAC default)"
+    test_cc45 "o3" "-O3" "TEST 4: cc45 -O3 (Maximum Optimization, SAC default)"
+
+    # Test without SAC for comparison (shows SAC benefit)
+    test_cc45 "o0_nosac" "-O0 -fno-staticalloc" "TEST 5: cc45 -O0 (No SAC - baseline comparison)"
+    test_cc45 "o1_nosac" "-O1 -fno-staticalloc" "TEST 6: cc45 -O1 (No SAC - baseline comparison)"
 
     # Test cc65 if available
     if [ ! -z "$CC65" ]; then
