@@ -26,6 +26,8 @@ MMEMU_CLI=$(which mmemu-cli 2>/dev/null || echo "")
 XEMU=$(which xemu-xmega65 2>/dev/null || echo "")
 CC65=$(which cc65 2>/dev/null || echo "")
 CA65=$(which ca65 2>/dev/null || echo "")
+KICKC=$(which kickc 2>/dev/null || echo "")
+OSCARC=$(which oscarc 2>/dev/null || echo "")
 
 get_file_size() {
     if [ -f "$1" ]; then
@@ -251,6 +253,76 @@ test_cc65() {
     echo "$binary_size" > "$BUILD_DIR/fib_cc65_${level}_size.txt"
 }
 
+# Test KickC if available
+test_kickc() {
+    if [ -z "$KICKC" ]; then
+        return
+    fi
+
+    print_header "TEST: KickC Compiler"
+
+    local source="$TEST_DIR/test_short.c"
+    local object="$BUILD_DIR/fib_kickc.o"
+
+    echo -e "${YELLOW}Compiling with: kickc${NC}"
+    if ! $KICKC -o "$object" "$source" 2>&1 | head -3; then
+        echo "  (KickC compilation failed)"
+        echo "0" > "$BUILD_DIR/fib_kickc_size.txt"
+        echo "---" > "$BUILD_DIR/fib_kickc_exec.txt"
+        return
+    fi
+
+    local binary_size=$(get_file_size "$object")
+    echo -e "${GREEN}✓ Compilation completed${NC}\n"
+    print_result "Object size" "$binary_size" "bytes"
+
+    if [ -f "$BUILD_DIR/fib_cc45_o0_size.txt" ]; then
+        local baseline=$(cat "$BUILD_DIR/fib_cc45_o0_size.txt")
+        if [ "$baseline" -gt 0 ] && [ "$binary_size" -gt 0 ]; then
+            local diff=$((binary_size - baseline))
+            print_result "Size vs cc45 -O0" "$diff" "bytes"
+        fi
+    fi
+
+    echo "$binary_size" > "$BUILD_DIR/fib_kickc_size.txt"
+    echo "---" > "$BUILD_DIR/fib_kickc_exec.txt"
+}
+
+# Test Oscar C if available
+test_oscarc() {
+    if [ -z "$OSCARC" ]; then
+        return
+    fi
+
+    print_header "TEST: Oscar C Compiler"
+
+    local source="$TEST_DIR/test_short.c"
+    local object="$BUILD_DIR/fib_oscarc.o"
+
+    echo -e "${YELLOW}Compiling with: oscarc${NC}"
+    if ! $OSCARC -o "$object" "$source" 2>&1 | head -3; then
+        echo "  (Oscar C compilation failed)"
+        echo "0" > "$BUILD_DIR/fib_oscarc_size.txt"
+        echo "---" > "$BUILD_DIR/fib_oscarc_exec.txt"
+        return
+    fi
+
+    local binary_size=$(get_file_size "$object")
+    echo -e "${GREEN}✓ Compilation completed${NC}\n"
+    print_result "Object size" "$binary_size" "bytes"
+
+    if [ -f "$BUILD_DIR/fib_cc45_o0_size.txt" ]; then
+        local baseline=$(cat "$BUILD_DIR/fib_cc45_o0_size.txt")
+        if [ "$baseline" -gt 0 ] && [ "$binary_size" -gt 0 ]; then
+            local diff=$((binary_size - baseline))
+            print_result "Size vs cc45 -O0" "$diff" "bytes"
+        fi
+    fi
+
+    echo "$binary_size" > "$BUILD_DIR/fib_oscarc_size.txt"
+    echo "---" > "$BUILD_DIR/fib_oscarc_exec.txt"
+}
+
 # Generate comparison report
 generate_report() {
     print_header "PERFORMANCE COMPARISON REPORT"
@@ -280,14 +352,34 @@ generate_report() {
         done
     fi
 
-    # cc65 if available
-    local cc65_size=$(cat "$BUILD_DIR/fib_cc65_o0_size.txt" 2>/dev/null || echo "")
+    # cc65 if available or unavailable
+    local cc65_size=$(cat "$BUILD_DIR/fib_cc65_o0_size.txt" 2>/dev/null || echo "0")
     local cc65_exec=$(cat "$BUILD_DIR/fib_cc65_o0_exec.txt" 2>/dev/null || echo "---")
-    if [ ! -z "$cc65_size" ] && [ "$cc65_size" != "0" ]; then
-        if [ "$cc45_o0" != "0" ]; then
-            local diff=$((cc65_size - cc45_o0))
-            printf "%-42s %12d %12s %16s\n" "cc65 -O0" "$cc65_size" "(+${diff})" "$cc65_exec"
-        fi
+    if [ "$cc65_size" = "0" ]; then
+        printf "%-42s %12s %12s %16s\n" "cc65 -O0" "---" "---" "$cc65_exec"
+    elif [ "$cc45_o0" != "0" ]; then
+        local diff=$((cc65_size - cc45_o0))
+        printf "%-42s %12d %12s %16s\n" "cc65 -O0" "$cc65_size" "(+${diff})" "$cc65_exec"
+    fi
+
+    # KickC if available or unavailable
+    local kickc_size=$(cat "$BUILD_DIR/fib_kickc_size.txt" 2>/dev/null || echo "0")
+    local kickc_exec=$(cat "$BUILD_DIR/fib_kickc_exec.txt" 2>/dev/null || echo "---")
+    if [ "$kickc_size" = "0" ]; then
+        printf "%-42s %12s %12s %16s\n" "kickc" "---" "---" "$kickc_exec"
+    elif [ "$cc45_o0" != "0" ]; then
+        local diff=$((kickc_size - cc45_o0))
+        printf "%-42s %12d %12s %16s\n" "kickc" "$kickc_size" "(+${diff})" "$kickc_exec"
+    fi
+
+    # Oscar C if available or unavailable
+    local oscarc_size=$(cat "$BUILD_DIR/fib_oscarc_size.txt" 2>/dev/null || echo "0")
+    local oscarc_exec=$(cat "$BUILD_DIR/fib_oscarc_exec.txt" 2>/dev/null || echo "---")
+    if [ "$oscarc_size" = "0" ]; then
+        printf "%-42s %12s %12s %16s\n" "oscarc" "---" "---" "$oscarc_exec"
+    elif [ "$cc45_o0" != "0" ]; then
+        local diff=$((oscarc_size - cc45_o0))
+        printf "%-42s %12d %12s %16s\n" "oscarc" "$oscarc_size" "(+${diff})" "$oscarc_exec"
     fi
 
     echo ""
@@ -308,10 +400,22 @@ generate_report() {
     else
         echo "  ✓ mmemu-cli available (cycle-accurate measurement)"
     fi
+
+    echo "Compiler Availability:"
     if [ -z "$CC65" ]; then
-        echo "  ⓘ cc65 not available (6502 compiler comparison skipped)"
+        echo "  ⓘ cc65 not available"
     else
-        echo "  ✓ cc65 available (6502 comparison enabled)"
+        echo "  ✓ cc65 available"
+    fi
+    if [ -z "$KICKC" ]; then
+        echo "  ⓘ kickc not available"
+    else
+        echo "  ✓ kickc available"
+    fi
+    if [ -z "$OSCARC" ]; then
+        echo "  ⓘ oscarc not available"
+    else
+        echo "  ✓ oscarc available"
     fi
     echo ""
 }
@@ -345,6 +449,28 @@ main() {
     if [ ! -z "$CC65" ]; then
         test_cc65 "o0" "" "TEST 6: cc65 -O0 (Baseline)"
         test_cc65 "o2" "-O2" "TEST 7: cc65 -O2 (Optimized)"
+    else
+        # Create placeholder files for missing cc65
+        echo "0" > "$BUILD_DIR/fib_cc65_o0_size.txt"
+        echo "---" > "$BUILD_DIR/fib_cc65_o0_exec.txt"
+        echo "0" > "$BUILD_DIR/fib_cc65_o2_size.txt"
+        echo "---" > "$BUILD_DIR/fib_cc65_o2_exec.txt"
+    fi
+
+    # Test KickC if available
+    if [ ! -z "$KICKC" ]; then
+        test_kickc
+    else
+        echo "0" > "$BUILD_DIR/fib_kickc_size.txt"
+        echo "---" > "$BUILD_DIR/fib_kickc_exec.txt"
+    fi
+
+    # Test Oscar C if available
+    if [ ! -z "$OSCARC" ]; then
+        test_oscarc
+    else
+        echo "0" > "$BUILD_DIR/fib_oscarc_size.txt"
+        echo "---" > "$BUILD_DIR/fib_oscarc_exec.txt"
     fi
 
     # Generate report
