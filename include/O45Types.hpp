@@ -63,6 +63,8 @@ enum O45RelocType : uint8_t {
     R_WORD        = 0x80, // full 16-bit address (2 bytes)
     R_LINEAR32    = 0xA0, // 32-bit linear address (4 bytes) [ext]
     R_SEGADR      = 0xC0, // segment address (bank:addr, 3 bytes)
+    R_IMM8        = 0x00, // SMC: 8-bit immediate value in instruction [Phase 78]
+    R_IMM16       = 0x01, // SMC: 16-bit immediate value in instruction [Phase 78]
 };
 
 // Masks for splitting the type/seg byte
@@ -118,6 +120,12 @@ struct O45SACParam {
     std::string symbolName;      // symbol name (e.g., "_add_short__param_a")
     bool isConstant = false;     // true if all call sites pass same constant value
     int64_t constantValue = 0;   // value if isConstant is true
+
+    // Phase 78: SMC (Self-Modifying Code) metadata
+    bool useSMC = false;         // true if parameter should be embedded in instructions
+    uint32_t accessCount = 0;    // number of times parameter is accessed in function
+    std::vector<uint32_t> accessOffsets;  // offsets in code where parameter is accessed
+    std::vector<uint8_t> accessSizes;     // size of each access (1=I8, 2=I16, etc.)
 };
 
 struct O45SACMetadata {
