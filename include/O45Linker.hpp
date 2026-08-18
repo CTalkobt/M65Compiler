@@ -194,6 +194,21 @@ public:
     };
     OptimizationMetrics calculateOptimizationMetrics();
 
+    // Phase 67: Dispatcher performance benchmarking
+    struct BenchmarkResult {
+        std::string programName;             // Program being benchmarked
+        int baselineSize = 0;                // Size without optimizations
+        int optimizedSize = 0;               // Size with dispatcher + specializations
+        int codeSizeReduction = 0;           // Bytes saved
+        float compressionPercent = 0.0f;     // Percentage reduction
+        int dispatcherCodeSize = 0;          // Bytes for dispatcher stubs
+        int specializedVersionsCount = 0;    // Count of specialized versions
+        int routableCallsCount = 0;          // Calls that use specialization
+        float overheadRatio = 0.0f;          // Dispatcher overhead / savings ratio
+        bool worthOptimizing = false;        // Recommendation (overhead < 50% of savings)
+    };
+    BenchmarkResult generateBenchmarkResult(const std::string& programName);
+
     // Query if a specific parameter is specialized (constant)
     bool isParameterSpecialized(const std::string& funcName, int paramIdx, int64_t& outValue) const {
         auto it = specializedParams_.find(funcName);
@@ -385,6 +400,7 @@ private:
     void analyzeSpecializations();      // Phase 52: Analyze profitable specialization patterns
     void analyzeCallRouting();          // Phase 54: Analyze call site routing to specializations
     void analyzeInlining();             // Phase 55: Analyze cross-module inlining opportunities
+    BenchmarkResult calculateBenchmarkMetrics(const std::string& programName);  // Phase 67: Calculate benchmark metrics
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata

@@ -3073,3 +3073,72 @@ O45Linker::OptimizationMetrics O45Linker::calculateOptimizationMetrics() {
 
     return metrics;
 }
+
+// Phase 67: Generate benchmark result for performance analysis
+O45Linker::BenchmarkResult O45Linker::generateBenchmarkResult(const std::string& programName) {
+    BenchmarkResult result;
+    result.programName = programName;
+
+    // Calculate baseline size (all functions without specialization)
+    for (const auto& input : objects_) {
+        // Sum text and data sizes
+        result.baselineSize += input.obj.textBody.size();
+        result.baselineSize += input.obj.dataBody.size();
+    }
+
+    // Calculate optimized size (with dispatcher and specializations)
+    int specializedCodeSize = 0;
+    int genericFunctionSize = 0;
+
+    if (!dispatcherAnalysis_.empty()) {
+        for (const auto& [funcName, dispatcher] : dispatcherAnalysis_) {
+            // Count specialized versions
+            result.specializedVersionsCount += dispatcher.totalSpecializations;
+
+            // Add dispatcher code size
+            result.dispatcherCodeSize += dispatcher.totalDispatchCodeSize;
+
+            // Estimate specialized versions size (assume ~80% of generic per version)
+            // Real size would come from actual compilation
+            specializedCodeSize += (dispatcher.totalSpecializations * dispatcher.totalDispatchCodeSize / 2);
+        }
+    }
+
+    // Calculate routable calls
+    if (!callRoutingAnalysis_.empty()) {
+        for (const auto& [funcName, routing] : callRoutingAnalysis_) {
+            result.routableCallsCount += routing.routableCalls.size();
+        }
+    }
+
+    // Optimized size = baseline - (savings from specialization) + dispatcher overhead
+    int savingsFromSpecialization = 0;
+    if (!inliningAnalysis_.empty()) {
+        for (const auto& [callingSite, analysis] : inliningAnalysis_) {
+            savingsFromSpecialization += analysis.totalSavingsPotential;
+        }
+    }
+
+    result.optimizedSize = result.baselineSize - savingsFromSpecialization + result.dispatcherCodeSize;
+    result.codeSizeReduction = result.baselineSize - result.optimizedSize;
+
+    // Calculate compression percentage
+    if (result.baselineSize > 0) {
+        result.compressionPercent = (float)result.codeSizeReduction / (float)result.baselineSize * 100.0f;
+    }
+
+    // Calculate overhead ratio (dispatcher cost vs savings)
+    if (savingsFromSpecialization > 0) {
+        result.overheadRatio = (float)result.dispatcherCodeSize / (float)savingsFromSpecialization;
+    }
+
+    // Determine if optimization is worthwhile (overhead < 50% of savings)
+    result.worthOptimizing = (result.overheadRatio < 0.5f) && (result.codeSizeReduction > 0);
+
+    return result;
+}
+
+// Phase 67: Calculate benchmark metrics (internal helper)
+O45Linker::BenchmarkResult O45Linker::calculateBenchmarkMetrics(const std::string& programName) {
+    return generateBenchmarkResult(programName);
+}
