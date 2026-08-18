@@ -219,6 +219,26 @@ private:
     // Detect zero-alloc leaves (leaf + no locals + all constant params)
     void detectZeroAllocLeaves(const ir::Function& fn);
 
+    // Phase 78: SMC (Self-Modifying Code) parameter optimization
+    // Track parameter access patterns to embed parameters in instruction immediates
+    std::map<std::string, std::map<int, O45SACParam>> functionSMCMetadata_;  // funcName → paramID → metadata
+    uint32_t currentInstructionOffset_ = 0;  // Byte offset during code generation
+    std::vector<std::string> currentFunctionParams_;  // Current function's parameter names
+    bool trackSMCOffsetsEnabled_ = false;  // Enable SMC offset tracking for current function
+
+    // Helper to record a parameter access for SMC analysis
+    void recordParameterAccess(int paramID, uint32_t accessSize) {
+        if (!trackSMCOffsetsEnabled_) return;
+        if (paramID < 0 || paramID >= (int)currentFunctionParams_.size()) return;
+
+        auto& metadata = functionSMCMetadata_[currentFunctionName_][paramID];
+        metadata.accessCount++;
+        metadata.accessOffsets.push_back(currentInstructionOffset_);
+        if (accessSize > 0 && accessSize <= 4) {
+            metadata.accessSizes.push_back((uint8_t)accessSize);
+        }
+    }
+
     // Phase 1: MachineState-based helpers for constant queries
     // Returns true if a vreg's value is a known constant and optionally retrieves it
     bool vregIsConst(uint32_t vregId, int64_t* outVal = nullptr) const;

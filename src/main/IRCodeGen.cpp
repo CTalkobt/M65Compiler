@@ -642,6 +642,30 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         detectLeafFunctions(mod);
     }
 
+    // Phase 3.7: Analyze parameter access patterns for SMC optimization
+    // (Self-Modifying Code: embed parameters in instruction immediates)
+    if (staticAllocMode && !sacFunctions_.empty()) {
+        functionSMCMetadata_.clear();
+
+        // For each SAC function, initialize parameter metadata
+        for (const auto& fn : mod.functions) {
+            if (sacFunctions_.count(fn.name) == 0) continue;  // Only SAC functions
+
+            std::map<int, O45SACParam> paramMetadata;
+
+            // Initialize metadata for each parameter
+            for (size_t i = 0; i < fn.paramNames.size(); i++) {
+                O45SACParam param;
+                param.accessCount = 0;
+                param.useSMC = false;
+                paramMetadata[(int)i] = param;
+            }
+
+            // Store for this function
+            functionSMCMetadata_[fn.name] = paramMetadata;
+        }
+    }
+
     if (relocMode) {
         emit(".o45");
         // Emit .org for standalone assembly generation
@@ -1153,6 +1177,15 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     // Set current function context (used by loadVreg/storeVreg for SAC addressing)
     currentFunctionName_ = fn.name;
+
+    // Phase 78: Initialize SMC parameter tracking for this function
+    if (staticAllocMode_ && sacFunctions_.count(fn.name) > 0) {
+        currentFunctionParams_ = fn.paramNames;
+        trackSMCOffsetsEnabled_ = true;
+        currentInstructionOffset_ = 0;
+    } else {
+        trackSMCOffsetsEnabled_ = false;
+    }
 
     // Phase 47: Initialize IR tracking for this function
     initIRForFunction(fn.name, fn);
@@ -1889,6 +1922,26 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     emit("endproc");
     emitBlank();
+
+    // Phase 78: Finalize SMC metadata for this function
+    // Apply decision logic: use SMC if parameter accessed > 3 times (saves >= 1 byte)
+    if (staticAllocMode_ && trackSMCOffsetsEnabled_ &&
+        functionSMCMetadata_.count(currentFunctionName_) > 0) {
+        auto& paramMap = functionSMCMetadata_[currentFunctionName_];
+        for (auto& [paramID, param] : paramMap) {
+            // Decision: use SMC if parameter accessed > 3 times
+            param.useSMC = param.accessCount > 3;
+
+            // Debug output if requested
+            if (sacDebugMode_) {
+                // Note: Debug output goes to stderr, actual code is clean
+                // emitComment("SMC: param " + std::to_string(paramID) +
+                //            " accessed " + std::to_string(param.accessCount) +
+                //            " times, useSMC=" + (param.useSMC ? "yes" : "no"));
+            }
+        }
+    }
+    trackSMCOffsetsEnabled_ = false;
 
     // Phase 47: Finalize IR tracking for this function
     finalizeIRForFunction();
