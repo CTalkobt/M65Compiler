@@ -3142,3 +3142,117 @@ O45Linker::BenchmarkResult O45Linker::generateBenchmarkResult(const std::string&
 O45Linker::BenchmarkResult O45Linker::calculateBenchmarkMetrics(const std::string& programName) {
     return generateBenchmarkResult(programName);
 }
+
+// Phase 68: Generate formatted benchmark report with analysis and recommendations
+std::string O45Linker::generateBenchmarkReport(const BenchmarkResult& result) {
+    std::ostringstream out;
+
+    // Header
+    out << "=== Dispatcher Optimization Benchmark Report ===\n\n";
+    out << "Program: " << result.programName << "\n";
+    out << std::string(50, '=') << "\n\n";
+
+    // 1. Binary Size Analysis
+    out << "1. Binary Size Analysis\n";
+    out << "   Baseline size:        " << result.baselineSize << " bytes\n";
+    out << "   Optimized size:       " << result.optimizedSize << " bytes\n";
+    out << "   Code reduction:       " << result.codeSizeReduction << " bytes";
+    if (result.baselineSize > 0) {
+        out << " (" << std::fixed << std::setprecision(1) << result.compressionPercent << "%)";
+    }
+    out << "\n\n";
+
+    // 2. Optimization Metrics
+    out << "2. Optimization Metrics\n";
+    out << "   Dispatcher overhead:  " << result.dispatcherCodeSize << " bytes\n";
+    out << "   Overhead ratio:       " << std::fixed << std::setprecision(2) << result.overheadRatio << "x\n";
+    out << "   Specialized versions: " << result.specializedVersionsCount << "\n";
+    out << "   Routable calls:       " << result.routableCallsCount << "\n\n";
+
+    // 3. Efficiency Assessment
+    out << "3. Efficiency Assessment\n";
+    if (result.compressionPercent >= 20.0f) {
+        out << "   Compression quality:  EXCELLENT (>20%)\n";
+        out << "   Optimization level:   HIGHLY RECOMMENDED\n";
+    } else if (result.compressionPercent >= 10.0f) {
+        out << "   Compression quality:  GOOD (10-20%)\n";
+        out << "   Optimization level:   RECOMMENDED\n";
+    } else if (result.compressionPercent >= 5.0f) {
+        out << "   Compression quality:  MODEST (5-10%)\n";
+        out << "   Optimization level:   ACCEPTABLE\n";
+    } else if (result.compressionPercent > 0.0f) {
+        out << "   Compression quality:  MINIMAL (<5%)\n";
+        out << "   Optimization level:   LIMITED BENEFIT\n";
+    } else {
+        out << "   Compression quality:  NEGATIVE\n";
+        out << "   Optimization level:   NOT RECOMMENDED\n";
+    }
+
+    if (result.overheadRatio < 0.3f) {
+        out << "   Overhead efficiency:  NEGLIGIBLE (<0.3x)\n";
+    } else if (result.overheadRatio < 0.5f) {
+        out << "   Overhead efficiency:  GOOD (0.3-0.5x)\n";
+    } else if (result.overheadRatio < 1.0f) {
+        out << "   Overhead efficiency:  ACCEPTABLE (0.5-1.0x)\n";
+    } else {
+        out << "   Overhead efficiency:  HIGH (>1.0x)\n";
+    }
+    out << "\n";
+
+    // 4. Recommendations
+    out << "4. Recommendations\n";
+    if (result.worthOptimizing) {
+        out << "   [✓] ENABLE OPTIMIZATIONS\n";
+        out << "       - Dispatcher overhead is acceptable (<50% of savings)\n";
+        out << "       - Net code size reduction is positive\n";
+        out << "       - Specialization benefits justify the cost\n";
+    } else {
+        out << "   [✗] DISABLE OPTIMIZATIONS\n";
+        if (result.overheadRatio >= 0.5f && result.codeSizeReduction > 0) {
+            out << "       - Dispatcher overhead exceeds 50% of savings\n";
+            out << "       - Consider alternative optimization strategies\n";
+        } else if (result.codeSizeReduction <= 0) {
+            out << "       - Optimization does not reduce code size\n";
+            out << "       - No net benefit from specialization\n";
+        }
+    }
+    out << "\n";
+
+    // 5. Performance Summary
+    out << "5. Performance Summary\n";
+    out << "   Coverage:   " << result.routableCallsCount << " calls can be optimized\n";
+    out << "   Variants:   " << result.specializedVersionsCount << " specialized function versions\n";
+    out << "   ROI:        " << std::fixed << std::setprecision(1)
+        << (result.overheadRatio > 0 ? (1.0f / (1.0f + result.overheadRatio) * 100.0f) : 0.0f)
+        << "% return on optimization investment\n\n";
+
+    // 6. Detailed Breakdown
+    out << "6. Detailed Breakdown\n";
+    out << "   Savings from specialization: ";
+    int savingsFromSpecialization = result.baselineSize - result.optimizedSize - result.dispatcherCodeSize;
+    out << savingsFromSpecialization << " bytes\n";
+    out << "   Less: Dispatcher overhead:   -" << result.dispatcherCodeSize << " bytes\n";
+    out << "   Net savings:                 " << result.codeSizeReduction << " bytes\n\n";
+
+    // 7. Next Steps
+    out << "7. Recommended Next Steps\n";
+    if (result.worthOptimizing) {
+        out << "   1. Deploy with dispatcher optimization enabled\n";
+        out << "   2. Benchmark execution performance on target\n";
+        out << "   3. Monitor memory layout for cache improvements\n";
+        out << "   4. Consider additional specialization opportunities\n";
+    } else {
+        out << "   1. Review specialization patterns\n";
+        out << "   2. Consider manual optimization for hot functions\n";
+        out << "   3. Evaluate alternative calling conventions\n";
+        out << "   4. Profile program to identify optimization targets\n";
+    }
+    out << "\n";
+
+    return out.str();
+}
+
+// Phase 68: Format benchmark report (internal helper)
+std::string O45Linker::formatBenchmarkReport(const BenchmarkResult& result) {
+    return generateBenchmarkReport(result);
+}

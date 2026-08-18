@@ -209,6 +209,9 @@ public:
     };
     BenchmarkResult generateBenchmarkResult(const std::string& programName);
 
+    // Phase 68: Generate benchmark report with recommendations
+    std::string generateBenchmarkReport(const BenchmarkResult& result);
+
     // Query if a specific parameter is specialized (constant)
     bool isParameterSpecialized(const std::string& funcName, int paramIdx, int64_t& outValue) const {
         auto it = specializedParams_.find(funcName);
@@ -401,6 +404,7 @@ private:
     void analyzeCallRouting();          // Phase 54: Analyze call site routing to specializations
     void analyzeInlining();             // Phase 55: Analyze cross-module inlining opportunities
     BenchmarkResult calculateBenchmarkMetrics(const std::string& programName);  // Phase 67: Calculate benchmark metrics
+    std::string formatBenchmarkReport(const BenchmarkResult& result);  // Phase 68: Format report
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata
