@@ -142,7 +142,14 @@ test_cc45() {
     $BIN_DIR/cc45 $flags -c -o "$object" "$source" 2>&1 | grep -v "^$" | head -3 || true
 
     echo -e "${YELLOW}Linking...${NC}"
-    $BIN_DIR/ln45 "$object" -o "$binary" 2>&1 | grep -v "^$" | head -3 || true
+    LINK_OUTPUT=$($BIN_DIR/ln45 "$object" "$PROJECT_ROOT/lib/build/c45.lib" -o "$binary" 2>&1)
+    LINK_EXIT=$?
+    if [ $LINK_EXIT -eq 0 ]; then
+        echo "$LINK_OUTPUT" | grep -v "^$" | head -3 || true
+    else
+        echo "Link failed with exit code $LINK_EXIT:"
+        echo "$LINK_OUTPUT" | head -5
+    fi
 
     # Generate assembly
     $BIN_DIR/cc45 $flags -S -o "$assembly" "$source" 2>/dev/null || true
