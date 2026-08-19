@@ -18,6 +18,12 @@ void IRBuilder::generate(TranslationUnit& unit) {
     // Eliminate unused static functions (iterative — handles call chains)
     {
         bool changed = true;
+        // Build set of all function names for filtering
+        std::set<std::string> allFunctionNames;
+        for (const auto& fn : module_.functions) {
+            allFunctionNames.insert(fn.name);
+        }
+
         while (changed) {
             // Rebuild called set from surviving functions only
             std::set<std::string> usedFuncs;
@@ -30,14 +36,21 @@ void IRBuilder::generate(TranslationUnit& unit) {
                         }
                         // Function address taken (function pointer) via ADDR_GLOBAL
                         if (inst.op == ir::Op::ADDR_GLOBAL &&
-                            inst.src1.kind == ir::OperandKind::GLOBAL) {
+                            inst.src1.kind == ir::OperandKind::GLOBAL &&
+                            allFunctionNames.count(inst.src1.name)) {
                             usedFuncs.insert(inst.src1.name);
                         }
-                        // Function name used as value (global operand in args, src1, src2)
-                        if (inst.src1.kind == ir::OperandKind::GLOBAL) usedFuncs.insert(inst.src1.name);
-                        if (inst.src2.kind == ir::OperandKind::GLOBAL) usedFuncs.insert(inst.src2.name);
+                        // Function name used as value in operands - only add if it's a known function
+                        if (inst.src1.kind == ir::OperandKind::GLOBAL && allFunctionNames.count(inst.src1.name)) {
+                            usedFuncs.insert(inst.src1.name);
+                        }
+                        if (inst.src2.kind == ir::OperandKind::GLOBAL && allFunctionNames.count(inst.src2.name)) {
+                            usedFuncs.insert(inst.src2.name);
+                        }
                         for (const auto& arg : inst.args) {
-                            if (arg.kind == ir::OperandKind::GLOBAL) usedFuncs.insert(arg.name);
+                            if (arg.kind == ir::OperandKind::GLOBAL && allFunctionNames.count(arg.name)) {
+                                usedFuncs.insert(arg.name);
+                            }
                         }
                     }
                 }
@@ -59,7 +72,10 @@ void IRBuilder::generate(TranslationUnit& unit) {
                     return true;
                 });
             changed = (it != module_.functions.end());
-            module_.functions.erase(it, module_.functions.end());
+            if (changed) {
+                // Only proceed if functions were actually removed
+                module_.functions.erase(it, module_.functions.end());
+            }
         }
     }
     // Phase 4: Compiler-level devirtualization
