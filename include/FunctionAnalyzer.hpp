@@ -20,6 +20,7 @@ public:
         int estimatedCodeSize = 0;
         bool isLeaf = true;  // Updated if any function calls found
         bool isRecursive = false;  // Detected by DFS recursion analysis
+        bool hasAsmParamRefs = false;  // Inline asm with @_p_name references
 
         bool shouldUnrollLoops = false;
         bool shouldInterchangeLoops = false;

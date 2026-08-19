@@ -151,8 +151,15 @@ void FunctionAnalyzer::visit(VariableDeclaration& node) {
     if (state_.current) state_.current->estimatedCodeSize += 1;
 }
 
-void FunctionAnalyzer::visit(AsmStatement&) {
-    if (state_.current) state_.current->estimatedCodeSize += 5;  // Conservative estimate
+void FunctionAnalyzer::visit(AsmStatement& node) {
+    if (state_.current) {
+        state_.current->estimatedCodeSize += 5;  // Conservative estimate
+
+        // Check if inline asm references function parameters via @_p_name syntax
+        if (node.code.find("@_p_") != std::string::npos) {
+            state_.current->hasAsmParamRefs = true;
+        }
+    }
 }
 
 void FunctionAnalyzer::visit(FunctionCall& node) {

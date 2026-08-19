@@ -36,6 +36,13 @@ InlineSelector::InlineHints InlineSelector::computeInlineDecision(
         return hints;
     }
 
+    // Don't inline functions with inline asm that reference parameters
+    // These require special handling that inlining doesn't support
+    if (chars->hasAsmParamRefs) {
+        hints.reason = "Has inline asm with parameter refs (cannot inline)";
+        return hints;
+    }
+
     // Strategy 1: Tiny functions (< 20 code size units)
     // Always inline if they're leaf functions
     if (chars->estimatedCodeSize < 20 && chars->isLeaf) {
