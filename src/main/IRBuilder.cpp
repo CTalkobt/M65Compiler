@@ -15,18 +15,6 @@ void IRBuilder::setSourceInfo(const std::string& filename) {
 
 void IRBuilder::generate(TranslationUnit& unit) {
     unit.accept(*this);
-
-    // QUICK TEST: Verify generate() is called
-    {
-        std::ofstream test("/tmp/generate_called.txt");
-        test << "IRBuilder::generate() was called\n";
-        test << "module_.functions.size() = " << module_.functions.size() << "\n";
-        for (const auto& fn : module_.functions) {
-            test << "  " << fn.name << "\n";
-        }
-        test.close();
-    }
-
     // Eliminate unused static functions (iterative — handles call chains)
     {
         bool changed = true;
@@ -36,19 +24,7 @@ void IRBuilder::generate(TranslationUnit& unit) {
             allFunctionNames.insert(fn.name);
         }
 
-        // DEBUG logging for DCE
-        bool debugSmallModule = true;  // Log everything for debugging
-        int dcePass = 0;
-
         while (changed) {
-            dcePass++;
-            if (debugSmallModule) {
-                std::ofstream dceLog("/tmp/dce_debug.log", std::ios::app);
-                dceLog << "\n=== DCE Pass " << dcePass << " ===\n";
-                dceLog << "Functions in module: ";
-                for (const auto& fn : module_.functions) dceLog << fn.name << " ";
-                dceLog << "\n";
-            }
             // Rebuild called set from surviving functions only
             std::set<std::string> usedFuncs;
             for (const auto& fn : module_.functions) {
@@ -86,15 +62,6 @@ void IRBuilder::generate(TranslationUnit& unit) {
                 }
             }
 
-            // DEBUG: Log usedFuncs
-            if (debugSmallModule) {
-                std::ofstream dceLog("/tmp/dce_debug.log", std::ios::app);
-                dceLog << "usedFuncs: ";
-                for (const auto& f : usedFuncs) dceLog << f << " ";
-                dceLog << "\n";
-                dceLog.close();
-            }
-
             // Remove unused functions (static, inlined, or unreachable)
             auto it = std::remove_if(module_.functions.begin(), module_.functions.end(),
                 [&usedFuncs](const ir::Function& fn) {
@@ -106,17 +73,6 @@ void IRBuilder::generate(TranslationUnit& unit) {
                     return true;
                 });
             changed = (it != module_.functions.end());
-
-            // DEBUG: Log removal results
-            if (debugSmallModule) {
-                std::ofstream dceLog("/tmp/dce_debug.log", std::ios::app);
-                dceLog << "remove_if result: changed=" << (changed ? "true" : "false") << "\n";
-                dceLog << "Functions after removal: ";
-                for (const auto& fn : module_.functions) dceLog << fn.name << " ";
-                dceLog << "\n";
-                dceLog.close();
-            }
-
             module_.functions.erase(it, module_.functions.end());
         }
     }
