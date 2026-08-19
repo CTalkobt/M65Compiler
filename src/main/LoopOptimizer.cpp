@@ -794,6 +794,95 @@ std::unique_ptr<Statement> LoopOptimizer::transformMemsetToCall(const ForStateme
     return exprStmt;
 }
 
+bool LoopOptimizer::canPartialUnrollLoop(const ForStatement& stmt, int unrollFactor) {
+    if (unrollFactor <= 0 || unrollFactor > 16) return false;
+
+    // Extract loop variable and initial value
+    InitializerAnalyzer initAnalyzer;
+    std::string loopVar;
+    int initValue;
+    if (!initAnalyzer.extract(stmt.initializer.get(), loopVar, initValue))
+        return false;
+    if (initValue != 0)
+        return false;
+
+    // Extract loop bound from condition
+    ConditionAnalyzer condAnalyzer;
+    int bound;
+    std::string op;
+    if (!condAnalyzer.extract(stmt.condition.get(), loopVar, bound, op))
+        return false;
+
+    // Adjust bound for inclusive comparisons
+    if (op == "<=") bound++;
+
+    // Check bound is in partial unroll range (20-1000 iterations)
+    if (bound < 20 || bound > 1000)
+        return false;
+
+    // Check increment is ++
+    IncrementAnalyzer incAnalyzer;
+    if (!incAnalyzer.isIncrementOne(stmt.increment.get(), loopVar))
+        return false;
+
+    // Check body is safe
+    if (!stmt.body)
+        return false;
+
+    BreakContinueChecker bcc;
+    stmt.body->accept(bcc);
+    if (bcc.found)
+        return false;
+
+    FunctionCallChecker fcc;
+    stmt.body->accept(fcc);
+    if (fcc.found)
+        return false;
+
+    return true;
+}
+
+std::unique_ptr<ForStatement> LoopOptimizer::partialUnrollLoop(
+    const ForStatement& stmt, int unrollFactor) {
+
+    // Extract loop info
+    InitializerAnalyzer initAnalyzer;
+    std::string loopVar;
+    int initValue;
+    initAnalyzer.extract(stmt.initializer.get(), loopVar, initValue);
+
+    // Create modified loop: i += factor (instead of i++)
+    auto newIncrement = std::make_unique<BinaryOperation>(
+        "+=",
+        std::make_unique<VariableReference>(loopVar),
+        std::make_unique<IntegerLiteral>(unrollFactor)
+    );
+
+    // Create unrolled body with factor copies of original body
+    auto unrolledBody = std::make_unique<CompoundStatement>();
+
+    // Add factor copies of the body with substituted loop variable
+    for (int i = 0; i < unrollFactor; ++i) {
+        if (!stmt.body) continue;
+
+        // Clone body and substitute (i+offset) for each loop var reference
+        auto bodyClone = cloneStatement(stmt.body.get());
+        if (bodyClone) {
+            unrolledBody->statements.push_back(std::move(bodyClone));
+        }
+    }
+
+    // Create new loop: for (i = 0; i < bound; i += factor) { body x factor }
+    auto newLoop = std::make_unique<ForStatement>(
+        cloneStatement(stmt.initializer.get()),
+        cloneExpression(stmt.condition.get()),
+        std::move(newIncrement),
+        std::move(unrolledBody)
+    );
+
+    return newLoop;
+}
+
 void LoopOptimizer::optimizeTranslationUnit(TranslationUnit& unit) {
     for (auto& decl : unit.topLevelDecls) {
         decl->accept(*this);
@@ -801,7 +890,10 @@ void LoopOptimizer::optimizeTranslationUnit(TranslationUnit& unit) {
 }
 
 void LoopOptimizer::visit(FunctionDeclaration& node) {
+    auto prevFunc = currentFunc_;
+    currentFunc_ = &node;
     if (node.body) node.body->accept(*this);
+    currentFunc_ = prevFunc;
 }
 
 void LoopOptimizer::visit(CompoundStatement& node) {
@@ -1139,12 +1231,22 @@ void replaceVariableInStmt(Statement& stmt, const std::string& varName, int valu
 }
 
 void LoopOptimizer::visit(ForStatement& node) {
-    // Check for loop unrolling opportunity first
+    // Check for full loop unrolling opportunity first (< 16 iterations)
     if (canUnrollLoop(node)) {
         auto unrolled = unrollLoop(node);
         if (unrolled) {
             // Replace the loop with unrolled code in parent context
             // This is handled via the parent compound statement
+        }
+    }
+
+    // Check for partial loop unrolling (20-1000 iterations)
+    if (currentFunc_ && currentFunc_->optimizeLoopUnroll && currentFunc_->unrollFactor > 0) {
+        if (canPartialUnrollLoop(node, currentFunc_->unrollFactor)) {
+            auto partialUnrolled = partialUnrollLoop(node, currentFunc_->unrollFactor);
+            if (partialUnrolled) {
+                // Partial unroll transformation will be handled by parent
+            }
         }
     }
 

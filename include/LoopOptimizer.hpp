@@ -64,9 +64,16 @@ public:
     void visit(LabelAddressExpression& node) override {}
 
 private:
+    // Current function for per-function optimization control
+    FunctionDeclaration* currentFunc_ = nullptr;
+
     // Loop unrolling: detect and transform fixed-size loops
     bool canUnrollLoop(const ForStatement& stmt);
     std::unique_ptr<CompoundStatement> unrollLoop(const ForStatement& stmt);
+
+    // Partial loop unrolling: for larger loops (20-1000 iterations)
+    bool canPartialUnrollLoop(const ForStatement& stmt, int unrollFactor);
+    std::unique_ptr<ForStatement> partialUnrollLoop(const ForStatement& stmt, int unrollFactor);
 
     // Pattern matching: detect memcpy/memset opportunities
     bool isMemcpyPattern(const ForStatement& stmt, std::string& dest, std::string& src, std::string& idx);
