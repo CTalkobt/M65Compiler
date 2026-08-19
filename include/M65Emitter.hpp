@@ -345,9 +345,19 @@ public:
     void recordSymbolRelocHi(const std::string& name, uint8_t lowByte);
     void recordSymbolReloc32Bit(const std::string& name);
 
+    // Phase 78: Immediate relocation tracking for SMC parameters
+    struct ImmediateReloc {
+        uint32_t address;           // offset of immediate byte(s) in binary
+        std::string symbolName;     // parameter symbol to patch
+        uint8_t relocType;          // R_IMM8 or R_IMM16
+    };
+    const std::vector<ImmediateReloc>& immediateRelocs() const { return immediateRelocs_; }
+    void recordImmediateReloc(const std::string& symbolName, bool isSixteenBit = false);
+
 private:
     std::vector<SpBaseReloc> spBaseRelocs_;
     std::vector<SymbolReloc> symbolRelocs_;
+    std::vector<ImmediateReloc> immediateRelocs_;  // Phase 78: SMC immediate relocations
     std::ostream* out = nullptr;
     std::vector<uint8_t>* binary = nullptr;
     Mode mode;

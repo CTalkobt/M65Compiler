@@ -303,6 +303,14 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                                     std::string mn2 = stmt->instr.mnemonic;
                                     std::transform(mn2.begin(), mn2.end(), mn2.begin(), ::toupper);
                                     if (resolvedMode == AddressingMode::IMMEDIATE) {
+                                        // Phase 78: SMC placeholder detection (#$00 in SAC functions)
+                                        if (val == 0 && e.isSACMode() &&
+                                            (mn2 == "LDA" || mn2 == "LDX" || mn2 == "LDY" || mn2 == "LDZ")) {
+                                            // Placeholder immediate for SMC parameter
+                                            // Will be patched by linker with actual parameter value
+                                            e.recordImmediateReloc("__smc_param_" + std::to_string(e.getAddress()), false);
+                                        }
+
                                         // LDA #imm → setConst (setReloc handled below for </>sym)
                                         if (mn2 == "LDA") e.machineState().setConst(REG_A, val & 0xFF);
                                         else if (mn2 == "LDX") e.machineState().setConst(REG_X, val & 0xFF);

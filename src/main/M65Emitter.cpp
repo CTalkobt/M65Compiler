@@ -418,6 +418,16 @@ void M65Emitter::recordSymbolReloc32Bit(const std::string& name) {
     }
 }
 
+// Phase 78: Record immediate relocation for SMC parameter
+void M65Emitter::recordImmediateReloc(const std::string& symbolName, bool isSixteenBit) {
+    if (mode == Mode::BINARY) {
+        uint8_t relocType = isSixteenBit ? 0x01 : 0x00;  // R_IMM16 or R_IMM8
+        // Offset points to the immediate byte(s) in the instruction
+        uint32_t immOffset = isSixteenBit ? (currentAddress - 1) : (currentAddress);
+        immediateRelocs_.push_back({immOffset, symbolName, relocType});
+    }
+}
+
 void M65Emitter::setupFramePointer() {
     // Compute FP from current SP: FP = SP + 1
     uint8_t fp = framePointerZP_;
