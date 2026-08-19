@@ -20,6 +20,7 @@
 #include "DevirtualizationDetector.hpp"
 #include "CoOptimizationSelector.hpp"
 #include "DevirtualizationHints.hpp"
+#include "CoOptimizationApplier.hpp"
 #include "LoopOptimizer.hpp"
 #include "LoopInterchange.hpp"
 #include "Preprocessor.hpp"
@@ -814,6 +815,15 @@ int main(int argc, char** argv) {
             }
             if (verboseLevel >= 1) {
                 std::cout << "Marked " << devirtMethods.size() << " virtual method(s) for devirtualization." << std::endl;
+            }
+
+            // Phase 87: Apply co-optimization group strategies
+            if (verboseLevel >= 1) std::cout << "Executing co-optimization group strategies..." << std::endl;
+            CoOptimizationApplier applier;
+            auto coOptResult = applier.apply(*ast, coOptSelector);
+            if (verboseLevel >= 1) {
+                std::cout << "Applied " << coOptResult.optimizationType << " to " << coOptResult.groupCount
+                         << " group(s) (" << coOptResult.functionsOptimized << " function(s))." << std::endl;
             }
 
             if (verboseLevel >= 1) std::cout << "Loop optimization..." << std::endl;
