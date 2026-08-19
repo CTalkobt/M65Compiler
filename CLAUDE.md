@@ -385,6 +385,21 @@ All stdlib functions support both stack and ZP calling conventions:
 
 ## Known Limitations & Future Work
 
+### Cast Fold Type Preservation with Uncalled Functions (Known Issue)
+
+**Status**: Open  
+**Severity**: Medium  
+**Impact**: Functions that return casted constants (e.g., `long get_long42(void) { return (long)42; }`) compiled standalone with -O1+ don't generate full multi-byte return values (missing ldy/ldz instructions for 32-bit returns).
+
+**Root Cause**: With optimization enabled, standalone function definitions (not called within their compilation unit) may be treated as dead code and optimized away before code generation. This is incorrect—module-level function definitions should always be emitted.
+
+**Workaround**: 
+- Compile with -O0 (generates correct code)
+- Add an extern declaration that forces the function into the IR
+- Use `-fno-constant-folding` to bypass the optimization issue
+
+**Proper Fix**: Ensure all top-level function definitions are preserved in IR regardless of call status, or mark them appropriately to prevent dead-code elimination.
+
 ### Phase 2: Fine-Grained Register Invalidation
 
 Partially implemented. Phase 1 (accurate clobber tracking) is complete and emits `.reg_clobbers` / `.flag_clobbers` directives. Future phases:

@@ -712,7 +712,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     fn.returnType = mapType(node.returnType, node.returnPointerLevel);
     fn.conv = (zpCallMode || node.isFastcall) ? ir::CallConv::ZP : ir::CallConv::STACK;
     fn.isVariadic = node.isVariadic;
-    fn.isStatic = node.isStatic || node.isInline;
+    fn.isStatic = node.isStatic;
     fn.isWeak = weakNextFunction_;
     weakNextFunction_ = false;
     fn.isRecurse = recurseNextFunction_;
