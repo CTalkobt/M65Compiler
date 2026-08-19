@@ -3,6 +3,9 @@
 #include <memory>
 #include <iostream>
 
+// Forward declarations
+std::unique_ptr<Expression> cloneExpression(Expression* expr);
+
 namespace {
     // Helper: extract loop variable and initial value from initialization
     class InitializerAnalyzer {
