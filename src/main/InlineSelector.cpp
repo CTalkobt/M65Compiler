@@ -1,4 +1,6 @@
 #include "InlineSelector.hpp"
+#include "CallGraphAnalyzer.hpp"
+#include "CoOptimizationSelector.hpp"
 
 InlineSelector::InlineSelector() {}
 
@@ -74,6 +76,38 @@ InlineSelector::InlineHints InlineSelector::computeInlineDecision(
     // Default: Don't inline large or complex functions
     hints.reason = "Too large or complex";
     return hints;
+}
+
+void InlineSelector::applyRecommendations(const CallGraphAnalyzer* callGraph,
+                                          const CoOptimizationSelector* selector) {
+    // Phase 87: Apply cross-function optimization recommendations
+    if (!selector) return;
+
+    // Get recommended inline pairs from Phase 86 analysis
+    auto inlinePairs = selector->getRecommendedInlines();
+
+    // Apply top recommendations with safety checks
+    int appliedCount = 0;
+    const int maxInlines = 5; // Conservative limit to prevent code bloat
+
+    for (const auto& pair : inlinePairs) {
+        if (appliedCount >= maxInlines) break;
+
+        // Check if callee is safe to inline
+        auto calleeHints = getInlineHints(pair.callee);
+        if (calleeHints.shouldInline || !calleeHints.reason.empty()) {
+            // Override with cross-function recommendation
+            InlineHints newHints = calleeHints;
+            newHints.shouldInline = true;
+            newHints.fromCrossFunc = true;
+            newHints.benefitScore = pair.benefitScore;
+            newHints.reason = "Phase 87 cross-function recommendation";
+            newHints.inlineThreshold = 200; // Aggressive for recommended functions
+
+            inlineHints_[pair.callee] = newHints;
+            appliedCount++;
+        }
+    }
 }
 
 InlineSelector::InlineHints InlineSelector::getInlineHints(

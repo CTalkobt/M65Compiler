@@ -796,6 +796,11 @@ int main(int argc, char** argv) {
             }
             if (verboseLevel >= 1) std::cout << "Cross-function analysis complete." << std::endl;
 
+            // Phase 87: Apply recommendations to inline selector
+            if (verboseLevel >= 1) std::cout << "Applying cross-function optimization recommendations..." << std::endl;
+            inlineSelector.applyRecommendations(&callGraphAnalyzer, &coOptSelector);
+            if (verboseLevel >= 1) std::cout << "Recommendations applied." << std::endl;
+
             if (verboseLevel >= 1) std::cout << "Loop optimization..." << std::endl;
             LoopOptimizer loopOpt;
             loopOpt.optimizeTranslationUnit(*ast);
