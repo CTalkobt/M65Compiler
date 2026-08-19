@@ -68,6 +68,10 @@ private:
     bool canUnrollLoop(const ForStatement& stmt);
     std::unique_ptr<CompoundStatement> unrollLoop(const ForStatement& stmt);
 
+    // Pattern matching: detect memcpy/memset opportunities
+    bool isMemcpyPattern(const ForStatement& stmt, std::string& dest, std::string& src, std::string& idx);
+    bool isMemsetPattern(const ForStatement& stmt, std::string& arr, std::string& idx, int& value);
+
     // Collect all variables referenced by an expression
     class VariableCollector : public ASTVisitor {
     public:

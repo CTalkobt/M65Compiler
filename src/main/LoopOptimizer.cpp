@@ -221,6 +221,86 @@ namespace {
         void visit(CaseStatement&) override {}
     };
 
+    // Helper: detect memcpy pattern: for (int i=0; i<n; i++) dest[i] = src[i];
+    class MemcpyPatternDetector {
+    public:
+        bool detect(const ForStatement& loop, std::string& destVar, std::string& srcVar, std::string& indexVar) {
+            // Check if body is a single assignment to arr[i] = arr2[i]
+            if (!loop.body) return false;
+
+            auto* exprStmt = dynamic_cast<ExpressionStatement*>(loop.body.get());
+            if (!exprStmt || !exprStmt->expression) return false;
+
+            auto* assign = dynamic_cast<Assignment*>(exprStmt->expression.get());
+            if (!assign) return false;
+
+            // LHS must be array access: dest[i]
+            auto* lhsArray = dynamic_cast<ArrayAccess*>(assign->target.get());
+            if (!lhsArray) return false;
+
+            // Array should be variable reference
+            auto* destRef = dynamic_cast<VariableReference*>(lhsArray->arrayExpr.get());
+            if (!destRef) return false;
+            destVar = destRef->name;
+
+            // Index should be variable reference (the loop counter)
+            auto* lhsIndex = dynamic_cast<VariableReference*>(lhsArray->indexExpr.get());
+            if (!lhsIndex) return false;
+            indexVar = lhsIndex->name;
+
+            // RHS must be array access: src[i]
+            auto* rhsArray = dynamic_cast<ArrayAccess*>(assign->expression.get());
+            if (!rhsArray) return false;
+
+            // Source array should be variable reference
+            auto* srcRef = dynamic_cast<VariableReference*>(rhsArray->arrayExpr.get());
+            if (!srcRef) return false;
+            srcVar = srcRef->name;
+
+            // Index should match dest's index
+            auto* rhsIndex = dynamic_cast<VariableReference*>(rhsArray->indexExpr.get());
+            if (!rhsIndex || rhsIndex->name != lhsIndex->name) return false;
+
+            return destVar != srcVar;  // dest and src must be different
+        }
+    };
+
+    // Helper: detect memset pattern: for (int i=0; i<n; i++) arr[i] = constant;
+    class MemsetPatternDetector {
+    public:
+        bool detect(const ForStatement& loop, std::string& arrVar, std::string& indexVar, int& value) {
+            // Check if body is a single assignment to arr[i] = const
+            if (!loop.body) return false;
+
+            auto* exprStmt = dynamic_cast<ExpressionStatement*>(loop.body.get());
+            if (!exprStmt || !exprStmt->expression) return false;
+
+            auto* assign = dynamic_cast<Assignment*>(exprStmt->expression.get());
+            if (!assign) return false;
+
+            // LHS must be array access: arr[i]
+            auto* lhsArray = dynamic_cast<ArrayAccess*>(assign->target.get());
+            if (!lhsArray) return false;
+
+            // Array should be variable reference
+            auto* arrRef = dynamic_cast<VariableReference*>(lhsArray->arrayExpr.get());
+            if (!arrRef) return false;
+            arrVar = arrRef->name;
+
+            // Index should be variable reference (the loop counter)
+            auto* lhsIndex = dynamic_cast<VariableReference*>(lhsArray->indexExpr.get());
+            if (!lhsIndex) return false;
+            indexVar = lhsIndex->name;
+
+            // RHS must be integer literal
+            auto* lit = dynamic_cast<IntegerLiteral*>(assign->expression.get());
+            if (!lit) return false;
+
+            value = lit->value;
+            return true;
+        }
+    };
+
     // Helper: collect all variable names referenced in an expression
     class VarCollector : public ASTVisitor {
     public:
@@ -605,6 +685,16 @@ std::unique_ptr<CompoundStatement> LoopOptimizer::unrollLoop(const ForStatement&
     return result;
 }
 
+bool LoopOptimizer::isMemcpyPattern(const ForStatement& stmt, std::string& dest, std::string& src, std::string& idx) {
+    MemcpyPatternDetector detector;
+    return detector.detect(stmt, dest, src, idx);
+}
+
+bool LoopOptimizer::isMemsetPattern(const ForStatement& stmt, std::string& arr, std::string& idx, int& value) {
+    MemsetPatternDetector detector;
+    return detector.detect(stmt, arr, idx, value);
+}
+
 void LoopOptimizer::optimizeTranslationUnit(TranslationUnit& unit) {
     for (auto& decl : unit.topLevelDecls) {
         decl->accept(*this);
@@ -870,6 +960,23 @@ void LoopOptimizer::visit(ForStatement& node) {
             // Replace the loop with unrolled code in parent context
             // This is handled via the parent compound statement
         }
+    }
+
+    // Check for memcpy pattern
+    std::string dest, src, idx;
+    if (isMemcpyPattern(node, dest, src, idx)) {
+        // Pattern detected: array copy loop
+        // Future: Replace with memcpy library call
+        // For now: Just detection, no transformation
+    }
+
+    // Check for memset pattern
+    std::string arr;
+    int value;
+    if (isMemsetPattern(node, arr, idx, value)) {
+        // Pattern detected: array fill loop
+        // Future: Replace with memset library call
+        // For now: Just detection, no transformation
     }
 
     // 1. Identify expressions within the loop body that are invariant
