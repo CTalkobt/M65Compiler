@@ -614,9 +614,41 @@ void LoopOptimizer::visit(FunctionDeclaration& node) {
 }
 
 void LoopOptimizer::visit(CompoundStatement& node) {
+    // Process statements in-place, unrolling loops where possible
+    std::vector<std::unique_ptr<Statement>> newStatements;
+    newStatements.reserve(node.statements.size() * 2);  // Reserve extra space for unrolled statements
+
     for (auto& stmt : node.statements) {
+        if (!stmt) {
+            newStatements.push_back(nullptr);
+            continue;
+        }
+
+        // Check if this is an unrollable for loop
+        ForStatement* forStmt = dynamic_cast<ForStatement*>(stmt.get());
+        if (forStmt && canUnrollLoop(*forStmt)) {
+            // Unroll the loop and add all unrolled statements
+            auto unrolled = unrollLoop(*forStmt);
+            if (unrolled) {
+                for (auto& unrolledStmt : unrolled->statements) {
+                    if (unrolledStmt) {
+                        // Recursively visit each unrolled statement
+                        unrolledStmt->accept(*this);
+                        newStatements.push_back(std::move(unrolledStmt));
+                    }
+                }
+                stmt.reset();  // Release the original for statement
+                continue;
+            }
+        }
+
+        // Not unrollable or not a for loop - process normally
         stmt->accept(*this);
+        newStatements.push_back(std::move(stmt));
     }
+
+    // Replace the statement list with the processed one
+    node.statements = std::move(newStatements);
 }
 
 // Clone and substitute variable with constant in expression
