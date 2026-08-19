@@ -938,6 +938,31 @@ std::unique_ptr<Statement> cloneAndSubstituteStatement(Statement* stmt, const st
         cloned->isExtern = var->isExtern;
         return cloned;
     }
+    // Handle nested for loops: clone with variable substitution applied
+    if (auto* forStmt = dynamic_cast<ForStatement*>(stmt)) {
+        auto cloned = std::make_unique<ForStatement>(
+            cloneAndSubstituteStatement(forStmt->initializer.get(), varName, value),
+            cloneAndSubstituteExpression(forStmt->condition.get(), varName, value),
+            cloneAndSubstituteExpression(forStmt->increment.get(), varName, value),
+            cloneAndSubstituteStatement(forStmt->body.get(), varName, value)
+        );
+        return cloned;
+    }
+    // Handle other loops similarly with variable substitution
+    if (auto* whileStmt = dynamic_cast<WhileStatement*>(stmt)) {
+        auto cloned = std::make_unique<WhileStatement>(
+            cloneAndSubstituteExpression(whileStmt->condition.get(), varName, value),
+            cloneAndSubstituteStatement(whileStmt->body.get(), varName, value)
+        );
+        return cloned;
+    }
+    if (auto* doWhileStmt = dynamic_cast<DoWhileStatement*>(stmt)) {
+        auto cloned = std::make_unique<DoWhileStatement>(
+            cloneAndSubstituteStatement(doWhileStmt->body.get(), varName, value),
+            cloneAndSubstituteExpression(doWhileStmt->condition.get(), varName, value)
+        );
+        return cloned;
+    }
     return nullptr;
 }
 
@@ -1005,6 +1030,29 @@ std::unique_ptr<Statement> cloneStatement(Statement* stmt) {
         cloned->isPointerConst = var->isPointerConst;
         cloned->isGlobal = var->isGlobal;
         cloned->isExtern = var->isExtern;
+        return cloned;
+    }
+    if (auto* forStmt = dynamic_cast<ForStatement*>(stmt)) {
+        auto cloned = std::make_unique<ForStatement>(
+            cloneStatement(forStmt->initializer.get()),
+            cloneExpression(forStmt->condition.get()),
+            cloneExpression(forStmt->increment.get()),
+            cloneStatement(forStmt->body.get())
+        );
+        return cloned;
+    }
+    if (auto* whileStmt = dynamic_cast<WhileStatement*>(stmt)) {
+        auto cloned = std::make_unique<WhileStatement>(
+            cloneExpression(whileStmt->condition.get()),
+            cloneStatement(whileStmt->body.get())
+        );
+        return cloned;
+    }
+    if (auto* doWhileStmt = dynamic_cast<DoWhileStatement*>(stmt)) {
+        auto cloned = std::make_unique<DoWhileStatement>(
+            cloneStatement(doWhileStmt->body.get()),
+            cloneExpression(doWhileStmt->condition.get())
+        );
         return cloned;
     }
     // For other statement types, return null (not unrollable)
