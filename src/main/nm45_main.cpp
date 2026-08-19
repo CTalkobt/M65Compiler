@@ -34,6 +34,15 @@ static const char* segmentName(uint8_t seg) {
 }
 
 static const char* relocTypeName(uint8_t rtype) {
+    // Phase 78: Check for immediate relocation types first (stored in low bits)
+    if ((rtype & ~O45_RSEG_MASK) == 0) {
+        switch (rtype) {
+            case R_IMM8:  return "R_IMM8";
+            case R_IMM16: return "R_IMM16";
+            default: break;
+        }
+    }
+
     switch (rtype & O45_RTYPE_MASK) {
         case R_LOW:      return "R_LOW";
         case R_HIGH:     return "R_HIGH";
