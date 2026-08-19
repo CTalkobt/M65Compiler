@@ -57,6 +57,39 @@ void IRCodeGen::emit(const std::string& line, const std::string& reason) {
     }
     out_ << "\n";
 
+    // Phase 78: Track instruction offset for SMC parameter access recording
+    // Estimate instruction size based on addressing mode patterns
+    if (trackSMCOffsetsEnabled_ && !line.empty() && line[0] != '.' && line[0] != ';') {
+        // Heuristic instruction size estimation:
+        // - If contains '#': likely immediate (2 bytes)
+        // - If contains '$' and ':': likely absolute address (3 bytes)
+        // - If contains '$': likely ZP (2 bytes)
+        // - Otherwise: likely implied (1 byte)
+        // This is conservative; actual size will be refined by assembler
+        uint32_t estimatedSize = 1;  // Default to 1 byte (implied)
+
+        if (line.find('#') != std::string::npos) {
+            estimatedSize = 2;  // Immediate
+        } else if (line.find("$") != std::string::npos) {
+            // Check for absolute addressing (16-bit address)
+            size_t dollarPos = line.find('$');
+            if (dollarPos != std::string::npos && dollarPos + 5 < line.length()) {
+                // If we see 4 hex digits or more, it's likely absolute
+                std::string after = line.substr(dollarPos + 1, 4);
+                if (after.find_first_not_of("0123456789ABCDEFabcdef") == std::string::npos &&
+                    after.length() >= 4) {
+                    estimatedSize = 3;  // Absolute address
+                } else {
+                    estimatedSize = 2;  // ZP address
+                }
+            } else {
+                estimatedSize = 2;  // ZP address
+            }
+        }
+
+        currentInstructionOffset_ += estimatedSize;
+    }
+
     // Auto-update MachineState for simulated ops (contain '.' in mnemonic).
     // Native instructions are handled with precise ms_ updates by the caller.
     // Simulated ops (like stax.fp, add.16, mul.s16) need table-driven invalidation
@@ -230,6 +263,11 @@ void IRCodeGen::loadVreg(uint32_t vregId) {
                         storageSymbol = currentFunctionName_ + "__local_" + std::to_string(vregId);
                     }
 
+                    // Phase 78: Record parameter access for SMC analysis
+                    if (trackSMCOffsetsEnabled_ && vregId < currentFn_->paramTypes.size()) {
+                        recordParameterAccess((int)vregId, ir::typeSize(alloc.type));
+                    }
+
                     if (alloc.type == ir::Type::I32) {
                         emit("lda " + storageSymbol, r);
                         emit("ldx " + storageSymbol + "+1", r);
@@ -273,6 +311,10 @@ void IRCodeGen::loadVregA(uint32_t vregId) {
                         std::string pName = (vregId < currentFn_->paramNames.size() && !currentFn_->paramNames[vregId].empty())
                             ? currentFn_->paramNames[vregId] : std::to_string(vregId);
                         storageSymbol = currentFunctionName_ + "__param_" + pName;
+                        // Phase 78: Record parameter access for SMC analysis (IN_AX case)
+                        if (trackSMCOffsetsEnabled_) {
+                            recordParameterAccess((int)vregId, 1);  // I8 = 1 byte
+                        }
                     } else {
                         storageSymbol = currentFunctionName_ + "__local_" + std::to_string(vregId);
                     }
@@ -296,6 +338,10 @@ void IRCodeGen::loadVregA(uint32_t vregId) {
                         std::string pName = (vregId < currentFn_->paramNames.size() && !currentFn_->paramNames[vregId].empty())
                             ? currentFn_->paramNames[vregId] : std::to_string(vregId);
                         storageSymbol = currentFunctionName_ + "__param_" + pName;
+                        // Phase 78: Record parameter access for SMC analysis (IN_FRAME case)
+                        if (trackSMCOffsetsEnabled_) {
+                            recordParameterAccess((int)vregId, 1);  // I8 = 1 byte
+                        }
                     } else {
                         storageSymbol = currentFunctionName_ + "__local_" + std::to_string(vregId);
                     }
