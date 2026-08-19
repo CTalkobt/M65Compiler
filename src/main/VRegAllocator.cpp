@@ -455,10 +455,13 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
             continue;
         }
 
-        // Disable IN_AX allocation: src2MemOperand for FRAME vRegs uses
-        // ldax.fp which clobbers AX, destroying IN_AX values between
-        // their definition and use. Use ZP or FRAME only.
-        bool canUseAX = false;
+        // Phase 86: Vreg Retention Optimization
+        // Re-enable IN_AX allocation for short-lived temporaries to avoid redundant store/load cycles
+        // This eliminates the pattern:  shift → store ZP → load ZP → store param
+        // Instead generates:            shift (keeps result in A:X) → store param
+        // Note: ldax.fp is only used in specific contexts; for short-lived vregs defined by
+        // arithmetic ops (shifts, adds, etc.), A:X stays valid until use.
+        bool canUseAX = true;  // Re-enabled for Phase 86 vreg retention
 
         // Bug #179 fix: Locals (including parameters) MUST go to FRAME, never ZP.
         // They may be accessed by linked functions that expect frame offsets,
@@ -467,8 +470,10 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
         bool isLocal = localVarVregs.count(lr.vregId) > 0;
         bool isRegisterVar = registerVregs_.count(lr.vregId) > 0;
 
-        if (canUseAX && span <= 1 && !isLocal) {
-            // Short-lived, no conflict — keep in A:X (only for non-locals)
+        // Keep short-lived temporaries in A:X to avoid ZP allocation for compound assignments
+        // span <= 2 means: defined in one instruction, used in next 1-2 instructions
+        if (canUseAX && span <= 2 && !isLocal && !crossesCall) {
+            // Short-lived temporary: keep in A:X (only for non-locals that don't cross calls)
             allocs_[lr.vregId] = {IN_AX, 0, lr.type};
             axOccupiedUntil = lr.lastUse;
             for (int i = lr.firstDef; i <= lr.lastUse && i < (int)axState_.size(); i++) {

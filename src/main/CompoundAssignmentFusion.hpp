@@ -69,8 +69,8 @@ private:
     }
 
     static bool isBinaryOp(const ir::Inst& inst) {
-        return inst.op == ir::Op::ADD || inst.op == ir::Op::ADD_U ||
-               inst.op == ir::Op::SUB || inst.op == ir::Op::SUB_U ||
+        return inst.op == ir::Op::ADD ||
+               inst.op == ir::Op::SUB ||
                inst.op == ir::Op::MUL || inst.op == ir::Op::MUL_U ||
                inst.op == ir::Op::DIV || inst.op == ir::Op::DIV_U ||
                inst.op == ir::Op::MOD || inst.op == ir::Op::MOD_U ||
