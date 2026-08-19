@@ -520,6 +520,12 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                             e.setFramePointerZP(fp);
                         }
                     }
+                    // Phase 78: SAC (Static Allocation Convention) function marker
+                    else if (stmt->dir.name == "sac") {
+                        // Enable SAC mode for this function
+                        // Parameters use static AR buffer instead of stack
+                        e.setSACMode(true);
+                    }
                     else if (stmt->dir.name == "byte") for (const auto& a : stmt->dir.arguments) e.emitByte((uint8_t)parseNumericLiteral(a));
                     else if (stmt->dir.name == "word") {
                         for (const auto& a : stmt->dir.arguments) {
