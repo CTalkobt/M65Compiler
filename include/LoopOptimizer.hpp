@@ -64,6 +64,10 @@ public:
     void visit(LabelAddressExpression& node) override {}
 
 private:
+    // Loop unrolling: detect and transform fixed-size loops
+    bool canUnrollLoop(const ForStatement& stmt);
+    std::unique_ptr<CompoundStatement> unrollLoop(const ForStatement& stmt);
+
     // Collect all variables referenced by an expression
     class VariableCollector : public ASTVisitor {
     public:
