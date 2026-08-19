@@ -46,14 +46,14 @@ _g_flag:
     proc _store_to_global, W#@_p_val
     .sac
     .var _fp = 0
-    .loc "test_inline_asm.c", 11
+    .loc "src/test-resources/test_inline_asm.c", 11
     .var @_p_val = 2
 ; .debug_var: __store_to_global @_p_val offset=2 size=2 type=int16 scope=parameter
 
 @entry:
-    .loc "test_inline_asm.c", 13
+    .loc "src/test-resources/test_inline_asm.c", 13
     ldax @_p_val, sp
-    .loc "test_inline_asm.c", 14
+    .loc "src/test-resources/test_inline_asm.c", 14
     stax _g_value
 @__return:
     rts
@@ -71,14 +71,14 @@ _g_flag:
     proc _set_flag, B#@_p_f
     .sac
     .var _fp = 0
-    .loc "test_inline_asm.c", 17
+    .loc "src/test-resources/test_inline_asm.c", 17
     .var @_p_f = 2
 ; .debug_var: __set_flag @_p_f offset=2 size=2 type=int8 scope=parameter
 
 @entry:
-    .loc "test_inline_asm.c", 19
+    .loc "src/test-resources/test_inline_asm.c", 19
     lda @_p_f, sp
-    .loc "test_inline_asm.c", 20
+    .loc "src/test-resources/test_inline_asm.c", 20
     sta _g_flag
 @__return:
     rts
@@ -97,22 +97,22 @@ _g_flag:
     proc _copy_via_asm, W#@_p_val
     .sac
     .var _fp = 0
-    .loc "test_inline_asm.c", 23
+    .loc "src/test-resources/test_inline_asm.c", 23
     .local @_l_result = 2
 ; .debug_var: __copy_via_asm @_l_result offset=2 size=2 type=int16 scope=local
     .var @_p_val = 2
 ; .debug_var: __copy_via_asm @_p_val offset=2 size=2 type=int16 scope=parameter
 
 @entry:
-    .loc "test_inline_asm.c", 24
+    .loc "src/test-resources/test_inline_asm.c", 24
     lda #0
     sta _copy_via_asm__local_1
     sta _copy_via_asm__local_1+1
-    .loc "test_inline_asm.c", 26
+    .loc "src/test-resources/test_inline_asm.c", 26
     ldax @_p_val, sp
-    .loc "test_inline_asm.c", 27
+    .loc "src/test-resources/test_inline_asm.c", 27
     stax @_l_result, sp
-    .loc "test_inline_asm.c", 28
+    .loc "src/test-resources/test_inline_asm.c", 28
     lda _copy_via_asm__local_1
     ldx _copy_via_asm__local_1+1
 @__return:
@@ -132,41 +132,35 @@ _g_flag:
     proc _test_local_access
 ; Phase 51: zero-alloc leaf (all parameters constant)
     .var _fp = 0
-    .loc "test_inline_asm.c", 31
+    .loc "src/test-resources/test_inline_asm.c", 31
     .local @_l_d = 0
     .local @_l_x = 2
 ; .debug_var: __test_local_access @_l_d offset=0 size=2 type=int16 scope=local
 ; .debug_var: __test_local_access @_l_x offset=2 size=2 type=int16 scope=local
 
 @entry:
-    .loc "test_inline_asm.c", 33
+    .loc "src/test-resources/test_inline_asm.c", 33
     lda #50
     ldx #0
     sta _copy_via_asm__param_val
     stx _copy_via_asm__param_val+1
     jsr _copy_via_asm
-    sta $20
-    stx $21
-    .loc "test_inline_asm.c", 36
+    .loc "src/test-resources/test_inline_asm.c", 36
     lda #100
     ldx #0
     sta _copy_via_asm__param_val
     stx _copy_via_asm__param_val+1
     jsr _copy_via_asm
-    sta $20
-    stx $21
-    lda $20
-    ldx $21
     sta _test_local_access__local_3
     stx _test_local_access__local_3+1
-    .loc "test_inline_asm.c", 37
+    .loc "src/test-resources/test_inline_asm.c", 37
     lda _test_local_access__local_3
     ldx _test_local_access__local_3+1
     cmp.16 .AX, #100
     beq @if_then0
     bra @if_end2
 @if_then0:
-    .loc "test_inline_asm.c", 38
+    .loc "src/test-resources/test_inline_asm.c", 38
     lda #1
     sta $20
     lda _results
@@ -175,13 +169,9 @@ _g_flag:
     stx $23
     lda #3
     ldx #0
-    sta $24
-    stx $25
     lda $20
     ldx #0
     pha
-    lda $24
-    ldx $25
     sta __zp_scratch3
     stx __zp_scratch3+1
     lda $22
@@ -223,40 +213,32 @@ _g_flag:
     proc _main
 ; Phase 51: zero-alloc leaf (all parameters constant)
     .var _fp = 0
-    .loc "test_inline_asm.c", 42
+    .loc "src/test-resources/test_inline_asm.c", 42
     .local @_l_d = 0
     .local @_l_x = 2
 ; .debug_var: __main @_l_d offset=0 size=2 type=int16 scope=local
 ; .debug_var: __main @_l_x offset=2 size=2 type=int16 scope=local
 
 @entry:
-    .loc "test_inline_asm.c", 43
+    .loc "src/test-resources/test_inline_asm.c", 43
     lda #0
     ldx #64
-    sta $20
-    stx $21
-    lda $20
-    ldx $21
     sta _results
     stx _results+1
-    .loc "test_inline_asm.c", 46
+    .loc "src/test-resources/test_inline_asm.c", 46
     lda #171
     ldx #0
     sta _store_to_global__param_val
     stx _store_to_global__param_val+1
     jsr _store_to_global
-    .loc "test_inline_asm.c", 47
+    .loc "src/test-resources/test_inline_asm.c", 47
     lda _g_value
     ldx _g_value+1
-    sta $20
-    stx $21
-    lda $20
-    ldx $21
     cmp.16 .AX, #171
     beq @if_then3
     bra @if_end5
 @if_then3:
-    .loc "test_inline_asm.c", 48
+    .loc "src/test-resources/test_inline_asm.c", 48
     lda #1
     sta $20
     lda _results
@@ -264,13 +246,10 @@ _g_flag:
     sta $22
     stx $23
     lda #0
-    sta $24
-    sta $25
+    tax
     lda $20
     ldx #0
     pha
-    lda $24
-    ldx $25
     sta __zp_scratch3
     stx __zp_scratch3+1
     lda $22
@@ -288,41 +267,27 @@ _g_flag:
     ldy #0
     sta (__zp_scratch),y
 @if_end5:
-    .loc "test_inline_asm.c", 52
+    .loc "src/test-resources/test_inline_asm.c", 52
     lda #66
     ldx #0
-    sta $20
-    stx $21
-    lda $20
-    ldx $21
     sta _main__local_10
     lda _main__local_10
     sta _set_flag__param_f
     stx _set_flag__param_f+1
     jsr _set_flag
-    .loc "test_inline_asm.c", 53
+    .loc "src/test-resources/test_inline_asm.c", 53
     lda _g_flag
     ldx #0
-    sta $20
     lda #66
-    sta $22
-    lda $20
-    ldx #0
     sxt.8
-    sta $24
-    stx $25
-    lda $22
     ldx #0
-    ldx #0
-    sta $20
-    stx $21
-    lda $24
-    ldx $25
-    cmp.16 .AX, $20
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    cmp.16 .AX, __zp_scratch2
     beq @if_then6
     bra @if_end8
 @if_then6:
-    .loc "test_inline_asm.c", 54
+    .loc "src/test-resources/test_inline_asm.c", 54
     lda #1
     sta $20
     lda _results
@@ -331,13 +296,9 @@ _g_flag:
     stx $23
     lda #1
     ldx #0
-    sta $24
-    stx $25
     lda $20
     ldx #0
     pha
-    lda $24
-    ldx $25
     sta __zp_scratch3
     stx __zp_scratch3+1
     lda $22
@@ -355,23 +316,21 @@ _g_flag:
     ldy #0
     sta (__zp_scratch),y
 @if_end8:
-    .loc "test_inline_asm.c", 58
+    .loc "src/test-resources/test_inline_asm.c", 58
     lda #0
     ldx #0
     sta _store_to_global__param_val
     stx _store_to_global__param_val+1
     jsr _store_to_global
-    .loc "test_inline_asm.c", 59
+    .loc "src/test-resources/test_inline_asm.c", 59
     lda _g_value
     ldx _g_value+1
-    sta $20
-    stx $21
-    lda $20
-    ora $21
+    stx __zp_scratch
+    ora __zp_scratch
     beq @if_then9
     bra @if_end11
 @if_then9:
-    .loc "test_inline_asm.c", 60
+    .loc "src/test-resources/test_inline_asm.c", 60
     lda #1
     sta $20
     lda _results
@@ -380,13 +339,9 @@ _g_flag:
     stx $23
     lda #2
     ldx #0
-    sta $24
-    stx $25
     lda $20
     ldx #0
     pha
-    lda $24
-    ldx $25
     sta __zp_scratch3
     stx __zp_scratch3+1
     lda $22
@@ -404,34 +359,28 @@ _g_flag:
     ldy #0
     sta (__zp_scratch),y
 @if_end11:
-    .loc "test_inline_asm.c", 33
+    .loc "src/test-resources/test_inline_asm.c", 33
     lda #50
     ldx #0
     sta _copy_via_asm__param_val
     stx _copy_via_asm__param_val+1
     jsr _copy_via_asm
-    sta $20
-    stx $21
-    .loc "test_inline_asm.c", 36
+    .loc "src/test-resources/test_inline_asm.c", 36
     lda #100
     ldx #0
     sta _copy_via_asm__param_val
     stx _copy_via_asm__param_val+1
     jsr _copy_via_asm
-    sta $20
-    stx $21
-    lda $20
-    ldx $21
     sta _main__local_31
     stx _main__local_31+1
-    .loc "test_inline_asm.c", 37
+    .loc "src/test-resources/test_inline_asm.c", 37
     lda _main__local_31
     ldx _main__local_31+1
     cmp.16 .AX, #100
     beq @if_then13
     bra @if_end15
 @if_then13:
-    .loc "test_inline_asm.c", 38
+    .loc "src/test-resources/test_inline_asm.c", 38
     lda #1
     sta $20
     lda _results
@@ -440,13 +389,9 @@ _g_flag:
     stx $23
     lda #3
     ldx #0
-    sta $24
-    stx $25
     lda $20
     ldx #0
     pha
-    lda $24
-    ldx $25
     sta __zp_scratch3
     stx __zp_scratch3+1
     lda $22

@@ -26,158 +26,120 @@
     proc _test_compound
 ; Phase 51: zero-alloc leaf (all parameters constant)
     .var _fp = 0
-    .loc "test_compound.c", 1
+    .loc "src/test-resources/test_compound.c", 1
     .local @_l_a = 0
 ; .debug_var: __test_compound @_l_a offset=0 size=2 type=int16 scope=local
 
 @entry:
-    .loc "test_compound.c", 2
+    .loc "src/test-resources/test_compound.c", 2
     lda #10
     sta _test_compound__local_0
     lda #0
     sta _test_compound__local_0+1
-    .loc "test_compound.c", 3
+    .loc "src/test-resources/test_compound.c", 3
     lda _test_compound__local_0
     ldx _test_compound__local_0+1
     add.16 .AX, #5
-    sta $22
-    stx $23
     sta _test_compound__local_0
     stx _test_compound__local_0+1
-    .loc "test_compound.c", 4
+    .loc "src/test-resources/test_compound.c", 4
     lda _test_compound__local_0
     ldx _test_compound__local_0+1
     sub.16 .AX, #2
-    sta $22
-    stx $23
     sta _test_compound__local_0
     stx _test_compound__local_0+1
-    .loc "test_compound.c", 5
+    .loc "src/test-resources/test_compound.c", 5
     lda #3
     ldx #0
-    sta $20
-    stx $21
+    sta __zp_scratch2
+    stx __zp_scratch2+1
     lda _test_compound__local_0
     ldx _test_compound__local_0+1
-    mul.16 .AX, $20
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
+    mul.16 .AX, __zp_scratch2
     sta _test_compound__local_0
     stx _test_compound__local_0+1
-    .loc "test_compound.c", 6
+    .loc "src/test-resources/test_compound.c", 6
     lda #4
     ldx #0
-    sta $20
-    stx $21
     lda _test_compound__local_0
     ldx _test_compound__local_0+1
     lsr.16 .AX
     lsr.16 .AX
-    sta $20
-    stx $21
-    lda $20
-    ldx $21
     sta _test_compound__local_0
     stx _test_compound__local_0+1
-    .loc "test_compound.c", 7
+    .loc "src/test-resources/test_compound.c", 7
     lda #7
     ldx #0
-    sta $20
-    stx $21
+    sta __zp_scratch2
+    stx __zp_scratch2+1
     lda _test_compound__local_0
     ldx _test_compound__local_0+1
-    mod.16 .AX, $20
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
+    mod.16 .AX, __zp_scratch2
     sta _test_compound__local_0
     stx _test_compound__local_0+1
-    .loc "test_compound.c", 8
+    .loc "src/test-resources/test_compound.c", 8
     lda #3
     ldx #0
-    sta $20
-    stx $21
     lda _test_compound__local_0
     ldx _test_compound__local_0+1
-    ldy $20
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy __zp_scratch2
     beq @__shl_done_1
 @__shl_loop_0:
     lsl.16 .AX
     dey
     bne @__shl_loop_0
 @__shl_done_1:
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
     sta _test_compound__local_0
     stx _test_compound__local_0+1
-    .loc "test_compound.c", 9
+    .loc "src/test-resources/test_compound.c", 9
     lda #2
     ldx #0
-    sta $20
-    stx $21
     lda _test_compound__local_0
     ldx _test_compound__local_0+1
-    ldy $20
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy __zp_scratch2
     beq @__shr_done_3
 @__shr_loop_2:
     lsr.16 .AX
     dey
     bne @__shr_loop_2
 @__shr_done_3:
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
     sta _test_compound__local_0
     stx _test_compound__local_0+1
-    .loc "test_compound.c", 10
+    .loc "src/test-resources/test_compound.c", 10
     lda #8
     ldx #0
-    sta $20
-    stx $21
+    sta __zp_scratch2
+    stx __zp_scratch2+1
     lda _test_compound__local_0
     ldx _test_compound__local_0+1
-    ora.16 .AX, $20
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
+    ora.16 .AX, __zp_scratch2
     sta _test_compound__local_0
     stx _test_compound__local_0+1
-    .loc "test_compound.c", 11
+    .loc "src/test-resources/test_compound.c", 11
     lda #13
     ldx #0
-    sta $20
-    stx $21
+    sta __zp_scratch2
+    stx __zp_scratch2+1
     lda _test_compound__local_0
     ldx _test_compound__local_0+1
-    and.16 .AX, $20
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
+    and.16 .AX, __zp_scratch2
     sta _test_compound__local_0
     stx _test_compound__local_0+1
-    .loc "test_compound.c", 12
+    .loc "src/test-resources/test_compound.c", 12
     lda #15
     ldx #0
-    sta $20
-    stx $21
+    sta __zp_scratch2
+    stx __zp_scratch2+1
     lda _test_compound__local_0
     ldx _test_compound__local_0+1
-    eor.16 .AX, $20
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
+    eor.16 .AX, __zp_scratch2
     sta _test_compound__local_0
     stx _test_compound__local_0+1
-    .loc "test_compound.c", 13
+    .loc "src/test-resources/test_compound.c", 13
     lda _test_compound__local_0
     ldx _test_compound__local_0+1
 @__return:
@@ -194,176 +156,134 @@
     proc _main
 ; Phase 51: zero-alloc leaf (all parameters constant)
     .var _fp = 0
-    .loc "test_compound.c", 16
+    .loc "src/test-resources/test_compound.c", 16
     .local @_l_a = 0
 ; .debug_var: __main @_l_a offset=0 size=2 type=int16 scope=local
 
 @entry:
-    .loc "test_compound.c", 2
+    .loc "src/test-resources/test_compound.c", 2
     lda #10
     sta _main__local_1
     lda #0
     sta _main__local_1+1
-    .loc "test_compound.c", 3
+    .loc "src/test-resources/test_compound.c", 3
     lda _main__local_1
     ldx _main__local_1+1
     add.16 .AX, #5
-    sta $22
-    stx $23
     sta _main__local_1
     stx _main__local_1+1
-    .loc "test_compound.c", 4
+    .loc "src/test-resources/test_compound.c", 4
     lda _main__local_1
     ldx _main__local_1+1
     sub.16 .AX, #2
-    sta $22
-    stx $23
     sta _main__local_1
     stx _main__local_1+1
-    .loc "test_compound.c", 5
+    .loc "src/test-resources/test_compound.c", 5
     lda #3
     ldx #0
-    sta $20
-    stx $21
+    sta __zp_scratch2
+    stx __zp_scratch2+1
     lda _main__local_1
     ldx _main__local_1+1
-    mul.16 .AX, $20
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
+    mul.16 .AX, __zp_scratch2
     sta _main__local_1
     stx _main__local_1+1
-    .loc "test_compound.c", 6
+    .loc "src/test-resources/test_compound.c", 6
     lda #4
     ldx #0
-    sta $20
-    stx $21
     lda _main__local_1
     ldx _main__local_1+1
     lsr.16 .AX
     lsr.16 .AX
-    sta $20
-    stx $21
-    lda $20
-    ldx $21
     sta _main__local_1
     stx _main__local_1+1
-    .loc "test_compound.c", 7
+    .loc "src/test-resources/test_compound.c", 7
     lda #7
     ldx #0
-    sta $20
-    stx $21
+    sta __zp_scratch2
+    stx __zp_scratch2+1
     lda _main__local_1
     ldx _main__local_1+1
-    mod.16 .AX, $20
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
+    mod.16 .AX, __zp_scratch2
     sta _main__local_1
     stx _main__local_1+1
-    .loc "test_compound.c", 8
+    .loc "src/test-resources/test_compound.c", 8
     lda #3
     ldx #0
-    sta $20
-    stx $21
     lda _main__local_1
     ldx _main__local_1+1
-    ldy $20
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy __zp_scratch2
     beq @__shl_done_5
 @__shl_loop_4:
     lsl.16 .AX
     dey
     bne @__shl_loop_4
 @__shl_done_5:
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
     sta _main__local_1
     stx _main__local_1+1
-    .loc "test_compound.c", 9
+    .loc "src/test-resources/test_compound.c", 9
     lda #2
     ldx #0
-    sta $20
-    stx $21
     lda _main__local_1
     ldx _main__local_1+1
-    ldy $20
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy __zp_scratch2
     beq @__shr_done_7
 @__shr_loop_6:
     lsr.16 .AX
     dey
     bne @__shr_loop_6
 @__shr_done_7:
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
     sta _main__local_1
     stx _main__local_1+1
-    .loc "test_compound.c", 10
+    .loc "src/test-resources/test_compound.c", 10
     lda #8
     ldx #0
-    sta $20
-    stx $21
+    sta __zp_scratch2
+    stx __zp_scratch2+1
     lda _main__local_1
     ldx _main__local_1+1
-    ora.16 .AX, $20
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
+    ora.16 .AX, __zp_scratch2
     sta _main__local_1
     stx _main__local_1+1
-    .loc "test_compound.c", 11
+    .loc "src/test-resources/test_compound.c", 11
     lda #13
     ldx #0
-    sta $20
-    stx $21
+    sta __zp_scratch2
+    stx __zp_scratch2+1
     lda _main__local_1
     ldx _main__local_1+1
-    and.16 .AX, $20
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
+    and.16 .AX, __zp_scratch2
     sta _main__local_1
     stx _main__local_1+1
-    .loc "test_compound.c", 12
+    .loc "src/test-resources/test_compound.c", 12
     lda #15
     ldx #0
-    sta $20
-    stx $21
+    sta __zp_scratch2
+    stx __zp_scratch2+1
     lda _main__local_1
     ldx _main__local_1+1
-    eor.16 .AX, $20
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
+    eor.16 .AX, __zp_scratch2
     sta _main__local_1
     stx _main__local_1+1
-    .loc "test_compound.c", 13
+    .loc "src/test-resources/test_compound.c", 13
     lda _main__local_1
     ldx _main__local_1+1
-    sta $20
-    stx $21
 @inline_end3:
-    .loc "test_compound.c", 17
-    lda $20
-    ldx $21
+    .loc "src/test-resources/test_compound.c", 17
     cmp.16 .AX, #3
     beq @if_then0
     bra @if_end2
 @if_then0:
-    .loc "test_compound.c", 18
+    .loc "src/test-resources/test_compound.c", 18
     lda #0
     ldx #0
     bra @__return
 @if_end2:
-    .loc "test_compound.c", 20
+    .loc "src/test-resources/test_compound.c", 20
     lda #1
     ldx #0
 @__return:
