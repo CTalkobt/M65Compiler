@@ -1,42 +1,32 @@
-* = $2000
+    .o45
+    .org $2000
+    .weak __sp_base
     __sp_base = $0101
-; Save ZP $08-$FF to BSS buffer
-    ldx #0
-@__zp_save_loop:
-    lda $08,x
-    sta __zp_save_buf,x
-    inx
-    cpx #248
-    bne @__zp_save_loop
-    jsr _main
-    sta $02
-    stx $03
-; Restore ZP $08-$FF from BSS buffer
-    ldx #0
-@__zp_restore_loop:
-    lda __zp_save_buf,x
-    sta $08,x
-    inx
-    cpx #248
-    bne @__zp_restore_loop
-    lda $02
-    ldx $03
-__halt:
-    jmp __halt
-    .global __static_chain
-    .global __zp_scratch
-    .global __zp_scratch2
-    .global __zp_scratch3
-    .global __zp_scratch4
+    .weak __static_chain
+    .weak __zp_scratch
+    .weak __zp_scratch2
+    .weak __zp_scratch3
+    .weak __zp_scratch4
+    .weak cc45.zeroPageStart
     __static_chain = $06
     __zp_scratch = $08
     __zp_scratch2 = $0A
     __zp_scratch3 = $0C
     __zp_scratch4 = $0E
+    cc45.zeroPageStart = $08
 
+    .global _output
+    .global _test_array
+    .global _get_array_value
+    .global _main
+
+    .segment "data"
+    .byte 0
 _output:
+; .debug_var: @global _output offset=0 size=2 type=ptr scope=global
     .word 16384
 _test_array:
+; .debug_var: @global _test_array offset=0 size=2 type=int8 scope=global
     .byte 17
     .byte 34
     .byte 51
@@ -46,37 +36,32 @@ _test_array:
     .byte 119
     .byte 136
 
+    .segment "code"
 
 ; function _get_array_value
+; SAC inline storage: 2 bytes
+    .global _get_array_value__param_index
+    _get_array_value__param_index: .word 0
+    _get_array_value__local_0: .word 0
     proc _get_array_value, W#@_p_index
+    .sac
     .var _fp = 0
-    .loc "src/test-resources/test_simop_runtime.c", 8
-; frame: 2 bytes (frame-allocated vRegs only)
-    phw #0
-    tsx
-    txa
-    clc
-    adc #1
-    sta $FD
-    lda #$01
-    adc #0
-    sta $FE
-    .local __vr0 = 0
-    .var @_p_index = 4
+    .loc "test_simop_runtime.c", 8
+    .var @_p_index = 2
+; .debug_var: __get_array_value @_p_index offset=2 size=2 type=int16 scope=parameter
 
-    ldax.fp @_p_index
-    stax.fp __vr0
 @entry:
-    .loc "src/test-resources/test_simop_runtime.c", 9
+    .loc "test_simop_runtime.c", 9
+    lda _get_array_value__param_index
+    ldx _get_array_value__param_index+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
     ldax #_test_array
-    sta $1F
-    stx $1F+1
-    ldax.fp __vr0
     clc
-    adc $1F
+    adc __zp_scratch3
     pha
     txa
-    adc $1F+1
+    adc __zp_scratch3+1
     tax
     pla
     sta __zp_scratch
@@ -93,113 +78,117 @@ _test_array:
     lda $20
     ldx $21
 @__return:
-    plz
-    plz
-    .func_flags stack_call, leaf
+    rts
+    .func_flags stack_call, static_alloc, leaf
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
+    .frame_size 2
     endproc
 
 ; function _main
+; SAC inline storage: 2 bytes
+    _main__local_0: .word 0
     proc _main
+; Phase 51: zero-alloc leaf (all parameters constant)
     .var _fp = 0
-    .loc "src/test-resources/test_simop_runtime.c", 12
-; frame: 4 bytes (frame-allocated vRegs only)
-    phw #0
-    phw #0
-    tsx
-    txa
-    clc
-    adc #1
-    sta $FD
-    lda #$01
-    adc #0
-    sta $FE
-    .local __vr0 = 0
-    .local __vr3 = 2
+    .loc "test_simop_runtime.c", 12
+    .local @_l_i = 0
+; .debug_var: __main @_l_i offset=0 size=2 type=int16 scope=local
 
 @entry:
-    .loc "src/test-resources/test_simop_runtime.c", 17
+    .loc "test_simop_runtime.c", 17
     lda #0
-    taz
-    staz.fp __vr0
+    sta _main__local_0
+    sta _main__local_0+1
 @for_cond0:
-    ldax.fp __vr0
+    lda _main__local_0
+    ldx _main__local_0+1
     cmp.16 .AX, #8
     bcc @for_body1
     bra @for_end3
 @for_body1:
-    .loc "src/test-resources/test_simop_runtime.c", 18
-    ldax.fp __vr0
-    sta $28
-    stx $29
-    lda $28
-    ldx $29
-    push .ax
-    .var _fp = _fp + 2
-    jsr _get_array_value
-    phx
-    pha
-    tsx
-    txa
-    clc
-    adc #1
-    sta $FD
-    lda #$01
-    adc #0
-    sta $FE
-    pla
-    plx
-    plz
-    plz
-    .var _fp = _fp - 2
-    sta $20
-    stx $21
-    lda $20
-    ldx $21
-    sta $22
-    lda _output
-    ldx _output+1
+    .loc "test_simop_runtime.c", 18
+    lda _main__local_0
+    ldx _main__local_0+1
     sta $24
     stx $25
-    lda $22
-    ldx #0
-    pha
-    lda $24
-    ldx $25
-    sta $1F
-    stx $1F+1
-    ldax.fp __vr0
+    .loc "test_simop_runtime.c", 9
+    lda _main__local_0
+    ldx _main__local_0+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    ldax #_test_array
     clc
-    adc $1F
+    adc __zp_scratch3
     pha
     txa
-    adc $1F+1
+    adc __zp_scratch3+1
     tax
     pla
     sta __zp_scratch
     stx __zp_scratch+1
     ldy #0
-    pla
-    sta (__zp_scratch),y
-@for_inc2:
-    .loc "src/test-resources/test_simop_runtime.c", 17
-    ldax.fp __vr0
+    lda (__zp_scratch),y
+    ldx #0
     sta $28
-    stx $29
     lda $28
-    clc
-    adc #1
+    ldx #0
     sta $2A
-    lda $29
-    adc #0
-    sta $2B
+    stx $2B
     lda $2A
     ldx $2B
-    stax.fp __vr0
+    sta $2C
+    stx $2D
+@inline_end4:
+    lda $2C
+    ldx $2D
+    sta $2E
+    .loc "test_simop_runtime.c", 18
+    lda _output
+    ldx _output+1
+    sta $30
+    stx $31
+    lda $2E
+    ldx #0
+    pha
+    lda _main__local_0
+    ldx _main__local_0+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $30
+    ldx $30+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    pla
+    ldy #0
+    sta (__zp_scratch),y
+@for_inc2:
+    .loc "test_simop_runtime.c", 17
+    lda _main__local_0
+    ldx _main__local_0+1
+    sta $34
+    stx $35
+    lda $34
+    clc
+    adc #1
+    sta $36
+    lda $35
+    adc #0
+    sta $37
+    lda $36
+    ldx $37
+    sta _main__local_0
+    stx _main__local_0+1
     bra @for_cond0
 @for_end3:
-    .loc "src/test-resources/test_simop_runtime.c", 22
+    .loc "test_simop_runtime.c", 22
     lda #170
     sta $20
     lda _output
@@ -213,34 +202,31 @@ _test_array:
     lda $20
     ldx #0
     pha
-    lda $22
-    ldx $23
-    sta $1F
-    stx $1F+1
     lda $24
     ldx $25
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $22
+    ldx $22+1
     clc
-    adc $1F
+    adc __zp_scratch3
     pha
     txa
-    adc $1F+1
+    adc __zp_scratch3+1
     tax
     pla
     sta __zp_scratch
     stx __zp_scratch+1
-    ldy #0
     pla
+    ldy #0
     sta (__zp_scratch),y
 @__return:
-    plz
-    plz
-    plz
-    plz
-    .func_flags stack_call
-    .reg_clobbers A, X, Y, Z
+    rts
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z, V
+    .frame_size 2
     endproc
 
 
 __zp_save_buf:
-    .res 248

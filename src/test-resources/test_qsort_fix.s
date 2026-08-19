@@ -1,75 +1,61 @@
-* = $2000
+    .o45
+    .org $2000
+    .weak __sp_base
     __sp_base = $0101
-; Save ZP $08-$FF to BSS buffer
-    ldx #0
-@__zp_save_loop:
-    lda $08,x
-    sta __zp_save_buf,x
-    inx
-    cpx #248
-    bne @__zp_save_loop
-    jsr _main
-    sta $02
-    stx $03
-; Restore ZP $08-$FF from BSS buffer
-    ldx #0
-@__zp_restore_loop:
-    lda __zp_save_buf,x
-    sta $08,x
-    inx
-    cpx #248
-    bne @__zp_restore_loop
-    lda $02
-    ldx $03
-__halt:
-    jmp __halt
-    .global __static_chain
-    .global __zp_scratch
-    .global __zp_scratch2
-    .global __zp_scratch3
-    .global __zp_scratch4
+    .weak __static_chain
+    .weak __zp_scratch
+    .weak __zp_scratch2
+    .weak __zp_scratch3
+    .weak __zp_scratch4
+    .weak cc45.zeroPageStart
     __static_chain = $06
     __zp_scratch = $08
     __zp_scratch2 = $0A
     __zp_scratch3 = $0C
     __zp_scratch4 = $0E
+    cc45.zeroPageStart = $08
 
     .extern _qsort
 
+    .global _test_result
+    .global _compare_calls
+    .global _compare_ints
+    .global _main
+
+    .segment "data"
+    .byte 0
 _test_result:
+; .debug_var: @global _test_result offset=0 size=2 type=ptr scope=global
     .word 16384
 _compare_calls:
+; .debug_var: @global _compare_calls offset=0 size=2 type=int16 scope=global
     .word 0
 
+    .segment "code"
 
 ; function _compare_ints
+; SAC inline storage: 8 bytes
+    .global _compare_ints__param_a
+    _compare_ints__param_a: .word 0
+    .global _compare_ints__param_b
+    _compare_ints__param_b: .word 0
+    _compare_ints__local_0: .word 0
+    _compare_ints__local_1: .word 0
+    _compare_ints__local_5: .word 0
+    _compare_ints__local_7: .word 0
     proc _compare_ints, W#@_p_a, W#@_p_b
+    .sac
     .var _fp = 0
-    .loc "/home/duck/m65/inpg/m65compiler.dev_v1.0.5/bin/../lib/include/stddef.h", 1
-; frame: 8 bytes (frame-allocated vRegs only)
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    tsx
-    txa
-    clc
-    adc #1
-    sta $FD
-    lda #$01
-    adc #0
-    sta $FE
-    .local __vr0 = 0
-    .local __vr1 = 2
-    .local __vr5 = 4
-    .local __vr7 = 6
-    .var @_p_a = 10
-    .var @_p_b = 12
+    .loc "/home/duck/m65/inpg/m65compiler/bin/../lib/include/stddef.h", 1
+    .local @_l_va = 4
+    .local @_l_vb = 6
+; .debug_var: __compare_ints @_l_va offset=4 size=2 type=int16 scope=local
+; .debug_var: __compare_ints @_l_vb offset=6 size=2 type=int16 scope=local
+    .var @_p_a = 2
+    .var @_p_b = 4
+; .debug_var: __compare_ints @_p_a offset=2 size=2 type=ptr scope=parameter
+; .debug_var: __compare_ints @_p_b offset=4 size=2 type=ptr scope=parameter
 
-    ldax.fp @_p_a
-    stax.fp __vr0
-    ldax.fp @_p_b
-    stax.fp __vr1
 @entry:
     .loc "test_qsort_fix.c", 8
     lda _compare_calls
@@ -92,7 +78,8 @@ _compare_calls:
     sta _compare_calls
     stx _compare_calls+1
     .loc "test_qsort_fix.c", 9
-    ldax.fp __vr0
+    lda _compare_ints__param_a
+    ldx _compare_ints__param_a+1
     sta __zp_scratch
     stx __zp_scratch+1
     ldy #0
@@ -106,9 +93,11 @@ _compare_calls:
     stx $21
     lda $20
     ldx $21
-    stax.fp __vr5
+    sta _compare_ints__local_5
+    stx _compare_ints__local_5+1
     .loc "test_qsort_fix.c", 10
-    ldax.fp __vr1
+    lda _compare_ints__param_b
+    ldx _compare_ints__param_b+1
     sta __zp_scratch
     stx __zp_scratch+1
     ldy #0
@@ -122,12 +111,15 @@ _compare_calls:
     stx $21
     lda $20
     ldx $21
-    stax.fp __vr7
+    sta _compare_ints__local_7
+    stx _compare_ints__local_7+1
     .loc "test_qsort_fix.c", 11
-    ldax.fp __vr7
+    lda _compare_ints__local_7
+    ldx _compare_ints__local_7+1
     sta __zp_scratch2
     stx __zp_scratch2+1
-    ldax.fp __vr5
+    lda _compare_ints__local_5
+    ldx _compare_ints__local_5+1
     cmp.16 .AX, __zp_scratch2
     bcc @if_then0
     bra @if_end2
@@ -137,10 +129,12 @@ _compare_calls:
     bra @__return
 @if_end2:
     .loc "test_qsort_fix.c", 12
-    ldax.fp __vr7
+    lda _compare_ints__local_7
+    ldx _compare_ints__local_7+1
     sta __zp_scratch2
     stx __zp_scratch2+1
-    ldax.fp __vr5
+    lda _compare_ints__local_5
+    ldx _compare_ints__local_5+1
     cmp.16 .AX, __zp_scratch2
     beq @if_end5
     bcs @if_then3
@@ -154,50 +148,32 @@ _compare_calls:
     lda #0
     ldx #0
 @__return:
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    .func_flags stack_call, leaf
+    rts
+    .func_flags stack_call, static_alloc, leaf
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z, V
+    .frame_size 8
     endproc
 
 ; function _main
+; SAC inline storage: 12 bytes
+    _main__local_0: .word 0
+    _main__local_12: .word 0
+    _main__local_13: .word 0
+    _main__local_14: .word 0
+    _main__local_15: .word 0
     proc _main
+; Phase 51: zero-alloc leaf (all parameters constant)
     .var _fp = 0
-    .loc "/home/duck/m65/inpg/m65compiler.dev_v1.0.5/bin/../lib/include/stddef.h", 10
-; frame: 18 bytes (frame-allocated vRegs only)
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    tsx
-    txa
-    clc
-    adc #1
-    sta $FD
-    lda #$01
-    adc #0
-    sta $FE
-    .local __vr0 = 0
-    .local __vr12 = 12
-    .local __vr13 = 14
-    .local __vr14 = 16
-    .local __vr15 = 10
+    .loc "/home/duck/m65/inpg/m65compiler/bin/../lib/include/stddef.h", 10
+    .local @_l_arr = 2
+    .local @_l_sorted = 0
+; .debug_var: __main @_l_arr offset=2 size=2 type=int16 scope=local
+; .debug_var: __main @_l_sorted offset=0 size=2 type=int16 scope=local
 
 @entry:
     .loc "test_qsort_fix.c", 17
-    leax.fp 0
+    leax.local 2
     sta $20
     stx $21
     lda #50
@@ -211,6 +187,7 @@ _compare_calls:
     struct_elem.16 __zp_scratch, $20, #0
     plx
     pla
+    ldy #0
     sta (__zp_scratch),y
     txa
     iny
@@ -226,6 +203,7 @@ _compare_calls:
     struct_elem.16 __zp_scratch, $20, #2
     plx
     pla
+    ldy #0
     sta (__zp_scratch),y
     txa
     iny
@@ -241,6 +219,7 @@ _compare_calls:
     struct_elem.16 __zp_scratch, $20, #4
     plx
     pla
+    ldy #0
     sta (__zp_scratch),y
     txa
     iny
@@ -256,6 +235,7 @@ _compare_calls:
     struct_elem.16 __zp_scratch, $20, #6
     plx
     pla
+    ldy #0
     sta (__zp_scratch),y
     txa
     iny
@@ -271,84 +251,86 @@ _compare_calls:
     struct_elem.16 __zp_scratch, $20, #8
     plx
     pla
+    ldy #0
     sta (__zp_scratch),y
     txa
     iny
     sta (__zp_scratch),y
     .loc "test_qsort_fix.c", 20
-    leax.fp 0
-    stax.fp __vr12
+    leax.local 2
+    sta _main__local_12
+    stx _main__local_12+1
     lda #5
     ldx #0
-    stax.fp __vr13
+    sta _main__local_13
+    stx _main__local_13+1
     lda #2
     ldx #0
-    stax.fp __vr14
+    sta _main__local_14
+    stx _main__local_14+1
     ldax #_compare_ints
     sta $28
     stx $29
-    ldax.fp __vr14
+    lda _main__local_14
+    ldx _main__local_14+1
     sta $2A
     stx $2B
-    ldax.fp __vr13
+    lda _main__local_13
+    ldx _main__local_13+1
     sta $2C
     stx $2D
-    ldax.fp __vr12
+    lda _main__local_12
+    ldx _main__local_12+1
     sta $2E
     stx $2F
     lda $28
     ldx $29
     push .ax
-    .var _fp = _fp + 2
     lda $2A
     ldx $2B
     push .ax
-    .var _fp = _fp + 2
     lda $2C
     ldx $2D
     push .ax
-    .var _fp = _fp + 2
     lda $2E
     ldx $2F
     push .ax
-    .var _fp = _fp + 2
     jsr _qsort
-    phx
-    pha
-    tsx
-    txa
-    clc
-    adc #1
-    sta $FD
-    lda #$01
-    adc #0
-    sta $FE
-    pla
-    plx
+    sta __zp_scratch4
+    stx __zp_scratch4+1
     plz
     plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    .var _fp = _fp - 8
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
     .loc "test_qsort_fix.c", 23
     lda #1
-    ldz #0
-    staz.fp __vr15
+    sta _main__local_15
+    lda #0
+    sta _main__local_15+1
     .loc "test_qsort_fix.c", 24
-    leax.fp 0
+    leax.local 2
     sta $20
     stx $21
     lda #0
     sta $22
     sta $23
-    .noopt_start
-    addr_elem.16 __zp_scratch, $20, $22, #2
+    lda $22
+    ldx $23
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $20
+    ldx $20+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
     ldy #0
-    .noopt_end
     lda (__zp_scratch),y
     pha
     iny
@@ -364,21 +346,34 @@ _compare_calls:
     bra @if_end8
 @if_then6:
     lda #0
-    taz
-    staz.fp __vr15
+    sta _main__local_15
+    sta _main__local_15+1
 @if_end8:
     .loc "test_qsort_fix.c", 25
-    leax.fp 0
+    leax.local 2
     sta $20
     stx $21
     lda #1
     ldx #0
     sta $22
     stx $23
-    .noopt_start
-    addr_elem.16 __zp_scratch, $20, $22, #2
+    lda $22
+    ldx $23
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $20
+    ldx $20+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
     ldy #0
-    .noopt_end
     lda (__zp_scratch),y
     pha
     iny
@@ -394,21 +389,34 @@ _compare_calls:
     bra @if_end11
 @if_then9:
     lda #0
-    taz
-    staz.fp __vr15
+    sta _main__local_15
+    sta _main__local_15+1
 @if_end11:
     .loc "test_qsort_fix.c", 26
-    leax.fp 0
+    leax.local 2
     sta $20
     stx $21
     lda #2
     ldx #0
     sta $22
     stx $23
-    .noopt_start
-    addr_elem.16 __zp_scratch, $20, $22, #2
+    lda $22
+    ldx $23
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $20
+    ldx $20+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
     ldy #0
-    .noopt_end
     lda (__zp_scratch),y
     pha
     iny
@@ -424,21 +432,34 @@ _compare_calls:
     bra @if_end14
 @if_then12:
     lda #0
-    taz
-    staz.fp __vr15
+    sta _main__local_15
+    sta _main__local_15+1
 @if_end14:
     .loc "test_qsort_fix.c", 27
-    leax.fp 0
+    leax.local 2
     sta $20
     stx $21
     lda #3
     ldx #0
     sta $22
     stx $23
-    .noopt_start
-    addr_elem.16 __zp_scratch, $20, $22, #2
+    lda $22
+    ldx $23
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $20
+    ldx $20+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
     ldy #0
-    .noopt_end
     lda (__zp_scratch),y
     pha
     iny
@@ -454,21 +475,34 @@ _compare_calls:
     bra @if_end17
 @if_then15:
     lda #0
-    taz
-    staz.fp __vr15
+    sta _main__local_15
+    sta _main__local_15+1
 @if_end17:
     .loc "test_qsort_fix.c", 28
-    leax.fp 0
+    leax.local 2
     sta $20
     stx $21
     lda #4
     ldx #0
     sta $22
     stx $23
-    .noopt_start
-    addr_elem.16 __zp_scratch, $20, $22, #2
+    lda $22
+    ldx $23
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $20
+    ldx $20+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
     ldy #0
-    .noopt_end
     lda (__zp_scratch),y
     pha
     iny
@@ -484,11 +518,12 @@ _compare_calls:
     bra @if_end20
 @if_then18:
     lda #0
-    taz
-    staz.fp __vr15
+    sta _main__local_15
+    sta _main__local_15+1
 @if_end20:
     .loc "test_qsort_fix.c", 31
-    ldax.fp __vr15
+    lda _main__local_15
+    ldx _main__local_15+1
     bne @tern_then21
     cmp #$00
     bne @tern_then21
@@ -526,11 +561,23 @@ _compare_calls:
     lda $20
     ldx #0
     pha
-    .noopt_start
-    addr_elem.16 __zp_scratch, $22, $24, #1
-    ldy #0
-    .noopt_end
+    lda $24
+    ldx $25
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $22
+    ldx $22+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
     pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    pla
+    ldy #0
     sta (__zp_scratch),y
     .loc "test_qsort_fix.c", 32
     lda _compare_calls
@@ -577,11 +624,23 @@ _compare_calls:
     lda $20
     ldx #0
     pha
-    .noopt_start
-    addr_elem.16 __zp_scratch, $22, $24, #1
-    ldy #0
-    .noopt_end
+    lda $24
+    ldx $25
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $22
+    ldx $22+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
     pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    pla
+    ldy #0
     sta (__zp_scratch),y
     .loc "test_qsort_fix.c", 33
     lda #255
@@ -597,36 +656,31 @@ _compare_calls:
     lda $20
     ldx #0
     pha
-    .noopt_start
-    addr_elem.16 __zp_scratch, $22, $24, #1
-    ldy #0
-    .noopt_end
+    lda $24
+    ldx $25
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $22
+    ldx $22+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
     pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    pla
+    ldy #0
     sta (__zp_scratch),y
 @__return:
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    .func_flags stack_call
+    rts
+    .func_flags stack_call, static_alloc
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
+    .frame_size 12
     endproc
 
 
 __zp_save_buf:
-    .res 248

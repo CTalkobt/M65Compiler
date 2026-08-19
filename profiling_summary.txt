@@ -1,0 +1,12 @@
+=== Optimization Effectiveness Profiling ===
+Compiler: ./bin/cc45
+Test date: Wed Aug 19 01:23:23 PM EDT 2026
+
+Testing baseline and optimization levels...
+
+=== Results ===
+Average code size reduction by optimization level:
+-O1: 0.0% average reduction
+-O2: 0.0% average reduction
+-O3: 0.0% average reduction
+
