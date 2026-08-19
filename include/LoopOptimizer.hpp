@@ -72,6 +72,10 @@ private:
     bool isMemcpyPattern(const ForStatement& stmt, std::string& dest, std::string& src, std::string& idx);
     bool isMemsetPattern(const ForStatement& stmt, std::string& arr, std::string& idx, int& value);
 
+    // Pattern transformation: replace loops with library calls
+    std::unique_ptr<Statement> transformMemcpyToCall(const ForStatement& stmt, const std::string& dest, const std::string& src);
+    std::unique_ptr<Statement> transformMemsetToCall(const ForStatement& stmt, const std::string& arr, int value);
+
     // Collect all variables referenced by an expression
     class VariableCollector : public ASTVisitor {
     public:

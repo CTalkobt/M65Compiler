@@ -40,6 +40,26 @@ namespace {
         }
     };
 
+    // Helper: extract bound expression (for memcpy/memset with variable bounds)
+    class BoundExpressionExtractor {
+    public:
+        bool extract(Expression* cond, const std::string& loopVar, std::unique_ptr<Expression>& boundExpr, std::string& op) {
+            if (!cond) return false;
+            if (auto* binOp = dynamic_cast<BinaryOperation*>(cond)) {
+                auto* left = dynamic_cast<VariableReference*>(binOp->left.get());
+                if (left && left->name == loopVar) {
+                    op = binOp->op;
+                    if (op == "<" || op == "<=" || op == ">" || op == ">=") {
+                        // Clone the right side as the bound expression
+                        boundExpr = cloneExpression(binOp->right.get());
+                        return boundExpr != nullptr;
+                    }
+                }
+            }
+            return false;
+        }
+    };
+
     // Helper: check if expression is loop counter increment
     class IncrementAnalyzer {
     public:
@@ -228,7 +248,18 @@ namespace {
             // Check if body is a single assignment to arr[i] = arr2[i]
             if (!loop.body) return false;
 
-            auto* exprStmt = dynamic_cast<ExpressionStatement*>(loop.body.get());
+            ExpressionStatement* exprStmt = nullptr;
+
+            // Handle CompoundStatement with single statement
+            if (auto* compStmt = dynamic_cast<CompoundStatement*>(loop.body.get())) {
+                if (compStmt->statements.size() == 1 && compStmt->statements[0]) {
+                    exprStmt = dynamic_cast<ExpressionStatement*>(compStmt->statements[0].get());
+                }
+            } else {
+                // Direct ExpressionStatement
+                exprStmt = dynamic_cast<ExpressionStatement*>(loop.body.get());
+            }
+
             if (!exprStmt || !exprStmt->expression) return false;
 
             auto* assign = dynamic_cast<Assignment*>(exprStmt->expression.get());
@@ -272,7 +303,18 @@ namespace {
             // Check if body is a single assignment to arr[i] = const
             if (!loop.body) return false;
 
-            auto* exprStmt = dynamic_cast<ExpressionStatement*>(loop.body.get());
+            ExpressionStatement* exprStmt = nullptr;
+
+            // Handle CompoundStatement with single statement
+            if (auto* compStmt = dynamic_cast<CompoundStatement*>(loop.body.get())) {
+                if (compStmt->statements.size() == 1 && compStmt->statements[0]) {
+                    exprStmt = dynamic_cast<ExpressionStatement*>(compStmt->statements[0].get());
+                }
+            } else {
+                // Direct ExpressionStatement
+                exprStmt = dynamic_cast<ExpressionStatement*>(loop.body.get());
+            }
+
             if (!exprStmt || !exprStmt->expression) return false;
 
             auto* assign = dynamic_cast<Assignment*>(exprStmt->expression.get());
@@ -695,6 +737,60 @@ bool LoopOptimizer::isMemsetPattern(const ForStatement& stmt, std::string& arr, 
     return detector.detect(stmt, arr, idx, value);
 }
 
+std::unique_ptr<Statement> LoopOptimizer::transformMemcpyToCall(const ForStatement& stmt, const std::string& dest, const std::string& src) {
+    // Extract loop variable
+    InitializerAnalyzer initAnalyzer;
+    std::string loopVar;
+    int initValue;
+    if (!initAnalyzer.extract(stmt.initializer.get(), loopVar, initValue)) {
+        return nullptr;  // Failed to extract loop variable
+    }
+
+    // Extract loop bound expression from condition
+    BoundExpressionExtractor boundExtractor;
+    std::unique_ptr<Expression> boundExpr;
+    std::string op;
+    if (!boundExtractor.extract(stmt.condition.get(), loopVar, boundExpr, op) || !boundExpr) {
+        return nullptr;  // Failed to extract bound expression
+    }
+
+    // Create memcpy function call: memcpy(dest, src, bound)
+    auto memcpyCall = std::make_unique<FunctionCall>("memcpy");
+    memcpyCall->arguments.push_back(std::make_unique<VariableReference>(dest));
+    memcpyCall->arguments.push_back(std::make_unique<VariableReference>(src));
+    memcpyCall->arguments.push_back(std::move(boundExpr));
+
+    auto exprStmt = std::make_unique<ExpressionStatement>(std::move(memcpyCall));
+    return exprStmt;
+}
+
+std::unique_ptr<Statement> LoopOptimizer::transformMemsetToCall(const ForStatement& stmt, const std::string& arr, int value) {
+    // Extract loop variable
+    InitializerAnalyzer initAnalyzer;
+    std::string loopVar;
+    int initValue;
+    if (!initAnalyzer.extract(stmt.initializer.get(), loopVar, initValue)) {
+        return nullptr;  // Failed to extract loop variable
+    }
+
+    // Extract loop bound expression from condition
+    BoundExpressionExtractor boundExtractor;
+    std::unique_ptr<Expression> boundExpr;
+    std::string op;
+    if (!boundExtractor.extract(stmt.condition.get(), loopVar, boundExpr, op) || !boundExpr) {
+        return nullptr;  // Failed to extract bound expression
+    }
+
+    // Create memset function call: memset(arr, value, bound)
+    auto memsetCall = std::make_unique<FunctionCall>("memset");
+    memsetCall->arguments.push_back(std::make_unique<VariableReference>(arr));
+    memsetCall->arguments.push_back(std::make_unique<IntegerLiteral>(value));
+    memsetCall->arguments.push_back(std::move(boundExpr));
+
+    auto exprStmt = std::make_unique<ExpressionStatement>(std::move(memsetCall));
+    return exprStmt;
+}
+
 void LoopOptimizer::optimizeTranslationUnit(TranslationUnit& unit) {
     for (auto& decl : unit.topLevelDecls) {
         decl->accept(*this);
@@ -734,7 +830,34 @@ void LoopOptimizer::visit(CompoundStatement& node) {
             }
         }
 
-        // Not unrollable or not a for loop - process normally
+        // Check for memcpy pattern transformation
+        if (forStmt) {
+            std::string dest, src, idx;
+            if (isMemcpyPattern(*forStmt, dest, src, idx)) {
+                auto memcpyStmt = transformMemcpyToCall(*forStmt, dest, src);
+                if (memcpyStmt) {
+                    memcpyStmt->accept(*this);
+                    newStatements.push_back(std::move(memcpyStmt));
+                    stmt.reset();
+                    continue;
+                }
+            }
+
+            // Check for memset pattern transformation
+            std::string arr;
+            int value;
+            if (isMemsetPattern(*forStmt, arr, idx, value)) {
+                auto memsetStmt = transformMemsetToCall(*forStmt, arr, value);
+                if (memsetStmt) {
+                    memsetStmt->accept(*this);
+                    newStatements.push_back(std::move(memsetStmt));
+                    stmt.reset();
+                    continue;
+                }
+            }
+        }
+
+        // Not optimizable or not a for loop - process normally
         stmt->accept(*this);
         newStatements.push_back(std::move(stmt));
     }
