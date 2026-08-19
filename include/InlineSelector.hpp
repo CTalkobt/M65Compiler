@@ -32,6 +32,9 @@ public:
     void applyRecommendations(const CallGraphAnalyzer* callGraph,
                              const CoOptimizationSelector* selector);
 
+    // Phase 88: Apply recommendations to AST nodes for actual inlining
+    void applyRecommendationsToAST(TranslationUnit& unit);
+
     // Get inlining decision for a specific function
     InlineHints getInlineHints(const std::string& funcName) const;
 

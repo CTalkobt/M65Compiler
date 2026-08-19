@@ -803,6 +803,11 @@ int main(int argc, char** argv) {
             inlineSelector.applyRecommendations(&callGraphAnalyzer, &coOptSelector);
             if (verboseLevel >= 1) std::cout << "Recommendations applied." << std::endl;
 
+            // Phase 88: Step 1 - Apply recommendations to AST for actual inlining
+            if (verboseLevel >= 1) std::cout << "Applying inline recommendations to AST..." << std::endl;
+            inlineSelector.applyRecommendationsToAST(*ast);
+            if (verboseLevel >= 1) std::cout << "Inline recommendations activated." << std::endl;
+
             // Phase 87: Build devirtualization hints for code generation
             if (verboseLevel >= 1) std::cout << "Building devirtualization hints..." << std::endl;
             DevirtualizationHints devirtHints;

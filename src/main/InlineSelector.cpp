@@ -110,6 +110,22 @@ void InlineSelector::applyRecommendations(const CallGraphAnalyzer* callGraph,
     }
 }
 
+void InlineSelector::applyRecommendationsToAST(TranslationUnit& unit) {
+    // Phase 88: Apply inline recommendations to AST nodes
+    // Mark functions that should be inlined based on recommendations
+
+    for (auto& decl : unit.topLevelDecls) {
+        if (auto* func = dynamic_cast<FunctionDeclaration*>(decl.get())) {
+            auto hints = getInlineHints(func->name);
+
+            // Mark for inlining if recommended and safe
+            if (hints.shouldInline && hints.fromCrossFunc) {
+                func->isInline = true;
+            }
+        }
+    }
+}
+
 InlineSelector::InlineHints InlineSelector::getInlineHints(
     const std::string& funcName) const {
 
