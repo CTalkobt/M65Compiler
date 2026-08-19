@@ -463,6 +463,13 @@ public:
     bool isOperator = false;      // Operator overload method
     int vtableSlot = -1;          // Phase 3: slot index in vtable (-1 = not virtual)
 
+    // Phase 82: Per-function optimization selection
+    bool optimizeLoopUnroll = true;
+    bool optimizeLoopInterchange = true;
+    bool optimize2PassFolding = false;
+    bool optimizeSAC = true;
+    int unrollFactor = 4;
+
     FunctionDeclaration(const std::string& n, const std::string& rt) : name(n), returnType(rt) {}
     void accept(ASTVisitor& visitor) override;
 };

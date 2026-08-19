@@ -13,6 +13,8 @@
 #include "Parser.hpp"
 #include "AST.hpp"
 #include "ConstantFolder.hpp"
+#include "FunctionAnalyzer.hpp"
+#include "OptimizationSelector.hpp"
 #include "LoopOptimizer.hpp"
 #include "LoopInterchange.hpp"
 #include "Preprocessor.hpp"
@@ -761,6 +763,14 @@ int main(int argc, char** argv) {
             ast = folder.foldTranslationUnit(std::move(ast));
             if (verboseLevel >= 1) std::cout << "Constant folding complete." << std::endl;
             irBuilder.setExternalUsedVars(folder.usedVars_);
+
+            // Phase 82: Function analysis for per-function optimization selection
+            if (verboseLevel >= 1) std::cout << "Analyzing functions for optimization..." << std::endl;
+            FunctionAnalyzer analyzer;
+            analyzer.analyzeTranslationUnit(*ast);
+            OptimizationSelector selector(4);  // Default unroll factor: 4
+            selector.selectOptimizations(*ast, analyzer);
+            if (verboseLevel >= 1) std::cout << "Function analysis complete." << std::endl;
 
             if (verboseLevel >= 1) std::cout << "Loop optimization..." << std::endl;
             LoopOptimizer loopOpt;
