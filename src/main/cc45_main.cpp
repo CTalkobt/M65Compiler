@@ -19,6 +19,7 @@
 #include "CallGraphAnalyzer.hpp"
 #include "DevirtualizationDetector.hpp"
 #include "CoOptimizationSelector.hpp"
+#include "DevirtualizationHints.hpp"
 #include "LoopOptimizer.hpp"
 #include "LoopInterchange.hpp"
 #include "Preprocessor.hpp"
@@ -800,6 +801,20 @@ int main(int argc, char** argv) {
             if (verboseLevel >= 1) std::cout << "Applying cross-function optimization recommendations..." << std::endl;
             inlineSelector.applyRecommendations(&callGraphAnalyzer, &coOptSelector);
             if (verboseLevel >= 1) std::cout << "Recommendations applied." << std::endl;
+
+            // Phase 87: Build devirtualization hints for code generation
+            if (verboseLevel >= 1) std::cout << "Building devirtualization hints..." << std::endl;
+            DevirtualizationHints devirtHints;
+            auto devirtMethods = coOptSelector.getDevirtualizationCandidates();
+            for (const auto& method : devirtMethods) {
+                if (!method.implementations.empty()) {
+                    devirtHints.markDevirtualizable(method.className, method.methodName,
+                                                   method.implementations[0]);
+                }
+            }
+            if (verboseLevel >= 1) {
+                std::cout << "Marked " << devirtMethods.size() << " virtual method(s) for devirtualization." << std::endl;
+            }
 
             if (verboseLevel >= 1) std::cout << "Loop optimization..." << std::endl;
             LoopOptimizer loopOpt;
