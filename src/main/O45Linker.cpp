@@ -777,6 +777,7 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     emitDiagnostics();
     verifyStaticAllocSafety();  // Verify SAC constraints before thunk generation
     validateSACParameters();      // Phase 3: Validate SAC parameter metadata
+    validateImmediateRelocations(); // Phase 78.4: Validate immediate relocation symbols
 
     // Check for calling convention errors and SAC violations
     if (!convErrors_.empty()) {
@@ -2436,6 +2437,81 @@ void O45Linker::validateSACParameters() {
                 }
             }
         }
+    }
+}
+
+// Phase 78.4: Validate immediate relocations for SMC parameters
+void O45Linker::validateImmediateRelocations() {
+    // Scan through all objects and their relocations for R_IMM8/R_IMM16 types
+    // Validate that referenced symbols exist and are resolvable
+
+    int immediatRelocCount = 0;
+    int validationErrors = 0;
+
+    for (int objIdx = 0; objIdx < (int)objects_.size(); objIdx++) {
+        const auto& input = objects_[objIdx];
+
+        // Check text relocations
+        auto textRelocs = O45RelocDecoder::decode(input.obj.textRelocs);
+        for (const auto& r : textRelocs) {
+            if (r.type != R_IMM8 && r.type != R_IMM16) continue;
+
+            immediatRelocCount++;
+
+            // Validate symbol resolution for external immediate relocations
+            if (r.segment == SEG_EXTERNAL) {
+                if (r.symbolIndex >= input.obj.imports.size()) {
+                    convErrors_.push_back("error: invalid symbol index in immediate relocation in " +
+                                        input.filename);
+                    validationErrors++;
+                    continue;
+                }
+
+                const std::string& symName = input.obj.imports[r.symbolIndex].name;
+                auto symIt = globalSymbols_.find(symName);
+
+                if (symIt == globalSymbols_.end()) {
+                    convErrors_.push_back("error: undefined symbol '" + symName +
+                                        "' in immediate relocation in " + input.filename);
+                    validationErrors++;
+                }
+            }
+        }
+
+        // Check data relocations (less common for immediates, but be thorough)
+        auto dataRelocs = O45RelocDecoder::decode(input.obj.dataRelocs);
+        for (const auto& r : dataRelocs) {
+            if (r.type != R_IMM8 && r.type != R_IMM16) continue;
+
+            immediatRelocCount++;
+
+            if (r.segment == SEG_EXTERNAL) {
+                if (r.symbolIndex >= input.obj.imports.size()) {
+                    convErrors_.push_back("error: invalid symbol index in immediate relocation in " +
+                                        input.filename);
+                    validationErrors++;
+                    continue;
+                }
+
+                const std::string& symName = input.obj.imports[r.symbolIndex].name;
+                auto symIt = globalSymbols_.find(symName);
+
+                if (symIt == globalSymbols_.end()) {
+                    convErrors_.push_back("error: undefined symbol '" + symName +
+                                        "' in immediate relocation in " + input.filename);
+                    validationErrors++;
+                }
+            }
+        }
+    }
+
+    // Log diagnostics if any immediate relocations were found
+    if (immediatRelocCount > 0 && warnStream_) {
+        *warnStream_ << "Phase 78: Found " << immediatRelocCount << " immediate relocations";
+        if (validationErrors > 0) {
+            *warnStream_ << " (" << validationErrors << " validation errors)";
+        }
+        *warnStream_ << std::endl;
     }
 }
 
