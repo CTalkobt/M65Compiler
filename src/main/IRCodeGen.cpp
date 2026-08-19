@@ -702,6 +702,7 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
             // Initialize metadata for each parameter
             for (size_t i = 0; i < fn.paramNames.size(); i++) {
                 O45SACParam param;
+                param.symbolName = fn.name + "__param_" + fn.paramNames[i];  // e.g., "add_many__param_a"
                 param.accessCount = 0;
                 param.useSMC = false;
                 paramMetadata[(int)i] = param;
@@ -1921,6 +1922,19 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // (Plain rts without plz for SAC; with plz cleanup for stack-based functions above)
     emit("rts");
 
+    // Phase 78: Finalize SMC parameter metadata based on access counts
+    // Set useSMC = true for parameters accessed >3 times (sufficient to save >= 1 byte)
+    if (useSAC && trackSMCOffsetsEnabled_ && functionSMCMetadata_.count(fn.name)) {
+        auto& params = functionSMCMetadata_[fn.name];
+        for (auto& [paramIdx, param] : params) {
+            // SMC decision threshold: >3 accesses
+            // This typically saves 2-3 bytes per parameter (load instruction elimination)
+            if (param.accessCount > 3) {
+                param.useSMC = true;
+            }
+        }
+    }
+
     // Emit parameter constant metadata for cross-file optimization analysis
     // Linker can use this to detect parameters that are ALWAYS constant across all files
     if (useSAC && relocMode_ && sacConstParams_.count(fn.name)) {
@@ -3004,16 +3018,49 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 break;
             }
             if (inst.src1.kind == ir::OperandKind::GLOBAL) {
-                // Load directly from global address
-                emit("lda " + inst.src1.name);
-                if (inst.resultType == ir::Type::I32) {
-                    emit("ldx " + inst.src1.name + "+1");
-                    emit("ldy " + inst.src1.name + "+2");
-                    emit("ldz " + inst.src1.name + "+3");
-                } else if (inst.resultType != ir::Type::I8) {
-                    emit("ldx " + inst.src1.name + "+1");
+                // Phase 78: Check if this is a parameter using SMC optimization
+                bool useSMC = false;
+                std::string paramName = inst.src1.name;
+                if (paramName.find("__param_") != std::string::npos && trackSMCOffsetsEnabled_) {
+                    // Check if this parameter is marked for SMC in metadata
+                    auto metaIt = functionSMCMetadata_.find(currentFunctionName_);
+                    if (metaIt != functionSMCMetadata_.end()) {
+                        // Check each parameter in the metadata
+                        for (const auto& [paramID, param] : metaIt->second) {
+                            if (param.symbolName == paramName && param.useSMC) {
+                                useSMC = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // Load directly from global address (or use SMC placeholder)
+                if (useSMC) {
+                    // Emit placeholder immediates for SMC parameter optimization
+                    // The assembler will collect these as immediate relocations
+                    emit("lda #$00");
+                    if (inst.resultType == ir::Type::I32) {
+                        emit("ldx #$00");
+                        emit("ldy #$00");
+                        emit("ldz #$00");
+                    } else if (inst.resultType != ir::Type::I8) {
+                        emit("ldx #$00");
+                    } else {
+                        emit("ldx #0");
+                    }
                 } else {
-                    emit("ldx #0");
+                    // Normal load from parameter storage
+                    emit("lda " + inst.src1.name);
+                    if (inst.resultType == ir::Type::I32) {
+                        emit("ldx " + inst.src1.name + "+1");
+                        emit("ldy " + inst.src1.name + "+2");
+                        emit("ldz " + inst.src1.name + "+3");
+                    } else if (inst.resultType != ir::Type::I8) {
+                        emit("ldx " + inst.src1.name + "+1");
+                    } else {
+                        emit("ldx #0");
+                    }
                 }
             } else if (inst.src1.kind != ir::OperandKind::NONE) {
                 // Load value from address held in an operand via (ZP),Y
