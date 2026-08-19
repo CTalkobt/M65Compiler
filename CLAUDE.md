@@ -1,7 +1,7 @@
 # MEGA65 C Compiler Suite — Codebase Documentation
 
-**Status:** v1.0.5+ (SAC Implementation - 2026-08-16)
-**Last Updated:** 2026-08-16
+**Status:** v1.0.5+ (Optimization System Refactor - 2026-08-19)
+**Last Updated:** 2026-08-19
 **Maintainer:** Craig Taylor (CTalkobt)
 
 ---
@@ -62,35 +62,36 @@ PRG Executable or Flat Binary
    - Parameter narrowing advisory (compiler suggests changing `int` params to `char` when all call sites pass 0-255)
    - MachineState tracking: unified register/memory/flag tracking across assembler optimizer
 
-3. **Per-Optimization Control** (v1.0.5+): Named optimization flags for granular pass-level control
-   - **IR-Level Passes** (controlled in cc45 via `-P<Name>` flags):
-     * StrengthReduction — Replace MUL/DIV by powers-of-2 with bit shifts
-     * AlgebraicSimplify — Eliminate identity/annihilator/idempotent patterns
-     * TypeNarrowing — Replace wide operations with I8 when result is truncated
-     * BranchFold — Branch folding and dead block elimination
-     * CSE — Common Subexpression Elimination + Copy Propagation
-     * LICM — Loop-Invariant Code Motion (hoist loop-invariant computations)
-     * CopyChains — Resolve transitive copy chains, remove dead copies
-     * AddrElemFusion — Merge single-use ADDR_ELEM into following LOAD/STORE
-   - **Assembler-Level Passes** (controlled in ca45 via `-P<Name>` flags, forwarded by cc45):
-     * JSRRelocate — JSR → BSR relocation for position-independent code
-     * TailCall — Convert JSR + RTS → JMP
-     * BranchInvert — Invert branch + BRA → single inverted branch (saves 2 bytes)
-     * JmpBra — Convert JMP → BRA for backward branches (saves 1 byte)
-     * NoOpBra — Eliminate BRA instructions that jump to next instruction
-     * CmpElimination — Eliminate redundant compare instructions
-     * RedundantLoad — Eliminate redundant loads (reverse store-forwarding)
-     * DeadStore — Eliminate stores whose values are never used
-     * TailDedup — Deduplicate tail code sequences
-     * PreserveXSP — Optimize TSX preservation across function calls
-     * SeqExtract — Sequential extract pattern optimization
-     * StoreLoadPair — Optimize store-load pair patterns
-     * FCmpOpt — Floating-point compare optimization
-     * TSXRedundant — Eliminate redundant TSX instructions
-   - **Usage**: `-f<name>` enables pass, `-fno-<name>` disables (applied after `-O` baseline)
-   - **Example**: `cc45 input.c -O2 -fno-loop-invariant-code-motion -fno-copy-chains` enables all optimizations except LICM and CopyChains
+3. **Per-Optimization Control** (v1.0.5+): Standardized optimization flags for granular pass-level control
+   - **24 Named Optimizations** across 9 levels (from -O0 to -O9), each with independent enable/disable control
+   - **IR-Level Passes** (controlled in cc45):
+     * `constant-folding` — Evaluate constant expressions at compile time
+     * `dead-code-elimination` — Remove unreachable code and dead statements
+     * `inline-small-functions` — Inline functions < 20 bytes
+     * `tail-call-optimization` — Convert tail calls (JSR + RTS) to JMP
+     * `strength-reduction` — Replace multiply/divide by powers-of-2 with bit shifts
+     * `algebraic-simplify` — Eliminate identity/annihilator patterns (a*1=a, a+0=a)
+     * `loop-unrolling` — Unroll small loops (20-1000 iterations)
+     * `loop-interchange` — Reorder nested loops for cache locality
+     * `loop-invariant-code-motion` — Hoist loop-invariant computations
+     * `cross-function-inlining` — Inline functions with 1-3 call sites
+     * `devirtualization` — Replace virtual calls with direct calls (when single implementation)
+     * `cse` — Common Subexpression Elimination
+     * `copy-propagation` — Replace copies with original values
+     * `branch-inversion` — Eliminate redundant branches
+     * `branch-folding` — Eliminate unreachable code via branches
+     * `jump-optimization` — Convert JMP to BRA for backward branches
+     * `redundant-load-elimination` — Eliminate redundant memory loads
+     * `dead-store-elimination` — Eliminate unused stores
+     * `frame-pointer-optimization` — Lazy FP initialization (SAC mode)
+     * `co-optimization` — Coordinated optimization of related function groups
+     * `procedure-inlining` — Aggressive inlining with recursive support
+     * `interprocedural-optimization` — Cross-module optimization hints
+   - **Command-Line Usage** (standard C compiler convention): `-f<kebab-case>` enables, `-fno-<kebab-case>` disables
+   - **Example**: `cc45 input.c -O2 -fno-loop-invariant-code-motion -fno-copy-propagation` enables level-2 optimizations except LICM and copy propagation
+   - **Pragma Usage**: `#pragma cc45 optimize(constant-folding)` or `#pragma cc45 optimize(no-dead-store-elimination)`
    - **Config File Support**: Set defaults in `~/.config/m65/cc45.conf` (CLI args override)
-   - **Availability**: All -O0 through -O3 levels supported; -O0 disables all, -O1+ enables all by default
+   - **Documentation**: Complete reference in `doc/architecture/optimizations.md`
 
 4. **Symbol Scoping**: Hierarchical scoping with nested procedures and blocks, allowing label/variable reuse without namespace pollution
 

@@ -2,6 +2,50 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
+## [Unreleased] - Optimization System Refactor (2026-08-19)
+
+### Standards-Compliant Optimization Flags
+
+#### Breaking Change: New -f Flag Format
+- **Changed:** Individual optimization flags now use `-f` prefix with kebab-case naming
+  - Old format (no longer supported):
+    - `-OConstantFolding` / `-OLoopUnrolling` / `-PNoDeadStoreElim`
+  - New format (standards-compliant):
+    - `-fconstant-folding` / `-floop-unrolling` / `-fno-dead-store-elimination`
+- **Rationale:** Matches gcc/clang conventions for feature control flags
+- **Compliance:** Follows C compiler tradition (-finline-functions, -fno-strict-aliasing, etc)
+
+#### Implementation Details
+- **CLI Parsing:** OptimizationController::parseOption() completely rewritten
+  - `-O<level>`: Optimization levels (-O0 through -O9) — unchanged
+  - `-f<name>`: Enable individual optimization (kebab-case)
+  - `-fno-<name>`: Disable individual optimization (kebab-case)
+- **Pragma System:** Updated to use kebab-case notation
+  - `#pragma cc45 optimize(loop-unrolling)` — enable
+  - `#pragma cc45 optimize(no-branch-folding)` — disable
+- **Configuration Files:** Updated ~/.config/m65/cc45.conf examples
+
+#### All 24 Optimizations Refactored
+- Levels 1-9: All optimization names converted to kebab-case
+- Examples: `constant-folding`, `tail-call-optimization`, `loop-invariant-code-motion`
+- Flag naming verified: kebab-to-camel conversion working correctly
+
+#### Documentation Improvements
+- **doc/architecture/optimizations.md:** Complete rewrite
+  - All command-line examples updated to -f format
+  - Reference table showing all 24 optimizations with new flags
+  - Configuration file section with new examples
+  - Troubleshooting section updated
+- **CLAUDE.md:** Updated all configuration examples
+
+#### Migration Guide
+Projects using old flag format must update:
+- `-O2 -OConstantFolding` → `-O2 -fconstant-folding`
+- `-O0 -PNoBranchFolding` → `-O0 -fno-branch-folding`
+- Config: `-PNoSeqExtract` → `-fno-seq-extract`
+
+---
+
 ## [v1.0.5] - 2026-07-19
 
 Bug fixes and verification release. All mmemu tests compile successfully.
