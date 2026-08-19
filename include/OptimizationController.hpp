@@ -42,6 +42,12 @@ public:
     void setFunctionMode(const std::string& funcName, FunctionOptimizationMode mode);
     FunctionOptimizationMode getFunctionMode(const std::string& funcName) const;
 
+    // Individual per-function optimization control (via pragma)
+    // Examples: constant_folding, loop_unrolling, no_branch_inversion
+    void setFunctionOptimization(const std::string& funcName, const std::string& optName, bool enable);
+    bool isFunctionOptimizationEnabled(const std::string& funcName, const std::string& optName) const;
+    bool hasFunctionOptimizationOverride(const std::string& funcName, const std::string& optName) const;
+
     // Get documentation
     std::string getDocumentation() const;
 
@@ -50,4 +56,11 @@ private:
     std::set<std::string> enabledOptimizations_;
     std::set<std::string> disabledOptimizations_;
     std::map<std::string, FunctionOptimizationMode> functionModes_;
+    // Per-function per-optimization control: funcName -> (optName -> enabled)
+    std::map<std::string, std::map<std::string, bool>> functionOptimizations_;
+
+    // Convert snake_case pragma names to CamelCase internal names
+    std::string pragmaNameToInternal(const std::string& pragmaName) const;
+    // Convert CamelCase internal names to snake_case pragma names
+    std::string internalNameToPragma(const std::string& internalName) const;
 };

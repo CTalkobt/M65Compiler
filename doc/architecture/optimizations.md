@@ -234,6 +234,8 @@ cc45 input.c -O4 -OConstantFolding -PNoBranchFolding
 
 ## Function-Level Pragma Control
 
+### Group-Level Control
+
 Override optimization settings for individual functions:
 
 ```c
@@ -253,6 +255,59 @@ void compressed_code() { }
 #pragma cc45 optimize(default)
 void normal_function() { }
 ```
+
+### Individual Optimization Control
+
+Enable or disable specific optimizations on a per-function basis using snake_case names:
+
+```c
+// Enable specific optimization
+#pragma cc45 optimize(constant_folding)
+void with_const_folding() { }
+
+// Disable specific optimization
+#pragma cc45 optimize(no_loop_unrolling)
+void without_loop_unroll() { }
+
+// Combine multiple individual controls
+#pragma cc45 optimize(loop_unrolling)
+#pragma cc45 optimize(no_branch_inversion)
+void multi_opt() { }
+
+// Mix group and individual controls
+#pragma cc45 optimize(speed)                    // Use speed-focused settings
+#pragma cc45 optimize(no_procedure_inlining)    // But disable this one
+void hybrid_opt() { }
+```
+
+### Pragma Naming Convention
+
+Individual optimizations use snake_case in pragmas:
+
+- `constant_folding` → Enable/disable constant folding
+- `dead_code_elim` → Enable/disable dead code elimination
+- `inline_small_functions` → Enable/disable small function inlining
+- `tail_call_opt` → Enable/disable tail call optimization
+- `strength_reduction` → Enable/disable strength reduction
+- `algebraic_simplify` → Enable/disable algebraic simplification
+- `loop_unrolling` → Enable/disable loop unrolling
+- `loop_interchange` → Enable/disable loop interchange
+- `licm` → Enable/disable loop-invariant code motion
+- `cross_function_inlining` → Enable/disable cross-function inlining
+- `devirtualization` → Enable/disable devirtualization
+- `common_subexpr_elim` → Enable/disable CSE
+- `copy_propagation` → Enable/disable copy propagation
+- `branch_inversion` → Enable/disable branch inversion
+- `branch_folding` → Enable/disable branch folding
+- `jump_opt` → Enable/disable jump optimization
+- `redundant_load_elim` → Enable/disable redundant load elimination
+- `dead_store_elim` → Enable/disable dead store elimination
+- `frame_pointer_opt` → Enable/disable frame pointer optimization
+- `co_optimization` → Enable/disable co-optimization
+- `procedure_inlining` → Enable/disable procedure inlining
+- `interprocedural_opt` → Enable/disable interprocedural optimization
+
+Prefix with `no_` to disable: `no_constant_folding`, `no_loop_unrolling`, etc.
 
 ## Command-Line Examples
 
