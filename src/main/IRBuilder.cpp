@@ -72,10 +72,7 @@ void IRBuilder::generate(TranslationUnit& unit) {
                     return true;
                 });
             changed = (it != module_.functions.end());
-            if (changed) {
-                // Only proceed if functions were actually removed
-                module_.functions.erase(it, module_.functions.end());
-            }
+            module_.functions.erase(it, module_.functions.end());
         }
     }
     // Phase 4: Compiler-level devirtualization
