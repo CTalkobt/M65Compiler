@@ -87,8 +87,8 @@ PRG Executable or Flat Binary
      * StoreLoadPair — Optimize store-load pair patterns
      * FCmpOpt — Floating-point compare optimization
      * TSXRedundant — Eliminate redundant TSX instructions
-   - **Usage**: `-P<Name>` enables pass, `-PNo<Name>` disables (applied after `-O` baseline)
-   - **Example**: `cc45 input.c -O2 -PNoLICM -PNoCopyChains` enables all optimizations except LICM and CopyChains
+   - **Usage**: `-f<name>` enables pass, `-fno-<name>` disables (applied after `-O` baseline)
+   - **Example**: `cc45 input.c -O2 -fno-loop-invariant-code-motion -fno-copy-chains` enables all optimizations except LICM and CopyChains
    - **Config File Support**: Set defaults in `~/.config/m65/cc45.conf` (CLI args override)
    - **Availability**: All -O0 through -O3 levels supported; -O0 disables all, -O1+ enables all by default
 
@@ -198,7 +198,7 @@ Each tool reads `~/.config/m65/<toolname>.conf` at startup:
 ```
 -O2
 -fzpcall
--PNoSeqExtract    # Disable seq-extract optimization
+-fno-seq-extract    # Disable seq-extract optimization
 # -finline-functions  (commented out)
 ```
 
@@ -206,7 +206,7 @@ Each tool reads `~/.config/m65/<toolname>.conf` at startup:
 
 **Example usage**:
 ```bash
-# Use config defaults (-O2 -fzpcall -PNoSeqExtract)
+# Use config defaults (-O2 -fzpcall -fno-seq-extract)
 cc45 input.c -o output.prg
 
 # Override config: use -O0, ignore -fzpcall from config

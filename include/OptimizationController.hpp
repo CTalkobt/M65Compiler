@@ -24,7 +24,7 @@ public:
     // Get all currently enabled optimizations
     std::set<std::string> getEnabledOptimizations() const;
 
-    // Parse command-line options (e.g., "-O3", "-PNoLICM", "-OConstantFolding")
+    // Parse command-line options (e.g., "-O3", "-floop-invariant-code-motion", "-fno-constant-folding")
     bool parseOption(const std::string& option);
 
     // Apply level-based defaults
@@ -43,7 +43,7 @@ public:
     FunctionOptimizationMode getFunctionMode(const std::string& funcName) const;
 
     // Individual per-function optimization control (via pragma)
-    // Examples: constant_folding, loop_unrolling, no_branch_inversion
+    // Examples: constant-folding, loop-unrolling, no-branch-inversion
     void setFunctionOptimization(const std::string& funcName, const std::string& optName, bool enable);
     bool isFunctionOptimizationEnabled(const std::string& funcName, const std::string& optName) const;
     bool hasFunctionOptimizationOverride(const std::string& funcName, const std::string& optName) const;
@@ -59,8 +59,10 @@ private:
     // Per-function per-optimization control: funcName -> (optName -> enabled)
     std::map<std::string, std::map<std::string, bool>> functionOptimizations_;
 
-    // Convert snake_case pragma names to CamelCase internal names
+    // Convert kebab-case or snake_case pragma names to CamelCase internal names
     std::string pragmaNameToInternal(const std::string& pragmaName) const;
-    // Convert CamelCase internal names to snake_case pragma names
+    // Convert CamelCase internal names to kebab-case pragma names
     std::string internalNameToPragma(const std::string& internalName) const;
+    // Convert kebab-case flag names to CamelCase internal names (for -f flags)
+    std::string kebabNameToInternal(const std::string& kebabName) const;
 };
