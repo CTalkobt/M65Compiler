@@ -31,6 +31,7 @@
 #include "IRBuilder.hpp"
 #include "IRCodeGen.hpp"
 #include "IROptimizer.hpp"
+#include "CompoundAssignmentFusion.hpp"
 #include "Version.hpp"
 #include "Diagnostic.hpp"
 #include "O45Reader.hpp"
@@ -861,6 +862,10 @@ int main(int argc, char** argv) {
             if (irOptFlags.strengthReduction) {
                 if (verboseLevel >= 1) std::cout << "Optimizing IR (Strength Reduction)..." << std::endl;
                 ir::optimizeStrengthReduction(irBuilder.getModule());
+                // Phase 86: Fuse compound assignments after strength reduction
+                // Eliminates intermediate vregs and redundant load/store cycles
+                if (verboseLevel >= 1) std::cout << "Optimizing IR (Compound Assignment Fusion)..." << std::endl;
+                CompoundAssignmentFusion::fuse(irBuilder.getModule());
             }
             if (irOptFlags.algebraicSimplify) {
                 if (verboseLevel >= 1) std::cout << "Optimizing IR (Algebraic Simplification)..." << std::endl;

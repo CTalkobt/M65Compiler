@@ -2746,6 +2746,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 }
                 emitLabel(done);
             }
+
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
