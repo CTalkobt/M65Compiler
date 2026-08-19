@@ -15,6 +15,18 @@ void IRBuilder::setSourceInfo(const std::string& filename) {
 
 void IRBuilder::generate(TranslationUnit& unit) {
     unit.accept(*this);
+
+    // QUICK TEST: Verify generate() is called
+    {
+        std::ofstream test("/tmp/generate_called.txt");
+        test << "IRBuilder::generate() was called\n";
+        test << "module_.functions.size() = " << module_.functions.size() << "\n";
+        for (const auto& fn : module_.functions) {
+            test << "  " << fn.name << "\n";
+        }
+        test.close();
+    }
+
     // Eliminate unused static functions (iterative — handles call chains)
     {
         bool changed = true;
