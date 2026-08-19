@@ -60,7 +60,7 @@ std::set<std::string> OptimizationController::getEnabledOptimizations() const {
 bool OptimizationController::parseOption(const std::string& option) {
     if (option.length() < 2) return false;
 
-    // Handle -O<level>
+    // Handle -O<level> or -O<name> or -Ono_<name>
     if (option[0] == '-' && option[1] == 'O') {
         if (option.length() == 3 && std::isdigit(option[2])) {
             // -O0 through -O9
@@ -69,31 +69,70 @@ bool OptimizationController::parseOption(const std::string& option) {
             return true;
         }
 
-        if (option.length() > 2 && option[2] == 'N' && option[3] == 'o') {
-            // -PNo<Name> or -ONo<Name> - disable optimization
-            std::string name = option.substr(4);
-            auto opt = OptimizationCatalog::getOptimization(name);
-            if (opt) {
-                disableOptimization(name);
-                return true;
+        // Handle -Ono_<name> or -ONo<Name> (disable optimization)
+        if (option.length() > 4) {
+            if (option.substr(2, 3) == "no_") {
+                // -Ono_<snake_case_name> format
+                std::string snakeName = option.substr(5);
+                std::string camelName = pragmaNameToInternal(snakeName);
+                auto opt = OptimizationCatalog::getOptimization(camelName);
+                if (opt) {
+                    disableOptimization(camelName);
+                    return true;
+                }
+                return false;
             }
-            return false;
+
+            if (option.substr(2, 2) == "No" && std::isupper(option[4])) {
+                // -ONo<CamelCase_name> format (backward compatible)
+                std::string name = option.substr(4);
+                auto opt = OptimizationCatalog::getOptimization(name);
+                if (opt) {
+                    disableOptimization(name);
+                    return true;
+                }
+                return false;
+            }
         }
 
-        // -O<Name> - enable specific optimization
-        std::string name = option.substr(2);
-        auto opt = OptimizationCatalog::getOptimization(name);
+        // Handle -O<name> (enable optimization)
+        // Try both snake_case and CamelCase interpretations
+        std::string optionName = option.substr(2);
+
+        // First try as CamelCase (backward compatible)
+        auto opt = OptimizationCatalog::getOptimization(optionName);
         if (opt) {
-            enableOptimization(name);
+            enableOptimization(optionName);
             return true;
         }
+
+        // Try as snake_case by converting to CamelCase
+        std::string camelName = pragmaNameToInternal(optionName);
+        opt = OptimizationCatalog::getOptimization(camelName);
+        if (opt) {
+            enableOptimization(camelName);
+            return true;
+        }
+
         return false;
     }
 
     // Handle -P<Name> (same as -O<Name>, backward compatible)
     if (option[0] == '-' && option[1] == 'P') {
-        if (option.length() > 2 && option[2] == 'N' && option[3] == 'o') {
-            // -PNo<Name> - disable optimization
+        if (option.length() > 4 && option.substr(2, 3) == "no_") {
+            // -Pno_<snake_case_name> format
+            std::string snakeName = option.substr(5);
+            std::string camelName = pragmaNameToInternal(snakeName);
+            auto opt = OptimizationCatalog::getOptimization(camelName);
+            if (opt) {
+                disableOptimization(camelName);
+                return true;
+            }
+            return false;
+        }
+
+        if (option.length() > 4 && option.substr(2, 2) == "No") {
+            // -PNo<CamelCase_name> - disable optimization
             std::string name = option.substr(4);
             auto opt = OptimizationCatalog::getOptimization(name);
             if (opt) {
@@ -104,12 +143,23 @@ bool OptimizationController::parseOption(const std::string& option) {
         }
 
         // -P<Name> - enable specific optimization
-        std::string name = option.substr(2);
-        auto opt = OptimizationCatalog::getOptimization(name);
+        std::string optionName = option.substr(2);
+
+        // First try as CamelCase
+        auto opt = OptimizationCatalog::getOptimization(optionName);
         if (opt) {
-            enableOptimization(name);
+            enableOptimization(optionName);
             return true;
         }
+
+        // Try as snake_case
+        std::string camelName = pragmaNameToInternal(optionName);
+        opt = OptimizationCatalog::getOptimization(camelName);
+        if (opt) {
+            enableOptimization(camelName);
+            return true;
+        }
+
         return false;
     }
 

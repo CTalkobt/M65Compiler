@@ -311,6 +311,8 @@ Prefix with `no_` to disable: `no_constant_folding`, `no_loop_unrolling`, etc.
 
 ## Command-Line Examples
 
+Both CamelCase (legacy) and snake_case (modern) formats are supported for optimization flags:
+
 ```bash
 # Use level 2 (default)
 cc45 input.c
@@ -318,18 +320,41 @@ cc45 input.c
 # Maximum optimization
 cc45 input.c -O9
 
-# Level 5 with specific tweaks
+# Level 5 with specific tweaks (CamelCase)
 cc45 input.c -O5 -OLoopUnrolling -PNoRedundantLoadElim
 
-# Start at 0, enable only specific optimizations
+# Same with snake_case (also works)
+cc45 input.c -O5 -Oloop_unrolling -Pno_redundant_load_elim
+
+# Start at 0, enable only specific optimizations (CamelCase)
 cc45 input.c -O0 -OConstantFolding -OTailCallOptimization
 
-# Speed-focused (enable all, but disable space optimizations)
+# Same with snake_case (also works)
+cc45 input.c -O0 -Oconstant_folding -Otail_call_opt
+
+# Speed-focused (enable all, but disable space optimizations) - CamelCase
 cc45 input.c -O8 -PNoDeadStoreElim -PNoBranchInversion
 
-# Space-focused (enable size optimizations only)
+# Same with snake_case (also works)
+cc45 input.c -O8 -Pno_dead_store_elim -Pno_branch_inversion
+
+# Space-focused (enable size optimizations only) - CamelCase
 cc45 input.c -O9 -PNoProcedureInlining -PNoLoopUnrolling
+
+# Same with snake_case (also works)
+cc45 input.c -O9 -Pno_procedure_inlining -Pno_loop_unrolling
+
+# Mix CamelCase and snake_case (both work together)
+cc45 input.c -O6 -OLoopUnrolling -Ono_branch_inversion -PNoCopyPropagation
 ```
+
+### Flag Format
+
+Both formats are equivalent:
+- **CamelCase**: `-OConstantFolding`, `-PNoBranchInversion`
+- **snake_case**: `-Oconstant_folding`, `-Pno_branch_inversion`
+- **Prefix for disabling**: `No` (CamelCase) or `no_` (snake_case)
+- **Backward compatible**: All existing scripts using CamelCase continue to work
 
 ## Configuration File Support
 
