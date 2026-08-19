@@ -677,6 +677,16 @@ bool O45Linker::applyRelocs(const std::vector<O45Reloc>& relocs,
                 body[patchPos + 1] = (uint8_t)((targetAddr >> 8) & 0xFF);
                 body[patchPos + 2] = (uint8_t)((targetAddr >> 16) & 0xFF);
                 break;
+            // Phase 78: SMC immediate relocation patching
+            case R_IMM8:
+                // Patch 8-bit immediate with low byte of parameter value
+                body[patchPos] = (uint8_t)(targetAddr & 0xFF);
+                break;
+            case R_IMM16:
+                // Patch 16-bit immediate with low word of parameter value
+                body[patchPos]     = (uint8_t)(targetAddr & 0xFF);
+                body[patchPos + 1] = (uint8_t)((targetAddr >> 8) & 0xFF);
+                break;
             default:
                 errorMsg = "unknown relocation type in " + input.filename;
                 return false;
