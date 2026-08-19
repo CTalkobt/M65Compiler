@@ -1,6 +1,7 @@
 #include "LoopOptimizer.hpp"
 #include <algorithm>
 #include <memory>
+#include <iostream>
 
 namespace {
     // Helper: extract loop variable and initial value from initialization
@@ -45,9 +46,11 @@ namespace {
         bool isIncrementOne(Expression* inc, const std::string& loopVar) {
             if (!inc) return false;
             if (auto* unOp = dynamic_cast<UnaryOperation*>(inc)) {
-                if (unOp->op != "++") return false;
+                // Handle both prefix (++) and postfix (++_POST)
+                if (unOp->op != "++" && unOp->op != "++_POST") return false;
                 if (auto* ref = dynamic_cast<VariableReference*>(unOp->operand.get()))
                     return ref->name == loopVar;
+                return false;
             }
             if (auto* binOp = dynamic_cast<BinaryOperation*>(inc)) {
                 if (binOp->op != "+=") return false;
@@ -535,7 +538,8 @@ bool LoopOptimizer::canUnrollLoop(const ForStatement& stmt) {
     int initValue;
     if (!initAnalyzer.extract(stmt.initializer.get(), loopVar, initValue))
         return false;
-    if (initValue != 0) return false;
+    if (initValue != 0)
+        return false;
 
     // Extract loop bound from condition
     ConditionAnalyzer condAnalyzer;
@@ -548,7 +552,8 @@ bool LoopOptimizer::canUnrollLoop(const ForStatement& stmt) {
     if (op == "<=") bound++;
 
     // Check bound is reasonable (< 16 iterations)
-    if (bound < 1 || bound > 15) return false;
+    if (bound < 1 || bound > 15)
+        return false;
 
     // Check increment is ++
     IncrementAnalyzer incAnalyzer;
@@ -556,21 +561,18 @@ bool LoopOptimizer::canUnrollLoop(const ForStatement& stmt) {
         return false;
 
     // Check body is safe
-    if (!stmt.body) return false;
+    if (!stmt.body)
+        return false;
 
     BreakContinueChecker bcc;
     stmt.body->accept(bcc);
-    if (bcc.found) return false;
+    if (bcc.found)
+        return false;
 
     FunctionCallChecker fcc;
     stmt.body->accept(fcc);
-    if (fcc.found) return false;
-
-    // Check loop variable is not modified in body (conservative check)
-    VarCollector varCollector;
-    stmt.body->accept(varCollector);
-    // Don't unroll if loop var is explicitly referenced in body beyond array index
-    // (This is a conservative check; could be refined)
+    if (fcc.found)
+        return false;
 
     return true;
 }
