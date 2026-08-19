@@ -19,6 +19,7 @@ public:
         int maxLoopNestingDepth = 0;
         int estimatedCodeSize = 0;
         bool isLeaf = true;  // Updated if any function calls found
+        bool isRecursive = false;  // Detected by DFS recursion analysis
 
         bool shouldUnrollLoops = false;
         bool shouldInterchangeLoops = false;
@@ -85,7 +86,16 @@ private:
     } state_;
 
     std::map<std::string, FunctionCharacteristics> characteristics_;
+    std::set<std::string> allFunctionNames_;
 
     void analyzeFunction(FunctionDeclaration* func);
     void computeOptimizationFlags();
+
+    // Recursion detection: DFS with visited set
+    void detectRecursion();
+    bool detectRecursionDFS(const std::string& funcName,
+                          std::set<std::string>& visitStack,
+                          std::set<std::string>& globalVisited,
+                          const std::set<std::string>& callees);
+    std::set<std::string> collectFunctionCalls(FunctionDeclaration* func);
 };

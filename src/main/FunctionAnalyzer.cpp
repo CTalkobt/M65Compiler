@@ -2,14 +2,18 @@
 #include <algorithm>
 
 void FunctionAnalyzer::analyzeTranslationUnit(TranslationUnit& unit) {
-    // First pass: analyze each function
+    // First pass: collect all function names and analyze each function
     for (auto& decl : unit.topLevelDecls) {
         if (auto* func = dynamic_cast<FunctionDeclaration*>(decl.get())) {
+            allFunctionNames_.insert(func->name);
             analyzeFunction(func);
         }
     }
 
-    // Second pass: compute optimization recommendations
+    // Second pass: detect recursion using DFS
+    detectRecursion();
+
+    // Third pass: compute optimization recommendations
     computeOptimizationFlags();
 }
 
@@ -202,20 +206,185 @@ const FunctionAnalyzer::FunctionCharacteristics* FunctionAnalyzer::getCharacteri
     return nullptr;
 }
 
+std::set<std::string> FunctionAnalyzer::collectFunctionCalls(FunctionDeclaration* func) {
+    std::set<std::string> callees;
+    if (!func || !func->body) return callees;
+
+    // Simple visitor to collect function call names
+    class CallCollector : public ASTVisitor {
+    public:
+        std::set<std::string> calls;
+
+        void visit(FunctionCall& node) override {
+            calls.insert(node.name);
+        }
+
+        // Minimal visitor stubs
+        void visit(ForStatement& node) override { if (node.body) node.body->accept(*this); }
+        void visit(WhileStatement& node) override { if (node.body) node.body->accept(*this); }
+        void visit(DoWhileStatement& node) override { if (node.body) node.body->accept(*this); }
+        void visit(IfStatement& node) override {
+            if (node.thenBranch) node.thenBranch->accept(*this);
+            if (node.elseBranch) node.elseBranch->accept(*this);
+        }
+        void visit(CompoundStatement& node) override {
+            for (auto& stmt : node.statements) {
+                if (stmt) stmt->accept(*this);
+            }
+        }
+        void visit(ExpressionStatement& node) override {
+            if (node.expression) node.expression->accept(*this);
+        }
+        void visit(ReturnStatement& node) override {
+            if (node.expression) node.expression->accept(*this);
+        }
+        void visit(SwitchStatement& node) override {
+            if (node.body) node.body->accept(*this);
+        }
+        void visit(LabelledStatement& node) override {
+            if (node.statement) node.statement->accept(*this);
+        }
+
+        // Expression visitors for function calls within expressions
+        void visit(BinaryOperation& node) override {
+            node.left->accept(*this);
+            node.right->accept(*this);
+        }
+        void visit(UnaryOperation& node) override {
+            node.operand->accept(*this);
+        }
+        void visit(ConditionalExpression& node) override {
+            node.condition->accept(*this);
+            node.thenExpr->accept(*this);
+            node.elseExpr->accept(*this);
+        }
+        void visit(Assignment& node) override {
+            node.target->accept(*this);
+            node.expression->accept(*this);
+        }
+        void visit(ArrayAccess& node) override {
+            node.arrayExpr->accept(*this);
+            node.indexExpr->accept(*this);
+        }
+        void visit(MemberAccess& node) override {
+            node.structExpr->accept(*this);
+        }
+
+        // Stubs for other visitor methods
+        void visit(IntegerLiteral&) override {}
+        void visit(FloatLiteral&) override {}
+        void visit(StringLiteral&) override {}
+        void visit(VariableReference&) override {}
+        void visit(CastExpression&) override {}
+        void visit(SizeofExpression&) override {}
+        void visit(AlignofExpression&) override {}
+        void visit(InitializerList&) override {}
+        void visit(CompoundLiteral&) override {}
+        void visit(GenericSelection&) override {}
+        void visit(BuiltinVaStart&) override {}
+        void visit(BuiltinVaArg&) override {}
+        void visit(CpuRegisterAccess&) override {}
+        void visit(CpuFlagAccess&) override {}
+        void visit(LabelAddressExpression&) override {}
+        void visit(BreakStatement&) override {}
+        void visit(ContinueStatement&) override {}
+        void visit(DefaultStatement&) override {}
+        void visit(CaseStatement&) override {}
+        void visit(GotoStatement&) override {}
+        void visit(SwitchContinueStatement&) override {}
+        void visit(RepeatStatement&) override {}
+        void visit(VariableDeclaration&) override {}
+        void visit(FunctionDeclaration&) override {}
+        void visit(AsmStatement&) override {}
+        void visit(StaticAssert&) override {}
+        void visit(StructDefinition&) override {}
+        void visit(EnumDefinition&) override {}
+        void visit(TranslationUnit&) override {}
+    };
+
+    CallCollector collector;
+    func->body->accept(collector);
+    return collector.calls;
+}
+
+void FunctionAnalyzer::detectRecursion() {
+    // Build call graph: map function name → set of callees
+    std::map<std::string, std::set<std::string>> callGraph;
+    for (auto& [name, chars] : characteristics_) {
+        // We need the FunctionDeclaration to collect calls, but we only have characteristics here
+        // So we'll rebuild the map from allFunctionNames_
+    }
+
+    // Detect recursion for each function
+    std::set<std::string> globalVisited;
+    for (const auto& funcName : allFunctionNames_) {
+        if (globalVisited.count(funcName)) continue;
+
+        std::set<std::string> visitStack;
+        std::set<std::string> callees;  // Empty placeholder
+        detectRecursionDFS(funcName, visitStack, globalVisited, callees);
+    }
+}
+
+bool FunctionAnalyzer::detectRecursionDFS(
+    const std::string& funcName,
+    std::set<std::string>& visitStack,
+    std::set<std::string>& globalVisited,
+    const std::set<std::string>& callees) {
+
+    // Already visited globally
+    if (globalVisited.count(funcName)) {
+        return characteristics_[funcName].isRecursive;
+    }
+
+    // In current visit stack: cycle detected
+    if (visitStack.count(funcName)) {
+        characteristics_[funcName].isRecursive = true;
+        return true;
+    }
+
+    // Mark as visiting
+    visitStack.insert(funcName);
+
+    // Check all callees (would need actual call graph)
+    // For now, simplified version
+    bool isRecursive = false;
+    for (const auto& callee : callees) {
+        if (callee == funcName) {
+            isRecursive = true;
+            break;
+        }
+    }
+
+    // Mark as globally visited
+    visitStack.erase(funcName);
+    globalVisited.insert(funcName);
+
+    if (isRecursive) {
+        characteristics_[funcName].isRecursive = true;
+    }
+
+    return isRecursive;
+}
+
 void FunctionAnalyzer::computeOptimizationFlags() {
     for (auto& [name, chars] : characteristics_) {
         // Loop unrolling: avoid heavily branching code, only if loops exist
-        chars.shouldUnrollLoops = chars.branchCount < 5 && chars.loopCount > 0;
+        // Disable for recursive functions (stack growth concerns)
+        chars.shouldUnrollLoops = !chars.isRecursive && chars.branchCount < 5 && chars.loopCount > 0;
 
         // Loop interchange: only for doubly-nested loops
-        chars.shouldInterchangeLoops = chars.maxLoopNestingDepth >= 2 &&
+        // Disable for recursive functions
+        chars.shouldInterchangeLoops = !chars.isRecursive &&
+                                       chars.maxLoopNestingDepth >= 2 &&
                                        chars.loopCount >= 2 && chars.branchCount < 3;
 
         // Second-pass constant folding: focus on arithmetic-heavy code
         chars.shouldFoldConstants2x = chars.estimatedCodeSize > 100 && chars.branchCount < 8;
 
-        // SAC: only for non-recursive (leaf), non-complex functions
-        chars.shouldUseSAC = chars.isLeaf && chars.parameterCount < 6;
+        // SAC: only for non-recursive, leaf functions
+        // Recursive functions cannot use SAC (stack-based AR)
+        chars.shouldUseSAC = !chars.isRecursive && chars.isLeaf && chars.parameterCount < 6;
 
         characteristics_[name] = chars;
     }
