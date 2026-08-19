@@ -27,9 +27,17 @@ void DevirtualizationDetector::analyzeStructForVirtualMethods(StructDefinition& 
         vtables_[structDef.name] = vtInfo;
     }
 
-    // Scan struct members for virtual methods (methods with virtual keyword)
-    // In this compiler, virtual methods are defined as functions inside struct body
-    // This is a simplified analysis - full OOP support would track inheritance hierarchy
+    // Scan struct methods for virtual methods (stored in methods vector)
+    if (!structDef.methods.empty()) {
+        for (const auto& method : structDef.methods) {
+            if (method->isVirtual) {
+                auto& vtInfo = vtables_[structDef.name];
+                vtInfo.methods.push_back(method->name);
+                vtInfo.methodCounts.push_back(1); // One implementation in this struct
+                recordVirtualMethod(structDef.name, method->name, method->name);
+            }
+        }
+    }
 }
 
 void DevirtualizationDetector::recordVirtualMethod(const std::string& className,
@@ -62,11 +70,14 @@ void DevirtualizationDetector::recordVirtualMethod(const std::string& className,
 
 std::vector<DevirtualizationDetector::VirtualMethodInfo> DevirtualizationDetector::getDevirtualizableMethods() const {
     std::vector<VirtualMethodInfo> result;
+
+    // Methods with exactly one implementation can be devirtualized
     for (const auto& method : virtualMethods_) {
-        if (method.canDevirtualize && method.implementations.size() == 1) {
+        if (method.implementations.size() == 1) {
             result.push_back(method);
         }
     }
+
     return result;
 }
 
