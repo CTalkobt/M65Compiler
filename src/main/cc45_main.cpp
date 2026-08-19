@@ -16,6 +16,9 @@
 #include "FunctionAnalyzer.hpp"
 #include "OptimizationSelector.hpp"
 #include "InlineSelector.hpp"
+#include "CallGraphAnalyzer.hpp"
+#include "DevirtualizationDetector.hpp"
+#include "CoOptimizationSelector.hpp"
 #include "LoopOptimizer.hpp"
 #include "LoopInterchange.hpp"
 #include "Preprocessor.hpp"
@@ -777,6 +780,21 @@ int main(int argc, char** argv) {
             InlineSelector inlineSelector;
             inlineSelector.selectInlineCandidates(*ast, analyzer);
             if (verboseLevel >= 1) std::cout << "Function analysis and selection complete." << std::endl;
+
+            // Phase 86: Cross-function optimization (call graph analysis, devirtualization, co-optimization)
+            if (verboseLevel >= 1) std::cout << "Analyzing call graph for cross-function optimizations..." << std::endl;
+            CallGraphAnalyzer callGraphAnalyzer;
+            callGraphAnalyzer.analyzeTranslationUnit(*ast, analyzer);
+
+            DevirtualizationDetector devirtualizer;
+            devirtualizer.analyzeTranslationUnit(*ast, callGraphAnalyzer);
+
+            CoOptimizationSelector coOptSelector(analyzer, callGraphAnalyzer, devirtualizer);
+            auto inlinePairs = coOptSelector.getRecommendedInlines();
+            if (verboseLevel >= 1) {
+                std::cout << "Found " << inlinePairs.size() << " inline opportunity(ies)." << std::endl;
+            }
+            if (verboseLevel >= 1) std::cout << "Cross-function analysis complete." << std::endl;
 
             if (verboseLevel >= 1) std::cout << "Loop optimization..." << std::endl;
             LoopOptimizer loopOpt;
