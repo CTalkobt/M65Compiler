@@ -1662,7 +1662,19 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // Set up ZP frame pointer for local variable access (stack convention only)
     // SAC functions use direct absolute addressing to inline storage, no FP needed
     useStackParams_ = !zpCallMode_ || fn.isVariadic;  // Stack params for all non-ZP functions
-    if (useStackParams_ && !useSAC) {
+
+    // PHASE 80: Optimize frame pointer initialization
+    // Detect if function actually uses frame-pointer-relative addressing
+    // to avoid unnecessary FP setup (12 bytes per function)
+    bool needsFP = false;
+    if (useStackParams_ && !useSAC && localFrameSize > 0) {
+        // Only functions with local variables that actually use them need FP
+        // For now, conservatively assume all stack-convention functions with locals need FP
+        // Future: analyze IR to detect actual .fp references
+        needsFP = true;
+    }
+
+    if (useStackParams_ && !useSAC && needsFP) {
         // Stack convention only: Calculate frame pointer from SP: FP = __sp_base + SPL + 1
         emit("tsy");           // SPH → Y
         emit("tsx");           // SPL → X
