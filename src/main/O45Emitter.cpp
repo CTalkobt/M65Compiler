@@ -65,6 +65,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
 
     std::vector<M65Emitter::SpBaseReloc> allSpBaseRelocs;
     std::vector<M65Emitter::SymbolReloc> allSymbolRelocs;
+    std::vector<M65Emitter::ImmediateReloc> allImmediateRelocs; // Phase 78: SMC immediate relocations
 
     for (const auto& segName : allSegNames) {
         auto seg = parser.segments[segName];
@@ -84,6 +85,10 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
 
         auto symRelocs = e.symbolRelocs();
         allSymbolRelocs.insert(allSymbolRelocs.end(), symRelocs.begin(), symRelocs.end());
+
+        // Phase 78: Collect immediate relocations for SMC parameters
+        auto immRelocs = e.immediateRelocs();
+        allImmediateRelocs.insert(allImmediateRelocs.end(), immRelocs.begin(), immRelocs.end());
 
         segBodies[segName] = {segName, seg->startAddress, body};
     }
@@ -573,6 +578,40 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                 reloc.offset = sr.address - segStart;
                 reloc.type = (O45RelocType)sr.relocType;
                 reloc.extra = sr.extra;
+                if (isExtern) {
+                    reloc.segment = SEG_EXTERNAL;
+                    reloc.symbolIndex = syms.getImportIndex(symName);
+                } else {
+                    reloc.segment = segIdFromName(targetSeg);
+                }
+                segRelocs[segName].push_back(reloc);
+                break;
+            }
+        }
+    }
+
+    // Phase 78: Process immediate relocations for SMC parameters
+    for (const auto& ir : allImmediateRelocs) {
+        std::string symName = ir.symbolName;
+        Symbol* sym = parser.resolveSymbol(symName, "");
+        if (!sym) continue;
+
+        bool isExtern = parser.isExternSymbol(symName);
+        std::string targetSeg;
+        if (!isExtern) {
+            targetSeg = sym->segment;
+            if (targetSeg.empty()) continue;
+        }
+
+        // Find which source segment this reloc site falls into
+        for (const auto& segName : allSegNames) {
+            auto seg = parser.segments[segName];
+            uint32_t segStart = (seg->startAddress != 0xFFFFFFFF) ? seg->startAddress : 0;
+            if (ir.address >= segStart && ir.address < seg->pc) {
+                O45Reloc reloc;
+                reloc.offset = ir.address - segStart;
+                reloc.type = (O45RelocType)ir.relocType;  // R_IMM8 or R_IMM16
+                reloc.extra = 0;
                 if (isExtern) {
                     reloc.segment = SEG_EXTERNAL;
                     reloc.symbolIndex = syms.getImportIndex(symName);
