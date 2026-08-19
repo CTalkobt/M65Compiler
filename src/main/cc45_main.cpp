@@ -14,6 +14,7 @@
 #include "AST.hpp"
 #include "ConstantFolder.hpp"
 #include "LoopOptimizer.hpp"
+#include "LoopInterchange.hpp"
 #include "Preprocessor.hpp"
 #include "AssemblerLexer.hpp"
 #include "AssemblerParser.hpp"
@@ -765,6 +766,11 @@ int main(int argc, char** argv) {
             LoopOptimizer loopOpt;
             loopOpt.optimizeTranslationUnit(*ast);
             if (verboseLevel >= 1) std::cout << "Loop optimization complete." << std::endl;
+
+            if (verboseLevel >= 1) std::cout << "Loop interchange..." << std::endl;
+            LoopInterchange loopInterchange;
+            loopInterchange.optimizeTranslationUnit(*ast);
+            if (verboseLevel >= 1) std::cout << "Loop interchange complete." << std::endl;
         }
 
         if (verboseLevel >= 2 && listingLevel >= 1) {
