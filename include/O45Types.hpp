@@ -165,6 +165,8 @@ constexpr int o45RelocPatchSize(uint8_t rtype) {
         case R_LINEAR24:  return 3;
         case R_SEGADR:    return 3;
         case R_LINEAR32:  return 4;
+        case R_IMM8:      return 1;  // Phase 78: 8-bit immediate in instruction
+        case R_IMM16:     return 2;  // Phase 78: 16-bit immediate in instruction
         default:          return 0;
     }
 }
