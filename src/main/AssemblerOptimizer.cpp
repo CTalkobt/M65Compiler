@@ -82,6 +82,7 @@ bool AssemblerOptimizer::optimizeInternal(
     // Build proc-name → clobber info lookup from parsed procedures.
     struct ProcClobbers {
         uint8_t regMask = 0xFF;
+        uint8_t flagMask = 0x0F;  // Phase 5: flag clobber info
         bool known = false;
     };
     std::map<std::string, ProcClobbers> procClobbers;
@@ -89,17 +90,17 @@ bool AssemblerOptimizer::optimizeInternal(
     // 1. Add local procedures with function attributes
     for (const auto& [addr, ctx] : parser->getProcedures()) {
         if (ctx && ctx->hasFuncAttrs) {
-            procClobbers[ctx->name] = {ctx->regClobbersMask, true};
+            procClobbers[ctx->name] = {ctx->regClobbersMask, ctx->flagClobbersMask, true};
         }
     }
 
     // 2. Phase 5: Add external functions from linked object files
     if (externalFuncs) {
         for (const auto& [funcName, extFunc] : *externalFuncs) {
-            procClobbers[funcName] = {extFunc.regMask, true};
+            procClobbers[funcName] = {extFunc.regMask, extFunc.flagMask, true};
             if (verbose) {
                 std::cerr << "opt: loaded external " << funcName << " clobber mask $"
-                          << std::hex << (int)extFunc.regMask << std::dec << std::endl;
+                          << std::hex << (int)extFunc.regMask << " flags $" << (int)extFunc.flagMask << std::dec << std::endl;
             }
         }
     }
@@ -700,19 +701,16 @@ bool AssemblerOptimizer::optimizeInternal(
             // --- Control flow ---
             else if (m == "JMP") { ms.invalidateAll(); }
 
-            // --- JSR: selective invalidation with clobber info ---
+            // --- JSR: selective invalidation with clobber info (Phase 5) ---
             else if (m == "JSR" && mode == AddressingMode::ABSOLUTE) {
                 auto it = procClobbers.find(op);
                 if (it != procClobbers.end() && it->second.known) {
-                    uint8_t mask = it->second.regMask;
-                    if (mask & 0x01) ms.invalidateReg(REG_A);
-                    if (mask & 0x02) ms.invalidateReg(REG_X);
-                    if (mask & 0x04) ms.invalidateReg(REG_Y);
-                    if (mask & 0x08) ms.invalidateReg(REG_Z);
+                    // Phase 5: Selective register and flag invalidation based on clobber masks
+                    ms.invalidateSelectiveWithFlags(it->second.regMask, it->second.flagMask);
                 } else {
+                    // Unknown function: conservatively invalidate everything
                     ms.invalidateAll();
                 }
-                ms.flags.invalidate();
                 ms.invalidateAllMem();
             }
             else if (m == "JSR" || m == "CALL" || m == "BSR") {
@@ -1261,13 +1259,15 @@ bool AssemblerOptimizer::optimizeWithExternalObjects(
         for (const auto& exp : obj.exports) {
             if (exp.hasFuncAttr) {
                 uint8_t regMask = exp.funcAttr.regClobbers;
+                uint8_t flagMask = exp.funcAttr.flagClobbers;
                 bool isLeaf = (exp.funcAttr.flags & FUNC_FLAG_LEAF) != 0;
 
-                externalFuncs[exp.name] = {regMask, isLeaf};
+                externalFuncs[exp.name] = {regMask, flagMask, isLeaf};
 
                 if (verbose) {
                     std::cerr << "phase5: loaded " << exp.name << " from " << objFile
-                              << " (regMask=$" << std::hex << (int)regMask << std::dec
+                              << " (regMask=$" << std::hex << (int)regMask
+                              << ", flagMask=$" << (int)flagMask << std::dec
                               << ", leaf=" << (isLeaf ? "yes" : "no") << ")" << std::endl;
                 }
             }

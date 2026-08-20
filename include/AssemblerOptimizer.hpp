@@ -10,7 +10,8 @@ struct O45File;
 
 // Phase 5: External function attributes for inter-TU optimization
 struct ExternalFuncInfo {
-    uint8_t regMask;
+    uint8_t regMask;          // bit 0=A, 1=X, 2=Y, 3=Z
+    uint8_t flagMask = 0;     // bit 0=C, 1=N, 2=Z, 3=V (Phase 5)
     bool isLeaf;
 };
 
