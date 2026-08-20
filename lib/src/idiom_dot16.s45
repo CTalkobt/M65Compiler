@@ -1,0 +1,11 @@
+/* __idiom_dot16 — dot product idiom routine
+   Computes the dot product (sum of a[i] * b[i]) for arrays of 16-bit integers.
+   Declared as a builtin callable from generated code. */
+
+int __idiom_dot16(const int *a, const int *b, int n) {
+    int sum = 0;
+    for (int i = 0; i < n; i++) {
+        sum += a[i] * b[i];
+    }
+    return sum;
+}

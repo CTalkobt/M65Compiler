@@ -569,6 +569,64 @@ namespace {
         }
     };
 
+    // Helper: detect dot product pattern: int sum=0; for(i=0;i<n;i++) sum += a[i]*b[i];
+    class DotProductDetector {
+    public:
+        bool detect(const ForStatement& loop, std::string& accumVar, std::string& aVar,
+                    std::string& bVar, std::string& indexVar) {
+            // Check if body is a single statement
+            if (!loop.body) return false;
+
+            ExpressionStatement* exprStmt = nullptr;
+
+            if (auto* compStmt = dynamic_cast<CompoundStatement*>(loop.body.get())) {
+                if (compStmt->statements.size() == 1 && compStmt->statements[0]) {
+                    exprStmt = dynamic_cast<ExpressionStatement*>(compStmt->statements[0].get());
+                }
+            } else {
+                exprStmt = dynamic_cast<ExpressionStatement*>(loop.body.get());
+            }
+
+            if (!exprStmt || !exprStmt->expression) return false;
+
+            // Must be an Assignment with += operator
+            auto* assign = dynamic_cast<Assignment*>(exprStmt->expression.get());
+            if (!assign || assign->op != "+=") return false;
+
+            // LHS must be a variable reference (the accumulator)
+            auto* accumRef = dynamic_cast<VariableReference*>(assign->target.get());
+            if (!accumRef) return false;
+            accumVar = accumRef->name;
+
+            // RHS must be: a[i] * b[i] (multiplication of two array accesses)
+            auto* binOp = dynamic_cast<BinaryOperation*>(assign->expression.get());
+            if (!binOp || binOp->op != "*") return false;
+
+            // Both operands must be array accesses with matching index
+            ArrayAccess* leftArray = dynamic_cast<ArrayAccess*>(binOp->left.get());
+            ArrayAccess* rightArray = dynamic_cast<ArrayAccess*>(binOp->right.get());
+
+            if (!leftArray || !rightArray) return false;
+
+            // Arrays must be variable references
+            auto* aRef = dynamic_cast<VariableReference*>(leftArray->arrayExpr.get());
+            auto* bRef = dynamic_cast<VariableReference*>(rightArray->arrayExpr.get());
+            if (!aRef || !bRef) return false;
+
+            // Indices must be the same variable reference (the loop counter)
+            auto* leftIdx = dynamic_cast<VariableReference*>(leftArray->indexExpr.get());
+            auto* rightIdx = dynamic_cast<VariableReference*>(rightArray->indexExpr.get());
+            if (!leftIdx || !rightIdx || leftIdx->name != rightIdx->name) return false;
+
+            aVar = aRef->name;
+            bVar = bRef->name;
+            indexVar = leftIdx->name;
+
+            // Accumulator must differ from both arrays
+            return (accumVar != aVar) && (accumVar != bVar) && (aVar != bVar);
+        }
+    };
+
     // Helper: collect all variable names referenced in an expression
     class VarCollector : public ASTVisitor {
     public:
@@ -1136,6 +1194,45 @@ std::unique_ptr<Statement> LoopOptimizer::transformCountLoopToCall(const ForStat
     return exprStmt;
 }
 
+bool LoopOptimizer::isDotProductPattern(const ForStatement& stmt, std::string& accum, std::string& arrayA, std::string& arrayB, std::string& idx) {
+    DotProductDetector detector;
+    return detector.detect(stmt, accum, arrayA, arrayB, idx);
+}
+
+std::unique_ptr<Statement> LoopOptimizer::transformDotProductToCall(const ForStatement& stmt, const std::string& accum, const std::string& arrayA, const std::string& arrayB) {
+    // Extract loop variable
+    InitializerAnalyzer initAnalyzer;
+    std::string loopVar;
+    int initValue;
+    if (!initAnalyzer.extract(stmt.initializer.get(), loopVar, initValue)) {
+        return nullptr;
+    }
+
+    // Extract loop bound expression from condition
+    BoundExpressionExtractor boundExtractor;
+    std::unique_ptr<Expression> boundExpr;
+    std::string op;
+    if (!boundExtractor.extract(stmt.condition.get(), loopVar, boundExpr, op) || !boundExpr) {
+        return nullptr;
+    }
+
+    // Create function call to __idiom_dot16(a, b, bound)
+    auto idiomCall = std::make_unique<FunctionCall>("__idiom_dot16");
+    idiomCall->arguments.push_back(std::make_unique<VariableReference>(arrayA));
+    idiomCall->arguments.push_back(std::make_unique<VariableReference>(arrayB));
+    idiomCall->arguments.push_back(std::move(boundExpr));
+
+    // Create assignment: accum = __idiom_dot16(a, b, bound)
+    auto assign = std::make_unique<Assignment>(
+        std::make_unique<VariableReference>(accum),
+        std::move(idiomCall)
+    );
+    assign->op = "=";
+
+    auto exprStmt = std::make_unique<ExpressionStatement>(std::move(assign));
+    return exprStmt;
+}
+
 bool LoopOptimizer::canPartialUnrollLoop(const ForStatement& stmt, int unrollFactor) {
     if (unrollFactor <= 0 || unrollFactor > 16) return false;
 
@@ -1324,6 +1421,18 @@ void LoopOptimizer::visit(CompoundStatement& node) {
                 if (countStmt) {
                     countStmt->accept(*this);
                     newStatements.push_back(std::move(countStmt));
+                    stmt.reset();
+                    continue;
+                }
+            }
+
+            // Check for dot product pattern transformation
+            std::string dotAccum, dotArrayA, dotArrayB;
+            if (isDotProductPattern(*forStmt, dotAccum, dotArrayA, dotArrayB, idx)) {
+                auto dotStmt = transformDotProductToCall(*forStmt, dotAccum, dotArrayA, dotArrayB);
+                if (dotStmt) {
+                    dotStmt->accept(*this);
+                    newStatements.push_back(std::move(dotStmt));
                     stmt.reset();
                     continue;
                 }
