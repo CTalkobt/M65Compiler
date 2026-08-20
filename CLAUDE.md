@@ -430,20 +430,32 @@ All stdlib functions support both stack and ZP calling conventions:
 
 ## Known Limitations & Future Work
 
-### Cast Fold Type Preservation with Uncalled Functions (Known Issue)
+### Cast Fold Type Preservation with Uncalled Functions (FIXED ✅, 2026-08-20)
 
-**Status**: Open  
+**Status**: ✅ Fixed (Commit 168bd3e)  
 **Severity**: Medium  
-**Impact**: Functions that return casted constants (e.g., `long get_long42(void) { return (long)42; }`) compiled standalone with -O1+ don't generate full multi-byte return values (missing ldy/ldz instructions for 32-bit returns).
+**Resolution**: Preserved exported (non-static) function definitions in IR output during dead code elimination
 
-**Root Cause**: With optimization enabled, standalone function definitions (not called within their compilation unit) may be treated as dead code and optimized away before code generation. This is incorrect—module-level function definitions should always be emitted.
+**Original Issue**: Functions that return casted constants (e.g., `long get_long42(void) { return (long)42; }`) compiled standalone with -O1+ were incorrectly treated as dead code and eliminated, preventing them from being exported to other compilation units.
 
-**Workaround**: 
-- Compile with -O0 (generates correct code)
-- Add an extern declaration that forces the function into the IR
-- Use `-fno-constant-folding` to bypass the optimization issue
+**Root Cause**: DCE logic was removing all non-main, non-called functions regardless of whether they were exported (non-static). This violated the compilation model where the compiler preserves exported symbols and the linker makes final executable content decisions.
 
-**Proper Fix**: Ensure all top-level function definitions are preserved in IR regardless of call status, or mark them appropriately to prevent dead-code elimination.
+**Fix Applied** (Commit 168bd3e):
+- Updated DCE logic in IRBuilder.cpp to check function `isStatic` flag
+- Preserve all non-static (extern/global) functions — they may be called from other modules
+- Only remove unused static functions from the module
+- Result: Exported functions now preserved in `.o45` and `.lib` files with complete symbol tables
+
+**Verification**:
+- Uncalled exported functions correctly kept during compilation
+- Test case: `test_cast_fold_uncalled.c` validates exported function preservation
+- All return values (including multi-byte long returns with ldy/ldz) generated correctly
+
+**Impact**:
+- ✅ Compiler preserves exported symbols
+- ✅ Object files contain complete symbol tables
+- ✅ Libraries have all exported functions available
+- ✅ Linker makes final executable content decisions
 
 ### Phase 2: Fine-Grained Register Invalidation
 
