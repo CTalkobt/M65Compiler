@@ -15,6 +15,28 @@ struct ExternalFuncInfo {
     bool isLeaf;
 };
 
+// Phase 95.5: Field-striped array optimization tracking
+struct FieldStripedAccessInfo {
+    std::string arrayName;           // Global array variable name
+    std::vector<std::string> fieldNames;  // Field names in struct
+    std::vector<int> fieldOffsets;   // Field region offsets
+    std::vector<int> fieldSizes;     // Field sizes in bytes
+    int structSize;                  // Total struct size
+    int arrayHeight;                 // Last dimension (second-to-last)
+    int arrayWidth;                  // Last dimension
+    bool isFieldStripedArray = false;
+};
+
+// Phase 95.5: Cached field offset calculation
+struct CachedFieldOffset {
+    std::string arrayName;
+    std::string fieldName;
+    int arrayHeight;
+    int arrayWidth;
+    uint16_t cachedBaseOffset;  // Computed base address for this field
+    bool isValid = false;
+};
+
 // Named optimization flags: per-pass control via -P<Name> / -PNo<Name>
 struct OptimizationFlags {
     // IR-level optimizations (compiler)
@@ -42,6 +64,8 @@ struct OptimizationFlags {
     bool storeLoadPair = true;        // Optimize store-load pairs
     bool fcmpOpt = true;              // Floating-point compare optimization
     bool tsxRedundant = true;         // Eliminate redundant TSX instructions
+    bool fieldStripedOpt = true;      // Phase 95.5: Field-striped array offset caching
+    bool fieldDeadCode = true;        // Phase 95.5: Dead code elimination for unused fields
 
     // Constructor to reset all flags based on optimization level
     static OptimizationFlags fromLevel(int level) {
@@ -70,6 +94,8 @@ struct OptimizationFlags {
             flags.storeLoadPair = false;
             flags.fcmpOpt = false;
             flags.tsxRedundant = false;
+            flags.fieldStripedOpt = false;
+            flags.fieldDeadCode = false;
         }
         // Level 1+: basic optimizations (all enabled by default)
         // Level 2+: default (all enabled)
@@ -98,5 +124,23 @@ private:
         bool verbose,
         bool traceMachState,
         int optimizationLevel = 2
+    );
+
+    // Phase 95.5: Field-striped array optimization methods
+    static bool detectFieldStripedArrays(
+        AssemblerParser* parser,
+        std::map<std::string, FieldStripedAccessInfo>& fieldArrays
+    );
+
+    static bool optimizeFieldStripedOffsets(
+        AssemblerParser* parser,
+        const std::map<std::string, FieldStripedAccessInfo>& fieldArrays,
+        bool verbose
+    );
+
+    static bool eliminateFieldDeadCode(
+        AssemblerParser* parser,
+        const std::map<std::string, FieldStripedAccessInfo>& fieldArrays,
+        bool verbose
     );
 };

@@ -1218,6 +1218,31 @@ bool AssemblerOptimizer::optimizeInternal(
         }
     }
 
+    // --- Phase 95.5: Field-striped array optimization ---
+    if (optimizationLevel >= 2) {
+        OptimizationFlags optFlags = OptimizationFlags::fromLevel(optimizationLevel);
+
+        if (optFlags.fieldStripedOpt || optFlags.fieldDeadCode) {
+            // Detect field-striped arrays in the code
+            std::map<std::string, FieldStripedAccessInfo> fieldArrays;
+            detectFieldStripedArrays(parser, fieldArrays);
+
+            // Optimize field offset calculations if arrays found
+            if (optFlags.fieldStripedOpt && !fieldArrays.empty()) {
+                if (optimizeFieldStripedOffsets(parser, fieldArrays, verbose)) {
+                    changed = true;
+                }
+            }
+
+            // Eliminate dead code for unused fields
+            if (optFlags.fieldDeadCode && !fieldArrays.empty()) {
+                if (eliminateFieldDeadCode(parser, fieldArrays, verbose)) {
+                    changed = true;
+                }
+            }
+        }
+    }
+
     return changed;
 }
 
@@ -1285,6 +1310,88 @@ bool AssemblerOptimizer::optimizeWithExternalObjects(
     if (verbose && !externalFuncs.empty()) {
         std::cerr << "phase5: optimization complete with " << externalFuncs.size()
                   << " external function attribute(s)" << std::endl;
+    }
+
+    return changed;
+}
+
+// Phase 95.5: Field-striped array detection and optimization
+bool AssemblerOptimizer::detectFieldStripedArrays(
+    AssemblerParser* parser,
+    std::map<std::string, FieldStripedAccessInfo>& fieldArrays
+) {
+    // Phase 95.5: Detect field-striped struct arrays in assembly
+    // Look for global symbols with field region metadata
+    // This would need integration with the .o45 object format to track field info
+    // For now, return true (no arrays detected, which is correct for Phase 95.5)
+    
+    // TODO: In future implementation:
+    // 1. Parse .fieldStripped directive from assembly
+    // 2. Extract field names and offsets from comments or metadata
+    // 3. Build FieldStripedAccessInfo for each array
+    
+    return false;  // No changes made in detection phase
+}
+
+bool AssemblerOptimizer::optimizeFieldStripedOffsets(
+    AssemblerParser* parser,
+    const std::map<std::string, FieldStripedAccessInfo>& fieldArrays,
+    bool verbose
+) {
+    // Phase 95.5: Optimize field-striped array offset calculations
+    // Cache computed offsets to avoid recalculation in tight loops
+    
+    if (fieldArrays.empty()) {
+        return false;  // No field-striped arrays to optimize
+    }
+
+    bool changed = false;
+
+    // For each field-striped array
+    for (const auto& [arrayName, fieldInfo] : fieldArrays) {
+        if (verbose) {
+            std::cerr << "phase95.5: optimizing field-striped array: " << arrayName << std::endl;
+        }
+
+        // TODO: Phase 95.5 Implementation:
+        // 1. Detect offset calculation patterns (col >> log2Stripe, etc.)
+        // 2. Cache base offset calculations across loop iterations
+        // 3. Reuse cached offsets in subsequent field accesses
+        // 4. Track register usage to find available cache locations
+        
+        // For now, no optimizations applied
+    }
+
+    return changed;
+}
+
+bool AssemblerOptimizer::eliminateFieldDeadCode(
+    AssemblerParser* parser,
+    const std::map<std::string, FieldStripedAccessInfo>& fieldArrays,
+    bool verbose
+) {
+    // Phase 95.5: Eliminate dead code for unused fields in field-striped arrays
+    // Remove field region initialization code if field is never accessed
+    
+    if (fieldArrays.empty()) {
+        return false;  // No field-striped arrays to analyze
+    }
+
+    bool changed = false;
+
+    // For each field-striped array
+    for (const auto& [arrayName, fieldInfo] : fieldArrays) {
+        if (verbose) {
+            std::cerr << "phase95.5: analyzing field usage in: " << arrayName << std::endl;
+        }
+
+        // TODO: Phase 95.5 Implementation:
+        // 1. Build usage map: which fields are accessed in the function
+        // 2. For each unused field, mark its region for removal
+        // 3. Remove offset calculation and load instructions for unused fields
+        // 4. Verify no other code references the removed field
+        
+        // For now, no dead code eliminated
     }
 
     return changed;
