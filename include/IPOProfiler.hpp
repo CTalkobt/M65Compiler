@@ -48,17 +48,16 @@ public:
     // Finalize profiling after IR generation
     void finalizeProfiles();
 
-    // Get the populated database
+    // Get the populated database (singleton)
     GlobalFunctionDatabase& getDatabase() {
-        return database_;
+        return GlobalFunctionDatabase::instance();
     }
 
     const GlobalFunctionDatabase& getDatabase() const {
-        return database_;
+        return GlobalFunctionDatabase::instance();
     }
 
 private:
-    GlobalFunctionDatabase database_;
     std::string currentModule_;
 
     // Track functions being built

@@ -48,6 +48,7 @@ void IPOProfiler::recordFunctionCall(
 
 void IPOProfiler::finalizeProfiles() {
     // Convert build states to function profiles in database
+    auto& database = GlobalFunctionDatabase::instance();
     for (auto& [funcName, state] : buildStates_) {
         GlobalFunctionProfile profile;
         profile.name = funcName;
@@ -64,6 +65,6 @@ void IPOProfiler::finalizeProfiles() {
         profile.isDeadCode = false;
 
         // Add to database
-        database_.addFunctionProfile(profile);
+        database.addFunctionProfile(profile);
     }
 }

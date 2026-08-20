@@ -2,6 +2,7 @@
 #include "AST.hpp"
 #include "IR.hpp"
 #include "TypeSystem.hpp"
+#include "IPOProfiler.hpp"
 #include <map>
 #include <set>
 #include <string>
@@ -17,6 +18,8 @@ public:
     void setExternalUsedVars(const std::set<std::string>& vars) { externalUsedVars_ = vars; }
     const ir::Module& getModule() const { return module_; }
     ir::Module& getModule() { return module_; }
+    const IPOProfiler& getProfiler() const { return profiler_; }
+    IPOProfiler& getProfiler() { return profiler_; }
     bool hasErrors() const { return !errors_.empty(); }
     const std::vector<std::string>& getErrors() const { return errors_; }
     const std::vector<std::string>& getWarnings() const { return warnings_; }
@@ -93,6 +96,7 @@ private:
     std::deque<FunctionScope> functionStack_;
 
     ir::Module module_;
+    IPOProfiler profiler_;  // Collects function profiles for cross-module optimization
     ir::Function* currentFunc_ = nullptr;
     ir::Block* currentBlock_ = nullptr;
 
