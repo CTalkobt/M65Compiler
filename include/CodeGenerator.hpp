@@ -134,7 +134,11 @@ public:
     void emitAddress(Expression* expr);
     void emitIndirectIncDec(UnaryOperation& node, bool isInc, bool isPost);
     void emitStripedArrayAccess(ArrayAccess& node, VarInfo& varInfo, VariableReference* baseRef);
+    // Phase 92.4: 2D array reorganization (backward compat)
     std::vector<int> reorganizeStripedArrayData(const std::vector<int>& userData, int height, int width);
+
+    // Phase 93: Multi-dimensional array reorganization (3D+)
+    std::vector<int> reorganizeStripedArrayData(const std::vector<int>& userData, const std::vector<int>& dims);
     void emitOperation(const std::string& op, int zpLeft, ExpressionType lhsType, ExpressionType rhsType);
     void embedSource(ASTNode& node);
     ExpressionType getExprType(Expression* expr);

@@ -5790,6 +5790,62 @@ std::vector<int> CodeGenerator::reorganizeStripedArrayData(const std::vector<int
     return striped;
 }
 
+std::vector<int> CodeGenerator::reorganizeStripedArrayData(const std::vector<int>& userData, const std::vector<int>& dims) {
+    // Phase 93: Reorganize multi-dimensional (3D+) striped array data
+    // For 3D+ arrays: last 2 dimensions are striped, earlier dimensions sequence striped 2D matrices
+    // Input: userData in standard row-major order across all dimensions
+    // Output: reorganized with outer dimensions unchanged, inner 2D slices striped
+
+    if (dims.size() < 2) return userData;  // Not an array
+    if (dims.back() < 4 || (dims.back() & (dims.back() - 1)) != 0) {
+        return userData;  // Not power-of-2 width, fallback to standard layout
+    }
+
+    // For 2D, delegate to existing implementation
+    if (dims.size() == 2) {
+        return reorganizeStripedArrayData(userData, dims[0], dims[1]);
+    }
+
+    // For 3D+: reorganize each 2D slice independently
+    // Last two dimensions are height and width (to be striped)
+    int height = dims[dims.size() - 2];
+    int width = dims[dims.size() - 1];
+    int matrix2DSize = height * width;
+
+    // Calculate size of all outer dimensions (product)
+    int outerSize = 1;
+    for (size_t i = 0; i < dims.size() - 2; i++) {
+        outerSize *= dims[i];
+    }
+
+    std::vector<int> reorganized(userData.size());
+
+    // For each 2D matrix (outer dimensions)
+    for (int outerIdx = 0; outerIdx < outerSize; outerIdx++) {
+        // Extract the 2D matrix for this outer index
+        std::vector<int> matrix2D(matrix2DSize);
+        int userOffset = outerIdx * matrix2DSize;
+        for (int i = 0; i < matrix2DSize; i++) {
+            if (userOffset + i < (int)userData.size()) {
+                matrix2D[i] = userData[userOffset + i];
+            }
+        }
+
+        // Reorganize this 2D matrix
+        std::vector<int> striped2D = reorganizeStripedArrayData(matrix2D, height, width);
+
+        // Place reorganized 2D matrix back in output
+        int outputOffset = outerIdx * matrix2DSize;
+        for (int i = 0; i < matrix2DSize; i++) {
+            if (outputOffset + i < (int)reorganized.size()) {
+                reorganized[outputOffset + i] = striped2D[i];
+            }
+        }
+    }
+
+    return reorganized;
+}
+
 void CodeGenerator::emitData() {
     // Emit .global/.weak for all global variables in relocatable mode (skip static)
     if (relocMode) {
@@ -5916,11 +5972,17 @@ void CodeGenerator::emitData() {
                     if (resolved[i]) tryEvalConstInt(resolved[i], dataValues[i]);
                 }
 
-                // Reorganize into striped layout if needed
+                // Phase 93: Reorganize into striped layout if needed
                 if (isStripedArray && gVar->arraySize() >= 0) {
-                    int height = gVar->arrayDims[0];
-                    int width = gVar->arrayDims[1];
-                    dataValues = reorganizeStripedArrayData(dataValues, height, width);
+                    if (gVar->arrayDims.size() == 2) {
+                        // Phase 92: 2D striped array
+                        int height = gVar->arrayDims[0];
+                        int width = gVar->arrayDims[1];
+                        dataValues = reorganizeStripedArrayData(dataValues, height, width);
+                    } else if (gVar->arrayDims.size() > 2) {
+                        // Phase 93: 3D+ striped array (last 2 dims striped)
+                        dataValues = reorganizeStripedArrayData(dataValues, gVar->arrayDims);
+                    }
                 }
 
                 // Emit reorganized/original data
@@ -6319,15 +6381,16 @@ bool CodeGenerator::tryEmitAddressTemplate(BinaryOperation& node) {
 }
 
 void CodeGenerator::emitStripedArrayAccess(ArrayAccess& node, VarInfo& varInfo, VariableReference* baseRef) {
-    // Phase 92.3: Striped array optimization for 2D integer arrays
+    // Phase 92.3-93: Striped array optimization for 2D+ integer arrays
     // Reorganizes memory to enable 8-bit indexing instead of 16-bit offset calculations
+    // Phase 93 extends to 3D and higher: last 2 dims striped, earlier dims sequence matrices
 
-    if (varInfo.arrayDims.size() != 2 || varInfo.type != "int") {
-        return;  // Not a 2D int array, use standard indexing
+    if (varInfo.arrayDims.size() < 2 || varInfo.type != "int") {
+        return;  // Not a 2D+ int array, use standard indexing
     }
 
-    int height = varInfo.arrayDims[0];  // rows
-    int width = varInfo.arrayDims[1];   // cols
+    int height = varInfo.arrayDims[varInfo.arrayDims.size() - 2];  // second-to-last
+    int width = varInfo.arrayDims[varInfo.arrayDims.size() - 1];   // last
 
     // Striped optimization only works well for power-of-2 widths
     if (width < 4 || (width & (width - 1)) != 0) {
@@ -6339,10 +6402,19 @@ void CodeGenerator::emitStripedArrayAccess(ArrayAccess& node, VarInfo& varInfo, 
     int log2Stripe = 0;
     for (int i = stripeWidth; i > 1; i >>= 1) log2Stripe++;
 
-    // Verify 2D access pattern: arr[row][col]
-    auto* inner = dynamic_cast<ArrayAccess*>(node.arrayExpr.get());
-    if (!inner) {
-        return;  // Not a nested array access
+    // Phase 93: Handle 2D+ array access patterns
+    // For 3D+: arr[d1][d2]...[row][col] → we need to extract outer dimensions
+    // For 2D: arr[row][col] → direct access
+    // For 3D: arr[d][row][col]
+    // For 4D+: arr[d1][d2]...[row][col]
+
+    int numDims = varInfo.arrayDims.size();
+
+    // For 2D arrays, use existing logic (no 3D+ support in this version)
+    if (numDims > 2) {
+        // Phase 93 3D+ support: simplified version - currently falls back to standard indexing
+        // Full 3D+ support planned for future phase with dedicated optimizations
+        return;
     }
 
     // Store base address in ZP temp
@@ -6351,6 +6423,12 @@ void CodeGenerator::emitStripedArrayAccess(ArrayAccess& node, VarInfo& varInfo, 
     ss_base << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpBase);
     emit("ptrstack " + resolveVarName(baseRef->name));
     emit("stax $" + ss_base.str());
+
+    // Verify 2D access pattern: arr[row][col]
+    auto* inner = dynamic_cast<ArrayAccess*>(node.arrayExpr.get());
+    if (!inner) {
+        return;  // Not a nested array access
+    }
 
     // Evaluate and save row index
     bool oldNeeded = resultNeeded;
