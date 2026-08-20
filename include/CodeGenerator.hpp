@@ -33,6 +33,7 @@ public:
         bool isPointerConst = false;  // pointer itself is const (prevents p = x)
         bool isRegister = false;      // allocated in zero page
         bool isStriped = false;       // Phase 92: Striped array optimization
+        int elementSize = 0;          // Phase 94: For striped struct arrays (0 = not striped or int)
         std::vector<int> arrayDims;   // empty = not array; {3,4} = int[3][4]
         bool isFunctionPointer = false;
         std::shared_ptr<FuncPtrSignature> funcPtrSig;
@@ -40,10 +41,10 @@ public:
         VarInfo() = default;
         VarInfo(const std::string& t, int p, bool s = false, bool v = false, bool c = false,
                 bool pc = false, bool r = false, const std::vector<int>& a = {},
-                bool fp = false, std::shared_ptr<FuncPtrSignature> fpSig = nullptr)
+                bool fp = false, std::shared_ptr<FuncPtrSignature> fpSig = nullptr, int es = 0)
             : type(t), pointerLevel(p), isSigned(s), isVolatile(v), isConst(c),
               isPointerConst(pc), isRegister(r), arrayDims(a), isFunctionPointer(fp),
-              funcPtrSig(fpSig), isStriped(false) {}
+              funcPtrSig(fpSig), isStriped(false), elementSize(es) {}
 
         int arraySize() const { if (arrayDims.empty()) return -1; int s=1; for (int d:arrayDims) s*=d; return s; }
     };
