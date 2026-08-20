@@ -146,6 +146,8 @@ public:
 
     // Phase 93: Multi-dimensional array reorganization (3D+)
     std::vector<int> reorganizeStripedArrayData(const std::vector<int>& userData, const std::vector<int>& dims);
+    // Phase 95.4: Field-striped struct array data reorganization
+    std::vector<int> reorganizeFieldStripedArrayData(const std::vector<int>& userData, int structSize, const std::vector<int>& fieldSizes, const std::vector<int>& dims);
     void emitOperation(const std::string& op, int zpLeft, ExpressionType lhsType, ExpressionType rhsType);
     void embedSource(ASTNode& node);
     ExpressionType getExprType(Expression* expr);

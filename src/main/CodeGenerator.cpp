@@ -5888,6 +5888,90 @@ std::vector<int> CodeGenerator::reorganizeStripedArrayData(const std::vector<int
     return reorganized;
 }
 
+std::vector<int> CodeGenerator::reorganizeFieldStripedArrayData(
+    const std::vector<int>& userData,
+    int structSize,
+    const std::vector<int>& fieldSizes,
+    const std::vector<int>& dims
+) {
+    // Phase 95.4: Reorganize struct array data into field-striped layout
+    // Input: userData with struct elements in standard layout (all fields for each element together)
+    // Output: data reorganized so each field is stored contiguously with its own striping
+    //
+    // Example: struct RGB { r, g, b } array[2][2]
+    // Input (standard):  [r0,g0,b0, r1,g1,b1, r2,g2,b2, r3,g3,b3]
+    // Output (field-striped):
+    //   R region: [r0_striped, r1_striped, r2_striped, r3_striped]
+    //   G region: [g0_striped, g1_striped, g2_striped, g3_striped]
+    //   B region: [b0_striped, b1_striped, b2_striped, b3_striped]
+
+    if (dims.size() < 2) return userData;  // Not a 2D+ array
+    if (dims.back() < 4 || (dims.back() & (dims.back() - 1)) != 0) {
+        return userData;  // Width not power-of-2, fallback
+    }
+
+    if (fieldSizes.empty() || structSize <= 0) return userData;
+
+    // Calculate 2D dimensions (striping applies to last 2 dims)
+    int height = dims[dims.size() - 2];
+    int width = dims[dims.size() - 1];
+    int matrix2DSize = height * width;
+
+    // Calculate size of all outer dimensions (product of all except last 2)
+    int outerSize = 1;
+    for (size_t i = 0; i < dims.size() - 2; i++) {
+        outerSize *= dims[i];
+    }
+
+    // Calculate total output size: outer_size * (all fields striped)
+    int totalOutputSize = outerSize * matrix2DSize;
+    std::vector<int> reorganized(totalOutputSize * 0);  // Will resize as we add field regions
+
+    // Process each 2D matrix (from outer dimensions)
+    for (int outerIdx = 0; outerIdx < outerSize; outerIdx++) {
+        // For each field in the struct
+        int fieldRegionOffset = 0;
+        for (size_t fieldIdx = 0; fieldIdx < fieldSizes.size(); fieldIdx++) {
+            int fieldSize = fieldSizes[fieldIdx];
+            if (fieldSize <= 0) continue;
+
+            // Extract field values from all struct elements
+            std::vector<int> fieldValues(matrix2DSize, 0);
+            for (int elemIdx = 0; elemIdx < matrix2DSize; elemIdx++) {
+                // Calculate source position: outer offset + element offset + field offset within struct
+                int srcIdx = outerIdx * matrix2DSize * structSize +  // Outer dimension offset
+                            elemIdx * structSize +                    // Element offset
+                            fieldRegionOffset;                        // Field offset within struct
+
+                // Extract field bytes (handle multi-byte fields)
+                int fieldVal = 0;
+                for (int b = 0; b < fieldSize && srcIdx + b < (int)userData.size(); b++) {
+                    fieldVal |= (userData[srcIdx + b] & 0xFF) << (b * 8);
+                }
+                fieldValues[elemIdx] = fieldVal;
+            }
+
+            // Apply striped layout reorganization to this field's values
+            std::vector<int> stripedField;
+            if (dims.size() == 2) {
+                // 2D striped directly
+                stripedField = reorganizeStripedArrayData(fieldValues, height, width);
+            } else {
+                // 3D+: already extracted the 2D slice, reorganize it
+                stripedField = reorganizeStripedArrayData(fieldValues, height, width);
+            }
+
+            // Append this field's reorganized data to output
+            reorganized.insert(reorganized.end(), stripedField.begin(), stripedField.end());
+
+            // Move to next field in struct
+            fieldRegionOffset += fieldSize;
+        }
+    }
+
+    return reorganized;
+}
+
 void CodeGenerator::emitData() {
     // Emit .global/.weak for all global variables in relocatable mode (skip static)
     if (relocMode) {
@@ -5998,13 +6082,18 @@ void CodeGenerator::emitData() {
                 }
 
                 // Phase 92.4: Handle striped array initialization
-                // Check if this is a striped 2D array
+                // Also Phase 95.4: Handle field-striped struct array initialization
+                // Check if this is a striped array (2D integer) or field-striped struct array
                 std::string gName = "_" + gVar->name;
                 bool isStripedArray = false;
+                bool isFieldStripedArray = false;
                 if (globalVariableTypes.count(gName)) {
                     VarInfo& vi = globalVariableTypes[gName];
-                    if (vi.isStriped && vi.arrayDims.size() == 2 && gVar->type == "int") {
+                    if (vi.isStriped && vi.arrayDims.size() >= 2 && gVar->type == "int") {
                         isStripedArray = true;
+                    } else if (vi.isFieldStriped && vi.arrayDims.size() >= 2 &&
+                              vi.fieldNames.size() > 0 && vi.fieldSizes.size() == vi.fieldNames.size()) {
+                        isFieldStripedArray = true;
                     }
                 }
 
@@ -6014,7 +6103,7 @@ void CodeGenerator::emitData() {
                     if (resolved[i]) tryEvalConstInt(resolved[i], dataValues[i]);
                 }
 
-                // Phase 93: Reorganize into striped layout if needed
+                // Phase 93-95.4: Reorganize into striped layout if needed
                 if (isStripedArray && gVar->arraySize() >= 0) {
                     if (gVar->arrayDims.size() == 2) {
                         // Phase 92: 2D striped array
@@ -6025,15 +6114,77 @@ void CodeGenerator::emitData() {
                         // Phase 93: 3D+ striped array (last 2 dims striped)
                         dataValues = reorganizeStripedArrayData(dataValues, gVar->arrayDims);
                     }
+                } else if (isFieldStripedArray && gVar->arraySize() >= 0) {
+                    // Phase 95.4: Field-striped struct array
+                    // Get struct info for field sizes
+                    std::string sName = getAggregateName(gVar->type);
+                    if (structs.count(sName)) {
+                        auto& sInfo = *structs[sName];
+
+                        // Collect field sizes in order
+                        std::vector<std::pair<std::string, int>> fieldInfo;
+                        for (auto& [fname, finfo] : sInfo.members) {
+                            int fsize = 0;
+                            if (finfo.pointerLevel > 0 || finfo.type == "int") fsize = 2;
+                            else if (is8BitType(finfo.type)) fsize = 1;
+                            else if (is32BitType(finfo.type)) fsize = 4;
+                            fieldInfo.push_back({fname, fsize});
+                        }
+
+                        // Sort by offset to get field order
+                        std::sort(fieldInfo.begin(), fieldInfo.end(),
+                                 [&sInfo](const auto& a, const auto& b) {
+                                     return sInfo.members[a.first].offset < sInfo.members[b.first].offset;
+                                 });
+
+                        // Extract field sizes
+                        std::vector<int> fieldSizes;
+                        for (auto& [fname, fsize] : fieldInfo) {
+                            fieldSizes.push_back(fsize);
+                        }
+
+                        // Reorganize data for field-striped layout
+                        dataValues = reorganizeFieldStripedArrayData(dataValues, sInfo.totalSize, fieldSizes, gVar->arrayDims);
+                    }
                 }
 
                 // Emit reorganized/original data
-                for (int i = 0; i < totalElements; i++) {
-                    int constVal = dataValues[i];
-                    if (elementSize == 1) out << "    .byte $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (constVal & 0xFF) << std::dec << std::endl;
-                    else if (elementSize == 2) out << "    .word $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (constVal & 0xFFFF) << std::dec << std::endl;
-                    else if (elementSize == 4) out << "    .dword $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(8) << (constVal & 0xFFFFFFFF) << std::dec << std::endl;
-                    else out << "    .res " << std::to_string(elementSize) << ", 0" << std::endl;
+                if (isFieldStripedArray) {
+                    // Phase 95.4: Emit field-striped data with per-field sizing
+                    std::string gName = "_" + gVar->name;
+                    std::vector<int> fieldSizes;
+                    int height = gVar->arrayDims.size() >= 2 ? gVar->arrayDims[gVar->arrayDims.size()-2] : 1;
+                    int width = gVar->arrayDims.size() >= 1 ? gVar->arrayDims[gVar->arrayDims.size()-1] : 1;
+                    int matrixSize = height * width;
+
+                    if (globalVariableTypes.count(gName)) {
+                        VarInfo& vi = globalVariableTypes[gName];
+                        fieldSizes = vi.fieldSizes;
+                    }
+
+                    int fieldIdx = 0;
+                    int dataIdx = 0;
+
+                    for (size_t fi = 0; fi < fieldSizes.size() && dataIdx < (int)dataValues.size(); fi++) {
+                        int fieldSize = fieldSizes[fi];
+                        // Emit one field region (matrixSize values, each fieldSize bytes)
+                        for (int mi = 0; mi < matrixSize && dataIdx < (int)dataValues.size(); mi++) {
+                            int constVal = dataValues[dataIdx++];
+                            if (fieldSize == 1) out << "    .byte $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (constVal & 0xFF) << std::dec << std::endl;
+                            else if (fieldSize == 2) out << "    .word $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (constVal & 0xFFFF) << std::dec << std::endl;
+                            else if (fieldSize == 4) out << "    .dword $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(8) << (constVal & 0xFFFFFFFF) << std::dec << std::endl;
+                            else out << "    .res " << std::to_string(fieldSize) << ", 0" << std::endl;
+                        }
+                    }
+                } else {
+                    // Regular striped or standard array
+                    for (int i = 0; i < totalElements; i++) {
+                        int constVal = dataValues[i];
+                        if (elementSize == 1) out << "    .byte $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (constVal & 0xFF) << std::dec << std::endl;
+                        else if (elementSize == 2) out << "    .word $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (constVal & 0xFFFF) << std::dec << std::endl;
+                        else if (elementSize == 4) out << "    .dword $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(8) << (constVal & 0xFFFFFFFF) << std::dec << std::endl;
+                        else out << "    .res " << std::to_string(elementSize) << ", 0" << std::endl;
+                    }
                 }
             }
         } else {
