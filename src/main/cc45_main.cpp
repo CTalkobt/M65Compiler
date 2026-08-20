@@ -34,6 +34,7 @@
 #include "IPOAnalyzer.hpp"
 #include "SpecializationCodeGenerator.hpp"
 #include "SpecializationOptimizer.hpp"
+#include "IRSpecializationGenerator.hpp"
 #include "CompoundAssignmentFusion.hpp"
 #include "CompoundChainOptimizer.hpp"
 #include "AssemblerPeephole.hpp"
@@ -903,6 +904,27 @@ int main(int argc, char** argv) {
                     if (dc.isDeadCode) {
                         std::cout << "  - " << dc.functionName << " (" << dc.reason << ")" << std::endl;
                     }
+                }
+            }
+        }
+
+        // Phase 91.3.6: Generate IR specialization variants
+        // Create specialized IR functions for constant-argument patterns
+        if (optimize && !ipoResult.specializations.empty()) {
+            if (verboseLevel >= 1) {
+                std::cout << "Generating IR specialization variants (Phase 91.3.6)..." << std::endl;
+            }
+
+            IRSpecializationGenerator irSpecGen;
+            irSpecGen.generateSpecializations(irBuilder.getModule(), ipoResult.specializations);
+
+            if (verboseLevel >= 1) {
+                int viable = 0;
+                for (const auto& spec : ipoResult.specializations) {
+                    if (spec.isDecided) viable++;
+                }
+                if (viable > 0) {
+                    std::cout << "  Generated " << viable << " IR specialization variant(s)" << std::endl;
                 }
             }
         }
