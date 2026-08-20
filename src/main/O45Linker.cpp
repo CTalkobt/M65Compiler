@@ -767,6 +767,7 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     buildCallGraph();
     computeTransitiveClobbers();
     analyzeIPOHints();                 // Phase 4.3: Aggregate IPO hints from all objects
+    applyIPOHints();                   // Phase 4.4: Apply IPO hints to optimization decisions
     analyzeConstantParameters();  // Cross-file parameter analysis
     analyzeIRMetadata();           // Phase 50: Extract constant parameters from embedded IR
     analyzeSpecializations();      // Phase 52: Analyze profitable specialization patterns
@@ -1020,6 +1021,91 @@ void O45Linker::analyzeIPOHints() {
     if (warnStream_) {
         *warnStream_ << "DEBUG: IPO Hints: Aggregated " << aggregatedIPOHints_.functions.size()
                      << " functions from " << objects_.size() << " objects" << std::endl;
+    }
+}
+
+// Phase 4.4 — Apply inter-TU optimization hints to guide dispatcher generation
+// Uses IPO hints to identify optimization candidates and enhance dispatcher decisions
+void O45Linker::applyIPOHints() {
+    ipoOptimizationCandidates_.clear();
+    ipoLeafFunctions_.clear();
+
+    // Process each function in aggregated IPO hints
+    for (const auto& funcHints : aggregatedIPOHints_.functions) {
+        // Track leaf functions for optimization opportunities
+        if (funcHints.flags & FUNC_FLAG_LEAF) {
+            ipoLeafFunctions_.insert(funcHints.functionName);
+
+            if (warnStream_) {
+                *warnStream_ << "DEBUG: IPO leaf function: " << funcHints.functionName << std::endl;
+            }
+        }
+
+        // Mark functions with multiple call sites as optimization candidates
+        // These functions benefit from dispatcher generation or inlining
+        if (funcHints.callCount >= 2) {
+            ipoOptimizationCandidates_[funcHints.functionName] = true;
+
+            if (warnStream_) {
+                *warnStream_ << "INFO: IPO optimization candidate: " << funcHints.functionName
+                            << " (calls=" << funcHints.callCount << ", size="
+                            << funcHints.estimatedCodeSize << " bytes)" << std::endl;
+            }
+        }
+
+        // Check for functions with external call sites
+        // These require dispatcher generation for cross-module dispatch
+        if (funcHints.externalCallCount > 0) {
+            if (warnStream_) {
+                *warnStream_ << "INFO: IPO external dispatcher needed: " << funcHints.functionName
+                            << " (" << (int)funcHints.externalCallCount << " external calls)" << std::endl;
+            }
+        }
+
+        // Log specialization patterns if present
+        if (!funcHints.specializations.empty()) {
+            if (warnStream_) {
+                *warnStream_ << "DEBUG: IPO specialization patterns for " << funcHints.functionName
+                            << ": " << funcHints.specializations.size() << " patterns" << std::endl;
+            }
+        }
+    }
+
+    // Phase 4.4: Validate IPO hints against actual function data
+    // Check that symbols exist in global symbol map and flags are consistent
+    int validated = 0;
+    int mismatches = 0;
+    for (const auto& funcHints : aggregatedIPOHints_.functions) {
+        auto symIt = globalSymbols_.find(funcHints.functionName);
+        if (symIt == globalSymbols_.end()) {
+            // Symbol not found in final link
+            if (warnStream_) {
+                *warnStream_ << "WARN: IPO hint for undefined symbol: " << funcHints.functionName << std::endl;
+            }
+            mismatches++;
+        } else {
+            validated++;
+            // Symbol found, check consistency with function attributes
+            auto attrIt = funcAttrs_.find(funcHints.functionName);
+            if (attrIt != funcAttrs_.end()) {
+                // Verify leaf flag consistency
+                bool symbolIsLeaf = (attrIt->second.flags & FUNC_FLAG_LEAF) != 0;
+                bool ipoSaysLeaf = (funcHints.flags & FUNC_FLAG_LEAF) != 0;
+
+                if (symbolIsLeaf != ipoSaysLeaf) {
+                    if (warnStream_) {
+                        *warnStream_ << "DEBUG: IPO hint leaf flag mismatch: " << funcHints.functionName
+                                    << " (symbol=" << symbolIsLeaf << ", ipo=" << ipoSaysLeaf << ")" << std::endl;
+                    }
+                }
+            }
+        }
+    }
+
+    if (warnStream_) {
+        *warnStream_ << "INFO: IPO Hints Applied: " << ipoOptimizationCandidates_.size()
+                     << " candidates, " << ipoLeafFunctions_.size() << " leaf functions, "
+                     << validated << " validated, " << mismatches << " mismatches" << std::endl;
     }
 }
 
@@ -2196,6 +2282,17 @@ void O45Linker::generateDispatchers() {
         // Only need dispatcher if 2+ specializations exist
         if (analysis.totalSpecializations < 2) continue;
 
+        // Phase 4.4: Check IPO hints for this function
+        uint16_t ipoCallCount = 0;
+        bool ipoIsLeaf = false;
+        for (const auto& ipoFunc : aggregatedIPOHints_.functions) {
+            if (ipoFunc.functionName == funcName) {
+                ipoCallCount = ipoFunc.callCount;
+                ipoIsLeaf = (ipoFunc.flags & FUNC_FLAG_LEAF) != 0;
+                break;
+            }
+        }
+
         // Create dispatcher stub for this function
         DispatcherStub dispatcher;
         dispatcher.dispatcherName = funcName + "__dispatch";
@@ -2208,7 +2305,8 @@ void O45Linker::generateDispatchers() {
             DispatcherRoute route;
             route.targetFunction = callSite.targetFunction;
             route.argumentPattern = callSite.argumentPattern;
-            route.callCount = 1;  // Each call site counted
+            // Phase 4.4: Use IPO hint call count if available
+            route.callCount = (ipoCallCount > 0) ? ipoCallCount : 1;
 
             dispatcher.routes.push_back(route);
             dispatcher.routableCalls++;
@@ -2225,13 +2323,28 @@ void O45Linker::generateDispatchers() {
         int estimatedRouteSize = dispatcher.routes.size() * 10;  // ~10 bytes per route
         dispatcher.estimatedCodeSize = 25 + estimatedRouteSize + 3;  // Base + routes + fallback
 
+        // Phase 4.4: Consider IPO hints when deciding to generate dispatcher
+        // If IPO hints show high call frequency, dispatcher is more beneficial
+        bool highCallFrequency = ipoCallCount >= 10;  // Threshold for beneficial dispatch
+        bool ipoRecommendsDispatcher = false;
+
+        if (highCallFrequency) {
+            // High call frequency makes dispatcher ROI better
+            ipoRecommendsDispatcher = true;
+            if (warnStream_) {
+                *warnStream_ << "INFO: Dispatcher for " << funcName
+                            << " recommended by IPO hints (calls=" << ipoCallCount << ")" << std::endl;
+            }
+        }
+
         // Determine if dispatcher is needed
         // Generate dispatcher if:
         // 1. 2+ specializations exist
         // 2. 2+ distinct call patterns routable OR dynamic calls present
+        // 3. IPO hints recommend it based on call frequency
         bool multiplePatterns = dispatcher.routes.size() > 1;
         bool hasDynamicCalls = dispatcher.dynamicCalls > 0;
-        dispatcher.generateDispatcher = multiplePatterns || hasDynamicCalls;
+        dispatcher.generateDispatcher = multiplePatterns || hasDynamicCalls || ipoRecommendsDispatcher;
 
         // Determine routing strategy
         if (dispatcher.dynamicCalls == 0 && dispatcher.routes.size() == 1) {

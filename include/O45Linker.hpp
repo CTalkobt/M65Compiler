@@ -450,6 +450,13 @@ private:
     // Merged IPO hints from all objects with global call counts and optimization metadata
     O45IPOHints aggregatedIPOHints_;
 
+    // Phase 4.4: IPO Hints application
+    // Track functions that have optimization hints from IPO analysis
+    // Maps function name → whether dispatcher/optimization should be applied
+    std::map<std::string, bool> ipoOptimizationCandidates_;
+    // Track leaf functions identified by IPO hints
+    std::set<std::string> ipoLeafFunctions_;
+
     // Phase 50: IR Metadata analysis
     // Merged IR metadata from all objects (across compilation units)
     // Maps function name → O45IRFunction with cross-file call information
@@ -509,6 +516,7 @@ private:
     void buildCallGraph();
     void computeTransitiveClobbers();
     void analyzeIPOHints();             // Phase 4.3: Aggregate IPO hints from all input objects
+    void applyIPOHints();               // Phase 4.4: Apply IPO hints to optimization decisions
     void analyzeConstantParameters();  // Cross-file parameter analysis from .param_const metadata
     void analyzeIRMetadata();           // Phase 50: Extract constant parameters from embedded IR
     void analyzeSpecializations();      // Phase 52: Analyze profitable specialization patterns
