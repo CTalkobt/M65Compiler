@@ -1,6 +1,7 @@
 #include "CodeGenerator.hpp"
 #include "AddressTemplateDetector.hpp"
 #include "AddressTemplates.hpp"
+#include "ZeroArgCallDetector.hpp"
 #include <iostream>
 #include <iomanip>
 #include <sstream>
@@ -1331,6 +1332,11 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     node.body->accept(callCollector);
     bool isLeafFunction = callCollector.calledFunctions.empty();
 
+    // Phase 90.3: Detect zero-argument calls (FP doesn't need recalc after)
+    ZeroArgCallDetector zeroArgDetector;
+    node.body->accept(zeroArgDetector);
+    // Use this info later for FP recalculation optimization
+
     // Store frame layout for use by visit(VariableDeclaration)
     frameLocals_.clear();
     for (auto& loc : scanner.locals) {
@@ -1636,6 +1642,11 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     // Phase 90: Only set up FP if function has locals or makes calls (lazy initialization)
     if (!useZpCall_ && scanner.needsFramePointer()) {
         emit("; setup frame pointer (Phase 90: lazy init)");
+        // Phase 90.3: Emit diagnostic for zero-arg call optimization opportunities
+        if (zeroArgDetector.zeroArgCallCount > 0) {
+            emit("; Phase 90.3: " + std::to_string(zeroArgDetector.zeroArgCallCount) +
+                 " zero-arg calls detected (FP recalc can be skipped)");
+        }
         emitter->setFramePointerZP(0xFD);
         emitter->setupFramePointer();
     } else if (!useZpCall_) {
