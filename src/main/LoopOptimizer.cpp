@@ -395,6 +395,97 @@ namespace {
         }
     };
 
+    // Helper: detect linear search pattern: for(i=0; i<n; i++) if(arr[i]==target){found=1;break;}
+    class SearchLoopDetector {
+    public:
+        bool detect(const ForStatement& loop, std::string& arrayVar, std::string& targetVar,
+                    std::string& indexVar, std::string& resultVar) {
+            // Check if body is a single statement or compound with single statement
+            if (!loop.body) return false;
+
+            IfStatement* ifStmt = nullptr;
+
+            // Handle CompoundStatement with single if-statement
+            if (auto* compStmt = dynamic_cast<CompoundStatement*>(loop.body.get())) {
+                if (compStmt->statements.size() == 1 && compStmt->statements[0]) {
+                    ifStmt = dynamic_cast<IfStatement*>(compStmt->statements[0].get());
+                }
+            } else {
+                // Direct IfStatement
+                ifStmt = dynamic_cast<IfStatement*>(loop.body.get());
+            }
+
+            if (!ifStmt || !ifStmt->condition || !ifStmt->thenBranch) return false;
+
+            // Condition must be: arr[i] == target
+            auto* binOp = dynamic_cast<BinaryOperation*>(ifStmt->condition.get());
+            if (!binOp || binOp->op != "==") return false;
+
+            // One side must be array access, other side must be variable
+            ArrayAccess* arrayAccess = nullptr;
+            VariableReference* targetRef = nullptr;
+
+            if (auto* lhsArray = dynamic_cast<ArrayAccess*>(binOp->left.get())) {
+                targetRef = dynamic_cast<VariableReference*>(binOp->right.get());
+                if (targetRef) arrayAccess = lhsArray;
+            } else if (auto* rhsArray = dynamic_cast<ArrayAccess*>(binOp->right.get())) {
+                targetRef = dynamic_cast<VariableReference*>(binOp->left.get());
+                if (targetRef) arrayAccess = rhsArray;
+            }
+
+            if (!arrayAccess || !targetRef) return false;
+
+            // Array access must be arr[i] where arr is a variable reference and i is the loop variable
+            auto* arrRef = dynamic_cast<VariableReference*>(arrayAccess->arrayExpr.get());
+            auto* idxRef = dynamic_cast<VariableReference*>(arrayAccess->indexExpr.get());
+            if (!arrRef || !idxRef) return false;
+
+            arrayVar = arrRef->name;
+            targetVar = targetRef->name;
+            indexVar = idxRef->name;
+
+            // Then-branch must contain: result = <expr>; break;
+            ExpressionStatement* exprStmt = nullptr;
+            BreakStatement* breakStmt = nullptr;
+
+            if (auto* compStmt = dynamic_cast<CompoundStatement*>(ifStmt->thenBranch.get())) {
+                if (compStmt->statements.size() == 2) {
+                    exprStmt = dynamic_cast<ExpressionStatement*>(compStmt->statements[0].get());
+                    breakStmt = dynamic_cast<BreakStatement*>(compStmt->statements[1].get());
+                } else if (compStmt->statements.size() == 1) {
+                    // Just assignment or just break — not sufficient pattern
+                    return false;
+                }
+            } else if (auto* bare = dynamic_cast<BreakStatement*>(ifStmt->thenBranch.get())) {
+                // Just break, no assignment — not what we're looking for
+                return false;
+            } else if (auto* bare = dynamic_cast<ExpressionStatement*>(ifStmt->thenBranch.get())) {
+                // Just assignment, no break
+                return false;
+            }
+
+            if (!exprStmt || !breakStmt) return false;
+
+            // Assignment must be: result = <expr> (typically result = index or result = 1)
+            auto* assign = dynamic_cast<Assignment*>(exprStmt->expression.get());
+            if (!assign || assign->op != "=") return false;
+
+            auto* resultRef = dynamic_cast<VariableReference*>(assign->target.get());
+            if (!resultRef) return false;
+            resultVar = resultRef->name;
+
+            // RHS can be a literal or a variable (typically the loop index)
+            // We accept: integer literals (1, true, etc.) or variable references (i)
+            if (!dynamic_cast<IntegerLiteral*>(assign->expression.get()) &&
+                !dynamic_cast<VariableReference*>(assign->expression.get())) {
+                return false;
+            }
+
+            // No else-branch (search returns on first match)
+            return !ifStmt->elseBranch && (arrayVar != targetVar);
+        }
+    };
+
     // Helper: collect all variable names referenced in an expression
     class VarCollector : public ASTVisitor {
     public:
@@ -882,6 +973,46 @@ std::unique_ptr<Statement> LoopOptimizer::transformSumReductionToCall(const ForS
     return exprStmt;
 }
 
+bool LoopOptimizer::isSearchLoopPattern(const ForStatement& stmt, std::string& array, std::string& target, std::string& idx, std::string& result) {
+    SearchLoopDetector detector;
+    return detector.detect(stmt, array, target, idx, result);
+}
+
+std::unique_ptr<Statement> LoopOptimizer::transformSearchLoopToCall(const ForStatement& stmt, const std::string& array, const std::string& target, const std::string& result) {
+    // Extract loop variable
+    InitializerAnalyzer initAnalyzer;
+    std::string loopVar;
+    int initValue;
+    if (!initAnalyzer.extract(stmt.initializer.get(), loopVar, initValue)) {
+        return nullptr;  // Failed to extract loop variable
+    }
+
+    // Extract loop bound expression from condition
+    BoundExpressionExtractor boundExtractor;
+    std::unique_ptr<Expression> boundExpr;
+    std::string op;
+    if (!boundExtractor.extract(stmt.condition.get(), loopVar, boundExpr, op) || !boundExpr) {
+        return nullptr;  // Failed to extract bound expression
+    }
+
+    // Create function call to __idiom_find8(array, bound, target)
+    // Returns index (or -1 if not found), assign to result
+    auto idiomCall = std::make_unique<FunctionCall>("__idiom_find8");
+    idiomCall->arguments.push_back(std::make_unique<VariableReference>(array));
+    idiomCall->arguments.push_back(std::move(boundExpr));
+    idiomCall->arguments.push_back(std::make_unique<VariableReference>(target));
+
+    // Create assignment: result = __idiom_find8(array, bound, target)
+    auto assign = std::make_unique<Assignment>(
+        std::make_unique<VariableReference>(result),
+        std::move(idiomCall)
+    );
+    assign->op = "=";
+
+    auto exprStmt = std::make_unique<ExpressionStatement>(std::move(assign));
+    return exprStmt;
+}
+
 bool LoopOptimizer::canPartialUnrollLoop(const ForStatement& stmt, int unrollFactor) {
     if (unrollFactor <= 0 || unrollFactor > 16) return false;
 
@@ -1046,6 +1177,18 @@ void LoopOptimizer::visit(CompoundStatement& node) {
                 if (sumStmt) {
                     sumStmt->accept(*this);
                     newStatements.push_back(std::move(sumStmt));
+                    stmt.reset();
+                    continue;
+                }
+            }
+
+            // Check for search loop pattern transformation
+            std::string searchArray, searchTarget, searchResult;
+            if (isSearchLoopPattern(*forStmt, searchArray, searchTarget, idx, searchResult)) {
+                auto searchStmt = transformSearchLoopToCall(*forStmt, searchArray, searchTarget, searchResult);
+                if (searchStmt) {
+                    searchStmt->accept(*this);
+                    newStatements.push_back(std::move(searchStmt));
                     stmt.reset();
                     continue;
                 }
