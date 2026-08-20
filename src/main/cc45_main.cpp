@@ -33,6 +33,7 @@
 #include "IROptimizer.hpp"
 #include "IPOAnalyzer.hpp"
 #include "SpecializationCodeGenerator.hpp"
+#include "SpecializationOptimizer.hpp"
 #include "CompoundAssignmentFusion.hpp"
 #include "CompoundChainOptimizer.hpp"
 #include "AssemblerPeephole.hpp"
@@ -1064,7 +1065,18 @@ int main(int argc, char** argv) {
                 std::cout << "Specialization analysis (Phase 91.3.4): " << analysis.viableCandidates
                           << " viable candidate(s), est. total savings: " << analysis.estimatedTotalSavings << "B"
                           << std::endl;
-                std::cout << "  Note: Full code generation implementation deferred to Phase 91.3.5+"
+            }
+
+            // Phase 91.3.5: Specialization optimization through aggressive inlining
+            // Strategy: Mark specialization candidates for aggressive inlining
+            // This triggers the constant folding optimizer to achieve specialization benefits
+            SpecializationOptimizer specOpt;
+            specOpt.optimize(irBuilder.getModule(), ipoResult.specializations);
+
+            if (verboseLevel >= 1 && analysis.viableCandidates > 0) {
+                std::cout << "Phase 91.3.5: Marked specialization candidates for aggressive inlining"
+                          << std::endl;
+                std::cout << "  Optimization: Constant folding will optimize specialized call sites"
                           << std::endl;
             }
         }
