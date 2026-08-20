@@ -2136,6 +2136,60 @@ void AssemblerSimulatedOps::emitSTA_FPCode(AssemblerParser* parser, M65Emitter& 
     e.sta_frame(fpOff, yOff);
 }
 
+// ldx.fp varOffset — Load 8-bit value from frame into X
+void AssemblerSimulatedOps::emitLDX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
+    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
+    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    e.lda_frame(fpOff, yOff);  // Load into A
+    e.tax();                    // Transfer A to X
+}
+
+// stx.fp varOffset — Store 8-bit value from X to frame-relative offset
+void AssemblerSimulatedOps::emitSTX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
+    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
+    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    e.txa();                    // Transfer X to A
+    e.sta_frame(fpOff, yOff);   // Store from A
+}
+
+// ldy.fp varOffset — Load 8-bit value from frame into Y
+void AssemblerSimulatedOps::emitLDY_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
+    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
+    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    e.lda_frame(fpOff, yOff);  // Load into A
+    e.tay();                    // Transfer A to Y
+}
+
+// sty.fp varOffset — Store 8-bit value from Y to frame-relative offset
+void AssemblerSimulatedOps::emitSTY_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
+    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
+    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    e.tya();                    // Transfer Y to A
+    e.sta_frame(fpOff, yOff);   // Store from A
+}
+
+// ldz.fp varOffset — Load 8-bit value from frame into Z
+void AssemblerSimulatedOps::emitLDZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
+    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
+    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    e.lda_frame(fpOff, yOff);  // Load into A
+    e.tza();                    // Transfer A to Z
+}
+
+// stz.fp varOffset — Store 8-bit value from Z to frame-relative offset
+void AssemblerSimulatedOps::emitSTZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
+    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
+    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    e.tza();                    // Transfer Z to A
+    e.sta_frame(fpOff, yOff);   // Store from A
+}
+
 // ldax.fp varOffset — Load 16-bit value from frame into AX (lo in A, hi in X)
 void AssemblerSimulatedOps::emitLDAX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
@@ -3609,22 +3663,22 @@ void AssemblerSimulatedOps::dispatch_STA_Local(AssemblerParser* p, M65Emitter& e
     emitSTA_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
 }
 void AssemblerSimulatedOps::dispatch_LDX_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
-    // TODO: Implement LDX.local
+    emitLDX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
 }
 void AssemblerSimulatedOps::dispatch_STX_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
-    // TODO: Implement STX.local
+    emitSTX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
 }
 void AssemblerSimulatedOps::dispatch_LDY_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
-    // TODO: Implement LDY.local
+    emitLDY_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
 }
 void AssemblerSimulatedOps::dispatch_STY_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
-    // TODO: Implement STY.local
+    emitSTY_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
 }
 void AssemblerSimulatedOps::dispatch_LDZ_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
-    // TODO: Implement LDZ.local
+    emitLDZ_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
 }
 void AssemblerSimulatedOps::dispatch_STZ_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
-    // TODO: Implement STZ.local
+    emitSTZ_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
 }
 void AssemblerSimulatedOps::dispatch_LDAX_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
     emitLDAX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
