@@ -297,46 +297,4 @@ bool AddressTemplateDetector::isKnownSize(int size) const {
     return false;
 }
 
-int AddressTemplateDetector::estimateCycles(PatternType type, const std::vector<int>& constants) const {
-    switch (type) {
-        case PatternType::LINEAR_ROW_MAJOR:
-            // 40: 8-9 cycles (vs ~15 naive)
-            // 80, 160, 320, 640: 9-12 cycles
-            return 9;
-
-        case PatternType::SPRITE_OFFSET:
-            // 3, 8, 16, 32: 8-10 cycles (vs ~12 naive)
-            // 256: special case, 6 cycles (single byte)
-            return constants.empty() ? 9 : (constants[0] == 256 ? 6 : 9);
-
-        case PatternType::CUMULATIVE_STRIDE:
-            return 12;
-
-        case PatternType::HARDWARE_PATTERN:
-            return 8;
-
-        default:
-            return 0;
-    }
-}
-
-int AddressTemplateDetector::estimateBytes(PatternType type, const std::vector<int>& constants) const {
-    switch (type) {
-        case PatternType::LINEAR_ROW_MAJOR:
-            // 7-9 bytes (vs ~15-18 naive)
-            return 8;
-
-        case PatternType::SPRITE_OFFSET:
-            // 8-10 bytes (vs ~12-14 naive)
-            return 9;
-
-        case PatternType::CUMULATIVE_STRIDE:
-            return 14;
-
-        case PatternType::HARDWARE_PATTERN:
-            return 8;
-
-        default:
-            return 0;
-    }
-}
+// Note: cycle/byte estimation is now in AddressTemplates.cpp within template metadata
