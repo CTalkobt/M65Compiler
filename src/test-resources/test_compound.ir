@@ -1,0 +1,84 @@
+; Module: src/test-resources/test_compound.c
+
+fn _test_compound() -> i16 {
+@entry:
+  %1 = const i16 10 ; src/test-resources/test_compound.c:2
+  store i16 %1, %0 ; src/test-resources/test_compound.c:2
+  %2 = const i16 5 ; src/test-resources/test_compound.c:3
+  %3 = add i16 %0, %2 ; src/test-resources/test_compound.c:3
+  store i16 %3, %0 ; src/test-resources/test_compound.c:3
+  %4 = const i16 2 ; src/test-resources/test_compound.c:4
+  %5 = sub i16 %0, %4 ; src/test-resources/test_compound.c:4
+  store i16 %5, %0 ; src/test-resources/test_compound.c:4
+  %6 = const i16 3 ; src/test-resources/test_compound.c:5
+  %7 = mul_u i16 %0, %6 ; src/test-resources/test_compound.c:5
+  store i16 %7, %0 ; src/test-resources/test_compound.c:5
+  %8 = const i16 4 ; src/test-resources/test_compound.c:6
+  %9 = shr i16 %0, 2 ; src/test-resources/test_compound.c:6
+  store i16 %9, %0 ; src/test-resources/test_compound.c:6
+  %10 = const i16 7 ; src/test-resources/test_compound.c:7
+  %11 = mod_u i16 %0, %10 ; src/test-resources/test_compound.c:7
+  store i16 %11, %0 ; src/test-resources/test_compound.c:7
+  %12 = const i16 3 ; src/test-resources/test_compound.c:8
+  %13 = shl i16 %0, %12 ; src/test-resources/test_compound.c:8
+  store i16 %13, %0 ; src/test-resources/test_compound.c:8
+  %14 = const i16 2 ; src/test-resources/test_compound.c:9
+  %15 = shr i16 %0, %14 ; src/test-resources/test_compound.c:9
+  store i16 %15, %0 ; src/test-resources/test_compound.c:9
+  %16 = const i16 8 ; src/test-resources/test_compound.c:10
+  %17 = or i16 %0, %16 ; src/test-resources/test_compound.c:10
+  store i16 %17, %0 ; src/test-resources/test_compound.c:10
+  %18 = const i16 13 ; src/test-resources/test_compound.c:11
+  %19 = and i16 %0, %18 ; src/test-resources/test_compound.c:11
+  store i16 %19, %0 ; src/test-resources/test_compound.c:11
+  %20 = const i16 15 ; src/test-resources/test_compound.c:12
+  %21 = xor i16 %0, %20 ; src/test-resources/test_compound.c:12
+  store i16 %21, %0 ; src/test-resources/test_compound.c:12
+  ret %0 ; src/test-resources/test_compound.c:13
+}
+
+fn _main() -> i16 {
+@entry:
+  %2 = const i16 10 ; src/test-resources/test_compound.c:2
+  store i16 %2, %1 ; src/test-resources/test_compound.c:2
+  %3 = const i16 5 ; src/test-resources/test_compound.c:3
+  %4 = add i16 %1, %3 ; src/test-resources/test_compound.c:3
+  store i16 %4, %1 ; src/test-resources/test_compound.c:3
+  %5 = const i16 2 ; src/test-resources/test_compound.c:4
+  %6 = sub i16 %1, %5 ; src/test-resources/test_compound.c:4
+  store i16 %6, %1 ; src/test-resources/test_compound.c:4
+  %7 = const i16 3 ; src/test-resources/test_compound.c:5
+  %8 = mul_u i16 %1, %7 ; src/test-resources/test_compound.c:5
+  store i16 %8, %1 ; src/test-resources/test_compound.c:5
+  %9 = const i16 4 ; src/test-resources/test_compound.c:6
+  %10 = shr i16 %1, 2 ; src/test-resources/test_compound.c:6
+  store i16 %10, %1 ; src/test-resources/test_compound.c:6
+  %11 = const i16 7 ; src/test-resources/test_compound.c:7
+  %12 = mod_u i16 %1, %11 ; src/test-resources/test_compound.c:7
+  store i16 %12, %1 ; src/test-resources/test_compound.c:7
+  %13 = const i16 3 ; src/test-resources/test_compound.c:8
+  %14 = shl i16 %1, %13 ; src/test-resources/test_compound.c:8
+  store i16 %14, %1 ; src/test-resources/test_compound.c:8
+  %15 = const i16 2 ; src/test-resources/test_compound.c:9
+  %16 = shr i16 %1, %15 ; src/test-resources/test_compound.c:9
+  store i16 %16, %1 ; src/test-resources/test_compound.c:9
+  %17 = const i16 8 ; src/test-resources/test_compound.c:10
+  %18 = or i16 %1, %17 ; src/test-resources/test_compound.c:10
+  store i16 %18, %1 ; src/test-resources/test_compound.c:10
+  %19 = const i16 13 ; src/test-resources/test_compound.c:11
+  %20 = and i16 %1, %19 ; src/test-resources/test_compound.c:11
+  store i16 %20, %1 ; src/test-resources/test_compound.c:11
+  %21 = const i16 15 ; src/test-resources/test_compound.c:12
+  %22 = xor i16 %1, %21 ; src/test-resources/test_compound.c:12
+  store i16 %22, %1 ; src/test-resources/test_compound.c:12
+  %0 = copy i16 %1 ; src/test-resources/test_compound.c:13
+@inline_end3:
+  %23 = const i16 3 ; src/test-resources/test_compound.c:17
+  %24 = cmp_eq i8 %0, %23 ; src/test-resources/test_compound.c:17
+  br_cond %24, @if_then0, @if_end2 ; src/test-resources/test_compound.c:17
+@if_then0:
+  ret 0 ; src/test-resources/test_compound.c:18
+@if_end2:
+  ret 1 ; src/test-resources/test_compound.c:20
+}
+

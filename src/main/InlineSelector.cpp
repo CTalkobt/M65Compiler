@@ -1,6 +1,7 @@
 #include "InlineSelector.hpp"
 #include "CallGraphAnalyzer.hpp"
 #include "CoOptimizationSelector.hpp"
+#include <iostream>
 
 InlineSelector::InlineSelector(int optimizationLevel)
     : optimizationLevel_(optimizationLevel) {}

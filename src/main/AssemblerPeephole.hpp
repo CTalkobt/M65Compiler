@@ -43,40 +43,51 @@ public:
 
 private:
     static void removeRedundantLoads(std::vector<std::string>& lines) {
-        // Pattern: sta $ZP; stx $ZP+1 ... lda $ZP; ldx $ZP+1
-        // If the stored value is never clobbered between store and load, delete the load
+        // Pattern: sta addr; ... lda addr (same address)
+        // Detect and remove redundant loads if address not clobbered between store/load
+        // Handles both hex ($ZP) and symbolic addresses (_local_0, __zp_scratch)
 
-        std::regex storePattern(R"(^\s*st([ax])\s+(\$[0-9a-fA-F]+))");
-        std::regex loadPattern(R"(^\s*ld([ax])\s+(\$[0-9a-fA-F]+))");
+        // Matches: sta/stx/sty followed by address (hex or symbol)
+        std::regex storePattern(R"(^\s*st([axy])\s+([\$_a-zA-Z][\w\+\-]*))");
+        std::regex loadPattern(R"(^\s*ld([axy])\s+([\$_a-zA-Z][\w\+\-]*))");
+        std::regex anyWritePattern(R"(^\s*st[axy]\s+)");  // Any store
+        std::regex jmpPattern(R"(^\s*(jmp|bra|beq|bne|bcs|bcc|bmi|bpl|proc|endproc))");  // Branches (but not .loc)
 
-        for (size_t i = 0; i + 3 < lines.size(); i++) {
-            std::smatch storeMatch, loadMatch;
-
+        for (size_t i = 0; i < lines.size(); i++) {
+            std::smatch storeMatch;
             if (!std::regex_search(lines[i], storeMatch, storePattern)) continue;
-            if (!std::regex_search(lines[i + 2], loadMatch, loadPattern)) continue;
 
-            // Check: same register and same address
-            if (storeMatch[1].str() != loadMatch[1].str()) continue;
-            if (storeMatch[2].str() != loadMatch[2].str()) continue;
+            std::string storeReg = storeMatch[1].str();
+            std::string storeAddr = storeMatch[2].str();
 
-            // Check: no intervening writes to this address
-            bool clobbered = false;
-            for (size_t j = i + 1; j < i + 2; j++) {
-                if (lines[j].find(storeMatch[2].str()) != std::string::npos &&
-                    lines[j].find("st") != std::string::npos) {
-                    clobbered = true;
-                    break;
-                }
-            }
+            // Look for matching load in next 30 instructions
+            int foundCount = 0;
+            for (size_t j = i + 1; j < i + 30 && j < lines.size(); j++) {
+                // Stop if we hit a branch/label (control flow changes)
+                if (std::regex_search(lines[j], jmpPattern)) break;
 
-            if (!clobbered) {
-                // Delete the redundant load
-                lines[i + 2] = "; [peephole: removed redundant load]";
-                if (i + 3 < lines.size() && std::regex_search(lines[i + 3], loadPattern)) {
-                    // Next line might be part of 16-bit load, check context
-                    if (loadMatch[1].str() == "a") {
-                        lines[i + 3] = "; [peephole: removed redundant load]";
+                std::smatch loadMatch;
+                if (!std::regex_search(lines[j], loadMatch, loadPattern)) continue;
+
+                // Check if load is from same register and address
+                if (loadMatch[1].str() != storeReg) continue;
+                if (loadMatch[2].str() != storeAddr) continue;
+
+                // Check if address was modified between store and load
+                bool clobbered = false;
+                for (size_t k = i + 1; k < j; k++) {
+                    if (lines[k].find(storeAddr) != std::string::npos &&
+                        std::regex_search(lines[k], anyWritePattern)) {
+                        clobbered = true;
+                        break;
                     }
+                }
+
+                if (!clobbered) {
+                    // Comment out the redundant load
+                    lines[j] = "    ; [peephole-opt] " + lines[j];
+                    foundCount++;
+                    if (foundCount >= 2) break;  // Limit optimizations per store to avoid over-optimization
                 }
             }
         }

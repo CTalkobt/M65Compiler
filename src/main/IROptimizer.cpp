@@ -1,4 +1,5 @@
 #include "IROptimizer.hpp"
+#include "CompoundChainOptimizer.hpp"
 #include <algorithm>
 #include <iostream>
 #include <map>
