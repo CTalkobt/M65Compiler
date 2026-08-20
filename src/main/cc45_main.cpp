@@ -429,6 +429,7 @@ int main(int argc, char** argv) {
     bool saveTemps = false;       // --save-temps: keep .s and .o45 files
     int verboseLevel = 0;
     bool optimize = true;
+    int optimizationLevel = 2;  // Track actual -O level for assembler
     OptimizationFlags irOptFlags = OptimizationFlags::fromLevel(2);  // IR optimizer flags
     int listingLevel = 1;
     uint32_t zeroPageStart = 0x08;
@@ -585,19 +586,22 @@ int main(int argc, char** argv) {
             std::string levelStr = arg.substr(2);
             if (!levelStr.empty() && levelStr[0] >= '0' && levelStr[0] <= '9') {
                 // Numeric optimization level: -O0 through -O9
-                int level = levelStr[0] - '0';
-                optimize = (level > 0);
-                irOptFlags = OptimizationFlags::fromLevel(level);
+                optimizationLevel = levelStr[0] - '0';
+                optimize = (optimizationLevel > 0);
+                irOptFlags = OptimizationFlags::fromLevel(optimizationLevel);
             } else if (levelStr == "size") {
                 // -Osize: optimize for code size (maps to -O2 + size bias)
+                optimizationLevel = 2;
                 optimize = true;
                 irOptFlags = OptimizationFlags::fromLevel(2);
             } else if (levelStr == "speed") {
                 // -Ospeed: optimize for speed (maps to -O3 + speed bias)
+                optimizationLevel = 3;
                 optimize = true;
                 irOptFlags = OptimizationFlags::fromLevel(3);
             } else {
                 // Unknown optimization flag: treat as -O0
+                optimizationLevel = 0;
                 optimize = false;
                 irOptFlags = OptimizationFlags::fromLevel(0);
             }
@@ -1066,10 +1070,9 @@ int main(int argc, char** argv) {
     std::string rOptFlag;
     std::string rMachFlag;
     std::string pFlags;
-    std::string optLevelFlag = " -O2";  // Default optimization level
-    if (!optimize) {
-        optLevelFlag = " -O0";  // No optimization if -O0 was passed to cc45
-    }
+    // Pass optimization level to assembler (capped at -O3, which is max supported)
+    int asmOptLevel = std::min(optimizationLevel, 3);
+    std::string optLevelFlag = " -O" + std::to_string(asmOptLevel);
     for (size_t ai = 0; ai < allArgs.size(); ai++) {
         std::string arg = allArgs[ai];
         if (arg == "-Roptimizer") rOptFlag = " -Roptimizer";
