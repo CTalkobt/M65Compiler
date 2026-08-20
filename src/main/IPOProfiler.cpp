@@ -11,17 +11,23 @@ void IPOProfiler::recordFunctionDefinition(
     bool isLeafCandidate,
     const std::string& moduleName) {
 
+    // Ensure consistent naming: add "_" prefix if not already present
+    // This matches the naming used in recordFunctionCall
+    std::string normalizedName = (functionName.empty() || functionName[0] != '_')
+        ? ("_" + functionName)
+        : functionName;
+
     currentModule_ = moduleName;
 
     // Create function build state
     FunctionBuildState state;
-    state.name = functionName;
+    state.name = normalizedName;
     state.paramCount = paramCount;
     state.localVarCount = localVarCount;
     state.hasNoCalls = hasNoCalls;
     state.isLeafCandidate = isLeafCandidate;
 
-    buildStates_[functionName] = state;
+    buildStates_[normalizedName] = state;
 }
 
 void IPOProfiler::recordFunctionCall(
@@ -79,8 +85,21 @@ void IPOProfiler::finalizeProfiles() {
         profile.codeSize += state.callSites.size() * 10;  // Call overhead (for calls made BY this function)
 
         profile.isLeaf = state.hasNoCalls && (state.localVarCount == 0);
-        // Count distinct functions that call this function (incoming call sites)
-        profile.totalCallSites = incomingCallsPerFunction[funcName].size();
+
+        // Populate call sites vector with incoming calls to this function
+        // Each caller that calls this function creates a call site entry
+        const auto& callers = incomingCallsPerFunction[funcName];
+        for (const auto& callerId : callers) {
+            CallSite site;
+            site.callerId = callerId;
+            site.lineNumber = 0;  // Not tracked at this stage
+            site.isLoopNested = false;  // Not tracked at this stage
+            site.frequency = 1;  // Default: once
+            profile.callSites.push_back(site);
+        }
+
+        // Also set totalCallSites for backward compatibility
+        profile.totalCallSites = callers.size();
         profile.hasExternalCaller = true;  // Conservative default
         profile.isDeadCode = false;
 
