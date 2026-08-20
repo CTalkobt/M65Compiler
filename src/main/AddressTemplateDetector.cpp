@@ -1,4 +1,6 @@
 #include "AddressTemplateDetector.hpp"
+#include <cstdlib>
+#include <iostream>
 
 AddressTemplateDetector::MatchedPattern
 AddressTemplateDetector::detectPattern(const BinaryOperation& binOp) {
@@ -8,6 +10,11 @@ AddressTemplateDetector::detectPattern(const BinaryOperation& binOp) {
     // 3. base + (row*X) + (col*Y)  →  CUMULATIVE_STRIDE
 
     MatchedPattern result;
+
+    // DEBUG: Check if detector is being called
+    if (const char* debug_env = std::getenv("DEBUG_ADDR_TEMPLATE")) {
+        std::cerr << "[AddressTemplateDetector] detectPattern called with op=" << binOp.op << std::endl;
+    }
 
     // Pattern 1: (row * WIDTH) + col
     if (binOp.op == "+") {
