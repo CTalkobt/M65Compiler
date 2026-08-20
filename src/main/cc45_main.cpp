@@ -31,6 +31,7 @@
 #include "IRBuilder.hpp"
 #include "IRCodeGen.hpp"
 #include "IROptimizer.hpp"
+#include "IPOAnalyzer.hpp"
 #include "CompoundAssignmentFusion.hpp"
 #include "CompoundChainOptimizer.hpp"
 #include "AssemblerPeephole.hpp"
@@ -872,6 +873,36 @@ int main(int argc, char** argv) {
         // caused zero regressions, GTE improved from 559→560).
 
         irBuilder.generate(*ast);
+
+        // Phase 91.3: Cross-module optimization analysis and decision application
+        if (optimize) {
+            if (verboseLevel >= 1) std::cout << "Analyzing cross-module optimization opportunities..." << std::endl;
+
+            IPOAnalyzer ipoAnalyzer;
+            auto ipoResult = ipoAnalyzer.analyze(irBuilder.getProfiler().getDatabase());
+
+            if (verboseLevel >= 1) {
+                std::cout << "Cross-module optimization analysis:" << std::endl;
+                std::cout << "  Inlining decisions: " << ipoResult.inlines.size() << std::endl;
+                std::cout << "  Specialization decisions: " << ipoResult.specializations.size() << std::endl;
+                std::cout << "  Dead code decisions: " << ipoResult.deadCode.size() << std::endl;
+                if (ipoResult.estimatedTotalSavings > 0) {
+                    std::cout << "  Estimated total savings: " << ipoResult.estimatedTotalSavings << " bytes" << std::endl;
+                }
+            }
+
+            // Phase 91.3: Apply optimization decisions
+            // Dead code elimination: Remove functions marked as dead code
+            // (Will be handled during linker phase or in future codegen integration)
+            if (verboseLevel >= 2 && ipoResult.deadCode.size() > 0) {
+                std::cout << "Dead code candidates for elimination:" << std::endl;
+                for (const auto& dc : ipoResult.deadCode) {
+                    if (dc.isDeadCode) {
+                        std::cout << "  - " << dc.functionName << " (" << dc.reason << ")" << std::endl;
+                    }
+                }
+            }
+        }
 
         if (traceIROpt) ir::optTrace = &std::cerr;
         if (optimize) {
