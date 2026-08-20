@@ -771,6 +771,10 @@ int main(int argc, char** argv) {
     irMetadata.majorVersion = 0;
     irMetadata.minorVersion = 0;
 
+    // Phase 4.2: IPO hints collection for .o45 embedding
+    O45IPOHints ipoHints;
+    ipoHints.version = O45_IPO_HINTS_VERSION;
+
     Parser parser(tokens);
     try {
         if (verboseLevel >= 1) std::cout << "Parsing " << input_file << "..." << std::endl;
@@ -1146,6 +1150,9 @@ int main(int argc, char** argv) {
         // This will be added to the object file after ca45 assembles it
         irMetadata = irCodeGen.getIRMetadata();
 
+        // Phase 4.2: Collect IPO hints from GlobalFunctionDatabase
+        O45IPOHints ipoHints = irCodeGen.collectIPOHints();
+
         if (verboseLevel >= 1) {
             std::cout << "Generated assembly in " << asmFile << std::endl;
             std::cout << "Code generation complete." << std::endl;
@@ -1257,9 +1264,12 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Phase 49: Post-process .o45 to embed IR metadata if present
-    if (irMetadata.majorVersion != 0 || irMetadata.functions.size() > 0) {
-        if (verboseLevel >= 1) std::cout << "Embedding IR metadata in " << objFile << "..." << std::endl;
+    // Phase 49: Post-process .o45 to embed IR metadata and IPO hints if present
+    // Phase 4.2: Also embed IPO hints when available
+    bool hasMetadata = (irMetadata.majorVersion != 0 || irMetadata.functions.size() > 0) ||
+                       (ipoHints.functions.size() > 0);
+    if (hasMetadata) {
+        if (verboseLevel >= 1) std::cout << "Embedding metadata in " << objFile << "..." << std::endl;
 
         // Read the .o45 file
         std::ifstream o45In(objFile, std::ios::binary);
@@ -1314,7 +1324,15 @@ int main(int argc, char** argv) {
             }
         }
 
-        // Emit the new .o45 file with IR
+        // Phase 4.2: Set IPO hints if present
+        if (ipoHints.functions.size() > 0) {
+            writer.setIPOHints(ipoHints);
+            if (verboseLevel >= 1) {
+                std::cout << "  IPO hints: " << ipoHints.functions.size() << " functions" << std::endl;
+            }
+        }
+
+        // Emit the new .o45 file with IR and IPO hints
         std::vector<uint8_t> newO45Data = writer.emit();
         std::ofstream o45Out(objFile, std::ios::binary);
         if (!o45Out.is_open()) {
@@ -1324,7 +1342,7 @@ int main(int argc, char** argv) {
         o45Out.write((const char*)newO45Data.data(), newO45Data.size());
         o45Out.close();
 
-        if (verboseLevel >= 1) std::cout << "IR metadata embedded successfully." << std::endl;
+        if (verboseLevel >= 1) std::cout << "IR metadata and IPO hints embedded successfully." << std::endl;
     }
 
     // STEP 2: Link .o45 → .prg (unless -c specified)

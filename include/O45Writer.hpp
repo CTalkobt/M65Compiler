@@ -65,6 +65,9 @@ public:
         exportContentFlags_[exportName] = flags;
     }
 
+    // Phase 4.2: IPO Hints support
+    void setIPOHints(const O45IPOHints& hints) { ipoHints_ = hints; hasIPOHints_ = true; }
+
     // Add a string option (NUL-terminated in output). For OPT_FNAME, OPT_ASM, OPT_AUTHOR, OPT_CREATED.
     void addOption(uint8_t type, const std::string& value);
 
@@ -112,6 +115,10 @@ private:
     bool hasIR_ = false;
     O45IRMetadata irMetadata_;
     std::map<std::string, uint8_t> exportContentFlags_;  // export name → content type flags
+
+    // Phase 4.2: IPO Hints for inter-TU optimization
+    bool hasIPOHints_ = false;
+    O45IPOHints ipoHints_;
 
     struct OptionEntry {
         uint8_t type;

@@ -32,6 +32,9 @@ public:
     // Phase 49: Get collected IR metadata for output
     O45IRMetadata getIRMetadata() const;
 
+    // Phase 4.2: Collect inter-TU optimization hints from GlobalFunctionDatabase
+    O45IPOHints collectIPOHints() const;
+
     // Phase 51: Set specialized (constant) parameters for functions
     // Maps function name → parameter index → constant value
     // Used during code generation to skip parameter loading for constant parameters
