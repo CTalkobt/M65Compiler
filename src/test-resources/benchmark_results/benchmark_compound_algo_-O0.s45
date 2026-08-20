@@ -1,0 +1,1756 @@
+    .o45
+    .org $2000
+    .weak __sp_base
+    __sp_base = $0101
+    .weak __static_chain
+    .weak __zp_scratch
+    .weak __zp_scratch2
+    .weak __zp_scratch3
+    .weak __zp_scratch4
+    .weak cc45.zeroPageStart
+    __static_chain = $06
+    __zp_scratch = $08
+    __zp_scratch2 = $0A
+    __zp_scratch3 = $0C
+    __zp_scratch4 = $0E
+    cc45.zeroPageStart = $08
+
+    .extern _printf
+
+    .global _running_average
+    .global _fibonacci_compound
+    .global _digit_sum
+    .global _gcd
+    .global _count_bits
+    .global _horner_poly
+    .global _variance_calc
+    .global _ema_update
+    .global _checksum
+    .global _main
+
+    .segment "code"
+
+; function _running_average
+; SAC inline storage: 10 bytes
+    .global _running_average__param_values
+    _running_average__param_values: .word 0
+    .global _running_average__param_count
+    _running_average__param_count: .word 5
+    _running_average__local_0: .word 0
+    _running_average__local_1: .word 0
+    _running_average__local_2: .word 0
+    _running_average__local_4: .word 0
+    _running_average__local_6: .word 0
+    proc _running_average, W#@_p_values, W#@_p_count
+    .sac
+    .var _fp = 0
+    .loc "/home/duck/m65/inpg/m65compiler/bin/../lib/include/stdio.h", 4
+    .local @_l_i = 8
+    .local @_l_sum = 4
+    .local @_l_weighted_sum = 6
+; .debug_var: __running_average @_l_i offset=8 size=2 type=int16 scope=local
+; .debug_var: __running_average @_l_sum offset=4 size=2 type=int16 scope=local
+; .debug_var: __running_average @_l_weighted_sum offset=6 size=2 type=int16 scope=local
+    .var @_p_values = 2
+    .var @_p_count = 4
+; .debug_var: __running_average @_p_values offset=2 size=2 type=ptr scope=parameter
+; .debug_var: __running_average @_p_count offset=4 size=2 type=int16 scope=parameter
+
+@entry:
+    .loc "benchmark_compound_algo.c", 9
+    lda #0
+    sta _running_average__local_2
+    sta _running_average__local_2+1
+    .loc "benchmark_compound_algo.c", 10
+    lda #0
+    sta _running_average__local_4
+    sta _running_average__local_4+1
+    .loc "benchmark_compound_algo.c", 11
+    lda #0
+    sta _running_average__local_6
+    sta _running_average__local_6+1
+@for_cond0:
+    lda _running_average__param_count
+    ldx _running_average__param_count+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _running_average__local_6
+    ldx _running_average__local_6+1
+    cmp.16 .AX, __zp_scratch2
+    bcc @for_body1
+    bra @for_end3
+@for_body1:
+    .loc "benchmark_compound_algo.c", 12
+    lda _running_average__param_values
+    ldx _running_average__param_values+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _running_average__local_6
+    ldx _running_average__local_6+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $22
+    stx $22+1
+    ldy #0
+    lda ($22),y
+    pha
+    iny
+    lda ($22),y
+    tax
+    pla
+    sta $24
+    stx $25
+    lda _running_average__local_2
+    ldx _running_average__local_2+1
+    add.16 .AX, $24
+    sta $26
+    stx $27
+    sta _running_average__local_2
+    stx _running_average__local_2+1
+    .loc "benchmark_compound_algo.c", 13
+    lda _running_average__param_values
+    ldx _running_average__param_values+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _running_average__local_6
+    ldx _running_average__local_6+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $28
+    stx $28+1
+    ldy #0
+    lda ($28),y
+    pha
+    iny
+    lda ($28),y
+    tax
+    pla
+    sta $2A
+    stx $2B
+    lda _running_average__local_6
+    ldx _running_average__local_6+1
+    add.16 .AX, #1
+    sta $2E
+    stx $2F
+    lda $2A
+    ldx $2B
+    mul.16 .AX, $2E
+    sta $30
+    stx $31
+    lda _running_average__local_4
+    ldx _running_average__local_4+1
+    add.16 .AX, $30
+    sta $32
+    stx $33
+    sta _running_average__local_4
+    stx _running_average__local_4+1
+@for_inc2:
+    .loc "benchmark_compound_algo.c", 11
+    lda _running_average__local_6
+    ldx _running_average__local_6+1
+    sta $34
+    stx $35
+    lda $34
+    ldx $35
+    add.16 .AX, #1
+    sta _running_average__local_6
+    stx _running_average__local_6+1
+    bra @for_cond0
+@for_end3:
+    .loc "benchmark_compound_algo.c", 15
+    lda _running_average__local_2
+    ldx _running_average__local_2+1
+    cmp.16 .AX, #0
+    beq @tern_else5
+    bcs @tern_then4
+    bra @tern_else5
+@tern_then4:
+    lda _running_average__local_2
+    ldx _running_average__local_2+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _running_average__local_4
+    ldx _running_average__local_4+1
+    div.16 .AX, __zp_scratch2
+    sta $20
+    stx $21
+    bra @tern_end6
+@tern_else5:
+    lda #0
+    tax
+    sta $20
+    stx $21
+@tern_end6:
+    lda $20
+    ldx $21
+@__return:
+    rts
+    .param_const _running_average 1 5
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 10
+    endproc
+
+; function _fibonacci_compound
+; SAC inline storage: 10 bytes
+    .global _fibonacci_compound__param_n
+    _fibonacci_compound__param_n: .word 10
+    _fibonacci_compound__local_0: .word 0
+    _fibonacci_compound__local_1: .word 0
+    _fibonacci_compound__local_3: .word 0
+    _fibonacci_compound__local_5: .word 0
+    _fibonacci_compound__local_8: .word 0
+    proc _fibonacci_compound, W#@_p_n
+    .sac
+    .var _fp = 0
+    .loc "/home/duck/m65/inpg/m65compiler/bin/../lib/include/stdio.h", 15
+    .local @_l_a = 2
+    .local @_l_b = 4
+    .local @_l_i = 6
+    .local @_l_temp = 8
+; .debug_var: __fibonacci_compound @_l_a offset=2 size=2 type=int16 scope=local
+; .debug_var: __fibonacci_compound @_l_b offset=4 size=2 type=int16 scope=local
+; .debug_var: __fibonacci_compound @_l_i offset=6 size=2 type=int16 scope=local
+; .debug_var: __fibonacci_compound @_l_temp offset=8 size=2 type=int16 scope=local
+    .var @_p_n = 2
+; .debug_var: __fibonacci_compound @_p_n offset=2 size=2 type=int16 scope=parameter
+
+@entry:
+    .loc "benchmark_compound_algo.c", 20
+    lda #0
+    sta _fibonacci_compound__local_1
+    sta _fibonacci_compound__local_1+1
+    lda #1
+    sta _fibonacci_compound__local_3
+    lda #0
+    sta _fibonacci_compound__local_3+1
+    .loc "benchmark_compound_algo.c", 21
+    lda #0
+    sta _fibonacci_compound__local_5
+    sta _fibonacci_compound__local_5+1
+@for_cond7:
+    lda _fibonacci_compound__param_n
+    ldx _fibonacci_compound__param_n+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _fibonacci_compound__local_5
+    ldx _fibonacci_compound__local_5+1
+    cmp.16 .AX, __zp_scratch2
+    bcc @for_body8
+    bra @for_end10
+@for_body8:
+    .loc "benchmark_compound_algo.c", 22
+    lda _fibonacci_compound__local_1
+    ldx _fibonacci_compound__local_1+1
+    sta _fibonacci_compound__local_8
+    stx _fibonacci_compound__local_8+1
+    .loc "benchmark_compound_algo.c", 23
+    lda _fibonacci_compound__local_3
+    ldx _fibonacci_compound__local_3+1
+    sta _fibonacci_compound__local_1
+    stx _fibonacci_compound__local_1+1
+    .loc "benchmark_compound_algo.c", 24
+    lda _fibonacci_compound__local_8
+    ldx _fibonacci_compound__local_8+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _fibonacci_compound__local_3
+    ldx _fibonacci_compound__local_3+1
+    add.16 .AX, __zp_scratch2
+    sta $22
+    stx $23
+    sta _fibonacci_compound__local_3
+    stx _fibonacci_compound__local_3+1
+@for_inc9:
+    .loc "benchmark_compound_algo.c", 21
+    lda _fibonacci_compound__local_5
+    ldx _fibonacci_compound__local_5+1
+    sta $24
+    stx $25
+    lda $24
+    ldx $25
+    add.16 .AX, #1
+    sta _fibonacci_compound__local_5
+    stx _fibonacci_compound__local_5+1
+    bra @for_cond7
+@for_end10:
+    .loc "benchmark_compound_algo.c", 26
+    lda _fibonacci_compound__local_1
+    ldx _fibonacci_compound__local_1+1
+@__return:
+    rts
+    .param_const _fibonacci_compound 0 10
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 10
+    endproc
+
+; function _digit_sum
+; SAC inline storage: 4 bytes
+    .global _digit_sum__param_num
+    _digit_sum__param_num: .word 12345
+    _digit_sum__local_0: .word 0
+    _digit_sum__local_1: .word 0
+    proc _digit_sum, W#@_p_num
+    .sac
+    .var _fp = 0
+    .loc "benchmark_compound_algo.c", 11
+    .local @_l_sum = 2
+; .debug_var: __digit_sum @_l_sum offset=2 size=2 type=int16 scope=local
+    .var @_p_num = 2
+; .debug_var: __digit_sum @_p_num offset=2 size=2 type=int16 scope=parameter
+
+@entry:
+    .loc "benchmark_compound_algo.c", 31
+    lda #0
+    sta _digit_sum__local_1
+    sta _digit_sum__local_1+1
+@while_cond11:
+    .loc "benchmark_compound_algo.c", 32
+    lda _digit_sum__param_num
+    ldx _digit_sum__param_num+1
+    cmp.16 .AX, #0
+    beq @while_end13
+    bcs @while_body12
+    bra @while_end13
+@while_body12:
+    .loc "benchmark_compound_algo.c", 33
+    lda #10
+    ldx #0
+    sta $24
+    stx $25
+    lda _digit_sum__param_num
+    ldx _digit_sum__param_num+1
+    mod.16 .AX, $24
+    sta $26
+    stx $27
+    lda _digit_sum__local_1
+    ldx _digit_sum__local_1+1
+    add.16 .AX, $26
+    sta $28
+    stx $29
+    sta _digit_sum__local_1
+    stx _digit_sum__local_1+1
+    .loc "benchmark_compound_algo.c", 34
+    lda #10
+    ldx #0
+    sta $2A
+    stx $2B
+    lda _digit_sum__param_num
+    ldx _digit_sum__param_num+1
+    div.16 .AX, $2A
+    sta _digit_sum__param_num
+    stx _digit_sum__param_num+1
+    bra @while_cond11
+@while_end13:
+    .loc "benchmark_compound_algo.c", 36
+    lda _digit_sum__local_1
+    ldx _digit_sum__local_1+1
+@__return:
+    rts
+    .param_const _digit_sum 0 12345
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 4
+    endproc
+
+; function _gcd
+; SAC inline storage: 6 bytes
+    .global _gcd__param_a
+    _gcd__param_a: .word 48
+    .global _gcd__param_b
+    _gcd__param_b: .word 18
+    _gcd__local_0: .word 0
+    _gcd__local_1: .word 0
+    _gcd__local_4: .word 0
+    proc _gcd, W#@_p_a, W#@_p_b
+    .sac
+    .var _fp = 0
+    .loc "benchmark_compound_algo.c", 21
+    .local @_l_temp = 4
+; .debug_var: __gcd @_l_temp offset=4 size=2 type=int16 scope=local
+    .var @_p_a = 2
+    .var @_p_b = 4
+; .debug_var: __gcd @_p_a offset=2 size=2 type=int16 scope=parameter
+; .debug_var: __gcd @_p_b offset=4 size=2 type=int16 scope=parameter
+
+@entry:
+@while_cond14:
+    .loc "benchmark_compound_algo.c", 41
+    lda _gcd__param_b
+    ldx _gcd__param_b+1
+    stx __zp_scratch
+    ora __zp_scratch
+    bne @while_body15
+    bra @while_end16
+@while_body15:
+    .loc "benchmark_compound_algo.c", 42
+    lda _gcd__param_b
+    ldx _gcd__param_b+1
+    sta _gcd__local_4
+    stx _gcd__local_4+1
+    .loc "benchmark_compound_algo.c", 43
+    lda _gcd__param_b
+    ldx _gcd__param_b+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _gcd__param_a
+    ldx _gcd__param_a+1
+    mod.16 .AX, __zp_scratch2
+    sta $24
+    stx $25
+    lda $24
+    ldx $25
+    sta _gcd__param_b
+    stx _gcd__param_b+1
+    .loc "benchmark_compound_algo.c", 44
+    lda _gcd__local_4
+    ldx _gcd__local_4+1
+    sta _gcd__param_a
+    stx _gcd__param_a+1
+    bra @while_cond14
+@while_end16:
+    .loc "benchmark_compound_algo.c", 46
+    lda _gcd__param_a
+    ldx _gcd__param_a+1
+@__return:
+    rts
+    .param_const _gcd 0 48
+    .param_const _gcd 1 18
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 6
+    endproc
+
+; function _count_bits
+; SAC inline storage: 4 bytes
+    .global _count_bits__param_num
+    _count_bits__param_num: .word 15
+    _count_bits__local_0: .word 0
+    _count_bits__local_1: .word 0
+    proc _count_bits, W#@_p_num
+    .sac
+    .var _fp = 0
+    .loc "benchmark_compound_algo.c", 31
+    .local @_l_count = 2
+; .debug_var: __count_bits @_l_count offset=2 size=2 type=int16 scope=local
+    .var @_p_num = 2
+; .debug_var: __count_bits @_p_num offset=2 size=2 type=int16 scope=parameter
+
+@entry:
+    .loc "benchmark_compound_algo.c", 51
+    lda #0
+    sta _count_bits__local_1
+    sta _count_bits__local_1+1
+@while_cond17:
+    .loc "benchmark_compound_algo.c", 52
+    lda _count_bits__param_num
+    ldx _count_bits__param_num+1
+    cmp.16 .AX, #0
+    beq @while_end19
+    bcs @while_body18
+    bra @while_end19
+@while_body18:
+    .loc "benchmark_compound_algo.c", 53
+    lda #1
+    ldx #0
+    sta $24
+    stx $25
+    lda _count_bits__param_num
+    ldx _count_bits__param_num+1
+    and.16 .AX, $24
+    sta $26
+    stx $27
+    lda _count_bits__local_1
+    ldx _count_bits__local_1+1
+    add.16 .AX, $26
+    sta $28
+    stx $29
+    sta _count_bits__local_1
+    stx _count_bits__local_1+1
+    .loc "benchmark_compound_algo.c", 54
+    lda #1
+    ldx #0
+    sta $2A
+    stx $2B
+    lda _count_bits__param_num
+    ldx _count_bits__param_num+1
+    ldy $2A
+    beq @__shr_done_1
+@__shr_loop_0:
+    lsr.16 .AX
+    dey
+    bne @__shr_loop_0
+@__shr_done_1:
+    sta _count_bits__param_num
+    stx _count_bits__param_num+1
+    bra @while_cond17
+@while_end19:
+    .loc "benchmark_compound_algo.c", 56
+    lda _count_bits__local_1
+    ldx _count_bits__local_1+1
+@__return:
+    rts
+    .param_const _count_bits 0 15
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 4
+    endproc
+
+; function _horner_poly
+; SAC inline storage: 10 bytes
+    .global _horner_poly__param_x
+    _horner_poly__param_x: .word 2
+    .global _horner_poly__param_coeffs
+    _horner_poly__param_coeffs: .word 0
+    .global _horner_poly__param_degree
+    _horner_poly__param_degree: .word 3
+    _horner_poly__local_0: .word 0
+    _horner_poly__local_1: .word 0
+    _horner_poly__local_2: .word 0
+    _horner_poly__local_3: .word 0
+    _horner_poly__local_7: .word 0
+    proc _horner_poly, W#@_p_x, W#@_p_coeffs, W#@_p_degree
+    .sac
+    .var _fp = 0
+    .loc "benchmark_compound_algo.c", 41
+    .local @_l_i = 8
+    .local @_l_result = 6
+; .debug_var: __horner_poly @_l_i offset=8 size=2 type=int16 scope=local
+; .debug_var: __horner_poly @_l_result offset=6 size=2 type=int16 scope=local
+    .var @_p_x = 2
+    .var @_p_coeffs = 4
+    .var @_p_degree = 6
+; .debug_var: __horner_poly @_p_x offset=2 size=2 type=int16 scope=parameter
+; .debug_var: __horner_poly @_p_coeffs offset=4 size=2 type=ptr scope=parameter
+; .debug_var: __horner_poly @_p_degree offset=6 size=2 type=int16 scope=parameter
+
+@entry:
+    .loc "benchmark_compound_algo.c", 61
+    lda #0
+    tax
+    lda _horner_poly__param_coeffs
+    ldx _horner_poly__param_coeffs+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    pha
+    iny
+    lda (__zp_scratch),y
+    tax
+    pla
+    sta _horner_poly__local_3
+    stx _horner_poly__local_3+1
+    .loc "benchmark_compound_algo.c", 62
+    lda #1
+    sta _horner_poly__local_7
+    lda #0
+    sta _horner_poly__local_7+1
+@for_cond20:
+    lda _horner_poly__param_degree
+    ldx _horner_poly__param_degree+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _horner_poly__local_7
+    ldx _horner_poly__local_7+1
+    cmp.16 .AX, __zp_scratch2
+    bcc @for_body21
+    beq @for_body21
+    bra @for_end23
+@for_body21:
+    .loc "benchmark_compound_algo.c", 63
+    lda _horner_poly__param_x
+    ldx _horner_poly__param_x+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _horner_poly__local_3
+    ldx _horner_poly__local_3+1
+    mul.16 .AX, __zp_scratch2
+    sta $22
+    stx $23
+    lda $22
+    ldx $23
+    sta _horner_poly__local_3
+    stx _horner_poly__local_3+1
+    .loc "benchmark_compound_algo.c", 64
+    lda _horner_poly__param_coeffs
+    ldx _horner_poly__param_coeffs+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _horner_poly__local_7
+    ldx _horner_poly__local_7+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $24
+    stx $24+1
+    ldy #0
+    lda ($24),y
+    pha
+    iny
+    lda ($24),y
+    tax
+    pla
+    sta $26
+    stx $27
+    lda _horner_poly__local_3
+    ldx _horner_poly__local_3+1
+    add.16 .AX, $26
+    sta $28
+    stx $29
+    sta _horner_poly__local_3
+    stx _horner_poly__local_3+1
+@for_inc22:
+    .loc "benchmark_compound_algo.c", 62
+    lda _horner_poly__local_7
+    ldx _horner_poly__local_7+1
+    sta $2A
+    stx $2B
+    lda $2A
+    ldx $2B
+    add.16 .AX, #1
+    sta _horner_poly__local_7
+    stx _horner_poly__local_7+1
+    bra @for_cond20
+@for_end23:
+    .loc "benchmark_compound_algo.c", 66
+    lda _horner_poly__local_3
+    ldx _horner_poly__local_3+1
+@__return:
+    rts
+    .param_const _horner_poly 0 2
+    .param_const _horner_poly 2 3
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 10
+    endproc
+
+; function _variance_calc
+; SAC inline storage: 12 bytes
+    .global _variance_calc__param_data
+    _variance_calc__param_data: .word 0
+    .global _variance_calc__param_count
+    _variance_calc__param_count: .word 5
+    _variance_calc__local_0: .word 0
+    _variance_calc__local_1: .word 0
+    _variance_calc__local_2: .word 0
+    _variance_calc__local_4: .word 0
+    _variance_calc__local_6: .word 0
+    _variance_calc__local_20: .word 0
+    proc _variance_calc, W#@_p_data, W#@_p_count
+    .sac
+    .var _fp = 0
+    .loc "benchmark_compound_algo.c", 51
+    .local @_l_i = 8
+    .local @_l_mean = 10
+    .local @_l_sum = 4
+    .local @_l_sum_sq = 6
+; .debug_var: __variance_calc @_l_i offset=8 size=2 type=int16 scope=local
+; .debug_var: __variance_calc @_l_mean offset=10 size=2 type=int16 scope=local
+; .debug_var: __variance_calc @_l_sum offset=4 size=2 type=int16 scope=local
+; .debug_var: __variance_calc @_l_sum_sq offset=6 size=2 type=int16 scope=local
+    .var @_p_data = 2
+    .var @_p_count = 4
+; .debug_var: __variance_calc @_p_data offset=2 size=2 type=ptr scope=parameter
+; .debug_var: __variance_calc @_p_count offset=4 size=2 type=int16 scope=parameter
+
+@entry:
+    .loc "benchmark_compound_algo.c", 71
+    lda #0
+    sta _variance_calc__local_2
+    sta _variance_calc__local_2+1
+    .loc "benchmark_compound_algo.c", 72
+    lda #0
+    sta _variance_calc__local_4
+    sta _variance_calc__local_4+1
+    .loc "benchmark_compound_algo.c", 73
+    lda #0
+    sta _variance_calc__local_6
+    sta _variance_calc__local_6+1
+@for_cond24:
+    lda _variance_calc__param_count
+    ldx _variance_calc__param_count+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _variance_calc__local_6
+    ldx _variance_calc__local_6+1
+    cmp.16 .AX, __zp_scratch2
+    bcc @for_body25
+    bra @for_end27
+@for_body25:
+    .loc "benchmark_compound_algo.c", 74
+    lda _variance_calc__param_data
+    ldx _variance_calc__param_data+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _variance_calc__local_6
+    ldx _variance_calc__local_6+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $22
+    stx $22+1
+    ldy #0
+    lda ($22),y
+    pha
+    iny
+    lda ($22),y
+    tax
+    pla
+    sta $24
+    stx $25
+    lda _variance_calc__local_2
+    ldx _variance_calc__local_2+1
+    add.16 .AX, $24
+    sta $26
+    stx $27
+    sta _variance_calc__local_2
+    stx _variance_calc__local_2+1
+    .loc "benchmark_compound_algo.c", 75
+    lda _variance_calc__param_data
+    ldx _variance_calc__param_data+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _variance_calc__local_6
+    ldx _variance_calc__local_6+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $28
+    stx $28+1
+    ldy #0
+    lda ($28),y
+    pha
+    iny
+    lda ($28),y
+    tax
+    pla
+    sta $2A
+    stx $2B
+    lda _variance_calc__param_data
+    ldx _variance_calc__param_data+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _variance_calc__local_6
+    ldx _variance_calc__local_6+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $2C
+    stx $2C+1
+    ldy #0
+    lda ($2C),y
+    pha
+    iny
+    lda ($2C),y
+    tax
+    pla
+    sta $2E
+    stx $2F
+    lda $2A
+    ldx $2B
+    mul.16 .AX, $2E
+    sta $30
+    stx $31
+    lda _variance_calc__local_4
+    ldx _variance_calc__local_4+1
+    add.16 .AX, $30
+    sta $32
+    stx $33
+    sta _variance_calc__local_4
+    stx _variance_calc__local_4+1
+@for_inc26:
+    .loc "benchmark_compound_algo.c", 73
+    lda _variance_calc__local_6
+    ldx _variance_calc__local_6+1
+    sta $34
+    stx $35
+    lda $34
+    ldx $35
+    add.16 .AX, #1
+    sta _variance_calc__local_6
+    stx _variance_calc__local_6+1
+    bra @for_cond24
+@for_end27:
+    .loc "benchmark_compound_algo.c", 77
+    lda _variance_calc__param_count
+    ldx _variance_calc__param_count+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _variance_calc__local_2
+    ldx _variance_calc__local_2+1
+    div.16 .AX, __zp_scratch2
+    sta _variance_calc__local_20
+    stx _variance_calc__local_20+1
+    .loc "benchmark_compound_algo.c", 78
+    lda _variance_calc__param_count
+    ldx _variance_calc__param_count+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _variance_calc__local_4
+    ldx _variance_calc__local_4+1
+    div.16 .AX, __zp_scratch2
+    lda _variance_calc__local_20
+    ldx _variance_calc__local_20+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _variance_calc__local_20
+    ldx _variance_calc__local_20+1
+    mul.16 .AX, __zp_scratch2
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    sub.16 .AX, __zp_scratch2
+@__return:
+    rts
+    .param_const _variance_calc 1 5
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 12
+    endproc
+
+; function _ema_update
+; SAC inline storage: 10 bytes
+    .global _ema_update__param_current
+    _ema_update__param_current: .word 150
+    .global _ema_update__param_ema_prev
+    _ema_update__param_ema_prev: .word 100
+    .global _ema_update__param_alpha
+    _ema_update__param_alpha: .word 30
+    _ema_update__local_0: .word 0
+    _ema_update__local_1: .word 0
+    _ema_update__local_2: .word 0
+    _ema_update__local_3: .word 0
+    _ema_update__local_6: .word 0
+    proc _ema_update, W#@_p_current, W#@_p_ema_prev, W#@_p_alpha
+    .sac
+    .var _fp = 0
+    .loc "benchmark_compound_algo.c", 63
+    .local @_l_delta = 6
+    .local @_l_ema = 8
+; .debug_var: __ema_update @_l_delta offset=6 size=2 type=int16 scope=local
+; .debug_var: __ema_update @_l_ema offset=8 size=2 type=int16 scope=local
+    .var @_p_current = 2
+    .var @_p_ema_prev = 4
+    .var @_p_alpha = 6
+; .debug_var: __ema_update @_p_current offset=2 size=2 type=int16 scope=parameter
+; .debug_var: __ema_update @_p_ema_prev offset=4 size=2 type=int16 scope=parameter
+; .debug_var: __ema_update @_p_alpha offset=6 size=2 type=int16 scope=parameter
+
+@entry:
+    .loc "benchmark_compound_algo.c", 83
+    lda _ema_update__param_ema_prev
+    ldx _ema_update__param_ema_prev+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _ema_update__param_current
+    ldx _ema_update__param_current+1
+    sub.16 .AX, __zp_scratch2
+    sta _ema_update__local_3
+    stx _ema_update__local_3+1
+    .loc "benchmark_compound_algo.c", 84
+    lda _ema_update__param_alpha
+    ldx _ema_update__param_alpha+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _ema_update__local_3
+    ldx _ema_update__local_3+1
+    mul.16 .AX, __zp_scratch2
+    sta _ema_update__local_3
+    stx _ema_update__local_3+1
+    .loc "benchmark_compound_algo.c", 85
+    lda _ema_update__param_ema_prev
+    ldx _ema_update__param_ema_prev+1
+    sta _ema_update__local_6
+    stx _ema_update__local_6+1
+    .loc "benchmark_compound_algo.c", 86
+    lda #100
+    ldx #0
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _ema_update__local_3
+    ldx _ema_update__local_3+1
+    div.16 .AX, __zp_scratch2
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _ema_update__local_6
+    ldx _ema_update__local_6+1
+    add.16 .AX, __zp_scratch2
+    sta _ema_update__local_6
+    stx _ema_update__local_6+1
+    .loc "benchmark_compound_algo.c", 87
+    lda _ema_update__local_6
+    ldx _ema_update__local_6+1
+@__return:
+    rts
+    .param_const _ema_update 0 150
+    .param_const _ema_update 1 100
+    .param_const _ema_update 2 30
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 10
+    endproc
+
+; function _checksum
+; SAC inline storage: 8 bytes
+    .global _checksum__param_data
+    _checksum__param_data: .word 0
+    .global _checksum__param_len
+    _checksum__param_len: .word 5
+    _checksum__local_0: .word 0
+    _checksum__local_1: .word 0
+    _checksum__local_2: .word 0
+    _checksum__local_4: .word 0
+    proc _checksum, W#@_p_data, W#@_p_len
+    .sac
+    .var _fp = 0
+    .loc "benchmark_compound_algo.c", 82
+    .local @_l_check = 4
+    .local @_l_i = 6
+; .debug_var: __checksum @_l_check offset=4 size=2 type=int16 scope=local
+; .debug_var: __checksum @_l_i offset=6 size=2 type=int16 scope=local
+    .var @_p_data = 2
+    .var @_p_len = 4
+; .debug_var: __checksum @_p_data offset=2 size=2 type=ptr scope=parameter
+; .debug_var: __checksum @_p_len offset=4 size=2 type=int16 scope=parameter
+
+@entry:
+    .loc "benchmark_compound_algo.c", 102
+    lda #0
+    sta _checksum__local_2
+    sta _checksum__local_2+1
+    .loc "benchmark_compound_algo.c", 103
+    lda #0
+    sta _checksum__local_4
+    sta _checksum__local_4+1
+@for_cond32:
+    lda _checksum__param_len
+    ldx _checksum__param_len+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _checksum__local_4
+    ldx _checksum__local_4+1
+    cmp.16 .AX, __zp_scratch2
+    bcc @for_body33
+    bra @for_end35
+@for_body33:
+    .loc "benchmark_compound_algo.c", 104
+    lda _checksum__param_data
+    ldx _checksum__param_data+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _checksum__local_4
+    ldx _checksum__local_4+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $22
+    stx $22+1
+    ldy #0
+    lda ($22),y
+    ldx #0
+    sta $24
+    lda $24
+    ldx #0
+    ldx #0
+    sta $26
+    stx $27
+    lda _checksum__local_2
+    ldx _checksum__local_2+1
+    add.16 .AX, $26
+    sta $28
+    stx $29
+    sta _checksum__local_2
+    stx _checksum__local_2+1
+    .loc "benchmark_compound_algo.c", 105
+    lda _checksum__param_data
+    ldx _checksum__param_data+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _checksum__local_4
+    ldx _checksum__local_4+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $2A
+    stx $2A+1
+    ldy #0
+    lda ($2A),y
+    ldx #0
+    sta $2C
+    lda #7
+    ldx #0
+    sta $2E
+    stx $2F
+    lda _checksum__local_4
+    ldx _checksum__local_4+1
+    and.16 .AX, $2E
+    sta $30
+    stx $31
+    lda $2C
+    ldx #0
+    ldx #0
+    sta $32
+    stx $33
+    lda $32
+    ldx $33
+    ldy $30
+    beq @__shl_done_3
+@__shl_loop_2:
+    lsl.16 .AX
+    dey
+    bne @__shl_loop_2
+@__shl_done_3:
+    sta $34
+    stx $35
+    lda _checksum__local_2
+    ldx _checksum__local_2+1
+    eor.16 .AX, $34
+    sta $36
+    stx $37
+    lda $36
+    ldx $37
+    sta _checksum__local_2
+    stx _checksum__local_2+1
+@for_inc34:
+    .loc "benchmark_compound_algo.c", 103
+    lda _checksum__local_4
+    ldx _checksum__local_4+1
+    sta $38
+    stx $39
+    lda $38
+    ldx $39
+    add.16 .AX, #1
+    sta _checksum__local_4
+    stx _checksum__local_4+1
+    bra @for_cond32
+@for_end35:
+    .loc "benchmark_compound_algo.c", 107
+    lda _checksum__local_2
+    ldx _checksum__local_2+1
+@__return:
+    rts
+    .param_const _checksum 1 5
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 8
+    endproc
+
+; function _main
+; SAC inline storage: 33 bytes
+    _main__local_0: .word 0
+    _main__local_12: .word 0
+    _main__local_13: .word 0
+    _main__local_14: .word 0
+    _main__local_15: .word 0
+    _main__local_17: .word 0
+    _main__local_18: .word 0
+    _main__local_19: .word 0
+    _main__local_21: .word 0
+    _main__local_22: .word 0
+    _main__local_23: .word 0
+    _main__local_25: .word 0
+    _main__local_26: .word 0
+    _main__local_27: .word 0
+    _main__local_28: .word 0
+    _main__local_30: .word 0
+    _main__local_31: .word 0
+    _main__local_32: .word 0
+    _main__local_34: .word 0
+    _main__local_44: .word 0
+    _main__local_45: .word 0
+    _main__local_46: .word 0
+    _main__local_47: .word 0
+    _main__local_48: .word 0
+    _main__local_50: .word 0
+    _main__local_62: .word 0
+    _main__local_63: .word 0
+    _main__local_64: .word 0
+    _main__local_65: .word 0
+    _main__local_67: .word 0
+    _main__local_68: .word 0
+    _main__local_69: .word 0
+    _main__local_70: .word 0
+    _main__local_71: .word 0
+    _main__local_73: .word 0
+    _main__local_85: .word 0
+    _main__local_86: .word 0
+    _main__local_87: .word 0
+    _main__local_88: .word 0
+    proc _main
+; Phase 51: zero-alloc leaf (all parameters constant)
+    .var _fp = 0
+    .loc "benchmark_compound_algo.c", 91
+    .local @_l_buf = 0
+    .local @_l_data = 23
+    .local @_l_poly = 5
+    .local @_l_values = 13
+; .debug_var: __main @_l_buf offset=0 size=2 type=int8 scope=local
+; .debug_var: __main @_l_data offset=23 size=2 type=int16 scope=local
+; .debug_var: __main @_l_poly offset=5 size=2 type=int16 scope=local
+; .debug_var: __main @_l_values offset=13 size=2 type=int16 scope=local
+
+@entry:
+    .loc "benchmark_compound_algo.c", 111
+    leax.local 13
+    sta $20
+    stx $21
+    lda #10
+    ldx #0
+    lda $20
+    ldx $20+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy #0
+    sta (__zp_scratch2),y
+    txa
+    iny
+    sta (__zp_scratch2),y
+    lda #20
+    ldx #0
+    lda $20
+    ldx $20+1
+    add.16 .AX, #2
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy #0
+    sta (__zp_scratch2),y
+    txa
+    iny
+    sta (__zp_scratch2),y
+    lda #30
+    ldx #0
+    lda $20
+    ldx $20+1
+    add.16 .AX, #4
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy #0
+    sta (__zp_scratch2),y
+    txa
+    iny
+    sta (__zp_scratch2),y
+    lda #40
+    ldx #0
+    lda $20
+    ldx $20+1
+    add.16 .AX, #6
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy #0
+    sta (__zp_scratch2),y
+    txa
+    iny
+    sta (__zp_scratch2),y
+    lda #50
+    ldx #0
+    lda $20
+    ldx $20+1
+    add.16 .AX, #8
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy #0
+    sta (__zp_scratch2),y
+    txa
+    iny
+    sta (__zp_scratch2),y
+    .loc "benchmark_compound_algo.c", 112
+    ldax #__str_36
+    sta _main__local_12
+    stx _main__local_12+1
+    leax.local 13
+    sta _main__local_13
+    stx _main__local_13+1
+    lda #5
+    ldx #0
+    sta _main__local_14
+    stx _main__local_14+1
+    lda _main__local_13
+    ldx _main__local_13+1
+    sta _running_average__param_values
+    stx _running_average__param_values+1
+    jsr _running_average
+    sta _main__local_15
+    stx _main__local_15+1
+    lda _main__local_15
+    ldx _main__local_15+1
+    sta $28
+    stx $29
+    lda _main__local_12
+    ldx _main__local_12+1
+    sta $2A
+    stx $2B
+    lda $28
+    ldx $29
+    push .ax
+    lda $2A
+    ldx $2B
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_algo.c", 114
+    ldax #__str_37
+    sta _main__local_17
+    stx _main__local_17+1
+    jsr _fibonacci_compound
+    sta _main__local_19
+    stx _main__local_19+1
+    lda _main__local_19
+    ldx _main__local_19+1
+    sta $28
+    stx $29
+    lda _main__local_17
+    ldx _main__local_17+1
+    sta $2A
+    stx $2B
+    lda $28
+    ldx $29
+    push .ax
+    lda $2A
+    ldx $2B
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_algo.c", 116
+    ldax #__str_38
+    sta _main__local_21
+    stx _main__local_21+1
+    jsr _digit_sum
+    sta _main__local_23
+    stx _main__local_23+1
+    lda _main__local_23
+    ldx _main__local_23+1
+    sta $28
+    stx $29
+    lda _main__local_21
+    ldx _main__local_21+1
+    sta $2A
+    stx $2B
+    lda $28
+    ldx $29
+    push .ax
+    lda $2A
+    ldx $2B
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_algo.c", 117
+    ldax #__str_39
+    sta _main__local_25
+    stx _main__local_25+1
+    jsr _gcd
+    sta _main__local_28
+    stx _main__local_28+1
+    lda _main__local_28
+    ldx _main__local_28+1
+    sta $28
+    stx $29
+    lda _main__local_25
+    ldx _main__local_25+1
+    sta $2A
+    stx $2B
+    lda $28
+    ldx $29
+    push .ax
+    lda $2A
+    ldx $2B
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_algo.c", 118
+    ldax #__str_40
+    sta _main__local_30
+    stx _main__local_30+1
+    jsr _count_bits
+    sta _main__local_32
+    stx _main__local_32+1
+    lda _main__local_32
+    ldx _main__local_32+1
+    sta $28
+    stx $29
+    lda _main__local_30
+    ldx _main__local_30+1
+    sta $2A
+    stx $2B
+    lda $28
+    ldx $29
+    push .ax
+    lda $2A
+    ldx $2B
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_algo.c", 120
+    leax.local 5
+    sta $20
+    stx $21
+    lda #1
+    ldx #0
+    lda $20
+    ldx $20+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy #0
+    sta (__zp_scratch2),y
+    txa
+    iny
+    sta (__zp_scratch2),y
+    lda #2
+    ldx #0
+    lda $20
+    ldx $20+1
+    add.16 .AX, #2
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy #0
+    sta (__zp_scratch2),y
+    txa
+    iny
+    sta (__zp_scratch2),y
+    lda #3
+    ldx #0
+    lda $20
+    ldx $20+1
+    add.16 .AX, #4
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy #0
+    sta (__zp_scratch2),y
+    txa
+    iny
+    sta (__zp_scratch2),y
+    lda #4
+    ldx #0
+    lda $20
+    ldx $20+1
+    add.16 .AX, #6
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy #0
+    sta (__zp_scratch2),y
+    txa
+    iny
+    sta (__zp_scratch2),y
+    .loc "benchmark_compound_algo.c", 121
+    ldax #__str_41
+    sta _main__local_44
+    stx _main__local_44+1
+    lda #2
+    ldx #0
+    sta _main__local_45
+    stx _main__local_45+1
+    leax.local 5
+    sta _main__local_46
+    stx _main__local_46+1
+    lda #3
+    ldx #0
+    sta _main__local_47
+    stx _main__local_47+1
+    lda _main__local_46
+    ldx _main__local_46+1
+    sta _horner_poly__param_coeffs
+    stx _horner_poly__param_coeffs+1
+    jsr _horner_poly
+    sta _main__local_48
+    stx _main__local_48+1
+    lda _main__local_48
+    ldx _main__local_48+1
+    sta $28
+    stx $29
+    lda _main__local_44
+    ldx _main__local_44+1
+    sta $2A
+    stx $2B
+    lda $28
+    ldx $29
+    push .ax
+    lda $2A
+    ldx $2B
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_algo.c", 123
+    leax.local 23
+    sta $20
+    stx $21
+    lda #1
+    ldx #0
+    lda $20
+    ldx $20+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy #0
+    sta (__zp_scratch2),y
+    txa
+    iny
+    sta (__zp_scratch2),y
+    lda #2
+    ldx #0
+    lda $20
+    ldx $20+1
+    add.16 .AX, #2
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy #0
+    sta (__zp_scratch2),y
+    txa
+    iny
+    sta (__zp_scratch2),y
+    lda #3
+    ldx #0
+    lda $20
+    ldx $20+1
+    add.16 .AX, #4
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy #0
+    sta (__zp_scratch2),y
+    txa
+    iny
+    sta (__zp_scratch2),y
+    lda #4
+    ldx #0
+    lda $20
+    ldx $20+1
+    add.16 .AX, #6
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy #0
+    sta (__zp_scratch2),y
+    txa
+    iny
+    sta (__zp_scratch2),y
+    lda #5
+    ldx #0
+    lda $20
+    ldx $20+1
+    add.16 .AX, #8
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy #0
+    sta (__zp_scratch2),y
+    txa
+    iny
+    sta (__zp_scratch2),y
+    .loc "benchmark_compound_algo.c", 124
+    ldax #__str_42
+    sta _main__local_62
+    stx _main__local_62+1
+    leax.local 23
+    sta _main__local_63
+    stx _main__local_63+1
+    lda #5
+    ldx #0
+    sta _main__local_64
+    stx _main__local_64+1
+    lda _main__local_63
+    ldx _main__local_63+1
+    sta _variance_calc__param_data
+    stx _variance_calc__param_data+1
+    jsr _variance_calc
+    sta _main__local_65
+    stx _main__local_65+1
+    lda _main__local_65
+    ldx _main__local_65+1
+    sta $28
+    stx $29
+    lda _main__local_62
+    ldx _main__local_62+1
+    sta $2A
+    stx $2B
+    lda $28
+    ldx $29
+    push .ax
+    lda $2A
+    ldx $2B
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_algo.c", 126
+    ldax #__str_43
+    sta _main__local_67
+    stx _main__local_67+1
+    jsr _ema_update
+    sta _main__local_71
+    stx _main__local_71+1
+    lda _main__local_71
+    ldx _main__local_71+1
+    sta $28
+    stx $29
+    lda _main__local_67
+    ldx _main__local_67+1
+    sta $2A
+    stx $2B
+    lda $28
+    ldx $29
+    push .ax
+    lda $2A
+    ldx $2B
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_algo.c", 128
+    leax.local 0
+    sta $20
+    stx $21
+    lda #72
+    ldx #0
+    lda $20
+    ldx $20+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy #0
+    sta (__zp_scratch2),y
+    lda #101
+    ldx #0
+    lda $20
+    ldx $20+1
+    add.16 .AX, #1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy #0
+    sta (__zp_scratch2),y
+    lda #108
+    ldx #0
+    lda $20
+    ldx $20+1
+    add.16 .AX, #2
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy #0
+    sta (__zp_scratch2),y
+    lda #108
+    ldx #0
+    lda $20
+    ldx $20+1
+    add.16 .AX, #3
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy #0
+    sta (__zp_scratch2),y
+    lda #111
+    ldx #0
+    lda $20
+    ldx $20+1
+    add.16 .AX, #4
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy #0
+    sta (__zp_scratch2),y
+    .loc "benchmark_compound_algo.c", 129
+    ldax #__str_44
+    sta _main__local_85
+    stx _main__local_85+1
+    leax.local 0
+    sta _main__local_86
+    stx _main__local_86+1
+    lda #5
+    ldx #0
+    sta _main__local_87
+    stx _main__local_87+1
+    lda _main__local_86
+    ldx _main__local_86+1
+    sta _checksum__param_data
+    stx _checksum__param_data+1
+    jsr _checksum
+    sta _main__local_88
+    stx _main__local_88+1
+    lda _main__local_88
+    ldx _main__local_88+1
+    sta $28
+    stx $29
+    lda _main__local_85
+    ldx _main__local_85+1
+    sta $2A
+    stx $2B
+    lda $28
+    ldx $29
+    push .ax
+    lda $2A
+    ldx $2B
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_algo.c", 131
+    lda #0
+    ldx #0
+@__return:
+    rts
+    .func_flags stack_call, static_alloc
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    .frame_size 33
+    endproc
+
+
+    .segment "data"
+__str_36:
+    .text "avg=%d
+"
+    .byte 0
+__str_37:
+    .text "fib(10)=%d
+"
+    .byte 0
+__str_38:
+    .text "digitsum(12345)=%d
+"
+    .byte 0
+__str_39:
+    .text "gcd(48,18)=%d
+"
+    .byte 0
+__str_40:
+    .text "bits(15)=%d
+"
+    .byte 0
+__str_41:
+    .text "horner(2)=%d
+"
+    .byte 0
+__str_42:
+    .text "var=%d
+"
+    .byte 0
+__str_43:
+    .text "ema=%d
+"
+    .byte 0
+__str_44:
+    .text "check=%u
+"
+    .byte 0
+
+__zp_save_buf:
+; [DEBUG] Phase 87 code reached, optimize=false

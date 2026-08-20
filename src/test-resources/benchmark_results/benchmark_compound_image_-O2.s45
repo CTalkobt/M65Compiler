@@ -1,0 +1,1484 @@
+; [Phase 87: Peephole Optimizer Applied]
+    .o45
+    .org $2000
+    .weak __sp_base
+    __sp_base = $0101
+    .weak __static_chain
+    .weak __zp_scratch
+    .weak __zp_scratch2
+    .weak __zp_scratch3
+    .weak __zp_scratch4
+    .weak cc45.zeroPageStart
+    __static_chain = $06
+    __zp_scratch = $08
+    __zp_scratch2 = $0A
+    __zp_scratch3 = $0C
+    __zp_scratch4 = $0E
+    cc45.zeroPageStart = $08
+
+    .extern _printf
+
+    .global _main
+
+    .segment "data"
+    .byte 0
+__main__local_pixels:
+; .debug_var: @global __main__local_pixels offset=0 size=2 type=int8 scope=global
+    .byte 0
+__main__local_pixels2:
+; .debug_var: @global __main__local_pixels2 offset=0 size=2 type=int8 scope=global
+    .byte 0
+
+    .segment "code"
+
+; function _main
+; SAC inline storage: 798 bytes
+    _main__local_6: .word 0
+    _main__local_15: .word 0
+    _main__local_16: .word 0
+    _main__local_24: .word 0
+    _main__local_27: .word 0
+    _main__local_32: .word 0
+    _main__local_33: .word 0
+    _main__local_41: .word 0
+    _main__local_43: .word 0
+    _main__local_49: .word 0
+    _main__local_51: .word 0
+    _main__local_53: .word 0
+    _main__local_56: .word 0
+    _main__local_58: .word 0
+    _main__local_59: .word 0
+    _main__local_60: .word 0
+    _main__local_82: .word 0
+    _main__local_83: .word 0
+    _main__local_84: .word 0
+    _main__local_85: .word 0
+    _main__local_124: .word 0
+    _main__local_130: .word 0
+    _main__local_131: .word 0
+    _main__local_142: .word 0
+    _main__local_144: .word 0
+    _main__local_148: .word 0
+    _main__local_174: .word 0
+    _main__local_179: .word 0
+    _main__local_180: .word 0
+    _main__local_181: .word 0
+    _main__local_184: .word 0
+    _main__local_190: .word 0
+    _main__local_193: .word 0
+    _main__local_198: .word 0
+    _main__local_199: .word 0
+    _main__local_200: .word 0
+    _main__local_203: .word 0
+    _main__local_206: .word 0
+    _main__local_214: .word 0
+    _main__local_216: .word 0
+    _main__local_220: .word 0
+    _main__local_222: .word 0
+    _main__local_224: .word 0
+    _main__local_229: .word 0
+    _main__local_230: .word 0
+    proc _main
+; Phase 51: zero-alloc leaf (all parameters constant)
+    .var _fp = 0
+    .loc "benchmark_compound_image.c", 64
+    .local @_l_acc = 14
+    .local @_l_b = 542
+    .local @_l_dx = 18
+    .local @_l_dy = 16
+    .local @_l_g = 286
+    .local @_l_i = 20
+    .local @_l_idx = 28
+    .local @_l_r = 30
+    .local @_l_val = 22
+    .local @_l_x = 26
+    .local @_l_y = 24
+; .debug_var: __main @_l_acc offset=14 size=2 type=int16 scope=local
+; .debug_var: __main @_l_b offset=542 size=2 type=int8 scope=local
+; .debug_var: __main @_l_dx offset=18 size=2 type=int16 scope=local
+; .debug_var: __main @_l_dy offset=16 size=2 type=int16 scope=local
+; .debug_var: __main @_l_g offset=286 size=2 type=int8 scope=local
+; .debug_var: __main @_l_i offset=20 size=2 type=int16 scope=local
+; .debug_var: __main @_l_idx offset=28 size=2 type=int16 scope=local
+; .debug_var: __main @_l_r offset=30 size=2 type=int8 scope=local
+; .debug_var: __main @_l_val offset=22 size=2 type=int16 scope=local
+; .debug_var: __main @_l_x offset=26 size=2 type=int16 scope=local
+; .debug_var: __main @_l_y offset=24 size=2 type=int16 scope=local
+
+@entry:
+    .loc "benchmark_compound_image.c", 87
+    lda #0
+    sta $20
+    sta $21
+@for_cond48:
+    ; [peephole-opt]     lda $20
+    ldx $21
+    cmp.16 .AX, #2048
+    bcc @for_body49
+    bra @for_end51
+@for_body49:
+    .loc "benchmark_compound_image.c", 88
+    lda #255
+    ldx #0
+    sta $26
+    stx $27
+    lda $20
+    ldx $21
+    and $26
+    sta $28
+    stx $29
+    ; [peephole-opt]     lda $28
+    ; [peephole-opt]     ldx $29
+    pha
+    lda $20
+    ldx $21
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    ldax #__main__local_pixels
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    pla
+    ldy #0
+    sta (__zp_scratch),y
+    .loc "benchmark_compound_image.c", 89
+    lda #128
+    sta $2C
+    ; [peephole-opt]     lda $2C
+    ldx #0
+    pha
+    lda $20
+    ldx $21
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    ldax #__main__local_pixels2
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    pla
+    ldy #0
+    sta (__zp_scratch),y
+@for_inc50:
+    .loc "benchmark_compound_image.c", 87
+    lda $20
+    ldx $21
+    sta $30
+    stx $31
+    ; [peephole-opt]     lda $30
+    clc
+    adc #1
+    sta $20
+    lda $31
+    adc #0
+    sta $21
+    bra @for_cond48
+@for_end51:
+    .loc "benchmark_compound_image.c", 92
+    lda #16
+    ldx #0
+    sta $22
+    stx $23
+    ldax #__main__local_pixels
+    sta $24
+    stx $25
+    .loc "benchmark_compound_image.c", 12
+    lda #0
+    sta $26
+    sta $27
+@for_cond53_ph:
+    ; [peephole-opt]     lda $22
+    ; [peephole-opt]     ldx $23
+    sta $28
+@for_cond53:
+    ; [peephole-opt]     lda $26
+    ldx $27
+    cmp.16 .AX, #2048
+    bcc @for_body54
+    bra @for_end56
+@for_body54:
+    .loc "benchmark_compound_image.c", 13
+    lda $26
+    ldx $27
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $24
+    ldx $24+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $2A
+    stx $2A+1
+    ldy #0
+    lda ($2A),y
+    ldx #0
+    sta $2C
+    ; [peephole-opt]     lda $2C
+    clc
+    adc $28
+    sta $2E
+    ; [peephole-opt]     lda $2E
+    ldy #0
+    sta ($2A),y
+@for_inc55:
+    .loc "benchmark_compound_image.c", 12
+    lda $26
+    ldx $27
+    sta $30
+    stx $31
+    ; [peephole-opt]     lda $30
+    clc
+    adc #1
+    sta $26
+    lda $31
+    adc #0
+    sta $27
+    bra @for_cond53
+@for_end56:
+@inline_end52:
+    .loc "benchmark_compound_image.c", 93
+    ldax #__str_57
+    sta _main__local_27
+    stx _main__local_27+1
+    lda _main__local_27
+    ; [peephole-opt]     ldx _main__local_27+1
+    sta $28
+    stx $29
+    ; [peephole-opt]     lda $28
+    ; [peephole-opt]     ldx $29
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ; [peephole-opt]     ldx __zp_scratch4+1
+    .loc "benchmark_compound_image.c", 95
+    lda #2
+    ldx #0
+    sta $22
+    stx $23
+    ldax #__main__local_pixels2
+    sta $24
+    stx $25
+    .loc "benchmark_compound_image.c", 19
+    lda #0
+    sta $26
+    sta $27
+@for_cond59_ph:
+    ; [peephole-opt]     lda $22
+    ; [peephole-opt]     ldx $23
+    sta $28
+@for_cond59:
+    ; [peephole-opt]     lda $26
+    ldx $27
+    cmp.16 .AX, #2048
+    bcc @for_body60
+    bra @for_end62
+@for_body60:
+    .loc "benchmark_compound_image.c", 20
+    lda $26
+    ldx $27
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $24
+    ldx $24+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $2A
+    stx $2A+1
+    ldy #0
+    lda ($2A),y
+    ldx #0
+    sta $2C
+    ; [peephole-opt]     lda $2C
+    ldx #0
+    mul.16 .AX, $28
+    sta $2E
+    ; [peephole-opt]     lda $2E
+    ldy #0
+    sta ($2A),y
+    .loc "benchmark_compound_image.c", 21
+    lda #0
+    ldx #1
+    sta $30
+    stx $31
+    ldy #0
+    lda ($2A),y
+    ldx #0
+    sta $32
+    ; [peephole-opt]     lda $32
+    ldx #0
+    ldx #0
+    sta $34
+    stx $35
+    ; [peephole-opt]     lda $30
+    sec
+    sbc $34
+    sta $36
+    lda $31
+    sbc $34+1
+    sta $37
+    lda #2
+    ldx #0
+    sta $38
+    stx $39
+    ; [peephole-opt]     lda $36
+    ldx $37
+    lsr.16 .AX
+    sta $3A
+    stx $3B
+    ldy #0
+    lda ($2A),y
+    ldx #0
+    sta $3C
+    ; [peephole-opt]     lda $3C
+    sec
+    sbc $3A
+    sta $3E
+    ; [peephole-opt]     lda $3E
+    ldy #0
+    sta ($2A),y
+@for_inc61:
+    .loc "benchmark_compound_image.c", 19
+    lda $26
+    ldx $27
+    sta $40
+    stx $41
+    ; [peephole-opt]     lda $40
+    clc
+    adc #1
+    sta $26
+    lda $41
+    adc #0
+    sta $27
+    bra @for_cond59
+@for_end62:
+@inline_end58:
+    .loc "benchmark_compound_image.c", 96
+    ldax #__str_63
+    sta _main__local_56
+    stx _main__local_56+1
+    lda _main__local_56
+    ; [peephole-opt]     ldx _main__local_56+1
+    sta $28
+    stx $29
+    ; [peephole-opt]     lda $28
+    ; [peephole-opt]     ldx $29
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ; [peephole-opt]     ldx __zp_scratch4+1
+    .loc "benchmark_compound_image.c", 99
+    lda #0
+    sta $20
+    sta $21
+@for_cond64_ph:
+    .loc "benchmark_compound_image.c", 100
+    leax.local 30
+    sta $22
+    stx $23
+    .loc "benchmark_compound_image.c", 101
+    leax.local 286
+    sta $24
+    stx $25
+    .loc "benchmark_compound_image.c", 102
+    leax.local 542
+    sta $26
+    stx $27
+@for_cond64:
+    .loc "benchmark_compound_image.c", 99
+    ; [peephole-opt]     lda $20
+    ldx $21
+    cmp.16 .AX, #256
+    bcc @for_body65
+    bra @for_end67
+@for_body65:
+    lda $20
+    ldx $21
+    sta $2C
+    .loc "benchmark_compound_image.c", 100
+    ; [peephole-opt]     lda $2C
+    ldx #0
+    pha
+    lda $20
+    ldx $21
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $22
+    ldx $22+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    pla
+    ldy #0
+    sta (__zp_scratch),y
+    .loc "benchmark_compound_image.c", 101
+    lda #128
+    sta $30
+    ; [peephole-opt]     lda $30
+    ldx #0
+    pha
+    lda $20
+    ldx $21
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $24
+    ldx $24+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    pla
+    ldy #0
+    sta (__zp_scratch),y
+    .loc "benchmark_compound_image.c", 102
+    lda #255
+    ldx #0
+    sta $34
+    stx $35
+    ; [peephole-opt]     lda $34
+    sec
+    sbc $20
+    sta $36
+    lda $35
+    sbc $20+1
+    sta $37
+    ; [peephole-opt]     lda $36
+    ldx $37
+    sta $38
+    ; [peephole-opt]     lda $38
+    ldx #0
+    pha
+    lda $20
+    ldx $21
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $26
+    ldx $26+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    pla
+    ldy #0
+    sta (__zp_scratch),y
+@for_inc66:
+    .loc "benchmark_compound_image.c", 99
+    lda $20
+    ldx $21
+    sta $3C
+    stx $3D
+    ; [peephole-opt]     lda $3C
+    clc
+    adc #1
+    sta $20
+    lda $3D
+    adc #0
+    sta $21
+    bra @for_cond64
+@for_end67:
+    .loc "benchmark_compound_image.c", 104
+    leax.local 30
+    sta $20
+    stx $21
+    leax.local 286
+    sta $22
+    stx $23
+    leax.local 542
+    sta $24
+    stx $25
+    .loc "benchmark_compound_image.c", 27
+    lda #0
+    sta $28
+    sta $29
+@for_cond69_ph:
+    .loc "benchmark_compound_image.c", 28
+    lda #34
+    ldx #0
+    sta $2A
+    stx $2B
+    lda #32
+    ldx #0
+    sta $2C
+    stx $2D
+    lda #32
+    ldx #0
+    sta $2E
+    stx $2F
+    .loc "benchmark_compound_image.c", 29
+    lda #36
+    ldx #0
+    sta $30
+    stx $31
+    lda #34
+    ldx #0
+    sta $32
+    stx $33
+    lda #34
+    ldx #0
+    sta $34
+    stx $35
+    .loc "benchmark_compound_image.c", 30
+    lda #32
+    ldx #0
+    sta $22
+    stx $23
+    lda #36
+    ldx #0
+    sta $20
+    stx $21
+    lda #36
+    ldx #0
+    sta $36
+    stx $37
+@for_cond69:
+    .loc "benchmark_compound_image.c", 27
+    lda $28
+    ldx $29
+    cmp.16 .AX, #256
+    bcc @for_body70
+    bra @for_end72
+@for_body70:
+    .loc "benchmark_compound_image.c", 28
+    lda $28
+    ldx $29
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $2A
+    ldx $2A+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    pha
+    iny
+    lda (__zp_scratch),y
+    tax
+    pla
+    sta $3A
+    stx $3B
+    lda #2
+    ldx #0
+    sta $3C
+    stx $3D
+    ; [peephole-opt]     lda $3A
+    ; [peephole-opt]     ldx $3B
+    lsr.16 .AX
+    sta $3E
+    stx $3F
+    lda $28
+    ldx $29
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $2C
+    ldx $2C+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    pha
+    iny
+    lda (__zp_scratch),y
+    tax
+    pla
+    sta $42
+    stx $43
+    ; [peephole-opt]     lda $42
+    ; [peephole-opt]     ldx $43
+    add.16 .AX, $3E
+    sta $44
+    stx $45
+    ; [peephole-opt]     lda $44
+    ; [peephole-opt]     ldx $45
+    pha
+    phx
+    lda $28
+    ldx $29
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $2E
+    ldx $2E+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    plx
+    pla
+    ldy #0
+    sta (__zp_scratch),y
+    txa
+    iny
+    sta (__zp_scratch),y
+    .loc "benchmark_compound_image.c", 29
+    lda $28
+    ldx $29
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $30
+    ldx $30+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    pha
+    iny
+    lda (__zp_scratch),y
+    tax
+    pla
+    sta $4A
+    stx $4B
+    lda #2
+    ldx #0
+    sta $4C
+    stx $4D
+    ; [peephole-opt]     lda $4A
+    ; [peephole-opt]     ldx $4B
+    lsr.16 .AX
+    sta $4E
+    stx $4F
+    lda $28
+    ldx $29
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $32
+    ldx $32+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    pha
+    iny
+    lda (__zp_scratch),y
+    tax
+    pla
+    sta $52
+    stx $53
+    ; [peephole-opt]     lda $52
+    ; [peephole-opt]     ldx $53
+    add.16 .AX, $4E
+    sta $54
+    stx $55
+    ; [peephole-opt]     lda $54
+    ; [peephole-opt]     ldx $55
+    pha
+    phx
+    lda $28
+    ldx $29
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $34
+    ldx $34+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    plx
+    pla
+    ldy #0
+    sta (__zp_scratch),y
+    txa
+    iny
+    sta (__zp_scratch),y
+    .loc "benchmark_compound_image.c", 30
+    lda $28
+    ldx $29
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $22
+    ldx $22+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    pha
+    iny
+    lda (__zp_scratch),y
+    tax
+    pla
+    sta $5A
+    stx $5B
+    lda #2
+    ldx #0
+    sta $5C
+    stx $5D
+    ; [peephole-opt]     lda $5A
+    ; [peephole-opt]     ldx $5B
+    lsr.16 .AX
+    sta $5E
+    stx $5F
+    lda $28
+    ldx $29
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $20
+    ldx $20+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    pha
+    iny
+    lda (__zp_scratch),y
+    tax
+    pla
+    sta $62
+    stx $63
+    ; [peephole-opt]     lda $62
+    ; [peephole-opt]     ldx $63
+    add.16 .AX, $5E
+    sta $64
+    stx $65
+    ; [peephole-opt]     lda $64
+    ; [peephole-opt]     ldx $65
+    pha
+    phx
+    lda $28
+    ldx $29
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $36
+    ldx $36+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    plx
+    pla
+    ldy #0
+    sta (__zp_scratch),y
+    txa
+    iny
+    sta (__zp_scratch),y
+@for_inc71:
+    .loc "benchmark_compound_image.c", 27
+    lda $28
+    ldx $29
+    sta $68
+    stx $69
+    ; [peephole-opt]     lda $68
+    clc
+    adc #1
+    sta $28
+    lda $69
+    adc #0
+    sta $29
+    bra @for_cond69
+@for_end72:
+@inline_end68:
+    .loc "benchmark_compound_image.c", 105
+    ldax #__str_73
+    sta _main__local_124
+    stx _main__local_124+1
+    lda _main__local_124
+    ; [peephole-opt]     ldx _main__local_124+1
+    sta $28
+    stx $29
+    ; [peephole-opt]     lda $28
+    ; [peephole-opt]     ldx $29
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ; [peephole-opt]     ldx __zp_scratch4+1
+    .loc "benchmark_compound_image.c", 107
+    lda #64
+    ldx #0
+    sta $20
+    stx $21
+    lda #32
+    ldx #0
+    sta $22
+    stx $23
+    ldax #__main__local_pixels
+    sta $24
+    stx $25
+    ldax #__main__local_pixels2
+    sta $26
+    stx $27
+    .loc "benchmark_compound_image.c", 36
+    lda #1
+    sta $28
+    ldx #0
+    stx $29
+@for_cond75_ph:
+    .loc "benchmark_compound_image.c", 37
+    .loc "benchmark_compound_image.c", 36
+    ; [peephole-opt]     lda $22
+    sec
+    sbc #1
+    sta $2A
+    lda $23
+    sbc #0
+    sta $2B
+    .loc "benchmark_compound_image.c", 37
+    ; [peephole-opt]     lda $20
+    sec
+    sbc #1
+    sta $22
+    lda $21
+    sbc #0
+    sta $23
+@for_cond75:
+    .loc "benchmark_compound_image.c", 36
+    lda #1
+    ldx #0
+    sta $2C
+    stx $2D
+    ; [peephole-opt]     lda $28
+    ; [peephole-opt]     ldx $29
+    cmp.16 .AX, $2A
+    bcc @for_body76
+    bra @for_end78
+@for_body76:
+    .loc "benchmark_compound_image.c", 37
+    lda #1
+    sta $32
+    ldx #0
+    stx $33
+@for_cond79_ph:
+    lda #1
+    ldx #0
+    sta $34
+    stx $35
+    .loc "benchmark_compound_image.c", 44
+    lda $28
+    ldx $29
+    mul.16 .AX, $20
+    sta $36
+    stx $37
+@for_cond79:
+    .loc "benchmark_compound_image.c", 37
+    lda #1
+    ldx #0
+    sta $38
+    stx $39
+    ; [peephole-opt]     lda $32
+    ; [peephole-opt]     ldx $33
+    cmp.16 .AX, $22
+    bcc @for_body80
+    bra @for_end82
+@for_body80:
+    .loc "benchmark_compound_image.c", 38
+    lda #0
+    sta _main__local_142
+    sta _main__local_142+1
+    .loc "benchmark_compound_image.c", 39
+    lda #255
+    sta _main__local_144
+    sta _main__local_144+1
+@for_cond83:
+    lda _main__local_144
+    ldx _main__local_144+1
+    cmp.16 .AX, #1
+    bcc @for_body84
+    beq @for_body84
+    bra @for_end86
+@for_body84:
+    .loc "benchmark_compound_image.c", 40
+    lda #255
+    sta _main__local_148
+    sta _main__local_148+1
+@for_cond87_ph:
+    .loc "benchmark_compound_image.c", 41
+    lda _main__local_144
+    ldx _main__local_144+1
+    add.16 .AX, $28
+    sta $46
+    stx $47
+    ; [peephole-opt]     lda $46
+    ; [peephole-opt]     ldx $47
+    mul.16 .AX, $20
+    sta $48
+    stx $49
+@for_cond87:
+    .loc "benchmark_compound_image.c", 40
+    lda _main__local_148
+    ldx _main__local_148+1
+    cmp.16 .AX, #1
+    bcc @for_body88
+    beq @for_body88
+    bra @for_end90
+@for_body88:
+    .loc "benchmark_compound_image.c", 41
+    lda _main__local_148
+    ldx _main__local_148+1
+    add.16 .AX, $32
+    sta $4E
+    stx $4F
+    lda $48
+    clc
+    adc $4E
+    sta $50
+    lda $49
+    adc $4E+1
+    sta $51
+    ; [peephole-opt]     lda $50
+    ldx $51
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $24
+    ldx $24+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    ldx #0
+    sta $54
+    ; [peephole-opt]     lda $54
+    ldx #0
+    ldx #0
+    sta $56
+    stx $57
+    lda _main__local_142
+    ldx _main__local_142+1
+    add.16 .AX, $56
+    sta $58
+    stx $59
+    sta _main__local_142
+    stx _main__local_142+1
+@for_inc89:
+    .loc "benchmark_compound_image.c", 40
+    lda _main__local_148
+    ldx _main__local_148+1
+    sta $5A
+    stx $5B
+    ; [peephole-opt]     lda $5A
+    clc
+    adc #1
+    sta $5C
+    lda $5B
+    adc #0
+    sta $5D
+    ; [peephole-opt]     lda $5C
+    ldx $5D
+    sta _main__local_148
+    stx _main__local_148+1
+    bra @for_cond87
+@for_end90:
+@for_inc85:
+    .loc "benchmark_compound_image.c", 39
+    lda _main__local_144
+    ldx _main__local_144+1
+    sta $5E
+    stx $5F
+    ; [peephole-opt]     lda $5E
+    clc
+    adc #1
+    sta $60
+    lda $5F
+    adc #0
+    sta $61
+    ; [peephole-opt]     lda $60
+    ldx $61
+    sta _main__local_144
+    stx _main__local_144+1
+    bra @for_cond83
+@for_end86:
+    .loc "benchmark_compound_image.c", 44
+    lda #9
+    ldx #0
+    sta $62
+    stx $63
+    lda _main__local_142
+    ldx _main__local_142+1
+    div.16 .AX, $62
+    sta $64
+    stx $65
+    ; [peephole-opt]     lda $64
+    ; [peephole-opt]     ldx $65
+    sta $66
+    lda $36
+    clc
+    adc $32
+    sta $68
+    lda $37
+    adc $32+1
+    sta $69
+    ; [peephole-opt]     lda $66
+    ldx #0
+    pha
+    ; [peephole-opt]     lda $68
+    ldx $69
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $26
+    ldx $26+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    pla
+    ldy #0
+    sta (__zp_scratch),y
+@for_inc81:
+    .loc "benchmark_compound_image.c", 37
+    lda $32
+    ldx $33
+    sta $6C
+    stx $6D
+    ; [peephole-opt]     lda $6C
+    clc
+    adc #1
+    sta $32
+    lda $6D
+    adc #0
+    sta $33
+    bra @for_cond79
+@for_end82:
+@for_inc77:
+    .loc "benchmark_compound_image.c", 36
+    lda $28
+    ldx $29
+    sta $70
+    stx $71
+    ; [peephole-opt]     lda $70
+    clc
+    adc #1
+    sta $28
+    lda $71
+    adc #0
+    sta $29
+    bra @for_cond75
+@for_end78:
+@inline_end74:
+    .loc "benchmark_compound_image.c", 108
+    ldax #__str_91
+    sta _main__local_174
+    stx _main__local_174+1
+    lda _main__local_174
+    ; [peephole-opt]     ldx _main__local_174+1
+    sta $28
+    stx $29
+    ; [peephole-opt]     lda $28
+    ; [peephole-opt]     ldx $29
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ; [peephole-opt]     ldx __zp_scratch4+1
+    .loc "benchmark_compound_image.c", 110
+    lda #2
+    ldx #0
+    sta $22
+    stx $23
+    ldax #__main__local_pixels
+    sta $24
+    stx $25
+    .loc "benchmark_compound_image.c", 51
+    lda #0
+    sta _main__local_181
+    sta _main__local_181+1
+@for_cond93:
+    lda _main__local_181
+    ldx _main__local_181+1
+    cmp.16 .AX, #2048
+    bcc @for_body94
+    bra @for_end96
+@for_body94:
+    .loc "benchmark_compound_image.c", 52
+    lda _main__local_181
+    ldx _main__local_181+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $24
+    ldx $24+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $28
+    stx $28+1
+    ldy #0
+    lda ($28),y
+    ldx #0
+    sta $2A
+    ; [peephole-opt]     lda $2A
+    ldx #0
+    sta _main__local_184
+    stx _main__local_184+1
+    .loc "benchmark_compound_image.c", 53
+    lda _main__local_184
+    ; [peephole-opt]     ldx _main__local_184+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _main__local_184
+    ; [peephole-opt]     ldx _main__local_184+1
+    mul.16 .AX, __zp_scratch2
+    sta $2C
+    stx $2D
+    ; [peephole-opt]     lda $2C
+    ; [peephole-opt]     ldx $2D
+    sta _main__local_184
+    stx _main__local_184+1
+    .loc "benchmark_compound_image.c", 54
+    lda _main__local_184
+    ; [peephole-opt]     ldx _main__local_184+1
+    ldy $22
+    beq @__shr_done_1
+@__shr_loop_0:
+    lsr.16 .AX
+    dey
+    bne @__shr_loop_0
+@__shr_done_1:
+    sta $2E
+    stx $2F
+    ; [peephole-opt]     lda $2E
+    ; [peephole-opt]     ldx $2F
+    sta _main__local_184
+    stx _main__local_184+1
+    lda _main__local_184
+    ; [peephole-opt]     ldx _main__local_184+1
+    sta $30
+    .loc "benchmark_compound_image.c", 55
+    ; [peephole-opt]     lda $30
+    ldy #0
+    sta ($28),y
+@for_inc95:
+    .loc "benchmark_compound_image.c", 51
+    lda _main__local_181
+    ldx _main__local_181+1
+    sta $32
+    stx $33
+    ; [peephole-opt]     lda $32
+    ; [peephole-opt]     ldx $33
+    add.16 .AX, #1
+    sta _main__local_181
+    stx _main__local_181+1
+    bra @for_cond93
+@for_end96:
+@inline_end92:
+    .loc "benchmark_compound_image.c", 111
+    ldax #__str_97
+    sta _main__local_193
+    stx _main__local_193+1
+    lda _main__local_193
+    ; [peephole-opt]     ldx _main__local_193+1
+    sta $28
+    stx $29
+    ; [peephole-opt]     lda $28
+    ; [peephole-opt]     ldx $29
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ; [peephole-opt]     ldx __zp_scratch4+1
+    .loc "benchmark_compound_image.c", 113
+    lda #64
+    ldx #0
+    sta $20
+    stx $21
+    ldax #__main__local_pixels
+    sta $24
+    stx $25
+    .loc "benchmark_compound_image.c", 74
+    lda #0
+    sta _main__local_200
+    sta _main__local_200+1
+@for_cond99:
+    lda _main__local_200
+    ldx _main__local_200+1
+    cmp.16 .AX, #32
+    bcc @for_body100
+    bra @for_end102
+@for_body100:
+    .loc "benchmark_compound_image.c", 75
+    lda #0
+    sta _main__local_203
+    sta _main__local_203+1
+@for_cond103_ph:
+    .loc "benchmark_compound_image.c", 76
+    lda _main__local_200
+    ldx _main__local_200+1
+    mul.16 .AX, $20
+    sta $2A
+    stx $2B
+@for_cond103:
+    .loc "benchmark_compound_image.c", 75
+    lda _main__local_203
+    ldx _main__local_203+1
+    cmp.16 .AX, #64
+    bcc @for_body104
+    bra @for_end106
+@for_body104:
+    .loc "benchmark_compound_image.c", 76
+    lda _main__local_203
+    ldx _main__local_203+1
+    add.16 .AX, $2A
+    sta $2E
+    stx $2F
+    sta _main__local_206
+    stx _main__local_206+1
+    .loc "benchmark_compound_image.c", 77
+    lda _main__local_200
+    ldx _main__local_200+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _main__local_203
+    ldx _main__local_203+1
+    add.16 .AX, __zp_scratch2
+    sta $30
+    stx $31
+    lda #15
+    ldx #0
+    sta $32
+    stx $33
+    ; [peephole-opt]     lda $30
+    ; [peephole-opt]     ldx $31
+    and $32
+    sta $34
+    stx $35
+    lda _main__local_206
+    ; [peephole-opt]     ldx _main__local_206+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $24
+    ldx $24+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $36
+    stx $36+1
+    ldy #0
+    lda ($36),y
+    ldx #0
+    sta $38
+    ; [peephole-opt]     lda $38
+    clc
+    adc $34
+    sta $3A
+    ; [peephole-opt]     lda $3A
+    ldy #0
+    sta ($36),y
+    .loc "benchmark_compound_image.c", 78
+    lda _main__local_200
+    ldx _main__local_200+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _main__local_203
+    ldx _main__local_203+1
+    eor.16 .AX, __zp_scratch2
+    sta $3C
+    stx $3D
+    lda #15
+    ldx #0
+    sta $3E
+    stx $3F
+    ; [peephole-opt]     lda $3C
+    ; [peephole-opt]     ldx $3D
+    and $3E
+    sta $40
+    stx $41
+    ldy #0
+    lda ($36),y
+    ldx #0
+    sta $42
+    ; [peephole-opt]     lda $42
+    sec
+    sbc $40
+    sta $44
+    ; [peephole-opt]     lda $44
+    ldy #0
+    sta ($36),y
+@for_inc105:
+    .loc "benchmark_compound_image.c", 75
+    lda _main__local_203
+    ldx _main__local_203+1
+    sta $46
+    stx $47
+    ; [peephole-opt]     lda $46
+    clc
+    adc #1
+    sta $48
+    lda $47
+    adc #0
+    sta $49
+    ; [peephole-opt]     lda $48
+    ldx $49
+    sta _main__local_203
+    stx _main__local_203+1
+    bra @for_cond103
+@for_end106:
+@for_inc101:
+    .loc "benchmark_compound_image.c", 74
+    lda _main__local_200
+    ldx _main__local_200+1
+    sta $4A
+    stx $4B
+    ; [peephole-opt]     lda $4A
+    ; [peephole-opt]     ldx $4B
+    add.16 .AX, #1
+    sta _main__local_200
+    stx _main__local_200+1
+    bra @for_cond99
+@for_end102:
+@__return:
+    rts
+    .func_flags stack_call, static_alloc
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    .frame_size 798
+    endproc
+
+
+    .segment "data"
+__str_57:
+    .text "brightness done
+"
+    .byte 0
+__str_63:
+    .text "contrast done
+"
+    .byte 0
+__str_73:
+    .text "mix done
+"
+    .byte 0
+__str_91:
+    .text "filter done
+"
+    .byte 0
+__str_97:
+    .text "gamma done
+"
+    .byte 0
+__str_107:
+    .text "dither done
+"
+    .byte 0
+
+__zp_save_buf:
+; [DEBUG] Phase 87 code reached, optimize=true
