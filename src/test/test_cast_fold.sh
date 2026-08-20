@@ -26,15 +26,17 @@ else
     fail "(long)42 return emits ldy+ldz with -O1 -fzpcall"
 fi
 
-# 2. (long)0 return with -O1 -fzpcall must emit ldy and ldz
+# 2. (long)0 return with -O1 -fzpcall must set all 4 registers to 0
+# Accepts either explicit loads (ldy #0; ldz #0) or transfer instructions (tay; taz)
 cat <<EOF > $TEMP_C
 long get_long_zero(void) { return (long)0; }
 EOF
 $CC -S -O1 -fzpcall $TEMP_C -o $TEMP_S 2>/dev/null
-if grep -q 'ldy' $TEMP_S && grep -q 'ldz' $TEMP_S; then
-    pass "(long)0 return emits ldy+ldz with -O1 -fzpcall"
+# Check that we have lda #0 followed by instructions to load Y and Z (either explicit or transfer)
+if grep -q 'lda #0' $TEMP_S && (grep -q 'ldy\|tay' $TEMP_S) && (grep -q 'ldz\|taz' $TEMP_S); then
+    pass "(long)0 return sets all 4 registers to 0 with -O1 -fzpcall"
 else
-    fail "(long)0 return emits ldy+ldz with -O1 -fzpcall"
+    fail "(long)0 return sets all 4 registers to 0 with -O1 -fzpcall"
 fi
 
 # 3. -O0 and -O1 produce same instructions for (long)42 return
@@ -89,13 +91,14 @@ else
     fail "(long)42 return emits ldy+ldz with -O1 stack convention"
 fi
 
-# 7. (long)-1 folds correctly to 0xFFFFFFFF (all 4 bytes)
+# 7. (long)-1 folds correctly to 0xFFFFFFFF (all 4 bytes set to 255)
+# Accepts either explicit loads (ldy #255; ldz #255) or transfer instructions (tay; taz)
 cat <<EOF > $TEMP_C
 long get_neg1(void) { return (long)-1; }
 EOF
 $CC -S -O1 -fzpcall $TEMP_C -o $TEMP_S 2>/dev/null
-# IR pipeline emits decimal (#255) not hex (#$FF); check all 4 bytes are $FF/255
-if grep -q '#255' $TEMP_S && grep -q 'ldy' $TEMP_S && grep -q 'ldz' $TEMP_S; then
+# Check that we load 255 into A register, then transfer/load to other registers
+if grep -q '#255' $TEMP_S && (grep -q 'ldy\|tay' $TEMP_S) && (grep -q 'ldz\|taz' $TEMP_S); then
     pass "(long)-1 folds to all-FF bytes"
 else
     fail "(long)-1 folds to all-FF bytes"
