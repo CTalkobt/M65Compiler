@@ -457,7 +457,7 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             if (pit != localPointedToType_.end()) {
                 baseType = pit->second;
                 isSigned = localSigned_[ref->name];
-                // TODO: pointed-to type name
+                tn = localPointedToTypeName_[ref->name];
             } else {
                 auto gpit = globalPointedToType_.find(ref->name);
                 if (gpit != globalPointedToType_.end()) {
@@ -863,7 +863,10 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         //               int * const p → isPointerConst=true, pointer is read-only
         localConst_[p.name] = (p.pointerLevel == 0 && p.isConst) || p.isPointerConst;
         localPointsToConst_[p.name] = p.isConst && p.pointerLevel > 0;
-        if (p.pointerLevel > 0) localPointedToType_[p.name] = mapType(p.type, 0);
+        if (p.pointerLevel > 0) {
+            localPointedToType_[p.name] = mapType(p.type, 0);
+            localPointedToTypeName_[p.name] = p.type;
+        }
         if (p.isVolatile) currentFunc_->memoryVregs.insert(vreg.vregId);
         currentFunc_->localSlotVregs.insert(vreg.vregId);
     }
@@ -1089,7 +1092,10 @@ void IRBuilder::visit(VariableDeclaration& node) {
                 }
             }
         }
-        if (node.pointerLevel > 0) globalPointedToType_[node.name] = mapType(node.type, 0);
+        if (node.pointerLevel > 0) {
+            globalPointedToType_[node.name] = mapType(node.type, 0);
+            globalPointedToTypeName_[node.name] = node.type;
+        }
         if (!node.arrayDims.empty()) globalArrayDims_[node.name] = node.arrayDims;
         globalTypes_[node.name] = t;
         globalTypeNames_[node.name] = node.type;
@@ -1138,6 +1144,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
         localDeclLocs_[node.name] = loc(node);
         if (node.pointerLevel > 0) {
             localPointedToType_[node.name] = mapType(node.type, node.pointerLevel - 1);
+            localPointedToTypeName_[node.name] = node.type;
         }
         return;  // Skip frame allocation
     }
@@ -1161,6 +1168,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
     localPointsToConst_[node.name] = node.isConst && node.pointerLevel > 0;
     if (node.pointerLevel > 0) {
         localPointedToType_[node.name] = mapType(node.type, node.pointerLevel - 1);
+        localPointedToTypeName_[node.name] = node.type;
         // Track constant pointer initializer for propagation
         if (node.initializer) {
             if (auto* intLit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
@@ -3054,7 +3062,10 @@ void IRBuilder::visit(FunctionCall& node) {
                 localTypeNames_[p.name] = p.type;
                 localSigned_[p.name] = p.isSigned;
                 localConst_[p.name] = (p.pointerLevel == 0 && p.isConst);
-                if (p.pointerLevel > 0) localPointedToType_[p.name] = mapType(p.type, 0);
+                if (p.pointerLevel > 0) {
+                    localPointedToType_[p.name] = mapType(p.type, 0);
+                    localPointedToTypeName_[p.name] = p.type;
+                }
             }
 
             // Create a result vreg for the return value
