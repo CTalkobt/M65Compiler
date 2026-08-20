@@ -859,6 +859,14 @@ public:
     std::vector<LocalInfo> locals;
     int maxFrameSize = 0;
 
+    // Phase 90: Lazy FP Initialization
+    bool hasFunctionCalls = false;      // Set to true if any function call found
+    bool hasFrameVariables = false;     // Set to true if any locals found
+
+    bool needsFramePointer() const {
+        return hasFrameVariables || hasFunctionCalls;
+    }
+
     FrameScanner(const std::map<std::string, std::shared_ptr<CodeGenerator::StructInfo>>& s) : structs_(s) {}
 
     void scan(CompoundStatement& body) {
@@ -887,6 +895,9 @@ public:
         locals.push_back({lName, size, currentOffset_});
         currentOffset_ += size;
         if (currentOffset_ > maxFrameSize) maxFrameSize = currentOffset_;
+
+        // Phase 90: Track that function has frame variables
+        hasFrameVariables = true;
 
         // Walk initializer to find compound literals that need frame space
         if (node.initializer) node.initializer->accept(*this);
@@ -917,7 +928,11 @@ public:
     void visit(GenericSelection& n) override { if (n.control) n.control->accept(*this); for (auto& a : n.associations) if (a.result) a.result->accept(*this); }
     void visit(InitializerList& n) override { for (auto& e : n.elements) if (e) e->accept(*this); }
     void visit(ArrayAccess& n) override { if (n.arrayExpr) n.arrayExpr->accept(*this); if (n.indexExpr) n.indexExpr->accept(*this); }
-    void visit(FunctionCall& n) override { for (auto& a : n.arguments) if (a) a->accept(*this); }
+    void visit(FunctionCall& n) override {
+        // Phase 90: Track that function has calls (may need FP recalculation)
+        hasFunctionCalls = true;
+        for (auto& a : n.arguments) if (a) a->accept(*this);
+    }
     void visit(MemberAccess& n) override { if (n.structExpr) n.structExpr->accept(*this); }
     void visit(CastExpression& n) override { if (n.expression) n.expression->accept(*this); }
     void visit(CompoundLiteral& n) override {
@@ -1604,10 +1619,13 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     // Set up ZP frame pointer ($FD/$FE) for stack-relative access.
     // FP points past the frame (SP + frameSize + 1), so parameters are at FP + 2.
     // This eliminates per-access __sp_base relocations.
-    if (!useZpCall_) {
-        emit("; setup frame pointer");
+    // Phase 90: Only set up FP if function has locals or makes calls (lazy initialization)
+    if (!useZpCall_ && scanner.needsFramePointer()) {
+        emit("; setup frame pointer (Phase 90: lazy init)");
         emitter->setFramePointerZP(0xFD);
         emitter->setupFramePointer();
+    } else if (!useZpCall_) {
+        emit("; skip frame pointer (Phase 90: leaf function, no locals or calls)");
     }
 
     for (auto& loc : scanner.locals) {
