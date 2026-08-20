@@ -459,11 +459,25 @@ All stdlib functions support both stack and ZP calling conventions:
 
 ### Phase 2: Fine-Grained Register Invalidation
 
-Partially implemented. Phase 1 (accurate clobber tracking) is complete and emits `.reg_clobbers` / `.flag_clobbers` directives. Future phases:
-- Phase 2: Selective invalidation at call sites (track which regs can be reused)
-- Phase 3: Emit `.func_flags leaf` for leaf functions
-- Phase 4: Header annotations for inter-TU optimization
-- Phase 5: Assembler optimizer uses clobber info at JSR
+**Status**: ✅ Complete (2026-08-20, Phases 2, 3, 5)
+
+Implemented selective register and flag invalidation with full clobber tracking pipeline:
+
+**Completed Phases**:
+- Phase 1: IR generation emits `.reg_clobbers` and `.flag_clobbers` directives ✅
+- Phase 2: Selective register invalidation at call sites ✅
+- Phase 3: Leaf function detection with `leaf` flag in `.func_flags` ✅
+- Phase 5: Assembler optimizer uses clobber info at JSR for selective invalidation ✅
+
+**Features**:
+- Accurate clobber analysis: computes union of own clobbers + callees' clobbers
+- Selective register invalidation: only invalidate A, X, Y, Z as needed
+- Selective flag invalidation: only invalidate C, N, Z, V as needed
+- Handles external functions: loads clobber masks from `.o45` files
+- Graceful fallback: unknown functions invalidate conservatively
+
+**Not Yet Implemented**:
+- Phase 4: Header annotations for inter-TU optimization (planned for v1.1)
 
 ### Calling Convention Safety
 
