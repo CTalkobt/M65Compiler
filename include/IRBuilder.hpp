@@ -184,6 +184,7 @@ private:
     std::set<std::string> calledFunctions_;
     std::set<std::string> definedFunctions_;
     std::map<std::string, ir::Type> functionReturnTypes_;
+    std::map<std::string, bool> functionReturnSigned_;  // Signedness of return type
     std::map<std::string, std::vector<ir::Type>> functionParamTypes_;
     std::map<std::string, std::vector<bool>> functionParamSigned_;
     std::set<std::string> variadicFunctions_;

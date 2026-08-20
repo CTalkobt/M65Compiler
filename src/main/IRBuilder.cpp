@@ -553,9 +553,9 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         auto it = functionReturnTypes_.find(call->name);
         if (it != functionReturnTypes_.end()) {
             bool sig = false; // unsigned by default
-            auto sit = functionParamSigned_.find(call->name);
-            if (sit != functionParamSigned_.end() && !sit->second.empty()) {
-                sig = sit->second[0]; // TODO: use a proper convention for return type signedness
+            auto sit = functionReturnSigned_.find(call->name);
+            if (sit != functionReturnSigned_.end()) {
+                sig = sit->second;
             }
             return {it->second, "", sig, ir::Type::VOID, ir::typeSize(it->second)};
         }
@@ -728,6 +728,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         functionParamTypes_[node.name] = ptypes;
         functionParamSigned_[node.name] = psigned;
         functionReturnTypes_[node.name] = mapType(node.returnType, node.returnPointerLevel);
+        functionReturnSigned_[node.name] = node.isSigned;
         if (node.isVariadic) variadicFunctions_.insert(node.name);
         if (node.isRegparm) regparmFunctions_.insert(node.name);
         allFunctions_[node.name] = &node;
