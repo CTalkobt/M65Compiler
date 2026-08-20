@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ASTNode.h"
+#include "AST.hpp"
 #include <vector>
 #include <string>
 
@@ -125,7 +125,7 @@ public:
         if (n.condition) n.condition->accept(*this);
     }
     void visit(ForStatement& n) override {
-        if (n.initialization) n.initialization->accept(*this);
+        if (n.initializer) n.initializer->accept(*this);
         if (n.condition) n.condition->accept(*this);
         if (n.increment) n.increment->accept(*this);
         if (n.body) n.body->accept(*this);

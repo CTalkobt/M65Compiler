@@ -74,6 +74,7 @@ AddressTemplateDetector::tryLinearRowMajor(Expression* multiply, Expression* add
 
     result.type = PatternType::LINEAR_ROW_MAJOR;
     result.width = width;
+    result.name = "text_screen_" + std::to_string(width);
     result.operands = {rowVar, colVar};
     result.canOptimize = true;
     result.estimatedBytesSaved = (width == 40) ? 11 : 10;  // Depends on width
@@ -99,6 +100,7 @@ AddressTemplateDetector::trySpriteOffset(Expression* base, Expression* multiply)
 
     result.type = PatternType::SPRITE_OFFSET;
     result.multiplier = size;
+    result.name = "sprite_offset_" + std::to_string(size);
     result.operands = {baseVar, indexVar};
     result.canOptimize = true;
     result.estimatedBytesSaved = 8;  // Typical saving
