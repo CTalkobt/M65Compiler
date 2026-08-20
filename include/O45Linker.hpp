@@ -77,6 +77,12 @@ public:
         return specializedParams_;
     }
 
+    // Phase 4.3: After a successful link, retrieve aggregated IPO hints from all objects
+    // Returns merged IPO hints with global call counts and optimization metadata
+    const O45IPOHints& getAggregatedIPOHints() const {
+        return aggregatedIPOHints_;
+    }
+
     // Phase 52: After a successful link, retrieve function specialization analysis
     const std::map<std::string, SpecializationAnalysis>& getSpecializationAnalysis() const {
         return specializationAnalysis_;
@@ -440,6 +446,10 @@ private:
     // Tracks which parameters are TRULY constant across all call sites
     std::map<std::string, std::map<int, SpecializedParam>> specializedParams_;
 
+    // Phase 4.3: IPO Hints aggregation
+    // Merged IPO hints from all objects with global call counts and optimization metadata
+    O45IPOHints aggregatedIPOHints_;
+
     // Phase 50: IR Metadata analysis
     // Merged IR metadata from all objects (across compilation units)
     // Maps function name → O45IRFunction with cross-file call information
@@ -498,6 +508,7 @@ private:
     void buildFuncAttrs();
     void buildCallGraph();
     void computeTransitiveClobbers();
+    void analyzeIPOHints();             // Phase 4.3: Aggregate IPO hints from all input objects
     void analyzeConstantParameters();  // Cross-file parameter analysis from .param_const metadata
     void analyzeIRMetadata();           // Phase 50: Extract constant parameters from embedded IR
     void analyzeSpecializations();      // Phase 52: Analyze profitable specialization patterns

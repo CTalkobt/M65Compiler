@@ -76,6 +76,10 @@ struct O45File {
     };
     std::map<std::string, ExportInfo> exportInfo;  // Export name -> content/IR info
 
+    // Phase 4.3: IPO Hints (inter-TU optimization)
+    O45IPOHints ipoHints;                // Parsed IPO hints (if present)
+    bool hasIPOHints = false;            // true if OPT_IPO_HINTS was found
+
     // Helper to check if IR is present
     bool hasIRMetadata() const { return irMajorVersion != 0; }
     bool isIRCompatible() const { return irMetadata.isCompatible(); }

@@ -766,6 +766,7 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     buildFuncAttrs();
     buildCallGraph();
     computeTransitiveClobbers();
+    analyzeIPOHints();                 // Phase 4.3: Aggregate IPO hints from all objects
     analyzeConstantParameters();  // Cross-file parameter analysis
     analyzeIRMetadata();           // Phase 50: Extract constant parameters from embedded IR
     analyzeSpecializations();      // Phase 52: Analyze profitable specialization patterns
@@ -975,6 +976,50 @@ void O45Linker::computeTransitiveClobbers() {
                 }
             }
         }
+    }
+}
+
+// Phase 4.3 — Aggregate inter-TU optimization hints from all input objects
+// Merges IPO hints with global call counts and creates global optimization metadata
+void O45Linker::analyzeIPOHints() {
+    aggregatedIPOHints_.version = O45_IPO_HINTS_VERSION;
+
+    // Map from function name to aggregated hint (for deduplication)
+    std::map<std::string, O45IPOFunctionHints> hintsByFunc;
+
+    // Aggregate hints from all input objects
+    for (const auto& input : objects_) {
+        if (!input.obj.hasIPOHints) continue;
+
+        for (const auto& funcHints : input.obj.ipoHints.functions) {
+            if (hintsByFunc.find(funcHints.functionName) == hintsByFunc.end()) {
+                // First time seeing this function: use its hints
+                hintsByFunc[funcHints.functionName] = funcHints;
+            } else {
+                // Already have hints for this function: aggregate call counts
+                auto& existing = hintsByFunc[funcHints.functionName];
+                existing.callCount += funcHints.callCount;
+                existing.externalCallCount += funcHints.externalCallCount;
+
+                // Keep the maximum code size (in case there are differences)
+                if (funcHints.estimatedCodeSize > existing.estimatedCodeSize) {
+                    existing.estimatedCodeSize = funcHints.estimatedCodeSize;
+                }
+
+                // Merge flags (bitwise OR)
+                existing.flags |= funcHints.flags;
+            }
+        }
+    }
+
+    // Populate aggregatedIPOHints with merged data
+    for (auto& [funcName, hints] : hintsByFunc) {
+        aggregatedIPOHints_.functions.push_back(hints);
+    }
+
+    if (warnStream_) {
+        *warnStream_ << "DEBUG: IPO Hints: Aggregated " << aggregatedIPOHints_.functions.size()
+                     << " functions from " << objects_.size() << " objects" << std::endl;
     }
 }
 
