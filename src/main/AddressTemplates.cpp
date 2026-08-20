@@ -1,4 +1,5 @@
 #include "AddressTemplates.hpp"
+#include "AddressTemplateDetector.hpp"
 #include <sstream>
 #include <algorithm>
 
