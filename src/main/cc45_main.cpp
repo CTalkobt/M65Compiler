@@ -32,6 +32,8 @@
 #include "IRCodeGen.hpp"
 #include "IROptimizer.hpp"
 #include "CompoundAssignmentFusion.hpp"
+#include "CompoundChainOptimizer.hpp"
+#include "AssemblerPeephole.hpp"
 #include "Version.hpp"
 #include "Diagnostic.hpp"
 #include "O45Reader.hpp"
@@ -581,11 +583,21 @@ int main(int argc, char** argv) {
             // Assembler-level: will be forwarded to ca45 subprocess
         } else if (arg.substr(0, 2) == "-O") {
             std::string levelStr = arg.substr(2);
-            if (!levelStr.empty() && levelStr[0] >= '0' && levelStr[0] <= '3') {
+            if (!levelStr.empty() && levelStr[0] >= '0' && levelStr[0] <= '9') {
+                // Numeric optimization level: -O0 through -O9
                 int level = levelStr[0] - '0';
                 optimize = (level > 0);
                 irOptFlags = OptimizationFlags::fromLevel(level);
+            } else if (levelStr == "size") {
+                // -Osize: optimize for code size (maps to -O2 + size bias)
+                optimize = true;
+                irOptFlags = OptimizationFlags::fromLevel(2);
+            } else if (levelStr == "speed") {
+                // -Ospeed: optimize for speed (maps to -O3 + speed bias)
+                optimize = true;
+                irOptFlags = OptimizationFlags::fromLevel(3);
             } else {
+                // Unknown optimization flag: treat as -O0
                 optimize = false;
                 irOptFlags = OptimizationFlags::fromLevel(0);
             }
@@ -862,10 +874,12 @@ int main(int argc, char** argv) {
             if (irOptFlags.strengthReduction) {
                 if (verboseLevel >= 1) std::cout << "Optimizing IR (Strength Reduction)..." << std::endl;
                 ir::optimizeStrengthReduction(irBuilder.getModule());
-                // Phase 86: Fuse compound assignments after strength reduction
+                // Phase 86-87: Fuse compound assignments after strength reduction
                 // Eliminates intermediate vregs and redundant load/store cycles
                 if (verboseLevel >= 1) std::cout << "Optimizing IR (Compound Assignment Fusion)..." << std::endl;
                 CompoundAssignmentFusion::fuse(irBuilder.getModule());
+                if (verboseLevel >= 1) std::cout << "Optimizing IR (Compound Chain Optimizer)..." << std::endl;
+                CompoundChainOptimizer::optimize(irBuilder.getModule());
             }
             if (irOptFlags.algebraicSimplify) {
                 if (verboseLevel >= 1) std::cout << "Optimizing IR (Algebraic Simplification)..." << std::endl;
@@ -937,6 +951,39 @@ int main(int argc, char** argv) {
         bool useReloc = true;  // Always use relocatable for assembly generation
         irCodeGen.generate(irBuilder.getModule(), zeroPageStart, useReloc, zpCallMode, emitReasons, staticAllocMode, sacDebugMode, prgBase);
         asmOut.close();
+
+        // Phase 87: Apply assembler-level peephole optimization
+        // Removes redundant load/store sequences (e.g., sta $ZP; lda $ZP)
+        // Run for O1+ to catch redundant loads from inlining
+        {
+            std::ofstream testOut(asmFile, std::ios::app);
+            testOut << "; [DEBUG] Phase 87 code reached, optimize=" << (optimize ? "true" : "false") << "\n";
+            testOut.close();
+        }
+        if (optimize) {
+            std::ifstream asmIn(asmFile);
+            if (asmIn.is_open()) {
+                std::vector<std::string> asmLines;
+                std::string line;
+                while (std::getline(asmIn, line)) {
+                    asmLines.push_back(line);
+                }
+                asmIn.close();
+
+                // Apply peephole optimizations
+                std::vector<std::string> optimized = AssemblerPeepholeOptimizer::optimize(asmLines);
+
+                // Write back optimized assembly
+                std::ofstream asmOut2(asmFile);
+                asmOut2 << "; [Phase 87: Peephole Optimizer Applied]\n";
+                for (const auto& optLine : optimized) {
+                    asmOut2 << optLine << "\n";
+                }
+                asmOut2.close();
+
+                if (verboseLevel >= 2) std::cout << "Applied peephole optimizations to " << asmFile << std::endl;
+            }
+        }
 
         // Phase 49: Collect IR metadata for later embedding in .o45
         // This will be added to the object file after ca45 assembles it
