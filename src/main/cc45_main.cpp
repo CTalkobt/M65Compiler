@@ -32,6 +32,7 @@
 #include "IRCodeGen.hpp"
 #include "IROptimizer.hpp"
 #include "IPOAnalyzer.hpp"
+#include "SpecializationCodeGenerator.hpp"
 #include "CompoundAssignmentFusion.hpp"
 #include "CompoundChainOptimizer.hpp"
 #include "AssemblerPeephole.hpp"
@@ -1034,6 +1035,37 @@ int main(int argc, char** argv) {
                         std::cout << "  - " << func << std::endl;
                     }
                 }
+            }
+        }
+
+        // Phase 91.3.4: Generate specialized function variants
+        // (Framework implementation; full code generation deferred)
+        if (optimize && !ipoResult.specializations.empty()) {
+            if (verboseLevel >= 2) {
+                std::cout << "Specialization candidates for analysis:" << std::endl;
+                int viable = 0;
+                for (const auto& spec : ipoResult.specializations) {
+                    if (spec.isDecided) {
+                        viable++;
+                        std::cout << "  " << spec.baseFunctionName << " -> " << spec.specializationName
+                                  << " (est. savings: ~" << spec.estimatedSavings << "B)" << std::endl;
+                    }
+                }
+                if (viable > 0 && verboseLevel >= 1) {
+                    std::cout << "Phase 91.3.4: Identified " << viable << " specialization candidate(s)" << std::endl;
+                }
+            }
+
+            // Analyze specialization opportunities (infrastructure phase)
+            SpecializationCodeGenerator specGen;
+            auto analysis = specGen.analyze(ipoResult.specializations);
+
+            if (verboseLevel >= 1 && analysis.viableCandidates > 0) {
+                std::cout << "Specialization analysis (Phase 91.3.4): " << analysis.viableCandidates
+                          << " viable candidate(s), est. total savings: " << analysis.estimatedTotalSavings << "B"
+                          << std::endl;
+                std::cout << "  Note: Full code generation implementation deferred to Phase 91.3.5+"
+                          << std::endl;
             }
         }
 

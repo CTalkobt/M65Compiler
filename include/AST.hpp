@@ -60,6 +60,9 @@ public:
 class VariableReference : public Expression {
 public:
     std::string name;
+    // Phase 91.3.4: Specialization tracking
+    bool isConstantSpecialized = false;
+    long specializedConstantValue = 0;
     VariableReference(const std::string& n) : name(n) {}
     void accept(ASTVisitor& visitor) override;
 };
