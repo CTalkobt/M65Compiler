@@ -754,6 +754,84 @@ static bool hasExtension(const std::string& filename, const std::string& ext) {
 
 // ─── BASIC Program Dumping ──────────────────────────────────────────────────
 
+// Convert raw BASIC program bytes to BasicToken objects
+static std::vector<BasicToken> bytesToTokens(const std::vector<uint8_t>& bytes, const BasicTokenizer& tokenizer) {
+    std::vector<BasicToken> tokens;
+    const auto& keywords = tokenizer.getKeywords();
+    const auto& escapeKeywords = tokenizer.getEscapeKeywords();
+
+    for (size_t i = 0; i < bytes.size(); i++) {
+        uint8_t byte = bytes[i];
+        BasicToken token;
+
+        if (byte == 0) break;  // End of line
+
+        if (byte >= 0x80) {
+            // Keyword token
+            if (byte == 0xFE && i + 1 < bytes.size()) {
+                // Escape keyword (two-byte sequence)
+                uint8_t escapeByte = bytes[i + 1];
+                token.type = BasicToken::KEYWORD;
+                token.tokenByte = 0xFE;
+                token.escapeByte = escapeByte;
+                // Find keyword name
+                for (const auto& [name, code] : escapeKeywords) {
+                    if (code == escapeByte) {
+                        token.value = name;
+                        break;
+                    }
+                }
+                i++;  // Skip next byte since we consumed it
+            } else {
+                // Single-byte keyword
+                token.type = BasicToken::KEYWORD;
+                token.tokenByte = byte;
+                // Find keyword name
+                for (const auto& [name, code] : keywords) {
+                    if (code == byte) {
+                        token.value = name;
+                        break;
+                    }
+                }
+            }
+        } else if (byte == '"') {
+            // String token - read until closing quote
+            token.type = BasicToken::STRING;
+            token.value = "\"";
+            i++;
+            while (i < bytes.size() && bytes[i] != '"') {
+                token.value += (char)bytes[i];
+                i++;
+            }
+            if (i < bytes.size()) token.value += '"';
+        } else if (std::isdigit(byte)) {
+            // Number token
+            token.type = BasicToken::NUMBER;
+            token.value = (char)byte;
+            while (i + 1 < bytes.size() && std::isdigit(bytes[i + 1])) {
+                i++;
+                token.value += (char)bytes[i];
+            }
+        } else if (std::isalpha(byte) || byte == '_') {
+            // Identifier token
+            token.type = BasicToken::IDENTIFIER;
+            token.value = (char)byte;
+            while (i + 1 < bytes.size() && (std::isalnum(bytes[i + 1]) || bytes[i + 1] == '_')) {
+                i++;
+                token.value += (char)bytes[i];
+            }
+        } else {
+            // Operator or other character
+            token.type = BasicToken::OPERATOR;
+            token.value = (char)byte;
+        }
+
+        tokens.push_back(token);
+    }
+
+    return tokens;
+}
+
 static bool readBasicPrg(const std::string& filename, std::vector<BasicLine>& lines) {
     std::ifstream file(filename, std::ios::binary);
     if (!file) return false;
@@ -765,6 +843,8 @@ static bool readBasicPrg(const std::string& filename, std::vector<BasicLine>& li
 
     uint16_t loadAddr = loadLow | (loadHigh << 8);
     uint16_t currentAddr = loadAddr;
+
+    BasicTokenizer tokenizer;
 
     while (file) {
         uint8_t nextLow, nextHigh;
@@ -781,19 +861,17 @@ static bool readBasicPrg(const std::string& filename, std::vector<BasicLine>& li
 
         uint16_t lineNum = lineLow | (lineHigh << 8);
 
-        std::vector<uint8_t> tokens;
+        std::vector<uint8_t> rawBytes;
         uint8_t byte;
         while (file.read((char*)&byte, 1)) {
             if (byte == 0) break;
-            tokens.push_back(byte);
+            rawBytes.push_back(byte);
         }
 
-        // TODO: BasicLine struct refactored to use vector<BasicToken> instead of vector<uint8_t>
-        // BASIC program dumping feature needs to be updated to properly construct BasicToken objects
-        // For now, this feature is temporarily disabled pending refactoring
-        // BasicLine line;
-        // line.lineNumber = lineNum;
-        // line.tokens = ...;
+        BasicLine line;
+        line.lineNumber = lineNum;
+        line.tokens = bytesToTokens(rawBytes, tokenizer);
+        lines.push_back(line);
 
         currentAddr = nextAddr;
     }
@@ -802,41 +880,30 @@ static bool readBasicPrg(const std::string& filename, std::vector<BasicLine>& li
 }
 
 static void dumpBasicProgram(const std::string& filename, bool showHex) {
-    // BASIC program dumping feature temporarily disabled pending struct refactoring
-    // TODO: Update BasicLine struct usage for new token format
-    std::cerr << "objdump45: BASIC program dumping is temporarily disabled (pending refactoring)" << std::endl;
-    (void)filename;
-    (void)showHex;
-    return;
-
-#if 0  // BASIC program dumping temporarily disabled pending struct refactoring
-    // Original code below (disabled)
     std::vector<BasicLine> lines;
     if (!readBasicPrg(filename, lines)) {
         std::cerr << "objdump45: Cannot read BASIC program: " << filename << std::endl;
         return;
     }
 
-    BasicTokenizer tokenizer;
-    std::map<uint8_t, std::string> byteToKeyword;
-    std::map<uint8_t, std::string> escapeByteToKeyword;
-
-    for (const auto& kw : tokenizer.getKeywords()) {
-        byteToKeyword[kw.second] = kw.first;
-    }
-    for (const auto& kw : tokenizer.getEscapeKeywords()) {
-        escapeByteToKeyword[kw.second] = kw.first;
-    }
-
     printf("\nBASIC Program: %s (%zu lines)\n", filename.c_str(), lines.size());
     printf("─────────────────────────────────\n");
-    printf("Format: LineNum @Address -> NextAddr [HEX data...]\n\n");
+    printf("Format: LineNum [TOKENS...]\n\n");
 
     for (const auto& line : lines) {
         if (showHex) {
             printf("%5u [HEX] ", line.lineNumber);
             for (const auto& token : line.tokens) {
-                printf("%02X ", token.value);
+                if (token.tokenByte == 0xFE && token.escapeByte != 0) {
+                    printf("FE%02X ", token.escapeByte);
+                } else if (token.tokenByte != 0) {
+                    printf("%02X ", token.tokenByte);
+                } else {
+                    // Non-keyword token - just show first char if available
+                    if (!token.value.empty()) {
+                        printf("%02X ", (uint8_t)token.value[0]);
+                    }
+                }
             }
             printf("\n");
         }
@@ -844,77 +911,19 @@ static void dumpBasicProgram(const std::string& filename, bool showHex) {
         printf("%5u ", line.lineNumber);
         printf(" ");
 
-        size_t i = 0;
-        while (i < line.tokens.size()) {
-            uint8_t byte = line.tokens[i];
-
-            if (byte >= 0x80) {
-                if (byte == 0xFE) {
-                    if (i + 1 < line.tokens.size()) {
-                        uint8_t escapeByte = line.tokens[i + 1];
-                        auto it = escapeByteToKeyword.find(escapeByte);
-                        if (it != escapeByteToKeyword.end()) {
-                            printf("%s ", it->second.c_str());
-                        } else {
-                            printf("[FE%02X] ", escapeByte);
-                        }
-                        i += 2;
-                    } else {
-                        printf("[FE??] ");
-                        i++;
-                    }
-                } else {
-                    auto it = byteToKeyword.find(byte);
-                    if (it != byteToKeyword.end()) {
-                        printf("%s ", it->second.c_str());
-                    } else {
-                        printf("[%02X] ", byte);
-                    }
-                    i++;
-                }
-            } else if (byte == 0x22) {
-                printf("\"");
-                i++;
-                while (i < line.tokens.size() && line.tokens[i] != 0x22) {
-                    printf("%c", line.tokens[i]);
-                    i++;
-                }
-                if (i < line.tokens.size()) {
-                    printf("\" ");
-                    i++;
-                } else {
-                    printf("\" [UNTERMINATED] ");
-                }
-            } else if ((byte >= 0x30 && byte <= 0x39) || byte == 0x2E) {
-                printf("%c", byte);
-                i++;
-            } else if ((byte >= 0x41 && byte <= 0x5A) || (byte >= 0x61 && byte <= 0x7A) ||
-                       byte == 0x5F || (byte >= 0x30 && byte <= 0x39)) {
-                while (i < line.tokens.size()) {
-                    byte = line.tokens[i];
-                    if ((byte >= 0x41 && byte <= 0x5A) || (byte >= 0x61 && byte <= 0x7A) ||
-                        byte == 0x5F || (byte >= 0x30 && byte <= 0x39)) {
-                        printf("%c", byte);
-                        i++;
-                    } else {
-                        break;
-                    }
-                }
-                printf(" ");
-            } else {
-                printf("%c", byte);
-                if (byte != 0x28 && byte != 0x29 && byte != 0x2C && byte != 0x3A &&
-                    byte != 0x3B && byte != 0x3D && byte != 0x3C && byte != 0x3E &&
-                    byte != 0x2B && byte != 0x2D && byte != 0x2A && byte != 0x2F) {
-                    printf(" ");
-                }
-                i++;
+        for (const auto& token : line.tokens) {
+            // Print token value or raw representation
+            if (!token.value.empty()) {
+                printf("%s ", token.value.c_str());
+            } else if (token.tokenByte == 0xFE && token.escapeByte != 0) {
+                printf("[FE%02X] ", token.escapeByte);
+            } else if (token.tokenByte != 0) {
+                printf("[%02X] ", token.tokenByte);
             }
         }
 
         printf("\n");
     }
-#endif  // End of disabled BASIC program dumping code
 }
 
 static void printUsage(const char* progName) {
