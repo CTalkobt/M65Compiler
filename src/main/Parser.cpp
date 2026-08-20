@@ -1015,6 +1015,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
     bool isStatic = false;
     bool isRegister = false;
     bool isInline = false;
+    bool isStriped = false;         // Phase 92: Striped array support
     while (true) {
         if (match(TokenType::VOLATILE)) {
             isVolatile = true;
@@ -1030,6 +1031,8 @@ std::unique_ptr<Statement> Parser::parseStatement() {
             // consumed; restrict is a hint only
         } else if (match(TokenType::INLINE)) {
             isInline = true;
+        } else if (match(TokenType::STRIPED)) {
+            isStriped = true;
         } else if (match(TokenType::FASTCALL)) {
             // consumed; handled at function declaration level
         } else {
@@ -1095,6 +1098,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
             vDecl->isVolatile = isVolatile;
             vDecl->isConst = isConst;
             vDecl->isStatic = isStatic;
+            vDecl->isStriped = isStriped;
             // Array dimensions
             while (match(TokenType::OPEN_SQUARE)) {
                 if (match(TokenType::CLOSE_SQUARE)) {
@@ -1150,7 +1154,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
             for (auto& ev : extraVars) compound->statements.push_back(std::move(ev));
             return compound;
         }
-        return parseVariableDeclaration(isVolatile, isConst, isStatic, isRegister);
+        return parseVariableDeclaration(isVolatile, isConst, isStatic, isRegister, isStriped);
     }
 
     if (peek().type == TokenType::ALIGNAS || peek().type == TokenType::INT || peek().type == TokenType::SHORT || peek().type == TokenType::LONG || peek().type == TokenType::CHAR || peek().type == TokenType::BOOL ||
@@ -1162,7 +1166,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
         if (isFunctionDeclaration()) {
             return parseFunctionDeclaration();
         }
-        return parseVariableDeclaration(isVolatile, isConst, isStatic, isRegister);
+        return parseVariableDeclaration(isVolatile, isConst, isStatic, isRegister, isStriped);
     }
 
     if (match(TokenType::RETURN)) {
@@ -1424,7 +1428,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
     return setPos(std::make_unique<ExpressionStatement>(std::move(expr)), startToken);
 }
 
-std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, bool isConst, bool isStatic, bool isRegister) {
+std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, bool isConst, bool isStatic, bool isRegister, bool isStriped) {
     std::unique_ptr<Expression> alignmentExpr = nullptr;
     if (match(TokenType::ALIGNAS)) {
         expect(TokenType::OPEN_PAREN, "Expected '(' after '_Alignas'");
@@ -1604,6 +1608,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         decl->isConst = isConst;
         decl->isStatic = isStatic;
         decl->isRegister = isRegister;
+        decl->isStriped = isStriped;
         decl->isFunctionPointer = true;
         decl->funcPtrSig = fpSig;
         decl->alignmentExpr = std::move(alignmentExpr);
@@ -1652,6 +1657,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     decl->isConst = isConst;
     decl->isStatic = isStatic;
     decl->isRegister = isRegister;
+    decl->isStriped = isStriped;
     decl->isPointerConst = isPointerConst;
     decl->alignmentExpr = std::move(alignmentExpr);
     decl->arrayDims = arrayDims;
@@ -1715,6 +1721,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             extraDecl->isConst = isConst;
             extraDecl->isStatic = isStatic;
             extraDecl->isRegister = isRegister;
+            extraDecl->isStriped = isStriped;
             extraDecl->isPointerConst = extraPtrConst;
             extraDecl->arrayDims = extraDims;
             if (match(TokenType::EQUALS)) {

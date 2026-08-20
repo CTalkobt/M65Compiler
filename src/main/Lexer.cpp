@@ -285,6 +285,8 @@ Token Lexer::lexIdentifierOrKeyword() {
         {"__naked__", TokenType::NAKED},
         {"__unpacked", TokenType::UNPACKED},
         {"__unpacked__", TokenType::UNPACKED},
+        {"__striped", TokenType::STRIPED},
+        {"__striped__", TokenType::STRIPED},
         {"repeat", TokenType::REPEAT},
         {"float", TokenType::FLOAT},
         {"double", TokenType::DOUBLE},

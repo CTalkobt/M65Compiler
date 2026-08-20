@@ -46,6 +46,7 @@ public:
         bool isConst = false;
         bool isPointerConst = false;
         bool isRegister = false;
+        bool isStriped = false;            // Phase 92: Striped array support
         std::vector<int> arrayDims;
         int arraySize() const {
             if (arrayDims.empty()) return -1;

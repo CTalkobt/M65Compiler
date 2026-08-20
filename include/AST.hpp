@@ -211,6 +211,7 @@ public:
     bool isExtern = false;
     bool isStatic = false;
     bool isRegister = false;
+    bool isStriped = false;         // Phase 92: Striped array optimization
     int alignment = 0;
     std::unique_ptr<Expression> alignmentExpr;
     std::unique_ptr<Expression> initializer;

@@ -517,6 +517,25 @@ void CodeGenerator::emitAddress(Expression* expr) {
             }
         }
     } else if (auto* aa = dynamic_cast<ArrayAccess*>(expr)) {
+        // Phase 92.3: Detect and handle striped arrays
+        // Striped arrays use optimized indexing for 2D int arrays
+        if (auto* inner = dynamic_cast<ArrayAccess*>(aa->arrayExpr.get())) {
+            // Check if this is a striped 2D array access
+            Expression* base = inner->arrayExpr.get();
+            if (auto* baseRef = dynamic_cast<VariableReference*>(base)) {
+                std::string rName = resolveVarName(baseRef->name);
+                VarInfo* vi = nullptr;
+                if (variableTypes.count(rName)) vi = &variableTypes.at(rName);
+                else if (globalVariableTypes.count(rName)) vi = &globalVariableTypes.at(rName);
+
+                // Use striped optimization if available
+                if (vi && vi->isStriped && vi->arrayDims.size() == 2 && vi->type == "int") {
+                    emitStripedArrayAccess(*aa, *vi, baseRef);
+                    return;  // Striped path complete
+                }
+            }
+        }
+
         bool oldNeeded = resultNeeded;
         resultNeeded = true;
         // For chained array access (multi-dim), recurse via emitAddress to get
@@ -1955,6 +1974,7 @@ void CodeGenerator::visit(VariableDeclaration& node) {
     if (node.isGlobal || currentFunction == nullptr) {
         std::string gName = "_" + node.name;
         globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims, node.isFunctionPointer, node.funcPtrSig};
+        globalVariableTypes[gName].isStriped = node.isStriped;  // Phase 92: Propagate striped flag
         if (node.isExtern) {
             // extern declaration — type is known but no storage emitted
             return;
@@ -1971,6 +1991,7 @@ void CodeGenerator::visit(VariableDeclaration& node) {
     if (node.isStatic && currentFunction != nullptr) {
         std::string sName = "__sl_" + currentFunction->name + "_" + node.name;
         globalVariableTypes[sName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims};
+        globalVariableTypes[sName].isStriped = node.isStriped;  // Phase 92: Propagate striped flag
         // Create a synthetic global VariableDeclaration for emitData
         auto* synth = new VariableDeclaration(node.type, currentFunction->name + "__" + node.name, node.pointerLevel);
         synth->isSigned = node.isSigned;
@@ -2001,11 +2022,13 @@ void CodeGenerator::visit(VariableDeclaration& node) {
         variableTypes.erase("_l_" + node.name);
         std::string gName = "_" + synth->name;
         globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims};
+        globalVariableTypes[gName].isStriped = node.isStriped;  // Phase 92: Propagate striped flag
         return;
     }
 
     std::string lName = "_l_" + node.name;
     variableTypes[lName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims, node.isFunctionPointer, node.funcPtrSig};
+    variableTypes[lName].isStriped = node.isStriped;  // Phase 92: Propagate striped flag
 
     // Register variable: allocate in zero page instead of stack
     if (node.isRegister && node.arraySize() < 0 && !isStruct(node.type)) {
@@ -5723,6 +5746,50 @@ void CodeGenerator::visit(AlignofExpression& node) {
 
 // Try to extract a compile-time constant integer from an expression tree.
 // Handles IntegerLiteral, CastExpression, unary -/~, and binary ops on constants.
+std::vector<int> CodeGenerator::reorganizeStripedArrayData(const std::vector<int>& userData, int height, int width) {
+    // Phase 92.4: Reorganize user-provided row-major data into striped layout
+    // Input: userData in row-major order (user writes [row][col])
+    // Output: same data reorganized into striped layout for efficient indexing
+
+    if (width < 4 || (width & (width - 1)) != 0) {
+        // Not a power of 2 or too small, return data unchanged (fallback to standard layout)
+        return userData;
+    }
+
+    // Determine stripe width (power of 2, max 8)
+    int stripeWidth = (width <= 8) ? width : 8;
+    int log2Stripe = 0;
+    for (int i = stripeWidth; i > 1; i >>= 1) log2Stripe++;
+
+    // Calculate striped layout size and allocate output buffer
+    int totalElements = height * width;
+    std::vector<int> striped(totalElements);
+
+    // Reorganize: for each (row, col) in user data, calculate striped position
+    for (int row = 0; row < height; row++) {
+        for (int col = 0; col < width; col++) {
+            // Source position (row-major)
+            int srcIdx = row * width + col;
+            if (srcIdx >= (int)userData.size()) continue;
+
+            // Calculate striped destination position
+            int stripeSelect = col >> log2Stripe;           // Which stripe (0, 1, 2, ...)
+            int colRemainder = col & (stripeWidth - 1);    // Position within stripe (0-3)
+
+            // Striped layout formula:
+            // offset = stripe_select * height + row + col_remainder * height
+            // This places all rows for a column-group together, with fast variation along row
+            int dstIdx = stripeSelect * height + row + colRemainder * height;
+
+            if (dstIdx < (int)striped.size()) {
+                striped[dstIdx] = userData[srcIdx];
+            }
+        }
+    }
+
+    return striped;
+}
+
 void CodeGenerator::emitData() {
     // Emit .global/.weak for all global variables in relocatable mode (skip static)
     if (relocMode) {
@@ -5831,9 +5898,34 @@ void CodeGenerator::emitData() {
                         nextIdx++;
                     }
                 }
+
+                // Phase 92.4: Handle striped array initialization
+                // Check if this is a striped 2D array
+                std::string gName = "_" + gVar->name;
+                bool isStripedArray = false;
+                if (globalVariableTypes.count(gName)) {
+                    VarInfo& vi = globalVariableTypes[gName];
+                    if (vi.isStriped && vi.arrayDims.size() == 2 && gVar->type == "int") {
+                        isStripedArray = true;
+                    }
+                }
+
+                // Convert resolved expressions to integer values
+                std::vector<int> dataValues(totalElements, 0);
                 for (int i = 0; i < totalElements; i++) {
-                    int constVal = 0;
-                    if (resolved[i]) tryEvalConstInt(resolved[i], constVal);
+                    if (resolved[i]) tryEvalConstInt(resolved[i], dataValues[i]);
+                }
+
+                // Reorganize into striped layout if needed
+                if (isStripedArray && gVar->arraySize() >= 0) {
+                    int height = gVar->arrayDims[0];
+                    int width = gVar->arrayDims[1];
+                    dataValues = reorganizeStripedArrayData(dataValues, height, width);
+                }
+
+                // Emit reorganized/original data
+                for (int i = 0; i < totalElements; i++) {
+                    int constVal = dataValues[i];
                     if (elementSize == 1) out << "    .byte $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (constVal & 0xFF) << std::dec << std::endl;
                     else if (elementSize == 2) out << "    .word $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (constVal & 0xFFFF) << std::dec << std::endl;
                     else if (elementSize == 4) out << "    .dword $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(8) << (constVal & 0xFFFFFFFF) << std::dec << std::endl;
@@ -6224,4 +6316,106 @@ bool CodeGenerator::tryEmitAddressTemplate(BinaryOperation& node) {
     }
 
     return false;
+}
+
+void CodeGenerator::emitStripedArrayAccess(ArrayAccess& node, VarInfo& varInfo, VariableReference* baseRef) {
+    // Phase 92.3: Striped array optimization for 2D integer arrays
+    // Reorganizes memory to enable 8-bit indexing instead of 16-bit offset calculations
+
+    if (varInfo.arrayDims.size() != 2 || varInfo.type != "int") {
+        return;  // Not a 2D int array, use standard indexing
+    }
+
+    int height = varInfo.arrayDims[0];  // rows
+    int width = varInfo.arrayDims[1];   // cols
+
+    // Striped optimization only works well for power-of-2 widths
+    if (width < 4 || (width & (width - 1)) != 0) {
+        return;  // Not a power of 2
+    }
+
+    // Determine stripe width for bit-shift efficiency
+    int stripeWidth = (width <= 8) ? width : 8;
+    int log2Stripe = 0;
+    for (int i = stripeWidth; i > 1; i >>= 1) log2Stripe++;
+
+    // Verify 2D access pattern: arr[row][col]
+    auto* inner = dynamic_cast<ArrayAccess*>(node.arrayExpr.get());
+    if (!inner) {
+        return;  // Not a nested array access
+    }
+
+    // Store base address in ZP temp
+    int zpBase = allocateZP(2);
+    std::stringstream ss_base;
+    ss_base << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpBase);
+    emit("ptrstack " + resolveVarName(baseRef->name));
+    emit("stax $" + ss_base.str());
+
+    // Evaluate and save row index
+    bool oldNeeded = resultNeeded;
+    resultNeeded = true;
+    inner->indexExpr->accept(*this);
+    resultNeeded = oldNeeded;
+
+    int zpRow = allocateZP(1);
+    std::stringstream ss_row;
+    ss_row << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpRow);
+    emit("sta $" + ss_row.str());
+
+    // Evaluate column index
+    resultNeeded = true;
+    node.indexExpr->accept(*this);
+    resultNeeded = oldNeeded;
+
+    int zpCol = allocateZP(1);
+    std::stringstream ss_col;
+    ss_col << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpCol);
+    emit("sta $" + ss_col.str());
+
+    // Calculate offset: (col >> log2Stripe) * height + row + (col & (stripeWidth-1)) * 4
+    emit("lda $" + ss_col.str());
+    for (int i = 0; i < log2Stripe; i++) {
+        emit("lsr");
+    }
+
+    // Multiply stripe select by height
+    if (height <= 16 && (height & (height - 1)) == 0) {
+        // Power of 2: use shifts
+        int log2Height = 0;
+        for (int i = height; i > 1; i >>= 1) log2Height++;
+        for (int i = 0; i < log2Height; i++) {
+            emit("asl");
+        }
+    } else {
+        // General case
+        emit("tax");
+        emit("lda #$" + std::to_string(height));
+        emit("mul.16 .ax, .tx");
+    }
+
+    // Add row
+    emit("clc");
+    emit("adc $" + ss_row.str());
+
+    // Add column remainder offset: (col & (stripeWidth-1)) * 4
+    emit("tax");
+    emit("lda $" + ss_col.str());
+    int mask = stripeWidth - 1;
+    std::stringstream ss_mask;
+    ss_mask << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (mask & 0xFF);
+    emit("and " + ss_mask.str());
+    emit("asl");
+    emit("asl");  // Multiply by 4 for int size
+    emit("clc");
+    emit("adc.16 .tx");
+
+    // Add base address
+    emit("clc");
+    emit("adc.16 $" + ss_base.str());
+
+    freeZP(zpBase, 2);
+    freeZP(zpRow, 1);
+    freeZP(zpCol, 1);
+    invalidateRegs();
 }

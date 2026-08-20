@@ -31,7 +31,7 @@ private:
     std::unique_ptr<FunctionDeclaration> parseFunctionDeclaration();
     std::unique_ptr<CompoundStatement> parseCompoundStatement();
     std::unique_ptr<Statement> parseStatement();
-    std::unique_ptr<Statement> parseVariableDeclaration(bool isVolatile, bool isConst = false, bool isStatic = false, bool isRegister = false);
+    std::unique_ptr<Statement> parseVariableDeclaration(bool isVolatile, bool isConst = false, bool isStatic = false, bool isRegister = false, bool isStriped = false);
     std::unique_ptr<StaticAssert> parseStaticAssert();
     std::unique_ptr<EnumDefinition> parseEnumDefinition();
     std::unique_ptr<StructDefinition> parseStructDefinition(bool isUnion = false);

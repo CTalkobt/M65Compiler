@@ -59,6 +59,7 @@ enum class TokenType {
     INT_N,     // __int (parameterized width integer)
     UINT_N,    // __uint (parameterized width unsigned integer)
     LONG_LONG, // long long (64-bit integer)
+    STRIPED,   // __striped (array memory layout optimization)
 
     // Variadic
     ELLIPSIS,  // ...
@@ -189,6 +190,7 @@ struct Token {
             case TokenType::INT_N: return "INT_N";
             case TokenType::UINT_N: return "UINT_N";
             case TokenType::LONG_LONG: return "LONG_LONG";
+            case TokenType::STRIPED: return "STRIPED";
             case TokenType::ELLIPSIS: return "ELLIPSIS";
             case TokenType::IDENTIFIER: return "IDENTIFIER";
             case TokenType::INTEGER_LITERAL: return "INTEGER_LITERAL";

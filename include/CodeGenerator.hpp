@@ -32,10 +32,20 @@ public:
         bool isConst = false;         // base type is const (prevents *p = x)
         bool isPointerConst = false;  // pointer itself is const (prevents p = x)
         bool isRegister = false;      // allocated in zero page
+        bool isStriped = false;       // Phase 92: Striped array optimization
         std::vector<int> arrayDims;   // empty = not array; {3,4} = int[3][4]
-        int arraySize() const { if (arrayDims.empty()) return -1; int s=1; for (int d:arrayDims) s*=d; return s; }
         bool isFunctionPointer = false;
         std::shared_ptr<FuncPtrSignature> funcPtrSig;
+
+        VarInfo() = default;
+        VarInfo(const std::string& t, int p, bool s = false, bool v = false, bool c = false,
+                bool pc = false, bool r = false, const std::vector<int>& a = {},
+                bool fp = false, std::shared_ptr<FuncPtrSignature> fpSig = nullptr)
+            : type(t), pointerLevel(p), isSigned(s), isVolatile(v), isConst(c),
+              isPointerConst(pc), isRegister(r), arrayDims(a), isFunctionPointer(fp),
+              funcPtrSig(fpSig), isStriped(false) {}
+
+        int arraySize() const { if (arrayDims.empty()) return -1; int s=1; for (int d:arrayDims) s*=d; return s; }
     };
     struct ExpressionType {
         std::string type;
@@ -123,6 +133,8 @@ public:
     void visit(TranslationUnit& node) override;
     void emitAddress(Expression* expr);
     void emitIndirectIncDec(UnaryOperation& node, bool isInc, bool isPost);
+    void emitStripedArrayAccess(ArrayAccess& node, VarInfo& varInfo, VariableReference* baseRef);
+    std::vector<int> reorganizeStripedArrayData(const std::vector<int>& userData, int height, int width);
     void emitOperation(const std::string& op, int zpLeft, ExpressionType lhsType, ExpressionType rhsType);
     void embedSource(ASTNode& node);
     ExpressionType getExprType(Expression* expr);
