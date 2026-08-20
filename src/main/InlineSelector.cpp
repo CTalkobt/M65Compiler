@@ -82,28 +82,29 @@ InlineSelector::InlineHints InlineSelector::computeInlineDecision(
                   << " tinyThresh=" << tinyThreshold << "\n";
     }
 
-    // Strategy 2: Small functions with few branches
-    if (chars->estimatedCodeSize < smallThreshold && chars->branchCount < 3) {
+    // Strategy 2: Small functions (relax branch requirement at higher levels)
+    int branchLimit = (optimizationLevel_ >= 4) ? 10 : 3;
+    if (chars->estimatedCodeSize < smallThreshold && chars->branchCount < branchLimit) {
         hints.shouldInline = true;
         hints.inlineThreshold = 150;
         hints.reason = "Small simple function";
         return hints;
     }
 
-    // Strategy 3: Medium functions with no branches
-    if (chars->estimatedCodeSize < mediumThreshold && chars->branchCount == 0 && chars->isLeaf) {
+    // Strategy 3: Medium functions (relax at higher levels)
+    int mediumBranchLimit = (optimizationLevel_ >= 4) ? 5 : 0;
+    if (chars->estimatedCodeSize < mediumThreshold && chars->branchCount <= mediumBranchLimit && chars->isLeaf) {
         hints.shouldInline = true;
         hints.inlineThreshold = 100;
         hints.reason = "Medium simple leaf";
         return hints;
     }
 
-    // Strategy 4: Functions with no loops and no branches
-    if (chars->loopCount == 0 && chars->branchCount == 0 &&
-        chars->estimatedCodeSize < noLoopThreshold) {
+    // Strategy 4: Leaf functions (aggressive mode for -O4+)
+    if (optimizationLevel_ >= 4 && chars->isLeaf && chars->estimatedCodeSize < noLoopThreshold) {
         hints.shouldInline = true;
-        hints.inlineThreshold = 120;
-        hints.reason = "No loops/branches";
+        hints.inlineThreshold = 150;
+        hints.reason = "Leaf function (aggressive mode)";
         return hints;
     }
 
