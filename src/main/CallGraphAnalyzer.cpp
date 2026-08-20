@@ -26,6 +26,9 @@ void CallGraphAnalyzer::analyzeTranslationUnit(TranslationUnit& unit, const Func
 
     // Third pass: build graph structure
     buildCallGraph();
+
+    // Fourth pass: analyze virtual methods in struct definitions
+    analyzeVirtualMethods();
 }
 
 void CallGraphAnalyzer::buildCallGraph() {
@@ -116,10 +119,7 @@ std::vector<std::string> CallGraphAnalyzer::getSimpleCalleeFunctions() const {
 }
 
 std::vector<CallGraphAnalyzer::VirtualMethodInfo> CallGraphAnalyzer::getVirtualMethods() const {
-    std::vector<VirtualMethodInfo> virtuals;
-    // TODO: Scan for virtual method definitions in struct definitions
-    // This requires analyzing struct member functions with virtual keyword
-    return virtuals;
+    return virtualMethods_;
 }
 
 bool CallGraphAnalyzer::canCoOptimize(const std::string& func1, const std::string& func2) const {
@@ -181,4 +181,34 @@ void CallGraphAnalyzer::visit(FunctionDeclaration& node) {
 
 void CallGraphAnalyzer::visit(TranslationUnit& node) {
     // No-op: already processed in analyzeTranslationUnit
+}
+
+void CallGraphAnalyzer::analyzeVirtualMethods() {
+    // Scan for virtual method definitions in struct definitions
+    // Build a map of method name → list of implementations
+    std::map<std::string, std::set<std::string>> methodImpls;
+
+    // Since we can't access the AST directly from here, we collect from the callGraph_
+    // Virtual method implementations are marked with isVirtual in function calls
+    // For now, we scan function names to identify struct methods (containing __)
+    for (const auto& [funcName, node] : callGraph_) {
+        // Struct methods have names like "StructName__methodName"
+        size_t separatorPos = funcName.find("__");
+        if (separatorPos != std::string::npos) {
+            std::string structName = funcName.substr(0, separatorPos);
+            std::string methodName = funcName.substr(separatorPos + 2);
+            // Assume all struct methods could be virtual (conservative approach)
+            // The actual virtual flag should be determined during parsing
+            methodImpls[methodName].insert(funcName);
+        }
+    }
+
+    // Convert map to VirtualMethodInfo vector
+    virtualMethods_.clear();
+    for (const auto& [methodName, impls] : methodImpls) {
+        VirtualMethodInfo vmi;
+        vmi.methodName = methodName;
+        vmi.implementations.assign(impls.begin(), impls.end());
+        virtualMethods_.push_back(vmi);
+    }
 }

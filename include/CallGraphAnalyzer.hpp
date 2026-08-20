@@ -113,6 +113,7 @@ public:
 private:
     std::map<std::string, FunctionNode> callGraph_;
     std::string currentFunction_;
+    std::vector<VirtualMethodInfo> virtualMethods_;  // Collected virtual method info
 
     void buildCallGraph();
     void analyzeVirtualMethods();
