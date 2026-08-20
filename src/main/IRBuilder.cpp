@@ -3008,7 +3008,7 @@ void IRBuilder::visit(FunctionCall& node) {
         inst.src1 = lastValue_;
         auto dest = allocVreg(ir::Type::I16);
         inst.op = ir::Op::CALL_INDIRECT;
-        inst.callConv = ir::CallConv::STACK; // TODO: support ZP indirect calls
+        inst.callConv = zpCallMode ? ir::CallConv::ZP : ir::CallConv::STACK;
         inst.dest = dest;
         inst.resultType = ir::Type::I16;
         emit(inst);
