@@ -926,6 +926,52 @@ static void dumpBasicProgram(const std::string& filename, bool showHex) {
     }
 }
 
+static void diffBinaries(const std::string& file1, const std::string& file2) {
+    std::ifstream f1(file1, std::ios::binary), f2(file2, std::ios::binary);
+    if (!f1 || !f2) {
+        std::cerr << "objdump45: cannot open files for comparison" << std::endl;
+        return;
+    }
+
+    std::vector<uint8_t> data1((std::istreambuf_iterator<char>(f1)), std::istreambuf_iterator<char>()),
+                         data2((std::istreambuf_iterator<char>(f2)), std::istreambuf_iterator<char>());
+    f1.close(); f2.close();
+
+    printf("Binary Diff: %s vs %s\n", file1.c_str(), file2.c_str());
+    printf("Size: %zu bytes vs %zu bytes\n\n", data1.size(), data2.size());
+
+    if (data1.empty() && data2.empty()) {
+        printf("Both files are empty (identical)\n");
+        return;
+    }
+
+    int diffCount = 0;
+    uint32_t lastDiffAddr = -1;
+    for (size_t i = 0; i < std::min(data1.size(), data2.size()); i++) {
+        if (data1[i] != data2[i]) {
+            if (diffCount == 0 || i > lastDiffAddr + 16) {
+                if (diffCount > 0) printf("\n");
+                printf("Offset $%04zX: ", i);
+            }
+            printf("[%02X→%02X] ", data1[i], data2[i]);
+            lastDiffAddr = i;
+            diffCount++;
+            if (diffCount > 0 && (diffCount % 8 == 0)) printf("\n            ");
+        }
+    }
+
+    if (data1.size() != data2.size()) {
+        printf("\nSize difference: %s is %zu bytes, %s is %zu bytes\n",
+               file1.c_str(), data1.size(), file2.c_str(), data2.size());
+    }
+
+    if (diffCount == 0) {
+        printf("Files are identical\n");
+    } else {
+        printf("\n\nTotal differences: %d bytes\n", diffCount);
+    }
+}
+
 static void printUsage(const char* progName) {
     std::cout << "Usage: " << progName << " [options] <file> [...]" << std::endl;
     std::cout << "Display information from .o45/.o65 object files, .prg, or raw binaries." << std::endl;
@@ -938,6 +984,7 @@ static void printUsage(const char* progName) {
     std::cout << "  -s       Display full contents of all sections (hex dump)" << std::endl;
     std::cout << "  -d       Disassemble executable sections" << std::endl;
     std::cout << "  -a       Display all information" << std::endl;
+    std::cout << "  -D       Binary diff mode (requires two files)" << std::endl;
     std::cout << "  -bas     Dump BASIC program (for .prg files only)" << std::endl;
     std::cout << "  -x       Show hex dump (with -bas option)" << std::endl;
     std::cout << "  -b ADDR  Set base address for raw binary files (default: $0000)" << std::endl;
@@ -961,6 +1008,7 @@ int main(int argc, char** argv) {
     bool showAll = false;
     bool showBasic = false;
     bool showHex = false;
+    bool showDiff = false;
     uint32_t baseAddr = 0;
     bool baseAddrSet = false;
     std::string mapFile;
@@ -995,6 +1043,8 @@ int main(int argc, char** argv) {
             mapFile = argv[++i];
         } else if (arg == "-bas") {
             showBasic = true;
+        } else if (arg == "-D") {
+            showDiff = true;
         } else if (arg == "-x") {
             showHex = true;
         } else if (arg[0] == '-' && arg.size() > 1) {
@@ -1021,6 +1071,16 @@ int main(int argc, char** argv) {
 
     if (showAll) {
         showFileHeader = showSections = showSymbols = showRelocs = showContents = showDisasm = true;
+    }
+
+    // Handle diff mode - requires exactly 2 files
+    if (showDiff) {
+        if (files.size() != 2) {
+            std::cerr << "objdump45: -D requires exactly 2 files" << std::endl;
+            return 1;
+        }
+        diffBinaries(files[0], files[1]);
+        return 0;
     }
 
     // If no display options given, default to showing file header (unless -bas is specified)
