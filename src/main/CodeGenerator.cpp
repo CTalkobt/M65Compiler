@@ -6069,20 +6069,25 @@ bool CodeGenerator::tryEmitAddressTemplate(BinaryOperation& node) {
     // Full implementation would substitute operands into template strings
     switch (pattern.type) {
         case AddressTemplateDetector::PatternType::LINEAR_ROW_MAJOR: {
-            // Pattern: (row * WIDTH) + col
-            // Operands: [0] = row var, [1] = col var
+            // Pattern: (row * WIDTH) + col  OR  row * WIDTH
+            // Operands: [0] = row var, [1] = col var (optional)
             // Constants: [0] = width value
-            if (pattern.operands.size() >= 2 && pattern.constants.size() >= 1) {
+            if (pattern.operands.size() >= 1 && pattern.constants.size() >= 1) {
                 int width = pattern.constants[0];
                 std::string row_var = pattern.operands[0];
-                std::string col_var = pattern.operands[1];
+                bool hasCol = pattern.operands.size() >= 2;
+                std::string col_var = hasCol ? pattern.operands[1] : "";
 
                 // Comment showing the optimization
-                emit("; Optimized: " + row_var + " * " + std::to_string(width) + " + " + col_var);
+                if (hasCol) {
+                    emit("; Optimized: " + row_var + " * " + std::to_string(width) + " + " + col_var);
+                } else {
+                    emit("; Optimized: " + row_var + " * " + std::to_string(width));
+                }
 
-                // For row*40: multiply by 40 using bit shifts and adds
+                // Emit optimized multiply for known widths
                 if (width == 40) {
-                    // lda row; asl; asl; asl; sta temp; asl; adc temp; adc col
+                    // lda row; asl; asl; asl; sta temp; asl; adc temp; [adc col]
                     emit("lda " + row_var);
                     emit("asl");          // × 2
                     emit("asl");          // × 4
@@ -6094,10 +6099,31 @@ bool CodeGenerator::tryEmitAddressTemplate(BinaryOperation& node) {
                     emit("lda " + row_var);
                     emit("asl");          // × 2
                     emit("asl");          // × 4
-                    emit("adc $fa");      // 8×row + 24×row = 32×row + 8×row = 40×row
-                    emit("clc");
-                    emit("adc " + col_var);
+                    emit("adc $fa");      // 40×row
+                    if (hasCol) {
+                        emit("clc");
+                        emit("adc " + col_var);
+                    }
                     emit("ldx #0");       // High byte = 0
+                    invalidateRegs();
+                    regA.known = false;
+                    regX.known = false;
+                    return true;
+                } else if (width == 80) {
+                    // row * 80 = row * 64 + row * 16
+                    emit("lda " + row_var);
+                    emit("asl"); emit("asl"); emit("asl"); emit("asl");  // × 16
+                    emit("asl"); emit("asl");                             // × 64
+                    emit("sta $fa");
+                    emit("lda " + row_var);
+                    emit("asl"); emit("asl"); emit("asl"); emit("asl");  // × 16
+                    emit("clc");
+                    emit("adc $fa");      // 80×row
+                    if (hasCol) {
+                        emit("clc");
+                        emit("adc " + col_var);
+                    }
+                    emit("ldx #0");
                     invalidateRegs();
                     regA.known = false;
                     regX.known = false;

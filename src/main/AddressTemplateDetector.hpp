@@ -53,6 +53,9 @@ public:
     // Helper: detect sprite offset pattern (base + index * size)
     MatchedPattern detectSpriteOffset(const BinaryOp& expr) const;
 
+    // Helper: detect simple multiplication pattern (e.g., row * 40)
+    MatchedPattern detectSimpleMultiplication(const BinaryOp& expr) const;
+
     // Helper: detect cumulative stride pattern
     MatchedPattern detectCumulativeStride(const BinaryOp& expr) const;
 

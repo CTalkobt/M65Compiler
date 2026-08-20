@@ -14,12 +14,16 @@ AddressTemplateDetector::detectPattern(const BinaryOp& expr) const {
     pattern = detectHardwarePattern(expr);
     if (pattern.canOptimize) return pattern;
 
-    // Try linear row-major
+    // Try linear row-major (handles both direct and optimized IR forms)
     pattern = detectLinearRowMajor(expr);
     if (pattern.canOptimize) return pattern;
 
     // Try sprite offset
     pattern = detectSpriteOffset(expr);
+    if (pattern.canOptimize) return pattern;
+
+    // Try single multiplication (e.g., row * 40 without the +col part)
+    pattern = detectSimpleMultiplication(expr);
     if (pattern.canOptimize) return pattern;
 
     // No pattern matched
@@ -157,6 +161,54 @@ AddressTemplateDetector::detectSpriteOffset(const BinaryOp& expr) const {
             result.estimatedByteSavings = 6;
             return result;
         }
+    }
+
+    return result;
+}
+
+AddressTemplateDetector::MatchedPattern
+AddressTemplateDetector::detectSimpleMultiplication(const BinaryOp& expr) const {
+    MatchedPattern result;
+
+    // Detect simple multiplication patterns that might be part of address calc
+    // Pattern: a * WIDTH where WIDTH is a known width constant
+    // Example: row * 40 (for text screen row addressing)
+
+    if (expr.op != BinaryOp::Op::MUL) {
+        return result;
+    }
+
+    int width_value = 0;
+    std::string var_name;
+
+    // Pattern: var * WIDTH
+    if (isVariable(*expr.left, var_name) &&
+        isConstant(*expr.right, width_value) &&
+        isKnownWidth(width_value)) {
+
+        result.type = PatternType::LINEAR_ROW_MAJOR;
+        result.description = "Simple row multiply (var * " + std::to_string(width_value) + ")";
+        result.operands = {var_name};
+        result.constants = {width_value};
+        result.canOptimize = true;
+        result.estimatedCycleSavings = 8;
+        result.estimatedByteSavings = 5;
+        return result;
+    }
+
+    // Pattern: WIDTH * var (reversed)
+    if (isConstant(*expr.left, width_value) &&
+        isKnownWidth(width_value) &&
+        isVariable(*expr.right, var_name)) {
+
+        result.type = PatternType::LINEAR_ROW_MAJOR;
+        result.description = "Simple row multiply (" + std::to_string(width_value) + " * var)";
+        result.operands = {var_name};
+        result.constants = {width_value};
+        result.canOptimize = true;
+        result.estimatedCycleSavings = 8;
+        result.estimatedByteSavings = 5;
+        return result;
     }
 
     return result;
