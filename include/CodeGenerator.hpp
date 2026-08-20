@@ -78,6 +78,7 @@ public:
         std::map<std::string, MemberInfo> members;
         int totalSize;
         int alignment = 1;
+        bool isFieldStriped = false;  // Phase 95: Whether this struct supports field-level striping
     };
     std::map<std::string, VarInfo> variableTypes;
     std::map<std::string, VarInfo> globalVariableTypes;
@@ -139,6 +140,7 @@ public:
     void emitAddress(Expression* expr);
     void emitIndirectIncDec(UnaryOperation& node, bool isInc, bool isPost);
     void emitStripedArrayAccess(ArrayAccess& node, VarInfo& varInfo, VariableReference* baseRef);
+    bool tryEmitFieldStripedArrayMemberAccess(ArrayAccess& node, VarInfo& varInfo, VariableReference* baseRef, const std::string& memberName, const MemberInfo& mInfo);  // Phase 95.3: Field-level striping
     // Phase 92.4: 2D array reorganization (backward compat)
     std::vector<int> reorganizeStripedArrayData(const std::vector<int>& userData, int height, int width);
 

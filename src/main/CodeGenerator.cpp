@@ -2,6 +2,7 @@
 #include "AddressTemplateDetector.hpp"
 #include "AddressTemplates.hpp"
 #include "ZeroArgCallDetector.hpp"
+#include "FieldStripedOffsetCalc.hpp"
 #include <iostream>
 #include <iomanip>
 #include <sstream>
@@ -4757,6 +4758,47 @@ void CodeGenerator::visit(MemberAccess& node) {
     if (!sInfo.members.count(node.memberName)) return; // method call or unknown member — handled by IR path
     MemberInfo& mInfo = sInfo.members[node.memberName];
 
+    // Phase 95.3: Check for field-striped struct array access
+    // Pattern: arr[row][col].field where arr is a field-striped struct array
+    if (!node.isArrow && sInfo.isFieldStriped) {
+        if (auto* arrayAccess = dynamic_cast<ArrayAccess*>(node.structExpr.get())) {
+            if (auto* baseRef = dynamic_cast<VariableReference*>(arrayAccess->arrayExpr.get())) {
+                // Could be nested array access for 3D+ arrays; need to unwrap
+                ArrayAccess* current = arrayAccess;
+                VariableReference* actualBase = baseRef;
+
+                // Find the actual base variable reference (skip intermediate array accesses)
+                while (auto* innerArray = dynamic_cast<ArrayAccess*>(current->arrayExpr.get())) {
+                    if (auto* ref = dynamic_cast<VariableReference*>(innerArray->arrayExpr.get())) {
+                        actualBase = ref;
+                        current = innerArray;
+                        break;
+                    } else if (auto* nestedArray = dynamic_cast<ArrayAccess*>(innerArray->arrayExpr.get())) {
+                        current = nestedArray;
+                    } else {
+                        break;
+                    }
+                }
+
+                std::string varName = resolveVarName(actualBase->name);
+                VarInfo* varInfo = nullptr;
+
+                if (variableTypes.count(varName)) {
+                    varInfo = &variableTypes[varName];
+                } else if (globalVariableTypes.count(varName)) {
+                    varInfo = &globalVariableTypes[varName];
+                }
+
+                if (varInfo && varInfo->isFieldStriped && varInfo->arrayDims.size() >= 2) {
+                    // This is a field-striped struct array member access
+                    if (tryEmitFieldStripedArrayMemberAccess(*arrayAccess, *varInfo, actualBase, node.memberName, mInfo)) {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
     if (!node.isArrow) {
         if (auto* ref = dynamic_cast<VariableReference*>(node.structExpr.get())) {
             std::string rName = resolveVarName(ref->name);
@@ -6652,4 +6694,274 @@ void CodeGenerator::emitStripedArrayAccess(ArrayAccess& node, VarInfo& varInfo, 
         freeZP(zpDepthOffset, 2);
     }
     invalidateRegs();
+}
+
+bool CodeGenerator::tryEmitFieldStripedArrayMemberAccess(
+    ArrayAccess& node,
+    VarInfo& varInfo,
+    VariableReference* baseRef,
+    const std::string& memberName,
+    const MemberInfo& mInfo
+) {
+    // Phase 95.3: Code generation for field-striped struct array member access
+    // Pattern: arr[row][col].field where arr is a field-striped struct array
+
+    if (varInfo.arrayDims.size() < 2) {
+        return false;  // Not a 2D+ array
+    }
+
+    // Get struct info to check field support
+    if (!structs.count(varInfo.type)) {
+        return false;  // Struct not found
+    }
+
+    auto& structInfo = *structs[varInfo.type];
+    if (!structInfo.isFieldStriped) {
+        return false;  // Not marked as field-striped
+    }
+
+    // Check if field exists in struct
+    if (!varInfo.fieldNames.size() || !varInfo.fieldSizes.size()) {
+        return false;  // No field metadata
+    }
+
+    // Find field index
+    int fieldIndex = -1;
+    for (size_t i = 0; i < varInfo.fieldNames.size(); i++) {
+        if (varInfo.fieldNames[i] == memberName) {
+            fieldIndex = i;
+            break;
+        }
+    }
+
+    if (fieldIndex < 0 || fieldIndex >= (int)varInfo.fieldSizes.size()) {
+        return false;  // Field not in striped metadata
+    }
+
+    embedSource(node);
+    if (!resultNeeded) return true;
+
+    int height = varInfo.arrayDims[varInfo.arrayDims.size() - 2];  // second-to-last
+    int width = varInfo.arrayDims[varInfo.arrayDims.size() - 1];   // last
+
+    // Striped optimization only works well for power-of-2 widths
+    if (width < 4 || (width & (width - 1)) != 0) {
+        return false;  // Not a power of 2
+    }
+
+    // Determine stripe width and log2
+    int stripeWidth = (width <= 8) ? width : 8;
+    int log2Stripe = 0;
+    for (int i = stripeWidth; i > 1; i >>= 1) log2Stripe++;
+
+    int numDims = varInfo.arrayDims.size();
+
+    // Store base address in ZP temp
+    int zpBase = allocateZP(2);
+    std::stringstream ss_base;
+    ss_base << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpBase);
+    emit("ptrstack " + resolveVarName(baseRef->name));
+    emit("stax $" + ss_base.str());
+
+    // Extract all dimension indices from nested ArrayAccess nodes
+    std::vector<std::pair<Expression*, int>> dimIndices;
+
+    // Walk the nested array accesses to extract all indices
+    ArrayAccess* current = &node;
+    for (int i = numDims - 1; i >= 0; i--) {
+        if (!current) return false;
+        dimIndices.push_back({current->indexExpr.get(), varInfo.arrayDims[i]});
+
+        // Move to parent array access (if exists)
+        auto* parentExpr = current->arrayExpr.get();
+        if (i > 0) {
+            current = dynamic_cast<ArrayAccess*>(parentExpr);
+            if (!current) return false;
+        }
+    }
+
+    // Reverse to get dimensions in order (dim0, dim1, ..., row, col)
+    std::reverse(dimIndices.begin(), dimIndices.end());
+
+    // Evaluate and store all indices in ZP
+    std::vector<std::string> zpIndices;
+    bool oldNeeded = resultNeeded;
+
+    for (size_t i = 0; i < dimIndices.size(); i++) {
+        resultNeeded = true;
+        dimIndices[i].first->accept(*this);
+        resultNeeded = oldNeeded;
+
+        int zpIdx = allocateZP(1);
+        std::stringstream ss_idx;
+        ss_idx << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpIdx);
+        emit("sta $" + ss_idx.str());
+        zpIndices.push_back("$" + ss_idx.str());
+    }
+
+    // Extract row and column indices (last 2 dimensions)
+    std::string zpRow = zpIndices[numDims - 2];
+    std::string zpCol = zpIndices[numDims - 1];
+
+    // Calculate field region offset (sum of all preceding fields' total sizes)
+    int fieldRegionOffset = 0;
+    for (int i = 0; i < fieldIndex; i++) {
+        fieldRegionOffset += height * width * varInfo.fieldSizes[i];
+    }
+
+    int fieldSize = varInfo.fieldSizes[fieldIndex];
+    int strideFactor = (height * fieldSize) / stripeWidth;
+
+    // Create offset context for field-level calculation
+    FieldStripedOffsetContext ctx;
+    ctx.height = height;
+    ctx.width = width;
+    ctx.stripeWidth = stripeWidth;
+    ctx.log2StripeWidth = log2Stripe;
+    ctx.strideFactor = strideFactor;
+    ctx.fieldName = memberName;
+    ctx.fieldSize = fieldSize;
+    ctx.fieldRegionOffset = fieldRegionOffset;
+    ctx.zpBase = "$" + ss_base.str();
+    ctx.zpRow = zpRow;
+    ctx.zpCol = zpCol;
+
+    // Allocate ZP for result offset
+    int zpResult = allocateZP(2);
+    std::stringstream ss_result;
+    ss_result << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpResult);
+    ctx.zpResult = "$" + ss_result.str();
+
+    // Phase 93: Handle 3D+ arrays - calculate depth offset
+    int zpDepthOffset = -1;
+    if (numDims > 2) {
+        // Calculate depth offset for outer dimensions
+        int matrix2DSize = height * width * fieldSize;
+
+        // Emit depth offset calculation
+        emit("lda " + zpIndices[0]);
+
+        // Multiply by remaining outer dimensions
+        for (size_t i = 1; i < numDims - 2; i++) {
+            emit("tax");
+            emit("lda " + zpIndices[i]);
+            emit("mul.8x");
+        }
+
+        // Now multiply by matrix_2d_size
+        if (matrix2DSize > 0 && (matrix2DSize & (matrix2DSize - 1)) == 0) {
+            // Power of 2: use shifts
+            int shifts = 0;
+            int temp = matrix2DSize;
+            while (temp > 1) {
+                temp >>= 1;
+                shifts++;
+            }
+            for (int i = 0; i < shifts; i++) {
+                emit("asl");
+            }
+        } else {
+            // General case: multiply
+            emit("tax");
+            emit("ldy #$" + std::to_string(matrix2DSize & 0xFF));
+            if (matrix2DSize > 255) {
+                emit("lda #$" + std::to_string((matrix2DSize >> 8) & 0xFF));
+                emit("mul.16 .ay");
+            } else {
+                emit("mul.8x");
+            }
+        }
+
+        // Store depth offset in ZP
+        zpDepthOffset = allocateZP(2);
+        std::stringstream ss_depth;
+        ss_depth << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpDepthOffset);
+        ctx.zpOuterOffset = "$" + ss_depth.str();
+        ctx.outerDimSize = 1;
+        emit("stax $" + ss_depth.str());
+    }
+
+    // Generate field-level offset calculation
+    FieldStripedOffsetCalc offsetCalc;
+    auto asmLines = offsetCalc.generateOffsetCalculation(ctx);
+
+    // Emit generated assembly
+    for (const auto& line : asmLines) {
+        emit(line);
+    }
+
+    // Add outer dimension offset if 3D+
+    if (zpDepthOffset >= 0) {
+        emit("clc");
+        emit("adc.16 " + ctx.zpOuterOffset);
+    }
+
+    // Load the field value from calculated offset (in A:X) using base address (in zpBase)
+    // Final address = base + offset (in A:X)
+    emit("clc");
+    emit("adc.16 " + ctx.zpBase);
+
+    // Store address in ZP for indirect access
+    int zpAddr = allocateZP(2);
+    std::stringstream ss_addr;
+    ss_addr << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpAddr);
+    emit("stax $" + ss_addr.str());
+
+    // Load field value based on field size
+    if (fieldSize == 1) {
+        // 8-bit load
+        emit("lda ($" + ss_addr.str() + ")");
+        updateRegA(0);
+        emitter->ldx_imm(0);
+        updateRegX(0);
+    } else if (fieldSize == 2) {
+        // 16-bit load (AX)
+        emit("lda ($" + ss_addr.str() + ")");
+        emit("ldy #1");
+        emit("lda ($" + ss_addr.str() + "),y");
+        emit("tax");
+        emit("lda ($" + ss_addr.str() + ")");
+        regA.known = false;
+        regX.known = false;
+    } else if (fieldSize == 4) {
+        // 32-bit load (AXYZ)
+        emit("lda ($" + ss_addr.str() + ")");
+        emit("ldy #1");
+        emit("lda ($" + ss_addr.str() + "),y");
+        emit("tax");
+        emit("ldy #2");
+        emit("lda ($" + ss_addr.str() + "),y");
+        emit("tay");
+        emit("ldy #3");
+        emit("lda ($" + ss_addr.str() + "),y");
+        emit("taz");  // Move to Z
+        regA.known = false;
+        regX.known = false;
+        regY.known = false;
+    } else {
+        // Generic multi-byte load - only load first byte
+        emit("lda ($" + ss_addr.str() + ")");
+        updateRegA(0);
+        emitter->ldx_imm(0);
+        updateRegX(0);
+    }
+
+    // Free all allocated ZP spaces
+    freeZP(zpBase, 2);
+    freeZP(zpResult, 2);
+    freeZP(zpAddr, 2);
+    if (zpDepthOffset >= 0) {
+        freeZP(zpDepthOffset, 2);
+    }
+    for (size_t i = 0; i < zpIndices.size(); i++) {
+        // Extract ZP address from zpIndices[i] (format: "$XX")
+        std::string zpStr = zpIndices[i];
+        if (zpStr[0] == '$') {
+            int zpVal = std::stoi(zpStr.substr(1), nullptr, 16);
+            freeZP(zpVal, 1);
+        }
+    }
+
+    invalidateRegs();
+    return true;
 }
