@@ -1,3 +1,4 @@
+; [Phase 87: Peephole Optimizer Applied]
     .o45
     .org $2000
     .weak __sp_base
@@ -43,12 +44,12 @@ _g_flag:
     proc _set_value, W#@_p_v
     .sac
     .var _fp = 0
-    .loc "test_clobber_tracking.c", 10
+    .loc "src/test-resources/test_clobber_tracking.c", 10
     .var @_p_v = 2
 ; .debug_var: __set_value @_p_v offset=2 size=2 type=int16 scope=parameter
 
 @entry:
-    .loc "test_clobber_tracking.c", 11
+    .loc "src/test-resources/test_clobber_tracking.c", 11
     lda _set_value__param_v
     ldx _set_value__param_v+1
     sta _g_val
@@ -56,6 +57,7 @@ _g_flag:
 @__return:
     rts
     .func_flags stack_call, static_alloc, leaf
+    .param_sizes 2
     .reg_clobbers A, X
     .flag_clobbers N, Z
     .frame_size 2
@@ -69,17 +71,18 @@ _g_flag:
     proc _set_flag, B#@_p_f
     .sac
     .var _fp = 0
-    .loc "test_clobber_tracking.c", 15
+    .loc "src/test-resources/test_clobber_tracking.c", 15
     .var @_p_f = 2
 ; .debug_var: __set_flag @_p_f offset=2 size=2 type=int8 scope=parameter
 
 @entry:
-    .loc "test_clobber_tracking.c", 16
+    .loc "src/test-resources/test_clobber_tracking.c", 16
     lda.local 0
     sta _g_flag
 @__return:
     rts
     .func_flags stack_call, static_alloc, leaf
+    .param_sizes 2
     .reg_clobbers A, X
     .flag_clobbers N, Z
     .frame_size 2
@@ -90,7 +93,7 @@ _g_flag:
     proc _noop
 ; Phase 51: zero-alloc leaf (all parameters constant)
     .var _fp = 0
-    .loc "test_clobber_tracking.c", 20
+    .loc "src/test-resources/test_clobber_tracking.c", 20
 
 @entry:
 @__return:
@@ -107,26 +110,18 @@ _g_flag:
     proc _caller
 ; Phase 51: zero-alloc leaf (all parameters constant)
     .var _fp = 0
-    .loc "test_clobber_tracking.c", 24
+    .loc "src/test-resources/test_clobber_tracking.c", 24
 
 @entry:
-    .loc "test_clobber_tracking.c", 25
+    .loc "src/test-resources/test_clobber_tracking.c", 25
     lda #42
     ldx #0
-    sta $20
-    stx $21
-    lda $20
-    ldx $21
-    sta $22
-    stx $23
-    .loc "test_clobber_tracking.c", 11
-    lda $20
-    ldx $21
+    .loc "src/test-resources/test_clobber_tracking.c", 11
     sta _g_val
     stx _g_val+1
 @__return:
     rts
-    .func_flags stack_call, static_alloc, leaf
+    .func_flags stack_call, static_alloc
     .reg_clobbers A, X
     .flag_clobbers N, Z
     .frame_size 0
@@ -137,16 +132,12 @@ _g_flag:
     proc _get_value
 ; Phase 51: zero-alloc leaf (all parameters constant)
     .var _fp = 0
-    .loc "test_clobber_tracking.c", 31
+    .loc "src/test-resources/test_clobber_tracking.c", 31
 
 @entry:
-    .loc "test_clobber_tracking.c", 32
+    .loc "src/test-resources/test_clobber_tracking.c", 32
     lda _g_val
     ldx _g_val+1
-    sta $20
-    stx $21
-    lda $20
-    ldx $21
 @__return:
     rts
     .func_flags stack_call, static_alloc, zeroalloc, leaf
@@ -166,14 +157,14 @@ _g_flag:
     proc _add, W#@_p_a, W#@_p_b
     .sac
     .var _fp = 0
-    .loc "test_clobber_tracking.c", 36
+    .loc "src/test-resources/test_clobber_tracking.c", 36
     .var @_p_a = 2
     .var @_p_b = 4
 ; .debug_var: __add @_p_a offset=2 size=2 type=int16 scope=parameter
 ; .debug_var: __add @_p_b offset=4 size=2 type=int16 scope=parameter
 
 @entry:
-    .loc "test_clobber_tracking.c", 37
+    .loc "src/test-resources/test_clobber_tracking.c", 37
     lda _add__param_b
     ldx _add__param_b+1
     sta __zp_scratch2
@@ -181,13 +172,10 @@ _g_flag:
     lda _add__param_a
     ldx _add__param_a+1
     add.16 .AX, __zp_scratch2
-    sta $20
-    stx $21
-    lda $20
-    ldx $21
 @__return:
     rts
     .func_flags stack_call, static_alloc, leaf
+    .param_sizes 2, 2
     .reg_clobbers A, X
     .flag_clobbers C, N, Z, V
     .frame_size 4
@@ -200,96 +188,50 @@ _g_flag:
     proc _main
 ; Phase 51: zero-alloc leaf (all parameters constant)
     .var _fp = 0
-    .loc "test_clobber_tracking.c", 40
+    .loc "src/test-resources/test_clobber_tracking.c", 40
     .local @_l_r = 0
     .local @_l_s = 2
 ; .debug_var: __main @_l_r offset=0 size=2 type=int16 scope=local
 ; .debug_var: __main @_l_s offset=2 size=2 type=int16 scope=local
 
 @entry:
-    .loc "test_clobber_tracking.c", 41
+    .loc "src/test-resources/test_clobber_tracking.c", 41
     lda #100
     ldx #0
-    sta $20
-    stx $21
-    lda $20
-    ldx $21
-    sta $22
-    stx $23
-    .loc "test_clobber_tracking.c", 11
-    lda $20
-    ldx $21
+    .loc "src/test-resources/test_clobber_tracking.c", 11
     sta _g_val
     stx _g_val+1
 @inline_end3:
-    .loc "test_clobber_tracking.c", 42
+    .loc "src/test-resources/test_clobber_tracking.c", 42
     lda #1
     ldx #0
-    sta $20
-    stx $21
-    lda $20
-    ldx $21
-    sta $22
-    lda $22
-    ldx #0
-    sta $20
-    .loc "test_clobber_tracking.c", 16
-    lda $22
+    .loc "src/test-resources/test_clobber_tracking.c", 16
     sta _g_flag
 @inline_end4:
 @inline_end5:
-    .loc "test_clobber_tracking.c", 25
+    .loc "src/test-resources/test_clobber_tracking.c", 25
     lda #42
     ldx #0
-    sta $20
-    stx $21
-    lda $20
-    ldx $21
-    sta $22
-    stx $23
-    .loc "test_clobber_tracking.c", 11
-    lda $20
-    ldx $21
+    .loc "src/test-resources/test_clobber_tracking.c", 11
     sta _g_val
     stx _g_val+1
 @inline_end7:
-    .loc "test_clobber_tracking.c", 26
+    .loc "src/test-resources/test_clobber_tracking.c", 26
     lda #1
     ldx #0
-    sta $20
-    stx $21
-    lda $20
-    ldx $21
-    sta $22
-    lda $22
-    ldx #0
-    sta $20
-    .loc "test_clobber_tracking.c", 16
-    lda $22
+    .loc "src/test-resources/test_clobber_tracking.c", 16
     sta _g_flag
 @inline_end8:
 @inline_end9:
 @inline_end6:
-    .loc "test_clobber_tracking.c", 32
+    .loc "src/test-resources/test_clobber_tracking.c", 32
     lda _g_val
-    ldx _g_val+1
-    sta $20
-    stx $21
-    lda $20
-    ldx $21
-    sta $22
-    stx $23
-    lda $22
-    ldx $23
-    sta $20
-    stx $21
+    ; [peephole-opt]     ldx _g_val+1
 @inline_end10:
-    .loc "test_clobber_tracking.c", 45
-    lda $20
-    ldx $21
+    .loc "src/test-resources/test_clobber_tracking.c", 45
     sta _main__local_10
     stx _main__local_10+1
-    .loc "test_clobber_tracking.c", 46
+    .loc "src/test-resources/test_clobber_tracking.c", 46
     lda #3
     ldx #0
     sta $20
@@ -298,53 +240,31 @@ _g_flag:
     ldx #0
     sta $22
     stx $23
-    lda $20
-    ldx $21
-    sta $24
-    stx $25
-    lda $22
-    ldx $23
-    sta $24
-    stx $25
-    .loc "test_clobber_tracking.c", 37
-    lda $20
-    clc
-    adc #4
-    sta $24
-    lda $21
-    adc #0
-    sta $25
-    lda $24
-    ldx $25
-    sta $20
-    stx $21
-    lda $20
-    ldx $21
-    sta $22
-    stx $23
+    ; [peephole-opt]     lda $20
+    ; [peephole-opt]     ldx $21
+    ; [peephole-opt]     lda $22
+    ; [peephole-opt]     ldx $23
+    .loc "src/test-resources/test_clobber_tracking.c", 37
+    ; [peephole-opt]     lda $20
+    ; [peephole-opt]     ldx $21
+    add.16 .AX, $22
 @inline_end12:
-    .loc "test_clobber_tracking.c", 46
-    lda $22
-    ldx $23
+    .loc "src/test-resources/test_clobber_tracking.c", 46
     sta _main__local_14
     stx _main__local_14+1
-    .loc "test_clobber_tracking.c", 47
+    .loc "src/test-resources/test_clobber_tracking.c", 47
     lda _main__local_14
-    ldx _main__local_14+1
+    ; [peephole-opt]     ldx _main__local_14+1
     sta __zp_scratch2
     stx __zp_scratch2+1
     lda _main__local_10
-    ldx _main__local_10+1
+    ; [peephole-opt]     ldx _main__local_10+1
     add.16 .AX, __zp_scratch2
-    sta $20
-    stx $21
-    lda $20
-    ldx $21
     sta _g_val
     stx _g_val+1
 @__return:
     rts
-    .func_flags stack_call, static_alloc, leaf
+    .func_flags stack_call, static_alloc
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z, V
     .frame_size 4
@@ -352,3 +272,4 @@ _g_flag:
 
 
 __zp_save_buf:
+; [DEBUG] Phase 87 code reached, optimize=true

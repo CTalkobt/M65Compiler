@@ -1986,12 +1986,20 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     // Function attribute directives with per-function clobber analysis
     auto fc = computeFuncClobbers(fn);
+
+    // For non-leaf functions, conservatively report all registers as clobbered
+    // (until we have full interprocedural clobber analysis)
+    if (!fn.originalIsLeaf) {
+        fc.regs = 0x0F;   // A, X, Y, Z
+        fc.flags = 0x0F;  // C, N, Z, V
+    }
+
     {
         std::string funcFlags = (zpCallMode_ && !fn.isVariadic) ? "zp_call" : "stack_call";
         if (useSAC) funcFlags += ", static_alloc";
         if (zeroAllocLeaves_.count(fn.name)) funcFlags += ", zeroalloc";
         if (fn.isInterrupt) funcFlags += ", isr";
-        if (fc.isLeaf) funcFlags += ", leaf";
+        if (fn.originalIsLeaf) funcFlags += ", leaf";
         emit(".func_flags " + funcFlags);
     }
     // Emit parameter sizes so assembler can track actual sizes instead of assuming 2 bytes
@@ -4700,22 +4708,13 @@ void IRCodeGen::analyzeConstantParameters(const ir::Module& mod) {
 }
 
 // Detect which functions are leaves (don't call any other functions)
+// Phase 2, Phase 3: Use original leaf status from AST instead of post-optimization IR
+// This ensures leaves are detected before inlining transforms the code
 void IRCodeGen::detectLeafFunctions(const ir::Module& mod) {
     for (const auto& fn : mod.functions) {
-        bool isLeaf = true;
-        
-        // Check if function makes any CALL/CALL_VOID instructions
-        for (const auto& block : fn.blocks) {
-            for (const auto& inst : block.insts) {
-                if (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) {
-                    isLeaf = false;
-                    break;
-                }
-            }
-            if (!isLeaf) break;
-        }
-        
-        if (isLeaf) {
+        // Use the originalIsLeaf flag computed by IRBuilder from the original AST
+        // This is more reliable than checking IR after inlining has removed calls
+        if (fn.originalIsLeaf) {
             leafFunctions_.insert(fn.name);
         }
     }

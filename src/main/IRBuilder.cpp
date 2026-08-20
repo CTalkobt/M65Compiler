@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -794,14 +795,82 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     module_.functions.push_back(std::move(fn));
     ir::Function* fnPtr = &module_.functions.back();
 
+    // Phase 2, Phase 3: Detect original leaf status from AST BEFORE IR optimization
+    // This captures whether the original code had function calls, before inlining
+    // Use a simple recursive checker that looks for any FunctionCall nodes
+    fnPtr->originalIsLeaf = true;  // default to leaf
+    fnPtr->originalCallees.clear();
+
+    if (node.body) {
+        std::function<bool(ASTNode*)> hasFunctionCalls = [&](ASTNode* n) -> bool {
+            if (!n) return false;
+
+            // Check if this is a FunctionCall node
+            if (auto* fc = dynamic_cast<FunctionCall*>(n)) {
+                fnPtr->originalCallees.insert(fc->name);
+                fnPtr->originalIsLeaf = false;
+                return true;
+            }
+
+            // Recursively check child nodes
+            if (auto* compound = dynamic_cast<CompoundStatement*>(n)) {
+                for (auto& s : compound->statements) if (hasFunctionCalls(s.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* expr = dynamic_cast<ExpressionStatement*>(n)) {
+                if (hasFunctionCalls(expr->expression.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* ifstmt = dynamic_cast<IfStatement*>(n)) {
+                if (hasFunctionCalls(ifstmt->condition.get())) fnPtr->originalIsLeaf = false;
+                if (hasFunctionCalls(ifstmt->thenBranch.get())) fnPtr->originalIsLeaf = false;
+                if (hasFunctionCalls(ifstmt->elseBranch.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* whilestmt = dynamic_cast<WhileStatement*>(n)) {
+                if (hasFunctionCalls(whilestmt->condition.get())) fnPtr->originalIsLeaf = false;
+                if (hasFunctionCalls(whilestmt->body.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* forstmt = dynamic_cast<ForStatement*>(n)) {
+                if (hasFunctionCalls(forstmt->initializer.get())) fnPtr->originalIsLeaf = false;
+                if (hasFunctionCalls(forstmt->condition.get())) fnPtr->originalIsLeaf = false;
+                if (hasFunctionCalls(forstmt->increment.get())) fnPtr->originalIsLeaf = false;
+                if (hasFunctionCalls(forstmt->body.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* retstmt = dynamic_cast<ReturnStatement*>(n)) {
+                if (hasFunctionCalls(retstmt->expression.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* assign = dynamic_cast<Assignment*>(n)) {
+                if (hasFunctionCalls(assign->target.get())) fnPtr->originalIsLeaf = false;
+                if (hasFunctionCalls(assign->expression.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* binop = dynamic_cast<BinaryOperation*>(n)) {
+                if (hasFunctionCalls(binop->left.get())) fnPtr->originalIsLeaf = false;
+                if (hasFunctionCalls(binop->right.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* unop = dynamic_cast<UnaryOperation*>(n)) {
+                if (hasFunctionCalls(unop->operand.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* arrayacc = dynamic_cast<ArrayAccess*>(n)) {
+                if (hasFunctionCalls(arrayacc->arrayExpr.get())) fnPtr->originalIsLeaf = false;
+                if (hasFunctionCalls(arrayacc->indexExpr.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* memberacc = dynamic_cast<MemberAccess*>(n)) {
+                if (hasFunctionCalls(memberacc->structExpr.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* cast = dynamic_cast<CastExpression*>(n)) {
+                if (hasFunctionCalls(cast->expression.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* condexpr = dynamic_cast<ConditionalExpression*>(n)) {
+                if (hasFunctionCalls(condexpr->condition.get())) fnPtr->originalIsLeaf = false;
+                if (hasFunctionCalls(condexpr->thenExpr.get())) fnPtr->originalIsLeaf = false;
+                if (hasFunctionCalls(condexpr->elseExpr.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* swstmt = dynamic_cast<SwitchStatement*>(n)) {
+                if (hasFunctionCalls(swstmt->expression.get())) fnPtr->originalIsLeaf = false;
+                if (hasFunctionCalls(swstmt->body.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* vardecl = dynamic_cast<VariableDeclaration*>(n)) {
+                if (hasFunctionCalls(vardecl->initializer.get())) fnPtr->originalIsLeaf = false;
+            }
+
+            return !fnPtr->originalIsLeaf;
+        };
+
+        hasFunctionCalls(node.body.get());
+    }
+
     // Record function definition for cross-module optimization profiling
     // This is done before body processing so we can track local variables as they're encountered
     profiler_.recordFunctionDefinition(
         node.name,
         static_cast<int>(node.parameters.size()),
         0,  // localVarCount will be updated as we process the body
-        true,  // hasNoCalls starts as true, will be set to false if calls are found
-        true,  // isLeafCandidate
+        fnPtr->originalIsLeaf,  // hasNoCalls based on original AST
+        fnPtr->originalIsLeaf,  // isLeafCandidate
         ""  // moduleName (will be set during finalization)
     );
 

@@ -232,6 +232,11 @@ struct Function {
     std::set<uint32_t> memoryVregs;    // vRegs that MUST be in memory (e.g. volatile or address-taken)
     std::set<uint32_t> registerVregs;  // vRegs declared with 'register' keyword (prefer ZP allocation)
 
+    // Phase 2, Phase 3: Original leaf status (before IR optimization/inlining)
+    // Computed from original AST before any IR optimizations
+    bool originalIsLeaf = true;         // true if original code had no function calls
+    std::set<std::string> originalCallees;  // functions called in original code (before inlining)
+
     uint32_t allocVreg() { return nextVreg++; }
 
     struct VarInfo {
