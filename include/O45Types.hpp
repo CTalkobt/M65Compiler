@@ -86,7 +86,12 @@ constexpr uint8_t  OPT_CREATED       = 0x05;
 
 // Extended option types (.o45 specific)
 constexpr uint8_t  OPT_SEGATTR       = 0x10; // sub-segment attribute (see below)
+constexpr uint8_t  OPT_LINEINFO      = 0x11; // debug line info table
+constexpr uint8_t  OPT_DEBUG_SYMBOLS = 0x12; // variable/function debug metadata
 constexpr uint8_t  OPT_SAC_PARAMS    = 0x13; // SAC parameter metadata (see below)
+
+// Phase 4: Inter-TU Optimization Hints
+constexpr uint8_t  OPT_IPO_HINTS     = 0x50; // Cross-module optimization hints (see below)
 
 // OS identifier for MEGA65
 constexpr uint8_t  OPT_OS_MEGA65     = 0x05;
@@ -146,9 +151,6 @@ struct O45FuncAttr {
 };
 
 // Bit values for O45FuncAttr::flags
-constexpr uint8_t OPT_LINEINFO        = 0x11;  // debug line info table
-constexpr uint8_t OPT_DEBUG_SYMBOLS   = 0x12;  // variable/function debug metadata
-
 constexpr uint8_t FUNC_FLAG_LEAF         = 0x01;  // no calls to other functions
 constexpr uint8_t FUNC_FLAG_REENTRANT    = 0x02;  // re-entrant safe (no global state, stack-only locals)
 constexpr uint8_t FUNC_FLAG_ZP_CONV      = 0x04;  // ZP calling convention (0 = stack-based)
@@ -191,6 +193,37 @@ constexpr const char* o45SegmentName(O45Segment seg) {
         default:       return "???";
     }
 }
+
+// =============================================================================
+// Phase 4: Inter-TU Optimization Hints
+// =============================================================================
+
+// Format version for OPT_IPO_HINTS
+constexpr uint8_t O45_IPO_HINTS_VERSION = 0x01;
+
+// Specialization pattern hint: constant arguments for a specific call pattern
+struct O45IPOSpecPattern {
+    std::vector<int64_t> argumentValues;  // Constant values for parameters
+    uint8_t frequency = 0;                // % of calls matching this pattern (0-100)
+};
+
+// Inter-TU optimization hints for a single function
+struct O45IPOFunctionHints {
+    std::string functionName;              // Function name
+    uint16_t callCount = 0;                // Total calls to this function (global)
+    uint16_t estimatedCodeSize = 0;        // Estimated code size (bytes)
+    uint8_t flags = 0;                     // Optimization flags (FUNC_FLAG_*)
+    std::vector<O45IPOSpecPattern> specializations;  // Specialization patterns
+    uint8_t externalCallCount = 0;         // Call sites from external modules
+};
+
+// Complete inter-TU optimization hints for a module
+struct O45IPOHints {
+    uint8_t version = O45_IPO_HINTS_VERSION;  // Format version
+    std::vector<O45IPOFunctionHints> functions;  // Hints for each function
+
+    bool isValid() const { return version == O45_IPO_HINTS_VERSION; }
+};
 
 // =============================================================================
 // IR Serialization Support (Phase 47 - Extended .o45 Format)
