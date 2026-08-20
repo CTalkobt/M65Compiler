@@ -796,7 +796,7 @@ int main(int argc, char** argv) {
 
             // Phase 84: Inline expansion selection
             if (verboseLevel >= 1) std::cout << "Selecting inline candidates..." << std::endl;
-            InlineSelector inlineSelector;
+            InlineSelector inlineSelector(optimizationLevel);
             inlineSelector.selectInlineCandidates(*ast, analyzer);
             if (verboseLevel >= 1) std::cout << "Function analysis and selection complete." << std::endl;
 

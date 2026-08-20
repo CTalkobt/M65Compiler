@@ -22,7 +22,7 @@ public:
         int benefitScore = 0;      // Phase 87: Estimated benefit of inlining
     };
 
-    InlineSelector();
+    InlineSelector(int optimizationLevel = 2);
 
     // Analyze translation unit and mark functions for inlining (Phase 85)
     void selectInlineCandidates(TranslationUnit& unit,
@@ -39,6 +39,7 @@ public:
     InlineHints getInlineHints(const std::string& funcName) const;
 
 private:
+    int optimizationLevel_;
     std::map<std::string, InlineHints> inlineHints_;
 
     InlineHints computeInlineDecision(

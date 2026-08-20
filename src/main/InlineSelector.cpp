@@ -2,7 +2,8 @@
 #include "CallGraphAnalyzer.hpp"
 #include "CoOptimizationSelector.hpp"
 
-InlineSelector::InlineSelector() {}
+InlineSelector::InlineSelector(int optimizationLevel)
+    : optimizationLevel_(optimizationLevel) {}
 
 void InlineSelector::selectInlineCandidates(TranslationUnit& unit,
                                            FunctionAnalyzer& analyzer) {
@@ -43,37 +44,63 @@ InlineSelector::InlineHints InlineSelector::computeInlineDecision(
         return hints;
     }
 
-    // Strategy 1: Tiny functions (< 20 code size units)
-    // Always inline if they're leaf functions
-    if (chars->estimatedCodeSize < 20 && chars->isLeaf) {
+    // Adjust thresholds based on optimization level
+    // -O0-1: conservative, -O2-3: moderate, -O4+: aggressive
+    int tinyThreshold = 20;
+    int smallThreshold = 50;
+    int mediumThreshold = 100;
+    int noLoopThreshold = 60;
+
+    if (optimizationLevel_ >= 4) {
+        // -O4+: aggressive inlining for functions with low complexity
+        tinyThreshold = 60;
+        smallThreshold = 150;
+        mediumThreshold = 300;
+        noLoopThreshold = 180;
+    } else if (optimizationLevel_ >= 2) {
+        // -O2-3: moderate-aggressive inlining
+        tinyThreshold = 35;
+        smallThreshold = 80;
+        mediumThreshold = 150;
+        noLoopThreshold = 100;
+    }
+
+    // Strategy 1: Tiny functions
+    if (chars->estimatedCodeSize < tinyThreshold && chars->isLeaf) {
         hints.shouldInline = true;
-        hints.inlineThreshold = 200;  // Very aggressive
+        hints.inlineThreshold = 200;
         hints.reason = "Tiny leaf function";
         return hints;
     }
 
-    // Strategy 2: Small functions (20-50 code units)
-    // Inline if they have few branches and are called frequently
-    if (chars->estimatedCodeSize < 50 && chars->branchCount < 3) {
+    // Debug output for optimization level investigation
+    if (optimizationLevel_ >= 4 && chars->estimatedCodeSize < 200) {
+        std::cerr << "[InlineSelector] Func: leaf=" << chars->isLeaf
+                  << " size=" << chars->estimatedCodeSize
+                  << " branches=" << chars->branchCount
+                  << " loops=" << chars->loopCount
+                  << " tinyThresh=" << tinyThreshold << "\n";
+    }
+
+    // Strategy 2: Small functions with few branches
+    if (chars->estimatedCodeSize < smallThreshold && chars->branchCount < 3) {
         hints.shouldInline = true;
-        hints.inlineThreshold = 150;  // Aggressive
+        hints.inlineThreshold = 150;
         hints.reason = "Small simple function";
         return hints;
     }
 
-    // Strategy 3: Medium functions (50-100 code units)
-    // Only inline if they're very simple (no branches)
-    if (chars->estimatedCodeSize < 100 && chars->branchCount == 0 && chars->isLeaf) {
+    // Strategy 3: Medium functions with no branches
+    if (chars->estimatedCodeSize < mediumThreshold && chars->branchCount == 0 && chars->isLeaf) {
         hints.shouldInline = true;
-        hints.inlineThreshold = 100;  // Conservative
+        hints.inlineThreshold = 100;
         hints.reason = "Medium simple leaf";
         return hints;
     }
 
     // Strategy 4: Functions with no loops and no branches
-    // Good candidates for inlining if small enough
     if (chars->loopCount == 0 && chars->branchCount == 0 &&
-        chars->estimatedCodeSize < 60) {
+        chars->estimatedCodeSize < noLoopThreshold) {
         hints.shouldInline = true;
         hints.inlineThreshold = 120;
         hints.reason = "No loops/branches";
