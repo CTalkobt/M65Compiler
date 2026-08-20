@@ -862,9 +862,16 @@ public:
     // Phase 90: Lazy FP Initialization
     bool hasFunctionCalls = false;      // Set to true if any function call found
     bool hasFrameVariables = false;     // Set to true if any locals found
+    bool isLeafFunction = true;         // Set to false if any function call found (leaf detection)
+    int functionCallCount = 0;          // Count of function calls in function
 
     bool needsFramePointer() const {
         return hasFrameVariables || hasFunctionCalls;
+    }
+
+    bool isLeaf() const {
+        // Phase 90.2: Leaf function = no calls to other functions
+        return isLeafFunction && functionCallCount == 0;
     }
 
     FrameScanner(const std::map<std::string, std::shared_ptr<CodeGenerator::StructInfo>>& s) : structs_(s) {}
@@ -931,6 +938,9 @@ public:
     void visit(FunctionCall& n) override {
         // Phase 90: Track that function has calls (may need FP recalculation)
         hasFunctionCalls = true;
+        // Phase 90.2: Leaf function detection - any call means not a leaf
+        isLeafFunction = false;
+        functionCallCount++;
         for (auto& a : n.arguments) if (a) a->accept(*this);
     }
     void visit(MemberAccess& n) override { if (n.structExpr) n.structExpr->accept(*this); }
@@ -1316,6 +1326,11 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     scanner.scan(*node.body);
     int frameSize = scanner.maxFrameSize;
 
+    // Phase 90.2: Detect leaf functions (no calls to other functions)
+    CallCollector callCollector;
+    node.body->accept(callCollector);
+    bool isLeafFunction = callCollector.calledFunctions.empty();
+
     // Store frame layout for use by visit(VariableDeclaration)
     frameLocals_.clear();
     for (auto& loc : scanner.locals) {
@@ -1412,10 +1427,9 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
         emit(".var _fp = 0");
         currentVars.push_back("_fp");
 
-        // Detect leaf functions — if no calls, no need for caller-save
-        CallCollector callChecker;
-        node.body->accept(callChecker);
-        bool isLeaf = callChecker.calledFunctions.empty();
+        // Phase 90.2: Detect leaf functions — if no calls, no need for caller-save
+        // Using isLeafFunction computed earlier (via CallCollector at line 1332)
+        bool isLeaf = isLeafFunction;
 
         // Compute caller-save area: save our ZP params when making calls
         // Leaf functions never need caller-save (no calls = no clobber risk)
@@ -1708,11 +1722,10 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
             }
         }
     }
-    // Detect leaf functions for stack path (ZP path did this at line 1169)
+    // Phase 90.2: Detect leaf functions for stack path
+    // Using isLeafFunction computed earlier (via CallCollector at line 1332)
     {
-        CallCollector stackCallChecker;
-        node.body->accept(stackCallChecker);
-        bool isLeaf = stackCallChecker.calledFunctions.empty();
+        bool isLeaf = isLeafFunction;
         emit(isLeaf ? ".func_flags stack_call, leaf" : ".func_flags stack_call");
     }
     // Emit reg/flag clobbers from tracking
