@@ -75,17 +75,19 @@ private:
     bool canPartialUnrollLoop(const ForStatement& stmt, int unrollFactor);
     std::unique_ptr<ForStatement> partialUnrollLoop(const ForStatement& stmt, int unrollFactor);
 
-    // Pattern matching: detect memcpy/memset/reduction/search opportunities
+    // Pattern matching: detect memcpy/memset/reduction/search/count opportunities
     bool isMemcpyPattern(const ForStatement& stmt, std::string& dest, std::string& src, std::string& idx);
     bool isMemsetPattern(const ForStatement& stmt, std::string& arr, std::string& idx, int& value);
     bool isSumReductionPattern(const ForStatement& stmt, std::string& accum, std::string& array, std::string& idx);
     bool isSearchLoopPattern(const ForStatement& stmt, std::string& array, std::string& target, std::string& idx, std::string& result);
+    bool isCountLoopPattern(const ForStatement& stmt, std::string& array, std::string& target, std::string& idx, std::string& counter);
 
     // Pattern transformation: replace loops with library calls
     std::unique_ptr<Statement> transformMemcpyToCall(const ForStatement& stmt, const std::string& dest, const std::string& src);
     std::unique_ptr<Statement> transformMemsetToCall(const ForStatement& stmt, const std::string& arr, int value);
     std::unique_ptr<Statement> transformSumReductionToCall(const ForStatement& stmt, const std::string& accum, const std::string& array);
     std::unique_ptr<Statement> transformSearchLoopToCall(const ForStatement& stmt, const std::string& array, const std::string& target, const std::string& result);
+    std::unique_ptr<Statement> transformCountLoopToCall(const ForStatement& stmt, const std::string& array, const std::string& target, const std::string& counter);
 
     // Collect all variables referenced by an expression
     class VariableCollector : public ASTVisitor {

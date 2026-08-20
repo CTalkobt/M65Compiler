@@ -486,6 +486,89 @@ namespace {
         }
     };
 
+    // Helper: detect count pattern: for(i=0; i<n; i++) if(arr[i]==target) count++;
+    class CountLoopDetector {
+    public:
+        bool detect(const ForStatement& loop, std::string& arrayVar, std::string& targetVar,
+                    std::string& indexVar, std::string& counterVar) {
+            // Check if body is a single if-statement
+            if (!loop.body) return false;
+
+            IfStatement* ifStmt = nullptr;
+
+            if (auto* compStmt = dynamic_cast<CompoundStatement*>(loop.body.get())) {
+                if (compStmt->statements.size() == 1 && compStmt->statements[0]) {
+                    ifStmt = dynamic_cast<IfStatement*>(compStmt->statements[0].get());
+                }
+            } else {
+                ifStmt = dynamic_cast<IfStatement*>(loop.body.get());
+            }
+
+            if (!ifStmt || !ifStmt->condition || !ifStmt->thenBranch) return false;
+
+            // Condition must be: arr[i] == target
+            auto* binOp = dynamic_cast<BinaryOperation*>(ifStmt->condition.get());
+            if (!binOp || binOp->op != "==") return false;
+
+            ArrayAccess* arrayAccess = nullptr;
+            VariableReference* targetRef = nullptr;
+
+            if (auto* lhsArray = dynamic_cast<ArrayAccess*>(binOp->left.get())) {
+                targetRef = dynamic_cast<VariableReference*>(binOp->right.get());
+                if (targetRef) arrayAccess = lhsArray;
+            } else if (auto* rhsArray = dynamic_cast<ArrayAccess*>(binOp->right.get())) {
+                targetRef = dynamic_cast<VariableReference*>(binOp->left.get());
+                if (targetRef) arrayAccess = rhsArray;
+            }
+
+            if (!arrayAccess || !targetRef) return false;
+
+            auto* arrRef = dynamic_cast<VariableReference*>(arrayAccess->arrayExpr.get());
+            auto* idxRef = dynamic_cast<VariableReference*>(arrayAccess->indexExpr.get());
+            if (!arrRef || !idxRef) return false;
+
+            arrayVar = arrRef->name;
+            targetVar = targetRef->name;
+            indexVar = idxRef->name;
+
+            // Then-branch must be: count++ or count += 1 (single statement, no compound needed)
+            ExpressionStatement* exprStmt = nullptr;
+
+            if (auto* compStmt = dynamic_cast<CompoundStatement*>(ifStmt->thenBranch.get())) {
+                if (compStmt->statements.size() == 1 && compStmt->statements[0]) {
+                    exprStmt = dynamic_cast<ExpressionStatement*>(compStmt->statements[0].get());
+                }
+            } else {
+                exprStmt = dynamic_cast<ExpressionStatement*>(ifStmt->thenBranch.get());
+            }
+
+            if (!exprStmt || !exprStmt->expression) return false;
+
+            // Check for count++ or count += 1
+            if (auto* unOp = dynamic_cast<UnaryOperation*>(exprStmt->expression.get())) {
+                // count++ or ++count
+                if ((unOp->op != "++" && unOp->op != "++_POST")) return false;
+                auto* countRef = dynamic_cast<VariableReference*>(unOp->operand.get());
+                if (!countRef) return false;
+                counterVar = countRef->name;
+            } else if (auto* assign = dynamic_cast<Assignment*>(exprStmt->expression.get())) {
+                // count += 1
+                if (assign->op != "+=") return false;
+                auto* countRef = dynamic_cast<VariableReference*>(assign->target.get());
+                if (!countRef) return false;
+                counterVar = countRef->name;
+                // RHS should be 1 (or we can accept any small positive literal)
+                auto* lit = dynamic_cast<IntegerLiteral*>(assign->expression.get());
+                if (!lit || lit->value <= 0) return false;
+            } else {
+                return false;
+            }
+
+            // No else-branch (simple if-then counting)
+            return !ifStmt->elseBranch && (arrayVar != targetVar) && (arrayVar != counterVar);
+        }
+    };
+
     // Helper: collect all variable names referenced in an expression
     class VarCollector : public ASTVisitor {
     public:
@@ -1013,6 +1096,46 @@ std::unique_ptr<Statement> LoopOptimizer::transformSearchLoopToCall(const ForSta
     return exprStmt;
 }
 
+bool LoopOptimizer::isCountLoopPattern(const ForStatement& stmt, std::string& array, std::string& target, std::string& idx, std::string& counter) {
+    CountLoopDetector detector;
+    return detector.detect(stmt, array, target, idx, counter);
+}
+
+std::unique_ptr<Statement> LoopOptimizer::transformCountLoopToCall(const ForStatement& stmt, const std::string& array, const std::string& target, const std::string& counter) {
+    // Extract loop variable
+    InitializerAnalyzer initAnalyzer;
+    std::string loopVar;
+    int initValue;
+    if (!initAnalyzer.extract(stmt.initializer.get(), loopVar, initValue)) {
+        return nullptr;
+    }
+
+    // Extract loop bound expression from condition
+    BoundExpressionExtractor boundExtractor;
+    std::unique_ptr<Expression> boundExpr;
+    std::string op;
+    if (!boundExtractor.extract(stmt.condition.get(), loopVar, boundExpr, op) || !boundExpr) {
+        return nullptr;
+    }
+
+    // Create function call to __idiom_count8(array, bound, target)
+    // Returns the count of matches
+    auto idiomCall = std::make_unique<FunctionCall>("__idiom_count8");
+    idiomCall->arguments.push_back(std::make_unique<VariableReference>(array));
+    idiomCall->arguments.push_back(std::move(boundExpr));
+    idiomCall->arguments.push_back(std::make_unique<VariableReference>(target));
+
+    // Create assignment: counter = __idiom_count8(array, bound, target)
+    auto assign = std::make_unique<Assignment>(
+        std::make_unique<VariableReference>(counter),
+        std::move(idiomCall)
+    );
+    assign->op = "=";
+
+    auto exprStmt = std::make_unique<ExpressionStatement>(std::move(assign));
+    return exprStmt;
+}
+
 bool LoopOptimizer::canPartialUnrollLoop(const ForStatement& stmt, int unrollFactor) {
     if (unrollFactor <= 0 || unrollFactor > 16) return false;
 
@@ -1189,6 +1312,18 @@ void LoopOptimizer::visit(CompoundStatement& node) {
                 if (searchStmt) {
                     searchStmt->accept(*this);
                     newStatements.push_back(std::move(searchStmt));
+                    stmt.reset();
+                    continue;
+                }
+            }
+
+            // Check for count loop pattern transformation
+            std::string countArray, countTarget, countCounter;
+            if (isCountLoopPattern(*forStmt, countArray, countTarget, idx, countCounter)) {
+                auto countStmt = transformCountLoopToCall(*forStmt, countArray, countTarget, countCounter);
+                if (countStmt) {
+                    countStmt->accept(*this);
+                    newStatements.push_back(std::move(countStmt));
                     stmt.reset();
                     continue;
                 }
