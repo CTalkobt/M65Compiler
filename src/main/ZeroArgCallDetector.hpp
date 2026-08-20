@@ -146,4 +146,19 @@ public:
     void visit(BuiltinVaArg&) override {}
     void visit(StaticAssert&) override {}
     void visit(EnumDefinition&) override {}
+    void visit(StructDefinition&) override {}
+    void visit(AsmStatement&) override {}
+    void visit(CaseStatement&) override {}
+    void visit(DefaultStatement&) override {}
+    void visit(RepeatStatement& n) override {
+        if (n.body) n.body->accept(*this);
+    }
+    void visit(TranslationUnit& n) override {
+        for (auto& decl : n.topLevelDecls) {
+            if (decl) decl->accept(*this);
+        }
+    }
+    void visit(FunctionDeclaration& n) override {
+        if (n.body) n.body->accept(*this);
+    }
 };

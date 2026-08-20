@@ -64,12 +64,12 @@ public:
     const Statistics& getStatistics() const { return stats_; }
 
     // Visitor methods
-    void visit(BinaryOperation& node) override;
-    void visit(Assignment& node) override;
-    void visit(ArrayAccess& node) override;
-    void visit(TranslationUnit& node) override;
-    void visit(FunctionDeclaration& node) override;
-    void visit(CompoundStatement& node) override;
+    void visit(BinaryOperation& node) override {}
+    void visit(Assignment& node) override {}
+    void visit(ArrayAccess& node) override {}
+    void visit(TranslationUnit& node) override {}
+    void visit(FunctionDeclaration& node) override {}
+    void visit(CompoundStatement& node) override {}
 
     // Forward to default visitor for other node types
     void visit(ForStatement& node) override {}
