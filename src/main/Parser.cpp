@@ -301,9 +301,10 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
 
         bool isSig = false;
         bool isUnsig = false;
+        bool isStriped = false;  // Phase 92: Track __striped keyword
 
         while (look < tokens.size() && (tokens[look].type == TokenType::VOLATILE || tokens[look].type == TokenType::CONST || tokens[look].type == TokenType::RESTRICT || tokens[look].type == TokenType::AUTO || tokens[look].type == TokenType::REGISTER || tokens[look].type == TokenType::INLINE || tokens[look].type == TokenType::FASTCALL ||
-               tokens[look].type == TokenType::SIGNED || tokens[look].type == TokenType::UNSIGNED || tokens[look].type == TokenType::ATTRIBUTE || tokens[look].type == TokenType::EXTENSION)) {
+               tokens[look].type == TokenType::SIGNED || tokens[look].type == TokenType::UNSIGNED || tokens[look].type == TokenType::ATTRIBUTE || tokens[look].type == TokenType::EXTENSION || tokens[look].type == TokenType::STRIPED)) {
             if (tokens[look].type == TokenType::ATTRIBUTE) {
                 look++; // skip __attribute__
                 if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
@@ -322,6 +323,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             }
             if (tokens[look].type == TokenType::VOLATILE) isVol = true;
             else if (tokens[look].type == TokenType::CONST) isConst = true;
+            else if (tokens[look].type == TokenType::STRIPED) isStriped = true;  // Phase 92
             else if (tokens[look].type == TokenType::SIGNED) {
                 if (isUnsig) throw std::runtime_error(formatDiagnostic(tokens[look].sourceFile, tokens[look].line, tokens[look].column, Severity::Error, "both 'signed' and 'unsigned' in declaration"));
                 isSig = true;
@@ -503,8 +505,8 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     if (isInterrupt) match(TokenType::INTERRUPT);
                     if (isNaked) match(TokenType::NAKED);
                     if (isRegparm) match(TokenType::REGPARM);
-                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
-                    auto decl = parseVariableDeclaration(isVol, isConst);
+                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || match(TokenType::STRIPED) || tryParseAttribute() || match(TokenType::EXTENSION));
+                    auto decl = parseVariableDeclaration(isVol, isConst, isStatic, false, isStriped);
                     if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                         vd->isGlobal = true;
                         vd->isSigned = !isUnsig;
@@ -571,8 +573,8 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 }
                 if (isExtern) match(TokenType::EXTERN);
                 if (isStatic) match(TokenType::STATIC);
-                while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
-                auto decl = parseVariableDeclaration(isVol, isConst, isStatic);
+                while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || match(TokenType::STRIPED) || tryParseAttribute() || match(TokenType::EXTENSION));
+                auto decl = parseVariableDeclaration(isVol, isConst, isStatic, false, isStriped);
                 if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                     vd->isGlobal = true;
                     vd->isExtern = isExtern;
@@ -3312,7 +3314,7 @@ bool Parser::isFunctionDeclaration() {
             t == TokenType::CONST || t == TokenType::EXTERN || t == TokenType::NORETURN ||
             t == TokenType::FASTCALL || t == TokenType::INTERRUPT || t == TokenType::NAKED ||
             t == TokenType::REGPARM || t == TokenType::RESTRICT || t == TokenType::AUTO ||
-            t == TokenType::REGISTER || t == TokenType::EXTENSION) {
+            t == TokenType::REGISTER || t == TokenType::EXTENSION || t == TokenType::STRIPED) {
             look++;
         } else if (t == TokenType::ATTRIBUTE) {
             look++;
