@@ -11,20 +11,33 @@ AddressTemplateDetector::detectPattern(const BinaryOperation& binOp) {
 
     MatchedPattern result;
 
-    // DEBUG: Check if detector is being called
-    if (const char* debug_env = std::getenv("DEBUG_ADDR_TEMPLATE")) {
-        std::cerr << "[AddressTemplateDetector] detectPattern called with op=" << binOp.op << std::endl;
-    }
+    std::cerr << "[AddressTemplate] detectPattern: op=" << binOp.op;
+
+    // Check left operand type
+    auto* leftBinOp = dynamic_cast<BinaryOperation*>(binOp.left.get());
+    auto* rightBinOp = dynamic_cast<BinaryOperation*>(binOp.right.get());
+
+    std::cerr << " left_is_binop=" << (leftBinOp ? "yes" : "no")
+              << " right_is_binop=" << (rightBinOp ? "yes" : "no");
 
     // Pattern 1: (row * WIDTH) + col
     if (binOp.op == "+") {
+        std::cerr << " trying_linear_row_major";
+
         // Check if left is multiplication and right is variable
         if (auto multOp = dynamic_cast<BinaryOperation*>(binOp.left.get())) {
             if (multOp->op == "*") {
                 int width;
-                if (extractConstantInt(multOp->right.get(), width) && isRowMajorWidth(width)) {
-                    result = tryLinearRowMajor(binOp.left.get(), binOp.right.get());
-                    if (result.canOptimize) return result;
+                if (extractConstantInt(multOp->right.get(), width)) {
+                    std::cerr << " left_mult_constant=" << width;
+                    if (isRowMajorWidth(width)) {
+                        std::cerr << " is_row_major_width";
+                        result = tryLinearRowMajor(binOp.left.get(), binOp.right.get());
+                        if (result.canOptimize) {
+                            std::cerr << " MATCH!" << std::endl;
+                            return result;
+                        }
+                    }
                 }
             }
         }
@@ -32,9 +45,16 @@ AddressTemplateDetector::detectPattern(const BinaryOperation& binOp) {
         if (auto multOp = dynamic_cast<BinaryOperation*>(binOp.right.get())) {
             if (multOp->op == "*") {
                 int width;
-                if (extractConstantInt(multOp->right.get(), width) && isRowMajorWidth(width)) {
-                    result = tryLinearRowMajor(binOp.right.get(), binOp.left.get());
-                    if (result.canOptimize) return result;
+                if (extractConstantInt(multOp->right.get(), width)) {
+                    std::cerr << " right_mult_constant=" << width;
+                    if (isRowMajorWidth(width)) {
+                        std::cerr << " is_row_major_width";
+                        result = tryLinearRowMajor(binOp.right.get(), binOp.left.get());
+                        if (result.canOptimize) {
+                            std::cerr << " MATCH!" << std::endl;
+                            return result;
+                        }
+                    }
                 }
             }
         }
@@ -42,17 +62,27 @@ AddressTemplateDetector::detectPattern(const BinaryOperation& binOp) {
 
     // Pattern 2: base + (index * SIZE) for sprite offset
     if (binOp.op == "+") {
+        std::cerr << " trying_sprite_offset";
+
         if (auto multOp = dynamic_cast<BinaryOperation*>(binOp.right.get())) {
             if (multOp->op == "*") {
                 int size;
-                if (extractConstantInt(multOp->right.get(), size) && isSpriteOffsetSize(size)) {
-                    result = trySpriteOffset(binOp.left.get(), binOp.right.get());
-                    if (result.canOptimize) return result;
+                if (extractConstantInt(multOp->right.get(), size)) {
+                    std::cerr << " mult_constant=" << size;
+                    if (isSpriteOffsetSize(size)) {
+                        std::cerr << " is_sprite_size";
+                        result = trySpriteOffset(binOp.left.get(), binOp.right.get());
+                        if (result.canOptimize) {
+                            std::cerr << " MATCH!" << std::endl;
+                            return result;
+                        }
+                    }
                 }
             }
         }
     }
 
+    std::cerr << " NO_MATCH" << std::endl;
     return result;
 }
 

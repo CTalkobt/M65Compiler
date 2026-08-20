@@ -3226,6 +3226,8 @@ void CodeGenerator::visit(Assignment& node) {
 }
 
 void CodeGenerator::visit(BinaryOperation& node) {
+    std::cerr << "[visit(BinaryOp)] op=" << node.op << std::endl;
+
     ExpressionType lhsType = getExprType(node.left.get());
     ExpressionType rhsType = getExprType(node.right.get());
     int scale = 1;
@@ -6093,8 +6095,11 @@ void CodeGenerator::visit(LabelAddressExpression& node) {
  * Returns true if a template was emitted, false if normal code gen should be used
  */
 bool CodeGenerator::tryEmitAddressTemplate(BinaryOperation& node) {
+    std::cerr << "[CodeGenerator::tryEmitAddressTemplate] called with op=" << node.op << std::endl;
+
     // Only optimize addition and multiplication operations
     if (node.op != "+" && node.op != "*") {
+        std::cerr << "  rejected: not + or *" << std::endl;
         return false;
     }
 
@@ -6103,8 +6108,11 @@ bool CodeGenerator::tryEmitAddressTemplate(BinaryOperation& node) {
     auto pattern = detector.detectPattern(node);
 
     if (!pattern.canOptimize) {
+        std::cerr << "  pattern not found" << std::endl;
         return false;  // No recognized pattern
     }
+
+    std::cerr << "  PATTERN MATCHED!" << std::endl;
 
     // Emit comment indicating template usage
     emit("; [Phase 89: Address Template - " + pattern.name + "]");
