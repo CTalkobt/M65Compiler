@@ -63,6 +63,11 @@ public:
     // E.g., _calculate + {10, 2} → _calculate_10_2
     std::string generateSpecializationName(const std::string& funcName, const SpecializationPattern& pattern) const;
 
+    // Phase 91.3: Set functions to skip during code generation (dead code elimination)
+    void setDeadCodeFunctions(const std::set<std::string>& deadFuncs) {
+        deadCodeFunctions_ = deadFuncs;
+    }
+
 private:
     std::ostream& out_;
     uint32_t zeroPageStart_ = 0x08;
@@ -209,6 +214,10 @@ private:
     // These skip AR allocation entirely for maximum code reduction (4-12 bytes per function)
     // Maps function_name → has_no_alloc_needed
     std::set<std::string> zeroAllocLeaves_;
+
+    // Phase 91.3: Functions to skip during code generation (dead code elimination via IPOAnalyzer)
+    // During generate(), emitFunction() skips functions in this set
+    std::set<std::string> deadCodeFunctions_;
 
     // Analyze function calls to detect constant parameters (pre-pass before code generation)
     void analyzeConstantParameters(const ir::Module& mod);

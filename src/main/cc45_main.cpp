@@ -875,11 +875,12 @@ int main(int argc, char** argv) {
         irBuilder.generate(*ast);
 
         // Phase 91.3: Cross-module optimization analysis and decision application
+        IPOAnalysisResult ipoResult;  // Declared outside if block for use during codegen
         if (optimize) {
             if (verboseLevel >= 1) std::cout << "Analyzing cross-module optimization opportunities..." << std::endl;
 
             IPOAnalyzer ipoAnalyzer;
-            auto ipoResult = ipoAnalyzer.analyze(irBuilder.getProfiler().getDatabase());
+            ipoResult = ipoAnalyzer.analyze(irBuilder.getProfiler().getDatabase());
 
             if (verboseLevel >= 1) {
                 std::cout << "Cross-module optimization analysis:" << std::endl;
@@ -981,6 +982,23 @@ int main(int argc, char** argv) {
         }
         IRCodeGen irCodeGen(asmOut);
         irCodeGen.setLineToFileMap(lineToFileMap);
+
+        // Phase 91.3: Apply dead code elimination decisions from IPOAnalyzer
+        if (optimize && !ipoResult.deadCode.empty()) {
+            std::set<std::string> deadFuncs;
+            for (const auto& dc : ipoResult.deadCode) {
+                if (dc.isDeadCode) {
+                    deadFuncs.insert(dc.functionName);
+                }
+            }
+            if (!deadFuncs.empty()) {
+                irCodeGen.setDeadCodeFunctions(deadFuncs);
+                if (verboseLevel >= 2) {
+                    std::cout << "Suppressing " << deadFuncs.size() << " dead code function(s) during emission." << std::endl;
+                }
+            }
+        }
+
         // For -S mode, still use relocatable mode, but we'll emit BASIC_UPSTART to signal load address
         // This allows ca45 to emit the PRG load address header
         bool useReloc = true;  // Always use relocatable for assembly generation
