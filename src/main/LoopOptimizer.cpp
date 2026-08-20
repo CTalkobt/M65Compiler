@@ -346,6 +346,55 @@ namespace {
         }
     };
 
+    // Helper: detect sum reduction pattern: int sum = 0; for(i=0; i<n; i++) sum += arr[i];
+    class SumReductionDetector {
+    public:
+        bool detect(const ForStatement& loop, std::string& accumVar, std::string& arrayVar, std::string& indexVar) {
+            // Check if body is a single statement
+            if (!loop.body) return false;
+
+            ExpressionStatement* exprStmt = nullptr;
+
+            // Handle CompoundStatement with single statement
+            if (auto* compStmt = dynamic_cast<CompoundStatement*>(loop.body.get())) {
+                if (compStmt->statements.size() == 1 && compStmt->statements[0]) {
+                    exprStmt = dynamic_cast<ExpressionStatement*>(compStmt->statements[0].get());
+                }
+            } else {
+                // Direct ExpressionStatement
+                exprStmt = dynamic_cast<ExpressionStatement*>(loop.body.get());
+            }
+
+            if (!exprStmt || !exprStmt->expression) return false;
+
+            // Must be an Assignment with += operator
+            auto* assign = dynamic_cast<Assignment*>(exprStmt->expression.get());
+            if (!assign || assign->op != "+=") return false;
+
+            // LHS must be a variable reference (the accumulator)
+            auto* accumRef = dynamic_cast<VariableReference*>(assign->target.get());
+            if (!accumRef) return false;
+            accumVar = accumRef->name;
+
+            // RHS must be an array access: arr[i]
+            auto* rhsArray = dynamic_cast<ArrayAccess*>(assign->expression.get());
+            if (!rhsArray) return false;
+
+            // Array should be variable reference
+            auto* arrRef = dynamic_cast<VariableReference*>(rhsArray->arrayExpr.get());
+            if (!arrRef) return false;
+            arrayVar = arrRef->name;
+
+            // Index should be variable reference (the loop counter)
+            auto* rhsIndex = dynamic_cast<VariableReference*>(rhsArray->indexExpr.get());
+            if (!rhsIndex) return false;
+            indexVar = rhsIndex->name;
+
+            // Accumulator and array must be different variables (no aliasing)
+            return accumVar != arrayVar;
+        }
+    };
+
     // Helper: collect all variable names referenced in an expression
     class VarCollector : public ASTVisitor {
     public:
@@ -794,6 +843,45 @@ std::unique_ptr<Statement> LoopOptimizer::transformMemsetToCall(const ForStateme
     return exprStmt;
 }
 
+bool LoopOptimizer::isSumReductionPattern(const ForStatement& stmt, std::string& accum, std::string& array, std::string& idx) {
+    SumReductionDetector detector;
+    return detector.detect(stmt, accum, array, idx);
+}
+
+std::unique_ptr<Statement> LoopOptimizer::transformSumReductionToCall(const ForStatement& stmt, const std::string& accum, const std::string& array) {
+    // Extract loop variable
+    InitializerAnalyzer initAnalyzer;
+    std::string loopVar;
+    int initValue;
+    if (!initAnalyzer.extract(stmt.initializer.get(), loopVar, initValue)) {
+        return nullptr;  // Failed to extract loop variable
+    }
+
+    // Extract loop bound expression from condition
+    BoundExpressionExtractor boundExtractor;
+    std::unique_ptr<Expression> boundExpr;
+    std::string op;
+    if (!boundExtractor.extract(stmt.condition.get(), loopVar, boundExpr, op) || !boundExpr) {
+        return nullptr;  // Failed to extract bound expression
+    }
+
+    // Create function call to __idiom_sum16(array, bound)
+    // The return value is assigned back to the accumulator
+    auto idiomCall = std::make_unique<FunctionCall>("__idiom_sum16");
+    idiomCall->arguments.push_back(std::make_unique<VariableReference>(array));
+    idiomCall->arguments.push_back(std::move(boundExpr));
+
+    // Create assignment: accum = __idiom_sum16(array, bound)
+    auto assign = std::make_unique<Assignment>(
+        std::make_unique<VariableReference>(accum),
+        std::move(idiomCall)
+    );
+    assign->op = "=";
+
+    auto exprStmt = std::make_unique<ExpressionStatement>(std::move(assign));
+    return exprStmt;
+}
+
 bool LoopOptimizer::canPartialUnrollLoop(const ForStatement& stmt, int unrollFactor) {
     if (unrollFactor <= 0 || unrollFactor > 16) return false;
 
@@ -946,6 +1034,18 @@ void LoopOptimizer::visit(CompoundStatement& node) {
                 if (memsetStmt) {
                     memsetStmt->accept(*this);
                     newStatements.push_back(std::move(memsetStmt));
+                    stmt.reset();
+                    continue;
+                }
+            }
+
+            // Check for sum reduction pattern transformation
+            std::string accum, array;
+            if (isSumReductionPattern(*forStmt, accum, array, idx)) {
+                auto sumStmt = transformSumReductionToCall(*forStmt, accum, array);
+                if (sumStmt) {
+                    sumStmt->accept(*this);
+                    newStatements.push_back(std::move(sumStmt));
                     stmt.reset();
                     continue;
                 }
