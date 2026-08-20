@@ -34,6 +34,10 @@ public:
         bool isRegister = false;      // allocated in zero page
         bool isStriped = false;       // Phase 92: Striped array optimization
         int elementSize = 0;          // Phase 94: For striped struct arrays (0 = not striped or int)
+        bool isFieldStriped = false;  // Phase 95: Field-level striping within striped struct arrays
+        std::vector<std::string> fieldNames;  // Phase 95: Names of struct fields (if field-striped)
+        std::vector<int> fieldSizes;  // Phase 95: Sizes of struct fields in bytes
+        std::vector<int> fieldOffsets; // Phase 95: Offsets of field regions in memory
         std::vector<int> arrayDims;   // empty = not array; {3,4} = int[3][4]
         bool isFunctionPointer = false;
         std::shared_ptr<FuncPtrSignature> funcPtrSig;
@@ -44,7 +48,7 @@ public:
                 bool fp = false, std::shared_ptr<FuncPtrSignature> fpSig = nullptr, int es = 0)
             : type(t), pointerLevel(p), isSigned(s), isVolatile(v), isConst(c),
               isPointerConst(pc), isRegister(r), arrayDims(a), isFunctionPointer(fp),
-              funcPtrSig(fpSig), isStriped(false), elementSize(es) {}
+              funcPtrSig(fpSig), isStriped(false), elementSize(es), isFieldStriped(false) {}
 
         int arraySize() const { if (arrayDims.empty()) return -1; int s=1; for (int d:arrayDims) s*=d; return s; }
     };
