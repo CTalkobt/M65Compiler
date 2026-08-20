@@ -1,5 +1,7 @@
 #include "IPOProfiler.hpp"
 #include <iostream>
+#include <map>
+#include <set>
 
 void IPOProfiler::recordFunctionDefinition(
     const std::string& functionName,
@@ -44,11 +46,28 @@ void IPOProfiler::recordFunctionCall(
 
         it->second.callSites.push_back(callInfo);
     }
+
+    // Also ensure callee exists in buildStates_ so we can track incoming calls
+    if (buildStates_.find(calleeName) == buildStates_.end()) {
+        FunctionBuildState state;
+        state.name = calleeName;
+        buildStates_[calleeName] = state;
+    }
 }
 
 void IPOProfiler::finalizeProfiles() {
     // Convert build states to function profiles in database
     auto& database = GlobalFunctionDatabase::instance();
+
+    // First pass: build a map of incoming calls for each function
+    std::map<std::string, std::set<std::string>> incomingCallsPerFunction;
+    for (auto& [callerId, state] : buildStates_) {
+        for (const auto& callInfo : state.callSites) {
+            incomingCallsPerFunction[callInfo.calleeName].insert(callerId);
+        }
+    }
+
+    // Second pass: create profiles with correct call site counts
     for (auto& [funcName, state] : buildStates_) {
         GlobalFunctionProfile profile;
         profile.name = funcName;
@@ -57,10 +76,11 @@ void IPOProfiler::finalizeProfiles() {
         // Estimate code size based on heuristics
         // Base: 10 bytes per parameter, 5 bytes per local, 20 bytes base
         profile.codeSize = 20 + (state.paramCount * 10) + (state.localVarCount * 5);
-        profile.codeSize += state.callSites.size() * 10;  // Call overhead
+        profile.codeSize += state.callSites.size() * 10;  // Call overhead (for calls made BY this function)
 
         profile.isLeaf = state.hasNoCalls && (state.localVarCount == 0);
-        profile.totalCallSites = state.callSites.size();
+        // Count distinct functions that call this function (incoming call sites)
+        profile.totalCallSites = incomingCallsPerFunction[funcName].size();
         profile.hasExternalCaller = true;  // Conservative default
         profile.isDeadCode = false;
 

@@ -68,6 +68,12 @@ public:
         deadCodeFunctions_ = deadFuncs;
     }
 
+    // Phase 91.3.3: Set functions to emit inline-only (no standalone definition)
+    // Functions marked for aggressive inlining have their definitions suppressed
+    void setInlineOnlyFunctions(const std::set<std::string>& inlineFuncs) {
+        inlineOnlyFunctions_ = inlineFuncs;
+    }
+
 private:
     std::ostream& out_;
     uint32_t zeroPageStart_ = 0x08;
@@ -218,6 +224,11 @@ private:
     // Phase 91.3: Functions to skip during code generation (dead code elimination via IPOAnalyzer)
     // During generate(), emitFunction() skips functions in this set
     std::set<std::string> deadCodeFunctions_;
+
+    // Phase 91.3.3: Functions with inline-only emission (no standalone definition)
+    // These functions are only available as inlined versions, not as callable functions
+    // Suppresses standalone function definition during emitFunction()
+    std::set<std::string> inlineOnlyFunctions_;
 
     // Analyze function calls to detect constant parameters (pre-pass before code generation)
     void analyzeConstantParameters(const ir::Module& mod);

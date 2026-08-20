@@ -855,11 +855,15 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     // Emit global declarations (segment switching only in reloc mode)
     emitGlobals(mod, relocMode);
 
-    // Emit functions (skip dead code functions from Phase 91.3 IPOAnalyzer)
+    // Emit functions (skip dead code and inline-only functions from Phase 91.3 IPOAnalyzer)
     for (const auto& fn : mod.functions) {
         // Phase 91.3: Skip functions marked as dead code by IPOAnalyzer
         if (deadCodeFunctions_.count(fn.name)) {
             continue;  // Skip emitting dead code function
+        }
+        // Phase 91.3.3: Skip standalone definitions for inline-only functions
+        if (inlineOnlyFunctions_.count(fn.name)) {
+            continue;  // Skip emitting inline-only function (only available inlined)
         }
         emitFunction(fn, relocMode);
     }
@@ -891,6 +895,10 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
             // Phase 91.3: Skip global declarations for dead code functions
             if (deadCodeFunctions_.count(fn.name)) {
                 continue;  // Don't emit .global/.weak for dead code
+            }
+            // Phase 91.3.3: Skip global declarations for inline-only functions
+            if (inlineOnlyFunctions_.count(fn.name)) {
+                continue;  // Don't emit .global/.weak for inline-only functions
             }
             if (!fn.isStatic) {
                 if (fn.isWeak) emit(".weak " + fn.name);

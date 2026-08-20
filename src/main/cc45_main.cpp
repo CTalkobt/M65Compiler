@@ -999,6 +999,44 @@ int main(int argc, char** argv) {
             }
         }
 
+        // Phase 91.3.3: Apply inlining decisions from IPOAnalyzer
+        if (optimize && !ipoResult.inlines.empty()) {
+            std::set<std::string> inlineFuncs;
+            int inlineCount = 0;
+
+            if (verboseLevel >= 2) {
+                std::cout << "Inlining candidate analysis:" << std::endl;
+                for (const auto& inl : ipoResult.inlines) {
+                    std::cout << "  " << inl.functionName << ": shouldInline=" << (inl.shouldInline ? "yes" : "no")
+                              << " size=" << inl.codeSize << "B sites=" << inl.callSites
+                              << " (" << inl.reason << ")" << std::endl;
+                }
+            }
+
+            for (const auto& inl : ipoResult.inlines) {
+                // Functions marked for aggressive inlining:
+                // - shouldInline flag is set
+                // - Small code size (< 50 bytes)
+                // - Few call sites (1-4)
+                if (inl.shouldInline && inl.codeSize < 50 && inl.callSites > 0 && inl.callSites <= 4) {
+                    inlineFuncs.insert(inl.functionName);
+                    inlineCount++;
+                }
+            }
+
+            if (!inlineFuncs.empty()) {
+                irCodeGen.setInlineOnlyFunctions(inlineFuncs);
+                if (verboseLevel >= 1) {
+                    std::cout << "Marking " << inlineCount << " function(s) for inline-only emission." << std::endl;
+                }
+                if (verboseLevel >= 2) {
+                    for (const auto& func : inlineFuncs) {
+                        std::cout << "  - " << func << std::endl;
+                    }
+                }
+            }
+        }
+
         // For -S mode, still use relocatable mode, but we'll emit BASIC_UPSTART to signal load address
         // This allows ca45 to emit the PRG load address header
         bool useReloc = true;  // Always use relocatable for assembly generation
