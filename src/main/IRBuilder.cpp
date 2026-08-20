@@ -74,11 +74,13 @@ void IRBuilder::generate(TranslationUnit& unit) {
             // Remove unused functions (static, inlined, or unreachable)
             auto it = std::remove_if(module_.functions.begin(), module_.functions.end(),
                 [&usedFuncs](const ir::Function& fn) {
-                    // Don't remove _main or extern functions
+                    // Always keep _main
                     if (fn.name == "_main") return false;
-                    // Keep functions that are called OR have extern linkage (handle later if needed)
+                    // Keep functions that are called within this module
                     if (usedFuncs.count(fn.name)) return false;
-                    // Remove everything else - static functions, inlined functions, unreachable code
+                    // Keep non-static (extern/global) functions — they may be called from other modules
+                    if (!fn.isStatic) return false;
+                    // Remove only static functions that are not called
                     return true;
                 });
             changed = (it != module_.functions.end());
