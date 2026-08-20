@@ -3039,8 +3039,8 @@ void IRBuilder::visit(FunctionCall& node) {
         // Record function call for cross-module optimization profiling
         if (currentFunc_) {
             profiler_.recordFunctionCall(
-                currentFunc_->name.substr(1),  // Remove '_' prefix to get original name
-                node.name,
+                currentFunc_->name,  // Keep '_' prefix for consistency with build states
+                "_" + node.name,     // Add '_' prefix to match build state keys
                 static_cast<int>(node.arguments.size()),
                 false  // hasConstantArgs will be determined later if needed
             );
