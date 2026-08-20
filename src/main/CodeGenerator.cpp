@@ -6410,13 +6410,6 @@ void CodeGenerator::emitStripedArrayAccess(ArrayAccess& node, VarInfo& varInfo, 
 
     int numDims = varInfo.arrayDims.size();
 
-    // For 2D arrays, use existing logic (no 3D+ support in this version)
-    if (numDims > 2) {
-        // Phase 93 3D+ support: simplified version - currently falls back to standard indexing
-        // Full 3D+ support planned for future phase with dedicated optimizations
-        return;
-    }
-
     // Store base address in ZP temp
     int zpBase = allocateZP(2);
     std::stringstream ss_base;
@@ -6424,35 +6417,101 @@ void CodeGenerator::emitStripedArrayAccess(ArrayAccess& node, VarInfo& varInfo, 
     emit("ptrstack " + resolveVarName(baseRef->name));
     emit("stax $" + ss_base.str());
 
-    // Verify 2D access pattern: arr[row][col]
-    auto* inner = dynamic_cast<ArrayAccess*>(node.arrayExpr.get());
-    if (!inner) {
-        return;  // Not a nested array access
+    // Phase 93.2: Extract all dimension indices from nested ArrayAccess nodes
+    // Build a vector of (index_expr, dimension_size) pairs
+    std::vector<std::pair<Expression*, int>> dimIndices;  // (index expression, dimension size)
+
+    // Walk the nested array accesses to extract all indices
+    ArrayAccess* current = &node;
+    for (int i = numDims - 1; i >= 0; i--) {
+        if (!current) return;
+        dimIndices.push_back({current->indexExpr.get(), varInfo.arrayDims[i]});
+
+        // Move to parent array access (if exists)
+        auto* parentExpr = current->arrayExpr.get();
+        if (i > 0) {
+            current = dynamic_cast<ArrayAccess*>(parentExpr);
+            if (!current) return;  // Should have found parent
+        }
     }
 
-    // Evaluate and save row index
+    // Reverse to get dimensions in order (dim0, dim1, ..., row, col)
+    std::reverse(dimIndices.begin(), dimIndices.end());
+
+    // Phase 93.2: Evaluate and store all indices in ZP
+    std::vector<std::string> zpIndices;  // ZP addresses for each dimension index
     bool oldNeeded = resultNeeded;
-    resultNeeded = true;
-    inner->indexExpr->accept(*this);
-    resultNeeded = oldNeeded;
 
-    int zpRow = allocateZP(1);
-    std::stringstream ss_row;
-    ss_row << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpRow);
-    emit("sta $" + ss_row.str());
+    for (size_t i = 0; i < dimIndices.size(); i++) {
+        resultNeeded = true;
+        dimIndices[i].first->accept(*this);
+        resultNeeded = oldNeeded;
 
-    // Evaluate column index
-    resultNeeded = true;
-    node.indexExpr->accept(*this);
-    resultNeeded = oldNeeded;
+        int zpIdx = allocateZP(1);
+        std::stringstream ss_idx;
+        ss_idx << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpIdx);
+        emit("sta $" + ss_idx.str());
+        zpIndices.push_back(ss_idx.str());
+    }
 
-    int zpCol = allocateZP(1);
-    std::stringstream ss_col;
-    ss_col << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpCol);
-    emit("sta $" + ss_col.str());
+    // Extract row and column indices (last 2 dimensions)
+    std::string zpRow = zpIndices[numDims - 2];
+    std::string zpCol = zpIndices[numDims - 1];
 
-    // Calculate offset: (col >> log2Stripe) * height + row + (col & (stripeWidth-1)) * 4
-    emit("lda $" + ss_col.str());
+    // Phase 93.2: Calculate depth offset for 3D+ arrays
+    int zpDepthOffset = -1;
+    std::string zpDepthOffsetStr;
+    if (numDims > 2) {
+        // Calculate: product of all outer dimensions * matrix_2d_size
+        // matrix_2d_size = height * width * 4 (int = 4 bytes)
+        int matrix2DSize = height * width * 4;
+
+        // Emit depth offset calculation
+        // Start with first outer dimension index
+        emit("lda " + zpIndices[0]);
+
+        // Multiply by remaining outer dimensions
+        for (size_t i = 1; i < numDims - 2; i++) {
+            emit("tax");
+            emit("lda " + zpIndices[i]);
+            emit("mul.8x");  // A = A * X (both 8-bit)
+        }
+
+        // Now multiply by matrix_2d_size
+        if (matrix2DSize > 0 && (matrix2DSize & (matrix2DSize - 1)) == 0) {
+            // Power of 2: use shifts
+            int shifts = 0;
+            int temp = matrix2DSize;
+            while (temp > 1) {
+                temp >>= 1;
+                shifts++;
+            }
+            for (int i = 0; i < shifts; i++) {
+                emit("asl");
+            }
+        } else {
+            // General case: multiply
+            emit("tax");
+            emit("ldy #$" + std::to_string(matrix2DSize & 0xFF));
+            if (matrix2DSize > 255) {
+                emit("lda #$" + std::to_string((matrix2DSize >> 8) & 0xFF));
+                emit("mul.16 .ay");
+            } else {
+                emit("mul.8x");
+            }
+        }
+
+        // Store depth offset in ZP
+        zpDepthOffset = allocateZP(2);
+        std::stringstream ss_depth;
+        ss_depth << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpDepthOffset);
+        zpDepthOffsetStr = ss_depth.str();
+        emit("stax $" + zpDepthOffsetStr);
+    }
+
+    // Phase 93.2: Calculate 2D striped offset (same as Phase 92)
+    // offset = (col >> log2Stripe) * height + row + (col & (stripeWidth-1)) * 4
+    emit("lda " + zpCol);
     for (int i = 0; i < log2Stripe; i++) {
         emit("lsr");
     }
@@ -6474,11 +6533,11 @@ void CodeGenerator::emitStripedArrayAccess(ArrayAccess& node, VarInfo& varInfo, 
 
     // Add row
     emit("clc");
-    emit("adc $" + ss_row.str());
+    emit("adc " + zpRow);
 
     // Add column remainder offset: (col & (stripeWidth-1)) * 4
     emit("tax");
-    emit("lda $" + ss_col.str());
+    emit("lda " + zpCol);
     int mask = stripeWidth - 1;
     std::stringstream ss_mask;
     ss_mask << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (mask & 0xFF);
@@ -6488,12 +6547,28 @@ void CodeGenerator::emitStripedArrayAccess(ArrayAccess& node, VarInfo& varInfo, 
     emit("clc");
     emit("adc.16 .tx");
 
+    // Phase 93.2: Add depth offset if 3D+
+    if (numDims > 2) {
+        emit("clc");
+        emit("adc.16 $" + zpDepthOffsetStr);
+    }
+
     // Add base address
     emit("clc");
     emit("adc.16 $" + ss_base.str());
 
+    // Free all allocated ZP spaces
     freeZP(zpBase, 2);
-    freeZP(zpRow, 1);
-    freeZP(zpCol, 1);
+    for (size_t i = 0; i < zpIndices.size(); i++) {
+        // Extract ZP address from zpIndices[i] (format: "$XX")
+        std::string zpStr = zpIndices[i];
+        if (zpStr[0] == '$') {
+            int zpVal = std::stoi(zpStr.substr(1), nullptr, 16);
+            freeZP(zpVal, 1);
+        }
+    }
+    if (zpDepthOffset >= 0) {
+        freeZP(zpDepthOffset, 2);
+    }
     invalidateRegs();
 }
