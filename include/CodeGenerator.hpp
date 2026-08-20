@@ -279,6 +279,7 @@ public:
     };
     LoopUnrollInfo analyzeForUnrolling(ForStatement* node);
     void emitUnrolledLoop(ForStatement& node, const LoopUnrollInfo& info);
+    bool tryEmitAddressTemplate(BinaryOperation& node);  // Phase 89: Address template optimization
 
     int allocateZP(int size);
     void freeZP(int index, int size);

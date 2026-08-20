@@ -1,4 +1,6 @@
 #include "CodeGenerator.hpp"
+#include "AddressTemplateDetector.hpp"
+#include "AddressTemplates.hpp"
 #include <iostream>
 #include <iomanip>
 #include <sstream>
@@ -3281,6 +3283,12 @@ void CodeGenerator::visit(BinaryOperation& node) {
         return;
     }
 
+    // Phase 89: Try to emit optimized address template before standard arithmetic
+    if (tryEmitAddressTemplate(node)) {
+        resultNeeded = oldNeeded;
+        return;
+    }
+
     bool is32BitOp_early = (is32BitType(lhsType.type) && lhsType.pointerLevel == 0) ||
                            (is32BitType(rhsType.type) && rhsType.pointerLevel == 0);
     bool isMultiplicativeLiteral = false;
@@ -6033,4 +6041,110 @@ void CodeGenerator::visit(LabelAddressExpression& node) {
     if (!resultNeeded) return;
     emit("ldax #@" + node.label);
     invalidateRegs();
+}
+
+/**
+ * Phase 89: Address Template Optimization
+ * Try to emit an optimized template for address calculations
+ * Returns true if a template was emitted, false if normal code gen should be used
+ */
+bool CodeGenerator::tryEmitAddressTemplate(BinaryOperation& node) {
+    // Only optimize addition and multiplication operations
+    if (node.op != "+" && node.op != "*") {
+        return false;
+    }
+
+    // Use the detector to find patterns
+    AddressTemplateDetector detector;
+    auto pattern = detector.detectPattern(node);
+
+    if (!pattern.canOptimize) {
+        return false;  // No recognized pattern
+    }
+
+    // Emit comment indicating template usage
+    emit("; [Phase 89: Address Template - " + pattern.description + "]");
+
+    // For now, emit a simplified template
+    // Full implementation would substitute operands into template strings
+    switch (pattern.type) {
+        case AddressTemplateDetector::PatternType::LINEAR_ROW_MAJOR: {
+            // Pattern: (row * WIDTH) + col
+            // Operands: [0] = row var, [1] = col var
+            // Constants: [0] = width value
+            if (pattern.operands.size() >= 2 && pattern.constants.size() >= 1) {
+                int width = pattern.constants[0];
+                std::string row_var = pattern.operands[0];
+                std::string col_var = pattern.operands[1];
+
+                // Comment showing the optimization
+                emit("; Optimized: " + row_var + " * " + std::to_string(width) + " + " + col_var);
+
+                // For row*40: multiply by 40 using bit shifts and adds
+                if (width == 40) {
+                    // lda row; asl; asl; asl; sta temp; asl; adc temp; adc col
+                    emit("lda " + row_var);
+                    emit("asl");          // × 2
+                    emit("asl");          // × 4
+                    emit("asl");          // × 8
+                    emit("sta $fa");      // temp = 8 × row
+                    emit("asl");          // × 16
+                    emit("adc $fa");      // A = 24 × row
+                    emit("sta $fa");
+                    emit("lda " + row_var);
+                    emit("asl");          // × 2
+                    emit("asl");          // × 4
+                    emit("adc $fa");      // 8×row + 24×row = 32×row + 8×row = 40×row
+                    emit("clc");
+                    emit("adc " + col_var);
+                    emit("ldx #0");       // High byte = 0
+                    invalidateRegs();
+                    regA.known = false;
+                    regX.known = false;
+                    return true;
+                }
+            }
+            break;
+        }
+
+        case AddressTemplateDetector::PatternType::SPRITE_OFFSET: {
+            // Pattern: base + (index * SIZE)
+            if (pattern.operands.size() >= 2 && pattern.constants.size() >= 1) {
+                int size = pattern.constants[0];
+                std::string base_var = pattern.operands[0];
+                std::string index_var = pattern.operands[1];
+
+                emit("; Optimized: " + base_var + " + " + index_var + " * " + std::to_string(size));
+
+                // For simple cases (size is power of 2)
+                if (size > 0 && (size & (size - 1)) == 0) {
+                    // size is a power of 2, can use bit shifts
+                    int shifts = 0;
+                    int temp_size = size;
+                    while (temp_size > 1) {
+                        temp_size >>= 1;
+                        shifts++;
+                    }
+
+                    emit("lda " + index_var);
+                    for (int i = 0; i < shifts; i++) {
+                        emit("asl");
+                    }
+                    emit("clc");
+                    emit("adc " + base_var);
+                    emit("ldx #0");
+                    invalidateRegs();
+                    regA.known = false;
+                    regX.known = false;
+                    return true;
+                }
+            }
+            break;
+        }
+
+        default:
+            return false;
+    }
+
+    return false;
 }
