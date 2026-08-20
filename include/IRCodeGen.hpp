@@ -392,6 +392,9 @@ private:
     // Phase 2: Fine-grained register invalidation tracking
     // Maps function name → clobber mask for selective invalidation at call sites
     std::map<std::string, int> functionClobberMasks_;
+    // Phase 2: Fine-grained flag clobber tracking
+    // Maps function name → flag clobber mask (bits: 0=C, 1=N, 2=Z, 3=V)
+    std::map<std::string, int> functionFlagClobberMasks_;
 
     // Phase 47: IR Metadata Tracking for .o45 Serialization
     // Track IR information for each function to enable cross-file optimizations

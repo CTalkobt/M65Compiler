@@ -636,16 +636,22 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     }
     setFunctionMap(&funcMap);
 
-    // Phase 2: Pre-compute clobber masks for all functions (fine-grained register invalidation)
+    // Phase 2: Pre-compute clobber masks for all functions (fine-grained register and flag invalidation)
     functionClobberMasks_.clear();
+    functionFlagClobberMasks_.clear();
     for (const auto& fn : mod.functions) {
         FuncClobbers clobbers = computeFuncClobbers(fn);
+
+        // Register clobber mask (bit 0=A, 1=X, 2=Y, 3=Z)
         int regMask = 0;
         if (clobbers.regs & (1 << 0)) regMask |= (1 << REG_A);  // bit 0 = A
         if (clobbers.regs & (1 << 1)) regMask |= (1 << REG_X);  // bit 1 = X
         if (clobbers.regs & (1 << 2)) regMask |= (1 << REG_Y);  // bit 2 = Y
         if (clobbers.regs & (1 << 3)) regMask |= (1 << REG_Z);  // bit 3 = Z
         functionClobberMasks_[fn.name] = regMask;
+
+        // Flag clobber mask (bit 0=C, 1=N, 2=Z, 3=V) — pass through unchanged
+        functionFlagClobberMasks_[fn.name] = clobbers.flags;
     }
 
     // Phase 3: Pre-scan functions to identify which ones use SAC
@@ -4224,25 +4230,40 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 }
             }
 
-            // Phase 2: Selective register invalidation (fine-grained clobber tracking)
-            // Instead of invalidating all registers, only invalidate those the function actually clobbers
+            // Phase 2: Selective register and flag invalidation (fine-grained clobber tracking)
+            // Instead of invalidating all registers/flags, only invalidate those the function actually clobbers
             if (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID || inst.op == ir::Op::CALL_INDIRECT) {
-                int clobberMask = 0;
-                // For direct calls, look up the function's clobber mask
+                int regClobberMask = 0;
+                int flagClobberMask = 0;
+                const int ALL_REGS = (1 << REG_A) | (1 << REG_X) | (1 << REG_Y) | (1 << REG_Z);
+                const int ALL_FLAGS = 0x0F;  // All 4 flags
+
+                // For direct calls, look up the function's clobber masks
                 if (inst.src1.kind == ir::OperandKind::GLOBAL) {
                     auto it = functionClobberMasks_.find(inst.src1.name);
                     if (it != functionClobberMasks_.end()) {
-                        clobberMask = it->second;
+                        regClobberMask = it->second;
                     } else {
                         // External function or function not found: conservatively assume all registers clobbered
-                        clobberMask = (1 << REG_A) | (1 << REG_X) | (1 << REG_Y) | (1 << REG_Z);
+                        regClobberMask = ALL_REGS;
+                    }
+
+                    // Look up flag clobber mask for the same function
+                    auto fit = functionFlagClobberMasks_.find(inst.src1.name);
+                    if (fit != functionFlagClobberMasks_.end()) {
+                        flagClobberMask = fit->second;
+                    } else {
+                        // External function or not found: conservatively assume all flags clobbered
+                        flagClobberMask = ALL_FLAGS;
                     }
                 } else {
-                    // Indirect call: conservatively assume all registers clobbered
-                    clobberMask = (1 << REG_A) | (1 << REG_X) | (1 << REG_Y) | (1 << REG_Z);
+                    // Indirect call: conservatively assume all registers and flags clobbered
+                    regClobberMask = ALL_REGS;
+                    flagClobberMask = ALL_FLAGS;
                 }
-                // Selectively invalidate only the clobbered registers
-                ms_.invalidateSelective(clobberMask);
+
+                // Selectively invalidate only the clobbered registers and flags
+                ms_.invalidateSelectiveWithFlags(regClobberMask, flagClobberMask);
             }
 
             // Return value is in A,X,Y,Z (for 32-bit) or A:X (for 16-bit)
