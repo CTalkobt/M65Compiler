@@ -1,6 +1,7 @@
 #pragma once
 #include "AST.hpp"
 #include "TypeInfo.hpp"
+#include "AddressTemplateDetector.hpp"
 #include <memory>
 #include <map>
 #include <set>
@@ -106,6 +107,17 @@ public:
     }
 
     void visit(BinaryOperation& node) override {
+        // Phase 89: Check for address template patterns BEFORE constant folding
+        // This preserves patterns that would otherwise be optimized away
+        static AddressTemplateDetector detector;
+        auto pattern = detector.detectPattern(node);
+
+        if (pattern.canOptimize) {
+            // Pattern found - preserve original expression without folding
+            lastExpr = copyPos(std::make_unique<BinaryOperation>(node.op, std::move(node.left), std::move(node.right)), node);
+            return;
+        }
+
         auto left = fold(std::move(node.left));
         auto right = fold(std::move(node.right));
 
