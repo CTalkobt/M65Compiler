@@ -6381,12 +6381,27 @@ bool CodeGenerator::tryEmitAddressTemplate(BinaryOperation& node) {
 }
 
 void CodeGenerator::emitStripedArrayAccess(ArrayAccess& node, VarInfo& varInfo, VariableReference* baseRef) {
-    // Phase 92.3-93: Striped array optimization for 2D+ integer arrays
+    // Phase 92.3-93-94: Striped array optimization for 2D+ primitive and struct arrays
     // Reorganizes memory to enable 8-bit indexing instead of 16-bit offset calculations
     // Phase 93 extends to 3D and higher: last 2 dims striped, earlier dims sequence matrices
+    // Phase 94 extends to struct types with variable element sizes
 
-    if (varInfo.arrayDims.size() < 2 || varInfo.type != "int") {
-        return;  // Not a 2D+ int array, use standard indexing
+    if (varInfo.arrayDims.size() < 2) {
+        return;  // Not a 2D+ array, use standard indexing
+    }
+
+    // Phase 94: Determine element size
+    // For int: 4 bytes. For structs: sizeof(struct)
+    int elementSize = 0;
+    if (varInfo.type == "int") {
+        elementSize = 4;
+    } else {
+        // Check if it's a struct type
+        if (structs.count(varInfo.type)) {
+            elementSize = structs[varInfo.type]->totalSize;
+        } else {
+            return;  // Not a supported striped array type
+        }
     }
 
     int height = varInfo.arrayDims[varInfo.arrayDims.size() - 2];  // second-to-last
@@ -6462,9 +6477,9 @@ void CodeGenerator::emitStripedArrayAccess(ArrayAccess& node, VarInfo& varInfo, 
     int zpDepthOffset = -1;
     std::string zpDepthOffsetStr;
     if (numDims > 2) {
-        // Calculate: product of all outer dimensions * matrix_2d_size
-        // matrix_2d_size = height * width * 4 (int = 4 bytes)
-        int matrix2DSize = height * width * 4;
+        // Phase 94: Calculate depth offset with variable elementSize
+        // matrix_2d_size = height * width * elementSize
+        int matrix2DSize = height * width * elementSize;
 
         // Emit depth offset calculation
         // Start with first outer dimension index
@@ -6509,41 +6524,107 @@ void CodeGenerator::emitStripedArrayAccess(ArrayAccess& node, VarInfo& varInfo, 
         emit("stax $" + zpDepthOffsetStr);
     }
 
-    // Phase 93.2: Calculate 2D striped offset (same as Phase 92)
-    // offset = (col >> log2Stripe) * height + row + (col & (stripeWidth-1)) * 4
+    // Phase 93.2-94: Calculate 2D striped offset
+    // Phase 94: Use variable elementSize instead of hardcoded 4
+    // offset = (col >> log2Stripe) * height * elementSize + row * elementSize + (col & mask) * stride_factor
+
     emit("lda " + zpCol);
     for (int i = 0; i < log2Stripe; i++) {
         emit("lsr");
     }
 
-    // Multiply stripe select by height
+    // Multiply stripe select by height * elementSize
     if (height <= 16 && (height & (height - 1)) == 0) {
-        // Power of 2: use shifts
+        // Power of 2 height: multiply by height via shifts
         int log2Height = 0;
         for (int i = height; i > 1; i >>= 1) log2Height++;
         for (int i = 0; i < log2Height; i++) {
             emit("asl");
         }
     } else {
-        // General case
+        // General case: multiply by height
         emit("tax");
         emit("lda #$" + std::to_string(height));
         emit("mul.16 .ax, .tx");
     }
 
-    // Add row
-    emit("clc");
-    emit("adc " + zpRow);
+    // Phase 94: Now multiply result by elementSize
+    if (elementSize == 4) {
+        // For int (elementSize=4), use shifts: asl, asl
+        emit("asl");
+        emit("asl");
+    } else if (elementSize > 0 && (elementSize & (elementSize - 1)) == 0) {
+        // Power of 2: use shifts
+        int shifts = 0;
+        int temp = elementSize;
+        while (temp > 1) {
+            temp >>= 1;
+            shifts++;
+        }
+        for (int i = 0; i < shifts; i++) {
+            emit("asl");
+        }
+    } else {
+        // Non-power-of-2: use multiply
+        emit("tax");
+        emit("ldy #$" + std::to_string(elementSize & 0xFF));
+        emit("mul.8x");
+    }
 
-    // Add column remainder offset: (col & (stripeWidth-1)) * 4
+    // Add row * elementSize
+    emit("tax");
+    emit("lda " + zpRow);
+    if (elementSize == 4) {
+        emit("asl");
+        emit("asl");
+    } else if (elementSize > 0 && (elementSize & (elementSize - 1)) == 0) {
+        // Power of 2: use shifts
+        int shifts = 0;
+        int temp = elementSize;
+        while (temp > 1) {
+            temp >>= 1;
+            shifts++;
+        }
+        for (int i = 0; i < shifts; i++) {
+            emit("asl");
+        }
+    } else {
+        // Non-power-of-2: use multiply
+        emit("ldy #$" + std::to_string(elementSize & 0xFF));
+        emit("mul.8y");
+    }
+    emit("clc");
+    emit("adc.16 .tx");
+
+    // Add column remainder offset: (col & (stripeWidth-1)) * stride_factor
+    // stride_factor = (height * elementSize) / stripeWidth
     emit("tax");
     emit("lda " + zpCol);
     int mask = stripeWidth - 1;
     std::stringstream ss_mask;
     ss_mask << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (mask & 0xFF);
     emit("and " + ss_mask.str());
-    emit("asl");
-    emit("asl");  // Multiply by 4 for int size
+
+    int stride_factor = (height * elementSize) / stripeWidth;
+    if (stride_factor == 4) {
+        emit("asl");
+        emit("asl");
+    } else if (stride_factor > 0 && (stride_factor & (stride_factor - 1)) == 0) {
+        // Power of 2: use shifts
+        int shifts = 0;
+        int temp = stride_factor;
+        while (temp > 1) {
+            temp >>= 1;
+            shifts++;
+        }
+        for (int i = 0; i < shifts; i++) {
+            emit("asl");
+        }
+    } else {
+        // Non-power-of-2: use multiply
+        emit("ldy #$" + std::to_string(stride_factor & 0xFF));
+        emit("mul.8y");
+    }
     emit("clc");
     emit("adc.16 .tx");
 
