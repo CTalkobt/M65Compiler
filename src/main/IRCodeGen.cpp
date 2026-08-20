@@ -638,10 +638,14 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     setFunctionMap(&funcMap);
 
     // Phase 2: Pre-compute clobber masks for all functions (fine-grained register and flag invalidation)
+    // First pass: compute base clobbers for all functions
+    std::map<std::string, FuncClobbers> baseClobbers;
     functionClobberMasks_.clear();
     functionFlagClobberMasks_.clear();
+    functionClobberInfo_.clear();
     for (const auto& fn : mod.functions) {
         FuncClobbers clobbers = computeFuncClobbers(fn);
+        baseClobbers[fn.name] = clobbers;
 
         // Register clobber mask (bit 0=A, 1=X, 2=Y, 3=Z)
         int regMask = 0;
@@ -653,6 +657,30 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
 
         // Flag clobber mask (bit 0=C, 1=N, 2=Z, 3=V) — pass through unchanged
         functionFlagClobberMasks_[fn.name] = clobbers.flags;
+        functionClobberInfo_[fn.name] = clobbers;
+    }
+
+    // Second pass: for non-leaf functions, union in the clobbers of all called functions
+    for (const auto& fn : mod.functions) {
+        if (!fn.originalIsLeaf && !fn.originalCallees.empty()) {
+            FuncClobbers& myFC = baseClobbers[fn.name];
+            // Union in clobbers from all called functions
+            for (const auto& calleeName : fn.originalCallees) {
+                if (baseClobbers.count(calleeName) > 0) {
+                    myFC.regs |= baseClobbers[calleeName].regs;
+                    myFC.flags |= baseClobbers[calleeName].flags;
+                }
+            }
+            // Update the masks and clobber info with the unioned clobber info
+            int regMask = 0;
+            if (myFC.regs & (1 << 0)) regMask |= (1 << REG_A);
+            if (myFC.regs & (1 << 1)) regMask |= (1 << REG_X);
+            if (myFC.regs & (1 << 2)) regMask |= (1 << REG_Y);
+            if (myFC.regs & (1 << 3)) regMask |= (1 << REG_Z);
+            functionClobberMasks_[fn.name] = regMask;
+            functionFlagClobberMasks_[fn.name] = myFC.flags;
+            functionClobberInfo_[fn.name] = myFC;
+        }
     }
 
     // Phase 3: Pre-scan functions to identify which ones use SAC
@@ -1985,13 +2013,13 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     }
 
     // Function attribute directives with per-function clobber analysis
-    auto fc = computeFuncClobbers(fn);
-
-    // For non-leaf functions, conservatively report all registers as clobbered
-    // (until we have full interprocedural clobber analysis)
-    if (!fn.originalIsLeaf) {
-        fc.regs = 0x0F;   // A, X, Y, Z
-        fc.flags = 0x0F;  // C, N, Z, V
+    // Use pre-computed clobber info (which includes union of callee clobbers for non-leaf functions)
+    FuncClobbers fc;
+    if (functionClobberInfo_.count(fn.name) > 0) {
+        fc = functionClobberInfo_[fn.name];
+    } else {
+        // Fallback: compute on demand (shouldn't happen in normal flow)
+        fc = computeFuncClobbers(fn);
     }
 
     {

@@ -58,9 +58,10 @@ check "noop is leaf" "echo '$INFO' | grep -qE 'func_flags.*leaf'"
 check "noop has no reg_clobbers" "! echo '$INFO' | grep -q 'reg_clobbers'"
 
 # caller: NOT leaf (calls other functions)
+# Clobbers = union of called functions: set_value(A,X) | set_flag(A,X) | noop(none) = A, X
 INFO=$(extract_func_info "_caller")
 check "caller is not leaf" "! echo '$INFO' | grep -qE 'func_flags.*leaf'"
-check "caller clobbers all regs" "echo '$INFO' | grep -q 'reg_clobbers A, X, Y, Z'"
+check "caller clobbers union of callees" "echo '$INFO' | grep -q 'reg_clobbers A, X$'"
 
 # get_value: leaf, clobbers A, X
 INFO=$(extract_func_info "_get_value")

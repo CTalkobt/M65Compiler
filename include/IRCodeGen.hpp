@@ -391,6 +391,7 @@ private:
         bool isLeaf = true;
     };
     FuncClobbers computeFuncClobbers(const ir::Function& fn);
+    std::map<std::string, FuncClobbers> functionClobberInfo_;  // pre-computed clobber info including callee unions
 
     // Phase 2: Fine-grained register invalidation tracking
     // Maps function name → clobber mask for selective invalidation at call sites

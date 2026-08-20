@@ -20,7 +20,7 @@ void set_flag(char f) {
 void noop(void) {
 }
 
-// Non-leaf: calls set_value (clobbers A, X, Y, Z from call)
+// Non-leaf: calls set_value, set_flag, noop (clobbers union of callees: A, X)
 void caller(void) {
     set_value(42);
     set_flag(1);
