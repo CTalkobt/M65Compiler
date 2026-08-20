@@ -437,10 +437,9 @@ bool AssemblerOptimizer::optimizeInternal(
             // FCMP returns -1($FF)/0/1 in A. When N/Z flags already reflect A
             // (from a prior LDA), the CMP #$FF can be eliminated:
             // cmp #$FF; beq → bmi (N=1 means A=$FF)
+            // cmp #$FF; beq → bmi (N=1 means A=$FF)
             // cmp #$FF; bne → bpl (N=0 means A=$00 or $01)
-            // DISABLED: This optimization causes assembler errors when BMI/BPL are generated
-            // with absolute addressing, which they don't support (relative-only branches).
-            // TODO: Re-enable only when addressing modes can be guaranteed to be relative.
+            // ONLY when addressing mode is RELATIVE to avoid absolute addressing errors
             if (parser->optFlags.fcmpOpt && m == "CMP" && isImm && hasNumVal && numVal == 255 && ms.flags.flagsReflect(REG_A)) {
                 size_t j = i + 1;
                 while (j < parser->statements.size() && parser->statements[j]->deleted) ++j;
@@ -449,13 +448,16 @@ bool AssemblerOptimizer::optimizeInternal(
                     if (next->type == AssemblerParser::Statement::INSTRUCTION) {
                         std::string nm = next->instr.mnemonic;
                         std::transform(nm.begin(), nm.end(), nm.begin(), ::toupper);
-                        if (nm == "BEQ") {
+                        // Ensure addressing mode is RELATIVE (required for branch instructions)
+                        bool isRelative = (next->instr.mode == AddressingMode::RELATIVE ||
+                                          next->instr.mode == AddressingMode::RELATIVE16);
+                        if (isRelative && nm == "BEQ") {
                             report("fcmp-opt", s, "CMP #$FF + BEQ → BMI");
                             s->deleted = true; s->size = 0;
                             next->instr.mnemonic = "BMI";
                             changed = true; continue;
                         }
-                        if (nm == "BNE") {
+                        if (isRelative && nm == "BNE") {
                             report("fcmp-opt", s, "CMP #$FF + BNE → BPL");
                             s->deleted = true; s->size = 0;
                             next->instr.mnemonic = "BPL";
