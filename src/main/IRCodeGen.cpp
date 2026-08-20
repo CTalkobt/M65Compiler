@@ -1971,6 +1971,19 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         if (fc.isLeaf) funcFlags += ", leaf";
         emit(".func_flags " + funcFlags);
     }
+    // Emit parameter sizes so assembler can track actual sizes instead of assuming 2 bytes
+    {
+        std::string paramSizes;
+        for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+            int ps = ir::typeSize(fn.paramTypes[i]);
+            if (ps < 2) ps = 2;
+            if (i > 0) paramSizes += ", ";
+            paramSizes += std::to_string(ps);
+        }
+        if (!paramSizes.empty()) {
+            emit(".param_sizes " + paramSizes);
+        }
+    }
     {
         std::string regs;
         if (fc.regs & 0x01) regs += "A, ";

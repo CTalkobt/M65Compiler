@@ -102,6 +102,7 @@ public:
         uint16_t frameSize = 0;        // activation record / frame size in bytes (Phase 2)
         bool hasFuncAttrs = false;     // true if any .zp_*/reg_*/flag_* directive was used
         std::map<int, int64_t> paramConstants;  // parameter index → constant value (.param_const directives)
+        std::vector<int> paramSizes;   // parameter index → size in bytes (.param_sizes directive)
     };
 
     // Function attribute metadata (for .o45 export)

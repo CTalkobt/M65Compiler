@@ -740,6 +740,32 @@ void AssemblerParser::pass1() {
                 }
                 stmt->size = 0;
             }
+            else if (stmt->dir.name == "param_sizes") {
+                // .param_sizes size1, size2, size3, ...
+                // Comma-separated list of parameter sizes in bytes
+                if (!currentProc) {
+                    errors.push_back("Error: .param_sizes outside proc/endproc block");
+                } else {
+                    currentProc->paramSizes.clear();
+                    while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
+                        std::string sizeStr = advance().value;
+                        try {
+                            int size = std::stoi(sizeStr);
+                            if (size < 1 || size > 255) {
+                                errors.push_back("Error: parameter size must be between 1 and 255");
+                            } else {
+                                currentProc->paramSizes.push_back(size);
+                            }
+                        } catch (...) {
+                            errors.push_back("Error: invalid parameter size value");
+                            break;
+                        }
+                        // Skip comma if present
+                        if (peek().value == ",") advance();
+                    }
+                }
+                stmt->size = 0;
+            }
             else if (stmt->dir.name == "frame_size") {
                 // .frame_size N  (Phase 2: frame/activation record size in bytes)
                 if (!currentProc) {

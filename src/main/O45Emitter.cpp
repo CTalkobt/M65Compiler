@@ -167,7 +167,8 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                     O45SACParam param;
                     param.symbolName = symName;
                     param.offset = sym.value;  // Will be relative to AR base after linking
-                    param.size = 2;  // TODO: track actual parameter size from AST
+                    param.size = (paramIndex < (int)proc->paramSizes.size())
+                        ? proc->paramSizes[paramIndex] : 2;  // Default to 2 if no size info
 
                     // Check if this parameter has a constant value from .param_const directive
                     if (proc->paramConstants.find(paramIndex) != proc->paramConstants.end()) {
