@@ -112,14 +112,54 @@ private:
     }
 
     static void fuseChain(ir::Block& block, const std::vector<size_t>& chainIndices) {
-        // This is a complex rewrite - for now, document the pattern for future work
-        // Actual fusion requires:
-        // 1. Identify the target variable
-        // 2. Insert a LOAD at chain start
-        // 3. Keep all binary ops in sequence (result stays in AX)
-        // 4. Store only at chain end
-        // 5. Mark intermediate STORE operations as unnecessary
+        if (chainIndices.size() < 4) return;  // Need at least 2 ops + 2 stores
 
-        // TODO: Full fusion implementation in Phase 87.2
+        // Step 1: Identify the target variable from the first store
+        size_t firstStoreIdx = chainIndices[1];
+        const std::string& targetVar = block.insts[firstStoreIdx].dest.name;
+
+        // Step 2: Insert a LOAD at the chain start (before first binary op)
+        size_t firstOpIdx = chainIndices[0];
+        ir::Inst loadInst;
+        loadInst.op = ir::Op::LOAD;
+        loadInst.dest = block.insts[firstOpIdx].dest;  // Use same vreg as first op
+        loadInst.src1.kind = ir::OperandKind::GLOBAL;
+        loadInst.src1.name = targetVar;
+        loadInst.src1.vregId = 0;
+        block.insts.insert(block.insts.begin() + firstOpIdx, loadInst);
+
+        // Adjust chainIndices to account for the inserted instruction
+        std::vector<size_t> adjustedChain;
+        for (size_t idx : chainIndices) {
+            adjustedChain.push_back(idx + 1);  // Shift by 1 due to inserted load
+        }
+
+        // Step 3-5: Process the chain - remove intermediate stores, keep binary ops
+        // Mark intermediate stores as deleted (set size to 0)
+        for (size_t i = 1; i < adjustedChain.size(); i += 2) {
+            // Every odd index is a STORE instruction to mark as unnecessary
+            size_t storeIdx = adjustedChain[i];
+            if (storeIdx < block.insts.size()) {
+                // Don't delete - instead, replace with NOP-like behavior
+                // Keep the STORE but it will be redundant since result stays in register
+                // Mark it as removed by setting size to 0
+                block.insts[storeIdx].op = ir::Op::NOP;
+            }
+        }
+
+        // Step 6: Only keep the final STORE (at the end of the chain)
+        // Modify the last instruction to be a real STORE to the target variable
+        if (!adjustedChain.empty()) {
+            size_t lastStoreIdx = adjustedChain.back();
+            if (lastStoreIdx < block.insts.size()) {
+                block.insts[lastStoreIdx].op = ir::Op::STORE;
+                block.insts[lastStoreIdx].dest.kind = ir::OperandKind::GLOBAL;
+                block.insts[lastStoreIdx].dest.name = targetVar;
+                // src1 should be the result vreg from the last binary op
+                if (lastStoreIdx > 0) {
+                    block.insts[lastStoreIdx].src1 = block.insts[lastStoreIdx - 1].dest;
+                }
+            }
+        }
     }
 };
