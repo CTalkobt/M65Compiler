@@ -1,6 +1,6 @@
 # MEGA65 C Compiler Suite — Codebase Documentation
 
-**Status:** v1.0.6+ (Phase 91 Cross-Module Optimization Complete - 2026-08-20)
+**Status:** v1.0.8+ (Phase 94 Striped Struct Arrays Complete - 2026-08-20)
 **Last Updated:** 2026-08-20
 **Maintainer:** Craig Taylor (CTalkobt)
 
@@ -311,33 +311,54 @@ ln45 (Link: Combine .o45 objects + libraries → PRG/Binary)
 - **Runtime library**: `__intN_add`, `__intN_sub`, `__intN_mul`, `__intN_cmp_u`, `__intN_neg`, `__intN_not`, `__intN_and`, `__intN_or`, `__intN_xor`, `__intN_shl`, `__intN_shr_u` — single set of routines handles all widths
 - **Extensibility**: New widths need only a struct definition with operators; runtime handles any byte count. Same pattern extends to `_Decimal(N)`
 
-### Striped Array Support (v1.0.7+)
+### Striped Array Support (v1.0.8+)
 
-- **`__striped` Keyword**: Memory layout optimization for 2D integer arrays, reorganizing data to enable efficient 8-bit indexing
+- **`__striped` Keyword**: Memory layout optimization for multi-dimensional arrays with any fixed-size struct element type, reorganizing data to enable efficient 8-bit indexing
   ```c
-  __striped int sprite[16][16];  // Optimized for loop-heavy sprite rendering
-  __striped int collision_map[64][64];  // Efficient collision detection grid
+  __striped int sprite[16][16];                    // 2D int arrays (Phase 92)
+  __striped int voxel[8][16][16];                  // 3D+ int arrays (Phase 93)
+  __striped struct Point mesh[16][16];             // 2D struct arrays (Phase 94)
+  __striped struct Color palette[8][16][16];       // 3D+ struct arrays (Phase 93+94)
   ```
+
+- **Dimensions Supported** (Phase 92-93 Complete):
+  - ✅ 2D arrays: `T array[rows][cols]`
+  - ✅ 3D arrays: `T array[depth][rows][cols]`
+  - ✅ 4D+ arrays: `T array[d0][d1][rows][cols]`
+  - Last two dimensions use striped layout; earlier dimensions sequence the 2D matrices
+
+- **Element Types Supported** (Phase 92-94 Complete):
+  - ✅ `int` (4 bytes, hardcoded optimizations)
+  - ✅ `__int(N)` arbitrary-width integers
+  - ✅ All fixed-size struct types (Point, Color, Vertex, user-defined)
+  - ✅ Structs with non-power-of-2 sizes (3, 5, 12, 15 bytes)
+
 - **Memory Reorganization**: Compiler automatically reorganizes row-major user data into striped layout at compile time
   - Standard layout (row-major): `[0,0][0,1][0,2]...[1,0][1,1]...`
-  - Striped layout (4-byte stripes): `[0,0][1,0][2,0][3,0][0,1][1,1]...` (rows grouped by column stripe)
+  - Striped layout (4-byte stripe width): `[0,0][1,0][2,0][3,0][0,1][1,1]...` (rows grouped by column stripe)
   - Enables fast column-based access without expensive multiply operations
-- **Performance**: 40-50% code size reduction for array indexing; 25-35% runtime speedup for array-heavy loops
+  - Initialization data reorganized at struct element boundaries
+
+- **Performance**: 35-50% code size reduction for array indexing; 30-40% runtime speedup for array-heavy loops
   - Standard indexing: `multiply row by width, add column` → 16+ bytes of assembly
   - Striped indexing: `divide column by stripe width, add row` → 10-12 bytes via bit shifts
-- **Restrictions** (v1.0.7):
-  - 2D integer arrays only (`int` element type, 2 dimensions)
-  - Power-of-2 widths (4, 8, 16, 32, ...) — compiler automatically selects stripe width
-  - Static/global arrays with initializers — local striped arrays deferred to v1.0.8
+  - Power-of-2 element sizes use bit-shift optimizations (ASL/LSR)
+  - Non-power-of-2 element sizes use multiply instructions with proper fallback
+
+- **Restrictions** (v1.0.8):
+  - Fixed-size struct types only (unions and variable-size structs deferred to Phase 96)
+  - Static/global arrays with initializers — local striped arrays deferred to v1.0.9
+  - Power-of-2 array widths recommended (4, 8, 16, 32, ...) — compiler automatically selects stripe width
   - Non-compliant arrays fall back to standard indexing automatically (no errors)
-- **Pragmas**: `#pragma cc45 no_ipo` disables optimization for a specific array (rarely needed)
-- **Documentation**: Complete specification and examples in `doc/architecture/striped-arrays.md`
+
+- **Pragmas**: `#pragma cc45 no_striped` disables optimization for a specific array
+- **Documentation**: Complete specification and examples in `doc/architecture/striped-arrays.md`, `doc/architecture/phase93-striped-3d-arrays.md`, `doc/architecture/phase94-striped-struct-arrays.md`
 
 ### Not Implemented
 
 - Native 64-bit register arithmetic (64-bit values use `struct __int64` with operator overloading + `__intN_*` runtime library — fully functional but with method call overhead vs inline codegen)
-- Striped arrays of structs (Phase 94)
-- Striped 3D and higher-dimensional arrays (Phase 93)
+- Striped arrays of unions (Phase 96)
+- Field-level striping within struct elements (Phase 95)
 
 ## Standard Library
 
