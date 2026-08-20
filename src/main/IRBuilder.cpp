@@ -62,6 +62,15 @@ void IRBuilder::generate(TranslationUnit& unit) {
                 }
             }
 
+            // DEBUG: Verify DCE inputs for small test cases
+            if (module_.functions.size() <= 3) {
+                std::cerr << "\n[DCE] Functions: ";
+                for (const auto& fn : module_.functions) std::cerr << fn.name << " ";
+                std::cerr << "| used: ";
+                for (const auto& f : usedFuncs) std::cerr << f << " ";
+                std::cerr << "\n" << std::flush;
+            }
+
             // Remove unused functions (static, inlined, or unreachable)
             auto it = std::remove_if(module_.functions.begin(), module_.functions.end(),
                 [&usedFuncs](const ir::Function& fn) {
