@@ -49,7 +49,7 @@ cat > "$BUILD/objdump_test.s45" << 'EOF'
 .global _count
 .weak _default_handler
 
-.s45egment "code"
+.segment "code"
 * = $2000
 
 _main:
@@ -64,7 +64,7 @@ _done:
 _default_handler:
     rti
 
-.s45egment "data"
+.segment "data"
 _count: .byte $05
 EOF
 
@@ -244,7 +244,7 @@ if [ -f lib/build/puts.o45 ]; then
     OUT=$($OD -d lib/build/puts.o45 2>&1)
     assert_exit "puts.o45 -d exits 0" $? 0
     assert_contains "puts.o45 has _puts label" "$OUT" "<_puts>"
-    assert_contains "puts.o45 has tsx (proc prologue)" "$OUT" "tsx"
+    assert_contains "puts.o45 has pha (stack save)" "$OUT" "pha"
     assert_contains "puts.o45 has rts" "$OUT" "rts"
 fi
 
@@ -256,7 +256,7 @@ echo "--- Test: disassembly instruction accuracy ---"
 
 cat > "$BUILD/objdump_accuracy.s45" << 'EOF'
 .global _test
-.s45egment "code"
+.segment "code"
 * = $1000
 
 _test:
