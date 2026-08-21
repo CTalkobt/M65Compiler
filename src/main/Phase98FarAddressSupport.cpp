@@ -20,7 +20,7 @@ std::string BankSetupNode::generateAssembly() const {
 
 // FarLoadNode: Generate far memory load sequence
 std::vector<std::string> FarLoadNode::generateAssembly() const {
-    std::vector<std::string> asm;
+    std::vector<std::string> asmLines;
     std::ostringstream oss;
 
     // Generate far load sequence:
@@ -34,34 +34,34 @@ std::vector<std::string> FarLoadNode::generateAssembly() const {
 
     // Bank setup
     oss << "    lda #$" << std::setw(2) << bank;
-    asm.push_back(oss.str()); oss.str(""); oss.clear();
+    asmLines.push_back(oss.str()); oss.str(""); oss.clear();
 
-    asm.push_back("    sta $FFF8  ; Set MAP register");
+    asmLines.push_back("    sta $FFF8  ; Set MAP register");
 
     // Load from bank-relative address
     // Use indirect addressing: lda ($addr),y where addr contains offset
     oss << "    lda #$" << std::setw(2) << (offset & 0xFF);
-    asm.push_back(oss.str()); asm.push_back("    sta $20    ; Store low byte of offset");
+    asmLines.push_back(oss.str()); asmLines.push_back("    sta $20    ; Store low byte of offset");
     oss.str(""); oss.clear();
 
     oss << "    lda #$" << std::setw(2) << ((offset >> 8) & 0xFF);
-    asm.push_back(oss.str()); asm.push_back("    sta $21    ; Store high byte of offset");
+    asmLines.push_back(oss.str()); asmLines.push_back("    sta $21    ; Store high byte of offset");
     oss.str(""); oss.clear();
 
-    asm.push_back("    ldy #0");
-    asm.push_back("    lda ($20),y  ; Load from far memory");
+    asmLines.push_back("    ldy #0");
+    asmLines.push_back("    lda ($20),y  ; Load from far memory");
 
     if (targetRegister != "A") {
         oss << "    ld" << std::tolower(targetRegister[0]) << " #0 ; Move to target register (placeholder)";
-        asm.push_back(oss.str());
+        asmLines.push_back(oss.str());
     }
 
-    return asm;
+    return asmLines;
 }
 
 // FarStoreNode: Generate far memory store sequence
 std::vector<std::string> FarStoreNode::generateAssembly() const {
-    std::vector<std::string> asm;
+    std::vector<std::string> asmLines;
     std::ostringstream oss;
 
     unsigned bank = pointer.bankId;
@@ -71,31 +71,31 @@ std::vector<std::string> FarStoreNode::generateAssembly() const {
 
     // Bank setup
     oss << "    lda #$" << std::setw(2) << bank;
-    asm.push_back(oss.str()); oss.str(""); oss.clear();
+    asmLines.push_back(oss.str()); oss.str(""); oss.clear();
 
-    asm.push_back("    sta $FFF8  ; Set MAP register");
+    asmLines.push_back("    sta $FFF8  ; Set MAP register");
 
     // Setup offset in ZP
     oss << "    lda #$" << std::setw(2) << (offset & 0xFF);
-    asm.push_back(oss.str()); asm.push_back("    sta $20");
+    asmLines.push_back(oss.str()); asmLines.push_back("    sta $20");
     oss.str(""); oss.clear();
 
     oss << "    lda #$" << std::setw(2) << ((offset >> 8) & 0xFF);
-    asm.push_back(oss.str()); asm.push_back("    sta $21");
+    asmLines.push_back(oss.str()); asmLines.push_back("    sta $21");
     oss.str(""); oss.clear();
 
     // Load value from source register
     if (sourceRegister != "A") {
         oss << "    ld" << std::tolower(sourceRegister[0]);
-        asm.push_back(oss.str());
+        asmLines.push_back(oss.str());
         oss.str(""); oss.clear();
     }
 
     // Store to far memory
-    asm.push_back("    ldy #0");
-    asm.push_back("    sta ($20),y  ; Store to far memory");
+    asmLines.push_back("    ldy #0");
+    asmLines.push_back("    sta ($20),y  ; Store to far memory");
 
-    return asm;
+    return asmLines;
 }
 
 // FarMemoryManager implementation

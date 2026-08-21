@@ -49,9 +49,9 @@ struct FarPointer {
 struct FarAccessSequence {
     FarAccessType type;
     FarPointer target;
-    std::string valueRegister;    // Register holding data (A, X, Y, Z)
-    std::vector<std::string> asm; // Generated assembly lines
-    int cycleCount;               // Estimated cycle count
+    std::string valueRegister;     // Register holding data (A, X, Y, Z)
+    std::vector<std::string> code; // Generated assembly lines
+    int cycleCount;                // Estimated cycle count
 };
 
 // IR node for bank setup
@@ -124,8 +124,8 @@ private:
     // Map: bank ID → allocated space
     std::map<unsigned, size_t> bankAllocations;
 
-    // Currently cached bank in MAP register (-1 = none)
-    int cachedBank = -1;
+    // Currently cached bank in MAP register (255 = none/invalid)
+    unsigned cachedBank = 255;
 
     // Total banks available (MEGA65 has 256 banks)
     static constexpr unsigned TOTAL_BANKS = 256;
