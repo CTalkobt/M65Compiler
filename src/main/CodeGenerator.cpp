@@ -1991,9 +1991,9 @@ void CodeGenerator::visit(VariableDeclaration& node) {
                     if (finfo.pointerLevel > 0) fsize = 2;
                     else if (finfo.type == "int") fsize = 2;
                     else if (is8BitType(finfo.type)) fsize = 1;
-                    else if (is16BitType(finfo.type)) fsize = 2;
+                    else if (is32BitType(finfo.type)) fsize = 2;
                     else if (is32BitType(finfo.type)) fsize = 4;
-                    else if (is64BitType(finfo.type)) fsize = 8;
+                    else if (is32BitType(finfo.type)) fsize = 8;
                     else if (isStruct(finfo.type)) {
                         std::string nestedName = getAggregateName(finfo.type);
                         if (structs.count(nestedName)) fsize = structs[nestedName]->totalSize;
@@ -2035,9 +2035,9 @@ void CodeGenerator::visit(VariableDeclaration& node) {
                     if (finfo.pointerLevel > 0) fsize = 2;
                     else if (finfo.type == "int") fsize = 2;
                     else if (is8BitType(finfo.type)) fsize = 1;
-                    else if (is16BitType(finfo.type)) fsize = 2;
+                    else if (is32BitType(finfo.type)) fsize = 2;
                     else if (is32BitType(finfo.type)) fsize = 4;
-                    else if (is64BitType(finfo.type)) fsize = 8;
+                    else if (is32BitType(finfo.type)) fsize = 8;
                     else if (isStruct(finfo.type)) {
                         std::string nestedName = getAggregateName(finfo.type);
                         if (structs.count(nestedName)) fsize = structs[nestedName]->totalSize;
@@ -2122,9 +2122,9 @@ void CodeGenerator::visit(VariableDeclaration& node) {
                     if (finfo.pointerLevel > 0) fsize = 2;
                     else if (finfo.type == "int") fsize = 2;
                     else if (is8BitType(finfo.type)) fsize = 1;
-                    else if (is16BitType(finfo.type)) fsize = 2;
+                    else if (is32BitType(finfo.type)) fsize = 2;
                     else if (is32BitType(finfo.type)) fsize = 4;
-                    else if (is64BitType(finfo.type)) fsize = 8;
+                    else if (is32BitType(finfo.type)) fsize = 8;
                     else if (isStruct(finfo.type)) {
                         std::string nestedName = getAggregateName(finfo.type);
                         if (structs.count(nestedName)) fsize = structs[nestedName]->totalSize;
@@ -2160,9 +2160,9 @@ void CodeGenerator::visit(VariableDeclaration& node) {
                     if (finfo.pointerLevel > 0) fsize = 2;
                     else if (finfo.type == "int") fsize = 2;
                     else if (is8BitType(finfo.type)) fsize = 1;
-                    else if (is16BitType(finfo.type)) fsize = 2;
+                    else if (is32BitType(finfo.type)) fsize = 2;
                     else if (is32BitType(finfo.type)) fsize = 4;
-                    else if (is64BitType(finfo.type)) fsize = 8;
+                    else if (is32BitType(finfo.type)) fsize = 8;
                     else if (isStruct(finfo.type)) {
                         std::string nestedName = getAggregateName(finfo.type);
                         if (structs.count(nestedName)) fsize = structs[nestedName]->totalSize;
@@ -2256,9 +2256,9 @@ void CodeGenerator::visit(VariableDeclaration& node) {
                     if (finfo.pointerLevel > 0) fsize = 2;
                     else if (finfo.type == "int") fsize = 2;
                     else if (is8BitType(finfo.type)) fsize = 1;
-                    else if (is16BitType(finfo.type)) fsize = 2;
+                    else if (is32BitType(finfo.type)) fsize = 2;
                     else if (is32BitType(finfo.type)) fsize = 4;
-                    else if (is64BitType(finfo.type)) fsize = 8;
+                    else if (is32BitType(finfo.type)) fsize = 8;
                     else if (isStruct(finfo.type)) {
                         std::string nestedName = getAggregateName(finfo.type);
                         if (structs.count(nestedName)) fsize = structs[nestedName]->totalSize;
@@ -2299,9 +2299,9 @@ void CodeGenerator::visit(VariableDeclaration& node) {
                 if (finfo.pointerLevel > 0) fsize = 2;
                 else if (finfo.type == "int") fsize = 2;
                 else if (is8BitType(finfo.type)) fsize = 1;
-                else if (is16BitType(finfo.type)) fsize = 2;
+                else if (is32BitType(finfo.type)) fsize = 2;
                 else if (is32BitType(finfo.type)) fsize = 4;
-                else if (is64BitType(finfo.type)) fsize = 8;
+                else if (is32BitType(finfo.type)) fsize = 8;
                 else if (isStruct(finfo.type)) {
                     std::string nestedName = getAggregateName(finfo.type);
                     if (structs.count(nestedName)) fsize = structs[nestedName]->totalSize;
@@ -2337,9 +2337,9 @@ void CodeGenerator::visit(VariableDeclaration& node) {
                 if (finfo.pointerLevel > 0) fsize = 2;
                 else if (finfo.type == "int") fsize = 2;
                 else if (is8BitType(finfo.type)) fsize = 1;
-                else if (is16BitType(finfo.type)) fsize = 2;
+                else if (is32BitType(finfo.type)) fsize = 2;
                 else if (is32BitType(finfo.type)) fsize = 4;
-                else if (is64BitType(finfo.type)) fsize = 8;
+                else if (is32BitType(finfo.type)) fsize = 8;
                 else if (isStruct(finfo.type)) {
                     std::string nestedName = getAggregateName(finfo.type);
                     if (structs.count(nestedName)) fsize = structs[nestedName]->totalSize;
@@ -7734,7 +7734,7 @@ bool CodeGenerator::tryEmitUnionStripedArrayMemberAccess(
         // 3D+: calculate using outer dimensions product
         // Simplified: just use last 2 dimensions (row, col)
         resultNeeded = true;
-        emitter->ldax("$" + zpIndices[numDims - 2]);
+        emit("ldax $" + zpIndices[numDims - 2]);
         for (int w = width; w > 1; w >>= 1) {
             emit("asl");
             emit("rol");
@@ -7973,7 +7973,7 @@ bool CodeGenerator::tryEmitVariableSizeFieldAccess(
         return false;
     }
 
-    FieldClass fclass = varInfo.fieldClasses[fieldIdx];
+    FieldClass fclass = (FieldClass)varInfo.fieldClasses[fieldIdx];
 
     // Fixed-size field: use existing field-striping
     if (fclass == FieldClass::FIXED_SCALAR || fclass == FieldClass::FIXED_ARRAY) {
