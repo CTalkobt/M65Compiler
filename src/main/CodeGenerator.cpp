@@ -1976,6 +1976,46 @@ void CodeGenerator::visit(VariableDeclaration& node) {
         std::string gName = "_" + node.name;
         globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims, node.isFunctionPointer, node.funcPtrSig};
         globalVariableTypes[gName].isStriped = node.isStriped;  // Phase 92: Propagate striped flag
+
+        // Phase 95: Field-level striping — extract field metadata if struct array is striped
+        if (node.isStriped && isStruct(node.type) && node.arrayDims.size() >= 2) {
+            std::string sName = getAggregateName(node.type);
+            if (structs.count(sName)) {
+                auto& sInfo = *structs[sName];
+                globalVariableTypes[gName].isFieldStriped = true;
+
+                // Extract field names and sizes in order of their offsets
+                std::vector<std::pair<std::string, int>> fieldInfo;
+                for (auto& [fname, finfo] : sInfo.members) {
+                    int fsize = 0;
+                    if (finfo.pointerLevel > 0) fsize = 2;
+                    else if (finfo.type == "int") fsize = 2;
+                    else if (is8BitType(finfo.type)) fsize = 1;
+                    else if (is16BitType(finfo.type)) fsize = 2;
+                    else if (is32BitType(finfo.type)) fsize = 4;
+                    else if (is64BitType(finfo.type)) fsize = 8;
+                    else if (isStruct(finfo.type)) {
+                        std::string nestedName = getAggregateName(finfo.type);
+                        if (structs.count(nestedName)) fsize = structs[nestedName]->totalSize;
+                    }
+                    if (fsize > 0) fieldInfo.push_back({fname, fsize});
+                }
+
+                // Sort by struct member offset
+                std::sort(fieldInfo.begin(), fieldInfo.end(),
+                         [&sInfo](const auto& a, const auto& b) {
+                             return sInfo.members[a.first].offset < sInfo.members[b.first].offset;
+                         });
+
+                // Populate VarInfo with field metadata
+                for (auto& [fname, fsize] : fieldInfo) {
+                    globalVariableTypes[gName].fieldNames.push_back(fname);
+                    globalVariableTypes[gName].fieldSizes.push_back(fsize);
+                    globalVariableTypes[gName].fieldOffsets.push_back(sInfo.members[fname].offset);
+                }
+            }
+        }
+
         if (node.isExtern) {
             // extern declaration — type is known but no storage emitted
             return;
@@ -1993,6 +2033,43 @@ void CodeGenerator::visit(VariableDeclaration& node) {
         std::string sName = "__sl_" + currentFunction->name + "_" + node.name;
         globalVariableTypes[sName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims};
         globalVariableTypes[sName].isStriped = node.isStriped;  // Phase 92: Propagate striped flag
+
+        // Phase 95: Field-level striping for static local arrays
+        if (node.isStriped && isStruct(node.type) && node.arrayDims.size() >= 2) {
+            std::string structName = getAggregateName(node.type);
+            if (structs.count(structName)) {
+                auto& sInfo = *structs[structName];
+                globalVariableTypes[sName].isFieldStriped = true;
+
+                // Extract field names and sizes
+                std::vector<std::pair<std::string, int>> fieldInfo;
+                for (auto& [fname, finfo] : sInfo.members) {
+                    int fsize = 0;
+                    if (finfo.pointerLevel > 0) fsize = 2;
+                    else if (finfo.type == "int") fsize = 2;
+                    else if (is8BitType(finfo.type)) fsize = 1;
+                    else if (is16BitType(finfo.type)) fsize = 2;
+                    else if (is32BitType(finfo.type)) fsize = 4;
+                    else if (is64BitType(finfo.type)) fsize = 8;
+                    else if (isStruct(finfo.type)) {
+                        std::string nestedName = getAggregateName(finfo.type);
+                        if (structs.count(nestedName)) fsize = structs[nestedName]->totalSize;
+                    }
+                    if (fsize > 0) fieldInfo.push_back({fname, fsize});
+                }
+
+                std::sort(fieldInfo.begin(), fieldInfo.end(),
+                         [&sInfo](const auto& a, const auto& b) {
+                             return sInfo.members[a.first].offset < sInfo.members[b.first].offset;
+                         });
+
+                for (auto& [fname, fsize] : fieldInfo) {
+                    globalVariableTypes[sName].fieldNames.push_back(fname);
+                    globalVariableTypes[sName].fieldSizes.push_back(fsize);
+                    globalVariableTypes[sName].fieldOffsets.push_back(sInfo.members[fname].offset);
+                }
+            }
+        }
         // Create a synthetic global VariableDeclaration for emitData
         auto* synth = new VariableDeclaration(node.type, currentFunction->name + "__" + node.name, node.pointerLevel);
         synth->isSigned = node.isSigned;
@@ -2024,12 +2101,85 @@ void CodeGenerator::visit(VariableDeclaration& node) {
         std::string gName = "_" + synth->name;
         globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims};
         globalVariableTypes[gName].isStriped = node.isStriped;  // Phase 92: Propagate striped flag
+
+        // Phase 95: Field-level striping for synthetic global (static local)
+        if (node.isStriped && isStruct(node.type) && node.arrayDims.size() >= 2) {
+            std::string structName = getAggregateName(node.type);
+            if (structs.count(structName)) {
+                auto& sInfo = *structs[structName];
+                globalVariableTypes[gName].isFieldStriped = true;
+
+                std::vector<std::pair<std::string, int>> fieldInfo;
+                for (auto& [fname, finfo] : sInfo.members) {
+                    int fsize = 0;
+                    if (finfo.pointerLevel > 0) fsize = 2;
+                    else if (finfo.type == "int") fsize = 2;
+                    else if (is8BitType(finfo.type)) fsize = 1;
+                    else if (is16BitType(finfo.type)) fsize = 2;
+                    else if (is32BitType(finfo.type)) fsize = 4;
+                    else if (is64BitType(finfo.type)) fsize = 8;
+                    else if (isStruct(finfo.type)) {
+                        std::string nestedName = getAggregateName(finfo.type);
+                        if (structs.count(nestedName)) fsize = structs[nestedName]->totalSize;
+                    }
+                    if (fsize > 0) fieldInfo.push_back({fname, fsize});
+                }
+
+                std::sort(fieldInfo.begin(), fieldInfo.end(),
+                         [&sInfo](const auto& a, const auto& b) {
+                             return sInfo.members[a.first].offset < sInfo.members[b.first].offset;
+                         });
+
+                for (auto& [fname, fsize] : fieldInfo) {
+                    globalVariableTypes[gName].fieldNames.push_back(fname);
+                    globalVariableTypes[gName].fieldSizes.push_back(fsize);
+                    globalVariableTypes[gName].fieldOffsets.push_back(sInfo.members[fname].offset);
+                }
+            }
+        }
+
         return;
     }
 
     std::string lName = "_l_" + node.name;
     variableTypes[lName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims, node.isFunctionPointer, node.funcPtrSig};
     variableTypes[lName].isStriped = node.isStriped;  // Phase 92: Propagate striped flag
+
+    // Phase 95: Field-level striping for local arrays
+    if (node.isStriped && isStruct(node.type) && node.arrayDims.size() >= 2) {
+        std::string structName = getAggregateName(node.type);
+        if (structs.count(structName)) {
+            auto& sInfo = *structs[structName];
+            variableTypes[lName].isFieldStriped = true;
+
+            std::vector<std::pair<std::string, int>> fieldInfo;
+            for (auto& [fname, finfo] : sInfo.members) {
+                int fsize = 0;
+                if (finfo.pointerLevel > 0) fsize = 2;
+                else if (finfo.type == "int") fsize = 2;
+                else if (is8BitType(finfo.type)) fsize = 1;
+                else if (is16BitType(finfo.type)) fsize = 2;
+                else if (is32BitType(finfo.type)) fsize = 4;
+                else if (is64BitType(finfo.type)) fsize = 8;
+                else if (isStruct(finfo.type)) {
+                    std::string nestedName = getAggregateName(finfo.type);
+                    if (structs.count(nestedName)) fsize = structs[nestedName]->totalSize;
+                }
+                if (fsize > 0) fieldInfo.push_back({fname, fsize});
+            }
+
+            std::sort(fieldInfo.begin(), fieldInfo.end(),
+                     [&sInfo](const auto& a, const auto& b) {
+                         return sInfo.members[a.first].offset < sInfo.members[b.first].offset;
+                     });
+
+            for (auto& [fname, fsize] : fieldInfo) {
+                variableTypes[lName].fieldNames.push_back(fname);
+                variableTypes[lName].fieldSizes.push_back(fsize);
+                variableTypes[lName].fieldOffsets.push_back(sInfo.members[fname].offset);
+            }
+        }
+    }
 
     // Register variable: allocate in zero page instead of stack
     if (node.isRegister && node.arraySize() < 0 && !isStruct(node.type)) {
