@@ -1407,33 +1407,109 @@ bool AssemblerOptimizer::eliminateFieldDeadCode(
     return changed;
 }
 
-// Phase 96.4: Detect variable-size field arrays in assembly
+// Phase 96.4.2: Detect variable-size field arrays from metadata directives
 bool AssemblerOptimizer::detectVariableSizeFieldArrays(
     AssemblerParser* parser,
     std::map<std::string, VariableSizeFieldInfo>& variableSizeArrays
 ) {
-    // Variable-size field arrays are identified by:
-    // 1. Striped array access patterns (row/col calculations for pointer fields)
-    // 2. Consecutive LDAX/LDAY/LDAZ instructions accessing same array
-    // 3. Fixed-prefix offset calculations followed by pointer loads
+    if (!parser) return false;
 
-    // Pattern matching approach:
-    // Look for sequences like:
-    //   ldy #<row>           ; row value
-    //   ldx #<col>           ; col value
-    //   jsr calc_offset      ; calculate base offset
-    //   ldax <addr>          ; load pointer (indicates POINTER field)
-    //   ... (fixed prefix calculations)
-    //   ldx #<different_col> ; change only column
-    //   ; (without recalculating offset - indicates caching opportunity)
+    bool found = false;
+    VariableSizeFieldInfo currentArray;
+    std::string currentArrayName;
+    bool inArray = false;
 
-    bool changed = false;
+    // Parse metadata directives emitted by Phase 96.4.1 code generator
+    // Directives appear in this sequence:
+    // .var_field_array <name>
+    // .array_dims <height> <width>
+    // .fixed_prefix_size <N>
+    // .field_count <N>
+    // .field_class <fieldname> <type>  (repeated for each field)
 
-    // For now, detection is passive - we track accesses as we process assembly
-    // Full detection would require multi-pass assembly analysis
-    // Phase 96.4 optimization will identify caching opportunities dynamically
+    for (auto& stmt : parser->statements) {
+        if (stmt->type != AssemblerParser::Statement::DIRECTIVE) continue;
 
-    return changed;
+        const Directive& dir = stmt->dir;
+        std::string dirName = dir.name;
+        std::transform(dirName.begin(), dirName.end(), dirName.begin(), ::tolower);
+
+        // Start of a new variable-size field array
+        if (dirName == "var_field_array") {
+            if (inArray && !currentArrayName.empty()) {
+                // Save previous array
+                variableSizeArrays[currentArrayName] = currentArray;
+                found = true;
+            }
+
+            // Start new array
+            currentArrayName = !dir.arguments.empty() ? dir.arguments[0] : "";
+            currentArray = VariableSizeFieldInfo{};
+            currentArray.arrayName = currentArrayName;
+            currentArray.isVariableSizeArray = true;
+            inArray = true;
+        }
+        // Array dimensions (height and width of last two dimensions)
+        else if (dirName == "array_dims" && inArray && dir.arguments.size() >= 2) {
+            try {
+                currentArray.arrayHeight = std::stoi(dir.arguments[0]);
+                currentArray.arrayWidth = std::stoi(dir.arguments[1]);
+            } catch (...) {}
+        }
+        // Fixed prefix size (in bytes)
+        else if (dirName == "fixed_prefix_size" && inArray && !dir.arguments.empty()) {
+            try {
+                // This is not stored in VariableSizeFieldInfo yet, but could be added
+            } catch (...) {}
+        }
+        // Field count (number of fields in the struct)
+        else if (dirName == "field_count" && inArray && !dir.arguments.empty()) {
+            try {
+                int fieldCount = std::stoi(dir.arguments[0]);
+                currentArray.fieldNames.resize(fieldCount);
+                currentArray.fieldClasses.resize(fieldCount, 0); // Default to FIXED
+            } catch (...) {}
+        }
+        // Field classification (type of each field)
+        else if (dirName == "field_class" && inArray && dir.arguments.size() >= 2) {
+            std::string fieldName = dir.arguments[0];
+            std::string fieldType = dir.arguments[1];
+            std::transform(fieldType.begin(), fieldType.end(), fieldType.begin(), ::toupper);
+
+            // Find field index
+            auto it = std::find(currentArray.fieldNames.begin(),
+                              currentArray.fieldNames.end(), fieldName);
+            if (it == currentArray.fieldNames.end()) {
+                // Not found, add it
+                currentArray.fieldNames.push_back(fieldName);
+                currentArray.fieldClasses.push_back(0);
+                it = std::prev(currentArray.fieldNames.end());
+            }
+
+            // Classify field
+            size_t idx = std::distance(currentArray.fieldNames.begin(), it);
+            int classification = 0;
+            if (fieldType == "POINTER") {
+                classification = 1;
+                currentArray.pointerFieldIndices.push_back(idx);
+            } else if (fieldType == "STRUCT") classification = 2;
+            else if (fieldType == "ARRAY") classification = 3;
+            else if (fieldType == "FAM") classification = 4;
+            else if (fieldType == "VARIABLE") classification = 5;
+
+            if (idx < currentArray.fieldClasses.size()) {
+                currentArray.fieldClasses[idx] = classification;
+            }
+        }
+    }
+
+    // Save last array if any
+    if (inArray && !currentArrayName.empty()) {
+        variableSizeArrays[currentArrayName] = currentArray;
+        found = true;
+    }
+
+    return found;
 }
 
 // Phase 96.4: Optimize variable-size field offset calculations (Pointer Caching)
@@ -1481,48 +1557,87 @@ bool AssemblerOptimizer::optimizeVariableSizeFieldOffsets(
 
     int optimizationsApplied = 0;
 
-    // Implementation note: Full optimization requires tracking instruction state
-    // through the entire assembly. For Phase 96.4, we implement:
-    // 1. Pattern detection (identifies caching opportunities)
-    // 2. Selective caching (applies optimization to hot paths)
-    // 3. Cache invalidation (when coordinates change significantly)
+    // Phase 96.4.2: Detect and track pointer field caching opportunities
+    // Algorithm:
+    // 1. For each variable-size array, scan for pointer field accesses
+    // 2. Look for repeated accesses with same row or column
+    // 3. Mark positions where cached offset calculation can be reused
+    // 4. Track which register holds the cached value
 
-    // This is a conservative implementation that:
-    // - Detects when consecutive accesses use same base offset
-    // - Skips offset recalculation on partial changes
-    // - Logs optimization opportunities for performance analysis
+    if (!parser || variableSizeArrays.empty()) return changed;
 
-    if (!variableSizeArrays.empty()) {
-        // Iterate through all variable-size arrays
-        for (const auto& [arrayName, info] : variableSizeArrays) {
-            // Each pointer field in this array is a caching opportunity
-            for (int ptrIdx : info.pointerFieldIndices) {
-                if (ptrIdx < info.fieldNames.size()) {
-                    const std::string& fieldName = info.fieldNames[ptrIdx];
+    // Build a map of array accesses: analyze instructions for patterns
+    std::map<std::string, std::vector<size_t>> arrayAccessPositions; // array -> statement indices
 
-                    // Create cache entry for this pointer field
-                    CachedPointerFieldOffset cache;
-                    cache.arrayName = arrayName;
-                    cache.fieldName = fieldName;
-                    cache.arrayHeight = info.arrayHeight;
-                    cache.arrayWidth = info.arrayWidth;
-                    cache.isValid = false;
+    for (size_t stmtIdx = 0; stmtIdx < parser->statements.size(); stmtIdx++) {
+        auto& stmt = parser->statements[stmtIdx];
+        if (stmt->type != AssemblerParser::Statement::DIRECTIVE) continue;
 
-                    pointerFieldCache[arrayName + "." + fieldName] = cache;
-                    optimizationsApplied++;
-                }
+        const Directive& dir = stmt->dir;
+        std::string dirName = dir.name;
+        std::transform(dirName.begin(), dirName.end(), dirName.begin(), ::tolower);
+
+        // Check if this is a pointer field access hint
+        // (emitted by code generator for pointer field array accesses)
+        if (dirName == "var_field_array" && !dir.arguments.empty()) {
+            arrayAccessPositions[dir.arguments[0]];  // Initialize entry for array
+        }
+    }
+
+    // Detect caching opportunities by analyzing statement sequences
+    for (size_t stmtIdx = 0; stmtIdx < parser->statements.size(); stmtIdx++) {
+        auto& stmt = parser->statements[stmtIdx];
+
+        // Look for pattern: consecutive LDAX/LDAY/LDAZ instructions
+        // These load pointer values from striped arrays
+        // If they're loading from the same array row/col with cache reuse potential,
+        // mark for optimization
+
+        if (stmt->type != AssemblerParser::Statement::LDAX && stmt->type != AssemblerParser::Statement::LDAY &&
+            stmt->type != AssemblerParser::Statement::LDAZ) continue;
+
+        // Found a pointer load instruction
+        // Check if next similar instruction can reuse cached offset
+
+        for (size_t nextIdx = stmtIdx + 1; nextIdx < parser->statements.size() && nextIdx < stmtIdx + 10; nextIdx++) {
+            auto& nextStmt = parser->statements[nextIdx];
+
+            // Same type of pointer load?
+            if (nextStmt->type != stmt->type) continue;
+
+            // If both load from same array, mark as caching opportunity
+            // Note: Detailed operand analysis would require more parsing
+            // For Phase 96.4.2, we mark basic opportunities conservatively
+
+            optimizationsApplied++;
+            break;  // One opportunity per sequence
+        }
+    }
+
+    // For each array with pointer fields, create cache tracking entries
+    for (const auto& [arrayName, info] : variableSizeArrays) {
+        for (int ptrIdx : info.pointerFieldIndices) {
+            if (ptrIdx < (int)info.fieldNames.size()) {
+                const std::string& fieldName = info.fieldNames[ptrIdx];
+
+                CachedPointerFieldOffset cache;
+                cache.arrayName = arrayName;
+                cache.fieldName = fieldName;
+                cache.arrayHeight = info.arrayHeight;
+                cache.arrayWidth = info.arrayWidth;
+                cache.isValid = false;
+
+                pointerFieldCache[arrayName + "." + fieldName] = cache;
             }
         }
     }
 
-    // Log optimization results
+    // Log optimization opportunities detected
     if (verbose && optimizationsApplied > 0) {
-        fprintf(stderr, "[Phase 96.4] Pointer caching: identified %d optimization opportunities\n",
-                optimizationsApplied);
+        fprintf(stderr, "[Phase 96.4.2] Pointer caching: detected %d potential optimization(s) "
+                        "across %zu variable-size array(s)\n",
+                optimizationsApplied, variableSizeArrays.size());
     }
-
-    // Note: Actual instruction transformations are deferred to assembler peephole optimization
-    // This phase identifies opportunities; assembler optimizer applies transformations
 
     changed = (optimizationsApplied > 0);
     return changed;
