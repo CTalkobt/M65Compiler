@@ -9,9 +9,16 @@ std::vector<MultiHintLoop> DependencyAnalyzer::analyzeLoopDependencies() {
 
     // Group hints by target loop
     std::map<std::string, std::vector<std::shared_ptr<OptimizationHint>>> loopMap;
-    auto allHints = coordinator_.getCoordinator().getHintsForLoop("");
 
     // This is a placeholder - in real implementation would iterate coordinator hints
+    // to group them by target loop. For now returns empty to allow compilation.
+    // Full implementation would:
+    // 1. Get all hints from coordinator
+    // 2. Filter hints that target loops
+    // 3. Group by loopLabel
+    // 4. Create MultiHintLoop entries for loops with multiple hints
+    // 5. Call buildLoopDependencyGraph on each loop
+
     return multiHintLoops;
 }
 
