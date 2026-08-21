@@ -396,6 +396,8 @@ public:
         decl->arrayDims = node.arrayDims;
         decl->isFunctionPointer = node.isFunctionPointer;
         decl->funcPtrSig = node.funcPtrSig;
+        decl->addressSpace = node.addressSpace;  // Phase 97: Preserve address space qualifier
+        decl->isStriped = node.isStriped;
         lastStmt = std::move(decl);
     }
 

@@ -1129,6 +1129,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
         if (node.arraySize() > 0) gv.size *= node.arraySize();
         gv.isConst = node.isConst;
         gv.isStatic = node.isStatic;
+        gv.addressSpace = node.addressSpace;  // Phase 97: Preserve address space qualifier
         if (node.initializer) {
             if (auto* flit = dynamic_cast<FloatLiteral*>(node.initializer.get())) {
                 gv.hasInitValue = true;
@@ -1202,6 +1203,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
         if (node.arraySize() > 0) gv.size *= node.arraySize();
         gv.isConst = node.isConst;
         gv.isStatic = true;
+        gv.addressSpace = node.addressSpace;  // Phase 97: Preserve address space qualifier
 
         // Handle initializer
         if (node.initializer) {

@@ -265,6 +265,7 @@ struct Module {
         std::vector<int64_t> initList;
         std::vector<std::string> initLabels; // symbolic labels for pointer array elements (e.g. string literals)
         std::vector<std::string> vtableMethodNames; // Phase 3: function names for vtable entries
+        int addressSpace = 0;   // Phase 97: 0=default(__abs), 1=__zp, 2=__far
     };
     std::vector<GlobalVar> globals;
 
