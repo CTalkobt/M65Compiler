@@ -34,8 +34,9 @@ static RunResult runCC45(const char* src) {
     fprintf(f, "%s", src);
     fclose(f);
 
-    // Run cc45 and capture output via popen
-    std::string cmd = "./bin/cc45 " + std::string(tempFile) + " -o src/test/build/test_validation_preprocessor_temp.o 2>&1";
+    // Run cc45 with -c to compile only (stop before linker)
+    // This allows tests to validate preprocessor without needing a main() function
+    std::string cmd = "./bin/cc45 -c " + std::string(tempFile) + " -o src/test/build/test_validation_preprocessor_temp.o45 2>&1";
     FILE* p = popen(cmd.c_str(), "r");
     if (!p) {
         fprintf(stderr, "Failed to run cc45\n");
