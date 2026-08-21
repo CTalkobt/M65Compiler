@@ -506,7 +506,8 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     if (isInterrupt) match(TokenType::INTERRUPT);
                     if (isNaked) match(TokenType::NAKED);
                     if (isRegparm) match(TokenType::REGPARM);
-                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || match(TokenType::STRIPED) || match(TokenType::ZP) || match(TokenType::ABS) || match(TokenType::FAR) || tryParseAttribute() || match(TokenType::EXTENSION));
+                    // NOTE: ZP/ABS/FAR are handled in parseTypeSpecifier, not here
+                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || match(TokenType::STRIPED) || tryParseAttribute() || match(TokenType::EXTENSION));
                     auto decl = parseVariableDeclaration(isVol, isConst, isStatic, false, isStriped);
                     if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                         vd->isGlobal = true;
