@@ -178,4 +178,12 @@ private:
         const std::map<std::string, VariableSizeFieldInfo>& variableSizeArrays,
         bool verbose
     );
+
+    // Phase 96.4.3: Apply instruction transformations for pointer field caching
+    static bool applyVariableSizeFieldOptimizations(
+        AssemblerParser* parser,
+        const std::map<std::string, VariableSizeFieldInfo>& variableSizeArrays,
+        const std::map<std::string, CachedPointerFieldOffset>& pointerFieldCache,
+        bool verbose
+    );
 };
