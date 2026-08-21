@@ -304,7 +304,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
         bool isStriped = false;  // Phase 92: Track __striped keyword
 
         while (look < tokens.size() && (tokens[look].type == TokenType::VOLATILE || tokens[look].type == TokenType::CONST || tokens[look].type == TokenType::RESTRICT || tokens[look].type == TokenType::AUTO || tokens[look].type == TokenType::REGISTER || tokens[look].type == TokenType::INLINE || tokens[look].type == TokenType::FASTCALL ||
-               tokens[look].type == TokenType::SIGNED || tokens[look].type == TokenType::UNSIGNED || tokens[look].type == TokenType::ATTRIBUTE || tokens[look].type == TokenType::EXTENSION || tokens[look].type == TokenType::STRIPED)) {
+               tokens[look].type == TokenType::SIGNED || tokens[look].type == TokenType::UNSIGNED || tokens[look].type == TokenType::ATTRIBUTE || tokens[look].type == TokenType::EXTENSION || tokens[look].type == TokenType::STRIPED || tokens[look].type == TokenType::ZP || tokens[look].type == TokenType::ABS || tokens[look].type == TokenType::FAR)) {
             if (tokens[look].type == TokenType::ATTRIBUTE) {
                 look++; // skip __attribute__
                 if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
@@ -405,6 +405,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             // Skip qualifiers that may appear after the type keyword (e.g., int volatile x)
             while (look < tokens.size() && (tokens[look].type == TokenType::VOLATILE || tokens[look].type == TokenType::CONST ||
                    tokens[look].type == TokenType::RESTRICT || tokens[look].type == TokenType::SIGNED || tokens[look].type == TokenType::UNSIGNED ||
+                   tokens[look].type == TokenType::ZP || tokens[look].type == TokenType::ABS || tokens[look].type == TokenType::FAR ||
                    tokens[look].type == TokenType::ATTRIBUTE || tokens[look].type == TokenType::EXTENSION)) {
                 if (tokens[look].type == TokenType::ATTRIBUTE) {
                     look++;
@@ -454,7 +455,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 if (isStatic) match(TokenType::STATIC);
                 if (isNR) match(TokenType::NORETURN);
                 if (isFC) match(TokenType::FASTCALL);
-                while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
+                while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || match(TokenType::ZP) || match(TokenType::ABS) || match(TokenType::FAR) || tryParseAttribute() || match(TokenType::EXTENSION));
                 auto decl = parseVariableDeclaration(isVol, isConst, isStatic);
                 if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                     vd->isGlobal = true;
@@ -484,7 +485,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     if (isInterrupt) match(TokenType::INTERRUPT);
                     if (isNaked) match(TokenType::NAKED);
                     if (isRegparm) match(TokenType::REGPARM);
-                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
+                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || match(TokenType::ZP) || match(TokenType::ABS) || match(TokenType::FAR) || tryParseAttribute() || match(TokenType::EXTENSION));
                     auto decl = parseFunctionDeclaration();
                     decl->isNoreturn = isNR;
                     decl->isFastcall = isFC;
@@ -505,7 +506,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     if (isInterrupt) match(TokenType::INTERRUPT);
                     if (isNaked) match(TokenType::NAKED);
                     if (isRegparm) match(TokenType::REGPARM);
-                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || match(TokenType::STRIPED) || tryParseAttribute() || match(TokenType::EXTENSION));
+                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || match(TokenType::STRIPED) || match(TokenType::ZP) || match(TokenType::ABS) || match(TokenType::FAR) || tryParseAttribute() || match(TokenType::EXTENSION));
                     auto decl = parseVariableDeclaration(isVol, isConst, isStatic, false, isStriped);
                     if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                         vd->isGlobal = true;
@@ -1447,6 +1448,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     std::string type;
     bool isSigned = false;
     int basePtrLevel = 0;
+    int addressSpace = 0;  // Phase 97: Track address space qualifier
     std::vector<int> typedefArrayDims;
     if (match(TokenType::TYPEOF)) {
         // typeof(expr) or typeof(type) — resolve to type name
@@ -1455,6 +1457,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             auto ts = parseTypeSpecifier();
             type = ts.name;
             isSigned = ts.isSigned;
+            addressSpace = ts.addressSpace;  // Phase 97: Extract address space
             // skip pointer levels in typeof (already consumed by parseTypeSpecifier)
         } else {
             // Parse as expression, infer type (default to int)
@@ -1470,6 +1473,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         if (ts.valid) {
             type = ts.name;
             isSigned = ts.isSigned;
+            addressSpace = ts.addressSpace;  // Phase 97: Extract address space
             typedefArrayDims = ts.arrayDims;
             // Rewind past any stars (and their trailing qualifiers) consumed by
             // parseTypeSpecifier, so the existing star/pointer-const handling code
@@ -1661,6 +1665,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     decl->isRegister = isRegister;
     decl->isStriped = isStriped;
     decl->isPointerConst = isPointerConst;
+    decl->addressSpace = addressSpace;  // Phase 97: Set address space qualifier
     decl->alignmentExpr = std::move(alignmentExpr);
     decl->arrayDims = arrayDims;
 
@@ -1725,6 +1730,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             extraDecl->isRegister = isRegister;
             extraDecl->isStriped = isStriped;
             extraDecl->isPointerConst = extraPtrConst;
+            extraDecl->addressSpace = addressSpace;  // Phase 97: Set address space qualifier
             extraDecl->arrayDims = extraDims;
             if (match(TokenType::EQUALS)) {
                 if (peek().type == TokenType::OPEN_BRACE) {
@@ -2919,11 +2925,16 @@ bool Parser::isTypeStartAt(size_t look) const {
 Parser::TypeSpec Parser::parseTypeSpecifier() {
     TypeSpec ts;
 
-    // Consume leading qualifiers
+    // Consume leading qualifiers (Phase 97: include address space qualifiers)
     while (match(TokenType::CONST) || match(TokenType::VOLATILE) || match(TokenType::RESTRICT) ||
+           match(TokenType::ZP) || match(TokenType::ABS) || match(TokenType::FAR) ||
            tryParseAttribute() || match(TokenType::EXTENSION)) {
         if (tokens[pos-1].type == TokenType::CONST) ts.isConst = true;
         if (tokens[pos-1].type == TokenType::VOLATILE) ts.isVolatile = true;
+        // Phase 97: Address space qualifiers
+        if (tokens[pos-1].type == TokenType::ZP) ts.addressSpace = 1;    // ZP
+        if (tokens[pos-1].type == TokenType::ABS) ts.addressSpace = 2;   // ABS
+        if (tokens[pos-1].type == TokenType::FAR) ts.addressSpace = 3;   // FAR
     }
 
     // Parse base type
@@ -3025,11 +3036,16 @@ Parser::TypeSpec Parser::parseTypeSpecifier() {
 
     ts.valid = true;
 
-    // Consume trailing qualifiers
+    // Consume trailing qualifiers (Phase 97: include address space qualifiers)
     while (match(TokenType::CONST) || match(TokenType::VOLATILE) || match(TokenType::RESTRICT) ||
+           match(TokenType::ZP) || match(TokenType::ABS) || match(TokenType::FAR) ||
            tryParseAttribute() || match(TokenType::EXTENSION)) {
         if (tokens[pos-1].type == TokenType::CONST) ts.isConst = true;
         if (tokens[pos-1].type == TokenType::VOLATILE) ts.isVolatile = true;
+        // Phase 97: Address space qualifiers
+        if (tokens[pos-1].type == TokenType::ZP) ts.addressSpace = 1;    // ZP
+        if (tokens[pos-1].type == TokenType::ABS) ts.addressSpace = 2;   // ABS
+        if (tokens[pos-1].type == TokenType::FAR) ts.addressSpace = 3;   // FAR
     }
 
     // If type is followed by __complex__ (reverse order: float __complex__)

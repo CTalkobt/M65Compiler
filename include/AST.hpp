@@ -219,6 +219,7 @@ public:
     int arraySize() const { if (arrayDims.empty()) return -1; int s=1; for (int d:arrayDims) s*=d; return s; }
     bool isFunctionPointer = false;
     std::shared_ptr<FuncPtrSignature> funcPtrSig; // non-null when isFunctionPointer
+    int addressSpace = 0;  // Phase 97: Address space (0=DEFAULT, 1=ZP, 2=ABS, 3=FAR)
     VariableDeclaration(const std::string& t, const std::string& n, int p = 0) : type(t), pointerLevel(p), name(n) {}
     void accept(ASTVisitor& visitor) override;
 };

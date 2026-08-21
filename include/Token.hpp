@@ -60,6 +60,9 @@ enum class TokenType {
     UINT_N,    // __uint (parameterized width unsigned integer)
     LONG_LONG, // long long (64-bit integer)
     STRIPED,   // __striped (array memory layout optimization)
+    ZP,        // __zp (Phase 97: zero-page address space)
+    ABS,       // __abs (Phase 97: absolute address space)
+    FAR,       // __far (Phase 97: far/banking address space)
 
     // Variadic
     ELLIPSIS,  // ...
@@ -243,6 +246,9 @@ struct Token {
             case TokenType::CARET_EQUALS: return "CARET_EQUALS";
             case TokenType::LSHIFT_EQUALS: return "LSHIFT_EQUALS";
             case TokenType::RSHIFT_EQUALS: return "RSHIFT_EQUALS";
+            case TokenType::ZP: return "ZP";
+            case TokenType::ABS: return "ABS";
+            case TokenType::FAR: return "FAR";
             case TokenType::END_OF_FILE: return "EOF";
             default: return "UNKNOWN";
         }

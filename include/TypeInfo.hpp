@@ -8,6 +8,14 @@
 // Forward declaration to avoid circular dependency
 struct FuncPtrSignature;
 
+// Phase 97: Address Space Qualifiers
+enum class AddressSpace {
+    DEFAULT,  // Standard addressing (absolute 16-bit)
+    ZP,       // Zero-page (8-bit, fast)
+    ABS,      // Absolute (16-bit, standard)
+    FAR       // Far/banking (32-bit with bank selection)
+};
+
 // Lightweight type utilities used by constant folder and other optimization passes.
 // This extracted the essential type-related data structures from the legacy CodeGenerator.
 
@@ -29,6 +37,7 @@ public:
         }
         int bitWidth = 0;   // 0 = not a bitfield; >0 = bitfield width in bits
         int bitOffset = 0;  // bit offset within the storage unit
+        AddressSpace addressSpace = AddressSpace::DEFAULT;  // Phase 97: Address space qualifier
     };
 
     struct StructInfo {
@@ -47,6 +56,7 @@ public:
         bool isPointerConst = false;
         bool isRegister = false;
         bool isStriped = false;            // Phase 92: Striped array support
+        AddressSpace addressSpace = AddressSpace::DEFAULT;  // Phase 97: Address space qualifier
         std::vector<int> arrayDims;
         int arraySize() const {
             if (arrayDims.empty()) return -1;

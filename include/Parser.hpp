@@ -69,6 +69,7 @@ private:
         bool isFunctionPointer = false;
         std::shared_ptr<FuncPtrSignature> funcPtrSig;
         bool valid = false;     // true if a type was successfully parsed
+        int addressSpace = 0;   // Phase 97: AddressSpace (0=DEFAULT, 1=ZP, 2=ABS, 3=FAR)
     };
     TypeSpec parseTypeSpecifier();    // consume type keywords + qualifiers, return TypeSpec
     bool isTypeStartToken() const;   // peek: does current token start a type?

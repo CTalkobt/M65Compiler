@@ -54,6 +54,9 @@ public:
         std::vector<int> pointerFieldIndices;       // Indices of pointer fields in struct
         std::string variableDataSymbol;    // Symbol for variable data region
 
+        // Phase 97: Address space qualifiers
+        int addressSpace = 0;              // 0=default(16-bit), 1=ZP(8-bit), 2=ABS(16-bit), 3=FAR(32-bit)
+
         std::vector<int> arrayDims;   // empty = not array; {3,4} = int[3][4]
         bool isFunctionPointer = false;
         std::shared_ptr<FuncPtrSignature> funcPtrSig;
@@ -384,4 +387,10 @@ public:
     // Params whose address is taken — spilled from ZP to frame
     std::map<std::string, ZpSpillInfo> zpSpilledParams_; // _p_name → frame location
     bool isZpSpilledParam(const std::string& rName) const { return useZpCall_ && zpSpilledParams_.count(rName) > 0; }
+
+    // Phase 97.3: Address space helpers
+    int getAddressSpaceForVariable(const std::string& varName) const;
+    bool isZPVariable(const std::string& varName) const;
+    bool isABSVariable(const std::string& varName) const;
+    bool isFARVariable(const std::string& varName) const;
 };
