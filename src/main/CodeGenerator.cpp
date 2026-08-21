@@ -6589,6 +6589,42 @@ void CodeGenerator::emitData() {
                     }
                 }
 
+                // Phase 96.4.1: Emit metadata directives for assembler optimization
+                if (isVariableSizeArray && globalVariableTypes.count(gName)) {
+                    VarInfo& vi = globalVariableTypes[gName];
+
+                    // Emit variable-size field array metadata for assembler pointer caching
+                    out << "    ; Phase 96.4.1: Variable-size field array metadata" << std::endl;
+                    out << "    .var_field_array " << gVar->name << std::endl;
+
+                    // Emit array dimensions
+                    int height = gVar->arrayDims.size() >= 2 ? gVar->arrayDims[gVar->arrayDims.size()-2] : 1;
+                    int width = gVar->arrayDims.size() >= 1 ? gVar->arrayDims[gVar->arrayDims.size()-1] : 1;
+                    out << "    .array_dims " << height << " " << width << std::endl;
+
+                    // Emit fixed prefix size
+                    out << "    .fixed_prefix_size " << vi.fixedPrefixSize << std::endl;
+
+                    // Emit field classification for each field
+                    if (!vi.fieldNames.empty()) {
+                        out << "    .field_count " << vi.fieldNames.size() << std::endl;
+                        for (size_t fi = 0; fi < vi.fieldNames.size(); fi++) {
+                            std::string fieldType = "FIXED";
+                            if (fi * 2 + 1 < vi.fieldClasses.size()) {
+                                int fclass = vi.fieldClasses[fi * 2 + 1];
+                                if (fclass == 1) fieldType = "POINTER";
+                                else if (fclass == 2) fieldType = "STRUCT";
+                                else if (fclass == 3) fieldType = "ARRAY";
+                                else if (fclass == 4) fieldType = "FAM";
+                                else if (fclass == 5) fieldType = "VARIABLE";
+                            }
+                            out << "    .field_class " << vi.fieldNames[fi] << " " << fieldType << std::endl;
+                        }
+                    }
+
+                    out << std::endl;
+                }
+
                 // Emit reorganized/original data
                 if (isUnionStripedArray) {
                     // Phase 96.1: Emit union-striped data with per-element padding
@@ -6707,6 +6743,42 @@ void CodeGenerator::emitData() {
                 gVar->alignment = resolveAlignmentExpr(gVar->alignmentExpr.get(), structs);
             if (gVar->alignment > 1) out << "    .align " << std::to_string(gVar->alignment) << std::endl;
             std::string gName = "_" + gVar->name;
+
+            // Phase 96.4.1: Emit metadata for uninitialized variable-size field arrays
+            if (globalVariableTypes.count(gName)) {
+                VarInfo& vi = globalVariableTypes[gName];
+                if (vi.hasVariableFields && gVar->arrayDims.size() >= 2) {
+                    out << "    ; Phase 96.4.1: Variable-size field array metadata (uninitialized)" << std::endl;
+                    out << "    .var_field_array " << gVar->name << std::endl;
+
+                    // Emit array dimensions
+                    int height = gVar->arrayDims.size() >= 2 ? gVar->arrayDims[gVar->arrayDims.size()-2] : 1;
+                    int width = gVar->arrayDims.size() >= 1 ? gVar->arrayDims[gVar->arrayDims.size()-1] : 1;
+                    out << "    .array_dims " << height << " " << width << std::endl;
+
+                    // Emit fixed prefix size
+                    out << "    .fixed_prefix_size " << vi.fixedPrefixSize << std::endl;
+
+                    // Emit field classification
+                    if (!vi.fieldNames.empty()) {
+                        out << "    .field_count " << vi.fieldNames.size() << std::endl;
+                        for (size_t fi = 0; fi < vi.fieldNames.size(); fi++) {
+                            std::string fieldType = "FIXED";
+                            if (fi * 2 + 1 < vi.fieldClasses.size()) {
+                                int fclass = vi.fieldClasses[fi * 2 + 1];
+                                if (fclass == 1) fieldType = "POINTER";
+                                else if (fclass == 2) fieldType = "STRUCT";
+                                else if (fclass == 3) fieldType = "ARRAY";
+                                else if (fclass == 4) fieldType = "FAM";
+                                else if (fclass == 5) fieldType = "VARIABLE";
+                            }
+                            out << "    .field_class " << vi.fieldNames[fi] << " " << fieldType << std::endl;
+                        }
+                    }
+                    out << std::endl;
+                }
+            }
+
             if (relocMode && !staticGlobals.count(gVar->name)) out << ".global " << gName << std::endl;
             out << gName << ":" << std::endl;
             int size = 0;
