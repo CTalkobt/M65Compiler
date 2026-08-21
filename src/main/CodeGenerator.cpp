@@ -2016,6 +2016,48 @@ void CodeGenerator::visit(VariableDeclaration& node) {
             }
         }
 
+        // Phase 96: Union support in striped arrays
+        if (node.isStriped && node.type.find("union ") == 0 && node.arrayDims.size() >= 2) {
+            std::string uName = getAggregateName(node.type);
+            if (structs.count(uName)) {
+                auto& uInfo = *structs[uName];
+
+                // For unions, all fields overlay at offset 0
+                // Store union field metadata for runtime field selection
+                globalVariableTypes[gName].isUnionStriped = true;
+
+                // Extract union field names and sizes
+                std::vector<std::pair<std::string, int>> unionFieldInfo;
+                int largestSize = 0;
+
+                for (auto& [fname, finfo] : uInfo.members) {
+                    int fsize = 0;
+                    if (finfo.pointerLevel > 0) fsize = 2;
+                    else if (finfo.type == "int") fsize = 2;
+                    else if (is8BitType(finfo.type)) fsize = 1;
+                    else if (is16BitType(finfo.type)) fsize = 2;
+                    else if (is32BitType(finfo.type)) fsize = 4;
+                    else if (is64BitType(finfo.type)) fsize = 8;
+                    else if (isStruct(finfo.type)) {
+                        std::string nestedName = getAggregateName(finfo.type);
+                        if (structs.count(nestedName)) fsize = structs[nestedName]->totalSize;
+                    }
+
+                    if (fsize > 0) {
+                        unionFieldInfo.push_back({fname, fsize});
+                        largestSize = std::max(largestSize, fsize);
+                    }
+                }
+
+                // Store union field metadata (order doesn't matter for union)
+                for (auto& [fname, fsize] : unionFieldInfo) {
+                    globalVariableTypes[gName].unionFields.push_back(fname);
+                    globalVariableTypes[gName].unionFieldSizes.push_back(fsize);
+                }
+                globalVariableTypes[gName].largestUnionFieldSize = largestSize;
+            }
+        }
+
         if (node.isExtern) {
             // extern declaration — type is known but no storage emitted
             return;
@@ -2070,6 +2112,44 @@ void CodeGenerator::visit(VariableDeclaration& node) {
                 }
             }
         }
+
+        // Phase 96: Union support for static local arrays
+        if (node.isStriped && node.type.find("union ") == 0 && node.arrayDims.size() >= 2) {
+            std::string uName = getAggregateName(node.type);
+            if (structs.count(uName)) {
+                auto& uInfo = *structs[uName];
+                globalVariableTypes[sName].isUnionStriped = true;
+
+                std::vector<std::pair<std::string, int>> unionFieldInfo;
+                int largestSize = 0;
+
+                for (auto& [fname, finfo] : uInfo.members) {
+                    int fsize = 0;
+                    if (finfo.pointerLevel > 0) fsize = 2;
+                    else if (finfo.type == "int") fsize = 2;
+                    else if (is8BitType(finfo.type)) fsize = 1;
+                    else if (is16BitType(finfo.type)) fsize = 2;
+                    else if (is32BitType(finfo.type)) fsize = 4;
+                    else if (is64BitType(finfo.type)) fsize = 8;
+                    else if (isStruct(finfo.type)) {
+                        std::string nestedName = getAggregateName(finfo.type);
+                        if (structs.count(nestedName)) fsize = structs[nestedName]->totalSize;
+                    }
+
+                    if (fsize > 0) {
+                        unionFieldInfo.push_back({fname, fsize});
+                        largestSize = std::max(largestSize, fsize);
+                    }
+                }
+
+                for (auto& [fname, fsize] : unionFieldInfo) {
+                    globalVariableTypes[sName].unionFields.push_back(fname);
+                    globalVariableTypes[sName].unionFieldSizes.push_back(fsize);
+                }
+                globalVariableTypes[sName].largestUnionFieldSize = largestSize;
+            }
+        }
+
         // Create a synthetic global VariableDeclaration for emitData
         auto* synth = new VariableDeclaration(node.type, currentFunction->name + "__" + node.name, node.pointerLevel);
         synth->isSigned = node.isSigned;
@@ -2178,6 +2258,43 @@ void CodeGenerator::visit(VariableDeclaration& node) {
                 variableTypes[lName].fieldSizes.push_back(fsize);
                 variableTypes[lName].fieldOffsets.push_back(sInfo.members[fname].offset);
             }
+        }
+    }
+
+    // Phase 96: Union support for local arrays
+    if (node.isStriped && node.type.find("union ") == 0 && node.arrayDims.size() >= 2) {
+        std::string uName = getAggregateName(node.type);
+        if (structs.count(uName)) {
+            auto& uInfo = *structs[uName];
+            variableTypes[lName].isUnionStriped = true;
+
+            std::vector<std::pair<std::string, int>> unionFieldInfo;
+            int largestSize = 0;
+
+            for (auto& [fname, finfo] : uInfo.members) {
+                int fsize = 0;
+                if (finfo.pointerLevel > 0) fsize = 2;
+                else if (finfo.type == "int") fsize = 2;
+                else if (is8BitType(finfo.type)) fsize = 1;
+                else if (is16BitType(finfo.type)) fsize = 2;
+                else if (is32BitType(finfo.type)) fsize = 4;
+                else if (is64BitType(finfo.type)) fsize = 8;
+                else if (isStruct(finfo.type)) {
+                    std::string nestedName = getAggregateName(finfo.type);
+                    if (structs.count(nestedName)) fsize = structs[nestedName]->totalSize;
+                }
+
+                if (fsize > 0) {
+                    unionFieldInfo.push_back({fname, fsize});
+                    largestSize = std::max(largestSize, fsize);
+                }
+            }
+
+            for (auto& [fname, fsize] : unionFieldInfo) {
+                variableTypes[lName].unionFields.push_back(fname);
+                variableTypes[lName].unionFieldSizes.push_back(fsize);
+            }
+            variableTypes[lName].largestUnionFieldSize = largestSize;
         }
     }
 

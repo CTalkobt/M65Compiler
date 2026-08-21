@@ -38,6 +38,13 @@ public:
         std::vector<std::string> fieldNames;  // Phase 95: Names of struct fields (if field-striped)
         std::vector<int> fieldSizes;  // Phase 95: Sizes of struct fields in bytes
         std::vector<int> fieldOffsets; // Phase 95: Offsets of field regions in memory
+
+        // Phase 96: Union support
+        bool isUnionStriped = false;        // Union variant of striped array
+        std::vector<std::string> unionFields;  // All union field names
+        std::vector<int> unionFieldSizes;  // Size of each union field
+        int largestUnionFieldSize = 0;     // Largest field size (memory footprint)
+
         std::vector<int> arrayDims;   // empty = not array; {3,4} = int[3][4]
         bool isFunctionPointer = false;
         std::shared_ptr<FuncPtrSignature> funcPtrSig;
@@ -79,6 +86,8 @@ public:
         int totalSize;
         int alignment = 1;
         bool isFieldStriped = false;  // Phase 95: Whether this struct supports field-level striping
+        bool isUnion = false;         // Phase 96: True if this is a union (overlay) rather than struct
+        int largestFieldSize = 0;     // Phase 96: For unions, the largest field size (memory footprint)
     };
     std::map<std::string, VarInfo> variableTypes;
     std::map<std::string, VarInfo> globalVariableTypes;
