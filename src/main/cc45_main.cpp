@@ -43,6 +43,7 @@
 #include "O45Reader.hpp"
 #include "O45Writer.hpp"
 #include "O45IRSerializer.hpp"
+#include "Phase108Integration.hpp"
 
 class ASTPrinter : public ASTVisitor {
 public:
@@ -734,6 +735,11 @@ int main(int argc, char** argv) {
         }
     }
 
+    // Phase 108: Frontend Integration - Initialize hooks
+    auto phase108 = std::make_unique<Phase108Integration>();
+    phase108->initializeCompilation(input_file, verboseLevel >= 1, 500.0);
+    phase108->onPreParse();
+
     if (verboseLevel >= 1) {
         std::cout << "Lexing " << input_file << "..." << std::endl;
     }
@@ -741,6 +747,9 @@ int main(int argc, char** argv) {
     Lexer lexer(source);
     std::vector<Token> tokens = lexer.tokenize();
     auto lexerLineMap = lexer.getLineToFileMap();
+
+    // Phase 108: Hook after lexing
+    phase108->onPostLex(tokens);
 
     // Convert Lexer's FileContext map to CodeGenerator's expected format
     std::map<int, std::pair<std::string, int>> lineToFileMap;
@@ -781,6 +790,9 @@ int main(int argc, char** argv) {
         auto ast = parser.parse();
         if (verboseLevel >= 1) std::cout << "Parsing complete." << std::endl;
 
+        // Phase 108: Hook after parsing
+        phase108->onPostParse(ast);
+
         // IR pipeline: AST → IRBuilder → IR → IRCodeGen → assembly
         IRBuilder irBuilder;
         irBuilder.zpCallMode = zpCallMode;
@@ -793,19 +805,25 @@ int main(int argc, char** argv) {
             ConstantFolder folder;
             ast = folder.foldTranslationUnit(std::move(ast));
             if (verboseLevel >= 1) std::cout << "Constant folding complete." << std::endl;
+            phase108->onPostConstFold(0, 0);  // TODO: pass actual metrics
             irBuilder.setExternalUsedVars(folder.usedVars_);
 
             // Phase 82-84: Function analysis and optimization selection
             if (verboseLevel >= 1) std::cout << "Analyzing functions for optimization..." << std::endl;
             FunctionAnalyzer analyzer;
             analyzer.analyzeTranslationUnit(*ast);
+            phase108->onPostFuncAnalysis(0);  // TODO: pass actual function count
             OptimizationSelector selector(4);  // Default unroll factor: 4
             selector.selectOptimizations(*ast, analyzer);
+
+            // Phase 108: Hook before optimization selection
+            phase108->onPreOptSelect();
 
             // Phase 84: Inline expansion selection
             if (verboseLevel >= 1) std::cout << "Selecting inline candidates..." << std::endl;
             InlineSelector inlineSelector(optimizationLevel);
             inlineSelector.selectInlineCandidates(*ast, analyzer);
+            phase108->onPostInlineSelect(0);  // TODO: pass actual candidate count
             if (verboseLevel >= 1) std::cout << "Function analysis and selection complete." << std::endl;
 
             // Phase 86: Cross-function optimization (call graph analysis, devirtualization, co-optimization)
