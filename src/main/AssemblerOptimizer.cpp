@@ -1396,3 +1396,77 @@ bool AssemblerOptimizer::eliminateFieldDeadCode(
 
     return changed;
 }
+
+// Phase 96.2: Detect variable-size field arrays in assembly
+bool AssemblerOptimizer::detectVariableSizeFieldArrays(
+    AssemblerParser* parser,
+    std::map<std::string, VariableSizeFieldInfo>& variableSizeArrays
+) {
+    // Variable-size field arrays have metadata in assembly directives:
+    // .var_field_array arrayName
+    // .field_class fieldName classType
+    // .pointer_field fieldName
+    // .fixed_prefix_size N
+
+    // Scan assembly for variable-size array declarations
+    // This metadata is emitted by the code generator during Phase 96.2 integration
+
+    // TODO: Parse metadata directives from assembly output
+    // For now, return false (optimization deferred to Phase 96.3)
+
+    return false;
+}
+
+// Phase 96.2: Optimize variable-size field offset calculations
+bool AssemblerOptimizer::optimizeVariableSizeFieldOffsets(
+    AssemblerParser* parser,
+    const std::map<std::string, VariableSizeFieldInfo>& variableSizeArrays,
+    bool verbose
+) {
+    bool changed = false;
+
+    // Pointer field caching optimization:
+    // When accessing multiple elements of the same array, cache the base offset
+    // calculation (row/col → striped offset) and reuse across element accesses
+
+    // Example optimization:
+    // Before:
+    //   ldy #row0           ; load row
+    //   ldx #col0           ; load col
+    //   jsr calc_striped_offset  ; calculate offset
+    //   ldax offset         ; load pointer at [row0,col0]
+    //   ldy #row0
+    //   ldx #col1           ; load different col
+    //   jsr calc_striped_offset  ; recalculate (redundant)
+    //   ldax offset         ; load pointer at [row0,col1]
+    //
+    // After:
+    //   ldy #row0
+    //   ldx #col0
+    //   jsr calc_striped_offset
+    //   ldax offset
+    //   ; cached: base_offset_row0_col0
+    //   ldx #col1
+    //   ; reuse cached row calculation
+    //   ldax offset         ; load pointer at [row0,col1]
+
+    // Optimization strategy:
+    // 1. Detect consecutive accesses to same array variable
+    // 2. Cache the base offset calculation
+    // 3. Emit cached address when row/col haven't changed
+    // 4. Invalidate cache when row/col changes
+
+    // For now, this optimization is deferred to Phase 96.3
+    // Basic support: detect but don't optimize
+
+    if (verbose && !variableSizeArrays.empty()) {
+        // Log detected variable-size arrays
+        for (const auto& [arrayName, info] : variableSizeArrays) {
+            if (verbose) {
+                // Debug output: array name, pointer field count
+            }
+        }
+    }
+
+    return changed;
+}

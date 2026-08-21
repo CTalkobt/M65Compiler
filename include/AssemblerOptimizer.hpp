@@ -37,6 +37,28 @@ struct CachedFieldOffset {
     bool isValid = false;
 };
 
+// Phase 96.2: Variable-size field caching (pointer fields in striped arrays)
+struct VariableSizeFieldInfo {
+    std::string arrayName;                    // Global array variable name
+    std::vector<std::string> fieldNames;      // All field names in struct
+    std::vector<int> fieldClasses;            // Field classification (0=fixed, 1=pointer, etc)
+    std::vector<int> pointerFieldIndices;     // Indices of pointer fields
+    int fixedPrefixSize;                      // Size of fixed-size prefix
+    int arrayHeight;                          // Last dimension
+    int arrayWidth;                           // Last dimension
+    bool isVariableSizeArray = false;
+};
+
+// Phase 96.2: Cached pointer field access optimization
+struct CachedPointerFieldOffset {
+    std::string arrayName;
+    std::string fieldName;
+    int arrayHeight;
+    int arrayWidth;
+    uint16_t cachedBaseOffset;                // Computed base address for pointer field
+    bool isValid = false;
+};
+
 // Named optimization flags: per-pass control via -P<Name> / -PNo<Name>
 struct OptimizationFlags {
     // IR-level optimizations (compiler)
@@ -66,6 +88,7 @@ struct OptimizationFlags {
     bool tsxRedundant = true;         // Eliminate redundant TSX instructions
     bool fieldStripedOpt = true;      // Phase 95.5: Field-striped array offset caching
     bool fieldDeadCode = true;        // Phase 95.5: Dead code elimination for unused fields
+    bool variableSizeOpt = true;      // Phase 96.2: Variable-size field pointer caching
 
     // Constructor to reset all flags based on optimization level
     static OptimizationFlags fromLevel(int level) {
@@ -141,6 +164,18 @@ private:
     static bool eliminateFieldDeadCode(
         AssemblerParser* parser,
         const std::map<std::string, FieldStripedAccessInfo>& fieldArrays,
+        bool verbose
+    );
+
+    // Phase 96.2: Variable-size field optimization methods
+    static bool detectVariableSizeFieldArrays(
+        AssemblerParser* parser,
+        std::map<std::string, VariableSizeFieldInfo>& variableSizeArrays
+    );
+
+    static bool optimizeVariableSizeFieldOffsets(
+        AssemblerParser* parser,
+        const std::map<std::string, VariableSizeFieldInfo>& variableSizeArrays,
         bool verbose
     );
 };
