@@ -791,7 +791,7 @@ int main(int argc, char** argv) {
         if (verboseLevel >= 1) std::cout << "Parsing complete." << std::endl;
 
         // Phase 108: Hook after parsing
-        phase108->onPostParse(ast);
+        phase108->onPostParse();
 
         // IR pipeline: AST → IRBuilder → IR → IRCodeGen → assembly
         IRBuilder irBuilder;

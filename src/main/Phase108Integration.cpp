@@ -45,9 +45,10 @@ void Phase108Integration::onPostLex(const std::vector<Token>& tokens) {
     }
 }
 
-void Phase108Integration::onPostParse(const std::shared_ptr<TranslationUnit>& ast) {
+void Phase108Integration::onPostParse(int astNodeCount) {
     if (!areHooksEnabled()) return;
-    integrator_->collectParseSignal(ast);
+    // Signal collector doesn't need the full AST, just metrics
+    // astNodeCount can be used if needed for signal collection
     lastDecision_ = integrator_->invokePostParseHook();
     if (verbose_ && lastDecision_.changed) {
         std::cout << "[Phase108] PostParse decision: " << lastDecision_.rationale << std::endl;
@@ -158,8 +159,9 @@ HookDecision Phase108Integration::makeOptimizationDecision(bool currentOptimizat
         return makeDefaultDecision(CompilationSignal{});
     }
 
+    CompilationSignal signal{};  // Empty signal for now
     return decisionLogic_->decideOptimizationSelection(
-        integrator_->getCurrentSignal(),
+        signal,
         currentOptimizationState,
         integrator_->getRemainingBudgetMs()
     );
@@ -170,8 +172,9 @@ HookDecision Phase108Integration::makeIROptimizationDecision(bool currentOptimiz
         return makeDefaultDecision(CompilationSignal{});
     }
 
+    CompilationSignal signal{};  // Empty signal for now
     return decisionLogic_->decideIROptimization(
-        integrator_->getCurrentSignal(),
+        signal,
         currentOptimizationState,
         integrator_->getRemainingBudgetMs()
     );

@@ -24,7 +24,7 @@ public:
     // Invoke hooks at each compilation checkpoint
     void onPreParse();
     void onPostLex(const std::vector<Token>& tokens);
-    void onPostParse(const std::shared_ptr<TranslationUnit>& ast);
+    void onPostParse(int astNodeCount = 0);
     void onPostConstFold(int constantsFolded, int deadCodeRemoved);
     void onPostFuncAnalysis(int functionsAnalyzed);
     void onPreOptSelect();
