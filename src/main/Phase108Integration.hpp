@@ -1,5 +1,6 @@
 #pragma once
 #include "Phase108FrontendIntegrator.hpp"
+#include "Phase108DecisionLogic.hpp"
 #include <memory>
 #include <vector>
 #include <string>
@@ -9,6 +10,7 @@ class Lexer;
 class Token;
 class TranslationUnit;
 class IRModule;
+class Phase107OnlineLearner;
 
 // Phase 108.2: Integrates hooks into cc45_main compilation flow
 class Phase108Integration {
@@ -43,8 +45,18 @@ public:
     void setHooksEnabled(bool enabled) { integrator_->enableHooks(enabled); }
     bool areHooksEnabled() const { return integrator_->areHooksEnabled(); }
 
+    // Learner integration (Phase 108.3)
+    void setLearner(Phase107OnlineLearner* learner);
+    Phase107OnlineLearner* getLearner() const { return learner_; }
+
+    // Decision logic (Phase 108.3)
+    HookDecision makeOptimizationDecision(bool currentOptimizationState);
+    HookDecision makeIROptimizationDecision(bool currentOptimizationState);
+
 private:
     std::unique_ptr<Phase108FrontendIntegrator> integrator_;
+    std::unique_ptr<Phase108DecisionLogic> decisionLogic_;
     HookDecision lastDecision_;
+    Phase107OnlineLearner* learner_;
     bool verbose_;
 };

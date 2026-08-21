@@ -1,12 +1,15 @@
 #include "Phase108Integration.hpp"
 #include "Phase108FrontendIntegrator.hpp"
+#include "Phase108DecisionLogic.hpp"
 #include "Lexer.hpp"
 #include "AST.hpp"
 #include <iostream>
 
 Phase108Integration::Phase108Integration()
-    : verbose_(false) {
+    : verbose_(false),
+      learner_(nullptr) {
     integrator_ = std::make_unique<Phase108FrontendIntegrator>();
+    decisionLogic_ = std::make_unique<Phase108DecisionLogic>();
     lastDecision_ = makeDefaultDecision(CompilationSignal{});
 }
 
@@ -140,4 +143,36 @@ void Phase108Integration::onPostAsmOpt() {
 
 void Phase108Integration::printHookStatistics() const {
     integrator_->printStatistics(std::cout);
+}
+
+void Phase108Integration::setLearner(Phase107OnlineLearner* learner) {
+    learner_ = learner;
+    decisionLogic_->setLearner(learner);
+    if (verbose_ && learner_) {
+        std::cout << "[Phase108] OnlineLearner integrated for decision logic" << std::endl;
+    }
+}
+
+HookDecision Phase108Integration::makeOptimizationDecision(bool currentOptimizationState) {
+    if (!decisionLogic_) {
+        return makeDefaultDecision(CompilationSignal{});
+    }
+
+    return decisionLogic_->decideOptimizationSelection(
+        integrator_->getCurrentSignal(),
+        currentOptimizationState,
+        integrator_->getRemainingBudgetMs()
+    );
+}
+
+HookDecision Phase108Integration::makeIROptimizationDecision(bool currentOptimizationState) {
+    if (!decisionLogic_) {
+        return makeDefaultDecision(CompilationSignal{});
+    }
+
+    return decisionLogic_->decideIROptimization(
+        integrator_->getCurrentSignal(),
+        currentOptimizationState,
+        integrator_->getRemainingBudgetMs()
+    );
 }
