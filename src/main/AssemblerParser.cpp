@@ -953,7 +953,7 @@ void AssemblerParser::pass1() {
             else if (fullMnemonic == "ldw" || fullMnemonic == "ldw.sp") { SIMOP(LDW, dispatch_LDW); }
             else if (fullMnemonic == "stw" || fullMnemonic == "stw.sp") { SIMOP(STW, dispatch_STW); }
             else if (fullMnemonic == "fill" || fullMnemonic == "fill.sp") { SIMOP(FILL, dispatch_Fill); }
-            else if (fullMnemonic == "move" || fullMnemonic == "move.sp") { SIMOP(COPY, dispatch_Copy); }
+            else if ((fullMnemonic == "move" || fullMnemonic == "move.sp") && fullMnemonic != "move.fp") { SIMOP(COPY, dispatch_Copy); }
             else if (fullMnemonic == "swap") { SIMOP(SWAP, dispatch_Swap); }
             else if (fullMnemonic == "neg.16") { SIMOP(NEG16, dispatch_NegNot16); }
             else if (fullMnemonic == "not.16") { SIMOP(NOT16, dispatch_NegNot16); }
@@ -1068,6 +1068,17 @@ void AssemblerParser::pass1() {
             else if (fullMnemonic == "ldaxyz.local") { SIMOP(LDAXYZ_LOCAL, dispatch_LDAXYZ_Local); }
             else if (fullMnemonic == "staxyz.local") { SIMOP(STAXYZ_LOCAL, dispatch_STAXYZ_Local); }
             else if (fullMnemonic == "leax.local") { SIMOP(LEAX_LOCAL, dispatch_LEAX_Local); }
+            // Frame-pointer relative access
+            else if (fullMnemonic == "lda.fp") { SIMOP(LDA_FP, dispatch_LDA_FP); }
+            else if (fullMnemonic == "sta.fp") { SIMOP(STA_FP, dispatch_STA_FP); }
+            else if (fullMnemonic == "ldax.fp") { SIMOP(LDAX_FP, dispatch_LDAX_FP); }
+            else if (fullMnemonic == "stax.fp") { SIMOP(STAX_FP, dispatch_STAX_FP); }
+            else if (fullMnemonic == "lday.fp") { SIMOP(LDAY_FP, dispatch_LDAY_FP); }
+            else if (fullMnemonic == "stay.fp") { SIMOP(STAY_FP, dispatch_STAY_FP); }
+            else if (fullMnemonic == "ldaz.fp") { SIMOP(LDAZ_FP, dispatch_LDAZ_FP); }
+            else if (fullMnemonic == "staz.fp") { SIMOP(STAZ_FP, dispatch_STAZ_FP); }
+            else if (fullMnemonic == "ldaxyz.fp") { SIMOP(LDAXYZ_FP, dispatch_LDAXYZ_FP); }
+            else if (fullMnemonic == "staxyz.fp") { SIMOP(STAXYZ_FP, dispatch_STAXYZ_FP); }
             #undef SIMOP
 
             // Calculate sizes for SIMOP statements that need pre-emission size calculation
@@ -1077,11 +1088,17 @@ void AssemblerParser::pass1() {
                 std::vector<uint8_t> d; emitFillCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix, stmt->instr.mnemonic == "fill.sp");
                 stmt->size = d.size();
             }
-            else if (stmt->instr.mnemonic == "move" || stmt->instr.mnemonic == "move.sp") {
+            else if (stmt->instr.mnemonic == "move" || stmt->instr.mnemonic == "move.sp" || stmt->instr.mnemonic == "move.fp") {
                 stmt->instr.operandTokenIndex = (int)pos;
                 while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
-                std::vector<uint8_t> d; emitMoveCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix, stmt->instr.mnemonic == "move.sp");
-                stmt->size = d.size();
+                if (stmt->instr.mnemonic == "move.fp") {
+                    stmt->type = Statement::COPY;  // Set type to COPY so it's recognized as handled
+                    std::vector<uint8_t> d; emitMOVE_FPCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                    stmt->size = d.size();
+                } else {
+                    std::vector<uint8_t> d; emitMoveCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix, stmt->instr.mnemonic == "move.sp");
+                    stmt->size = d.size();
+                }
             }
             else if (stmt->instr.mnemonic == "expr") {
                 stmt->type = Statement::EXPR; stmt->emitFn = AssemblerSimulatedOps::dispatch_Expr;
