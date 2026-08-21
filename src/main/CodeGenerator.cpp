@@ -2058,6 +2058,38 @@ void CodeGenerator::visit(VariableDeclaration& node) {
             }
         }
 
+        // Phase 96.2: Variable-size field support detection
+        if (node.isStriped && isStruct(node.type) && node.arrayDims.size() >= 2) {
+            std::string sName = getAggregateName(node.type);
+            if (structs.count(sName)) {
+                auto& sInfo = *structs[sName];
+
+                // Check if struct has variable-size fields (pointers, FAM)
+                if (detectVariableFields(sInfo)) {
+                    globalVariableTypes[gName].hasVariableFields = true;
+                    globalVariableTypes[gName].fixedPrefixSize = calculateFixedPrefixSize(sInfo);
+
+                    // Classify all fields
+                    int fieldIdx = 0;
+                    int memberCount = sInfo.members.size();
+
+                    for (auto& [fname, finfo] : sInfo.members) {
+                        bool isLastMember = (fieldIdx == memberCount - 1);
+                        FieldClass fclass = classifyStructField(sInfo, fname, isLastMember);
+                        globalVariableTypes[gName].fieldClasses.push_back((int)fclass);
+
+                        // Track pointer fields
+                        if (fclass == FieldClass::POINTER) {
+                            globalVariableTypes[gName].pointerFieldIndices.push_back(fieldIdx);
+                            globalVariableTypes[gName].pointerFieldNames.push_back(fname);
+                        }
+
+                        fieldIdx++;
+                    }
+                }
+            }
+        }
+
         if (node.isExtern) {
             // extern declaration — type is known but no storage emitted
             return;
@@ -2147,6 +2179,35 @@ void CodeGenerator::visit(VariableDeclaration& node) {
                     globalVariableTypes[sName].unionFieldSizes.push_back(fsize);
                 }
                 globalVariableTypes[sName].largestUnionFieldSize = largestSize;
+            }
+        }
+
+        // Phase 96.2: Variable-size field support for static local arrays
+        if (node.isStriped && isStruct(node.type) && node.arrayDims.size() >= 2) {
+            std::string structName = getAggregateName(node.type);
+            if (structs.count(structName)) {
+                auto& sInfo = *structs[structName];
+
+                if (detectVariableFields(sInfo)) {
+                    globalVariableTypes[sName].hasVariableFields = true;
+                    globalVariableTypes[sName].fixedPrefixSize = calculateFixedPrefixSize(sInfo);
+
+                    int fieldIdx = 0;
+                    int memberCount = sInfo.members.size();
+
+                    for (auto& [fname, finfo] : sInfo.members) {
+                        bool isLastMember = (fieldIdx == memberCount - 1);
+                        FieldClass fclass = classifyStructField(sInfo, fname, isLastMember);
+                        globalVariableTypes[sName].fieldClasses.push_back((int)fclass);
+
+                        if (fclass == FieldClass::POINTER) {
+                            globalVariableTypes[sName].pointerFieldIndices.push_back(fieldIdx);
+                            globalVariableTypes[sName].pointerFieldNames.push_back(fname);
+                        }
+
+                        fieldIdx++;
+                    }
+                }
             }
         }
 
@@ -2295,6 +2356,35 @@ void CodeGenerator::visit(VariableDeclaration& node) {
                 variableTypes[lName].unionFieldSizes.push_back(fsize);
             }
             variableTypes[lName].largestUnionFieldSize = largestSize;
+        }
+    }
+
+    // Phase 96.2: Variable-size field support for local arrays
+    if (node.isStriped && isStruct(node.type) && node.arrayDims.size() >= 2) {
+        std::string structName = getAggregateName(node.type);
+        if (structs.count(structName)) {
+            auto& sInfo = *structs[structName];
+
+            if (detectVariableFields(sInfo)) {
+                variableTypes[lName].hasVariableFields = true;
+                variableTypes[lName].fixedPrefixSize = calculateFixedPrefixSize(sInfo);
+
+                int fieldIdx = 0;
+                int memberCount = sInfo.members.size();
+
+                for (auto& [fname, finfo] : sInfo.members) {
+                    bool isLastMember = (fieldIdx == memberCount - 1);
+                    FieldClass fclass = classifyStructField(sInfo, fname, isLastMember);
+                    variableTypes[lName].fieldClasses.push_back((int)fclass);
+
+                    if (fclass == FieldClass::POINTER) {
+                        variableTypes[lName].pointerFieldIndices.push_back(fieldIdx);
+                        variableTypes[lName].pointerFieldNames.push_back(fname);
+                    }
+
+                    fieldIdx++;
+                }
+            }
         }
     }
 
@@ -7641,6 +7731,249 @@ std::vector<int> CodeGenerator::reorganizeUnionStripedArrayData(
             if (j < 4) {
                 result.push_back((value >> (j * 8)) & 0xFF);
             } else {
+                result.push_back(0);
+            }
+        }
+    }
+
+    return result;
+}
+
+// Phase 96.2: Variable-size field support - Field classification
+CodeGenerator::FieldClass CodeGenerator::classifyStructField(
+    const StructInfo& sInfo,
+    const std::string& fieldName,
+    bool isLastMember
+) {
+    // Find the field in the struct
+    auto it = sInfo.members.find(fieldName);
+    if (it == sInfo.members.end()) {
+        return FieldClass::FIXED_SCALAR;  // Default if not found
+    }
+
+    const MemberInfo& field = it->second;
+
+    // Check for pointer field
+    if (field.pointerLevel > 0) {
+        return FieldClass::POINTER;
+    }
+
+    // Check for array field
+    if (!field.arrayDims.empty()) {
+        // Check if it's a variable array (size unknown)
+        if (field.arrayDims.back() == 0) {
+            if (isLastMember) {
+                return FieldClass::FLEXIBLE_ARRAY;  // FAM - last position
+            } else {
+                return FieldClass::VARIABLE_ARRAY;  // Invalid - not at end
+            }
+        }
+        // Fixed-size array
+        return FieldClass::FIXED_ARRAY;
+    }
+
+    // Check for nested struct with variable fields
+    if (field.type.find("struct ") == 0) {
+        std::string nestedName = field.type;
+        if (nestedName.find("struct ") == 0) {
+            nestedName = nestedName.substr(7);  // Remove "struct " prefix
+        }
+
+        // Check if nested struct has variable fields
+        auto nestedIt = structs.find(nestedName);
+        if (nestedIt != structs.end()) {
+            if (detectVariableFields(*nestedIt->second)) {
+                return FieldClass::NESTED_STRUCT;
+            }
+        }
+    }
+
+    // Default: fixed-size scalar
+    return FieldClass::FIXED_SCALAR;
+}
+
+// Phase 96.2: Detect if struct has any variable-size fields
+bool CodeGenerator::detectVariableFields(const StructInfo& sInfo) {
+    bool isLastMember = false;
+    int memberIndex = 0;
+    int totalMembers = sInfo.members.size();
+
+    for (const auto& [fieldName, field] : sInfo.members) {
+        isLastMember = (memberIndex == totalMembers - 1);
+        memberIndex++;
+
+        // Pointer field
+        if (field.pointerLevel > 0) {
+            return true;
+        }
+
+        // Variable-size array (not at end is error, at end is FAM)
+        if (!field.arrayDims.empty() && field.arrayDims.back() == 0) {
+            return true;
+        }
+
+        // Nested struct with variable fields
+        if (field.type.find("struct ") == 0) {
+            std::string nestedName = field.type.substr(7);
+            auto it = structs.find(nestedName);
+            if (it != structs.end() && detectVariableFields(*it->second)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+// Phase 96.2: Calculate size of fixed-size prefix (before first variable field)
+int CodeGenerator::calculateFixedPrefixSize(const StructInfo& sInfo) {
+    int prefixSize = 0;
+
+    for (const auto& [fieldName, field] : sInfo.members) {
+        // Stop at first variable-size field
+        if (field.pointerLevel > 0) {
+            break;
+        }
+
+        if (!field.arrayDims.empty() && field.arrayDims.back() == 0) {
+            break;  // Variable-size array
+        }
+
+        // Add fixed-size field to prefix
+        if (!field.arrayDims.empty()) {
+            // Fixed array: multiply element size by element count
+            int elementCount = 1;
+            for (int dim : field.arrayDims) {
+                if (dim > 0) elementCount *= dim;
+            }
+            // Size is elementCount * sizeof(elementType)
+            // For now, assume standard sizes
+            int elementSize = 4;  // Assume int-size
+            prefixSize += elementCount * elementSize;
+        } else {
+            // Scalar field
+            if (field.type.find("long") != std::string::npos) {
+                prefixSize += 4;
+            } else if (field.type.find("char") != std::string::npos) {
+                prefixSize += 1;
+            } else {
+                prefixSize += 2;  // Default to int size
+            }
+        }
+    }
+
+    return prefixSize;
+}
+
+// Phase 96.2: Try to emit variable-size field access
+bool CodeGenerator::tryEmitVariableSizeFieldAccess(
+    ArrayAccess& node,
+    VarInfo& varInfo,
+    VariableReference* baseRef,
+    const std::string& memberName
+) {
+    // Find field index
+    int fieldIdx = -1;
+    for (size_t i = 0; i < varInfo.fieldNames.size(); i++) {
+        if (varInfo.fieldNames[i] == memberName) {
+            fieldIdx = i;
+            break;
+        }
+    }
+
+    if (fieldIdx < 0 || !varInfo.hasVariableFields) {
+        return false;
+    }
+
+    FieldClass fclass = varInfo.fieldClasses[fieldIdx];
+
+    // Fixed-size field: use existing field-striping
+    if (fclass == FieldClass::FIXED_SCALAR || fclass == FieldClass::FIXED_ARRAY) {
+        // Delegate to Phase 95 field-striping
+        auto it = structs.find(baseRef->name);
+        if (it != structs.end()) {
+            MemberInfo mInfo = it->second->members.at(memberName);
+            return tryEmitFieldStripedArrayMemberAccess(node, varInfo, baseRef, memberName, mInfo);
+        }
+        return false;
+    }
+
+    // Pointer field: load address from striped array
+    if (fclass == FieldClass::POINTER) {
+        // Calculate array element offset
+        int pointerFieldIdx = -1;
+        for (size_t i = 0; i < varInfo.pointerFieldIndices.size(); i++) {
+            if ((int)varInfo.pointerFieldIndices[i] == fieldIdx) {
+                pointerFieldIdx = i;
+                break;
+            }
+        }
+
+        if (pointerFieldIdx < 0) return false;
+
+        // Load pointer from striped array (2 bytes)
+        emitCalculateArrayElementAddress(node, varInfo);
+
+        // Pointer is at fixed offset within fixed prefix
+        int pointerOffset = 0;
+        for (int i = 0; i < fieldIdx; i++) {
+            if ((int)varInfo.fieldClasses[i] == (int)FieldClass::FIXED_SCALAR) {
+                pointerOffset += varInfo.fieldSizes[i];
+            } else if ((int)varInfo.fieldClasses[i] == (int)FieldClass::FIXED_ARRAY) {
+                // Fixed array size calculation
+                pointerOffset += varInfo.fieldSizes[i];
+            }
+        }
+
+        out << "ldax $" << std::hex << baseAddr << std::dec << "\n";
+        updateRegAVar();
+        updateRegXVar();
+
+        return true;
+    }
+
+    // Flexible array member: cannot be accessed at compile-time
+    if (fclass == FieldClass::FLEXIBLE_ARRAY) {
+        return false;  // FAM not accessible in array context
+    }
+
+    return false;
+}
+
+// Phase 96.2: Reorganize variable-size array data
+std::vector<int> CodeGenerator::reorganizeVariableSizeData(
+    const std::vector<int>& userData,
+    const VarInfo& varInfo,
+    int elementCount
+) {
+    std::vector<int> result;
+
+    if (!varInfo.hasVariableFields) {
+        // No variable fields - return as-is
+        return userData;
+    }
+
+    // Separate fixed-prefix striping from variable data
+    // Fixed prefix fields striped normally
+    // Variable fields stored separately with pointer references
+
+    for (int i = 0; i < elementCount; i++) {
+        // For each element, extract fixed-size fields
+        int fixedStart = i * varInfo.fixedPrefixSize;
+
+        if (fixedStart >= (int)userData.size()) {
+            // No data provided, pad with zeros
+            for (int j = 0; j < varInfo.fixedPrefixSize; j++) {
+                result.push_back(0);
+            }
+        } else {
+            // Copy fixed-size prefix
+            for (int j = 0; j < varInfo.fixedPrefixSize && fixedStart + j < (int)userData.size(); j++) {
+                result.push_back(userData[fixedStart + j]);
+            }
+
+            // Pad if necessary
+            while (result.size() < (size_t)(i + 1) * varInfo.fixedPrefixSize) {
                 result.push_back(0);
             }
         }

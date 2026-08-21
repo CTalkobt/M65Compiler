@@ -14,6 +14,7 @@ class CodeGenerator : public ASTVisitor {
 public:
     enum class TriState { UNKNOWN, SET, CLEAR };
     enum class FlagSource { NONE, A, X, Y, Z };
+    enum class FieldClass { FIXED_SCALAR, POINTER, FIXED_ARRAY, VARIABLE_ARRAY, FLEXIBLE_ARRAY, NESTED_STRUCT };  // Phase 96.2: Field classification
 
     CodeGenerator(std::ostream& out);
     void generate(TranslationUnit& unit);
@@ -44,6 +45,14 @@ public:
         std::vector<std::string> unionFields;  // All union field names
         std::vector<int> unionFieldSizes;  // Size of each union field
         int largestUnionFieldSize = 0;     // Largest field size (memory footprint)
+
+        // Phase 96.2: Variable-size field support
+        bool hasVariableFields = false;    // Struct contains pointer/array fields
+        int fixedPrefixSize = 0;           // Size of fixed-size fields only
+        std::vector<int> fieldClasses;     // Field classification (fixed/pointer/variable)
+        std::vector<std::string> pointerFieldNames;  // Names of pointer fields
+        std::vector<int> pointerFieldIndices;       // Indices of pointer fields in struct
+        std::string variableDataSymbol;    // Symbol for variable data region
 
         std::vector<int> arrayDims;   // empty = not array; {3,4} = int[3][4]
         bool isFunctionPointer = false;
@@ -152,6 +161,13 @@ public:
     bool tryEmitFieldStripedArrayMemberAccess(ArrayAccess& node, VarInfo& varInfo, VariableReference* baseRef, const std::string& memberName, const MemberInfo& mInfo);  // Phase 95.3: Field-level striping
     bool tryEmitUnionStripedArrayMemberAccess(ArrayAccess& node, VarInfo& varInfo, VariableReference* baseRef, const std::string& memberName);  // Phase 96.1: Union-striped array member access
     std::vector<int> reorganizeUnionStripedArrayData(const std::vector<int>& userData, int elementCount, int largestFieldSize, const std::vector<std::string>& fieldNames);  // Phase 96.1: Union data reorganization
+
+    // Phase 96.2: Variable-size field support
+    FieldClass classifyStructField(const StructInfo& sInfo, const std::string& fieldName, bool isLastMember);
+    bool detectVariableFields(const StructInfo& sInfo);
+    int calculateFixedPrefixSize(const StructInfo& sInfo);
+    bool tryEmitVariableSizeFieldAccess(ArrayAccess& node, VarInfo& varInfo, VariableReference* baseRef, const std::string& memberName);
+    std::vector<int> reorganizeVariableSizeData(const std::vector<int>& userData, const VarInfo& varInfo, int elementCount);
 
     // Phase 92.4: 2D array reorganization (backward compat)
     std::vector<int> reorganizeStripedArrayData(const std::vector<int>& userData, int height, int width);
