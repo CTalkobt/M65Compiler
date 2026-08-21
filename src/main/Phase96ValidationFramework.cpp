@@ -27,6 +27,11 @@ void Phase96ValidationFramework::compileTestProgram(const std::string& sourceFil
     result.passed = success;
     result.compilationTime = duration;
     result.objectFile = testName + ".o45";
+    result.bytesCompiled = 0;
+    result.bytesOptimized = 0;
+    result.savingsPercent = 0.0;
+    result.errorMessage = "";
+    result.assemblyFile = "";
 
     if (success) {
         testsPassed++;
@@ -136,6 +141,10 @@ void Phase96ValidationFramework::benchmarkCodeSize(const std::string& programNam
     BenchmarkResult result;
     result.benchmarkName = programName + "_code_size";
     result.description = "Code size comparison";
+    result.estimatedCycles = 0.0;
+    result.actualCycles = 0.0;
+    result.speedupPercent = 0.0;
+    result.isHardwareValidated = false;
 
     // Would measure actual file sizes
     int sizeWith = 800;        // Placeholder
@@ -155,6 +164,10 @@ void Phase96ValidationFramework::benchmarkPerformance(const std::string& program
     result.description = description;
     result.executionCount = 1;
     result.estimatedCycles = expectedCycles;
+    result.actualCycles = 0.0;
+    result.speedupPercent = 0.0;
+    result.codeReductionPercent = 0.0;
+    result.isHardwareValidated = false;
 
     // If hardware available, measure actual cycles
     if (hardwareAvailable) {
@@ -432,6 +445,8 @@ void Phase96BenchmarkSuite::runBenchmark(const std::string& name,
     result.estimatedCycles = expectedCycles;
     result.executionCount = 1;
     result.codeReductionPercent = 7.5;  // Average reduction
+    result.actualCycles = 0.0;
+    result.speedupPercent = 0.0;
     result.isHardwareValidated = false;
 
     results.push_back(result);

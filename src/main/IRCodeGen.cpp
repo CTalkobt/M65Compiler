@@ -7,6 +7,7 @@
 #include <iostream>
 #include <sstream>
 #include <algorithm>
+#include <set>
 
 // Convert IEEE 754 double to CBM 40-bit float (5 bytes)
 static void doubleToCBM40(double val, uint8_t out[5]) {
@@ -106,6 +107,12 @@ void IRCodeGen::emit(const std::string& line, const std::string& reason) {
     }
 }
 
+// Phase 97.5: Optimized emit with address space suffix transformation
+void IRCodeGen::emitOptimized(const std::string& line, const std::string& reason) {
+    std::string optimized = addAddressSpaceSuffix(line);
+    emit(optimized, reason);
+}
+
 void IRCodeGen::emitLabel(const std::string& label) {
     out_ << label << ":\n";
 }
@@ -130,6 +137,66 @@ std::string IRCodeGen::formatDebugType(ir::Type type) {
         case ir::Type::F32:   return "float32";
         default:              return "unknown";
     }
+}
+
+// Phase 97.5: Add .zp suffix to instructions accessing __zp symbols
+std::string IRCodeGen::addAddressSpaceSuffix(const std::string& instr) const {
+    // Skip directives, comments, and immediate operands
+    if (instr.empty() || instr[0] == '.' || instr[0] == ';' || instr[0] == ';') {
+        return instr;
+    }
+
+    // Parse mnemonic and operand: "lda symbol" or "lda symbol+1" or "lda symbol, X"
+    size_t spacePos = instr.find(' ');
+    if (spacePos == std::string::npos) {
+        return instr;  // No operand
+    }
+
+    std::string mnemonic = instr.substr(0, spacePos);
+    std::string operand = instr.substr(spacePos + 1);
+
+    // Only optimize memory-accessing instructions (skip branches, shifts, etc.)
+    static const std::set<std::string> zpOptimizableInstructions = {
+        "lda", "sta", "ldx", "stx", "ldy", "sty", "ldz", "stz",
+        "inc", "dec", "asl", "lsr", "rol", "ror", "bit", "trb", "tsb",
+        "and", "ora", "eor"  // ALU ops that can work with memory operands
+    };
+
+    // Check if this instruction can be optimized
+    if (zpOptimizableInstructions.find(mnemonic) == zpOptimizableInstructions.end()) {
+        return instr;
+    }
+
+    // Skip if operand is immediate (starts with #)
+    if (operand[0] == '#') {
+        return instr;
+    }
+
+    // Extract base symbol name from operand (before +, comma, etc.)
+    std::string baseSymbol;
+    size_t plusPos = operand.find('+');
+    size_t commaPos = operand.find(',');
+    size_t minusPos = operand.find('-');
+
+    size_t endPos = std::min({
+        plusPos != std::string::npos ? plusPos : operand.length(),
+        commaPos != std::string::npos ? commaPos : operand.length(),
+        minusPos != std::string::npos ? minusPos : operand.length()
+    });
+
+    baseSymbol = operand.substr(0, endPos);
+    // Trim leading/trailing whitespace
+    while (!baseSymbol.empty() && baseSymbol[0] == ' ') baseSymbol.erase(0, 1);
+    while (!baseSymbol.empty() && baseSymbol.back() == ' ') baseSymbol.pop_back();
+
+    // Check if this symbol is in the __zp address space
+    auto it = symbolAddressSpace_.find(baseSymbol);
+    if (it != symbolAddressSpace_.end() && it->second == 1) {
+        // Add .zp suffix to mnemonic
+        return mnemonic + ".zp " + operand;
+    }
+
+    return instr;
 }
 
 void IRCodeGen::emitDebugVariable(const std::string& functionName, const std::string& varName,
@@ -624,6 +691,12 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     // we need to mark zpRegs_[0-7] as inUse since zpAddr(0) = $08, zpAddr(7) = $0F
     for (uint32_t i = 0; i < 8 && i < zpRegs_.size(); ++i) {
         zpRegs_[i].inUse = true;
+    }
+
+    // Phase 97.5: Build symbol → addressSpace mapping for instruction optimization
+    symbolAddressSpace_.clear();
+    for (const auto& global : mod.globals) {
+        symbolAddressSpace_[global.name] = global.addressSpace;
     }
 
     // Pre-scan all functions to compute frame offsets (needed for capture)
@@ -3111,7 +3184,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 std::string da = "$" + hex8((uint8_t)dAlloc.offset);
                 if (inst.src1.kind == ir::OperandKind::GLOBAL) {
                     for (int i = 0; i < 5; i++) {
-                        emit("lda " + inst.src1.name + "+" + std::to_string(i));
+                        // Phase 97.5: Apply .zp suffix for __zp globals
+                        emitOptimized("lda " + inst.src1.name + "+" + std::to_string(i));
                         emit("sta " + da + "+" + std::to_string(i));
                     }
                 } else {
@@ -3165,13 +3239,14 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     }
                 } else {
                     // Normal load from parameter storage
-                    emit("lda " + inst.src1.name);
+                    // Phase 97.5: Apply .zp suffix for __zp globals
+                    emitOptimized("lda " + inst.src1.name);
                     if (inst.resultType == ir::Type::I32) {
-                        emit("ldx " + inst.src1.name + "+1");
-                        emit("ldy " + inst.src1.name + "+2");
-                        emit("ldz " + inst.src1.name + "+3");
+                        emitOptimized("ldx " + inst.src1.name + "+1");
+                        emitOptimized("ldy " + inst.src1.name + "+2");
+                        emitOptimized("ldz " + inst.src1.name + "+3");
                     } else if (inst.resultType != ir::Type::I8) {
-                        emit("ldx " + inst.src1.name + "+1");
+                        emitOptimized("ldx " + inst.src1.name + "+1");
                     } else {
                         emit("ldx #0");
                     }
@@ -3319,11 +3394,12 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 } else {
                     loadOperand(inst.src1);
                 }
-                emit("sta " + inst.src2.name, storeR);
+                // Phase 97.5: Apply .zp suffix for __zp globals
+                emitOptimized("sta " + inst.src2.name, storeR);
                 if (inst.resultType == ir::Type::I32) {
-                    emit("stx " + inst.src2.name + "+1", storeR);
-                    emit("sty " + inst.src2.name + "+2", storeR);
-                    emit("stz " + inst.src2.name + "+3", storeR);
+                    emitOptimized("stx " + inst.src2.name + "+1", storeR);
+                    emitOptimized("sty " + inst.src2.name + "+2", storeR);
+                    emitOptimized("stz " + inst.src2.name + "+3", storeR);
                 } else if (inst.resultType != ir::Type::I8) {
                     emit("stx " + inst.src2.name + "+1", storeR);
                 }

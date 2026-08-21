@@ -33,6 +33,8 @@ void LinkerFieldOptimizer::addFieldProfile(const std::string& structName,
         profile.fieldName = fieldName;
         profile.structName = structName;
         profile.totalAccessCount = accessingFunctions.size();
+        profile.globalSavingsEstimate = 0.0;
+        profile.shouldCacheGlobally = false;
         mergedProfiles[key] = profile;
         it = mergedProfiles.find(key);
     }
@@ -165,6 +167,7 @@ void LinkerFieldOptimizer::emitHintsForField(const std::string& fieldName,
     AssemblyHint loadHint;
     loadHint.type = AssemblyHint::Type::CacheLoad;
     loadHint.fieldName = fieldName;
+    loadHint.lineNumber = 0;  // Initialize lineNumber
     loadHint.description = "Load " + fieldName + " into cache register";
     loadHint.estimatedByteSavings = 3;  // One LDA instruction
     assemblyHints.push_back(loadHint);
@@ -174,6 +177,7 @@ void LinkerFieldOptimizer::emitHintsForField(const std::string& fieldName,
         AssemblyHint reuseHint;
         reuseHint.type = AssemblyHint::Type::CacheReuse;
         reuseHint.fieldName = fieldName;
+        reuseHint.lineNumber = 0;  // Initialize lineNumber
         reuseHint.description = "Reuse cached " + fieldName;
         reuseHint.estimatedByteSavings = 10;  // Avoid offset calculation
         assemblyHints.push_back(reuseHint);

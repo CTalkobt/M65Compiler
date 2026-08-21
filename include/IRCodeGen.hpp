@@ -83,6 +83,7 @@ private:
 
     // Assembly emission helpers
     void emit(const std::string& line, const std::string& reason = "");
+    void emitOptimized(const std::string& line, const std::string& reason = "");  // Phase 97.5: emit with .zp suffix
     void emitLabel(const std::string& label);
     void emitComment(const std::string& text);
     void emitBlank();
@@ -346,6 +347,14 @@ private:
     std::map<int, std::pair<std::string, int>> lineToFileMap_; // Maps abs line to (filename, lineOffset)
     std::map<std::string, const ir::Function*> functionMap_;
     MachineState ms_;        // register/flag value tracking for codegen optimizations
+
+    // Phase 97.5: Track which symbols are in __zp address space
+    // Maps symbol name → addressSpace (1 for __zp, 0 for normal)
+    std::map<std::string, int> symbolAddressSpace_;
+
+    // Phase 97.5: Add .zp suffix to instructions accessing __zp symbols
+    // Modifies instruction mnemonic to enable optimized addressing (e.g., lda.zp, sta.zp)
+    std::string addAddressSpaceSuffix(const std::string& instr) const;
 
     // Value-role tracking: which register holds each byte of the current
     // multi-byte value being constructed. Set by CONST/load/ALU emitters,
