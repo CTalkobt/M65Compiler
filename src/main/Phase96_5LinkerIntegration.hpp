@@ -73,6 +73,13 @@ private:
     int optimizedFieldCount_ = 0;
     double estimatedCodeSavings_ = 0.0;
 
+    // Component references (set during coordination)
+    std::shared_ptr<phase96_5::GlobalPointerFieldDatabase> fieldDB_;
+    std::shared_ptr<phase96_5::InterTUPatternDetector> patternDetector_;
+    std::shared_ptr<phase96_5::FieldCachingAnalyzer> cachingAnalyzer_;
+    std::shared_ptr<phase96_5::LinkerFieldOptimizer> linkerOptimizer_;
+    std::shared_ptr<phase96_5::AssemblerCoordinator> assemblerCoord_;
+
     // Internal helper methods
     void wirePhase96_5Pipeline();
     void validateCachingStrategy();
