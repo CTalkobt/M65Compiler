@@ -150,6 +150,9 @@ public:
     void emitIndirectIncDec(UnaryOperation& node, bool isInc, bool isPost);
     void emitStripedArrayAccess(ArrayAccess& node, VarInfo& varInfo, VariableReference* baseRef);
     bool tryEmitFieldStripedArrayMemberAccess(ArrayAccess& node, VarInfo& varInfo, VariableReference* baseRef, const std::string& memberName, const MemberInfo& mInfo);  // Phase 95.3: Field-level striping
+    bool tryEmitUnionStripedArrayMemberAccess(ArrayAccess& node, VarInfo& varInfo, VariableReference* baseRef, const std::string& memberName);  // Phase 96.1: Union-striped array member access
+    std::vector<int> reorganizeUnionStripedArrayData(const std::vector<int>& userData, int elementCount, int largestFieldSize, const std::vector<std::string>& fieldNames);  // Phase 96.1: Union data reorganization
+
     // Phase 92.4: 2D array reorganization (backward compat)
     std::vector<int> reorganizeStripedArrayData(const std::vector<int>& userData, int height, int width);
 

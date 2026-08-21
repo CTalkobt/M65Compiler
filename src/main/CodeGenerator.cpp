@@ -5056,6 +5056,14 @@ void CodeGenerator::visit(MemberAccess& node) {
                     varInfo = &globalVariableTypes[varName];
                 }
 
+                // Phase 96: Check for union-striped array member access first
+                if (varInfo && varInfo->isUnionStriped && varInfo->arrayDims.size() >= 2) {
+                    // This is a union-striped array member access
+                    if (tryEmitUnionStripedArrayMemberAccess(*arrayAccess, *varInfo, actualBase, node.memberName)) {
+                        return;
+                    }
+                }
+
                 if (varInfo && varInfo->isFieldStriped && varInfo->arrayDims.size() >= 2) {
                     // This is a field-striped struct array member access
                     if (tryEmitFieldStripedArrayMemberAccess(*arrayAccess, *varInfo, actualBase, node.memberName, mInfo)) {
@@ -6349,11 +6357,12 @@ void CodeGenerator::emitData() {
                 }
 
                 // Phase 92.4: Handle striped array initialization
-                // Also Phase 95.4: Handle field-striped struct array initialization
-                // Check if this is a striped array (2D integer) or field-striped struct array
+                // Also Phase 95.4/96.1: Handle field-striped struct array and union array initialization
+                // Check if this is a striped array (2D integer), field-striped struct array, or union array
                 std::string gName = "_" + gVar->name;
                 bool isStripedArray = false;
                 bool isFieldStripedArray = false;
+                bool isUnionStripedArray = false;
                 if (globalVariableTypes.count(gName)) {
                     VarInfo& vi = globalVariableTypes[gName];
                     if (vi.isStriped && vi.arrayDims.size() >= 2 && gVar->type == "int") {
@@ -6361,6 +6370,9 @@ void CodeGenerator::emitData() {
                     } else if (vi.isFieldStriped && vi.arrayDims.size() >= 2 &&
                               vi.fieldNames.size() > 0 && vi.fieldSizes.size() == vi.fieldNames.size()) {
                         isFieldStripedArray = true;
+                    } else if (vi.isUnionStriped && vi.arrayDims.size() >= 2 &&
+                              vi.unionFields.size() > 0 && vi.unionFieldSizes.size() == vi.unionFields.size()) {
+                        isUnionStripedArray = true;
                     }
                 }
 
@@ -6380,6 +6392,17 @@ void CodeGenerator::emitData() {
                     } else if (gVar->arrayDims.size() > 2) {
                         // Phase 93: 3D+ striped array (last 2 dims striped)
                         dataValues = reorganizeStripedArrayData(dataValues, gVar->arrayDims);
+                    }
+                } else if (isUnionStripedArray && gVar->arraySize() >= 0) {
+                    // Phase 96.1: Union-striped array
+                    if (globalVariableTypes.count(gName)) {
+                        VarInfo& vi = globalVariableTypes[gName];
+                        dataValues = reorganizeUnionStripedArrayData(
+                            dataValues,
+                            totalElements,
+                            vi.largestUnionFieldSize,
+                            vi.unionFields
+                        );
                     }
                 } else if (isFieldStripedArray && gVar->arraySize() >= 0) {
                     // Phase 95.4: Field-striped struct array
@@ -6416,7 +6439,33 @@ void CodeGenerator::emitData() {
                 }
 
                 // Emit reorganized/original data
-                if (isFieldStripedArray) {
+                if (isUnionStripedArray) {
+                    // Phase 96.1: Emit union-striped data with per-element padding
+                    std::string gName = "_" + gVar->name;
+                    int largestSize = 0;
+                    if (globalVariableTypes.count(gName)) {
+                        VarInfo& vi = globalVariableTypes[gName];
+                        largestSize = vi.largestUnionFieldSize;
+                    }
+
+                    // Emit each element padded to largest field size
+                    int elementSize = largestSize;
+                    for (int i = 0; i < totalElements; i++) {
+                        for (int j = 0; j < elementSize; j++) {
+                            int dataIdx = i * elementSize + j;
+                            int constVal = (dataIdx < (int)dataValues.size()) ? dataValues[dataIdx] : 0;
+                            if (elementSize == 1) {
+                                out << "    .byte $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (constVal & 0xFF) << std::dec << std::endl;
+                            } else if (elementSize == 2) {
+                                out << "    .word $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (constVal & 0xFFFF) << std::dec << std::endl;
+                            } else if (elementSize == 4) {
+                                out << "    .dword $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(8) << (constVal & 0xFFFFFFFF) << std::dec << std::endl;
+                            } else {
+                                out << "    .res " << std::to_string(elementSize) << ", 0" << std::endl;
+                            }
+                        }
+                    }
+                } else if (isFieldStripedArray) {
                     // Phase 95.4: Emit field-striped data with per-field sizing
                     std::string gName = "_" + gVar->name;
                     std::vector<int> fieldSizes;
@@ -7382,4 +7431,220 @@ bool CodeGenerator::tryEmitFieldStripedArrayMemberAccess(
 
     invalidateRegs();
     return true;
+}
+
+// Phase 96.1: Union-striped array member access code generation
+bool CodeGenerator::tryEmitUnionStripedArrayMemberAccess(
+    ArrayAccess& node,
+    VarInfo& varInfo,
+    VariableReference* baseRef,
+    const std::string& memberName
+) {
+    // Pattern: arr[row][col].field where arr is a union-striped array
+    // Unlike struct field-striping, union fields all occupy offset 0 (overlay)
+
+    if (varInfo.arrayDims.size() < 2) {
+        return false;  // Not a 2D+ array
+    }
+
+    // Check if field exists in union
+    if (varInfo.unionFields.empty() || varInfo.unionFieldSizes.empty()) {
+        return false;  // No union field metadata
+    }
+
+    // Find field in union and get its size
+    int fieldIndex = -1;
+    int fieldSize = 0;
+    for (size_t i = 0; i < varInfo.unionFields.size(); i++) {
+        if (varInfo.unionFields[i] == memberName) {
+            fieldIndex = i;
+            fieldSize = varInfo.unionFieldSizes[i];
+            break;
+        }
+    }
+
+    if (fieldIndex < 0 || fieldSize <= 0) {
+        return false;  // Field not found or invalid size
+    }
+
+    embedSource(node);
+    if (!resultNeeded) return true;
+
+    int height = varInfo.arrayDims[varInfo.arrayDims.size() - 2];
+    int width = varInfo.arrayDims[varInfo.arrayDims.size() - 1];
+
+    // Union striping works for any width (no power-of-2 requirement like structs)
+    // Calculate base address: same as struct striped arrays
+
+    int numDims = varInfo.arrayDims.size();
+
+    // Store base address (array start) in ZP temp
+    int zpBase = allocateZP(2);
+    std::stringstream ss_base;
+    ss_base << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpBase);
+    emit("ptrstack " + resolveVarName(baseRef->name));
+    emit("stax $" + ss_base.str());
+
+    // Extract dimension indices
+    std::vector<std::pair<Expression*, int>> dimIndices;
+    ArrayAccess* current = &node;
+    for (int i = numDims - 1; i >= 0; i--) {
+        if (!current) return false;
+        dimIndices.push_back({current->indexExpr.get(), varInfo.arrayDims[i]});
+        auto* parentExpr = current->arrayExpr.get();
+        if (i > 0) {
+            current = dynamic_cast<ArrayAccess*>(parentExpr);
+            if (!current) return false;
+        }
+    }
+    std::reverse(dimIndices.begin(), dimIndices.end());
+
+    // Evaluate indices and store in ZP
+    std::vector<std::string> zpIndices;
+    bool oldNeeded = resultNeeded;
+
+    for (size_t i = 0; i < dimIndices.size(); i++) {
+        resultNeeded = true;
+        dimIndices[i].first->accept(*this);
+        resultNeeded = oldNeeded;
+
+        int zpIdx = allocateZP(2);
+        std::stringstream ss;
+        ss << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpIdx);
+        emit("stax $" + ss.str());
+        zpIndices.push_back(ss.str());
+    }
+
+    // Calculate offset within striped array
+    // For unions: offset = (row * width + col) * largestFieldSize
+    int largestSize = varInfo.largestUnionFieldSize;
+    std::string zpOffset = zpIndices.back();
+
+    // Calculate element offset
+    if (numDims == 2) {
+        // 2D: offset = (row * width + col) * largestSize
+        resultNeeded = true;
+        emitter->lda_imm(0);
+        emitter->ldx_imm(0);
+
+        // Load row index
+        emit("ldax $" + zpIndices[0]);
+        // Multiply by width
+        for (int w = width; w > 1; w >>= 1) {
+            if (w & 1) {
+                int tmpZp = allocateZP(2);
+                std::stringstream ssTmp;
+                ssTmp << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(tmpZp);
+                emit("stax $" + ssTmp.str());
+                emit("ldax $" + ssTmp.str());
+                emit("asl");
+                emit("rol");
+                freeZP(tmpZp, 2);
+            } else {
+                emit("asl");
+                emit("rol");
+            }
+        }
+
+        // Add column index
+        emit("clc");
+        emit("adc $" + zpIndices[1]);
+        emit("bcc @no_carry");
+        emit("inx");
+        emit("@no_carry:");
+    } else {
+        // 3D+: calculate using outer dimensions product
+        // Simplified: just use last 2 dimensions (row, col)
+        resultNeeded = true;
+        emitter->ldax("$" + zpIndices[numDims - 2]);
+        for (int w = width; w > 1; w >>= 1) {
+            emit("asl");
+            emit("rol");
+        }
+        emit("clc");
+        emit("adc $" + zpIndices[numDims - 1]);
+        emit("bcc @no_carry");
+        emit("inx");
+        emit("@no_carry:");
+    }
+
+    // Multiply by largest field size
+    for (int s = largestSize; s > 1; s >>= 1) {
+        emit("asl");
+        emit("rol");
+    }
+
+    // Add to base address
+    emit("clc");
+    emit("adc $" + ss_base.str());
+    emit("bcc @element_addr_set");
+    emit("inx");
+    emit("@element_addr_set:");
+
+    // Load field value using size-appropriate instruction
+    std::string fieldAddr = "$(" + ss_base.str() + ")";
+
+    if (fieldSize == 1) {
+        emit("lda " + fieldAddr + ", y");
+        updateRegAVar("union_field", 0);
+        emitter->ldx_imm(0);
+        updateRegX(0);
+    } else if (fieldSize == 2) {
+        emit("ldax " + fieldAddr + ", y");
+        updateRegAVar("union_field", 0);
+        updateRegXVar("union_field", 1);
+    } else if (fieldSize == 4) {
+        emit("ldq " + fieldAddr + ", y");
+        updateRegAVar("union_field", 0);
+        updateRegXVar("union_field", 1);
+        // Y and Z updated implicitly
+    } else {
+        // Larger fields: load via loop
+        for (int i = 0; i < fieldSize; i++) {
+            emit("lda " + fieldAddr + "+" + std::to_string(i) + ", y");
+        }
+    }
+
+    updateZNFlags(FlagSource::A);
+
+    // Free allocated ZP space
+    freeZP(zpBase, 2);
+    for (const auto& zpStr : zpIndices) {
+        if (zpStr[0] == '$') {
+            int zpVal = std::stoi(zpStr.substr(1), nullptr, 16);
+            freeZP(zpVal, 2);
+        }
+    }
+
+    invalidateRegs();
+    return true;
+}
+
+// Phase 96.1: Union-striped data reorganization
+std::vector<int> CodeGenerator::reorganizeUnionStripedArrayData(
+    const std::vector<int>& userData,
+    int elementCount,
+    int largestFieldSize,
+    const std::vector<std::string>& fieldNames
+) {
+    // For unions, all fields overlay at offset 0
+    // Pad each element to largest field size
+
+    std::vector<int> result;
+
+    for (int i = 0; i < elementCount; i++) {
+        // Get element value (defaults to 0 if not provided)
+        int value = (i < (int)userData.size()) ? userData[i] : 0;
+
+        // Pad to largest field size
+        for (int j = 0; j < largestFieldSize; j++) {
+            if (j < 4) {
+                result.push_back((value >> (j * 8)) & 0xFF);
+            } else {
+                result.push_back(0);
+            }
+        }
+    }
+
+    return result;
 }
