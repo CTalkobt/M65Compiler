@@ -1700,12 +1700,12 @@ bool AssemblerOptimizer::applyVariableSizeFieldOptimizations(
                 auto& checkStmt = parser->statements[checkIdx];
                 if (checkStmt->type == AssemblerParser::Statement::INSTRUCTION) {
                     // Check for branches, jumps, or subroutine calls
-                    std::string opcode = checkStmt->instr.opcode;
-                    std::transform(opcode.begin(), opcode.end(), opcode.begin(), ::tolower);
-                    if (opcode == "bne" || opcode == "beq" || opcode == "bra" ||
-                        opcode == "jmp" || opcode == "jsr" || opcode == "bcc" ||
-                        opcode == "bcs" || opcode == "bvs" || opcode == "bvc" ||
-                        opcode == "bmi" || opcode == "bpl") {
+                    std::string mnemonic = checkStmt->instr.mnemonic;
+                    std::transform(mnemonic.begin(), mnemonic.end(), mnemonic.begin(), ::tolower);
+                    if (mnemonic == "bne" || mnemonic == "beq" || mnemonic == "bra" ||
+                        mnemonic == "jmp" || mnemonic == "jsr" || mnemonic == "bcc" ||
+                        mnemonic == "bcs" || mnemonic == "bvs" || mnemonic == "bvc" ||
+                        mnemonic == "bmi" || mnemonic == "bpl") {
                         hasControlFlow = true;
                         break;
                     }
@@ -1747,10 +1747,10 @@ bool AssemblerOptimizer::applyVariableSizeFieldOptimizations(
             auto& scanStmt = parser->statements[scanIdx];
             if (scanStmt->type != AssemblerParser::Statement::INSTRUCTION) continue;
 
-            std::string opcode = scanStmt->instr.opcode;
-            std::transform(opcode.begin(), opcode.end(), opcode.begin(), ::tolower);
+            std::string mnemonic = scanStmt->instr.mnemonic;
+            std::transform(mnemonic.begin(), mnemonic.end(), mnemonic.begin(), ::tolower);
 
-            if (opcode == "jsr") {
+            if (mnemonic == "jsr") {
                 foundJsr = true;
                 jsrIdx = scanIdx;
 
