@@ -5154,6 +5154,14 @@ void CodeGenerator::visit(MemberAccess& node) {
                     }
                 }
 
+                // Phase 96.2: Check for variable-size field access
+                if (varInfo && varInfo->hasVariableFields && varInfo->arrayDims.size() >= 2) {
+                    // This struct has variable-size fields (pointers, FAM)
+                    if (tryEmitVariableSizeFieldAccess(*arrayAccess, *varInfo, actualBase, node.memberName)) {
+                        return;
+                    }
+                }
+
                 if (varInfo && varInfo->isFieldStriped && varInfo->arrayDims.size() >= 2) {
                     // This is a field-striped struct array member access
                     if (tryEmitFieldStripedArrayMemberAccess(*arrayAccess, *varInfo, actualBase, node.memberName, mInfo)) {
@@ -6447,12 +6455,13 @@ void CodeGenerator::emitData() {
                 }
 
                 // Phase 92.4: Handle striped array initialization
-                // Also Phase 95.4/96.1: Handle field-striped struct array and union array initialization
-                // Check if this is a striped array (2D integer), field-striped struct array, or union array
+                // Also Phase 95.4/96.1/96.2: Handle field-striped struct array, union array, and variable-size arrays
+                // Check if this is a striped array (2D integer), field-striped struct array, union array, or variable-size array
                 std::string gName = "_" + gVar->name;
                 bool isStripedArray = false;
                 bool isFieldStripedArray = false;
                 bool isUnionStripedArray = false;
+                bool isVariableSizeArray = false;
                 if (globalVariableTypes.count(gName)) {
                     VarInfo& vi = globalVariableTypes[gName];
                     if (vi.isStriped && vi.arrayDims.size() >= 2 && gVar->type == "int") {
@@ -6463,6 +6472,9 @@ void CodeGenerator::emitData() {
                     } else if (vi.isUnionStriped && vi.arrayDims.size() >= 2 &&
                               vi.unionFields.size() > 0 && vi.unionFieldSizes.size() == vi.unionFields.size()) {
                         isUnionStripedArray = true;
+                    } else if (vi.hasVariableFields && vi.arrayDims.size() >= 2) {
+                        // Phase 96.2: Variable-size field array
+                        isVariableSizeArray = true;
                     }
                 }
 
@@ -6472,7 +6484,7 @@ void CodeGenerator::emitData() {
                     if (resolved[i]) tryEvalConstInt(resolved[i], dataValues[i]);
                 }
 
-                // Phase 93-95.4: Reorganize into striped layout if needed
+                // Phase 93-95.4-96.2: Reorganize into striped layout if needed
                 if (isStripedArray && gVar->arraySize() >= 0) {
                     if (gVar->arrayDims.size() == 2) {
                         // Phase 92: 2D striped array
@@ -6493,6 +6505,55 @@ void CodeGenerator::emitData() {
                             vi.largestUnionFieldSize,
                             vi.unionFields
                         );
+                    }
+                } else if (isVariableSizeArray && gVar->arraySize() >= 0) {
+                    // Phase 96.2: Variable-size field array (fixed-prefix striping)
+                    if (globalVariableTypes.count(gName)) {
+                        VarInfo& vi = globalVariableTypes[gName];
+
+                        // Reorganize to extract fixed prefix and separate variable data
+                        dataValues = reorganizeVariableSizeData(dataValues, vi, totalElements);
+
+                        // Apply field-striping to fixed prefix
+                        std::string sName = getAggregateName(gVar->type);
+                        if (structs.count(sName)) {
+                            auto& sInfo = *structs[sName];
+
+                            // Collect field sizes for fixed fields only
+                            std::vector<std::pair<std::string, int>> fieldInfo;
+                            for (auto& [fname, finfo] : sInfo.members) {
+                                // Stop at first variable-size field
+                                if (finfo.pointerLevel > 0 || (!finfo.arrayDims.empty() && finfo.arrayDims.back() == 0)) {
+                                    break;
+                                }
+
+                                int fsize = 0;
+                                if (finfo.type == "int") fsize = 2;
+                                else if (is8BitType(finfo.type)) fsize = 1;
+                                else if (is32BitType(finfo.type)) fsize = 4;
+                                else if (isStruct(finfo.type)) {
+                                    std::string nestedName = getAggregateName(finfo.type);
+                                    if (structs.count(nestedName)) fsize = structs[nestedName]->totalSize;
+                                }
+
+                                if (fsize > 0) fieldInfo.push_back({fname, fsize});
+                            }
+
+                            // Sort by offset
+                            std::sort(fieldInfo.begin(), fieldInfo.end(),
+                                     [&sInfo](const auto& a, const auto& b) {
+                                         return sInfo.members[a.first].offset < sInfo.members[b.first].offset;
+                                     });
+
+                            // Extract field sizes
+                            std::vector<int> fieldSizes;
+                            for (auto& [fname, fsize] : fieldInfo) {
+                                fieldSizes.push_back(fsize);
+                            }
+
+                            // Reorganize fixed prefix with field striping
+                            dataValues = reorganizeFieldStripedArrayData(dataValues, vi.fixedPrefixSize, fieldSizes, gVar->arrayDims);
+                        }
                     }
                 } else if (isFieldStripedArray && gVar->arraySize() >= 0) {
                     // Phase 95.4: Field-striped struct array
@@ -6553,6 +6614,33 @@ void CodeGenerator::emitData() {
                             } else {
                                 out << "    .res " << std::to_string(elementSize) << ", 0" << std::endl;
                             }
+                        }
+                    }
+                } else if (isVariableSizeArray) {
+                    // Phase 96.2: Emit variable-size array fixed-prefix with field-striping
+                    // Variable data is stored separately (not included in this emission)
+                    std::string gName = "_" + gVar->name;
+                    std::vector<int> fieldSizes;
+                    int height = gVar->arrayDims.size() >= 2 ? gVar->arrayDims[gVar->arrayDims.size()-2] : 1;
+                    int width = gVar->arrayDims.size() >= 1 ? gVar->arrayDims[gVar->arrayDims.size()-1] : 1;
+                    int matrixSize = height * width;
+
+                    if (globalVariableTypes.count(gName)) {
+                        VarInfo& vi = globalVariableTypes[gName];
+                        fieldSizes = vi.fieldSizes;
+                    }
+
+                    int dataIdx = 0;
+
+                    for (size_t fi = 0; fi < fieldSizes.size() && dataIdx < (int)dataValues.size(); fi++) {
+                        int fieldSize = fieldSizes[fi];
+                        // Emit one field region (matrixSize values, each fieldSize bytes)
+                        for (int mi = 0; mi < matrixSize && dataIdx < (int)dataValues.size(); mi++) {
+                            int constVal = dataValues[dataIdx++];
+                            if (fieldSize == 1) out << "    .byte $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (constVal & 0xFF) << std::dec << std::endl;
+                            else if (fieldSize == 2) out << "    .word $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (constVal & 0xFFFF) << std::dec << std::endl;
+                            else if (fieldSize == 4) out << "    .dword $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(8) << (constVal & 0xFFFFFFFF) << std::dec << std::endl;
+                            else out << "    .res " << std::to_string(fieldSize) << ", 0" << std::endl;
                         }
                     }
                 } else if (isFieldStripedArray) {
@@ -7900,36 +7988,31 @@ bool CodeGenerator::tryEmitVariableSizeFieldAccess(
 
     // Pointer field: load address from striped array
     if (fclass == FieldClass::POINTER) {
-        // Calculate array element offset
-        int pointerFieldIdx = -1;
-        for (size_t i = 0; i < varInfo.pointerFieldIndices.size(); i++) {
-            if ((int)varInfo.pointerFieldIndices[i] == fieldIdx) {
-                pointerFieldIdx = i;
-                break;
-            }
+        embedSource(node);
+        if (!resultNeeded) return true;
+
+        // Pointer fields are stored in the fixed-prefix at specific offsets
+        // Calculate the offset of this pointer field within the fixed prefix
+
+        // Use Phase 95 field-striping to load the pointer value
+        // The pointer is treated as a 2-byte fixed field within the striped array
+        auto it = structs.find(baseRef->name);
+        if (it == structs.end()) return false;
+
+        StructInfo& sInfo = *it->second;
+        auto memberIt = sInfo.members.find(memberName);
+        if (memberIt == sInfo.members.end()) return false;
+
+        MemberInfo mInfo = memberIt->second;
+
+        // Load the pointer value using field-striping
+        // For pointer fields in variable-size structs, we treat them as
+        // fixed-size fields in the striped prefix and load them normally
+        if (tryEmitFieldStripedArrayMemberAccess(node, varInfo, baseRef, memberName, mInfo)) {
+            return true;
         }
 
-        if (pointerFieldIdx < 0) return false;
-
-        // Load pointer from striped array (2 bytes)
-        emitCalculateArrayElementAddress(node, varInfo);
-
-        // Pointer is at fixed offset within fixed prefix
-        int pointerOffset = 0;
-        for (int i = 0; i < fieldIdx; i++) {
-            if ((int)varInfo.fieldClasses[i] == (int)FieldClass::FIXED_SCALAR) {
-                pointerOffset += varInfo.fieldSizes[i];
-            } else if ((int)varInfo.fieldClasses[i] == (int)FieldClass::FIXED_ARRAY) {
-                // Fixed array size calculation
-                pointerOffset += varInfo.fieldSizes[i];
-            }
-        }
-
-        out << "ldax $" << std::hex << baseAddr << std::dec << "\n";
-        updateRegAVar();
-        updateRegXVar();
-
-        return true;
+        return false;
     }
 
     // Flexible array member: cannot be accessed at compile-time
