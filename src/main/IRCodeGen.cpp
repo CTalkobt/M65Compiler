@@ -953,10 +953,39 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
     // Emit data section for initialized globals
     bool hasData = false;
     bool hasBss = false;
+    bool hasZp = false;
     for (size_t gi = 0; gi < mod.globals.size(); gi++) {
         const auto& g = mod.globals[gi];
         if (globalLastIdx[g.name] != gi) continue; // skip earlier duplicate
-        if (g.hasInitValue) {
+
+        // Phase 97: Route __zp variables (addressSpace=1) to .zp segment
+        if (g.addressSpace == 1) {
+            // Zero-page global
+            if (!hasZp) {
+                if (hasData || hasBss) emitBlank();
+                if (relocMode) emit(".segment \"zp\"");
+                hasZp = true;
+            }
+            emitLabel(g.name);
+            // Emit debug metadata for global variable
+            emitDebugVariable("@global", g.name, 0, g.type, "global");
+            // Emit initializer or reservation for zp variable
+            if (g.hasInitValue) {
+                if (g.type == ir::Type::I8) {
+                    emit(".byte " + std::to_string((int)(g.initValue & 0xFF)));
+                } else if (g.type == ir::Type::I32) {
+                    emit(".dword " + std::to_string((int)g.initValue));
+                } else {
+                    emit(".word " + std::to_string((int)(g.initValue & 0xFFFF)));
+                }
+                int typeSz = ir::typeSize(g.type);
+                if (typeSz < g.size) {
+                    emit(".res " + std::to_string(g.size - typeSz));
+                }
+            } else {
+                emit(".res " + std::to_string(g.size > 0 ? g.size : ir::typeSize(g.type)));
+            }
+        } else if (g.hasInitValue) {
             // Initialized global: goes to data segment.
             // Must switch back from BSS if we were emitting uninitialized globals.
             if (!hasData || hasBss) {
