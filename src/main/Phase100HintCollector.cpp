@@ -81,7 +81,7 @@ bool HintCollector::canApplyTogether(const std::shared_ptr<OptimizationHint>& h1
     return areCompatible(*h1, *h2);
 }
 
-std::vector<std::shared_ptr<OptimizationHint>> HintCollector::getOptimalApplicationOrder() {
+std::vector<std::shared_ptr<OptimizationHint>> HintCollector::getOptimalApplicationOrder() const {
     std::vector<std::shared_ptr<OptimizationHint>> result;
 
     // Sort by priority (descending), then by benefit (descending)

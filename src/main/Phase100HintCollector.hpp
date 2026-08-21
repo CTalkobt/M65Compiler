@@ -86,7 +86,7 @@ public:
                          const std::shared_ptr<OptimizationHint>& h2) const;
 
     // Get optimal application order
-    std::vector<std::shared_ptr<OptimizationHint>> getOptimalApplicationOrder();
+    std::vector<std::shared_ptr<OptimizationHint>> getOptimalApplicationOrder() const;
 
     // Statistics
     int getTotalHintCount() const { return hints_.size(); }
