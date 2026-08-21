@@ -79,7 +79,11 @@ void InterTUPatternDetector::detectSequentialFieldAccess() {
     // Example: mesh[i][j].vertices then mesh[i][j].vertices->x
 
     for (const auto& [funcName, accesses] : functionFieldAccesses) {
-        std::vector<std::string> accessList(accesses.begin(), accesses.end());
+        // accesses is set<pair<string, string>> - extract field keys
+        std::vector<std::string> accessList;
+        for (const auto& [fieldKey, accessType] : accesses) {
+            accessList.push_back(fieldKey);
+        }
 
         for (size_t i = 0; i < accessList.size(); i++) {
             for (size_t j = i + 1; j < accessList.size(); j++) {

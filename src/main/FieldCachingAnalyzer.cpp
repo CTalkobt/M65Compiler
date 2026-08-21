@@ -176,8 +176,6 @@ void FieldCachingAnalyzer::analyzeCostBenefit() {
             CachingDecision decision;
             decision.fieldName = lifetime.fieldName;
             decision.structName = "";  // Would come from field info
-            decision.firstAccessLine = lifetime.firstAccessLine;
-            decision.lastAccessLine = lifetime.lastAccessLine;
 
             // Compute estimated savings
             int bytesPerAccess = 10;  // Typical offset calc
