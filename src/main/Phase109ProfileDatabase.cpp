@@ -201,7 +201,7 @@ OptimizationContext Phase109ProfileDatabase::classifyContext(
     if (complexity < 10) {
         context.complexity = OptimizationContext::LOW;
     } else if (complexity < 25) {
-        context.complexity = OptimizationContext::MEDIUM;
+        context.complexity = OptimizationContext::MODERATE;
     } else if (complexity < 50) {
         context.complexity = OptimizationContext::HIGH;
     } else {

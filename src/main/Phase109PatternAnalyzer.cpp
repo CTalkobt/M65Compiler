@@ -108,7 +108,7 @@ FileCharacteristics Phase109PatternAnalyzer::classifyFile(
     } else if (fileSize < 5000) {
         fc.fileSizeCategory = OptimizationContext::SMALL;
     } else if (fileSize < 20000) {
-        fc.fileSizeCategory = OptimizationContext::MEDIUM;
+        fc.fileSizeCategory = OptimizationContext::MODERATE;
     } else if (fileSize < 100000) {
         fc.fileSizeCategory = OptimizationContext::LARGE;
     } else {
@@ -120,7 +120,7 @@ FileCharacteristics Phase109PatternAnalyzer::classifyFile(
     if (complexity < 10) {
         fc.complexityCategory = OptimizationContext::LOW;
     } else if (complexity < 25) {
-        fc.complexityCategory = OptimizationContext::MEDIUM;
+        fc.complexityCategory = OptimizationContext::MODERATE;
     } else if (complexity < 50) {
         fc.complexityCategory = OptimizationContext::HIGH;
     } else {
@@ -155,14 +155,14 @@ std::string Phase109PatternAnalyzer::generateReport() const {
             switch (pattern.context.fileSize) {
                 case OptimizationContext::TINY: ss << "TINY"; break;
                 case OptimizationContext::SMALL: ss << "SMALL"; break;
-                case OptimizationContext::MEDIUM: ss << "MEDIUM"; break;
+                case OptimizationContext::MODERATE: ss << "MEDIUM"; break;
                 case OptimizationContext::LARGE: ss << "LARGE"; break;
                 case OptimizationContext::HUGE: ss << "HUGE"; break;
             }
             ss << " / ";
             switch (pattern.context.complexity) {
                 case OptimizationContext::LOW: ss << "LOW"; break;
-                case OptimizationContext::MEDIUM: ss << "MEDIUM"; break;
+                case OptimizationContext::MODERATE: ss << "MEDIUM"; break;
                 case OptimizationContext::HIGH: ss << "HIGH"; break;
                 case OptimizationContext::VERY_HIGH: ss << "VERY_HIGH"; break;
             }
@@ -198,13 +198,13 @@ void Phase109PatternAnalyzer::analyzeContextualEffectiveness(
     std::vector<OptimizationContext::FileSize> fileSizes = {
         OptimizationContext::TINY,
         OptimizationContext::SMALL,
-        OptimizationContext::MEDIUM,
+        OptimizationContext::MODERATE,
         OptimizationContext::LARGE,
         OptimizationContext::HUGE};
 
     std::vector<OptimizationContext::Complexity> complexities = {
         OptimizationContext::LOW,
-        OptimizationContext::MEDIUM,
+        OptimizationContext::MODERATE,
         OptimizationContext::HIGH,
         OptimizationContext::VERY_HIGH};
 
@@ -239,14 +239,14 @@ void Phase109PatternAnalyzer::analyzeContextualEffectiveness(
             switch (fileSize) {
                 case OptimizationContext::TINY: ss << "TINY"; break;
                 case OptimizationContext::SMALL: ss << "SMALL"; break;
-                case OptimizationContext::MEDIUM: ss << "MEDIUM"; break;
+                case OptimizationContext::MODERATE: ss << "MEDIUM"; break;
                 case OptimizationContext::LARGE: ss << "LARGE"; break;
                 case OptimizationContext::HUGE: ss << "HUGE"; break;
             }
             ss << " file, ";
             switch (complexity) {
                 case OptimizationContext::LOW: ss << "LOW"; break;
-                case OptimizationContext::MEDIUM: ss << "MEDIUM"; break;
+                case OptimizationContext::MODERATE: ss << "MEDIUM"; break;
                 case OptimizationContext::HIGH: ss << "HIGH"; break;
                 case OptimizationContext::VERY_HIGH: ss << "VERY_HIGH"; break;
             }
