@@ -3,8 +3,7 @@
 #include <vector>
 #include <map>
 #include <memory>
-
-class Stage;
+#include "Stage.hpp"
 
 // Compilation configuration
 struct CompilationConfig {
