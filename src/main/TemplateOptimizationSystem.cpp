@@ -3,6 +3,7 @@
 #include "ConditionalChainFusion.hpp"
 #include "RegisterResidentLoops.hpp"
 #include "PointerCachingOptimization.hpp"
+#include "TableDrivenDispatch.hpp"
 #include "Phase109Integration.hpp"
 #include <iostream>
 #include <sstream>
@@ -42,7 +43,9 @@ void TemplateOptimizationSystem::registerAllOptimizations() {
 
     // Register Phase 110.4: Pointer Chasing Optimization
     registry_->registerOptimization(std::make_unique<PointerCachingOptimization>());
-    // TODO: Register table-driven dispatch (110.5)
+
+    // Register Phase 110.5: Table-Driven Dispatch
+    registry_->registerOptimization(std::make_unique<TableDrivenDispatch>());
     // TODO: Register bit manipulation strength reduction (110.6)
     // TODO: Register DMA operations (110.7)
     // TODO: Register zero-page pressure relief (110.8)
