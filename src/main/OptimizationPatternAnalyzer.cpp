@@ -108,7 +108,7 @@ FileCharacteristics OptimizationPatternAnalyzer::classifyFile(
     } else if (fileSize < 5000) {
         fc.fileSizeCategory = OptimizationContext::SMALL;
     } else if (fileSize < 20000) {
-        fc.fileSizeCategory = OptimizationContext::MODERATE;
+        fc.fileSizeCategory = OptimizationContext::MEDIUM;
     } else if (fileSize < 100000) {
         fc.fileSizeCategory = OptimizationContext::LARGE;
     } else {
@@ -155,7 +155,7 @@ std::string OptimizationPatternAnalyzer::generateReport() const {
             switch (pattern.context.fileSize) {
                 case OptimizationContext::TINY: ss << "TINY"; break;
                 case OptimizationContext::SMALL: ss << "SMALL"; break;
-                case OptimizationContext::MODERATE: ss << "MEDIUM"; break;
+                case OptimizationContext::MEDIUM: ss << "MEDIUM"; break;
                 case OptimizationContext::LARGE: ss << "LARGE"; break;
                 case OptimizationContext::HUGE: ss << "HUGE"; break;
             }
@@ -239,7 +239,7 @@ void OptimizationPatternAnalyzer::analyzeContextualEffectiveness(
             switch (fileSize) {
                 case OptimizationContext::TINY: ss << "TINY"; break;
                 case OptimizationContext::SMALL: ss << "SMALL"; break;
-                case OptimizationContext::MODERATE: ss << "MEDIUM"; break;
+                case OptimizationContext::MEDIUM: ss << "MEDIUM"; break;
                 case OptimizationContext::LARGE: ss << "LARGE"; break;
                 case OptimizationContext::HUGE: ss << "HUGE"; break;
             }
