@@ -45,6 +45,7 @@
 #include "O45IRSerializer.hpp"
 #include "Phase108Integration.hpp"
 #include "Phase109Integration.hpp"
+#include "TemplateOptimizationSystem.hpp"
 
 class ASTPrinter : public ASTVisitor {
 public:
