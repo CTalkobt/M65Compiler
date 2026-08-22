@@ -280,6 +280,13 @@ OptimizationProfile OptimizationProfileDatabase::computeGlobalEffectiveness(
                                     + profile.globalAvgSizeReduction;
     }
 
+    // Initialize trend information
+    profile.trend.dataPointCount = applications.size();
+    profile.trend.successRateTrend = profile.globalSuccessRate;
+    profile.trend.benefitTrend = profile.globalBenefitScore;
+    profile.trend.confidenceScore = (applications.size() > 0) ?
+        std::min(100.0, applications.size() * 10.0) : 0.0;
+
     return profile;
 }
 
