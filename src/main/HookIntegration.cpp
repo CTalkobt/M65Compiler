@@ -1,6 +1,7 @@
 #include "HookIntegration.hpp"
 #include "CompilerHookIntegrator.hpp"
 #include "CompilerDecisionLogic.hpp"
+#include "LearnerFeedbackRecorder.hpp"
 #include "Lexer.hpp"
 #include "AST.hpp"
 #include <iostream>
@@ -150,8 +151,14 @@ void HookIntegration::printHookStatistics() const {
 void HookIntegration::setLearner(OnlineLearner* learner) {
     learner_ = learner;
     decisionLogic_->setLearner(learner);
-    if (verbose_ && learner_) {
-        std::cout << "[Phase108] OnlineLearner integrated for decision logic" << std::endl;
+
+    // Phase 113: Initialize feedback recorder with new learner
+    if (learner_) {
+        feedbackRecorder_ = std::make_unique<LearnerFeedbackRecorder>(learner_);
+        if (verbose_) {
+            std::cout << "[Phase108] OnlineLearner integrated for decision logic" << std::endl;
+            std::cout << "[Phase113] Feedback recorder initialized for learning loop" << std::endl;
+        }
     }
 }
 
@@ -179,4 +186,36 @@ HookDecision HookIntegration::makeIROptimizationDecision(bool currentOptimizatio
         currentOptimizationState,
         integrator_->getRemainingBudgetMs()
     );
+}
+
+// Phase 113: Learning feedback loop methods
+void HookIntegration::recordCompilationMetrics(const CompilationMetrics& metrics) {
+    // Initialize feedback recorder if needed
+    if (!feedbackRecorder_) {
+        feedbackRecorder_ = std::make_unique<LearnerFeedbackRecorder>(learner_);
+    }
+
+    feedbackRecorder_->recordMetrics(metrics);
+
+    if (verbose_) {
+        std::cout << "[Phase113] Recorded metrics: " << metrics.appliedOptimizations.size()
+                  << " optimizations applied, final size=" << metrics.finalAssemblySize
+                  << " bytes" << std::endl;
+    }
+}
+
+FeedbackResult HookIntegration::finalizeCompilationFeedback(const CompilationMetrics& metrics) {
+    if (!feedbackRecorder_) {
+        feedbackRecorder_ = std::make_unique<LearnerFeedbackRecorder>(learner_);
+    }
+
+    FeedbackResult result = feedbackRecorder_->finalizeCompilation(metrics);
+
+    if (verbose_) {
+        std::cout << "[Phase113] Finalized feedback: applied=" << result.optimizationsApplied
+                  << ", beneficial=" << result.optimizationsBeneficial
+                  << ", benefit_score=" << result.overallBenefitScore << std::endl;
+    }
+
+    return result;
 }

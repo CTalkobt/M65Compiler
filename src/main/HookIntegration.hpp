@@ -1,6 +1,7 @@
 #pragma once
 #include "CompilerHookIntegrator.hpp"
 #include "CompilerDecisionLogic.hpp"
+#include "LearnerFeedbackRecorder.hpp"
 #include <memory>
 #include <vector>
 #include <string>
@@ -53,9 +54,15 @@ public:
     HookDecision makeOptimizationDecision(bool currentOptimizationState);
     HookDecision makeIROptimizationDecision(bool currentOptimizationState);
 
+    // Phase 113: Learning feedback loop
+    void recordCompilationMetrics(const CompilationMetrics& metrics);
+    FeedbackResult finalizeCompilationFeedback(const CompilationMetrics& metrics);
+    LearnerFeedbackRecorder* getFeedbackRecorder() { return feedbackRecorder_.get(); }
+
 private:
     std::unique_ptr<CompilerHookIntegrator> integrator_;
     std::unique_ptr<CompilerDecisionLogic> decisionLogic_;
+    std::unique_ptr<LearnerFeedbackRecorder> feedbackRecorder_;  // Phase 113
     HookDecision lastDecision_;
     OnlineLearner* learner_;
     bool verbose_;
