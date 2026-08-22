@@ -1,5 +1,4 @@
 #include "BitManipulationReduction.hpp"
-#include "ir/Module.hpp"
 
 BitManipulationReduction::BitManipulationReduction()
     : patternsOptimized_(0), bytesReduced_(0) {

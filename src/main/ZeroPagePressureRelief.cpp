@@ -1,5 +1,4 @@
 #include "ZeroPagePressureRelief.hpp"
-#include "ir/Module.hpp"
 
 ZeroPagePressureRelief::ZeroPagePressureRelief()
     : variablesMigrated_(0), bytesFreed_(0) {

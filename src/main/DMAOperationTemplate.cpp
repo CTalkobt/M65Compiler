@@ -1,5 +1,4 @@
 #include "DMAOperationTemplate.hpp"
-#include "ir/Module.hpp"
 
 DMAOperationTemplate::DMAOperationTemplate()
     : operationsOptimized_(0), bytesReduced_(0) {
