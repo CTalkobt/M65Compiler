@@ -106,6 +106,11 @@ void AdaptiveLearnerIntegration::finalizeCompilation(
         OptimizationApplication app;
         app.optimizationName = currentRecord.enabledOptimizations[i];
         app.applied = true;
+        app.estimatedSpeedup = 0.0;
+        app.estimatedSizeReduction = 0.0;
+        app.actualSpeedup = 0.0;
+        app.actualSizeReduction = 0.0;
+        app.compilationCost = 0.0;
         app.successful = (finalAssemblySize < 10000);  // Heuristic
         apps.push_back(app);
     }

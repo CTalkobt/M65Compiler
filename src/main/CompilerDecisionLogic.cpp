@@ -75,6 +75,8 @@ HookDecision CompilerDecisionLogic::decideIROptimization(
         HookDecision decision;
         decision.changed = true;
         decision.enableOptimizations = false;
+        decision.enableIROpts = false;
+        decision.enableInlining = false;
         decision.skipExpensivePasses = true;
         decision.estimatedTimeRemaining = budgetMs;
         decision.rationale = "Phase108: Insufficient budget for IR optimization";
@@ -95,7 +97,9 @@ HookDecision CompilerDecisionLogic::decideIROptimization(
 
         HookDecision decision;
         decision.changed = (shouldOptimize != currentOptimizationState);
+        decision.enableOptimizations = shouldOptimize;
         decision.enableIROpts = shouldOptimize;
+        decision.enableInlining = shouldOptimize && (budgetMs > 100);
         decision.skipExpensivePasses = !shouldOptimize;
         decision.estimatedTimeRemaining = budgetMs;
         decision.rationale = shouldOptimize ?
@@ -122,6 +126,8 @@ HookDecision CompilerDecisionLogic::decideInlining(
         // Skip inlining if budget tight
         HookDecision decision;
         decision.changed = true;
+        decision.enableOptimizations = true;
+        decision.enableIROpts = true;
         decision.enableInlining = false;
         decision.skipExpensivePasses = true;
         decision.estimatedTimeRemaining = budgetMs;
