@@ -4,6 +4,9 @@
 #include "RegisterResidentLoops.hpp"
 #include "PointerCachingOptimization.hpp"
 #include "TableDrivenDispatch.hpp"
+#include "BitManipulationReduction.hpp"
+#include "DMAOperationTemplate.hpp"
+#include "ZeroPagePressureRelief.hpp"
 #include "Phase109Integration.hpp"
 #include <iostream>
 #include <sstream>
@@ -46,9 +49,15 @@ void TemplateOptimizationSystem::registerAllOptimizations() {
 
     // Register Phase 110.5: Table-Driven Dispatch
     registry_->registerOptimization(std::make_unique<TableDrivenDispatch>());
-    // TODO: Register bit manipulation strength reduction (110.6)
-    // TODO: Register DMA operations (110.7)
-    // TODO: Register zero-page pressure relief (110.8)
+
+    // Register Phase 110.6: Bit Manipulation Strength Reduction
+    registry_->registerOptimization(std::make_unique<BitManipulationReduction>());
+
+    // Register Phase 110.7: DMA Operation Template
+    registry_->registerOptimization(std::make_unique<DMAOperationTemplate>());
+
+    // Register Phase 110.8: Zero-Page Pressure Relief
+    registry_->registerOptimization(std::make_unique<ZeroPagePressureRelief>())
 
     if (verbose_) {
         std::cout << "  Registered " << registry_->getOptimizationCount() << " optimization templates" << std::endl;
