@@ -8,7 +8,7 @@
 // Context for optimization effectiveness
 struct OptimizationContext {
     enum FileSize { TINY, SMALL, MEDIUM, LARGE, HUGE };
-    enum Complexity { LOW, MEDIUM, HIGH, VERY_HIGH };
+    enum Complexity { LOW, MODERATE, HIGH, VERY_HIGH };
 
     FileSize fileSize;
     Complexity complexity;

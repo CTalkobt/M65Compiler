@@ -59,7 +59,7 @@ public:
     int getAppliedAdjustments() const {
         int count = 0;
         for (const auto& adj : adjustments_) {
-            if (adj.shouldApply) count++;
+            if (adj.second.shouldApply) count++;
         }
         return count;
     }
