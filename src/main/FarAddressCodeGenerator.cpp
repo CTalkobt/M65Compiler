@@ -93,9 +93,8 @@ bool FarAddressCodeGenerator::canReuseBank(const phase98::FarPointer& ptr) const
     return farMemoryManager.isBankCached(ptr.bankId);
 }
 
-void FarAddressCodeGenerator::setCachedBank(unsigned bank) {
+void FarAddressCodeGenerator::setCachedBank([[maybe_unused]] unsigned bank) {
     // This would update the internal state in FarMemoryManager
-    // For now, it's tracked via indirect calls (C++ will optimize out the parameter warning)
-    (void)bank;  // Suppress unused parameter warning
+    // For now, it's tracked via indirect calls
 }
 

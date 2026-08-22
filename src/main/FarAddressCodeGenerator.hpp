@@ -37,7 +37,7 @@ public:
     bool canReuseBank(const phase98::FarPointer& ptr) const;
 
     // Update cached bank state
-    void setCachedBank(unsigned bank);
+    void setCachedBank([[maybe_unused]] unsigned bank);
 
     // Statistics
     int getFarVariableCount() const { return farMemoryManager.getBankCount(); }
