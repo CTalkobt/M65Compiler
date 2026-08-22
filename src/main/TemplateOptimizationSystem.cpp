@@ -1,4 +1,5 @@
 #include "TemplateOptimizationSystem.hpp"
+#include "MathLibraryOptimization.hpp"
 #include "Phase109Integration.hpp"
 #include <iostream>
 #include <sstream>
@@ -23,21 +24,20 @@ void TemplateOptimizationSystem::initialize(bool verbose) {
 }
 
 void TemplateOptimizationSystem::registerAllOptimizations() {
-    // Optimizations will be registered here as implementation progresses
-    // For now, registry is prepared but optimizations are stubs
-
     if (verbose_) {
         std::cout << "  Registering optimization templates..." << std::endl;
     }
 
-    // TODO: Register math library optimization
-    // TODO: Register conditional chain fusion
-    // TODO: Register register-resident loop optimization
-    // TODO: Register pointer chasing optimization
-    // TODO: Register table-driven dispatch
-    // TODO: Register bit manipulation strength reduction
-    // TODO: Register DMA operations
-    // TODO: Register zero-page pressure relief
+    // Register Phase 110.1: Math Library Optimization
+    registry_->registerOptimization(std::make_unique<MathLibraryOptimization>());
+
+    // TODO: Register conditional chain fusion (110.2)
+    // TODO: Register register-resident loop optimization (110.3)
+    // TODO: Register pointer chasing optimization (110.4)
+    // TODO: Register table-driven dispatch (110.5)
+    // TODO: Register bit manipulation strength reduction (110.6)
+    // TODO: Register DMA operations (110.7)
+    // TODO: Register zero-page pressure relief (110.8)
 
     if (verbose_) {
         std::cout << "  Registered " << registry_->getOptimizationCount() << " optimization templates" << std::endl;
