@@ -47,7 +47,10 @@ OptimizationProfile OptimizationProfileDatabase::getProfile(
     empty.globalAvgSizeReduction = 0.0;
     empty.globalAvgCost = 0.0;
     empty.globalBenefitScore = 0.0;
-    empty.trend = 0.0;  // Assuming trend is a double
+    empty.trend.dataPointCount = 0;
+    empty.trend.successRateTrend = 0.0;
+    empty.trend.benefitTrend = 0.0;
+    empty.trend.confidenceScore = 0.0;
     return empty;
 }
 
@@ -237,7 +240,10 @@ OptimizationProfile OptimizationProfileDatabase::computeGlobalEffectiveness(
         profile.globalAvgSizeReduction = 0.0;
         profile.globalAvgCost = 0.0;
         profile.globalBenefitScore = 0.0;
-        profile.trend = 0.0;
+        profile.trend.dataPointCount = 0;
+        profile.trend.successRateTrend = 0.0;
+        profile.trend.benefitTrend = 0.0;
+        profile.trend.confidenceScore = 0.0;
         return profile;
     }
 
