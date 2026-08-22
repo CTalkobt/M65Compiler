@@ -3,7 +3,7 @@
 DMAOperationTemplate::DMAOperationTemplate()
     : operationsOptimized_(0), bytesReduced_(0) {
     metrics_.optimizationName = "DMA Operation Template";
-    metrics_.type = OptimizationType::DMA_OPERATION_TEMPLATE;
+    metrics_.type = OptimizationType::DMA_AUTO_INVOKE;
 }
 
 DMAOperationTemplate::~DMAOperationTemplate() = default;
