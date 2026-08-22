@@ -198,7 +198,7 @@ void Phase109PatternAnalyzer::analyzeContextualEffectiveness(
     std::vector<OptimizationContext::FileSize> fileSizes = {
         OptimizationContext::TINY,
         OptimizationContext::SMALL,
-        OptimizationContext::MODERATE,
+        OptimizationContext::MEDIUM,
         OptimizationContext::LARGE,
         OptimizationContext::HUGE};
 
