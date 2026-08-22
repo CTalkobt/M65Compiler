@@ -43,8 +43,8 @@
 #include "O45Reader.hpp"
 #include "O45Writer.hpp"
 #include "O45IRSerializer.hpp"
-#include "Phase108Integration.hpp"
-#include "Phase109Integration.hpp"
+#include "HookIntegration.hpp"
+#include "AdaptiveLearnerIntegration.hpp"
 #include "TemplateOptimizationSystem.hpp"
 
 class ASTPrinter : public ASTVisitor {
@@ -738,12 +738,12 @@ int main(int argc, char** argv) {
     }
 
     // Phase 108: Frontend Integration - Initialize hooks
-    auto phase108 = std::make_unique<Phase108Integration>();
+    auto phase108 = std::make_unique<HookIntegration>();
     phase108->initializeCompilation(input_file, verboseLevel >= 1, 500.0);
     phase108->onPreParse();
 
     // Phase 109: Adaptive Optimization Tuning - Initialize learning system
-    auto phase109 = std::make_unique<Phase109Integration>();
+    auto phase109 = std::make_unique<AdaptiveLearnerIntegration>();
     phase109->initialize(verboseLevel >= 1);
 
     if (verboseLevel >= 1) {

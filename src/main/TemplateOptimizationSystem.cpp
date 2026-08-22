@@ -7,7 +7,7 @@
 #include "BitManipulationReduction.hpp"
 #include "DMAOperationTemplate.hpp"
 #include "ZeroPagePressureRelief.hpp"
-#include "Phase109Integration.hpp"
+#include "AdaptiveLearnerIntegration.hpp"
 #include <iostream>
 #include <sstream>
 
@@ -35,29 +35,29 @@ void TemplateOptimizationSystem::registerAllOptimizations() {
         std::cout << "  Registering optimization templates..." << std::endl;
     }
 
-    // Register Phase 110.1: Math Library Optimization
+    // Register Math Library Constant Folding
     registry_->registerOptimization(std::make_unique<MathLibraryOptimization>());
 
-    // Register Phase 110.2: Conditional Chain Fusion
+    // Register Conditional Chain Fusion
     registry_->registerOptimization(std::make_unique<ConditionalChainFusion>());
 
-    // Register Phase 110.3: Register-Resident Loop Optimization
+    // Register Register-Resident Loop Optimization
     registry_->registerOptimization(std::make_unique<RegisterResidentLoops>());
 
-    // Register Phase 110.4: Pointer Chasing Optimization
+    // Register Pointer Chasing Optimization
     registry_->registerOptimization(std::make_unique<PointerCachingOptimization>());
 
-    // Register Phase 110.5: Table-Driven Dispatch
+    // Register Table-Driven Dispatch
     registry_->registerOptimization(std::make_unique<TableDrivenDispatch>());
 
-    // Register Phase 110.6: Bit Manipulation Strength Reduction
+    // Register Bit Manipulation Strength Reduction
     registry_->registerOptimization(std::make_unique<BitManipulationReduction>());
 
-    // Register Phase 110.7: DMA Operation Template
+    // Register DMA Operation Template
     registry_->registerOptimization(std::make_unique<DMAOperationTemplate>());
 
-    // Register Phase 110.8: Zero-Page Pressure Relief
-    registry_->registerOptimization(std::make_unique<ZeroPagePressureRelief>())
+    // Register Zero-Page Pressure Relief
+    registry_->registerOptimization(std::make_unique<ZeroPagePressureRelief>());
 
     if (verbose_) {
         std::cout << "  Registered " << registry_->getOptimizationCount() << " optimization templates" << std::endl;
