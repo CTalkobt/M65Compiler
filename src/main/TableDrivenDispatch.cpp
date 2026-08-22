@@ -3,9 +3,9 @@
 #include <cmath>
 
 TableDrivenDispatch::TableDrivenDispatch()
-    : switchesOptimized_(0), bytesReduced_(0) {
-    metrics_.optimizationName = "Table-Driven Dispatch";
-    metrics_.type = OptimizationType::TABLE_DRIVEN_DISPATCH;
+    : OptimizationPassBase(OptimizationType::TABLE_DRIVEN_DISPATCH,
+                          "Table-Driven Dispatch"),
+      switchesOptimized_(0), bytesReduced_(0) {
 }
 
 TableDrivenDispatch::~TableDrivenDispatch() = default;

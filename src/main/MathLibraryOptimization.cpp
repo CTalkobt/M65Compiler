@@ -24,9 +24,9 @@ MathLibraryOptimization::MATH_FUNCTIONS = {
 };
 
 MathLibraryOptimization::MathLibraryOptimization()
-    : callsOptimized_(0), bytesReduced_(0) {
-    metrics_.optimizationName = "Math Library Constant Folding";
-    metrics_.type = OptimizationType::MATH_LIBRARY_OPTIMIZATION;
+    : OptimizationPassBase(OptimizationType::MATH_LIBRARY_OPTIMIZATION,
+                          "Math Library Constant Folding"),
+      callsOptimized_(0), bytesReduced_(0) {
 }
 
 MathLibraryOptimization::~MathLibraryOptimization() = default;

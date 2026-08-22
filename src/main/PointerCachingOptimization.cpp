@@ -3,9 +3,9 @@
 #include <sstream>
 
 PointerCachingOptimization::PointerCachingOptimization()
-    : pointersOptimized_(0), bytesReduced_(0) {
-    metrics_.optimizationName = "Pointer Chasing Cache";
-    metrics_.type = OptimizationType::POINTER_CHASING_CACHE;
+    : OptimizationPassBase(OptimizationType::POINTER_CHASING_CACHE,
+                          "Pointer Chasing Cache"),
+      pointersOptimized_(0), bytesReduced_(0) {
 }
 
 PointerCachingOptimization::~PointerCachingOptimization() = default;

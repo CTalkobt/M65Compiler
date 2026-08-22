@@ -1,5 +1,5 @@
 #pragma once
-#include "TemplateOptimizationPass.hpp"
+#include "OptimizationPassBase.hpp"
 #include <map>
 #include <string>
 
@@ -8,17 +8,13 @@ class TranslationUnit;
 
 // Zero-Page Pressure Relief Optimization
 // Identifies and migrates variables to avoid zero-page pressure/conflicts
-class ZeroPagePressureRelief : public TemplateOptimizationPass {
+class ZeroPagePressureRelief : public OptimizationPassBase {
 public:
     ZeroPagePressureRelief();
     ~ZeroPagePressureRelief() override;
 
     void apply(TranslationUnit& ast) override;
     void apply(ir::Module& irModule) override;
-
-    OptimizationMetrics getMetrics() const override { return metrics_; }
-    std::string getName() const override { return "Zero-Page Pressure Relief"; }
-    OptimizationType getType() const override { return OptimizationType::ZEROPAGE_PRESSURE_RELIEF; }
 
 private:
     struct ZPPressureProfile {

@@ -1,9 +1,9 @@
 #include "DMAOperationTemplate.hpp"
 
 DMAOperationTemplate::DMAOperationTemplate()
-    : operationsOptimized_(0), bytesReduced_(0) {
-    metrics_.optimizationName = "DMA Operation Template";
-    metrics_.type = OptimizationType::DMA_AUTO_INVOKE;
+    : OptimizationPassBase(OptimizationType::DMA_AUTO_INVOKE,
+                          "DMA Operation Template"),
+      operationsOptimized_(0), bytesReduced_(0) {
 }
 
 DMAOperationTemplate::~DMAOperationTemplate() = default;

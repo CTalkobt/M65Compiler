@@ -1,9 +1,9 @@
 #include "BitManipulationReduction.hpp"
 
 BitManipulationReduction::BitManipulationReduction()
-    : patternsOptimized_(0), bytesReduced_(0) {
-    metrics_.optimizationName = "Bit Manipulation Strength Reduction";
-    metrics_.type = OptimizationType::BIT_MANIPULATION_REDUCTION;
+    : OptimizationPassBase(OptimizationType::BIT_MANIPULATION_REDUCTION,
+                          "Bit Manipulation Strength Reduction"),
+      patternsOptimized_(0), bytesReduced_(0) {
 }
 
 BitManipulationReduction::~BitManipulationReduction() = default;

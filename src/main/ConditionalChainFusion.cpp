@@ -2,9 +2,9 @@
 #include <algorithm>
 
 ConditionalChainFusion::ConditionalChainFusion()
-    : chainsOptimized_(0), bytesReduced_(0) {
-    metrics_.optimizationName = "Conditional Chain Fusion";
-    metrics_.type = OptimizationType::CONDITIONAL_CHAIN_FUSION;
+    : OptimizationPassBase(OptimizationType::CONDITIONAL_CHAIN_FUSION,
+                          "Conditional Chain Fusion"),
+      chainsOptimized_(0), bytesReduced_(0) {
 }
 
 ConditionalChainFusion::~ConditionalChainFusion() = default;

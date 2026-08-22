@@ -1,5 +1,5 @@
 #pragma once
-#include "TemplateOptimizationPass.hpp"
+#include "OptimizationPassBase.hpp"
 #include <map>
 #include <string>
 
@@ -8,17 +8,13 @@ class TranslationUnit;
 
 // Bit Manipulation Strength Reduction Optimization
 // Optimizes bit operations with strength reduction and special instruction hints
-class BitManipulationReduction : public TemplateOptimizationPass {
+class BitManipulationReduction : public OptimizationPassBase {
 public:
     BitManipulationReduction();
     ~BitManipulationReduction() override;
 
     void apply(TranslationUnit& ast) override;
     void apply(ir::Module& irModule) override;
-
-    OptimizationMetrics getMetrics() const override { return metrics_; }
-    std::string getName() const override { return "Bit Manipulation Strength Reduction"; }
-    OptimizationType getType() const override { return OptimizationType::BIT_MANIPULATION_REDUCTION; }
 
 private:
     struct BitPattern {

@@ -1,5 +1,5 @@
 #pragma once
-#include "TemplateOptimizationPass.hpp"
+#include "OptimizationPassBase.hpp"
 #include <map>
 #include <string>
 #include <vector>
@@ -10,17 +10,13 @@ class TranslationUnit;
 // Register-Resident Loop Optimization
 // Allocates simple loop counters directly to X register (8-bit operations)
 // Avoids frame stack access for loop increment/decrement
-class RegisterResidentLoops : public TemplateOptimizationPass {
+class RegisterResidentLoops : public OptimizationPassBase {
 public:
     RegisterResidentLoops();
     ~RegisterResidentLoops() override;
 
     void apply(TranslationUnit& ast) override;
     void apply(ir::Module& irModule) override;
-
-    OptimizationMetrics getMetrics() const override { return metrics_; }
-    std::string getName() const override { return "Register-Resident Loop Counters"; }
-    OptimizationType getType() const override { return OptimizationType::REGISTER_RESIDENT_LOOPS; }
 
 private:
     struct LoopCandidate {

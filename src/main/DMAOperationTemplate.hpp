@@ -1,5 +1,5 @@
 #pragma once
-#include "TemplateOptimizationPass.hpp"
+#include "OptimizationPassBase.hpp"
 #include <map>
 #include <string>
 
@@ -8,17 +8,13 @@ class TranslationUnit;
 
 // DMA Operation Template Optimization
 // Recognizes memory transfer patterns and auto-invokes DMA where beneficial
-class DMAOperationTemplate : public TemplateOptimizationPass {
+class DMAOperationTemplate : public OptimizationPassBase {
 public:
     DMAOperationTemplate();
     ~DMAOperationTemplate() override;
 
     void apply(TranslationUnit& ast) override;
     void apply(ir::Module& irModule) override;
-
-    OptimizationMetrics getMetrics() const override { return metrics_; }
-    std::string getName() const override { return "DMA Operation Template"; }
-    OptimizationType getType() const override { return OptimizationType::DMA_AUTO_INVOKE; }
 
 private:
     struct DMACandidate {

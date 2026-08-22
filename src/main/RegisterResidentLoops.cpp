@@ -2,9 +2,9 @@
 #include <algorithm>
 
 RegisterResidentLoops::RegisterResidentLoops()
-    : loopsOptimized_(0), bytesReduced_(0) {
-    metrics_.optimizationName = "Register-Resident Loop Counters";
-    metrics_.type = OptimizationType::REGISTER_RESIDENT_LOOPS;
+    : OptimizationPassBase(OptimizationType::REGISTER_RESIDENT_LOOPS,
+                          "Register-Resident Loop Counters"),
+      loopsOptimized_(0), bytesReduced_(0) {
 }
 
 RegisterResidentLoops::~RegisterResidentLoops() = default;

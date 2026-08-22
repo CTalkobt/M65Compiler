@@ -1,4 +1,5 @@
 #include "OptimizationPatternAnalyzer.hpp"
+#include "OptimizationTypeUtils.hpp"
 #include <algorithm>
 #include <cmath>
 #include <sstream>
@@ -151,20 +152,14 @@ std::string OptimizationPatternAnalyzer::generateReport() const {
         ss << "\n" << entry.first << ":\n";
 
         for (const auto& pattern : entry.second) {
-            ss << "  Context: ";
-            switch (pattern.context.fileSize) {
-                case OptimizationContext::TINY: ss << "TINY"; break;
-                case OptimizationContext::SMALL: ss << "SMALL"; break;
-                case OptimizationContext::MEDIUM: ss << "MEDIUM"; break;
-                case OptimizationContext::LARGE: ss << "LARGE"; break;
-                case OptimizationContext::HUGE: ss << "HUGE"; break;
-            }
-            ss << " / ";
-            switch (pattern.context.complexity) {
-                case OptimizationContext::LOW: ss << "LOW"; break;
-                case OptimizationContext::MODERATE: ss << "MEDIUM"; break;
-                case OptimizationContext::HIGH: ss << "HIGH"; break;
-                case OptimizationContext::VERY_HIGH: ss << "VERY_HIGH"; break;
+            ss << "  Context: "
+               << OptimizationTypeUtils::fileSizeToString(pattern.context.fileSize)
+               << " / ";
+            // Map MODERATE to MEDIUM for display consistency
+            if (pattern.context.complexity == OptimizationContext::Complexity::MODERATE) {
+                ss << "MEDIUM";
+            } else {
+                ss << OptimizationTypeUtils::complexityToString(pattern.context.complexity);
             }
             ss << "\n";
 
@@ -236,19 +231,12 @@ void OptimizationPatternAnalyzer::analyzeContextualEffectiveness(
 
             // Build condition string
             std::stringstream ss;
-            switch (fileSize) {
-                case OptimizationContext::TINY: ss << "TINY"; break;
-                case OptimizationContext::SMALL: ss << "SMALL"; break;
-                case OptimizationContext::MEDIUM: ss << "MEDIUM"; break;
-                case OptimizationContext::LARGE: ss << "LARGE"; break;
-                case OptimizationContext::HUGE: ss << "HUGE"; break;
-            }
-            ss << " file, ";
-            switch (complexity) {
-                case OptimizationContext::LOW: ss << "LOW"; break;
-                case OptimizationContext::MODERATE: ss << "MEDIUM"; break;
-                case OptimizationContext::HIGH: ss << "HIGH"; break;
-                case OptimizationContext::VERY_HIGH: ss << "VERY_HIGH"; break;
+            ss << OptimizationTypeUtils::fileSizeToString(fileSize) << " file, ";
+            // Map MODERATE to MEDIUM for display consistency
+            if (complexity == OptimizationContext::Complexity::MODERATE) {
+                ss << "MEDIUM";
+            } else {
+                ss << OptimizationTypeUtils::complexityToString(complexity);
             }
             ss << " complexity";
             pattern.condition = ss.str();

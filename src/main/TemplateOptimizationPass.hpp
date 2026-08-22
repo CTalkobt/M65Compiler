@@ -6,7 +6,11 @@
 namespace ir { struct Module; }
 class TranslationUnit;
 
-// Base class for all template-based code optimization passes
+// Base class for all template-based code optimization passes.
+// Derived classes extend OptimizationPassBase, which provides common
+// initialization and metric management. Pattern: call OptimizationPassBase
+// constructor with OptimizationType and name to set metrics_, then getType()
+// returns metrics_.type (single source of truth for enum initialization).
 class TemplateOptimizationPass {
 public:
     enum class OptimizationType {

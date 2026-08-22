@@ -1,5 +1,5 @@
 #pragma once
-#include "TemplateOptimizationPass.hpp"
+#include "OptimizationPassBase.hpp"
 #include <map>
 #include <string>
 #include <vector>
@@ -10,17 +10,13 @@ class TranslationUnit;
 // Table-Driven Code Optimization
 // Converts switch statements to jump tables for dense case ranges
 // Eliminates cascading CMP/BRA comparisons
-class TableDrivenDispatch : public TemplateOptimizationPass {
+class TableDrivenDispatch : public OptimizationPassBase {
 public:
     TableDrivenDispatch();
     ~TableDrivenDispatch() override;
 
     void apply(TranslationUnit& ast) override;
     void apply(ir::Module& irModule) override;
-
-    OptimizationMetrics getMetrics() const override { return metrics_; }
-    std::string getName() const override { return "Table-Driven Dispatch"; }
-    OptimizationType getType() const override { return OptimizationType::TABLE_DRIVEN_DISPATCH; }
 
 private:
     struct SwitchAnalysis {

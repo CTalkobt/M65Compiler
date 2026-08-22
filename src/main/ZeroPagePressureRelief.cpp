@@ -1,9 +1,9 @@
 #include "ZeroPagePressureRelief.hpp"
 
 ZeroPagePressureRelief::ZeroPagePressureRelief()
-    : variablesMigrated_(0), bytesFreed_(0) {
-    metrics_.optimizationName = "Zero-Page Pressure Relief";
-    metrics_.type = OptimizationType::ZEROPAGE_PRESSURE_RELIEF;
+    : OptimizationPassBase(OptimizationType::ZEROPAGE_PRESSURE_RELIEF,
+                          "Zero-Page Pressure Relief"),
+      variablesMigrated_(0), bytesFreed_(0) {
 }
 
 ZeroPagePressureRelief::~ZeroPagePressureRelief() = default;

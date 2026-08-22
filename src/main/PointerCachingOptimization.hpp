@@ -1,5 +1,5 @@
 #pragma once
-#include "TemplateOptimizationPass.hpp"
+#include "OptimizationPassBase.hpp"
 #include <map>
 #include <string>
 #include <vector>
@@ -10,17 +10,13 @@ class TranslationUnit;
 // Pointer Chasing Optimization
 // Caches frequently-dereferenced pointers in local variables
 // Avoids repeated memory loads in tight loops
-class PointerCachingOptimization : public TemplateOptimizationPass {
+class PointerCachingOptimization : public OptimizationPassBase {
 public:
     PointerCachingOptimization();
     ~PointerCachingOptimization() override;
 
     void apply(TranslationUnit& ast) override;
     void apply(ir::Module& irModule) override;
-
-    OptimizationMetrics getMetrics() const override { return metrics_; }
-    std::string getName() const override { return "Pointer Chasing Cache"; }
-    OptimizationType getType() const override { return OptimizationType::POINTER_CHASING_CACHE; }
 
 private:
     struct PointerUsage {
