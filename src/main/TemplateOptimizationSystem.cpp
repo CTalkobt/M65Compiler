@@ -1,6 +1,7 @@
 #include "TemplateOptimizationSystem.hpp"
 #include "MathLibraryOptimization.hpp"
 #include "ConditionalChainFusion.hpp"
+#include "RegisterResidentLoops.hpp"
 #include "Phase109Integration.hpp"
 #include <iostream>
 #include <sstream>
@@ -35,7 +36,8 @@ void TemplateOptimizationSystem::registerAllOptimizations() {
     // Register Phase 110.2: Conditional Chain Fusion
     registry_->registerOptimization(std::make_unique<ConditionalChainFusion>());
 
-    // TODO: Register register-resident loop optimization (110.3)
+    // Register Phase 110.3: Register-Resident Loop Optimization
+    registry_->registerOptimization(std::make_unique<RegisterResidentLoops>());
     // TODO: Register pointer chasing optimization (110.4)
     // TODO: Register table-driven dispatch (110.5)
     // TODO: Register bit manipulation strength reduction (110.6)
