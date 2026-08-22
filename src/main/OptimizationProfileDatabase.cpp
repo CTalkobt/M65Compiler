@@ -41,7 +41,13 @@ OptimizationProfile OptimizationProfileDatabase::getProfile(
     OptimizationProfile empty;
     empty.optimizationName = optimizationName;
     empty.totalApplications = 0;
+    empty.totalSuccesses = 0;
     empty.globalSuccessRate = 0.0;
+    empty.globalAvgSpeedup = 0.0;
+    empty.globalAvgSizeReduction = 0.0;
+    empty.globalAvgCost = 0.0;
+    empty.globalBenefitScore = 0.0;
+    empty.trend = 0.0;  // Assuming trend is a double
     return empty;
 }
 
@@ -225,7 +231,13 @@ OptimizationProfile OptimizationProfileDatabase::computeGlobalEffectiveness(
         || it->second.empty()) {
 
         profile.totalApplications = 0;
+        profile.totalSuccesses = 0;
         profile.globalSuccessRate = 0.0;
+        profile.globalAvgSpeedup = 0.0;
+        profile.globalAvgSizeReduction = 0.0;
+        profile.globalAvgCost = 0.0;
+        profile.globalBenefitScore = 0.0;
+        profile.trend = 0.0;
         return profile;
     }
 
@@ -277,6 +289,10 @@ ContextualEffectiveness OptimizationProfileDatabase::computeContextualEffectiven
     auto it = optimizationApplications_.find(optimizationName);
     if (it == optimizationApplications_.end()) {
         result.successRate = 0.0;
+        result.avgSpeedup = 0.0;
+        result.avgSizeReduction = 0.0;
+        result.avgCost = 0.0;
+        result.benefitScore = 0.0;
         return result;
     }
 

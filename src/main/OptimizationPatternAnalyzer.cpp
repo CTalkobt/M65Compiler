@@ -74,8 +74,11 @@ OptimizationPattern OptimizationPatternAnalyzer::getContextualPattern(
     // Return empty pattern if not found
     OptimizationPattern empty;
     empty.optimizationName = optimizationName;
-    empty.confidence = 0;
+    empty.condition = "";
+    empty.context = OptimizationContext();  // Default initialized
     empty.averageEffectiveness = 0.0;
+    empty.dataPointCount = 0;
+    empty.confidence = 0;
     empty.recommendation = "No data for this context";
     return empty;
 }

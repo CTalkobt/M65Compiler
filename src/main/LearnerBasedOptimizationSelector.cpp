@@ -29,6 +29,8 @@ OptimizationStrategy LearnerBasedOptimizationSelector::getOptimizationStrategy(
         fileChar.functionCount = functionCount;
         fileChar.loopCount = loopCount;
         fileChar.branchDensity = branchDensity;
+        fileChar.fileSizeCategory = (fileSize < 5000) ? "small" : (fileSize < 50000) ? "medium" : "large";
+        fileChar.complexityCategory = (functionCount < 10) ? "low" : (functionCount < 50) ? "medium" : "high";
     }
 
     // Build context

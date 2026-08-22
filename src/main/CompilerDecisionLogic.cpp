@@ -138,6 +138,8 @@ HookDecision CompilerDecisionLogic::decideInlining(
 
     HookDecision decision;
     decision.changed = false;
+    decision.enableOptimizations = (budgetMs > 100);
+    decision.enableIROpts = (budgetMs > 150);
     decision.enableInlining = (budgetMs > 100) && (inlineCandidates > 0);
     decision.skipExpensivePasses = (budgetMs < 150);
     decision.estimatedTimeRemaining = budgetMs;
