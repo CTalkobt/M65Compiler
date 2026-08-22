@@ -18,7 +18,7 @@ public:
 
     OptimizationMetrics getMetrics() const override { return metrics_; }
     std::string getName() const override { return "Zero-Page Pressure Relief"; }
-    OptimizationType getType() const override { return OptimizationType::ZERO_PAGE_PRESSURE_RELIEF; }
+    OptimizationType getType() const override { return OptimizationType::ZEROPAGE_PRESSURE_RELIEF; }
 
 private:
     struct ZPPressureProfile {

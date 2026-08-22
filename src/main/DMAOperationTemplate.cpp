@@ -1,5 +1,4 @@
 #include "DMAOperationTemplate.hpp"
-#include "TranslationUnit.hpp"
 #include "ir/Module.hpp"
 
 DMAOperationTemplate::DMAOperationTemplate()

@@ -1,5 +1,4 @@
 #include "BitManipulationReduction.hpp"
-#include "TranslationUnit.hpp"
 #include "ir/Module.hpp"
 
 BitManipulationReduction::BitManipulationReduction()

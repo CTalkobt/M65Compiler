@@ -18,7 +18,7 @@ public:
 
     OptimizationMetrics getMetrics() const override { return metrics_; }
     std::string getName() const override { return "DMA Operation Template"; }
-    OptimizationType getType() const override { return OptimizationType::DMA_OPERATION_TEMPLATE; }
+    OptimizationType getType() const override { return OptimizationType::DMA_AUTO_INVOKE; }
 
 private:
     struct DMACandidate {
