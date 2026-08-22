@@ -9,8 +9,8 @@
 class Lexer;
 class Token;
 class TranslationUnit;
-class IRModule;
 class Phase107OnlineLearner;
+namespace ir { struct Module; }
 
 // Phase 108.2: Integrates hooks into cc45_main compilation flow
 class Phase108Integration {
@@ -30,7 +30,7 @@ public:
     void onPreOptSelect();
     void onPostInlineSelect(int inlineCandidates);
     void onPostCallGraph();
-    void onPostIRBuild(const IRModule& irModule);
+    void onPostIRBuild(const ir::Module& irModule);
     void onPreIROpt();
     void onPostCodeGen(int assemblySize);
     void onPostAsmOpt();

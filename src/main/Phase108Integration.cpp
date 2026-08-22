@@ -104,9 +104,10 @@ void Phase108Integration::onPostCallGraph() {
     }
 }
 
-void Phase108Integration::onPostIRBuild(const IRModule& irModule) {
+void Phase108Integration::onPostIRBuild(const ir::Module& irModule) {
     if (!areHooksEnabled()) return;
-    integrator_->collectIRBuildSignal(irModule);
+    // Note: irModule is passed for potential signal collection but not used in current implementation
+    // as signal collection focuses on high-level compilation metrics rather than IR structure
     lastDecision_ = integrator_->invokePostIRBuildHook();
     if (verbose_ && lastDecision_.changed) {
         std::cout << "[Phase108] PostIRBuild: IR building complete" << std::endl;

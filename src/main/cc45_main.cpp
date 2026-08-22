@@ -841,6 +841,9 @@ int main(int argc, char** argv) {
             }
             if (verboseLevel >= 1) std::cout << "Cross-function analysis complete." << std::endl;
 
+            // Phase 108: Hook after call graph analysis
+            phase108->onPostCallGraph();
+
             // Phase 87: Apply recommendations to inline selector
             if (verboseLevel >= 1) std::cout << "Applying cross-function optimization recommendations..." << std::endl;
             inlineSelector.applyRecommendations(&callGraphAnalyzer, &coOptSelector);
@@ -899,6 +902,9 @@ int main(int argc, char** argv) {
 
         irBuilder.generate(*ast);
 
+        // Phase 108: Hook after IR building
+        phase108->onPostIRBuild(irBuilder.getModule());
+
         // Phase 91.3: Cross-module optimization analysis and decision application
         IPOAnalysisResult ipoResult;  // Declared outside if block for use during codegen
         if (optimize) {
@@ -953,6 +959,9 @@ int main(int argc, char** argv) {
 
         if (traceIROpt) ir::optTrace = &std::cerr;
         if (optimize) {
+            // Phase 108: Hook before IR optimization passes
+            phase108->onPreIROpt();
+
             if (irOptFlags.strengthReduction) {
                 if (verboseLevel >= 1) std::cout << "Optimizing IR (Strength Reduction)..." << std::endl;
                 ir::optimizeStrengthReduction(irBuilder.getModule());
@@ -1131,6 +1140,19 @@ int main(int argc, char** argv) {
         irCodeGen.generate(irBuilder.getModule(), zeroPageStart, useReloc, zpCallMode, emitReasons, staticAllocMode, sacDebugMode, prgBase);
         asmOut.close();
 
+        // Phase 108: Hook after code generation
+        // Count assembly lines as a measure of assembly size
+        {
+            std::ifstream asmCountIn(asmFile);
+            int assemblySize = 0;
+            std::string countLine;
+            while (std::getline(asmCountIn, countLine)) {
+                if (!countLine.empty()) assemblySize++;
+            }
+            asmCountIn.close();
+            phase108->onPostCodeGen(assemblySize);
+        }
+
         // Phase 87: Apply assembler-level peephole optimization
         // Removes redundant load/store sequences (e.g., sta $ZP; lda $ZP)
         // Run for O1+ to catch redundant loads from inlining
@@ -1163,6 +1185,9 @@ int main(int argc, char** argv) {
                 if (verboseLevel >= 2) std::cout << "Applied peephole optimizations to " << asmFile << std::endl;
             }
         }
+
+        // Phase 108: Hook after assembly optimization
+        phase108->onPostAsmOpt();
 
         // Phase 49: Collect IR metadata for later embedding in .o45
         // This will be added to the object file after ca45 assembles it
