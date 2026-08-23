@@ -205,8 +205,18 @@ int cbm_rel_close(int handle);
 unsigned char cbm_rel_record_size(int handle);
 int cbm_rel_is_open(int handle);
 
+/* Phase 4d: Extended Record Operations */
+int cbm_rel_append(int handle, const void *buffer, unsigned int size);
+int cbm_rel_delete(int handle, unsigned int record_num);
+int cbm_rel_truncate(int handle, unsigned int num_records);
+int cbm_rel_update(int handle, unsigned int record_num, const void *buffer, unsigned int size);
+int cbm_rel_insert(int handle, unsigned int record_num, const void *buffer, unsigned int size);
+
 #define CBM_REL_READ    0               /* Open for reading */
 #define CBM_REL_WRITE   1               /* Open for writing */
+
+/* Phase 4d: Record deletion marker */
+#define CBM_REL_DELETED 0xFF            /* Marker byte for deleted records */
 
 /* Low-level Commodore KERNAL calls (advanced) */
 unsigned char cbm_k_chkin(unsigned char fd);      /* Redirect input */
