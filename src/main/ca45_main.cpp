@@ -14,6 +14,92 @@
 #include "Version.hpp"
 #include "Diagnostic.hpp"
 
+static void printHelpGeneral() {
+    std::cout << "ca45 — 45GS02 Assembler for MEGA65\n\n";
+    std::cout << "Usage: ca45 [options] <input_file.s>\n\n";
+    std::cout << "Options by category:\n";
+    std::cout << "  Input/Output:    -c, -o, -L, -l\n";
+    std::cout << "  Optimization:    -O, -P, --experimental\n";
+    std::cout << "  Debugging:       -v, -vv, -Roptimizer, -Rmachstate\n";
+    std::cout << "  Preprocessor:    -D, -I\n";
+    std::cout << "  Diagnostics:     -Woverflow, -Wunderflow\n";
+    std::cout << "  General:         -?, -V\n\n";
+    std::cout << "Use --help=<section> for detailed help. Example: ca45 --help=input-output\n";
+    std::cout << "Available sections: input-output, optimization, debugging, preprocessor, diagnostics\n";
+}
+
+static void printHelpInputOutput() {
+    std::cout << "Input/Output Options:\n\n";
+    std::cout << "  -c                 Produce relocatable .o45 object file instead of binary\n";
+    std::cout << "                     Default: produces flat binary (.bin)\n\n";
+    std::cout << "  -o <filename>      Specify output filename\n";
+    std::cout << "                     Default: out.bin (or out.o45 with -c)\n";
+    std::cout << "                     If filename ends in .prg, a 2-byte load address header is added\n";
+    std::cout << "                     Example: ca45 -o program.prg input.s45\n\n";
+    std::cout << "  -L <filename>      Generate assembly listing file\n";
+    std::cout << "                     Useful for inspecting generated code and symbol table\n";
+    std::cout << "                     Example: ca45 -L listing.txt -l2 input.s45\n\n";
+    std::cout << "  -l <level>         Listing level (requires -L)\n";
+    std::cout << "                     1 = Binary (default): hex dump with addresses\n";
+    std::cout << "                     2 = Expanded Assembly: full expanded instructions\n";
+}
+
+static void printHelpOptimization() {
+    std::cout << "Optimization Options:\n\n";
+    std::cout << "  -O<level>          Optimization level (default: -O2)\n";
+    std::cout << "                     0 = none (no optimization)\n";
+    std::cout << "                     1 = basic (redundant load/store elimination)\n";
+    std::cout << "                     2 = default (add branch optimization, tail calls)\n";
+    std::cout << "                     3 = aggressive (experimental optimizations)\n";
+    std::cout << "                     Example: ca45 -O3 input.s45\n\n";
+    std::cout << "  -P<OptName>        Enable individual optimization (after -O level)\n";
+    std::cout << "  -PNo<OptName>      Disable individual optimization\n";
+    std::cout << "                     Options: RedundantLoad, DeadStore, TailCall, JmpBra,\n";
+    std::cout << "                     CmpElimination, BranchInvert, JSRRelocate, etc.\n";
+    std::cout << "                     Example: ca45 -O2 -PNoRedundantLoad input.s45\n\n";
+    std::cout << "  --experimental     Enable experimental optimizations\n";
+    std::cout << "                     WARNING: HIGHLY UNSTABLE, likely to break code\n";
+}
+
+static void printHelpDebugging() {
+    std::cout << "Debugging Options:\n\n";
+    std::cout << "  -v                 Enable verbose output (show assembly phases)\n";
+    std::cout << "                     Displays preprocessing, lexing, parsing steps\n\n";
+    std::cout << "  -vv                Extra verbose output (token dumps)\n";
+    std::cout << "                     Shows every token during lexing phase\n\n";
+    std::cout << "  -Roptimizer        Report optimizer actions to stderr\n";
+    std::cout << "                     Shows which optimizations are applied\n";
+    std::cout << "                     Example: ca45 -Roptimizer input.s45 2>&1 | grep -i elim\n\n";
+    std::cout << "  -Rmachstate        Trace MachineState register/flag tracking\n";
+    std::cout << "                     Low-level debugging of optimizer state\n";
+}
+
+static void printHelpPreprocessor() {
+    std::cout << "Preprocessor Options:\n\n";
+    std::cout << "  -D<name>=<value>   Define a symbol (visible to assembler)\n";
+    std::cout << "                     Example: ca45 -DMY_CONST=42 input.s45\n";
+    std::cout << "                     Hex values: -DADDR=$2000, binary: -DMASK=%11110000\n\n";
+    std::cout << "  -D<name>           Define a symbol with value 1\n";
+    std::cout << "                     Example: ca45 -DDEBUG_MODE input.s45\n\n";
+    std::cout << "  -I<path>           Add include search path\n";
+    std::cout << "                     Searched in order for .include directives\n";
+    std::cout << "                     Example: ca45 -Ilib/ -Iinclude/ input.s45\n";
+    std::cout << "                     Can be used multiple times\n\n";
+    std::cout << "  CC45_INCLUDE       Environment variable for include paths (colon-separated)\n";
+    std::cout << "                     Example: CC45_INCLUDE=lib/:include/ ca45 input.s45\n";
+}
+
+static void printHelpDiagnostics() {
+    std::cout << "Diagnostic Warnings:\n\n";
+    std::cout << "  -Woverflow         Warn when immediate or address values overflow\n";
+    std::cout << "                     Default: silent (values silently truncate)\n";
+    std::cout << "                     Shows: original value and truncated result\n";
+    std::cout << "                     Example: ca45 -Woverflow input.s45\n\n";
+    std::cout << "  -Wunderflow        Warn when negative values are used in addresses\n";
+    std::cout << "                     Default: silent\n";
+    std::cout << "                     Example: ca45 -Wunderflow input.s45\n";
+}
+
 static void writeListing(const std::string& filename, const AssemblerParser& parser, const std::string& source) {
     std::ofstream out(filename);
     if (!out.is_open()) return;
@@ -118,22 +204,25 @@ int main(int argc, char** argv) {
             std::cout << suiteVersionString("ca45") << std::endl;
             return 0;
         } else if (arg == "-?" || arg == "--help") {
-            std::cout << "Usage: ca45 [options] <input_file.s>" << std::endl;
-            std::cout << "Options:" << std::endl;
-            std::cout << "  -c             Produce relocatable .o45 object file instead of binary" << std::endl;
-            std::cout << "  -o <filename>  Specify output filename (default: out.bin, or out.o45 with -c)" << std::endl;
-            std::cout << "                 If filename ends in .prg, a 2-byte load address header is added." << std::endl;
-            std::cout << "  -L <filename>  Generate assembly listing file" << std::endl;
-            std::cout << "  -l <level>     Listing level: 1=Binary (default), 2=Expanded Assembly" << std::endl;
-            std::cout << "  -v             Enable verbose output (phase info)" << std::endl;
-            std::cout << "  -vv            Extra verbose output (token dumps)" << std::endl;
-            std::cout << "  -Dname=val     Define a symbol (e.g., -Dcc45.zeroPageStart=$10)" << std::endl;
-            std::cout << "  -I<path>       Add include search path" << std::endl;
-            std::cout << "  -O<level>      Optimization level: 0=none, 1=basic, 2=default, 3=aggressive" << std::endl;
-            std::cout << "  -Roptimizer    Report optimizer actions to stderr" << std::endl;
-            std::cout << "  -Rmachstate    Trace MachineState register/flag tracking to stderr" << std::endl;
-            std::cout << "  --experimental Enable experimental optimizations (HIGHLY UNSTABLE, likely to break code)" << std::endl;
-            std::cout << "  -?             Display this help message" << std::endl;
+            printHelpGeneral();
+            return 0;
+        } else if (arg.substr(0, 7) == "--help=") {
+            std::string section = arg.substr(7);
+            if (section == "input-output" || section == "io") {
+                printHelpInputOutput();
+            } else if (section == "optimization" || section == "opt") {
+                printHelpOptimization();
+            } else if (section == "debugging" || section == "debug") {
+                printHelpDebugging();
+            } else if (section == "preprocessor" || section == "prep") {
+                printHelpPreprocessor();
+            } else if (section == "diagnostics" || section == "diag" || section == "warnings") {
+                printHelpDiagnostics();
+            } else {
+                std::cerr << "Unknown help section: " << section << std::endl;
+                std::cerr << "Available sections: input-output, optimization, debugging, preprocessor, diagnostics" << std::endl;
+                return 1;
+            }
             return 0;
         } else if (arg == "-c") {
             relocMode = true;
