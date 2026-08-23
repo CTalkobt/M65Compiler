@@ -5,6 +5,9 @@
 #include <fstream>
 #include <sstream>
 #include <iomanip>
+#include <thread>
+#include <chrono>
+#include <sys/stat.h>
 #include "AssemblerLexer.hpp"
 #include "AssemblerParser.hpp"
 #include "Preprocessor.hpp"
@@ -56,7 +59,11 @@ static void printHelpInputOutput() {
     std::cout << "                     Example: ca45 --emulator -o program.prg input.s45\n\n";
     std::cout << "  --emulator-path <path>\n";
     std::cout << "                     Path to emulator executable (overrides auto-detection)\n";
-    std::cout << "                     Example: ca45 --emulator --emulator-path /usr/bin/x64 input.s45\n";
+    std::cout << "                     Example: ca45 --emulator --emulator-path /usr/bin/x64 input.s45\n\n";
+    std::cout << "  --watch            Watch input file for changes and reassemble automatically\n";
+    std::cout << "                     Useful for continuous development workflow\n";
+    std::cout << "                     Checks for changes every second\n";
+    std::cout << "                     Example: ca45 --watch -o program.bin input.s45\n";
 }
 
 static void printHelpOptimization() {
@@ -113,6 +120,14 @@ static void printHelpDiagnostics() {
     std::cout << "  -Wunderflow        Warn when negative values are used in addresses\n";
     std::cout << "                     Default: silent\n";
     std::cout << "                     Example: ca45 -Wunderflow input.s45\n";
+}
+
+static time_t getFileModificationTime(const std::string& filename) {
+    struct stat stat_buf;
+    if (stat(filename.c_str(), &stat_buf) == 0) {
+        return stat_buf.st_mtime;
+    }
+    return 0;
 }
 
 static bool launchEmulatorWithBinary(const std::string& binaryPath, const std::string& customEmulatorPath) {
@@ -295,6 +310,7 @@ int main(int argc, char** argv) {
     std::string sourceMapFile;   // Phase 3.2: source map output file
     bool launchEmulator = false; // Phase 3.3: launch emulator after assembly
     std::string emulatorPath;    // Phase 3.3: path to emulator executable
+    bool watchMode = false;      // Phase 3.4: watch file for changes and reassemble
     int optimizationLevel = 2;  // Default to -O2
     OptimizationFlags optFlags = OptimizationFlags::fromLevel(2);  // Default to -O2
     int verboseLevel = 0;
@@ -407,6 +423,8 @@ int main(int argc, char** argv) {
             launchEmulator = true;  // Phase 3.3: launch emulator after assembly
         } else if (arg == "--emulator-path" && i + 1 < argc) {
             emulatorPath = argv[++i];  // Phase 3.3: custom emulator path
+        } else if (arg == "--watch") {
+            watchMode = true;  // Phase 3.4: watch file for changes
         } else if (arg == "-vv") {
             verboseLevel = 2;
         } else if (arg == "-v") {
@@ -584,6 +602,75 @@ int main(int argc, char** argv) {
     } catch (const std::exception& e) {
         std::cerr << input_file << ": " << e.what() << std::endl;
         return 1;
+    }
+
+    // Phase 3.4: Watch mode - monitor file for changes and reassemble
+    if (watchMode && !input_file.empty() && !dryRun) {
+        std::cout << "\n[Watch mode enabled] Monitoring " << input_file << " for changes..." << std::endl;
+        std::cout << "Press Ctrl+C to exit watch mode\n" << std::endl;
+
+        time_t lastModTime = getFileModificationTime(input_file);
+        int changeCount = 0;
+
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            time_t currentModTime = getFileModificationTime(input_file);
+
+            if (currentModTime > lastModTime) {
+                lastModTime = currentModTime;
+                changeCount++;
+
+                std::cout << "\n[" << changeCount << "] File changed, reassembling..." << std::endl;
+
+                // Re-read and re-assemble
+                try {
+                    std::ifstream file(input_file);
+                    if (!file.is_open()) {
+                        std::cerr << "Error: Cannot open " << input_file << std::endl;
+                        continue;
+                    }
+
+                    std::stringstream buffer;
+                    buffer << file.rdbuf();
+                    std::string sourceRaw = buffer.str();
+
+                    Preprocessor preprocessor(false);
+                    std::string source = preprocessor.process(sourceRaw, initialSymbols, includePaths, input_file);
+
+                    AssemblerLexer lexer(source);
+                    std::vector<AssemblerToken> tokens = lexer.tokenize();
+
+                    AssemblerParser parser(tokens, predefinedSymbols);
+                    parser.setSourceFile(input_file);
+                    parser.verboseOptimizer = verboseOptimizer;
+                    parser.traceMachState = traceMachState;
+                    parser.enableExperimental = enableExperimental;
+                    parser.warnOverflow = warnOverflow;
+                    parser.warnUnderflow = warnUnderflow;
+                    parser.optimizationLevel = optimizationLevel;
+                    parser.optFlags = optFlags;
+
+                    parser.pass1();
+                    if (parser.hasErrors()) {
+                        for (const auto& err : parser.getErrors()) {
+                            std::cerr << err << std::endl;
+                        }
+                        continue;
+                    }
+
+                    bool isPrg = output_file.length() >= 4 && output_file.substr(output_file.length() - 4) == ".prg";
+                    auto binary = parser.pass2(isPrg);
+
+                    if (!binary.empty()) {
+                        std::ofstream out(output_file, std::ios::binary);
+                        out.write(reinterpret_cast<const char*>(binary.data()), binary.size());
+                        std::cout << "✓ Reassembled to " << output_file << " (" << binary.size() << " bytes)" << std::endl;
+                    }
+                } catch (const std::exception& e) {
+                    std::cerr << "Error during reassembly: " << e.what() << std::endl;
+                }
+            }
+        }
     }
 
     return 0;
