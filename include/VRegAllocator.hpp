@@ -7,11 +7,11 @@
 
 class VRegAllocator {
 public:
-    enum Location { IN_AX, IN_ZP, IN_FRAME };
+    enum Location { IN_AX, IN_ZP, IN_FRAME, IN_X };
 
     struct Allocation {
         Location loc = IN_FRAME;
-        int offset = 0;       // ZP address (for IN_ZP) or frame offset (for IN_FRAME)
+        int offset = 0;       // ZP address (for IN_ZP), frame offset (for IN_FRAME), or 0 (for IN_X)
         ir::Type type = ir::Type::I16;
     };
 
@@ -27,6 +27,9 @@ public:
 
     // Set which vregs should be prioritized for ZP allocation (for register keyword)
     void setRegisterVregs(const std::set<uint32_t>& regs) { registerVregs_ = regs; }
+
+    // Set which vregs should be allocated to X register (for loop counters)
+    void setRegisterXVregs(const std::set<uint32_t>& regs) { registerXVregs_ = regs; }
 
     // Get the allocation for a vReg
     Allocation getAlloc(uint32_t vregId) const;
@@ -54,6 +57,9 @@ private:
 
     // vRegs declared with 'register' keyword (should be prioritized for ZP)
     std::set<uint32_t> registerVregs_;
+
+    // vRegs marked for X-register residency (loop counters, etc)
+    std::set<uint32_t> registerXVregs_;
 
     // ZP pool
     uint8_t zpStart_ = 0x20;
