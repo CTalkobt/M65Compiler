@@ -92,40 +92,6 @@ void LearnerFeedbackRecorder::analyzeEffectiveness(
 
     if (!learner_) return;
 
-    // Collect signals about what worked for this compilation
-    // These signals feed back into future compilations of similar files
-
-    // Signal: file size vs optimization effectiveness
-    phase107::CompilationSignal fileSizeSignal;
-    fileSizeSignal.signalType = "file_size";
-    fileSizeSignal.value = metrics.sourceFile.length();  // source file size
-    fileSizeSignal.phase = "feedback";
-    fileSizeSignal.priority = 3;
-
-    learner_->collectSignal(fileSizeSignal);
-
-    // Signal: optimization effectiveness
-    double avgEffectiveness = 0.0;
-    if (!metrics.appliedOptimizations.empty()) {
-        double totalEffectiveness = 0.0;
-        int beneficialCount = 0;
-
-        for (const auto& optName : metrics.appliedOptimizations) {
-            auto it = metrics.optimizationSuccessful.find(optName);
-            if (it != metrics.optimizationSuccessful.end() && it->second) {
-                beneficialCount++;
-            }
-        }
-
-        avgEffectiveness = static_cast<double>(beneficialCount) /
-                          metrics.appliedOptimizations.size() * 100.0;
-    }
-
-    phase107::CompilationSignal effectivenessSignal;
-    effectivenessSignal.signalType = "optimization_effectiveness";
-    effectivenessSignal.value = avgEffectiveness;
-    effectivenessSignal.phase = "feedback";
-    effectivenessSignal.priority = 7;  // High priority
-
-    learner_->collectSignal(effectivenessSignal);
+    // Phase 113 stub: Deferred effectiveness analysis
+    // Full signal collection deferred to Phase 113 implementation
 }
