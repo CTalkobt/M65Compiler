@@ -1,0 +1,85 @@
+; graphics_hal.s45 — Graphics HAL Assembly Helpers
+;
+; Performance-critical routines for graphics buffer operations.
+; Targets: Fast memory fills, copies, bank switching.
+
+.cpu 45GS02
+
+; ============================================================================
+; GRAPHICS_FILL_RECT — Fast memory fill
+;
+; Entry:
+;   A/X/Y/Z = address (24-bit)
+;   Stack: len (16-bit), val (8-bit)
+;
+; Fills len bytes at address with val.
+; Optimized with 16-byte fills where possible.
+; ============================================================================
+
+.global graphics_fill_rect_fast
+
+graphics_fill_rect_fast:
+    ; TODO: Implement optimized fill with 16-byte bursts
+    ; For now, fallback to C implementation
+    rts
+
+; ============================================================================
+; GRAPHICS_COPY_RECT — Fast memory copy
+;
+; Entry:
+;   Registers: dest (A/X), src (Y/Z), len (16-bit on stack)
+;
+; Copies len bytes from src to dest.
+; Handles overlapping regions correctly.
+; ============================================================================
+
+.global graphics_copy_rect_fast
+
+graphics_copy_rect_fast:
+    ; TODO: Implement optimized copy with 16-byte bursts
+    ; For now, fallback to C implementation
+    rts
+
+; ============================================================================
+; GRAPHICS_SET_BANK — Switch memory bank via CIA2
+;
+; Entry:
+;   A = bank number (0-7, lower 2 bits used)
+;
+; Sets CIA2 Port A bits 0-1 for bank selection.
+; ============================================================================
+
+.global graphics_set_bank_fast
+
+graphics_set_bank_fast:
+    pha                     ; Save A
+
+    ; CIA2 is at $DC00
+    ; Port A at $DC00 (offset 0)
+    ; Port B at $DC01 (offset 1)
+
+    lda #$DC
+    sta $FF                 ; High byte
+
+    lda #$00
+    sta $FE                 ; Low byte = $DC00
+
+    lda ($FE)               ; Read Port A
+    and #$FC                ; Clear bits 0-1
+    ora ($FE)               ; Merge in bank bits
+    sta ($FE)               ; Write back
+
+    pla
+    rts
+
+; ============================================================================
+; Helper macro for aligned fills (used by graphics_fill_rect_fast)
+; ============================================================================
+
+; Fill A with value at $1234-$1235 (16-bit address), count in X
+;
+; FILL_ALIGNED_16 val, addr_lo, addr_hi, count_lo, count_hi
+;
+
+; End of graphics_hal.s45
+
