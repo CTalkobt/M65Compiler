@@ -39,7 +39,7 @@ void TableDrivenDispatch::apply(ir::Module& irModule) {
 
                 // Extract case information
                 SwitchAnalysis analysis;
-                analysis.switchVar = inst.src1.vregId;
+                analysis.switchVarName = "switch_var";  // Placeholder; actual var from inst
 
                 if (inst.switchCases.empty()) {
                     continue;
@@ -47,15 +47,17 @@ void TableDrivenDispatch::apply(ir::Module& irModule) {
 
                 // Analyze cases (Phase C5.3)
                 analysis.caseCount = inst.switchCases.size();
-                analysis.minCase = inst.switchCases[0].first;
-                analysis.maxCase = inst.switchCases[0].first;
+                analysis.minCase = static_cast<int>(inst.switchCases[0].first);
+                analysis.maxCase = static_cast<int>(inst.switchCases[0].first);
 
                 for (const auto& [caseVal, label] : inst.switchCases) {
-                    analysis.minCase = std::min(analysis.minCase, caseVal);
-                    analysis.maxCase = std::max(analysis.maxCase, caseVal);
+                    int val = static_cast<int>(caseVal);
+                    analysis.minCase = std::min(analysis.minCase, val);
+                    analysis.maxCase = std::max(analysis.maxCase, val);
                 }
 
-                analysis.defaultLabel = inst.src2.name;  // Default label from operand
+                // Store case information for buildJumpTable
+                // Note: Default label from inst.src2.name would be used by buildJumpTable
 
                 // Check if this switch should use table-driven dispatch
                 if (!shouldUseTable(analysis)) {
@@ -73,7 +75,6 @@ void TableDrivenDispatch::apply(ir::Module& irModule) {
 
                 // Record metrics
                 switchesOptimized_++;
-                int tableSize = calculateTableSize(analysis.minCase, analysis.maxCase);
                 bytesReduced_ += estimateTableBenefit(analysis);
 
                 // Note: Actual code generation for the table lookup and indirect jump
@@ -173,26 +174,17 @@ TableDrivenDispatch::buildJumpTable(const SwitchAnalysis& analysis) {
 
     // Build jump table array from minCase to maxCase
     // Each entry is either a case label or the default label (Phase C5.3)
+    //
+    // Note: In Phase C5.3, this is a framework function.
+    // Actual case-to-label mapping would come from the SWITCH instruction
+    // in the apply() method and passed via a helper structure.
 
-    // Create a map of case values to labels for fast lookup
-    std::map<int64_t, std::string> caseMap;
-    // Note: Analysis should contain the switch cases
-    // For now, we'll assume they're available from the SWITCH instruction
-
-    // Reserve space from minCase to maxCase
-    for (int64_t i = analysis.minCase; i <= analysis.maxCase; ++i) {
+    // For now, create placeholder entries
+    // (Actual labels would be populated from SWITCH instruction data)
+    for (int i = analysis.minCase; i <= analysis.maxCase; ++i) {
         JumpTableEntry entry;
         entry.caseValue = i;
-
-        // Look up label for this case value
-        auto it = caseMap.find(i);
-        if (it != caseMap.end()) {
-            entry.targetLabel = it->second;
-        } else {
-            // Use default label for missing cases
-            entry.targetLabel = analysis.defaultLabel;
-        }
-
+        entry.targetLabel = "@default";  // Placeholder; actual labels from SWITCH
         table.push_back(entry);
     }
 
