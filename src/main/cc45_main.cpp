@@ -467,21 +467,32 @@ int main(int argc, char** argv) {
             std::cout << suiteVersionString("cc45") << std::endl;
             return 0;
         } else if (arg == "-?" || arg == "--help") {
-            std::cout << "Usage: cc45 [options] <input_file.c>" << std::endl;
-            std::cout << "  -E             Preprocess only" << std::endl;
-            std::cout << "  -S             Generate assembly only" << std::endl;
-            std::cout << "  -c             Generate object file only" << std::endl;
+            // Phase 5.1: Dynamic program name in help output
+            std::string inputType = (programName == "cp45") ? "<input_file.c>" : "[options] <input_file.c>";
+            std::cout << "Usage: " << programName << " " << inputType << std::endl;
+            if (programName != "cp45") {
+                std::cout << "  -E             Preprocess only" << std::endl;
+                std::cout << "  -S             Generate assembly only" << std::endl;
+                std::cout << "  -c             Generate object file only" << std::endl;
+            } else {
+                std::cout << "  (cp45 performs C preprocessing)" << std::endl;
+            }
             std::cout << "  -o <file>      Output filename" << std::endl;
-            std::cout << "  -O0..9         Optimization level" << std::endl;
+            if (programName != "cp45") {
+                std::cout << "  -O0..9         Optimization level" << std::endl;
+            }
             std::cout << "  -v,-vv         Verbose output" << std::endl;
             std::cout << "  -I<path>       Include path" << std::endl;
             std::cout << "  -D<name>=<val> Define symbol" << std::endl;
-            std::cout << "  -fzpcall       Use ZP calling convention" << std::endl;
-            std::cout << "  -fstaticalloc  Use static allocation (default)" << std::endl;
-            std::cout << "  -finline-functions  Inline small functions" << std::endl;
-            std::cout << "  --pragma <p>   Inject pragma" << std::endl;
-            std::cout << "  --prg-base <a> PRG load address (hex)" << std::endl;
-            std::cout << "  --save-temps   Keep intermediate files" << std::endl;
+            if (programName != "cp45") {
+                std::cout << "  -fzpcall       Use ZP calling convention" << std::endl;
+                std::cout << "  -fstaticalloc  Use static allocation (default)" << std::endl;
+                std::cout << "  -finline-functions  Inline small functions" << std::endl;
+                std::cout << "  --pragma <p>   Inject pragma" << std::endl;
+                std::cout << "  --prg-base <a> PRG load address (hex)" << std::endl;
+                std::cout << "  --save-temps   Keep intermediate files" << std::endl;
+            }
+            std::cout << "Configuration: See ~/.config/m65/" << programName << ".conf or doc/bin/CONFIGURATION.md" << std::endl;
             return 0;
         } else if (arg == "-c") {
             config.objectOnly = true;
@@ -546,7 +557,8 @@ int main(int argc, char** argv) {
     }
 
     if (config.inputFile.empty()) {
-        std::cerr << "Usage: cc45 [options] <input_file.c>" << std::endl;
+        // Phase 5.1: Dynamic program name in error message
+        std::cerr << "Usage: " << programName << " [options] <input_file.c>" << std::endl;
         return 1;
     }
 
