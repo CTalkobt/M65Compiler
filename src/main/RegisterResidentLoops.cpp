@@ -112,8 +112,9 @@ void RegisterResidentLoops::allocateToXRegisterIR(ir::Module& irModule) {
                 // This is the hook point for register-resident optimization
                 func.registerVregs.insert(vregId);
 
-                // In future extension, could add new hint set for X-specific allocation:
-                // func.registerXVregs.insert(vregId);  // Mark for X register specifically
+                // Mark for X-register specific allocation (Phase C5.1)
+                // X-resident loop counters enable INX/DEX optimization
+                func.registerXVregs.insert(vregId);
             }
         }
     }
