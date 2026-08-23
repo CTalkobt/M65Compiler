@@ -41,7 +41,11 @@ static void printHelpInputOutput() {
     std::cout << "                     Example: ca45 -L listing.txt -l2 input.s45\n\n";
     std::cout << "  -l <level>         Listing level (requires -L)\n";
     std::cout << "                     1 = Binary (default): hex dump with addresses\n";
-    std::cout << "                     2 = Expanded Assembly: full expanded instructions\n";
+    std::cout << "                     2 = Expanded Assembly: full expanded instructions\n\n";
+    std::cout << "  --dry-run          Validate assembly without generating output\n";
+    std::cout << "                     Useful for checking syntax and finding errors\n";
+    std::cout << "                     Reports symbol count, instruction count, and size estimates\n";
+    std::cout << "                     Example: ca45 --dry-run input.s45\n";
 }
 
 static void printHelpOptimization() {
@@ -179,6 +183,7 @@ int main(int argc, char** argv) {
     bool enableExperimental = false;
     bool warnOverflow = false;   // Phase 1.3: warn on value overflows (default: off)
     bool warnUnderflow = false;  // Phase 1.3: warn on negative values (default: off)
+    bool dryRun = false;         // Phase 3.1: validate without generating output
     int optimizationLevel = 2;  // Default to -O2
     OptimizationFlags optFlags = OptimizationFlags::fromLevel(2);  // Default to -O2
     int verboseLevel = 0;
@@ -283,6 +288,8 @@ int main(int argc, char** argv) {
             warnOverflow = true;  // Phase 1.3: enable overflow warnings
         } else if (arg == "-Wunderflow" || arg == "--warn-underflow") {
             warnUnderflow = true;  // Phase 1.3: enable underflow warnings
+        } else if (arg == "--dry-run") {
+            dryRun = true;  // Phase 3.1: validate without generating output
         } else if (arg == "-vv") {
             verboseLevel = 2;
         } else if (arg == "-v") {
@@ -380,6 +387,25 @@ int main(int argc, char** argv) {
                 std::cerr << err << std::endl;
             }
             return 1;
+        }
+
+        // Phase 3.1: Dry-run mode - validate without generating output
+        if (dryRun) {
+            parser.pass2(false);  // Run optimizer and resolve addresses
+            auto symbols = parser.getSymbolTable();
+            int totalInstructions = 0;
+            uint32_t totalBytes = 0;
+            for (const auto& stmt : parser.statements) {
+                if (!stmt->deleted) {
+                    if (stmt->bytes.size() > 0) totalInstructions++;
+                    totalBytes += stmt->bytes.size();
+                }
+            }
+            std::cout << "Validation successful (dry-run mode)\n";
+            std::cout << "  Symbols: " << symbols.size() << "\n";
+            std::cout << "  Instructions: " << totalInstructions << "\n";
+            std::cout << "  Total size: " << totalBytes << " bytes\n";
+            return 0;
         }
 
         if (relocMode) {
