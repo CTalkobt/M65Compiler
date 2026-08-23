@@ -31,6 +31,16 @@ public:
     void analyzeTranslationUnit(TranslationUnit& unit);
     const FunctionCharacteristics* getCharacteristics(const std::string& funcName) const;
 
+    // Get all analyzed function characteristics
+    const std::map<std::string, FunctionCharacteristics>& getAllCharacteristics() const {
+        return characteristics_;
+    }
+
+    // Get count of analyzed functions
+    int getFunctionCount() const {
+        return characteristics_.size();
+    }
+
     // Standard visitor methods
     void visit(ForStatement& node) override;
     void visit(WhileStatement& node) override;

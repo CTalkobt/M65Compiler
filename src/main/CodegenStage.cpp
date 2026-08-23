@@ -101,7 +101,7 @@ void CodegenStage::applyIPOSpecialization() {
     //  - Co-optimization hints for link time
 
     IPOAnalyzer ipoAnalyzer;
-    const auto& profiles = analyzer_->getFunctionProfiles();
+    const auto& profiles = analyzer_->getAllCharacteristics();
 
     // Count specialization candidates
     int specializationCount = 0;
@@ -184,7 +184,7 @@ void CodegenStage::applyInlining() {
     // Apply inlining decisions from optimization phase
     InlineSelector inlineSelector(optimizationLevel_);
 
-    const auto& profiles = analyzer_->getFunctionProfiles();
+    const auto& profiles = analyzer_->getAllCharacteristics();
 
     // Count inlined functions
     int inlinedCount = 0;

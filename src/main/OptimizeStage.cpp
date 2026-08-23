@@ -87,32 +87,37 @@ void OptimizeStage::performInlineSelection() {
 
     if (!analyzer_) return;
 
-    // Get function profiles from analyzer
-    const auto& profiles = analyzer_->getFunctionProfiles();
+    // Get function characteristics from analyzer
+    const auto& characteristics = analyzer_->getAllCharacteristics();
 
     // Mark inline candidates based on heuristics:
-    // - Single-caller functions < 20 bytes
-    // - Leaf functions < 10 bytes
-    // - Tiny functions (< 10 bytes) with <= 3 call sites
-    for (const auto& profile : profiles) {
+    // - Leaf functions < 10 bytes (no function calls)
+    // - Small functions < 20 bytes with simple structure
+    int inlineCandidates = 0;
+    for (const auto& [funcName, chars] : characteristics) {
         bool shouldInline = false;
 
-        // Check single-caller heuristic
-        if (profile.second.callSiteCount == 1 && profile.second.estimatedSize < 20) {
+        // Check leaf function heuristic (highest priority)
+        if (chars.isLeaf && chars.estimatedCodeSize < 10) {
             shouldInline = true;
         }
-        // Check leaf function heuristic
-        else if (profile.second.isLeaf && profile.second.estimatedSize < 10) {
-            shouldInline = true;
-        }
-        // Check tiny function heuristic
-        else if (profile.second.estimatedSize < 10 && profile.second.callSiteCount <= 3) {
+        // Check small function heuristic (low loop/branch count)
+        else if (chars.estimatedCodeSize < 20 &&
+                 chars.loopCount == 0 && chars.branchCount <= 1) {
             shouldInline = true;
         }
 
-        if (shouldInline && verboseLevel_ >= 3) {
-            std::cout << "    Marking " << profile.first << " as inline candidate" << std::endl;
+        if (shouldInline) {
+            inlineCandidates++;
+            if (verboseLevel_ >= 3) {
+                std::cout << "    Marking " << funcName << " as inline candidate"
+                         << " (size: " << chars.estimatedCodeSize << " bytes)" << std::endl;
+            }
         }
+    }
+
+    if (verboseLevel_ >= 2 && inlineCandidates > 0) {
+        std::cout << "    Found " << inlineCandidates << " inline candidates." << std::endl;
     }
 }
 
@@ -130,20 +135,29 @@ void OptimizeStage::performCrossModuleOptimization() {
     //  - Call graph analysis for devirtualization
     //  - Co-optimization hints
 
-    const auto& profiles = analyzer_->getFunctionProfiles();
+    const auto& characteristics = analyzer_->getAllCharacteristics();
 
     // Count functions eligible for optimization
-    int eligibleCount = 0;
-    for (const auto& profile : profiles) {
-        // Functions with no external callers are candidates for DCE
-        if (profile.second.externalCallCount == 0 &&
-            profile.first != "main" && profile.first != "_main") {
-            eligibleCount++;
+    int leafFunctions = 0;
+    int smallFunctions = 0;
+    for (const auto& [funcName, chars] : characteristics) {
+        // Leaf functions are candidates for aggressive optimization
+        if (chars.isLeaf && funcName != "main" && funcName != "_main") {
+            leafFunctions++;
+        }
+        // Small functions can be inlined or specialized
+        if (chars.estimatedCodeSize < 20 && funcName != "main" && funcName != "_main") {
+            smallFunctions++;
         }
     }
 
-    if (verboseLevel_ >= 2 && eligibleCount > 0) {
-        std::cout << "    Found " << eligibleCount << " candidates for dead code elimination." << std::endl;
+    if (verboseLevel_ >= 2) {
+        if (leafFunctions > 0) {
+            std::cout << "    Found " << leafFunctions << " leaf functions for optimization." << std::endl;
+        }
+        if (smallFunctions > 0) {
+            std::cout << "    Found " << smallFunctions << " small functions for specialization." << std::endl;
+        }
     }
 
     // Additional cross-module optimizations:
