@@ -49,7 +49,14 @@ static void printHelpInputOutput() {
     std::cout << "  --source-map <file> Generate source-to-address mapping file\n";
     std::cout << "                     Maps binary addresses back to source lines for debugging\n";
     std::cout << "                     Shows address, source location, and original source code\n";
-    std::cout << "                     Example: ca45 --source-map map.txt input.s45\n";
+    std::cout << "                     Example: ca45 --source-map map.txt input.s45\n\n";
+    std::cout << "  --emulator          Launch emulator with assembled output\n";
+    std::cout << "                     Automatically detects available emulator (VICE, etc.)\n";
+    std::cout << "                     Output file must be .prg format for emulator loading\n";
+    std::cout << "                     Example: ca45 --emulator -o program.prg input.s45\n\n";
+    std::cout << "  --emulator-path <path>\n";
+    std::cout << "                     Path to emulator executable (overrides auto-detection)\n";
+    std::cout << "                     Example: ca45 --emulator --emulator-path /usr/bin/x64 input.s45\n";
 }
 
 static void printHelpOptimization() {
@@ -106,6 +113,46 @@ static void printHelpDiagnostics() {
     std::cout << "  -Wunderflow        Warn when negative values are used in addresses\n";
     std::cout << "                     Default: silent\n";
     std::cout << "                     Example: ca45 -Wunderflow input.s45\n";
+}
+
+static bool launchEmulatorWithBinary(const std::string& binaryPath, const std::string& customEmulatorPath) {
+    // Phase 3.3: Launch emulator with assembled binary
+    std::string emuPath = customEmulatorPath;
+
+    // If no custom path, try common emulator locations
+    if (emuPath.empty()) {
+        const char* candidates[] = {
+            "x64",           // VICE C64 emulator
+            "x64sc",         // VICE C64 (SuperCPU mode)
+            "mega65",        // MEGA65 emulator
+            "mega65_emu",    // Alternative MEGA65 name
+            "/usr/bin/x64",  // Linux typical path
+            "/usr/local/bin/x64"
+        };
+        for (const char* candidate : candidates) {
+            // Simple existence check - would need to use stat() for robust check
+            std::string cmd = std::string("which ") + candidate + " >/dev/null 2>&1";
+            if (system(cmd.c_str()) == 0) {
+                emuPath = candidate;
+                break;
+            }
+        }
+    }
+
+    if (emuPath.empty()) {
+        std::cerr << "Warning: No emulator found. Set path with --emulator-path <path>" << std::endl;
+        return false;
+    }
+
+    // Build command to launch emulator with binary
+    std::string cmd = emuPath + " \"" + binaryPath + "\" 2>/dev/null &";
+    int result = system(cmd.c_str());
+
+    if (result == 0) {
+        std::cout << "Launching emulator: " << emuPath << std::endl;
+        return true;
+    }
+    return false;
 }
 
 static void writeSourceMap(const std::string& filename, const AssemblerParser& parser, const std::string& source) {
@@ -246,6 +293,8 @@ int main(int argc, char** argv) {
     bool warnUnderflow = false;  // Phase 1.3: warn on negative values (default: off)
     bool dryRun = false;         // Phase 3.1: validate without generating output
     std::string sourceMapFile;   // Phase 3.2: source map output file
+    bool launchEmulator = false; // Phase 3.3: launch emulator after assembly
+    std::string emulatorPath;    // Phase 3.3: path to emulator executable
     int optimizationLevel = 2;  // Default to -O2
     OptimizationFlags optFlags = OptimizationFlags::fromLevel(2);  // Default to -O2
     int verboseLevel = 0;
@@ -354,6 +403,10 @@ int main(int argc, char** argv) {
             dryRun = true;  // Phase 3.1: validate without generating output
         } else if (arg == "--source-map" && i + 1 < argc) {
             sourceMapFile = argv[++i];  // Phase 3.2: generate source map
+        } else if (arg == "--emulator") {
+            launchEmulator = true;  // Phase 3.3: launch emulator after assembly
+        } else if (arg == "--emulator-path" && i + 1 < argc) {
+            emulatorPath = argv[++i];  // Phase 3.3: custom emulator path
         } else if (arg == "-vv") {
             verboseLevel = 2;
         } else if (arg == "-v") {
@@ -519,6 +572,12 @@ int main(int argc, char** argv) {
                 if (!sourceMapFile.empty()) {
                     writeSourceMap(sourceMapFile, parser, source);
                     std::cout << "Source map generated to " << sourceMapFile << std::endl;
+                }
+                // Phase 3.3: Launch emulator if requested
+                if (launchEmulator && isPrg) {
+                    launchEmulatorWithBinary(output_file, emulatorPath);
+                } else if (launchEmulator && !isPrg) {
+                    std::cerr << "Warning: Emulator launch requires .prg output (use -o program.prg)" << std::endl;
                 }
             }
         }
