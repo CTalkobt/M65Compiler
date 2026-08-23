@@ -27,6 +27,23 @@ AssemblerParser::AssemblerParser(const std::vector<AssemblerToken>& tokens, cons
     switchSegment("default");
 }
 
+// Error reporting helpers — ensure all errors have file:line:col format
+void AssemblerParser::errorAt(int line, int col, const std::string& msg) {
+    addError(formatDiagnostic(currentSourceFile_, line, col, Severity::Error, msg));
+}
+
+[[noreturn]] void AssemblerParser::throwAt(int line, int col, const std::string& msg) {
+    throw std::runtime_error(formatDiagnostic(currentSourceFile_, line, col, Severity::Error, msg));
+}
+
+void AssemblerParser::errorAtStmt(const Statement* stmt, const std::string& msg) {
+    if (stmt) {
+        addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error, msg));
+    } else {
+        addError(formatDiagnostic(currentSourceFile_, 0, 1, Severity::Error, msg));
+    }
+}
+
 void AssemblerParser::switchSegment(const std::string& name) {
     if (currentSegment) {
         currentSegment->pc = pc;
@@ -63,16 +80,16 @@ bool AssemblerParser::match(AssemblerTokenType type) {
 
 uint32_t AssemblerParser::evaluateExpressionAt(int index, const std::string& scopePrefix) {
     if (index < 0) {
-        throw std::runtime_error("evaluateExpressionAt: invalid token index " + std::to_string(index) +
+        throwAt(0, 1, "evaluateExpressionAt: invalid token index " + std::to_string(index) +
             " (negative index)");
     }
     if (index >= (int)tokens.size()) {
-        throw std::runtime_error("evaluateExpressionAt: token index " + std::to_string(index) +
+        throwAt(0, 1, "evaluateExpressionAt: token index " + std::to_string(index) +
             " out of bounds (only " + std::to_string(tokens.size()) + " tokens available)");
     }
     int idx = index;
     auto ast = parseExprAST(tokens, idx, symbolTable, scopePrefix);
-    if (!ast) throw std::runtime_error("Expected expression at line " + std::to_string(tokens[index].line));
+    if (!ast) throwAt(tokens[index].line, tokens[index].column, "Expected expression");
     return ast->getValue(this);
 }
 
@@ -147,7 +164,7 @@ uint8_t AssemblerParser::getScratchZP() const {
 
 const AssemblerToken& AssemblerParser::expect(AssemblerTokenType type, const std::string& message) {
     if (peek().type == type) return advance();
-    throw std::runtime_error(message + " at " + std::to_string(peek().line) + ":" + std::to_string(peek().column));
+    throwAt(peek().line, peek().column, message);
 }
 
 bool AssemblerParser::isStackRelativeOperand(int tokenIndex, uint32_t& offset, const std::string& scopePrefix, const Statement* stmt) {
@@ -161,23 +178,13 @@ bool AssemblerParser::isStackRelativeOperand(int tokenIndex, uint32_t& offset, c
             try {
                 offset = ast->getValue(this);
             } catch (const std::exception& e) {
-                if (stmt) {
-                    addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
-                        "failed to evaluate offset expression: " + std::string(e.what())));
-                } else {
-                    addError("isStackRelativeOperand: failed to evaluate offset expression: " + std::string(e.what()));
-                }
+                errorAtStmt(stmt, "failed to evaluate offset expression: " + std::string(e.what()));
                 offset = 0;
             }
             return true;
         }
     } catch (const std::exception& e) {
-        if (stmt) {
-            addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
-                "expression parsing failed: " + std::string(e.what())));
-        } else {
-            addError("isStackRelativeOperand: expression parsing failed: " + std::string(e.what()));
-        }
+        errorAtStmt(stmt, "expression parsing failed: " + std::string(e.what()));
     }
     return false;
 }
@@ -1245,7 +1252,7 @@ void AssemblerParser::pass1() {
                     else if (suffix == "sp") stmt->instr.mode = AddressingMode::STACK_RELATIVE;
                     else { stmt->instr.mnemonic = fullMnemonic; stmt->instr.forceMode = false; }
                 }
-                if (stmt->instr.mnemonic == "nop") throw std::runtime_error("nop disallowed");
+                if (stmt->instr.mnemonic == "nop") throwAt(stmt->line, 1, "nop disallowed");
                 if (stmt->instr.mnemonic == "proc") {
                     if (currentProc != nullptr) {
                         addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
@@ -1761,14 +1768,8 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
                 try {
                     v = std::stoul(instr.operand);
                 } catch (...) {
-                    if (stmt) {
-                        addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
-                            "RTN instruction: undefined operand '" + instr.operand +
-                            "' (not a symbol or numeric literal)"));
-                    } else {
-                        addError("RTN instruction: undefined operand '" + instr.operand +
-                            "' (not a symbol or numeric literal)");
-                    }
+                    errorAtStmt(stmt, "RTN instruction: undefined operand '" + instr.operand +
+                        "' (not a symbol or numeric literal)");
                     return 2; // Conservative: assume non-zero operand
                 }
             }

@@ -261,6 +261,11 @@ private:
     bool match(AssemblerTokenType type);
     const AssemblerToken& expect(AssemblerTokenType type, const std::string& message);
 
+    // Error reporting helpers — ensure all errors have file:line:col format
+    void errorAt(int line, int col, const std::string& msg);
+    [[noreturn]] void throwAt(int line, int col, const std::string& msg);
+    void errorAtStmt(const Statement* stmt, const std::string& msg);
+
     int calculateInstructionSize(const Instruction& instr, uint32_t currentAddr = 0, const std::string& scopePrefix = "", const Statement* stmt = nullptr);
     int calculateDirectiveSize(const Directive& dir, uint32_t currentAddr = 0, const Statement* stmt = nullptr);
     int calculateExprSize(int tokenIndex, const std::string& scopePrefix = "");
