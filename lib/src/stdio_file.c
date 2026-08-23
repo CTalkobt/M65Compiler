@@ -144,15 +144,24 @@ static unsigned char _parse_mode(const char *mode, unsigned char *cbm_type) {
     return flags;
 }
 
+/* Forward declarations from stdio_cbm.c */
+extern fd_t cbm_open(unsigned char device, const char *filename, unsigned char type);
+extern int cbm_read(fd_t fd, void *buffer, unsigned int length);
+extern int cbm_write(fd_t fd, const void *buffer, unsigned int length);
+extern int cbm_close(fd_t fd);
+
 /**
  * Open file via Commodore KERNAL
  * Returns file handle (0-15) on success, -1 on error
  */
 static int _kernal_open(const char *filename, unsigned char cbm_type, unsigned char flags) {
-    /* TODO: Implement KERNAL SETNAM, SETLFS, OPEN calls
-     * For now, return error
-     */
-    return -1;
+    /* Determine device number (default: disk) */
+    unsigned char device = CBM_DEVICE_DISK;
+
+    /* Open file using cbm_open */
+    fd_t fd = cbm_open(device, filename, cbm_type);
+
+    return (fd < 0) ? -1 : (int)fd;
 }
 
 /**
