@@ -47,7 +47,8 @@ public:
     bool verboseOptimizer = false;
     bool traceMachState = false;
     bool enableExperimental = false;
-    bool warnOverflow = false;  // Warn on immediate/address value overflows (default: off)
+    bool warnOverflow = false;   // Warn on immediate/address value overflows (default: off)
+    bool warnUnderflow = false;  // Warn on negative values (underflows) (default: off)
     int optimizationLevel = 2;  // 0=none, 1=basic, 2=default, 3=aggressive
     OptimizationFlags optFlags = OptimizationFlags::fromLevel(2);  // Named optimization flags
     std::vector<uint8_t> pass2(bool isPrg = false);
@@ -93,9 +94,11 @@ public:
     void updateSymbolSuggestions();
     std::string getSuggestionForSymbol(const std::string& undefined) const;
 
-    // Overflow checking helpers (Phase 1.3 — gated by warnOverflow flag)
+    // Overflow/Underflow checking helpers (Phase 1.3 — gated by flags)
     void checkImmediateOverflow(uint32_t value, int line, int col);
     void checkAddressOverflow(uint32_t address, AddressingMode mode, int line, int col);
+    void checkImmediateUnderflow(int32_t value, int line, int col);
+    void checkAddressUnderflow(int32_t address, int line, int col);
 
     struct ProcContext {
         std::string name;

@@ -137,6 +137,33 @@ void AssemblerParser::checkAddressOverflow(uint32_t address, AddressingMode mode
     }
 }
 
+void AssemblerParser::checkImmediateUnderflow(int32_t value, int line, int col) {
+    if (!warnUnderflow) return;  // Only warn if enabled
+
+    // Check if value is negative (underflow for unsigned immediate mode)
+    if (value < 0) {
+        char buf[64];
+        uint8_t truncated = static_cast<uint8_t>(value);
+        std::snprintf(buf, sizeof(buf), "Immediate value %d is negative (interpreted as $%02X when used as unsigned)",
+                     value, truncated);
+        addWarning(formatDiagnostic(currentSourceFile_, line, col, Severity::Warning, buf));
+    }
+}
+
+void AssemblerParser::checkAddressUnderflow(int32_t address, int line, int col) {
+    if (!warnUnderflow) return;  // Only warn if enabled
+
+    // Check if address is negative (underflow for unsigned address)
+    if (address < 0) {
+        char buf[96];
+        uint16_t truncated16 = static_cast<uint16_t>(address);
+        uint32_t truncated32 = static_cast<uint32_t>(address);
+        std::snprintf(buf, sizeof(buf), "Address %d is negative (interpreted as $%04X or $%08X when used as unsigned)",
+                     address, truncated16, truncated32);
+        addWarning(formatDiagnostic(currentSourceFile_, line, col, Severity::Warning, buf));
+    }
+}
+
 void AssemblerParser::switchSegment(const std::string& name) {
     if (currentSegment) {
         currentSegment->pc = pc;

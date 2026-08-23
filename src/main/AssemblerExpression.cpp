@@ -6,6 +6,31 @@
 #include <algorithm>
 #include <iostream>
 
+// Phase 1.4: Operator precedence hint helper
+namespace {
+    std::string getPrecedenceHint(const std::string& op) {
+        // Return operator precedence information to help users fix expressions
+        if (op == "*" || op == "/" || op == "%") {
+            return " (higher precedence: * / % evaluated before + -)";
+        } else if (op == "+" || op == "-") {
+            return " (lower precedence: evaluated after * / %)";
+        } else if (op == "<<" || op == ">>") {
+            return " (shift operators: evaluated after arithmetic)";
+        } else if (op == "&") {
+            return " (bitwise AND: evaluated after comparison operators)";
+        } else if (op == "^") {
+            return " (bitwise XOR: evaluated after AND)";
+        } else if (op == "|") {
+            return " (bitwise OR: evaluated after XOR)";
+        } else if (op == "&&") {
+            return " (logical AND: evaluated after comparison)";
+        } else if (op == "||") {
+            return " (logical OR: evaluated after logical AND)";
+        }
+        return "";
+    }
+}
+
 // ConstantNode
 uint32_t ConstantNode::getValue(AssemblerParser*) const { return value; }
 bool ConstantNode::isConstant(AssemblerParser*) const { return true; }
@@ -163,6 +188,11 @@ uint32_t VariableNode::getValue(AssemblerParser* parser) const {
             std::string suggestion = parser->getSuggestionForSymbol(name);
             if (!suggestion.empty()) {
                 msg += " (did you mean '" + suggestion + "'?)";
+            }
+
+            // Phase 1.4: Add hint about common issues
+            if (name.find("_p_") != std::string::npos || name.find("_l_") != std::string::npos) {
+                msg += " — inline asm symbols require matching .var declaration in the proc";
             }
 
             std::string fullMsg = "Error: " + msg;
@@ -352,7 +382,13 @@ uint32_t BinaryExpr::getValue(AssemblerParser* parser) const {
     if (op == "-") return l - r;
     if (op == "*") return l * r;
     if (op == "/") {
-        if (r == 0) throw std::runtime_error("Division by zero in expression");
+        if (r == 0) {
+            // Phase 1.4: Enhanced error context with operator information and precedence hint
+            std::string msg = "Division by zero in expression";
+            msg += getPrecedenceHint(op);
+            msg += " — check right operand is non-zero, or use parentheses: (a / b) or (a / (b + 1))";
+            throw std::runtime_error(msg);
+        }
         return l / r;
     }
     if (op == "&") return l & r;
