@@ -21,7 +21,18 @@ public:
         TABLE_DRIVEN_DISPATCH,          // Switch→JMP table
         BIT_MANIPULATION_REDUCTION,     // Optimize bit patterns
         DMA_AUTO_INVOKE,                // F018B DMA for bulk ops
-        ZEROPAGE_PRESSURE_RELIEF        // Spill ZP temporaries to stack
+        ZEROPAGE_PRESSURE_RELIEF,       // Spill ZP temporaries to stack
+        STRENGTH_REDUCTION,             // multiply/divide by power-of-2 → shifts
+        ALGEBRAIC_SIMPLIFICATION,       // identity/annihilator elimination
+        REDUNDANT_LOAD_ELIMINATION,     // eliminate duplicate loads
+        DEAD_STORE_ELIMINATION,         // eliminate unused stores
+        CSE,                            // Common subexpression elimination
+        LOOP_INVARIANT_CODE_MOTION,     // hoist loop-invariant ops
+        COPY_PROPAGATION,               // eliminate copy chains
+        BRANCH_OPTIMIZATION,            // branch folding, inversion
+        GLOBAL_VALUE_NUMBERING,         // track value identities across blocks
+        PEEPHOLE_OPTIMIZATION,          // IR-level pattern matching
+        ESCAPE_ANALYSIS                 // pointer escape & stack promotion
     };
 
     struct OptimizationMetrics {
