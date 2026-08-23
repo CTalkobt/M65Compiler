@@ -376,7 +376,10 @@ void BasicStandardLibraryInjector::resolveDependencies(
 
         auto it = functionLookup.find(func);
         if (it != functionLookup.end()) {
-            resolveDependencies(it->second.dependencies, resolved);
+            // Convert vector dependencies to set for recursive resolution
+            std::set<std::string> depSet(it->second.dependencies.begin(),
+                                        it->second.dependencies.end());
+            resolveDependencies(depSet, resolved);
         }
     }
 }
@@ -384,7 +387,7 @@ void BasicStandardLibraryInjector::resolveDependencies(
 // ==================== SmartLibraryManager ====================
 
 SmartLibraryManager::SmartLibraryManager(const LibraryConfig& config)
-    : config(config), injector(BasicStandardLibraryInjector()) {}
+    : injector(BasicStandardLibraryInjector()), config(config) {}
 
 bool SmartLibraryManager::analyzeProgramAndInjectLibrary(
     std::string& sourceCode,

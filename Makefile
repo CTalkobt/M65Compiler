@@ -12,6 +12,7 @@ endif
 SRC_DIR = src/main
 OBJ_DIR = obj
 BIN_DIR = bin
+LIB_DIR = lib45
 
 CC_TARGET = $(BIN_DIR)/cc45
 CA_TARGET = $(BIN_DIR)/ca45
@@ -24,20 +25,6 @@ DISK_TARGET = $(BIN_DIR)/disk45
 CVT_ASM_TARGET = $(BIN_DIR)/cvt_asm
 BASIC_TARGET = $(BIN_DIR)/basic45
 
-CC_SOURCES = $(SRC_DIR)/cc45_main.cpp
-CA_SOURCES = $(SRC_DIR)/ca45_main.cpp
-
-# Common objects (shared by both compiler and assembler)
-COMMON_SOURCES = $(SRC_DIR)/Lexer.cpp $(SRC_DIR)/Parser.cpp $(SRC_DIR)/AST.cpp $(SRC_DIR)/TypeInfo.cpp $(SRC_DIR)/M65Emitter.cpp $(SRC_DIR)/Preprocessor.cpp $(SRC_DIR)/ConstantFolder.cpp $(SRC_DIR)/LoopOptimizer.cpp $(SRC_DIR)/LoopIdiomRegistry.cpp $(SRC_DIR)/AddressTemplates.cpp $(SRC_DIR)/AddressTemplateDetector.cpp $(SRC_DIR)/CodeGenerator.cpp $(SRC_DIR)/LoopInterchange.cpp $(SRC_DIR)/FunctionAnalyzer.cpp $(SRC_DIR)/OptimizationSelector.cpp $(SRC_DIR)/InlineSelector.cpp $(SRC_DIR)/CallGraphAnalyzer.cpp $(SRC_DIR)/DevirtualizationDetector.cpp $(SRC_DIR)/CoOptimizationSelector.cpp $(SRC_DIR)/DevirtualizationHints.cpp $(SRC_DIR)/CoOptimizationApplier.cpp $(SRC_DIR)/OptimizationCatalog.cpp $(SRC_DIR)/OptimizationController.cpp $(SRC_DIR)/AssemblerOpcodeDatabase.cpp $(SRC_DIR)/O45Reader.cpp $(SRC_DIR)/O45Writer.cpp $(SRC_DIR)/O45IRSerializer.cpp $(SRC_DIR)/O45Emitter.cpp $(SRC_DIR)/TypeSystem.cpp $(SRC_DIR)/ScopeManager.cpp $(SRC_DIR)/ConfigLoader.cpp $(SRC_DIR)/GlobalFunctionDatabase.cpp $(SRC_DIR)/CallPatternAnalyzer.cpp $(SRC_DIR)/IPOAnalyzer.cpp $(SRC_DIR)/IPOProfiler.cpp $(SRC_DIR)/SpecializationCodeGenerator.cpp $(SRC_DIR)/SpecializationOptimizer.cpp $(SRC_DIR)/IRSpecializationGenerator.cpp $(SRC_DIR)/StructFieldStriper.cpp $(SRC_DIR)/FieldStripedOffsetCalc.cpp $(SRC_DIR)/AddressSpaceValidator.cpp $(SRC_DIR)/GlobalPointerFieldDatabase.cpp $(SRC_DIR)/InterTUPatternDetector.cpp $(SRC_DIR)/FieldCachingAnalyzer.cpp $(SRC_DIR)/FieldCachingLinkerIntegration.cpp $(SRC_DIR)/FarAddressMemorySupport.cpp $(SRC_DIR)/FarAddressCodeGenerator.cpp $(SRC_DIR)/CrossModuleVariableDatabase.cpp $(SRC_DIR)/MemoryBankAssigner.cpp $(SRC_DIR)/BankLayoutGenerator.cpp $(SRC_DIR)/BankSetupOptimizer.cpp $(SRC_DIR)/BankAwareCodeGenerator.cpp $(SRC_DIR)/OptimizationHintCollector.cpp $(SRC_DIR)/OptimizationConstraintResolver.cpp $(SRC_DIR)/LinkTimeOptimizationCoordinator.cpp $(SRC_DIR)/OptimizationDependencyAnalyzer.cpp $(SRC_DIR)/LinkTimeOptimizationCodeGenerator.cpp $(SRC_DIR)/LinkTimeOptimizationValidator.cpp $(SRC_DIR)/CompilationProfiler.cpp $(SRC_DIR)/HotSpotProfiler.cpp $(SRC_DIR)/ComparativePerformanceAnalyzer.cpp $(SRC_DIR)/PatternRecognitionEngine.cpp $(SRC_DIR)/PatternBasedOptimizationSelector.cpp $(SRC_DIR)/CrossModuleEnhancer.cpp $(SRC_DIR)/DependencyTracker.cpp $(SRC_DIR)/BenchmarkingSuite.cpp $(SRC_DIR)/BenchmarkCompilerIntegration.cpp $(SRC_DIR)/BenchmarkExecutor.cpp $(SRC_DIR)/BenchmarkMetricsCollector.cpp $(SRC_DIR)/BenchmarkComparativeAnalyzer.cpp $(SRC_DIR)/BenchmarkReportGenerator.cpp $(SRC_DIR)/IterationManager.cpp $(SRC_DIR)/OptimizationLearner.cpp $(SRC_DIR)/FeedbackCoordinator.cpp $(SRC_DIR)/OnlineLearner.cpp $(SRC_DIR)/TuningHooks.cpp $(SRC_DIR)/CompilationSignalCollector.cpp $(SRC_DIR)/CompilerHookIntegrator.cpp $(SRC_DIR)/HookIntegration.cpp $(SRC_DIR)/CompilerDecisionLogic.cpp $(SRC_DIR)/OptimizationEffectivenessCollector.cpp $(SRC_DIR)/OptimizationProfileDatabase.cpp $(SRC_DIR)/AdaptiveThresholdAdjuster.cpp $(SRC_DIR)/OptimizationPatternAnalyzer.cpp $(SRC_DIR)/LearnerBasedOptimizationSelector.cpp $(SRC_DIR)/AdaptiveLearnerIntegration.cpp $(SRC_DIR)/TemplateOptimizationPass.cpp $(SRC_DIR)/TemplateRegistry.cpp $(SRC_DIR)/TemplateOptimizationSystem.cpp $(SRC_DIR)/MathLibraryOptimization.cpp $(SRC_DIR)/RegisterResidentLoops.cpp $(SRC_DIR)/TableDrivenDispatch.cpp $(SRC_DIR)/StrengthReduction.cpp $(SRC_DIR)/AlgebraicSimplification.cpp $(SRC_DIR)/RedundantLoadElimination.cpp $(SRC_DIR)/DeadStoreElimination.cpp $(SRC_DIR)/CommonSubexpressionElimination.cpp $(SRC_DIR)/LoopInvariantCodeMotion.cpp $(SRC_DIR)/CopyPropagation.cpp $(SRC_DIR)/BranchOptimization.cpp $(SRC_DIR)/GlobalValueNumbering.cpp $(SRC_DIR)/PeepholeOptimization.cpp $(SRC_DIR)/EscapeAnalysis.cpp $(SRC_DIR)/LearnerFeedbackRecorder.cpp
-COMMON_OBJECTS = $(OBJ_DIR)/Lexer.o $(OBJ_DIR)/Parser.o $(OBJ_DIR)/AST.o $(OBJ_DIR)/TypeInfo.o $(OBJ_DIR)/M65Emitter.o $(OBJ_DIR)/Preprocessor.o $(OBJ_DIR)/ConstantFolder.o $(OBJ_DIR)/LoopOptimizer.o $(OBJ_DIR)/LoopIdiomRegistry.o $(OBJ_DIR)/AddressTemplates.o $(OBJ_DIR)/AddressTemplateDetector.o $(OBJ_DIR)/CodeGenerator.o $(OBJ_DIR)/LoopInterchange.o $(OBJ_DIR)/FunctionAnalyzer.o $(OBJ_DIR)/OptimizationSelector.o $(OBJ_DIR)/InlineSelector.o $(OBJ_DIR)/CallGraphAnalyzer.o $(OBJ_DIR)/DevirtualizationDetector.o $(OBJ_DIR)/CoOptimizationSelector.o $(OBJ_DIR)/DevirtualizationHints.o $(OBJ_DIR)/CoOptimizationApplier.o $(OBJ_DIR)/OptimizationCatalog.o $(OBJ_DIR)/OptimizationController.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45IRSerializer.o $(OBJ_DIR)/O45Emitter.o $(OBJ_DIR)/TypeSystem.o $(OBJ_DIR)/ScopeManager.o $(OBJ_DIR)/ConfigLoader.o $(OBJ_DIR)/GlobalFunctionDatabase.o $(OBJ_DIR)/CallPatternAnalyzer.o $(OBJ_DIR)/IPOAnalyzer.o $(OBJ_DIR)/IPOProfiler.o $(OBJ_DIR)/SpecializationCodeGenerator.o $(OBJ_DIR)/SpecializationOptimizer.o $(OBJ_DIR)/IRSpecializationGenerator.o $(OBJ_DIR)/StructFieldStriper.o $(OBJ_DIR)/FieldStripedOffsetCalc.o $(OBJ_DIR)/AddressSpaceValidator.o $(OBJ_DIR)/GlobalPointerFieldDatabase.o $(OBJ_DIR)/InterTUPatternDetector.o $(OBJ_DIR)/FieldCachingAnalyzer.o $(OBJ_DIR)/FieldCachingLinkerIntegration.o $(OBJ_DIR)/FarAddressMemorySupport.o $(OBJ_DIR)/FarAddressCodeGenerator.o $(OBJ_DIR)/CrossModuleVariableDatabase.o $(OBJ_DIR)/MemoryBankAssigner.o $(OBJ_DIR)/BankLayoutGenerator.o $(OBJ_DIR)/BankSetupOptimizer.o $(OBJ_DIR)/BankAwareCodeGenerator.o $(OBJ_DIR)/OptimizationHintCollector.o $(OBJ_DIR)/OptimizationConstraintResolver.o $(OBJ_DIR)/LinkTimeOptimizationCoordinator.o $(OBJ_DIR)/OptimizationDependencyAnalyzer.o $(OBJ_DIR)/LinkTimeOptimizationCodeGenerator.o $(OBJ_DIR)/LinkTimeOptimizationValidator.o $(OBJ_DIR)/CompilationProfiler.o $(OBJ_DIR)/HotSpotProfiler.o $(OBJ_DIR)/ComparativePerformanceAnalyzer.o $(OBJ_DIR)/PatternRecognitionEngine.o $(OBJ_DIR)/PatternBasedOptimizationSelector.o $(OBJ_DIR)/CrossModuleEnhancer.o $(OBJ_DIR)/DependencyTracker.o $(OBJ_DIR)/BenchmarkingSuite.o $(OBJ_DIR)/BenchmarkCompilerIntegration.o $(OBJ_DIR)/BenchmarkExecutor.o $(OBJ_DIR)/BenchmarkMetricsCollector.o $(OBJ_DIR)/BenchmarkComparativeAnalyzer.o $(OBJ_DIR)/BenchmarkReportGenerator.o $(OBJ_DIR)/IterationManager.o $(OBJ_DIR)/OptimizationLearner.o $(OBJ_DIR)/FeedbackCoordinator.o $(OBJ_DIR)/OnlineLearner.o $(OBJ_DIR)/TuningHooks.o $(OBJ_DIR)/CompilationSignalCollector.o $(OBJ_DIR)/CompilerHookIntegrator.o $(OBJ_DIR)/HookIntegration.o $(OBJ_DIR)/CompilerDecisionLogic.o $(OBJ_DIR)/OptimizationEffectivenessCollector.o $(OBJ_DIR)/OptimizationProfileDatabase.o $(OBJ_DIR)/AdaptiveThresholdAdjuster.o $(OBJ_DIR)/OptimizationPatternAnalyzer.o $(OBJ_DIR)/LearnerBasedOptimizationSelector.o $(OBJ_DIR)/AdaptiveLearnerIntegration.o $(OBJ_DIR)/TemplateOptimizationPass.o $(OBJ_DIR)/TemplateRegistry.o $(OBJ_DIR)/TemplateOptimizationSystem.o $(OBJ_DIR)/MathLibraryOptimization.o $(OBJ_DIR)/RegisterResidentLoops.o $(OBJ_DIR)/TableDrivenDispatch.o $(OBJ_DIR)/StrengthReduction.o $(OBJ_DIR)/AlgebraicSimplification.o $(OBJ_DIR)/RedundantLoadElimination.o $(OBJ_DIR)/DeadStoreElimination.o $(OBJ_DIR)/CommonSubexpressionElimination.o $(OBJ_DIR)/LoopInvariantCodeMotion.o $(OBJ_DIR)/CopyPropagation.o $(OBJ_DIR)/BranchOptimization.o $(OBJ_DIR)/GlobalValueNumbering.o $(OBJ_DIR)/PeepholeOptimization.o $(OBJ_DIR)/EscapeAnalysis.o $(OBJ_DIR)/LearnerFeedbackRecorder.o
-
-# Pipeline objects (compiler-only, includes CodegenStage which needs IRBuilder/IRCodeGen)
-PIPELINE_SOURCES = $(SRC_DIR)/CompilationPipeline.cpp $(SRC_DIR)/PreprocessStage.cpp $(SRC_DIR)/ParseStage.cpp $(SRC_DIR)/OptimizeStage.cpp $(SRC_DIR)/CodegenStage.cpp $(SRC_DIR)/AssemblyStage.cpp $(SRC_DIR)/LinkingStage.cpp
-PIPELINE_OBJECTS = $(OBJ_DIR)/CompilationPipeline.o $(OBJ_DIR)/PreprocessStage.o $(OBJ_DIR)/ParseStage.o $(OBJ_DIR)/OptimizeStage.o $(OBJ_DIR)/CodegenStage.o $(OBJ_DIR)/AssemblyStage.o $(OBJ_DIR)/LinkingStage.o
-
-CC_OBJECTS = $(OBJ_DIR)/cc45_main.o $(OBJ_DIR)/AssemblerLexer.o $(OBJ_DIR)/AssemblerParser.o $(OBJ_DIR)/AssemblerExpression.o $(OBJ_DIR)/AssemblerOptimizer.o $(OBJ_DIR)/AssemblerSimulatedOps.o $(OBJ_DIR)/AssemblerGenerator.o $(OBJ_DIR)/OpEffect.o $(OBJ_DIR)/IRBuilder.o $(OBJ_DIR)/IRPrinter.o $(OBJ_DIR)/IRCodeGen.o $(OBJ_DIR)/IROptimizer.o $(OBJ_DIR)/VRegAllocator.o $(COMMON_OBJECTS) $(PIPELINE_OBJECTS)
-CA_OBJECTS = $(OBJ_DIR)/ca45_main.o $(OBJ_DIR)/AssemblerLexer.o $(OBJ_DIR)/AssemblerParser.o $(OBJ_DIR)/AssemblerExpression.o $(OBJ_DIR)/AssemblerOptimizer.o $(OBJ_DIR)/AssemblerSimulatedOps.o $(OBJ_DIR)/AssemblerGenerator.o $(OBJ_DIR)/OpEffect.o $(COMMON_OBJECTS)
-
 MAN_DIR = man
 
 PREFIX ?= /usr/local
@@ -46,25 +33,114 @@ LIBDIR ?= $(PREFIX)/lib/cc45
 INCDIR ?= $(PREFIX)/include/cc45
 MANDIR ?= $(PREFIX)/share/man/man1
 
-.PHONY: all clean test man test-mmemu test-stdlib test-regression test-zpcall test-integration bench bench-save lib install install_local uninstall uninstall_local cppcheck coverage coverage-build coverage-clean coverage-report docker validate_performance
+# ============================================================================
+# lib45 LIBRARY DEFINITIONS
+# ============================================================================
 
-cppcheck:
-	cppcheck --enable=warning,performance,portability --inline-suppr -I include/ src/main/
+# lib45-common: Object format, symbols, config, utilities
+$(LIB_DIR)/lib45-common.a: $(addprefix $(OBJ_DIR)/, \
+    O45Reader.o O45Writer.o O45IRSerializer.o O45Emitter.o O45Archive.o \
+    O45Linker.o AssemblerOpcodeDatabase.o ConfigLoader.o)
+	@mkdir -p $(LIB_DIR)
+	$(AR) rcs $@ $^
 
-NM_OBJECTS = $(OBJ_DIR)/nm45_main.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45IRSerializer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o
-LN_OBJECTS = $(OBJ_DIR)/ln45_main.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45IRSerializer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/CrossModuleOptimizer.o
-AR_OBJECTS = $(OBJ_DIR)/ar45_main.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45IRSerializer.o $(OBJ_DIR)/O45Archive.o
-OD_OBJECTS = $(OBJ_DIR)/objdump45_main.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45IRSerializer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o $(OBJ_DIR)/BasicTokenizer.o
-DISK_OBJECTS = $(OBJ_DIR)/disk45_main.o $(OBJ_DIR)/disk45_catalog.o $(OBJ_DIR)/DiskImage.o $(OBJ_DIR)/DiskImageFactory.o $(OBJ_DIR)/BAMOperations.o $(OBJ_DIR)/D64Image.o $(OBJ_DIR)/D71Image.o $(OBJ_DIR)/D81Image.o $(OBJ_DIR)/D65Image.o $(OBJ_DIR)/ArkImage.o $(OBJ_DIR)/ArcImage.o $(OBJ_DIR)/LnxImage.o $(OBJ_DIR)/TapImage.o $(OBJ_DIR)/T64Image.o $(OBJ_DIR)/G64Image.o $(OBJ_DIR)/D80Image.o $(OBJ_DIR)/GeosCvtImage.o $(OBJ_DIR)/P00Image.o $(OBJ_DIR)/X64Image.o $(OBJ_DIR)/ZipcodeImage.o $(OBJ_DIR)/D90Image.o $(OBJ_DIR)/CmdImage.o $(OBJ_DIR)/NibImage.o $(OBJ_DIR)/GzipHelper.o
-ifeq ($(HAVE_FUSE3),1)
-  DISK_OBJECTS += $(OBJ_DIR)/disk45_fuse.o
-endif
+# lib45-c-compile: C compiler frontend (Lexer, Parser, AST, Validator)
+$(LIB_DIR)/lib45-c-compile.a: $(addprefix $(OBJ_DIR)/, \
+    Lexer.o Parser.o AST.o Preprocessor.o TypeSystem.o ScopeManager.o \
+    TypeInfo.o M65Emitter.o)
+	@mkdir -p $(LIB_DIR)
+	$(AR) rcs $@ $^
 
-CVT_ASM_OBJECTS = $(OBJ_DIR)/cvt_asm_main.o $(OBJ_DIR)/AsmParser.o $(OBJ_DIR)/AsmWriter.o $(OBJ_DIR)/Ca45Parser.o $(OBJ_DIR)/Ca45Writer.o $(OBJ_DIR)/Ca65Parser.o $(OBJ_DIR)/Ca65Writer.o $(OBJ_DIR)/AcmeParser.o $(OBJ_DIR)/AcmeWriter.o $(OBJ_DIR)/OscarParser.o $(OBJ_DIR)/OscarWriter.o $(OBJ_DIR)/Merlin64Parser.o $(OBJ_DIR)/Merlin64Writer.o $(OBJ_DIR)/X65Parser.o $(OBJ_DIR)/X65Writer.o $(OBJ_DIR)/FormatDetection.o $(OBJ_DIR)/KickAssemblerParser.o $(OBJ_DIR)/KickAssemblerWriter.o $(OBJ_DIR)/AssemblerLexer.o $(OBJ_DIR)/AssemblerParser.o $(OBJ_DIR)/AssemblerExpression.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o $(OBJ_DIR)/AssemblerOptimizer.o $(OBJ_DIR)/AssemblerSimulatedOps.o $(OBJ_DIR)/AssemblerGenerator.o $(OBJ_DIR)/OpEffect.o $(COMMON_OBJECTS) # Note: excludes PIPELINE_OBJECTS which are compiler-only
+# lib45-ir: Intermediate representation (basic IR structures, no codegen)
+$(LIB_DIR)/lib45-ir.a: $(addprefix $(OBJ_DIR)/, \
+    IRBuilder.o IRPrinter.o IROptimizer.o VRegAllocator.o)
+	@mkdir -p $(LIB_DIR)
+	$(AR) rcs $@ $^
 
-BASIC_OBJECTS = $(OBJ_DIR)/basic45_main.o $(OBJ_DIR)/BasicTokenizer.o $(OBJ_DIR)/PETSCIIEncoder.o $(OBJ_DIR)/BasicEmitter.o $(OBJ_DIR)/BasicPreprocessor.o $(OBJ_DIR)/BasicDocGenerator.o $(OBJ_DIR)/BasicValidator.o $(OBJ_DIR)/LabelBasedSourceParser.o $(OBJ_DIR)/SymbolExpressionEvaluator.o $(OBJ_DIR)/BasicMinifier.o $(OBJ_DIR)/BasicTooling.o $(OBJ_DIR)/BasicCharacterMap.o $(OBJ_DIR)/BasicDocumentationGenerator.o $(OBJ_DIR)/BasicStructures.o $(OBJ_DIR)/BasicArchiveSupport.o $(OBJ_DIR)/BasicStandardLibrary.o
+# lib45-opt: Optimization passes + code generation
+$(LIB_DIR)/lib45-opt.a: $(addprefix $(OBJ_DIR)/, \
+    IRCodeGen.o CodeGenerator.o \
+    ConstantFolder.o LoopOptimizer.o LoopIdiomRegistry.o \
+    LoopInterchange.o StrengthReduction.o AlgebraicSimplification.o \
+    RedundantLoadElimination.o DeadStoreElimination.o \
+    CommonSubexpressionElimination.o LoopInvariantCodeMotion.o \
+    CopyPropagation.o BranchOptimization.o GlobalValueNumbering.o \
+    EscapeAnalysis.o OptimizationSelector.o InlineSelector.o \
+    CallGraphAnalyzer.o DevirtualizationDetector.o FunctionAnalyzer.o \
+    CoOptimizationSelector.o DevirtualizationHints.o CoOptimizationApplier.o \
+    OptimizationCatalog.o OptimizationController.o \
+    GlobalFunctionDatabase.o CallPatternAnalyzer.o IPOAnalyzer.o IPOProfiler.o \
+    SpecializationCodeGenerator.o SpecializationOptimizer.o \
+    IRSpecializationGenerator.o StructFieldStriper.o FieldStripedOffsetCalc.o \
+    AddressSpaceValidator.o GlobalPointerFieldDatabase.o \
+    InterTUPatternDetector.o FieldCachingAnalyzer.o \
+    FieldCachingLinkerIntegration.o FarAddressMemorySupport.o \
+    FarAddressCodeGenerator.o CrossModuleVariableDatabase.o \
+    MemoryBankAssigner.o BankLayoutGenerator.o BankSetupOptimizer.o \
+    BankAwareCodeGenerator.o OptimizationHintCollector.o \
+    OptimizationConstraintResolver.o LinkTimeOptimizationCoordinator.o \
+    OptimizationDependencyAnalyzer.o LinkTimeOptimizationCodeGenerator.o \
+    LinkTimeOptimizationValidator.o CompilationProfiler.o HotSpotProfiler.o \
+    ComparativePerformanceAnalyzer.o PatternRecognitionEngine.o \
+    PatternBasedOptimizationSelector.o CrossModuleEnhancer.o \
+    DependencyTracker.o BenchmarkingSuite.o BenchmarkCompilerIntegration.o \
+    BenchmarkExecutor.o BenchmarkMetricsCollector.o \
+    BenchmarkComparativeAnalyzer.o BenchmarkReportGenerator.o \
+    IterationManager.o OptimizationLearner.o FeedbackCoordinator.o \
+    OnlineLearner.o TuningHooks.o CompilationSignalCollector.o \
+    CompilerHookIntegrator.o HookIntegration.o CompilerDecisionLogic.o \
+    OptimizationEffectivenessCollector.o OptimizationProfileDatabase.o \
+    AdaptiveThresholdAdjuster.o OptimizationPatternAnalyzer.o \
+    LearnerBasedOptimizationSelector.o AdaptiveLearnerIntegration.o \
+    TemplateOptimizationPass.o TemplateRegistry.o TemplateOptimizationSystem.o \
+    MathLibraryOptimization.o RegisterResidentLoops.o TableDrivenDispatch.o \
+    PeepholeOptimization.o LearnerFeedbackRecorder.o AddressTemplates.o \
+    AddressTemplateDetector.o)
+	@mkdir -p $(LIB_DIR)
+	$(AR) rcs $@ $^
 
-all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET) $(NM_TARGET) $(LN_TARGET) $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET) $(BASIC_TARGET)
+# lib45-codegen: Code generation & assembly
+$(LIB_DIR)/lib45-codegen.a: $(addprefix $(OBJ_DIR)/, \
+    AssemblerLexer.o AssemblerParser.o AssemblerExpression.o \
+    AssemblerOptimizer.o AssemblerSimulatedOps.o AssemblerGenerator.o OpEffect.o)
+	@mkdir -p $(LIB_DIR)
+	$(AR) rcs $@ $^
+
+# lib45-linker: Linking and relocation
+$(LIB_DIR)/lib45-linker.a: $(addprefix $(OBJ_DIR)/, \
+    CrossModuleOptimizer.o)
+	@mkdir -p $(LIB_DIR)
+	$(AR) rcs $@ $^
+
+# lib45-basic: BASIC language features
+$(LIB_DIR)/lib45-basic.a: $(addprefix $(OBJ_DIR)/, \
+    BasicTokenizer.o PETSCIIEncoder.o BasicEmitter.o BasicPreprocessor.o \
+    BasicDocGenerator.o BasicValidator.o LabelBasedSourceParser.o \
+    SymbolExpressionEvaluator.o BasicMinifier.o BasicTooling.o \
+    BasicCharacterMap.o BasicDocumentationGenerator.o BasicStructures.o \
+    BasicArchiveSupport.o BasicStandardLibrary.o)
+	@mkdir -p $(LIB_DIR)
+	$(AR) rcs $@ $^
+
+# lib45-tools: Disk utilities, format converters
+$(LIB_DIR)/lib45-tools.a: $(addprefix $(OBJ_DIR)/, \
+    disk45_catalog.o DiskImage.o DiskImageFactory.o BAMOperations.o \
+    D64Image.o D71Image.o D81Image.o D65Image.o ArkImage.o ArcImage.o \
+    LnxImage.o TapImage.o T64Image.o G64Image.o D80Image.o GeosCvtImage.o \
+    P00Image.o X64Image.o ZipcodeImage.o D90Image.o CmdImage.o NibImage.o \
+    GzipHelper.o AsmParser.o AsmWriter.o Ca45Parser.o Ca45Writer.o \
+    Ca65Parser.o Ca65Writer.o AcmeParser.o AcmeWriter.o OscarParser.o \
+    OscarWriter.o Merlin64Parser.o Merlin64Writer.o X65Parser.o X65Writer.o \
+    FormatDetection.o KickAssemblerParser.o KickAssemblerWriter.o)
+	@mkdir -p $(LIB_DIR)
+	$(AR) rcs $@ $^
+
+# ============================================================================
+# BINARY BUILD RULES
+# ============================================================================
+
+all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET) $(NM_TARGET) $(LN_TARGET) \
+     $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET) $(BASIC_TARGET)
 
 man: $(MAN_DIR)/cc45.1 $(MAN_DIR)/ca45.1 $(MAN_DIR)/cp45.1 $(MAN_DIR)/ln45.1 $(MAN_DIR)/nm45.1 $(MAN_DIR)/ar45.1 $(MAN_DIR)/objdump45.1
 
@@ -72,45 +148,79 @@ $(MAN_DIR)/%.1: doc/bin/%.md
 	@mkdir -p $(MAN_DIR)
 	pandoc -s -t man $< -o $@ -M title="$(basename $(notdir $@))" -M section="1" -M date="$(shell date +%F)" -M footer="$(basename $(notdir $@)) manual" -M header="User Commands"
 
-$(CC_TARGET): $(CC_OBJECTS)
-	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $^
+# Define pipeline object files (compiler-only)
+PIPELINE_OBJECTS = $(addprefix $(OBJ_DIR)/, \
+    CompilationPipeline.o PreprocessStage.o ParseStage.o OptimizeStage.o \
+    CodegenStage.o AssemblyStage.o LinkingStage.o)
 
+# C Compiler (cc45) - uses all libraries plus pipeline objects
+# Note: Link order matters - list libraries twice to resolve circular dependencies
+$(CC_TARGET): $(OBJ_DIR)/cc45_main.o $(PIPELINE_OBJECTS) | $(LIB_DIR)
+$(CC_TARGET): $(LIB_DIR)/lib45-opt.a $(LIB_DIR)/lib45-codegen.a \
+              $(LIB_DIR)/lib45-ir.a $(LIB_DIR)/lib45-c-compile.a $(LIB_DIR)/lib45-common.a
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/cc45_main.o $(PIPELINE_OBJECTS) \
+	  $(LIB_DIR)/lib45-opt.a $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-ir.a \
+	  $(LIB_DIR)/lib45-c-compile.a $(LIB_DIR)/lib45-common.a \
+	  $(LIB_DIR)/lib45-opt.a $(LIB_DIR)/lib45-ir.a
+
+# Preprocessor (cp45) - symlink to cc45
 $(CP_TARGET): $(CC_TARGET)
 	@mkdir -p $(BIN_DIR)
 	ln -sf cc45 $(CP_TARGET)
 
-$(CA_TARGET): $(CA_OBJECTS)
+# Assembler (ca45) - uses codegen + common
+$(CA_TARGET): $(OBJ_DIR)/ca45_main.o | $(LIB_DIR)
+$(CA_TARGET): $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $^
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/ca45_main.o $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
 
-$(NM_TARGET): $(NM_OBJECTS)
+# Symbol Inspector (nm45) - uses common
+$(NM_TARGET): $(OBJ_DIR)/nm45_main.o | $(LIB_DIR)
+$(NM_TARGET): $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $^
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/nm45_main.o $(LIB_DIR)/lib45-common.a
 
-$(LN_TARGET): $(LN_OBJECTS)
+# Linker (ln45) - uses linker + opt + common
+$(LN_TARGET): $(OBJ_DIR)/ln45_main.o | $(LIB_DIR)
+$(LN_TARGET): $(LIB_DIR)/lib45-linker.a $(LIB_DIR)/lib45-opt.a $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $^
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/ln45_main.o $(LIB_DIR)/lib45-linker.a $(LIB_DIR)/lib45-opt.a $(LIB_DIR)/lib45-common.a
 
-$(AR_TARGET): $(AR_OBJECTS)
+# Archiver (ar45) - uses common
+$(AR_TARGET): $(OBJ_DIR)/ar45_main.o | $(LIB_DIR)
+$(AR_TARGET): $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $^
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/ar45_main.o $(LIB_DIR)/lib45-common.a
 
-$(OD_TARGET): $(OD_OBJECTS)
+# Object Disassembler (objdump45) - uses codegen + common
+$(OD_TARGET): $(OBJ_DIR)/objdump45_main.o | $(LIB_DIR)
+$(OD_TARGET): $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $^
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/objdump45_main.o $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
 
-$(DISK_TARGET): $(DISK_OBJECTS)
+# Disk Utility (disk45) - uses tools + common
+$(DISK_TARGET): $(OBJ_DIR)/disk45_main.o | $(LIB_DIR)
+$(DISK_TARGET): $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $^ -lz -lsqlite3 $(FUSE3_LIBS)
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/disk45_main.o $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-common.a -lz -lsqlite3 $(FUSE3_LIBS)
 
-$(CVT_ASM_TARGET): $(CVT_ASM_OBJECTS)
+# Assembly Format Converter (cvt_asm) - uses tools, codegen, opt + common
+$(CVT_ASM_TARGET): $(OBJ_DIR)/cvt_asm_main.o | $(LIB_DIR)
+$(CVT_ASM_TARGET): $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-codegen.a \
+                   $(LIB_DIR)/lib45-opt.a $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $^
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/cvt_asm_main.o $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-opt.a $(LIB_DIR)/lib45-common.a
 
-$(BASIC_TARGET): $(BASIC_OBJECTS)
+# BASIC Compiler (basic45) - uses basic + tools + common
+$(BASIC_TARGET): $(OBJ_DIR)/basic45_main.o | $(LIB_DIR)
+$(BASIC_TARGET): $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $^
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/basic45_main.o $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-tools.a $(LIB_DIR)/lib45-common.a
+
+# ============================================================================
+# COMPILATION RULES
+# ============================================================================
 
 # disk45 FUSE module needs FUSE3 headers
 $(OBJ_DIR)/disk45_fuse.o: $(SRC_DIR)/disk45_fuse.cpp | $(OBJ_DIR)
@@ -120,18 +230,108 @@ $(OBJ_DIR)/disk45_fuse.o: $(SRC_DIR)/disk45_fuse.cpp | $(OBJ_DIR)
 $(OBJ_DIR)/disk45_main.o: $(SRC_DIR)/disk45_main.cpp | $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) $(FUSE3_CFLAGS) -c -o $@ $<
 
+# Pipeline objects (compiler-only)
+$(OBJ_DIR)/CompilationPipeline.o: $(SRC_DIR)/CompilationPipeline.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/PreprocessStage.o: $(SRC_DIR)/PreprocessStage.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/ParseStage.o: $(SRC_DIR)/ParseStage.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/OptimizeStage.o: $(SRC_DIR)/OptimizeStage.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/CodegenStage.o: $(SRC_DIR)/CodegenStage.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/AssemblyStage.o: $(SRC_DIR)/AssemblyStage.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/LinkingStage.o: $(SRC_DIR)/LinkingStage.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+# Default compilation rule for all object files
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp | $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 $(OBJ_DIR):
 	@mkdir -p $(OBJ_DIR)
 
+$(LIB_DIR):
+	@mkdir -p $(LIB_DIR)
+
 -include $(OBJ_DIR)/*.d
+
+# ============================================================================
+# CONVENIENCE TARGETS
+# ============================================================================
+
+.PHONY: lib45-libraries lib45-sizes lib45-clean show-lib-deps parallel-build
+.PHONY: all clean test man test-mmemu test-stdlib test-regression test-zpcall
+.PHONY: test-integration bench bench-save lib install install_local uninstall
+.PHONY: uninstall_local cppcheck coverage coverage-build coverage-clean
+.PHONY: coverage-report docker validate_performance test-assembler test-const
+.PHONY: test-restrict test-register test-cast-fold test-o45 test-move-fill
+.PHONY: test-validation-parser test-validation-struct test-validation-const
+.PHONY: test-validation-semantic test-validation-preprocessor test-opcodes
+.PHONY: test-validation-linker test-segment-emission test-validation-assembler
+.PHONY: test-validation-simops test-validation-directives test-validation-symbols
+.PHONY: test-validation-segments test-validation-proc test-validation-addressing
+.PHONY: test-validation-simops-extended test-objdump45
+
+# Build all lib45 libraries
+lib45-libraries: $(LIB_DIR)/lib45-common.a $(LIB_DIR)/lib45-c-compile.a \
+                $(LIB_DIR)/lib45-ir.a $(LIB_DIR)/lib45-opt.a \
+                $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-linker.a \
+                $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-tools.a
+
+# Show library dependency information
+show-lib-deps:
+	@echo "=== lib45 Library Dependencies ==="
+	@echo "lib45-common.a        : O45 format, configuration, utilities (no deps)"
+	@echo "lib45-c-compile.a     : C compiler frontend → lib45-common"
+	@echo "lib45-ir.a            : Intermediate representation → lib45-common"
+	@echo "lib45-opt.a           : Optimization passes → lib45-ir lib45-common"
+	@echo "lib45-codegen.a       : Code generation, assembly → lib45-common"
+	@echo "lib45-linker.a        : Linker, relocation → lib45-opt lib45-common"
+	@echo "lib45-basic.a         : BASIC language features → lib45-tools lib45-common"
+	@echo "lib45-tools.a         : Disk utilities, converters → lib45-common"
+	@echo ""
+	@echo "=== Binary Dependencies ==="
+	@echo "cc45      : lib45-opt lib45-codegen lib45-ir lib45-c-compile lib45-common"
+	@echo "ca45      : lib45-codegen lib45-common"
+	@echo "cp45      : symlink to cc45"
+	@echo "ln45      : lib45-linker lib45-opt lib45-common"
+	@echo "nm45      : lib45-common"
+	@echo "ar45      : lib45-common"
+	@echo "objdump45 : lib45-codegen lib45-common"
+	@echo "disk45    : lib45-tools lib45-common"
+	@echo "cvt_asm   : lib45-tools lib45-codegen lib45-opt lib45-common"
+	@echo "basic45   : lib45-basic lib45-tools lib45-common"
+
+# Display library file sizes
+lib45-sizes: lib45-libraries
+	@echo "=== lib45 Library Sizes ==="
+	@ls -lh $(LIB_DIR)/lib45-*.a 2>/dev/null | awk '{printf "%-25s %8s\n", $$9, $$5}' || echo "No libraries built"
+	@echo "=== Total Size ==="
+	@du -sh $(LIB_DIR) 2>/dev/null || echo "Library directory empty"
+
+# Clean lib45 libraries only
+lib45-clean:
+	@rm -f $(LIB_DIR)/lib45-*.a
+	@rmdir $(LIB_DIR) 2>/dev/null || true
+
+# Parallel build (useful for multi-core systems)
+parallel-build:
+	$(MAKE) -j8 lib45-libraries
+	$(MAKE) -j8 all
 
 lib: all
 	@$(MAKE) -C lib
 
-clean:
+clean: lib45-clean
 	rm -rf $(OBJ_DIR) $(BIN_DIR) build
 	@$(MAKE) -C bug clean
 	@$(MAKE) -C lib clean
