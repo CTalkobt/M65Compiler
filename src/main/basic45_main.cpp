@@ -11,6 +11,7 @@
 #include "PETSCIIEncoder.hpp"
 #include "BasicPreprocessor.hpp"
 #include "BasicDocGenerator.hpp"
+#include "BasicValidator.hpp"
 
 struct Options {
     std::string inputFile;
@@ -28,6 +29,8 @@ struct Options {
     bool useLabels = false;
     bool generateDocs = false;
     bool preserveSpaces = false;
+    bool validateOnly = false;  // Check-only mode (no compilation)
+    bool strictValidation = false;  // Treat warnings as errors
 };
 
 class SymbolTable {
@@ -93,6 +96,8 @@ static void printUsage(const char* progName) {
     std::cout << "  --docs <f>          Generate markdown documentation to file" << std::endl;
     std::cout << "  -I <path>           Add include search path for #include" << std::endl;
     std::cout << "  --preserve-spaces   Preserve spaces in tokenized output for listing display" << std::endl;
+    std::cout << "  --validate          Validate only (no compilation, IDE-friendly output)" << std::endl;
+    std::cout << "  --strict            Treat validation warnings as errors" << std::endl;
     std::cout << "  --list-tokens       List all supported BASIC keywords and exit" << std::endl;
     std::cout << "  -v, --verbose       Verbose output" << std::endl;
     std::cout << "  --version           Show version" << std::endl;
@@ -128,6 +133,10 @@ static Options parseArgs(int argc, char* argv[]) {
             opts.includePath = argv[++i];
         } else if (arg == "--preserve-spaces") {
             opts.preserveSpaces = true;
+        } else if (arg == "--validate") {
+            opts.validateOnly = true;
+        } else if (arg == "--strict") {
+            opts.strictValidation = true;
         } else if (arg == "--list-tokens") {
             opts.listTokens = true;
         } else if (arg == "--version") {
@@ -277,6 +286,46 @@ int main(int argc, char* argv[]) {
         if (opts.verbose) {
             std::cout << "Symbols loaded from: " << opts.symbolFile << std::endl;
         }
+    }
+
+    // Validation pass (Feature #1: Compile-Time Validation & Safety)
+    BasicValidator validator(opts.inputFile);
+    validator.analyze(sourceCode);
+    validator.validate();
+
+    if (validator.hasErrors()) {
+        validator.printErrors();
+
+        // Count errors vs warnings
+        int errorCount = 0, warningCount = 0;
+        for (const auto& err : validator.getErrors()) {
+            if (err.isWarning) {
+                warningCount++;
+            } else {
+                errorCount++;
+            }
+        }
+
+        // Exit if there are errors, or if strict mode and there are warnings
+        if (errorCount > 0 || (opts.strictValidation && warningCount > 0)) {
+            if (opts.verbose || !opts.validateOnly) {
+                std::cerr << "Compilation failed: " << errorCount << " error(s), "
+                          << warningCount << " warning(s)" << std::endl;
+            }
+            return errorCount > 0 ? 1 : 1;
+        }
+
+        if (opts.verbose) {
+            std::cerr << "Validation: " << warningCount << " warning(s) (non-fatal)" << std::endl;
+        }
+    }
+
+    // If validation-only mode, exit here
+    if (opts.validateOnly) {
+        if (opts.verbose) {
+            std::cout << "Validation successful" << std::endl;
+        }
+        return 0;
     }
 
     BasicEmitter emitter(opts.loadAddress, opts.lineIncrement);
