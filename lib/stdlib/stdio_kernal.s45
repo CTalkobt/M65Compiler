@@ -39,38 +39,10 @@
 .const REG_Z           = $40
 
 ; ============================================================================
-; Helper: Call KERNAL routine via JSRFAR
-; ============================================================================
-; Inputs: A = target address low, X = target address high, Y = bank
-; Clobbers: Bank configuration (restored by JSRFAR)
+; KERNAL WRAPPER FUNCTIONS
 ; ============================================================================
 
 .segment "TEXT"
-
-; Helper macro: Call KERNAL routine
-; Usage: @call_kernal KERNAL_CHKIN, 0, 0  ; A=fd, X/Y=preserved, bank=0
-@call_kernal:
-    macro @addr, @bank_id, @preserve_regs
-        ; Setup for JSRFAR
-        pha                         ; Save A temporarily
-        lda #(@addr & $FF)
-        sta REG_PC_LO
-        pla
-        pha
-        lda #((@addr >> 8) & $FF)
-        sta REG_PC_HI
-        lda #@bank_id               ; Bank 0 for KERNAL
-        sta REG_BANK
-        pla
-        sta REG_A                   ; Save A register
-        stx REG_X                   ; Save X register
-        sty REG_Y                   ; Save Y register
-        stz REG_Z                   ; Clear Z register
-
-        jsr JSRFAR_ADDR             ; Call KERNAL routine
-
-        ; After return, A contains result
-    endmacro
 
 ; ============================================================================
 ; cbm_k_setnam - Set filename for next file operation
@@ -78,11 +50,6 @@
 ; Entry: A/X = low/high address of filename string
 ;        Y = length of filename
 ; Exit:  A = status (always 0 for setnam)
-;
-; KERNAL SETNAM at $FF5D
-;   Entry: A/X = address (little-endian)
-;          Y = length
-;   Exit: (no return value, just sets up for next operation)
 
 .export cbm_k_setnam
 cbm_k_setnam:
@@ -90,12 +57,8 @@ cbm_k_setnam:
     ; X = high byte (from caller's X)
     ; Y = length (already in Y)
 
-    ; Push return address and call via JSRFAR
-    pha                             ; Save A
-    txa                             ; X → A
-    sta REG_X                       ; Save X as X register
-    pla
     sta REG_A                       ; Save A as A register
+    stx REG_X                       ; Save X as X register
     sty REG_Y                       ; Save Y length
     stz REG_Z
 
@@ -318,8 +281,7 @@ cbm_k_chrout:
 ; cbm_k_readst - Read status byte
 ; ============================================================================
 ; Entry: None
-; Exit:  A = status byte (bits: 0=EOF, 1=???, 2=device, 3=not found,
-;                               4=file open, 5=syntax/mem, 6=EOF, 7=device absent)
+; Exit:  A = status byte
 
 .export cbm_k_readst
 cbm_k_readst:

@@ -412,10 +412,87 @@ void clearerr(FILE *stream) {
 }
 
 /**
- * fileno - Get file descriptor from FILE
+ * setvbuf - Set buffering for a stream
  */
-int fileno(FILE *stream) {
+int setvbuf(FILE *stream, char *buffer, int mode, size_t size) {
     if (!stream) return -1;
-    return stream->handle;
+    /* TODO: Implement custom buffering modes (fully buffered, line buffered, unbuffered) */
+    return 0;
+}
+
+/**
+ * setbuf - Set buffer (simplified setvbuf)
+ */
+void setbuf(FILE *stream, char *buffer) {
+    if (!stream) return;
+    if (buffer) {
+        stream->buffer = (unsigned char *)buffer;
+        stream->buf_size = BUFSIZ;
+    } else {
+        /* Unbuffered mode - TODO */
+        stream->buf_size = 0;
+    }
+}
+
+/**
+ * fseek - Seek to position in file
+ */
+int fseek(FILE *stream, long offset, int whence) {
+    if (!stream) return -1;
+    /* TODO: Implement seeking via cbm_seek */
+    return -1;
+}
+
+/**
+ * ftell - Get current position in file
+ */
+long ftell(FILE *stream) {
+    if (!stream) return -1L;
+    /* TODO: Implement via cbm_tell */
+    return stream->position;
+}
+
+/**
+ * rewind - Seek to beginning of file
+ */
+void rewind(FILE *stream) {
+    if (!stream) return;
+    fseek(stream, 0L, SEEK_SET);
+    clearerr(stream);
+}
+
+/**
+ * fgetpos - Get current file position
+ */
+int fgetpos(FILE *stream, fpos_t *pos) {
+    if (!stream || !pos) return -1;
+    *pos = stream->position;
+    return 0;
+}
+
+/**
+ * fsetpos - Set file position
+ */
+int fsetpos(FILE *stream, const fpos_t *pos) {
+    if (!stream || !pos) return -1;
+    return fseek(stream, (long)*pos, SEEK_SET);
+}
+
+/**
+ * tmpfile - Create temporary file
+ */
+FILE *tmpfile(void) {
+    /* TODO: Implement temporary file creation */
+    return NULL;
+}
+
+/**
+ * tmpnam - Generate temporary filename
+ */
+char *tmpnam(char *s) {
+    /* TODO: Implement temporary name generation */
+    static char buf[L_tmpnam];
+    if (!s) s = buf;
+    return s;
 }
 

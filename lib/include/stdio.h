@@ -46,6 +46,9 @@ typedef struct {
     unsigned char ungetc_char;       /* Character pushed back by ungetc() */
 } FILE;
 
+/* File position type */
+typedef unsigned long fpos_t;
+
 /* File open modes */
 #define _IOREAD     0x01             /* File opened for reading */
 #define _IOWRITE    0x02             /* File opened for writing */
@@ -70,6 +73,7 @@ extern FILE *stderr;
 #define BUFSIZ      256              /* Default buffer size */
 #define FILENAME_MAX 16              /* Max filename length (Commodore) */
 #define FOPEN_MAX   8                /* Max simultaneous open files */
+#define L_tmpnam    32               /* Length of temp filename */
 
 /* Stream file operations */
 FILE *fopen(const char *filename, const char *mode);
