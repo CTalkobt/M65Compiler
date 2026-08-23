@@ -1,0 +1,110 @@
+* = $2000
+    __sp_base = $0101
+; Save ZP $08-$FF to BSS buffer
+    ldx #0
+@__zp_save_loop:
+    lda $08,x
+    sta __zp_save_buf,x
+    inx
+    cpx #248
+    bne @__zp_save_loop
+    jsr _main
+    sta $02
+    stx $03
+; Restore ZP $08-$FF from BSS buffer
+    ldx #0
+@__zp_restore_loop:
+    lda __zp_save_buf,x
+    sta $08,x
+    inx
+    cpx #248
+    bne @__zp_restore_loop
+    lda $02
+    ldx $03
+__halt:
+    jmp __halt
+    .global __static_chain
+    .global __zp_scratch
+    .global __zp_scratch2
+    .global __zp_scratch3
+    .global __zp_scratch4
+    .global cc45.zeroPageStart
+    __static_chain = $06
+    __zp_scratch = $08
+    __zp_scratch2 = $0A
+    __zp_scratch3 = $0C
+    __zp_scratch4 = $0E
+    cc45.zeroPageStart = $08
+
+
+; function _modify
+; SAC inline storage: 2 bytes
+    .global _modify__param_p
+    _modify__param_p: .word 0
+    _modify__local_0: .word 0
+    proc _modify, W#@_p_p
+    .sac
+    .var _fp = 0
+    .var @_p_p = 2
+; .debug_var: __modify @_p_p offset=2 size=2 type=ptr scope=parameter
+
+@entry:
+    .loc "", 2
+    lda #99
+    ldx #0
+    lda _modify__param_p
+    ldx _modify__param_p+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy #0
+    sta (__zp_scratch2),y
+    txa
+    iny
+    sta (__zp_scratch2),y
+@__return:
+    rts
+    .func_flags stack_call, static_alloc, leaf
+    .param_sizes 2
+    .reg_clobbers A, X, Y
+    .flag_clobbers N, Z
+    .frame_size 2
+    endproc
+
+; function _main
+; SAC inline storage: 2 bytes
+    _main__local_0: .word 0
+    _main__local_2: .word 0
+    proc _main
+; Phase 51: zero-alloc leaf (all parameters constant)
+    .var _fp = 0
+    .local @_l_x = 0
+; .debug_var: __main @_l_x offset=0 size=2 type=int16 scope=local
+
+@entry:
+    .loc "", 5
+    lda #5
+    sta _main__local_0
+    lda #0
+    sta _main__local_0+1
+    .loc "", 6
+    leax.local 0
+    sta _main__local_2
+    stx _main__local_2+1
+    lda _main__local_2
+    ldx _main__local_2+1
+    sta _modify__param_p
+    stx _modify__param_p+1
+    jsr _modify
+    .loc "", 7
+    lda #0
+    ldx #0
+@__return:
+    rts
+    .func_flags stack_call, static_alloc
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    .frame_size 2
+    endproc
+
+
+__zp_save_buf:

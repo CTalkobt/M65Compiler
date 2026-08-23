@@ -1,9 +1,8 @@
-struct S {
-    const int x;
-    int y;
-};
+void modify(int *p) {
+    *p = 99;
+}
 int main() {
-    struct S s;
-    s.x = 10;
+    const int x = 5;
+    modify(&x);
     return 0;
 }

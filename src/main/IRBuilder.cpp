@@ -1703,12 +1703,39 @@ void IRBuilder::visit(VariableReference& node) {
 void IRBuilder::visit(Assignment& node) {
     // 1. Semantic checks for constness
     if (auto* ma = dynamic_cast<MemberAccess*>(node.target.get())) {
-        for (const auto& [sname, sinfo] : structs_) {
-            auto mit = sinfo.members.find(ma->memberName);
-            if (mit != sinfo.members.end() && mit->second.isConst) {
-                errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
-                    Severity::Error, "Compile Error: Assignment to read-only location"));
-                return;
+        // Determine the struct type of the variable being accessed
+        std::string structTypeName;
+        if (auto* vr = dynamic_cast<VariableReference*>(ma->structExpr.get())) {
+            // Look up the variable's type in local scope first, then global scope
+            auto lit = localTypeNames_.find(vr->name);
+            if (lit != localTypeNames_.end()) {
+                structTypeName = lit->second;
+            } else {
+                auto git = globalTypeNames_.find(vr->name);
+                if (git != globalTypeNames_.end()) {
+                    structTypeName = git->second;
+                }
+            }
+        }
+
+        // If we found the struct type, check if the member is const
+        if (!structTypeName.empty()) {
+            // Remove "struct " or "union " prefix if present
+            if (structTypeName.substr(0, 7) == "struct ") {
+                structTypeName = structTypeName.substr(7);
+            } else if (structTypeName.substr(0, 6) == "union ") {
+                structTypeName = structTypeName.substr(6);
+            }
+
+            // Look up the struct definition
+            auto sit = structs_.find(structTypeName);
+            if (sit != structs_.end()) {
+                auto mit = sit->second.members.find(ma->memberName);
+                if (mit != sit->second.members.end() && mit->second.isConst) {
+                    errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                        Severity::Error, "Compile Error: Assignment to read-only location"));
+                    return;
+                }
             }
         }
     }

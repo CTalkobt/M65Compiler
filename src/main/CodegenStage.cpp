@@ -77,11 +77,9 @@ void CodegenStage::generateIR() {
     builder.generate(*ast_);
 
     if (builder.hasErrors()) {
-        if (verboseLevel_ >= 1) {
-            std::cout << "    IR generation errors:" << std::endl;
-            for (const auto& err : builder.getErrors()) {
-                std::cout << "      " << err << std::endl;
-            }
+        // Always print errors to stderr, not just in verbose mode
+        for (const auto& err : builder.getErrors()) {
+            std::cerr << err << std::endl;
         }
         return;
     }
