@@ -26,11 +26,11 @@ struct Options {
     bool showVersion = false;
     bool showHelp = false;
     bool listTokens = false;
-    bool useLabels = false;
     bool generateDocs = false;
     bool preserveSpaces = false;
     bool validateOnly = false;  // Check-only mode (no compilation)
     bool strictValidation = false;  // Treat warnings as errors
+    // Note: Label-based system is now the default (no --labels flag needed)
 };
 
 class SymbolTable {
@@ -86,17 +86,17 @@ private:
 
 static void printUsage(const char* progName) {
     std::cout << "Usage: " << progName << " [options] <input.bas> -o <output.prg>" << std::endl;
+    std::cout << "Label-Based BASIC Compiler — Source uses labels, not line numbers" << std::endl;
     std::cout << "Options:" << std::endl;
     std::cout << "  -o <file>           Output file (default: output.prg)" << std::endl;
     std::cout << "  --symbols <f>       Load symbol table from file (cc45 -E output)" << std::endl;
     std::cout << "  --load <addr>       Load address in hex (default: 0x0801)" << std::endl;
-    std::cout << "  --labels            Enable label support (instead of line numbers)" << std::endl;
+    std::cout << "  --increment <n>     Auto line number increment (default: 10)" << std::endl;
     std::cout << "  --label-table <f>   Output label→line number mapping to file" << std::endl;
-    std::cout << "  --increment <n>     Line number increment (default: 10)" << std::endl;
     std::cout << "  --docs <f>          Generate markdown documentation to file" << std::endl;
     std::cout << "  -I <path>           Add include search path for #include" << std::endl;
-    std::cout << "  --preserve-spaces   Preserve spaces in tokenized output for listing display" << std::endl;
-    std::cout << "  --validate          Validate only (no compilation, IDE-friendly output)" << std::endl;
+    std::cout << "  --preserve-spaces   Preserve spaces in tokenized output" << std::endl;
+    std::cout << "  --validate          Validate only (no compilation)" << std::endl;
     std::cout << "  --strict            Treat validation warnings as errors" << std::endl;
     std::cout << "  --list-tokens       List all supported BASIC keywords and exit" << std::endl;
     std::cout << "  -v, --verbose       Verbose output" << std::endl;
@@ -119,8 +119,6 @@ static Options parseArgs(int argc, char* argv[]) {
             iss >> std::hex >> opts.loadAddress;
         } else if (arg == "-v" || arg == "--verbose") {
             opts.verbose = true;
-        } else if (arg == "--labels") {
-            opts.useLabels = true;
         } else if (arg == "--label-table" && i + 1 < argc) {
             opts.labelTableFile = argv[++i];
         } else if (arg == "--increment" && i + 1 < argc) {
@@ -289,22 +287,15 @@ int main(int argc, char* argv[]) {
     }
 
     // Validation pass (Feature #1: Compile-Time Validation & Safety)
+    // Now label-based: auto-assigns line numbers and validates labels
     BasicValidator validator(opts.inputFile);
     validator.analyze(sourceCode);
-    validator.validate();
 
     if (validator.hasErrors()) {
         validator.printErrors();
 
-        // Count errors vs warnings
-        int errorCount = 0, warningCount = 0;
-        for (const auto& err : validator.getErrors()) {
-            if (err.isWarning) {
-                warningCount++;
-            } else {
-                errorCount++;
-            }
-        }
+        int errorCount = validator.getErrorCount();
+        int warningCount = validator.getWarningCount();
 
         // Exit if there are errors, or if strict mode and there are warnings
         if (errorCount > 0 || (opts.strictValidation && warningCount > 0)) {
@@ -315,7 +306,7 @@ int main(int argc, char* argv[]) {
             return errorCount > 0 ? 1 : 1;
         }
 
-        if (opts.verbose) {
+        if (opts.verbose && warningCount > 0) {
             std::cerr << "Validation: " << warningCount << " warning(s) (non-fatal)" << std::endl;
         }
     }
@@ -332,7 +323,9 @@ int main(int argc, char* argv[]) {
     if (opts.preserveSpaces) {
         emitter.setPreserveSpaces(true);
     }
-    auto binary = emitter.emitBinary(sourceCode, opts.useLabels);
+
+    // Emit from label-based parsed source (now the default system)
+    auto binary = emitter.emitFromLabels(validator.getParser());
 
     writeFile(opts.outputFile, binary);
 
@@ -359,9 +352,6 @@ int main(int argc, char* argv[]) {
 
     if (opts.verbose) {
         std::cout << "Generated " << binary.size() << " bytes" << std::endl;
-        if (opts.useLabels) {
-            std::cout << "Labels enabled" << std::endl;
-        }
     }
 
     return 0;

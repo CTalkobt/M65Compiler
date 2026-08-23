@@ -323,3 +323,50 @@ void BasicEmitter::outputLabelTable(const std::string& filename) const {
         memAddr += 50;  // Rough estimate
     }
 }
+
+std::vector<uint8_t> BasicEmitter::emitFromLabels(const LabelBasedSourceParser& parser) {
+    // Convert parsed label-based source to line-numbered BASIC
+    BasicTokenizer tokenizer;
+    std::vector<BasicLine> lines;
+
+    const auto& labelMap = parser.getLabelMap();
+    const auto& sourceLines = parser.getSourceLines();
+
+    // Convert each source line to a BasicLine with auto-assigned line number
+    for (const auto& srcLine : sourceLines) {
+        uint16_t lineNum = 10;  // Start line number
+
+        // If label exists, get its assigned line number
+        if (!srcLine.label.empty() && labelMap.find(srcLine.label) != labelMap.end()) {
+            lineNum = labelMap.at(srcLine.label);
+        }
+
+        // Tokenize the code
+        std::string fullLine = std::to_string(lineNum) + " " + srcLine.code;
+        auto tokens = tokenizer.tokenize(fullLine);
+
+        // Create BasicLine
+        BasicLine line;
+        line.lineNumber = lineNum;
+        line.tokens.clear();
+
+        // Skip line number token, collect the rest
+        bool seenLineNum = false;
+        for (const auto& token : tokens) {
+            if (!seenLineNum && token.type == BasicToken::NUMBER) {
+                seenLineNum = true;
+                continue;
+            }
+            if (token.type != BasicToken::EOL && token.type != BasicToken::END_OF_FILE) {
+                line.tokens.push_back(token);
+            }
+        }
+
+        if (!line.tokens.empty()) {
+            lines.push_back(line);
+        }
+    }
+
+    // Emit the lines
+    return emit(lines);
+}

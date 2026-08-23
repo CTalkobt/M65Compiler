@@ -6,6 +6,7 @@
 #include <memory>
 #include <map>
 #include "BasicTokenizer.hpp"
+#include "LabelBasedSourceParser.hpp"
 
 struct BasicLine {
     uint16_t lineNumber;
@@ -18,6 +19,7 @@ public:
 
     std::vector<uint8_t> emit(const std::vector<BasicLine>& lines);
     std::vector<uint8_t> emitBinary(const std::string& sourceCode, bool useLabels = false);
+    std::vector<uint8_t> emitFromLabels(const LabelBasedSourceParser& parser);
 
     const std::map<std::string, uint16_t>& getLabelMap() const;
     void outputLabelTable(const std::string& filename) const;
