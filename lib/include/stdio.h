@@ -218,6 +218,21 @@ int cbm_rel_insert(int handle, unsigned int record_num, const void *buffer, unsi
 /* Phase 4d: Record deletion marker */
 #define CBM_REL_DELETED 0xFF            /* Marker byte for deleted records */
 
+/* Phase 4e: Error codes and recovery */
+#define CBM_REL_ERR_NONE        0       /* No error */
+#define CBM_REL_ERR_DEVICE      1       /* Device not present */
+#define CBM_REL_ERR_NOTFOUND    2       /* File not found */
+#define CBM_REL_ERR_FILEOPEN    3       /* File already open */
+#define CBM_REL_ERR_DISKFULL    4       /* Disk full */
+#define CBM_REL_ERR_WPROT       5       /* Write protected */
+#define CBM_REL_ERR_CORRUPT     6       /* Data corruption detected */
+#define CBM_REL_ERR_TIMEOUT     7       /* Operation timeout */
+#define CBM_REL_ERR_INVALID     8       /* Invalid parameter */
+#define CBM_REL_ERR_UNKNOWN     255     /* Unknown error */
+
+int cbm_rel_lasterror(int handle);
+const char *cbm_rel_strerror(int error);
+
 /* Low-level Commodore KERNAL calls (advanced) */
 unsigned char cbm_k_chkin(unsigned char fd);      /* Redirect input */
 unsigned char cbm_k_chkout(unsigned char fd);     /* Redirect output */

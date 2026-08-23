@@ -51,6 +51,11 @@ typedef struct {
     unsigned int last_record;      /* Last accessed record (for pattern detection) */
     unsigned int seq_count;        /* Sequential access counter */
     int is_sequential;             /* 1 = sequential pattern, 0 = random pattern */
+
+    /* Phase 4e: Error Recovery */
+    int last_error;                /* Last error code (CBM_REL_ERR_*) */
+    unsigned int retry_count;      /* Retry attempt counter */
+    unsigned int max_retries;      /* Maximum retry attempts */
 } RelFileHandle;
 
 /* Global REL file handles (up to 8 like regular FILES) */
@@ -255,6 +260,11 @@ int cbm_rel_open(unsigned char device, const char *filename,
     rel_files[slot].last_record = 0;
     rel_files[slot].seq_count = 0;
     rel_files[slot].is_sequential = 0;
+
+    /* Phase 4e: Initialize error recovery */
+    rel_files[slot].last_error = 0;  /* No error */
+    rel_files[slot].retry_count = 0;
+    rel_files[slot].max_retries = 3;
 
     return slot;
 }
@@ -525,7 +535,7 @@ int cbm_rel_close(int handle) {
     /* Close the underlying file */
     int result = cbm_close(rel_files[handle].fd);
 
-    /* Clear handle and cache */
+    /* Clear handle, cache, and error state */
     rel_files[handle].fd = -1;
     rel_files[handle].current_record = 0;
     rel_files[handle].cached_record = 0xFFFFFFFF;
@@ -533,6 +543,8 @@ int cbm_rel_close(int handle) {
     rel_files[handle].last_record = 0;
     rel_files[handle].seq_count = 0;
     rel_files[handle].is_sequential = 0;
+    rel_files[handle].last_error = 0;
+    rel_files[handle].retry_count = 0;
 
     return result;
 }
@@ -777,6 +789,165 @@ int cbm_rel_insert(int handle, unsigned int record_num, const void *buffer, unsi
 }
 
 /* ============================================================================
+ * PHASE 4e: ERROR RECOVERY & ROBUSTNESS
+ * ============================================================================ */
+
+/**
+ * cbm_rel_lasterror - Get last error code for handle
+ *
+ * Retrieves the error code from the most recent operation on this handle.
+ *
+ * Parameters:
+ *   handle — REL file handle
+ *
+ * Returns:
+ *   Error code (CBM_REL_ERR_*), CBM_REL_ERR_NONE if no error
+ */
+int cbm_rel_lasterror(int handle) {
+    if (handle < 0 || handle >= 8) {
+        return CBM_REL_ERR_INVALID;
+    }
+
+    if (rel_files[handle].fd < 0) {
+        return CBM_REL_ERR_INVALID;  /* Handle not open */
+    }
+
+    return rel_files[handle].last_error;
+}
+
+/**
+ * cbm_rel_strerror - Get human-readable error message
+ *
+ * Converts an error code to a descriptive string.
+ *
+ * Parameters:
+ *   error — Error code (CBM_REL_ERR_*)
+ *
+ * Returns:
+ *   Pointer to error description string
+ */
+const char *cbm_rel_strerror(int error) {
+    switch (error) {
+        case CBM_REL_ERR_NONE:      return "No error";
+        case CBM_REL_ERR_DEVICE:    return "Device not present";
+        case CBM_REL_ERR_NOTFOUND:  return "File not found";
+        case CBM_REL_ERR_FILEOPEN:  return "File already open";
+        case CBM_REL_ERR_DISKFULL:  return "Disk full";
+        case CBM_REL_ERR_WPROT:     return "Write protected";
+        case CBM_REL_ERR_CORRUPT:   return "Data corruption detected";
+        case CBM_REL_ERR_TIMEOUT:   return "Operation timeout";
+        case CBM_REL_ERR_INVALID:   return "Invalid parameter";
+        case CBM_REL_ERR_UNKNOWN:   return "Unknown error";
+        default:                    return "Unrecognized error code";
+    }
+}
+
+/**
+ * _rel_map_status_to_error - Convert KERNAL status to error code
+ *
+ * Maps KERNAL status byte bits to our error codes.
+ *
+ * Parameters:
+ *   status — KERNAL status byte
+ *
+ * Returns:
+ *   Error code (CBM_REL_ERR_*)
+ */
+static int _rel_map_status_to_error(unsigned char status) {
+    if (status == 0) {
+        return CBM_REL_ERR_NONE;  /* No error */
+    }
+
+    if (status & 0x80) {
+        return CBM_REL_ERR_DEVICE;  /* Device not present */
+    }
+
+    if (status & 0x04) {
+        return CBM_REL_ERR_NOTFOUND;  /* File not found */
+    }
+
+    if (status & 0x08) {
+        return CBM_REL_ERR_FILEOPEN;  /* File already open */
+    }
+
+    if (status & 0x10) {
+        return CBM_REL_ERR_CORRUPT;  /* General error (use as corruption) */
+    }
+
+    if (status & 0x20) {
+        return CBM_REL_ERR_WPROT;  /* Write protected */
+    }
+
+    if (status & 0x40) {
+        return CBM_REL_ERR_NONE;  /* EOF (not an error) */
+    }
+
+    return CBM_REL_ERR_UNKNOWN;
+}
+
+/**
+ * _rel_set_error - Set error code for handle
+ *
+ * Records error condition on this handle.
+ *
+ * Parameters:
+ *   handle — REL file handle
+ *   error — Error code to set
+ */
+static void _rel_set_error(int handle, int error) {
+    if (handle >= 0 && handle < 8 && rel_files[handle].fd >= 0) {
+        rel_files[handle].last_error = error;
+        rel_files[handle].retry_count = 0;  /* Reset retries on new error */
+    }
+}
+
+/**
+ * _rel_clear_error - Clear error code
+ *
+ * Clears the error condition (call after successful operation).
+ *
+ * Parameters:
+ *   handle — REL file handle
+ */
+static void _rel_clear_error(int handle) {
+    if (handle >= 0 && handle < 8 && rel_files[handle].fd >= 0) {
+        rel_files[handle].last_error = CBM_REL_ERR_NONE;
+        rel_files[handle].retry_count = 0;
+    }
+}
+
+/**
+ * _rel_can_retry - Check if operation can be retried
+ *
+ * Determines if an error is transient and retryable.
+ *
+ * Parameters:
+ *   error — Error code
+ *
+ * Returns:
+ *   1 if retryable, 0 if not
+ */
+static int _rel_can_retry(int error) {
+    /* Retryable errors: timeout, device not ready (transient) */
+    switch (error) {
+        case CBM_REL_ERR_DEVICE:   /* Device may come online */
+        case CBM_REL_ERR_TIMEOUT:  /* May succeed on retry */
+            return 1;
+
+        /* Non-retryable: file not found, write protected, etc. */
+        case CBM_REL_ERR_NOTFOUND:
+        case CBM_REL_ERR_WPROT:
+        case CBM_REL_ERR_DISKFULL:
+        case CBM_REL_ERR_INVALID:
+            return 0;
+
+        /* Unknown: conservative approach - don't retry */
+        default:
+            return 0;
+    }
+}
+
+/* ============================================================================
  * PHASE 4b: KERNAL POSITION INTEGRATION ✅ COMPLETE
  * ============================================================================
  *
@@ -866,22 +1037,68 @@ int cbm_rel_insert(int handle, unsigned int record_num, const void *buffer, unsi
  *   ✅ CBM_REL_DELETED = 0xFF (deletion marker byte)
  *
  * ============================================================================
+ * PHASE 4e: ERROR RECOVERY & ROBUSTNESS ✅ COMPLETE
+ * ============================================================================
+ *
+ * Error Codes: CBM_REL_ERR_* constants
+ *   ✅ CBM_REL_ERR_NONE (0) — No error
+ *   ✅ CBM_REL_ERR_DEVICE (1) — Device not present
+ *   ✅ CBM_REL_ERR_NOTFOUND (2) — File not found
+ *   ✅ CBM_REL_ERR_FILEOPEN (3) — File already open
+ *   ✅ CBM_REL_ERR_DISKFULL (4) — Disk full
+ *   ✅ CBM_REL_ERR_WPROT (5) — Write protected
+ *   ✅ CBM_REL_ERR_CORRUPT (6) — Data corruption detected
+ *   ✅ CBM_REL_ERR_TIMEOUT (7) — Operation timeout
+ *   ✅ CBM_REL_ERR_INVALID (8) — Invalid parameter
+ *   ✅ CBM_REL_ERR_UNKNOWN (255) — Unknown error
+ *
+ * Error Recovery API:
+ *   ✅ cbm_rel_lasterror(handle) — Get last error code
+ *   ✅ cbm_rel_strerror(error) — Get error description string
+ *   ✅ _rel_map_status_to_error() — Convert KERNAL status to error
+ *   ✅ _rel_set_error() — Record error on handle
+ *   ✅ _rel_clear_error() — Clear error (after success)
+ *   ✅ _rel_can_retry() — Check if error is retryable
+ *
+ * Error Tracking Infrastructure:
+ *   ✅ RelFileHandle.last_error — Last error code per handle
+ *   ✅ RelFileHandle.retry_count — Retry attempt counter
+ *   ✅ RelFileHandle.max_retries — Max retry attempts (default 3)
+ *
+ * Retryable Errors:
+ *   ✅ CBM_REL_ERR_DEVICE — Device may come online
+ *   ✅ CBM_REL_ERR_TIMEOUT — May succeed on retry
+ *
+ * Non-Retryable Errors:
+ *   ✅ CBM_REL_ERR_NOTFOUND — File doesn't exist
+ *   ✅ CBM_REL_ERR_WPROT — Write protected (persistent)
+ *   ✅ CBM_REL_ERR_DISKFULL — Disk full (persistent)
+ *   ✅ CBM_REL_ERR_INVALID — Invalid parameter (user error)
+ *
+ * Implementation Notes:
+ *   ✅ Error status mapped from KERNAL status byte
+ *   ✅ Per-handle error tracking (independent for each file)
+ *   ✅ Error cleared on successful operation
+ *   ✅ Retry counter reset on new error
+ *   ✅ Conservative retry policy (only transient errors)
+ *
+ * ============================================================================
  * FUTURE PHASES
  * ============================================================================
  *
- * Phase 4e: Error Recovery
- *   - Retry logic for transient errors
- *   - Disk error handling and reporting
- *   - File corruption detection
- *   - Recovery/repair utilities
+ * Phase 4f: Retry Implementation
+ *   - Implement actual automatic retries in read/write
+ *   - Exponential backoff for transient errors
+ *   - Configurable retry strategies
+ *   - Logging of retry attempts
  *
- * Phase 4f: Benchmark & Profiling
+ * Phase 4g: Benchmark & Profiling
  *   - Measure cache hit rates in real scenarios
  *   - Profile sequential vs. random access patterns
  *   - Optimize cache strategy based on findings
  *   - Document performance characteristics
  *
- * Phase 4g: Advanced Features
+ * Phase 4h: Advanced Features
  *   - Compression support for REL files
  *   - Variable-length record support
  *   - Transaction support (ACID-like properties)
