@@ -13,6 +13,7 @@
 #include "BasicDocGenerator.hpp"
 #include "BasicValidator.hpp"
 #include "SymbolExpressionEvaluator.hpp"
+#include "BasicMinifier.hpp"
 
 struct Options {
     std::string inputFile;
@@ -31,6 +32,7 @@ struct Options {
     bool preserveSpaces = false;
     bool validateOnly = false;  // Check-only mode (no compilation)
     bool strictValidation = false;  // Treat warnings as errors
+    bool minify = false;  // Code minification (remove comments, whitespace)
     // Note: Label-based system is now the default (no --labels flag needed)
 };
 
@@ -131,6 +133,7 @@ static void printUsage(const char* progName) {
     std::cout << "  --label-table <f>   Output label→line number mapping to file" << std::endl;
     std::cout << "  --docs <f>          Generate markdown documentation to file" << std::endl;
     std::cout << "  -I <path>           Add include search path for #include" << std::endl;
+    std::cout << "  --minify            Minify output (remove comments, collapse whitespace)" << std::endl;
     std::cout << "  --preserve-spaces   Preserve spaces in tokenized output" << std::endl;
     std::cout << "  --validate          Validate only (no compilation)" << std::endl;
     std::cout << "  --strict            Treat validation warnings as errors" << std::endl;
@@ -165,6 +168,8 @@ static Options parseArgs(int argc, char* argv[]) {
             opts.generateDocs = true;
         } else if (arg == "-I" && i + 1 < argc) {
             opts.includePath = argv[++i];
+        } else if (arg == "--minify") {
+            opts.minify = true;
         } else if (arg == "--preserve-spaces") {
             opts.preserveSpaces = true;
         } else if (arg == "--validate") {
@@ -319,6 +324,15 @@ int main(int argc, char* argv[]) {
         sourceCode = symbols.substitute(sourceCode);
         if (opts.verbose) {
             std::cout << "Symbols loaded from: " << opts.symbolFile << std::endl;
+        }
+    }
+
+    // Minification pass (Feature #2.4: Code Minification)
+    if (opts.minify) {
+        BasicMinifier minifier;
+        sourceCode = minifier.minify(sourceCode);
+        if (opts.verbose) {
+            std::cout << "Code minified" << std::endl;
         }
     }
 

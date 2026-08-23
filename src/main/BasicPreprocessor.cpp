@@ -155,7 +155,7 @@ std::string BasicPreprocessor::preprocessInternal(const std::string& source, con
 
                 ConditionalState& state = conditionalStack.back();
                 if (state.hasElse) {
-                    throw std::runtime_error("Preprocessor: Multiple #else for same #ifdef");
+                    throw std::runtime_error("Preprocessor: Multiple #else/#elif for same #ifdef");
                 }
 
                 state.hasElse = true;
@@ -164,6 +164,33 @@ std::string BasicPreprocessor::preprocessInternal(const std::string& source, con
                         [](const ConditionalState& s) { return s.active; });
 
                 state.active = parentActive && !state.hasSeenTrue;
+            } else if (cmd == "elif") {
+                if (conditionalStack.empty()) {
+                    throw std::runtime_error("Preprocessor: #elif without #ifdef/#ifndef");
+                }
+
+                ConditionalState& state = conditionalStack.back();
+                if (state.hasElse) {
+                    throw std::runtime_error("Preprocessor: #elif after #else");
+                }
+
+                // Evaluate the condition for #elif
+                std::string symbol;
+                directive >> symbol;
+
+                bool parentActive = conditionalStack.size() == 1 ||
+                    std::all_of(conditionalStack.begin(), conditionalStack.end() - 1,
+                        [](const ConditionalState& s) { return s.active; });
+
+                bool conditionTrue = macros.count(symbol) > 0;
+
+                // Activate this elif block if parent is active, previous condition was false,
+                // and this condition is true
+                state.active = parentActive && !state.hasSeenTrue && conditionTrue;
+
+                if (conditionTrue) {
+                    state.hasSeenTrue = true;
+                }
             } else if (cmd == "endif") {
                 if (conditionalStack.empty()) {
                     throw std::runtime_error("Preprocessor: #endif without #ifdef/#ifndef");
