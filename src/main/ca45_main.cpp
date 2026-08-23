@@ -45,7 +45,11 @@ static void printHelpInputOutput() {
     std::cout << "  --dry-run          Validate assembly without generating output\n";
     std::cout << "                     Useful for checking syntax and finding errors\n";
     std::cout << "                     Reports symbol count, instruction count, and size estimates\n";
-    std::cout << "                     Example: ca45 --dry-run input.s45\n";
+    std::cout << "                     Example: ca45 --dry-run input.s45\n\n";
+    std::cout << "  --source-map <file> Generate source-to-address mapping file\n";
+    std::cout << "                     Maps binary addresses back to source lines for debugging\n";
+    std::cout << "                     Shows address, source location, and original source code\n";
+    std::cout << "                     Example: ca45 --source-map map.txt input.s45\n";
 }
 
 static void printHelpOptimization() {
@@ -102,6 +106,63 @@ static void printHelpDiagnostics() {
     std::cout << "  -Wunderflow        Warn when negative values are used in addresses\n";
     std::cout << "                     Default: silent\n";
     std::cout << "                     Example: ca45 -Wunderflow input.s45\n";
+}
+
+static void writeSourceMap(const std::string& filename, const AssemblerParser& parser, const std::string& source) {
+    std::ofstream out(filename);
+    if (!out.is_open()) return;
+
+    std::vector<std::string> sourceLines;
+    std::stringstream ss(source);
+    std::string line;
+    while (std::getline(ss, line)) sourceLines.push_back(line);
+
+    out << "Source Map — Binary Address to Source Line Mapping\n";
+    out << "=====================================================\n\n";
+    out << std::hex;
+    out << std::setfill('0');
+
+    for (const auto& stmt : parser.statements) {
+        if (stmt->deleted || stmt->bytes.empty()) continue;
+
+        // Address
+        out << std::setw(8) << stmt->address << "  ";
+
+        // Line number
+        if (stmt->line > 0) {
+            out << std::dec << "Line " << stmt->line << "  " << std::hex;
+        } else {
+            out << "(no line info)  ";
+        }
+
+        // Source line text
+        if (stmt->line > 0 && stmt->line <= (int)sourceLines.size()) {
+            std::string srcLine = sourceLines[stmt->line - 1];
+            // Trim leading whitespace for display
+            size_t start = srcLine.find_first_not_of(" \t");
+            if (start != std::string::npos) {
+                srcLine = srcLine.substr(start);
+            }
+            // Limit line length for readability
+            if (srcLine.length() > 60) {
+                srcLine = srcLine.substr(0, 57) + "...";
+            }
+            out << srcLine;
+        }
+        out << "\n";
+    }
+
+    out << "\n\nSymbol Table\n";
+    out << "============\n";
+    std::map<std::string, Symbol> sortedSymbols = parser.getSymbolTable();
+    for (const auto& [name, sym] : sortedSymbols) {
+        out << std::setw(32) << std::left << std::setfill(' ') << name << " ";
+        out << std::hex << std::setw(8) << std::right << std::setfill('0') << sym.value;
+        if (sym.isConstant) out << " (CONST)";
+        else if (sym.isVariable) out << " (VAR)";
+        else if (sym.isAddress) out << " (ADDR)";
+        out << "\n";
+    }
 }
 
 static void writeListing(const std::string& filename, const AssemblerParser& parser, const std::string& source) {
@@ -184,6 +245,7 @@ int main(int argc, char** argv) {
     bool warnOverflow = false;   // Phase 1.3: warn on value overflows (default: off)
     bool warnUnderflow = false;  // Phase 1.3: warn on negative values (default: off)
     bool dryRun = false;         // Phase 3.1: validate without generating output
+    std::string sourceMapFile;   // Phase 3.2: source map output file
     int optimizationLevel = 2;  // Default to -O2
     OptimizationFlags optFlags = OptimizationFlags::fromLevel(2);  // Default to -O2
     int verboseLevel = 0;
@@ -290,6 +352,8 @@ int main(int argc, char** argv) {
             warnUnderflow = true;  // Phase 1.3: enable underflow warnings
         } else if (arg == "--dry-run") {
             dryRun = true;  // Phase 3.1: validate without generating output
+        } else if (arg == "--source-map" && i + 1 < argc) {
+            sourceMapFile = argv[++i];  // Phase 3.2: generate source map
         } else if (arg == "-vv") {
             verboseLevel = 2;
         } else if (arg == "-v") {
@@ -420,6 +484,11 @@ int main(int argc, char** argv) {
                     writeListing(listing_file, parser, source);
                     std::cout << "Listing generated to " << listing_file << std::endl;
                 }
+                // Phase 3.2: Generate source map if requested
+                if (!sourceMapFile.empty()) {
+                    writeSourceMap(sourceMapFile, parser, source);
+                    std::cout << "Source map generated to " << sourceMapFile << std::endl;
+                }
             }
         } else if (listingLevel == 2) {
             parser.pass2(false); // Run optimizer and resolve addresses
@@ -427,6 +496,11 @@ int main(int argc, char** argv) {
             M65Emitter e(out, predefinedSymbols["cc45.zeroPageStart"]);
             AssemblerGenerator::generate(&parser, e);
             std::cout << "Expanded listing generated to " << output_file << std::endl;
+            // Phase 3.2: Generate source map if requested
+            if (!sourceMapFile.empty()) {
+                writeSourceMap(sourceMapFile, parser, source);
+                std::cout << "Source map generated to " << sourceMapFile << std::endl;
+            }
         } else {
             bool isPrg = false;
             if (output_file.length() >= 4 && output_file.substr(output_file.length() - 4) == ".prg") {
@@ -440,6 +514,11 @@ int main(int argc, char** argv) {
                 if (!listing_file.empty()) {
                     writeListing(listing_file, parser, source);
                     std::cout << "Listing generated to " << listing_file << std::endl;
+                }
+                // Phase 3.2: Generate source map if requested
+                if (!sourceMapFile.empty()) {
+                    writeSourceMap(sourceMapFile, parser, source);
+                    std::cout << "Source map generated to " << sourceMapFile << std::endl;
                 }
             }
         }
