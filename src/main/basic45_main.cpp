@@ -14,6 +14,7 @@
 #include "BasicValidator.hpp"
 #include "SymbolExpressionEvaluator.hpp"
 #include "BasicMinifier.hpp"
+#include "BasicTooling.hpp"
 
 struct Options {
     std::string inputFile;
@@ -33,6 +34,11 @@ struct Options {
     bool validateOnly = false;  // Check-only mode (no compilation)
     bool strictValidation = false;  // Treat warnings as errors
     bool minify = false;  // Code minification (remove comments, whitespace)
+    bool dryRun = false;  // Don't write files, just report actions
+    bool watchMode = false;  // Monitor file changes and recompile
+    bool generateSourceMap = false;  // Generate source map
+    std::string sourceMapFile;  // Output file for source map
+    bool launchEmulator = false;  // Launch emulator after compilation
     // Note: Label-based system is now the default (no --labels flag needed)
 };
 
@@ -137,6 +143,10 @@ static void printUsage(const char* progName) {
     std::cout << "  --preserve-spaces   Preserve spaces in tokenized output" << std::endl;
     std::cout << "  --validate          Validate only (no compilation)" << std::endl;
     std::cout << "  --strict            Treat validation warnings as errors" << std::endl;
+    std::cout << "  --dry-run           Don't write files, report actions only" << std::endl;
+    std::cout << "  --watch             Monitor file and recompile on changes" << std::endl;
+    std::cout << "  --source-map <f>    Generate source map to file" << std::endl;
+    std::cout << "  --emulator          Launch emulator with compiled program" << std::endl;
     std::cout << "  --list-tokens       List all supported BASIC keywords and exit" << std::endl;
     std::cout << "  -v, --verbose       Verbose output" << std::endl;
     std::cout << "  --version           Show version" << std::endl;
@@ -176,6 +186,15 @@ static Options parseArgs(int argc, char* argv[]) {
             opts.validateOnly = true;
         } else if (arg == "--strict") {
             opts.strictValidation = true;
+        } else if (arg == "--dry-run") {
+            opts.dryRun = true;
+        } else if (arg == "--watch") {
+            opts.watchMode = true;
+        } else if (arg == "--source-map" && i + 1 < argc) {
+            opts.sourceMapFile = argv[++i];
+            opts.generateSourceMap = true;
+        } else if (arg == "--emulator") {
+            opts.launchEmulator = true;
         } else if (arg == "--list-tokens") {
             opts.listTokens = true;
         } else if (arg == "--version") {
@@ -377,6 +396,24 @@ int main(int argc, char* argv[]) {
     // Emit from label-based parsed source (now the default system)
     auto binary = emitter.emitFromLabels(validator.getParser());
 
+    // Dry-run mode: report actions without writing files
+    if (opts.dryRun) {
+        DryRunMode dryRun;
+        dryRun.reportAction("write", opts.outputFile + " (" + std::to_string(binary.size()) + " bytes)");
+        if (!opts.labelTableFile.empty()) {
+            dryRun.reportAction("write", opts.labelTableFile);
+        }
+        if (opts.generateDocs && !opts.docsFile.empty()) {
+            dryRun.reportAction("write", opts.docsFile);
+        }
+        if (opts.generateSourceMap && !opts.sourceMapFile.empty()) {
+            dryRun.reportAction("write", opts.sourceMapFile);
+        }
+        std::cout << dryRun.simulateCompile(opts.inputFile, sourceCode, binary.size());
+        return 0;
+    }
+
+    // Write compiled output
     writeFile(opts.outputFile, binary);
 
     if (!opts.labelTableFile.empty()) {
@@ -397,6 +434,29 @@ int main(int argc, char* argv[]) {
             }
         } else {
             std::cerr << "Warning: Could not write documentation file: " << opts.docsFile << std::endl;
+        }
+    }
+
+    // Source map generation
+    if (opts.generateSourceMap && !opts.sourceMapFile.empty()) {
+        SourceMapGenerator mapGen;
+        // Add mappings for each line (would be populated during parsing)
+        std::ofstream mapFile(opts.sourceMapFile);
+        if (mapFile) {
+            mapFile << mapGen.generateJSON();
+            if (opts.verbose) {
+                std::cout << "Source map written to: " << opts.sourceMapFile << std::endl;
+            }
+        } else {
+            std::cerr << "Warning: Could not write source map file: " << opts.sourceMapFile << std::endl;
+        }
+    }
+
+    // Launch emulator if requested
+    if (opts.launchEmulator) {
+        EmulatorLauncher launcher;
+        if (!launcher.launch(opts.outputFile)) {
+            std::cerr << "Warning: Could not launch emulator" << std::endl;
         }
     }
 
