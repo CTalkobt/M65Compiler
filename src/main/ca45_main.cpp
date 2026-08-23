@@ -86,11 +86,16 @@ static void printHelpGeneral() {
     std::cout << "  Preprocessor:    -D, -I\n";
     std::cout << "  Diagnostics:     -Woverflow, -Wunderflow\n";
     std::cout << "  General:         -?, -V\n\n";
-    std::cout << "Configuration (precedence: CLI > project > global):\n";
+    std::cout << "Configuration (precedence: CLI > Environment > Project > Global):\n";
     std::cout << "  Global:  ~/.config/m65/ca45.conf (default settings)\n";
     std::cout << "  Project: .ca45rc in current directory (per-project overrides)\n";
+    std::cout << "  Env:     CA45_OPTIMIZE, CA45_WARNINGS environment variables\n";
     std::cout << "  CLI:     Command-line arguments (highest priority)\n";
     std::cout << "  Format:  One option per line, comments start with #\n\n";
+    std::cout << "Environment variables (Phase 4.3):\n";
+    std::cout << "  CA45_OPTIMIZE=<level>  Set optimization level (0, 1, 2, 3)\n";
+    std::cout << "  CA45_WARNINGS=<list>   Comma-separated warning flags (overflow:underflow)\n";
+    std::cout << "  CC45_INCLUDE=<paths>   Colon-separated include search paths\n\n";
     std::cout << "Use --help=<section> for detailed help. Example: ca45 --help=input-output\n";
     std::cout << "Available sections: input-output, optimization, debugging, preprocessor, diagnostics\n";
 }
@@ -400,7 +405,31 @@ int main(int argc, char** argv) {
     // Phase 4.2: Load project config from .ca45rc (overrides global config)
     std::vector<std::string> projectConfigArgs = loadConfigFile(getProjectConfigFilePath());
 
-    // Build combined argument list: global config + project config + CLI args
+    // Phase 4.3: Load environment variables (override precedence)
+    // CA45_CONFIG: Override config file path
+    // CA45_OPTIMIZE: Override optimization level (-O0, -O1, -O2, -O3)
+    // CA45_WARNINGS: Add warning flags (-Woverflow, -Wunderflow)
+    std::vector<std::string> envArgs;
+
+    if (const char* envOptimize = std::getenv("CA45_OPTIMIZE")) {
+        envArgs.push_back(std::string("-O") + envOptimize);
+    }
+    if (const char* envWarnings = std::getenv("CA45_WARNINGS")) {
+        std::string warnings(envWarnings);
+        size_t pos = 0, found;
+        while ((found = warnings.find(':', pos)) != std::string::npos) {
+            if (found > pos) {
+                std::string warning = warnings.substr(pos, found - pos);
+                envArgs.push_back("-W" + warning);
+            }
+            pos = found + 1;
+        }
+        if (pos < warnings.size()) {
+            envArgs.push_back("-W" + warnings.substr(pos));
+        }
+    }
+
+    // Build combined argument list: global config + project config + env vars + CLI args
     // (later args override earlier ones)
     std::vector<std::string> allArgs;
     allArgs.push_back(argv[0]); // program name
@@ -408,6 +437,9 @@ int main(int argc, char** argv) {
         allArgs.push_back(arg);
     }
     for (const auto& arg : projectConfigArgs) {
+        allArgs.push_back(arg);
+    }
+    for (const auto& arg : envArgs) {
         allArgs.push_back(arg);
     }
     for (int i = 1; i < argc; ++i) {
