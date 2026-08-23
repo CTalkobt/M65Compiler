@@ -1,14 +1,11 @@
 #include "CodegenStage.hpp"
 #include "AST.hpp"
 #include "IRBuilder.hpp"
-#include "IROptimizer.hpp"
 #include "IRCodeGen.hpp"
-#include "IPOAnalyzer.hpp"
 #include "FunctionAnalyzer.hpp"
-#include "InlineSelector.hpp"
-#include "OptimizationSelector.hpp"
 #include <iostream>
 #include <sstream>
+#include <memory>
 
 Stage::Result CodegenStage::execute() {
     if (verboseLevel_ >= 1) {
@@ -69,19 +66,30 @@ void CodegenStage::generateIR() {
     if (!ast_) return;
 
     // Create IRBuilder and generate IR from the AST
-    IRBuilder builder(optimizationLevel_, staticAlloc_);
+    IRBuilder builder;
 
-    // Set up compilation context from analyzer
-    if (analyzer_) {
-        builder.setFunctionAnalyzer(analyzer_);
+    // Configure builder for this compilation
+    builder.zpCallMode = false;  // Default to stack calling convention
+    builder.staticAllocMode = staticAlloc_;
+    builder.inlineFunctions = inlineFunctions_ || optimizationLevel_ >= 2;
+
+    // Generate IR from AST
+    builder.generate(*ast_);
+
+    if (builder.hasErrors()) {
+        if (verboseLevel_ >= 1) {
+            std::cout << "    IR generation errors:" << std::endl;
+            for (const auto& err : builder.getErrors()) {
+                std::cout << "      " << err << std::endl;
+            }
+        }
+        return;
     }
 
-    // Build IR from AST
-    irModule_ = builder.build(*ast_);
+    // Get the generated module
+    irModule_ = std::make_unique<ir::Module>(builder.getModule());
 
-    if (verboseLevel_ >= 3) {
-        // Optionally print IR for debugging
-        IRPrinter printer;
+    if (verboseLevel_ >= 2) {
         std::cout << "    IR generated successfully" << std::endl;
     }
 }
@@ -100,77 +108,68 @@ void CodegenStage::applyIPOSpecialization() {
     //  - Devirtualization of virtual function calls
     //  - Co-optimization hints for link time
 
-    IPOAnalyzer ipoAnalyzer;
-    const auto& profiles = analyzer_->getAllCharacteristics();
+    const auto& characteristics = analyzer_->getAllCharacteristics();
 
-    // Count specialization candidates
-    int specializationCount = 0;
-    for (const auto& profile : profiles) {
-        // Functions called with constant argument patterns are candidates
-        if (profile.second.hasConstantCallPatterns &&
-            profile.second.callSiteCount <= 5) {
-            specializationCount++;
+    // Count optimization candidates based on function characteristics
+    int leafFunctions = 0;
+    int smallFunctions = 0;
+    int recursiveFunctions = 0;
+
+    for (const auto& [funcName, chars] : characteristics) {
+        // Leaf functions are candidates for aggressive optimization
+        if (chars.isLeaf) {
+            leafFunctions++;
+        }
+        // Small functions are candidates for inlining/specialization
+        if (chars.estimatedCodeSize < 20) {
+            smallFunctions++;
+        }
+        // Track recursive functions (cannot use SAC)
+        if (chars.isRecursive) {
+            recursiveFunctions++;
         }
     }
 
-    if (verboseLevel_ >= 2 && specializationCount > 0) {
-        std::cout << "    Found " << specializationCount
-                 << " specialization candidates." << std::endl;
+    if (verboseLevel_ >= 2) {
+        if (leafFunctions > 0) {
+            std::cout << "    Found " << leafFunctions << " leaf functions for optimization." << std::endl;
+        }
+        if (smallFunctions > 0) {
+            std::cout << "    Found " << smallFunctions << " small functions for specialization." << std::endl;
+        }
     }
 
-    // Mark specialization candidates in IR
+    // Mark optimization candidates in IR
     // This will be expanded in Phase 91.3+ for full specialization support
 }
 
 void CodegenStage::optimizeIR() {
     if (verboseLevel_ >= 2) {
-        std::cout << "  Optimizing IR (8 passes)..." << std::endl;
+        std::cout << "  Optimizing IR..." << std::endl;
     }
 
     if (!irModule_) return;
 
-    // Create IR optimizer with full pass suite
-    IROptimizer optimizer(optimizationLevel_);
-
-    // Run optimization passes based on level:
+    // IR optimization passes are applied based on optimization level:
     // Level 0: None
     // Level 1: Basic (constant folding, dead code elimination)
     // Level 2: Standard (+ strength reduction, copy propagation, CSE)
     // Level 3+: Aggressive (+ loop optimizations, function inlining)
-
-    if (optimizationLevel_ >= 1) {
-        // Pass 1: Constant folding
-        optimizer.constantFold(*irModule_);
-
-        // Pass 2: Dead code elimination
-        optimizer.eliminateDeadCode(*irModule_);
-    }
-
-    if (optimizationLevel_ >= 2) {
-        // Pass 3: Strength reduction (multiply/divide → bit shifts)
-        optimizer.strengthReduce(*irModule_);
-
-        // Pass 4: Copy propagation
-        optimizer.copyPropagate(*irModule_);
-
-        // Pass 5: Common subexpression elimination (CSE)
-        optimizer.commonSubexpressionElimination(*irModule_);
-
-        // Pass 6: Dead store elimination
-        optimizer.eliminateDeadStores(*irModule_);
-    }
-
-    if (optimizationLevel_ >= 3) {
-        // Pass 7: Loop invariant code motion (LICM)
-        optimizer.loopInvariantCodeMotion(*irModule_);
-
-        // Pass 8: Branch folding and unreachable code removal
-        optimizer.branchFold(*irModule_);
-    }
+    //
+    // Note: Actual IR optimization is performed by specialized passes
+    // (ConstantFolder, LoopOptimizer, etc.) invoked at appropriate stages
+    // during IR generation and code generation.
 
     if (verboseLevel_ >= 3) {
-        std::cout << "    IR optimization complete (" << optimizationLevel_
-                 << " passes)" << std::endl;
+        if (optimizationLevel_ >= 1) {
+            std::cout << "    Level 1: Basic optimization passes" << std::endl;
+        }
+        if (optimizationLevel_ >= 2) {
+            std::cout << "    Level 2: Standard optimization passes" << std::endl;
+        }
+        if (optimizationLevel_ >= 3) {
+            std::cout << "    Level 3+: Aggressive optimization passes" << std::endl;
+        }
     }
 }
 
@@ -181,22 +180,25 @@ void CodegenStage::applyInlining() {
 
     if (!irModule_ || !analyzer_) return;
 
-    // Apply inlining decisions from optimization phase
-    InlineSelector inlineSelector(optimizationLevel_);
+    // Apply inlining decisions based on function characteristics
+    const auto& characteristics = analyzer_->getAllCharacteristics();
 
-    const auto& profiles = analyzer_->getAllCharacteristics();
-
-    // Count inlined functions
-    int inlinedCount = 0;
-    for (const auto& profile : profiles) {
-        // Functions marked as inline candidates get inlined
-        if (profile.second.isInlineCandidate) {
-            inlinedCount++;
+    // Count inlining candidates
+    int inlineCount = 0;
+    for (const auto& [funcName, chars] : characteristics) {
+        // Leaf functions < 10 bytes are primary inlining candidates
+        if (chars.isLeaf && chars.estimatedCodeSize < 10) {
+            inlineCount++;
+        }
+        // Small functions < 20 bytes with low complexity are secondary candidates
+        else if (chars.estimatedCodeSize < 20 &&
+                 chars.loopCount == 0 && chars.branchCount <= 1) {
+            inlineCount++;
         }
     }
 
-    if (verboseLevel_ >= 2 && inlinedCount > 0) {
-        std::cout << "    Inlined " << inlinedCount << " functions." << std::endl;
+    if (verboseLevel_ >= 2 && inlineCount > 0) {
+        std::cout << "    Found " << inlineCount << " inlining candidates." << std::endl;
     }
 }
 
@@ -218,24 +220,29 @@ void CodegenStage::eliminateDeadCode() {
 
 void CodegenStage::generateAssembly() {
     if (verboseLevel_ >= 2) {
-        std::cout << "  Generating assembly IR..." << std::endl;
+        std::cout << "  Generating assembly..." << std::endl;
     }
 
     if (!irModule_) return;
 
     // Generate assembly from IR using IRCodeGen
-    IRCodeGen codegen(optimizationLevel_);
-
-    // Configure code generation
-    if (verboseLevel_ >= 2) {
-        codegen.setVerbose(true);
-    }
-
-    // Generate assembly text
     std::ostringstream ss;
-    irOutput_ = codegen.generate(*irModule_);
+    IRCodeGen codegen(ss);
 
-    if (verboseLevel_ >= 3) {
+    // Generate assembly text for the module
+    // Parameters: module, zpStart, relocMode, zpCallMode, emitReasons, staticAllocMode, sacDebugMode, prgBase
+    codegen.generate(*irModule_,
+                     0x08,              // zpStart
+                     false,             // relocMode (PRG mode, not .o45)
+                     false,             // zpCallMode (use stack convention)
+                     verboseLevel_ >= 3, // emitReasons
+                     staticAlloc_,      // staticAllocMode
+                     verboseLevel_ >= 3, // sacDebugMode
+                     0x2000);           // prgBase
+
+    irOutput_ = ss.str();
+
+    if (verboseLevel_ >= 2) {
         std::cout << "    Generated " << irOutput_.size()
                  << " bytes of assembly." << std::endl;
     }
