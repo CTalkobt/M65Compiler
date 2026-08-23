@@ -3,6 +3,7 @@
 #include <string>
 #include <set>
 #include <map>
+#include "SymbolSuggester.hpp"
 #include <deque>
 #include <memory>
 #include <cstdint>
@@ -87,6 +88,10 @@ public:
     };
     ArRelocation tryParseArRelocation(const std::string& operand) const;
 
+    // Symbol suggestion helper (for fuzzy matching on undefined symbols)
+    void updateSymbolSuggestions();
+    std::string getSuggestionForSymbol(const std::string& undefined) const;
+
     struct ProcContext {
         std::string name;
         int totalParamSize;
@@ -147,6 +152,7 @@ private:
     std::vector<std::string> warnings;
     uint32_t firstOrgAddress = 0xFFFFFFFF;
     std::map<std::string, Symbol> symbolTable;
+    SymbolSuggester symbolSuggester_;  // For fuzzy matching on undefined symbols
     std::vector<std::string> scopeStack;
     int nextScopeId = 0;
     std::string currentLocalScope_; // last non-@ label for auto-scoping @ labels

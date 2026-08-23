@@ -102,7 +102,7 @@ $(LIB_DIR)/lib45-opt.a: $(addprefix $(OBJ_DIR)/, \
 # lib45-codegen: Code generation & assembly (includes preprocessor & emitter)
 $(LIB_DIR)/lib45-codegen.a: $(addprefix $(OBJ_DIR)/, \
     Preprocessor.o M65Emitter.o \
-    AssemblerLexer.o AssemblerParser.o AssemblerExpression.o \
+    AssemblerLexer.o AssemblerParser.o AssemblerExpression.o SymbolSuggester.o \
     AssemblerOptimizer.o AssemblerSimulatedOps.o AssemblerGenerator.o OpEffect.o)
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^

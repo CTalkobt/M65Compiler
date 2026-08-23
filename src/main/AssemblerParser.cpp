@@ -44,6 +44,36 @@ void AssemblerParser::errorAtStmt(const Statement* stmt, const std::string& msg)
     }
 }
 
+void AssemblerParser::updateSymbolSuggestions() {
+    // Populate suggester with all known symbols from the symbol table
+    symbolSuggester_.clear();
+    std::vector<std::string> knownSymbols;
+    for (const auto& [name, symbol] : symbolTable) {
+        // Add the fully scoped name
+        knownSymbols.push_back(name);
+
+        // Extract and add the unscoped part (last component after ':')
+        // This helps with suggestions like '@_p_myvar' even when stored as '_myproc:@_p_myvar'
+        size_t colonPos = name.find_last_of(':');
+        if (colonPos != std::string::npos && colonPos + 1 < name.length()) {
+            std::string unscoped = name.substr(colonPos + 1);
+            // Only add if not already present
+            if (std::find(knownSymbols.begin(), knownSymbols.end(), unscoped) == knownSymbols.end()) {
+                knownSymbols.push_back(unscoped);
+            }
+        }
+    }
+    symbolSuggester_.addSymbols(knownSymbols);
+}
+
+std::string AssemblerParser::getSuggestionForSymbol(const std::string& undefined) const {
+    // Build suggestions on-demand from current symbol table
+    const_cast<AssemblerParser*>(this)->updateSymbolSuggestions();
+    // Get a suggestion (fuzzy match) for undefined symbol, or empty string if none found
+    // Require at least 50% similarity (lowered to catch more typos)
+    return symbolSuggester_.suggestBest(undefined, 50);
+}
+
 void AssemblerParser::switchSegment(const std::string& name) {
     if (currentSegment) {
         currentSegment->pc = pc;

@@ -148,7 +148,7 @@ uint32_t VariableNode::getValue(AssemblerParser* parser) const {
 
         if (isLocalVar || isZpTemp) {
             std::string searchPath = scopePrefix + name;
-            std::string msg = "Error: undefined local symbol '" + name + "'";
+            std::string msg = "undefined local symbol '" + name + "'";
             if (!scopePrefix.empty()) {
                 msg += " (searched as '" + searchPath + "')";
             }
@@ -159,8 +159,15 @@ uint32_t VariableNode::getValue(AssemblerParser* parser) const {
                 msg += " — inline asm local reference requires .var/@_l_ declaration in proc";
             }
 
-            parser->addError(msg);
-            throw std::runtime_error(msg);
+            // Add suggestion if a similar symbol exists
+            std::string suggestion = parser->getSuggestionForSymbol(name);
+            if (!suggestion.empty()) {
+                msg += " (did you mean '" + suggestion + "'?)";
+            }
+
+            std::string fullMsg = "Error: " + msg;
+            parser->addError(fullMsg);
+            throw std::runtime_error(fullMsg);
         }
 
         // For global symbols, allow 0 as placeholder (will be resolved by linker)
