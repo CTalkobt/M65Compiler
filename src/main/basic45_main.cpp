@@ -12,6 +12,7 @@
 #include "BasicPreprocessor.hpp"
 #include "BasicDocGenerator.hpp"
 #include "BasicValidator.hpp"
+#include "SymbolExpressionEvaluator.hpp"
 
 struct Options {
     std::string inputFile;
@@ -35,11 +36,18 @@ struct Options {
 
 class SymbolTable {
 public:
+    SymbolTable() : evaluator(nullptr) {}
+
     void loadFromFile(const std::string& filename) {
         std::ifstream file(filename);
         if (!file) {
             std::cerr << "Warning: Could not open symbol file: " << filename << std::endl;
             return;
+        }
+
+        // Initialize evaluator if not already done
+        if (!evaluator) {
+            evaluator = std::make_unique<SymbolExpressionEvaluator>();
         }
 
         std::string line;
@@ -52,6 +60,10 @@ public:
 
             if (iss >> std::hex >> addr >> name) {
                 symbols[name] = addr;
+                // Also add to evaluator for expression evaluation
+                if (evaluator) {
+                    evaluator->addSymbol(name, addr);
+                }
             }
         }
     }
@@ -64,17 +76,40 @@ public:
             size_t end = result.find('}', pos);
             if (end == std::string::npos) break;
 
-            std::string name = result.substr(pos + 1, end - pos - 1);
-            auto it = symbols.find(name);
+            std::string expr = result.substr(pos + 1, end - pos - 1);
+            std::string replacement;
 
-            if (it != symbols.end()) {
-                char buffer[16];
-                snprintf(buffer, sizeof(buffer), "%u", it->second);
-                result.replace(pos, end - pos + 1, buffer);
-                pos += std::strlen(buffer);
+            // Try to evaluate as expression if evaluator is available
+            if (evaluator) {
+                int value = evaluator->evaluateExpression(expr);
+                if (value >= 0) {
+                    // Successfully evaluated expression
+                    replacement = std::to_string(value);
+                } else {
+                    // Not a valid expression, try simple symbol lookup
+                    auto it = symbols.find(expr);
+                    if (it != symbols.end()) {
+                        replacement = std::to_string(it->second);
+                    } else {
+                        // Not found, skip this substitution
+                        pos = end + 1;
+                        continue;
+                    }
+                }
             } else {
-                pos = end + 1;
+                // No evaluator, do simple symbol lookup
+                auto it = symbols.find(expr);
+                if (it != symbols.end()) {
+                    replacement = std::to_string(it->second);
+                } else {
+                    pos = end + 1;
+                    continue;
+                }
             }
+
+            // Replace the {expr} with the result
+            result.replace(pos, end - pos + 1, replacement);
+            pos += replacement.length();
         }
 
         return result;
@@ -82,6 +117,7 @@ public:
 
 private:
     std::unordered_map<std::string, uint16_t> symbols;
+    std::unique_ptr<SymbolExpressionEvaluator> evaluator;
 };
 
 static void printUsage(const char* progName) {
