@@ -8,6 +8,8 @@
 #include <thread>
 #include <chrono>
 #include <sys/stat.h>
+#include <pwd.h>
+#include <unistd.h>
 #include "AssemblerLexer.hpp"
 #include "AssemblerParser.hpp"
 #include "Preprocessor.hpp"
@@ -17,16 +19,71 @@
 #include "Version.hpp"
 #include "Diagnostic.hpp"
 
+// Phase 4.1: Load configuration from config file
+static std::vector<std::string> loadConfigFile(const std::string& configPath) {
+    std::vector<std::string> args;
+    std::ifstream file(configPath);
+    if (!file.is_open()) {
+        return args;
+    }
+
+    std::string line;
+    while (std::getline(file, line)) {
+        // Trim whitespace
+        size_t start = line.find_first_not_of(" \t\r\n");
+        size_t end = line.find_last_not_of(" \t\r\n");
+
+        // Skip empty lines and comments
+        if (start == std::string::npos || line[start] == '#') {
+            continue;
+        }
+
+        line = line.substr(start, end - start + 1);
+        if (!line.empty()) {
+            args.push_back(line);
+        }
+    }
+    file.close();
+    return args;
+}
+
+// Phase 4.1: Get home directory
+static std::string getHomeDirectory() {
+    const char* home = std::getenv("HOME");
+    if (home) {
+        return std::string(home);
+    }
+
+    struct passwd* pw = getpwuid(getuid());
+    if (pw) {
+        return std::string(pw->pw_dir);
+    }
+
+    return "";
+}
+
+// Phase 4.1: Get config file path (~/.config/m65/ca45.conf)
+static std::string getConfigFilePath() {
+    std::string home = getHomeDirectory();
+    if (home.empty()) {
+        return "";
+    }
+    return home + "/.config/m65/ca45.conf";
+}
+
 static void printHelpGeneral() {
     std::cout << "ca45 — 45GS02 Assembler for MEGA65\n\n";
     std::cout << "Usage: ca45 [options] <input_file.s>\n\n";
     std::cout << "Options by category:\n";
-    std::cout << "  Input/Output:    -c, -o, -L, -l\n";
+    std::cout << "  Input/Output:    -c, -o, -L, -l, --dry-run, --source-map, --watch\n";
     std::cout << "  Optimization:    -O, -P, --experimental\n";
-    std::cout << "  Debugging:       -v, -vv, -Roptimizer, -Rmachstate\n";
+    std::cout << "  Debugging:       -v, -vv, -Roptimizer, -Rmachstate, --emulator\n";
     std::cout << "  Preprocessor:    -D, -I\n";
     std::cout << "  Diagnostics:     -Woverflow, -Wunderflow\n";
     std::cout << "  General:         -?, -V\n\n";
+    std::cout << "Configuration:\n";
+    std::cout << "  Config file: ~/.config/m65/ca45.conf (one option per line)\n";
+    std::cout << "  CLI arguments override config file settings\n\n";
     std::cout << "Use --help=<section> for detailed help. Example: ca45 --help=input-output\n";
     std::cout << "Available sections: input-output, optimization, debugging, preprocessor, diagnostics\n";
 }
@@ -330,8 +387,21 @@ int main(int argc, char** argv) {
         if (pos < s.size()) includePaths.push_back(s.substr(pos));
     }
 
+    // Phase 4.1: Load config from ~/.config/m65/ca45.conf
+    std::vector<std::string> configArgs = loadConfigFile(getConfigFilePath());
+
+    // Build combined argument list: config file args + CLI args
+    std::vector<std::string> allArgs;
+    allArgs.push_back(argv[0]); // program name
+    for (const auto& arg : configArgs) {
+        allArgs.push_back(arg);
+    }
     for (int i = 1; i < argc; ++i) {
-        std::string arg = argv[i];
+        allArgs.push_back(argv[i]);
+    }
+
+    for (int i = 1; i < (int)allArgs.size(); ++i) {
+        std::string arg = allArgs[i];
         if (arg == "-V" || arg == "--version") {
             std::cout << suiteVersionString("ca45") << std::endl;
             return 0;
