@@ -172,6 +172,28 @@ $ objdump45 -d -b '$C000' rom.bin
 $ objdump45 -d -b '$0000' program.prg
 ```
 
+### Analyze multiple object files before linking
+
+```bash
+# Check all object files for conflicts and relocations
+$ objdump45 -rt *.o45
+
+# Display headers and symbols for all files
+$ objdump45 -fth *.o45
+```
+
+### Disassemble with linker map (symbolic disassembly)
+
+```bash
+# Generate linker map during linking
+$ ln45 -M program.map -o program.prg main.o45 -l c45.lib
+
+# Disassemble PRG with symbols from map
+$ objdump45 -d -m program.map program.prg
+```
+
+Produces disassembly with function names and global symbols annotated.
+
 ## Supported Formats
 
 | Format | Extension | Description |
@@ -184,6 +206,95 @@ $ objdump45 -d -b '$0000' program.prg
 For `.o45`/`.o65` files, all display modes are available. For `.prg`/`.bin` files, `-f` (header summary), `-s` (hex dump), and `-d` (disassembly) are supported; `-h`, `-t`, and `-r` silently produce no output since raw binaries have no symbol or relocation tables.
 
 Format detection: `objdump45` first attempts to parse the file as `.o45`/`.o65`. If that fails, it falls back to `.prg` (by extension) or raw binary (by `.bin` extension or when `-b` is specified).
+
+## Debugging Workflows
+
+### Verify object file integrity before linking
+
+```bash
+# Full dump of object file (all sections)
+$ objdump45 -a main.o45
+
+# Check for relocation issues
+$ objdump45 -r main.o45 | grep -E "UNDEF|ERROR"
+```
+
+### Inspect generated code
+
+```bash
+# Look at disassembly of a specific function
+$ objdump45 -d main.o45 | grep -A 20 "_main:"
+
+# Find function that uses most code
+$ objdump45 -d main.o45 | grep "^[0-9a-f].*<.*>:" | head -10
+```
+
+### Analyze relocation requirements
+
+```bash
+# See what relocation types are used
+$ objdump45 -r main.o45 | cut -d' ' -f5 | sort | uniq -c
+
+# Check external symbol references
+$ objdump45 -r main.o45 | grep "EXTERN"
+```
+
+### Compare two compiled versions
+
+Useful for understanding optimizer differences:
+
+```bash
+# Compile with different optimization levels
+$ cc45 -O0 -c main.c -o main_o0.o45
+$ cc45 -O2 -c main.c -o main_o2.o45
+
+# Compare code sizes
+$ objdump45 -s main_o0.o45 | grep "section TEXT" -A 1
+$ objdump45 -s main_o2.o45 | grep "section TEXT" -A 1
+
+# Disassemble both to spot differences
+$ objdump45 -d main_o0.o45 > o0.asm
+$ objdump45 -d main_o2.o45 > o2.asm
+$ diff o0.asm o2.asm
+```
+
+### Analyze calling convention metadata
+
+For ZP calling convention objects:
+
+```bash
+# Show function attributes
+$ objdump45 -t main_zp.o45
+
+# Inspect register clobber masks
+# (May be embedded in symbol table for ZP-convention functions)
+```
+
+### Verify PRG binary correctness
+
+```bash
+# Check load address
+$ objdump45 -f program.prg
+
+# Disassemble and verify entry point
+$ objdump45 -d program.prg | head -30
+
+# Compare with expected linker map
+$ objdump45 -d -m program.map program.prg | grep "_main" -A 10
+```
+
+### Extract and save disassembly for analysis
+
+```bash
+# Full disassembly to file
+$ objdump45 -d program.o45 > program.asm
+
+# With symbols
+$ objdump45 -dt program.o45 > program_symbols.asm
+
+# Hex dump for binary analysis
+$ objdump45 -s program.o45 > program.hex
+```
 
 ## See Also
 
