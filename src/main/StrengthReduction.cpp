@@ -56,7 +56,7 @@ void StrengthReduction::apply(ir::Module& irModule) {
 
     // Report metrics
     if (multiplyReductions_ + divideReductions_ + incrementOptimizations_ > 0) {
-        metrics_.optimizationsApplied = "strength-reduction";
+        
         metrics_.instructionsOptimized = multiplyReductions_ + divideReductions_ +
                                         incrementOptimizations_;
     }
@@ -64,9 +64,9 @@ void StrengthReduction::apply(ir::Module& irModule) {
 
 bool StrengthReduction::isMultiplyByPowerOf2(const ir::Inst& inst, int& shiftAmount) const {
     // Check if inst.src2 is a constant power of 2
-    if (inst.src2.kind != ir::OperandKind::CONST) return false;
+    if (inst.src2.kind != ir::OperandKind::IMM) return false;
 
-    unsigned val = inst.src2.constValue;
+    unsigned val = inst.src2.immVal;
 
     // Power of 2 has exactly one bit set
     if (countSetBits(val) != 1) return false;
@@ -82,9 +82,9 @@ bool StrengthReduction::isMultiplyByPowerOf2(const ir::Inst& inst, int& shiftAmo
 
 bool StrengthReduction::isDivideByPowerOf2(const ir::Inst& inst, int& shiftAmount) const {
     // Check if inst.src2 is a constant power of 2
-    if (inst.src2.kind != ir::OperandKind::CONST) return false;
+    if (inst.src2.kind != ir::OperandKind::IMM) return false;
 
-    unsigned val = inst.src2.constValue;
+    unsigned val = inst.src2.immVal;
 
     // Power of 2 has exactly one bit set
     if (countSetBits(val) != 1) return false;
@@ -106,10 +106,9 @@ bool StrengthReduction::isUnsignedDivide(const ir::Inst& inst) const {
 }
 
 bool StrengthReduction::isOptimizablePostIncrement(const ir::Inst& inst) const {
-    // Check if the post-increment result is not used
-    // If POST_INC destination is not referenced elsewhere, can convert to PRE_INC
-    // Simplified detection: if no subsequent instructions depend on the old value
-    return inst.op == ir::Op::POST_INC || inst.op == ir::Op::POST_DEC;
+    // Post-increment/decrement not in IR; return false for safety
+    (void)inst;
+    return false;
 }
 
 bool StrengthReduction::isLoopInvariantMultiply(const ir::Inst& inst, ir::Block* loopBody) const {

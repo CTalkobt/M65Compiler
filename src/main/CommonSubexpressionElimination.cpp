@@ -28,9 +28,11 @@ void CommonSubexpressionElimination::apply(ir::Module& irModule) {
                     auto it = state.expressions.find(exprHash);
                     if (it != state.expressions.end() && it->second.isValid) {
                         // Redundant expression! Replace with copy
-                        inst.op = ir::Op::MOVE;
-                        inst.src1 = ir::Operand(ir::OperandKind::VREG, 0, it->second.vreg);
-                        inst.src2 = ir::Operand();
+                        inst.op = ir::Op::COPY;
+                        // Parse vreg_N to get ID
+                        size_t vregId = std::stoul(it->second.vreg.substr(6));
+                        inst.src1 = ir::Operand::vreg(vregId, ir::Type::I32);
+                        inst.src2 = ir::Operand::none();
                         redundantExpressions_++;
                         metrics_.instructionsOptimized++;
                         metrics_.codeReductionBytes += 4;
@@ -40,7 +42,7 @@ void CommonSubexpressionElimination::apply(ir::Module& irModule) {
                         ev.op = inst.op;
                         ev.src1 = src1;
                         ev.src2 = src2;
-                        ev.vreg = "vreg_" + std::to_string(inst.dst.vregId);
+                        ev.vreg = "vreg_" + std::to_string(inst.dest.vregId);
                         ev.instIndex = i;
                         ev.isValid = true;
                         state.expressions[exprHash] = ev;
@@ -60,7 +62,6 @@ void CommonSubexpressionElimination::apply(ir::Module& irModule) {
 
     // Report metrics
     if (redundantExpressions_ > 0) {
-        metrics_.optimizationsApplied = "cse";
         metrics_.instructionsOptimized = redundantExpressions_;
     }
 }
@@ -69,10 +70,10 @@ std::string CommonSubexpressionElimination::normalizeOperand(const ir::Operand& 
     switch (op.kind) {
         case ir::OperandKind::VREG:
             return "v" + std::to_string(op.vregId);
-        case ir::OperandKind::CONST:
-            return "c" + std::to_string(op.constValue);
-        case ir::OperandKind::SYMBOL:
-            return "s:" + op.symbolName;
+        case ir::OperandKind::IMM:
+            return "c" + std::to_string(op.immVal);
+        case ir::OperandKind::GLOBAL:
+            return "s:" + op.name;
         default:
             return "?";
     }
@@ -98,7 +99,12 @@ bool CommonSubexpressionElimination::isCSEEligible(ir::Op op) const {
         case ir::Op::XOR:
         case ir::Op::SHL:
         case ir::Op::SHR:
-        case ir::Op::CMP:
+        case ir::Op::CMP_EQ:
+        case ir::Op::CMP_NE:
+        case ir::Op::CMP_LT:
+        case ir::Op::CMP_LE:
+        case ir::Op::CMP_GT:
+        case ir::Op::CMP_GE:
             return true;
         default:
             return false;

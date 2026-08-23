@@ -30,7 +30,7 @@ void DeadStoreElimination::apply(ir::Module& irModule) {
 
     // Report metrics
     if (deadStoresEliminated_ > 0) {
-        metrics_.optimizationsApplied = "dead-store-elimination";
+        
         metrics_.instructionsOptimized = deadStoresEliminated_;
     }
 }
@@ -51,10 +51,10 @@ std::set<size_t> DeadStoreElimination::findDeadStores(ir::Block& block) {
             std::string addr;
             if (inst.src2.kind == ir::OperandKind::VREG) {
                 addr = "vreg_" + std::to_string(inst.src2.vregId);
-            } else if (inst.src2.kind == ir::OperandKind::CONST) {
-                addr = std::to_string(inst.src2.constValue);
-            } else if (inst.src2.kind == ir::OperandKind::SYMBOL) {
-                addr = inst.src2.symbolName;
+            } else if (inst.src2.kind == ir::OperandKind::IMM) {
+                addr = std::to_string(inst.src2.immVal);
+            } else if (inst.src2.kind == ir::OperandKind::GLOBAL) {
+                addr = inst.src2.name;
             }
 
             // Check if this is a dead store
@@ -65,10 +65,10 @@ std::set<size_t> DeadStoreElimination::findDeadStores(ir::Block& block) {
                     if (block.insts[j].op == ir::Op::STORE) {
                         std::string laterAddr;
                         const auto& laterInst = block.insts[j];
-                        if (laterInst.src2.kind == ir::OperandKind::CONST) {
-                            laterAddr = std::to_string(laterInst.src2.constValue);
-                        } else if (laterInst.src2.kind == ir::OperandKind::SYMBOL) {
-                            laterAddr = laterInst.src2.symbolName;
+                        if (laterInst.src2.kind == ir::OperandKind::IMM) {
+                            laterAddr = std::to_string(laterInst.src2.immVal);
+                        } else if (laterInst.src2.kind == ir::OperandKind::GLOBAL) {
+                            laterAddr = laterInst.src2.name;
                         }
                         if (laterAddr == addr) {
                             hasLaterStore = true;
@@ -99,8 +99,8 @@ void DeadStoreElimination::analyzeBlockLiveness(ir::Block& block,
         // Kill: if this instruction defines a variable
         if (inst.op == ir::Op::STORE) {
             std::string addr;
-            if (inst.src2.kind == ir::OperandKind::SYMBOL) {
-                addr = inst.src2.symbolName;
+            if (inst.src2.kind == ir::OperandKind::GLOBAL) {
+                addr = inst.src2.name;
             }
             if (!addr.empty()) {
                 liveSet.erase(addr);
@@ -111,11 +111,11 @@ void DeadStoreElimination::analyzeBlockLiveness(ir::Block& block,
         if (inst.op == ir::Op::LOAD || inst.op == ir::Op::ADD ||
             inst.op == ir::Op::SUB || inst.op == ir::Op::MUL ||
             inst.op == ir::Op::DIV) {
-            if (inst.src1.kind == ir::OperandKind::SYMBOL) {
-                liveSet.insert(inst.src1.symbolName);
+            if (inst.src1.kind == ir::OperandKind::GLOBAL) {
+                liveSet.insert(inst.src1.name);
             }
-            if (inst.src2.kind == ir::OperandKind::SYMBOL) {
-                liveSet.insert(inst.src2.symbolName);
+            if (inst.src2.kind == ir::OperandKind::GLOBAL) {
+                liveSet.insert(inst.src2.name);
             }
         }
     }
@@ -145,16 +145,16 @@ bool DeadStoreElimination::isDeadStore(const ir::Inst& inst,
     if (inst.op != ir::Op::STORE) return false;
 
     // Cannot eliminate volatile stores
-    if (inst.src2.kind == ir::OperandKind::SYMBOL) {
-        if (volatileAddresses_.count(inst.src2.symbolName) > 0) {
+    if (inst.src2.kind == ir::OperandKind::GLOBAL) {
+        if (volatileAddresses_.count(inst.src2.name) > 0) {
             return false;
         }
     }
 
     // Dead if value not live after store
     std::string addr;
-    if (inst.src2.kind == ir::OperandKind::SYMBOL) {
-        addr = inst.src2.symbolName;
+    if (inst.src2.kind == ir::OperandKind::GLOBAL) {
+        addr = inst.src2.name;
     }
 
     return !addr.empty() && liveness.liveOut.count(addr) == 0;

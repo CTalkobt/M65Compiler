@@ -45,7 +45,6 @@ void LoopInvariantCodeMotion::apply(ir::Module& irModule) {
 
     // Report metrics
     if (instructionsHoisted_ > 0) {
-        metrics_.optimizationsApplied = "licm";
         metrics_.instructionsOptimized = instructionsHoisted_;
     }
 }
@@ -67,7 +66,7 @@ void LoopInvariantCodeMotion::analyzeLoops(ir::Function& func,
 bool LoopInvariantCodeMotion::isLoopInvariant(const ir::Operand& op,
                                               const LoopInfo& loop) const {
     // Operand is invariant if it's not modified in loop
-    if (op.kind == ir::OperandKind::CONST) {
+    if (op.kind == ir::OperandKind::IMM) {
         return true;  // Constants always invariant
     }
 

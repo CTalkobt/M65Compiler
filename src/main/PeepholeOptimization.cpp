@@ -38,7 +38,7 @@ void PeepholeOptimization::apply(ir::Module& irModule) {
 
     // Report metrics
     if (patternsMatched_ > 0) {
-        metrics_.optimizationsApplied = "peephole_optimization";
+        
         metrics_.instructionsOptimized = patternsMatched_;
     }
 }

@@ -33,7 +33,7 @@ void AlgebraicSimplification::apply(ir::Module& irModule) {
     // Report metrics
     if (identitiesEliminated_ + annihilatorsEliminated_ +
         shortCircuitsApplied_ + shiftsSimplified_ > 0) {
-        metrics_.optimizationsApplied = "algebraic-simplify";
+        
         metrics_.instructionsOptimized = identitiesEliminated_ +
                                         annihilatorsEliminated_ +
                                         shortCircuitsApplied_ +
@@ -52,7 +52,7 @@ bool AlgebraicSimplification::simplifyInstruction(ir::Inst& inst) {
     // Check for arithmetic identities (a OP 1 = a, a OP 0 = a, etc.)
     if (isArithmeticIdentity(inst.op, val)) {
         // Replace with src1 (copy operation)
-        inst.op = ir::Op::MOVE;
+        inst.op = ir::Op::COPY;
         inst.src2 = ir::Operand();  // Clear src2
         identitiesEliminated_++;
         return true;
@@ -62,7 +62,7 @@ bool AlgebraicSimplification::simplifyInstruction(ir::Inst& inst) {
     if (isArithmeticAnnihilator(inst.op, val)) {
         // Replace with constant 0
         inst.op = ir::Op::CONST;
-        inst.src1 = ir::Operand(ir::OperandKind::CONST, 0);
+        inst.src1 = ir::Operand::imm(0, ir::Type::I8);
         inst.src2 = ir::Operand();
         annihilatorsEliminated_++;
         return true;
@@ -71,7 +71,7 @@ bool AlgebraicSimplification::simplifyInstruction(ir::Inst& inst) {
     // Check for bitwise identities
     if (isBitwiseIdentity(inst.op, val)) {
         // Replace with src1 (copy operation)
-        inst.op = ir::Op::MOVE;
+        inst.op = ir::Op::COPY;
         inst.src2 = ir::Operand();
         identitiesEliminated_++;
         return true;
@@ -81,7 +81,7 @@ bool AlgebraicSimplification::simplifyInstruction(ir::Inst& inst) {
     if (isBitwiseAnnihilator(inst.op, val)) {
         // Replace with constant 0
         inst.op = ir::Op::CONST;
-        inst.src1 = ir::Operand(ir::OperandKind::CONST, 0);
+        inst.src1 = ir::Operand::imm(0, ir::Type::I8);
         inst.src2 = ir::Operand();
         annihilatorsEliminated_++;
         return true;
@@ -90,7 +90,7 @@ bool AlgebraicSimplification::simplifyInstruction(ir::Inst& inst) {
     // Check for identity shifts (a << 0 = a, a >> 0 = a)
     if (isIdentityShift(inst.op, val)) {
         // Replace with src1 (copy operation)
-        inst.op = ir::Op::MOVE;
+        inst.op = ir::Op::COPY;
         inst.src2 = ir::Operand();
         shiftsSimplified_++;
         return true;
@@ -154,14 +154,14 @@ bool AlgebraicSimplification::isBooleanShortCircuit(ir::Op op, unsigned val,
     switch (op) {
         case ir::Op::OR:
             if (val != 0) {  // a || 1 = 1
-                result = ir::Operand(ir::OperandKind::CONST, 1);
+                result = ir::Operand::imm(0, ir::Type::I8);
                 return true;
             }
             break;
 
         case ir::Op::AND:
             if (val == 0) {  // a && 0 = 0
-                result = ir::Operand(ir::OperandKind::CONST, 0);
+                result = ir::Operand::imm(0, ir::Type::I8);
                 return true;
             }
             break;

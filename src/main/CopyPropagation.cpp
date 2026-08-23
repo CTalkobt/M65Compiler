@@ -20,8 +20,8 @@ void CopyPropagation::apply(ir::Module& irModule) {
                 const auto& inst = block.insts[i];
 
                 // MOVE operations are copies
-                if (inst.op == ir::Op::MOVE && inst.src1.kind == ir::OperandKind::VREG) {
-                    std::string dst = "vreg_" + std::to_string(inst.dst.vregId);
+                if (inst.op == ir::Op::COPY && inst.src1.kind == ir::OperandKind::VREG) {
+                    std::string dst = "vreg_" + std::to_string(inst.dest.vregId);
                     std::string src = "vreg_" + std::to_string(inst.src1.vregId);
 
                     CopyInfo ci;
@@ -50,7 +50,7 @@ void CopyPropagation::apply(ir::Module& irModule) {
                         chainsFollowed_++;
                         // Parse "vreg_N" back to vregId
                         size_t vregId = std::stoul(ultimate.substr(6));
-                        inst.src1 = ir::Operand(ir::OperandKind::VREG, vregId);
+                        inst.src1 = ir::Operand::vreg(vregId, ir::Type::I32);
                         metrics_.instructionsOptimized++;
                         metrics_.codeReductionBytes += 2;
                     }
@@ -64,7 +64,7 @@ void CopyPropagation::apply(ir::Module& irModule) {
                     if (ultimate != src2) {
                         chainsFollowed_++;
                         size_t vregId = std::stoul(ultimate.substr(6));
-                        inst.src2 = ir::Operand(ir::OperandKind::VREG, vregId);
+                        inst.src2 = ir::Operand::vreg(vregId, ir::Type::I32);
                         metrics_.instructionsOptimized++;
                         metrics_.codeReductionBytes += 2;
                     }
@@ -73,16 +73,16 @@ void CopyPropagation::apply(ir::Module& irModule) {
 
             // Third pass: remove dead copies (copies whose results are never used)
             for (auto it = block.insts.rbegin(); it != block.insts.rend(); ++it) {
-                if (it->op == ir::Op::MOVE && it->src1.kind == ir::OperandKind::VREG) {
-                    std::string dst = "vreg_" + std::to_string(it->dst.vregId);
+                if (it->op == ir::Op::COPY && it->src1.kind == ir::OperandKind::VREG) {
+                    std::string dst = "vreg_" + std::to_string(it->dest.vregId);
 
                     // Check if this vreg is used in any subsequent instruction
                     bool isUsed = false;
                     for (auto it2 = std::next(it); it2 != block.insts.rend(); ++it2) {
                         if ((it2->src1.kind == ir::OperandKind::VREG &&
-                             it2->src1.vregId == it->dst.vregId) ||
+                             it2->src1.vregId == it->dest.vregId) ||
                             (it2->src2.kind == ir::OperandKind::VREG &&
-                             it2->src2.vregId == it->dst.vregId)) {
+                             it2->src2.vregId == it->dest.vregId)) {
                             isUsed = true;
                             break;
                         }
@@ -99,7 +99,7 @@ void CopyPropagation::apply(ir::Module& irModule) {
 
     // Report metrics
     if (chainsFollowed_ > 0 || copiesEliminated_ > 0) {
-        metrics_.optimizationsApplied = "copy_propagation";
+        
         metrics_.instructionsOptimized = chainsFollowed_ + copiesEliminated_;
     }
 }

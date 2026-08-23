@@ -19,7 +19,7 @@ void RedundantLoadElimination::apply(ir::Module& irModule) {
 
     // Report metrics
     if (redundantLoadsEliminated_ + reverseStoreForwards_ > 0) {
-        metrics_.optimizationsApplied = "redundant-load-elimination";
+        
         metrics_.instructionsOptimized = redundantLoadsEliminated_ + reverseStoreForwards_;
         metrics_.codeReductionBytes = (redundantLoadsEliminated_ + reverseStoreForwards_) * 3;
     }

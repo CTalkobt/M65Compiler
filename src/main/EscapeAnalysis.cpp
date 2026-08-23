@@ -35,7 +35,7 @@ void EscapeAnalysis::apply(ir::Module& irModule) {
 
     // Report metrics
     if (valuesPromoted_ > 0 || allocationsAnalyzed_ > 0) {
-        metrics_.optimizationsApplied = "escape_analysis";
+        
         metrics_.instructionsOptimized = valuesPromoted_;
     }
 }
@@ -46,9 +46,9 @@ void EscapeAnalysis::analyzeEscapes(ir::Function& func,
     for (auto& block : func.blocks) {
         for (const auto& inst : block.insts) {
             // Assume all vregs come from allocations
-            if (inst.op != ir::Op::MOVE && inst.op != ir::Op::LOAD &&
+            if (inst.op != ir::Op::COPY && inst.op != ir::Op::LOAD &&
                 inst.op != ir::Op::CALL) {
-                std::string vregName = "vreg_" + std::to_string(inst.dst.vregId);
+                std::string vregName = "vreg_" + std::to_string(inst.dest.vregId);
                 AllocationInfo ai;
                 ai.vreg = vregName;
                 ai.escapesFunction = false;

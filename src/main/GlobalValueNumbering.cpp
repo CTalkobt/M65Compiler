@@ -28,7 +28,7 @@ void GlobalValueNumbering::apply(ir::Module& irModule) {
                     inst.op == ir::Op::MUL || inst.op == ir::Op::DIV ||
                     inst.op == ir::Op::AND || inst.op == ir::Op::OR ||
                     inst.op == ir::Op::XOR || inst.op == ir::Op::SHL ||
-                    inst.op == ir::Op::SHR || inst.op == ir::Op::CMP) {
+                    inst.op == ir::Op::SHR || inst.op == ir::Op::CMP_EQ) {
 
                     size_t valNum = getValueNumber(inst, state);
 
@@ -36,8 +36,8 @@ void GlobalValueNumbering::apply(ir::Module& irModule) {
                     auto it = state.valueNumbers.find(valNum);
                     if (it != state.valueNumbers.end() && it->second.firstInstIdx < i) {
                         // Reuse previous computation
-                        inst.op = ir::Op::MOVE;
-                        inst.src1 = ir::Operand(ir::OperandKind::VREG, 0,
+                        inst.op = ir::Op::COPY;
+                        inst.src1 = ir::Operand::vreg(
                                               std::stoul(it->second.resultVreg.substr(6)));
                         inst.src2 = ir::Operand();
                         valuesReused_++;
@@ -49,7 +49,7 @@ void GlobalValueNumbering::apply(ir::Module& irModule) {
                         vn.number = valNum;
                         vn.expr = buildExpressionKey(inst.op, inst.src1, inst.src2);
                         vn.firstInstIdx = i;
-                        vn.resultVreg = "vreg_" + std::to_string(inst.dst.vregId);
+                        vn.resultVreg = "vreg_" + std::to_string(inst.dest.vregId);
                         state.valueNumbers[valNum] = vn;
                         equivalencesFound_++;
                     }
@@ -60,7 +60,7 @@ void GlobalValueNumbering::apply(ir::Module& irModule) {
 
     // Report metrics
     if (valuesReused_ > 0 || equivalencesFound_ > 0) {
-        metrics_.optimizationsApplied = "global_value_numbering";
+        
         metrics_.instructionsOptimized = valuesReused_;
     }
 }
@@ -93,11 +93,11 @@ std::string GlobalValueNumbering::buildExpressionKey(ir::Op op,
         case ir::OperandKind::VREG:
             oss << "v" << src1.vregId << ":";
             break;
-        case ir::OperandKind::CONST:
-            oss << "c" << src1.constValue << ":";
+        case ir::OperandKind::IMM:
+            oss << "c" << src1.immVal << ":";
             break;
-        case ir::OperandKind::SYMBOL:
-            oss << "s:" << src1.symbolName << ":";
+        case ir::OperandKind::GLOBAL:
+            oss << "s:" << src1.name << ":";
             break;
         default:
             oss << "?:";
@@ -108,11 +108,11 @@ std::string GlobalValueNumbering::buildExpressionKey(ir::Op op,
         case ir::OperandKind::VREG:
             oss << "v" << src2.vregId;
             break;
-        case ir::OperandKind::CONST:
-            oss << "c" << src2.constValue;
+        case ir::OperandKind::IMM:
+            oss << "c" << src2.immVal;
             break;
-        case ir::OperandKind::SYMBOL:
-            oss << "s:" << src2.symbolName;
+        case ir::OperandKind::GLOBAL:
+            oss << "s:" << src2.name;
             break;
         default:
             oss << "?";

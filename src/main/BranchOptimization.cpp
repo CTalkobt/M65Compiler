@@ -49,7 +49,7 @@ void BranchOptimization::apply(ir::Module& irModule) {
 
     // Report metrics
     if (branchesInverted_ > 0 || unreachableCodeRemoved_ > 0) {
-        metrics_.optimizationsApplied = "branch_optimization";
+        
         metrics_.instructionsOptimized = branchesInverted_ + unreachableCodeRemoved_;
     }
 }
