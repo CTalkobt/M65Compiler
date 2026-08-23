@@ -24,6 +24,9 @@ public:
     // Set include search paths
     void addIncludePath(const std::string& path);
 
+    // Set current file and line (for __FILE__, __LINE__)
+    void setCurrentFile(const std::string& filename) { currentFile = filename; }
+
     // Get list of processed files (for dependency tracking)
     const std::vector<std::string>& getIncludedFiles() const { return includedFiles; }
 
@@ -32,6 +35,8 @@ public:
 
 private:
     std::string basePath;
+    std::string currentFile;  // For __FILE__ macro
+    int currentLine = 0;      // For __LINE__ macro
     std::vector<std::string> includePaths;
     std::vector<std::string> includedFiles;  // Track included files
     std::map<std::string, MacroDefinition> macros;
@@ -48,9 +53,12 @@ private:
     // Helper methods
     std::string processLine(const std::string& line, const std::string& baseDir);
     std::string expandMacros(const std::string& line);
+    std::string expandPredefinedMacros(const std::string& line);
     std::string findIncludeFile(const std::string& filename, const std::string& currentDir);
     std::string readFile(const std::string& filename);
     std::string preprocessInternal(const std::string& source, const std::string& baseDir, int depth = 0);
 
     bool isConditionalActive() const;
+    std::string getCurrentDate() const;
+    std::string getCurrentTime() const;
 };

@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <ctime>
+#include <cstring>
 
 namespace fs = std::filesystem;
 
@@ -23,6 +25,8 @@ std::string BasicPreprocessor::preprocess(const std::string& source, const std::
     macros.clear();
     conditionalStack.clear();
     processedIncludes.clear();
+    currentFile = filename;
+    currentLine = 0;
 
     std::string dir = basePath;
     if (filename != "<stdin>") {
@@ -45,6 +49,7 @@ std::string BasicPreprocessor::preprocessInternal(const std::string& source, con
 
     while (std::getline(iss, line)) {
         lineNum++;
+        currentLine = lineNum;  // Track for __LINE__ macro
 
         // Remove leading/trailing whitespace
         size_t start = line.find_first_not_of(" \t");
@@ -194,6 +199,10 @@ std::string BasicPreprocessor::preprocessInternal(const std::string& source, con
 std::string BasicPreprocessor::expandMacros(const std::string& line) {
     std::string result = line;
 
+    // First expand predefined macros (these have priority)
+    result = expandPredefinedMacros(result);
+
+    // Then expand user-defined macros
     for (const auto& [name, macro] : macros) {
         // Simple text substitution (not handling parameterized macros yet)
         size_t pos = 0;
@@ -256,4 +265,93 @@ bool BasicPreprocessor::isConditionalActive() const {
     }
 
     return true;
+}
+
+std::string BasicPreprocessor::expandPredefinedMacros(const std::string& line) {
+    std::string result = line;
+
+    // __FILE__ - current filename
+    size_t pos = 0;
+    while ((pos = result.find("__FILE__", pos)) != std::string::npos) {
+        bool validBefore = (pos == 0 || (!std::isalnum(result[pos - 1]) && result[pos - 1] != '_'));
+        bool validAfter = (pos + 8 >= result.length() || (!std::isalnum(result[pos + 8]) && result[pos + 8] != '_'));
+
+        if (validBefore && validAfter) {
+            std::string fileValue = "\"" + currentFile + "\"";
+            result.replace(pos, 8, fileValue);
+            pos += fileValue.length();
+        } else {
+            pos++;
+        }
+    }
+
+    // __LINE__ - current line number
+    pos = 0;
+    while ((pos = result.find("__LINE__", pos)) != std::string::npos) {
+        bool validBefore = (pos == 0 || (!std::isalnum(result[pos - 1]) && result[pos - 1] != '_'));
+        bool validAfter = (pos + 8 >= result.length() || (!std::isalnum(result[pos + 8]) && result[pos + 8] != '_'));
+
+        if (validBefore && validAfter) {
+            std::string lineValue = std::to_string(currentLine);
+            result.replace(pos, 8, lineValue);
+            pos += lineValue.length();
+        } else {
+            pos++;
+        }
+    }
+
+    // __DATE__ - current date (YYYY-MM-DD format)
+    pos = 0;
+    std::string dateValue = getCurrentDate();
+    while ((pos = result.find("__DATE__", pos)) != std::string::npos) {
+        bool validBefore = (pos == 0 || (!std::isalnum(result[pos - 1]) && result[pos - 1] != '_'));
+        bool validAfter = (pos + 8 >= result.length() || (!std::isalnum(result[pos + 8]) && result[pos + 8] != '_'));
+
+        if (validBefore && validAfter) {
+            std::string value = "\"" + dateValue + "\"";
+            result.replace(pos, 8, value);
+            pos += value.length();
+        } else {
+            pos++;
+        }
+    }
+
+    // __TIME__ - current time (HH:MM:SS format)
+    pos = 0;
+    std::string timeValue = getCurrentTime();
+    while ((pos = result.find("__TIME__", pos)) != std::string::npos) {
+        bool validBefore = (pos == 0 || (!std::isalnum(result[pos - 1]) && result[pos - 1] != '_'));
+        bool validAfter = (pos + 8 >= result.length() || (!std::isalnum(result[pos + 8]) && result[pos + 8] != '_'));
+
+        if (validBefore && validAfter) {
+            std::string value = "\"" + timeValue + "\"";
+            result.replace(pos, 8, value);
+            pos += value.length();
+        } else {
+            pos++;
+        }
+    }
+
+    return result;
+}
+
+std::string BasicPreprocessor::getCurrentDate() const {
+    // Get current date in YYYY-MM-DD format
+    // Using system time - in production this would be more robust
+    time_t now = std::time(nullptr);
+    struct tm* timeinfo = std::localtime(&now);
+
+    char buffer[11];
+    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", timeinfo);
+    return std::string(buffer);
+}
+
+std::string BasicPreprocessor::getCurrentTime() const {
+    // Get current time in HH:MM:SS format
+    time_t now = std::time(nullptr);
+    struct tm* timeinfo = std::localtime(&now);
+
+    char buffer[9];
+    std::strftime(buffer, sizeof(buffer), "%H:%M:%S", timeinfo);
+    return std::string(buffer);
 }
