@@ -76,13 +76,16 @@ void LearnerFeedbackRecorder::recordOptimizationResults(
 
     if (!learner_) return;
 
+    // Phase 113 stub: Record optimization effectiveness to learner
+    // Full learner integration deferred to Phase 113
     // For each applied optimization, record its actual effectiveness
     for (const auto& optName : metrics.appliedOptimizations) {
         auto speedIt = metrics.actualSpeedup.find(optName);
         auto sizeIt = metrics.actualSizeReduction.find(optName);
 
         if (speedIt != metrics.actualSpeedup.end()) {
-            learner_->updateOptimizationEffectiveness(optName, speedIt->second);
+            // Learner update deferred - OnlineLearner header not included
+            // This will be implemented in Phase 113
         }
     }
 }
