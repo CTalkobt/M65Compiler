@@ -193,6 +193,21 @@ int cbm_format(unsigned char device, const char *name, const char *id);
 int cbm_delete(unsigned char device, const char *filename);
 int cbm_rename(unsigned char device, const char *old_name, const char *new_name);
 
+/* REL (Relative) file operations — random-access record files */
+int cbm_rel_open(unsigned char device, const char *filename,
+                 unsigned char record_size, int mode);
+int cbm_rel_read(int handle, unsigned int record_num, void *buffer, unsigned int size);
+int cbm_rel_write(int handle, unsigned int record_num, const void *buffer, unsigned int size);
+int cbm_rel_position(int handle, unsigned int record_num);
+unsigned int cbm_rel_tell(int handle);
+unsigned int cbm_rel_size(int handle);
+int cbm_rel_close(int handle);
+unsigned char cbm_rel_record_size(int handle);
+int cbm_rel_is_open(int handle);
+
+#define CBM_REL_READ    0               /* Open for reading */
+#define CBM_REL_WRITE   1               /* Open for writing */
+
 /* Low-level Commodore KERNAL calls (advanced) */
 unsigned char cbm_k_chkin(unsigned char fd);      /* Redirect input */
 unsigned char cbm_k_chkout(unsigned char fd);     /* Redirect output */
