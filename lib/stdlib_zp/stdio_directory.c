@@ -89,17 +89,28 @@ int cbm_opendir(unsigned char device) {
  *
  * Reads the next entry from the directory listing.
  * Parses the Commodore directory format and fills in the provided structures.
+ * Properly extracts file type and flags from the directory entry.
  *
  * Parameters:
  *   fd       — Directory handle from cbm_opendir()
  *   filename — Buffer for filename (16+ bytes recommended)
- *   type     — Pointer to file type byte
+ *   type     — Pointer to file type byte (includes flags: CBM_FILE_LOCKED, CBM_FILE_SPLAT, CBM_FILE_CLOSED)
  *   size     — Pointer to file size in blocks
  *
  * Returns:
  *   0 on success
  *   1 at end of directory
  *   -1 on error
+ *
+ * File Type Byte Format (entry[18]):
+ *   Bit 7: Closed flag (1=properly closed, 0=open/error)
+ *   Bit 6: Locked flag (1=locked/protected, 0=not locked)
+ *   Bit 5: Splat flag (1=marked for delete, 0=normal)
+ *   Bits 3-0: File type (0x1=SEQ, 0x2=PRG, 0x3=USR, 0x4=REL)
+ *
+ * Example:
+ *   type = 0xC2  →  Closed (0x80) | Locked (0x40) | PRG type (0x2)
+ *   type = 0x81  →  Normal SEQ file
  */
 int cbm_readdir(int fd_handle, char *filename, unsigned char *type, unsigned int *size) {
     if (fd_handle < 0 || !filename || !type || !size) {
@@ -116,7 +127,7 @@ int cbm_readdir(int fd_handle, char *filename, unsigned char *type, unsigned int
     }
 
     /* Parse entry */
-    *size = entry[0] | (entry[1] << 8);  /* Little-endian size */
+    *size = entry[0] | (entry[1] << 8);  /* Little-endian size in blocks */
 
     /* Copy filename, removing padding ($A0 padding) */
     int i, j;
@@ -129,7 +140,13 @@ int cbm_readdir(int fd_handle, char *filename, unsigned char *type, unsigned int
     }
     filename[j] = '\0';  /* Null-terminate */
 
-    *type = entry[18];  /* File type byte */
+    /* Extract file type with all flags
+     * Bit 7: Closed flag (1=closed, 0=open)
+     * Bit 6: Locked flag (1=locked, 0=unlocked)
+     * Bit 5: Splat flag (1=scratched, 0=normal)
+     * Bits 3-0: File type code (1=SEQ, 2=PRG, 3=USR, 4=REL, 8=DIR)
+     */
+    *type = entry[18];
 
     return 0;  /* Success, more entries possible */
 }
@@ -269,22 +286,84 @@ int cbm_format(unsigned char device, const char *name, const char *id) {
 /**
  * cbm_dir_type_name - Get human-readable file type name
  *
- * Converts a Commodore file type byte to a string.
+ * Converts a Commodore file type code to a string.
+ * Extracts the type code from the directory entry byte and ignores flags.
  *
  * Parameters:
- *   type — File type byte (0x81, 0x82, 0x84, etc.)
+ *   type — File type code from directory (may include flags in upper bits)
  *
  * Returns:
- *   Pointer to string: "PRG", "SEQ", "USR", "REL", or "???"
+ *   Pointer to string: "PRG", "SEQ", "USR", "REL", "DIR", or "???"
+ *
+ * Example:
+ *   cbm_dir_type_name(0xC2)  →  "PRG"  (flags ignored, code 0x2=PRG)
+ *   cbm_dir_type_name(0x81)  →  "SEQ"  (no flags, code 0x1=SEQ)
  */
 const char *cbm_dir_type_name(unsigned char type) {
-    switch (type) {
-        case CBM_T_PRG:  return "PRG";
-        case CBM_T_SEQ:  return "SEQ";
-        case CBM_T_USR:  return "USR";
-        case CBM_T_REL:  return "REL";
-        case CBM_T_CBM:  return "CBM";
-        default:         return "???";
+    /* Mask to get just the type code */
+    unsigned char type_code = type & CBM_FILE_TYPE_MASK;
+
+    switch (type_code) {
+        case 0x02:  return "PRG";
+        case 0x01:  return "SEQ";
+        case 0x03:  return "USR";
+        case 0x04:  return "REL";
+        case 0x08:  return "DIR";
+        default:    return "???";
     }
+}
+
+/**
+ * cbm_dir_is_locked - Check if file is locked
+ *
+ * Parameters:
+ *   type — File type byte from directory entry
+ *
+ * Returns:
+ *   1 if locked, 0 if not locked
+ */
+int cbm_dir_is_locked(unsigned char type) {
+    return (type & CBM_FILE_LOCKED) ? 1 : 0;
+}
+
+/**
+ * cbm_dir_is_scratched - Check if file is scratched/marked for delete
+ *
+ * Parameters:
+ *   type — File type byte from directory entry
+ *
+ * Returns:
+ *   1 if scratched, 0 if not scratched
+ */
+int cbm_dir_is_scratched(unsigned char type) {
+    return (type & CBM_FILE_SPLAT) ? 1 : 0;
+}
+
+/**
+ * cbm_dir_is_closed - Check if file was properly closed
+ *
+ * Parameters:
+ *   type — File type byte from directory entry
+ *
+ * Returns:
+ *   1 if closed, 0 if open or error
+ */
+int cbm_dir_is_closed(unsigned char type) {
+    return (type & CBM_FILE_CLOSED) ? 1 : 0;
+}
+
+/**
+ * cbm_dir_get_type - Extract pure file type code
+ *
+ * Removes all flags and returns only the file type code.
+ *
+ * Parameters:
+ *   type — File type byte from directory entry
+ *
+ * Returns:
+ *   Type code: 0x01=SEQ, 0x02=PRG, 0x03=USR, 0x04=REL, 0x08=DIR
+ */
+unsigned char cbm_dir_get_type(unsigned char type) {
+    return type & CBM_FILE_TYPE_MASK;
 }
 

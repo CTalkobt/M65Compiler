@@ -158,6 +158,13 @@ typedef int fd_t;                    /* File descriptor (Commodore device/channe
 #define CBM_T_CBM   0x88             /* Directory */
 #define CBM_T_DIR   0x88             /* Directory alias */
 
+/* File type masks and flags (directory entry byte 18) */
+#define CBM_FILE_TYPE_MASK  0x0F     /* Mask for file type in lower nibble */
+#define CBM_FILE_CLOSED     0x80     /* Bit 7: File closed properly (1=closed) */
+#define CBM_FILE_LOCKED     0x40     /* Bit 6: File locked (1=locked) */
+#define CBM_FILE_SPLAT      0x20     /* Bit 5: Splat/Scratched (1=marked for delete) */
+#define CBM_FILE_NEWFILE    0x10     /* Bit 4: New file entry indicator (future use) */
+
 /* File handle operations */
 fd_t cbm_open(unsigned char device, const char *filename, unsigned char type);
 fd_t cbm_open_ext(unsigned char device, const char *filename, unsigned char type, unsigned char secondary);
@@ -173,6 +180,13 @@ int cbm_status(fd_t fd);
 int cbm_opendir(unsigned char device);
 int cbm_readdir(fd_t fd, char *filename, unsigned char *type, unsigned int *size);
 int cbm_closedir(fd_t fd);
+
+/* Directory entry flag helpers */
+const char *cbm_dir_type_name(unsigned char type);      /* Get type name (handles flags) */
+unsigned char cbm_dir_get_type(unsigned char type);     /* Extract pure type code */
+int cbm_dir_is_locked(unsigned char type);              /* Check locked bit */
+int cbm_dir_is_scratched(unsigned char type);           /* Check scratched/splat bit */
+int cbm_dir_is_closed(unsigned char type);              /* Check closed bit */
 
 /* Device operations */
 int cbm_format(unsigned char device, const char *name, const char *id);
