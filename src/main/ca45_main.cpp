@@ -71,6 +71,11 @@ static std::string getConfigFilePath() {
     return home + "/.config/m65/ca45.conf";
 }
 
+// Phase 4.2: Get project config file path (.ca45rc in current directory)
+static std::string getProjectConfigFilePath() {
+    return ".ca45rc";
+}
+
 static void printHelpGeneral() {
     std::cout << "ca45 — 45GS02 Assembler for MEGA65\n\n";
     std::cout << "Usage: ca45 [options] <input_file.s>\n\n";
@@ -81,9 +86,11 @@ static void printHelpGeneral() {
     std::cout << "  Preprocessor:    -D, -I\n";
     std::cout << "  Diagnostics:     -Woverflow, -Wunderflow\n";
     std::cout << "  General:         -?, -V\n\n";
-    std::cout << "Configuration:\n";
-    std::cout << "  Config file: ~/.config/m65/ca45.conf (one option per line)\n";
-    std::cout << "  CLI arguments override config file settings\n\n";
+    std::cout << "Configuration (precedence: CLI > project > global):\n";
+    std::cout << "  Global:  ~/.config/m65/ca45.conf (default settings)\n";
+    std::cout << "  Project: .ca45rc in current directory (per-project overrides)\n";
+    std::cout << "  CLI:     Command-line arguments (highest priority)\n";
+    std::cout << "  Format:  One option per line, comments start with #\n\n";
     std::cout << "Use --help=<section> for detailed help. Example: ca45 --help=input-output\n";
     std::cout << "Available sections: input-output, optimization, debugging, preprocessor, diagnostics\n";
 }
@@ -388,12 +395,19 @@ int main(int argc, char** argv) {
     }
 
     // Phase 4.1: Load config from ~/.config/m65/ca45.conf
-    std::vector<std::string> configArgs = loadConfigFile(getConfigFilePath());
+    std::vector<std::string> globalConfigArgs = loadConfigFile(getConfigFilePath());
 
-    // Build combined argument list: config file args + CLI args
+    // Phase 4.2: Load project config from .ca45rc (overrides global config)
+    std::vector<std::string> projectConfigArgs = loadConfigFile(getProjectConfigFilePath());
+
+    // Build combined argument list: global config + project config + CLI args
+    // (later args override earlier ones)
     std::vector<std::string> allArgs;
     allArgs.push_back(argv[0]); // program name
-    for (const auto& arg : configArgs) {
+    for (const auto& arg : globalConfigArgs) {
+        allArgs.push_back(arg);
+    }
+    for (const auto& arg : projectConfigArgs) {
         allArgs.push_back(arg);
     }
     for (int i = 1; i < argc; ++i) {
