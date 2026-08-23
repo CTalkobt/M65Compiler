@@ -91,6 +91,7 @@ int main(int argc, char** argv) {
     bool verboseOptimizer = false;
     bool traceMachState = false;
     bool enableExperimental = false;
+    bool warnOverflow = false;  // Phase 1.3: warn on value overflows (default: off)
     int optimizationLevel = 2;  // Default to -O2
     OptimizationFlags optFlags = OptimizationFlags::fromLevel(2);  // Default to -O2
     int verboseLevel = 0;
@@ -188,6 +189,8 @@ int main(int argc, char** argv) {
             else if (flagName == "StoreLoadPair") optFlags.storeLoadPair = enable;
             else if (flagName == "FCmpOpt") optFlags.fcmpOpt = enable;
             else if (flagName == "TSXRedundant") optFlags.tsxRedundant = enable;
+        } else if (arg == "-Woverflow" || arg == "--warn-overflow") {
+            warnOverflow = true;  // Phase 1.3: enable overflow warnings
         } else if (arg == "-vv") {
             verboseLevel = 2;
         } else if (arg == "-v") {
@@ -273,6 +276,7 @@ int main(int argc, char** argv) {
     parser.verboseOptimizer = verboseOptimizer;
     parser.traceMachState = traceMachState;
     parser.enableExperimental = enableExperimental;
+    parser.warnOverflow = warnOverflow;  // Phase 1.3
     parser.optimizationLevel = optimizationLevel;
     parser.optFlags = optFlags;
     try {

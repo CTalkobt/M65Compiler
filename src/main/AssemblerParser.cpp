@@ -74,6 +74,69 @@ std::string AssemblerParser::getSuggestionForSymbol(const std::string& undefined
     return symbolSuggester_.suggestBest(undefined, 50);
 }
 
+// Overflow checking helpers (Phase 1.3)
+void AssemblerParser::checkImmediateOverflow(uint32_t value, int line, int col) {
+    if (!warnOverflow) return;  // Only warn if enabled
+
+    // Check if value exceeds 8-bit unsigned (for immediate mode)
+    if (value > 0xFF) {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "Immediate value $%X exceeds 8-bit limit (truncated to $%X)",
+                     value, value & 0xFF);
+        addWarning(formatDiagnostic(currentSourceFile_, line, col, Severity::Warning, buf));
+    }
+}
+
+void AssemblerParser::checkAddressOverflow(uint32_t address, AddressingMode mode, int line, int col) {
+    if (!warnOverflow) return;  // Only warn if enabled
+
+    std::string msg;
+    bool isOverflow = false;
+
+    switch (mode) {
+        case AddressingMode::BASE_PAGE:
+        case AddressingMode::BASE_PAGE_X:
+        case AddressingMode::BASE_PAGE_Y:
+        case AddressingMode::INDIRECT:
+        case AddressingMode::BASE_PAGE_X_INDIRECT:
+        case AddressingMode::BASE_PAGE_INDIRECT_Y:
+        case AddressingMode::BASE_PAGE_INDIRECT_Z:
+        case AddressingMode::BASE_PAGE_INDIRECT_SP_Y:
+        case AddressingMode::STACK_RELATIVE:
+            if (address > 0xFF) {
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "Zero page address $%X exceeds 8-bit limit (truncated to $%X)",
+                             address, address & 0xFF);
+                msg = buf;
+                isOverflow = true;
+            }
+            break;
+
+        case AddressingMode::ABSOLUTE:
+        case AddressingMode::ABSOLUTE_X:
+        case AddressingMode::ABSOLUTE_Y:
+        case AddressingMode::ABSOLUTE_INDIRECT:
+        case AddressingMode::ABSOLUTE_X_INDIRECT:
+        case AddressingMode::IMMEDIATE16:
+            if (address > 0xFFFF) {
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "Absolute address $%X exceeds 16-bit limit (truncated to $%X)",
+                             address, address & 0xFFFF);
+                msg = buf;
+                isOverflow = true;
+            }
+            break;
+
+        default:
+            // Other modes (implied, accumulator, etc.) don't have address operands
+            break;
+    }
+
+    if (isOverflow) {
+        addWarning(formatDiagnostic(currentSourceFile_, line, col, Severity::Warning, msg));
+    }
+}
+
 void AssemblerParser::switchSegment(const std::string& name) {
     if (currentSegment) {
         currentSegment->pc = pc;
