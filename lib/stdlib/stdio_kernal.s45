@@ -1,0 +1,342 @@
+; stdio_kernal.s45 — KERNAL ROM wrapper functions for MEGA65
+;
+; Implements cbm_k_* functions using JSRFAR for ROM banking
+; These wrap KERNAL routines at $FF5A-$FF63
+;
+; MEGA65 JSRFAR memory layout:
+;   $39: bank number
+;   $3A: target address high
+;   $3B: target address low
+;   $3C: status register
+;   $3D: A register
+;   $3E: X register
+;   $3F: Y register
+;   $40: Z register
+
+; KERNAL ROM addresses (C64 standard)
+.const KERNAL_SETLFS   = $FF57
+.const KERNAL_SETNAM   = $FF5D
+.const KERNAL_OPEN     = $FF5C
+.const KERNAL_CLOSE    = $FF60
+.const KERNAL_CHKIN    = $FF5A
+.const KERNAL_CHKOUT   = $FF5E
+.const KERNAL_CLRCHN   = $FF63
+.const KERNAL_CHRIN    = $FF61
+.const KERNAL_CHROUT   = $FFD2
+.const KERNAL_READST   = $FF5F
+
+; JSRFAR routine address (from MEGA65 system.src)
+.const JSRFAR_ADDR     = $EB43
+
+; Register save area (same as MEGA65 ROM)
+.const REG_BANK        = $39
+.const REG_PC_HI       = $3A
+.const REG_PC_LO       = $3B
+.const REG_STATUS      = $3C
+.const REG_A           = $3D
+.const REG_X           = $3E
+.const REG_Y           = $3F
+.const REG_Z           = $40
+
+; ============================================================================
+; Helper: Call KERNAL routine via JSRFAR
+; ============================================================================
+; Inputs: A = target address low, X = target address high, Y = bank
+; Clobbers: Bank configuration (restored by JSRFAR)
+; ============================================================================
+
+.segment "TEXT"
+
+; Helper macro: Call KERNAL routine
+; Usage: @call_kernal KERNAL_CHKIN, 0, 0  ; A=fd, X/Y=preserved, bank=0
+@call_kernal:
+    macro @addr, @bank_id, @preserve_regs
+        ; Setup for JSRFAR
+        pha                         ; Save A temporarily
+        lda #(@addr & $FF)
+        sta REG_PC_LO
+        pla
+        pha
+        lda #((@addr >> 8) & $FF)
+        sta REG_PC_HI
+        lda #@bank_id               ; Bank 0 for KERNAL
+        sta REG_BANK
+        pla
+        sta REG_A                   ; Save A register
+        stx REG_X                   ; Save X register
+        sty REG_Y                   ; Save Y register
+        stz REG_Z                   ; Clear Z register
+
+        jsr JSRFAR_ADDR             ; Call KERNAL routine
+
+        ; After return, A contains result
+    endmacro
+
+; ============================================================================
+; cbm_k_setnam - Set filename for next file operation
+; ============================================================================
+; Entry: A/X = low/high address of filename string
+;        Y = length of filename
+; Exit:  A = status (always 0 for setnam)
+;
+; KERNAL SETNAM at $FF5D
+;   Entry: A/X = address (little-endian)
+;          Y = length
+;   Exit: (no return value, just sets up for next operation)
+
+.export cbm_k_setnam
+cbm_k_setnam:
+    ; A = low byte of filename address (already in A)
+    ; X = high byte (from caller's X)
+    ; Y = length (already in Y)
+
+    ; Push return address and call via JSRFAR
+    pha                             ; Save A
+    txa                             ; X → A
+    sta REG_X                       ; Save X as X register
+    pla
+    sta REG_A                       ; Save A as A register
+    sty REG_Y                       ; Save Y length
+    stz REG_Z
+
+    lda #(KERNAL_SETNAM & $FF)
+    sta REG_PC_LO
+    lda #((KERNAL_SETNAM >> 8) & $FF)
+    sta REG_PC_HI
+    lda #$00                        ; Bank 0 for KERNAL
+    sta REG_BANK
+
+    jsr JSRFAR_ADDR
+
+    lda #$00                        ; Return 0 (always succeeds)
+    rts
+
+; ============================================================================
+; cbm_k_setlfs - Set logical file, device, and secondary address
+; ============================================================================
+; Entry: A = logical file number (3-14)
+;        X = device number (8=disk, 1=tape)
+;        Y = secondary address (0=read, 1=write)
+; Exit:  A = status
+
+.export cbm_k_setlfs
+cbm_k_setlfs:
+    ; A = fd, X = device, Y = secondary
+    sta REG_A                       ; Save A as FD
+    stx REG_X                       ; Save X as device
+    sty REG_Y                       ; Save Y as secondary
+    stz REG_Z
+
+    lda #(KERNAL_SETLFS & $FF)
+    sta REG_PC_LO
+    lda #((KERNAL_SETLFS >> 8) & $FF)
+    sta REG_PC_HI
+    lda #$00
+    sta REG_BANK
+
+    jsr JSRFAR_ADDR
+
+    lda REG_A                       ; Get return value
+    rts
+
+; ============================================================================
+; cbm_k_open - Open file using SETNAM and SETLFS parameters
+; ============================================================================
+; Entry: None (uses previous SETNAM/SETLFS)
+; Exit:  A = status byte
+
+.export cbm_k_open
+cbm_k_open:
+    stz REG_A                       ; Clear A
+    stz REG_X
+    stz REG_Y
+    stz REG_Z
+
+    lda #(KERNAL_OPEN & $FF)
+    sta REG_PC_LO
+    lda #((KERNAL_OPEN >> 8) & $FF)
+    sta REG_PC_HI
+    lda #$00
+    sta REG_BANK
+
+    jsr JSRFAR_ADDR
+
+    lda REG_A                       ; Get status
+    rts
+
+; ============================================================================
+; cbm_k_close - Close file
+; ============================================================================
+; Entry: A = logical file number
+; Exit:  A = status
+
+.export cbm_k_close
+cbm_k_close:
+    sta REG_A                       ; File number in A
+    stz REG_X
+    stz REG_Y
+    stz REG_Z
+
+    lda #(KERNAL_CLOSE & $FF)
+    sta REG_PC_LO
+    lda #((KERNAL_CLOSE >> 8) & $FF)
+    sta REG_PC_HI
+    lda #$00
+    sta REG_BANK
+
+    jsr JSRFAR_ADDR
+
+    lda REG_A
+    rts
+
+; ============================================================================
+; cbm_k_chkin - Redirect input from file
+; ============================================================================
+; Entry: A = logical file number
+; Exit:  A = status
+
+.export cbm_k_chkin
+cbm_k_chkin:
+    sta REG_A                       ; File number
+    stz REG_X
+    stz REG_Y
+    stz REG_Z
+
+    lda #(KERNAL_CHKIN & $FF)
+    sta REG_PC_LO
+    lda #((KERNAL_CHKIN >> 8) & $FF)
+    sta REG_PC_HI
+    lda #$00
+    sta REG_BANK
+
+    jsr JSRFAR_ADDR
+
+    lda REG_A
+    rts
+
+; ============================================================================
+; cbm_k_chkout - Redirect output to file
+; ============================================================================
+; Entry: A = logical file number
+; Exit:  A = status
+
+.export cbm_k_chkout
+cbm_k_chkout:
+    sta REG_A
+    stz REG_X
+    stz REG_Y
+    stz REG_Z
+
+    lda #(KERNAL_CHKOUT & $FF)
+    sta REG_PC_LO
+    lda #((KERNAL_CHKOUT >> 8) & $FF)
+    sta REG_PC_HI
+    lda #$00
+    sta REG_BANK
+
+    jsr JSRFAR_ADDR
+
+    lda REG_A
+    rts
+
+; ============================================================================
+; cbm_k_clrchn - Clear input/output redirection
+; ============================================================================
+; Entry: None
+; Exit:  A = status
+
+.export cbm_k_clrchn
+cbm_k_clrchn:
+    stz REG_A
+    stz REG_X
+    stz REG_Y
+    stz REG_Z
+
+    lda #(KERNAL_CLRCHN & $FF)
+    sta REG_PC_LO
+    lda #((KERNAL_CLRCHN >> 8) & $FF)
+    sta REG_PC_HI
+    lda #$00
+    sta REG_BANK
+
+    jsr JSRFAR_ADDR
+
+    lda REG_A
+    rts
+
+; ============================================================================
+; cbm_k_chrin - Read character from input
+; ============================================================================
+; Entry: None (reads from currently redirected input)
+; Exit:  A = character read
+
+.export cbm_k_chrin
+cbm_k_chrin:
+    stz REG_A
+    stz REG_X
+    stz REG_Y
+    stz REG_Z
+
+    lda #(KERNAL_CHRIN & $FF)
+    sta REG_PC_LO
+    lda #((KERNAL_CHRIN >> 8) & $FF)
+    sta REG_PC_HI
+    lda #$00
+    sta REG_BANK
+
+    jsr JSRFAR_ADDR
+
+    lda REG_A                       ; Get character
+    rts
+
+; ============================================================================
+; cbm_k_chrout - Write character to output
+; ============================================================================
+; Entry: A = character to write
+; Exit:  A = character written
+
+.export cbm_k_chrout
+cbm_k_chrout:
+    sta REG_A
+    stz REG_X
+    stz REG_Y
+    stz REG_Z
+
+    lda #(KERNAL_CHROUT & $FF)
+    sta REG_PC_LO
+    lda #((KERNAL_CHROUT >> 8) & $FF)
+    sta REG_PC_HI
+    lda #$00
+    sta REG_BANK
+
+    jsr JSRFAR_ADDR
+
+    lda REG_A
+    rts
+
+; ============================================================================
+; cbm_k_readst - Read status byte
+; ============================================================================
+; Entry: None
+; Exit:  A = status byte (bits: 0=EOF, 1=???, 2=device, 3=not found,
+;                               4=file open, 5=syntax/mem, 6=EOF, 7=device absent)
+
+.export cbm_k_readst
+cbm_k_readst:
+    stz REG_A
+    stz REG_X
+    stz REG_Y
+    stz REG_Z
+
+    lda #(KERNAL_READST & $FF)
+    sta REG_PC_LO
+    lda #((KERNAL_READST >> 8) & $FF)
+    sta REG_PC_HI
+    lda #$00
+    sta REG_BANK
+
+    jsr JSRFAR_ADDR
+
+    lda REG_A                       ; Get status byte
+    rts
+
