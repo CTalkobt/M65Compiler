@@ -99,8 +99,9 @@ $(LIB_DIR)/lib45-opt.a: $(addprefix $(OBJ_DIR)/, \
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^
 
-# lib45-codegen: Code generation & assembly
+# lib45-codegen: Code generation & assembly (includes preprocessor & emitter)
 $(LIB_DIR)/lib45-codegen.a: $(addprefix $(OBJ_DIR)/, \
+    Preprocessor.o M65Emitter.o \
     AssemblerLexer.o AssemblerParser.o AssemblerExpression.o \
     AssemblerOptimizer.o AssemblerSimulatedOps.o AssemblerGenerator.o OpEffect.o)
 	@mkdir -p $(LIB_DIR)
@@ -122,8 +123,8 @@ $(LIB_DIR)/lib45-basic.a: $(addprefix $(OBJ_DIR)/, \
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^
 
-# lib45-tools: Disk utilities, format converters
-$(LIB_DIR)/lib45-tools.a: $(addprefix $(OBJ_DIR)/, \
+# lib45-tools: Disk utilities, format converters (includes optional FUSE3 support)
+LIB45_TOOLS_OBJS = $(addprefix $(OBJ_DIR)/, \
     disk45_catalog.o DiskImage.o DiskImageFactory.o BAMOperations.o \
     D64Image.o D71Image.o D81Image.o D65Image.o ArkImage.o ArcImage.o \
     LnxImage.o TapImage.o T64Image.o G64Image.o D80Image.o GeosCvtImage.o \
@@ -132,6 +133,12 @@ $(LIB_DIR)/lib45-tools.a: $(addprefix $(OBJ_DIR)/, \
     Ca65Parser.o Ca65Writer.o AcmeParser.o AcmeWriter.o OscarParser.o \
     OscarWriter.o Merlin64Parser.o Merlin64Writer.o X65Parser.o X65Writer.o \
     FormatDetection.o KickAssemblerParser.o KickAssemblerWriter.o)
+
+ifeq ($(HAVE_FUSE3),1)
+  LIB45_TOOLS_OBJS += $(OBJ_DIR)/disk45_fuse.o
+endif
+
+$(LIB_DIR)/lib45-tools.a: $(LIB45_TOOLS_OBJS)
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^
 
@@ -193,11 +200,11 @@ $(AR_TARGET): $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/ar45_main.o $(LIB_DIR)/lib45-common.a
 
-# Object Disassembler (objdump45) - uses codegen + common
+# Object Disassembler (objdump45) - uses codegen, basic, common
 $(OD_TARGET): $(OBJ_DIR)/objdump45_main.o | $(LIB_DIR)
-$(OD_TARGET): $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
+$(OD_TARGET): $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-common.a
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/objdump45_main.o $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-common.a
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ_DIR)/objdump45_main.o $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-common.a
 
 # Disk Utility (disk45) - uses tools + common
 $(DISK_TARGET): $(OBJ_DIR)/disk45_main.o | $(LIB_DIR)
