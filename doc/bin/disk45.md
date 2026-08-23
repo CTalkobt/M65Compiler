@@ -30,11 +30,31 @@ Create a new, empty disk image or archive.
 | `-i id` | 2-character disk ID (default: "CC") |
 | `-t tracks` | Track count (for extended D64: 36-40, SpeedDOS/DolphinDOS) |
 
+**Examples:**
 ```bash
+# Standard MEGA65 disk (recommended)
 disk45 create game.d81 -n "MY GAME" -i "MG"
-disk45 create extended.d64 -n "SPEEDDOS" -t 40    # 40-track D64
-disk45 create backup.d64.gz -n "BACKUP"           # GZ compressed
+
+# 40-track C64 disk (standard capacity is 35 tracks)
+disk45 create extended.d64 -n "SPEEDDOS" -t 40
+
+# Compressed disk (adds .gz transparently)
+disk45 create backup.d64.gz -n "BACKUP"
+
+# Multi-disk project setup
+for i in 1 2 3; do
+  disk45 create project_$i.d81 -n "PROJECT $i" -i "P$i"
+done
+
+# Large capacity MEGA65 disk
+disk45 create large.d65 -n "ARCHIVE" -i "AR"
 ```
+
+**Common Use Cases:**
+- Create blank disk for archiving project files
+- Create bootable disk with game code and assets
+- Create data disk for large collections
+- Create multi-disk set for complex projects
 
 #### list / ls / dir
 
@@ -57,6 +77,31 @@ Splat (unclosed) files show `*` before the type: `*PRG`. Locked files show `<` a
 3140 blocks free.
 ```
 
+**Examples:**
+```bash
+# List entire disk
+disk45 list game.d81
+
+# List with wildcard pattern
+disk45 list game.d81 "LEVEL*"      # All files starting with LEVEL
+disk45 list game.d81 "*.prg"       # Files with PRG extension (if named that way)
+
+# List subdirectory
+disk45 list game.d81 "ASSETS/"
+disk45 list game.d81 "ASSETS/*.seq"
+
+# Check for locked files
+disk45 list game.d81 | grep "<"    # Find locked files
+
+# Count files
+disk45 list game.d81 | grep -c "PRG"
+```
+
+**File Status Indicators:**
+- `*PRG` — Splat (unclosed) PRG file
+- `<` suffix — Locked file (protected)
+- `.` prefix — Deleted (partial, should be purged)
+
 #### add / write
 
 ```
@@ -64,6 +109,30 @@ disk45 add <image> <host_file> [cbm_name] [-p]
 ```
 
 Add a file. Type auto-detected from extension (`.prg`→PRG, `.seq`→SEQ, `.usr`→USR). `-p` converts ASCII→PETSCII for SEQ content.
+
+**Examples:**
+```bash
+# Add compiled program
+disk45 add game.d81 build/main.prg GAME
+
+# Add with custom name (defaults to filename without path)
+disk45 add game.d81 /src/utils.prg UTILS
+
+# Add text file, converting ASCII to PETSCII
+disk45 add game.d81 readme.txt README -p
+
+# Add multiple files in batch
+for f in build/*.prg; do
+  disk45 add game.d81 "$f"
+done
+
+# Add binary/data file
+disk45 add game.d81 assets/sprites.bin SPRITES
+
+# Add with subdirectory
+disk45 mkdir game.d81 ASSETS/
+disk45 add game.d81 sprites.bin ASSETS/SPRITES
+```
 
 #### extract / read
 
@@ -73,6 +142,24 @@ disk45 extract <image> <cbm_name> <host_file> [-p]
 
 Extract a file. `-p` converts PETSCII→ASCII.
 
+**Examples:**
+```bash
+# Extract program to host
+disk45 extract game.d81 GAME recovered.prg
+
+# Extract text file, converting PETSCII to ASCII
+disk45 extract game.d81 README readme.txt -p
+
+# Extract to stdout (no file specified)
+disk45 extract game.d81 DATA_FILE | hexdump -C
+
+# Extract with subdirectory
+disk45 extract game.d81 ASSETS/SPRITES sprites.bin
+
+# Quick examination of file
+disk45 extract game.d81 MYFILE /tmp/temp.bin && hexdump -C /tmp/temp.bin
+```
+
 #### extract-all
 
 ```
@@ -80,6 +167,28 @@ disk45 extract-all <image> [output_dir] [pattern] [-p]
 ```
 
 Extract all files (or matching pattern) to a directory. Files get type extensions (`.prg`, `.seq`). Handles name collisions with numeric suffixes.
+
+**Examples:**
+```bash
+# Extract entire disk to current directory
+disk45 extract-all backup.d81
+
+# Extract to specific directory
+disk45 extract-all backup.d81 ./recovered/
+
+# Extract only PRG files
+disk45 extract-all backup.d81 ./prgs/ "*.prg"
+
+# Extract with pattern matching
+disk45 extract-all backup.d81 ./levels/ "LEVEL*"
+
+# Extract and convert PETSCII text files
+disk45 extract-all backup.d81 ./text/ "*.txt" -p
+
+# Backup entire disk
+mkdir backup_contents
+disk45 extract-all old_disk.d64 backup_contents/ ""
+```
 
 #### copy / cp
 
@@ -89,10 +198,34 @@ disk45 copy <src_image> <pattern> <dst_image>
 
 Copy files between images (cross-format). Preserves file types.
 
+**Examples:**
 ```bash
-disk45 copy old.d64 "*" new.d81           # copy all files D64→D81
-disk45 copy games.d81 "LEVEL*" backup.d64 # copy matching files
+# Copy all files D64 → D81
+disk45 copy old.d64 "*" new.d81
+
+# Copy matching files between formats
+disk45 copy games.d81 "LEVEL*" backup.d64
+
+# Copy specific file type
+disk45 copy project.d81 "*.prg" archive.d81
+
+# Copy from subdirectory
+disk45 copy game.d81 "ASSETS/*" backup.d81
+
+# Multi-disk consolidation
+disk45 copy disk1.d64 "*" archive.d81
+disk45 copy disk2.d64 "*" archive.d81
+disk45 copy disk3.d64 "*" archive.d81
+
+# Copy with rename (manual per-file)
+disk45 copy old.d64 "OLDNAME" work.d81
+disk45 rename work.d81 "OLDNAME" "NEWNAME"
 ```
+
+**Cross-format Compatibility:**
+- D64 → D81: 170KB → 800KB (lossless)
+- D81 → D64: 800KB → 170KB (fails if files exceed capacity)
+- D64 ↔ D71 ↔ ARK: All compatible (verify with `disk45 info` before copying)
 
 #### convert
 
@@ -102,11 +235,38 @@ disk45 convert <source> <target>
 
 Convert between formats, copying all files. For single-file sources (`.prg`, `.cvt`), creates a blank target image and adds the file.
 
+**Examples:**
 ```bash
-disk45 convert game.d64 game.d81     # D64 → D81
-disk45 convert game.prg release.d81  # PRG → new D81
-disk45 convert archive.ark disk.d64  # ARK → D64
+# Standard format conversion
+disk45 convert game.d64 game.d81     # D64 → D81 (C64 → MEGA65)
+disk45 convert game.d81 game.d64     # D81 → D64 (if content fits)
+
+# PRG to disk
+disk45 convert game.prg release.d81  # Single PRG → bootable disk
+disk45 convert main.prg project.d81 -n "MY PROJECT"  # With disk name
+
+# Archive conversion
+disk45 convert archive.ark disk.d64  # ARK archive → D64 disk
+disk45 convert games.d64 archive.ark # D64 → ARK archive (compact)
+
+# Batch conversion with loop
+for f in *.d64; do
+  disk45 convert "$f" "${f%.d64}.d81"
+done
+
+# Upgrade to newer format
+disk45 convert old.d64 new.d81        # C64 disk → MEGA65 disk
+disk45 convert old.d81 new.d65        # D81 → native MEGA65 format
+
+# Create bootable disk from compiled program
+cc45 -o main.prg main.c
+disk45 convert main.prg bootable.d81 -n "GAME"
 ```
+
+**Format Compatibility Matrix:**
+- D64, D71, D81, D65: Full read/write, lossless if capacity allows
+- ARK, T64: Archive formats (consolidation, distribution)
+- G64, NIB, TAP: Read-only formats (GCR-encoded, raw)
 
 #### remove / delete / rm
 
@@ -426,6 +586,7 @@ disk45 batch <scriptfile>
 
 Execute commands from a file. One command per line, `#` for comments, quoted arguments supported.
 
+**Basic Example:**
 ```bash
 # build_disk.script
 create game.d81 -n "MY GAME" -i "MG"
@@ -436,6 +597,242 @@ validate game.d81
 
 ```bash
 disk45 batch build_disk.script
+```
+
+**Advanced Examples:**
+
+**Multi-disk project build:**
+```bash
+# project_build.script
+# Create main disk
+create project.d81 -n "PROJECT" -i "P1"
+mkdir project.d81 ASSETS/
+mkdir project.d81 DATA/
+
+# Add compiled files
+add project.d81 build/main.prg MAIN
+add project.d81 build/kernel.prg KERNEL
+
+# Add data in subdirectories
+add project.d81 assets/sprites.bin ASSETS/SPRITES
+add project.d81 assets/music.sid ASSETS/MUSIC
+add project.d81 data/levels.dat DATA/LEVELS
+
+# Validate and finish
+validate project.d81
+info project.d81
+```
+
+**Disk backup with directory structure:**
+```bash
+# backup.script
+create backup.d81 -n "BACKUP" -i "BK"
+mkdir backup.d81 SRC/
+mkdir backup.d81 BUILD/
+mkdir backup.d81 DOC/
+
+add backup.d81 src/main.c SRC/MAIN.C
+add backup.d81 src/util.c SRC/UTIL.C
+add backup.d81 build/main.prg BUILD/MAIN.PRG
+add backup.d81 doc/readme.txt DOC/README
+
+validate backup.d81
+```
+
+**Deployment script:**
+```bash
+# deploy.script
+# Copy to multiple distributions
+copy project.d81 "*" dist_v1.d81
+copy project.d81 "*" dist_v2.d81
+copy project.d81 "*" dist_v3.d81
+
+# Verify all copies
+validate dist_v1.d81
+validate dist_v2.d81
+validate dist_v3.d81
+```
+
+## Common Use Cases
+
+### Game Development Workflow
+
+**Scenario:** Develop a game with code, sprites, and audio assets.
+
+```bash
+# 1. Create blank game disk
+disk45 create game.d81 -n "MY GAME" -i "MG"
+
+# 2. Create asset directories
+disk45 mkdir game.d81 ASSETS/
+disk45 mkdir game.d81 ASSETS/SPRITES/
+disk45 mkdir game.d81 ASSETS/AUDIO/
+
+# 3. Compile and add code
+cc45 -O2 src/main.c -o build/main.prg
+disk45 add game.d81 build/main.prg GAME
+
+# 4. Add compiled assets
+disk45 add game.d81 assets/sprites.bin ASSETS/SPRITES/DATA
+disk45 add game.d81 assets/music.sid ASSETS/AUDIO/MUSIC
+
+# 5. Verify disk integrity
+disk45 validate game.d81
+disk45 info game.d81
+
+# 6. Create backups
+disk45 copy game.d81 "*" backup.d81
+```
+
+### Data Archival & Recovery
+
+**Scenario:** Archive old C64 disks, recover files, create distributions.
+
+```bash
+# 1. Analyze original disk
+disk45 info old_disk.d64
+disk45 list old_disk.d64
+disk45 validate old_disk.d64
+
+# 2. Convert to modern format
+disk45 convert old_disk.d64 archive.d81
+
+# 3. Extract and recover files
+mkdir recovered/
+disk45 extract-all archive.d81 recovered/ ""
+
+# 4. Check for duplicates across collection
+disk45 catalog build ./disk_collection/
+disk45 catalog duplicates
+
+# 5. Create distribution copies
+disk45 copy archive.d81 "*" dist1.d81
+disk45 copy archive.d81 "*" dist2.d81
+```
+
+### Build Automation
+
+**Scenario:** Automatically build game disk from source files.
+
+Create `build_game.sh`:
+```bash
+#!/bin/bash
+set -e
+
+# Compile
+cc45 -O2 src/main.c -o build/main.prg
+cc45 -O2 src/utils.c -o build/utils.o45
+
+# Assemble data
+ca45 assets/data.s45 -o build/data.o45
+
+# Create disk
+disk45 create game.d81 -n "GAME" -i "GM"
+disk45 mkdir game.d81 ASSETS/
+
+# Add files
+disk45 add game.d81 build/main.prg MAIN
+disk45 add game.d81 build/utils.o45 UTILS
+disk45 add game.d81 assets/sprites.bin ASSETS/SPRITES
+
+# Verify
+disk45 validate game.d81
+disk45 info game.d81
+
+echo "Build complete: game.d81"
+```
+
+### FUSE Mount Workflow
+
+**Scenario:** Edit files on disk image like a normal filesystem.
+
+```bash
+# Mount disk
+mkdir /tmp/disk_mount
+disk45 mount game.d81 /tmp/disk_mount &
+
+# Edit files normally
+echo "PRINT \"HELLO WORLD\"" > /tmp/disk_mount/hello.bas
+
+# Copy files from CLI
+cp build/main.prg /tmp/disk_mount/
+
+# Remove files
+rm /tmp/disk_mount/old_file.prg
+
+# Unmount
+fusermount -u /tmp/disk_mount
+
+# Verify changes
+disk45 list game.d81
+```
+
+### Catalog Management
+
+**Scenario:** Manage large collection of game disks, find duplicates.
+
+```bash
+# Build catalog of all games
+mkdir ~/my_collection
+# ... copy/download disks to ~/my_collection ...
+
+# Index the collection
+disk45 catalog build ~/my_collection/ --db games.db
+
+# Find all Boulder Dash copies
+disk45 catalog search "BOULDER DASH" --db games.db
+
+# Find duplicates (by CRC32)
+disk45 catalog duplicates --db games.db
+
+# Get statistics
+disk45 catalog stats --db games.db
+
+# Clean up missing images
+disk45 catalog prune --db games.db
+```
+
+### Format Conversion Pipeline
+
+**Scenario:** Convert mixed-format collection to standard D81.
+
+```bash
+#!/bin/bash
+# Convert all disks in directory to D81
+
+for f in *.d64 *.d71 *.ark *.t64; do
+  [ -f "$f" ] || continue
+  echo "Converting $f..."
+  
+  # Remove extension, add .d81
+  base="${f%.*}"
+  disk45 convert "$f" "$base.d81"
+done
+
+# Verify all conversions
+for d in *.d81; do
+  disk45 validate "$d"
+done
+
+echo "Conversion complete"
+```
+
+### Batch File Processing
+
+**Scenario:** Add multiple programs from build directory to disk.
+
+```bash
+# Create disk
+disk45 create tools.d81 -n "TOOLS" -i "TL"
+
+# Add all PRG files with their source names
+for f in build/*.prg; do
+  name=$(basename "$f" .prg)
+  disk45 add tools.d81 "$f" "$name"
+done
+
+# Verify
+disk45 list tools.d81
 ```
 
 ## Supported Formats (25)
