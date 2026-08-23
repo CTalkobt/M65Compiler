@@ -17,8 +17,8 @@ static unsigned char _stdin_buf[BUFSIZ];
 static unsigned char _stdout_buf[BUFSIZ];
 static unsigned char _stderr_buf[BUFSIZ];
 
-/* Standard file pointers */
-static FILE _stdin = {
+/* Standard file pointers - allocated as globals */
+FILE _stdin_file = {
     .handle = STDIN_FILENO,
     .mode = _IOREAD,
     .flags = 0,
@@ -31,7 +31,7 @@ static FILE _stdin = {
     .backend = CBM_DEVICE_KERNAL
 };
 
-static FILE _stdout = {
+FILE _stdout_file = {
     .handle = STDOUT_FILENO,
     .mode = _IOWRITE,
     .flags = 0,
@@ -44,7 +44,7 @@ static FILE _stdout = {
     .backend = CBM_DEVICE_KERNAL
 };
 
-static FILE _stderr = {
+FILE _stderr_file = {
     .handle = STDERR_FILENO,
     .mode = _IOWRITE,
     .flags = 0,
@@ -57,13 +57,13 @@ static FILE _stderr = {
     .backend = CBM_DEVICE_KERNAL
 };
 
-FILE *stdin = &_stdin;
-FILE *stdout = &_stdout;
-FILE *stderr = &_stderr;
+FILE *stdin = &_stdin_file;
+FILE *stdout = &_stdout_file;
+FILE *stderr = &_stderr_file;
 
 /* File descriptor allocation table */
 static FILE *_open_files[FOPEN_MAX] = {
-    &_stdin, &_stdout, &_stderr,
+    &_stdin_file, &_stdout_file, &_stderr_file,
     NULL, NULL, NULL, NULL, NULL
 };
 
