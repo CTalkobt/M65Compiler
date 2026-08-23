@@ -37,10 +37,10 @@ void RedundantLoadElimination::analyzeBlock(ir::Block& block, BlockState& state)
             std::string addr;
             if (inst.src1.kind == ir::OperandKind::VREG) {
                 addr = "vreg_" + std::to_string(inst.src1.vregId);
-            } else if (inst.src1.kind == ir::OperandKind::CONST) {
-                addr = std::to_string(inst.src1.constValue);
-            } else if (inst.src1.kind == ir::OperandKind::SYMBOL) {
-                addr = inst.src1.symbolName;
+            } else if (inst.src1.kind == ir::OperandKind::IMM) {
+                addr = std::to_string(inst.src1.immVal);
+            } else if (inst.src1.kind == ir::OperandKind::GLOBAL) {
+                addr = inst.src1.name;
             }
 
             // Check if we've already loaded from this address
@@ -48,9 +48,10 @@ void RedundantLoadElimination::analyzeBlock(ir::Block& block, BlockState& state)
             if (it != state.loadedValues.end() && it->second.isValid) {
                 // Redundant load detected!
                 // Replace with copy from cached vreg
-                inst.op = ir::Op::MOVE;
-                inst.src1 = ir::Operand(ir::OperandKind::VREG, 0, it->second.vreg);
-                inst.src2 = ir::Operand();
+                inst.op = ir::Op::COPY;
+                size_t vregId = std::stoul(it->second.vreg.substr(6));
+                inst.src1 = ir::Operand::vreg(vregId, ir::Type::I32);
+                inst.src2 = ir::Operand::none();
                 redundantLoadsEliminated_++;
                 metrics_.instructionsOptimized++;
                 metrics_.codeReductionBytes += 3;
@@ -58,7 +59,7 @@ void RedundantLoadElimination::analyzeBlock(ir::Block& block, BlockState& state)
                 // First load of this address, track it
                 MemoryValue mv;
                 mv.address = addr;
-                mv.vreg = "vreg_" + std::to_string(inst.dst.vregId);
+                mv.vreg = "vreg_" + std::to_string(inst.dest.vregId);
                 mv.instIndex = i;
                 mv.isValid = true;
                 state.loadedValues[addr] = mv;
@@ -70,10 +71,10 @@ void RedundantLoadElimination::analyzeBlock(ir::Block& block, BlockState& state)
             std::string addr;
             if (inst.src2.kind == ir::OperandKind::VREG) {
                 addr = "vreg_" + std::to_string(inst.src2.vregId);
-            } else if (inst.src2.kind == ir::OperandKind::CONST) {
-                addr = std::to_string(inst.src2.constValue);
-            } else if (inst.src2.kind == ir::OperandKind::SYMBOL) {
-                addr = inst.src2.symbolName;
+            } else if (inst.src2.kind == ir::OperandKind::IMM) {
+                addr = std::to_string(inst.src2.immVal);
+            } else if (inst.src2.kind == ir::OperandKind::GLOBAL) {
+                addr = inst.src2.name;
             }
 
             // Invalidate loads from this address and potential aliases

@@ -38,8 +38,8 @@ void GlobalValueNumbering::apply(ir::Module& irModule) {
                         // Reuse previous computation
                         inst.op = ir::Op::COPY;
                         inst.src1 = ir::Operand::vreg(
-                                              std::stoul(it->second.resultVreg.substr(6)));
-                        inst.src2 = ir::Operand();
+                                              std::stoul(it->second.resultVreg.substr(6)), ir::Type::I32);
+                        inst.src2 = ir::Operand::none();
                         valuesReused_++;
                         metrics_.instructionsOptimized++;
                         metrics_.codeReductionBytes += 4;

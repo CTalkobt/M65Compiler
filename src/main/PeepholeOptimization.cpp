@@ -46,8 +46,8 @@ void PeepholeOptimization::apply(ir::Module& irModule) {
 void PeepholeOptimization::initializePatterns(std::vector<Pattern>& patterns) {
     // Pattern 1: MOVE + MOVE → Single MOVE (copy chain)
     Pattern p1;
-    p1.ops = {ir::Op::MOVE, ir::Op::MOVE};
-    p1.replacement = {ir::Op::MOVE};
+    p1.ops = {ir::Op::COPY, ir::Op::COPY};
+    p1.replacement = {ir::Op::COPY};
     p1.byteSavings = 3;
     patterns.push_back(p1);
 
@@ -132,7 +132,7 @@ void PeepholeOptimization::applyPattern(ir::Block& block, size_t startIdx,
         replacement.op = *rit;
         replacement.src1 = block.insts[startIdx].src1;
         replacement.src2 = block.insts[startIdx].src2;
-        replacement.dst = block.insts[startIdx].dst;
+        replacement.dest = block.insts[startIdx].dest;
         block.insts.insert(it, replacement);
     }
 }

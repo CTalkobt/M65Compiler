@@ -31,11 +31,7 @@ void BranchOptimization::apply(ir::Module& irModule) {
         for (auto& block : func.blocks) {
             for (auto& inst : block.insts) {
                 // Look for conditional branches
-                if (inst.op == ir::Op::JUMP || inst.op == ir::Op::BRANCH_EQ ||
-                    inst.op == ir::Op::BRANCH_NE || inst.op == ir::Op::BRANCH_LT ||
-                    inst.op == ir::Op::BRANCH_LE || inst.op == ir::Op::BRANCH_GT ||
-                    inst.op == ir::Op::BRANCH_GE) {
-
+                if (inst.op == ir::Op::BR || inst.op == ir::Op::BR_COND) {
                     // Check if we can invert condition
                     if (canInvertCondition(inst)) {
                         branchesInverted_++;
@@ -60,9 +56,9 @@ void BranchOptimization::detectUnreachableCode(ir::Block& block,
     for (size_t i = 0; i < block.insts.size(); ++i) {
         const auto& inst = block.insts[i];
 
-        // JUMP (unconditional) makes subsequent code unreachable
-        if (inst.op == ir::Op::JUMP) {
-            // Everything after this jump is unreachable
+        // BR (unconditional branch) makes subsequent code unreachable
+        if (inst.op == ir::Op::BR) {
+            // Everything after this branch is unreachable
             for (size_t j = i + 1; j < block.insts.size(); ++j) {
                 unreachable.push_back(j);
             }
@@ -70,7 +66,7 @@ void BranchOptimization::detectUnreachableCode(ir::Block& block,
         }
 
         // RET (return) also makes subsequent code unreachable
-        if (inst.op == ir::Op::RET) {
+        if (inst.op == ir::Op::RET || inst.op == ir::Op::RET_VOID) {
             for (size_t j = i + 1; j < block.insts.size(); ++j) {
                 unreachable.push_back(j);
             }
@@ -81,17 +77,8 @@ void BranchOptimization::detectUnreachableCode(ir::Block& block,
 
 bool BranchOptimization::canInvertCondition(const ir::Inst& inst) const {
     // Check if condition can be inverted
-    switch (inst.op) {
-        case ir::Op::BRANCH_EQ:  // EQ can become NE
-        case ir::Op::BRANCH_NE:  // NE can become EQ
-        case ir::Op::BRANCH_LT:  // LT can become GE
-        case ir::Op::BRANCH_LE:  // LE can become GT
-        case ir::Op::BRANCH_GT:  // GT can become LE
-        case ir::Op::BRANCH_GE:  // GE can become LT
-            return true;
-        default:
-            return false;
-    }
+    // BR_COND uses comparison opcodes in src1/src2, simplified check
+    return inst.op == ir::Op::BR_COND;
 }
 
 void BranchOptimization::analyzeBranches(ir::Function& func,
@@ -101,13 +88,10 @@ void BranchOptimization::analyzeBranches(ir::Function& func,
         for (size_t i = 0; i < block.insts.size(); ++i) {
             const auto& inst = block.insts[i];
 
-            if (inst.op == ir::Op::BRANCH_EQ || inst.op == ir::Op::BRANCH_NE ||
-                inst.op == ir::Op::BRANCH_LT || inst.op == ir::Op::BRANCH_LE ||
-                inst.op == ir::Op::BRANCH_GT || inst.op == ir::Op::BRANCH_GE) {
-
+            if (inst.op == ir::Op::BR_COND || inst.op == ir::Op::BR) {
                 BranchInfo bi;
                 bi.instIndex = i;
-                bi.isConditional = true;
+                bi.isConditional = (inst.op == ir::Op::BR_COND);
                 bi.isInverted = false;
                 branches.push_back(bi);
             }

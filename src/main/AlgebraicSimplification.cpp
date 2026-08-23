@@ -2,7 +2,7 @@
 #include <algorithm>
 
 AlgebraicSimplification::AlgebraicSimplification()
-    : OptimizationPassBase(OptimizationType::ALGEBRAIC_SIMPLIFY,
+    : OptimizationPassBase(OptimizationType::ALGEBRAIC_SIMPLIFICATION,
                           "Algebraic Simplification") {
 }
 
@@ -16,8 +16,8 @@ void AlgebraicSimplification::apply(ir::Module& irModule) {
                 auto& inst = block.insts[i];
 
                 // Skip non-arithmetic operations
-                if (inst.op == ir::Op::CALL || inst.op == ir::Op::LABEL ||
-                    inst.op == ir::Op::JMP || inst.op == ir::Op::BEQ) {
+                if (inst.op == ir::Op::CALL || inst.op == ir::Op::BR ||
+                    inst.op == ir::Op::BR_COND || inst.op == ir::Op::RET) {
                     continue;
                 }
 
@@ -43,11 +43,11 @@ void AlgebraicSimplification::apply(ir::Module& irModule) {
 
 bool AlgebraicSimplification::simplifyInstruction(ir::Inst& inst) {
     // Check if src2 is a constant
-    if (inst.src2.kind != ir::OperandKind::CONST) {
+    if (inst.src2.kind != ir::OperandKind::IMM) {
         return false;
     }
 
-    unsigned val = inst.src2.constValue;
+    unsigned val = inst.src2.immVal;
 
     // Check for arithmetic identities (a OP 1 = a, a OP 0 = a, etc.)
     if (isArithmeticIdentity(inst.op, val)) {

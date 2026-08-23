@@ -23,7 +23,7 @@ void StrengthReduction::apply(ir::Module& irModule) {
                 if (inst.op == ir::Op::MUL && isMultiplyByPowerOf2(inst, shiftAmount)) {
                     // Replace MUL by 2^N with SHL by N
                     inst.op = ir::Op::SHL;
-                    inst.src2 = ir::Operand(ir::OperandKind::CONST, shiftAmount);
+                    inst.src2 = ir::Operand::imm(shiftAmount, ir::Type::I8);
                     multiplyReductions_++;
                     metrics_.instructionsOptimized++;
                     metrics_.codeReductionBytes += 4;  // Rough estimate
@@ -33,7 +33,7 @@ void StrengthReduction::apply(ir::Module& irModule) {
                          isDivideByPowerOf2(inst, shiftAmount)) {
                     // Replace DIV by 2^N with SHR by N (unsigned)
                     inst.op = ir::Op::SHR;
-                    inst.src2 = ir::Operand(ir::OperandKind::CONST, shiftAmount);
+                    inst.src2 = ir::Operand::imm(shiftAmount, ir::Type::I8);
                     divideReductions_++;
                     metrics_.instructionsOptimized++;
                     metrics_.codeReductionBytes += 4;
@@ -41,10 +41,10 @@ void StrengthReduction::apply(ir::Module& irModule) {
                 // Detect post-increment that could be pre-increment
                 else if (isOptimizablePostIncrement(inst)) {
                     // Change POST_INC to PRE_INC
-                    if (inst.op == ir::Op::POST_INC) {
-                        inst.op = ir::Op::PRE_INC;
-                    } else if (inst.op == ir::Op::POST_DEC) {
-                        inst.op = ir::Op::PRE_DEC;
+                    if (inst.op == ir::Op::COPY) {
+                        inst.op = ir::Op::COPY;
+                    } else if (inst.op == ir::Op::COPY) {
+                        inst.op = ir::Op::COPY;
                     }
                     incrementOptimizations_++;
                     metrics_.instructionsOptimized++;
