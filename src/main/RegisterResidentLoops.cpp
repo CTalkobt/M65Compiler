@@ -1,4 +1,5 @@
 #include "RegisterResidentLoops.hpp"
+#include "IR.hpp"
 #include <algorithm>
 #include <map>
 #include <set>
@@ -42,8 +43,13 @@ void RegisterResidentLoops::detectLoopCandidatesIR(ir::Module& irModule) {
     // Loop candidate criteria:
     // 1. Loop counter is local variable (not parameter)
     // 2. Initial value is 0 or small constant
-    // 3. Loop bound is constant and <= 256 (fits in X register)
+    // 3. Loop bound is constant and <= 256 (fits in X/Y/Z register)
     // 4. Counter incremented/decremented by 1 only
+    //
+    // Phase C5.1 Extension: Distinguish nesting levels
+    // - "i" → X register (outer loop)
+    // - "j" → Y register (nested loop)
+    // - "k" → Z register (deeply nested loop)
 
     for (auto& func : irModule.functions) {
         // For now, collect basic loop counter candidates
@@ -95,11 +101,14 @@ void RegisterResidentLoops::allocateToXRegister(TranslationUnit& /* ast */) {
 }
 
 void RegisterResidentLoops::allocateToXRegisterIR(ir::Module& irModule) {
-    // IR transformation: mark loop counter vregs for ZP allocation
+    // IR transformation: mark loop counter vregs for register allocation
     //
-    // Strategy: Add candidate loop counters to registerVregs set
-    // This signals to VRegAllocator to prefer zero-page allocation
-    // ZP allocation enables efficient addressing for loop increments
+    // Strategy: Add candidate loop counters to appropriate register set:
+    // - registerXVregs for X-resident loop counters (outer loops, "i" pattern)
+    // - registerYVregs for Y-resident loop counters (nested loops, "j" pattern)
+    // - registerZVregs for Z-resident loop counters (deeply nested loops, "k" pattern)
+    //
+    // Register allocation enables INX/DEX, INY/DEY, INZ/DEZ optimization
 
     for (auto& func : irModule.functions) {
         for (const auto& candidate : candidateLoops_) {
@@ -108,13 +117,23 @@ void RegisterResidentLoops::allocateToXRegisterIR(ir::Module& irModule) {
             if (it != func.localNames.end()) {
                 uint32_t vregId = it->second;
 
-                // Mark as register variable for ZP allocation priority
+                // Mark as register variable for allocation priority
                 // This is the hook point for register-resident optimization
                 func.registerVregs.insert(vregId);
 
-                // Mark for X-register specific allocation (Phase C5.1)
-                // X-resident loop counters enable INX/DEX optimization
-                func.registerXVregs.insert(vregId);
+                // Mark for specific register allocation based on variable naming pattern
+                // Phase C5.1: Extended to support X, Y, Z registers
+                if (candidate.counterName == "i" || candidate.counterName == "x") {
+                    // X-register: outer loop counter (enables INX/DEX)
+                    func.registerXVregs.insert(vregId);
+                } else if (candidate.counterName == "j") {
+                    // Y-register: nested loop counter (enables INY/DEY)
+                    func.registerYVregs.insert(vregId);
+                } else if (candidate.counterName == "k") {
+                    // Z-register: deeply nested loop counter (enables INZ/DEZ)
+                    // 45GS02 extension for 3+ level loop nesting
+                    func.registerZVregs.insert(vregId);
+                }
             }
         }
     }

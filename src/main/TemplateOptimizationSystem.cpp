@@ -1,12 +1,7 @@
 #include "TemplateOptimizationSystem.hpp"
 #include "MathLibraryOptimization.hpp"
-#include "ConditionalChainFusion.hpp"
 #include "RegisterResidentLoops.hpp"
-#include "PointerCachingOptimization.hpp"
 #include "TableDrivenDispatch.hpp"
-#include "BitManipulationReduction.hpp"
-#include "DMAOperationTemplate.hpp"
-#include "ZeroPagePressureRelief.hpp"
 #include "AdaptiveLearnerIntegration.hpp"
 #include <iostream>
 #include <sstream>
@@ -38,26 +33,11 @@ void TemplateOptimizationSystem::registerAllOptimizations() {
     // Register Math Library Constant Folding
     registry_->registerOptimization(std::make_unique<MathLibraryOptimization>());
 
-    // Register Conditional Chain Fusion
-    registry_->registerOptimization(std::make_unique<ConditionalChainFusion>());
-
     // Register Register-Resident Loop Optimization
     registry_->registerOptimization(std::make_unique<RegisterResidentLoops>());
 
-    // Register Pointer Chasing Optimization
-    registry_->registerOptimization(std::make_unique<PointerCachingOptimization>());
-
     // Register Table-Driven Dispatch
     registry_->registerOptimization(std::make_unique<TableDrivenDispatch>());
-
-    // Register Bit Manipulation Strength Reduction
-    registry_->registerOptimization(std::make_unique<BitManipulationReduction>());
-
-    // Register DMA Operation Template
-    registry_->registerOptimization(std::make_unique<DMAOperationTemplate>());
-
-    // Register Zero-Page Pressure Relief
-    registry_->registerOptimization(std::make_unique<ZeroPagePressureRelief>());
 
     if (verbose_) {
         std::cout << "  Registered " << registry_->getOptimizationCount() << " optimization templates" << std::endl;

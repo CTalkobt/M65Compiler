@@ -1,5 +1,5 @@
 #include "OptimizeStage.hpp"
-#include "TranslationUnit.h"
+#include "AST.hpp"
 #include "ConstantFolder.hpp"
 #include "FunctionAnalyzer.hpp"
 #include "Validator.hpp"

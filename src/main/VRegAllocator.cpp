@@ -470,6 +470,8 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
         bool isLocal = localVarVregs.count(lr.vregId) > 0;
         bool isRegisterVar = registerVregs_.count(lr.vregId) > 0;
         bool isRegisterX = registerXVregs_.count(lr.vregId) > 0;
+        bool isRegisterY = registerYVregs_.count(lr.vregId) > 0;
+        bool isRegisterZ = registerZVregs_.count(lr.vregId) > 0;
 
         // Keep short-lived temporaries in A:X to avoid ZP allocation for compound assignments
         // span <= 2 means: defined in one instruction, used in next 1-2 instructions
@@ -485,6 +487,14 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
             // Enables INX/DEX optimization for loop increment operations
             allocs_[lr.vregId] = {IN_X, 0, lr.type};
             // Note: X register usage not tracked in axState_ since it's separate from A:X
+        } else if (isRegisterY) {
+            // Y-register allocation for nested loop counters (Phase C5.1)
+            // Enables INY/DEY optimization for nested loop increments
+            allocs_[lr.vregId] = {IN_Y, 0, lr.type};
+        } else if (isRegisterZ) {
+            // Z-register allocation for deeply nested loop counters (Phase C5.1)
+            // 45GS02 extension: enables INZ/DEZ optimization for 3+ level nesting
+            allocs_[lr.vregId] = {IN_Z, 0, lr.type};
         } else if (!crossesCall && (!isLocal || isRegisterVar)) {
             // Try ZP for:
             // - medium-lived non-local vRegs that don't cross calls, OR

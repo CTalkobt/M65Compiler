@@ -232,6 +232,8 @@ struct Function {
     std::set<uint32_t> memoryVregs;    // vRegs that MUST be in memory (e.g. volatile or address-taken)
     std::set<uint32_t> registerVregs;  // vRegs declared with 'register' keyword (prefer ZP allocation)
     std::set<uint32_t> registerXVregs; // vRegs marked for X-register residency (loop counters, etc)
+    std::set<uint32_t> registerYVregs; // vRegs marked for Y-register residency (nested loop counters)
+    std::set<uint32_t> registerZVregs; // vRegs marked for Z-register residency (deeply nested loop counters)
 
     // Phase 2, Phase 3: Original leaf status (before IR optimization/inlining)
     // Computed from original AST before any IR optimizations

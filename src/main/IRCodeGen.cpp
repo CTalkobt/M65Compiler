@@ -1398,6 +1398,8 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // Run register allocator
     alloc_.setRegisterVregs(fn.registerVregs);
     alloc_.setRegisterXVregs(fn.registerXVregs);
+    alloc_.setRegisterYVregs(fn.registerYVregs);
+    alloc_.setRegisterZVregs(fn.registerZVregs);
     alloc_.analyze(fn);
 
     // Populate vregOffset_ from allocator decisions (frame-allocated vregs only)

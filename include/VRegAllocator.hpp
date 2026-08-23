@@ -7,11 +7,11 @@
 
 class VRegAllocator {
 public:
-    enum Location { IN_AX, IN_ZP, IN_FRAME, IN_X };
+    enum Location { IN_AX, IN_ZP, IN_FRAME, IN_X, IN_Y, IN_Z };
 
     struct Allocation {
         Location loc = IN_FRAME;
-        int offset = 0;       // ZP address (for IN_ZP), frame offset (for IN_FRAME), or 0 (for IN_X)
+        int offset = 0;       // ZP address (for IN_ZP), frame offset (for IN_FRAME), or 0 (for IN_X/Y/Z)
         ir::Type type = ir::Type::I16;
     };
 
@@ -30,6 +30,12 @@ public:
 
     // Set which vregs should be allocated to X register (for loop counters)
     void setRegisterXVregs(const std::set<uint32_t>& regs) { registerXVregs_ = regs; }
+
+    // Set which vregs should be allocated to Y register (for nested loop counters)
+    void setRegisterYVregs(const std::set<uint32_t>& regs) { registerYVregs_ = regs; }
+
+    // Set which vregs should be allocated to Z register (for deeply nested loop counters)
+    void setRegisterZVregs(const std::set<uint32_t>& regs) { registerZVregs_ = regs; }
 
     // Get the allocation for a vReg
     Allocation getAlloc(uint32_t vregId) const;
@@ -60,6 +66,12 @@ private:
 
     // vRegs marked for X-register residency (loop counters, etc)
     std::set<uint32_t> registerXVregs_;
+
+    // vRegs marked for Y-register residency (nested loop counters)
+    std::set<uint32_t> registerYVregs_;
+
+    // vRegs marked for Z-register residency (deeply nested loop counters)
+    std::set<uint32_t> registerZVregs_;
 
     // ZP pool
     uint8_t zpStart_ = 0x20;

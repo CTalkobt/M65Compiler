@@ -26,7 +26,7 @@ Stage::Result ParseStage::execute() {
         // Convert Lexer's FileContext map to our format
         // Each entry: (lineNumber, (filename, lineOffset))
         for (const auto& entry : lexerLineMap) {
-            lineMap_.push_back({entry.first, entry.second});
+            lineMap_.push_back({entry.first, {entry.second.filename, entry.second.lineOffset}});
         }
 
         if (verboseLevel_ >= 2) {
