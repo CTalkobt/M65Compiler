@@ -410,8 +410,105 @@ unsigned char *rrb_layer_t__color_ptr(rrb_layer_t *this) {
 }
 
 /* ============================================================================
- * RENDERING & LAYER COMPOSITION
+ * RENDERING & LAYER COMPOSITION (Phase 105.3: Layer Strategies)
  * ============================================================================ */
+
+/* FULL Mode: Render entire layer sequentially */
+static int rrb_compose_row_full(rrb_layer_t *layer, int row, int *write_pos,
+                               unsigned char *out_screen, unsigned char *out_color,
+                               int chrcount) {
+    if (!layer || row >= layer->height) return 0;
+
+    unsigned char *layer_screen = (unsigned char *)layer->screen_addr;
+    unsigned char *layer_color = (unsigned char *)layer->color_addr;
+    int row_offset = row * (layer->width * 2);
+
+    for (int col = 0; col < layer->width && *write_pos < chrcount * 2 - 2; col++) {
+        int src_offset = row_offset + col * 2;
+        out_screen[*write_pos] = layer_screen[src_offset];
+        out_screen[*write_pos + 1] = 0;
+        out_color[*write_pos] = layer_color[src_offset];
+        out_color[*write_pos + 1] = 0;
+        *write_pos += 2;
+    }
+    return 0;
+}
+
+/* SPARSE Mode: Render only non-transparent characters with gap optimization */
+static int rrb_compose_row_sparse(rrb_layer_t *layer, int row, int *write_pos,
+                                 unsigned char *out_screen, unsigned char *out_color,
+                                 int chrcount, int layer_x) {
+    if (!layer || row >= layer->height) return 0;
+
+    unsigned char *layer_screen = (unsigned char *)layer->screen_addr;
+    unsigned char *layer_color = (unsigned char *)layer->color_addr;
+    int row_offset = row * (layer->width * 2);
+    int current_x = layer_x;
+
+    for (int col = 0; col < layer->width && *write_pos < chrcount * 2 - 2; col++) {
+        int src_offset = row_offset + col * 2;
+        unsigned char ch = layer_screen[src_offset];
+
+        if (ch == layer->transparent_char) {
+            continue;  /* Skip transparent characters */
+        }
+
+        /* Emit character at calculated position */
+        out_screen[*write_pos] = ch;
+        out_screen[*write_pos + 1] = 0;
+        out_color[*write_pos] = layer_color[src_offset];
+        out_color[*write_pos + 1] = 0;
+        *write_pos += 2;
+        current_x += 8;
+    }
+    return 0;
+}
+
+/* STACK Mode: Render small positioned layer with precise GOTOX placement */
+static int rrb_compose_row_stack(rrb_layer_t *layer, int row, int *write_pos,
+                                unsigned char *out_screen, unsigned char *out_color,
+                                int chrcount, int layer_x) {
+    if (!layer || row >= layer->height) return 0;
+
+    unsigned char *layer_screen = (unsigned char *)layer->screen_addr;
+    unsigned char *layer_color = (unsigned char *)layer->color_addr;
+    int row_offset = row * (layer->width * 2);
+
+    /* STACK layers use scroll_x/scroll_y as absolute position on screen */
+    int stack_x = layer_x;
+    int stack_y = layer->scroll_y;
+
+    /* Only render this row if it falls within the stack layer's vertical range */
+    if (row < stack_y || row >= stack_y + layer->height) {
+        return 0;
+    }
+
+    /* Emit GOTOX to position stack layer */
+    rrb_write_gotox((unsigned int)&out_screen[*write_pos],
+                    (unsigned int)&out_color[*write_pos],
+                    stack_x, 0);
+    *write_pos += 2;
+
+    /* Calculate which row within the stack layer to render */
+    int layer_row = row - stack_y;
+    int layer_row_offset = layer_row * (layer->width * 2);
+
+    for (int col = 0; col < layer->width && *write_pos < chrcount * 2 - 2; col++) {
+        int src_offset = layer_row_offset + col * 2;
+        unsigned char ch = layer_screen[src_offset];
+
+        if (ch == layer->transparent_char) {
+            continue;
+        }
+
+        out_screen[*write_pos] = ch;
+        out_screen[*write_pos + 1] = 0;
+        out_color[*write_pos] = layer_color[src_offset];
+        out_color[*write_pos + 1] = 0;
+        *write_pos += 2;
+    }
+    return 0;
+}
 
 static int rrb_compose_row(rrb_system_t *rrb, int row,
                            unsigned char *out_screen, unsigned char *out_color) {
@@ -449,35 +546,48 @@ static int rrb_compose_row(rrb_system_t *rrb, int row,
     for (int layer_idx = 0; layer_idx < visible_count; layer_idx++) {
         rrb_layer_t *layer = visible[layer_idx];
 
-        if (row >= layer->height) {
-            continue;
+        if (write_pos >= rrb->chrcount * 2 - 4) {
+            break;  /* Insufficient space in buffer */
         }
 
-        rrb_write_gotox((unsigned int)&out_screen[write_pos],
-                        (unsigned int)&out_color[write_pos],
-                        layer->scroll_x, 0);
-        write_pos += 2;
+        int result = 0;
 
-        unsigned char *layer_screen = (unsigned char *)layer->screen_addr;
-        unsigned char *layer_color = (unsigned char *)layer->color_addr;
+        switch (layer->mode) {
+            case RRB_MODE_FULL:
+                /* Full mode: position layer at scroll_x, render entire row */
+                rrb_write_gotox((unsigned int)&out_screen[write_pos],
+                               (unsigned int)&out_color[write_pos],
+                               layer->scroll_x, 0);
+                write_pos += 2;
+                result = rrb_compose_row_full(layer, row, &write_pos,
+                                             out_screen, out_color, rrb->chrcount);
+                break;
 
-        int row_offset = row * (layer->width * 2);
+            case RRB_MODE_SPARSE:
+                /* Sparse mode: position layer, render only non-transparent chars */
+                rrb_write_gotox((unsigned int)&out_screen[write_pos],
+                               (unsigned int)&out_color[write_pos],
+                               layer->scroll_x, 0);
+                write_pos += 2;
+                result = rrb_compose_row_sparse(layer, row, &write_pos,
+                                               out_screen, out_color, rrb->chrcount,
+                                               layer->scroll_x);
+                break;
 
-        for (int col = 0; col < layer->width && write_pos < rrb->chrcount * 2 - 2; col++) {
-            int src_offset = row_offset + col * 2;
+            case RRB_MODE_STACK:
+                /* Stack mode: use scroll_x/scroll_y as absolute position, render if in range */
+                result = rrb_compose_row_stack(layer, row, &write_pos,
+                                              out_screen, out_color, rrb->chrcount,
+                                              layer->scroll_x);
+                break;
 
-            unsigned char ch = layer_screen[src_offset];
-            unsigned char color = layer_color[src_offset];
+            default:
+                /* Unknown mode, skip layer */
+                break;
+        }
 
-            if (layer->mode == RRB_MODE_SPARSE && ch == layer->transparent_char) {
-                continue;
-            }
-
-            out_screen[write_pos] = ch;
-            out_screen[write_pos + 1] = 0;
-            out_color[write_pos] = color;
-            out_color[write_pos + 1] = 0;
-            write_pos += 2;
+        if (result != 0) {
+            return -1;  /* Rendering error */
         }
     }
 

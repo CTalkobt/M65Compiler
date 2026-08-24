@@ -11,7 +11,21 @@
  * ============================================================================ */
 
 /**
- * RRB Layer rendering mode
+ * RRB Layer rendering mode (Phase 105.3: Layer Strategies)
+ *
+ * FULL:   Entire layer rendered sequentially, positioned by scroll_x.
+ *         Best for solid backgrounds or full-width layers.
+ *         Rendering: GOTOX(scroll_x), all characters
+ *
+ * SPARSE: Only non-transparent characters rendered, allowing background show-through.
+ *         Transparent character (default: space 0x20) are skipped.
+ *         Best for scattered objects (sprites, enemies, projectiles).
+ *         Rendering: GOTOX(scroll_x), only non-transparent chars
+ *
+ * STACK:  Small positioned layer rendered only when row falls in vertical range.
+ *         Uses scroll_x as horizontal position, scroll_y as top row.
+ *         Best for UI elements, floating text, small positioned graphics.
+ *         Rendering: GOTOX(scroll_x) only in rows [scroll_y, scroll_y+height)
  */
 typedef enum {
     RRB_MODE_FULL = 0,      /* Full-width layer (entire screen) */
