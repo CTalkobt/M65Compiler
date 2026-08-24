@@ -37,10 +37,11 @@ MANDIR ?= $(PREFIX)/share/man/man1
 # lib45 LIBRARY DEFINITIONS
 # ============================================================================
 
-# lib45-common: Object format, symbols, config, utilities, diagnostics
+# lib45-common: Object format, symbols, config, utilities, diagnostics, debug info
 $(LIB_DIR)/lib45-common.a: $(addprefix $(OBJ_DIR)/, \
     O45Reader.o O45Writer.o O45IRSerializer.o O45Emitter.o O45Archive.o \
-    O45Linker.o AssemblerOpcodeDatabase.o ConfigLoader.o EnhancedDiagnostic.o)
+    O45Linker.o AssemblerOpcodeDatabase.o ConfigLoader.o EnhancedDiagnostic.o \
+    DebugInfoBuilder.o)
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^
 
