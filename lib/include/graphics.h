@@ -531,3 +531,196 @@ void sprite_update_motion(sprite_motion_t *motion, int predict_frames);
  */
 void sprite_render_layered(sprite_layer_t *layers, int count);
 
+/* ============================================================================
+ * ANIMATION SYSTEM (Phase 104)
+ * ============================================================================ */
+
+/**
+ * Animation states
+ */
+typedef enum {
+    ANIM_STATE_STOPPED,             /* Animation stopped, at frame 0 */
+    ANIM_STATE_PLAYING,             /* Animation playing */
+    ANIM_STATE_PAUSED               /* Animation paused at current frame */
+} animation_state_t;
+
+/**
+ * Animation loop modes
+ */
+typedef enum {
+    ANIM_LOOP_ONCE,                 /* Play once, stop at last frame */
+    ANIM_LOOP_REPEAT,               /* Loop from frame 0 */
+    ANIM_LOOP_PINGPONG              /* Bounce back and forth */
+} animation_loop_mode_t;
+
+/**
+ * Animation playback direction (for PINGPONG mode)
+ */
+typedef enum {
+    ANIM_DIR_FORWARD,               /* Playing forward through frames */
+    ANIM_DIR_BACKWARD               /* Playing backward (PINGPONG only) */
+} animation_direction_t;
+
+/**
+ * Animation callback function type
+ */
+typedef void (*animation_callback_t)(void *anim, int frame_or_param);
+
+/**
+ * Sprite animation structure
+ */
+typedef struct {
+    sprite_t *sprite;               /* Sprite being animated */
+    unsigned char **frames;         /* Array of frame bitmaps */
+    int frame_count;                /* Number of frames */
+    int current_frame;              /* Current frame index */
+    int tick_counter;               /* Ticks since last frame change */
+    int ticks_per_frame;            /* Ticks per animation frame */
+
+    animation_state_t state;        /* Current playback state */
+    animation_loop_mode_t loop_mode; /* How animation loops */
+    animation_direction_t direction; /* Forward or backward (PINGPONG) */
+    double playback_speed;          /* 1.0 = normal, 2.0 = 2x speed, etc. */
+
+    /* Event callbacks */
+    animation_callback_t on_frame_change;  /* Called when frame changes */
+    animation_callback_t on_loop_complete; /* Called at end of loop */
+    animation_callback_t on_animation_done; /* Called when animation stops */
+
+    void *user_data;                /* User-defined context */
+} sprite_animation_t;
+
+/**
+ * Animation sequence (play multiple animations in order)
+ */
+typedef struct {
+    sprite_animation_t **animations;
+    int animation_count;
+    int current_animation;
+
+    void (*on_sequence_complete)(void *seq);
+} sprite_animation_sequence_t;
+
+/**
+ * sprite_animation_init - Initialize sprite animation
+ *
+ * Creates animation player with frame sequence.
+ * Animation starts in STOPPED state.
+ *
+ * Parameters:
+ *   anim — Animation structure (caller-allocated)
+ *   sprite — Sprite to animate
+ *   frames — Array of frame bitmaps
+ *   frame_count — Number of frames
+ *   ticks_per_frame — Animation speed (higher = slower)
+ *
+ * Returns:
+ *   0 on success, -1 on error
+ */
+int sprite_animation_init(sprite_animation_t *anim, sprite_t *sprite,
+                          unsigned char **frames, int frame_count,
+                          int ticks_per_frame);
+
+/**
+ * sprite_animation_done - Cleanup animation
+ */
+void sprite_animation_done(sprite_animation_t *anim);
+
+/**
+ * sprite_animation_play - Start animation playback
+ */
+void sprite_animation_play(sprite_animation_t *anim);
+
+/**
+ * sprite_animation_stop - Stop animation
+ */
+void sprite_animation_stop(sprite_animation_t *anim);
+
+/**
+ * sprite_animation_pause - Pause animation
+ */
+void sprite_animation_pause(sprite_animation_t *anim);
+
+/**
+ * sprite_animation_resume - Resume paused animation
+ */
+void sprite_animation_resume(sprite_animation_t *anim);
+
+/**
+ * sprite_animation_get_frame - Get current frame index
+ *
+ * Returns:
+ *   Current frame (0 to frame_count-1), or -1 if error
+ */
+int sprite_animation_get_frame(sprite_animation_t *anim);
+
+/**
+ * sprite_animation_set_frame - Jump to specific frame
+ *
+ * Parameters:
+ *   anim — Animation
+ *   frame — Frame index (0 to frame_count-1)
+ */
+void sprite_animation_set_frame(sprite_animation_t *anim, int frame);
+
+/**
+ * sprite_animation_set_speed - Set playback speed
+ *
+ * Parameters:
+ *   anim — Animation
+ *   speed — Playback speed (1.0 = normal, 2.0 = 2x faster, 0.5 = half speed)
+ */
+void sprite_animation_set_speed(sprite_animation_t *anim, double speed);
+
+/**
+ * sprite_animation_update - Update animation (call every frame)
+ *
+ * Advances animation state, updates sprite bitmap, fires callbacks.
+ * Call this every game frame for all active animations.
+ *
+ * Parameters:
+ *   anim — Animation to update
+ */
+void sprite_animation_update(sprite_animation_t *anim);
+
+/**
+ * sprite_animation_sequence_init - Initialize animation sequence
+ *
+ * Creates container for playing multiple animations in sequence.
+ *
+ * Returns:
+ *   0 on success, -1 on error
+ */
+int sprite_animation_sequence_init(sprite_animation_sequence_t *seq);
+
+/**
+ * sprite_animation_sequence_add - Add animation to sequence
+ *
+ * Animations play in order added.
+ *
+ * Parameters:
+ *   seq — Animation sequence
+ *   anim — Animation to add
+ */
+void sprite_animation_sequence_add(sprite_animation_sequence_t *seq,
+                                    sprite_animation_t *anim);
+
+/**
+ * sprite_animation_sequence_play - Start sequence playback
+ *
+ * Plays first animation, then automatically advances to next when complete.
+ */
+void sprite_animation_sequence_play(sprite_animation_sequence_t *seq);
+
+/**
+ * sprite_animation_sequence_update - Update animation sequence
+ *
+ * Call every frame to advance sequence animations.
+ */
+void sprite_animation_sequence_update(sprite_animation_sequence_t *seq);
+
+/**
+ * sprite_animation_sequence_done - Cleanup animation sequence
+ */
+void sprite_animation_sequence_done(sprite_animation_sequence_t *seq);
+
