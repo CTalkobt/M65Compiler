@@ -100,9 +100,30 @@ inline void addErrorSuggestions(std::string& output, const std::string& msg) {
     }
 
     // Undefined identifier
-    if (msg.find("undefined") != std::string::npos) {
+    if (msg.find("undefined") != std::string::npos ||
+        msg.find("Unknown struct") != std::string::npos ||
+        msg.find("Unknown union") != std::string::npos) {
         suggestions.push_back("  • Check if variable/function is declared");
-        suggestions.push_back("  • Check spelling");
+        suggestions.push_back("  • Check spelling of the name");
+    }
+
+    // Member not found errors
+    if (msg.find("not found in struct") != std::string::npos) {
+        suggestions.push_back("  • Check if the member exists in the struct");
+        suggestions.push_back("  • Use 'struct name' or '->member' syntax");
+    }
+
+    // Type conversion errors
+    if (msg.find("Unsupported operator") != std::string::npos) {
+        suggestions.push_back("  • Check types - this operator may not work with this type");
+        suggestions.push_back("  • Consider explicit type casting");
+    }
+
+    // Generic selection errors
+    if (msg.find("_Generic") != std::string::npos ||
+        msg.find("No matching association") != std::string::npos) {
+        suggestions.push_back("  • Check _Generic selection - no matching type");
+        suggestions.push_back("  • Add a default case or matching type");
     }
 
     if (!suggestions.empty()) {
@@ -111,6 +132,27 @@ inline void addErrorSuggestions(std::string& output, const std::string& msg) {
             output += sugg + "\n";
         }
     }
+}
+
+// Enhanced formatDiagnostic with context and suggestions (forward declare)
+inline std::string formatDiagnostic(const std::string& file, int line, int col,
+                                     Severity sev, const std::string& msg);
+
+// Helper for semantic errors (from IRBuilder, Validator, etc.)
+// Extracts line/file info from error message format "Error at line X: message"
+inline std::string formatSemanticError(const std::string& errorMessage, const std::string& sourceFile, int line, int col = 1) {
+    Severity sev = Severity::Error;
+
+    // Parse out the core message (remove "Error at line X: " prefix if present)
+    std::string message = errorMessage;
+    if (message.find("Error at line ") != std::string::npos) {
+        size_t prefixEnd = message.find(": ");
+        if (prefixEnd != std::string::npos) {
+            message = message.substr(prefixEnd + 2);
+        }
+    }
+
+    return formatDiagnostic(sourceFile, line, col, sev, message);
 }
 
 // Enhanced formatDiagnostic with context and suggestions

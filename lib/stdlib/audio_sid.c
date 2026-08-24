@@ -113,23 +113,24 @@ int sid_oscillator_t__generate_sample(struct sid_oscillator *this) {
 
     switch (this->waveform) {
         case SID_WAVE_TRIANGLE:
-            /* Triangle: rises 0-127, falls 128-255 */
-            sample = (phase_byte < 128) ? (phase_byte * 2) : ((255 - phase_byte) * 2);
+            /* Triangle: -32768 to +32767, centered */
+            sample = ((phase_byte < 128) ? (phase_byte * 512) : ((255 - phase_byte) * 512)) - 32768;
             break;
 
         case SID_WAVE_SAWTOOTH:
-            /* Sawtooth: linear 0-255 */
-            sample = phase_byte;
+            /* Sawtooth: -32768 to +32767, centered */
+            sample = (phase_byte * 256) - 32768;
             break;
 
         case SID_WAVE_PULSE:
-            /* Pulse: high if phase < pulse_width, else low */
-            sample = (phase_byte < this->pulse_width) ? 255 : 0;
+            /* Pulse: -32768 or +32767 */
+            sample = (phase_byte < this->pulse_width) ? 32767 : -32768;
             break;
 
         case SID_WAVE_NOISE:
-            /* Pseudo-random noise */
-            sample = (this->phase ^ (this->phase >> 8) ^ (this->phase >> 16)) & 0xFF;
+            /* Pseudo-random noise: -32768 to +32767 */
+            int noise_byte = (this->phase ^ (this->phase >> 8) ^ (this->phase >> 16)) & 0xFF;
+            sample = (noise_byte * 256) - 32768;
             break;
     }
 
@@ -228,8 +229,8 @@ int sid_voice_t__get_sample(struct sid_voice *this) {
     int env_level = this->envelope.get_level(&this->envelope);
     int filtered = this->filter.apply(&this->filter, osc_sample);
 
-    /* Apply envelope and velocity to filtered sample */
-    int output = (filtered * env_level * this->velocity) / (255 * 255);
+    /* Apply envelope to filtered sample (velocity already in range 0-127) */
+    int output = (filtered * env_level) / 255;
 
     return output;
 }

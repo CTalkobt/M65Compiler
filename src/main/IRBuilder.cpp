@@ -1134,7 +1134,8 @@ void IRBuilder::visit(VariableDeclaration& node) {
     if (isStructOrUnion && node.pointerLevel == 0) {
         std::string sName = getAggregateName(node.type);
         if (!structs_.count(sName)) {
-            throw std::runtime_error("Error at line " + std::to_string(node.line) + ": Unknown struct/union type: Unknown struct type: " + node.type);
+            std::string errMsg = "Unknown struct/union type: " + node.type;
+            throw std::runtime_error(formatSemanticError(errMsg, node.sourceFile, node.line, node.column));
         }
     }
 
@@ -2358,7 +2359,10 @@ void IRBuilder::visit(BinaryOperation& node) {
         else if (node.op == "-") op = ir::Op::FSUB;
         else if (node.op == "*") op = ir::Op::FMUL;
         else if (node.op == "/") op = ir::Op::FDIV;
-        else throw std::runtime_error("Unsupported operator '" + node.op + "' for float type");
+        else {
+            std::string errMsg = "Unsupported operator '" + node.op + "' for float type";
+            throw std::runtime_error(formatSemanticError(errMsg, node.sourceFile, node.line, node.column));
+        }
         auto dest = allocVreg(finalResultType);
         ir::Inst inst; inst.op = op; inst.dest = dest; inst.resultType = finalResultType;
         inst.src1 = lhsVal; inst.src2 = rhsVal; inst.loc = loc(node); emit(inst);
@@ -3795,7 +3799,8 @@ void IRBuilder::visit(GenericSelection& node) {
         }
     }
     if (!selected) {
-        throw std::runtime_error("No matching association in _Generic selection");
+        std::string errMsg = "No matching association in _Generic selection";
+        throw std::runtime_error(formatSemanticError(errMsg, node.sourceFile, node.line, node.column));
     }
     if (selected->result) selected->result->accept(*this);
 }
@@ -3999,7 +4004,8 @@ void IRBuilder::visit(MemberAccess& node) {
     int accumulatedOffset = 0;
     auto* mit = findStructMember(sName, node.memberName, accumulatedOffset);
     if (!mit) {
-        throw std::runtime_error("Error at line " + std::to_string(node.line) + ": Member '" + node.memberName + "' not found in struct '" + sName + "'");
+        std::string errMsg = "Member '" + node.memberName + "' not found in struct '" + sName + "'";
+        throw std::runtime_error(formatSemanticError(errMsg, node.sourceFile, node.line, node.column));
     }
 
     int memberOffset = mit->offset + accumulatedOffset;
@@ -4061,7 +4067,8 @@ void IRBuilder::visit(CompoundLiteral& node) {
     if (isStructOrUnion && node.pointerLevel == 0) {
         std::string sName = getAggregateName(node.targetType);
         if (!structs_.count(sName)) {
-            throw std::runtime_error("Error at line " + std::to_string(node.line) + ": Unknown struct type: " + node.targetType);
+            std::string errMsg = "Unknown struct type: " + node.targetType;
+            throw std::runtime_error(formatSemanticError(errMsg, node.sourceFile, node.line, node.column));
         }
     }
 

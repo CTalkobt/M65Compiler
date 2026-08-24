@@ -145,12 +145,13 @@ typedef struct sid_voice sid_voice_t;
 /**
  * SID Synthesizer - full polyphonic synthesizer
  *
- * Manages up to 3 voices (MEGA65 has 3 SID channels like C64).
+ * Manages multiple SID chips with up to 3 voices each (MEGA65 supports 4 SID chips).
  * Provides full synthesis control with effects.
  */
 struct sid_synth {
-    /* Polyphonic voices (up to 3) */
-    sid_voice_t voice[3];   /* Three independent voices */
+    /* Multiple SID chips (MEGA65: 4 chips × 3 voices = 12 total voices) */
+    int num_sids;           /* Number of active SID chips (1-4) */
+    sid_voice_t voice[12];  /* Up to 12 voices (4 SIDs × 3 voices each) */
     int active_voices;      /* Number of currently playing voices */
 
     /* Master controls */
@@ -171,11 +172,14 @@ struct sid_synth {
     /* Methods */
     void (*init)(struct sid_synth *this);
     void (*done)(struct sid_synth *this);
+    void (*init_sid_count)(struct sid_synth *this, int num_sids);
 
     /* Voices */
     void (*note_on)(struct sid_synth *this, int voice, int note, int velocity);
     void (*note_off)(struct sid_synth *this, int voice);
     void (*all_notes_off)(struct sid_synth *this);
+    int (*get_sid_from_voice)(struct sid_synth *this, int voice);
+    int (*get_voice_in_sid)(struct sid_synth *this, int voice);
 
     /* Synthesis */
     int (*get_sample)(struct sid_synth *this);
@@ -240,8 +244,33 @@ sid_synth_t sid_synth_create(void);
 #define SID_NOTE_A4             69      /* A4 (440 Hz) */
 #define SID_NOTE_C8             108     /* Highest reasonable note */
 
+/* SID Chip indices */
+#define SID_CHIP_1              0       /* First SID chip ($D400) */
+#define SID_CHIP_2              1       /* Second SID chip ($D420) */
+#define SID_CHIP_3              2       /* Third SID chip ($D440) */
+#define SID_CHIP_4              3       /* Fourth SID chip ($D460) */
+#define SID_CHIPS_MAX           4       /* Maximum SID chips (MEGA65) */
+
 /* Voice indices */
 #define SID_VOICE_1             0       /* First voice */
 #define SID_VOICE_2             1       /* Second voice */
 #define SID_VOICE_3             2       /* Third voice */
-#define SID_VOICES_MAX          3       /* Maximum polyphony */
+#define SID_VOICE_4             3       /* SID 2, voice 1 */
+#define SID_VOICE_5             4       /* SID 2, voice 2 */
+#define SID_VOICE_6             5       /* SID 2, voice 3 */
+#define SID_VOICE_7             6       /* SID 3, voice 1 */
+#define SID_VOICE_8             7       /* SID 3, voice 2 */
+#define SID_VOICE_9             8       /* SID 3, voice 3 */
+#define SID_VOICE_10            9       /* SID 4, voice 1 */
+#define SID_VOICE_11            10      /* SID 4, voice 2 */
+#define SID_VOICE_12            11      /* SID 4, voice 3 */
+#define SID_VOICES_MAX          12      /* Maximum total voices */
+
+/* SID chip memory addresses */
+#define SID_CHIP_1_ADDR         0xD400  /* SID 1 base address */
+#define SID_CHIP_2_ADDR         0xD420  /* SID 2 base address */
+#define SID_CHIP_3_ADDR         0xD440  /* SID 3 base address */
+#define SID_CHIP_4_ADDR         0xD460  /* SID 4 base address */
+
+/* Voice-to-chip mapping */
+#define SID_VOICE_COUNT_PER_CHIP 3      /* Each SID has 3 voices */
