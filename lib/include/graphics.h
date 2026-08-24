@@ -742,3 +742,9 @@ void sprite_animation_sequence_done(sprite_animation_sequence_t *seq);
  * ============================================================================ */
 
 #include <graphics_sprites.h>
+
+/* ============================================================================
+ * ADVANCED SPRITE FEATURES (Phase 8)
+ * ============================================================================ */
+
+#include <graphics_sprites_advanced.h>
