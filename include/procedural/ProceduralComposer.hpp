@@ -47,6 +47,9 @@ protected:
     std::unique_ptr<HarmonicGenerator> harmonicGen_;
     std::unique_ptr<RhythmicGenerator> rhythmicGen_;
 
+    // For derived classes to use
+    uint32_t currentTempoBeatsPerMinute_ = 120;
+
     // Helper methods for subclasses
     void addMelodyTrack(
         audio::Song& song,
@@ -90,9 +93,6 @@ protected:
 
     // Get appropriate note duration based on tempo
     uint32_t getNoteDuration(float noteLengthBeats);
-
-private:
-    uint32_t currentTempoBeatsPerMinute_ = 120;  // For duration calculations
 };
 
 }  // namespace procedural

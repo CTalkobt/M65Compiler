@@ -129,7 +129,9 @@ $(LIB_DIR)/lib45-audio.a: $(addprefix $(OBJ_DIR)/, \
     Song.o Track.o Pattern.o Sequencer.o \
     Scale.o Chord.o ChordProgression.o \
     MelodicGenerator.o HarmonicGenerator.o RhythmicGenerator.o \
-    ProceduralComposer.o)
+    ProceduralComposer.o \
+    JazzComposer.o AmbientComposer.o TechnoComposer.o \
+    FolkComposer.o ClassicalComposer.o ChiptureComposer.o RagtimeComposer.o)
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^
 
@@ -305,6 +307,27 @@ $(OBJ_DIR)/RhythmicGenerator.o: src/audio/procedural/RhythmicGenerator.cpp | $(O
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 $(OBJ_DIR)/ProceduralComposer.o: src/audio/procedural/ProceduralComposer.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/JazzComposer.o: src/audio/procedural/JazzComposer.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/AmbientComposer.o: src/audio/procedural/AmbientComposer.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/TechnoComposer.o: src/audio/procedural/TechnoComposer.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/FolkComposer.o: src/audio/procedural/FolkComposer.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/ClassicalComposer.o: src/audio/procedural/ClassicalComposer.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/ChiptureComposer.o: src/audio/procedural/ChiptureComposer.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/RagtimeComposer.o: src/audio/procedural/RagtimeComposer.cpp | $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 # Default compilation rule for all object files
