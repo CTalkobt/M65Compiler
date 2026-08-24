@@ -1,4 +1,5 @@
 #include "DebugInfoBuilder.hpp"
+#include <stdexcept>
 
 DebugInfoBuilder::DebugInfoBuilder() {
     // Create root DIE (will be filled with compile unit)
@@ -303,6 +304,16 @@ uint8_t DebugInfoBuilder::getOrCreateAbbreviation(
                 return code;
             }
         }
+    }
+
+    // FIX #2.4: Check for abbreviation overflow before creating new abbreviation
+    // DWARF abbreviation codes should remain < 255 for compatibility
+    static constexpr uint32_t MAX_ABBREVIATIONS = 255;
+    if (abbrevTable_.getAbbreviations().size() >= MAX_ABBREVIATIONS) {
+        throw std::runtime_error(
+            "Abbreviation table overflow: too many unique DIE patterns (max " +
+            std::to_string(MAX_ABBREVIATIONS) + ")"
+        );
     }
 
     // Create new abbreviation

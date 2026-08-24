@@ -18,10 +18,3 @@ void CodeGenerator::emitFunctionDIE(FunctionDeclaration& node, uint64_t startAdd
     // Emit line entry for function definition
     lineNumberBuilder_.emitLineEntry(startAddr, node.line, node.column);
 }
-
-void CodeGenerator::emitLocalVariableDIE(const std::string& varName, uint64_t address,
-                                         const VarInfo& varInfo, uint32_t frameOffset) {
-    // Emit line entry for variable at its declaration
-    // The actual DIE creation happens during IRBuilder phase
-    // This tracks the address for line number mapping
-}

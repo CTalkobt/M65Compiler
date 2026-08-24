@@ -1,5 +1,7 @@
 #include "LineNumberProgram.hpp"
 #include <algorithm>
+#include <stdexcept>
+#include <iostream>
 
 namespace dwarf {
 
@@ -14,13 +16,24 @@ uint32_t LineNumberProgramBuilder::addFile(const std::string& filename,
                                            const std::string& directory,
                                            uint32_t mod_time,
                                            uint32_t file_size) {
-    auto it = fileMap_.find(filename);
+    // FIX #5: File index overflow check
+    // Use (filename, directory) pair as key to avoid collision (FIX #3.3)
+    auto key = std::make_pair(filename, directory);
+    auto it = fileMap_.find(key);
     if (it != fileMap_.end()) {
         return it->second;
     }
 
+    // FIX #2.3: Check for file index overflow before incrementing
+    static constexpr uint32_t MAX_FILES = 0xFFFFFF;  // Reserve headroom below uint32_t max
+    if (nextFileIndex_ >= MAX_FILES) {
+        throw std::runtime_error(
+            "File table overflow: too many files (max " + std::to_string(MAX_FILES) + ")"
+        );
+    }
+
     uint32_t index = nextFileIndex_++;
-    fileMap_[filename] = index;
+    fileMap_[key] = index;
 
     FileEntry entry;
     entry.filename = filename;
@@ -100,18 +113,34 @@ void LineNumberProgramBuilder::emitSpecialOpcode(const LineState& prev_state,
     uint64_t pc_delta = new_state.address - prev_state.address;
 
     // Try to encode as special opcode
-    // Special opcodes combine address and line deltas
+    // DWARF 4 special opcodes: valid range [13, 255] (243 valid opcodes)
+    // Special opcode calculation: (line_delta - line_base) * opcode_base + (pc_delta % opcode_base) + opcode_base
+    // For 6502: line_base=-5, line_range=14, opcode_base=13
+
     int adjusted_line_delta = line_delta - header_.line_base;
 
-    if (adjusted_line_delta >= 0 && adjusted_line_delta < header_.line_range &&
-        pc_delta < 256) {
-        // Can use special opcode
-        uint8_t opcode = static_cast<uint8_t>(adjusted_line_delta * header_.opcode_base + pc_delta + header_.opcode_base);
-        emitByte(opcode);
+    if (adjusted_line_delta >= 0 && adjusted_line_delta < header_.line_range && pc_delta < 256) {
+        // FIX #1.1: Calculate special opcode value and validate it's in valid range [13, 255]
+        uint32_t opcode_value = (adjusted_line_delta * header_.opcode_base) +
+                                (pc_delta % header_.opcode_base) +
+                                header_.opcode_base;
+
+        if (opcode_value >= 13 && opcode_value <= 255) {
+            emitByte(static_cast<uint8_t>(opcode_value));
+        } else {
+            // Fallback: use standard opcodes instead when special opcode calculation overflows
+            if (line_delta != 0) {
+                emitOp(LineNumberOp::DW_LNS_ADVANCE_LINE, static_cast<uint64_t>(line_delta));
+            }
+            if (pc_delta != 0) {
+                emitOp(LineNumberOp::DW_LNS_ADVANCE_PC, pc_delta);
+            }
+            emitOp(LineNumberOp::DW_LNS_COPY);
+        }
     } else {
-        // Need multiple opcodes
+        // Use standard opcodes for this entry
         if (line_delta != 0) {
-            emitOp(LineNumberOp::DW_LNS_ADVANCE_LINE, line_delta);
+            emitOp(LineNumberOp::DW_LNS_ADVANCE_LINE, static_cast<uint64_t>(line_delta));
         }
         if (pc_delta != 0) {
             emitOp(LineNumberOp::DW_LNS_ADVANCE_PC, pc_delta);
@@ -121,6 +150,41 @@ void LineNumberProgramBuilder::emitSpecialOpcode(const LineState& prev_state,
 }
 
 void LineNumberProgramBuilder::emitLineEntry(uint64_t address, uint32_t line, uint32_t column) {
+    // FIX #2.1: Validate line number bounds
+    // Source line numbers typically < 1 million; clamp excessive values
+    const uint32_t MAX_LINE_NUMBER = 1000000;
+    if (line > MAX_LINE_NUMBER) {
+        std::cerr << "Warning: Line number " << line << " exceeds 1M, clamping to range\n";
+        line = line % 100000;  // Fold to reasonable range
+    }
+
+    // FIX #2.1: Validate column bounds
+    const uint32_t MAX_COLUMN = 10000;
+    if (column > MAX_COLUMN) {
+        std::cerr << "Warning: Column number " << column << " exceeds 10K, resetting to 0\n";
+        column = 0;
+    }
+
+    // FIX #2.2: Validate address range and detect backward jumps
+    const uint64_t MEGA65_MAX_ADDR = 0x100000;  // 1MB extended memory limit
+    if (address >= MEGA65_MAX_ADDR) {
+        std::cerr << "Warning: Line entry address $" << std::hex << address
+                  << " exceeds MEGA65 address space (>1MB), skipping entry\n" << std::dec;
+        return;
+    }
+
+    // FIX #2.2: Detect backward jumps (indicate potential problem in compilation)
+    if (address < currentState_.address && currentState_.address != 0) {
+        // Emit end-of-sequence and reset for new sequence
+        std::cerr << "Warning: Backward jump detected (from $" << std::hex << currentState_.address
+                  << " to $" << address << "), emitting end-of-sequence\n" << std::dec;
+        emitExtendedOp(LineNumberExtOp::DW_LNE_END_SEQUENCE, {});
+        currentState_.reset();
+        currentState_.is_stmt = header_.default_is_stmt;
+        previousState_.reset();
+        previousState_.is_stmt = header_.default_is_stmt;
+    }
+
     currentState_.address = address;
     currentState_.line = line;
     currentState_.column = column;
@@ -194,11 +258,18 @@ void LineNumberProgramBuilder::emitAddressRange(uint64_t start, uint64_t end, ui
 }
 
 void LineNumberProgramBuilder::finalizeProgram() {
+    // FIX #3.4: Add double-finalization guard
+    if (finalized_) {
+        throw std::runtime_error("Line program already finalized");
+    }
+
     // Emit end sequence
     emitExtendedOp(LineNumberExtOp::DW_LNE_END_SEQUENCE, std::vector<uint8_t>());
 
     // Update unit length in header
     header_.unit_length = static_cast<uint32_t>(lineProgram_.size()) + 4;  // +4 for length field itself
+
+    finalized_ = true;
 }
 
 }  // namespace dwarf

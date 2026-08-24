@@ -985,7 +985,8 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         currentFunc_->localSlotVregs.insert(vreg.vregId);
 
         // Phase 113: Track parameter for DWARF debug info
-        sourceTracker_.trackVariableDecl(p.name, p.line, p.column, p.type, 0, true);
+        // Use function line/column since parameters don't have their own location
+        sourceTracker_.trackVariableDecl(p.name, node.line, node.column, p.type, 0, true);
     }
 
     // Visit body

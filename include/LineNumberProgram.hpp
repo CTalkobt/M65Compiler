@@ -101,10 +101,13 @@ private:
     LineNumberProgramHeader header_;
     std::vector<uint8_t> lineProgram_;
     std::vector<FileEntry> files_;
-    std::map<std::string, uint32_t> fileMap_;  // filename -> index
+    // FIX #3.3: Use (filename, directory) pair as key to avoid collision
+    std::map<std::pair<std::string, std::string>, uint32_t> fileMap_;
     LineState currentState_;
     LineState previousState_;
     uint32_t nextFileIndex_ = 1;  // 1-based file index
+    // FIX #3.4: Guard against double finalization
+    bool finalized_ = false;
 };
 
 }  // namespace dwarf
