@@ -126,7 +126,7 @@ $(LIB_DIR)/lib45-basic.a: $(addprefix $(OBJ_DIR)/, \
 
 # lib45-audio: Audio and procedural music generation
 $(LIB_DIR)/lib45-audio.a: $(addprefix $(OBJ_DIR)/, \
-    Song.o Track.o Pattern.o Sequencer.o \
+    Song.o Track.o Pattern.o Sequencer.o PlaybackEngine.o \
     Scale.o Chord.o ChordProgression.o \
     MelodicGenerator.o HarmonicGenerator.o RhythmicGenerator.o \
     ProceduralComposer.o \
@@ -286,6 +286,9 @@ $(OBJ_DIR)/Pattern.o: src/audio/Pattern.cpp | $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 $(OBJ_DIR)/Sequencer.o: src/audio/Sequencer.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/PlaybackEngine.o: src/audio/PlaybackEngine.cpp | $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 $(OBJ_DIR)/Scale.o: src/audio/procedural/Scale.cpp | $(OBJ_DIR)
