@@ -730,3 +730,9 @@ void sprite_animation_sequence_done(sprite_animation_sequence_t *seq);
 
 #include <graphics_particles.h>
 
+/* ============================================================================
+ * RASTER RE-WRITE BUFFER (Phase 105)
+ * ============================================================================ */
+
+#include <graphics_rrb.h>
+
