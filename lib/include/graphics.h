@@ -724,3 +724,9 @@ void sprite_animation_sequence_update(sprite_animation_sequence_t *seq);
  */
 void sprite_animation_sequence_done(sprite_animation_sequence_t *seq);
 
+/* ============================================================================
+ * PARTICLE EFFECTS (Phase 104b)
+ * ============================================================================ */
+
+#include <graphics_particles.h>
+
