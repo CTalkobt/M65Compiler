@@ -405,7 +405,7 @@ int sprite_collides(sprite_t *a, sprite_t *b);
 /**
  * sprite_collides_precise - Test pixel-perfect collision
  *
- * Slower but more accurate collision detection.
+ * Slower but more accurate collision detection with fast AABB pre-check.
  * Only works if both sprites have bitmap data set.
  *
  * Parameters:
@@ -415,4 +415,119 @@ int sprite_collides(sprite_t *a, sprite_t *b);
  *   1 if pixel data overlaps, 0 otherwise
  */
 int sprite_collides_precise(sprite_t *a, sprite_t *b);
+
+/**
+ * sprite_collides_color - Collision with color-based masking
+ *
+ * Detects collision where only specific colors trigger collision.
+ * Useful for hit detection without transparency, selective collision.
+ *
+ * Parameters:
+ *   a, b — Sprites to test
+ *   mask_color_a — Color in sprite A that triggers collision
+ *   mask_color_b — Color in sprite B that triggers collision
+ *
+ * Returns:
+ *   1 if pixels of matching colors overlap, 0 otherwise
+ */
+int sprite_collides_color(sprite_t *a, sprite_t *b,
+                          unsigned char mask_color_a,
+                          unsigned char mask_color_b);
+
+/**
+ * sprite_collides_circle - Circular collision test
+ *
+ * Fast collision test for circular sprites.
+ * Assumes sprite dimensions define circle diameter.
+ *
+ * Parameters:
+ *   a, b — Sprites to test (treated as circles)
+ *
+ * Returns:
+ *   1 if circles overlap, 0 otherwise
+ */
+int sprite_collides_circle(sprite_t *a, sprite_t *b);
+
+/**
+ * sprite_overlaps_region - Spatial query collision
+ *
+ * Check if sprite overlaps with rectangular region.
+ * Useful for: spatial queries, region-based collision checks.
+ *
+ * Parameters:
+ *   spr — Sprite to test
+ *   x1, y1, x2, y2 — Region bounds
+ *
+ * Returns:
+ *   1 if sprite overlaps region, 0 otherwise
+ */
+int sprite_overlaps_region(sprite_t *spr, int x1, int y1, int x2, int y2);
+
+/* ============================================================================
+ * OPTIMIZATION: DIRTY-RECTANGLE RENDERING (Phase 103c)
+ * ============================================================================ */
+
+/**
+ * Sprite motion tracking for smooth animation
+ */
+typedef struct {
+    sprite_t *sprite;
+    int vx, vy;                     /* Velocity (pixels/frame) */
+    int remainder_x, remainder_y;   /* Sub-pixel precision */
+} sprite_motion_t;
+
+/**
+ * Sprite layer entry for sorted rendering
+ */
+typedef struct {
+    sprite_t *sprite;
+    int priority;                   /* Higher = rendered on top */
+} sprite_layer_t;
+
+/**
+ * sprite_draw_optimized - Render sprite with dirty-rect optimization
+ *
+ * Only redraws changed regions, skips redraw if sprite hasn't moved.
+ * Significantly faster when multiple sprites move.
+ *
+ * Parameters:
+ *   spr — Sprite to render
+ */
+void sprite_draw_optimized(sprite_t *spr);
+
+/**
+ * sprite_update_batch - Update multiple sprites with dirty-rect batching
+ *
+ * Merges overlapping dirty regions to minimize redraw area.
+ * Use when rendering many sprites each frame.
+ *
+ * Parameters:
+ *   sprites — Array of sprite pointers
+ *   count — Number of sprites
+ */
+void sprite_update_batch(sprite_t **sprites, int count);
+
+/**
+ * sprite_update_motion - Update sprite with velocity
+ *
+ * Updates position using velocity vector with sub-pixel precision.
+ * Supports smooth, predictable motion for camera/parallax effects.
+ *
+ * Parameters:
+ *   motion — Sprite motion tracker
+ *   predict_frames — Frames to predict (typically 1)
+ */
+void sprite_update_motion(sprite_motion_t *motion, int predict_frames);
+
+/**
+ * sprite_render_layered - Render sprites in priority order
+ *
+ * Renders sprites sorted by priority (lowest first = underneath).
+ * Ensures correct z-order rendering.
+ *
+ * Parameters:
+ *   layers — Array of sprite layer entries
+ *   count — Number of sprites
+ */
+void sprite_render_layered(sprite_layer_t *layers, int count);
 
