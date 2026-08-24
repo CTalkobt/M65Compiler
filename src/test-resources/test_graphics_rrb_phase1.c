@@ -22,13 +22,13 @@ int main(void) {
     printf("Test 1: RRB System Initialization\n");
 
     rrb_system_t rrb;
-    int result = rrb_init(&rrb, 3, 40, 25);
+    int result = rrb.init(&rrb, 3, 40, 25);
 
     if (result == 0) {
         printf("  ✓ RRB initialized (3 layers max, 40×25)\n");
     }
 
-    if (!rrb_is_enabled(&rrb)) {
+    if (!rrb.is_enabled()) {
         printf("  ✓ RRB starts disabled\n");
     }
 
@@ -46,23 +46,26 @@ int main(void) {
 
     printf("\nTest 2: Layer Creation\n");
 
-    int layer0 = rrb_layer_create(&rrb, RRB_MODE_FULL, 40, 25);
+    int layer0 = rrb.create_layer(&rrb, RRB_MODE_FULL, 40, 25);
     if (layer0 == 0) {
         printf("  ✓ Layer 0 created (FULL mode, 40×25)\n");
     }
 
-    int layer1 = rrb_layer_create(&rrb, RRB_MODE_SPARSE, 40, 25);
+    int layer1 = rrb.create_layer(&rrb, RRB_MODE_SPARSE, 40, 25);
     if (layer1 == 1) {
         printf("  ✓ Layer 1 created (SPARSE mode, 40×25)\n");
     }
 
-    int layer2 = rrb_layer_create(&rrb, RRB_MODE_STACK, 20, 12);
+    int layer2 = rrb.create_layer(&rrb, RRB_MODE_STACK, 20, 12);
     if (layer2 == 2) {
         printf("  ✓ Layer 2 created (STACK mode, 20×12)\n");
     }
 
+    /* Get layer pointers for later tests */
+    rrb_layer_t *l2 = rrb.get_layer(&rrb, layer2);
+
     /* Try to exceed max layers */
-    int layer3 = rrb_layer_create(&rrb, RRB_MODE_FULL, 40, 25);
+    int layer3 = rrb.create_layer(&rrb, RRB_MODE_FULL, 40, 25);
     if (layer3 == -1) {
         printf("  ✓ Layer creation blocked when max exceeded\n");
     }
@@ -73,17 +76,17 @@ int main(void) {
 
     printf("\nTest 3: Layer Access\n");
 
-    rrb_layer_t *l0 = rrb_get_layer(&rrb, 0);
+    rrb_layer_t *l0 = rrb.get_layer(&rrb, 0);
     if (l0 != NULL && l0->width == 40 && l0->height == 25) {
         printf("  ✓ Layer 0 retrieved with correct dimensions\n");
     }
 
-    rrb_layer_t *l1 = rrb_get_layer(&rrb, 1);
+    rrb_layer_t *l1 = rrb.get_layer(&rrb, 1);
     if (l1 != NULL && l1->mode == RRB_MODE_SPARSE) {
         printf("  ✓ Layer 1 has correct mode (SPARSE)\n");
     }
 
-    rrb_layer_t *invalid = rrb_get_layer(&rrb, 999);
+    rrb_layer_t *invalid = rrb.get_layer(&rrb, 999);
     if (invalid == NULL) {
         printf("  ✓ Invalid layer index returns NULL\n");
     }
@@ -94,20 +97,20 @@ int main(void) {
 
     printf("\nTest 4: Character & Color Access\n");
 
-    rrb_layer_set_char(l0, 0, 0, 'A', 0x0F);
-    unsigned char ch = rrb_layer_get_char(l0, 0, 0);
+    l0->set_char(l0, 0, 0, 'A', 0x0F);
+    unsigned char ch = l0->get_char(l0, 0, 0);
     if (ch == 'A') {
         printf("  ✓ Character set and retrieved (A)\n");
     }
 
-    unsigned char color = rrb_layer_get_color(l0, 0, 0);
+    unsigned char color = l0->get_color(l0, 0, 0);
     if (color == 0x0F) {
         printf("  ✓ Color set and retrieved (0x0F)\n");
     }
 
     /* Set multiple characters */
     for (int i = 0; i < 5; i++) {
-        rrb_layer_set_char(l0, i, 0, 'A' + i, 0x0F);
+        l0->set_char(l0, i, 0, 'A' + i, 0x0F);
     }
     printf("  ✓ Set character row (ABCDE)\n");
 
@@ -117,13 +120,13 @@ int main(void) {
 
     printf("\nTest 5: Layer Clear\n");
 
-    rrb_layer_clear(l0, 32, 0x00);
-    unsigned char cleared = rrb_layer_get_char(l0, 0, 0);
+    l0->clear(l0, 32, 0x00);
+    unsigned char cleared = l0->get_char(l0, 0, 0);
     if (cleared == 32) {
         printf("  ✓ Layer cleared to spaces (0x20)\n");
     }
 
-    unsigned char cleared_color = rrb_layer_get_color(l0, 0, 0);
+    unsigned char cleared_color = l0->get_color(l0, 0, 0);
     if (cleared_color == 0x00) {
         printf("  ✓ Color cleared to 0x00\n");
     }
@@ -134,22 +137,22 @@ int main(void) {
 
     printf("\nTest 6: Layer Configuration\n");
 
-    rrb_layer_set_scroll(l0, 100, 50);
+    l0->set_scroll(l0, 100, 50);
     if (l0->scroll_x == 100 && l0->scroll_y == 50) {
         printf("  ✓ Scroll position set (100, 50)\n");
     }
 
-    rrb_layer_set_priority(l1, 10);
+    l1->set_priority(l1, 10);
     if (l1->priority == 10) {
         printf("  ✓ Priority set to 10\n");
     }
 
-    rrb_layer_hide(l2);
+    l2->hide(l2);
     if (!l2->visible) {
         printf("  ✓ Layer hidden\n");
     }
 
-    rrb_layer_show(l2);
+    l2->show(l2);
     if (l2->visible) {
         printf("  ✓ Layer shown\n");
     }
@@ -160,19 +163,19 @@ int main(void) {
 
     printf("\nTest 7: Direct Memory Access\n");
 
-    unsigned char *screen_ptr = rrb_layer_screen_ptr(l0);
+    unsigned char *screen_ptr = l0->screen_ptr(l0);
     if (screen_ptr != NULL) {
         printf("  ✓ Screen memory pointer obtained\n");
     }
 
-    unsigned char *color_ptr = rrb_layer_color_ptr(l0);
+    unsigned char *color_ptr = l0->color_ptr(l0);
     if (color_ptr != NULL) {
         printf("  ✓ Color memory pointer obtained\n");
     }
 
     /* Write directly to memory */
     screen_ptr[0] = 'X';
-    if (rrb_layer_get_char(l0, 0, 0) == 'X') {
+    if (l0->get_char(l0, 0, 0) == 'X') {
         printf("  ✓ Direct memory write works\n");
     }
 
@@ -182,7 +185,7 @@ int main(void) {
 
     printf("\nTest 8: VIC-IV Configuration\n");
 
-    int config_result = rrb_configure_vic(&rrb, 0, 40, 80);
+    int config_result = rrb.configure_vic(&rrb, 0, 40, 80);
     if (config_result == 0) {
         printf("  ✓ VIC-IV configured (320px, CHRCOUNT=40, LINESTEP=80)\n");
     }
@@ -192,13 +195,13 @@ int main(void) {
     }
 
     /* Test 640px mode */
-    int config_640 = rrb_configure_vic(&rrb, 1, 80, 160);
+    int config_640 = rrb.configure_vic(&rrb, 1, 80, 160);
     if (config_640 == 0 && rrb.h640 == 1) {
         printf("  ✓ 640px mode configured\n");
     }
 
     /* Test invalid parameters */
-    int bad_config = rrb_configure_vic(&rrb, 0, 2000, 80);
+    int bad_config = rrb.configure_vic(&rrb, 0, 2000, 80);
     if (bad_config == -1) {
         printf("  ✓ Invalid CHRCOUNT rejected\n");
     }
@@ -209,13 +212,13 @@ int main(void) {
 
     printf("\nTest 9: RRB Enable/Disable\n");
 
-    rrb_enable(&rrb);
-    if (rrb_is_enabled(&rrb)) {
+    rrb.enable(&rrb);
+    if (rrb.is_enabled()) {
         printf("  ✓ RRB enabled\n");
     }
 
-    rrb_disable(&rrb);
-    if (!rrb_is_enabled(&rrb)) {
+    rrb.disable(&rrb);
+    if (!rrb.is_enabled()) {
         printf("  ✓ RRB disabled\n");
     }
 
@@ -225,13 +228,13 @@ int main(void) {
 
     printf("\nTest 10: Double-Raster-Time Mode\n");
 
-    int dblrr_result = rrb_enable_double_time(&rrb);
-    if (dblrr_result == 0 && rrb.double_raster_time) {
+    int dblrr_result = rrb.enable_double_time(&rrb);
+    if (dblrr_result == 0 && rrb.is_double_time()) {
         printf("  ✓ Double-raster-time enabled\n");
     }
 
-    rrb_disable_double_time(&rrb);
-    if (!rrb.double_raster_time) {
+    rrb.disable_double_time(&rrb);
+    if (!rrb.is_double_time()) {
         printf("  ✓ Double-raster-time disabled\n");
     }
 
@@ -261,12 +264,12 @@ int main(void) {
 
     printf("\nTest 12: Layer Destruction\n");
 
-    rrb_layer_destroy(&rrb, 2);
-    if (rrb.layer_count == 2) {
+    rrb.destroy_layer(&rrb, 2);
+    if (rrb.get_layer_count() == 2) {
         printf("  ✓ Layer 2 destroyed (count now 2)\n");
     }
 
-    rrb_layer_t *destroyed = rrb_get_layer(&rrb, 2);
+    rrb_layer_t *destroyed = rrb.get_layer(&rrb, 2);
     if (destroyed == NULL) {
         printf("  ✓ Destroyed layer inaccessible\n");
     }
@@ -277,8 +280,8 @@ int main(void) {
 
     printf("\nTest 13: RRB Cleanup\n");
 
-    rrb_done(&rrb);
-    if (rrb.layers == NULL && rrb.layer_count == 0) {
+    rrb.done(&rrb);
+    if (rrb.layers == NULL && rrb.get_layer_count() == 0) {
         printf("  ✓ RRB cleaned up\n");
     }
 

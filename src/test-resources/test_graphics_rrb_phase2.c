@@ -16,9 +16,9 @@ int main(void) {
     printf("✓ Graphics initialized in TEXT_40x25 mode\n\n");
 
     rrb_system_t rrb;
-    rrb_init(&rrb, 3, 40, 25);
-    rrb_configure_vic(&rrb, 0, 40, 80);
-    rrb_enable(&rrb);
+    rrb.init(&rrb, 3, 40, 25);
+    rrb.configure_vic(&rrb, 0, 40, 80);
+    rrb.enable(&rrb);
     printf("✓ RRB system initialized\n\n");
 
     /* ====================================================================
@@ -27,20 +27,20 @@ int main(void) {
 
     printf("Test 1: Single Layer Rendering\n");
 
-    int layer0 = rrb_layer_create(&rrb, RRB_MODE_FULL, 40, 25);
-    rrb_layer_t *l0 = rrb_get_layer(&rrb, layer0);
+    int layer0 = rrb.create_layer(&rrb, RRB_MODE_FULL, 40, 25);
+    rrb_layer_t *l0 = rrb.get_layer(&rrb, layer0);
 
     /* Fill layer with grass character */
     for (int row = 0; row < 25; row++) {
         for (int col = 0; col < 40; col++) {
-            rrb_layer_set_char(l0, col, row, '#', 0x02);  /* Green */
+            l0->set_char(l0, col, row, '#', 0x02);  /* Green */
         }
     }
 
-    rrb_layer_set_scroll(l0, 0, 0);
-    rrb_layer_set_priority(l0, 0);
+    l0->set_scroll(l0, 0, 0);
+    l0->set_priority(l0, 0);
 
-    int result = rrb_render(&rrb);
+    int result = rrb.render(&rrb);
     if (result == 0) {
         printf("  ✓ Single layer rendered successfully\n");
     }
@@ -60,26 +60,26 @@ int main(void) {
     /* Layer 0: Terrain (background) */
     for (int row = 0; row < 25; row++) {
         for (int col = 0; col < 40; col++) {
-            rrb_layer_set_char(l0, col, row, '.', 0x02);  /* Grass */
+            l0->set_char(l0, col, row, '.', 0x02);  /* Grass */
         }
     }
 
     /* Layer 1: Objects (sparse) */
-    int layer1 = rrb_layer_create(&rrb, RRB_MODE_SPARSE, 40, 25);
-    rrb_layer_t *l1 = rrb_get_layer(&rrb, layer1);
+    int layer1 = rrb.create_layer(&rrb, RRB_MODE_SPARSE, 40, 25);
+    rrb_layer_t *l1 = rrb.get_layer(&rrb, layer1);
 
     /* Fill with spaces (transparent) */
-    rrb_layer_clear(l1, 32, 0x00);
+    l1->clear(l1, 32, 0x00);
 
     /* Place some objects */
-    rrb_layer_set_char(l1, 10, 10, 'S', 0x01);  /* Soldier */
-    rrb_layer_set_char(l1, 15, 10, 'T', 0x05);  /* Tank */
-    rrb_layer_set_char(l1, 20, 10, 'H', 0x03);  /* House */
+    l1->set_char(l1, 10, 10, 'S', 0x01);  /* Soldier */
+    l1->set_char(l1, 15, 10, 'T', 0x05);  /* Tank */
+    l1->set_char(l1, 20, 10, 'H', 0x03);  /* House */
 
-    rrb_layer_set_priority(l0, 0);   /* Background */
-    rrb_layer_set_priority(l1, 1);   /* Foreground */
+    l0->set_priority(l0, 0);   /* Background */
+    l1->set_priority(l1, 1);   /* Foreground */
 
-    result = rrb_render(&rrb);
+    result = rrb.render(&rrb);
     if (result == 0) {
         printf("  ✓ Multi-layer composition successful\n");
     }
@@ -92,15 +92,15 @@ int main(void) {
 
     printf("\nTest 3: Layer Visibility Control\n");
 
-    rrb_layer_hide(l1);
-    result = rrb_render(&rrb);
+    l1->hide(l1);
+    result = rrb.render(&rrb);
 
     if (result == 0) {
         printf("  ✓ Hidden layer excluded from render\n");
     }
 
-    rrb_layer_show(l1);
-    result = rrb_render(&rrb);
+    l1->show(l1);
+    result = rrb.render(&rrb);
 
     if (result == 0) {
         printf("  ✓ Shown layer included in render\n");
@@ -112,18 +112,18 @@ int main(void) {
 
     printf("\nTest 4: Layer Priority (Z-Order)\n");
 
-    int layer2 = rrb_layer_create(&rrb, RRB_MODE_FULL, 40, 25);
-    rrb_layer_t *l2 = rrb_get_layer(&rrb, layer2);
+    int layer2 = rrb.create_layer(&rrb, RRB_MODE_FULL, 40, 25);
+    rrb_layer_t *l2 = rrb.get_layer(&rrb, layer2);
 
     /* Fill with solid foreground characters */
-    rrb_layer_clear(l2, 32, 0x00);
+    l2->clear(l2, 32, 0x00);
 
     /* Set priorities */
-    rrb_layer_set_priority(l0, 0);   /* Background (grass) */
-    rrb_layer_set_priority(l1, 1);   /* Middle (objects) */
-    rrb_layer_set_priority(l2, 10);  /* Foreground (UI) */
+    l0->set_priority(l0, 0);   /* Background (grass) */
+    l1->set_priority(l1, 1);   /* Middle (objects) */
+    l2->set_priority(l2, 10);  /* Foreground (UI) */
 
-    result = rrb_render(&rrb);
+    result = rrb.render(&rrb);
     if (result == 0) {
         printf("  ✓ Layers rendered in priority order (0, 1, 10)\n");
     }
@@ -134,10 +134,10 @@ int main(void) {
 
     printf("\nTest 5: Scroll Offset Application\n");
 
-    rrb_layer_set_scroll(l0, 100, 50);  /* Background scroll */
-    rrb_layer_set_scroll(l1, 50, 25);   /* Foreground scroll */
+    l0->set_scroll(l0, 100, 50);  /* Background scroll */
+    l1->set_scroll(l1, 50, 25);   /* Foreground scroll */
 
-    result = rrb_render(&rrb);
+    result = rrb.render(&rrb);
     if (result == 0) {
         printf("  ✓ Scroll offsets applied (100,50) and (50,25)\n");
     }
@@ -150,7 +150,7 @@ int main(void) {
 
     int failures = 0;
     for (int row = 0; row < 25; row++) {
-        result = rrb_render_row(&rrb, row);
+        result = rrb.render_row(&rrb, row);
         if (result != 0) {
             failures++;
         }
@@ -169,19 +169,19 @@ int main(void) {
     printf("\nTest 7: Sparse Layer Transparency\n");
 
     /* Create sparse layer with transparent spaces */
-    int layer_sparse = rrb_layer_create(&rrb, RRB_MODE_SPARSE, 40, 25);
-    rrb_layer_t *sparse = rrb_get_layer(&rrb, layer_sparse);
+    int layer_sparse = rrb.create_layer(&rrb, RRB_MODE_SPARSE, 40, 25);
+    rrb_layer_t *sparse = rrb.get_layer(&rrb, layer_sparse);
 
-    rrb_layer_clear(sparse, 32, 0x00);  /* Fill with spaces */
+    sparse->clear(sparse, 32, 0x00);  /* Fill with spaces */
 
     /* Place characters (sparse) */
     for (int i = 0; i < 10; i++) {
-        rrb_layer_set_char(sparse, i * 3, 5, '*', 0x0F);  /* Stars */
+        sparse->set_char(sparse, i * 3, 5, '*', 0x0F);  /* Stars */
     }
 
-    rrb_layer_set_priority(sparse, 2);
+    sparse->set_priority(sparse, 2);
 
-    result = rrb_render(&rrb);
+    result = rrb.render(&rrb);
     if (result == 0) {
         printf("  ✓ Sparse layer with transparency rendered\n");
     }
@@ -192,20 +192,20 @@ int main(void) {
 
     printf("\nTest 8: Multiple GOTOX Instructions\n");
 
-    int layer_multi = rrb_layer_create(&rrb, RRB_MODE_STACK, 10, 25);
-    rrb_layer_t *multi = rrb_get_layer(&rrb, layer_multi);
+    int layer_multi = rrb.create_layer(&rrb, RRB_MODE_STACK, 10, 25);
+    rrb_layer_t *multi = rrb.get_layer(&rrb, layer_multi);
 
     /* Small layer at specific position */
     for (int row = 0; row < 25; row++) {
         for (int col = 0; col < 10; col++) {
-            rrb_layer_set_char(multi, col, row, 'X', 0x01);
+            multi->set_char(multi, col, row, 'X', 0x01);
         }
     }
 
-    rrb_layer_set_priority(multi, 5);
-    rrb_layer_set_scroll(multi, 200, 100);  /* Offset position */
+    multi->set_priority(multi, 5);
+    multi->set_scroll(multi, 200, 100);  /* Offset position */
 
-    result = rrb_render(&rrb);
+    result = rrb.render(&rrb);
     if (result == 0) {
         printf("  ✓ Stack layer with GOTOX repositioning rendered\n");
     }
@@ -275,11 +275,11 @@ int main(void) {
 
     printf("\nTest 12: Layer Destruction\n");
 
-    int initial_count = rrb.layer_count;
+    int initial_count = rrb.get_layer_count();
 
-    rrb_layer_destroy(&rrb, 0);
-    if (rrb.layer_count == initial_count - 1) {
-        printf("  ✓ Layer destroyed (count: %d → %d)\n", initial_count, rrb.layer_count);
+    rrb.destroy_layer(&rrb, 0);
+    if (rrb.get_layer_count() == initial_count - 1) {
+        printf("  ✓ Layer destroyed (count: %d → %d)\n", initial_count, rrb.get_layer_count());
     }
 
     /* ====================================================================
@@ -289,41 +289,41 @@ int main(void) {
     printf("\nTest 13: Full Composition Pipeline\n");
 
     /* Reset system */
-    rrb_done(&rrb);
-    rrb_init(&rrb, 3, 40, 25);
-    rrb_configure_vic(&rrb, 0, 40, 80);
-    rrb_enable(&rrb);
+    rrb.done(&rrb);
+    rrb.init(&rrb, 3, 40, 25);
+    rrb.configure_vic(&rrb, 0, 40, 80);
+    rrb.enable(&rrb);
 
     /* Create 2-layer scene */
-    int bg = rrb_layer_create(&rrb, RRB_MODE_FULL, 40, 25);
-    int fg = rrb_layer_create(&rrb, RRB_MODE_SPARSE, 40, 25);
+    int bg = rrb.create_layer(&rrb, RRB_MODE_FULL, 40, 25);
+    int fg = rrb.create_layer(&rrb, RRB_MODE_SPARSE, 40, 25);
 
-    rrb_layer_t *bg_layer = rrb_get_layer(&rrb, bg);
-    rrb_layer_t *fg_layer = rrb_get_layer(&rrb, fg);
+    rrb_layer_t *bg_layer = rrb.get_layer(&rrb, bg);
+    rrb_layer_t *fg_layer = rrb.get_layer(&rrb, fg);
 
     /* Fill backgrounds */
-    rrb_layer_clear(bg_layer, ' ', 0x00);
-    rrb_layer_clear(fg_layer, ' ', 0x00);
+    bg_layer->clear(bg_layer, ' ', 0x00);
+    fg_layer->clear(fg_layer, ' ', 0x00);
 
     /* Place objects */
     for (int i = 0; i < 20; i++) {
-        rrb_layer_set_char(bg_layer, i, 10, '=', 0x02);
+        bg_layer->set_char(bg_layer, i, 10, '=', 0x02);
     }
     for (int i = 0; i < 5; i++) {
-        rrb_layer_set_char(fg_layer, 5 + i, 10, '*', 0x0F);
+        fg_layer->set_char(fg_layer, 5 + i, 10, '*', 0x0F);
     }
 
-    rrb_layer_set_priority(bg_layer, 0);
-    rrb_layer_set_priority(fg_layer, 1);
+    bg_layer->set_priority(bg_layer, 0);
+    fg_layer->set_priority(fg_layer, 1);
 
-    result = rrb_update(&rrb);
+    result = rrb.update(&rrb);
     printf("  ✓ Full composition pipeline executed\n");
 
     /* ====================================================================
      * Cleanup
      * ==================================================================== */
 
-    rrb_done(&rrb);
+    rrb.done(&rrb);
     graphics_done();
 
     printf("\n✓ All Phase 105.2 tests passed!\n");
