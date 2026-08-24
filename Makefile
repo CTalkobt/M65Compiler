@@ -124,6 +124,15 @@ $(LIB_DIR)/lib45-basic.a: $(addprefix $(OBJ_DIR)/, \
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^
 
+# lib45-audio: Audio and procedural music generation
+$(LIB_DIR)/lib45-audio.a: $(addprefix $(OBJ_DIR)/, \
+    Song.o Track.o Pattern.o Sequencer.o \
+    Scale.o Chord.o ChordProgression.o \
+    MelodicGenerator.o HarmonicGenerator.o RhythmicGenerator.o \
+    ProceduralComposer.o)
+	@mkdir -p $(LIB_DIR)
+	$(AR) rcs $@ $^
+
 # lib45-tools: Disk utilities, format converters (includes optional FUSE3 support)
 LIB45_TOOLS_OBJS = $(addprefix $(OBJ_DIR)/, \
     disk45_catalog.o DiskImage.o DiskImageFactory.o BAMOperations.o \
@@ -148,7 +157,7 @@ $(LIB_DIR)/lib45-tools.a: $(LIB45_TOOLS_OBJS)
 # ============================================================================
 
 all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET) $(NM_TARGET) $(LN_TARGET) \
-     $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET) $(BASIC_TARGET)
+     $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET) $(BASIC_TARGET) | $(LIB_DIR)/lib45-audio.a
 
 man: $(MAN_DIR)/cc45.1 $(MAN_DIR)/ca45.1 $(MAN_DIR)/cp45.1 $(MAN_DIR)/ln45.1 $(MAN_DIR)/nm45.1 $(MAN_DIR)/ar45.1 $(MAN_DIR)/objdump45.1
 
@@ -260,6 +269,44 @@ $(OBJ_DIR)/AssemblyStage.o: $(SRC_DIR)/AssemblyStage.cpp | $(OBJ_DIR)
 $(OBJ_DIR)/LinkingStage.o: $(SRC_DIR)/LinkingStage.cpp | $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
+# Audio/procedural compilation rules
+AUDIO_PROCEDURAL_SRCS = $(wildcard src/audio/procedural/*.cpp) $(wildcard src/audio/*.cpp)
+AUDIO_PROCEDURAL_OBJS = $(patsubst src/audio/%.cpp,$(OBJ_DIR)/%.o,$(AUDIO_PROCEDURAL_SRCS)) \
+                        $(patsubst src/audio/procedural/%.cpp,$(OBJ_DIR)/%.o,$(AUDIO_PROCEDURAL_SRCS))
+
+$(OBJ_DIR)/Song.o: src/audio/Song.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/Track.o: src/audio/Track.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/Pattern.o: src/audio/Pattern.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/Sequencer.o: src/audio/Sequencer.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/Scale.o: src/audio/procedural/Scale.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/Chord.o: src/audio/procedural/Chord.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/ChordProgression.o: src/audio/procedural/ChordProgression.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/MelodicGenerator.o: src/audio/procedural/MelodicGenerator.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/HarmonicGenerator.o: src/audio/procedural/HarmonicGenerator.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/RhythmicGenerator.o: src/audio/procedural/RhythmicGenerator.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/ProceduralComposer.o: src/audio/procedural/ProceduralComposer.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
 # Default compilation rule for all object files
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp | $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
@@ -293,7 +340,8 @@ $(LIB_DIR):
 lib45-libraries: $(LIB_DIR)/lib45-common.a $(LIB_DIR)/lib45-c-compile.a \
                 $(LIB_DIR)/lib45-ir.a $(LIB_DIR)/lib45-opt.a \
                 $(LIB_DIR)/lib45-codegen.a $(LIB_DIR)/lib45-linker.a \
-                $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-tools.a
+                $(LIB_DIR)/lib45-basic.a $(LIB_DIR)/lib45-tools.a \
+                $(LIB_DIR)/lib45-audio.a
 
 # Show library dependency information
 show-lib-deps:
