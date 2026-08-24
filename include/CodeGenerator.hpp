@@ -1,6 +1,7 @@
 #pragma once
 #include "AST.hpp"
 #include "M65Emitter.hpp"
+#include "LineNumberProgram.hpp"
 #include <iostream>
 #include <ostream>
 #include <vector>
@@ -393,4 +394,7 @@ public:
     bool isZPVariable(const std::string& varName) const;
     bool isABSVariable(const std::string& varName) const;
     bool isFARVariable(const std::string& varName) const;
+
+    // Phase 113: Line number program for DWARF debug info
+    dwarf::LineNumberProgramBuilder lineNumberBuilder_;
 };

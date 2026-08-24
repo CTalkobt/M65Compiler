@@ -3,6 +3,8 @@
 #include "IR.hpp"
 #include "TypeSystem.hpp"
 #include "IPOProfiler.hpp"
+#include "SourceLocationTracker.hpp"
+#include "DebugInfoBuilder.hpp"
 #include <map>
 #include <set>
 #include <string>
@@ -20,6 +22,10 @@ public:
     ir::Module& getModule() { return module_; }
     const IPOProfiler& getProfiler() const { return profiler_; }
     IPOProfiler& getProfiler() { return profiler_; }
+    SourceLocationTracker& getSourceTracker() { return sourceTracker_; }
+    const SourceLocationTracker& getSourceTracker() const { return sourceTracker_; }
+    DebugInfoBuilder& getDebugBuilder() { return debugBuilder_; }
+    const DebugInfoBuilder& getDebugBuilder() const { return debugBuilder_; }
     bool hasErrors() const { return !errors_.empty(); }
     const std::vector<std::string>& getErrors() const { return errors_; }
     const std::vector<std::string>& getWarnings() const { return warnings_; }
@@ -104,6 +110,8 @@ private:
 
     ir::Module module_;
     IPOProfiler profiler_;  // Collects function profiles for cross-module optimization
+    SourceLocationTracker sourceTracker_;  // Phase 113: Tracks source locations for DWARF
+    DebugInfoBuilder debugBuilder_;        // Phase 113: Builds DWARF debug information
     ir::Function* currentFunc_ = nullptr;
     ir::Block* currentBlock_ = nullptr;
 

@@ -926,6 +926,10 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     currentFunc_ = fnPtr;
     startBlock("entry");
 
+    // Phase 113: Track function definition for DWARF debug info
+    sourceTracker_.setCurrentFile(node.sourceFile);
+    sourceTracker_.trackFunctionDef(node.name, node.line, node.column, 0, 0);  // Address ranges set during codegen
+
     // Load static link from ZP if nested
     if (fnPtr->isNested) {
         ir::Type pt = ir::Type::PTR;
@@ -979,6 +983,9 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         }
         if (p.isVolatile) currentFunc_->memoryVregs.insert(vreg.vregId);
         currentFunc_->localSlotVregs.insert(vreg.vregId);
+
+        // Phase 113: Track parameter for DWARF debug info
+        sourceTracker_.trackVariableDecl(p.name, p.line, p.column, p.type, 0, true);
     }
 
     // Visit body
@@ -1320,11 +1327,17 @@ void IRBuilder::visit(VariableDeclaration& node) {
         currentFunc_->vregSizes[vreg.vregId] = totalSize;
         currentFunc_->memoryVregs.insert(vreg.vregId);
     }
-    
+
     if (getTypeSize(node.type, 0) > 2 && node.pointerLevel == 0 && node.arrayDims.empty()) {
         // Large aggregates (non-array) must go to frame with correct byte size
         currentFunc_->memoryVregs.insert(vreg.vregId);
         currentFunc_->vregSizes[vreg.vregId] = getTypeSize(node.type, 0);
+    }
+
+    // Phase 113: Track local variable declaration for DWARF debug info
+    if (currentFunc_) {
+        sourceTracker_.trackVariableDecl(node.name, node.line, node.column,
+                                        resolvedVarTypeName, vreg.vregId, false);
     }
 
     // Phase 3: Auto-initialize __vt pointer for structs with virtual methods
