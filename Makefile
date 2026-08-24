@@ -124,7 +124,7 @@ $(LIB_DIR)/lib45-basic.a: $(addprefix $(OBJ_DIR)/, \
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^
 
-# lib45-audio: Audio and procedural music generation (includes Phase 12-17)
+# lib45-audio: Audio and procedural music generation (includes Phase 12-18)
 $(LIB_DIR)/lib45-audio.a: $(addprefix $(OBJ_DIR)/, \
     Song.o Track.o Pattern.o Sequencer.o PlaybackEngine.o \
     Scale.o Chord.o ChordProgression.o \
@@ -133,7 +133,8 @@ $(LIB_DIR)/lib45-audio.a: $(addprefix $(OBJ_DIR)/, \
     JazzComposer.o AmbientComposer.o TechnoComposer.o \
     FolkComposer.o ClassicalComposer.o ChiptureComposer.o RagtimeComposer.o \
     SIDChip.o AudioDriver.o DIGIAudio.o \
-    KeyboardController.o SynthesizerUI.o)
+    KeyboardController.o SynthesizerUI.o \
+    Effect.o EffectsChain.o)
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^
 
@@ -352,6 +353,13 @@ $(OBJ_DIR)/KeyboardController.o: src/audio/KeyboardController.cpp | $(OBJ_DIR)
 $(OBJ_DIR)/SynthesizerUI.o: src/audio/SynthesizerUI.cpp | $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
+# Phase 18: Audio Effects Processing
+$(OBJ_DIR)/Effect.o: src/audio/Effect.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/EffectsChain.o: src/audio/EffectsChain.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
 # Default compilation rule for all object files
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp | $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
@@ -380,7 +388,7 @@ $(LIB_DIR):
 .PHONY: test-validation-simops test-validation-directives test-validation-symbols
 .PHONY: test-validation-segments test-validation-proc test-validation-addressing
 .PHONY: test-validation-simops-extended test-objdump45
-.PHONY: test-phase12 test-phase13 test-phase14 test-phase15 test-phase16 test-phase17
+.PHONY: test-phase12 test-phase13 test-phase14 test-phase15 test-phase16 test-phase17 test-phase18
 
 # Build all lib45 libraries
 lib45-libraries: $(LIB_DIR)/lib45-common.a $(LIB_DIR)/lib45-c-compile.a \
@@ -944,6 +952,19 @@ $(OBJ_DIR)/test_phase17_realtime_control.o: src/test-resources/test_phase17_real
 
 test-phase17: $(TEST_PHASE17_TARGET) lib
 	@$(TEST_PHASE17_TARGET)
+
+TEST_PHASE18_TARGET = $(BIN_DIR)/test_phase18_effects
+TEST_PHASE18_OBJECTS = $(OBJ_DIR)/test_phase18_effects.o $(OBJ_DIR)/Effect.o $(OBJ_DIR)/EffectsChain.o
+
+$(TEST_PHASE18_TARGET): $(TEST_PHASE18_OBJECTS)
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $^
+
+$(OBJ_DIR)/test_phase18_effects.o: src/test-resources/test_phase18_effects.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+test-phase18: $(TEST_PHASE18_TARGET) lib
+	@$(TEST_PHASE18_TARGET)
 
 docker:
 	@echo "Building Docker image..."
