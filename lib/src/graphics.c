@@ -13,6 +13,7 @@
 
 extern graphics_driver_t graphics_driver_text_40x25;
 extern graphics_driver_t graphics_driver_text_80x24;
+extern graphics_driver_t graphics_driver_graphics_80x50;
 extern graphics_driver_t graphics_driver_bitmap_320x200;
 extern graphics_driver_t graphics_driver_bitmap_160x200;
 
@@ -37,6 +38,7 @@ graphics_state_t graphics_state = {
 static graphics_driver_t *drivers[] = {
     &graphics_driver_text_40x25,
     &graphics_driver_text_80x24,
+    &graphics_driver_graphics_80x50,
     &graphics_driver_bitmap_320x200,
     &graphics_driver_bitmap_160x200,
     0  /* Sentinel */

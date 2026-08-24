@@ -17,6 +17,7 @@
 typedef enum {
     GRAPHICS_MODE_TEXT_40x25,       /* 40×25 text mode (standard) */
     GRAPHICS_MODE_TEXT_80x24,       /* 80×24 text mode (MEGA65 extended) */
+    GRAPHICS_MODE_GRAPHICS_80x50,   /* 80×50 graphics (block characters) */
     GRAPHICS_MODE_BITMAP_320x200,   /* 320×200 monochrome bitmap */
     GRAPHICS_MODE_BITMAP_160x200    /* 160×200 multicolor bitmap */
 } graphics_mode_t;
