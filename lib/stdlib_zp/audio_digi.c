@@ -12,23 +12,23 @@
  * DIGI SYSTEM METHOD IMPLEMENTATIONS (standalone functions)
  * ============================================================================ */
 
-void digi_system_t__init(struct digi_system *this) {
-    this->volume = DIGI_VOLUME_DEFAULT;
-    this->frequency = DIGI_FREQ_DEFAULT;
-    this->playing = 0;
-    this->paused = 0;
-    this->current_sample = NULL;
-    this->current_sample_length = 0;
-    this->current_position = 0;
-    this->current_frequency = DIGI_FREQ_DEFAULT;
-    this->current_format = DIGI_FORMAT_UNSIGNED_8BIT;
-    this->current_looping = 0;
+void digi_system_t__init(struct digi_system  *p) {
+    p->volume = DIGI_VOLUME_DEFAULT;
+    p->frequency = DIGI_FREQ_DEFAULT;
+    p->playing = 0;
+    p->paused = 0;
+    p->current_sample = NULL;
+    p->current_sample_length = 0;
+    p->current_position = 0;
+    p->current_frequency = DIGI_FREQ_DEFAULT;
+    p->current_format = DIGI_FORMAT_UNSIGNED_8BIT;
+    p->current_looping = 0;
 }
 
-void digi_system_t__done(struct digi_system *this) {
-    this->stop(this);
-    this->volume = 0;
-    this->frequency = 0;
+void digi_system_t__done(struct digi_system  *p) {
+    p->stop(p);
+    p->volume = 0;
+    p->frequency = 0;
 }
 
 int digi_system_t__play_sample(struct digi_system *this, unsigned char *sample, int length,
@@ -36,88 +36,88 @@ int digi_system_t__play_sample(struct digi_system *this, unsigned char *sample, 
     if (!sample || length <= 0 || frequency <= 0) return -1;
     if (length > DIGI_MAX_SAMPLE_SIZE) return -1;
 
-    this->current_sample = sample;
-    this->current_sample_length = length;
-    this->current_position = 0;
-    this->current_frequency = frequency;
-    this->current_format = format;
-    this->current_looping = looping;
+    p->current_sample = sample;
+    p->current_sample_length = length;
+    p->current_position = 0;
+    p->current_frequency = frequency;
+    p->current_format = format;
+    p->current_looping = looping;
 
-    this->playing = 1;
-    this->paused = 0;
+    p->playing = 1;
+    p->paused = 0;
 
     return 0;
 }
 
-void digi_system_t__stop(struct digi_system *this) {
-    this->playing = 0;
-    this->paused = 0;
-    this->current_sample = NULL;
-    this->current_position = 0;
+void digi_system_t__stop(struct digi_system  *p) {
+    p->playing = 0;
+    p->paused = 0;
+    p->current_sample = NULL;
+    p->current_position = 0;
 }
 
-void digi_system_t__pause(struct digi_system *this) {
-    if (this->playing && !this->paused) {
-        this->paused = 1;
-        this->playing = 0;
+void digi_system_t__pause(struct digi_system  *p) {
+    if (p->playing && !p->paused) {
+        p->paused = 1;
+        p->playing = 0;
     }
 }
 
-void digi_system_t__resume(struct digi_system *this) {
-    if (this->current_sample && this->paused) {
-        this->paused = 0;
-        this->playing = 1;
+void digi_system_t__resume(struct digi_system  *p) {
+    if (p->current_sample && p->paused) {
+        p->paused = 0;
+        p->playing = 1;
     }
 }
 
-int digi_system_t__is_playing(struct digi_system *this) {
-    return this->playing;
+int digi_system_t__is_playing(struct digi_system  *p) {
+    return p->playing;
 }
 
-int digi_system_t__get_position(struct digi_system *this) {
-    if (!this->playing && !this->paused) return -1;
-    return this->current_position;
+int digi_system_t__get_position(struct digi_system  *p) {
+    if (!p->playing && !p->paused) return -1;
+    return p->current_position;
 }
 
 int digi_system_t__seek(struct digi_system *this, int position) {
-    if (!this->current_sample || position < 0 || position >= this->current_sample_length) {
+    if (!p->current_sample || position < 0 || position >= p->current_sample_length) {
         return -1;
     }
-    this->current_position = position;
+    p->current_position = position;
     return 0;
 }
 
 void digi_system_t__set_volume(struct digi_system *this, int volume) {
     if (volume < DIGI_VOLUME_MIN) volume = DIGI_VOLUME_MIN;
     if (volume > DIGI_VOLUME_MAX) volume = DIGI_VOLUME_MAX;
-    this->volume = volume;
+    p->volume = volume;
 }
 
-int digi_system_t__get_volume(struct digi_system *this) {
-    return this->volume;
+int digi_system_t__get_volume(struct digi_system  *p) {
+    return p->volume;
 }
 
 void digi_system_t__set_frequency(struct digi_system *this, int frequency) {
     if (frequency > 0) {
-        this->current_frequency = frequency;
+        p->current_frequency = frequency;
     }
 }
 
-int digi_system_t__get_frequency(struct digi_system *this) {
-    return this->current_frequency;
+int digi_system_t__get_frequency(struct digi_system  *p) {
+    return p->current_frequency;
 }
 
-void digi_system_t__update(struct digi_system *this) {
-    if (!this->playing || !this->current_sample) return;
+void digi_system_t__update(struct digi_system  *p) {
+    if (!p->playing || !p->current_sample) return;
 
-    this->current_position++;
+    p->current_position++;
 
-    if (this->current_position >= this->current_sample_length) {
-        if (this->current_looping) {
-            this->current_position = 0;
+    if (p->current_position >= p->current_sample_length) {
+        if (p->current_looping) {
+            p->current_position = 0;
         } else {
-            this->playing = 0;
-            this->current_sample = NULL;
+            p->playing = 0;
+            p->current_sample = NULL;
         }
     }
 }
@@ -126,49 +126,49 @@ void digi_system_t__update(struct digi_system *this) {
  * DIGI SAMPLE METHOD IMPLEMENTATIONS (standalone functions)
  * ============================================================================ */
 
-void digi_sample_t__destroy(struct digi_sample *this) {
-    if (!this) return;
-    free(this->data);
-    free(this);
+void digi_sample_t__destroy(struct digi_sample  *p) {
+    if (!p) return;
+    free(p->data);
+    free(p);
 }
 
 void digi_sample_t__silence(struct digi_sample *this, digi_format_t format) {
-    if (!this || !this->data || this->length <= 0) return;
+    if (!this || !p->data || p->length <= 0) return;
 
     unsigned char silence_value = (format == DIGI_FORMAT_UNSIGNED_8BIT) ? 0x80 : 0x00;
-    memset(this->data, silence_value, this->length);
+    memset(p->data, silence_value, p->length);
 }
 
 void digi_sample_t__apply_volume(struct digi_sample *this, int volume, digi_format_t format) {
-    if (!this || !this->data || this->length <= 0) return;
+    if (!this || !p->data || p->length <= 0) return;
     if (volume < 0) volume = 0;
     if (volume > 255) volume = 255;
 
     if (format == DIGI_FORMAT_UNSIGNED_8BIT) {
-        for (int i = 0; i < this->length; i++) {
-            int centered = (int)this->data[i] - 128;
+        for (int i = 0; i < p->length; i++) {
+            int centered = (int)p->data[i] - 128;
             int scaled = (centered * volume) / 255;
-            this->data[i] = (unsigned char)((scaled + 128) & 0xFF);
+            p->data[i] = (unsigned char)((scaled + 128) & 0xFF);
         }
     } else {
-        for (int i = 0; i < this->length; i++) {
-            int val = (int)(signed char)this->data[i];
+        for (int i = 0; i < p->length; i++) {
+            int val = (int)(signed char)p->data[i];
             int scaled = (val * volume) / 255;
-            this->data[i] = (unsigned char)(scaled & 0xFF);
+            p->data[i] = (unsigned char)(scaled & 0xFF);
         }
     }
 }
 
-void digi_sample_t__reverse(struct digi_sample *this) {
-    if (!this || !this->data || this->length <= 0) return;
+void digi_sample_t__reverse(struct digi_sample  *p) {
+    if (!this || !p->data || p->length <= 0) return;
 
     int left = 0;
-    int right = this->length - 1;
+    int right = p->length - 1;
 
     while (left < right) {
-        unsigned char tmp = this->data[left];
-        this->data[left] = this->data[right];
-        this->data[right] = tmp;
+        unsigned char tmp = p->data[left];
+        p->data[left] = p->data[right];
+        p->data[right] = tmp;
         left++;
         right--;
     }
