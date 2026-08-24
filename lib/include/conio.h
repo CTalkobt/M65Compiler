@@ -295,3 +295,153 @@ int getch_xy(int x, int y);
  */
 int getattr_xy(int x, int y);
 
+/* ============================================================================
+ * FULL-COLOR TEXT MODE (FCM) FUNCTIONS
+ * ============================================================================ */
+
+/**
+ * fcm_enable - Enable VIC-IV Full-Color Text Mode
+ *
+ * Enables full-color text mode on MEGA65, allowing per-character
+ * foreground (0-15) and background (0-15) colors independently.
+ * Requires Phase 30 feature detection to check availability.
+ *
+ * Returns:
+ *   1 if FCM enabled successfully, 0 if unavailable
+ */
+int fcm_enable(void);
+
+/**
+ * fcm_disable - Disable Full-Color Text Mode
+ *
+ * Returns to standard VIC-II compatible text mode.
+ */
+void fcm_disable(void);
+
+/**
+ * fcm_is_enabled - Check if Full-Color Text Mode is active
+ *
+ * Returns:
+ *   1 if FCM is enabled, 0 if in standard mode
+ */
+int fcm_is_enabled(void);
+
+/**
+ * fcm_putch - Write character with explicit colors at position
+ *
+ * Writes a character at position (x, y) with foreground and
+ * background colors. Works in FCM mode only.
+ *
+ * Parameters:
+ *   x — Column
+ *   y — Row
+ *   ch — Character to write
+ *   fg — Foreground color (0-15)
+ *   bg — Background color (0-15)
+ */
+void fcm_putch(int x, int y, int ch, int fg, int bg);
+
+/**
+ * fcm_cputs - Write string with colors at position
+ *
+ * Writes a string starting at position (x, y) with specified
+ * foreground and background colors.
+ *
+ * Parameters:
+ *   x — Column
+ *   y — Row
+ *   str — Null-terminated string
+ *   fg — Foreground color (0-15)
+ *   bg — Background color (0-15)
+ *
+ * Returns:
+ *   0 on success, -1 on error
+ */
+int fcm_cputs(int x, int y, const char *str, int fg, int bg);
+
+/**
+ * fcm_cprintf - Formatted output with colors at position
+ *
+ * Like cprintf, but with explicit position and colors.
+ *
+ * Parameters:
+ *   x — Column
+ *   y — Row
+ *   fg — Foreground color (0-15)
+ *   bg — Background color (0-15)
+ *   format — Format string (printf-compatible)
+ *   ... — Variable arguments
+ *
+ * Returns:
+ *   Number of characters written
+ */
+int fcm_cprintf(int x, int y, int fg, int bg, const char *format, ...);
+
+/**
+ * fcm_fill_rect - Fill rectangle with character and colors
+ *
+ * Fills a rectangular region from (x1, y1) to (x2, y2) with
+ * the specified character and colors.
+ *
+ * Parameters:
+ *   x1, y1 — Top-left corner
+ *   x2, y2 — Bottom-right corner
+ *   ch — Character to fill with
+ *   fg — Foreground color (0-15)
+ *   bg — Background color (0-15)
+ */
+void fcm_fill_rect(int x1, int y1, int x2, int y2, int ch, int fg, int bg);
+
+/**
+ * fcm_set_line_color - Set color for entire text line
+ *
+ * Sets the foreground and background color for all characters
+ * on a given row.
+ *
+ * Parameters:
+ *   y — Row number
+ *   fg — Foreground color (0-15)
+ *   bg — Background color (0-15)
+ */
+void fcm_set_line_color(int y, int fg, int bg);
+
+/**
+ * fcm_getattr_xy - Read foreground and background colors
+ *
+ * Reads both foreground and background colors at position (x, y).
+ *
+ * Parameters:
+ *   x — Column
+ *   y — Row
+ *
+ * Returns:
+ *   Combined attribute: (bg << 4) | fg
+ */
+int fcm_getattr_xy(int x, int y);
+
+/* ============================================================================
+ * SCREEN WIDTH FUNCTIONS (supports 40-column and 80-column modes)
+ * ============================================================================ */
+
+/**
+ * conio_set_width - Set screen width (40 or 80 columns)
+ *
+ * Switches between 40-column standard mode and 80-column H640 mode.
+ * Requires FEATURE_H640 available (check via Phase 30).
+ *
+ * Parameters:
+ *   width — 40 for standard, 80 for H640 mode
+ *
+ * Returns:
+ *   1 if successful, 0 if mode unavailable
+ */
+int conio_set_width(int width);
+
+/**
+ * conio_get_width - Get current screen width
+ *
+ * Returns:
+ *   Current screen width (40 or 80)
+ */
+int conio_get_width(void);
+

@@ -26,6 +26,10 @@ static int current_bg = BLACK;
 static int screen_width = CONIO_COLS;
 static int screen_height = CONIO_ROWS;
 
+/* Full-Color Text Mode state */
+static int fcm_enabled = 0;
+static unsigned char *fcm_attr_ram = (unsigned char *)0x2000;  /* Attribute RAM (alt location) */
+
 /* ============================================================================
  * INTERNAL HELPERS
  * ============================================================================ */
@@ -262,5 +266,178 @@ int getch_xy(int x, int y) {
 int getattr_xy(int x, int y) {
     int offset = _get_screen_offset(x, y);
     return (int)COLOR_RAM[offset];
+}
+
+/* ============================================================================
+ * FULL-COLOR TEXT MODE IMPLEMENTATION
+ * ========================================================================== */
+
+int fcm_enable(void) {
+    /* Check if FCM is available (Phase 30 integration point) */
+    /* For now, always succeed - real implementation checks FEATURE_FCM */
+
+    if (fcm_enabled) return 1;
+
+    /* Unlock VIC-III/IV */
+    vic4->key = 0xA5;
+    vic4->key = 0x96;
+
+    /* Enable full-color mode in VIC-IV control B */
+    vic4->ctrl_b |= VIC4_FCM;
+
+    /* Enable 16-bit character mode in VIC-IV control C */
+    vic4->ctrl_c |= VIC4_CHR16;
+
+    /* Clear attribute RAM (set all backgrounds to black) */
+    int i;
+    int size = screen_width * screen_height;
+    for (i = 0; i < size; ++i) {
+        fcm_attr_ram[i] = 0;
+    }
+
+    fcm_enabled = 1;
+    return 1;
+}
+
+void fcm_disable(void) {
+    if (!fcm_enabled) return;
+
+    /* Unlock VIC-III/IV */
+    vic4->key = 0xA5;
+    vic4->key = 0x96;
+
+    /* Disable full-color mode */
+    vic4->ctrl_b &= ~VIC4_FCM;
+
+    /* Disable 16-bit character mode */
+    vic4->ctrl_c &= ~VIC4_CHR16;
+
+    fcm_enabled = 0;
+}
+
+int fcm_is_enabled(void) {
+    return fcm_enabled;
+}
+
+void fcm_putch(int x, int y, int ch, int fg, int bg) {
+    int offset = _get_screen_offset(x, y);
+
+    SCREEN_RAM[offset] = (unsigned char)ch;
+
+    if (fcm_enabled) {
+        /* In FCM mode: foreground in COLOR_RAM, background in ATTR_RAM */
+        COLOR_RAM[offset] = (unsigned char)fg;
+        fcm_attr_ram[offset] = (unsigned char)bg;
+    } else {
+        /* In standard mode: combined (bg << 4) | fg */
+        COLOR_RAM[offset] = (unsigned char)((bg << 4) | fg);
+    }
+}
+
+int fcm_cputs(int x, int y, const char *str, int fg, int bg) {
+    int count = 0;
+    int cx = x;
+    int cy = y;
+
+    if (!str) return -1;
+
+    while (*str) {
+        fcm_putch(cx, cy, (int)*str, fg, bg);
+        count++;
+        cx++;
+
+        if (cx >= screen_width) {
+            cx = 0;
+            cy++;
+            if (cy >= screen_height) {
+                break;  /* Reached end of screen */
+            }
+        }
+
+        str++;
+    }
+
+    return 0;
+}
+
+int fcm_cprintf(int x, int y, int fg, int bg, const char *format, ...) {
+    char buffer[256];
+    va_list args;
+    int count;
+
+    va_start(args, format);
+    count = vsprintf(buffer, format, args);
+    va_end(args);
+
+    if (count >= 0) {
+        fcm_cputs(x, y, buffer, fg, bg);
+    }
+
+    return count;
+}
+
+void fcm_fill_rect(int x1, int y1, int x2, int y2, int ch, int fg, int bg) {
+    int x, y;
+
+    for (y = y1; y <= y2 && y < screen_height; ++y) {
+        for (x = x1; x <= x2 && x < screen_width; ++x) {
+            fcm_putch(x, y, ch, fg, bg);
+        }
+    }
+}
+
+void fcm_set_line_color(int y, int fg, int bg) {
+    int x;
+
+    if (y < 0 || y >= screen_height) return;
+
+    for (x = 0; x < screen_width; ++x) {
+        int offset = _get_screen_offset(x, y);
+
+        if (fcm_enabled) {
+            COLOR_RAM[offset] = (unsigned char)fg;
+            fcm_attr_ram[offset] = (unsigned char)bg;
+        } else {
+            COLOR_RAM[offset] = (unsigned char)((bg << 4) | fg);
+        }
+    }
+}
+
+int fcm_getattr_xy(int x, int y) {
+    int offset = _get_screen_offset(x, y);
+
+    if (fcm_enabled) {
+        int fg = (int)COLOR_RAM[offset];
+        int bg = (int)fcm_attr_ram[offset];
+        return (bg << 4) | fg;
+    } else {
+        return (int)COLOR_RAM[offset];
+    }
+}
+
+int conio_set_width(int width) {
+    if (width == 40) {
+        /* Reset to 40-column mode */
+        vic4->key = 0xA5;
+        vic4->key = 0x96;
+        vic4->ctrl_c &= ~VIC4_H640;
+
+        screen_width = CONIO_COLS;
+        return 1;
+    } else if (width == 80) {
+        /* Switch to 80-column H640 mode */
+        vic4->key = 0xA5;
+        vic4->key = 0x96;
+        vic4->ctrl_c |= VIC4_H640;
+
+        screen_width = 80;
+        return 1;
+    }
+
+    return 0;
+}
+
+int conio_get_width(void) {
+    return screen_width;
 }
 
