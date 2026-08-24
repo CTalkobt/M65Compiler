@@ -2,6 +2,7 @@
 #include "Stage.hpp"
 #include "PreprocessStage.hpp"
 #include "ParseStage.hpp"
+#include "Parser.hpp"  // Phase 102: For TypeAlias definition
 #include "OptimizeStage.hpp"
 #include "CodegenStage.hpp"
 #include "AssemblyStage.hpp"
@@ -103,6 +104,18 @@ CompilationResult CompilationPipeline::compile() {
         }
         auto ast = parseStage.getAST();
 
+        // Phase 102: Extract typedef information for IR generation
+        // Build typedef mappings for struct/union types from parseStage
+        std::map<std::string, std::string> typedefMappings;
+        const auto& typedefInfo = parseStage.getTypedefInfo();
+        for (const auto& [typedefName, typeInfo] : typedefInfo) {
+            const auto& [baseType, pointerLevel] = typeInfo;
+            // Only register struct/union typedefs
+            if (baseType.find("struct ") == 0 || baseType.find("union ") == 0) {
+                typedefMappings[typedefName] = baseType;
+            }
+        }
+
         // Stage 3: Optimize
         OptimizeStage optimizeStage(ast, config_.optimizationLevel,
                                    config_.verboseLevel, config_.inlineSmallFunctions);
@@ -120,6 +133,10 @@ CompilationResult CompilationPipeline::compile() {
         CodegenStage codegenStage(ast, analyzer, config_.optimizationLevel,
                                  config_.verboseLevel, config_.inlineSmallFunctions,
                                  config_.staticAllocMode, config_.saveTemps);
+
+        // Phase 102: Pass typedef mappings to codegen stage
+        codegenStage.setTypedefMappings(typedefMappings);
+
         auto codegenResult = runStage(codegenStage);
         if (!codegenResult.success) {
             result.success = false;

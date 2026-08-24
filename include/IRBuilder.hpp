@@ -77,6 +77,13 @@ public:
 
     void emitConditionBranches(Expression* cond, const std::string& trueLabel,
                                const std::string& falseLabel, ir::SourceLoc sl);
+
+    // Phase 102: Typedef resolution interface
+    void registerAllStructDefinitions(TranslationUnit& unit);
+    std::string resolveTypedefToStruct(const std::string& typedefName);
+    void registerTypedefToStruct(const std::string& typedefName, const std::string& structName);
+    void setTypedefMappings(const std::map<std::string, std::string>& typedefToBaseType);
+
 private:
     struct FunctionScope {
         ir::Function* func = nullptr;
@@ -158,6 +165,9 @@ private:
         int totalSize = 0;
     };
     std::map<std::string, IRStructInfo> structs_;
+
+    // Phase 102: Typedef to struct mapping for resolving typedef'd struct types
+    std::map<std::string, std::string> typedefToStruct_; // typedef name → struct name (e.g., "digi_system_t" → "struct digi_system")
 
     // Break/continue label stack
     struct LoopLabels {

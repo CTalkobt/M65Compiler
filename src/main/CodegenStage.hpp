@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <map>
 
 class TranslationUnit;
 class FunctionAnalyzer;
@@ -38,6 +39,12 @@ public:
     // Get IR output (assembly-ready)
     std::string getIROutput() const { return irOutput_; }
 
+    // Phase 102: Set typedef information from parser
+    // Map: typedef_name → struct/union base type name
+    void setTypedefMappings(const std::map<std::string, std::string>& typedefMappings) {
+        typedefMappings_ = typedefMappings;
+    }
+
 private:
     std::shared_ptr<TranslationUnit> ast_;
     std::shared_ptr<FunctionAnalyzer> analyzer_;
@@ -48,6 +55,9 @@ private:
     bool saveTemps_;
     std::shared_ptr<ir::Module> irModule_;
     std::string irOutput_;
+
+    // Phase 102: Typedef mappings from parser (typedef_name → baseType)
+    std::map<std::string, std::string> typedefMappings_;
 
     // Helper methods for codegen phases
     void configureIRBuilder();

@@ -7,9 +7,24 @@
 #include "AST.hpp"
 
 class Parser {
+    // Phase 102: Define TypeAlias before public methods that use it
+    // This struct must be defined early so public methods can reference it
 public:
+    struct TypeAlias {
+        std::string baseType;
+        int pointerLevel;
+        bool isSigned;
+        bool isFunctionPointer = false;
+        std::shared_ptr<FuncPtrSignature> funcPtrSig;
+        std::vector<int> arrayDims;
+    };
+
     Parser(const std::vector<Token>& tokens);
     std::unique_ptr<TranslationUnit> parse();
+
+    // Phase 102: Get typedef information for IR generation
+    const std::map<std::string, TypeAlias>& getTypedefs() const { return typedefs; }
+    const std::map<std::string, StructDefinition*>& getStructDefinitions() const { return structs; }
 
 private:
     std::vector<Token> tokens;
@@ -75,14 +90,6 @@ private:
     bool isTypeStartToken() const;   // peek: does current token start a type?
     bool isTypeStartAt(size_t look) const; // lookahead version
 
-    struct TypeAlias {
-        std::string baseType;
-        int pointerLevel;
-        bool isSigned;
-        bool isFunctionPointer = false;
-        std::shared_ptr<FuncPtrSignature> funcPtrSig;
-        std::vector<int> arrayDims;
-    };
     std::map<std::string, TypeAlias> typedefs;
     std::map<std::string, int> enumConstants;
     std::set<std::string> enumNames;

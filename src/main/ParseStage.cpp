@@ -1,6 +1,6 @@
 #include "ParseStage.hpp"
 #include "Lexer.hpp"
-#include "Parser.hpp"
+#include "Parser.hpp"  // Include full definition for Parser
 #include "Token.hpp"
 #include <iostream>
 
@@ -40,6 +40,13 @@ Stage::Result ParseStage::execute() {
         // Parse the tokens into an AST
         Parser parser(tokens);
         ast_ = parser.parse();
+
+        // Phase 102: Extract typedef information from parser for IR generation
+        // Build a simplified typedef map for later use
+        const auto& parserTypedefs = parser.getTypedefs();
+        for (const auto& [typedefName, typeAlias] : parserTypedefs) {
+            typedefInfo_[typedefName] = {typeAlias.baseType, typeAlias.pointerLevel};
+        }
 
         if (verboseLevel_ >= 1) {
             std::cout << "Parsing complete." << std::endl;

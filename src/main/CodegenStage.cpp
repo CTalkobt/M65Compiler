@@ -73,6 +73,9 @@ void CodegenStage::generateIR() {
     builder.staticAllocMode = staticAlloc_;
     builder.inlineFunctions = inlineFunctions_ || optimizationLevel_ >= 2;
 
+    // Phase 102: Pass typedef mappings from parser
+    builder.setTypedefMappings(typedefMappings_);
+
     // Generate IR from AST
     builder.generate(*ast_);
 

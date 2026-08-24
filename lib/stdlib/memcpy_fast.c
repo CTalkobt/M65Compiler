@@ -51,8 +51,8 @@ void *memcpy_optimized(void *dest, const void *src, int n) {
     }
 
     /* Detect alignment: if both pointers aligned to 4 bytes, use fast path */
-    unsigned long d_addr = (unsigned long)(uintptr_t)dest;
-    unsigned long s_addr = (unsigned long)(uintptr_t)src;
+    unsigned long d_addr = (unsigned long)dest;
+    unsigned long s_addr = (unsigned long)src;
 
     if ((d_addr & 3) == 0 && (s_addr & 3) == 0) {
         return memcpy_aligned_4((char *)dest, (const char *)src, n);
