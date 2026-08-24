@@ -317,15 +317,130 @@ unsigned char *rrb_layer_color_ptr(rrb_layer_t *layer) {
 }
 
 /* ============================================================================
- * RENDERING
+ * RENDERING & LAYER COMPOSITION
  * ============================================================================ */
+
+/**
+ * Compose single row from all visible layers with GOTOX repositioning
+ *
+ * Algorithm:
+ * 1. Sort layers by priority (stable sort)
+ * 2. For each layer (back to front):
+ *    - Write GOTOX instruction to reposition
+ *    - Write layer characters (skip transparent chars in sparse mode)
+ * 3. End with GOTOX to right border (critical constraint)
+ */
+static int rrb_compose_row(rrb_system_t *rrb, int row,
+                           unsigned char *out_screen, unsigned char *out_color) {
+    if (!rrb || !out_screen || !out_color) {
+        return -1;
+    }
+
+    int write_pos = 0;
+    int screen_width = rrb->screen_width;
+
+    /* Build array of visible layers sorted by priority */
+    rrb_layer_t *visible[RRB_MAX_LAYERS];
+    int visible_count = 0;
+
+    for (int i = 0; i < rrb->layer_count; i++) {
+        if (rrb->layers[i].visible) {
+            visible[visible_count++] = &rrb->layers[i];
+        }
+    }
+
+    /* Sort by priority (bubble sort for small N) */
+    for (int i = 0; i < visible_count - 1; i++) {
+        for (int j = i + 1; j < visible_count; j++) {
+            if (visible[i]->priority > visible[j]->priority) {
+                rrb_layer_t *tmp = visible[i];
+                visible[i] = visible[j];
+                visible[j] = tmp;
+            }
+        }
+    }
+
+    /* Clear output buffers */
+    for (int i = 0; i < rrb->chrcount * 2; i++) {
+        out_screen[i] = 0;
+        out_color[i] = 0;
+    }
+
+    /* Compose each layer (back to front) */
+    for (int layer_idx = 0; layer_idx < visible_count; layer_idx++) {
+        rrb_layer_t *layer = visible[layer_idx];
+
+        if (row >= layer->height) {
+            continue;  /* Layer doesn't extend to this row */
+        }
+
+        /* Write GOTOX instruction to reposition to layer start */
+        int gotox_pixel_x = layer->scroll_x;
+        rrb_write_gotox((unsigned int)&out_screen[write_pos],
+                        (unsigned int)&out_color[write_pos],
+                        gotox_pixel_x, 0);  /* Not transparent yet */
+        write_pos += 2;
+
+        /* Write layer characters for this row */
+        unsigned char *layer_screen = (unsigned char *)layer->screen_addr;
+        unsigned char *layer_color = (unsigned char *)layer->color_addr;
+
+        int row_offset = row * (layer->width * 2);
+
+        for (int col = 0; col < layer->width && write_pos < rrb->chrcount * 2 - 2; col++) {
+            int src_offset = row_offset + col * 2;
+
+            unsigned char ch = layer_screen[src_offset];
+            unsigned char color = layer_color[src_offset];
+
+            /* Skip transparent characters in sparse mode */
+            if (layer->mode == RRB_MODE_SPARSE && ch == layer->transparent_char) {
+                continue;  /* Don't write, advances GOTOX position */
+            }
+
+            out_screen[write_pos] = ch;
+            out_screen[write_pos + 1] = 0;  /* SEAM high byte */
+            out_color[write_pos] = color;
+            out_color[write_pos + 1] = 0;   /* SEAM high byte */
+            write_pos += 2;
+        }
+    }
+
+    /* CRITICAL: End row with GOTOX to right border
+     * VIC-IV only displays up to the last drawn character.
+     * Without this, right side of screen won't display properly.
+     */
+    rrb_write_gotox((unsigned int)&out_screen[write_pos],
+                    (unsigned int)&out_color[write_pos],
+                    screen_width, 0);
+    write_pos += 2;
+
+    /* Check if we exceeded raster budget */
+    if (write_pos > rrb->chrcount * 2) {
+        return -1;  /* Raster time exceeded */
+    }
+
+    return 0;
+}
 
 int rrb_render(rrb_system_t *rrb) {
     if (!rrb || !rrb->enabled) {
         return 0;
     }
 
-    /* For now, just mark success - full GOTOX injection in Phase 105.2 */
+    /* Render all rows */
+    for (int row = 0; row < rrb->screen_height; row++) {
+        int row_offset = row * rrb->linestep;
+
+        unsigned char *row_screen = &rrb->screen_buffer[row_offset];
+        unsigned char *row_color = &rrb->color_buffer[row_offset];
+
+        int result = rrb_compose_row(rrb, row, row_screen, row_color);
+        if (result != 0) {
+            return -1;  /* Raster time exceeded on this row */
+        }
+    }
+
     return 0;
 }
 
@@ -334,22 +449,38 @@ int rrb_render_row(rrb_system_t *rrb, int row) {
         return 0;
     }
 
-    /* For now, just mark success - full GOTOX injection in Phase 105.2 */
-    return 0;
+    int row_offset = row * rrb->linestep;
+
+    unsigned char *row_screen = &rrb->screen_buffer[row_offset];
+    unsigned char *row_color = &rrb->color_buffer[row_offset];
+
+    return rrb_compose_row(rrb, row, row_screen, row_color);
 }
 
 void rrb_update(rrb_system_t *rrb) {
     if (!rrb) return;
 
-    rrb_render(rrb);
-    /* Scroll updates would happen here */
+    /* Apply scroll offsets and render */
+    int result = rrb_render(rrb);
+
+    if (result == 0) {
+        rrb_sync_display(rrb);
+    }
 }
 
 void rrb_sync_display(rrb_system_t *rrb) {
     if (!rrb || !rrb->enabled) return;
 
-    /* Copy composite buffers to VIC-IV screen memory */
-    /* Implementation in Phase 105.2 */
+    /* Copy composite buffers to VIC-IV screen memory
+     * In a real implementation, this would:
+     * 1. Wait for safe raster position (outside visible area)
+     * 2. Copy screen_buffer to $0400 (or configured screen address)
+     * 3. Copy color_buffer to $D800 (or configured color address)
+     *
+     * For now, this is a stub - full VIC-IV integration in Phase 105.4
+     */
+
+    /* TODO: Implement actual VIC-IV memory copy when hardware access available */
 }
 
 /* ============================================================================
