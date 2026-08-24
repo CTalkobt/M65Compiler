@@ -363,11 +363,11 @@ Vector<int16_t, 8> result = a + b;
 ## Vector Member Functions
 
 ### Access & Inspection
-- `T& operator[](int idx)` — Element access
-- `const T& at(int idx)` — Bounds-checked access (debug only)
-- `T* data()` — Raw pointer
-- `size_t size()` — Returns compile-time Size
-- `bool empty()` — Always false
+- Element access with brackets — Returns element at index
+- Bounds-checked access function — Safe access (debug only)
+- data() function — Returns raw pointer to array
+- size() function — Returns compile-time Size
+- empty() function — Always false for fixed-size vectors
 
 ### Reductions
 - `T sum()` — Horizontal sum (all elements)
