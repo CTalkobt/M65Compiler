@@ -2654,9 +2654,12 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         }
 
         // 'this' keyword in struct methods → hidden '__this' parameter
-        if (actualName == "this") {
-            actualName = "__this";
-        }
+        // Don't rename 'this' to '__this' - keep it as is and handle it properly
+        // The struct method's __this parameter should be accessed as __this directly
+        // Regular functions can have 'this' as a normal parameter name
+        // if (actualName == "this") {
+        //     actualName = "__this";
+        // }
 
         // Map __builtin_X → X for known stdlib-equivalent builtins
         if (actualName.rfind("__builtin_", 0) == 0) {
