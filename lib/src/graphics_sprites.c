@@ -1,192 +1,303 @@
-/* graphics_sprites.c — Unified Sprite Framework (Phase 103)
+/* graphics_sprites.c — Soft Sprite System Implementation (Phase 7)
  *
- * Software-rendered sprites with optional hardware acceleration.
- * Single API works across all graphics modes and platforms.
+ * Object-oriented sprite engine using RRB SPARSE layers.
+ * Efficient pooling, animation, physics, and collision detection.
  */
 
-#include <graphics.h>
+#include <graphics_sprites.h>
 #include <stdlib.h>
 #include <string.h>
 
-/* Hardware sprite tracking (MEGA65 only) */
-#define MAX_HW_SPRITES 8
-static sprite_t *hw_sprite_table[MAX_HW_SPRITES];
-static unsigned char hw_sprite_count = 0;
-
 /* ============================================================================
- * FORWARD DECLARATIONS
+ * SPRITE TRIVIAL METHODS (auto-inlined by compiler)
  * ============================================================================ */
 
-/* Software rendering (graphics_sprites_sw.c) */
-void sprite_render_sw(sprite_t *spr);
-void sprite_erase_sw(sprite_t *spr);
+void sprite_t__set_position(sprite_t *this, int x, int y) {
+    if (!this) return;
+    this->x = x;
+    this->y = y;
+}
 
-/* Hardware rendering (graphics_sprites_hw.c) */
-int sprite_alloc_hw(sprite_t *spr);
-void sprite_free_hw(sprite_t *spr);
-void sprite_render_hw(sprite_t *spr);
-void sprite_erase_hw(sprite_t *spr);
-void sprite_upload_bitmap_hw(sprite_t *spr);
-void sprite_set_color_hw(sprite_t *spr);
+void sprite_t__set_velocity(sprite_t *this, int vx, int vy) {
+    if (!this) return;
+    this->vx = vx;
+    this->vy = vy;
+}
+
+void sprite_t__set_acceleration(sprite_t *this, int ax, int ay) {
+    if (!this) return;
+    this->ax = ax;
+    this->ay = ay;
+}
+
+void sprite_t__show(sprite_t *this) {
+    if (!this) return;
+    this->visible = 1;
+}
+
+void sprite_t__hide(sprite_t *this) {
+    if (!this) return;
+    this->visible = 0;
+}
 
 /* ============================================================================
- * SPRITE INITIALIZATION & CLEANUP
+ * SPRITE ANIMATION METHODS
  * ============================================================================ */
 
-int sprite_init(sprite_t *spr, int width, int height) {
-    spr->width = width;
-    spr->height = height;
-    spr->x = 0;
-    spr->y = 0;
-    spr->color = 1;                 /* Default color: white */
-    spr->visible = 1;
-    spr->frame = 0;
-    spr->bitmap = NULL;
-    spr->old_x = 0;
-    spr->old_y = 0;
+void sprite_t__set_animation(sprite_t *this, sprite_animation_t *anim) {
+    if (!this || !anim) return;
+    this->animation = *anim;
+    this->animation.current_frame = 0;
+    this->animation.frame_timer = 0;
+    if (anim->frame_count > 0) {
+        this->ch = anim->frames[0].ch;
+        this->color = anim->frames[0].color;
+        this->animation.frame_timer = anim->frames[0].duration;
+    }
+}
 
-    /* Auto-detect render mode based on hardware availability */
-#ifdef __MEGA65__
-    /* Try hardware sprite if size fits and slots available */
-    if (width <= 64 && height <= 64 && hw_sprite_count < MAX_HW_SPRITES) {
-        if (sprite_alloc_hw(spr) == 0) {
-            spr->render_mode = SPRITE_MODE_HARDWARE;
-            return 0;
+void sprite_t__play_animation(sprite_t *this) {
+    if (!this) return;
+    this->animation.is_playing = 1;
+}
+
+void sprite_t__stop_animation(sprite_t *this) {
+    if (!this) return;
+    this->animation.is_playing = 0;
+}
+
+/* ============================================================================
+ * SPRITE UPDATE & RENDERING
+ * ============================================================================ */
+
+void sprite_t__update(sprite_t *this) {
+    if (!this || !this->active) return;
+
+    /* Update velocity based on acceleration */
+    this->vx += this->ax;
+    this->vy += this->ay;
+
+    /* Update position based on velocity */
+    this->x += this->vx;
+    this->y += this->vy;
+
+    /* Update animation */
+    if (this->animation.is_playing && this->animation.frame_count > 0) {
+        this->animation.frame_timer--;
+
+        if (this->animation.frame_timer <= 0) {
+            /* Advance to next frame */
+            this->animation.current_frame++;
+
+            if (this->animation.current_frame >= this->animation.frame_count) {
+                if (this->animation.is_looping) {
+                    this->animation.current_frame = 0;
+                } else {
+                    this->animation.current_frame = this->animation.frame_count - 1;
+                    this->animation.is_playing = 0;
+                }
+            }
+
+            /* Update character and color from current frame */
+            sprite_frame_t *frame = &this->animation.frames[this->animation.current_frame];
+            this->ch = frame->ch;
+            this->color = frame->color;
+            this->animation.frame_timer = frame->duration;
         }
     }
-#endif
-
-    /* Default to software rendering */
-    spr->render_mode = SPRITE_MODE_SOFTWARE;
-    spr->sprite_num = 0xFF;         /* Invalid sprite number */
-    return 0;
 }
 
-void sprite_done(sprite_t *spr) {
-    if (spr->render_mode == SPRITE_MODE_HARDWARE) {
-        sprite_free_hw(spr);
+void sprite_t__render(sprite_t *this, rrb_layer_t *layer) {
+    if (!this || !layer || !this->active || !this->visible) return;
+
+    /* Convert pixel position to character grid */
+    int char_x = this->x / 8;      /* 8 pixels per character */
+    int char_y = this->y;           /* Already in row units */
+
+    /* Bounds check */
+    if (char_x < 0 || char_x >= layer->width || char_y < 0 || char_y >= layer->height) {
+        return;  /* Out of bounds */
     }
-    spr->visible = 0;
-    spr->bitmap = NULL;
+
+    /* Render sprite character */
+    layer->set_char(layer, char_x, char_y, this->ch, this->color);
 }
 
 /* ============================================================================
- * SPRITE POSITIONING & GRAPHICS
+ * SPRITE MANAGER TRIVIAL METHODS
  * ============================================================================ */
 
-void sprite_set_position(sprite_t *spr, int x, int y) {
-    spr->old_x = spr->x;
-    spr->old_y = spr->y;
-    spr->x = x;
-    spr->y = y;
-}
-
-void sprite_set_bitmap(sprite_t *spr, unsigned char *bitmap) {
-    spr->bitmap = bitmap;
-
-    /* For hardware sprites, upload bitmap data to sprite area */
-    if (spr->render_mode == SPRITE_MODE_HARDWARE) {
-        sprite_upload_bitmap_hw(spr);
-    }
-}
-
-void sprite_set_color(sprite_t *spr, unsigned char color) {
-    spr->color = color;
-
-    /* For hardware sprites, update color register immediately */
-    if (spr->render_mode == SPRITE_MODE_HARDWARE) {
-        sprite_set_color_hw(spr);
-    }
+int sprite_manager_t__get_active_count(sprite_manager_t *this) {
+    if (!this) return 0;
+    return this->active_count;
 }
 
 /* ============================================================================
- * SPRITE RENDERING
+ * SPRITE MANAGER IMPLEMENTATION
  * ============================================================================ */
 
-void sprite_draw(sprite_t *spr) {
-    if (!spr->visible) return;
+sprite_manager_t sprite_manager_create(int max_sprites, rrb_system_t *rrb, int layer_index) {
+    sprite_manager_t manager;
 
-    if (spr->render_mode == SPRITE_MODE_HARDWARE) {
-        sprite_render_hw(spr);
-    } else {
-        sprite_render_sw(spr);
+    if (max_sprites <= 0 || max_sprites > SPRITE_MAX_SPRITES) {
+        max_sprites = SPRITE_MAX_SPRITES;
+    }
+
+    manager.sprites = (sprite_t *)malloc(max_sprites * sizeof(sprite_t));
+    if (!manager.sprites) {
+        manager.max_sprites = 0;
+        manager.active_count = 0;
+        manager.rrb = NULL;
+        manager.sprite_layer_index = -1;
+        return manager;
+    }
+
+    /* Initialize all sprites as inactive */
+    for (int i = 0; i < max_sprites; i++) {
+        sprite_t *sprite = &manager.sprites[i];
+        memset(sprite, 0, sizeof(sprite_t));
+        sprite->active = 0;
+        sprite->visible = 1;
+        sprite->ch = 'S';
+        sprite->color = 0x0F;
+        sprite->layer_index = layer_index;
+        sprite->collision_box.enabled = 0;
+
+        /* Initialize method pointers */
+        sprite->set_position = &sprite_t__set_position;
+        sprite->set_velocity = &sprite_t__set_velocity;
+        sprite->set_acceleration = &sprite_t__set_acceleration;
+        sprite->set_animation = &sprite_t__set_animation;
+        sprite->play_animation = &sprite_t__play_animation;
+        sprite->stop_animation = &sprite_t__stop_animation;
+        sprite->show = &sprite_t__show;
+        sprite->hide = &sprite_t__hide;
+        sprite->update = &sprite_t__update;
+        sprite->render = &sprite_t__render;
+    }
+
+    manager.max_sprites = max_sprites;
+    manager.active_count = 0;
+    manager.rrb = rrb;
+    manager.sprite_layer_index = layer_index;
+
+    /* Initialize manager method pointers */
+    manager.allocate = &sprite_allocate;
+    manager.free = &sprite_free;
+    manager.update_all = &sprite_update_all;
+    manager.render_all = &sprite_render_all;
+    manager.get_active_count = &sprite_manager_t__get_active_count;
+    manager.clear = &sprite_manager_clear;
+
+    return manager;
+}
+
+void sprite_manager_destroy(sprite_manager_t *manager) {
+    if (!manager || !manager->sprites) return;
+
+    free(manager->sprites);
+    manager->sprites = NULL;
+    manager->max_sprites = 0;
+    manager->active_count = 0;
+}
+
+sprite_t *sprite_allocate(sprite_manager_t *manager) {
+    if (!manager || !manager->sprites) return NULL;
+
+    /* Find first inactive sprite */
+    for (int i = 0; i < manager->max_sprites; i++) {
+        if (!manager->sprites[i].active) {
+            sprite_t *sprite = &manager->sprites[i];
+            sprite->active = 1;
+            sprite->visible = 1;
+            manager->active_count++;
+            return sprite;
+        }
+    }
+
+    return NULL;  /* Pool exhausted */
+}
+
+void sprite_free(sprite_manager_t *manager, sprite_t *sprite) {
+    if (!manager || !sprite || !sprite->active) return;
+
+    sprite->active = 0;
+    sprite->animation.is_playing = 0;
+    manager->active_count--;
+}
+
+void sprite_update_all(sprite_manager_t *manager) {
+    if (!manager || !manager->sprites) return;
+
+    for (int i = 0; i < manager->max_sprites; i++) {
+        sprite_t *sprite = &manager->sprites[i];
+        if (sprite->active) {
+            sprite->update(sprite);
+        }
     }
 }
 
-void sprite_clear(sprite_t *spr) {
-    if (spr->render_mode == SPRITE_MODE_HARDWARE) {
-        sprite_erase_hw(spr);
-    } else {
-        sprite_erase_sw(spr);
+void sprite_render_all(sprite_manager_t *manager) {
+    if (!manager || !manager->rrb || !manager->sprites) return;
+
+    rrb_layer_t *layer = manager->rrb->get_layer(manager->rrb, manager->sprite_layer_index);
+    if (!layer) return;
+
+    for (int i = 0; i < manager->max_sprites; i++) {
+        sprite_t *sprite = &manager->sprites[i];
+        if (sprite->active && sprite->visible) {
+            sprite->render(sprite, layer);
+        }
     }
 }
 
-/* ============================================================================
- * SPRITE VISIBILITY
- * ============================================================================ */
+void sprite_manager_clear(sprite_manager_t *manager) {
+    if (!manager || !manager->sprites) return;
 
-void sprite_show(sprite_t *spr) {
-    spr->visible = 1;
-}
-
-void sprite_hide(sprite_t *spr) {
-    spr->visible = 0;
-
-    if (spr->render_mode == SPRITE_MODE_HARDWARE) {
-        sprite_erase_hw(spr);
+    for (int i = 0; i < manager->max_sprites; i++) {
+        manager->sprites[i].active = 0;
+        manager->sprites[i].animation.is_playing = 0;
     }
+
+    manager->active_count = 0;
 }
 
 /* ============================================================================
  * COLLISION DETECTION
  * ============================================================================ */
 
-int sprite_collides(sprite_t *a, sprite_t *b) {
-    /* Bounding-box collision test */
-    return !(a->x + a->width <= b->x ||
-             a->y + a->height <= b->y ||
-             b->x + b->width <= a->x ||
-             b->y + b->height <= a->y);
+int sprite_collides(sprite_t *sprite1, sprite_t *sprite2) {
+    if (!sprite1 || !sprite2 || !sprite1->active || !sprite2->active) return 0;
+    if (!sprite1->collision_box.enabled || !sprite2->collision_box.enabled) return 0;
+
+    /* Simple AABB collision detection */
+    int s1_left = sprite1->x + sprite1->collision_box.x_offset;
+    int s1_right = s1_left + sprite1->collision_box.width;
+    int s1_top = sprite1->y + sprite1->collision_box.y_offset;
+    int s1_bottom = s1_top + sprite1->collision_box.height;
+
+    int s2_left = sprite2->x + sprite2->collision_box.x_offset;
+    int s2_right = s2_left + sprite2->collision_box.width;
+    int s2_top = sprite2->y + sprite2->collision_box.y_offset;
+    int s2_bottom = s2_top + sprite2->collision_box.height;
+
+    return !(s1_right < s2_left || s1_left > s2_right ||
+             s1_bottom < s2_top || s1_top > s2_bottom);
 }
 
-int sprite_collides_precise(sprite_t *a, sprite_t *b) {
-    /* Pixel-perfect collision test
-     * Requires both sprites have bitmap data */
-    if (!a->bitmap || !b->bitmap) {
-        return sprite_collides(a, b);  /* Fallback to bounding-box */
-    }
+/* ============================================================================
+ * ANIMATION UTILITIES
+ * ============================================================================ */
 
-    /* Check if bounding boxes overlap first (fast path) */
-    if (!sprite_collides(a, b)) {
-        return 0;
-    }
+sprite_animation_t sprite_animation_create(sprite_frame_t *frames, int count, int looping) {
+    sprite_animation_t anim;
 
-    /* Compute overlap region */
-    int overlap_x1 = (a->x > b->x) ? a->x : b->x;
-    int overlap_y1 = (a->y > b->y) ? a->y : b->y;
-    int overlap_x2 = (a->x + a->width < b->x + b->width) ?
-                     (a->x + a->width) : (b->x + b->width);
-    int overlap_y2 = (a->y + a->height < b->y + b->height) ?
-                     (a->y + a->height) : (b->y + b->height);
+    anim.frames = frames;
+    anim.frame_count = count;
+    anim.current_frame = 0;
+    anim.frame_timer = 0;
+    anim.is_looping = looping;
+    anim.is_playing = 0;
 
-    /* Check pixels in overlap region */
-    for (int py = overlap_y1; py < overlap_y2; py++) {
-        for (int px = overlap_x1; px < overlap_x2; px++) {
-            int ax = px - a->x;
-            int ay = py - a->y;
-            int bx = px - b->x;
-            int by = py - b->y;
-
-            /* Get pixel from each sprite's bitmap */
-            unsigned char a_pixel = a->bitmap[ay * a->width + ax];
-            unsigned char b_pixel = b->bitmap[by * b->width + bx];
-
-            /* If both pixels are non-zero, collision detected */
-            if (a_pixel && b_pixel) {
-                return 1;
-            }
-        }
-    }
-
-    return 0;  /* No pixel collision */
+    return anim;
 }

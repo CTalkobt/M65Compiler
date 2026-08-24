@@ -736,3 +736,9 @@ void sprite_animation_sequence_done(sprite_animation_sequence_t *seq);
 
 #include <graphics_rrb.h>
 
+
+/* ============================================================================
+ * SOFT SPRITE SYSTEM (Phase 7)
+ * ============================================================================ */
+
+#include <graphics_sprites.h>
