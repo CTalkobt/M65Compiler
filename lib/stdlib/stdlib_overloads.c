@@ -97,7 +97,7 @@ char* strcpy__fpfp(far_ptr_t dst, far_ptr_t src) {
 }
 
 /* ============================================================================
- * strcmp Overloads (3 variants)
+ * strcmp Overloads (4 variants)
  * ========================================================================== */
 
 /* Original: local to local */
@@ -118,8 +118,18 @@ int strcmp__pcfp(const char* str1, far_ptr_t str2) {
     return strcmp(str1, temp);
 }
 
+/* Far to far: strcmp(far_ptr_t, far_ptr_t) */
+int strcmp__fpfp(far_ptr_t str1, far_ptr_t str2) {
+    /* Load both strings into temps and compare */
+    char temp1[256];
+    char temp2[256];
+    far_strcpy_to_local(temp1, str1, 256);
+    far_strcpy_to_local(temp2, str2, 256);
+    return strcmp(temp1, temp2);
+}
+
 /* ============================================================================
- * strcat Overloads (2 variants)
+ * strcat Overloads (4 variants)
  * ========================================================================== */
 
 /* Original: local to local */
@@ -135,8 +145,30 @@ char* strcat__pcfp(char* dst, far_ptr_t src) {
     return strcat(dst, temp);
 }
 
+/* Local source to far destination: strcat(far_ptr_t, const char*) */
+char* strcat__fppc(far_ptr_t dst, const char* src) {
+    /* Load far string, concatenate in temp, write back */
+    char temp[512];
+    far_strcpy_to_local(temp, dst, 256);
+    strcat(temp, src);
+    far_strcpy_from_local(dst, temp, 512);
+    return dst;
+}
+
+/* Far to far: strcat(far_ptr_t, far_ptr_t) */
+char* strcat__fpfp(far_ptr_t dst, far_ptr_t src) {
+    /* Load both strings, concatenate, write back */
+    char temp[512];
+    char src_temp[256];
+    far_strcpy_to_local(temp, dst, 256);
+    far_strcpy_to_local(src_temp, src, 256);
+    strcat(temp, src_temp);
+    far_strcpy_from_local(dst, temp, 512);
+    return dst;
+}
+
 /* ============================================================================
- * memcmp Overloads (3 variants)
+ * memcmp Overloads (4 variants)
  * ========================================================================== */
 
 /* Original: local to local */
@@ -187,6 +219,30 @@ int memcmp__pvfz(const void* ptr1, far_ptr_t ptr2, size_t len) {
     }
 
     return result;
+}
+
+/* Far to far: memcmp(far_ptr_t, far_ptr_t, size_t) */
+int memcmp__fpfz(far_ptr_t ptr1, far_ptr_t ptr2, size_t len) {
+    /* Load both buffers in chunks and compare */
+    uint8_t temp1[256];
+    uint8_t temp2[256];
+    size_t offset = 0;
+
+    while (offset < len) {
+        size_t chunk = (len - offset > 256) ? 256 : (len - offset);
+
+        far_memcpy_to_local(temp1, far_add(ptr1, offset), chunk);
+        far_memcpy_to_local(temp2, far_add(ptr2, offset), chunk);
+
+        int result = memcmp(temp1, temp2, chunk);
+        if (result != 0) {
+            return result;
+        }
+
+        offset += chunk;
+    }
+
+    return 0;
 }
 
 /* ============================================================================
