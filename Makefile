@@ -124,7 +124,7 @@ $(LIB_DIR)/lib45-basic.a: $(addprefix $(OBJ_DIR)/, \
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^
 
-# lib45-audio: Audio and procedural music generation (includes Phase 12-16)
+# lib45-audio: Audio and procedural music generation (includes Phase 12-17)
 $(LIB_DIR)/lib45-audio.a: $(addprefix $(OBJ_DIR)/, \
     Song.o Track.o Pattern.o Sequencer.o PlaybackEngine.o \
     Scale.o Chord.o ChordProgression.o \
@@ -132,7 +132,8 @@ $(LIB_DIR)/lib45-audio.a: $(addprefix $(OBJ_DIR)/, \
     ProceduralComposer.o \
     JazzComposer.o AmbientComposer.o TechnoComposer.o \
     FolkComposer.o ClassicalComposer.o ChiptureComposer.o RagtimeComposer.o \
-    SIDChip.o AudioDriver.o DIGIAudio.o)
+    SIDChip.o AudioDriver.o DIGIAudio.o \
+    KeyboardController.o SynthesizerUI.o)
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^
 
@@ -344,6 +345,13 @@ $(OBJ_DIR)/AudioDriver.o: src/audio/AudioDriver.cpp | $(OBJ_DIR)
 $(OBJ_DIR)/DIGIAudio.o: src/audio/DIGIAudio.cpp | $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
+# Phase 17: Real-Time Synthesizer Control
+$(OBJ_DIR)/KeyboardController.o: src/audio/KeyboardController.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/SynthesizerUI.o: src/audio/SynthesizerUI.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
 # Default compilation rule for all object files
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp | $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
@@ -372,7 +380,7 @@ $(LIB_DIR):
 .PHONY: test-validation-simops test-validation-directives test-validation-symbols
 .PHONY: test-validation-segments test-validation-proc test-validation-addressing
 .PHONY: test-validation-simops-extended test-objdump45
-.PHONY: test-phase12 test-phase13 test-phase14 test-phase15 test-phase16
+.PHONY: test-phase12 test-phase13 test-phase14 test-phase15 test-phase16 test-phase17
 
 # Build all lib45 libraries
 lib45-libraries: $(LIB_DIR)/lib45-common.a $(LIB_DIR)/lib45-c-compile.a \
@@ -923,6 +931,19 @@ $(OBJ_DIR)/test_phase16_hardware.o: src/test-resources/test_phase16_hardware.cpp
 
 test-phase16: $(TEST_PHASE16_TARGET) lib
 	@$(TEST_PHASE16_TARGET)
+
+TEST_PHASE17_TARGET = $(BIN_DIR)/test_phase17_realtime_control
+TEST_PHASE17_OBJECTS = $(OBJ_DIR)/test_phase17_realtime_control.o $(OBJ_DIR)/KeyboardController.o $(OBJ_DIR)/SynthesizerUI.o $(OBJ_DIR)/AudioDriver.o $(OBJ_DIR)/SIDChip.o $(OBJ_DIR)/DIGIAudio.o
+
+$(TEST_PHASE17_TARGET): $(TEST_PHASE17_OBJECTS)
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $^
+
+$(OBJ_DIR)/test_phase17_realtime_control.o: src/test-resources/test_phase17_realtime_control.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+test-phase17: $(TEST_PHASE17_TARGET) lib
+	@$(TEST_PHASE17_TARGET)
 
 docker:
 	@echo "Building Docker image..."
