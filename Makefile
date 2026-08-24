@@ -124,14 +124,15 @@ $(LIB_DIR)/lib45-basic.a: $(addprefix $(OBJ_DIR)/, \
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^
 
-# lib45-audio: Audio and procedural music generation
+# lib45-audio: Audio and procedural music generation (includes Phase 12-16)
 $(LIB_DIR)/lib45-audio.a: $(addprefix $(OBJ_DIR)/, \
     Song.o Track.o Pattern.o Sequencer.o PlaybackEngine.o \
     Scale.o Chord.o ChordProgression.o \
     MelodicGenerator.o HarmonicGenerator.o RhythmicGenerator.o \
     ProceduralComposer.o \
     JazzComposer.o AmbientComposer.o TechnoComposer.o \
-    FolkComposer.o ClassicalComposer.o ChiptureComposer.o RagtimeComposer.o)
+    FolkComposer.o ClassicalComposer.o ChiptureComposer.o RagtimeComposer.o \
+    SIDChip.o AudioDriver.o DIGIAudio.o)
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^
 
@@ -333,6 +334,16 @@ $(OBJ_DIR)/ChiptureComposer.o: src/audio/procedural/ChiptureComposer.cpp | $(OBJ
 $(OBJ_DIR)/RagtimeComposer.o: src/audio/procedural/RagtimeComposer.cpp | $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
+# Phase 16: MEGA65 Hardware Integration
+$(OBJ_DIR)/SIDChip.o: src/audio/SIDChip.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/AudioDriver.o: src/audio/AudioDriver.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/DIGIAudio.o: src/audio/DIGIAudio.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
 # Default compilation rule for all object files
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp | $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
@@ -361,6 +372,7 @@ $(LIB_DIR):
 .PHONY: test-validation-simops test-validation-directives test-validation-symbols
 .PHONY: test-validation-segments test-validation-proc test-validation-addressing
 .PHONY: test-validation-simops-extended test-objdump45
+.PHONY: test-phase12 test-phase13 test-phase14 test-phase15 test-phase16
 
 # Build all lib45 libraries
 lib45-libraries: $(LIB_DIR)/lib45-common.a $(LIB_DIR)/lib45-c-compile.a \
@@ -845,6 +857,72 @@ uninstall_local:
 validate_performance: all
 	@echo "Validating performance with multi-level optimization benchmark..."
 	@bash src/test/validate_performance.sh
+
+# Audio Phase Tests (Phases 12-16)
+TEST_PHASE12_TARGET = $(BIN_DIR)/test_phase12_sequencer
+TEST_PHASE12_OBJECTS = $(OBJ_DIR)/test_phase12_sequencer.o $(OBJ_DIR)/Song.o $(OBJ_DIR)/Track.o $(OBJ_DIR)/Pattern.o $(OBJ_DIR)/Sequencer.o $(OBJ_DIR)/PlaybackEngine.o
+
+$(TEST_PHASE12_TARGET): $(TEST_PHASE12_OBJECTS)
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $^
+
+$(OBJ_DIR)/test_phase12_sequencer.o: src/test-resources/test_phase12_sequencer.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+test-phase12: $(TEST_PHASE12_TARGET) lib
+	@$(TEST_PHASE12_TARGET)
+
+TEST_PHASE13_TARGET = $(BIN_DIR)/test_phase13_procedural
+TEST_PHASE13_OBJECTS = $(OBJ_DIR)/test_phase13_procedural.o $(OBJ_DIR)/Scale.o $(OBJ_DIR)/Chord.o $(OBJ_DIR)/ChordProgression.o $(OBJ_DIR)/MelodicGenerator.o $(OBJ_DIR)/HarmonicGenerator.o $(OBJ_DIR)/RhythmicGenerator.o
+
+$(TEST_PHASE13_TARGET): $(TEST_PHASE13_OBJECTS)
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $^
+
+$(OBJ_DIR)/test_phase13_procedural.o: src/test-resources/test_phase13_procedural.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+test-phase13: $(TEST_PHASE13_TARGET) lib
+	@$(TEST_PHASE13_TARGET)
+
+TEST_PHASE14_TARGET = $(BIN_DIR)/test_phase14_genres
+TEST_PHASE14_OBJECTS = $(OBJ_DIR)/test_phase14_genres.o $(OBJ_DIR)/ProceduralComposer.o $(OBJ_DIR)/JazzComposer.o $(OBJ_DIR)/AmbientComposer.o $(OBJ_DIR)/TechnoComposer.o $(OBJ_DIR)/FolkComposer.o $(OBJ_DIR)/ClassicalComposer.o $(OBJ_DIR)/ChiptureComposer.o $(OBJ_DIR)/RagtimeComposer.o $(OBJ_DIR)/Song.o $(OBJ_DIR)/Track.o $(OBJ_DIR)/Pattern.o $(OBJ_DIR)/Scale.o $(OBJ_DIR)/Chord.o $(OBJ_DIR)/ChordProgression.o $(OBJ_DIR)/MelodicGenerator.o $(OBJ_DIR)/HarmonicGenerator.o $(OBJ_DIR)/RhythmicGenerator.o
+
+$(TEST_PHASE14_TARGET): $(TEST_PHASE14_OBJECTS)
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $^
+
+$(OBJ_DIR)/test_phase14_genres.o: src/test-resources/test_phase14_genres.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+test-phase14: $(TEST_PHASE14_TARGET) lib
+	@$(TEST_PHASE14_TARGET)
+
+TEST_PHASE15_TARGET = $(BIN_DIR)/test_phase15_playback
+TEST_PHASE15_OBJECTS = $(OBJ_DIR)/test_phase15_playback.o $(OBJ_DIR)/PlaybackEngine.o $(OBJ_DIR)/Song.o $(OBJ_DIR)/Track.o $(OBJ_DIR)/Pattern.o $(OBJ_DIR)/Sequencer.o
+
+$(TEST_PHASE15_TARGET): $(TEST_PHASE15_OBJECTS)
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $^
+
+$(OBJ_DIR)/test_phase15_playback.o: src/test-resources/test_phase15_playback.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+test-phase15: $(TEST_PHASE15_TARGET) lib
+	@$(TEST_PHASE15_TARGET)
+
+TEST_PHASE16_TARGET = $(BIN_DIR)/test_phase16_hardware
+TEST_PHASE16_OBJECTS = $(OBJ_DIR)/test_phase16_hardware.o $(OBJ_DIR)/SIDChip.o $(OBJ_DIR)/AudioDriver.o $(OBJ_DIR)/DIGIAudio.o $(OBJ_DIR)/PlaybackEngine.o $(OBJ_DIR)/Song.o $(OBJ_DIR)/Track.o $(OBJ_DIR)/Pattern.o $(OBJ_DIR)/Sequencer.o
+
+$(TEST_PHASE16_TARGET): $(TEST_PHASE16_OBJECTS)
+	@mkdir -p $(BIN_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ $^
+
+$(OBJ_DIR)/test_phase16_hardware.o: src/test-resources/test_phase16_hardware.cpp | $(OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+test-phase16: $(TEST_PHASE16_TARGET) lib
+	@$(TEST_PHASE16_TARGET)
 
 docker:
 	@echo "Building Docker image..."
