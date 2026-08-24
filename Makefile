@@ -60,7 +60,7 @@ $(LIB_DIR)/lib45-ir.a: $(addprefix $(OBJ_DIR)/, \
 
 # lib45-opt: Optimization passes + code generation
 $(LIB_DIR)/lib45-opt.a: $(addprefix $(OBJ_DIR)/, \
-    IRCodeGen.o CodeGenerator.o \
+    IRCodeGen.o CodeGenerator.o CodeGeneratorDWARF.o \
     ConstantFolder.o LoopOptimizer.o LoopIdiomRegistry.o \
     LoopInterchange.o StrengthReduction.o AlgebraicSimplification.o \
     RedundantLoadElimination.o DeadStoreElimination.o \

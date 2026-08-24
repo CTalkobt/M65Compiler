@@ -397,4 +397,11 @@ public:
 
     // Phase 113: Line number program for DWARF debug info
     dwarf::LineNumberProgramBuilder lineNumberBuilder_;
+
+    // Phase 113: DWARF emission helpers
+    dwarf::DIE* currentFunctionDIE_ = nullptr;  // Current SUBPROGRAM DIE being filled
+    uint64_t currentFunctionStartAddress_ = 0; // Start address of current function
+
+    // Phase 113: Helper to emit function DWARF info
+    void emitFunctionDIE(FunctionDeclaration& node, uint64_t startAddr);
 };

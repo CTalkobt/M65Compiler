@@ -1535,6 +1535,9 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
             }
         }
 
+        // Phase 113: Emit function DWARF DIE and line entry for function start
+        emitFunctionDIE(node, currentFunction ? 0 : 0);  // Address will be set during linking
+
         node.body->accept(*this);
         if (!node.isNoreturn) {
             bool lastWasReturn = false;
@@ -1738,6 +1741,9 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
             }
         }
     }
+
+    // Phase 113: Emit function DWARF DIE and line entry for function start
+    emitFunctionDIE(node, currentFunction ? 0 : 0);  // Address will be set during linking
 
     node.body->accept(*this);
     if (!node.isNoreturn) {
