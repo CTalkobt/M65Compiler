@@ -364,11 +364,11 @@ int sprite_inverse_transform_point(sprite_t sprite, float world_x, float world_y
     sprite_matrix_t inv;
     if (!sprite_invert_transform(&t->matrix, &inv)) return 0;
 
-    int sx = sprite_get_x(sprite);
-    int sy = sprite_get_y(sprite);
+    sprite_info_t info;
+    if (!sprite_get_info(sprite, &info)) return 0;
 
-    float wx = world_x - sx;
-    float wy = world_y - sy;
+    float wx = world_x - info.x;
+    float wy = world_y - info.y;
 
     float lx = inv.a * wx + inv.c * wy + inv.tx;
     float ly = inv.b * wx + inv.d * wy + inv.ty;
