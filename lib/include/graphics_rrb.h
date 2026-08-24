@@ -72,6 +72,21 @@ typedef struct rrb_layer {
 } rrb_layer_t;
 
 /**
+ * RRB Raster Budget Report (Phase 105.4: Advanced Features)
+ *
+ * Analyzes performance metrics for the current RRB configuration.
+ */
+typedef struct {
+    int total_cycles_available;     /* Cycles per raster (1000 or 2000) */
+    int estimated_cycles_used;      /* Estimated cycles for composition */
+    int headroom_percent;           /* Percentage of budget remaining */
+    int is_within_budget;           /* 1 = fits, 0 = exceeds */
+    int gotox_count;                /* Total GOTOX instructions needed */
+    int max_chrcount_needed;        /* Maximum CHRCOUNT for any row */
+    int dblrr_recommended;          /* 1 = DBLRR mode recommended */
+} rrb_budget_report_t;
+
+/**
  * RRB System state (with methods)
  */
 typedef struct rrb_system {
@@ -122,6 +137,13 @@ typedef struct rrb_system {
     void (*update)(struct rrb_system *this);
     void (*sync_display)(struct rrb_system *this);
 
+    /* Advanced features (Phase 105.4) */
+
+    rrb_budget_report_t (*analyze_budget)(struct rrb_system *this);
+    int (*get_max_chrcount)(struct rrb_system *this);
+    void (*optimize_for_speed)(struct rrb_system *this);
+    void (*optimize_for_quality)(struct rrb_system *this);
+
 } rrb_system_t;
 
 /* ============================================================================
@@ -165,6 +187,32 @@ int rrb_calc_linestep(int chrcount);
  *   1 if fits, 0 if exceeds budget
  */
 int rrb_test_raster_budget(rrb_system_t *rrb, int row);
+
+/**
+ * rrb_analyze_budget - Analyze raster budget with detailed metrics
+ *
+ * Returns:
+ *   Budget report with cycles, headroom, recommendations
+ */
+rrb_budget_report_t rrb_analyze_budget(rrb_system_t *rrb);
+
+/**
+ * rrb_get_max_chrcount - Calculate maximum CHRCOUNT needed
+ *
+ * Returns:
+ *   Maximum character count across all rows
+ */
+int rrb_get_max_chrcount(rrb_system_t *rrb);
+
+/**
+ * rrb_optimize_for_speed - Optimize RRB for speed (enable DBLRR, etc.)
+ */
+void rrb_optimize_for_speed(rrb_system_t *rrb);
+
+/**
+ * rrb_optimize_for_quality - Optimize RRB for quality (better rendering)
+ */
+void rrb_optimize_for_quality(rrb_system_t *rrb);
 
 /* ============================================================================
  * CONSTANTS

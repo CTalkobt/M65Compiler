@@ -137,6 +137,12 @@ int rrb_system_t__init(rrb_system_t *this, int max_layers, int width, int height
     this->update = &rrb_system_t__update;
     this->sync_display = &rrb_system_t__sync_display;
 
+    /* Advanced feature method pointers */
+    this->analyze_budget = &rrb_analyze_budget;
+    this->get_max_chrcount = &rrb_get_max_chrcount;
+    this->optimize_for_speed = &rrb_optimize_for_speed;
+    this->optimize_for_quality = &rrb_optimize_for_quality;
+
     return 0;
 }
 
@@ -699,4 +705,111 @@ int rrb_test_raster_budget(rrb_system_t *rrb, int row) {
     int estimated_cycles = rrb->chrcount * 5 + rrb->chrcount * 2;
 
     return (estimated_cycles <= cycle_budget) ? 1 : 0;
+}
+
+/* ============================================================================
+ * ADVANCED FEATURES (Phase 105.4: VIC-IV Hardware Integration)
+ * ============================================================================ */
+
+rrb_budget_report_t rrb_analyze_budget(rrb_system_t *rrb) {
+    rrb_budget_report_t report;
+
+    if (!rrb) {
+        report.total_cycles_available = 0;
+        report.estimated_cycles_used = 0;
+        report.headroom_percent = 0;
+        report.is_within_budget = 0;
+        report.gotox_count = 0;
+        report.max_chrcount_needed = 0;
+        report.dblrr_recommended = 0;
+        return report;
+    }
+
+    /* Calculate cycle budget based on DBLRR mode */
+    int cycle_budget = rrb->double_raster_time ? 2000 : 1000;
+    report.total_cycles_available = cycle_budget;
+
+    /* Estimate cycles: CHRCOUNT * (char cycles + overhead) + GOTOX overhead */
+    int char_cycles_per_char = 5;  /* Estimated VIC-IV fetch cycles per character */
+    int gotox_overhead = 10;       /* Cycles per GOTOX instruction */
+    int layer_gotox = rrb->layer_count * gotox_overhead;  /* One GOTOX per visible layer */
+
+    report.estimated_cycles_used = (rrb->chrcount * char_cycles_per_char) + layer_gotox;
+    report.gotox_count = rrb->layer_count + 1;  /* +1 for final end-of-row GOTOX */
+    report.max_chrcount_needed = rrb->chrcount;
+
+    /* Calculate headroom */
+    if (report.estimated_cycles_used > cycle_budget) {
+        report.headroom_percent = 0;
+        report.is_within_budget = 0;
+        report.dblrr_recommended = 1;  /* Recommend DBLRR if over budget */
+    } else {
+        int headroom = cycle_budget - report.estimated_cycles_used;
+        report.headroom_percent = (headroom * 100) / cycle_budget;
+        report.is_within_budget = 1;
+        report.dblrr_recommended = (report.headroom_percent < 20) ? 1 : 0;
+    }
+
+    return report;
+}
+
+int rrb_get_max_chrcount(rrb_system_t *rrb) {
+    if (!rrb) return 0;
+
+    /* Analyze each layer's contribution to CHRCOUNT */
+    int max_chrcount = 0;
+
+    for (int layer_idx = 0; layer_idx < rrb->layer_count; layer_idx++) {
+        rrb_layer_t *layer = &rrb->layers[layer_idx];
+
+        if (!layer->visible) continue;
+
+        int layer_chrcount = 0;
+
+        if (layer->mode == RRB_MODE_FULL) {
+            /* FULL mode: layer width + GOTOX */
+            layer_chrcount = layer->width + 1;
+        } else if (layer->mode == RRB_MODE_SPARSE) {
+            /* SPARSE mode: estimate 50% occupancy + GOTOX */
+            layer_chrcount = (layer->width / 2) + 1;
+        } else if (layer->mode == RRB_MODE_STACK) {
+            /* STACK mode: small layer + GOTOX */
+            layer_chrcount = layer->width + 1;
+        }
+
+        if (layer_chrcount > max_chrcount) {
+            max_chrcount = layer_chrcount;
+        }
+    }
+
+    /* Add final end-of-row GOTOX */
+    max_chrcount += 1;
+
+    return max_chrcount;
+}
+
+void rrb_optimize_for_speed(rrb_system_t *rrb) {
+    if (!rrb) return;
+
+    /* Enable DBLRR mode for better cycle budget */
+    rrb->double_raster_time = 1;
+
+    /* Reduce CHRCOUNT if possible (for speed) */
+    if (rrb->chrcount > 320) {
+        rrb->chrcount = 320;  /* Limit to 320-pixel equivalent */
+        rrb->linestep = rrb->chrcount * 2;
+    }
+}
+
+void rrb_optimize_for_quality(rrb_system_t *rrb) {
+    if (!rrb) return;
+
+    /* Disable DBLRR for higher refresh rate */
+    rrb->double_raster_time = 0;
+
+    /* Allow full CHRCOUNT for quality rendering */
+    if (rrb->chrcount < RRB_MAX_CHRCOUNT) {
+        rrb->chrcount = RRB_MAX_CHRCOUNT;
+        rrb->linestep = rrb->chrcount * 2;
+    }
 }
