@@ -3,6 +3,72 @@
 DebugInfoBuilder::DebugInfoBuilder() {
     // Create root DIE (will be filled with compile unit)
     root_ = std::make_unique<dwarf::DIE>(dwarf::Tag::COMPILE_UNIT);
+
+    // Pre-register common abbreviations for better compression
+    std::vector<std::pair<dwarf::Attribute, dwarf::Form>> compileUnitAttrs = {
+        {dwarf::Attribute::SPECIFICATION, dwarf::Form::STRP},
+        {dwarf::Attribute::LANGUAGE, dwarf::Form::DATA1},
+        {dwarf::Attribute::NAME, dwarf::Form::STRP},
+        {dwarf::Attribute::COMP_DIR, dwarf::Form::STRP},
+    };
+    getOrCreateAbbreviation(dwarf::Tag::COMPILE_UNIT, true, compileUnitAttrs);
+
+    std::vector<std::pair<dwarf::Attribute, dwarf::Form>> subprogramAttrs = {
+        {dwarf::Attribute::NAME, dwarf::Form::STRP},
+        {dwarf::Attribute::LOW_PC, dwarf::Form::ADDR},
+        {dwarf::Attribute::HIGH_PC, dwarf::Form::ADDR},
+        {dwarf::Attribute::LANGUAGE, dwarf::Form::DATA1},
+    };
+    getOrCreateAbbreviation(dwarf::Tag::SUBPROGRAM, true, subprogramAttrs);
+
+    std::vector<std::pair<dwarf::Attribute, dwarf::Form>> variableAttrs = {
+        {dwarf::Attribute::NAME, dwarf::Form::STRP},
+        {dwarf::Attribute::TYPE, dwarf::Form::REF4},
+        {dwarf::Attribute::LOCATION, dwarf::Form::SEC_OFFSET},
+    };
+    getOrCreateAbbreviation(dwarf::Tag::VARIABLE, false, variableAttrs);
+
+    std::vector<std::pair<dwarf::Attribute, dwarf::Form>> parameterAttrs = {
+        {dwarf::Attribute::NAME, dwarf::Form::STRP},
+        {dwarf::Attribute::TYPE, dwarf::Form::REF4},
+        {dwarf::Attribute::LOCATION, dwarf::Form::SEC_OFFSET},
+    };
+    getOrCreateAbbreviation(dwarf::Tag::FORMAL_PARAMETER, false, parameterAttrs);
+
+    std::vector<std::pair<dwarf::Attribute, dwarf::Form>> baseTypeAttrs = {
+        {dwarf::Attribute::NAME, dwarf::Form::STRP},
+        {dwarf::Attribute::BYTE_SIZE, dwarf::Form::DATA1},
+    };
+    getOrCreateAbbreviation(dwarf::Tag::BASE_TYPE, false, baseTypeAttrs);
+
+    std::vector<std::pair<dwarf::Attribute, dwarf::Form>> pointerTypeAttrs = {
+        {dwarf::Attribute::BYTE_SIZE, dwarf::Form::DATA1},
+        {dwarf::Attribute::TYPE, dwarf::Form::REF4},
+    };
+    getOrCreateAbbreviation(dwarf::Tag::POINTER_TYPE, false, pointerTypeAttrs);
+
+    std::vector<std::pair<dwarf::Attribute, dwarf::Form>> arrayTypeAttrs = {
+        {dwarf::Attribute::TYPE, dwarf::Form::REF4},
+    };
+    getOrCreateAbbreviation(dwarf::Tag::ARRAY_TYPE, true, arrayTypeAttrs);
+
+    std::vector<std::pair<dwarf::Attribute, dwarf::Form>> structTypeAttrs = {
+        {dwarf::Attribute::NAME, dwarf::Form::STRP},
+        {dwarf::Attribute::BYTE_SIZE, dwarf::Form::DATA4},
+    };
+    getOrCreateAbbreviation(dwarf::Tag::STRUCTURE_TYPE, true, structTypeAttrs);
+
+    std::vector<std::pair<dwarf::Attribute, dwarf::Form>> unionTypeAttrs = {
+        {dwarf::Attribute::NAME, dwarf::Form::STRP},
+        {dwarf::Attribute::BYTE_SIZE, dwarf::Form::DATA4},
+    };
+    getOrCreateAbbreviation(dwarf::Tag::UNION_TYPE, true, unionTypeAttrs);
+
+    std::vector<std::pair<dwarf::Attribute, dwarf::Form>> typedefAttrs = {
+        {dwarf::Attribute::NAME, dwarf::Form::STRP},
+        {dwarf::Attribute::TYPE, dwarf::Form::REF4},
+    };
+    getOrCreateAbbreviation(dwarf::Tag::TYPEDEF, false, typedefAttrs);
 }
 
 dwarf::DIE* DebugInfoBuilder::createCompileUnit(const std::string& filename,
@@ -219,13 +285,16 @@ uint8_t DebugInfoBuilder::getOrCreateAbbreviation(
     bool hasChildren,
     const std::vector<std::pair<dwarf::Attribute, dwarf::Form>>& attrs) {
 
+    // Convert to vector for comparison
+    std::vector<std::pair<dwarf::Attribute, dwarf::Form>> attrVec(attrs);
+
     // Check if we already have this pattern
     for (const auto& [code, abbr] : abbrevTable_.getAbbreviations()) {
         if (abbr.tag == tag && abbr.hasChildren == hasChildren &&
-            abbr.attributes.size() == attrs.size()) {
+            abbr.attributes.size() == attrVec.size()) {
             bool matches = true;
-            for (size_t i = 0; i < attrs.size(); i++) {
-                if (abbr.attributes[i] != attrs[i]) {
+            for (size_t i = 0; i < attrVec.size(); i++) {
+                if (abbr.attributes[i] != attrVec[i]) {
                     matches = false;
                     break;
                 }
@@ -238,7 +307,7 @@ uint8_t DebugInfoBuilder::getOrCreateAbbreviation(
 
     // Create new abbreviation
     dwarf::Abbreviation abbr(tag, hasChildren);
-    for (const auto& [attr, form] : attrs) {
+    for (const auto& [attr, form] : attrVec) {
         abbr.addAttribute(attr, form);
     }
 

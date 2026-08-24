@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <initializer_list>
 
 // Builds DWARF 4 debug information
 class DebugInfoBuilder {
@@ -58,6 +59,30 @@ public:
     dwarf::DIE* createTypedef(dwarf::DIE* parent,
                               const std::string& name,
                               dwarf::DIE* base_type);
+
+    // Create struct/union members
+    dwarf::DIE* createStructMember(dwarf::DIE* parent,
+                                   const std::string& name,
+                                   dwarf::DIE* type,
+                                   uint32_t byteOffset);
+
+    // Create enumeration types
+    dwarf::DIE* createEnumType(dwarf::DIE* parent,
+                              const std::string& name,
+                              uint8_t byteSize);
+
+    dwarf::DIE* createEnumerator(dwarf::DIE* parent,
+                                const std::string& name,
+                                int64_t value);
+
+    // Create subrange type (for arrays)
+    dwarf::DIE* createSubrangeType(dwarf::DIE* parent,
+                                  uint32_t count);
+
+    // Create lexical blocks
+    dwarf::DIE* createLexicalBlock(dwarf::DIE* parent,
+                                  uint64_t lowPC,
+                                  uint64_t highPC);
 
     // Add file to line number program
     uint32_t addFile(const std::string& filename,
