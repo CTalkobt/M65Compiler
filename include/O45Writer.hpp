@@ -55,6 +55,11 @@ public:
     void setTextRelocations(const std::vector<uint8_t>& relocs);
     void setDataRelocations(const std::vector<uint8_t>& relocs);
 
+    // Phase 113: DWARF debug sections
+    void setDebugInfoSegment(const std::vector<uint8_t>& data) { debugInfo_ = data; hasDebugInfo_ = true; }
+    void setDebugLineSegment(const std::vector<uint8_t>& data) { debugLine_ = data; hasDebugLine_ = true; }
+    void setDebugStrSegment(const std::vector<uint8_t>& data) { debugStr_ = data; hasDebugStr_ = true; }
+
     void addImport(const std::string& name);
     void addExport(const std::string& name, O45Segment seg, uint32_t offset, bool weak = false);
     void setFuncAttr(const std::string& name, const O45FuncAttr& attr);
@@ -126,12 +131,21 @@ private:
     };
     std::vector<OptionEntry> options_;
 
+    // Phase 113: DWARF debug sections
+    bool hasDebugInfo_ = false;
+    bool hasDebugLine_ = false;
+    bool hasDebugStr_ = false;
+    std::vector<uint8_t> debugInfo_;
+    std::vector<uint8_t> debugLine_;
+    std::vector<uint8_t> debugStr_;
+
     // Write helpers
     void emitHeader(std::vector<uint8_t>& out) const;
     void emitOptions(std::vector<uint8_t>& out) const;
     void emitRelocTable(std::vector<uint8_t>& out, const std::vector<uint8_t>& relocs) const;
     void emitImports(std::vector<uint8_t>& out) const;
     void emitExports(std::vector<uint8_t>& out) const;
+    void emitDebugSections(std::vector<uint8_t>& out) const;
 
     static void writeU16(std::vector<uint8_t>& out, uint16_t val);
     static void writeU32(std::vector<uint8_t>& out, uint32_t val);

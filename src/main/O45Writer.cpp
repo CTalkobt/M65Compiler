@@ -187,6 +187,11 @@ std::vector<uint8_t> O45Writer::emit() const {
     emitImports(out);
     emitExports(out);
 
+    // Phase 113: DWARF debug sections (if present)
+    if (hasDebugInfo_ || hasDebugLine_ || hasDebugStr_) {
+        emitDebugSections(out);
+    }
+
     return out;
 }
 
