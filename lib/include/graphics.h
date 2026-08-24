@@ -265,3 +265,154 @@ void graphics_clearclip(void);
  */
 void graphics_getclip(int *x1, int *y1, int *x2, int *y2);
 
+/* ============================================================================
+ * SPRITE SUPPORT (Phase 103)
+ * ============================================================================ */
+
+/**
+ * Sprite render modes:
+ * - SOFTWARE: Rendered to framebuffer (works on all graphics modes)
+ * - HARDWARE: MEGA65 hardware sprites (fast, limited to 8 sprites)
+ */
+typedef enum {
+    SPRITE_MODE_SOFTWARE,           /* Software-rendered sprite */
+    SPRITE_MODE_HARDWARE            /* MEGA65 hardware sprite */
+} sprite_render_mode_t;
+
+/**
+ * Sprite structure — unified interface for software and hardware sprites
+ */
+typedef struct {
+    int x, y;                       /* Position (pixels) */
+    int width, height;              /* Size (pixels) */
+    unsigned char color;            /* Color/palette index */
+    unsigned char *bitmap;          /* Pointer to sprite bitmap data */
+    unsigned char visible;          /* 1 = visible, 0 = hidden */
+    unsigned char frame;            /* Current animation frame */
+
+    /* Internal state — do not modify directly */
+    unsigned char sprite_num;       /* Hardware sprite number (0-7) */
+    sprite_render_mode_t render_mode; /* AUTO-DETECTED */
+    int old_x, old_y;              /* Previous position (for dirty-rect) */
+} sprite_t;
+
+/**
+ * sprite_init - Initialize a sprite
+ *
+ * Allocates sprite structure and auto-detects render mode:
+ * - Hardware sprite if size ≤ 64×64 and HW available
+ * - Software sprite otherwise
+ *
+ * Parameters:
+ *   spr — Sprite structure (caller-allocated)
+ *   width, height — Sprite size in pixels
+ *
+ * Returns:
+ *   0 on success, -1 if no hardware sprites available (falls back to SW)
+ */
+int sprite_init(sprite_t *spr, int width, int height);
+
+/**
+ * sprite_done - Cleanup sprite
+ *
+ * Releases hardware sprite slot if applicable
+ */
+void sprite_done(sprite_t *spr);
+
+/**
+ * sprite_set_position - Move sprite to new position
+ *
+ * Parameters:
+ *   spr — Sprite to move
+ *   x, y — New position (pixels)
+ */
+void sprite_set_position(sprite_t *spr, int x, int y);
+
+/**
+ * sprite_set_bitmap - Set sprite graphics
+ *
+ * Parameters:
+ *   spr — Sprite to update
+ *   bitmap — Pointer to sprite bitmap data (format depends on size)
+ *
+ * Note: Bitmap format is mode-dependent:
+ *   - 8×8: 64 bytes (1 byte per row, 8 rows)
+ *   - 16×16: 32 bytes per row (for hardware sprites)
+ */
+void sprite_set_bitmap(sprite_t *spr, unsigned char *bitmap);
+
+/**
+ * sprite_set_color - Set sprite color
+ *
+ * Parameters:
+ *   spr — Sprite to update
+ *   color — Color index (0-15 for MEGA65, mode-dependent)
+ */
+void sprite_set_color(sprite_t *spr, unsigned char color);
+
+/**
+ * sprite_draw - Render sprite at current position
+ *
+ * Renders sprite using appropriate backend (hardware or software).
+ * Safe to call multiple times per frame.
+ *
+ * Parameters:
+ *   spr — Sprite to render
+ */
+void sprite_draw(sprite_t *spr);
+
+/**
+ * sprite_clear - Erase sprite from current position
+ *
+ * For software sprites: overwrites with background color
+ * For hardware sprites: clears enable bit
+ *
+ * Parameters:
+ *   spr — Sprite to erase
+ */
+void sprite_clear(sprite_t *spr);
+
+/**
+ * sprite_show - Make sprite visible
+ *
+ * Parameters:
+ *   spr — Sprite to show
+ */
+void sprite_show(sprite_t *spr);
+
+/**
+ * sprite_hide - Hide sprite
+ *
+ * Parameters:
+ *   spr — Sprite to hide
+ */
+void sprite_hide(sprite_t *spr);
+
+/**
+ * sprite_collides - Test bounding-box collision
+ *
+ * Simple and fast bounding-box collision detection.
+ * For pixel-perfect collision, use sprite_collides_precise().
+ *
+ * Parameters:
+ *   a, b — Sprites to test
+ *
+ * Returns:
+ *   1 if bounding boxes overlap, 0 otherwise
+ */
+int sprite_collides(sprite_t *a, sprite_t *b);
+
+/**
+ * sprite_collides_precise - Test pixel-perfect collision
+ *
+ * Slower but more accurate collision detection.
+ * Only works if both sprites have bitmap data set.
+ *
+ * Parameters:
+ *   a, b — Sprites to test
+ *
+ * Returns:
+ *   1 if pixel data overlaps, 0 otherwise
+ */
+int sprite_collides_precise(sprite_t *a, sprite_t *b);
+
