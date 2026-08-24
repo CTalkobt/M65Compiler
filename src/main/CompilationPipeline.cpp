@@ -94,7 +94,7 @@ CompilationResult CompilationPipeline::compile() {
         }
 
         // Stage 2: Parse
-        ParseStage parseStage(preprocessedSource, config_.verboseLevel);
+        ParseStage parseStage(preprocessedSource, config_.verboseLevel, config_.inputFile);
         auto parseResult = runStage(parseStage);
         if (!parseResult.success) {
             result.success = false;

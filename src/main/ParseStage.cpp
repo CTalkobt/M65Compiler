@@ -20,6 +20,7 @@ Stage::Result ParseStage::execute() {
     try {
         // Lex the source code
         Lexer lexer(source_);
+        lexer.setSourceFile(filename_);  // Set filename for error reporting
         std::vector<Token> tokens = lexer.tokenize();
         auto lexerLineMap = lexer.getLineToFileMap();
 

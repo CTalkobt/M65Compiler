@@ -19,6 +19,9 @@ public:
 
     const std::map<int, FileContext>& getLineToFileMap() const { return lineToFileMap; }
 
+    // Set source filename for error reporting
+    void setSourceFile(const std::string& filename) { sourceFile = filename; }
+
 private:
     std::string source;
     size_t pos;

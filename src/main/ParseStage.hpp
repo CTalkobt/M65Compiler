@@ -14,9 +14,11 @@ class ParseStage : public Stage {
 public:
 
     ParseStage(const std::string& source,
-              int verboseLevel = 0)
+              int verboseLevel = 0,
+              const std::string& filename = "")
         : source_(source),
-          verboseLevel_(verboseLevel) {}
+          verboseLevel_(verboseLevel),
+          filename_(filename) {}
 
     Result execute() override;
     std::string getName() const override { return "Parse"; }
@@ -35,6 +37,7 @@ public:
 
 private:
     std::string source_;
+    std::string filename_;  // Source filename for error reporting
     int verboseLevel_;
     std::shared_ptr<TranslationUnit> ast_;
     std::vector<std::pair<int, std::pair<std::string, int>>> lineMap_;
