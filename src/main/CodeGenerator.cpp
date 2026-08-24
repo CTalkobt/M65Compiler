@@ -1,4 +1,5 @@
 #include "CodeGenerator.hpp"
+#include "Diagnostic.hpp"
 #include "AddressTemplateDetector.hpp"
 #include "AddressTemplates.hpp"
 #include "ZeroArgCallDetector.hpp"
@@ -623,7 +624,10 @@ void CodeGenerator::emitIndirectIncDec(UnaryOperation& node, bool isInc, bool is
     // Handle ++/-- on indirect lvalues: (*p)++, arr[i]--, p->field++, etc.
     // Strategy: compute lvalue address → ZP, load value, inc/dec, store back.
     ExpressionType valType = getExprType(node.operand.get());
-    if (valType.isConst) throw std::runtime_error("Compile Error: Increment/decrement of read-only location");
+    if (valType.isConst) {
+        std::string errMsg = "Cannot increment/decrement read-only location";
+        throw std::runtime_error(formatSemanticError(errMsg, node.sourceFile, node.line, node.column));
+    }
     bool is16 = (valType.pointerLevel > 0 || valType.type == "int");
     if (isStruct(valType.type)) {
         std::string sName = getAggregateName(valType.type);
