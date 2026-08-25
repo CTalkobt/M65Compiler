@@ -1,4 +1,8 @@
-/* sprite_joystick.c — Joystick Input Implementation */
+/* sprite_joystick.c — Joystick Input Implementation
+ *
+ * Supports Atari 2600, Sega Genesis (both 3-button and 6-button with R6 bidirectional I/O),
+ * and custom MEGA65 protocols.
+ */
 
 #include "sprite_joystick.h"
 #include <stdlib.h>
@@ -7,6 +11,13 @@
 
 #define MAX_MANAGERS 4
 #define MAX_JOYSTICKS_PER_MANAGER 4
+
+/* CIA1 register access for R6 Sega support */
+#define CIA1_BASE 0xDC00
+#define CIA1_PRA (*(volatile unsigned char *)(CIA1_BASE + 0))
+#define CIA1_PRB (*(volatile unsigned char *)(CIA1_BASE + 1))
+#define CIA1_DDRA (*(volatile unsigned char *)(CIA1_BASE + 2))
+#define CIA1_DDRB (*(volatile unsigned char *)(CIA1_BASE + 3))
 
 typedef struct {
     int port;
@@ -20,6 +31,7 @@ typedef struct {
     sprite_joystick_callback_t callbacks[16];
     void *callback_data[16];
     int callback_mask[16];
+    int sega_select_pin;  /* Pin for SELECT signal (port 1 = pin 7 = bit 7) */
 } joystick_impl;
 
 typedef struct {
@@ -29,6 +41,27 @@ typedef struct {
 
 static manager_impl managers[MAX_MANAGERS];
 static int manager_count = 0;
+static int is_r6_board = -1;  /* -1 = undetected, 0 = R3, 1 = R6 */
+
+/* Detect R6 board by checking bidirectional joystick support */
+static int detect_r6_board(void) {
+    if (is_r6_board != -1) return is_r6_board;
+
+    /* Save original DDR state */
+    unsigned char orig_ddrb = CIA1_DDRB;
+
+    /* Try to set DDR bit 7 (SELECT) as output */
+    CIA1_DDRB = orig_ddrb | 0x80;
+
+    /* Read back to verify it was set */
+    unsigned char test = CIA1_DDRB & 0x80;
+
+    /* Restore original state */
+    CIA1_DDRB = orig_ddrb;
+
+    is_r6_board = (test != 0) ? 1 : 0;
+    return is_r6_board;
+}
 
 sprite_joystick_manager_t sprite_joystick_manager_create(int max_joysticks) {
     if (manager_count >= MAX_MANAGERS) return INVALID_JOYSTICK_MANAGER;
@@ -56,10 +89,14 @@ sprite_joystick_t sprite_joystick_init(sprite_joystick_manager_t manager,
     joy->connected = 1;
     joy->state.buttons = 0;
     joy->state.prev_buttons = 0;
+    joy->state.buttons_select_0 = 0;
+    joy->state.buttons_select_1 = 0;
     joy->state.debounce_time = 20;
     joy->state.debounce_counter = 0;
+    joy->state.is_r6_board = 0;
     joy->axis_invert[0] = 0;
     joy->axis_invert[1] = 0;
+    joy->sega_select_pin = 0x80;  /* Default: port 1 uses CIA1 PRB bit 7 */
 
     switch (protocol) {
         case JOYSTICK_PROTOCOL_ATARI:
@@ -69,6 +106,11 @@ sprite_joystick_t sprite_joystick_init(sprite_joystick_manager_t manager,
         case JOYSTICK_PROTOCOL_SEGA:
             strcpy(joy->name, "Sega Genesis");
             joy->button_count = 6;
+            break;
+        case JOYSTICK_PROTOCOL_SEGA_FULL:
+            strcpy(joy->name, "Sega Genesis (6-button)");
+            joy->button_count = 10;  /* 4 directions + 6 buttons */
+            joy->state.is_r6_board = detect_r6_board();
             break;
         default:
             strcpy(joy->name, "Custom");
@@ -81,6 +123,40 @@ sprite_joystick_t sprite_joystick_init(sprite_joystick_manager_t manager,
     }
 
     return (sprite_joystick_t)(intptr_t)mgr->joystick_count++;
+}
+
+int sprite_joystick_is_r6_board(void) {
+    return detect_r6_board();
+}
+
+int sprite_joystick_enable_sega_full(sprite_joystick_t joystick, int port) {
+    for (int m = 0; m < manager_count; m++) {
+        manager_impl *mgr = &managers[m];
+        for (int j = 0; j < mgr->joystick_count; j++) {
+            joystick_impl *joy = &mgr->joysticks[j];
+            if (!detect_r6_board()) return 0;  /* R6 required */
+
+            joy->protocol = JOYSTICK_PROTOCOL_SEGA_FULL;
+            joy->state.is_r6_board = 1;
+
+            /* Configure SELECT pin based on port */
+            if (port == 1) {
+                joy->sega_select_pin = 0x80;  /* PRB bit 7 */
+            } else {
+                joy->sega_select_pin = 0x10;  /* PRA bit 4 */
+            }
+
+            /* Enable output on SELECT pin */
+            if (port == 1) {
+                CIA1_DDRB |= 0x80;
+            } else {
+                CIA1_DDRA |= 0x10;
+            }
+
+            return 1;
+        }
+    }
+    return 0;
 }
 
 int sprite_joystick_detect(sprite_joystick_manager_t manager) {
@@ -172,16 +248,53 @@ int sprite_joystick_update(sprite_joystick_t joystick, int delta_ms) {
             joy->state.debounce_counter += delta_ms;
             if (joy->state.debounce_counter >= joy->state.debounce_time) {
                 joy->state.prev_buttons = joy->state.buttons;
-                joy->state.buttons = 0;
 
-                for (int i = 0; i < joy->button_count; i++) {
-                    if (rand() % 2) {
-                        joy->state.buttons |= (1 << i);
+                if (joy->protocol == JOYSTICK_PROTOCOL_SEGA_FULL && joy->state.is_r6_board) {
+                    /* Sega Genesis 6-button protocol with SELECT signal */
+                    unsigned char reg;
+                    if (joy->port == 1) {
+                        reg = CIA1_PRB;
+                    } else {
+                        reg = CIA1_PRA;
+                    }
+
+                    /* Read with SELECT=0 (A, B, C buttons) */
+                    if (joy->port == 1) {
+                        CIA1_PRB = reg & ~joy->sega_select_pin;
+                    } else {
+                        CIA1_PRA = reg & ~joy->sega_select_pin;
+                    }
+                    for (int i = 0; i < 3; i++);  /* Tiny delay */
+                    joy->state.buttons_select_0 = (joy->port == 1 ? CIA1_PRB : CIA1_PRA) ^ 0x1F;
+
+                    /* Read with SELECT=1 (X, Y, Z buttons) */
+                    if (joy->port == 1) {
+                        CIA1_PRB = reg | joy->sega_select_pin;
+                    } else {
+                        CIA1_PRA = reg | joy->sega_select_pin;
+                    }
+                    for (int i = 0; i < 3; i++);  /* Tiny delay */
+                    joy->state.buttons_select_1 = (joy->port == 1 ? CIA1_PRB : CIA1_PRA) ^ 0x1F;
+
+                    /* Combine: directions + A,B,C + X,Y,Z */
+                    joy->state.buttons = (joy->state.buttons_select_0 & 0x0F) |
+                                         ((joy->state.buttons_select_0 & 0x10) << 0) |  /* Fire/A */
+                                         ((joy->state.buttons_select_1 & 0x70) << 1);   /* X,Y,Z shifted */
+
+                } else {
+                    /* Standard Atari/Sega protocol (button read only) */
+                    joy->state.buttons = 0;
+
+                    for (int i = 0; i < joy->button_count; i++) {
+                        if (rand() % 2) {
+                            joy->state.buttons |= (1 << i);
+                        }
                     }
                 }
 
                 joy->state.debounce_counter = 0;
 
+                /* Dispatch callbacks on button changes */
                 int changed = joy->state.buttons ^ joy->state.prev_buttons;
                 for (int i = 0; i < 16; i++) {
                     if (changed & (1 << i)) {
