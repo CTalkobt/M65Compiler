@@ -224,6 +224,7 @@ private:
     static constexpr int INLINE_MAX_STMTS = 20;   // max body statements for auto-inline
     ir::Operand inlineReturnTarget_;               // vreg for inlined return value
     std::string inlineReturnLabel_;                // merge label for inlined returns
+    std::string inlineSourceFunc_;                 // callee function name during inline expansion (for asm rewriting)
 
     // Track function parameter info for const-qualification warnings
     struct ParamInfo { bool isConst = false; int pointerLevel = 0; };
