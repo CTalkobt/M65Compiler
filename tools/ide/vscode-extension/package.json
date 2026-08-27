@@ -34,18 +34,32 @@
     "languages": [
       {
         "id": "c",
-        "extensions": [".c"],
-        "aliases": ["C"]
+        "extensions": [
+          ".c"
+        ],
+        "aliases": [
+          "C"
+        ]
       },
       {
         "id": "h",
-        "extensions": [".h"],
-        "aliases": ["C Header"]
+        "extensions": [
+          ".h"
+        ],
+        "aliases": [
+          "C Header"
+        ]
       },
       {
         "id": "m65-asm",
-        "extensions": [".s45", ".asm"],
-        "aliases": ["MEGA65 Assembly", "45GS02 Assembly"],
+        "extensions": [
+          ".s45",
+          ".asm"
+        ],
+        "aliases": [
+          "MEGA65 Assembly",
+          "45GS02 Assembly"
+        ],
         "configuration": "./language-configuration/m65-asm.language-configuration.json"
       }
     ],
@@ -77,7 +91,13 @@
           },
           "m65.indexer.exclude": {
             "type": "array",
-            "default": ["node_modules", ".git", "bin", "obj", "build"],
+            "default": [
+              "node_modules",
+              ".git",
+              "bin",
+              "obj",
+              "build"
+            ],
             "description": "Glob patterns to exclude from workspace indexing"
           }
         }
@@ -91,7 +111,7 @@
     "@typescript-eslint/eslint-plugin": "^8.64.0",
     "@typescript-eslint/parser": "^8.64.0",
     "@vscode/vsce": "^3.9.2",
-    "esbuild": "^0.19.0",
+    "esbuild": "^0.28.2",
     "eslint": "^10.7.0",
     "typescript": "^5.0.0"
   },
