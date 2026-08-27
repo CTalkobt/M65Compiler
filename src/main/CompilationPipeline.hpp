@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <cstdint>
 #include <memory>
 #include "Stage.hpp"
 
