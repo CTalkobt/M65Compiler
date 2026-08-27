@@ -12,6 +12,7 @@
 ROOT = ../../..
 CC45 = $(ROOT)/bin/cc45
 LN45 = $(ROOT)/bin/ln45
+CRT0 = $(ROOT)/lib/build/crt0.o45
 STDLIB = $(ROOT)/lib/build/c45.lib
 INCLUDES = -I$(ROOT)/lib/include
 
@@ -24,8 +25,8 @@ all: $(TARGET)
 main.o45: main.c
 	$(CC45) $(INCLUDES) -c main.c -o main.o45
 
-$(TARGET): main.o45 $(STDLIB)
-	$(LN45) -basic -o $(TARGET) main.o45 $(STDLIB)
+$(TARGET): main.o45 $(CRT0) $(STDLIB)
+	$(LN45) -basic -o $(TARGET) $(CRT0) main.o45 $(STDLIB)
 
 clean:
 	rm -f main.o45 main.o45.s45 $(TARGET)
