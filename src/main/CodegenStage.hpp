@@ -21,14 +21,16 @@ public:
                  int verboseLevel = 0,
                  bool inlineFunctions = false,
                  bool staticAlloc = false,
-                 bool saveTemps = false)
+                 bool saveTemps = false,
+                 bool relocMode = false)
         : ast_(ast),
           analyzer_(analyzer),
           optimizationLevel_(optimizationLevel),
           verboseLevel_(verboseLevel),
           inlineFunctions_(inlineFunctions),
           staticAlloc_(staticAlloc),
-          saveTemps_(saveTemps) {}
+          saveTemps_(saveTemps),
+          relocMode_(relocMode) {}
 
     Result execute() override;
     std::string getName() const override { return "CodeGen (IR)"; }
@@ -53,6 +55,7 @@ private:
     bool inlineFunctions_;
     bool staticAlloc_;
     bool saveTemps_;
+    bool relocMode_;
     std::shared_ptr<ir::Module> irModule_;
     std::string irOutput_;
 

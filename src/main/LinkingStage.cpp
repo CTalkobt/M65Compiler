@@ -40,7 +40,7 @@ int LinkingStage::invokeLinker() {
 
     // Build ln45 command line
     // Format: ln45 input.o45 -o output.prg --base address [--lib path...]
-    std::string cmd = "ln45 " + objectFile_;
+    std::string cmd = toolDir_ + "ln45 " + objectFile_;
 
     // Add output file
     cmd += " -o " + outputFile_;

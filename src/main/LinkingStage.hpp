@@ -10,12 +10,14 @@ public:
                 const std::string& outputFile,
                 int verboseLevel = 0,
                 const std::string& prgBase = "0x0801",
-                const std::vector<std::string>& libraryPaths = {})
+                const std::vector<std::string>& libraryPaths = {},
+                const std::string& toolDir = "")
         : objectFile_(objectFile),
           outputFile_(outputFile),
           verboseLevel_(verboseLevel),
           prgBase_(prgBase),
-          libraryPaths_(libraryPaths) {}
+          libraryPaths_(libraryPaths),
+          toolDir_(toolDir) {}
 
     Result execute() override;
     std::string getName() const override { return "Linking (ln45)"; }
@@ -29,6 +31,7 @@ private:
     int verboseLevel_;
     std::string prgBase_;
     std::vector<std::string> libraryPaths_;
+    std::string toolDir_;
 
     // Helper methods
     int invokeLinker();

@@ -70,7 +70,7 @@ int AssemblyStage::invokeAssembler() {
 
     // Build ca45 command line
     // Format: ca45 input.s45 [-c] -o output.o45
-    std::string cmd = "ca45 temp_" + std::to_string(getpid()) + ".s45";
+    std::string cmd = toolDir_ + "ca45 temp_" + std::to_string(getpid()) + ".s45";
 
     // Add -c flag if relocatable object requested
     if (relocatable_) {

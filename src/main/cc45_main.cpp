@@ -458,6 +458,7 @@ int main(int argc, char** argv) {
         size_t sep = exePath.find_last_of("/\\");
         std::string baseDir = (sep != std::string::npos) ? exePath.substr(0, sep + 1) : "";
         includePaths.push_back(baseDir + "../lib/include");
+        config.toolDir = baseDir;
     }
 
     // Parse all arguments

@@ -41,6 +41,9 @@ struct CompilationConfig {
 
     // Pragmas from CLI
     std::vector<std::string> cliPragmas;
+
+    // Tool directory (directory containing cc45/ca45/ln45 binaries)
+    std::string toolDir;
 };
 
 // Compilation result

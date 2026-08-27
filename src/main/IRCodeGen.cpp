@@ -915,9 +915,38 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     emit("cc45.zeroPageStart = " + hex8(zeroPageStart_));
     emitBlank();
 
-    // Emit extern declarations
-    for (const auto& ext : mod.externs) {
-        emit(".extern " + ext);
+    // Emit extern declarations (only for symbols actually referenced in code)
+    if (relocMode) {
+        // Collect all symbol references from instructions and globals
+        std::set<std::string> referencedSymbols;
+        for (const auto& fn : mod.functions) {
+            for (const auto& blk : fn.blocks) {
+                for (const auto& inst : blk.insts) {
+                    // Check operand names (GLOBAL/LABEL references)
+                    if (!inst.dest.name.empty()) referencedSymbols.insert(inst.dest.name);
+                    if (!inst.src1.name.empty()) referencedSymbols.insert(inst.src1.name);
+                    if (!inst.src2.name.empty()) referencedSymbols.insert(inst.src2.name);
+                    for (const auto& arg : inst.args) {
+                        if (!arg.name.empty()) referencedSymbols.insert(arg.name);
+                    }
+                }
+            }
+        }
+        for (const auto& g : mod.globals) {
+            for (const auto& lbl : g.initLabels) {
+                if (!lbl.empty()) referencedSymbols.insert(lbl);
+            }
+        }
+        // Only emit .extern for symbols actually used
+        for (const auto& ext : mod.externs) {
+            if (referencedSymbols.count(ext)) {
+                emit(".extern " + ext);
+            }
+        }
+    } else {
+        for (const auto& ext : mod.externs) {
+            emit(".extern " + ext);
+        }
     }
 
     // Auto-emit float runtime externs if any float ops are used
