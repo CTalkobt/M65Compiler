@@ -16,6 +16,10 @@ These examples demonstrate different features of the m65compiler.
 - **multi_module/** - Multi-file project with shared header, separate compilation of 3 modules, and linking. Demonstrates extern, struct pass/return, and the standard build workflow.
 - **bitfield_registers/** - MEGA65 VIC-IV hardware register access using C bitfield structs. Maps control registers, sprite enables, and screen attributes as typed bitfield overlays.
 - **game_of_life/** - Conway's Game of Life on the 40x25 text screen with wrapping edges. Demonstrates 2D arrays, nested loops, and direct screen/color RAM access.
+- **memset_screen/** - Fill screen with character codes 0-255, demonstrating memset with direct screen RAM writes.
+- **text_scroller/** - Horizontal text scroller demonstrating mixed C and assembly, with hardware screen manipulation routines.
+- **vic4_colors/** - Set screen/border colors via VIC-IV register struct overlay.
+- **stdlib/math_h/** - Math library examples (min/max, gcd/lcm)
 
 ### Assembly Examples
 
