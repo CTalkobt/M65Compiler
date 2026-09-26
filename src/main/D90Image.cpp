@@ -185,8 +185,7 @@ bool D90Image::addFile(const std::string& name, CbmFileType type,
     }
 
     // Create directory entry
-    DirEntry entry;
-    std::memset(&entry, 0, sizeof(entry));
+    DirEntry entry = {};
     entry.fileType = 0x80 | (uint8_t)type;
     entry.firstDataTS = chain[0];
     padPetsciiName(entry.filename, name);
