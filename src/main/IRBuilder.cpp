@@ -3129,9 +3129,9 @@ void IRBuilder::visit(FunctionCall& node) {
         }
     }
     // Handle nested function static link
-    auto fit = allFunctions_.find(node.name);
-    if (fit != allFunctions_.end() && fit->second->isNested) {
-        FunctionDeclaration* calleeParent = fit->second->parentFunc;
+    auto fitNested = allFunctions_.find(node.name);
+    if (fitNested != allFunctions_.end() && fitNested->second->isNested) {
+        FunctionDeclaration* calleeParent = fitNested->second->parentFunc;
         ir::Operand sl;
 
         if (currentFunc_ && "_" + calleeParent->name == currentFunc_->name) {
