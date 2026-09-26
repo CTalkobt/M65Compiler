@@ -132,7 +132,8 @@ CompilationResult CompilationPipeline::compile() {
         std::string tempAsmFile = "temp_" + std::to_string(getpid()) + ".s45";
         CodegenStage codegenStage(ast, analyzer, config_.optimizationLevel,
                                  config_.verboseLevel, config_.inlineSmallFunctions,
-                                 config_.staticAllocMode, config_.saveTemps);
+                                 config_.staticAllocMode, config_.saveTemps,
+                                 config_.objectOnly);
 
         // Phase 102: Pass typedef mappings to codegen stage
         codegenStage.setTypedefMappings(typedefMappings);
@@ -162,7 +163,7 @@ CompilationResult CompilationPipeline::compile() {
         std::string objectFile = config_.objectOnly ? config_.outputFile :
                                 (std::string("temp_") + std::to_string(getpid()) + ".o45");
         AssemblyStage asmStage(irOutput, objectFile, config_.verboseLevel,
-                              config_.objectOnly);
+                              config_.objectOnly, config_.toolDir);
         auto asmResult = runStage(asmStage);
         remove(tempAsmFile.c_str());
 
@@ -180,7 +181,8 @@ CompilationResult CompilationPipeline::compile() {
 
         // Stage 6: Linking
         LinkingStage linkStage(objectFile, config_.outputFile, config_.verboseLevel,
-                              std::to_string(config_.prgBase), config_.libraryPaths);
+                              std::to_string(config_.prgBase), config_.libraryPaths,
+                              config_.toolDir);
         auto linkResult = runStage(linkStage);
         remove(objectFile.c_str());
 

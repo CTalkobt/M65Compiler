@@ -1,6 +1,7 @@
 #include "CompilerHookIntegrator.hpp"
 #include <iostream>
 #include <chrono>
+#include <algorithm>
 #include <iomanip>
 
 // Forward reference check - OnlineLearner and TuningHooks are optional

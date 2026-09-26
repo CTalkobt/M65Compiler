@@ -2906,11 +2906,14 @@ void IRBuilder::visit(FunctionCall& node) {
                         auto inlineResult = allocVreg(retType);
                         inlineReturnTarget_ = inlineResult;
                         inlineReturnLabel_ = newLabel("inline_ret");
+                        auto savedInlineSourceFunc = inlineSourceFunc_;
+                        inlineSourceFunc_ = mangledName;
 
                         if (inlineFunc->body) inlineFunc->body->accept(*this);
 
                         startBlock(inlineReturnLabel_);
                         lastValue_ = inlineResult;
+                        inlineSourceFunc_ = savedInlineSourceFunc;
 
                         locals_ = savedLocals;
                         localTypes_ = savedLocalTypes;
@@ -3267,14 +3270,17 @@ void IRBuilder::visit(FunctionCall& node) {
             // Save and set inline return context
             auto savedInlineReturnTarget = inlineReturnTarget_;
             auto savedInlineReturnLabel = inlineReturnLabel_;
+            auto savedInlineSourceFunc = inlineSourceFunc_;
             inlineReturnTarget_ = resultVreg;
             inlineReturnLabel_ = mergeLabel;
+            inlineSourceFunc_ = node.name;
 
             // Visit the inlined function body
             inlineFunc->body->accept(*this);
 
             // Emit merge block
             startBlock(mergeLabel);
+            inlineSourceFunc_ = savedInlineSourceFunc;
 
             // Restore caller state
             inlineReturnTarget_ = savedInlineReturnTarget;
@@ -4504,6 +4510,58 @@ void IRBuilder::visit(AsmStatement& node) {
     ir::Inst inst;
     inst.op = ir::Op::ASM_INLINE;
     inst.asmText = node.code;
+
+    // When inlining, rewrite @_p_name and @_l_name references to use
+    // the callee's SAC storage symbols, since proc-scoped .var declarations
+    // won't exist in the caller's scope.
+    if (!inlineSourceFunc_.empty()) {
+        std::string irName = "_" + inlineSourceFunc_;
+        std::string& text = inst.asmText;
+        // Rewrite @_p_name → _func__param_name (direct SAC label)
+        size_t pos = 0;
+        while ((pos = text.find("@_p_", pos)) != std::string::npos) {
+            // Extract parameter name: alphanumeric chars after @_p_
+            size_t nameStart = pos + 4;
+            size_t nameEnd = nameStart;
+            while (nameEnd < text.size() && (isalnum(text[nameEnd]) || text[nameEnd] == '_'))
+                nameEnd++;
+            std::string paramName = text.substr(nameStart, nameEnd - nameStart);
+            // Also strip ", sp" suffix if present (SAC uses absolute addressing)
+            std::string suffix;
+            if (nameEnd + 4 <= text.size() && text.substr(nameEnd, 4) == ", sp") {
+                suffix = ", sp";
+            }
+            std::string replacement = irName + "__param_" + paramName;
+            text.replace(pos, (nameEnd - pos) + suffix.size(), replacement);
+            pos += replacement.size();
+        }
+        // Rewrite @_l_name → _caller__local_N
+        // The inlined local lives in the *caller's* SAC storage (the inliner
+        // allocated a new vreg for it in the caller's frame).
+        std::string callerName = currentFunc_ ? currentFunc_->name : irName;
+        pos = 0;
+        while ((pos = text.find("@_l_", pos)) != std::string::npos) {
+            size_t nameStart = pos + 4;
+            size_t nameEnd = nameStart;
+            while (nameEnd < text.size() && (isalnum(text[nameEnd]) || text[nameEnd] == '_'))
+                nameEnd++;
+            std::string localName = text.substr(nameStart, nameEnd - nameStart);
+            std::string suffix;
+            if (nameEnd + 4 <= text.size() && text.substr(nameEnd, 4) == ", sp") {
+                suffix = ", sp";
+            }
+            // Look up vreg ID for this local in the caller's context
+            auto it = locals_.find(localName);
+            if (it != locals_.end()) {
+                std::string replacement = callerName + "__local_" + std::to_string(it->second.vregId);
+                text.replace(pos, (nameEnd - pos) + suffix.size(), replacement);
+                pos += replacement.size();
+            } else {
+                pos = nameEnd;
+            }
+        }
+    }
+
     inst.loc = loc(node);
     emit(inst);
 }

@@ -9,11 +9,13 @@ public:
     AssemblyStage(const std::string& assemblyInput,
                  const std::string& outputFile = "",
                  int verboseLevel = 0,
-                 bool relocatable = false)
+                 bool relocatable = false,
+                 const std::string& toolDir = "")
         : assemblyInput_(assemblyInput),
           outputFile_(outputFile),
           verboseLevel_(verboseLevel),
-          relocatable_(relocatable) {}
+          relocatable_(relocatable),
+          toolDir_(toolDir) {}
 
     Result execute() override;
     std::string getName() const override { return "Assembly (ca45)"; }
@@ -27,6 +29,7 @@ private:
     int verboseLevel_;
     bool relocatable_;
     std::string objectFile_;
+    std::string toolDir_;
 
     // Helper methods
     int invokeAssembler();

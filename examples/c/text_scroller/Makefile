@@ -34,7 +34,7 @@ $(TARGET): $(OBJS) $(CRT0) $(STDLIB)
 	$(LN45) -m -basic -o $(TARGET) $(CRT0) $(OBJS) $(STDLIB) > map.txt
 
 clean:
-	rm -f $(OBJS) main.o45.s45 $(TARGET)
+	rm -f $(OBJS) main.o45.s45 $(TARGET) map.txt
 
 run: $(TARGET)
 	xemu-xmega65 -prg $(TARGET)

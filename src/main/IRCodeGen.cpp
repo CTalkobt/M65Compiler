@@ -915,9 +915,38 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     emit("cc45.zeroPageStart = " + hex8(zeroPageStart_));
     emitBlank();
 
-    // Emit extern declarations
-    for (const auto& ext : mod.externs) {
-        emit(".extern " + ext);
+    // Emit extern declarations (only for symbols actually referenced in code)
+    if (relocMode) {
+        // Collect all symbol references from instructions and globals
+        std::set<std::string> referencedSymbols;
+        for (const auto& fn : mod.functions) {
+            for (const auto& blk : fn.blocks) {
+                for (const auto& inst : blk.insts) {
+                    // Check operand names (GLOBAL/LABEL references)
+                    if (!inst.dest.name.empty()) referencedSymbols.insert(inst.dest.name);
+                    if (!inst.src1.name.empty()) referencedSymbols.insert(inst.src1.name);
+                    if (!inst.src2.name.empty()) referencedSymbols.insert(inst.src2.name);
+                    for (const auto& arg : inst.args) {
+                        if (!arg.name.empty()) referencedSymbols.insert(arg.name);
+                    }
+                }
+            }
+        }
+        for (const auto& g : mod.globals) {
+            for (const auto& lbl : g.initLabels) {
+                if (!lbl.empty()) referencedSymbols.insert(lbl);
+            }
+        }
+        // Only emit .extern for symbols actually used
+        for (const auto& ext : mod.externs) {
+            if (referencedSymbols.count(ext)) {
+                emit(".extern " + ext);
+            }
+        }
+    } else {
+        for (const auto& ext : mod.externs) {
+            emit(".extern " + ext);
+        }
     }
 
     // Auto-emit float runtime externs if any float ops are used
@@ -1641,12 +1670,13 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         // Detect zero-alloc leaves (leaf + no locals + all constant params)
         detectZeroAllocLeaves(fn);
 
-        // Emit SAC storage declarations BEFORE function entrance
-        // This places them at known addresses accessible at runtime
+        // Emit SAC storage declarations in BSS segment (not in code stream)
+        // These are zero-initialized at startup by the CRT, so they don't need
+        // to occupy space in the binary.
         // Skip for zero-alloc leaves (no storage needed at all)
         bool isZeroAlloc = zeroAllocLeaves_.count(fn.name) > 0;
         if (!isZeroAlloc) {
-            emitComment("SAC inline storage: " + std::to_string(frameSize_) + " bytes");
+            emitComment("SAC storage: " + std::to_string(frameSize_) + " bytes (in BSS)");
         } else {
             emitComment("SAC zero-alloc leaf: no storage overhead");
         }
@@ -1654,10 +1684,12 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         // Skip storage emission entirely for zero-alloc leaves
         if (!isZeroAlloc) {
 
+        // Switch to BSS segment for SAC storage
+        emit(".segment \"bss\"");
+
         // Emit storage for parameters
         // Use parameter names for documentation, fall back to indices if unavailable
         // Make symbols globally visible so caller and function can both reference them
-        // For constant parameters, use pre-initialized values
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
             int ps = ir::typeSize(fn.paramTypes[i]);
             if (ps < 2) ps = 2;  // Minimum 2 bytes
@@ -1677,28 +1709,25 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 }
             }
 
-            // Emit storage with constant value if applicable
+            // In BSS, use .res to reserve space (no initial value in binary)
+            // Constant parameters will be initialized by CRT or first call
             if (isConstParam) {
+                // Constant params go in data segment (initialized)
+                emit(".segment \"data\"");
                 if (ps == 2) {
                     emit(paramSymbol + ": .word " + std::to_string((int)(constValue & 0xFFFF)));
                 } else if (ps == 4) {
                     emit(paramSymbol + ": .long " + std::to_string((int)(constValue & 0xFFFFFFFF)));
                 } else {
-                    // For larger sizes, initialize first word with constant, rest with zeros
                     emit(paramSymbol + ": .word " + std::to_string((int)(constValue & 0xFFFF)));
                     for (int j = 2; j < ps; j += 2) {
                         emit(".word 0");
                     }
                 }
+                emit(".segment \"bss\"");
             } else {
-                // No pre-initialization, use zeros
-                if (ps == 2) {
-                    emit(paramSymbol + ": .word 0");
-                } else if (ps == 4) {
-                    emit(paramSymbol + ": .long 0");
-                } else {
-                    emit(paramSymbol + ": .fill " + std::to_string(ps));
-                }
+                emitLabel(paramSymbol);
+                emit(".res " + std::to_string(ps));
             }
         }
 
@@ -1710,15 +1739,14 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 ir::Type varType = vregType_.count(vregId) ? vregType_[vregId] : ir::Type::I16;
                 int varSize = ir::typeSize(varType);
                 if (varSize < 2) varSize = 2;
-                if (varSize == 2) {
-                    emit(localSymbol + ": .word 0");
-                } else if (varSize == 4) {
-                    emit(localSymbol + ": .long 0");
-                } else {
-                    emit(localSymbol + ": .fill " + std::to_string(varSize));
-                }
+                emitLabel(localSymbol);
+                emit(".res " + std::to_string(varSize));
             }
         }
+
+        // Switch back to code segment
+        emit(".segment \"code\"");
+
         }  // Close if (!isZeroAlloc)
     }
 

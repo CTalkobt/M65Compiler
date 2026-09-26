@@ -6,6 +6,7 @@
 #include <map>
 #include <set>
 #include <iostream>
+#include <cstdint>
 
 class ConstantFolder : public ASTVisitor {
 public:
