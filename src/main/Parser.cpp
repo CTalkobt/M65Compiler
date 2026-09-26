@@ -2315,22 +2315,25 @@ std::unique_ptr<Expression> Parser::parseUnary() {
         advance(); // consume '{'
         // Parse statements until we hit '}'
         // The last expression before '}' is the result value
-        std::unique_ptr<Expression> resultExpr;
+        std::unique_ptr<Expression> resultExpr = nullptr;
         while (peek().type != TokenType::CLOSE_BRACE && peek().type != TokenType::END_OF_FILE) {
             // Try to parse as a statement
             auto stmt = parseStatement();
-            // If it was an ExpressionStatement and the next token is '}', use the expression as result
-            if (peek().type == TokenType::CLOSE_BRACE) {
-                if (auto* exprStmt = dynamic_cast<ExpressionStatement*>(stmt.get())) {
-                    // The last statement's expression is the result
-                    // We already consumed the semicolon in parseStatement, so this is fine
-                }
+            // If this is an ExpressionStatement, it might be our result
+            if (auto* exprStmt = dynamic_cast<ExpressionStatement*>(stmt.get())) {
+                // Capture this expression as potential result (will be overwritten if more stmts follow)
+                resultExpr = std::move(exprStmt->expression);
             }
         }
         expect(TokenType::CLOSE_BRACE, "Expected '}' in statement expression");
         expect(TokenType::CLOSE_PAREN, "Expected ')' after statement expression");
-        // Statement expressions yield their last value; for now, treat as 0
-        std::unique_ptr<Expression> result = setPos(std::make_unique<IntegerLiteral>(0), startToken);
+        // Statement expressions yield their last value (or 0 if no expression found)
+        std::unique_ptr<Expression> result;
+        if (resultExpr) {
+            result = setPos(std::move(resultExpr), startToken);
+        } else {
+            result = setPos(std::make_unique<IntegerLiteral>(0), startToken);
+        }
         // Allow postfix operators: ({...}).member, ({...})[i]
         while (peek().type == TokenType::DOT || peek().type == TokenType::ARROW ||
                peek().type == TokenType::OPEN_SQUARE) {
