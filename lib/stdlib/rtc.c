@@ -52,10 +52,15 @@ static int compute_wday(int year, int mon, int mday) {
 /* Static buffer for localtime/gmtime */
 static struct tm __tm_buf;
 
-/* Read RTC registers via DMA (they're above 1MB barrier) */
+/* Read RTC registers via I/O mapped access
+ * Note: RTC is only accessible in MEGA65 mode (after GS knock).
+ * We restore C64 mode (VIC3 unlock: 0xA5 0x96) after reading to preserve
+ * compatibility with devices like UART that expect default I/O mode.
+ */
 void rtc_read(struct tm *tm) {
     /* Read RTC registers at $FFD7110-$FFD7116 using 32-bit address pointer */
     volatile unsigned char *rtc = (volatile unsigned char *)0xFFD7110L;
+    volatile unsigned char *io_key = (volatile unsigned char *)0xD02F;
 
     /* On emulators without RTC, these may return 0 */
     unsigned char sec = rtc[0];
@@ -65,6 +70,10 @@ void rtc_read(struct tm *tm) {
     unsigned char day = rtc[4];
     unsigned char month = rtc[5];
     unsigned char year = rtc[6];
+
+    /* Restore C64 mode (VIC3 unlock) to keep UART and other I/O accessible */
+    *io_key = 0xA5;
+    *io_key = 0x96;
 
     tm->tm_sec  = bcd_to_int(sec & 0x7F);
     tm->tm_min  = bcd_to_int(min & 0x7F);
