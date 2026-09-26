@@ -40,7 +40,7 @@ LIBDIR ?= $(PREFIX)/lib/cc45
 INCDIR ?= $(PREFIX)/include/cc45
 MANDIR ?= $(PREFIX)/share/man/man1
 
-.PHONY: all clean test man test-mmemu test-stdlib test-regression test-zpcall test-integration bench bench-save lib install install_local uninstall uninstall_local cppcheck coverage coverage-build coverage-clean coverage-report docker
+.PHONY: all clean test test-xemu man test-mmemu test-stdlib test-regression test-zpcall test-integration bench bench-save lib install install_local uninstall uninstall_local cppcheck coverage coverage-build coverage-clean coverage-report docker
 
 cppcheck:
 	cppcheck --enable=warning,performance,portability --inline-suppr -I include/ src/main/
@@ -134,6 +134,8 @@ test: all lib
 	@bash src/test/test_clobber.sh
 	@echo "Validating mmemu-cli integration..."
 	@bash src/test/test_mmemu.sh
+	@echo "Validating xemu-xmega65 serialtcp integration..."
+	@bash src/test/test_xemu_serialtcp.sh
 	@echo "Running parser syntax error validation tests..."
 	@$(MAKE) test-validation-parser
 	@echo "Running struct/union semantic error validation tests..."
@@ -189,6 +191,10 @@ test-register: all
 
 test-cast-fold: all
 	@bash src/test/test_cast_fold.sh
+
+test-xemu: all lib
+	@echo "Running xemu-xmega65 serialtcp validation tests..."
+	@bash src/test/test_xemu_serialtcp.sh
 
 test-integration: all
 	@bash src/test/test_integration.sh
