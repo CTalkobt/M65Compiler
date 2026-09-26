@@ -1,7 +1,7 @@
 # MEGA65 C Compiler Suite — Codebase Documentation
 
 **Status:** v1.0.5
-**Last Updated:** 2026-07-11
+**Last Updated:** 2026-09-26
 **Maintainer:** Craig Taylor (CTalkobt)
 
 ---
