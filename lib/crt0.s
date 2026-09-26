@@ -32,17 +32,11 @@ __init:
     tsy
     sty __saved_sph + 1
 
-    ; SKIP all I/O mode initialization - breaks xemu-serialtcp UART
-    ; Writes to $D02F appear to disable UART on xemu-serialtcp
-    ; TODO: Investigate xemu-serialtcp I/O compatibility
-    ; lda #$A5
-    ; sta $D02F
-    ; lda #$96
-    ; sta $D02F
-    ; lda #$47
-    ; sta $D02F
-    ; lda #$53
-    ; sta $D02F
+    ; Enable MEGA65 I/O — GS knock must precede hardware register access
+    lda #$47            ; 'G'
+    sta $D02F
+    lda #$53            ; 'S'
+    sta $D02F
 
     ; Save ZP $08-$FF to BSS buffer
     ldx #0
