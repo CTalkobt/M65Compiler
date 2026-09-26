@@ -3045,23 +3045,29 @@ void IRBuilder::visit(FunctionCall& node) {
 
     // Check for passing &const_var to non-const pointer parameter
     auto pit = funcParamInfo_.find(node.name);
-    if (pit != funcParamInfo_.end()) {
-        for (size_t i = 0; i < node.arguments.size() && i < pit->second.size(); i++) {
+    auto fit = allFunctions_.find(node.name);
+    if (pit != funcParamInfo_.end() && fit != allFunctions_.end()) {
+        FunctionDeclaration* funcDecl = fit->second;
+        for (size_t i = 0; i < node.arguments.size() && i < pit->second.size() && i < funcDecl->parameters.size(); i++) {
             const auto& pinfo = pit->second[i];
-            // If param is a non-const pointer and argument is &const_var
-            if (pinfo.pointerLevel > 0 && !pinfo.isConst) {
-                if (auto* addr = dynamic_cast<UnaryOperation*>(node.arguments[i].get())) {
-                    if (addr->op == "&") {
-                        if (auto* vr = dynamic_cast<VariableReference*>(addr->operand.get())) {
-                            auto cit = localConst_.find(vr->name);
-                            bool varIsConst = (cit != localConst_.end() && cit->second);
-                            auto pcit = localPointsToConst_.find(vr->name);
-                            if (!varIsConst && pcit != localPointsToConst_.end()) varIsConst = false;
-                            // Check if the variable itself is const (not pointer-to-const)
-                            // For `const int x`, localConst_["x"] = true
-                            if (cit != localConst_.end() && cit->second) {
-                                warnings_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
-                                    Severity::Warning, "passing argument discards 'const' qualifier"));
+            const auto& param = funcDecl->parameters[i];
+            // If param is a pointer and argument is &const_var
+            if (pinfo.pointerLevel > 0) {
+                // Check if the parameter type is const (e.g., "const int *p")
+                bool paramTypeIsConst = param.type.find("const") != std::string::npos;
+                // Check if parameter pointer itself is const (e.g., "int * const p")
+                bool paramPtrIsConst = pinfo.isConst;
+
+                // Warn if parameter does NOT point to const (it's just "int *p")
+                if (!paramTypeIsConst && !paramPtrIsConst) {
+                    if (auto* addr = dynamic_cast<UnaryOperation*>(node.arguments[i].get())) {
+                        if (addr->op == "&") {
+                            if (auto* vr = dynamic_cast<VariableReference*>(addr->operand.get())) {
+                                auto cit = localConst_.find(vr->name);
+                                if (cit != localConst_.end() && cit->second) {
+                                    warnings_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                                        Severity::Warning, "passing argument discards 'const' qualifier"));
+                                }
                             }
                         }
                     }
