@@ -98,6 +98,23 @@ PRG Executable or Flat Binary
    - Stack frame metadata (.zp_uses, .zp_clobbers, .reg_clobbers, .flag_clobbers directives)
    - Per-instruction debugging: .loc directives for source line attribution
 
+6. **Zero-Page Save/Restore Mechanism** (Runtime Boundary Preservation):
+   - **What it does**: Preserves zero-page RAM ($08–$FF, 248 bytes) at program startup and restores it on exit
+   - **When needed**: Programs called from BASIC, KERNAL, or disk-based loaders that expect ZP to be unchanged
+   - **Implementation**:
+     * `crt0.s` performs save at startup (before `_main()`) and restore before exit
+     * Global buffer `__zp_save_buf` (248 bytes in BSS) holds saved data
+     * Save loop: `LDA $08,Y` → `STA __zp_save_buf,Y` (248 iterations)
+     * Restore loop: `LDA __zp_save_buf,Y` → `STA $08,Y` (248 iterations)
+     * Return value preserved in $02–$03 (below save/restore range)
+   - **Code size impact**: ~500 bytes of code + 248 bytes BSS = ~750 bytes total
+   - **Performance**: ~2ms on 48MHz MEGA65 (negligible)
+   - **Disabling**: Use `#pragma cc45 no_zp_save` to disable for standalone executables
+     * Saves ~750 bytes when standalone guarantees no BASIC/KERNAL callbacks
+     * Pragma parsed in Preprocessor, converted to `.no_zp_save` directive
+     * Code generation conditional on `module_.saveZP` flag (set via IRBuilder)
+   - **Calling convention interaction**: Safe with both stack and ZP conventions (uses $02–$03 scratch space)
+
 ### Key Files and Directories
 
 ```
@@ -248,7 +265,20 @@ ln45 (Link: Combine .o45 objects + libraries → PRG/Binary)
 - **Operators**: All C arithmetic, logical, bitwise, comparison, ternary, cast, sizeof, `_Alignof`, `_Generic`, comma operator, Elvis operator (`?:`)
 - **Control Flow**: if/else, while, do-while, for, switch/case (with GCC range syntax `case A ... Z:`), break, continue, return, goto, computed goto (`&&label`, `goto *expr`)
 - **Inline Assembly**: `asm("...")` and `__asm__("...")` with full variable access via naming prefixes
-- **Pragmas**: `#pragma once`, `#pragma cc45 <option>` (heap, no_bssinit, no_0100_stack, no_zp_save, exit_rts/halt/brk, set_bp, weak)
+- **Pragmas**: `#pragma once`, `#pragma cc45 <option>` with comprehensive options:
+  * `heap` — Enable dynamic memory allocation via `malloc`/`free` (sets up heap manager)
+  * `no_bssinit` — Skip BSS (Block Started by Symbol) zero-initialization. Use when BSS is already cleared by loader.
+  * `no_0100_stack` — Don't initialize stack pointer at $0100. Use when caller provides valid stack.
+  * `no_zp_save` — Skip zero-page ($08–$FF) save/restore cycles. For standalone executables that don't need BASIC/KERNAL compatibility.
+    - Typical usage: `#pragma cc45 no_zp_save` at file top
+    - Disables ~500 bytes of save/restore code and ~248 bytes of BSS buffer
+    - Pair with `exit_rts halt` for fully standalone ROM-based programs
+  * `exit_rts` / `halt` / `brk` — Set program termination behavior:
+    - `exit_rts`: Return to caller with value in A:X (default for BASIC-callable programs)
+    - `halt`: Infinite loop (BRA *; for ROM programs)
+    - `brk`: Trigger BRK breakpoint (for debugging)
+  * `set_bp <addr>` — Set base pointer register to address (for custom memory layouts)
+  * `weak` — Mark following function as weak export (can be overridden by strong definition in another module)
 - **Compound Literals**: `(int){42}`, `(struct Point){1,2}`, `(int[3]){1,2,3}`, `(int[]){...}` array casts
 - **Bitfields**: `struct S { int x:4; unsigned y:4; long z:24; }` with optimized TRB/TSB codegen, 32-bit storage units, unnamed bitfield padding
 - **Alignment**: `_Alignas(N)` for globals, locals, and struct members
@@ -332,6 +362,36 @@ ln45 (Link: Combine .o45 objects + libraries → PRG/Binary)
 - **`time.h`**: `clock`, `time`, `difftime`, `CLOCKS_PER_SEC` (jiffy clock, 60Hz)
 - **`complex.h`**: `_Complex_int` and `_Complex_float` structs with operator-overloaded arithmetic (`+`, `-`, `*`, `/`, `==`, `!=`), unary (`~` conjugate, `-` negation), `__builtin_conjf`. `_Complex float`, `__complex__ float`, `float __complex__`, `_Complex long int`, `_Complex long double` syntax all supported via `COMPLEX` keyword token. Imaginary literals: `1.0fi`, `1.0i`, `2.2if`. `__real__`/`__imag__` as parser-level unary operators (lvalue + rvalue, with and without parentheses)
 - **`intwide.h`**: `struct __int64` (8-byte) and `struct __int128` (16-byte) wide integers with operator-overloaded arithmetic. Width-parameterized runtime (`__intN_add`, `__intN_mul`, etc.). Use via `__int(64)` syntax
+
+### Program Entry and Exit Sequences
+
+**Entry (crt0.s)**:
+1. MEGA65 I/O initialization: Send 0x47 0x53 ('GS') to $D02F to enable hardware registers
+2. Stack pointer initialization: SEI; LDX #$FF; TXS (unless `#pragma cc45 no_0100_stack`)
+3. **Zero-page save**: Save $08–$FF to `__zp_save_buf` (unless `#pragma cc45 no_zp_save`)
+4. BSS initialization: Zero all BSS variables (unless `#pragma cc45 no_bssinit`)
+5. Call `_main()`: Entry point to user code
+
+**Exit**:
+1. Capture return value (A:X or full value depending on type)
+2. **Zero-page restore**: Restore $08–$FF from `__zp_save_buf` (unless `#pragma cc45 no_zp_save`)
+3. Select exit mode (`#pragma cc45 exit_rts` / `halt` / `brk`):
+   - `exit_rts` (default): Return to caller (BASIC, KERNAL)
+   - `halt`: Infinite loop (ROM programs)
+   - `brk`: Trigger BRK for debugger
+
+**Use Case Examples**:
+- **BASIC-callable programs**: Include ZP save (default), use `exit_rts`
+  ```c
+  #include <stdio.h>
+  int main() { printf("Hello\n"); return 0; }  // Saves ZP, returns to BASIC
+  ```
+- **Standalone/ROM programs**: Disable ZP save and use `halt`
+  ```c
+  #pragma cc45 no_zp_save
+  #pragma cc45 exit_rts halt
+  int main() { /* runs forever */ while(1) {} }
+  ```
 
 ### Calling Convention Support
 
