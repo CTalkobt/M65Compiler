@@ -655,7 +655,30 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     }
 
     std::string name;
-    if (peek().type == TokenType::IDENTIFIER && peek().value == "operator") {
+    // Handle complex declarators: (*name)(params) or (*name(params))(result)
+    // Pattern: type (*func_name(actual_params))(returned_fp_params)
+    // The (actual_params) are the function's own parameters
+    // The (returned_fp_params) describe what the function returns
+    if (peek().type == TokenType::OPEN_PAREN && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::STAR) {
+        advance(); // consume '('
+        advance(); // consume '*'
+        while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT)) {}
+        name = expect(TokenType::IDENTIFIER, "Expected function name").value;
+
+        // If next is '(', skip the actual function parameters (e.g., (void) in (*make_fp(void)))
+        if (peek().type == TokenType::OPEN_PAREN) {
+            advance(); // consume '('
+            int parenDepth = 1;
+            while (parenDepth > 0 && peek().type != TokenType::END_OF_FILE) {
+                if (peek().type == TokenType::OPEN_PAREN) { advance(); parenDepth++; }
+                else if (peek().type == TokenType::CLOSE_PAREN) { advance(); parenDepth--; }
+                else advance();
+            }
+        }
+
+        expect(TokenType::CLOSE_PAREN, "Expected ')' after function name");
+    }
+    else if (peek().type == TokenType::IDENTIFIER && peek().value == "operator") {
         advance(); // consume 'operator'
         // Consume operator symbol(s) to form the mangled name
         const Token& opTok = advance();
@@ -1576,11 +1599,15 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     }
 
     // Check for function pointer declaration: type (*name)(params) or type (*name[size])(params)
+    // Also handles: type (*name(params))(result) — function returning function pointer
     if (peek().type == TokenType::OPEN_PAREN && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::STAR) {
         advance(); // consume '('
         advance(); // consume '*'
         while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT)) {}
         std::string fpName = expect(TokenType::IDENTIFIER, "Expected function pointer name").value;
+
+        // Handle complex declarators: if next is '(' it's a function declarator like (*name(void))
+        // Parse array dimensions and function parameters
         std::vector<int> fpArrayDims;
         while (match(TokenType::OPEN_SQUARE)) {
             if (peek().type == TokenType::CLOSE_SQUARE) {
@@ -1594,6 +1621,20 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
                 expect(TokenType::CLOSE_SQUARE, "Expected ']'");
             }
         }
+
+        // If we see '(' here, it's a function declarator: (*name(params))(return_type)
+        // Skip the function parameters for now; they'll be parsed as the final return type
+        if (peek().type == TokenType::OPEN_PAREN) {
+            advance(); // consume '('
+            // Skip parameters until matching ')'
+            int parenDepth = 1;
+            while (parenDepth > 0 && peek().type != TokenType::END_OF_FILE) {
+                if (match(TokenType::OPEN_PAREN)) parenDepth++;
+                else if (match(TokenType::CLOSE_PAREN)) parenDepth--;
+                else advance();
+            }
+        }
+
         expect(TokenType::CLOSE_PAREN, "Expected ')' after function pointer name");
         auto fpSig = parseFuncPtrParams(type, ptrLevel, isSigned);
         auto decl = setPos(std::make_unique<VariableDeclaration>("void", fpName, 1), typeToken);
