@@ -1,6 +1,16 @@
 // Test mixed calling convention: zpCall function calling variadic (stack-push)
 // Compiled with -fzpcall. Variadic callees use stack convention automatically.
 // Results written to $4000+ for mmemu verification.
+// Converted to UART serialtcp validation test
+// Results transmitted via UART $D0E3 to xemu -serialtcp listener
+
+#define UART_DATA 0xD0E3
+
+void uart_putchar(unsigned char c) {
+    volatile unsigned char *uart = (unsigned char *)UART_DATA;
+    *uart = c;
+}
+
 
 #include <stdarg.h>
 

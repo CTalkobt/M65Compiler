@@ -1,6 +1,16 @@
 // Test: Return struct by value
 // Validates the hidden-pointer ABI for struct return.
 // Expected: 4000: 01 02 03 04 0A 14 AA
+// Converted to UART serialtcp validation test
+// Results transmitted via UART $D0E3 to xemu -serialtcp listener
+
+#define UART_DATA 0xD0E3
+
+void uart_putchar(unsigned char c) {
+    volatile unsigned char *uart = (unsigned char *)UART_DATA;
+    *uart = c;
+}
+
 
 struct Point {
     int x;

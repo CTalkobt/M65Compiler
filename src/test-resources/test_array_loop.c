@@ -1,7 +1,16 @@
 // Test runtime-indexed global array stores via loops
 // Results written to $4000+ for mmemu validation
+// Converted to UART serialtcp validation test
+// Results transmitted via UART $D0E3 to xemu -serialtcp listener
 
-volatile char *result = (char *)0x4000;
+#define UART_DATA 0xD0E3
+
+void uart_putchar(unsigned char c) {
+    volatile unsigned char *uart = (unsigned char *)UART_DATA;
+    *uart = c;
+}
+
+
 
 char scores[5] = 0;
 int grid[3][4] = 0;
@@ -23,20 +32,20 @@ void main() {
     }
 
     // Test 1: scores[0] = 1
-    result[0] = scores[0];
+    uart_putchar(scores[0]);
 
     // Test 2: scores[4] = 5
-    result[1] = scores[4];
+    uart_putchar(scores[4]);
 
     // Test 3: grid[0][0] = 0
-    result[2] = grid[0][0];
+    uart_putchar(grid[0][0]);
 
     // Test 4: grid[1][2] = 12 = $0C
-    result[3] = grid[1][2];
+    uart_putchar(grid[1][2]);
 
     // Test 5: grid[2][3] = 23 = $17
-    result[4] = grid[2][3];
+    uart_putchar(grid[2][3]);
 
     // Test 6: marker
-    result[5] = 0xAA;
+    uart_putchar(0xAA);
 }

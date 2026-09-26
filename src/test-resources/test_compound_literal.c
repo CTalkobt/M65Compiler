@@ -1,4 +1,14 @@
 // Compound literal mmemu test — results at $4000
+// Converted to UART serialtcp validation test
+// Results transmitted via UART $D0E3 to xemu -serialtcp listener
+
+#define UART_DATA 0xD0E3
+
+void uart_putchar(unsigned char c) {
+    volatile unsigned char *uart = (unsigned char *)UART_DATA;
+    *uart = c;
+}
+
 struct Point {
     int x;
     int y;

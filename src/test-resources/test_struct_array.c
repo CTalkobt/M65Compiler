@@ -1,4 +1,13 @@
-volatile char *result = (char *)0x4000;
+
+// Converted to UART serialtcp validation test
+// Results transmitted via UART $D0E3 to xemu -serialtcp listener
+
+#define UART_DATA 0xD0E3
+
+void uart_putchar(unsigned char c) {
+    volatile unsigned char *uart = (unsigned char *)UART_DATA;
+    *uart = c;
+}
 
 struct Point {
     int x;
@@ -17,10 +26,10 @@ void main() {
     }
 
     // Read back
-    result[0] = pts[0].x;   // 0
-    result[1] = pts[1].x;   // 10 = $0A
-    result[2] = pts[2].y;   // 21 = $15
-    result[3] = pts[3].y;   // 31 = $1F
-    result[4] = sizeof(pts); // 4 * 4 = 16 = $10
-    result[5] = 0xAA;
+    uart_putchar(pts[0].x);   // 0
+    uart_putchar(pts[1].x);   // 10 = $0A
+    uart_putchar(pts[2].y);   // 21 = $15
+    uart_putchar(pts[3].y);   // 31 = $1F
+    uart_putchar(sizeof(pts)); // 4 * 4 = 16 = $10
+    uart_putchar(0xAA);
 }

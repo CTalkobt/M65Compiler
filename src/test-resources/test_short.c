@@ -1,8 +1,14 @@
 // Test: short type (alias for int on 16-bit target)
 // Validates: short, unsigned short, signed short, short in function params/returns,
 //            sizeof(short), short pointers, short arrays.
+// Converted to UART serialtcp validation test
 
-volatile char *r = (char *)0x4000;
+#define UART_DATA 0xD0E3
+
+void uart_putchar(unsigned char c) {
+    volatile unsigned char *uart = (unsigned char *)UART_DATA;
+    *uart = c;
+}
 
 short add_short(short a, short b) {
     return a + b;
@@ -20,12 +26,12 @@ void main() {
     short arr[3] = {100, 200, 300};
     short *p = &x;
 
-    r[0] = z;              // 30 = 0x1E
-    r[1] = neg + 10;       // 5
-    r[2] = sizeof(short);  // 2
-    r[3] = mul_short(3, 4); // 12
-    r[4] = *p;             // 10 = 0x0A
-    r[5] = arr[1];         // 200 = 0xC8
-    r[6] = 0xAA;           // marker
+    uart_putchar(z);                // 30 = 0x1E
+    uart_putchar(neg + 10);         // 5
+    uart_putchar(sizeof(short));    // 2
+    uart_putchar(mul_short(3, 4));  // 12
+    uart_putchar(*p);               // 10 = 0x0A
+    uart_putchar(arr[1]);           // 200 = 0xC8
+    uart_putchar(0xFF);             // terminator
 
 }
