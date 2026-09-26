@@ -18,8 +18,8 @@
 /* Memory marker location (for emulator inspection) */
 #define TEST_MARKER_ADDR ((volatile unsigned char *)0x4000)
 
-/* MEGA65 UART data register for serial output */
-#define UART_DATA 0xD600
+/* MEGA65 Serial TCP UART transmit register (M65 I/O mode) */
+#define UART_DATA 0xD0E3
 
 /* Direct UART write for -serialtcp capture */
 void uart_putchar(unsigned char c) {

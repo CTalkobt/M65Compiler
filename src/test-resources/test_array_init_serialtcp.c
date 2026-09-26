@@ -1,11 +1,17 @@
 // Test array initialization with serial TCP output
-// Results transmitted via serial (captured by xemu-xmega65 -serialtcp)
-// Outputs hex payload over serial for network capture
+// Results transmitted via UART $D0E3 (captured by xemu-xmega65 -serialtcp)
+// Outputs binary payload over serial for network capture
 __asm__(".no_zp_save");
 
-#include <stdio.h>
-#include <string.h>
 #include <mega65.h>
+
+/* MEGA65 Serial TCP UART transmit register (M65 I/O mode) */
+#define UART_DATA 0xD0E3
+
+void uart_putchar(unsigned char c) {
+    volatile unsigned char *uart = (unsigned char *)UART_DATA;
+    *uart = c;
+}
 
 // Global arrays with initializer lists
 char bytes[4] = {0x10, 0x20, 0x30, 0x40};
@@ -46,14 +52,14 @@ void main() {
     // End marker
     test_values[idx++] = 0xFF;
 
-    // Output payload over serial (for -serialtcp capture)
+    // Output payload over UART serial (for -serialtcp capture)
     // Magic byte and test count
-    printf("%c", 0xA5);  // Magic
-    printf("%c", 0x0F);  // Test count (15)
+    uart_putchar(0xA5);  // Magic
+    uart_putchar(0x0F);  // Test count (15)
 
     // Output all test values
     for (int i = 0; i < 15; i++) {
-        printf("%c", test_values[i]);
+        uart_putchar(test_values[i]);
     }
 
     // Also write to memory for compatibility

@@ -1,13 +1,26 @@
-/* Fast Array Initialization Test with xemu Exit Signal
- * 
- * Optimized test that signals xemu to exit after completion
- * Using -prgexit flag, the test can complete in seconds instead of timeout
- * 
- * Exit mechanism: Print "READY." to trigger xemu -prgexit shutdown
+/* Fast Array Initialization Test with UART Serial Output
+ *
+ * Outputs test results via UART $D0E3 for xemu -serialtcp capture
+ * Uses direct UART writes for serial communication
+ *
+ * Result transmission: Binary data over UART for fast validation
  */
 
-#include <stdio.h>
 #include <mega65.h>
+
+/* MEGA65 Serial TCP UART transmit register (M65 I/O mode) */
+#define UART_DATA 0xD0E3
+
+void uart_putchar(unsigned char c) {
+    volatile unsigned char *uart = (unsigned char *)UART_DATA;
+    *uart = c;
+}
+
+void uart_puts(const char *str) {
+    while (*str) {
+        uart_putchar(*str++);
+    }
+}
 
 /* Memory marker location */
 #define TEST_MARKER_ADDR ((volatile unsigned char *)0x4000)
@@ -17,49 +30,76 @@ unsigned char g_char[5] = {0x10, 0x20, 0x30, 0x40, 0x50};
 unsigned int g_int[3] = {1000, 2000, 3000};
 unsigned char g_zero[4] = {};
 
+void print_hex_byte(unsigned char val) {
+    char hex[3];
+    hex[0] = "0123456789ABCDEF"[(val >> 4) & 0xF];
+    hex[1] = "0123456789ABCDEF"[val & 0xF];
+    hex[2] = 0;
+    uart_puts(hex);
+}
+
+void print_hex_word(unsigned int val) {
+    print_hex_byte((val >> 8) & 0xFF);
+    print_hex_byte(val & 0xFF);
+}
+
 void print_results(void) {
-    printf("\n");
-    printf("Array Init Test Results:\n");
-    printf("------------------------\n");
-    printf("char[5]: [%02X %02X %02X %02X %02X]\n",
-           g_char[0], g_char[1], g_char[2], g_char[3], g_char[4]);
-    printf("int[3]:  [%04X %04X %04X]\n",
-           g_int[0], g_int[1], g_int[2]);
-    printf("zero[4]: [%02X %02X %02X %02X]\n",
-           g_zero[0], g_zero[1], g_zero[2], g_zero[3]);
-    printf("------------------------\n");
+    uart_puts("\n");
+    uart_puts("Array Init Test Results:\n");
+    uart_puts("------------------------\n");
+    uart_puts("char[5]: [");
+    for (int i = 0; i < 5; i++) {
+        print_hex_byte(g_char[i]);
+        if (i < 4) uart_puts(" ");
+    }
+    uart_puts("]\n");
+
+    uart_puts("int[3]:  [");
+    for (int i = 0; i < 3; i++) {
+        print_hex_word(g_int[i]);
+        if (i < 2) uart_puts(" ");
+    }
+    uart_puts("]\n");
+
+    uart_puts("zero[4]: [");
+    for (int i = 0; i < 4; i++) {
+        print_hex_byte(g_zero[i]);
+        if (i < 3) uart_puts(" ");
+    }
+    uart_puts("]\n");
+    uart_puts("------------------------\n");
 }
 
 void verify_arrays(void) {
     unsigned char pass = 1;
-    
-    printf("Verification:\n");
-    
+
+    uart_puts("Verification:\n");
+
     if (g_char[0] == 0x10 && g_char[4] == 0x50) {
-        printf("  [OK] char array\n");
+        uart_puts("  [OK] char array\n");
     } else {
-        printf("  [FAIL] char array\n");
+        uart_puts("  [FAIL] char array\n");
         pass = 0;
     }
-    
+
     if (g_int[0] == 1000 && g_int[2] == 3000) {
-        printf("  [OK] int array\n");
+        uart_puts("  [OK] int array\n");
     } else {
-        printf("  [FAIL] int array\n");
+        uart_puts("  [FAIL] int array\n");
         pass = 0;
     }
-    
+
     if (g_zero[0] == 0 && g_zero[3] == 0) {
-        printf("  [OK] zero array\n");
+        uart_puts("  [OK] zero array\n");
     } else {
-        printf("  [FAIL] zero array\n");
+        uart_puts("  [FAIL] zero array\n");
         pass = 0;
     }
-    
+
     if (pass) {
-        printf("\nResult: PASS\n");
+        uart_puts("\nResult: PASS\n");
     } else {
-        printf("\nResult: FAIL\n");
+        uart_puts("\nResult: FAIL\n");
     }
 }
 
@@ -71,17 +111,14 @@ void main(void) {
     TEST_MARKER_ADDR[3] = 0xFF;
     
     /* Quick test output */
-    printf("\nMEGA65 Array Test (Fast)\n");
+    uart_puts("\nMEGA65 Array Test (Fast)\n");
     print_results();
     verify_arrays();
-    
+
     /* Update completion marker */
     TEST_MARKER_ADDR[1] = 0x44;  /* 'D' */
     TEST_MARKER_ADDR[2] = 0x4F;  /* 'O' */
-    
-    /* Signal xemu to exit via -prgexit flag
-     * This prints "READY." which triggers xemu shutdown when -prgexit is used
-     * Much faster than waiting for timeout!
-     */
-    printf("\nREADY.\n");
+
+    /* Signal completion via UART */
+    uart_puts("\nRESULT: TESTS COMPLETE\n");
 }
