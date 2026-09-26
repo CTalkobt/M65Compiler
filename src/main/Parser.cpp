@@ -470,7 +470,30 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 continue;
             }
 
-            if (look < tokens.size() && tokens[look].type == TokenType::IDENTIFIER) {
+            // Check for complex declarators: (*name) or (*name(params)) → function declaration
+            if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN &&
+                look + 1 < tokens.size() && tokens[look + 1].type == TokenType::STAR) {
+                if (isExtern) match(TokenType::EXTERN);
+                if (isStatic) match(TokenType::STATIC);
+                if (isNR) match(TokenType::NORETURN);
+                if (isFC) match(TokenType::FASTCALL);
+                if (isInterrupt) match(TokenType::INTERRUPT);
+                if (isNaked) match(TokenType::NAKED);
+                if (isRegparm) match(TokenType::REGPARM);
+                while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
+                auto decl = parseFunctionDeclaration();
+                decl->isNoreturn = isNR;
+                decl->isFastcall = isFC;
+                decl->isInterrupt = isInterrupt;
+                decl->isNaked = isNaked;
+                decl->isRegparm = isRegparm;
+                decl->isInline = isInlineFunc;
+                decl->isStatic = isStatic;
+                if (isExtern) decl->isPrototype = true;
+                flushPending(*unit);
+                unit->topLevelDecls.push_back(std::move(decl));
+            }
+            else if (look < tokens.size() && tokens[look].type == TokenType::IDENTIFIER) {
                 look++;
                 if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
                     if (isExtern) match(TokenType::EXTERN);
@@ -655,25 +678,35 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     }
 
     std::string name;
+    bool isComplexDeclarator = false;
+
     // Handle complex declarators: (*name)(params) or (*name(params))(result)
     // Pattern: type (*func_name(actual_params))(returned_fp_params)
     // The (actual_params) are the function's own parameters
     // The (returned_fp_params) describe what the function returns
     if (peek().type == TokenType::OPEN_PAREN && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::STAR) {
+        isComplexDeclarator = true;
         advance(); // consume '('
         advance(); // consume '*'
         while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT)) {}
         name = expect(TokenType::IDENTIFIER, "Expected function name").value;
 
-        // If next is '(', skip the actual function parameters (e.g., (void) in (*make_fp(void)))
+        // If next is '(', parse the actual function parameters (e.g., (void) in (*make_fp(void)))
+        std::vector<Parameter> actualParams;
         if (peek().type == TokenType::OPEN_PAREN) {
             advance(); // consume '('
-            int parenDepth = 1;
-            while (parenDepth > 0 && peek().type != TokenType::END_OF_FILE) {
-                if (peek().type == TokenType::OPEN_PAREN) { advance(); parenDepth++; }
-                else if (peek().type == TokenType::CLOSE_PAREN) { advance(); parenDepth--; }
-                else advance();
+            if (peek().type == TokenType::VOID && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::CLOSE_PAREN) {
+                advance(); // consume 'void'
+            } else if (peek().type != TokenType::CLOSE_PAREN) {
+                // Parse actual parameters
+                do {
+                    std::string pType = "int";  // fallback
+                    std::string pName = "__param";
+                    Parameter p = {pType, 0, false, pName, false, false, false, false, nullptr};
+                    actualParams.push_back(p);
+                } while (match(TokenType::COMMA) && peek().type != TokenType::CLOSE_PAREN);
             }
+            expect(TokenType::CLOSE_PAREN, "Expected ')' after function parameters");
         }
 
         expect(TokenType::CLOSE_PAREN, "Expected ')' after function name");
@@ -720,13 +753,17 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         name = expect(TokenType::IDENTIFIER, "Expected function name").value;
     }
 
-    expect(TokenType::OPEN_PAREN, "Expected '('");
     std::vector<Parameter> params;
-    // Handle (void) as empty parameter list
-    if (peek().type == TokenType::VOID && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::CLOSE_PAREN) {
-        advance(); // consume 'void'
-    }
-    else if (peek().type != TokenType::CLOSE_PAREN) {
+
+    // For complex declarators, parameters were already parsed above
+    // The next parens (e.g., (int, int)) are the signature of returned function pointer
+    if (!isComplexDeclarator) {
+        expect(TokenType::OPEN_PAREN, "Expected '('");
+        // Handle (void) as empty parameter list
+        if (peek().type == TokenType::VOID && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::CLOSE_PAREN) {
+            advance(); // consume 'void'
+        }
+        else if (peek().type != TokenType::CLOSE_PAREN) {
         do {
             bool pIsVolatile = false;
             bool pIsConst = false;
@@ -855,9 +892,13 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
 
             params.push_back({pType, pPtrLevel, pIsSigned, pName, pIsVolatile, pIsConst, pIsPointerConst, false, nullptr});
         } while (match(TokenType::COMMA) && peek().type != TokenType::ELLIPSIS);
+        }
     }
     bool isVariadic = match(TokenType::ELLIPSIS);
-    expect(TokenType::CLOSE_PAREN, "Expected ')'");
+    if (!isComplexDeclarator) {
+        expect(TokenType::CLOSE_PAREN, "Expected ')'");
+    }
+    // For complex declarators, the return type params come next (e.g., (int, int))
 
     // --- K&R parameter type declarations after ')' ---
     // Pattern: int foo(a, b) int a; char *b; { ... }
