@@ -14,6 +14,12 @@ void IRBuilder::setSourceInfo(const std::string& filename) {
     module_.sourceFile = filename;
 }
 
+// Helper to output warnings immediately to stderr
+void IRBuilder::emitWarning(const std::string& warning) {
+    warnings_.push_back(warning);
+    std::cerr << warning << std::endl;
+}
+
 void IRBuilder::generate(TranslationUnit& unit) {
     // Phase 102: Pre-pass to register all struct definitions and typedef mappings
     registerAllStructDefinitions(unit);
@@ -3065,7 +3071,7 @@ void IRBuilder::visit(FunctionCall& node) {
                             if (auto* vr = dynamic_cast<VariableReference*>(addr->operand.get())) {
                                 auto cit = localConst_.find(vr->name);
                                 if (cit != localConst_.end() && cit->second) {
-                                    warnings_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                                    emitWarning(formatDiagnostic(node.sourceFile, node.line, node.column,
                                         Severity::Warning, "passing argument discards 'const' qualifier"));
                                 }
                             }
