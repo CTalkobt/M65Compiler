@@ -68,11 +68,12 @@ else
 fi
 
 # 5. (long)42 as function argument with -O1 stores 4 bytes to ZP
+# Note: Must explicitly disable SAC (default) to test ZP calling convention
 cat <<EOF > $TEMP_C
 void use_long(long x);
 void test(void) { use_long((long)42); }
 EOF
-$CC -S -O1 -fzpcall $TEMP_C -o $TEMP_S 2>/dev/null
+$CC -S -O1 -fzpcall -fno-staticalloc $TEMP_C -o $TEMP_S 2>/dev/null
 # Should store all 4 bytes to ZP param block ($10-$13)
 if grep -q '\$12' $TEMP_S && grep -q '\$13' $TEMP_S; then
     pass "(long)42 argument stores all 4 bytes to ZP"
@@ -128,6 +129,7 @@ else
 fi
 
 # 10. Long local propagated through variable still passes 4 bytes
+# Note: Must explicitly disable SAC (default) to test ZP calling convention
 cat <<EOF > $TEMP_C
 void use_long(long x);
 void test(void) {
@@ -135,7 +137,7 @@ void test(void) {
     use_long(x);
 }
 EOF
-$CC -S -O1 -fzpcall $TEMP_C -o $TEMP_S 2>/dev/null
+$CC -S -O1 -fzpcall -fno-staticalloc $TEMP_C -o $TEMP_S 2>/dev/null
 # Optimizer may propagate constant directly; either way, all 4 ZP param bytes must be stored
 if grep -q '\$12' $TEMP_S && grep -q '\$13' $TEMP_S; then
     pass "long propagated through variable stores 4 bytes to ZP"

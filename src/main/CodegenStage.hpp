@@ -21,6 +21,7 @@ public:
                  int verboseLevel = 0,
                  bool inlineFunctions = false,
                  bool staticAlloc = false,
+                 bool zpCallMode = false,
                  bool saveTemps = false)
         : ast_(ast),
           analyzer_(analyzer),
@@ -28,6 +29,7 @@ public:
           verboseLevel_(verboseLevel),
           inlineFunctions_(inlineFunctions),
           staticAlloc_(staticAlloc),
+          zpCallMode_(zpCallMode),
           saveTemps_(saveTemps) {}
 
     Result execute() override;
@@ -52,6 +54,7 @@ private:
     int verboseLevel_;
     bool inlineFunctions_;
     bool staticAlloc_;
+    bool zpCallMode_;
     bool saveTemps_;
     std::shared_ptr<ir::Module> irModule_;
     std::string irOutput_;

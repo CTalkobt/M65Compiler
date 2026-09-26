@@ -69,7 +69,7 @@ void CodegenStage::generateIR() {
     IRBuilder builder;
 
     // Configure builder for this compilation
-    builder.zpCallMode = false;  // Default to stack calling convention
+    builder.zpCallMode = zpCallMode_;
     builder.staticAllocMode = staticAlloc_;
     builder.inlineFunctions = inlineFunctions_ || optimizationLevel_ >= 2;
 
