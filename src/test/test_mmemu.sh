@@ -604,6 +604,42 @@ else
     failed=$((failed + 1))
 fi
 
+# --- Bug Regression Tests ---
+echo ""
+echo "Testing bug regression fixes..."
+
+echo "Bug #179: sizeof(struct tm) validation..."
+compile_link_test "src/test-resources/bug179_validation.c" "build/test/bug179_validation.prg"
+if [ $? -ne 0 ]; then
+    echo "FAIL: Compilation/linking failed for bug179_validation.c"
+    failed=$((failed + 1))
+else
+    OUTPUT=$(echo -e "load build/test/bug179_validation.prg\nsetpc \$2000\nstep 10000000\nm \$4000 1\nq" | $MMEMU -m rawMega65 2>/dev/null)
+    if echo "$OUTPUT" | grep -qi "4000: 00"; then
+        echo "SUCCESS: bug179_validation (sizeof struct tm) passed."
+    else
+        echo "FAIL: bug179_validation failed."
+        echo "$OUTPUT" | grep "4000:"
+        failed=$((failed + 1))
+    fi
+fi
+
+echo "Bug #183: bsearch function validation..."
+compile_link_test "src/test-resources/bug183_bsearch.c" "build/test/bug183_bsearch.prg"
+if [ $? -ne 0 ]; then
+    echo "FAIL: Compilation/linking failed for bug183_bsearch.c"
+    failed=$((failed + 1))
+else
+    OUTPUT=$(echo -e "load build/test/bug183_bsearch.prg\nsetpc \$2000\nstep 10000000\nm \$4000 1\nq" | $MMEMU -m rawMega65 2>/dev/null)
+    if echo "$OUTPUT" | grep -qi "4000: 00"; then
+        echo "SUCCESS: bug183_bsearch passed."
+    else
+        echo "FAIL: bug183_bsearch failed."
+        echo "$OUTPUT" | grep "4000:"
+        failed=$((failed + 1))
+    fi
+fi
+
 if [ $failed -eq 0 ]; then
     echo "All mmemu tests passed!"
     exit 0
