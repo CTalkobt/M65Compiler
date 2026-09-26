@@ -25,7 +25,7 @@ $(TARGET): hello.o45 $(CRT0) $(STDLIB)
 	$(LN45) -basic -o $(TARGET) $(CRT0) hello.o45 $(STDLIB)
 
 clean:
-	rm -f hello.o45 hello.o45.s $(TARGET)
+	rm -f hello.o45 hello.o45.s45 $(TARGET)
 
 run: $(TARGET)
 	xemu-xmega65 -prg $(TARGET)

@@ -1,0 +1,1950 @@
+    .o45
+    .org $2000
+    .weak __sp_base
+    __sp_base = $0101
+    .weak __static_chain
+    .weak __zp_scratch
+    .weak __zp_scratch2
+    .weak __zp_scratch3
+    .weak __zp_scratch4
+    .weak cc45.zeroPageStart
+    __static_chain = $06
+    __zp_scratch = $08
+    __zp_scratch2 = $0A
+    __zp_scratch3 = $0C
+    __zp_scratch4 = $0E
+    cc45.zeroPageStart = $08
+
+    .extern _printf
+
+    .global _adjust_brightness
+    .global _enhance_contrast
+    .global _mix_channels
+    .global _filter_3x3
+    .global _apply_gamma
+    .global _apply_dither
+    .global _main
+
+    .segment "data"
+    .byte 0
+__main__local_pixels:
+; .debug_var: @global __main__local_pixels offset=0 size=2 type=int8 scope=global
+    .byte 0
+__main__local_pixels2:
+; .debug_var: @global __main__local_pixels2 offset=0 size=2 type=int8 scope=global
+    .byte 0
+
+    .segment "code"
+
+; function _adjust_brightness
+; SAC inline storage: 8 bytes
+    .global _adjust_brightness__param_pixels
+    _adjust_brightness__param_pixels: .word 0
+    .global _adjust_brightness__param_count
+    _adjust_brightness__param_count: .word 0
+    .global _adjust_brightness__param_delta
+    _adjust_brightness__param_delta: .word 16
+    _adjust_brightness__local_0: .word 0
+    _adjust_brightness__local_1: .word 0
+    _adjust_brightness__local_2: .word 0
+    _adjust_brightness__local_3: .word 0
+    proc _adjust_brightness, W#@_p_pixels, W#@_p_count, W#@_p_delta
+    .sac
+    .var _fp = 0
+    .loc "/home/duck/m65/inpg/m65compiler/bin/../lib/include/stdio.h", 7
+    .local @_l_i = 6
+; .debug_var: __adjust_brightness @_l_i offset=6 size=2 type=int16 scope=local
+    .var @_p_pixels = 2
+    .var @_p_count = 4
+    .var @_p_delta = 6
+; .debug_var: __adjust_brightness @_p_pixels offset=2 size=2 type=ptr scope=parameter
+; .debug_var: __adjust_brightness @_p_count offset=4 size=2 type=int16 scope=parameter
+; .debug_var: __adjust_brightness @_p_delta offset=6 size=2 type=int16 scope=parameter
+
+@entry:
+    .loc "benchmark_compound_image.c", 12
+    lda #0
+    sta _adjust_brightness__local_3
+    sta _adjust_brightness__local_3+1
+@for_cond0:
+    lda _adjust_brightness__param_count
+    ldx _adjust_brightness__param_count+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _adjust_brightness__local_3
+    ldx _adjust_brightness__local_3+1
+    cmp.16 .AX, __zp_scratch2
+    bcc @for_body1
+    bra @for_end3
+@for_body1:
+    .loc "benchmark_compound_image.c", 13
+    lda _adjust_brightness__param_pixels
+    ldx _adjust_brightness__param_pixels+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _adjust_brightness__local_3
+    ldx _adjust_brightness__local_3+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $22
+    stx $22+1
+    ldy #0
+    lda ($22),y
+    ldx #0
+    sta $24
+    lda _adjust_brightness__param_delta
+    ldx _adjust_brightness__param_delta+1
+    sta $26
+    lda $24
+    clc
+    adc $26
+    sta $28
+    lda _adjust_brightness__param_pixels
+    ldx _adjust_brightness__param_pixels+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _adjust_brightness__local_3
+    ldx _adjust_brightness__local_3+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $2A
+    stx $2A+1
+    lda $28
+    ldy #0
+    sta ($2A),y
+@for_inc2:
+    .loc "benchmark_compound_image.c", 12
+    lda _adjust_brightness__local_3
+    ldx _adjust_brightness__local_3+1
+    sta $2C
+    stx $2D
+    lda $2C
+    ldx $2D
+    add.16 .AX, #1
+    sta _adjust_brightness__local_3
+    stx _adjust_brightness__local_3+1
+    bra @for_cond0
+@for_end3:
+@__return:
+    rts
+    .param_const _adjust_brightness 2 16
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 8
+    endproc
+
+; function _enhance_contrast
+; SAC inline storage: 8 bytes
+    .global _enhance_contrast__param_pixels
+    _enhance_contrast__param_pixels: .word 0
+    .global _enhance_contrast__param_count
+    _enhance_contrast__param_count: .word 0
+    .global _enhance_contrast__param_scale
+    _enhance_contrast__param_scale: .word 2
+    _enhance_contrast__local_0: .word 0
+    _enhance_contrast__local_1: .word 0
+    _enhance_contrast__local_2: .word 0
+    _enhance_contrast__local_3: .word 0
+    proc _enhance_contrast, W#@_p_pixels, W#@_p_count, W#@_p_scale
+    .sac
+    .var _fp = 0
+    .loc "/home/duck/m65/inpg/m65compiler/bin/../lib/include/stdio.h", 14
+    .local @_l_i = 6
+; .debug_var: __enhance_contrast @_l_i offset=6 size=2 type=int16 scope=local
+    .var @_p_pixels = 2
+    .var @_p_count = 4
+    .var @_p_scale = 6
+; .debug_var: __enhance_contrast @_p_pixels offset=2 size=2 type=ptr scope=parameter
+; .debug_var: __enhance_contrast @_p_count offset=4 size=2 type=int16 scope=parameter
+; .debug_var: __enhance_contrast @_p_scale offset=6 size=2 type=int16 scope=parameter
+
+@entry:
+    .loc "benchmark_compound_image.c", 19
+    lda #0
+    sta _enhance_contrast__local_3
+    sta _enhance_contrast__local_3+1
+@for_cond4:
+    lda _enhance_contrast__param_count
+    ldx _enhance_contrast__param_count+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _enhance_contrast__local_3
+    ldx _enhance_contrast__local_3+1
+    cmp.16 .AX, __zp_scratch2
+    bcc @for_body5
+    bra @for_end7
+@for_body5:
+    .loc "benchmark_compound_image.c", 20
+    lda _enhance_contrast__param_pixels
+    ldx _enhance_contrast__param_pixels+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _enhance_contrast__local_3
+    ldx _enhance_contrast__local_3+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $22
+    stx $22+1
+    ldy #0
+    lda ($22),y
+    ldx #0
+    sta $24
+    lda _enhance_contrast__param_scale
+    ldx _enhance_contrast__param_scale+1
+    sta $26
+    lda $24
+    ldx #0
+    mul.16 .AX, $26
+    sta $28
+    lda _enhance_contrast__param_pixels
+    ldx _enhance_contrast__param_pixels+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _enhance_contrast__local_3
+    ldx _enhance_contrast__local_3+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $2A
+    stx $2A+1
+    lda $28
+    ldy #0
+    sta ($2A),y
+    .loc "benchmark_compound_image.c", 21
+    lda #0
+    ldx #1
+    sta $2C
+    stx $2D
+    lda _enhance_contrast__param_pixels
+    ldx _enhance_contrast__param_pixels+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _enhance_contrast__local_3
+    ldx _enhance_contrast__local_3+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $2E
+    stx $2E+1
+    ldy #0
+    lda ($2E),y
+    ldx #0
+    sta $30
+    lda $30
+    ldx #0
+    ldx #0
+    sta $32
+    stx $33
+    lda $2C
+    sec
+    sbc $32
+    sta $34
+    lda $2D
+    sbc $32+1
+    sta $35
+    lda #2
+    ldx #0
+    sta $36
+    stx $37
+    lda $34
+    ldx $35
+    div.16 .AX, $36
+    sta $38
+    stx $39
+    lda _enhance_contrast__param_pixels
+    ldx _enhance_contrast__param_pixels+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _enhance_contrast__local_3
+    ldx _enhance_contrast__local_3+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $3A
+    stx $3A+1
+    ldy #0
+    lda ($3A),y
+    ldx #0
+    sta $3C
+    lda $38
+    ldx $39
+    sta $3E
+    lda $3C
+    sec
+    sbc $3E
+    sta $40
+    lda _enhance_contrast__param_pixels
+    ldx _enhance_contrast__param_pixels+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _enhance_contrast__local_3
+    ldx _enhance_contrast__local_3+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $42
+    stx $42+1
+    lda $40
+    ldy #0
+    sta ($42),y
+@for_inc6:
+    .loc "benchmark_compound_image.c", 19
+    lda _enhance_contrast__local_3
+    ldx _enhance_contrast__local_3+1
+    sta $44
+    stx $45
+    lda $44
+    ldx $45
+    add.16 .AX, #1
+    sta _enhance_contrast__local_3
+    stx _enhance_contrast__local_3+1
+    bra @for_cond4
+@for_end7:
+@__return:
+    rts
+    .param_const _enhance_contrast 2 2
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 8
+    endproc
+
+; function _mix_channels
+; SAC inline storage: 10 bytes
+    .global _mix_channels__param_r
+    _mix_channels__param_r: .word 0
+    .global _mix_channels__param_g
+    _mix_channels__param_g: .word 0
+    .global _mix_channels__param_b
+    _mix_channels__param_b: .word 0
+    .global _mix_channels__param_count
+    _mix_channels__param_count: .word 256
+    _mix_channels__local_0: .word 0
+    _mix_channels__local_1: .word 0
+    _mix_channels__local_2: .word 0
+    _mix_channels__local_3: .word 0
+    _mix_channels__local_4: .word 0
+    proc _mix_channels, W#@_p_r, W#@_p_g, W#@_p_b, W#@_p_count
+    .sac
+    .var _fp = 0
+    .loc "benchmark_compound_image.c", 7
+    .local @_l_i = 8
+; .debug_var: __mix_channels @_l_i offset=8 size=2 type=int16 scope=local
+    .var @_p_r = 2
+    .var @_p_g = 4
+    .var @_p_b = 6
+    .var @_p_count = 8
+; .debug_var: __mix_channels @_p_r offset=2 size=2 type=ptr scope=parameter
+; .debug_var: __mix_channels @_p_g offset=4 size=2 type=ptr scope=parameter
+; .debug_var: __mix_channels @_p_b offset=6 size=2 type=ptr scope=parameter
+; .debug_var: __mix_channels @_p_count offset=8 size=2 type=int16 scope=parameter
+
+@entry:
+    .loc "benchmark_compound_image.c", 27
+    lda #0
+    sta _mix_channels__local_4
+    sta _mix_channels__local_4+1
+@for_cond8:
+    lda _mix_channels__param_count
+    ldx _mix_channels__param_count+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _mix_channels__local_4
+    ldx _mix_channels__local_4+1
+    cmp.16 .AX, __zp_scratch2
+    bcc @for_body9
+    bra @for_end11
+@for_body9:
+    .loc "benchmark_compound_image.c", 28
+    lda _mix_channels__param_g
+    ldx _mix_channels__param_g+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _mix_channels__local_4
+    ldx _mix_channels__local_4+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $22
+    stx $22+1
+    ldy #0
+    lda ($22),y
+    ldx #0
+    sta $24
+    lda #2
+    sta $26
+    lda $24
+    ldx #0
+    ldx #0
+    sta $28
+    stx $29
+    lda $26
+    ldx #0
+    ldx #0
+    sta $2A
+    stx $2B
+    lda $28
+    ldx $29
+    div.16 .AX, $2A
+    sta $2C
+    stx $2D
+    lda _mix_channels__param_r
+    ldx _mix_channels__param_r+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _mix_channels__local_4
+    ldx _mix_channels__local_4+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $2E
+    stx $2E+1
+    ldy #0
+    lda ($2E),y
+    ldx #0
+    sta $30
+    lda $2C
+    ldx $2D
+    sta $32
+    lda $30
+    clc
+    adc $32
+    sta $34
+    lda _mix_channels__param_r
+    ldx _mix_channels__param_r+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _mix_channels__local_4
+    ldx _mix_channels__local_4+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $36
+    stx $36+1
+    lda $34
+    ldy #0
+    sta ($36),y
+    .loc "benchmark_compound_image.c", 29
+    lda _mix_channels__param_b
+    ldx _mix_channels__param_b+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _mix_channels__local_4
+    ldx _mix_channels__local_4+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $38
+    stx $38+1
+    ldy #0
+    lda ($38),y
+    ldx #0
+    sta $3A
+    lda #2
+    sta $3C
+    lda $3A
+    ldx #0
+    ldx #0
+    sta $3E
+    stx $3F
+    lda $3C
+    ldx #0
+    ldx #0
+    sta $40
+    stx $41
+    lda $3E
+    ldx $3F
+    div.16 .AX, $40
+    sta $42
+    stx $43
+    lda _mix_channels__param_g
+    ldx _mix_channels__param_g+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _mix_channels__local_4
+    ldx _mix_channels__local_4+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $44
+    stx $44+1
+    ldy #0
+    lda ($44),y
+    ldx #0
+    sta $46
+    lda $42
+    ldx $43
+    sta $48
+    lda $46
+    clc
+    adc $48
+    sta $4A
+    lda _mix_channels__param_g
+    ldx _mix_channels__param_g+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _mix_channels__local_4
+    ldx _mix_channels__local_4+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $4C
+    stx $4C+1
+    lda $4A
+    ldy #0
+    sta ($4C),y
+    .loc "benchmark_compound_image.c", 30
+    lda _mix_channels__param_r
+    ldx _mix_channels__param_r+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _mix_channels__local_4
+    ldx _mix_channels__local_4+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $4E
+    stx $4E+1
+    ldy #0
+    lda ($4E),y
+    ldx #0
+    sta $50
+    lda #2
+    sta $52
+    lda $50
+    ldx #0
+    ldx #0
+    sta $54
+    stx $55
+    lda $52
+    ldx #0
+    ldx #0
+    sta $56
+    stx $57
+    lda $54
+    ldx $55
+    div.16 .AX, $56
+    sta $58
+    stx $59
+    lda _mix_channels__param_b
+    ldx _mix_channels__param_b+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _mix_channels__local_4
+    ldx _mix_channels__local_4+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $5A
+    stx $5A+1
+    ldy #0
+    lda ($5A),y
+    ldx #0
+    sta $5C
+    lda $58
+    ldx $59
+    sta $5E
+    lda $5C
+    clc
+    adc $5E
+    sta $60
+    lda _mix_channels__param_b
+    ldx _mix_channels__param_b+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _mix_channels__local_4
+    ldx _mix_channels__local_4+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $62
+    stx $62+1
+    lda $60
+    ldy #0
+    sta ($62),y
+@for_inc10:
+    .loc "benchmark_compound_image.c", 27
+    lda _mix_channels__local_4
+    ldx _mix_channels__local_4+1
+    sta $64
+    stx $65
+    lda $64
+    ldx $65
+    add.16 .AX, #1
+    sta _mix_channels__local_4
+    stx _mix_channels__local_4+1
+    bra @for_cond8
+@for_end11:
+@__return:
+    rts
+    .param_const _mix_channels 3 256
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 10
+    endproc
+
+; function _filter_3x3
+; SAC inline storage: 18 bytes
+    .global _filter_3x3__param_src
+    _filter_3x3__param_src: .word 0
+    .global _filter_3x3__param_dst
+    _filter_3x3__param_dst: .word 0
+    .global _filter_3x3__param_width
+    _filter_3x3__param_width: .word 64
+    .global _filter_3x3__param_height
+    _filter_3x3__param_height: .word 32
+    _filter_3x3__local_0: .word 0
+    _filter_3x3__local_1: .word 0
+    _filter_3x3__local_2: .word 0
+    _filter_3x3__local_3: .word 0
+    _filter_3x3__local_4: .word 0
+    _filter_3x3__local_9: .word 0
+    _filter_3x3__local_14: .word 0
+    _filter_3x3__local_16: .word 0
+    _filter_3x3__local_21: .word 0
+    proc _filter_3x3, W#@_p_src, W#@_p_dst, W#@_p_width, W#@_p_height
+    .sac
+    .var _fp = 0
+    .loc "benchmark_compound_image.c", 16
+    .local @_l_acc = 12
+    .local @_l_dx = 16
+    .local @_l_dy = 14
+    .local @_l_x = 10
+    .local @_l_y = 8
+; .debug_var: __filter_3x3 @_l_acc offset=12 size=2 type=int16 scope=local
+; .debug_var: __filter_3x3 @_l_dx offset=16 size=2 type=int16 scope=local
+; .debug_var: __filter_3x3 @_l_dy offset=14 size=2 type=int16 scope=local
+; .debug_var: __filter_3x3 @_l_x offset=10 size=2 type=int16 scope=local
+; .debug_var: __filter_3x3 @_l_y offset=8 size=2 type=int16 scope=local
+    .var @_p_src = 2
+    .var @_p_dst = 4
+    .var @_p_width = 6
+    .var @_p_height = 8
+; .debug_var: __filter_3x3 @_p_src offset=2 size=2 type=ptr scope=parameter
+; .debug_var: __filter_3x3 @_p_dst offset=4 size=2 type=ptr scope=parameter
+; .debug_var: __filter_3x3 @_p_width offset=6 size=2 type=int16 scope=parameter
+; .debug_var: __filter_3x3 @_p_height offset=8 size=2 type=int16 scope=parameter
+
+@entry:
+    .loc "benchmark_compound_image.c", 36
+    lda #1
+    sta _filter_3x3__local_4
+    lda #0
+    sta _filter_3x3__local_4+1
+@for_cond12:
+    lda _filter_3x3__param_height
+    ldx _filter_3x3__param_height+1
+    sub.16 .AX, #1
+    sta $22
+    stx $23
+    lda _filter_3x3__local_4
+    ldx _filter_3x3__local_4+1
+    cmp.16 .AX, $22
+    bcc @for_body13
+    bra @for_end15
+@for_body13:
+    .loc "benchmark_compound_image.c", 37
+    lda #1
+    sta _filter_3x3__local_9
+    lda #0
+    sta _filter_3x3__local_9+1
+@for_cond16:
+    lda _filter_3x3__param_width
+    ldx _filter_3x3__param_width+1
+    sub.16 .AX, #1
+    sta $2A
+    stx $2B
+    lda _filter_3x3__local_9
+    ldx _filter_3x3__local_9+1
+    cmp.16 .AX, $2A
+    bcc @for_body17
+    bra @for_end19
+@for_body17:
+    .loc "benchmark_compound_image.c", 38
+    lda #0
+    sta _filter_3x3__local_14
+    sta _filter_3x3__local_14+1
+    .loc "benchmark_compound_image.c", 39
+    lda #1
+    ldx #0
+    sta $30
+    stx $31
+    lda $30
+    ldx $31
+    neg.16 .AX
+    sta $32
+    stx $33
+    lda $32
+    ldx $33
+    sta _filter_3x3__local_16
+    stx _filter_3x3__local_16+1
+@for_cond20:
+    lda _filter_3x3__local_16
+    ldx _filter_3x3__local_16+1
+    cmp.16 .AX, #1
+    bcc @for_body21
+    beq @for_body21
+    bra @for_end23
+@for_body21:
+    .loc "benchmark_compound_image.c", 40
+    lda #1
+    ldx #0
+    sta $38
+    stx $39
+    lda $38
+    ldx $39
+    neg.16 .AX
+    sta $3A
+    stx $3B
+    lda $3A
+    ldx $3B
+    sta _filter_3x3__local_21
+    stx _filter_3x3__local_21+1
+@for_cond24:
+    lda _filter_3x3__local_21
+    ldx _filter_3x3__local_21+1
+    cmp.16 .AX, #1
+    bcc @for_body25
+    beq @for_body25
+    bra @for_end27
+@for_body25:
+    .loc "benchmark_compound_image.c", 41
+    lda _filter_3x3__local_16
+    ldx _filter_3x3__local_16+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _filter_3x3__local_4
+    ldx _filter_3x3__local_4+1
+    add.16 .AX, __zp_scratch2
+    sta $40
+    stx $41
+    lda _filter_3x3__param_width
+    ldx _filter_3x3__param_width+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda $40
+    ldx $41
+    mul.16 .AX, __zp_scratch2
+    sta $42
+    stx $43
+    lda _filter_3x3__local_21
+    ldx _filter_3x3__local_21+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _filter_3x3__local_9
+    ldx _filter_3x3__local_9+1
+    add.16 .AX, __zp_scratch2
+    sta $44
+    stx $45
+    lda $42
+    clc
+    adc $44
+    sta $46
+    lda $43
+    adc $44+1
+    sta $47
+    lda _filter_3x3__param_src
+    ldx _filter_3x3__param_src+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda $46
+    ldx $47
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $48
+    stx $48+1
+    ldy #0
+    lda ($48),y
+    ldx #0
+    sta $4A
+    lda $4A
+    ldx #0
+    ldx #0
+    sta $4C
+    stx $4D
+    lda _filter_3x3__local_14
+    ldx _filter_3x3__local_14+1
+    add.16 .AX, $4C
+    sta $4E
+    stx $4F
+    sta _filter_3x3__local_14
+    stx _filter_3x3__local_14+1
+@for_inc26:
+    .loc "benchmark_compound_image.c", 40
+    lda _filter_3x3__local_21
+    ldx _filter_3x3__local_21+1
+    sta $50
+    stx $51
+    lda $50
+    clc
+    adc #1
+    sta $52
+    lda $51
+    adc #0
+    sta $53
+    lda $52
+    ldx $53
+    sta _filter_3x3__local_21
+    stx _filter_3x3__local_21+1
+    bra @for_cond24
+@for_end27:
+@for_inc22:
+    .loc "benchmark_compound_image.c", 39
+    lda _filter_3x3__local_16
+    ldx _filter_3x3__local_16+1
+    sta $54
+    stx $55
+    lda $54
+    clc
+    adc #1
+    sta $56
+    lda $55
+    adc #0
+    sta $57
+    lda $56
+    ldx $57
+    sta _filter_3x3__local_16
+    stx _filter_3x3__local_16+1
+    bra @for_cond20
+@for_end23:
+    .loc "benchmark_compound_image.c", 44
+    lda #9
+    ldx #0
+    sta $58
+    stx $59
+    lda _filter_3x3__local_14
+    ldx _filter_3x3__local_14+1
+    div.16 .AX, $58
+    sta $5A
+    stx $5B
+    lda $5A
+    ldx $5B
+    sta $5C
+    lda _filter_3x3__param_width
+    ldx _filter_3x3__param_width+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _filter_3x3__local_4
+    ldx _filter_3x3__local_4+1
+    mul.16 .AX, __zp_scratch2
+    sta $5E
+    stx $5F
+    lda _filter_3x3__local_9
+    ldx _filter_3x3__local_9+1
+    add.16 .AX, $5E
+    sta $60
+    stx $61
+    lda _filter_3x3__param_dst
+    ldx _filter_3x3__param_dst+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda $60
+    ldx $61
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $62
+    stx $62+1
+    lda $5C
+    ldy #0
+    sta ($62),y
+@for_inc18:
+    .loc "benchmark_compound_image.c", 37
+    lda _filter_3x3__local_9
+    ldx _filter_3x3__local_9+1
+    sta $64
+    stx $65
+    lda $64
+    clc
+    adc #1
+    sta $66
+    lda $65
+    adc #0
+    sta $67
+    lda $66
+    ldx $67
+    sta _filter_3x3__local_9
+    stx _filter_3x3__local_9+1
+    bra @for_cond16
+@for_end19:
+@for_inc14:
+    .loc "benchmark_compound_image.c", 36
+    lda _filter_3x3__local_4
+    ldx _filter_3x3__local_4+1
+    sta $68
+    stx $69
+    lda $68
+    ldx $69
+    add.16 .AX, #1
+    sta _filter_3x3__local_4
+    stx _filter_3x3__local_4+1
+    bra @for_cond12
+@for_end15:
+@__return:
+    rts
+    .param_const _filter_3x3 2 64
+    .param_const _filter_3x3 3 32
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 18
+    endproc
+
+; function _apply_gamma
+; SAC inline storage: 10 bytes
+    .global _apply_gamma__param_pixels
+    _apply_gamma__param_pixels: .word 0
+    .global _apply_gamma__param_count
+    _apply_gamma__param_count: .word 0
+    .global _apply_gamma__param_gamma_shift
+    _apply_gamma__param_gamma_shift: .word 2
+    _apply_gamma__local_0: .word 0
+    _apply_gamma__local_1: .word 0
+    _apply_gamma__local_2: .word 0
+    _apply_gamma__local_3: .word 0
+    _apply_gamma__local_6: .word 0
+    proc _apply_gamma, W#@_p_pixels, W#@_p_count, W#@_p_gamma_shift
+    .sac
+    .var _fp = 0
+    .loc "benchmark_compound_image.c", 31
+    .local @_l_i = 6
+    .local @_l_val = 8
+; .debug_var: __apply_gamma @_l_i offset=6 size=2 type=int16 scope=local
+; .debug_var: __apply_gamma @_l_val offset=8 size=2 type=int16 scope=local
+    .var @_p_pixels = 2
+    .var @_p_count = 4
+    .var @_p_gamma_shift = 6
+; .debug_var: __apply_gamma @_p_pixels offset=2 size=2 type=ptr scope=parameter
+; .debug_var: __apply_gamma @_p_count offset=4 size=2 type=int16 scope=parameter
+; .debug_var: __apply_gamma @_p_gamma_shift offset=6 size=2 type=int16 scope=parameter
+
+@entry:
+    .loc "benchmark_compound_image.c", 51
+    lda #0
+    sta _apply_gamma__local_3
+    sta _apply_gamma__local_3+1
+@for_cond28:
+    lda _apply_gamma__param_count
+    ldx _apply_gamma__param_count+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _apply_gamma__local_3
+    ldx _apply_gamma__local_3+1
+    cmp.16 .AX, __zp_scratch2
+    bcc @for_body29
+    bra @for_end31
+@for_body29:
+    .loc "benchmark_compound_image.c", 52
+    lda _apply_gamma__param_pixels
+    ldx _apply_gamma__param_pixels+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _apply_gamma__local_3
+    ldx _apply_gamma__local_3+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $22
+    stx $22+1
+    ldy #0
+    lda ($22),y
+    ldx #0
+    sta $24
+    lda $24
+    ldx #0
+    sta _apply_gamma__local_6
+    stx _apply_gamma__local_6+1
+    .loc "benchmark_compound_image.c", 53
+    lda _apply_gamma__local_6
+    ldx _apply_gamma__local_6+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _apply_gamma__local_6
+    ldx _apply_gamma__local_6+1
+    mul.16 .AX, __zp_scratch2
+    sta $26
+    stx $27
+    lda $26
+    ldx $27
+    sta _apply_gamma__local_6
+    stx _apply_gamma__local_6+1
+    .loc "benchmark_compound_image.c", 54
+    lda _apply_gamma__local_6
+    ldx _apply_gamma__local_6+1
+    lda _apply_gamma__param_gamma_shift
+    ldx _apply_gamma__param_gamma_shift+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy __zp_scratch2
+    beq @__shr_done_1
+@__shr_loop_0:
+    lsr.16 .AX
+    dey
+    bne @__shr_loop_0
+@__shr_done_1:
+    sta $28
+    stx $29
+    lda $28
+    ldx $29
+    sta _apply_gamma__local_6
+    stx _apply_gamma__local_6+1
+    lda _apply_gamma__local_6
+    ldx _apply_gamma__local_6+1
+    sta $2A
+    .loc "benchmark_compound_image.c", 55
+    lda _apply_gamma__param_pixels
+    ldx _apply_gamma__param_pixels+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _apply_gamma__local_3
+    ldx _apply_gamma__local_3+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $2C
+    stx $2C+1
+    lda $2A
+    ldy #0
+    sta ($2C),y
+@for_inc30:
+    .loc "benchmark_compound_image.c", 51
+    lda _apply_gamma__local_3
+    ldx _apply_gamma__local_3+1
+    sta $2E
+    stx $2F
+    lda $2E
+    ldx $2F
+    add.16 .AX, #1
+    sta _apply_gamma__local_3
+    stx _apply_gamma__local_3+1
+    bra @for_cond28
+@for_end31:
+@__return:
+    rts
+    .param_const _apply_gamma 2 2
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 10
+    endproc
+
+; function _apply_dither
+; SAC inline storage: 12 bytes
+    .global _apply_dither__param_pixels
+    _apply_dither__param_pixels: .word 0
+    .global _apply_dither__param_width
+    _apply_dither__param_width: .word 64
+    .global _apply_dither__param_height
+    _apply_dither__param_height: .word 32
+    _apply_dither__local_0: .word 0
+    _apply_dither__local_1: .word 0
+    _apply_dither__local_2: .word 0
+    _apply_dither__local_3: .word 0
+    _apply_dither__local_6: .word 0
+    _apply_dither__local_9: .word 0
+    proc _apply_dither, W#@_p_pixels, W#@_p_width, W#@_p_height
+    .sac
+    .var _fp = 0
+    .loc "benchmark_compound_image.c", 54
+    .local @_l_idx = 10
+    .local @_l_x = 8
+    .local @_l_y = 6
+; .debug_var: __apply_dither @_l_idx offset=10 size=2 type=int16 scope=local
+; .debug_var: __apply_dither @_l_x offset=8 size=2 type=int16 scope=local
+; .debug_var: __apply_dither @_l_y offset=6 size=2 type=int16 scope=local
+    .var @_p_pixels = 2
+    .var @_p_width = 4
+    .var @_p_height = 6
+; .debug_var: __apply_dither @_p_pixels offset=2 size=2 type=ptr scope=parameter
+; .debug_var: __apply_dither @_p_width offset=4 size=2 type=int16 scope=parameter
+; .debug_var: __apply_dither @_p_height offset=6 size=2 type=int16 scope=parameter
+
+@entry:
+    .loc "benchmark_compound_image.c", 74
+    lda #0
+    sta _apply_dither__local_3
+    sta _apply_dither__local_3+1
+@for_cond40:
+    lda _apply_dither__param_height
+    ldx _apply_dither__param_height+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _apply_dither__local_3
+    ldx _apply_dither__local_3+1
+    cmp.16 .AX, __zp_scratch2
+    bcc @for_body41
+    bra @for_end43
+@for_body41:
+    .loc "benchmark_compound_image.c", 75
+    lda #0
+    sta _apply_dither__local_6
+    sta _apply_dither__local_6+1
+@for_cond44:
+    lda _apply_dither__param_width
+    ldx _apply_dither__param_width+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _apply_dither__local_6
+    ldx _apply_dither__local_6+1
+    cmp.16 .AX, __zp_scratch2
+    bcc @for_body45
+    bra @for_end47
+@for_body45:
+    .loc "benchmark_compound_image.c", 76
+    lda _apply_dither__param_width
+    ldx _apply_dither__param_width+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _apply_dither__local_3
+    ldx _apply_dither__local_3+1
+    mul.16 .AX, __zp_scratch2
+    sta $26
+    stx $27
+    lda _apply_dither__local_6
+    ldx _apply_dither__local_6+1
+    add.16 .AX, $26
+    sta $28
+    stx $29
+    sta _apply_dither__local_9
+    stx _apply_dither__local_9+1
+    .loc "benchmark_compound_image.c", 77
+    lda _apply_dither__local_3
+    ldx _apply_dither__local_3+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _apply_dither__local_6
+    ldx _apply_dither__local_6+1
+    add.16 .AX, __zp_scratch2
+    sta $2A
+    stx $2B
+    lda #15
+    ldx #0
+    sta $2C
+    stx $2D
+    lda $2A
+    ldx $2B
+    and.16 .AX, $2C
+    sta $2E
+    stx $2F
+    lda _apply_dither__param_pixels
+    ldx _apply_dither__param_pixels+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _apply_dither__local_9
+    ldx _apply_dither__local_9+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $30
+    stx $30+1
+    ldy #0
+    lda ($30),y
+    ldx #0
+    sta $32
+    lda $2E
+    ldx $2F
+    sta $34
+    lda $32
+    clc
+    adc $34
+    sta $36
+    lda _apply_dither__param_pixels
+    ldx _apply_dither__param_pixels+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _apply_dither__local_9
+    ldx _apply_dither__local_9+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $38
+    stx $38+1
+    lda $36
+    ldy #0
+    sta ($38),y
+    .loc "benchmark_compound_image.c", 78
+    lda _apply_dither__local_3
+    ldx _apply_dither__local_3+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _apply_dither__local_6
+    ldx _apply_dither__local_6+1
+    eor.16 .AX, __zp_scratch2
+    sta $3A
+    stx $3B
+    lda #15
+    ldx #0
+    sta $3C
+    stx $3D
+    lda $3A
+    ldx $3B
+    and.16 .AX, $3C
+    sta $3E
+    stx $3F
+    lda _apply_dither__param_pixels
+    ldx _apply_dither__param_pixels+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _apply_dither__local_9
+    ldx _apply_dither__local_9+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $40
+    stx $40+1
+    ldy #0
+    lda ($40),y
+    ldx #0
+    sta $42
+    lda $3E
+    ldx $3F
+    sta $44
+    lda $42
+    sec
+    sbc $44
+    sta $46
+    lda _apply_dither__param_pixels
+    ldx _apply_dither__param_pixels+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _apply_dither__local_9
+    ldx _apply_dither__local_9+1
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $48
+    stx $48+1
+    lda $46
+    ldy #0
+    sta ($48),y
+@for_inc46:
+    .loc "benchmark_compound_image.c", 75
+    lda _apply_dither__local_6
+    ldx _apply_dither__local_6+1
+    sta $4A
+    stx $4B
+    lda $4A
+    clc
+    adc #1
+    sta $4C
+    lda $4B
+    adc #0
+    sta $4D
+    lda $4C
+    ldx $4D
+    sta _apply_dither__local_6
+    stx _apply_dither__local_6+1
+    bra @for_cond44
+@for_end47:
+@for_inc42:
+    .loc "benchmark_compound_image.c", 74
+    lda _apply_dither__local_3
+    ldx _apply_dither__local_3+1
+    sta $4E
+    stx $4F
+    lda $4E
+    ldx $4F
+    add.16 .AX, #1
+    sta _apply_dither__local_3
+    stx _apply_dither__local_3+1
+    bra @for_cond40
+@for_end43:
+@__return:
+    rts
+    .param_const _apply_dither 1 64
+    .param_const _apply_dither 2 32
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 12
+    endproc
+
+; function _main
+; SAC inline storage: 772 bytes
+    _main__local_16: .word 0
+    _main__local_17: .word 0
+    _main__local_18: .word 0
+    _main__local_22: .word 0
+    _main__local_23: .word 0
+    _main__local_24: .word 0
+    _main__local_26: .word 0
+    _main__local_27: .word 0
+    _main__local_28: .word 0
+    _main__local_29: .word 0
+    _main__local_46: .word 0
+    _main__local_47: .word 0
+    _main__local_48: .word 0
+    _main__local_49: .word 0
+    _main__local_50: .word 0
+    _main__local_52: .word 0
+    _main__local_53: .word 0
+    _main__local_54: .word 0
+    _main__local_58: .word 0
+    _main__local_59: .word 0
+    _main__local_60: .word 0
+    _main__local_62: .word 0
+    _main__local_63: .word 0
+    _main__local_64: .word 0
+    proc _main
+; Phase 51: zero-alloc leaf (all parameters constant)
+    .var _fp = 0
+    .loc "benchmark_compound_image.c", 64
+    .local @_l_b = 516
+    .local @_l_g = 260
+    .local @_l_i = 2
+    .local @_l_r = 4
+; .debug_var: __main @_l_b offset=516 size=2 type=int8 scope=local
+; .debug_var: __main @_l_g offset=260 size=2 type=int8 scope=local
+; .debug_var: __main @_l_i offset=2 size=2 type=int16 scope=local
+; .debug_var: __main @_l_r offset=4 size=2 type=int8 scope=local
+
+@entry:
+    .loc "benchmark_compound_image.c", 87
+    lda #0
+    sta $20
+    sta $21
+@for_cond48:
+    lda #64
+    ldx #0
+    sta $22
+    stx $23
+    lda #32
+    ldx #0
+    sta $24
+    stx $25
+    lda $22
+    ldx $23
+    mul.16 .AX, $24
+    sta $26
+    stx $27
+    lda $20
+    ldx $21
+    cmp.16 .AX, $26
+    bcc @for_body49
+    bra @for_end51
+@for_body49:
+    .loc "benchmark_compound_image.c", 88
+    lda #255
+    ldx #0
+    sta $2A
+    stx $2B
+    lda $20
+    ldx $21
+    and.16 .AX, $2A
+    sta $2C
+    stx $2D
+    lda $2C
+    ldx $2D
+    sta $2E
+    lda $20
+    ldx $21
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    ldax #__main__local_pixels
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $30
+    stx $30+1
+    lda $2E
+    ldy #0
+    sta ($30),y
+    .loc "benchmark_compound_image.c", 89
+    lda #128
+    sta $32
+    lda $20
+    ldx $21
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    ldax #__main__local_pixels2
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $34
+    stx $34+1
+    lda $32
+    ldy #0
+    sta ($34),y
+@for_inc50:
+    .loc "benchmark_compound_image.c", 87
+    lda $20
+    ldx $21
+    sta $36
+    stx $37
+    lda $36
+    clc
+    adc #1
+    sta $20
+    lda $37
+    adc #0
+    sta $21
+    bra @for_cond48
+@for_end51:
+    .loc "benchmark_compound_image.c", 92
+    lda #64
+    ldx #0
+    lda #32
+    ldx #0
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    mul.16 .AX, __zp_scratch2
+    sta _main__local_16
+    stx _main__local_16+1
+    lda #16
+    ldx #0
+    sta _main__local_17
+    stx _main__local_17+1
+    lda _main__local_16
+    ldx _main__local_16+1
+    sta _adjust_brightness__param_count
+    stx _adjust_brightness__param_count+1
+    ldax #__main__local_pixels
+    sta _adjust_brightness__param_pixels
+    stx _adjust_brightness__param_pixels+1
+    jsr _adjust_brightness
+    .loc "benchmark_compound_image.c", 93
+    ldax #__str_52
+    sta _main__local_18
+    stx _main__local_18+1
+    lda _main__local_18
+    ldx _main__local_18+1
+    sta $28
+    stx $29
+    lda $28
+    ldx $29
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_image.c", 95
+    lda #64
+    ldx #0
+    lda #32
+    ldx #0
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    mul.16 .AX, __zp_scratch2
+    sta _main__local_22
+    stx _main__local_22+1
+    lda #2
+    ldx #0
+    sta _main__local_23
+    stx _main__local_23+1
+    lda _main__local_22
+    ldx _main__local_22+1
+    sta _enhance_contrast__param_count
+    stx _enhance_contrast__param_count+1
+    ldax #__main__local_pixels2
+    sta _enhance_contrast__param_pixels
+    stx _enhance_contrast__param_pixels+1
+    jsr _enhance_contrast
+    .loc "benchmark_compound_image.c", 96
+    ldax #__str_53
+    sta _main__local_24
+    stx _main__local_24+1
+    lda _main__local_24
+    ldx _main__local_24+1
+    sta $28
+    stx $29
+    lda $28
+    ldx $29
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_image.c", 99
+    lda #0
+    sta _main__local_29
+    sta _main__local_29+1
+@for_cond54:
+    lda _main__local_29
+    ldx _main__local_29+1
+    cmp.16 .AX, #256
+    bcc @for_body55
+    bra @for_end57
+@for_body55:
+    lda _main__local_29
+    ldx _main__local_29+1
+    sta $24
+    .loc "benchmark_compound_image.c", 100
+    leax.local 4
+    sta $26
+    stx $27
+    lda _main__local_29
+    ldx _main__local_29+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $26
+    ldx $26+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $28
+    stx $28+1
+    lda $24
+    ldy #0
+    sta ($28),y
+    .loc "benchmark_compound_image.c", 101
+    lda #128
+    sta $2A
+    leax.local 260
+    sta $2C
+    stx $2D
+    lda _main__local_29
+    ldx _main__local_29+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $2C
+    ldx $2C+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $2E
+    stx $2E+1
+    lda $2A
+    ldy #0
+    sta ($2E),y
+    .loc "benchmark_compound_image.c", 102
+    lda #255
+    ldx #0
+    sta $30
+    stx $31
+    lda _main__local_29
+    ldx _main__local_29+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda $30
+    ldx $31
+    sub.16 .AX, __zp_scratch2
+    sta $32
+    stx $33
+    lda $32
+    ldx $33
+    sta $34
+    leax.local 516
+    sta $36
+    stx $37
+    lda _main__local_29
+    ldx _main__local_29+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $36
+    ldx $36+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $38
+    stx $38+1
+    lda $34
+    ldy #0
+    sta ($38),y
+@for_inc56:
+    .loc "benchmark_compound_image.c", 99
+    lda _main__local_29
+    ldx _main__local_29+1
+    sta $3A
+    stx $3B
+    lda $3A
+    ldx $3B
+    add.16 .AX, #1
+    sta _main__local_29
+    stx _main__local_29+1
+    bra @for_cond54
+@for_end57:
+    .loc "benchmark_compound_image.c", 104
+    leax.local 4
+    sta _main__local_46
+    stx _main__local_46+1
+    leax.local 260
+    sta _main__local_47
+    stx _main__local_47+1
+    leax.local 516
+    sta _main__local_48
+    stx _main__local_48+1
+    lda #0
+    ldx #1
+    sta _main__local_49
+    stx _main__local_49+1
+    lda _main__local_48
+    ldx _main__local_48+1
+    sta _mix_channels__param_b
+    stx _mix_channels__param_b+1
+    lda _main__local_47
+    ldx _main__local_47+1
+    sta _mix_channels__param_g
+    stx _mix_channels__param_g+1
+    lda _main__local_46
+    ldx _main__local_46+1
+    sta _mix_channels__param_r
+    stx _mix_channels__param_r+1
+    jsr _mix_channels
+    .loc "benchmark_compound_image.c", 105
+    ldax #__str_58
+    sta _main__local_50
+    stx _main__local_50+1
+    lda _main__local_50
+    ldx _main__local_50+1
+    sta $28
+    stx $29
+    lda $28
+    ldx $29
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_image.c", 107
+    ldax #__main__local_pixels2
+    sta _filter_3x3__param_dst
+    stx _filter_3x3__param_dst+1
+    ldax #__main__local_pixels
+    sta _filter_3x3__param_src
+    stx _filter_3x3__param_src+1
+    jsr _filter_3x3
+    .loc "benchmark_compound_image.c", 108
+    ldax #__str_59
+    sta _main__local_54
+    stx _main__local_54+1
+    lda _main__local_54
+    ldx _main__local_54+1
+    sta $28
+    stx $29
+    lda $28
+    ldx $29
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_image.c", 110
+    lda #64
+    ldx #0
+    lda #32
+    ldx #0
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    mul.16 .AX, __zp_scratch2
+    sta _main__local_58
+    stx _main__local_58+1
+    lda #2
+    ldx #0
+    sta _main__local_59
+    stx _main__local_59+1
+    lda _main__local_58
+    ldx _main__local_58+1
+    sta _apply_gamma__param_count
+    stx _apply_gamma__param_count+1
+    ldax #__main__local_pixels
+    sta _apply_gamma__param_pixels
+    stx _apply_gamma__param_pixels+1
+    jsr _apply_gamma
+    .loc "benchmark_compound_image.c", 111
+    ldax #__str_60
+    sta _main__local_60
+    stx _main__local_60+1
+    lda _main__local_60
+    ldx _main__local_60+1
+    sta $28
+    stx $29
+    lda $28
+    ldx $29
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_image.c", 113
+    ldax #__main__local_pixels
+    sta _apply_dither__param_pixels
+    stx _apply_dither__param_pixels+1
+    jsr _apply_dither
+    .loc "benchmark_compound_image.c", 114
+    ldax #__str_61
+    sta _main__local_64
+    stx _main__local_64+1
+    lda _main__local_64
+    ldx _main__local_64+1
+    sta $28
+    stx $29
+    lda $28
+    ldx $29
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_image.c", 116
+    lda #0
+    ldx #0
+@__return:
+    rts
+    .func_flags stack_call, static_alloc
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    .frame_size 772
+    endproc
+
+
+    .segment "data"
+__str_52:
+    .text "brightness done
+"
+    .byte 0
+__str_53:
+    .text "contrast done
+"
+    .byte 0
+__str_58:
+    .text "mix done
+"
+    .byte 0
+__str_59:
+    .text "filter done
+"
+    .byte 0
+__str_60:
+    .text "gamma done
+"
+    .byte 0
+__str_61:
+    .text "dither done
+"
+    .byte 0
+
+__zp_save_buf:
+; [DEBUG] Phase 87 code reached, optimize=false

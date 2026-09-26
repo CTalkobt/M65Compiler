@@ -2,6 +2,9 @@
 #include "AST.hpp"
 #include "IR.hpp"
 #include "TypeSystem.hpp"
+#include "IPOProfiler.hpp"
+#include "SourceLocationTracker.hpp"
+#include "DebugInfoBuilder.hpp"
 #include <map>
 #include <set>
 #include <string>
@@ -17,11 +20,18 @@ public:
     void setExternalUsedVars(const std::set<std::string>& vars) { externalUsedVars_ = vars; }
     const ir::Module& getModule() const { return module_; }
     ir::Module& getModule() { return module_; }
+    const IPOProfiler& getProfiler() const { return profiler_; }
+    IPOProfiler& getProfiler() { return profiler_; }
+    SourceLocationTracker& getSourceTracker() { return sourceTracker_; }
+    const SourceLocationTracker& getSourceTracker() const { return sourceTracker_; }
+    DebugInfoBuilder& getDebugBuilder() { return debugBuilder_; }
+    const DebugInfoBuilder& getDebugBuilder() const { return debugBuilder_; }
     bool hasErrors() const { return !errors_.empty(); }
     const std::vector<std::string>& getErrors() const { return errors_; }
     const std::vector<std::string>& getWarnings() const { return warnings_; }
 
     bool zpCallMode = false;
+    bool staticAllocMode = false;  // -fstaticalloc (SAC)
     bool inlineFunctions = false;
 
     // ASTVisitor interface
@@ -73,6 +83,13 @@ public:
 
     void emitConditionBranches(Expression* cond, const std::string& trueLabel,
                                const std::string& falseLabel, ir::SourceLoc sl);
+
+    // Phase 102: Typedef resolution interface
+    void registerAllStructDefinitions(TranslationUnit& unit);
+    std::string resolveTypedefToStruct(const std::string& typedefName);
+    void registerTypedefToStruct(const std::string& typedefName, const std::string& structName);
+    void setTypedefMappings(const std::map<std::string, std::string>& typedefToBaseType);
+
 private:
     struct FunctionScope {
         ir::Function* func = nullptr;
@@ -92,6 +109,9 @@ private:
     std::deque<FunctionScope> functionStack_;
 
     ir::Module module_;
+    IPOProfiler profiler_;  // Collects function profiles for cross-module optimization
+    SourceLocationTracker sourceTracker_;  // Phase 113: Tracks source locations for DWARF
+    DebugInfoBuilder debugBuilder_;        // Phase 113: Builds DWARF debug information
     ir::Function* currentFunc_ = nullptr;
     ir::Block* currentBlock_ = nullptr;
 
@@ -99,6 +119,7 @@ private:
     ir::Operand lastValue_;
     bool computeAddressOnly_ = false;
     bool weakNextFunction_ = false;
+    bool recurseNextFunction_ = false;  // #pragma cc45 recurse
 
     // Variable tracking: name → allocated vReg (address operand for locals)
     std::map<std::string, ir::Operand> locals_;
@@ -112,8 +133,10 @@ private:
     std::map<std::string, bool> localRegister_;
     std::map<std::string, bool> globalRegister_;
     std::map<std::string, ir::Type> localPointedToType_; // for pointers: the type of *ptr
+    std::map<std::string, std::string> localPointedToTypeName_; // for pointers: the type name of *ptr
     std::map<std::string, int64_t> localConstPtrValue_; // constant pointer value (for propagation)
     std::map<std::string, ir::Type> globalPointedToType_; // for global pointers
+    std::map<std::string, std::string> globalPointedToTypeName_; // for global pointers: the type name of *ptr
     std::map<std::string, std::vector<int>> localArrayDims_; // for stride computation
     std::map<std::string, std::vector<int>> globalArrayDims_; // for stride computation
 
@@ -151,6 +174,9 @@ private:
     };
     std::map<std::string, IRStructInfo> structs_;
 
+    // Phase 102: Typedef to struct mapping for resolving typedef'd struct types
+    std::map<std::string, std::string> typedefToStruct_; // typedef name → struct name (e.g., "digi_system_t" → "struct digi_system")
+
     // Break/continue label stack
     struct LoopLabels {
         std::string breakLabel;
@@ -182,6 +208,7 @@ private:
     std::set<std::string> calledFunctions_;
     std::set<std::string> definedFunctions_;
     std::map<std::string, ir::Type> functionReturnTypes_;
+    std::map<std::string, bool> functionReturnSigned_;  // Signedness of return type
     std::map<std::string, std::vector<ir::Type>> functionParamTypes_;
     std::map<std::string, std::vector<bool>> functionParamSigned_;
     std::set<std::string> variadicFunctions_;

@@ -2,7 +2,7 @@
 #
 # Demonstrates mixed C and assembly:
 #   main.c       — scroll logic, string handling, game loop
-#   scroll_hw.s  — hardware screen manipulation (byte shift, VSYNC, colour)
+#   scroll_hw.s45  — hardware screen manipulation (byte shift, VSYNC, colour)
 #
 # Usage:
 #   make              Build scroller.prg
@@ -27,14 +27,14 @@ all: $(TARGET)
 main.o45: main.c
 	$(CC45) $(INCLUDES) -c main.c -o main.o45
 
-scroll_hw.o45: scroll_hw.s
-	$(CA45) -c scroll_hw.s -o scroll_hw.o45
+scroll_hw.o45: scroll_hw.s45
+	$(CA45) -c scroll_hw.s45 -o scroll_hw.o45
 
 $(TARGET): $(OBJS) $(CRT0) $(STDLIB)
 	$(LN45) -m -basic -o $(TARGET) $(CRT0) $(OBJS) $(STDLIB) > map.txt
 
 clean:
-	rm -f $(OBJS) main.o45.s $(TARGET)
+	rm -f $(OBJS) main.o45.s45 $(TARGET)
 
 run: $(TARGET)
 	xemu-xmega65 -prg $(TARGET)

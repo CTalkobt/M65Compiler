@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AST.hpp"
+#include "LoopIdiomRegistry.hpp"
 #include <set>
 #include <string>
 #include <memory>
@@ -64,6 +65,18 @@ public:
     void visit(LabelAddressExpression& node) override {}
 
 private:
+    // Current function for per-function optimization control
+    FunctionDeclaration* currentFunc_ = nullptr;
+
+    // Loop unrolling: detect and transform fixed-size loops
+    bool canUnrollLoop(const ForStatement& stmt);
+    std::unique_ptr<CompoundStatement> unrollLoop(const ForStatement& stmt);
+
+    // Partial loop unrolling: for larger loops (20-1000 iterations)
+    bool canPartialUnrollLoop(const ForStatement& stmt, int unrollFactor);
+    std::unique_ptr<ForStatement> partialUnrollLoop(const ForStatement& stmt, int unrollFactor);
+
+
     // Collect all variables referenced by an expression
     class VariableCollector : public ASTVisitor {
     public:

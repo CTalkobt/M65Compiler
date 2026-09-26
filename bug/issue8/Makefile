@@ -16,7 +16,7 @@ $(PRG): $(OBJS)
 main.o45: main.c
 	$(CC45) -c $< -o $@
 
-bug_at_mainloop_reloc.o45: bug_at_mainloop_reloc.s
+bug_at_mainloop_reloc.o45: bug_at_mainloop_reloc.s45
 	$(CA45) -c $< -o $@
 
 inspect: bug_at_mainloop_reloc.o45
@@ -30,6 +30,6 @@ disasm: $(PRG)
 	$(OBJDUMP45) -d -m map.txt $(PRG)
 
 clean:
-	rm -f $(OBJS) $(PRG) map.txt main.o45.s
+	rm -f $(OBJS) $(PRG) map.txt main.o45.s45
 
 .PHONY: all clean inspect disasm

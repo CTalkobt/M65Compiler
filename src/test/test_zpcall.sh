@@ -1,5 +1,5 @@
 #!/bin/bash
-# test_zpcall.sh — Comprehensive regression tests for the ZP calling convention
+# test_zpcall.s45h — Comprehensive regression tests for the ZP calling convention
 #
 # Tests:
 #   1. Hand-written asm: param passing, nested calls, long return, attributes
@@ -24,9 +24,9 @@ fail() { echo "  FAIL: $1"; echo "        $2"; failed=$((failed + 1)); }
 # ===================================================================
 echo "=== Test 1: Hand-written ZP calling convention (asm) ==="
 
-$AS src/test-resources/test_zpcall_asm.s -o build/test/test_zpcall_asm.bin 2>build/test/test_zpcall_asm.err
+$AS src/test-resources/test_zpcall_asm.s45 -o build/test/test_zpcall_asm.bin 2>build/test/test_zpcall_asm.err
 if [ $? -ne 0 ]; then
-    fail "test_zpcall_asm.s assembly" "$(cat build/test/test_zpcall_asm.err)"
+    fail "test_zpcall_asm.s45 assembly" "$(cat build/test/test_zpcall_asm.err)"
 else
     OUTPUT=$(echo -e "load build/test/test_zpcall_asm.bin \$2000\nsetpc \$2000\nstep 500\nm \$4000 8\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
@@ -35,12 +35,12 @@ else
         pass "asm: basic params, nested caller-save, long return AXYZ"
     else
         ACTUAL=$(echo "$OUTPUT" | grep -i '4000:')
-        fail "test_zpcall_asm.s execution" "Expected: $EXPECTED, Got: $ACTUAL"
+        fail "test_zpcall_asm.s45 execution" "Expected: $EXPECTED, Got: $ACTUAL"
     fi
 fi
 
 # Verify function attributes in .o45
-$AS -c src/test-resources/test_zpcall_asm.s -o build/test/test_zpcall_asm.o45 2>/dev/null
+$AS -c src/test-resources/test_zpcall_asm.s45 -o build/test/test_zpcall_asm.o45 2>/dev/null
 if [ $? -eq 0 ]; then
     NM_OUT=$($NM -f build/test/test_zpcall_asm.o45 2>/dev/null)
     if echo "$NM_OUT" | grep -q "add_chars.*uses:03-04"; then
@@ -64,13 +64,13 @@ fi
 echo ""
 echo "=== Test 2: Compiler zpcall regression (C → mmemu) ==="
 
-$CC -fzpcall src/test-resources/test_zpcall_regression.c -o build/test/test_zpcall_regression.s 2>build/test/test_zpcall_regression.err
+$CC -fzpcall src/test-resources/test_zpcall_regression.c -o build/test/test_zpcall_regression.s45 2>build/test/test_zpcall_regression.err
 if [ $? -ne 0 ]; then
     fail "test_zpcall_regression.c compilation" "$(cat build/test/test_zpcall_regression.err)"
 else
-    $AS build/test/test_zpcall_regression.s -o build/test/test_zpcall_regression.prg 2>build/test/test_zpcall_regression_asm.err
+    $AS build/test/test_zpcall_regression.s45 -o build/test/test_zpcall_regression.prg 2>build/test/test_zpcall_regression_asm.err
     if [ $? -ne 0 ]; then
-        fail "test_zpcall_regression.s assembly" "$(cat build/test/test_zpcall_regression_asm.err)"
+        fail "test_zpcall_regression.s45 assembly" "$(cat build/test/test_zpcall_regression_asm.err)"
     else
         OUTPUT=$(echo -e "load build/test/test_zpcall_regression.prg\nsetpc \$2000\nstep 500000\nm \$4000 18\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
@@ -169,13 +169,13 @@ fi
 echo ""
 echo "=== Test 2b: Mixed convention (zpCall calling variadic) ==="
 
-$CC -fzpcall src/test-resources/test_zpcall_mixed.c -o build/test/test_zpcall_mixed.s 2>build/test/test_zpcall_mixed.err
+$CC -fzpcall src/test-resources/test_zpcall_mixed.c -o build/test/test_zpcall_mixed.s45 2>build/test/test_zpcall_mixed.err
 if [ $? -ne 0 ]; then
     fail "test_zpcall_mixed.c compilation" "$(cat build/test/test_zpcall_mixed.err)"
 else
-    $AS build/test/test_zpcall_mixed.s -o build/test/test_zpcall_mixed.prg 2>build/test/test_zpcall_mixed_asm.err
+    $AS build/test/test_zpcall_mixed.s45 -o build/test/test_zpcall_mixed.prg 2>build/test/test_zpcall_mixed_asm.err
     if [ $? -ne 0 ]; then
-        fail "test_zpcall_mixed.s assembly" "$(cat build/test/test_zpcall_mixed_asm.err)"
+        fail "test_zpcall_mixed.s45 assembly" "$(cat build/test/test_zpcall_mixed_asm.err)"
     else
         OUTPUT=$(echo -e "load build/test/test_zpcall_mixed.prg\nsetpc \$2000\nstep 500000\nm \$4000 9\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
@@ -264,13 +264,13 @@ for name in "${DIFF_TESTS[@]}"; do
     fi
 
     # Compile with -fzpcall
-    $CC -fzpcall "$src" -o "build/test/${name}_zp.s" 2>/dev/null
+    $CC -fzpcall "$src" -o "build/test/${name}_zp.s45" 2>/dev/null
     if [ $? -ne 0 ]; then
         fail "$name -fzpcall compilation" "cc45 -fzpcall failed"
         continue
     fi
 
-    $AS "build/test/${name}_zp.s" -o "build/test/${name}_zp.prg" 2>/dev/null
+    $AS "build/test/${name}_zp.s45" -o "build/test/${name}_zp.prg" 2>/dev/null
     if [ $? -ne 0 ]; then
         fail "$name -fzpcall assembly" "ca45 failed"
         continue

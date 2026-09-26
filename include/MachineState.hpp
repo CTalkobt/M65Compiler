@@ -263,6 +263,30 @@ struct MachineState {
         // Phase 2: could refine this with separate flag clobber masks later
     }
 
+    // Phase 2: Selectively invalidate registers AND flags based on clobber info.
+    // regClobberMask: bitmask of registers (1 << REG_A, 1 << REG_X, etc.)
+    // flagClobberMask: bitmask of flags (1 << 0=C, 1 << 1=N, 1 << 2=Z, 1 << 3=V)
+    // This enables fine-grained flag tracking during optimization.
+    void invalidateSelectiveWithFlags(int regClobberMask, int flagClobberMask) {
+        // Invalidate registers
+        if (regClobberMask & (1 << REG_A)) invalidateReg(REG_A);
+        if (regClobberMask & (1 << REG_X)) invalidateReg(REG_X);
+        if (regClobberMask & (1 << REG_Y)) invalidateReg(REG_Y);
+        if (regClobberMask & (1 << REG_Z)) invalidateReg(REG_Z);
+
+        // Invalidate flags based on flag clobber mask
+        // Bit 0 = Carry, Bit 1 = Negative, Bit 2 = Zero, Bit 3 = Overflow
+        if (flagClobberMask & (1 << 0)) flags.c = FlagState::F_UNKNOWN;  // Carry
+        if (flagClobberMask & (1 << 1)) flags.n = FlagState::F_UNKNOWN;  // Negative
+        if (flagClobberMask & (1 << 2)) flags.z = FlagState::F_UNKNOWN;  // Zero
+        if (flagClobberMask & (1 << 3)) flags.v = FlagState::F_UNKNOWN;  // Overflow
+
+        // If N/Z flags are clobbered, invalidate their source register tracking
+        if ((flagClobberMask & (1 << 1)) || (flagClobberMask & (1 << 2))) {
+            flags.nzSourceReg = -1;
+        }
+    }
+
     // --- Memory state updates ---
 
     // Record a store to ZP: the memory location now holds what the register holds.

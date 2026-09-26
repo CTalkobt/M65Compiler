@@ -1,0 +1,750 @@
+/* graphics.h — MEGA65 Graphics Framework
+ *
+ * Device-independent graphics API with pluggable drivers.
+ * Inspired by cc65's TGI but optimized for MEGA65 hardware.
+ *
+ * Phase 1: Core framework (driver abstraction, mode switching)
+ */
+
+#pragma once
+
+#include <graphics_hal.h>
+
+/* ============================================================================
+ * GRAPHICS MODES
+ * ============================================================================ */
+
+typedef enum {
+    GRAPHICS_MODE_TEXT_40x25,       /* 40×25 text mode (standard) */
+    GRAPHICS_MODE_TEXT_80x24,       /* 80×24 text mode (MEGA65 extended) */
+    GRAPHICS_MODE_GRAPHICS_80x50,   /* 80×50 graphics (block characters) */
+    GRAPHICS_MODE_BITMAP_320x200,   /* 320×200 monochrome bitmap */
+    GRAPHICS_MODE_BITMAP_160x200    /* 160×200 multicolor bitmap */
+} graphics_mode_t;
+
+/* ============================================================================
+ * DRIVER STRUCTURE
+ * ============================================================================ */
+
+typedef struct graphics_driver {
+    const char *name;               /* Driver name (e.g., "BITMAP_320x200") */
+    graphics_mode_t mode;           /* Graphics mode this driver implements */
+    int width;                      /* Screen width in pixels/chars */
+    int height;                     /* Screen height in pixels/rows */
+    int max_colors;                 /* Maximum colors (16, 256, etc.) */
+
+    /* Lifecycle */
+    void (*init)(void);             /* Initialize mode */
+    void (*done)(void);             /* Cleanup mode */
+
+    /* Color & state */
+    void (*setcolor)(unsigned char c);      /* Set foreground color */
+    void (*setbkcolor)(unsigned char c);    /* Set background color */
+
+    /* Drawing primitives */
+    void (*plot)(int x, int y);             /* Plot single pixel */
+    unsigned char (*getpixel)(int x, int y);/* Read pixel */
+    void (*line)(int x1, int y1, int x2, int y2);      /* Draw line */
+    void (*bar)(int x1, int y1, int x2, int y2);       /* Filled rectangle */
+    void (*rect)(int x1, int y1, int x2, int y2);      /* Rectangle outline */
+    void (*circle)(int x, int y, int radius);          /* Circle */
+    void (*clear)(void);            /* Clear screen */
+
+    /* Optional: text, sprites, patterns (for Phase 2+) */
+} graphics_driver_t;
+
+/* ============================================================================
+ * FRAMEWORK STATE
+ * ============================================================================ */
+
+typedef struct {
+    graphics_driver_t *active_driver;       /* Currently active driver */
+    unsigned char current_color;            /* Current foreground color */
+    unsigned char current_bkcolor;          /* Current background color */
+    int clip_x1, clip_y1, clip_x2, clip_y2; /* Clipping rectangle */
+} graphics_state_t;
+
+extern graphics_state_t graphics_state;
+
+/* ============================================================================
+ * FRAMEWORK INITIALIZATION
+ * ============================================================================ */
+
+/**
+ * graphics_init - Initialize graphics framework
+ *
+ * Sets up default mode and driver. Must be called before any graphics ops.
+ */
+void graphics_init(void);
+
+/**
+ * graphics_done - Cleanup graphics framework
+ *
+ * Restores hardware to default state.
+ */
+void graphics_done(void);
+
+/* ============================================================================
+ * MODE MANAGEMENT
+ * ============================================================================ */
+
+/**
+ * graphics_setmode - Switch to specified graphics mode
+ *
+ * Loads driver for mode and initializes hardware.
+ *
+ * Parameters:
+ *   mode — Target graphics mode (GRAPHICS_MODE_*)
+ *
+ * Returns:
+ *   0 on success, -1 on error (mode not supported)
+ */
+int graphics_setmode(graphics_mode_t mode);
+
+/**
+ * graphics_getmode - Get current graphics mode
+ *
+ * Returns:
+ *   Current mode enum
+ */
+graphics_mode_t graphics_getmode(void);
+
+/**
+ * graphics_getwidth - Get screen width
+ *
+ * Returns:
+ *   Width in pixels (bitmap) or characters (text)
+ */
+int graphics_getwidth(void);
+
+/**
+ * graphics_getheight - Get screen height
+ *
+ * Returns:
+ *   Height in pixels (bitmap) or rows (text)
+ */
+int graphics_getheight(void);
+
+/**
+ * graphics_getmaxcolor - Get maximum color index
+ *
+ * Returns:
+ *   Max color value (15 for 16-color, 255 for 256-color, etc.)
+ */
+int graphics_getmaxcolor(void);
+
+/* ============================================================================
+ * COLOR CONTROL
+ * ============================================================================ */
+
+/**
+ * graphics_setcolor - Set foreground color
+ *
+ * Parameters:
+ *   color — Color index (0-15 for standard, 0-255 for extended)
+ */
+void graphics_setcolor(unsigned char color);
+
+/**
+ * graphics_setbkcolor - Set background color
+ *
+ * Parameters:
+ *   color — Background color index
+ */
+void graphics_setbkcolor(unsigned char color);
+
+/**
+ * graphics_getcolor - Get current foreground color
+ *
+ * Returns:
+ *   Current foreground color
+ */
+unsigned char graphics_getcolor(void);
+
+/**
+ * graphics_getbkcolor - Get current background color
+ *
+ * Returns:
+ *   Current background color
+ */
+unsigned char graphics_getbkcolor(void);
+
+/* ============================================================================
+ * DRAWING PRIMITIVES
+ * ============================================================================ */
+
+/**
+ * graphics_plot - Plot single pixel
+ *
+ * Parameters:
+ *   x, y — Pixel coordinates
+ */
+void graphics_plot(int x, int y);
+
+/**
+ * graphics_getpixel - Read pixel value
+ *
+ * Parameters:
+ *   x, y — Pixel coordinates
+ *
+ * Returns:
+ *   Pixel color value
+ */
+unsigned char graphics_getpixel(int x, int y);
+
+/**
+ * graphics_line - Draw line
+ *
+ * Bresenham line algorithm from (x1,y1) to (x2,y2).
+ *
+ * Parameters:
+ *   x1, y1, x2, y2 — Line endpoints
+ */
+void graphics_line(int x1, int y1, int x2, int y2);
+
+/**
+ * graphics_bar - Draw filled rectangle
+ *
+ * Parameters:
+ *   x1, y1, x2, y2 — Rectangle corners (top-left to bottom-right)
+ */
+void graphics_bar(int x1, int y1, int x2, int y2);
+
+/**
+ * graphics_rect - Draw rectangle outline
+ *
+ * Parameters:
+ *   x1, y1, x2, y2 — Rectangle corners
+ */
+void graphics_rect(int x1, int y1, int x2, int y2);
+
+/**
+ * graphics_circle - Draw circle
+ *
+ * Midpoint circle algorithm.
+ *
+ * Parameters:
+ *   x, y — Center coordinates
+ *   radius — Circle radius in pixels
+ */
+void graphics_circle(int x, int y, int radius);
+
+/**
+ * graphics_clear - Clear entire screen
+ *
+ * Fills screen with background color.
+ */
+void graphics_clear(void);
+
+/* ============================================================================
+ * CLIPPING
+ * ============================================================================ */
+
+/**
+ * graphics_setclip - Set clipping rectangle
+ *
+ * All drawing operations clipped to this region.
+ *
+ * Parameters:
+ *   x1, y1, x2, y2 — Clip rectangle corners
+ */
+void graphics_setclip(int x1, int y1, int x2, int y2);
+
+/**
+ * graphics_clearclip - Disable clipping
+ *
+ * Sets clip region to full screen.
+ */
+void graphics_clearclip(void);
+
+/**
+ * graphics_getclip - Get current clipping rectangle
+ *
+ * Parameters:
+ *   x1, y1, x2, y2 — Output: clip rectangle
+ */
+void graphics_getclip(int *x1, int *y1, int *x2, int *y2);
+
+/* ============================================================================
+ * SPRITE SUPPORT (Phase 103)
+ * ============================================================================ */
+
+/**
+ * Sprite render modes:
+ * - SOFTWARE: Rendered to framebuffer (works on all graphics modes)
+ * - HARDWARE: MEGA65 hardware sprites (fast, limited to 8 sprites)
+ */
+typedef enum {
+    SPRITE_MODE_SOFTWARE,           /* Software-rendered sprite */
+    SPRITE_MODE_HARDWARE            /* MEGA65 hardware sprite */
+} sprite_render_mode_t;
+
+/**
+ * Sprite structure — unified interface for software and hardware sprites
+ */
+typedef struct {
+    int x, y;                       /* Position (pixels) */
+    int width, height;              /* Size (pixels) */
+    unsigned char color;            /* Color/palette index */
+    unsigned char *bitmap;          /* Pointer to sprite bitmap data */
+    unsigned char visible;          /* 1 = visible, 0 = hidden */
+    unsigned char frame;            /* Current animation frame */
+
+    /* Internal state — do not modify directly */
+    unsigned char sprite_num;       /* Hardware sprite number (0-7) */
+    sprite_render_mode_t render_mode; /* AUTO-DETECTED */
+    int old_x, old_y;              /* Previous position (for dirty-rect) */
+} sprite_t;
+
+/**
+ * sprite_init - Initialize a sprite
+ *
+ * Allocates sprite structure and auto-detects render mode:
+ * - Hardware sprite if size ≤ 64×64 and HW available
+ * - Software sprite otherwise
+ *
+ * Parameters:
+ *   spr — Sprite structure (caller-allocated)
+ *   width, height — Sprite size in pixels
+ *
+ * Returns:
+ *   0 on success, -1 if no hardware sprites available (falls back to SW)
+ */
+int sprite_init(sprite_t *spr, int width, int height);
+
+/**
+ * sprite_done - Cleanup sprite
+ *
+ * Releases hardware sprite slot if applicable
+ */
+void sprite_done(sprite_t *spr);
+
+/**
+ * sprite_set_position - Move sprite to new position
+ *
+ * Parameters:
+ *   spr — Sprite to move
+ *   x, y — New position (pixels)
+ */
+void sprite_set_position(sprite_t *spr, int x, int y);
+
+/**
+ * sprite_set_bitmap - Set sprite graphics
+ *
+ * Parameters:
+ *   spr — Sprite to update
+ *   bitmap — Pointer to sprite bitmap data (format depends on size)
+ *
+ * Note: Bitmap format is mode-dependent:
+ *   - 8×8: 64 bytes (1 byte per row, 8 rows)
+ *   - 16×16: 32 bytes per row (for hardware sprites)
+ */
+void sprite_set_bitmap(sprite_t *spr, unsigned char *bitmap);
+
+/**
+ * sprite_set_color - Set sprite color
+ *
+ * Parameters:
+ *   spr — Sprite to update
+ *   color — Color index (0-15 for MEGA65, mode-dependent)
+ */
+void sprite_set_color(sprite_t *spr, unsigned char color);
+
+/**
+ * sprite_draw - Render sprite at current position
+ *
+ * Renders sprite using appropriate backend (hardware or software).
+ * Safe to call multiple times per frame.
+ *
+ * Parameters:
+ *   spr — Sprite to render
+ */
+void sprite_draw(sprite_t *spr);
+
+/**
+ * sprite_clear - Erase sprite from current position
+ *
+ * For software sprites: overwrites with background color
+ * For hardware sprites: clears enable bit
+ *
+ * Parameters:
+ *   spr — Sprite to erase
+ */
+void sprite_clear(sprite_t *spr);
+
+/**
+ * sprite_show - Make sprite visible
+ *
+ * Parameters:
+ *   spr — Sprite to show
+ */
+void sprite_show(sprite_t *spr);
+
+/**
+ * sprite_hide - Hide sprite
+ *
+ * Parameters:
+ *   spr — Sprite to hide
+ */
+void sprite_hide(sprite_t *spr);
+
+/**
+ * sprite_collides - Test bounding-box collision
+ *
+ * Simple and fast bounding-box collision detection.
+ * For pixel-perfect collision, use sprite_collides_precise().
+ *
+ * Parameters:
+ *   a, b — Sprites to test
+ *
+ * Returns:
+ *   1 if bounding boxes overlap, 0 otherwise
+ */
+int sprite_collides(sprite_t *a, sprite_t *b);
+
+/**
+ * sprite_collides_precise - Test pixel-perfect collision
+ *
+ * Slower but more accurate collision detection with fast AABB pre-check.
+ * Only works if both sprites have bitmap data set.
+ *
+ * Parameters:
+ *   a, b — Sprites to test
+ *
+ * Returns:
+ *   1 if pixel data overlaps, 0 otherwise
+ */
+int sprite_collides_precise(sprite_t *a, sprite_t *b);
+
+/**
+ * sprite_collides_color - Collision with color-based masking
+ *
+ * Detects collision where only specific colors trigger collision.
+ * Useful for hit detection without transparency, selective collision.
+ *
+ * Parameters:
+ *   a, b — Sprites to test
+ *   mask_color_a — Color in sprite A that triggers collision
+ *   mask_color_b — Color in sprite B that triggers collision
+ *
+ * Returns:
+ *   1 if pixels of matching colors overlap, 0 otherwise
+ */
+int sprite_collides_color(sprite_t *a, sprite_t *b,
+                          unsigned char mask_color_a,
+                          unsigned char mask_color_b);
+
+/**
+ * sprite_collides_circle - Circular collision test
+ *
+ * Fast collision test for circular sprites.
+ * Assumes sprite dimensions define circle diameter.
+ *
+ * Parameters:
+ *   a, b — Sprites to test (treated as circles)
+ *
+ * Returns:
+ *   1 if circles overlap, 0 otherwise
+ */
+int sprite_collides_circle(sprite_t *a, sprite_t *b);
+
+/**
+ * sprite_overlaps_region - Spatial query collision
+ *
+ * Check if sprite overlaps with rectangular region.
+ * Useful for: spatial queries, region-based collision checks.
+ *
+ * Parameters:
+ *   spr — Sprite to test
+ *   x1, y1, x2, y2 — Region bounds
+ *
+ * Returns:
+ *   1 if sprite overlaps region, 0 otherwise
+ */
+int sprite_overlaps_region(sprite_t *spr, int x1, int y1, int x2, int y2);
+
+/* ============================================================================
+ * OPTIMIZATION: DIRTY-RECTANGLE RENDERING (Phase 103c)
+ * ============================================================================ */
+
+/**
+ * Sprite motion tracking for smooth animation
+ */
+typedef struct {
+    sprite_t *sprite;
+    int vx, vy;                     /* Velocity (pixels/frame) */
+    int remainder_x, remainder_y;   /* Sub-pixel precision */
+} sprite_motion_t;
+
+/**
+ * Sprite layer entry for sorted rendering
+ */
+typedef struct {
+    sprite_t *sprite;
+    int priority;                   /* Higher = rendered on top */
+} sprite_layer_t;
+
+/**
+ * sprite_draw_optimized - Render sprite with dirty-rect optimization
+ *
+ * Only redraws changed regions, skips redraw if sprite hasn't moved.
+ * Significantly faster when multiple sprites move.
+ *
+ * Parameters:
+ *   spr — Sprite to render
+ */
+void sprite_draw_optimized(sprite_t *spr);
+
+/**
+ * sprite_update_batch - Update multiple sprites with dirty-rect batching
+ *
+ * Merges overlapping dirty regions to minimize redraw area.
+ * Use when rendering many sprites each frame.
+ *
+ * Parameters:
+ *   sprites — Array of sprite pointers
+ *   count — Number of sprites
+ */
+void sprite_update_batch(sprite_t **sprites, int count);
+
+/**
+ * sprite_update_motion - Update sprite with velocity
+ *
+ * Updates position using velocity vector with sub-pixel precision.
+ * Supports smooth, predictable motion for camera/parallax effects.
+ *
+ * Parameters:
+ *   motion — Sprite motion tracker
+ *   predict_frames — Frames to predict (typically 1)
+ */
+void sprite_update_motion(sprite_motion_t *motion, int predict_frames);
+
+/**
+ * sprite_render_layered - Render sprites in priority order
+ *
+ * Renders sprites sorted by priority (lowest first = underneath).
+ * Ensures correct z-order rendering.
+ *
+ * Parameters:
+ *   layers — Array of sprite layer entries
+ *   count — Number of sprites
+ */
+void sprite_render_layered(sprite_layer_t *layers, int count);
+
+/* ============================================================================
+ * ANIMATION SYSTEM (Phase 104)
+ * ============================================================================ */
+
+/**
+ * Animation states
+ */
+typedef enum {
+    ANIM_STATE_STOPPED,             /* Animation stopped, at frame 0 */
+    ANIM_STATE_PLAYING,             /* Animation playing */
+    ANIM_STATE_PAUSED               /* Animation paused at current frame */
+} animation_state_t;
+
+/**
+ * Animation loop modes
+ */
+typedef enum {
+    ANIM_LOOP_ONCE,                 /* Play once, stop at last frame */
+    ANIM_LOOP_REPEAT,               /* Loop from frame 0 */
+    ANIM_LOOP_PINGPONG              /* Bounce back and forth */
+} animation_loop_mode_t;
+
+/**
+ * Animation playback direction (for PINGPONG mode)
+ */
+typedef enum {
+    ANIM_DIR_FORWARD,               /* Playing forward through frames */
+    ANIM_DIR_BACKWARD               /* Playing backward (PINGPONG only) */
+} animation_direction_t;
+
+/**
+ * Animation callback function type
+ */
+typedef void (*animation_callback_t)(void *anim, int frame_or_param);
+
+/**
+ * Sprite animation structure
+ */
+typedef struct {
+    sprite_t *sprite;               /* Sprite being animated */
+    unsigned char **frames;         /* Array of frame bitmaps */
+    int frame_count;                /* Number of frames */
+    int current_frame;              /* Current frame index */
+    int tick_counter;               /* Ticks since last frame change */
+    int ticks_per_frame;            /* Ticks per animation frame */
+
+    animation_state_t state;        /* Current playback state */
+    animation_loop_mode_t loop_mode; /* How animation loops */
+    animation_direction_t direction; /* Forward or backward (PINGPONG) */
+    double playback_speed;          /* 1.0 = normal, 2.0 = 2x speed, etc. */
+
+    /* Event callbacks */
+    animation_callback_t on_frame_change;  /* Called when frame changes */
+    animation_callback_t on_loop_complete; /* Called at end of loop */
+    animation_callback_t on_animation_done; /* Called when animation stops */
+
+    void *user_data;                /* User-defined context */
+} sprite_animation_t;
+
+/**
+ * Animation sequence (play multiple animations in order)
+ */
+typedef struct {
+    sprite_animation_t **animations;
+    int animation_count;
+    int current_animation;
+
+    void (*on_sequence_complete)(void *seq);
+} sprite_animation_sequence_t;
+
+/**
+ * sprite_animation_init - Initialize sprite animation
+ *
+ * Creates animation player with frame sequence.
+ * Animation starts in STOPPED state.
+ *
+ * Parameters:
+ *   anim — Animation structure (caller-allocated)
+ *   sprite — Sprite to animate
+ *   frames — Array of frame bitmaps
+ *   frame_count — Number of frames
+ *   ticks_per_frame — Animation speed (higher = slower)
+ *
+ * Returns:
+ *   0 on success, -1 on error
+ */
+int sprite_animation_init(sprite_animation_t *anim, sprite_t *sprite,
+                          unsigned char **frames, int frame_count,
+                          int ticks_per_frame);
+
+/**
+ * sprite_animation_done - Cleanup animation
+ */
+void sprite_animation_done(sprite_animation_t *anim);
+
+/**
+ * sprite_animation_play - Start animation playback
+ */
+void sprite_animation_play(sprite_animation_t *anim);
+
+/**
+ * sprite_animation_stop - Stop animation
+ */
+void sprite_animation_stop(sprite_animation_t *anim);
+
+/**
+ * sprite_animation_pause - Pause animation
+ */
+void sprite_animation_pause(sprite_animation_t *anim);
+
+/**
+ * sprite_animation_resume - Resume paused animation
+ */
+void sprite_animation_resume(sprite_animation_t *anim);
+
+/**
+ * sprite_animation_get_frame - Get current frame index
+ *
+ * Returns:
+ *   Current frame (0 to frame_count-1), or -1 if error
+ */
+int sprite_animation_get_frame(sprite_animation_t *anim);
+
+/**
+ * sprite_animation_set_frame - Jump to specific frame
+ *
+ * Parameters:
+ *   anim — Animation
+ *   frame — Frame index (0 to frame_count-1)
+ */
+void sprite_animation_set_frame(sprite_animation_t *anim, int frame);
+
+/**
+ * sprite_animation_set_speed - Set playback speed
+ *
+ * Parameters:
+ *   anim — Animation
+ *   speed — Playback speed (1.0 = normal, 2.0 = 2x faster, 0.5 = half speed)
+ */
+void sprite_animation_set_speed(sprite_animation_t *anim, double speed);
+
+/**
+ * sprite_animation_update - Update animation (call every frame)
+ *
+ * Advances animation state, updates sprite bitmap, fires callbacks.
+ * Call this every game frame for all active animations.
+ *
+ * Parameters:
+ *   anim — Animation to update
+ */
+void sprite_animation_update(sprite_animation_t *anim);
+
+/**
+ * sprite_animation_sequence_init - Initialize animation sequence
+ *
+ * Creates container for playing multiple animations in sequence.
+ *
+ * Returns:
+ *   0 on success, -1 on error
+ */
+int sprite_animation_sequence_init(sprite_animation_sequence_t *seq);
+
+/**
+ * sprite_animation_sequence_add - Add animation to sequence
+ *
+ * Animations play in order added.
+ *
+ * Parameters:
+ *   seq — Animation sequence
+ *   anim — Animation to add
+ */
+void sprite_animation_sequence_add(sprite_animation_sequence_t *seq,
+                                    sprite_animation_t *anim);
+
+/**
+ * sprite_animation_sequence_play - Start sequence playback
+ *
+ * Plays first animation, then automatically advances to next when complete.
+ */
+void sprite_animation_sequence_play(sprite_animation_sequence_t *seq);
+
+/**
+ * sprite_animation_sequence_update - Update animation sequence
+ *
+ * Call every frame to advance sequence animations.
+ */
+void sprite_animation_sequence_update(sprite_animation_sequence_t *seq);
+
+/**
+ * sprite_animation_sequence_done - Cleanup animation sequence
+ */
+void sprite_animation_sequence_done(sprite_animation_sequence_t *seq);
+
+/* ============================================================================
+ * PARTICLE EFFECTS (Phase 104b)
+ * ============================================================================ */
+
+#include <graphics_particles.h>
+
+/* ============================================================================
+ * RASTER RE-WRITE BUFFER (Phase 105)
+ * ============================================================================ */
+
+#include <graphics_rrb.h>
+
+
+/* ============================================================================
+ * SOFT SPRITE SYSTEM (Phase 7)
+ * ============================================================================ */
+
+#include <graphics_sprites.h>
+
+/* ============================================================================
+ * ADVANCED SPRITE FEATURES (Phase 8)
+ * ============================================================================ */
+
+#include <graphics_sprites_advanced.h>

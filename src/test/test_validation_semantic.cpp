@@ -50,8 +50,8 @@ static bool compileAndSucceed(const std::string& cCode) {
     c_file << cCode;
     c_file.close();
 
-    // Compile - should succeed
-    int ret = system("./bin/cc45 build/test_validation_semantic_temp.c -o build/test_validation_semantic_temp.o 2>/dev/null");
+    // Compile to object file only (stop before linker) - allows undefined symbols
+    int ret = system("./bin/cc45 -c build/test_validation_semantic_temp.c -o build/test_validation_semantic_temp.o45 2>/dev/null");
     return (ret == 0);
 }
 

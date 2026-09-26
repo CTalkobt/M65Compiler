@@ -4,6 +4,7 @@
 #include <map>
 #include <cstdint>
 #include "O45Types.hpp"
+#include "O45IRSerializer.hpp"
 
 // Writes a complete .o45 relocatable object file.
 //
@@ -24,6 +25,7 @@ struct O45Reloc {
     O45Segment segment;       // target segment (SEG_TEXT, SEG_DATA, ... or SEG_EXTERNAL)
     uint32_t symbolIndex = 0; // import table index (only when segment == SEG_EXTERNAL)
     uint8_t extra = 0;        // extra byte for R_HIGH (low byte for underflow correction)
+    int32_t addend = 0;       // addend to add to symbol value during relocation
 };
 
 // Encodes a list of O45Reloc entries into the .o65/.o45 delta-offset byte stream.
@@ -53,9 +55,23 @@ public:
     void setTextRelocations(const std::vector<uint8_t>& relocs);
     void setDataRelocations(const std::vector<uint8_t>& relocs);
 
+    // Phase 113: DWARF debug sections
+    void setDebugInfoSegment(const std::vector<uint8_t>& data) { debugInfo_ = data; hasDebugInfo_ = true; }
+    void setDebugLineSegment(const std::vector<uint8_t>& data) { debugLine_ = data; hasDebugLine_ = true; }
+    void setDebugStrSegment(const std::vector<uint8_t>& data) { debugStr_ = data; hasDebugStr_ = true; }
+
     void addImport(const std::string& name);
     void addExport(const std::string& name, O45Segment seg, uint32_t offset, bool weak = false);
     void setFuncAttr(const std::string& name, const O45FuncAttr& attr);
+
+    // Phase 47: IR Metadata support
+    void setIRMetadata(const O45IRMetadata& ir) { irMetadata_ = ir; hasIR_ = true; }
+    void setExportContentFlags(const std::string& exportName, uint8_t flags) {
+        exportContentFlags_[exportName] = flags;
+    }
+
+    // Phase 4.2: IPO Hints support
+    void setIPOHints(const O45IPOHints& hints) { ipoHints_ = hints; hasIPOHints_ = true; }
 
     // Add a string option (NUL-terminated in output). For OPT_FNAME, OPT_ASM, OPT_AUTHOR, OPT_CREATED.
     void addOption(uint8_t type, const std::string& value);
@@ -100,11 +116,28 @@ private:
     std::vector<ExportEntry> exports_;
     std::map<std::string, O45FuncAttr> funcAttrs_; // export name → function attributes
 
+    // Phase 47: IR Metadata for cross-file optimization
+    bool hasIR_ = false;
+    O45IRMetadata irMetadata_;
+    std::map<std::string, uint8_t> exportContentFlags_;  // export name → content type flags
+
+    // Phase 4.2: IPO Hints for inter-TU optimization
+    bool hasIPOHints_ = false;
+    O45IPOHints ipoHints_;
+
     struct OptionEntry {
         uint8_t type;
         std::vector<uint8_t> data; // raw payload bytes (no implicit NUL)
     };
     std::vector<OptionEntry> options_;
+
+    // Phase 113: DWARF debug sections
+    bool hasDebugInfo_ = false;
+    bool hasDebugLine_ = false;
+    bool hasDebugStr_ = false;
+    std::vector<uint8_t> debugInfo_;
+    std::vector<uint8_t> debugLine_;
+    std::vector<uint8_t> debugStr_;
 
     // Write helpers
     void emitHeader(std::vector<uint8_t>& out) const;
@@ -112,6 +145,7 @@ private:
     void emitRelocTable(std::vector<uint8_t>& out, const std::vector<uint8_t>& relocs) const;
     void emitImports(std::vector<uint8_t>& out) const;
     void emitExports(std::vector<uint8_t>& out) const;
+    void emitDebugSections(std::vector<uint8_t>& out) const;
 
     static void writeU16(std::vector<uint8_t>& out, uint16_t val);
     static void writeU32(std::vector<uint8_t>& out, uint32_t val);

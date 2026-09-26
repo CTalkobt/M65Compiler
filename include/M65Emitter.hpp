@@ -30,6 +30,9 @@ public:
     uint8_t framePointerZP() const { return framePointerZP_; }
     bool hasFramePointer() const { return framePointerZP_ != 0; }
 
+    void setSACMode(bool sac) { sacMode_ = sac; }
+    bool isSACMode() const { return sacMode_; }
+
     // Emit FP setup: save old FP, compute new FP from current SP
     void setupFramePointer();
     // Emit FP restore: pop old FP from stack
@@ -342,9 +345,19 @@ public:
     void recordSymbolRelocHi(const std::string& name, uint8_t lowByte);
     void recordSymbolReloc32Bit(const std::string& name);
 
+    // Phase 78: Immediate relocation tracking for SMC parameters
+    struct ImmediateReloc {
+        uint32_t address;           // offset of immediate byte(s) in binary
+        std::string symbolName;     // parameter symbol to patch
+        uint8_t relocType;          // R_IMM8 or R_IMM16
+    };
+    const std::vector<ImmediateReloc>& immediateRelocs() const { return immediateRelocs_; }
+    void recordImmediateReloc(const std::string& symbolName, bool isSixteenBit = false);
+
 private:
     std::vector<SpBaseReloc> spBaseRelocs_;
     std::vector<SymbolReloc> symbolRelocs_;
+    std::vector<ImmediateReloc> immediateRelocs_;  // Phase 78: SMC immediate relocations
     std::ostream* out = nullptr;
     std::vector<uint8_t>* binary = nullptr;
     Mode mode;
@@ -354,6 +367,7 @@ private:
     uint8_t scratchZP2_ = 0x04;
     uint8_t scratchZP3_ = 0x06;
     uint8_t framePointerZP_ = 0; // 0 = disabled; when set, stack ops use ($FP),Y
+    bool sacMode_ = false; // SAC: FP contains AR address, not a pointer to dereference
     uint32_t currentAddress = 0;
     bool addressSet = false;
     MachineState ms_;     // Unified register/flag value tracking

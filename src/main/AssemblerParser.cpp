@@ -6,10 +6,12 @@
 #include "M65Emitter.hpp"
 #include "O45Types.hpp"
 #include "StringUtil.hpp"
+#include "Diagnostic.hpp"
 #include <stdexcept>
 #include <iostream>
 #include <iomanip>
 #include <fstream>
+#include <cstdio>
 #include <algorithm>
 #include <memory>
 #include <cmath>
@@ -23,6 +25,143 @@ AssemblerParser::AssemblerParser(const std::vector<AssemblerToken>& tokens) : to
 AssemblerParser::AssemblerParser(const std::vector<AssemblerToken>& tokens, const std::map<std::string, uint32_t>& predefinedSymbols) : tokens(tokens), pos(0), pc(0), nextScopeId(0) {
     for (const auto& [name, val] : predefinedSymbols) symbolTable[name] = {val, false, 2, false, false, val, false, 0, false, 0, ""};
     switchSegment("default");
+}
+
+// Error reporting helpers — ensure all errors have file:line:col format
+void AssemblerParser::errorAt(int line, int col, const std::string& msg) {
+    addError(formatDiagnostic(currentSourceFile_, line, col, Severity::Error, msg));
+}
+
+[[noreturn]] void AssemblerParser::throwAt(int line, int col, const std::string& msg) {
+    throw std::runtime_error(formatDiagnostic(currentSourceFile_, line, col, Severity::Error, msg));
+}
+
+void AssemblerParser::errorAtStmt(const Statement* stmt, const std::string& msg) {
+    if (stmt) {
+        addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error, msg));
+    } else {
+        addError(formatDiagnostic(currentSourceFile_, 0, 1, Severity::Error, msg));
+    }
+}
+
+void AssemblerParser::updateSymbolSuggestions() {
+    // Populate suggester with all known symbols from the symbol table
+    symbolSuggester_.clear();
+    std::vector<std::string> knownSymbols;
+    for (const auto& [name, symbol] : symbolTable) {
+        // Add the fully scoped name
+        knownSymbols.push_back(name);
+
+        // Extract and add the unscoped part (last component after ':')
+        // This helps with suggestions like '@_p_myvar' even when stored as '_myproc:@_p_myvar'
+        size_t colonPos = name.find_last_of(':');
+        if (colonPos != std::string::npos && colonPos + 1 < name.length()) {
+            std::string unscoped = name.substr(colonPos + 1);
+            // Only add if not already present
+            if (std::find(knownSymbols.begin(), knownSymbols.end(), unscoped) == knownSymbols.end()) {
+                knownSymbols.push_back(unscoped);
+            }
+        }
+    }
+    symbolSuggester_.addSymbols(knownSymbols);
+}
+
+std::string AssemblerParser::getSuggestionForSymbol(const std::string& undefined) const {
+    // Build suggestions on-demand from current symbol table
+    const_cast<AssemblerParser*>(this)->updateSymbolSuggestions();
+    // Get a suggestion (fuzzy match) for undefined symbol, or empty string if none found
+    // Require at least 50% similarity (lowered to catch more typos)
+    return symbolSuggester_.suggestBest(undefined, 50);
+}
+
+// Overflow checking helpers (Phase 1.3)
+void AssemblerParser::checkImmediateOverflow(uint32_t value, int line, int col) {
+    if (!warnOverflow) return;  // Only warn if enabled
+
+    // Check if value exceeds 8-bit unsigned (for immediate mode)
+    if (value > 0xFF) {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "Immediate value $%X exceeds 8-bit limit (truncated to $%X)",
+                     value, value & 0xFF);
+        addWarning(formatDiagnostic(currentSourceFile_, line, col, Severity::Warning, buf));
+    }
+}
+
+void AssemblerParser::checkAddressOverflow(uint32_t address, AddressingMode mode, int line, int col) {
+    if (!warnOverflow) return;  // Only warn if enabled
+
+    std::string msg;
+    bool isOverflow = false;
+
+    switch (mode) {
+        case AddressingMode::BASE_PAGE:
+        case AddressingMode::BASE_PAGE_X:
+        case AddressingMode::BASE_PAGE_Y:
+        case AddressingMode::INDIRECT:
+        case AddressingMode::BASE_PAGE_X_INDIRECT:
+        case AddressingMode::BASE_PAGE_INDIRECT_Y:
+        case AddressingMode::BASE_PAGE_INDIRECT_Z:
+        case AddressingMode::BASE_PAGE_INDIRECT_SP_Y:
+        case AddressingMode::STACK_RELATIVE:
+            if (address > 0xFF) {
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "Zero page address $%X exceeds 8-bit limit (truncated to $%X)",
+                             address, address & 0xFF);
+                msg = buf;
+                isOverflow = true;
+            }
+            break;
+
+        case AddressingMode::ABSOLUTE:
+        case AddressingMode::ABSOLUTE_X:
+        case AddressingMode::ABSOLUTE_Y:
+        case AddressingMode::ABSOLUTE_INDIRECT:
+        case AddressingMode::ABSOLUTE_X_INDIRECT:
+        case AddressingMode::IMMEDIATE16:
+            if (address > 0xFFFF) {
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "Absolute address $%X exceeds 16-bit limit (truncated to $%X)",
+                             address, address & 0xFFFF);
+                msg = buf;
+                isOverflow = true;
+            }
+            break;
+
+        default:
+            // Other modes (implied, accumulator, etc.) don't have address operands
+            break;
+    }
+
+    if (isOverflow) {
+        addWarning(formatDiagnostic(currentSourceFile_, line, col, Severity::Warning, msg));
+    }
+}
+
+void AssemblerParser::checkImmediateUnderflow(int32_t value, int line, int col) {
+    if (!warnUnderflow) return;  // Only warn if enabled
+
+    // Check if value is negative (underflow for unsigned immediate mode)
+    if (value < 0) {
+        char buf[64];
+        uint8_t truncated = static_cast<uint8_t>(value);
+        std::snprintf(buf, sizeof(buf), "Immediate value %d is negative (interpreted as $%02X when used as unsigned)",
+                     value, truncated);
+        addWarning(formatDiagnostic(currentSourceFile_, line, col, Severity::Warning, buf));
+    }
+}
+
+void AssemblerParser::checkAddressUnderflow(int32_t address, int line, int col) {
+    if (!warnUnderflow) return;  // Only warn if enabled
+
+    // Check if address is negative (underflow for unsigned address)
+    if (address < 0) {
+        char buf[96];
+        uint16_t truncated16 = static_cast<uint16_t>(address);
+        uint32_t truncated32 = static_cast<uint32_t>(address);
+        std::snprintf(buf, sizeof(buf), "Address %d is negative (interpreted as $%04X or $%08X when used as unsigned)",
+                     address, truncated16, truncated32);
+        addWarning(formatDiagnostic(currentSourceFile_, line, col, Severity::Warning, buf));
+    }
 }
 
 void AssemblerParser::switchSegment(const std::string& name) {
@@ -61,16 +200,16 @@ bool AssemblerParser::match(AssemblerTokenType type) {
 
 uint32_t AssemblerParser::evaluateExpressionAt(int index, const std::string& scopePrefix) {
     if (index < 0) {
-        throw std::runtime_error("evaluateExpressionAt: invalid token index " + std::to_string(index) +
+        throwAt(0, 1, "evaluateExpressionAt: invalid token index " + std::to_string(index) +
             " (negative index)");
     }
     if (index >= (int)tokens.size()) {
-        throw std::runtime_error("evaluateExpressionAt: token index " + std::to_string(index) +
+        throwAt(0, 1, "evaluateExpressionAt: token index " + std::to_string(index) +
             " out of bounds (only " + std::to_string(tokens.size()) + " tokens available)");
     }
     int idx = index;
     auto ast = parseExprAST(tokens, idx, symbolTable, scopePrefix);
-    if (!ast) throw std::runtime_error("Expected expression at line " + std::to_string(tokens[index].line));
+    if (!ast) throwAt(tokens[index].line, tokens[index].column, "Expected expression");
     return ast->getValue(this);
 }
 
@@ -90,6 +229,25 @@ Symbol* AssemblerParser::resolveSymbol(const std::string& name, const std::strin
         if (p == std::string::npos) current = "";
         else current = current.substr(0, p + 1);
     }
+
+    // For global symbols not found with the given scope prefix, search all scopes
+    // This handles the case where .global is declared at top level but the label
+    // is defined inside a procedure (e.g., .global _foo__ar followed by proc _foo ... _foo__ar: ...)
+    if (scopePrefix.empty() && globalSymbols.count(name)) {
+        // Try to find the symbol in any scope by searching the symbol table
+        for (const auto& [symName, sym] : symbolTable) {
+            // Check if the symbol name ends with our target name (after the scope prefix)
+            if (symName.length() > name.length()) {
+                size_t namePos = symName.length() - name.length();
+                if (symName.substr(namePos) == name &&
+                    (namePos == 0 || symName[namePos - 1] == ':')) {
+                    // Found a scoped version of this global symbol
+                    return &symbolTable.at(symName);
+                }
+            }
+        }
+    }
+
     return nullptr;
 }
 
@@ -126,10 +284,10 @@ uint8_t AssemblerParser::getScratchZP() const {
 
 const AssemblerToken& AssemblerParser::expect(AssemblerTokenType type, const std::string& message) {
     if (peek().type == type) return advance();
-    throw std::runtime_error(message + " at " + std::to_string(peek().line) + ":" + std::to_string(peek().column));
+    throwAt(peek().line, peek().column, message);
 }
 
-bool AssemblerParser::isStackRelativeOperand(int tokenIndex, uint32_t& offset, const std::string& scopePrefix) {
+bool AssemblerParser::isStackRelativeOperand(int tokenIndex, uint32_t& offset, const std::string& scopePrefix, const Statement* stmt) {
     if (tokenIndex < 0 || tokenIndex >= (int)tokens.size()) return false;
     int idx = tokenIndex;
     try {
@@ -140,13 +298,13 @@ bool AssemblerParser::isStackRelativeOperand(int tokenIndex, uint32_t& offset, c
             try {
                 offset = ast->getValue(this);
             } catch (const std::exception& e) {
-                addError("isStackRelativeOperand: failed to evaluate offset expression: " + std::string(e.what()));
+                errorAtStmt(stmt, "failed to evaluate offset expression: " + std::string(e.what()));
                 offset = 0;
             }
             return true;
         }
     } catch (const std::exception& e) {
-        addError("isStackRelativeOperand: expression parsing failed: " + std::string(e.what()));
+        errorAtStmt(stmt, "expression parsing failed: " + std::string(e.what()));
     }
     return false;
 }
@@ -361,6 +519,12 @@ void AssemblerParser::pass1() {
         stmt->segmentName = currentSegment->name;
         stmt->sourceFile = currentSourceFile_;
         stmt->sourceLine = currentSourceLine_;
+
+        {
+            FILE* f = fopen("/tmp/debug_add16.log", "a");
+            fprintf(f, "Token at pos %zu: type=%d value='%s'\n", pos, (int)peek().type, peek().value.c_str());
+            fclose(f);
+        }
 
         if ((peek().type == AssemblerTokenType::IDENTIFIER || peek().type == AssemblerTokenType::INSTRUCTION) && pos + 1 < tokens.size() && tokens[pos+1].type == AssemblerTokenType::COLON) {
             std::string labelName = advance().value;
@@ -578,6 +742,19 @@ void AssemblerParser::pass1() {
                 }
                 stmt->size = 0;
             }
+            else if (stmt->dir.name == "frameptr_zp") {
+                // .frameptr_zp $FD — Set ZP location for frame pointer (for frame-relative addressing)
+                AssemblerToken tok = advance(); // consume the next token
+                uint8_t fp = (uint8_t)parseNumericLiteral(tok.value);
+                framePointerZP = fp;
+                stmt->dir.arguments.push_back(tok.value);  // Store for use in generator
+                stmt->size = 0;
+            }
+            else if (stmt->dir.name == "sac") {
+                // .sac — Enable Static Allocation Convention mode (direct AR addressing instead of indirect FP)
+                sacMode = true;
+                stmt->size = 0;
+            }
             else if (stmt->dir.name == "zp_uses" || stmt->dir.name == "zp_clobbers" || stmt->dir.name == "zp_release") {
                 // .zp_uses $03, $04, $05   — ZP slots read as parameters
                 // .zp_clobbers $03, $04    — ZP slots written by this function
@@ -642,7 +819,7 @@ void AssemblerParser::pass1() {
                 stmt->size = 0;
             }
             else if (stmt->dir.name == "func_flags") {
-                // .func_flags zp_call, leaf, reentrant, int_safe, stack_call
+                // .func_flags zp_call, leaf, reentrant, int_safe, stack_call, static_alloc, isr
                 if (!currentProc) {
                     errors.push_back("Error: .func_flags outside proc/endproc block");
                 } else {
@@ -653,9 +830,90 @@ void AssemblerParser::pass1() {
                         else if (flag == "stack_call") { /* ZP_CONV bit clear; hasFuncAttrs signals known */ }
                         else if (flag == "leaf")       currentProc->funcFlags |= FUNC_FLAG_LEAF;
                         else if (flag == "reentrant")  currentProc->funcFlags |= FUNC_FLAG_REENTRANT;
+                        else if (flag == "static_alloc") currentProc->funcFlags |= FUNC_FLAG_STATIC_ALLOC;
+                        else if (flag == "zeroalloc")   currentProc->funcFlags |= FUNC_FLAG_ZERO_ALLOC;
+                        else if (flag == "isr")        currentProc->funcFlags |= FUNC_FLAG_ISR;
                         else errors.push_back("Error: unknown flag '" + flag + "' in .func_flags");
                     }
                     currentProc->hasFuncAttrs = true;
+                }
+                stmt->size = 0;
+            }
+            else if (stmt->dir.name == "param_const") {
+                // .param_const function_name param_index value
+                // Cross-file constant parameter optimization metadata
+                if (!currentProc) {
+                    errors.push_back("Error: .param_const outside proc/endproc block");
+                } else {
+                    // Parse: function_name param_index value
+                    if (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
+                        std::string funcName = advance().value;
+                        if (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
+                            std::string paramIdxStr = advance().value;
+                            if (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
+                                std::string valueStr = advance().value;
+                                try {
+                                    int paramIdx = std::stoi(paramIdxStr);
+                                    int64_t value = std::stoll(valueStr);
+                                    // Store in current procedure's SAC metadata
+                                    // This will be emitted by O45Emitter
+                                    currentProc->paramConstants[paramIdx] = value;
+                                } catch (...) {
+                                    errors.push_back("Error: invalid param_const format");
+                                }
+                            }
+                        }
+                    }
+                }
+                stmt->size = 0;
+            }
+            else if (stmt->dir.name == "param_sizes") {
+                // .param_sizes size1, size2, size3, ...
+                // Comma-separated list of parameter sizes in bytes
+                if (!currentProc) {
+                    errors.push_back("Error: .param_sizes outside proc/endproc block");
+                } else {
+                    currentProc->paramSizes.clear();
+                    while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
+                        std::string sizeStr = advance().value;
+                        try {
+                            int size = std::stoi(sizeStr);
+                            if (size < 1 || size > 255) {
+                                errors.push_back("Error: parameter size must be between 1 and 255");
+                            } else {
+                                currentProc->paramSizes.push_back(size);
+                            }
+                        } catch (...) {
+                            errors.push_back("Error: invalid parameter size value");
+                            break;
+                        }
+                        // Skip comma if present
+                        if (peek().value == ",") advance();
+                    }
+                }
+                stmt->size = 0;
+            }
+            else if (stmt->dir.name == "frame_size") {
+                // .frame_size N  (Phase 2: frame/activation record size in bytes)
+                if (!currentProc) {
+                    errors.push_back("Error: .frame_size outside proc/endproc block");
+                } else {
+                    if (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
+                        std::string sizeStr = advance().value;
+                        try {
+                            int size = std::stoi(sizeStr);
+                            if (size < 0 || size > 65535) {
+                                errors.push_back("Error: .frame_size must be between 0 and 65535");
+                            } else {
+                                currentProc->frameSize = (uint16_t)size;
+                                currentProc->hasFuncAttrs = true;
+                            }
+                        } catch (...) {
+                            errors.push_back("Error: .frame_size requires numeric argument");
+                        }
+                    } else {
+                        errors.push_back("Error: .frame_size requires numeric argument");
+                    }
                 }
                 stmt->size = 0;
             }
@@ -771,7 +1029,7 @@ void AssemblerParser::pass1() {
                     stmt->size = 0;
                 }
                 else if (stmt->dir.name == "cpu") stmt->size = 0;
-                else stmt->size = calculateDirectiveSize(stmt->dir, pc);
+                else stmt->size = calculateDirectiveSize(stmt->dir, pc, stmt.get());
             }
         }
         else if (peek().type == AssemblerTokenType::STAR && pos + 1 < tokens.size() && tokens[pos+1].type == AssemblerTokenType::EQUALS) {
@@ -797,7 +1055,20 @@ void AssemblerParser::pass1() {
             using S = AssemblerSimulatedOps;
             #define SIMOP(T, F) stmt->type = Statement::T; stmt->emitFn = S::F
 
-            if (fullMnemonic == "add.16") { SIMOP(ADD16, dispatch_AddSub16); }
+            {
+                FILE* f = fopen("/tmp/debug_add16.log", "a");
+                fprintf(f, "DEBUG: Instruction mnemonic='%s'\n", fullMnemonic.c_str());
+                fclose(f);
+            }
+
+            if (fullMnemonic == "add.16") {
+                {
+                    FILE* f = fopen("/tmp/debug_add16.log", "a");
+                    fprintf(f, "DEBUG: Recognized add.16 instruction at pos %zu\n", pos);
+                    fclose(f);
+                }
+                SIMOP(ADD16, dispatch_AddSub16);
+            }
             else if (fullMnemonic == "sub.16") { SIMOP(SUB16, dispatch_AddSub16); }
             else if (fullMnemonic == "add.s16") { SIMOP(ADDS16, dispatch_AddSub16); }
             else if (fullMnemonic == "sub.s16") { SIMOP(SUBS16, dispatch_AddSub16); }
@@ -809,7 +1080,7 @@ void AssemblerParser::pass1() {
             else if (fullMnemonic == "ldw" || fullMnemonic == "ldw.sp") { SIMOP(LDW, dispatch_LDW); }
             else if (fullMnemonic == "stw" || fullMnemonic == "stw.sp") { SIMOP(STW, dispatch_STW); }
             else if (fullMnemonic == "fill" || fullMnemonic == "fill.sp") { SIMOP(FILL, dispatch_Fill); }
-            else if (fullMnemonic == "move" || fullMnemonic == "move.sp") { SIMOP(COPY, dispatch_Copy); }
+            else if ((fullMnemonic == "move" || fullMnemonic == "move.sp") && fullMnemonic != "move.fp") { SIMOP(COPY, dispatch_Copy); }
             else if (fullMnemonic == "swap") { SIMOP(SWAP, dispatch_Swap); }
             else if (fullMnemonic == "neg.16") { SIMOP(NEG16, dispatch_NegNot16); }
             else if (fullMnemonic == "not.16") { SIMOP(NOT16, dispatch_NegNot16); }
@@ -875,20 +1146,6 @@ void AssemblerParser::pass1() {
             else if (fullMnemonic == "asr.s32") { SIMOP(ASR_S32, dispatch_Shift32); }
             else if (fullMnemonic == "push") { SIMOP(PUSH, dispatch_PushPop); }
             else if (fullMnemonic == "pop") { SIMOP(POP, dispatch_PushPop); }
-            else if (fullMnemonic == "lda.fp") { SIMOP(LDA_FP, dispatch_LDA_FP); }
-            else if (fullMnemonic == "sta.fp") { SIMOP(STA_FP, dispatch_STA_FP); }
-            else if (fullMnemonic == "ldax.fp") { SIMOP(LDAX_FP, dispatch_LDAX_FP); }
-            else if (fullMnemonic == "stax.fp") { SIMOP(STAX_FP, dispatch_STAX_FP); }
-            else if (fullMnemonic == "lday.fp") { SIMOP(LDAY_FP, dispatch_LDAY_FP); }
-            else if (fullMnemonic == "stay.fp") { SIMOP(STAY_FP, dispatch_STAY_FP); }
-            else if (fullMnemonic == "ldaz.fp") { SIMOP(LDAZ_FP, dispatch_LDAZ_FP); }
-            else if (fullMnemonic == "staz.fp") { SIMOP(STAZ_FP, dispatch_STAZ_FP); }
-            else if (fullMnemonic == "ldaxyz.fp") { SIMOP(LDAXYZ_FP, dispatch_LDAXYZ_FP); }
-            else if (fullMnemonic == "staxyz.fp") { SIMOP(STAXYZ_FP, dispatch_STAXYZ_FP); }
-            else if (fullMnemonic == "leax.fp") { SIMOP(LEAX_FP, dispatch_LEAX_FP); }
-            else if (fullMnemonic == "move.fp") { SIMOP(MOVE_FP, dispatch_MOVE_FP); }
-            else if (fullMnemonic == "inc.fp") { SIMOP(INC_FP, dispatch_INC_FP); }
-            else if (fullMnemonic == "dec.fp") { SIMOP(DEC_FP, dispatch_DEC_FP); }
             else if (fullMnemonic == "inc.16f") { SIMOP(INC16_FP, dispatch_INC16_FP); }
             else if (fullMnemonic == "dec.16f") { SIMOP(DEC16_FP, dispatch_DEC16_FP); }
             else if (fullMnemonic == "bfext") { SIMOP(BFEXT, dispatch_BFExt); }
@@ -902,10 +1159,75 @@ void AssemblerParser::pass1() {
             else if (fullMnemonic == "bfins16.ind") { SIMOP(BFINS16_IND, dispatch_BFIns); }
             else if (fullMnemonic == "bfins32") { SIMOP(BFINS32, dispatch_BFIns); }
             else if (fullMnemonic == "struct_elem.16" || fullMnemonic == "struct_elem") { SIMOP(STRUCT_ELEM, dispatch_StructElem); }
-            else if (fullMnemonic == "addr_elem.16" || fullMnemonic == "addr_elem") { SIMOP(ADDR_ELEM_SIM, dispatch_AddrElem); }
+            // Parameter and local variable access (method-agnostic, interpreted based on function flags)
+            else if (fullMnemonic == "lda.param") { SIMOP(LDA_PARAM, dispatch_LDA_Param); }
+            else if (fullMnemonic == "sta.param") { SIMOP(STA_PARAM, dispatch_STA_Param); }
+            else if (fullMnemonic == "ldx.param") { SIMOP(LDX_PARAM, dispatch_LDX_Param); }
+            else if (fullMnemonic == "stx.param") { SIMOP(STX_PARAM, dispatch_STX_Param); }
+            else if (fullMnemonic == "ldy.param") { SIMOP(LDY_PARAM, dispatch_LDY_Param); }
+            else if (fullMnemonic == "sty.param") { SIMOP(STY_PARAM, dispatch_STY_Param); }
+            else if (fullMnemonic == "ldz.param") { SIMOP(LDZ_PARAM, dispatch_LDZ_Param); }
+            else if (fullMnemonic == "stz.param") { SIMOP(STZ_PARAM, dispatch_STZ_Param); }
+            else if (fullMnemonic == "ldax.param") { SIMOP(LDAX_PARAM, dispatch_LDAX_Param); }
+            else if (fullMnemonic == "stax.param") { SIMOP(STAX_PARAM, dispatch_STAX_Param); }
+            else if (fullMnemonic == "lday.param") { SIMOP(LDAY_PARAM, dispatch_LDAY_Param); }
+            else if (fullMnemonic == "stay.param") { SIMOP(STAY_PARAM, dispatch_STAY_Param); }
+            else if (fullMnemonic == "ldaz.param") { SIMOP(LDAZ_PARAM, dispatch_LDAZ_Param); }
+            else if (fullMnemonic == "staz.param") { SIMOP(STAZ_PARAM, dispatch_STAZ_Param); }
+            else if (fullMnemonic == "ldaxyz.param") { SIMOP(LDAXYZ_PARAM, dispatch_LDAXYZ_Param); }
+            else if (fullMnemonic == "staxyz.param") { SIMOP(STAXYZ_PARAM, dispatch_STAXYZ_Param); }
+            else if (fullMnemonic == "leax.param") { SIMOP(LEAX_PARAM, dispatch_LEAX_Param); }
+            // Local variable access
+            else if (fullMnemonic == "lda.local") { SIMOP(LDA_LOCAL, dispatch_LDA_Local); }
+            else if (fullMnemonic == "sta.local") { SIMOP(STA_LOCAL, dispatch_STA_Local); }
+            else if (fullMnemonic == "ldx.local") { SIMOP(LDX_LOCAL, dispatch_LDX_Local); }
+            else if (fullMnemonic == "stx.local") { SIMOP(STX_LOCAL, dispatch_STX_Local); }
+            else if (fullMnemonic == "ldy.local") { SIMOP(LDY_LOCAL, dispatch_LDY_Local); }
+            else if (fullMnemonic == "sty.local") { SIMOP(STY_LOCAL, dispatch_STY_Local); }
+            else if (fullMnemonic == "ldz.local") { SIMOP(LDZ_LOCAL, dispatch_LDZ_Local); }
+            else if (fullMnemonic == "stz.local") { SIMOP(STZ_LOCAL, dispatch_STZ_Local); }
+            else if (fullMnemonic == "ldax.local") { SIMOP(LDAX_LOCAL, dispatch_LDAX_Local); }
+            else if (fullMnemonic == "stax.local") { SIMOP(STAX_LOCAL, dispatch_STAX_Local); }
+            else if (fullMnemonic == "lday.local") { SIMOP(LDAY_LOCAL, dispatch_LDAY_Local); }
+            else if (fullMnemonic == "stay.local") { SIMOP(STAY_LOCAL, dispatch_STAY_Local); }
+            else if (fullMnemonic == "ldaz.local") { SIMOP(LDAZ_LOCAL, dispatch_LDAZ_Local); }
+            else if (fullMnemonic == "staz.local") { SIMOP(STAZ_LOCAL, dispatch_STAZ_Local); }
+            else if (fullMnemonic == "ldaxyz.local") { SIMOP(LDAXYZ_LOCAL, dispatch_LDAXYZ_Local); }
+            else if (fullMnemonic == "staxyz.local") { SIMOP(STAXYZ_LOCAL, dispatch_STAXYZ_Local); }
+            else if (fullMnemonic == "leax.local") { SIMOP(LEAX_LOCAL, dispatch_LEAX_Local); }
+            // Frame-pointer relative access
+            else if (fullMnemonic == "lda.fp") { SIMOP(LDA_FP, dispatch_LDA_FP); }
+            else if (fullMnemonic == "sta.fp") { SIMOP(STA_FP, dispatch_STA_FP); }
+            else if (fullMnemonic == "ldax.fp") { SIMOP(LDAX_FP, dispatch_LDAX_FP); }
+            else if (fullMnemonic == "stax.fp") { SIMOP(STAX_FP, dispatch_STAX_FP); }
+            else if (fullMnemonic == "lday.fp") { SIMOP(LDAY_FP, dispatch_LDAY_FP); }
+            else if (fullMnemonic == "stay.fp") { SIMOP(STAY_FP, dispatch_STAY_FP); }
+            else if (fullMnemonic == "ldaz.fp") { SIMOP(LDAZ_FP, dispatch_LDAZ_FP); }
+            else if (fullMnemonic == "staz.fp") { SIMOP(STAZ_FP, dispatch_STAZ_FP); }
+            else if (fullMnemonic == "ldaxyz.fp") { SIMOP(LDAXYZ_FP, dispatch_LDAXYZ_FP); }
+            else if (fullMnemonic == "staxyz.fp") { SIMOP(STAXYZ_FP, dispatch_STAXYZ_FP); }
             #undef SIMOP
 
-            if (stmt->instr.mnemonic == "expr") {
+            // Calculate sizes for SIMOP statements that need pre-emission size calculation
+            if (stmt->instr.mnemonic == "fill" || stmt->instr.mnemonic == "fill.sp") {
+                stmt->instr.operandTokenIndex = (int)pos;
+                while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
+                std::vector<uint8_t> d; emitFillCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix, stmt->instr.mnemonic == "fill.sp");
+                stmt->size = d.size();
+            }
+            else if (stmt->instr.mnemonic == "move" || stmt->instr.mnemonic == "move.sp" || stmt->instr.mnemonic == "move.fp") {
+                stmt->instr.operandTokenIndex = (int)pos;
+                while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
+                if (stmt->instr.mnemonic == "move.fp") {
+                    stmt->type = Statement::COPY;  // Set type to COPY so it's recognized as handled
+                    std::vector<uint8_t> d; emitMOVE_FPCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                    stmt->size = d.size();
+                } else {
+                    std::vector<uint8_t> d; emitMoveCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix, stmt->instr.mnemonic == "move.sp");
+                    stmt->size = d.size();
+                }
+            }
+            else if (stmt->instr.mnemonic == "expr") {
                 stmt->type = Statement::EXPR; stmt->emitFn = AssemblerSimulatedOps::dispatch_Expr;
                 const auto& trg = advance();
                 stmt->exprTarget = (trg.type == AssemblerTokenType::REGISTER ? "." : "") + trg.value;
@@ -1008,6 +1330,16 @@ void AssemblerParser::pass1() {
                         }
                         if (match(AssemblerTokenType::COMMA)) {
                             stmt->exprTokenIndex = (int)pos;
+                            // Parse and consume the second operand
+                            if (peek().type == AssemblerTokenType::REGISTER) {
+                                advance();
+                            } else {
+                                // Parse symbol/expression without advancing pos yet
+                                int idx = (int)pos;
+                                auto ast = parseExprAST(tokens, idx, symbolTable, stmt->scopePrefix);
+                                pos = idx;  // Now consume the tokens that were parsed
+                            }
+                            // Skip to end of line
                             while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
                         }
                     }
@@ -1040,10 +1372,11 @@ void AssemblerParser::pass1() {
                     else if (suffix == "sp") stmt->instr.mode = AddressingMode::STACK_RELATIVE;
                     else { stmt->instr.mnemonic = fullMnemonic; stmt->instr.forceMode = false; }
                 }
-                if (stmt->instr.mnemonic == "nop") throw std::runtime_error("nop disallowed");
+                if (stmt->instr.mnemonic == "nop") throwAt(stmt->line, 1, "nop disallowed");
                 if (stmt->instr.mnemonic == "proc") {
                     if (currentProc != nullptr) {
-                        addError("Error: nested 'proc' not allowed (inside '" + currentProc->name + "')");
+                        addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                            "nested 'proc' not allowed (inside '" + currentProc->name + "')"));
                     }
                     std::string pN = advance().value;
                     stmt->label = pN;
@@ -1083,6 +1416,7 @@ void AssemblerParser::pass1() {
                     }
                     procedures[pc] = ctx; pass1ProcStack.push_back(currentProc);
                     currentProc = ctx; stmt->procCtx = ctx; stmt->size = 0;
+                    sacMode = false;  // Reset SAC mode for new proc (will be set by .sac directive if needed)
                 }
                 else if (stmt->instr.mnemonic == "endproc") {
                     if (currentProc) {
@@ -1090,8 +1424,10 @@ void AssemblerParser::pass1() {
                         currentProc = pass1ProcStack.empty() ? nullptr : pass1ProcStack.back();
                         if (!pass1ProcStack.empty()) pass1ProcStack.pop_back();
                     } else {
-                        addError("Error: 'endproc' outside of procedure scope");
+                        addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                            "'endproc' outside of procedure scope"));
                     }
+                    sacMode = false;  // Reset SAC mode when exiting proc
                     if (!scopeStack.empty()) scopeStack.pop_back();
                     // Always plain RTS (1 byte) — caller handles stack cleanup
                     stmt->size = 1;
@@ -1106,7 +1442,7 @@ void AssemblerParser::pass1() {
                         }
                         else stmt->instr.callArgs.push_back(advance().value);
                     }
-                    stmt->size = calculateInstructionSize(stmt->instr, pc, stmt->scopePrefix);
+                    stmt->size = calculateInstructionSize(stmt->instr, pc, stmt->scopePrefix, stmt.get());
                 }
                 else if (stmt->instr.mnemonic == "zero") {
                     stmt->type = Statement::ZERO; stmt->emitFn = AssemblerSimulatedOps::dispatch_Zero; stmt->instr.operandTokenIndex = (int)pos;
@@ -1219,13 +1555,14 @@ void AssemblerParser::pass1() {
                         std::vector<uint8_t> d; emitPHWStackCode(d, stmt->instr.operandTokenIndex, stmt->scopePrefix);
                         stmt->size = d.size();
                     } else {
-                        stmt->size = calculateInstructionSize(stmt->instr, pc, stmt->scopePrefix);
+                        stmt->size = calculateInstructionSize(stmt->instr, pc, stmt->scopePrefix, stmt.get());
                     }
                 }
             }
           } catch (const std::exception& ex) {
             int errLine = stmt->line;
-            errors.push_back("line " + std::to_string(errLine) + ": Error parsing instruction '" + stmt->instr.mnemonic + "': " + ex.what());
+            errors.push_back(formatDiagnostic(stmt->sourceFile, errLine, 1, Severity::Error,
+                "Error parsing instruction '" + stmt->instr.mnemonic + "': " + ex.what()));
             while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
             continue;
           }
@@ -1233,7 +1570,8 @@ void AssemblerParser::pass1() {
         else if (stmt->label.empty()) {
             std::string badToken = peek().value;
             int badLine = peek().line;
-            errors.push_back("line " + std::to_string(badLine) + ": Unknown instruction '" + badToken + "'");
+            errors.push_back(formatDiagnostic(stmt->sourceFile, badLine, 1, Severity::Error,
+                "Unknown instruction '" + badToken + "'"));
             while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) advance();
             continue;
         }
@@ -1242,7 +1580,8 @@ void AssemblerParser::pass1() {
     }
 
     if (currentProc) {
-        addError("Error: unclosed 'proc " + currentProc->name + "' at end of file");
+        addError(formatDiagnostic("(assembler)", 0, 1, Severity::Error,
+            "unclosed 'proc " + currentProc->name + "' at end of file"));
     }
 }
 
@@ -1385,51 +1724,51 @@ void AssemblerParser::emitMod32Code(std::vector<uint8_t>& binary, bool isSigned,
 }
 
 void AssemblerParser::emitLDA_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP); e.setSACMode(sacMode);
     AssemblerSimulatedOps::emitLDA_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitSTA_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP); e.setSACMode(sacMode);
     AssemblerSimulatedOps::emitSTA_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitLDAX_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP); e.setSACMode(sacMode);
     AssemblerSimulatedOps::emitLDAX_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitSTAX_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP); e.setSACMode(sacMode);
     AssemblerSimulatedOps::emitSTAX_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitLDAY_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP); e.setSACMode(sacMode);
     AssemblerSimulatedOps::emitLDAY_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitSTAY_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP); e.setSACMode(sacMode);
     AssemblerSimulatedOps::emitSTAY_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitLDAZ_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP); e.setSACMode(sacMode);
     AssemblerSimulatedOps::emitLDAZ_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitSTAZ_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP); e.setSACMode(sacMode);
     AssemblerSimulatedOps::emitSTAZ_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitLDAXYZ_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP); e.setSACMode(sacMode);
     AssemblerSimulatedOps::emitLDAXYZ_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitSTAXYZ_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP); e.setSACMode(sacMode);
     AssemblerSimulatedOps::emitSTAXYZ_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitLEAX_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP); e.setSACMode(sacMode);
     AssemblerSimulatedOps::emitLEAX_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitMOVE_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix) {
-    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase());
+    M65Emitter e(binary, getZPStart()); e.setSpBase(getSpBase()); e.setFramePointerZP(framePointerZP); e.setSACMode(sacMode);
     AssemblerSimulatedOps::emitMOVE_FPCode(this, e, tokenIndex, scopePrefix);
 }
 void AssemblerParser::emitBFExtCode(std::vector<uint8_t>& binary, bool is16, int tokenIndex, const std::string& scopePrefix) {
@@ -1441,11 +1780,21 @@ void AssemblerParser::emitBFInsCode(std::vector<uint8_t>& binary, bool is16, int
     AssemblerSimulatedOps::emitBFInsCode(this, e, is16, mode, tokenIndex, scopePrefix);
 }
 
-int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t currentAddr, const std::string& scopePrefix) {
+int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t currentAddr, const std::string& scopePrefix, const Statement* stmt) {
     if (instr.mnemonic == "proc") return 0;
     if (instr.mnemonic == "endproc") return 1; // always plain RTS
     if (instr.mnemonic == "push" || instr.mnemonic == "pop") {
         return AssemblerSimulatedOps::getPushPopSize(this, instr.mnemonic == "push", instr.operand, instr.operandTokenIndex, scopePrefix);
+    }
+
+    // Calculate size for simulated ops (ldax.fp, stax.fp, leax.fp, move.fp, etc.)
+    // Use the same emitFn dispatch as pass1 to get accurate sizes
+    if (stmt && stmt->emitFn) {
+        std::vector<uint8_t> d;
+        M65Emitter sizer(d, getZPStart()); sizer.setSpBase(getSpBase()); sizer.setScratchZP(getScratchZP());
+        sizer.setFramePointerZP(framePointerZP);  // Important: use current frame pointer state!
+        stmt->emitFn(this, sizer, const_cast<Statement*>(stmt));
+        return (int)d.size();
     }
 
     AddressingMode resolvedMode = instr.mode;
@@ -1539,7 +1888,7 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
                 try {
                     v = std::stoul(instr.operand);
                 } catch (...) {
-                    addError("RTN instruction: undefined operand '" + instr.operand +
+                    errorAtStmt(stmt, "RTN instruction: undefined operand '" + instr.operand +
                         "' (not a symbol or numeric literal)");
                     return 2; // Conservative: assume non-zero operand
                 }
@@ -1559,14 +1908,19 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
     }
 }
 
-int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t currentAddr) {
+int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t currentAddr, const Statement* stmt) {
     if (dir.name == "byte") return (int)dir.arguments.size();
     if (dir.name == "word") return (int)dir.arguments.size() * 2;
     if (dir.name == "dword" || dir.name == "long") return (int)dir.arguments.size() * 4;
     if (dir.name == "float") return (int)dir.arguments.size() * 5;
     if (dir.name == "text" || dir.name == "ascii" || dir.name == "screencode") {
         if (dir.arguments.empty()) {
-            addError("Directive ." + dir.name + " requires string argument");
+            if (stmt) {
+                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                    "Directive ." + dir.name + " requires string argument"));
+            } else {
+                addError("Directive ." + dir.name + " requires string argument");
+            }
             return 0;
         }
         int len = (int)dir.arguments[0].size();
@@ -1576,74 +1930,135 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
             len--;
         return len;
     }
-    if (dir.name == "res") {
+    if (dir.name == "res" || dir.name == "fill" || dir.name == "space") {
         if (dir.arguments.empty()) {
-            addError("Directive .res requires size argument");
+            if (stmt) {
+                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                    "Directive ." + dir.name + " requires size argument"));
+            } else {
+                addError("Directive ." + dir.name + " requires size argument");
+            }
             return 0;
         }
         try {
             return (int)evaluateExpressionAt(dir.tokenIndex, "");
         } catch (const std::exception& e) {
-            addError("Directive .res: failed to evaluate size: " + std::string(e.what()));
+            if (stmt) {
+                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                    "Directive ." + dir.name + ": failed to evaluate size: " + std::string(e.what())));
+            } else {
+                addError("Directive ." + dir.name + ": failed to evaluate size: " + std::string(e.what()));
+            }
             return 0;
         }
     }
     if (dir.name == "array") {
         if (dir.arguments.empty()) {
-            addError("Directive .array requires size argument");
+            if (stmt) {
+                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                    "Directive .array requires size argument"));
+            } else {
+                addError("Directive .array requires size argument");
+            }
             return 0;
         }
         try {
             return (int)parseNumericLiteral(dir.arguments[0]);
         } catch (const std::exception& e) {
-            addError("Directive .array: failed to parse size: " + std::string(e.what()));
+            if (stmt) {
+                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                    "Directive .array: failed to parse size: " + std::string(e.what())));
+            } else {
+                addError("Directive .array: failed to parse size: " + std::string(e.what()));
+            }
             return 0;
         }
     }
     if (dir.name == "align" || dir.name == "balign") {
         if (dir.arguments.empty()) {
-            addError("Directive ." + dir.name + " requires alignment argument");
+            if (stmt) {
+                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                    "Directive ." + dir.name + " requires alignment argument"));
+            } else {
+                addError("Directive ." + dir.name + " requires alignment argument");
+            }
             return 0;
         }
         try {
             uint32_t align = parseNumericLiteral(dir.arguments[0]);
             if (align == 0) {
-                addError("Directive ." + dir.name + ": alignment must be non-zero");
+                if (stmt) {
+                    addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                        "Directive ." + dir.name + ": alignment must be non-zero"));
+                } else {
+                    addError("Directive ." + dir.name + ": alignment must be non-zero");
+                }
                 return 0;
             }
             return (align - (currentAddr % align)) % align;
         } catch (const std::exception& e) {
-            addError("Directive ." + dir.name + ": failed to parse alignment: " + std::string(e.what()));
+            if (stmt) {
+                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                    "Directive ." + dir.name + ": failed to parse alignment: " + std::string(e.what())));
+            } else {
+                addError("Directive ." + dir.name + ": failed to parse alignment: " + std::string(e.what()));
+            }
             return 0;
         }
     }
     if (dir.name == "fillto") {
         if (dir.arguments.empty()) {
-            addError("Directive .fillto requires target address argument");
+            if (stmt) {
+                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                    "Directive .fillto requires target address argument"));
+            } else {
+                addError("Directive .fillto requires target address argument");
+            }
             return 0;
         }
         try {
             uint32_t target = evaluateExpressionAt(dir.tokenIndex, "");
             if (target < currentAddr) {
-                addError("Directive .fillto: target address 0x" + std::to_string(target) +
-                    " is before current PC 0x" + std::to_string(currentAddr));
+                if (stmt) {
+                    addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                        "Directive .fillto: target address 0x" + std::to_string(target) +
+                        " is before current PC 0x" + std::to_string(currentAddr)));
+                } else {
+                    addError("Directive .fillto: target address 0x" + std::to_string(target) +
+                        " is before current PC 0x" + std::to_string(currentAddr));
+                }
                 return 0;
             }
             return (int)(target - currentAddr);
         } catch (const std::exception& e) {
-            addError("Directive .fillto: failed to evaluate target address: " + std::string(e.what()));
+            if (stmt) {
+                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                    "Directive .fillto: failed to evaluate target address: " + std::string(e.what())));
+            } else {
+                addError("Directive .fillto: failed to evaluate target address: " + std::string(e.what()));
+            }
             return 0;
         }
     }
     if (dir.name == "import" || dir.name == "incbin") {
         if (dir.arguments.empty()) {
-            addError("Directive ." + dir.name + " requires filename argument");
+            if (stmt) {
+                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                    "Directive ." + dir.name + " requires filename argument"));
+            } else {
+                addError("Directive ." + dir.name + " requires filename argument");
+            }
             return 0;
         }
         std::string filename;
         if (dir.name == "import") {
             if (dir.arguments.size() < 2 || dir.arguments[0] != "binary") {
-                addError("Directive .import requires 'binary' keyword: .import binary \"filename\"");
+                if (stmt) {
+                    addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                        "Directive .import requires 'binary' keyword: .import binary \"filename\""));
+                } else {
+                    addError("Directive .import requires 'binary' keyword: .import binary \"filename\"");
+                }
                 return 0;
             }
             filename = dir.arguments[1];
@@ -1656,7 +2071,12 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
         }
         std::ifstream file(filename, std::ios::binary | std::ios::ate);
         if (!file) {
-            addError("Directive ." + dir.name + ": cannot open binary file '" + filename + "'");
+            if (stmt) {
+                addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
+                    "Directive ." + dir.name + ": cannot open binary file '" + filename + "'"));
+            } else {
+                addError("Directive ." + dir.name + ": cannot open binary file '" + filename + "'");
+            }
             return 0;
         }
         return (int)file.tellg();
@@ -1764,7 +2184,7 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                 isDeadCode = false;
             } else if (isDeadCode && s->type != Statement::DIRECTIVE && s->type != Statement::BASIC_UPSTART) s->size = 0;
             else {
-                if (s->type == Statement::INSTRUCTION) s->size = calculateInstructionSize(s->instr, cP, s->scopePrefix);
+                if (s->type == Statement::INSTRUCTION) s->size = calculateInstructionSize(s->instr, cP, s->scopePrefix, s.get());
                 else if (s->isSimulatedOp()) {
                     // DMA buffer allocation for FILL/COPY (must happen before sizing)
                     if (s->type == Statement::FILL && fillDmaFirstFillAddr_ == 0xFFFFFFFF) {
@@ -1803,7 +2223,7 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                         else if (s->dir.varType == Directive::INC) { symbolTable[s->dir.varName].value++; }
                         else if (s->dir.varType == Directive::DEC) { symbolTable[s->dir.varName].value--; }
                     }
-                    s->size = calculateDirectiveSize(s->dir, cP);
+                    s->size = calculateDirectiveSize(s->dir, cP, s.get());
                 }
                 else if (s->type == Statement::BASIC_UPSTART) s->size = 12;
             }
@@ -1864,4 +2284,36 @@ std::vector<AssemblerParser::SegmentView> AssemblerParser::getSegmentViews() con
         views.push_back(sv);
     }
     return views;
+}
+
+AssemblerParser::ArRelocation AssemblerParser::tryParseArRelocation(const std::string& operand) const {
+    ArRelocation result;
+
+    // Check for pattern: functionname:__ar+offset or functionname:__ar-offset
+    size_t arPos = operand.find(":__ar");
+    if (arPos == std::string::npos) {
+        return result; // Not an AR relocation
+    }
+
+    // Extract function name (everything before :__ar)
+    std::string funcName = operand.substr(0, arPos);
+    std::string restOfOperand = operand.substr(arPos + 5);  // Skip ":__ar" (5 characters)
+
+    // Build the AR symbol name (functionname__ar)
+    result.arSymbol = funcName + "__ar";
+
+    // Parse the offset (e.g., "+2", "-4", or empty for "+0")
+    result.addend = 0;
+    if (!restOfOperand.empty()) {
+        try {
+            // restOfOperand starts with + or -, followed by digits
+            result.addend = std::stoi(restOfOperand);
+        } catch (...) {
+            // Failed to parse offset, treat as 0
+            result.addend = 0;
+        }
+    }
+
+    result.isArReloc = true;
+    return result;
 }

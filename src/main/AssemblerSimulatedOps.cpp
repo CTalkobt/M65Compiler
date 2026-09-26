@@ -8,7 +8,6 @@
 #include <stdexcept>
 #include <sstream>
 #include <iostream>
-#include <iomanip>
 
 void AssemblerSimulatedOps::emitExpressionCode(AssemblerParser* parser, M65Emitter& e, const std::string& target, int tokenIndex, const std::string& scopePrefix) {
     int idx = tokenIndex;
@@ -84,9 +83,6 @@ void AssemblerSimulatedOps::emitMulCode(AssemblerParser* parser, M65Emitter& e, 
             if (bytes >= 4) storeMath(m65::MULT_ARG2, 3, ".Z");
         } else for (int i = 0; i < bytes; ++i) storeMath(m65::MULT_ARG2, i, srcName);
     }
-    // Wait for hardware multiplier to complete (MULT_RES needs time to be valid)
-    e.bit_addr(m65::MATH_BUSY_STATUS);
-    e.bne(-5);
     if (dest == ".A" || dest == ".AX" || dest == ".AXY" || dest == ".AXYZ" || dest == ".Q") {
         // Read result into registers: load high bytes first into their
         // target registers, then load the low byte into A last
@@ -239,11 +235,61 @@ void AssemblerSimulatedOps::emitStackIncDec8Code(AssemblerParser* parser, M65Emi
     }
 }
 
+// Helper: Check if symbol is a ZP scratch register and return its address
+static bool isZPScratchSymbol(const std::string& name, uint32_t& outAddr) {
+    // Match any symbol starting with "__zp_scratch"
+    if (name.find("__zp_scratch") == 0) {
+        // Extract number suffix (if any)
+        std::string suffix = name.substr(12);
+
+        // Parse number from suffix
+        int num = 0;  // Default for __zp_scratch
+        if (!suffix.empty()) {
+            try {
+                // Find first non-digit character
+                size_t endPos = 0;
+                while (endPos < suffix.size() && std::isdigit(suffix[endPos])) {
+                    endPos++;
+                }
+                if (endPos > 0) {
+                    num = std::stoi(suffix.substr(0, endPos));
+                }
+            } catch(...) {}
+        }
+
+        // Map number to address
+        if (num == 0) {
+            outAddr = 0x08;  // __zp_scratch
+        } else if (num >= 2 && num <= 4) {
+            outAddr = 0x08 + (num - 1) * 2;  // __zp_scratch2-4
+        } else if (num == 1) {
+            outAddr = 0x06;  // __zp_scratch1 (if used)
+        } else {
+            return false;  // Unknown zp scratch number
+        }
+
+        return true;
+    }
+    return false;
+}
+
 void AssemblerSimulatedOps::emitAddSub16Code(AssemblerParser* parser, M65Emitter& e, bool isAdd, const std::string& dest, int tokenIndex, const std::string& scopePrefix) {
+    //printf("DEBUG emitAddSub16Code: dest='%s', tokenIndex=%d, isAdd=%d\n", dest.c_str(), tokenIndex, isAdd);
+    //fflush(stdout);
     int idx = tokenIndex;
     bool isImmediate = (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) ||
                        (idx > 0 && parser->tokens[idx - 1].type == AssemblerTokenType::HASH);
     if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) idx++;
+
+    // Save operand token position BEFORE parseExprAST advances idx
+    int operandTokenIdx = idx;
+    //std::cerr << "DEBUG add16: tokenIndex=" << tokenIndex << ", idx after hash=" << idx
+    //          << ", isImmediate=" << isImmediate;
+    //if (operandTokenIdx < (int)parser->tokens.size()) {
+    //    std::cerr << ", token[" << operandTokenIdx << "].value='" << parser->tokens[operandTokenIdx].value << "'";
+    //}
+    //std::cerr << std::endl;
+
     auto srcAst = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
     if (!srcAst) return;
     std::string DEST = dest;
@@ -263,16 +309,63 @@ void AssemblerSimulatedOps::emitAddSub16Code(AssemblerParser* parser, M65Emitter
                 e.pla();
             } else {
                 uint32_t addr = 0;
-                try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
-                catch(...) {
-                     std::string src = parser->tokens[tokenIndex].value;
-                     if (parser->tokens[tokenIndex].type == AssemblerTokenType::REGISTER) src = "." + src;
-                     Symbol* sym = parser->resolveSymbol(src, scopePrefix);
-                     if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(src); } catch(...) { addr = 0; } }
+                // Use the saved operand token position
+                std::string src;
+                if (operandTokenIdx < (int)parser->tokens.size()) {
+                    src = parser->tokens[operandTokenIdx].value;
+                    if (parser->tokens[operandTokenIdx].type == AssemblerTokenType::REGISTER) src = "." + src;
+                    //fprintf(stderr, "DEBUG add16: operandTokenIdx=%d, token.value='%s', token.type=%d\n",
+                    //        operandTokenIdx, src.c_str(), (int)parser->tokens[operandTokenIdx].type);
                 }
-                if (isAdd) e.adc_addr(addr); else e.sbc_addr(addr);
+
+                // Check if this is a __zp_scratch<#> symbol — these are always zero page
+                bool isZPScratch = false;
+                // Direct string matching for __zp_scratch symbols
+                if (src.find("__zp_scratch3") != std::string::npos) {
+                    addr = 0x0C;
+                    isZPScratch = true;
+                } else if (src.find("__zp_scratch2") != std::string::npos) {
+                    addr = 0x0A;
+                    isZPScratch = true;
+                } else if (src.find("__zp_scratch4") != std::string::npos) {
+                    addr = 0x0E;
+                    isZPScratch = true;
+                } else if (src.find("__zp_scratch") != std::string::npos && src.find("__zp_scratch2") == std::string::npos && src.find("__zp_scratch3") == std::string::npos && src.find("__zp_scratch4") == std::string::npos) {
+                    addr = 0x08;
+                    isZPScratch = true;
+                }
+                if (!isZPScratch) {
+                    // Try direct symbol resolution
+                    Symbol* sym = parser->resolveSymbol(src, scopePrefix);
+                    if (!sym && !scopePrefix.empty()) {
+                        sym = parser->resolveSymbol(src, "");  // Try global scope
+                    }
+
+                    if (sym) {
+                        addr = sym->value;
+                    } else {
+                        // Fall back to expression evaluation
+                        try { addr = parser->evaluateExpressionAt(idx, scopePrefix); }
+                        catch(...) {
+                            // Final fallback to numeric literal
+                            try { addr = parseNumericLiteral(src); }
+                            catch(...) { addr = 0; }
+                        }
+                    }
+                }
+
+                // For __zp_scratch symbols, directly emit ZP mode to avoid MachineState caching issues
+                if (isZPScratch) {
+                    if (isAdd) e.adc_zp((uint8_t)addr); else e.sbc_zp((uint8_t)addr);
+                } else {
+                    if (isAdd) e.adc_addr(addr); else e.sbc_addr(addr);
+                }
                 e.pha(); if (reg2 == 'X') e.txa(); else if (reg2 == 'Y') e.tya(); else if (reg2 == 'Z') e.tza();
-                if (isAdd) e.adc_addr(addr + 1); else e.sbc_addr(addr + 1);
+                if (isZPScratch) {
+                    if (isAdd) e.adc_zp((uint8_t)(addr + 1)); else e.sbc_zp((uint8_t)(addr + 1));
+                } else {
+                    if (isAdd) e.adc_addr(addr + 1); else e.sbc_addr(addr + 1);
+                }
                 if (reg2 == 'X') e.tax(); else if (reg2 == 'Y') e.tay(); else if (reg2 == 'Z') e.taz();
                 e.pla();
             }
@@ -287,15 +380,49 @@ void AssemblerSimulatedOps::emitAddSub16Code(AssemblerParser* parser, M65Emitter
                 e.lda_addr(dAddr+1); if (isAdd) e.adc_imm((val >> 8) & 0xFF); else e.sbc_imm((val >> 8) & 0xFF); e.sta_addr(dAddr+1);
             } else {
                 uint32_t sAddr = 0;
-                try { sAddr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
-                catch(...) {
-                     std::string src = parser->tokens[tokenIndex].value;
-                     if (parser->tokens[tokenIndex].type == AssemblerTokenType::REGISTER) src = "." + src;
-                     Symbol* symS = parser->resolveSymbol(src, scopePrefix);
-                     if (symS) sAddr = symS->value; else { try { sAddr = parseNumericLiteral(src); } catch(...) { sAddr = 0; } }
+                // Use the saved operand token position
+                std::string src;
+                if (operandTokenIdx < (int)parser->tokens.size()) {
+                    src = parser->tokens[operandTokenIdx].value;
+                    if (parser->tokens[operandTokenIdx].type == AssemblerTokenType::REGISTER) src = "." + src;
                 }
-                e.lda_addr(dAddr); if (isAdd) e.adc_addr(sAddr); else e.sbc_addr(sAddr); e.sta_addr(dAddr);
-                e.lda_addr(dAddr+1); if (isAdd) e.adc_addr(sAddr+1); else e.sbc_addr(sAddr+1); e.sta_addr(dAddr+1);
+
+                // Check if this is a __zp_scratch<#> symbol — these are always zero page
+                bool isZPScratchMem = isZPScratchSymbol(src, sAddr);
+                if (!isZPScratchMem) {
+                    // Try direct symbol resolution
+                    Symbol* symS = parser->resolveSymbol(src, scopePrefix);
+                    if (!symS && !scopePrefix.empty()) {
+                        symS = parser->resolveSymbol(src, "");  // Try global scope
+                    }
+
+                    if (symS) {
+                        sAddr = symS->value;
+                    } else {
+                        // Fall back to expression evaluation
+                        try { sAddr = parser->evaluateExpressionAt(idx, scopePrefix); }
+                        catch(...) {
+                            // Final fallback to numeric literal
+                            try { sAddr = parseNumericLiteral(src); }
+                            catch(...) { sAddr = 0; }
+                        }
+                    }
+                }
+
+                e.lda_addr(dAddr);
+                if (isZPScratchMem) {
+                    if (isAdd) e.adc_zp((uint8_t)sAddr); else e.sbc_zp((uint8_t)sAddr);
+                } else {
+                    if (isAdd) e.adc_addr(sAddr); else e.sbc_addr(sAddr);
+                }
+                e.sta_addr(dAddr);
+                e.lda_addr(dAddr+1);
+                if (isZPScratchMem) {
+                    if (isAdd) e.adc_zp((uint8_t)(sAddr+1)); else e.sbc_zp((uint8_t)(sAddr+1));
+                } else {
+                    if (isAdd) e.adc_addr(sAddr+1); else e.sbc_addr(sAddr+1);
+                }
+                e.sta_addr(dAddr+1);
             }
         }
     };
@@ -324,8 +451,20 @@ void AssemblerSimulatedOps::emitBitwise16Code(AssemblerParser* parser, M65Emitte
             std::string src = parser->tokens[tokenIndex].value;
             if (parser->tokens[tokenIndex].type == AssemblerTokenType::REGISTER) src = "." + src;
             else if (!src.empty() && src[0] != '.' && (src=="A"||src=="X"||src=="Y"||src=="Z"||src=="a"||src=="x"||src=="y"||src=="z")) src = "." + src;
+
+            // Try to resolve symbol first (most common case)
             Symbol* sym = parser->resolveSymbol(src, scopePrefix);
-            uint32_t addr = 0; if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(src); } catch(...) { addr = 0; } }
+            if (!sym && !scopePrefix.empty()) {
+                sym = parser->resolveSymbol(src, "");  // Try global scope
+            }
+
+            uint32_t addr = 0;
+            if (sym) {
+                addr = sym->value;
+            } else {
+                try { addr = parseNumericLiteral(src); }
+                catch(...) { addr = 0; }
+            }
             if (M == "AND.16") e.and_addr(addr); else if (M == "ORA.16") e.ora_addr(addr); else if (M == "EOR.16") e.eor_addr(addr);
             e.pha(); e.txa();
             if (M == "AND.16") e.and_addr(addr + 1); else if (M == "ORA.16") e.ora_addr(addr + 1); else if (M == "EOR.16") e.eor_addr(addr + 1);
@@ -442,34 +581,10 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
         }
         else {
             bool isImm = false; if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) { isImm = true; idx++; }
-            int exprStartIdx = idx;  // Save position BEFORE parsing expression
             auto srcAst = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
             if (!srcAst) return;
             if (isImm) {
-                uint32_t val = srcAst->getValue(parser);
-                // Get the symbol name from the first significant token in the expression
-                std::string symName = "";
-                if (exprStartIdx < (int)parser->tokens.size()) {
-                    symName = parser->tokens[exprStartIdx].value;
-                    if (parser->tokens[exprStartIdx].type == AssemblerTokenType::REGISTER) {
-                        symName = "." + symName; // Prefix registers with dot
-                    }
-                }
-
-                // Try to resolve as address symbol for relocation
-                // First try with current scope, then try global scope (empty prefix) for globals
-                Symbol* relSym = parser->resolveSymbol(symName, scopePrefix);
-                if (!relSym && !scopePrefix.empty()) {
-                    // Try global scope for symbols not found in local scope
-                    relSym = parser->resolveSymbol(symName, "");
-                }
-                bool needsReloc = relSym && relSym->isAddress;
-
-                // Record relocations for address symbols (same as non-immediate path)
-                if (needsReloc) { e.recordSymbolReloc(symName); }
-                e.lda_imm(val & 0xFF);
-                uint8_t val2 = (val >> 8) & 0xFF;
-                if (needsReloc) { e.recordSymbolReloc(symName); }
+                uint32_t val = srcAst->getValue(parser); e.lda_imm(val & 0xFF); uint8_t val2 = (val >> 8) & 0xFF;
                 if (reg2 == 'X') e.ldx_imm(val2); else if (reg2 == 'Y') e.ldy_imm(val2); else if (reg2 == 'Z') e.ldz_imm(val2);
             } else {
                 uint32_t addr = 0;
@@ -489,10 +604,6 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
                 // Record symbol relocation for each absolute address reference
                 std::string symName = parser->tokens[tokenIndex].value;
                 Symbol* relSym = parser->resolveSymbol(symName, scopePrefix);
-                if (!relSym && !scopePrefix.empty()) {
-                    // Try global scope for symbols not found in local scope
-                    relSym = parser->resolveSymbol(symName, "");
-                }
                 if (relSym && relSym->isAddress) { e.recordSymbolReloc(symName); }
                 e.lda_addr(addr);
                 uint32_t addr2 = addr + 1;
@@ -514,31 +625,11 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
             }
         } else {
             bool isImm = false; if (idx < (int)parser->tokens.size() && parser->tokens[idx].type == AssemblerTokenType::HASH) { isImm = true; idx++; }
-            int exprStartIdx = idx;  // Save position BEFORE parsing expression
             auto srcAst = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
             if (!srcAst) return;
             if (isImm) {
                 uint32_t val = srcAst->getValue(parser);
-                // Get the symbol name from the first significant token in the expression
-                std::string symName = "";
-                if (exprStartIdx < (int)parser->tokens.size()) {
-                    symName = parser->tokens[exprStartIdx].value;
-                    if (parser->tokens[exprStartIdx].type == AssemblerTokenType::REGISTER) {
-                        symName = "." + symName;
-                    }
-                }
-
-                // Try to resolve as address symbol for relocation
-                Symbol* relSym = parser->resolveSymbol(symName, scopePrefix);
-                if (!relSym && !scopePrefix.empty()) {
-                    relSym = parser->resolveSymbol(symName, "");
-                }
-                bool needsReloc = relSym && relSym->isAddress;
-
-                if (needsReloc) { e.recordSymbolReloc(symName); }
-                e.ldx_imm(val & 0xFF);
-                if (needsReloc) { e.recordSymbolReloc(symName); }
-                e.ldy_imm((val >> 8) & 0xFF);
+                e.ldx_imm(val & 0xFF); e.ldy_imm((val >> 8) & 0xFF);
             } else {
                 uint32_t addr = 0;
                 try { addr = parser->evaluateExpressionAt(tokenIndex, scopePrefix); }
@@ -2045,99 +2136,131 @@ void AssemblerSimulatedOps::emitSTA_FPCode(AssemblerParser* parser, M65Emitter& 
     e.sta_frame(fpOff, yOff);
 }
 
-// ldax.fp varOffset — Load 16-bit value from frame into AX (lo in A, hi in X)
-void AssemblerSimulatedOps::emitLDAX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
+// ldx.fp varOffset — Load 8-bit value from frame into X
+void AssemblerSimulatedOps::emitLDX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
     Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    uint8_t totalOff = fpOff + yOff;
+    e.lda_frame(fpOff, yOff);  // Load into A
+    e.tax();                    // Transfer A to X
+}
+
+// stx.fp varOffset — Store 8-bit value from X to frame-relative offset
+void AssemblerSimulatedOps::emitSTX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
+    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
+    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    e.txa();                    // Transfer X to A
+    e.sta_frame(fpOff, yOff);   // Store from A
+}
+
+// ldy.fp varOffset — Load 8-bit value from frame into Y
+void AssemblerSimulatedOps::emitLDY_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
+    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
+    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    e.lda_frame(fpOff, yOff);  // Load into A
+    e.tay();                    // Transfer A to Y
+}
+
+// sty.fp varOffset — Store 8-bit value from Y to frame-relative offset
+void AssemblerSimulatedOps::emitSTY_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
+    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
+    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    e.tya();                    // Transfer Y to A
+    e.sta_frame(fpOff, yOff);   // Store from A
+}
+
+// ldz.fp varOffset — Load 8-bit value from frame into Z
+void AssemblerSimulatedOps::emitLDZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
+    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
+    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    e.lda_frame(fpOff, yOff);  // Load into A
+    e.tza();                    // Transfer A to Z
+}
+
+// stz.fp varOffset — Store 8-bit value from Z to frame-relative offset
+void AssemblerSimulatedOps::emitSTZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
+    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
+    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    e.tza();                    // Transfer Z to A
+    e.sta_frame(fpOff, yOff);   // Store from A
+}
+
+// ldax.fp varOffset — Load 16-bit value from frame into AX (lo in A, hi in X)
+void AssemblerSimulatedOps::emitLDAX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
+    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     if (e.hasFramePointer()) {
-        e.lda_stack(totalOff + 1);
+        e.lda_stack(yOff + 1);
         e.sta_scratch();
-        e.lda_stack(totalOff);
+        e.lda_stack(yOff);
         e.ldx_scratch();
     } else {
-        // Single TSX (cached): hi → push → lo → plx. X holds old SP throughout;
-        // pha changes hardware SP but X still valid for stack-relative loads.
-        e.tsxCached();
-        e.lda_stack_noTSX(totalOff + 1);  // A = hi byte
-        e.pha();                           // push hi (SP changes but X unchanged)
-        e.lda_stack_noTSX(totalOff);       // A = lo byte (X still = old SP)
-        e.plx();                           // X = hi byte
+        // Fallback: use frame pointer indirect addressing (cc45 always uses $FD/$FE)
+        // Load hi byte first, save to scratch, then load lo byte
+        e.lda_stack(yOff + 1);      // A = hi byte (uses frame pointer indirect)
+        e.sta_scratch();             // save hi byte
+        e.lda_stack(yOff);           // A = lo byte (uses frame pointer indirect)
+        e.ldx_scratch();             // X = hi byte
     }
 }
 
 // lday.fp varOffset — Load 16-bit value from frame into AY (lo in A, hi in Y)
 // Use when Z must be preserved (e.g., loop counter).
 void AssemblerSimulatedOps::emitLDAY_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
-    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    uint8_t totalOff = fpOff + yOff;
-    e.ldy_stack(totalOff + 1);       // Y = hi byte
-    e.lda_stack(totalOff);           // A = lo byte
+    e.ldy_stack(yOff + 1);           // Y = hi byte
+    e.lda_stack(yOff);               // A = lo byte
 }
 
 // stay.fp varOffset — Store AY (lo=A, hi=Y) to frame-relative offset
 // Use when Z must be preserved (e.g., loop counter).
 void AssemblerSimulatedOps::emitSTAY_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
-    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    uint8_t totalOff = fpOff + yOff;
-    e.sta_stack(totalOff);           // TSX + STA abs,X (lo byte)
-    e.sty_stack(totalOff + 1);       // TSX + STY abs,X (hi byte)
+    e.sta_stack(yOff);               // Frame-relative: LDY #yOff; STA ($FD),Y (lo byte)
+    e.sty_stack(yOff + 1);           // Frame-relative: STY offset+1 via scratch (hi byte)
 }
 
 // ldaz.fp varOffset — Load 16-bit value from frame into AZ (lo in A, hi in Z)
 // Preferred over ldax.fp: leaves X free for TSX, no scratch needed.
 void AssemblerSimulatedOps::emitLDAZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
-    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    uint8_t totalOff = fpOff + yOff;
-    e.ldz_stack(totalOff + 1);       // Z = hi byte
-    e.lda_stack(totalOff);           // A = lo byte
+    e.ldz_stack(yOff + 1);           // Z = hi byte
+    e.lda_stack(yOff);               // A = lo byte
 }
 
 // stax.fp varOffset — Store AX (16-bit) to frame-relative offset
 // Transfers X→Z internally for IRQ-safe frame access (no ZP scratch).
 // For constant values, prefer staz.fp which avoids the transfer entirely.
 void AssemblerSimulatedOps::emitSTAX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
-    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    uint8_t totalOff = fpOff + yOff;
     // Move X (hi byte) to Z via A, preserving A on stack
     e.pha(); e.txa(); e.taz(); e.pla();
-    e.sta_stack(totalOff);           // TSX + STA abs,X (lo byte)
-    e.stz_stack(totalOff + 1);       // STZ abs,X (hi byte)
+    e.sta_stack(yOff);               // Frame-relative: LDY #yOff; STA ($FD),Y (lo byte)
+    e.stz_stack(yOff + 1);           // Frame-relative: LDY #yOff+1; STZ ($FD),Y (hi byte)
 }
 
 // staz.fp varOffset — Store AZ (lo=A, hi=Z) to frame-relative offset
 // Preferred over stax.fp: no ZP scratch needed, IRQ-safe.
 void AssemblerSimulatedOps::emitSTAZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
-    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    uint8_t totalOff = fpOff + yOff;
-    e.sta_stack(totalOff);           // TSX + STA abs,X (lo byte)
-    e.stz_stack(totalOff + 1);       // STZ abs,X (hi byte)
+    e.sta_stack(yOff);               // Frame-relative: LDY #yOff; STA ($FD),Y (lo byte)
+    e.stz_stack(yOff + 1);           // Frame-relative: LDY #yOff+1; STZ ($FD),Y (hi byte)
 }
 
 // ldaxyz.fp varOffset — Load 32-bit value from frame into A,X,Y,Z
 void AssemblerSimulatedOps::emitLDAXYZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
-    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    uint8_t totalOff = fpOff + yOff;
-    
+
     // Load all bytes into scratch first (lda_stack clobbers X in non-FP mode)
-    e.lda_stack(totalOff + 3); e.sta_scratch3_hi();
-    e.lda_stack(totalOff + 2); e.sta_scratch3();
-    e.lda_stack(totalOff + 1); e.sta_scratch2();
-    e.lda_stack(totalOff); // byte 0 stays in A
-    
+    e.lda_stack(yOff + 3); e.sta_scratch3_hi();
+    e.lda_stack(yOff + 2); e.sta_scratch3();
+    e.lda_stack(yOff + 1); e.sta_scratch2();
+    e.lda_stack(yOff); // byte 0 stays in A
+
     e.ldx_scratch2();
     e.ldy_scratch3();
     e.ldz_scratch3_hi();
@@ -2145,31 +2268,26 @@ void AssemblerSimulatedOps::emitLDAXYZ_FPCode(AssemblerParser* parser, M65Emitte
 
 // staxyz.fp varOffset — Store 32-bit value from A,X,Y,Z to frame
 void AssemblerSimulatedOps::emitSTAXYZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
-    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    uint8_t totalOff = fpOff + yOff;
-    
+
     // Store all bytes to scratch first (sta_stack clobbers X in non-FP mode)
     e.sta_scratch();      // A
     e.stx_scratch2();     // X
     e.sty_scratch3();     // Y
     e.stz_scratch3_hi();  // Z
 
-    e.lda_scratch();    e.sta_stack(totalOff);
-    e.lda_scratch2();   e.sta_stack(totalOff + 1);
-    e.lda_scratch3();   e.sta_stack(totalOff + 2);
-    e.lda_scratch3_hi(); e.sta_stack(totalOff + 3);
+    e.lda_scratch();    e.sta_stack(yOff);
+    e.lda_scratch2();   e.sta_stack(yOff + 1);
+    e.lda_scratch3();   e.sta_stack(yOff + 2);
+    e.lda_scratch3_hi(); e.sta_stack(yOff + 3);
 }
 
 // leax.fp varOffset — Load effective address of frame variable into AX
-// Computes: AX = __sp_base + _fp + varOffset + SPL
-// Uses emitSpBaseAddrCalc for correct relocation in .o45 mode.
+// leax.fp varOffset — Load frame-relative address into AX
+// Computes AX = FP + varOffset using the current frame pointer.
 void AssemblerSimulatedOps::emitLEAX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
-    uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
-    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
-    emitSpBaseAddrCalc(parser, e, fpOff + yOff);
+    uint16_t yOff = parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    emitSpBaseAddrCalc16(parser, e, yOff);
 }
 
 // move.fp dest, src, len — Block copy between frame-relative addresses
@@ -2370,11 +2488,14 @@ void AssemblerSimulatedOps::emitBFInsCode(AssemblerParser* parser, M65Emitter& e
         if (mode == 1) {
             e.lda_stack(addr + 1); // +1 because we pushed 1 byte
             e.and_imm(~shiftedMask16 & 0xFF); e.ora_zp(e.scratchZP()); e.sta_stack(addr + 1);
+            e.lda_stack(addr + 1); // load lo byte result back into A
         } else if (mode == 2) {
             e.ldy_imm(0);
             e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
             e.and_imm(~shiftedMask16 & 0xFF); e.ora_zp(e.scratchZP());
             e.emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
+            e.ldy_imm(0);
+            e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
         } else {
             if (addrIsZP) {
                 e.lda_imm(shiftedMask16 & 0xFF);
@@ -2391,11 +2512,14 @@ void AssemblerSimulatedOps::emitBFInsCode(AssemblerParser* parser, M65Emitter& e
         if (mode == 1) {
             e.lda_stack(addr + 1); // stack restored now
             e.and_imm((~shiftedMask16 >> 8) & 0xFF); e.ora_zp(e.scratchZP()); e.sta_stack(addr + 1);
+            e.lda_stack(addr + 1); // load hi byte result back into A
         } else if (mode == 2) {
             e.ldy_imm(1);
             e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
             e.and_imm((~shiftedMask16 >> 8) & 0xFF); e.ora_zp(e.scratchZP());
             e.emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
+            e.ldy_imm(1);
+            e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
         } else {
             if (addrIsZP) {
                 e.lda_imm((shiftedMask16 >> 8) & 0xFF);
@@ -2440,6 +2564,9 @@ void AssemblerSimulatedOps::emitBFInsCode(AssemblerParser* parser, M65Emitter& e
         // Set new bits with TSB
         e.lda_scratch();
         e.emitInstruction("tsb", AddressingMode::BASE_PAGE, addr, true);
+
+        // Load final result from memory into A
+        e.emitInstruction("lda", AddressingMode::BASE_PAGE, addr, true);
     } else if (mode == 0) {
         // Absolute (non-ZP) target: use TRB/TSB with absolute mode
         e.and_imm(mask8);
@@ -2451,6 +2578,9 @@ void AssemblerSimulatedOps::emitBFInsCode(AssemblerParser* parser, M65Emitter& e
 
         e.lda_scratch();
         e.emitInstruction("tsb", AddressingMode::ABSOLUTE, addr, true);
+
+        // Load final result from memory into A
+        e.lda_addr(addr);
     } else if (mode == 1) {
         // Stack-relative: general shift/mask/ORA
         e.and_imm(mask8);
@@ -2461,6 +2591,7 @@ void AssemblerSimulatedOps::emitBFInsCode(AssemblerParser* parser, M65Emitter& e
         e.and_imm(~shiftedMask8 & 0xFF); // clear field bits
         e.ora_zp(e.scratchZP());             // OR in new bits
         e.sta_stack(addr);           // store back
+        e.lda_stack(addr);           // load result back into A
     } else {
         // Indirect via ZP pointer
         e.and_imm(mask8);
@@ -2472,6 +2603,8 @@ void AssemblerSimulatedOps::emitBFInsCode(AssemblerParser* parser, M65Emitter& e
         e.and_imm(~shiftedMask8 & 0xFF);
         e.ora_zp(e.scratchZP());
         e.emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
+        e.ldy_imm(0);
+        e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
     }
 }
 
@@ -2903,6 +3036,8 @@ void AssemblerSimulatedOps::dispatch_StackIncDec8(AssemblerParser* p, M65Emitter
     emitStackIncDec8Code(p, e, s->type == Stmt::STACK_INC8, s->instr.operandTokenIndex, s->scopePrefix);
 }
 void AssemblerSimulatedOps::dispatch_AddSub16(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    //printf("DEBUG dispatch_AddSub16: operand='%s', exprTokenIndex=%d\n", s->instr.operand.c_str(), s->exprTokenIndex);
+    //fflush(stdout);
     bool isAdd = (s->type == Stmt::ADD16 || s->type == Stmt::ADDS16);
     emitAddSub16Code(p, e, isAdd, s->instr.operand, s->exprTokenIndex, s->scopePrefix);
 }
@@ -3320,13 +3455,12 @@ void AssemblerSimulatedOps::emitLoadAddrConst(AssemblerParser* parser, M65Emitte
         try { baseVal = parseNumericLiteral(name); } catch (...) { baseVal = 0; }
     }
     uint32_t total = baseVal + offset;
-
-
+    
     if (isReloc) {
         e.recordSymbolRelocLo(name);
     }
     e.lda_imm(total & 0xFF);
-
+    
     if (isReloc) {
         e.recordSymbolRelocHi(name, total & 0xFF);
     }
@@ -3338,7 +3472,15 @@ void AssemblerSimulatedOps::emitLoadAddrConst(AssemblerParser* parser, M65Emitte
 void AssemblerSimulatedOps::dispatch_StructElem(AssemblerParser* p, M65Emitter& e, Stmt* s) {
     int idx = s->exprTokenIndex;
     if (idx < 0 || idx >= (int)p->tokens.size()) return;
-    
+
+    // Extract the actual destination operand from the token (not from s->instr.operand which is just 'EXPR')
+    std::string destOperandStr;
+    if (s->instr.operandTokenIndex >= 0 && s->instr.operandTokenIndex < (int)p->tokens.size()) {
+        destOperandStr = p->tokens[s->instr.operandTokenIndex].value;
+    } else {
+        destOperandStr = s->instr.operand;  // Fallback to stored operand if token index invalid
+    }
+
     bool baseIsReg = false;
     std::string baseRegName;
     int idxBaseStart = idx;
@@ -3401,7 +3543,7 @@ void AssemblerSimulatedOps::dispatch_StructElem(AssemblerParser* p, M65Emitter& 
         }
     }
     
-    std::string DEST = s->instr.operand;
+    std::string DEST = destOperandStr;
     if (!DEST.empty() && DEST[0] != '.') DEST = "." + DEST;
     std::transform(DEST.begin(), DEST.end(), DEST.begin(), ::toupper);
     if (DEST != ".AX") {
@@ -3416,8 +3558,7 @@ void AssemblerSimulatedOps::dispatch_StructElem(AssemblerParser* p, M65Emitter& 
                 e.stx_scratch(); e.sta_stack(destOffset); e.lda_scratch(); e.sta_stack(destOffset + 1);
             }
         } else {
-            std::string destSymName = s->instr.operand;
-            bool isZP = (!destSymName.empty() && destSymName[0] == '$');
+            std::string destSymName = destOperandStr;
             Symbol* destSym = p->resolveSymbol(destSymName, s->scopePrefix);
             uint32_t destAddr = 0;
             if (destSym) destAddr = destSym->value;
@@ -3425,6 +3566,7 @@ void AssemblerSimulatedOps::dispatch_StructElem(AssemblerParser* p, M65Emitter& 
                 try { destAddr = p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix); }
                 catch (...) { destAddr = 0; }
             }
+            bool isZP = (destAddr < 0x100);
             if (isZP) {
                 e.sta_zp(destAddr & 0xFF);
                 e.txa(); e.sta_zp((destAddr + 1) & 0xFF);
@@ -3438,178 +3580,131 @@ void AssemblerSimulatedOps::dispatch_StructElem(AssemblerParser* p, M65Emitter& 
     }
 }
 
-void AssemblerSimulatedOps::dispatch_AddrElem(AssemblerParser* p, M65Emitter& e, Stmt* s) {
-    int idx = s->exprTokenIndex;
-    if (idx < 0 || idx >= (int)p->tokens.size()) return;
+// ============================================================================
+// Parameter and Local Variable Access (Method-Agnostic Instructions)
+// ============================================================================
+// These instructions are interpreted based on function flags:
+// - SAC mode (.sac directive): use absolute SP+offset addressing
+// - Stack mode (default): use frame-pointer relative addressing (.fp)
 
-
-    bool baseIsReg = false;
-    std::string baseRegName;
-    int idxBaseStart = idx;
-    bool baseIsImmediate = false;
-    if (idx < (int)p->tokens.size() && p->tokens[idx].type == AssemblerTokenType::HASH) {
-        baseIsImmediate = true;
-        idx++;
-    }
-    if (idx < (int)p->tokens.size() && p->tokens[idx].type == AssemblerTokenType::REGISTER) {
-        baseIsReg = true;
-        baseRegName = p->tokens[idx].value;
-        idx++;
+// Dispatch functions for .param instructions (delegate to .fp for now)
+void AssemblerSimulatedOps::dispatch_LDA_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDA_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STA_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTA_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDX_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    // For now, delegate to FP behavior (parameters at same stack offsets in both modes)
+    // In stack mode: load from stack via FP
+    // In SAC mode: parameters at same stack locations, different offset calculation
+    // Both work the same in the assembler - offsets are precalculated by compiler
+}
+void AssemblerSimulatedOps::dispatch_STX_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    // Same as LDX.param - delegate to FP behavior
+}
+void AssemblerSimulatedOps::dispatch_LDY_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    // Same as LDX.param - delegate to FP behavior
+}
+void AssemblerSimulatedOps::dispatch_STY_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    // Same as LDX.param - delegate to FP behavior
+}
+void AssemblerSimulatedOps::dispatch_LDZ_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    // Same as LDX.param - delegate to FP behavior
+}
+void AssemblerSimulatedOps::dispatch_STZ_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    // Same as LDX.param - delegate to FP behavior
+}
+void AssemblerSimulatedOps::dispatch_LDAX_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    if (e.isSACMode()) {
+        // SAC: Parameters are on stack, NOT in FP-relative location
+        // Load using stack-relative addressing (like stack convention but with explicit offsets)
+        uint8_t offset = (uint8_t)p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
+        // Load hi byte first, save to scratch, then load lo byte
+        e.lda_stack(offset + 1);      // hi byte at stack[offset+1]
+        e.sta_scratch();               // save hi to scratch
+        e.lda_stack(offset);           // lo byte at stack[offset]
+        e.ldx_scratch();               // X = hi byte
     } else {
-        auto baseAst = parseExprAST(p->tokens, idx, p->symbolTable, s->scopePrefix);
-    }
-    
-    if (idx < (int)p->tokens.size() && p->tokens[idx].type == AssemblerTokenType::COMMA) idx++;
-    
-    bool indexIsReg = false;
-    std::string indexRegName;
-    int idxIndexStart = idx;
-    if (idx < (int)p->tokens.size() && p->tokens[idx].type == AssemblerTokenType::REGISTER) {
-        indexIsReg = true;
-        indexRegName = p->tokens[idx].value;
-        idx++;
-    } else {
-        auto indexAst = parseExprAST(p->tokens, idx, p->symbolTable, s->scopePrefix);
-    }
-    
-    if (idx < (int)p->tokens.size() && p->tokens[idx].type == AssemblerTokenType::COMMA) idx++;
-    if (idx < (int)p->tokens.size() && p->tokens[idx].type == AssemblerTokenType::HASH) idx++;
-
-    auto strideAst = parseExprAST(p->tokens, idx, p->symbolTable, s->scopePrefix);
-    uint16_t strideVal = strideAst ? strideAst->getValue(p) : 1;
-    if (strideVal > 1) {
-        // Clear high bytes first to ensure 16-bit × 16-bit multiplication
-        e.stz_addr(m65::MULT_ARG1 + 2);
-        e.stz_addr(m65::MULT_ARG1 + 3);
-        e.stz_addr(m65::MULT_ARG2 + 2);
-        e.stz_addr(m65::MULT_ARG2 + 3);
-
-        // Write stride to MULT_ARG2 first
-        e.lda_imm(strideVal & 0xFF);
-        e.sta_addr(m65::MULT_ARG2);
-        e.lda_imm((strideVal >> 8) & 0xFF);
-        e.sta_addr(m65::MULT_ARG2 + 1);
-
-        // Write index to MULT_ARG1 last (may trigger multiplication)
-        emitWriteOperand16(p, e, indexIsReg, indexRegName, idxIndexStart, m65::MULT_ARG1, s->scopePrefix);
-        
-        auto baseFa = p->resolveFrameAccess(idxBaseStart, s->scopePrefix);
-        if (baseFa.isFrame && !baseIsImmediate) {
-            // Frame-relative base (stack local). Immediate (#symbol) bases are
-            // never frame-relative — they're global/static data addresses.
-            emitSpBaseAddrCalc16(p, e, baseFa.fpOff + baseFa.yOff);
-        } else if (baseIsReg) {
-            // Already in AX
-        } else {
-            std::string baseSymName = baseIsImmediate ? p->tokens[idxBaseStart + 1].value : p->tokens[idxBaseStart].value;
-            Symbol* baseSym = p->resolveSymbol(baseSymName, s->scopePrefix);
-            uint32_t baseAddr = 0;
-            if (baseSym) baseAddr = baseSym->value;
-            else {
-                try { baseAddr = p->evaluateExpressionAt(idxBaseStart + (baseIsImmediate ? 1 : 0), s->scopePrefix); }
-                catch (...) { baseAddr = 0; }
-            }
-            if (baseIsImmediate) {
-                emitLoadAddrConst(p, e, baseSymName, 0, 'X');
-            } else {
-                bool isZP = (!baseSymName.empty() && baseSymName[0] == '$');
-                if (isZP) {
-                    e.lda_zp(baseAddr & 0xFF);
-                    e.ldx_zp((baseAddr + 1) & 0xFF);
-                } else {
-                    Symbol* relSym = p->resolveSymbol(baseSymName, s->scopePrefix);
-                    if (relSym && relSym->isAddress) { e.recordSymbolReloc(baseSymName); }
-                    e.lda_abs(baseAddr);
-                    if (relSym && relSym->isAddress) { e.recordSymbolReloc(baseSymName); }
-                    e.ldx_abs(baseAddr + 1);
-                }
-            }
-        }
-        
-        e.clc();
-        e.adc_addr(m65::MULT_RES);
-        e.pha(); e.txa(); e.adc_addr(m65::MULT_RES + 1); e.tax(); e.pla();
-        
-    } else {
-        if (baseIsReg) {
-            e.sta_zp(e.scratchZP());
-            e.stx_zp(e.scratchZP() + 1);
-            emitLoadIndexToAX(p, e, indexIsReg, indexRegName, idxIndexStart, s->scopePrefix);
-            e.clc();
-            e.adc_zp(e.scratchZP());
-            e.pha(); e.txa(); e.adc_zp(e.scratchZP() + 1); e.tax(); e.pla();
-        } else {
-            emitLoadIndexToAX(p, e, indexIsReg, indexRegName, idxIndexStart, s->scopePrefix);
-            e.sta_zp(e.scratchZP());
-            e.stx_zp(e.scratchZP() + 1);
-            
-            auto baseFa = p->resolveFrameAccess(idxBaseStart, s->scopePrefix);
-            if (baseFa.isFrame) {
-                emitSpBaseAddrCalc16(p, e, baseFa.fpOff + baseFa.yOff);
-            } else {
-                std::string baseSymName = baseIsImmediate ? p->tokens[idxBaseStart + 1].value : p->tokens[idxBaseStart].value;
-                Symbol* baseSym = p->resolveSymbol(baseSymName, s->scopePrefix);
-                uint32_t baseAddr = 0;
-                if (baseSym) baseAddr = baseSym->value;
-                else {
-                    try { baseAddr = p->evaluateExpressionAt(idxBaseStart + (baseIsImmediate ? 1 : 0), s->scopePrefix); }
-                    catch (...) { baseAddr = 0; }
-                }
-                if (baseIsImmediate) {
-                    emitLoadAddrConst(p, e, baseSymName, 0, 'X');
-                } else {
-                    bool isZP = (!baseSymName.empty() && baseSymName[0] == '$');
-                    if (isZP) {
-                        e.lda_zp(baseAddr & 0xFF);
-                        e.ldx_zp((baseAddr + 1) & 0xFF);
-                    } else {
-                        Symbol* relSym = p->resolveSymbol(baseSymName, s->scopePrefix);
-                        if (relSym && relSym->isAddress) { e.recordSymbolReloc(baseSymName); }
-                        e.lda_abs(baseAddr);
-                        if (relSym && relSym->isAddress) { e.recordSymbolReloc(baseSymName); }
-                        e.ldx_abs(baseAddr + 1);
-                    }
-                }
-            }
-            e.clc();
-            e.adc_zp(e.scratchZP());
-            e.pha(); e.txa(); e.adc_zp(e.scratchZP() + 1); e.tax(); e.pla();
-        }
-    }
-    
-    std::string DEST = s->instr.operand;
-    if (!DEST.empty() && DEST[0] != '.') DEST = "." + DEST;
-    std::transform(DEST.begin(), DEST.end(), DEST.begin(), ::toupper);
-    if (DEST != ".AX") {
-        uint32_t destOffset = 0;
-        bool destIsStack = p->isStackRelativeOperand(s->instr.operandTokenIndex, destOffset, s->scopePrefix);
-        if (destIsStack) {
-            auto destFa = p->resolveFrameAccess(s->instr.operandTokenIndex, s->scopePrefix);
-            if (destFa.isFrame) {
-                uint8_t totalOff = destFa.fpOff + destFa.yOff;
-                e.stx_scratch(); e.sta_stack(totalOff); e.lda_scratch(); e.sta_stack(totalOff + 1);
-            } else {
-                e.stx_scratch(); e.sta_stack(destOffset); e.lda_scratch(); e.sta_stack(destOffset + 1);
-            }
-        } else {
-            std::string destSymName = s->instr.operand;
-            bool isZP = (!destSymName.empty() && destSymName[0] == '$');
-            Symbol* destSym = p->resolveSymbol(destSymName, s->scopePrefix);
-            uint32_t destAddr = 0;
-            if (destSym) destAddr = destSym->value;
-            else {
-                try { destAddr = p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix); }
-                catch (...) { destAddr = 0; }
-            }
-            if (isZP) {
-                e.sta_zp(destAddr & 0xFF);
-                e.txa(); e.sta_zp((destAddr + 1) & 0xFF);
-            } else {
-                if (destSym && destSym->isAddress) { e.recordSymbolReloc(destSymName); }
-                e.sta_abs(destAddr);
-                if (destSym && destSym->isAddress) { e.recordSymbolReloc(destSymName); }
-                e.txa(); e.sta_abs(destAddr + 1);
-            }
-        }
+        // Stack mode: Use FP-relative addressing
+        emitLDAX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
     }
 }
+void AssemblerSimulatedOps::dispatch_STAX_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTAX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDAY_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDAY_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STAY_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTAY_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDAZ_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDAZ_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STAZ_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTAZ_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDAXYZ_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDAXYZ_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STAXYZ_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTAXYZ_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LEAX_Param(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLEAX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+
+// Dispatch functions for .local instructions (delegate to .fp for now)
+void AssemblerSimulatedOps::dispatch_LDA_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDA_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STA_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTA_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDX_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STX_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDY_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDY_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STY_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTY_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDZ_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDZ_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STZ_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTZ_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDAX_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDAX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STAX_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTAX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDAY_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDAY_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STAY_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTAY_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDAZ_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDAZ_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STAZ_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTAZ_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LDAXYZ_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLDAXYZ_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_STAXYZ_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitSTAXYZ_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+void AssemblerSimulatedOps::dispatch_LEAX_Local(AssemblerParser* p, M65Emitter& e, Stmt* s) {
+    emitLEAX_FPCode(p, e, s->instr.operandTokenIndex, s->scopePrefix);
+}
+

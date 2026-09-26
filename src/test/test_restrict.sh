@@ -4,7 +4,7 @@
 CC="./bin/cc45"
 AS="./bin/ca45"
 TEMP_C="test_restrict_tmp.c"
-TEMP_S="test_restrict_tmp.s"
+TEMP_S="test_restrict_tmp.s45"
 
 passed=0
 failed=0

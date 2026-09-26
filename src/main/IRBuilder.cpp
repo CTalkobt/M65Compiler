@@ -1,7 +1,9 @@
 #include "IRBuilder.hpp"
+#include "Diagnostic.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -13,10 +15,19 @@ void IRBuilder::setSourceInfo(const std::string& filename) {
 }
 
 void IRBuilder::generate(TranslationUnit& unit) {
+    // Phase 102: Pre-pass to register all struct definitions and typedef mappings
+    registerAllStructDefinitions(unit);
+
     unit.accept(*this);
     // Eliminate unused static functions (iterative — handles call chains)
     {
         bool changed = true;
+        // Build set of all function names for filtering
+        std::set<std::string> allFunctionNames;
+        for (const auto& fn : module_.functions) {
+            allFunctionNames.insert(fn.name);
+        }
+
         while (changed) {
             // Rebuild called set from surviving functions only
             std::set<std::string> usedFuncs;
@@ -29,14 +40,21 @@ void IRBuilder::generate(TranslationUnit& unit) {
                         }
                         // Function address taken (function pointer) via ADDR_GLOBAL
                         if (inst.op == ir::Op::ADDR_GLOBAL &&
-                            inst.src1.kind == ir::OperandKind::GLOBAL) {
+                            inst.src1.kind == ir::OperandKind::GLOBAL &&
+                            allFunctionNames.count(inst.src1.name)) {
                             usedFuncs.insert(inst.src1.name);
                         }
-                        // Function name used as value (global operand in args, src1, src2)
-                        if (inst.src1.kind == ir::OperandKind::GLOBAL) usedFuncs.insert(inst.src1.name);
-                        if (inst.src2.kind == ir::OperandKind::GLOBAL) usedFuncs.insert(inst.src2.name);
+                        // Function name used as value in operands - only add if it's a known function
+                        if (inst.src1.kind == ir::OperandKind::GLOBAL && allFunctionNames.count(inst.src1.name)) {
+                            usedFuncs.insert(inst.src1.name);
+                        }
+                        if (inst.src2.kind == ir::OperandKind::GLOBAL && allFunctionNames.count(inst.src2.name)) {
+                            usedFuncs.insert(inst.src2.name);
+                        }
                         for (const auto& arg : inst.args) {
-                            if (arg.kind == ir::OperandKind::GLOBAL) usedFuncs.insert(arg.name);
+                            if (arg.kind == ir::OperandKind::GLOBAL && allFunctionNames.count(arg.name)) {
+                                usedFuncs.insert(arg.name);
+                            }
                         }
                     }
                 }
@@ -47,10 +65,27 @@ void IRBuilder::generate(TranslationUnit& unit) {
                     if (!methodName.empty()) usedFuncs.insert(methodName);
                 }
             }
+
+            // DEBUG: Verify DCE inputs for small test cases
+            if (module_.functions.size() <= 3) {
+                std::cerr << "\n[DCE] Functions: ";
+                for (const auto& fn : module_.functions) std::cerr << fn.name << " ";
+                std::cerr << "| used: ";
+                for (const auto& f : usedFuncs) std::cerr << f << " ";
+                std::cerr << "\n" << std::flush;
+            }
+
+            // Remove unused functions (static, inlined, or unreachable)
             auto it = std::remove_if(module_.functions.begin(), module_.functions.end(),
                 [&usedFuncs](const ir::Function& fn) {
-                    return fn.isStatic && fn.name != "_main" &&
-                           !usedFuncs.count(fn.name);
+                    // Always keep _main
+                    if (fn.name == "_main") return false;
+                    // Keep functions that are called within this module
+                    if (usedFuncs.count(fn.name)) return false;
+                    // Keep non-static (extern/global) functions — they may be called from other modules
+                    if (!fn.isStatic) return false;
+                    // Remove only static functions that are not called
+                    return true;
                 });
             changed = (it != module_.functions.end());
             module_.functions.erase(it, module_.functions.end());
@@ -108,7 +143,8 @@ void IRBuilder::generate(TranslationUnit& unit) {
                 }
             }
             if (devirtCount > 0) {
-                warnings_.push_back("note: devirtualized " + std::to_string(devirtCount) + " virtual call(s)");
+                warnings_.push_back(formatDiagnostic(module_.sourceFile, 0, 0, Severity::Note,
+                    "devirtualized " + std::to_string(devirtCount) + " virtual call(s)"));
             }
         }
     }
@@ -188,18 +224,18 @@ void IRBuilder::generate(TranslationUnit& unit) {
                 if (params[i] == ir::Type::I16 && allConst[i]) {
                     // All values fit in unsigned char
                     std::stringstream ss;
-                    ss << funcDeclLines[name] << ": note: parameter " << (i + 1)
-                       << " of '" << cleanName
+                    ss << "parameter " << (i + 1) << " of '" << cleanName
                        << "' could be 'unsigned char' (all call sites pass 0-255)";
-                    warnings_.push_back(ss.str());
+                    warnings_.push_back(formatDiagnostic(module_.sourceFile, funcDeclLines[name], 0,
+                        Severity::Note, ss.str()));
                 } else if (params[i] == ir::Type::I16 && !allConst[i] &&
                            allNonNegPtr && i < allNonNegPtr->size() && (*allNonNegPtr)[i]) {
                     // All values non-negative but some > 255 — suggest unsigned int
                     std::stringstream ss;
-                    ss << funcDeclLines[name] << ": note: parameter " << (i + 1)
-                       << " of '" << cleanName
+                    ss << "parameter " << (i + 1) << " of '" << cleanName
                        << "' could be 'unsigned int' (all call sites pass non-negative values)";
-                    warnings_.push_back(ss.str());
+                    warnings_.push_back(formatDiagnostic(module_.sourceFile, funcDeclLines[name], 0,
+                        Severity::Note, ss.str()));
                 }
             }
         }
@@ -211,6 +247,9 @@ void IRBuilder::generate(TranslationUnit& unit) {
             module_.externs.push_back(name);
         }
     }
+
+    // Finalize function profiling for cross-module optimization
+    profiler_.finalizeProfiles();
 }
 
 
@@ -378,6 +417,20 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
     if (auto* ma = dynamic_cast<MemberAccess*>(expr)) {
         IRTypeInfo baseInfo = getExprTypeInfo(ma->structExpr.get());
         std::string sName = getAggregateName(baseInfo.typeName);
+
+        // Phase 102: Resolve typedef-to-struct mappings
+        if (sName.find("struct ") != 0) {
+            std::string resolved = resolveTypedefToStruct(sName);
+            if (resolved != sName) {
+                sName = getAggregateName(resolved);
+            } else {
+                std::string potentialStruct = "struct " + sName;
+                if (structs_.find(potentialStruct) != structs_.end()) {
+                    sName = potentialStruct;
+                }
+            }
+        }
+
         int accOffset = 0;
         auto* mit = findStructMember(sName, ma->memberName, accOffset);
         if (mit) {
@@ -427,7 +480,7 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             if (pit != localPointedToType_.end()) {
                 baseType = pit->second;
                 isSigned = localSigned_[ref->name];
-                // TODO: pointed-to type name
+                tn = localPointedToTypeName_[ref->name];
             } else {
                 auto gpit = globalPointedToType_.find(ref->name);
                 if (gpit != globalPointedToType_.end()) {
@@ -523,9 +576,9 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         auto it = functionReturnTypes_.find(call->name);
         if (it != functionReturnTypes_.end()) {
             bool sig = false; // unsigned by default
-            auto sit = functionParamSigned_.find(call->name);
-            if (sit != functionParamSigned_.end() && !sit->second.empty()) {
-                sig = sit->second[0]; // TODO: use a proper convention for return type signedness
+            auto sit = functionReturnSigned_.find(call->name);
+            if (sit != functionReturnSigned_.end()) {
+                sig = sit->second;
             }
             return {it->second, "", sig, ir::Type::VOID, ir::typeSize(it->second)};
         }
@@ -698,6 +751,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         functionParamTypes_[node.name] = ptypes;
         functionParamSigned_[node.name] = psigned;
         functionReturnTypes_[node.name] = mapType(node.returnType, node.returnPointerLevel);
+        functionReturnSigned_[node.name] = node.isSigned;
         if (node.isVariadic) variadicFunctions_.insert(node.name);
         if (node.isRegparm) regparmFunctions_.insert(node.name);
         allFunctions_[node.name] = &node;
@@ -710,9 +764,11 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     fn.returnType = mapType(node.returnType, node.returnPointerLevel);
     fn.conv = (zpCallMode || node.isFastcall) ? ir::CallConv::ZP : ir::CallConv::STACK;
     fn.isVariadic = node.isVariadic;
-    fn.isStatic = node.isStatic || node.isInline;
+    fn.isStatic = node.isStatic;
     fn.isWeak = weakNextFunction_;
     weakNextFunction_ = false;
+    fn.isRecurse = recurseNextFunction_;
+    recurseNextFunction_ = false;
     fn.isInterrupt = node.isInterrupt;
     fn.declLine = node.line;
     fn.isNaked = node.isNaked;
@@ -756,6 +812,85 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     module_.functions.push_back(std::move(fn));
     ir::Function* fnPtr = &module_.functions.back();
 
+    // Phase 2, Phase 3: Detect original leaf status from AST BEFORE IR optimization
+    // This captures whether the original code had function calls, before inlining
+    // Use a simple recursive checker that looks for any FunctionCall nodes
+    fnPtr->originalIsLeaf = true;  // default to leaf
+    fnPtr->originalCallees.clear();
+
+    if (node.body) {
+        std::function<bool(ASTNode*)> hasFunctionCalls = [&](ASTNode* n) -> bool {
+            if (!n) return false;
+
+            // Check if this is a FunctionCall node
+            if (auto* fc = dynamic_cast<FunctionCall*>(n)) {
+                fnPtr->originalCallees.insert(fc->name);
+                fnPtr->originalIsLeaf = false;
+                return true;
+            }
+
+            // Recursively check child nodes
+            if (auto* compound = dynamic_cast<CompoundStatement*>(n)) {
+                for (auto& s : compound->statements) if (hasFunctionCalls(s.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* expr = dynamic_cast<ExpressionStatement*>(n)) {
+                if (hasFunctionCalls(expr->expression.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* ifstmt = dynamic_cast<IfStatement*>(n)) {
+                if (hasFunctionCalls(ifstmt->condition.get())) fnPtr->originalIsLeaf = false;
+                if (hasFunctionCalls(ifstmt->thenBranch.get())) fnPtr->originalIsLeaf = false;
+                if (hasFunctionCalls(ifstmt->elseBranch.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* whilestmt = dynamic_cast<WhileStatement*>(n)) {
+                if (hasFunctionCalls(whilestmt->condition.get())) fnPtr->originalIsLeaf = false;
+                if (hasFunctionCalls(whilestmt->body.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* forstmt = dynamic_cast<ForStatement*>(n)) {
+                if (hasFunctionCalls(forstmt->initializer.get())) fnPtr->originalIsLeaf = false;
+                if (hasFunctionCalls(forstmt->condition.get())) fnPtr->originalIsLeaf = false;
+                if (hasFunctionCalls(forstmt->increment.get())) fnPtr->originalIsLeaf = false;
+                if (hasFunctionCalls(forstmt->body.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* retstmt = dynamic_cast<ReturnStatement*>(n)) {
+                if (hasFunctionCalls(retstmt->expression.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* assign = dynamic_cast<Assignment*>(n)) {
+                if (hasFunctionCalls(assign->target.get())) fnPtr->originalIsLeaf = false;
+                if (hasFunctionCalls(assign->expression.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* binop = dynamic_cast<BinaryOperation*>(n)) {
+                if (hasFunctionCalls(binop->left.get())) fnPtr->originalIsLeaf = false;
+                if (hasFunctionCalls(binop->right.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* unop = dynamic_cast<UnaryOperation*>(n)) {
+                if (hasFunctionCalls(unop->operand.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* arrayacc = dynamic_cast<ArrayAccess*>(n)) {
+                if (hasFunctionCalls(arrayacc->arrayExpr.get())) fnPtr->originalIsLeaf = false;
+                if (hasFunctionCalls(arrayacc->indexExpr.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* memberacc = dynamic_cast<MemberAccess*>(n)) {
+                if (hasFunctionCalls(memberacc->structExpr.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* cast = dynamic_cast<CastExpression*>(n)) {
+                if (hasFunctionCalls(cast->expression.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* condexpr = dynamic_cast<ConditionalExpression*>(n)) {
+                if (hasFunctionCalls(condexpr->condition.get())) fnPtr->originalIsLeaf = false;
+                if (hasFunctionCalls(condexpr->thenExpr.get())) fnPtr->originalIsLeaf = false;
+                if (hasFunctionCalls(condexpr->elseExpr.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* swstmt = dynamic_cast<SwitchStatement*>(n)) {
+                if (hasFunctionCalls(swstmt->expression.get())) fnPtr->originalIsLeaf = false;
+                if (hasFunctionCalls(swstmt->body.get())) fnPtr->originalIsLeaf = false;
+            } else if (auto* vardecl = dynamic_cast<VariableDeclaration*>(n)) {
+                if (hasFunctionCalls(vardecl->initializer.get())) fnPtr->originalIsLeaf = false;
+            }
+
+            return !fnPtr->originalIsLeaf;
+        };
+
+        hasFunctionCalls(node.body.get());
+    }
+
+    // Record function definition for cross-module optimization profiling
+    // This is done before body processing so we can track local variables as they're encountered
+    profiler_.recordFunctionDefinition(
+        node.name,
+        static_cast<int>(node.parameters.size()),
+        0,  // localVarCount will be updated as we process the body
+        fnPtr->originalIsLeaf,  // hasNoCalls based on original AST
+        fnPtr->originalIsLeaf,  // isLeafCandidate
+        ""  // moduleName (will be set during finalization)
+    );
+
     // Save current scope if we are nesting
     if (currentFunc_) {
         FunctionScope scope;
@@ -791,6 +926,10 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     currentFunc_ = fnPtr;
     startBlock("entry");
 
+    // Phase 113: Track function definition for DWARF debug info
+    sourceTracker_.setCurrentFile(node.sourceFile);
+    sourceTracker_.trackFunctionDef(node.name, node.line, node.column, 0, 0);  // Address ranges set during codegen
+
     // Load static link from ZP if nested
     if (fnPtr->isNested) {
         ir::Type pt = ir::Type::PTR;
@@ -823,16 +962,31 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         localDeclLocs_[p.name] = loc(node);
         if (currentFunc_) currentFunc_->localNames[p.name] = vreg.vregId;
         localTypes_[p.name] = pt;
-        localTypeNames_[p.name] = p.type;
+        // Phase 102: Resolve typedef to struct name for parameter types
+        std::string resolvedTypeName = p.type;
+        if (resolvedTypeName.find("struct ") != 0) {
+            std::string resolved = resolveTypedefToStruct(resolvedTypeName);
+            if (resolved != resolvedTypeName) {
+                resolvedTypeName = resolved;
+            }
+        }
+        localTypeNames_[p.name] = resolvedTypeName;
         localSigned_[p.name] = p.isSigned;
         // For non-pointers: const int x → isConst=true, variable is read-only
         // For pointers: const int *p → isConst=true, pointed-to is read-only, pointer itself is writable
         //               int * const p → isPointerConst=true, pointer is read-only
         localConst_[p.name] = (p.pointerLevel == 0 && p.isConst) || p.isPointerConst;
         localPointsToConst_[p.name] = p.isConst && p.pointerLevel > 0;
-        if (p.pointerLevel > 0) localPointedToType_[p.name] = mapType(p.type, 0);
+        if (p.pointerLevel > 0) {
+            localPointedToType_[p.name] = mapType(p.type, 0);
+            localPointedToTypeName_[p.name] = p.type;
+        }
         if (p.isVolatile) currentFunc_->memoryVregs.insert(vreg.vregId);
         currentFunc_->localSlotVregs.insert(vreg.vregId);
+
+        // Phase 113: Track parameter for DWARF debug info
+        // Use function line/column since parameters don't have their own location
+        sourceTracker_.trackVariableDecl(p.name, node.line, node.column, p.type, 0, true);
     }
 
     // Visit body
@@ -842,13 +996,12 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     for (const auto& [name, vregOp] : locals_) {
         if (usedVregs_.find(vregOp.vregId) == usedVregs_.end() &&
             externalUsedVars_.find(name) == externalUsedVars_.end()) {
-            std::stringstream ss;
-            ss << "warning: unused variable '" << name << "'";
             ir::SourceLoc sl = localDeclLocs_[name];
-            if (sl.valid()) {
-                ss << " at " << sl.file << ":" << sl.line;
-            }
-            warnings_.push_back(ss.str());
+            int line = sl.valid() ? sl.line : node.line;
+            std::string file = sl.valid() ? sl.file : node.sourceFile;
+            int col = sl.valid() ? sl.column : node.column;
+            warnings_.push_back(formatDiagnostic(file, line, col, Severity::Warning,
+                "unused variable '" + name + "'"));
         }
     }
 
@@ -989,7 +1142,8 @@ void IRBuilder::visit(VariableDeclaration& node) {
     if (isStructOrUnion && node.pointerLevel == 0) {
         std::string sName = getAggregateName(node.type);
         if (!structs_.count(sName)) {
-            throw std::runtime_error("Error at line " + std::to_string(node.line) + ": Unknown struct/union type: Unknown struct type: " + node.type);
+            std::string errMsg = "Unknown struct/union type: " + node.type;
+            throw std::runtime_error(formatSemanticError(errMsg, node.sourceFile, node.line, node.column));
         }
     }
 
@@ -1009,6 +1163,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
         if (node.arraySize() > 0) gv.size *= node.arraySize();
         gv.isConst = node.isConst;
         gv.isStatic = node.isStatic;
+        gv.addressSpace = node.addressSpace;  // Phase 97: Preserve address space qualifier
         if (node.initializer) {
             if (auto* flit = dynamic_cast<FloatLiteral*>(node.initializer.get())) {
                 gv.hasInitValue = true;
@@ -1057,7 +1212,10 @@ void IRBuilder::visit(VariableDeclaration& node) {
                 }
             }
         }
-        if (node.pointerLevel > 0) globalPointedToType_[node.name] = mapType(node.type, 0);
+        if (node.pointerLevel > 0) {
+            globalPointedToType_[node.name] = mapType(node.type, 0);
+            globalPointedToTypeName_[node.name] = node.type;
+        }
         if (!node.arrayDims.empty()) globalArrayDims_[node.name] = node.arrayDims;
         globalTypes_[node.name] = t;
         globalTypeNames_[node.name] = node.type;
@@ -1066,19 +1224,88 @@ void IRBuilder::visit(VariableDeclaration& node) {
         return;
     }
 
+    // Local static variables: allocate as globals, not frame locals
+    if (node.isStatic && currentFunc_) {
+        // Create unique global name
+        std::string globalName = "_" + currentFunc_->name + "__local_" + node.name;
+
+        // Add to globals list (DATA segment)
+        ir::Module::GlobalVar gv;
+        gv.name = globalName;
+        gv.type = t;
+        gv.size = getTypeSize(node.type, node.pointerLevel);
+        if (node.arraySize() > 0) gv.size *= node.arraySize();
+        gv.isConst = node.isConst;
+        gv.isStatic = true;
+        gv.addressSpace = node.addressSpace;  // Phase 97: Preserve address space qualifier
+
+        // Handle initializer
+        if (node.initializer) {
+            if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
+                gv.hasInitValue = true;
+                gv.initValue = lit->value;
+            } else if (auto* flit = dynamic_cast<FloatLiteral*>(node.initializer.get())) {
+                gv.hasInitValue = true;
+                std::memcpy(&gv.initValue, &flit->value, sizeof(double));
+            }
+        } else {
+            gv.hasInitValue = true;
+            gv.initValue = 0;
+        }
+
+        module_.globals.push_back(gv);
+
+        // Store mapping for scope lookup
+        locals_[node.name] = ir::Operand::global(globalName);
+        localTypes_[node.name] = t;
+        // Phase 102: Resolve typedef to struct name for global types
+        std::string resolvedGlobalTypeName = node.type;
+        if (resolvedGlobalTypeName.find("struct ") != 0) {
+            std::string resolved = resolveTypedefToStruct(resolvedGlobalTypeName);
+            if (resolved != resolvedGlobalTypeName) {
+                resolvedGlobalTypeName = resolved;
+            }
+        }
+        localTypeNames_[node.name] = resolvedGlobalTypeName;
+        localSigned_[node.name] = node.isSigned;
+        localConst_[node.name] = node.isConst && node.pointerLevel == 0;
+        localPointsToConst_[node.name] = node.isConst && node.pointerLevel > 0;
+        localDeclLocs_[node.name] = loc(node);
+        if (node.pointerLevel > 0) {
+            localPointedToType_[node.name] = mapType(node.type, node.pointerLevel - 1);
+            localPointedToTypeName_[node.name] = resolvedGlobalTypeName;
+        }
+        return;  // Skip frame allocation
+    }
+
     // Local variable — allocate a vReg
     auto vreg = allocVreg(t);
     locals_[node.name] = vreg;
     localRegister_[node.name] = node.isRegister;
     localDeclLocs_[node.name] = loc(node);
-    if (currentFunc_) currentFunc_->localNames[node.name] = vreg.vregId;
+    if (currentFunc_) {
+        currentFunc_->localNames[node.name] = vreg.vregId;
+        currentFunc_->localNamesOrder.push_back(node.name);
+        if (node.isRegister) {
+            currentFunc_->registerVregs.insert(vreg.vregId);
+        }
+    }
     localTypes_[node.name] = t;
-    localTypeNames_[node.name] = node.type;
+    // Phase 102: Resolve typedef to struct name for variable types
+    std::string resolvedVarTypeName = node.type;
+    if (resolvedVarTypeName.find("struct ") != 0) {
+        std::string resolved = resolveTypedefToStruct(resolvedVarTypeName);
+        if (resolved != resolvedVarTypeName) {
+            resolvedVarTypeName = resolved;
+        }
+    }
+    localTypeNames_[node.name] = resolvedVarTypeName;
     localSigned_[node.name] = node.isSigned;
     localConst_[node.name] = node.isConst && node.pointerLevel == 0;
     localPointsToConst_[node.name] = node.isConst && node.pointerLevel > 0;
     if (node.pointerLevel > 0) {
         localPointedToType_[node.name] = mapType(node.type, node.pointerLevel - 1);
+        localPointedToTypeName_[node.name] = resolvedVarTypeName;
         // Track constant pointer initializer for propagation
         if (node.initializer) {
             if (auto* intLit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
@@ -1101,11 +1328,17 @@ void IRBuilder::visit(VariableDeclaration& node) {
         currentFunc_->vregSizes[vreg.vregId] = totalSize;
         currentFunc_->memoryVregs.insert(vreg.vregId);
     }
-    
+
     if (getTypeSize(node.type, 0) > 2 && node.pointerLevel == 0 && node.arrayDims.empty()) {
         // Large aggregates (non-array) must go to frame with correct byte size
         currentFunc_->memoryVregs.insert(vreg.vregId);
         currentFunc_->vregSizes[vreg.vregId] = getTypeSize(node.type, 0);
+    }
+
+    // Phase 113: Track local variable declaration for DWARF debug info
+    if (currentFunc_) {
+        sourceTracker_.trackVariableDecl(node.name, node.line, node.column,
+                                        resolvedVarTypeName, vreg.vregId, false);
     }
 
     // Phase 3: Auto-initialize __vt pointer for structs with virtual methods
@@ -1144,8 +1377,8 @@ void IRBuilder::visit(VariableDeclaration& node) {
         }
     }
 
-    // Emit initializer
-    if (node.initializer) {
+    // Emit initializer (skip for local statics - they're initialized at startup in DATA segment)
+    if (node.initializer && !node.isStatic) {
         if (auto* initList = dynamic_cast<InitializerList*>(node.initializer.get())) {
             if (!node.arrayDims.empty()) {
                 // Array initializer: store each element at base + i*elemSize
@@ -1220,11 +1453,26 @@ void IRBuilder::visit(VariableDeclaration& node) {
             } else {
                 // Non-struct initializer list — evaluate and store last value
                 node.initializer->accept(*this);
+
+                // IMPORTANT: Use ADDR_LOCAL to explicitly compute frame address before store.
+                // This ensures correctness when variables are allocated to frame locations.
+                // While IRCodeGen may optimize this to direct frame store for IN_FRAME vregs,
+                // the explicit address computation makes the IR more robust and correct.
+                // Test case: src/test-resources/test_scalar_init.c
+                auto addr = allocVreg(ir::Type::PTR);
+                ir::Inst addrInst;
+                addrInst.op = ir::Op::ADDR_LOCAL;
+                addrInst.dest = addr;
+                addrInst.resultType = ir::Type::PTR;
+                addrInst.src1 = ir::Operand::vreg(vreg.vregId, ir::Type::PTR);
+                addrInst.loc = loc(node);
+                emit(addrInst);
+
                 ir::Inst store;
                 store.op = ir::Op::STORE;
                 store.resultType = t;
                 store.src1 = lastValue_;
-                store.src2 = vreg;
+                store.src2 = addr;
                 store.loc = loc(node);
                 emit(store);
             }
@@ -1288,10 +1536,9 @@ void IRBuilder::visit(IntegerLiteral& node) {
     if (t == ir::Type::I16 && node.castType.empty() && (node.value > 65535 || node.value < -32768)) {
         t = ir::Type::I32;
         std::stringstream ss;
-        ss << "warning: integer literal " << node.value << " exceeds 16-bit range, promoted to long";
-        ir::SourceLoc sl = loc(node);
-        if (sl.valid()) ss << " at " << sl.file << ":" << sl.line;
-        warnings_.push_back(ss.str());
+        ss << "integer literal " << node.value << " exceeds 16-bit range, promoted to long";
+        warnings_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+            Severity::Warning, ss.str()));
     }
     auto dest = allocVreg(t);
     ir::Inst inst;
@@ -1512,18 +1759,47 @@ void IRBuilder::visit(VariableReference& node) {
 void IRBuilder::visit(Assignment& node) {
     // 1. Semantic checks for constness
     if (auto* ma = dynamic_cast<MemberAccess*>(node.target.get())) {
-        for (const auto& [sname, sinfo] : structs_) {
-            auto mit = sinfo.members.find(ma->memberName);
-            if (mit != sinfo.members.end() && mit->second.isConst) {
-                errors_.push_back("Compile Error: Assignment to read-only location");
-                return;
+        // Determine the struct type of the variable being accessed
+        std::string structTypeName;
+        if (auto* vr = dynamic_cast<VariableReference*>(ma->structExpr.get())) {
+            // Look up the variable's type in local scope first, then global scope
+            auto lit = localTypeNames_.find(vr->name);
+            if (lit != localTypeNames_.end()) {
+                structTypeName = lit->second;
+            } else {
+                auto git = globalTypeNames_.find(vr->name);
+                if (git != globalTypeNames_.end()) {
+                    structTypeName = git->second;
+                }
+            }
+        }
+
+        // If we found the struct type, check if the member is const
+        if (!structTypeName.empty()) {
+            // Remove "struct " or "union " prefix if present
+            if (structTypeName.substr(0, 7) == "struct ") {
+                structTypeName = structTypeName.substr(7);
+            } else if (structTypeName.substr(0, 6) == "union ") {
+                structTypeName = structTypeName.substr(6);
+            }
+
+            // Look up the struct definition
+            auto sit = structs_.find(structTypeName);
+            if (sit != structs_.end()) {
+                auto mit = sit->second.members.find(ma->memberName);
+                if (mit != sit->second.members.end() && mit->second.isConst) {
+                    errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                        Severity::Error, "Compile Error: Assignment to read-only location"));
+                    return;
+                }
             }
         }
     }
     if (auto* vr = dynamic_cast<VariableReference*>(node.target.get())) {
         auto cit = localConst_.find(vr->name);
         if (cit != localConst_.end() && cit->second) {
-            errors_.push_back("Compile Error: Assignment to read-only location");
+            errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                Severity::Error, "Compile Error: Assignment to read-only location"));
             return;
         }
     }
@@ -1538,7 +1814,8 @@ void IRBuilder::visit(Assignment& node) {
                     auto ptit = localPointedToType_.find(vr->name);
                     bool isMultiPtr = (ptit != localPointedToType_.end() && ptit->second == ir::Type::PTR);
                     if (!isMultiPtr) {
-                        errors_.push_back("Compile Error: Assignment to read-only location");
+                        errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                            Severity::Error, "Compile Error: Assignment to read-only location"));
                         return;
                     }
                 }
@@ -1694,12 +1971,24 @@ void IRBuilder::visit(Assignment& node) {
             ir::Inst bfins;
             bfins.op = ir::Op::BFINS;
             bfins.resultType = memberType;
+            auto bfinsResult = allocVreg(memberType);
+            bfins.dest = bfinsResult;  // Allocate vreg to hold modified value
             bfins.src1 = rhs;
             bfins.src2 = addr;
             bfins.args.push_back(ir::Operand::imm(bitOffset, ir::Type::I8));
             bfins.args.push_back(ir::Operand::imm(bitWidth, ir::Type::I8));
             bfins.loc = loc(node);
             emit(bfins);
+
+            // Store the modified value back to the original storage location
+            ir::Inst store;
+            store.op = ir::Op::STORE;
+            store.src1 = bfinsResult;
+            store.src2 = addr;
+            store.resultType = ir::Type::VOID;
+            store.loc = loc(node);
+            emit(store);
+
             lastValue_ = rhs;
             return;
         }
@@ -2084,7 +2373,10 @@ void IRBuilder::visit(BinaryOperation& node) {
         else if (node.op == "-") op = ir::Op::FSUB;
         else if (node.op == "*") op = ir::Op::FMUL;
         else if (node.op == "/") op = ir::Op::FDIV;
-        else throw std::runtime_error("Unsupported operator '" + node.op + "' for float type");
+        else {
+            std::string errMsg = "Unsupported operator '" + node.op + "' for float type";
+            throw std::runtime_error(formatSemanticError(errMsg, node.sourceFile, node.line, node.column));
+        }
         auto dest = allocVreg(finalResultType);
         ir::Inst inst; inst.op = op; inst.dest = dest; inst.resultType = finalResultType;
         inst.src1 = lhsVal; inst.src2 = rhsVal; inst.loc = loc(node); emit(inst);
@@ -2204,12 +2496,14 @@ void IRBuilder::visit(UnaryOperation& node) {
         if (auto* vr = dynamic_cast<VariableReference*>(node.operand.get())) {
             auto rit = localRegister_.find(vr->name);
             if (rit != localRegister_.end() && rit->second) {
-                errors_.push_back("Compile Error: Cannot take address of register variable");
+                errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                    Severity::Error, "Compile Error: Cannot take address of register variable"));
                 return;
             }
             auto grit = globalRegister_.find(vr->name);
             if (grit != globalRegister_.end() && grit->second) {
-                errors_.push_back("Compile Error: Cannot take address of register variable");
+                errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                    Severity::Error, "Compile Error: Cannot take address of register variable"));
                 return;
             }
             auto it = locals_.find(vr->name);
@@ -2245,7 +2539,8 @@ void IRBuilder::visit(UnaryOperation& node) {
             int accOffset = 0;
             auto* mit = findStructMember(sName, ma->memberName, accOffset);
             if (mit && mit->bitWidth > 0) {
-                errors_.push_back("Compile Error: Cannot take address of bitfield member");
+                errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                    Severity::Error, "Compile Error: Cannot take address of bitfield member"));
                 return;
             }
             bool oldAddrMode = computeAddressOnly_;
@@ -2310,7 +2605,8 @@ void IRBuilder::visit(UnaryOperation& node) {
         if (auto* vr = dynamic_cast<VariableReference*>(node.operand.get())) {
             auto cit = localConst_.find(vr->name);
             if (cit != localConst_.end() && cit->second) {
-                errors_.push_back("Compile Error: Assignment to read-only location");
+                errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                    Severity::Error, "Compile Error: Assignment to read-only location"));
             }
         }
         if (auto* deref = dynamic_cast<UnaryOperation*>(node.operand.get())) {
@@ -2321,7 +2617,8 @@ void IRBuilder::visit(UnaryOperation& node) {
                         auto ptit = localPointedToType_.find(vr->name);
                         bool isMultiPtr = (ptit != localPointedToType_.end() && ptit->second == ir::Type::PTR);
                         if (!isMultiPtr) {
-                            errors_.push_back("Compile Error: Increment/decrement of read-only location");
+                            errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                                Severity::Error, "Compile Error: Increment/decrement of read-only location"));
                         }
                     }
                 }
@@ -2333,7 +2630,8 @@ void IRBuilder::visit(UnaryOperation& node) {
             int accOffset = 0;
             auto* mit = findStructMember(sName, ma->memberName, accOffset);
             if (mit && mit->isConst) {
-                errors_.push_back("Compile Error: Increment/decrement of read-only member");
+                errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                    Severity::Error, "Compile Error: Increment/decrement of read-only member"));
             }
         }
 
@@ -2383,7 +2681,63 @@ void IRBuilder::visit(UnaryOperation& node) {
         inst.loc = loc(node);
         emit(inst);
 
-        // Store back to the variable
+        // Store back to the variable (handle bitfield specially)
+        if (auto* ma = dynamic_cast<MemberAccess*>(node.operand.get())) {
+            // Check if this is a bitfield member
+            int bitWidth = 0, bitOffset = 0, memberOffset = 0;
+            ir::Type memberType = ir::Type::I16;
+            for (const auto& [sname, sinfo] : structs_) {
+                auto mit = sinfo.members.find(ma->memberName);
+                if (mit != sinfo.members.end() && mit->second.bitWidth > 0) {
+                    bitWidth = mit->second.bitWidth;
+                    bitOffset = mit->second.bitOffset;
+                    memberOffset = mit->second.offset;
+                    memberType = mapType(mit->second.type, mit->second.pointerLevel);
+                    break;
+                }
+            }
+
+            if (bitWidth > 0) {
+                // Bitfield store: use BFINS
+                ma->structExpr->accept(*this);
+                auto base = lastValue_;
+                auto addrVreg = allocVreg(ir::Type::PTR);
+                ir::Inst add;
+                add.op = ir::Op::ADD;
+                add.dest = addrVreg;
+                add.resultType = ir::Type::PTR;
+                add.src1 = base;
+                add.src2 = ir::Operand::imm(memberOffset, ir::Type::I16);
+                add.loc = loc(node);
+                emit(add);
+
+                ir::Inst bfins;
+                bfins.op = ir::Op::BFINS;
+                bfins.resultType = memberType;
+                auto bfinsResult = allocVreg(memberType);
+                bfins.dest = bfinsResult;
+                bfins.src1 = dest;  // The incremented value
+                bfins.src2 = addrVreg;
+                bfins.args.push_back(ir::Operand::imm(bitOffset, ir::Type::I8));
+                bfins.args.push_back(ir::Operand::imm(bitWidth, ir::Type::I8));
+                bfins.loc = loc(node);
+                emit(bfins);
+
+                // Store the modified value back
+                ir::Inst store;
+                store.op = ir::Op::STORE;
+                store.src1 = bfinsResult;
+                store.src2 = addrVreg;
+                store.resultType = ir::Type::VOID;
+                store.loc = loc(node);
+                emit(store);
+
+                lastValue_ = isPost ? oldVal : dest;
+                return;
+            }
+        }
+
+        // Regular (non-bitfield) store
         ir::Operand addr;
         if (auto* vr = dynamic_cast<VariableReference*>(node.operand.get())) {
             auto lit = locals_.find(vr->name);
@@ -2706,8 +3060,8 @@ void IRBuilder::visit(FunctionCall& node) {
                             // Check if the variable itself is const (not pointer-to-const)
                             // For `const int x`, localConst_["x"] = true
                             if (cit != localConst_.end() && cit->second) {
-                                warnings_.push_back(
-                                    "warning: passing argument discards 'const' qualifier");
+                                warnings_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                                    Severity::Warning, "passing argument discards 'const' qualifier"));
                             }
                         }
                     }
@@ -2835,12 +3189,22 @@ void IRBuilder::visit(FunctionCall& node) {
         inst.src1 = lastValue_;
         auto dest = allocVreg(ir::Type::I16);
         inst.op = ir::Op::CALL_INDIRECT;
-        inst.callConv = ir::CallConv::STACK; // TODO: support ZP indirect calls
+        inst.callConv = zpCallMode ? ir::CallConv::ZP : ir::CallConv::STACK;
         inst.dest = dest;
         inst.resultType = ir::Type::I16;
         emit(inst);
         lastValue_ = dest;
     } else {
+        // Record function call for cross-module optimization profiling
+        if (currentFunc_) {
+            profiler_.recordFunctionCall(
+                currentFunc_->name,  // Keep '_' prefix for consistency with build states
+                "_" + node.name,     // Add '_' prefix to match build state keys
+                static_cast<int>(node.arguments.size()),
+                false  // hasConstantArgs will be determined later if needed
+            );
+        }
+
         // Check for inline expansion
         auto inlineIt = inlineCandidates_.find(node.name);
         if (inlineIt != inlineCandidates_.end() &&
@@ -2881,7 +3245,10 @@ void IRBuilder::visit(FunctionCall& node) {
                 localTypeNames_[p.name] = p.type;
                 localSigned_[p.name] = p.isSigned;
                 localConst_[p.name] = (p.pointerLevel == 0 && p.isConst);
-                if (p.pointerLevel > 0) localPointedToType_[p.name] = mapType(p.type, 0);
+                if (p.pointerLevel > 0) {
+                    localPointedToType_[p.name] = mapType(p.type, 0);
+                    localPointedToTypeName_[p.name] = p.type;
+                }
             }
 
             // Create a result vreg for the return value
@@ -2976,7 +3343,8 @@ void IRBuilder::visit(FunctionCall& node) {
                 if (it != functionReturnTypes_.end()) {
                     retType = it->second;
                 } else {
-                    warnings_.push_back("warning: implicit declaration of function '" + node.name + "'");
+                    warnings_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                        Severity::Warning, "implicit declaration of function '" + node.name + "'"));
                 }
 
                 // For struct-returning functions, use the allocated structDest vreg
@@ -3445,7 +3813,8 @@ void IRBuilder::visit(GenericSelection& node) {
         }
     }
     if (!selected) {
-        throw std::runtime_error("No matching association in _Generic selection");
+        std::string errMsg = "No matching association in _Generic selection";
+        throw std::runtime_error(formatSemanticError(errMsg, node.sourceFile, node.line, node.column));
     }
     if (selected->result) selected->result->accept(*this);
 }
@@ -3627,22 +3996,30 @@ void IRBuilder::visit(MemberAccess& node) {
     computeAddressOnly_ = oldAddrMode;
 
     IRTypeInfo baseInfo = getExprTypeInfo(node.structExpr.get());
-    bool isBaseStructOrUnion = (baseInfo.typeName.rfind("struct ", 0) == 0 || baseInfo.typeName.rfind("union ", 0) == 0);
-    bool valid = isBaseStructOrUnion && (node.isArrow ? (baseInfo.type == ir::Type::PTR) : (baseInfo.type != ir::Type::PTR));
-    if (!valid) {
-        throw std::runtime_error("Error at line " + std::to_string(node.line) + ": Dot/Arrow operator on non-struct type");
+    std::string sName = getAggregateName(baseInfo.typeName);
+
+    // Phase 102: Resolve typedef-to-struct mappings
+    // If sName doesn't have "struct " prefix and is a typedef, resolve it
+    if (sName.find("struct ") != 0) {
+        std::string resolved = resolveTypedefToStruct(sName);
+        if (resolved != sName) {
+            sName = getAggregateName(resolved);
+        } else {
+            // Try the pattern: struct sName (if it was a simple name)
+            std::string potentialStruct = "struct " + sName;
+            if (structs_.find(potentialStruct) != structs_.end()) {
+                sName = potentialStruct;
+            }
+        }
     }
 
-    std::string sName = getAggregateName(baseInfo.typeName);
     auto sit = structs_.find(sName);
-    if (sit == structs_.end()) {
-        throw std::runtime_error("Error at line " + std::to_string(node.line) + ": Unknown struct/union type '" + sName + "'");
-    }
 
     int accumulatedOffset = 0;
     auto* mit = findStructMember(sName, node.memberName, accumulatedOffset);
     if (!mit) {
-        throw std::runtime_error("Error at line " + std::to_string(node.line) + ": Member '" + node.memberName + "' not found in struct '" + sName + "'");
+        std::string errMsg = "Member '" + node.memberName + "' not found in struct '" + sName + "'";
+        throw std::runtime_error(formatSemanticError(errMsg, node.sourceFile, node.line, node.column));
     }
 
     int memberOffset = mit->offset + accumulatedOffset;
@@ -3704,7 +4081,8 @@ void IRBuilder::visit(CompoundLiteral& node) {
     if (isStructOrUnion && node.pointerLevel == 0) {
         std::string sName = getAggregateName(node.targetType);
         if (!structs_.count(sName)) {
-            throw std::runtime_error("Error at line " + std::to_string(node.line) + ": Unknown struct type: " + node.targetType);
+            std::string errMsg = "Unknown struct type: " + node.targetType;
+            throw std::runtime_error(formatSemanticError(errMsg, node.sourceFile, node.line, node.column));
         }
     }
 
@@ -4089,6 +4467,10 @@ void IRBuilder::visit(AsmStatement& node) {
         weakNextFunction_ = true;
         return;
     }
+    if (node.code == ".recurse_next") {
+        recurseNextFunction_ = true;
+        return;
+    }
     if (node.code == ".no_zp_save") {
         module_.saveZP = false;
         return;
@@ -4294,11 +4676,13 @@ void IRBuilder::visit(StructDefinition& node) {
 }
 void IRBuilder::visit(BuiltinVaStart& node) {
     if (!dynamic_cast<VariableReference*>(node.ap.get())) {
-        errors_.push_back("Compile Error: va_start: first argument must be a variable");
+        errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+            Severity::Error, "Compile Error: va_start: first argument must be a variable"));
         return;
     }
     if (currentFuncParams_.find(node.lastParamName) == currentFuncParams_.end()) {
-        errors_.push_back("Compile Error: va_start: '" + node.lastParamName + "' is not a parameter");
+        errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+            Severity::Error, "Compile Error: va_start: '" + node.lastParamName + "' is not a parameter"));
         return;
     }
     // va_start(ap, last_param): compute address past last named param
@@ -4413,4 +4797,129 @@ void IRBuilder::visit(LabelAddressExpression& node) {
     addr.loc = loc(node);
     emit(addr);
     lastValue_ = addr.dest;
+}
+
+// Phase 102: Typedef to Struct Resolution Implementation
+
+void IRBuilder::registerAllStructDefinitions(TranslationUnit& unit) {
+    // Phase 102.1: Walk the entire AST and register all struct definitions
+    // This allows us to later resolve typedef'd struct types correctly
+
+    // Create a visitor to walk and register struct definitions
+    class StructRegistrationVisitor : public ASTVisitor {
+    public:
+        IRBuilder& builder;
+
+        StructRegistrationVisitor(IRBuilder& b) : builder(b) {}
+
+        // Minimal visitor that delegates to IRBuilder for struct definitions
+        // and ignores other nodes
+
+        void visit(IntegerLiteral&) override {}
+        void visit(FloatLiteral&) override {}
+        void visit(StringLiteral&) override {}
+        void visit(VariableReference&) override {}
+        void visit(Assignment&) override {}
+        void visit(BinaryOperation&) override {}
+        void visit(UnaryOperation&) override {}
+        void visit(ConditionalExpression&) override {}
+        void visit(GenericSelection&) override {}
+        void visit(InitializerList&) override {}
+        void visit(ArrayAccess&) override {}
+        void visit(FunctionCall&) override {}
+        void visit(MemberAccess&) override {}
+        void visit(CastExpression&) override {}
+        void visit(CompoundLiteral&) override {}
+        void visit(AlignofExpression&) override {}
+        void visit(SizeofExpression&) override {}
+        void visit(VariableDeclaration& node) override {
+            // Register variable declarations to infer typedef-to-struct mappings
+            // This happens when we see `typedef_name *var` declarations
+            if (!node.type.empty() && node.type.find("struct ") == std::string::npos) {
+                // Check if this type looks like a struct type (we infer from context)
+                // For now, just skip - we'll infer from struct definitions
+            }
+        }
+        void visit(ReturnStatement&) override {}
+        void visit(BreakStatement&) override {}
+        void visit(ContinueStatement&) override {}
+        void visit(SwitchContinueStatement&) override {}
+        void visit(GotoStatement&) override {}
+        void visit(LabelledStatement&) override {}
+        void visit(ExpressionStatement&) override {}
+        void visit(IfStatement&) override {}
+        void visit(WhileStatement&) override {}
+        void visit(DoWhileStatement&) override {}
+        void visit(ForStatement&) override {}
+        void visit(RepeatStatement&) override {}
+        void visit(SwitchStatement&) override {}
+        void visit(CaseStatement&) override {}
+        void visit(DefaultStatement&) override {}
+        void visit(AsmStatement&) override {}
+        void visit(StaticAssert&) override {}
+        void visit(EnumDefinition&) override {}
+        void visit(StructDefinition&) override {
+            // Struct definitions are already visited during IR generation
+            // Just ensure they're registered
+        }
+        void visit(CompoundStatement&) override {}
+        void visit(FunctionDeclaration&) override {}
+        void visit(BuiltinVaStart&) override {}
+        void visit(BuiltinVaArg&) override {}
+        void visit(CpuRegisterAccess&) override {}
+        void visit(CpuFlagAccess&) override {}
+        void visit(LabelAddressExpression&) override {}
+        void visit(TranslationUnit&) override {}
+    };
+
+    // Walk through all top-level declarations looking for struct definitions
+    // and variable declarations that might establish typedef mappings
+    for (const auto& decl : unit.topLevelDecls) {
+        if (auto* structDef = dynamic_cast<StructDefinition*>(decl.get())) {
+            // Register the struct definition immediately
+            visit(*structDef);
+        }
+        // Note: Variable declarations are visited normally during IR generation
+        // and will establish typedef mappings through getExprTypeInfo()
+    }
+}
+
+std::string IRBuilder::resolveTypedefToStruct(const std::string& typedefName) {
+    // Phase 102.2: Resolve a typedef name to its underlying struct name
+    auto it = typedefToStruct_.find(typedefName);
+    if (it != typedefToStruct_.end()) {
+        return it->second;
+    }
+
+    // If not found, return the original name (caller will handle lookup)
+    // But also try to infer: if it doesn't start with "struct ", it might be
+    // a typedef that maps to "struct <name>"
+    if (typedefName.find("struct ") != 0) {
+        // Try looking for "struct " + typedefName
+        std::string potentialStructName = "struct " + typedefName;
+        // This will be checked by the caller
+    }
+
+    return typedefName;
+}
+
+void IRBuilder::registerTypedefToStruct(const std::string& typedefName, const std::string& structName) {
+    // Phase 102.3: Register a typedef-to-struct mapping
+    // Example: registerTypedefToStruct("digi_system_t", "struct digi_system")
+    if (!typedefName.empty() && !structName.empty()) {
+        typedefToStruct_[typedefName] = structName;
+    }
+}
+
+void IRBuilder::setTypedefMappings(const std::map<std::string, std::string>& typedefToBaseType) {
+    // Phase 102.4: Register struct/union typedefs from the parser
+    // Map: typedef_name → baseType (e.g., "digi_system_t" → "struct digi_system")
+
+    for (const auto& [typedefName, baseType] : typedefToBaseType) {
+        // Only register struct/union typedefs
+        if (baseType.find("struct ") == 0 || baseType.find("union ") == 0) {
+            // Register the mapping: typedef name → struct/union name
+            registerTypedefToStruct(typedefName, baseType);
+        }
+    }
 }

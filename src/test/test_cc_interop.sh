@@ -1,5 +1,5 @@
 #!/bin/bash
-# test_cc_interop.sh — Comprehensive tests for calling convention interoperability
+# test_cc_interop.s45h — Comprehensive tests for calling convention interoperability
 #
 # Tests safe and unsafe calling convention combinations:
 #   1. Stack → ZP calls (ALLOWED — fastcall interop)
@@ -39,9 +39,9 @@ echo "==========================================================================
 echo ""
 echo "=== Test 1: Stack → ZP calls (ALLOWED — fastcall interop) ==="
 
-$CC -S src/test-resources/test_cc_stack_to_zp.c -o build/test/test_cc_stack_to_zp.s 2>build/test/test_cc_stack_to_zp.err
+$CC -S src/test-resources/test_cc_stack_to_zp.c -o build/test/test_cc_stack_to_zp.s45 2>build/test/test_cc_stack_to_zp.err
 if [ $? -eq 0 ]; then
-    $AS build/test/test_cc_stack_to_zp.s -o build/test/test_cc_stack_to_zp.bin 2>/dev/null
+    $AS build/test/test_cc_stack_to_zp.s45 -o build/test/test_cc_stack_to_zp.bin 2>/dev/null
     if [ $? -eq 0 ]; then
         OUTPUT=$(run_mmemu build/test/test_cc_stack_to_zp.bin 0x2000 6)
         # Expected results: [0]=30, [1]=0, [2]=155, [3]=0, [4]=35, [5]=0xFF
@@ -85,9 +85,9 @@ fi
 echo ""
 echo "=== Test 3: Struct returns across conventions ==="
 
-$CC -S src/test-resources/test_cc_struct_return.c -o build/test/test_cc_struct_return.s 2>build/test/test_cc_struct_return.err
+$CC -S src/test-resources/test_cc_struct_return.c -o build/test/test_cc_struct_return.s45 2>build/test/test_cc_struct_return.err
 if [ $? -eq 0 ]; then
-    $AS build/test/test_cc_struct_return.s -o build/test/test_cc_struct_return.bin 2>/dev/null
+    $AS build/test/test_cc_struct_return.s45 -o build/test/test_cc_struct_return.bin 2>/dev/null
     if [ $? -eq 0 ]; then
         OUTPUT=$(run_mmemu build/test/test_cc_struct_return.bin 0x2000 7)
         # Expected: p.x=10, p.y=20, r.left={0,1}, r.top={0,2}
@@ -109,9 +109,9 @@ fi
 echo ""
 echo "=== Test 4: Long (32-bit) returns across conventions ==="
 
-$CC -S src/test-resources/test_cc_long_return.c -o build/test/test_cc_long_return.s 2>build/test/test_cc_long_return.err
+$CC -S src/test-resources/test_cc_long_return.c -o build/test/test_cc_long_return.s45 2>build/test/test_cc_long_return.err
 if [ $? -eq 0 ]; then
-    $AS build/test/test_cc_long_return.s -o build/test/test_cc_long_return.bin 2>/dev/null
+    $AS build/test/test_cc_long_return.s45 -o build/test/test_cc_long_return.bin 2>/dev/null
     if [ $? -eq 0 ]; then
         OUTPUT=$(run_mmemu build/test/test_cc_long_return.bin 0x2000 9)
         # Expected: r1 = 0x12345678, r2 = 0xABCDEF01
@@ -133,9 +133,9 @@ fi
 echo ""
 echo "=== Test 5: Parameter passing edge cases ==="
 
-$CC -S src/test-resources/test_cc_param_edge_cases.c -o build/test/test_cc_param_edge_cases.s 2>build/test/test_cc_param_edge_cases.err
+$CC -S src/test-resources/test_cc_param_edge_cases.c -o build/test/test_cc_param_edge_cases.s45 2>build/test/test_cc_param_edge_cases.err
 if [ $? -eq 0 ]; then
-    $AS build/test/test_cc_param_edge_cases.s -o build/test/test_cc_param_edge_cases.bin 2>/dev/null
+    $AS build/test/test_cc_param_edge_cases.s45 -o build/test/test_cc_param_edge_cases.bin 2>/dev/null
     if [ $? -eq 0 ]; then
         OUTPUT=$(run_mmemu build/test/test_cc_param_edge_cases.bin 0x2000 5)
         # Expected: r1=10 (1+2+3+4), r2=150 (10+20+30+40+50), r3=105 (5+100), r4=110 (11+22+33+44)
@@ -157,9 +157,9 @@ fi
 echo ""
 echo "=== Test 6: Variadic calls from ZP functions ==="
 
-$CC -S src/test-resources/test_cc_zp_variadic.c -o build/test/test_cc_zp_variadic.s 2>build/test/test_cc_zp_variadic.err
+$CC -S src/test-resources/test_cc_zp_variadic.c -o build/test/test_cc_zp_variadic.s45 2>build/test/test_cc_zp_variadic.err
 if [ $? -eq 0 ]; then
-    $AS build/test/test_cc_zp_variadic.s -o build/test/test_cc_zp_variadic.bin 2>/dev/null
+    $AS build/test/test_cc_zp_variadic.s45 -o build/test/test_cc_zp_variadic.bin 2>/dev/null
     if [ $? -eq 0 ]; then
         OUTPUT=$(run_mmemu build/test/test_cc_zp_variadic.bin 0x2000 7)
         # Expected: r1=30 (5+10+15), r2=20 (7+3+10), r3=312 (100+56+156)
@@ -205,7 +205,7 @@ fi
 echo ""
 echo "=== Test 8: Assembly-level .func_flags directive ==="
 
-$AS -c src/test-resources/test_cc_asm.s -o build/test/test_cc_asm.o45 2>build/test/test_cc_asm.err
+$AS -c src/test-resources/test_cc_asm.s45 -o build/test/test_cc_asm.o45 2>build/test/test_cc_asm.err
 if [ $? -eq 0 ]; then
     NM_OUT=$($NM -f build/test/test_cc_asm.o45 2>/dev/null)
 

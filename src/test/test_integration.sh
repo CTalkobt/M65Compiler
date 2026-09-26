@@ -55,9 +55,9 @@ echo "Running integration tests (cc45 -c → ln45 → mmemu)..."
 echo ""
 
 # Build crt0.o45 once
-$AS -c lib/crt0.s -o "$BUILD/crt0.o45" 2>/dev/null
+$AS -c lib/crt0.s45 -o "$BUILD/crt0.o45" 2>/dev/null
 if [ $? -ne 0 ]; then
-    echo "FAIL: could not assemble crt0.s"
+    echo "FAIL: could not assemble crt0.s45"
     exit 1
 fi
 

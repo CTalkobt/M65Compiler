@@ -28,13 +28,13 @@ echo "Phase 1: Per-function clobber tracking"
 echo "======================================="
 
 # Compile test program to assembly
-$CC -S src/test-resources/test_clobber_tracking.c -o build/test/test_clobber_tracking.s 2>/dev/null
+$CC -S src/test-resources/test_clobber_tracking.c -o build/test/test_clobber_tracking.s45 2>/dev/null
 check "test_clobber_tracking.c compiles" "[ $? -eq 0 ]"
 
-$AS build/test/test_clobber_tracking.s -o build/test/test_clobber_tracking.prg 2>/dev/null
-check "test_clobber_tracking.s assembles" "[ $? -eq 0 ]"
+$AS build/test/test_clobber_tracking.s45 -o build/test/test_clobber_tracking.prg 2>/dev/null
+check "test_clobber_tracking.s45 assembles" "[ $? -eq 0 ]"
 
-ASM="build/test/test_clobber_tracking.s"
+ASM="build/test/test_clobber_tracking.s45"
 
 # Extract per-function clobber info: find proc name, then its func_flags/reg_clobbers
 extract_func_info() {
@@ -44,37 +44,38 @@ extract_func_info() {
 
 # set_value: leaf, clobbers A, X only
 INFO=$(extract_func_info "_set_value")
-check "set_value is leaf" "echo '$INFO' | grep -q 'func_flags stack_call, leaf'"
+check "set_value is leaf" "echo '$INFO' | grep -qE 'func_flags.*leaf'"
 check "set_value clobbers A, X" "echo '$INFO' | grep -q 'reg_clobbers A, X$'"
 
 # set_flag: leaf, clobbers A, X
 INFO=$(extract_func_info "_set_flag")
-check "set_flag is leaf" "echo '$INFO' | grep -q 'func_flags stack_call, leaf'"
+check "set_flag is leaf" "echo '$INFO' | grep -qE 'func_flags.*leaf'"
 check "set_flag clobbers A, X" "echo '$INFO' | grep -q 'reg_clobbers A, X$'"
 
 # noop: leaf, no reg clobbers
 INFO=$(extract_func_info "_noop")
-check "noop is leaf" "echo '$INFO' | grep -q 'func_flags stack_call, leaf'"
+check "noop is leaf" "echo '$INFO' | grep -qE 'func_flags.*leaf'"
 check "noop has no reg_clobbers" "! echo '$INFO' | grep -q 'reg_clobbers'"
 
 # caller: NOT leaf (calls other functions)
+# Clobbers = union of called functions: set_value(A,X) | set_flag(A,X) | noop(none) = A, X
 INFO=$(extract_func_info "_caller")
-check "caller is not leaf" "echo '$INFO' | grep -q 'func_flags stack_call$'"
-check "caller clobbers all regs" "echo '$INFO' | grep -q 'reg_clobbers A, X, Y, Z'"
+check "caller is not leaf" "! echo '$INFO' | grep -qE 'func_flags.*leaf'"
+check "caller clobbers union of callees" "echo '$INFO' | grep -q 'reg_clobbers A, X$'"
 
 # get_value: leaf, clobbers A, X
 INFO=$(extract_func_info "_get_value")
-check "get_value is leaf" "echo '$INFO' | grep -q 'func_flags stack_call, leaf'"
+check "get_value is leaf" "echo '$INFO' | grep -qE 'func_flags.*leaf'"
 check "get_value clobbers A, X" "echo '$INFO' | grep -q 'reg_clobbers A, X$'"
 
 # add: leaf, clobbers A, X (arithmetic)
 INFO=$(extract_func_info "_add")
-check "add is leaf" "echo '$INFO' | grep -q 'func_flags stack_call, leaf'"
+check "add is leaf" "echo '$INFO' | grep -qE 'func_flags.*leaf'"
 check "add clobbers A, X" "echo '$INFO' | grep -q 'reg_clobbers A, X$'"
 
 # main: NOT leaf
 INFO=$(extract_func_info "_main")
-check "main is not leaf" "echo '$INFO' | grep -q 'func_flags stack_call$'"
+check "main is not leaf" "! echo '$INFO' | grep -qE 'func_flags.*leaf'"
 
 echo ""
 echo "Phase 2: Selective register invalidation"
@@ -83,7 +84,7 @@ echo "========================================="
 # Test: assembler uses .reg_clobbers at JSR sites
 # We assemble a hand-written test where redundant loads should be eliminated
 
-cat > build/test/test_phase2.s << 'EOF'
+cat > build/test/test_phase2.s45 << 'EOF'
 .org $2000
 __sp_base = $0101
 __zp_scratch = $08
@@ -138,7 +139,7 @@ proc _test_no_eliminate
     endproc
 EOF
 
-$AS build/test/test_phase2.s -o build/test/test_phase2_opt.bin 2>/dev/null
+$AS build/test/test_phase2.s45 -o build/test/test_phase2_opt.bin 2>/dev/null
 check "Phase 2 test assembles" "[ $? -eq 0 ]"
 
 # Get binary size — the optimized version should be smaller than
@@ -146,8 +147,8 @@ check "Phase 2 test assembles" "[ $? -eq 0 ]"
 OPT_SIZE=$(wc -c < build/test/test_phase2_opt.bin)
 
 # Create unoptimized version: change _only_a to clobber A, X (prevents elimination)
-sed 's/reg_clobbers A$/reg_clobbers A, X/' build/test/test_phase2.s > build/test/test_phase2_noopt.s
-$AS build/test/test_phase2_noopt.s -o build/test/test_phase2_noopt.bin 2>/dev/null
+sed 's/reg_clobbers A$/reg_clobbers A, X/' build/test/test_phase2.s45 > build/test/test_phase2_noopt.s45
+$AS build/test/test_phase2_noopt.s45 -o build/test/test_phase2_noopt.bin 2>/dev/null
 NOOPT_SIZE=$(wc -c < build/test/test_phase2_noopt.bin)
 
 check "optimized binary not larger than unoptimized ($OPT_SIZE <= $NOOPT_SIZE)" "[ $OPT_SIZE -le $NOOPT_SIZE ]"

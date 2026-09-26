@@ -40,7 +40,7 @@ disasm: $(OBJECTS)
 	done
 
 clean:
-	rm -f $(OBJECTS) $(OBJECTS:.o45=.o45.s) $(TARGET)
+	rm -f $(OBJECTS) $(OBJECTS:.o45=.o45.s45) $(TARGET)
 
 run: $(TARGET)
 	xemu-xmega65 -prg $(TARGET)

@@ -1,75 +1,57 @@
-* = $2000
+    .o45
+    .org $2000
+    .weak __sp_base
     __sp_base = $0101
-; Save ZP $08-$FF to BSS buffer
-    ldx #0
-@__zp_save_loop:
-    lda $08,x
-    sta __zp_save_buf,x
-    inx
-    cpx #248
-    bne @__zp_save_loop
-    jsr _main
-    sta $02
-    stx $03
-; Restore ZP $08-$FF from BSS buffer
-    ldx #0
-@__zp_restore_loop:
-    lda __zp_save_buf,x
-    sta $08,x
-    inx
-    cpx #248
-    bne @__zp_restore_loop
-    lda $02
-    ldx $03
-__halt:
-    jmp __halt
-    .global __static_chain
-    .global __zp_scratch
-    .global __zp_scratch2
-    .global __zp_scratch3
-    .global __zp_scratch4
+    .weak __static_chain
+    .weak __zp_scratch
+    .weak __zp_scratch2
+    .weak __zp_scratch3
+    .weak __zp_scratch4
+    .weak cc45.zeroPageStart
     __static_chain = $06
     __zp_scratch = $08
     __zp_scratch2 = $0A
     __zp_scratch3 = $0C
     __zp_scratch4 = $0E
+    cc45.zeroPageStart = $08
 
     .extern _mktime
 
+    .global _test_result
+    .global _test_count
+    .global _main
+
+    .segment "data"
+    .byte 0
 _test_result:
+; .debug_var: @global _test_result offset=0 size=2 type=ptr scope=global
     .word 16384
 _test_count:
+; .debug_var: @global _test_count offset=0 size=2 type=int16 scope=global
     .word 0
 
+    .segment "code"
 
 ; function _main
+; SAC inline storage: 22 bytes
+    _main__local_0: .word 0
+    _main__local_1: .long 0
+    _main__local_19: .word 0
+    _main__local_29: .word 0
+    _main__local_35: .word 0
+    _main__local_39: .word 0
+    _main__local_47: .word 0
+    _main__local_55: .word 0
+    _main__local_63: .word 0
+    _main__local_70: .word 0
     proc _main
+; Phase 51: zero-alloc leaf (all parameters constant)
     .var _fp = 0
-    .loc "/home/duck/m65/inpg/m65compiler.dev_v1.0.5/bin/../lib/include/time.h", 6
-; frame: 24 bytes (frame-allocated vRegs only)
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    phw #0
-    tsx
-    txa
-    clc
-    adc #1
-    sta $FD
-    lda #$01
-    adc #0
-    sta $FE
-    .local __vr0 = 4
-    .local __vr1 = 0
-    .local __vr29 = 22
+    .loc "/home/duck/m65/inpg/m65compiler/bin/../lib/include/time.h", 6
+    .local @_l_result = 0
+    .local @_l_t = 4
+; .debug_var: __main @_l_result offset=0 size=4 type=int32 scope=local
+; .debug_var: __main @_l_t offset=4 size=2 type=int16 scope=local
 
 @entry:
     .loc "test_mktime_fix.c", 12
@@ -77,7 +59,7 @@ _test_count:
     ldx #0
     sta $20
     stx $21
-    leax.fp 4
+    leax.local 4
     sta $22
     stx $23
     lda $22
@@ -97,7 +79,7 @@ _test_count:
     ldx #0
     sta $20
     stx $21
-    leax.fp 4
+    leax.local 4
     sta $22
     stx $23
     lda $22
@@ -117,7 +99,7 @@ _test_count:
     ldx #0
     sta $20
     stx $21
-    leax.fp 4
+    leax.local 4
     sta $22
     stx $23
     lda $22
@@ -137,7 +119,7 @@ _test_count:
     ldx #0
     sta $20
     stx $21
-    leax.fp 4
+    leax.local 4
     sta $22
     stx $23
     lda $22
@@ -156,7 +138,7 @@ _test_count:
     lda #0
     sta $20
     sta $21
-    leax.fp 4
+    leax.local 4
     sta $22
     stx $23
     lda $22
@@ -175,7 +157,7 @@ _test_count:
     lda #0
     sta $20
     sta $21
-    leax.fp 4
+    leax.local 4
     sta $22
     stx $23
     lda $20
@@ -189,7 +171,7 @@ _test_count:
     lda #0
     sta $20
     sta $21
-    leax.fp 4
+    leax.local 4
     sta $22
     stx $23
     lda $22
@@ -208,7 +190,7 @@ _test_count:
     lda #0
     sta $20
     sta $21
-    leax.fp 4
+    leax.local 4
     sta $22
     stx $23
     lda $22
@@ -227,7 +209,7 @@ _test_count:
     lda #0
     sta $20
     sta $21
-    leax.fp 4
+    leax.local 4
     sta $22
     stx $23
     lda $22
@@ -243,34 +225,26 @@ _test_count:
     iny
     sta ($24),y
     .loc "test_mktime_fix.c", 22
-    leax.fp 4
-    stax.fp __vr29
-    ldax.fp __vr29
+    leax.local 4
+    sta _main__local_29
+    stx _main__local_29+1
+    lda _main__local_29
+    ldx _main__local_29+1
     sta $28
     stx $29
     lda $28
     ldx $29
     push .ax
-    .var _fp = _fp + 2
     jsr _mktime
-    phx
-    pha
-    tsx
-    txa
-    clc
-    adc #1
-    sta $FD
-    lda #$01
-    adc #0
-    sta $FE
-    pla
-    plx
-    stz @__restore_caller_z_0+1
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    sty __zp_scratch4+2
+    stz __zp_scratch4+3
     plz
-    plz
-@__restore_caller_z_0:
-    ldz #0
-    .var _fp = _fp - 2
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    ldy __zp_scratch4+2
+    ldz __zp_scratch4+3
     sta $20
     stx $21
     sty $22
@@ -279,7 +253,10 @@ _test_count:
     ldx $21
     ldy $22
     ldz $23
-    staxyz.fp __vr1
+    sta _main__local_1
+    stx _main__local_1+1
+    sty _main__local_1+2
+    stz _main__local_1+3
     .loc "test_mktime_fix.c", 25
     lda #170
     sta $20
@@ -293,11 +270,23 @@ _test_count:
     lda $20
     ldx #0
     pha
-    .noopt_start
-    addr_elem.16 __zp_scratch, $22, $24, #1
-    ldy #0
-    .noopt_end
+    lda $24
+    ldx $25
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $22
+    ldx $22+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
     pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    pla
+    ldy #0
     sta (__zp_scratch),y
     .loc "test_mktime_fix.c", 28
     lda #255
@@ -312,7 +301,10 @@ _test_count:
     stx $23
     sty $24
     stz $25
-    ldaxyz.fp __vr1
+    lda _main__local_1
+    ldx _main__local_1+1
+    ldy _main__local_1+2
+    ldz _main__local_1+3
     and $22
     sta $26
     stx $27
@@ -331,14 +323,29 @@ _test_count:
     ldy $28
     ldz $29
     pha
-    .noopt_start
-    addr_elem.16 __zp_scratch, $20, $22, #1
-    ldy #0
-    .noopt_end
+    lda $22
+    ldx $23
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $20
+    ldx $20+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
     pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    pla
+    ldy #0
     sta (__zp_scratch),y
     .loc "test_mktime_fix.c", 29
-    ldaxyz.fp __vr1
+    lda _main__local_1
+    ldx _main__local_1+1
+    ldy _main__local_1+2
+    ldz _main__local_1+3
     txa
     pha
     tya
@@ -385,14 +392,29 @@ _test_count:
     ldy $2C
     ldz $2D
     pha
-    .noopt_start
-    addr_elem.16 __zp_scratch, $20, $22, #1
-    ldy #0
-    .noopt_end
+    lda $22
+    ldx $23
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $20
+    ldx $20+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
     pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    pla
+    ldy #0
     sta (__zp_scratch),y
     .loc "test_mktime_fix.c", 30
-    ldaxyz.fp __vr1
+    lda _main__local_1
+    ldx _main__local_1+1
+    ldy _main__local_1+2
+    ldz _main__local_1+3
     tza
     tax
     tya
@@ -436,14 +458,29 @@ _test_count:
     ldy $2C
     ldz $2D
     pha
-    .noopt_start
-    addr_elem.16 __zp_scratch, $20, $22, #1
-    ldy #0
-    .noopt_end
+    lda $22
+    ldx $23
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $20
+    ldx $20+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
     pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    pla
+    ldy #0
     sta (__zp_scratch),y
     .loc "test_mktime_fix.c", 31
-    ldaxyz.fp __vr1
+    lda _main__local_1
+    ldx _main__local_1+1
+    ldy _main__local_1+2
+    ldz _main__local_1+3
     tza
     ldx #0
     ldy #0
@@ -486,11 +523,23 @@ _test_count:
     ldy $2C
     ldz $2D
     pha
-    .noopt_start
-    addr_elem.16 __zp_scratch, $20, $22, #1
-    ldy #0
-    .noopt_end
+    lda $22
+    ldx $23
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $20
+    ldx $20+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
     pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    pla
+    ldy #0
     sta (__zp_scratch),y
     .loc "test_mktime_fix.c", 34
     lda #0
@@ -504,7 +553,10 @@ _test_count:
     stx $23
     sty $24
     stz $25
-    ldaxyz.fp __vr1
+    lda _main__local_1
+    ldx _main__local_1+1
+    ldy _main__local_1+2
+    ldz _main__local_1+3
     cmp.32 .AXYZ, $22
     bne @tern_then0
     bra @tern_else1
@@ -534,11 +586,23 @@ _test_count:
     lda $22
     ldx #0
     pha
-    .noopt_start
-    addr_elem.16 __zp_scratch, $20, $24, #1
-    ldy #0
-    .noopt_end
+    lda $24
+    ldx $25
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $20
+    ldx $20+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
     pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    pla
+    ldy #0
     sta (__zp_scratch),y
     .loc "test_mktime_fix.c", 37
     lda #255
@@ -554,42 +618,31 @@ _test_count:
     lda $20
     ldx #0
     pha
-    .noopt_start
-    addr_elem.16 __zp_scratch, $22, $24, #1
-    ldy #0
-    .noopt_end
+    lda $24
+    ldx $25
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $22
+    ldx $22+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
     pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    pla
+    ldy #0
     sta (__zp_scratch),y
 @__return:
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    plz
-    .func_flags stack_call
+    rts
+    .func_flags stack_call, static_alloc
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
+    .frame_size 22
     endproc
 
 
 __zp_save_buf:
-    .res 248

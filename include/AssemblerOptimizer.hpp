@@ -10,8 +10,53 @@ struct O45File;
 
 // Phase 5: External function attributes for inter-TU optimization
 struct ExternalFuncInfo {
-    uint8_t regMask;
+    uint8_t regMask;          // bit 0=A, 1=X, 2=Y, 3=Z
+    uint8_t flagMask = 0;     // bit 0=C, 1=N, 2=Z, 3=V (Phase 5)
     bool isLeaf;
+};
+
+// Phase 95.5: Field-striped array optimization tracking
+struct FieldStripedAccessInfo {
+    std::string arrayName;           // Global array variable name
+    std::vector<std::string> fieldNames;  // Field names in struct
+    std::vector<int> fieldOffsets;   // Field region offsets
+    std::vector<int> fieldSizes;     // Field sizes in bytes
+    int structSize;                  // Total struct size
+    int arrayHeight;                 // Last dimension (second-to-last)
+    int arrayWidth;                  // Last dimension
+    bool isFieldStripedArray = false;
+};
+
+// Phase 95.5: Cached field offset calculation
+struct CachedFieldOffset {
+    std::string arrayName;
+    std::string fieldName;
+    int arrayHeight;
+    int arrayWidth;
+    uint16_t cachedBaseOffset;  // Computed base address for this field
+    bool isValid = false;
+};
+
+// Phase 96.2: Variable-size field caching (pointer fields in striped arrays)
+struct VariableSizeFieldInfo {
+    std::string arrayName;                    // Global array variable name
+    std::vector<std::string> fieldNames;      // All field names in struct
+    std::vector<int> fieldClasses;            // Field classification (0=fixed, 1=pointer, etc)
+    std::vector<int> pointerFieldIndices;     // Indices of pointer fields
+    int fixedPrefixSize;                      // Size of fixed-size prefix
+    int arrayHeight;                          // Last dimension
+    int arrayWidth;                           // Last dimension
+    bool isVariableSizeArray = false;
+};
+
+// Phase 96.2: Cached pointer field access optimization
+struct CachedPointerFieldOffset {
+    std::string arrayName;
+    std::string fieldName;
+    int arrayHeight;
+    int arrayWidth;
+    uint16_t cachedBaseOffset;                // Computed base address for pointer field
+    bool isValid = false;
 };
 
 // Named optimization flags: per-pass control via -P<Name> / -PNo<Name>
@@ -41,6 +86,9 @@ struct OptimizationFlags {
     bool storeLoadPair = true;        // Optimize store-load pairs
     bool fcmpOpt = true;              // Floating-point compare optimization
     bool tsxRedundant = true;         // Eliminate redundant TSX instructions
+    bool fieldStripedOpt = true;      // Phase 95.5: Field-striped array offset caching
+    bool fieldDeadCode = true;        // Phase 95.5: Dead code elimination for unused fields
+    bool variableSizeOpt = true;      // Phase 96.2: Variable-size field pointer caching
 
     // Constructor to reset all flags based on optimization level
     static OptimizationFlags fromLevel(int level) {
@@ -69,6 +117,8 @@ struct OptimizationFlags {
             flags.storeLoadPair = false;
             flags.fcmpOpt = false;
             flags.tsxRedundant = false;
+            flags.fieldStripedOpt = false;
+            flags.fieldDeadCode = false;
         }
         // Level 1+: basic optimizations (all enabled by default)
         // Level 2+: default (all enabled)
@@ -97,5 +147,43 @@ private:
         bool verbose,
         bool traceMachState,
         int optimizationLevel = 2
+    );
+
+    // Phase 95.5: Field-striped array optimization methods
+    static bool detectFieldStripedArrays(
+        AssemblerParser* parser,
+        std::map<std::string, FieldStripedAccessInfo>& fieldArrays
+    );
+
+    static bool optimizeFieldStripedOffsets(
+        AssemblerParser* parser,
+        const std::map<std::string, FieldStripedAccessInfo>& fieldArrays,
+        bool verbose
+    );
+
+    static bool eliminateFieldDeadCode(
+        AssemblerParser* parser,
+        const std::map<std::string, FieldStripedAccessInfo>& fieldArrays,
+        bool verbose
+    );
+
+    // Phase 96.2: Variable-size field optimization methods
+    static bool detectVariableSizeFieldArrays(
+        AssemblerParser* parser,
+        std::map<std::string, VariableSizeFieldInfo>& variableSizeArrays
+    );
+
+    static bool optimizeVariableSizeFieldOffsets(
+        AssemblerParser* parser,
+        const std::map<std::string, VariableSizeFieldInfo>& variableSizeArrays,
+        bool verbose
+    );
+
+    // Phase 96.4.3: Apply instruction transformations for pointer field caching
+    static bool applyVariableSizeFieldOptimizations(
+        AssemblerParser* parser,
+        const std::map<std::string, VariableSizeFieldInfo>& variableSizeArrays,
+        const std::map<std::string, CachedPointerFieldOffset>& pointerFieldCache,
+        bool verbose
     );
 };

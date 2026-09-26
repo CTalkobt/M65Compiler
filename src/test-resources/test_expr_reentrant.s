@@ -1,82 +1,299 @@
-; Test BinaryExpr reentrancy in assembler expr
-; Uses runtime register values to force code emission
-.cpu _45gs02
-* = $2000
+    .o45
+    .org $2000
+    .weak __sp_base
+    __sp_base = $0101
+    .weak __static_chain
+    .weak __zp_scratch
+    .weak __zp_scratch2
+    .weak __zp_scratch3
+    .weak __zp_scratch4
+    .weak cc45.zeroPageStart
+    __static_chain = $06
+    __zp_scratch = $08
+    __zp_scratch2 = $0A
+    __zp_scratch3 = $0C
+    __zp_scratch4 = $0E
+    cc45.zeroPageStart = $08
 
-; Test 1: simple add — .A + .X = 3 + 5 = 8
-lda #3
-ldx #5
-expr .A, .A + .X
-sta $4000     ; expect 8
+    .global _result
+    .global _a
+    .global _b
+    .global _c
+    .global _d
+    .global _main
 
-; Test 2: simple multiply — .A * .X = 3 * 2 = 6
-lda #3
-ldx #2
-expr .A, .A * .X
-sta $4001     ; expect 6
+    .segment "data"
+    .byte 0
+_result:
+; .debug_var: @global _result offset=0 size=2 type=ptr scope=global
+    .word 16384
+_a:
+; .debug_var: @global _a offset=0 size=2 type=int16 scope=global
+    .word 3
+_b:
+; .debug_var: @global _b offset=0 size=2 type=int16 scope=global
+    .word 5
+_c:
+; .debug_var: @global _c offset=0 size=2 type=int16 scope=global
+    .word 2
+_d:
+; .debug_var: @global _d offset=0 size=2 type=int16 scope=global
+    .word 4
 
-; Test 3: nested — (.A + .X) * .Y = (3 + 5) * 2 = 16 = $10
-; The inner + writes to $D770/$D774 then reads $D77C.
-; The outer * then writes left to $D770 — but right evaluation
-; (the + ) already used $D770, so left's value in $D770 gets clobbered.
-; Actually the order is: left emitted, stored to $D770, then right emitted
-; (which clobbers $D770 for its own +), then right result stored to $D774.
-lda #3
-ldx #5
-ldy #2
-tya
-pha         ; save 2 on stack
-lda #3
-ldx #5
-expr .A, (.A + .X) * .SP
-; .SP isn't useful. Let's use a different approach.
-; Actually let's just use .A + .X for left, then multiply result by a constant
+    .segment "code"
 
-; Restart: simpler reentrant test
-; We need two sub-expressions that both use the hw math registers.
-; Use variables in ZP.
-.var v3 = 3
-.var v5 = 5
-.var v2 = 2
+; function _main
+; SAC inline storage: 0 bytes
+    _main__local_3: .word 0
+    _main__local_10: .word 0
+    _main__local_19: .word 0
+    _main__local_30: .word 0
+    proc _main
+; Phase 51: zero-alloc leaf (all parameters constant)
+    .var _fp = 0
+    .loc "test_expr_reentrant.c", 12
 
-; Test 3: nested add+multiply via ZP vars (if they emit runtime code)
-; Actually .var values are constants, they'll be folded.
+@entry:
+    .loc "test_expr_reentrant.c", 14
+    lda _a
+    ldx _a+1
+    sta $20
+    stx $21
+    lda _c
+    ldx _c+1
+    sta $22
+    stx $23
+    lda $20
+    ldx $21
+    mul.s16 .AX, $22
+    sta $24
+    stx $25
+    lda _result
+    ldx _result+1
+    sta $20
+    stx $21
+    lda #0
+    sta $22
+    sta $23
+    lda $24
+    ldx $25
+    pha
+    lda $22
+    ldx $23
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $20
+    ldx $20+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    pla
+    ldy #0
+    sta (__zp_scratch),y
+    .loc "test_expr_reentrant.c", 17
+    lda _a
+    ldx _a+1
+    sta $20
+    stx $21
+    lda _b
+    ldx _b+1
+    sta $22
+    stx $23
+    lda $20
+    ldx $21
+    clc
+    adc $22
+    sta $24
+    stx $25
+    lda _result
+    ldx _result+1
+    sta $20
+    stx $21
+    lda #1
+    ldx #0
+    sta $22
+    stx $23
+    lda $24
+    ldx $25
+    pha
+    lda $22
+    ldx $23
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $20
+    ldx $20+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    pla
+    ldy #0
+    sta (__zp_scratch),y
+    .loc "test_expr_reentrant.c", 20
+    lda _a
+    ldx _a+1
+    sta $20
+    stx $21
+    lda _b
+    ldx _b+1
+    sta $22
+    stx $23
+    lda $20
+    ldx $21
+    mul.s16 .AX, $22
+    sta $24
+    stx $25
+    lda _c
+    ldx _c+1
+    sta $20
+    stx $21
+    lda $24
+    ldx $25
+    clc
+    adc $20
+    sta $22
+    stx $23
+    lda _result
+    ldx _result+1
+    sta $20
+    stx $21
+    lda #2
+    ldx #0
+    sta $24
+    stx $25
+    lda $22
+    ldx $23
+    pha
+    lda $24
+    ldx $25
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $20
+    ldx $20+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    pla
+    ldy #0
+    sta (__zp_scratch),y
+    .loc "test_expr_reentrant.c", 25
+    lda _a
+    ldx _a+1
+    sta $20
+    stx $21
+    lda _b
+    ldx _b+1
+    sta $22
+    stx $23
+    lda $20
+    ldx $21
+    mul.s16 .AX, $22
+    sta $24
+    stx $25
+    lda _c
+    ldx _c+1
+    sta $20
+    stx $21
+    lda _d
+    ldx _d+1
+    sta $22
+    stx $23
+    lda $20
+    ldx $21
+    mul.s16 .AX, $22
+    sta $26
+    stx $27
+    lda $24
+    ldx $25
+    clc
+    adc $26
+    sta $20
+    stx $21
+    lda _result
+    ldx _result+1
+    sta $22
+    stx $23
+    lda #3
+    ldx #0
+    sta $24
+    stx $25
+    lda $20
+    ldx $21
+    pha
+    lda $24
+    ldx $25
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $22
+    ldx $22+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    pla
+    ldy #0
+    sta (__zp_scratch),y
+    .loc "test_expr_reentrant.c", 28
+    lda #170
+    sta $20
+    lda _result
+    ldx _result+1
+    sta $22
+    stx $23
+    lda #4
+    ldx #0
+    sta $24
+    stx $25
+    lda $20
+    ldx #0
+    pha
+    lda $24
+    ldx $25
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $22
+    ldx $22+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    pla
+    ldy #0
+    sta (__zp_scratch),y
+@__return:
+    rts
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 0
+    endproc
 
-; The real test: use two register-based sub-expressions
-; expr .AX, (.A + .X) * (.A + .X)  — square of (A+X)
-; But .A and .X are clobbered by the first sub-expression...
 
-; Simplest reentrant test: expr .A, (.A + .X) + (.A + .X)
-; After inner left (.A + .X) stores to $D770, inner right (.A + .X)
-; also stores to $D770 (clobbering left). But wait — both sides
-; produce the same value, so even with clobbering it might look right.
-
-; Best test: use memory values that won't be clobbered
-; Store to ZP, use absolute addressing in expr
-pla         ; clean up the pushed 2
-
-lda #3
-sta $10
-lda #5
-sta $11
-lda #2
-sta $12
-lda #7
-sta $13
-
-; Test 3: ($10 + $11) result should be read from $D77C = 3+5 = 8
-; But $10 is parsed as constant 16, not memory ref. Same folding issue.
-; Need to use * dereference
-
-; OK — the real approach: test via C compiler which generates
-; the correct runtime expressions. Let's just test what we can.
-
-; Test 3: .A * .X where A and X are set — basic multiply
-lda #4
-ldx #3
-expr .A, .A * .X
-sta $4002     ; expect 12 = $0C
-
-; Marker
-lda #$AA
-sta $4003
+__zp_save_buf:

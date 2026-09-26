@@ -25,7 +25,7 @@ $(TARGET): ctype_demo.o45 $(CRT0) $(STDLIB)
 	$(LN45) -basic -o $(TARGET) $(CRT0) ctype_demo.o45 $(STDLIB)
 
 clean:
-	rm -f ctype_demo.o45 ctype_demo.o45.s $(TARGET)
+	rm -f ctype_demo.o45 ctype_demo.o45.s45 $(TARGET)
 
 run: $(TARGET)
 	xemu-xmega65 -prg $(TARGET)

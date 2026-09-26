@@ -1,5 +1,10 @@
 #include "O45Writer.hpp"
+#include "O45IRSerializer.hpp"
 #include <stdexcept>
+
+// Phase 4.2: Forward declaration of IPO hints serialization
+static std::vector<uint8_t> serializeIPOHints(const O45IPOHints& hints);
+
 // =============================================================================
 // O45RelocEncoder — converts high-level relocation entries into .o65/.o45
 // delta-offset byte stream.
@@ -140,6 +145,32 @@ std::vector<uint8_t> O45Writer::emit() const {
     out.reserve(O45_HEADER_SIZE + text_.length + data_.length + 256);
 
     emitHeader(out);
+
+    // Phase 49: Emit IR metadata as an option if present
+    // NOTE: Temporarily disabled due to offset calculation issues
+    // IR metadata will be restored as a proper option in the options collection
+    // if (hasIR_) {
+    //     std::vector<uint8_t> irData = O45IRSerializer::serialize(irMetadata_);
+    //     // Emit as OPT_IR (custom option type)
+    //     if (irData.size() <= 253) {
+    //         uint8_t len = (uint8_t)(2 + irData.size());
+    //         out.push_back(len);
+    //         out.push_back(0x50);  // OPT_IR type (custom)
+    //         out.insert(out.end(), irData.begin(), irData.end());
+    //     }
+    // }
+
+    // Phase 4.2: Emit IPO hints as an option if present
+    if (hasIPOHints_) {
+        std::vector<uint8_t> ipoData = serializeIPOHints(ipoHints_);
+        if (ipoData.size() <= 253) {
+            uint8_t len = (uint8_t)(2 + ipoData.size());
+            out.push_back(len);
+            out.push_back(OPT_IPO_HINTS);
+            out.insert(out.end(), ipoData.begin(), ipoData.end());
+        }
+    }
+
     emitOptions(out);
 
     // Text segment body
@@ -155,6 +186,11 @@ std::vector<uint8_t> O45Writer::emit() const {
     // Symbol tables
     emitImports(out);
     emitExports(out);
+
+    // Phase 113: DWARF debug sections (if present)
+    if (hasDebugInfo_ || hasDebugLine_ || hasDebugStr_) {
+        emitDebugSections(out);
+    }
 
     return out;
 }
@@ -210,6 +246,8 @@ void O45Writer::emitHeader(std::vector<uint8_t>& out) const {
 
     // Extended CPU ID byte (1 byte)
     out.push_back(cpuId_);
+    // Total header: 41 bytes (fixed format per O45 spec)
+    // IR metadata is stored in options section, not header
 }
 
 // --- Option headers ---
@@ -258,6 +296,16 @@ void O45Writer::emitExports(std::vector<uint8_t>& out) const {
         out.push_back(segByte);
         writeU32(out, exp.offset);
 
+        // Phase 49: Emit content flags if explicitly set
+        // NOTE: Content flag marker is not yet handled by O45Reader,
+        // so we only emit it if explicitly requested via exportContentFlags_
+        auto flagIt = exportContentFlags_.find(exp.name);
+        if (flagIt != exportContentFlags_.end()) {
+            out.push_back(O45_CONTENTFLAG_MARKER);  // $FB marker for content flags
+            uint8_t flags = flagIt->second;
+            out.push_back(flags);
+        }
+
         // Emit function attribute record if present
         auto it = funcAttrs_.find(exp.name);
         if (it != funcAttrs_.end()) {
@@ -270,6 +318,12 @@ void O45Writer::emitExports(std::vector<uint8_t>& out) const {
             writeU32(out, fa.zpClobbers);
             writeU32(out, fa.zpRelease);
             out.push_back(fa.paramSize);
+            writeU16(out, fa.frameSize);  // Phase 2: frame size for overlay coloring
+
+            // Phase 3: SAC parameter metadata (simplified for now)
+            // Full SAC metadata writing disabled to avoid format issues.
+            // Parameter constant values are preserved in funcAttr structure
+            // and will be analyzed by the linker during cross-file analysis.
         }
     }
 }
@@ -291,6 +345,70 @@ void O45Writer::writeU32(std::vector<uint8_t>& out, uint32_t val) {
 void O45Writer::writeString(std::vector<uint8_t>& out, const std::string& str) {
     for (char c : str) out.push_back((uint8_t)c);
     out.push_back(0x00);
+}
+
+// =============================================================================
+// Phase 4.2: IPO Hints Serialization
+// =============================================================================
+
+// Helper function to serialize O45IPOHints to binary format
+static std::vector<uint8_t> serializeIPOHints(const O45IPOHints& hints) {
+    std::vector<uint8_t> data;
+
+    // Version byte
+    data.push_back(hints.version);
+
+    // Function count (2 bytes LE)
+    uint16_t funcCount = (uint16_t)hints.functions.size();
+    data.push_back((uint8_t)(funcCount & 0xFF));
+    data.push_back((uint8_t)(funcCount >> 8));
+
+    // Serialize each function's hints
+    for (const auto& func : hints.functions) {
+        // Function name (NUL-terminated string)
+        for (char c : func.functionName) data.push_back((uint8_t)c);
+        data.push_back(0x00);
+
+        // Call count (2 bytes LE)
+        data.push_back((uint8_t)(func.callCount & 0xFF));
+        data.push_back((uint8_t)(func.callCount >> 8));
+
+        // Estimated code size (2 bytes LE)
+        data.push_back((uint8_t)(func.estimatedCodeSize & 0xFF));
+        data.push_back((uint8_t)(func.estimatedCodeSize >> 8));
+
+        // Flags (1 byte)
+        data.push_back(func.flags);
+
+        // External call count (1 byte)
+        data.push_back(func.externalCallCount);
+
+        // Specialization pattern count (1 byte, max 255)
+        uint8_t specCount = (uint8_t)std::min(size_t(255), func.specializations.size());
+        data.push_back(specCount);
+
+        // Serialize each specialization pattern
+        for (size_t i = 0; i < specCount; i++) {
+            const auto& spec = func.specializations[i];
+
+            // Argument count (1 byte, max 255)
+            uint8_t argCount = (uint8_t)std::min(size_t(255), spec.argumentValues.size());
+            data.push_back(argCount);
+
+            // Argument values (8 bytes LE each for int64_t)
+            for (size_t j = 0; j < argCount; j++) {
+                int64_t val = spec.argumentValues[j];
+                for (int shift = 0; shift < 8; shift++) {
+                    data.push_back((uint8_t)((val >> (shift * 8)) & 0xFF));
+                }
+            }
+
+            // Frequency percentage (1 byte, 0-100)
+            data.push_back(spec.frequency);
+        }
+    }
+
+    return data;
 }
 
 // =============================================================================

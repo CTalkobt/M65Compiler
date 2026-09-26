@@ -2,7 +2,7 @@
 # Test for .const directive in assembler
 
 ASM="./bin/ca45"
-TEMP_ASM="test_const.s"
+TEMP_ASM="test_const.s45"
 TEMP_BIN="test_const.bin"
 
 echo "Testing .const directive..."

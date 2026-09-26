@@ -3,6 +3,7 @@
 #include <string>
 #include <set>
 #include <map>
+#include "SymbolSuggester.hpp"
 #include <deque>
 #include <memory>
 #include <cstdint>
@@ -40,11 +41,14 @@ public:
     friend std::vector<uint8_t> emitO45(AssemblerParser&, const std::string&);
     AssemblerParser(const std::vector<AssemblerToken>& tokens);
     AssemblerParser(const std::vector<AssemblerToken>& tokens, const std::map<std::string, uint32_t>& predefinedSymbols);
+    void setSourceFile(const std::string& filename) { currentSourceFile_ = filename; }
     void pass1();
     bool optimize();
     bool verboseOptimizer = false;
     bool traceMachState = false;
     bool enableExperimental = false;
+    bool warnOverflow = false;   // Warn on immediate/address value overflows (default: off)
+    bool warnUnderflow = false;  // Warn on negative values (underflows) (default: off)
     int optimizationLevel = 2;  // 0=none, 1=basic, 2=default, 3=aggressive
     OptimizationFlags optFlags = OptimizationFlags::fromLevel(2);  // Named optimization flags
     std::vector<uint8_t> pass2(bool isPrg = false);
@@ -53,6 +57,9 @@ public:
     uint8_t getScratchZP() const;
     uint32_t getPC() const { return pc; }
     uint32_t getFirstOrgAddress() const { return firstOrgAddress; }
+    uint8_t getFramePointerZP() const { return framePointerZP; }
+    bool hasFramePointer() const { return framePointerZP != 0; }
+    bool getSACMode() const { return sacMode; }
     Symbol* resolveSymbol(const std::string& name, const std::string& scopePrefix = "");
     bool hasErrors() const { return !errors.empty(); }
     const std::vector<std::string>& getErrors() const { return errors; }
@@ -75,6 +82,24 @@ public:
     bool areAddressesFinalized() const { return addressesFinalized_; }
     void finalizeAddresses() { addressesFinalized_ = true; }
 
+    // Helper for detecting SAC AR symbol relocations (e.g., _main:__ar+2)
+    struct ArRelocation {
+        bool isArReloc = false;
+        std::string arSymbol;     // e.g., "_main__ar"
+        int32_t addend = 0;       // e.g., 2 (for offset)
+    };
+    ArRelocation tryParseArRelocation(const std::string& operand) const;
+
+    // Symbol suggestion helper (for fuzzy matching on undefined symbols)
+    void updateSymbolSuggestions();
+    std::string getSuggestionForSymbol(const std::string& undefined) const;
+
+    // Overflow/Underflow checking helpers (Phase 1.3 — gated by flags)
+    void checkImmediateOverflow(uint32_t value, int line, int col);
+    void checkAddressOverflow(uint32_t address, AddressingMode mode, int line, int col);
+    void checkImmediateUnderflow(int32_t value, int line, int col);
+    void checkAddressUnderflow(int32_t address, int line, int col);
+
     struct ProcContext {
         std::string name;
         int totalParamSize;
@@ -87,7 +112,10 @@ public:
         uint8_t regClobbersMask = 0;   // bit 0=A, 1=X, 2=Y, 3=Z
         uint8_t flagClobbersMask = 0;  // bit 0=C, 1=N, 2=Z, 3=V
         uint8_t funcFlags = 0;         // bit 0=leaf, bit 1=interrupt-safe
+        uint16_t frameSize = 0;        // activation record / frame size in bytes (Phase 2)
         bool hasFuncAttrs = false;     // true if any .zp_*/reg_*/flag_* directive was used
+        std::map<int, int64_t> paramConstants;  // parameter index → constant value (.param_const directives)
+        std::vector<int> paramSizes;   // parameter index → size in bytes (.param_sizes directive)
     };
 
     // Function attribute metadata (for .o45 export)
@@ -132,12 +160,15 @@ private:
     std::vector<std::string> warnings;
     uint32_t firstOrgAddress = 0xFFFFFFFF;
     std::map<std::string, Symbol> symbolTable;
+    SymbolSuggester symbolSuggester_;  // For fuzzy matching on undefined symbols
     std::vector<std::string> scopeStack;
     int nextScopeId = 0;
     std::string currentLocalScope_; // last non-@ label for auto-scoping @ labels
 
     std::shared_ptr<ProcContext> currentProc;
     std::map<uint32_t, std::shared_ptr<ProcContext>> procedures;
+    uint8_t framePointerZP = 0; // 0 = disabled; when set, stack ops use ($FP),Y
+    bool sacMode = false; // When true, FP contains AR address directly (use direct addressing)
 
     struct Segment {
         std::string name;
@@ -177,12 +208,14 @@ public:
                     LDAX, LDAY, LDAZ, STAX, STAY, STAZ, FILL, COPY, PUSH, POP,
                     MUL_S16, MUL_S32, DIV_S16, DIV_S32, MOD16, MOD_S16, MOD32, MOD_S32,
                     LDA_FP, STA_FP, LDAX_FP, STAX_FP, LDAY_FP, STAY_FP, LDAZ_FP, STAZ_FP, LDAXYZ_FP, STAXYZ_FP, LEAX_FP, MOVE_FP, INC_FP, DEC_FP, INC16_FP, DEC16_FP,
+                    LDA_PARAM, STA_PARAM, LDX_PARAM, STX_PARAM, LDY_PARAM, STY_PARAM, LDZ_PARAM, STZ_PARAM, LDAX_PARAM, STAX_PARAM, LDAY_PARAM, STAY_PARAM, LDAZ_PARAM, STAZ_PARAM, LDAXYZ_PARAM, STAXYZ_PARAM, LEAX_PARAM,
+                    LDA_LOCAL, STA_LOCAL, LDX_LOCAL, STX_LOCAL, LDY_LOCAL, STY_LOCAL, LDZ_LOCAL, STZ_LOCAL, LDAX_LOCAL, STAX_LOCAL, LDAY_LOCAL, STAY_LOCAL, LDAZ_LOCAL, STAZ_LOCAL, LDAXYZ_LOCAL, STAXYZ_LOCAL, LEAX_LOCAL,
                     BFEXT, BFEXT16, BFEXT32, BFINS, BFINS_SP, BFINS_IND, BFINS16, BFINS16_SP, BFINS16_IND, BFINS32,
                     ADD32, SUB32, AND32, ORA32, EOR32, CMP32, NEG32, NOT32, ABS32,
                     LSL32, LSR32, ROL32, ROR32, ASR32, SXT16,
                     ADDS32, SUBS32, CMP_S32, NEG_S32, ABS_S32,
                     ASR_S32, LSL_S32, LSR_S32, ROL_S32, ROR_S32,
-                    STRUCT_ELEM, ADDR_ELEM_SIM } type = NONE;
+                    STRUCT_ELEM } type = NONE;
         Instruction instr;
         Directive dir;
         std::string label;
@@ -242,8 +275,13 @@ private:
     bool match(AssemblerTokenType type);
     const AssemblerToken& expect(AssemblerTokenType type, const std::string& message);
 
-    int calculateInstructionSize(const Instruction& instr, uint32_t currentAddr = 0, const std::string& scopePrefix = "");
-    int calculateDirectiveSize(const Directive& dir, uint32_t currentAddr = 0);
+    // Error reporting helpers — ensure all errors have file:line:col format
+    void errorAt(int line, int col, const std::string& msg);
+    [[noreturn]] void throwAt(int line, int col, const std::string& msg);
+    void errorAtStmt(const Statement* stmt, const std::string& msg);
+
+    int calculateInstructionSize(const Instruction& instr, uint32_t currentAddr = 0, const std::string& scopePrefix = "", const Statement* stmt = nullptr);
+    int calculateDirectiveSize(const Directive& dir, uint32_t currentAddr = 0, const Statement* stmt = nullptr);
     int calculateExprSize(int tokenIndex, const std::string& scopePrefix = "");
     uint32_t evaluateExpressionAt(int index, const std::string& scopePrefix = "");
     void emitExpressionCode(std::vector<uint8_t>& binary, const std::string& target, int tokenIndex, const std::string& scopePrefix = "");
@@ -305,7 +343,7 @@ private:
     void emitDivS32Code(std::vector<uint8_t>& binary, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
     void emitMod16Code(std::vector<uint8_t>& binary, bool isSigned, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
     void emitMod32Code(std::vector<uint8_t>& binary, bool isSigned, const std::string& dest, int tokenIndex, const std::string& scopePrefix = "");
-    bool isStackRelativeOperand(int tokenIndex, uint32_t& offset, const std::string& scopePrefix);
+    bool isStackRelativeOperand(int tokenIndex, uint32_t& offset, const std::string& scopePrefix, const Statement* stmt = nullptr);
 
     // Frame-pointer pseudo-ops
     void emitLDA_FPCode(std::vector<uint8_t>& binary, int tokenIndex, const std::string& scopePrefix = "");

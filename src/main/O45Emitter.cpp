@@ -65,6 +65,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
 
     std::vector<M65Emitter::SpBaseReloc> allSpBaseRelocs;
     std::vector<M65Emitter::SymbolReloc> allSymbolRelocs;
+    std::vector<M65Emitter::ImmediateReloc> allImmediateRelocs; // Phase 78: SMC immediate relocations
 
     for (const auto& segName : allSegNames) {
         auto seg = parser.segments[segName];
@@ -84,6 +85,10 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
 
         auto symRelocs = e.symbolRelocs();
         allSymbolRelocs.insert(allSymbolRelocs.end(), symRelocs.begin(), symRelocs.end());
+
+        // Phase 78: Collect immediate relocations for SMC parameters
+        auto immRelocs = e.immediateRelocs();
+        allImmediateRelocs.insert(allImmediateRelocs.end(), immRelocs.begin(), immRelocs.end());
 
         segBodies[segName] = {segName, seg->startAddress, body};
     }
@@ -148,6 +153,35 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         attr.zpClobbers = proc->zpClobbersMask;
         attr.zpRelease = proc->zpReleaseMask;
         attr.paramSize = (uint8_t)proc->totalParamSize;
+        attr.frameSize = proc->frameSize;  // Phase 2: frame size for overlay coloring
+
+        // Phase 3: Collect SAC parameter metadata for SAC functions
+        if ((attr.flags & FUNC_FLAG_STATIC_ALLOC) != 0) {
+            attr.sacMetadata.functionName = proc->name;
+
+            // Look for parameter symbols matching pattern: funcname__param_*
+            std::string paramPrefix = proc->name + "__param_";
+            int paramIndex = 0;
+            for (const auto& [symName, sym] : parser.symbolTable) {
+                if (symName.find(paramPrefix) == 0) {
+                    O45SACParam param;
+                    param.symbolName = symName;
+                    param.offset = sym.value;  // Will be relative to AR base after linking
+                    param.size = (paramIndex < (int)proc->paramSizes.size())
+                        ? proc->paramSizes[paramIndex] : 2;  // Default to 2 if no size info
+
+                    // Check if this parameter has a constant value from .param_const directive
+                    if (proc->paramConstants.find(paramIndex) != proc->paramConstants.end()) {
+                        param.isConstant = true;
+                        param.constantValue = proc->paramConstants.at(paramIndex);
+                    }
+
+                    attr.sacMetadata.parameters.push_back(param);
+                    paramIndex++;
+                }
+            }
+        }
+
         syms.setFuncAttr(proc->name, attr);
     }
 
@@ -167,6 +201,11 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         // calculateInstructionSize correctly resolves them to BASE_PAGE in pass2
         // without writing the resolved mode back).
         AddressingMode resolvedMode = stmt->instr.mode;
+
+        // Check if operand is an AR reference (e.g., _main:__ar+2) to force ABSOLUTE mode
+        std::string operand = stmt->instr.operand;
+        bool isArRef = operand.find(":__ar") != std::string::npos;
+
         if (!stmt->instr.forceMode && stmt->instr.operandTokenIndex != -1 &&
             (resolvedMode == AddressingMode::BASE_PAGE || resolvedMode == AddressingMode::ABSOLUTE ||
              resolvedMode == AddressingMode::BASE_PAGE_X || resolvedMode == AddressingMode::ABSOLUTE_X ||
@@ -174,7 +213,7 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             try {
                 uint32_t val = parser.evaluateExpressionAt(stmt->instr.operandTokenIndex, stmt->scopePrefix);
                 bool fitsIn8 = (val <= 0xFF);
-                bool forceAbs = (stmt->instr.mnemonic == "jsr" || stmt->instr.mnemonic == "jmp");
+                bool forceAbs = (stmt->instr.mnemonic == "jsr" || stmt->instr.mnemonic == "jmp") || isArRef;
                 if (fitsIn8 && !forceAbs && stmt->instr.operandTokenIndex < (int)parser.tokens.size() &&
                     parser.tokens[stmt->instr.operandTokenIndex].type == AssemblerTokenType::IDENTIFIER) {
                     std::string symName = stmt->scopePrefix + parser.tokens[stmt->instr.operandTokenIndex].value;
@@ -204,11 +243,41 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         if (branches.count(stmt->instr.mnemonic)) continue;
 
         // Resolve the operand to see if it references a relocatable symbol
-        std::string operand = stmt->instr.operand;
         if (operand.empty()) continue;
 
         // Skip numeric literals — they're absolute addresses, not relocatable
         if (operand[0] == '$' || operand[0] == '%' || (operand[0] >= '0' && operand[0] <= '9')) continue;
+
+        // Check for SAC AR symbol relocation first (e.g., _main:__ar+2)
+        AssemblerParser::ArRelocation arReloc = parser.tryParseArRelocation(operand);
+        if (arReloc.isArReloc) {
+            // This is an AR relocation — create an external reference
+            // To avoid addend encoding complexity, use the offset as part of the symbol name
+            std::string arSymbolWithOffset = arReloc.arSymbol;
+            if (arReloc.addend != 0) {
+                arSymbolWithOffset += "_" + std::to_string(arReloc.addend);
+            }
+
+            std::string srcSeg = stmt->segmentName;
+            uint32_t srcBase = globalBase;
+            if (parser.segments.count(srcSeg)) {
+                srcBase = parser.segments.at(srcSeg)->startAddress;
+                if (srcBase == 0xFFFFFFFF) srcBase = 0;
+            }
+            uint32_t patchOffset = (stmt->address + 1) - srcBase;
+
+            // Add as import and create external relocation
+            syms.addImport(arSymbolWithOffset);
+
+            O45Reloc reloc;
+            reloc.offset = patchOffset;
+            reloc.type = R_WORD;
+            reloc.segment = SEG_EXTERNAL;
+            reloc.symbolIndex = syms.getImportIndex(arSymbolWithOffset);
+
+            segRelocs[srcSeg].push_back(reloc);
+            continue;  // Skip further processing for this operand
+        }
 
         // Try resolving the full operand as a symbol first (simple case: bare label)
         std::string symName = operand;
@@ -522,6 +591,40 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         }
     }
 
+    // Phase 78: Process immediate relocations for SMC parameters
+    for (const auto& ir : allImmediateRelocs) {
+        std::string symName = ir.symbolName;
+        Symbol* sym = parser.resolveSymbol(symName, "");
+        if (!sym) continue;
+
+        bool isExtern = parser.isExternSymbol(symName);
+        std::string targetSeg;
+        if (!isExtern) {
+            targetSeg = sym->segment;
+            if (targetSeg.empty()) continue;
+        }
+
+        // Find which source segment this reloc site falls into
+        for (const auto& segName : allSegNames) {
+            auto seg = parser.segments[segName];
+            uint32_t segStart = (seg->startAddress != 0xFFFFFFFF) ? seg->startAddress : 0;
+            if (ir.address >= segStart && ir.address < seg->pc) {
+                O45Reloc reloc;
+                reloc.offset = ir.address - segStart;
+                reloc.type = (O45RelocType)ir.relocType;  // R_IMM8 or R_IMM16
+                reloc.extra = 0;
+                if (isExtern) {
+                    reloc.segment = SEG_EXTERNAL;
+                    reloc.symbolIndex = syms.getImportIndex(symName);
+                } else {
+                    reloc.segment = segIdFromName(targetSeg);
+                }
+                segRelocs[segName].push_back(reloc);
+                break;
+            }
+        }
+    }
+
     // Sort relocations by offset
     for (auto& [segName, relocs] : segRelocs) {
         std::sort(relocs.begin(), relocs.end(),
@@ -737,6 +840,70 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
                 }
                 writer.addOptionRaw(OPT_LINEINFO, cont);
             }
+        }
+    }
+
+    // Emit debug symbols option (OPT_DEBUG_SYMBOLS)
+    const auto& procedures = parser.getProcedures();
+    if (!procedures.empty()) {
+        std::vector<uint8_t> payload;
+
+        // Count total procedures (as header)
+        uint16_t procCount = (uint16_t)procedures.size();
+        payload.push_back((uint8_t)(procCount & 0xFF));
+        payload.push_back((uint8_t)(procCount >> 8));
+
+        // Emit each procedure's debug info
+        for (const auto& [addr, proc] : procedures) {
+            // Keep payload under 253 bytes per option; if it gets too large,
+            // emit current option and start a new one
+
+            // Estimate needed space: name length + param count + (name + 2-byte offset) per param + terminator
+            size_t estimatedSize = proc->name.length() + 1 + 1;  // name + nul + param count
+            for (const auto& [paramName, offset] : proc->localArgs) {
+                estimatedSize += paramName.length() + 1 + 2;  // param name + nul + offset
+            }
+            estimatedSize += 1;  // terminator for this function
+
+            // Flush if adding this function would exceed limit
+            if (!payload.empty() && payload.size() > 2 && payload.size() + estimatedSize > 240) {
+                writer.addOptionRaw(OPT_DEBUG_SYMBOLS, payload);
+                payload.clear();
+                // Re-add count header for continuation
+                payload.push_back((uint8_t)(procCount & 0xFF));
+                payload.push_back((uint8_t)(procCount >> 8));
+            }
+
+            // Emit function name (null-terminated string)
+            for (char c : proc->name) {
+                payload.push_back((uint8_t)c);
+            }
+            payload.push_back(0x00);
+
+            // Emit parameter count
+            uint8_t paramCount = (uint8_t)proc->localArgs.size();
+            payload.push_back(paramCount);
+
+            // Emit each parameter: name (null-terminated) + offset (little-endian 16-bit)
+            for (const auto& [paramName, offset] : proc->localArgs) {
+                for (char c : paramName) {
+                    payload.push_back((uint8_t)c);
+                }
+                payload.push_back(0x00);
+
+                // Encode 16-bit offset (frame-relative address)
+                int16_t signedOffset = (int16_t)offset;
+                payload.push_back((uint8_t)(signedOffset & 0xFF));
+                payload.push_back((uint8_t)((signedOffset >> 8) & 0xFF));
+            }
+
+            // Terminator for this function record (0xFF marks end of params for this function)
+            payload.push_back(0xFF);
+        }
+
+        // Emit final payload
+        if (payload.size() > 2) {  // Only emit if we have more than just the count header
+            writer.addOptionRaw(OPT_DEBUG_SYMBOLS, payload);
         }
     }
 

@@ -6,6 +6,7 @@
 #include "O45Reader.hpp"
 #include "O45Linker.hpp"
 #include "O45Archive.hpp"
+#include "CrossModuleOptimizer.hpp"
 #include "Version.hpp"
 
 static void printUsage(const char* progName) {
@@ -175,6 +176,23 @@ int main(int argc, char** argv) {
     if (binary.empty()) {
         std::cerr << "ln45: link error: " << linkErr << std::endl;
         return 1;
+    }
+
+    // Phase 91.4: Cross-Module Optimization Analysis
+    // Analyze specialization opportunities across module boundaries
+    CrossModuleOptimizer cmoOptimizer;
+    cmoOptimizer.analyzeSpecializations(linker);
+    cmoOptimizer.generateCallRouting(linker);
+
+    // Create dispatcher stubs if needed for multi-specialization
+    // Note: Full dispatcher implementation delegated to linker phases 56+
+    O45Linker mutableLinker = linker;  // For future dispatcher generation
+    cmoOptimizer.createDispatchers(mutableLinker);
+
+    // Optional: Emit cross-module optimization report (debug only)
+    if (false) {  // Set to true for verbose cross-module analysis
+        std::cerr << cmoOptimizer.getSpecializationReport() << std::endl;
+        std::cerr << cmoOptimizer.getCallRoutingReport() << std::endl;
     }
 
     // Prepend PRG load address header and optional BASIC SYS stub

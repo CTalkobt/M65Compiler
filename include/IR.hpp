@@ -2,7 +2,7 @@
 
 // IR (Intermediate Representation) for cc45.
 // Simple 3-address code with virtual registers.
-// See doc/ir.md for the human-readable text format specification.
+// See doc/architecture/ir.md for the human-readable text format specification.
 
 #include <cstdint>
 #include <map>
@@ -165,6 +165,7 @@ struct SourceLoc {
 enum class CallConv : uint8_t {
     STACK,      // standard right-to-left push
     ZP,         // parameters in zero-page block
+    STATIC,     // static activation record (Phase 1: no address sharing)
 };
 
 struct Inst {
@@ -179,6 +180,7 @@ struct Inst {
     std::vector<Operand> args;
     CallConv callConv = CallConv::STACK;
     bool isRegparm = false;  // first param passed in A/AX
+    bool isTailCall = false; // tail call optimization (replace JSR with JMP)
 
     // For SWITCH: case values and labels
     std::vector<std::pair<int64_t, std::string>> switchCases;
@@ -214,6 +216,7 @@ struct Function {
     bool isNaked = false;
     bool isRegparm = false;
     bool isNested = false;
+    bool isRecurse = false;      // opt-out of static allocation (SAC)
     int staticLinkVreg = -1; // vreg holding the static link to parent frame
     int declLine = 0;                   // source line of function declaration
 
@@ -225,8 +228,17 @@ struct Function {
     std::map<uint32_t, int> vregSizes;
  // override sizes for array vRegs (bytes)
     std::map<std::string, uint32_t> localNames; // name (without _l_ or _p_ prefix) -> vregId
+    std::vector<std::string> localNamesOrder; // preserves declaration order of local variables
     std::set<uint32_t> memoryVregs;    // vRegs that MUST be in memory (e.g. volatile or address-taken)
-    std::set<uint32_t> registerVregs;  // vRegs declared with 'register' keyword (allocate in ZP)
+    std::set<uint32_t> registerVregs;  // vRegs declared with 'register' keyword (prefer ZP allocation)
+    std::set<uint32_t> registerXVregs; // vRegs marked for X-register residency (loop counters, etc)
+    std::set<uint32_t> registerYVregs; // vRegs marked for Y-register residency (nested loop counters)
+    std::set<uint32_t> registerZVregs; // vRegs marked for Z-register residency (deeply nested loop counters)
+
+    // Phase 2, Phase 3: Original leaf status (before IR optimization/inlining)
+    // Computed from original AST before any IR optimizations
+    bool originalIsLeaf = true;         // true if original code had no function calls
+    std::set<std::string> originalCallees;  // functions called in original code (before inlining)
 
     uint32_t allocVreg() { return nextVreg++; }
 
@@ -256,6 +268,7 @@ struct Module {
         std::vector<int64_t> initList;
         std::vector<std::string> initLabels; // symbolic labels for pointer array elements (e.g. string literals)
         std::vector<std::string> vtableMethodNames; // Phase 3: function names for vtable entries
+        int addressSpace = 0;   // Phase 97: 0=default(__abs), 1=__zp, 2=__far
     };
     std::vector<GlobalVar> globals;
 

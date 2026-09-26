@@ -2,69 +2,149 @@
 
 All notable changes to the cc45 / ca45 suite will be documented in this file.
 
-## [v1.0.5] - 2026-09-26
+## [Unreleased] - Optimization System Refactor (2026-08-19)
 
-**Release Status**: Stable. 615/627 tests passing (98.1%). Core functionality complete.
+### Standards-Compliant Optimization Flags
 
-### Parser Enhancements
+#### Breaking Change: New -f Flag Format
+- **Changed:** Individual optimization flags now use `-f` prefix with kebab-case naming
+  - Old format (no longer supported):
+    - `-OConstantFolding` / `-OLoopUnrolling` / `-PNoDeadStoreElim`
+  - New format (standards-compliant):
+    - `-fconstant-folding` / `-floop-unrolling` / `-fno-dead-store-elimination`
+- **Rationale:** Matches gcc/clang conventions for feature control flags
+- **Compliance:** Follows C compiler tradition (-finline-functions, -fno-strict-aliasing, etc)
 
-#### Statement Expressions (commit 56c981b)
-- **New**: Full support for GCC-style statement expressions `({ stmt; stmt; result; })`
-- **Before**: Always returned 0 regardless of final expression
-- **Now**: Properly captures and returns final expression value
-- **Example**: `int x = ({ int a = 10; a + 20; });` now correctly evaluates to 30
-- **Tests**: 10 comprehensive test cases, all passing
-- **GTE Impact**: Fixes ~1 test
+#### Implementation Details
+- **CLI Parsing:** OptimizationController::parseOption() completely rewritten
+  - `-O<level>`: Optimization levels (-O0 through -O9) — unchanged
+  - `-f<name>`: Enable individual optimization (kebab-case)
+  - `-fno-<name>`: Disable individual optimization (kebab-case)
+- **Pragma System:** Updated to use kebab-case notation
+  - `#pragma cc45 optimize(loop-unrolling)` — enable
+  - `#pragma cc45 optimize(no-branch-folding)` — disable
+- **Configuration Files:** Updated ~/.config/m65/cc45.conf examples
 
-#### Macro Re-expansion
-- **Status**: Verified working correctly (not broken as previously suspected)
-- **Implementation**: Preprocessor properly re-expands nested macros up to 100 iterations
-- **Tested**: Multi-level chains like `C → B → A = 42`, function-like macros, complex expressions
-- **GTE Impact**: Not causing failures
+#### All 24 Optimizations Refactored
+- Levels 1-9: All optimization names converted to kebab-case
+- Examples: `constant-folding`, `tail-call-optimization`, `loop-invariant-code-motion`
+- Flag naming verified: kebab-to-camel conversion working correctly
 
-#### FuncPtr-in-FuncPtr Partial Support (commits 552aa50, 894614a)
-- **New**: Top-level lookahead for `(*name)` complex declarators
-- **New**: parseFunctionDeclaration recognizes complex declarator patterns
-- **Status**: ~70% complete; pattern recognition works, return type parsing needs completion
-- **Example**: `int (*func(void))(int, int)` now parses declarator correctly
-- **GTE Impact**: ~1 test (when fully completed)
+#### Documentation Improvements
+- **doc/architecture/optimizations.md:** Complete rewrite
+  - All command-line examples updated to -f format
+  - Reference table showing all 24 optimizations with new flags
+  - Configuration file section with new examples
+  - Troubleshooting section updated
+- **CLAUDE.md:** Updated all configuration examples
+
+#### Migration Guide
+Projects using old flag format must update:
+- `-O2 -OConstantFolding` → `-O2 -fconstant-folding`
+- `-O0 -PNoBranchFolding` → `-O0 -fno-branch-folding`
+- Config: `-PNoSeqExtract` → `-fno-seq-extract`
+
+---
+
+## [v1.0.5] - 2026-07-19
+
+Bug fixes and verification release. All mmemu tests compile successfully.
 
 ### Bug Fixes
 
-#### Struct Return Mechanism (commit c69d41b)
-- **Fixed**: Return value preservation for struct returns
-- **Changed**: Replaced stack-based PHX/PHA with ZP scratch save/restore ($08-$09)
-- **Impact**: Fixes struct returns for both stack and ZP calling conventions
-- **Tests**: All mmemu tests passing (41/42)
+- **Fixed Variable Offset Corruption Bug** (Commit 05aeb1e)
+  - Root cause: ConstantFolder was aggressively replacing variables with their initialization constants
+  - Impact: Variables accessed after function calls now correctly load from frame instead of using immediates
+  - Test coverage: All 6 mmemu tests now compile correctly
 
-#### RTC Debouncing (commit df214e8)
-- **Fixed**: Real-time clock register access reliability
-- **Implemented**: Proper debouncing per mlund/mos-hardware reference
-- **Impact**: Improves RTC reliability on real MEGA65 hardware
+- **Verified Frame Pointer Infrastructure** (Commit ef57870)
+  - TSY/TSX/INX frame pointer calculation verified correct
+  - Handles all SPL values (0x00 → 0xFF) with proper 16-bit carry propagation
+  - No fix needed — frame pointer working as designed
 
-#### Test Harness (commit 97b05ee)
-- **Fixed**: bug179_validation test expectation (was checking wrong memory location)
-- **Changed**: Test now correctly validates mktime output
+- **Related Issues Already Fixed**
+  - Issue #192: BFINS missing result load-back (Commit b3807da)
+  - Issue #193: ZP slot collision workaround (Commit 77390b6)
 
-### Test Infrastructure
+### Verification Results
 
-- ✅ xemu-serialtcp: 12/12 tests passing (100%)
-- ✅ mmemu: 41/42 tests passing (97.6%) — 1 test is platform-specific (xemu limitation)
-- ✅ Bug regression: 2/2 tests passing (100%)
-- ✅ GTE: 560/581 tests passing (96.4%)
-- **Total**: 615/627 tests passing (98.1%)
+- ✅ All 6 mmemu tests compile and link successfully
+- ✅ Stdlib libraries built: c45.lib (102 members), c45_zp.lib (96 members)
+- ✅ 150+ regression tests passing
+- ✅ No breakage from bug fixes
 
-### Known Limitations (Won't Fix for v1.0.5)
+### Documentation
 
-**Platform-Specific (9 tests)** — Not applicable to MEGA65 embedded system:
-- `sys/mman.h` (2 tests) — Memory mapping requires MMU
-- `stdout/FILE*` (2 tests) — Full libc not available on MEGA65
-- `__builtin_va_arg_pack` (2 tests) — GCC-specific builtin
-- `sys/types.h` (1 test) — POSIX types, not embedded-applicable
-- `#define L` (2 tests) — Rare macro edge cases
+- Comprehensive bug fix documentation in CLAUDE.md
+- v1.1 optimization roadmap with expected 5-15% code size reduction
+- Complete verification results documented
 
-**GCC Extensions (8 tests)** — Defer to v2.0:
-- Nested function closures — Requires closure frames and trampolines
+---
+
+## [Unreleased] - basic45 Preprocessor & Advanced Features (2026-08-13)
+
+### basic45 Preprocessor and Advanced Features
+
+#### Preprocessor Support (#include, #define, #ifdef)
+- **New:** `BasicPreprocessor` class implements C-like preprocessing
+  - `#include "filename"` — File inclusion with recursive support
+  - `#define NAME VALUE` — Compile-time constant definitions
+  - `#ifdef SYMBOL` / `#ifndef SYMBOL` / `#else` / `#endif` — Conditional compilation
+  - Circular include detection and error reporting
+- **New:** `-I <path>` flag to add include search directories
+- **Features:**
+  - Macro expansion with word-boundary checking
+  - Nested conditional compilation support
+  - Max include depth limit (100) to prevent runaway includes
+
+#### Documentation Generation
+- **New:** `BasicDocGenerator` class extracts program structure
+- **New:** `--docs <file>` flag generates markdown documentation
+- **Output:** Section numbering, label names, line numbers
+- **Format:** Markdown for easy integration with project docs
+
+#### Line Number Customization
+- **New:** `--increment <n>` flag for custom line number increments
+- **Examples:** `--increment 1` (dense), `--increment 100` (sparse)
+- **Default:** 10 (preserves backward compatibility)
+
+#### Test Coverage
+- 11 new tests for preprocessor features (100% pass rate)
+- Tests cover: #define, #ifdef, #ifndef, #else, includes, increments, docs
+- All existing 11 label tests still passing
+
+#### Example Programs
+- **stdlib_basic.bas** — Standard library with constant definitions
+- **preproc_demo.bas** — Demonstrates #include and #ifdef usage
+
+---
+
+## [Unreleased] - basic45 Label Support (2026-08-13)
+
+### basic45 Enhancements
+
+#### Label Support (--labels flag)
+- **New:** `--labels` command-line flag enables symbolic label mode (replaces explicit line numbers)
+- **New:** `--label-table <file>` flag outputs label→line number mapping table (tab-separated format)
+- **Features:**
+  - Labels defined with `identifier:` syntax at start of line
+  - `#` comments at line start are silently stripped (not emitted as REM statements)
+  - Empty lines are skipped (not included in output)
+  - Auto-generated line numbers: 10, 20, 30, ... (10-increment)
+  - GOTO/GOSUB statements automatically resolve label references to line numbers
+  - Backward compatible: normal mode still requires explicit line numbers
+- **Testing:** 11 comprehensive tests covering labels, comments, empty lines, GOTO/GOSUB resolution
+- **Example:**
+  ```basic
+  # This is a comment
+  start:
+  print "hello"
+  
+  loop:
+  x = x + 1
+  if x < 5 then goto loop
+  ```
+  Compile with: `basic45 program.bas --labels -o program.prg`
 
 ---
 
@@ -174,7 +254,7 @@ Major feature release: OOP system, operator overloading, **full floating-point s
 
 - **Architecture**: Library-based via operator-overloaded structs. Preprocessor maps `__int(N)` → `struct __intN` via token pasting. Operators call width-parameterized runtime with byte count. Zero compiler codegen changes.
 - **`<intwide.h>`**: `struct __int64` (8 bytes) and `struct __int128` (16 bytes) with operators `+`, `-`, `*`, `==`, `!=`, `~`, unary `-`. Extensible to any width by adding a struct definition.
-- **Runtime library** (`intwide.c`): `__intN_add`, `__intN_sub`, `__intN_mul`, `__intN_cmp_u`, `__intN_neg`, `__intN_not`, `__intN_and`, `__intN_or`, `__intN_xor`, `__intN_shl`, `__intN_shr_u` — single set of routines handles all widths. Also available as optimized 45GS02 assembly (`intwide_rt.s`, 525 bytes).
+- **Runtime library** (`intwide.c`): `__intN_add`, `__intN_sub`, `__intN_mul`, `__intN_cmp_u`, `__intN_neg`, `__intN_not`, `__intN_and`, `__intN_or`, `__intN_xor`, `__intN_shl`, `__intN_shr_u` — single set of routines handles all widths. Also available as optimized 45GS02 assembly (`intwide_rt.s45`, 525 bytes).
 - **`long long`**: Maps to `struct __int64` — true 64-bit via `<intwide.h>` operator-overloaded struct. Requires `#include <intwide.h>` for struct definition.
 - **`__int128` / `__int128_t` / `__uint128_t`**: Preprocessor macros → `struct __int128`
 - **`_Decimal32` / `_Decimal64` / `_Decimal128`**: Preprocessor macros → `float`. Decimal literal suffixes (`.DD`, `.DF`, `.DL`) consumed in lexer. Same struct+operator pattern extends to decimal types.
@@ -547,7 +627,7 @@ Future work for v1.1+
     - **nm45 symbol display**: Updated `nm45 -f` to display calling convention and function flags in symbol listings. Example: `[zp_call leaf uses:- clobbers:- ...]`.
     - **objdump45 symbol table**: Added function attribute display to symbol table output, showing convention and flags for each exported function.
 - **Documentation**:
-    - **`doc/lib45.md` Section 4.4**: Complete specification of function attribute records: marker byte `$FA`, flags byte (LEAF, REENTRANT, ZP_CONV), register/flag clobber masks, ZP usage/clobber bitmasks. Documents linker enforcement rule (ZP→stack errors, stack→ZP permitted).
+    - **`doc/architecture/lib45.md` Section 4.4**: Complete specification of function attribute records: marker byte `$FA`, flags byte (LEAF, REENTRANT, ZP_CONV), register/flag clobber masks, ZP usage/clobber bitmasks. Documents linker enforcement rule (ZP→stack errors, stack→ZP permitted).
 
 ## [Unreleased] - 2026-05-08
 
@@ -558,8 +638,8 @@ Future work for v1.1+
 - **Assembler (ca45)**:
     - **Dead code elimination after infinite loops (Issue #26)** (7724cfa): The assembler now detects and removes unreachable code that follows infinite loops (e.g., code after `while(1)` constructs). Instructions after `BRA` loops are recognized as dead code and eliminated, reducing binary size and improving code clarity.
     - **Fix BinaryExpr reentrancy bug in assembler expression evaluator (Issue #35)** (8bb0764): Fixed a critical bug where recursive evaluation of binary expressions in the assembler's expression evaluator could cause incorrect operand values or hangs. The fix ensures that complex nested expressions are evaluated correctly even when the evaluator processes sub-expressions recursively.
-    - **3-operand MOVE/FILL test coverage**: Added comprehensive test cases for the 3-operand syntax (`MOVE src, dest, len` and `FILL dest, len`) that was previously undocumented. The syntax allows explicit specification of source, destination, and length operands without requiring preloaded register pairs. Tests include: immediate operands, register pair operands, symbol operands, stack-relative operands, and mixed operand types. All 9 new C++ tests pass; assembly examples in `test_fill_advanced.s` demonstrate practical usage. Parser support for 3-operand syntax was already implemented in `AssemblerSimulatedOps::emitMoveCode()` — tests validate and document this capability.
-- **Documentation**: Updated `doc/opcodes.md` with complete syntax documentation for 2-operand and 3-operand forms of `MOVE` and `FILL`, including usage examples.
+    - **3-operand MOVE/FILL test coverage**: Added comprehensive test cases for the 3-operand syntax (`MOVE src, dest, len` and `FILL dest, len`) that was previously undocumented. The syntax allows explicit specification of source, destination, and length operands without requiring preloaded register pairs. Tests include: immediate operands, register pair operands, symbol operands, stack-relative operands, and mixed operand types. All 9 new C++ tests pass; assembly examples in `test_fill_advanced.s45` demonstrate practical usage. Parser support for 3-operand syntax was already implemented in `AssemblerSimulatedOps::emitMoveCode()` — tests validate and document this capability.
+- **Documentation**: Updated `doc/architecture/opcodes.md` with complete syntax documentation for 2-operand and 3-operand forms of `MOVE` and `FILL`, including usage examples.
 
 ## [Unreleased] - 2026-05-05
 
@@ -642,7 +722,7 @@ Future work for v1.1+
 - Added `test_bitfield_mmemu.c` — mmemu runtime validation test for bitfields. Tests 8-bit bitfield write/read/increment (`active:1`, `mode:3`, `priority:4`) and 16-bit bitfield write/read (`counter:10`, `channel:6`). Verified at `$4000`: `01 05 0C 06 F4 1E`.
 - Added `test_long.c` — compiler test validating long type declarations, arithmetic, function params/returns, unary ops, casting, sizeof, and bitwise operations compile and assemble correctly.
 - Added `test_long_mmemu.c` — mmemu runtime validation test for long type (12 sub-tests): sizeof(long)=4, function call with 32-bit args and hidden-pointer return, unsigned comparison, low-byte extraction via cast, int↔long casting, 32-bit overflow (incq wrapping), and global-to-global 32-bit addition with full 4-byte verification (100000+200000=300000). Verified at `$4000`: `04 C0 01 A0 2A A0 00 E0 93 04 00 AA`.
-- Added `test_32bit_ops.s` — assembler-level mmemu validation test for 32-bit operations: native Q register add (`adcq`), subtract (`sbcq`), bitwise OR (`oraq`), negation (`neg.32`), and sign extension (`sxt.16`). Verified at `$4000`: `E0 93 04 00 A0 86 01 00 E0 8F 03 00 60 79 FE FF` and at `$4010`: `FF FF FF FF`.
+- Added `test_32bit_ops.s45` — assembler-level mmemu validation test for 32-bit operations: native Q register add (`adcq`), subtract (`sbcq`), bitwise OR (`oraq`), negation (`neg.32`), and sign extension (`sxt.16`). Verified at `$4000`: `E0 93 04 00 A0 86 01 00 E0 8F 03 00 60 79 FE FF` and at `$4010`: `FF FF FF FF`.
 
 ### Changed
 - **Testing**:
@@ -763,11 +843,11 @@ Future work for v1.1+
 ### Testing
 - Added `test_multidim_array.c` — mmemu validation test for multi-dimensional arrays. Tests 1D array read (`scores[2]`), 2D constant-index store and read (`grid[1][2]`, `grid[2][3]`, `grid[0][0]`), and `sizeof` for 2D arrays. Verified via memory dump at `$4000`: `03 0C 17 00 18 AA`.
 - Added `test_array_loop.c` — mmemu validation test for runtime-indexed global array stores via loops. Tests 1D loop fill (`scores[i] = i+1`), 2D nested loop fill (`grid[i][j] = i*10+j`), and reads of both. Verified via memory dump at `$4000`: `01 05 00 0C 17 AA`.
-- Added `test_array.s` — assembler test for `.array` directive and `expr` array indexing (constant and runtime indices, multi-dimensional, stride metadata constants).
+- Added `test_array.s45` — assembler test for `.array` directive and `expr` array indexing (constant and runtime indices, multi-dimensional, stride metadata constants).
 - Added `test_pragma_heap.c` — compiler test validating `#pragma crt heap` with `malloc`/`free` usage compiles and assembles.
 - Added `test_malloc.c` — compiler test validating `stdlib.h` heap function declarations (`malloc`, `free`, `calloc`, `realloc`) compile and assemble.
-- Verified `malloc.s` assembles in relocatable mode (`ca45 -c`) with correct symbol exports (`_malloc`, `_free`, `_calloc`, `_realloc`, `_heap_init`).
-- Verified `crt_heap.s` assembles in relocatable mode with `_init_heap_crt` export.
+- Verified `malloc.s45` assembles in relocatable mode (`ca45 -c`) with correct symbol exports (`_malloc`, `_free`, `_calloc`, `_realloc`, `_heap_init`).
+- Verified `crt_heap.s45` assembles in relocatable mode with `_init_heap_crt` export.
 - Verified `lib/Makefile` builds both `crt45.lib` (3 members) and `stdlib45.lib` (28 members) successfully.
 - Added `test_register.c` — mmemu validation test for `register` keyword (16 sub-tests): int/char initializers, assignment, loop accumulation, mixed register/stack variables, function argument passing, function return values, large literals, increment/decrement, nested scopes, `for`-loop init, and self-assignment.
 - Added `test_register.sh` — 16 assembly-output pattern tests validating ZP allocation comments, `.var` absence, direct ZP store/load patterns, `inw`/`inc` optimizations, stack cleanup reduction, distinct ZP addresses, array/struct fallback, and full pipeline assembly.
@@ -854,12 +934,12 @@ Future work for v1.1+
 
 ### Added
 - **Compiler (cc45)**:
-    - **Relocatable object mode (`-c`)**: `cc45 -c input.c -o output.o45` compiles C to a `.o45` relocatable object file. The CodeGenerator auto-emits `.global` for defined functions and global variables, `.extern` for called-but-not-defined functions. Skips the `.org $2000` and startup stub in reloc mode. The `-o` flag controls the final `.o45` name; intermediate `.s` file is generated automatically.
+    - **Relocatable object mode (`-c`)**: `cc45 -c input.c -o output.o45` compiles C to a `.o45` relocatable object file. The CodeGenerator auto-emits `.global` for defined functions and global variables, `.extern` for called-but-not-defined functions. Skips the `.org $2000` and startup stub in reloc mode. The `-o` flag controls the final `.o45` name; intermediate `.s45` file is generated automatically.
     - **`#pragma weak`**: Marks the next function or global variable as a weak export. The preprocessor converts `#pragma weak` to an internal `.weak_next` marker; the CodeGenerator emits `.weak` instead of `.global`. Weak symbols can be overridden by strong definitions at link time.
     - **Frame-pointer-relative parameter access**: Function parameters are now accessed via a saved frame pointer using the 45GS02's native `($nn,SP),Y` addressing mode (opcodes $E2/$82). The `proc` prologue saves SP as a 16-bit LE pointer on the stack (`TSX; LDA #$01; PHA; PHX`). Parameters get fixed Y offsets that never change as locals are pushed, eliminating the need for `.var` offset bumping on parameters.
     - Added `_fp` assembler variable that tracks the frame pointer's stack position, automatically adjusted by `.var` as locals are declared.
     - Added `test_many_params_locals.c` — validates functions with >2 parameters (up to 5) and >2 local variables (up to 6), including mixed char/int params, nested multi-param calls, and computed expression arguments (10 test cases).
-    - Added `test_16bit_stack.s` — validates 16-bit stack pointer relocation via `TYS`/`TSY` with push/pull verification on page $40.
+    - Added `test_16bit_stack.s45` — validates 16-bit stack pointer relocation via `TYS`/`TSY` with push/pull verification on page $40.
 - **Assembler (ca45)**:
     - Added `BASE_PAGE_INDIRECT_SP_Y` to `emitInstruction` (text and binary modes) and `calculateInstructionSize` — the `($nn,SP),Y` addressing mode was previously missing from the instruction encoder.
     - Added `lda_frame`/`sta_frame` methods to `M65Emitter` for frame-pointer-relative memory access.
@@ -884,7 +964,7 @@ Future work for v1.1+
 - **Testing**:
     - Added `test_many_params_locals` to both `test_compiler.sh` and `test_mmemu.sh` validation suites.
     - Added 16-bit stack pointer test to `test_mmemu.sh` — verifies TYS/TSY and push/pull on a relocated stack page.
-    - Added `test_global_extern.s` to assembler test suite — validates `.global`/`.extern` directive parsing.
+    - Added `test_global_extern.s45` to assembler test suite — validates `.global`/`.extern` directive parsing.
     - Added `test_o45` unit test binary (217 assertions) — validates `.o45` header, segment bodies, relocation encoding, symbol tables, option headers, and segment mapping.
 
 ### Changed
@@ -942,7 +1022,7 @@ Future work for v1.1+
 - **Testing**:
     - Added comprehensive control flow test (`test_mmemu_control.c`) covering if/else, while, do-while, for with break/continue, switch with fallthrough, and ternary operators.
     - Added simple compiler test (`mmemu_compiler_simple.c`).
-    - Added `src/test/test_mmemu.sh` and `src/test-resources/test_mmemu_hello.s` for automated validation using `mmemu-cli`.
+    - Added `src/test/test_mmemu.sh` and `src/test-resources/test_mmemu_hello.s45` for automated validation using `mmemu-cli`.
 
 ### Fixed
 - **Assembler (ca45)**:
@@ -1010,7 +1090,7 @@ Future work for v1.1+
     - Added support for `#undef`, `#line`, `#error`, `#warning`, and `#pragma` directives.
     - Implemented expansion of standard predefined macros: `__FILE__`, `__LINE__`, `__DATE__`, and `__TIME__`.
 - **Documentation**:
-    - Renamed preprocessor documentation to `doc/cp45.md` to align with toolchain naming conventions.
+    - Renamed preprocessor documentation to `doc/bin/cp45.md` to align with toolchain naming conventions.
 - **Assembler (ca45)**:
     - Implemented a suite of high-level simulated opcodes:
         - `ldax / lday / ldaz`: 16-bit word loads with support for immediate (`#`), stack-relative (`offset, s`), zero page, and absolute addressing.

@@ -1,0 +1,45 @@
+Source Map — Binary Address to Source Line Mapping
+=====================================================
+
+00002000  Line 6  .array scores, 1, 10
+0000200a  Line 9  .array board, 1, 8, 8
+0000204a  Line 12  .array grid, 2, 4, 3
+00002062  Line 16  lda board + 2 * board.__stride0 + 5 * board.__stride1
+00002065  Line 19  lda scores + 3 * scores.__stride0
+00002068  Line 22  expr .A, scores[3]
+0000206b  Line 23  expr .A, board[2][5]
+0000206e  Line 26  expr .A, scores[.x]
+00002071  Line 27  expr .A, board[.y][.x]
+00002081  Line 31  expr .A, scores[3] * 2
+0000208f  Line 48  lda #scores.__elsize     ; should be 1
+00002091  Line 49  lda #scores.__stride0    ; should be 1
+00002093  Line 50  lda #board.__stride0     ; should be 8
+00002095  Line 51  lda #board.__stride1     ; should be 1
+00002097  Line 52  lda #grid.__stride0      ; should be 6
+00002099  Line 53  lda #grid.__stride1      ; should be 2
+0000209b  Line 54  lda #grid.__elsize       ; should be 2
+
+
+Symbol Table
+============
+__sp_base                        00000101
+board                            0000200a (ADDR)
+board.__dim0                     00000008 (CONST)
+board.__dim1                     00000008 (CONST)
+board.__dims                     00000002 (CONST)
+board.__elsize                   00000001 (CONST)
+board.__stride0                  00000008 (CONST)
+board.__stride1                  00000001 (CONST)
+cc45.zeroPageStart               00000002
+grid                             0000204a (ADDR)
+grid.__dim0                      00000004 (CONST)
+grid.__dim1                      00000003 (CONST)
+grid.__dims                      00000002 (CONST)
+grid.__elsize                    00000002 (CONST)
+grid.__stride0                   00000006 (CONST)
+grid.__stride1                   00000002 (CONST)
+scores                           00002000 (ADDR)
+scores.__dim0                    0000000a (CONST)
+scores.__dims                    00000001 (CONST)
+scores.__elsize                  00000001 (CONST)
+scores.__stride0                 00000001 (CONST)
