@@ -52,4 +52,5 @@ void test_mktime() {
 
 void main() {
     test_mktime();
+    return 0;
 }
