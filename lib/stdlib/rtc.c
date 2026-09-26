@@ -23,9 +23,6 @@ static unsigned char int_to_bcd(int val) {
     return (unsigned char)(((val / 10) << 4) | (val % 10));
 }
 
-/* Days in each month (non-leap year) */
-static int days_in_month[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
-
 static int is_leap_year(int year) {
     if (year % 4 != 0) return 0;
     if (year % 100 != 0) return 1;
@@ -35,6 +32,7 @@ static int is_leap_year(int year) {
 
 /* Compute day of year (0-based) from month and day */
 static int day_of_year(int year, int mon, int mday) {
+    static int days_in_month[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
     int doy = 0;
     int i;
     for (i = 0; i < mon; i++) {
@@ -46,7 +44,7 @@ static int day_of_year(int year, int mon, int mday) {
 
 /* Compute day of week using Tomohiko Sakamoto's algorithm (0=Sunday) */
 static int compute_wday(int year, int mon, int mday) {
-    static int t[12] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
+    int t[12] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
     if (mon < 2) year--;
     return (year + year/4 - year/100 + year/400 + t[mon] + mday) % 7;
 }
