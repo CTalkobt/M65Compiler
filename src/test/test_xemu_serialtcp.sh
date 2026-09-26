@@ -140,6 +140,9 @@ run_uart_test "src/test-resources/test_struct_array.c" "build/test/test_struct_a
 echo "Testing struct returns..."
 run_uart_test "src/test-resources/test_struct_return.c" "build/test/test_struct_return.prg" "" "struct returns"
 
+echo "Testing bug #179 (mktime library function)..."
+run_uart_test "src/test-resources/bug179_uart.c" "build/test/bug179_uart.prg" "" "bug #179 mktime validation"
+
 echo "Testing compound literals..."
 run_uart_test "src/test-resources/test_compound_literal.c" "build/test/test_compound_literal.prg" "" "compound literals"
 
