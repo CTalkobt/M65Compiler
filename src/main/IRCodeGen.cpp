@@ -3485,20 +3485,21 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 // Recalculate frame pointer after JSR (SP may have changed)
                 // FP must be re-initialized from current SP for .fp addressing to work correctly
                 if (useStackParams_) {
-                    // Save return value (AX) on stack before overwriting A with SP
-                    emit("phx");  // Push X (high byte)
-                    emit("pha");  // Push A (low byte)
+                    // Use temporary registers to preserve return value (AX)
+                    // Save AX to ZP scratch before clobbering A with SP calculation
+                    emit("sta $08");   // Save A to __zp_scratch
+                    emit("stx $09");   // Save X to __zp_scratch+1
                     emit("tsx");
                     emit("txa");
                     emit("clc");
                     emit("adc #1");
-                    emit("sta $FD");
+                    emit("sta $FD");   // _fp low byte
                     emit("lda #$01");
                     emit("adc #0");
-                    emit("sta $FE");
-                    // Restore return value from stack
-                    emit("pla");  // Pop A (low byte)
-                    emit("plx");  // Pop X (high byte)
+                    emit("sta $FE");   // _fp high byte
+                    // Restore return value from ZP scratch
+                    emit("lda $08");   // Restore A
+                    emit("ldx $09");   // Restore X
                 }
 
                 // Caller-side stack cleanup: pop argBytes with valid instructions
