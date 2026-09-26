@@ -615,8 +615,8 @@ if [ $? -ne 0 ]; then
     failed=$((failed + 1))
 else
     OUTPUT=$(echo -e "load build/test/bug179_validation.prg\nsetpc \$2000\nstep 10000000\nm \$4000 1\nq" | $MMEMU -m rawMega65 2>/dev/null)
-    if echo "$OUTPUT" | grep -qi "4000: 00"; then
-        echo "SUCCESS: bug179_validation (sizeof struct tm) passed."
+    if echo "$OUTPUT" | grep -qi "4000: aa"; then
+        echo "SUCCESS: bug179_validation (mktime works correctly) passed."
     else
         echo "FAIL: bug179_validation failed."
         echo "$OUTPUT" | grep "4000:"
