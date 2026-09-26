@@ -3048,9 +3048,9 @@ void IRBuilder::visit(FunctionCall& node) {
 
     // Check for passing &const_var to non-const pointer parameter
     auto pit = funcParamInfo_.find(node.name);
-    auto fit = allFunctions_.find(node.name);
-    if (pit != funcParamInfo_.end() && fit != allFunctions_.end()) {
-        FunctionDeclaration* funcDecl = fit->second;
+    auto fitConst = allFunctions_.find(node.name);
+    if (pit != funcParamInfo_.end() && fitConst != allFunctions_.end()) {
+        FunctionDeclaration* funcDecl = fitConst->second;
         for (size_t i = 0; i < node.arguments.size() && i < pit->second.size() && i < funcDecl->parameters.size(); i++) {
             const auto& pinfo = pit->second[i];
             const auto& param = funcDecl->parameters[i];
