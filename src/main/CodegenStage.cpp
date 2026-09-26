@@ -235,7 +235,7 @@ void CodegenStage::generateAssembly() {
     codegen.generate(*irModule_,
                      0x08,              // zpStart
                      false,             // relocMode (PRG mode, not .o45)
-                     false,             // zpCallMode (use stack convention)
+                     zpCallMode_,       // zpCallMode
                      verboseLevel_ >= 3, // emitReasons
                      staticAlloc_,      // staticAllocMode
                      verboseLevel_ >= 3, // sacDebugMode
