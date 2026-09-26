@@ -69,7 +69,7 @@ void CodegenStage::generateIR() {
     IRBuilder builder;
 
     // Configure builder for this compilation
-    builder.zpCallMode = false;  // Default to stack calling convention
+    builder.zpCallMode = zpCallMode_;
     builder.staticAllocMode = staticAlloc_;
     builder.inlineFunctions = inlineFunctions_ || optimizationLevel_ >= 2;
 
@@ -234,8 +234,8 @@ void CodegenStage::generateAssembly() {
     // Parameters: module, zpStart, relocMode, zpCallMode, emitReasons, staticAllocMode, sacDebugMode, prgBase
     codegen.generate(*irModule_,
                      0x08,              // zpStart
-                     relocMode_,        // relocMode (.o45 object vs PRG)
-                     false,             // zpCallMode (use stack convention)
+                     false,             // relocMode (PRG mode, not .o45)
+                     zpCallMode_,       // zpCallMode
                      verboseLevel_ >= 3, // emitReasons
                      staticAlloc_,      // staticAllocMode
                      verboseLevel_ >= 3, // sacDebugMode

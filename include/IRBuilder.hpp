@@ -17,6 +17,7 @@ public:
 
     void generate(TranslationUnit& unit);
     void setSourceInfo(const std::string& filename);
+    void emitWarning(const std::string& warning);
     void setExternalUsedVars(const std::set<std::string>& vars) { externalUsedVars_ = vars; }
     const ir::Module& getModule() const { return module_; }
     ir::Module& getModule() { return module_; }
