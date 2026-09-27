@@ -59,7 +59,7 @@ Stage::Result AssemblyStage::execute() {
         return {true};
 
     } catch (const std::exception& e) {
-        return {false, e.what()};
+        return {false, e.what(), 169};  // Exit code 169-210: assembler error
     }
 }
 

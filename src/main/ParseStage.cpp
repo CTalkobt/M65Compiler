@@ -56,6 +56,6 @@ Stage::Result ParseStage::execute() {
         return {true};
 
     } catch (const std::exception& e) {
-        return {false, e.what()};
+        return {false, e.what(), 43};  // Exit code 43-84: parser/syntax error
     }
 }

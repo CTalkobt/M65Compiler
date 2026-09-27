@@ -31,6 +31,6 @@ Stage::Result PreprocessStage::execute() {
         return {true};
 
     } catch (const std::exception& e) {
-        return {false, e.what()};
+        return {false, e.what(), 1};  // Exit code 1-42: preprocessor error
     }
 }

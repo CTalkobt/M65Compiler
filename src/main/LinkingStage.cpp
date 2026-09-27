@@ -29,7 +29,7 @@ Stage::Result LinkingStage::execute() {
         return {true};
 
     } catch (const std::exception& e) {
-        return {false, e.what()};
+        return {false, e.what(), 211};  // Exit code 211-252: linker error
     }
 }
 

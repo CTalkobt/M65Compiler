@@ -39,7 +39,7 @@ Stage::Result OptimizeStage::execute() {
         return {true};
 
     } catch (const std::exception& e) {
-        return {false, e.what()};
+        return {false, e.what(), 85};  // Exit code 85-126: optimization error
     }
 }
 

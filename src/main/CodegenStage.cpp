@@ -45,7 +45,7 @@ Stage::Result CodegenStage::execute() {
         return {true};
 
     } catch (const std::exception& e) {
-        return {false, e.what()};
+        return {false, e.what(), 127};  // Exit code 127-168: code generation error
     }
 }
 

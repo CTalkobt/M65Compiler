@@ -201,7 +201,7 @@ CompilationResult CompilationPipeline::compile() {
 
     } catch (const std::exception& e) {
         result.success = false;
-        result.exitCode = 1;
+        result.exitCode = 253;  // Exit code 253-255: internal/pipeline error
         result.error = std::string("Pipeline error: ") + e.what();
         return result;
     }
