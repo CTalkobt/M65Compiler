@@ -2,6 +2,7 @@ build/
 refs/
 obj/
 bin/
+*.o45
 
 .idea/
 .tmp/
