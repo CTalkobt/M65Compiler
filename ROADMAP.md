@@ -129,6 +129,14 @@
 - ~~Link-Time Code Generation (LTO)~~ — **done** (Phase 100 LTCO: multi-phase hint coordination)
 - Static analysis & sanitizers
 
+### Optimizer — Remaining Items
+
+| Task | Category | Status |
+|------|----------|--------|
+| Automatic parameter narrowing (generate I8 code path for `int` params when all call sites pass 0-255) | IR optimizer | todo |
+| Binary-mode dead store elimination (remove dead `sta $ZP` after RELOC_CONST forwarding) | asm optimizer | todo |
+| Array indexing pseudo-op (`addr_elem.16 dest, base, index, stride` — single expansion replacing mul.16 + add.16) | asm codegen | todo |
+
 ---
 
 ## Completed v1.0 Items

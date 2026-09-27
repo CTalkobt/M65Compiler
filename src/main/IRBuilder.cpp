@@ -366,7 +366,7 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             t = ir::Type::I32;
             tn = "long";
         }
-        return {t, tn, isSigned, (t == ir::Type::PTR) ? ir::Type::I16 : ir::Type::VOID, ir::typeSize(t)};
+        return {t, tn, isSigned, (t == ir::Type::PTR) ? mapType(lit->castType, 0) : ir::Type::VOID, ir::typeSize(t)};
     }
     
     if (auto* cast = dynamic_cast<CastExpression*>(expr)) {
