@@ -2,22 +2,24 @@
 #include <cstdint>
 
 namespace m65 {
-    // Math Accelerator (Hardware Divider/Multiplier)
-    constexpr uint16_t MATH_CONTROL     = 0xD700; // and DMA control
-    constexpr uint16_t MATH_BUSY_STATUS = 0xD70F; // bit 7 set if busy
-    
-    // 32-bit Multiplier
-    constexpr uint16_t MULT_ARG1        = 0xD770; // 0xD770-0xD773
-    constexpr uint16_t MULT_ARG2        = 0xD774; // 0xD774-0xD777
-    constexpr uint16_t MULT_RES         = 0xD778; // 0xD778-0xD77B
-    
-    // 32-bit Divider
-    constexpr uint16_t DIV_ARG1         = 0xD760; // 0xD760-0xD763 (Dividend)
-    constexpr uint16_t DIV_ARG2         = 0xD764; // 0xD764-0xD767 (Divisor)
-    constexpr uint16_t DIV_RES          = 0xD768; // 0xD768-0xD76B (Quotient)
-    constexpr uint16_t DIV_REM          = 0xD770; // 0xD770-0xD773 (Remainder - aliased with MULT_ARG1 in mmsim)
+    // Math Accelerator (Hardware Divider/Multiplier) — per MEGA65 VHDL (gs4510.vhdl)
+    constexpr uint16_t MATH_BUSY_STATUS = 0xD70F; // bit 7 = divider busy, bit 6 = multiplier busy
 
-    constexpr uint16_t MATH_SIGN        = 0xD76E;
+    // Multiplier and Divider share input registers $D770/$D774
+    // Writing to $D770-$D777 triggers division (div_start_over signal)
+    // Multiplier is combinational (result available immediately)
+    constexpr uint16_t MULT_ARG1        = 0xD770; // 0xD770-0xD773 (also dividend for divider)
+    constexpr uint16_t MULT_ARG2        = 0xD774; // 0xD774-0xD777 (also divisor for divider)
+    constexpr uint16_t MULT_RES         = 0xD778; // 0xD778-0xD77F (64-bit product)
+
+    // Divider: inputs shared with multiplier, outputs at $D768/$D76C
+    constexpr uint16_t DIV_ARG1         = 0xD770; // 0xD770-0xD773 (Dividend — same as MULT_ARG1)
+    constexpr uint16_t DIV_ARG2         = 0xD774; // 0xD774-0xD777 (Divisor — same as MULT_ARG2)
+    constexpr uint16_t DIV_FRAC         = 0xD768; // 0xD768-0xD76B (Fractional part of quotient)
+    constexpr uint16_t DIV_RES          = 0xD76C; // 0xD76C-0xD76F (Integer quotient)
+    // No hardware remainder register — compute as: dividend - quotient * divisor
+
+    constexpr uint16_t MATH_SIGN        = 0xD76E; // Scratch byte for sign tracking in signed math ops
 
     // DMA Controller
     constexpr uint16_t DMA_CONTROL      = 0xD700;

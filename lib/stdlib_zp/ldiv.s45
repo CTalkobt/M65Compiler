@@ -31,26 +31,26 @@ proc _ldiv
     sec
     lda #0
     sbc $05
-    sta $D760
+    sta $D770
     lda #0
     sbc $06
-    sta $D761
+    sta $D771
     lda #0
     sbc $07
-    sta $D762
+    sta $D772
     lda #0
     sbc $08
-    sta $D763
+    sta $D773
     bra @do_denom
 @numer_pos:
     lda $05
-    sta $D760
+    sta $D770
     lda $06
-    sta $D761
+    sta $D771
     lda $07
-    sta $D762
+    sta $D772
     lda $08
-    sta $D763
+    sta $D773
 
 @do_denom:
     ; --- abs(denom) ---
@@ -62,26 +62,26 @@ proc _ldiv
     sec
     lda #0
     sbc $09
-    sta $D764
+    sta $D774
     lda #0
     sbc $0A
-    sta $D765
+    sta $D775
     lda #0
     sbc $0B
-    sta $D766
+    sta $D776
     lda #0
     sbc $0C
-    sta $D767
+    sta $D777
     bra @divide
 @denom_pos:
     lda $09
-    sta $D764
+    sta $D774
     lda $0A
-    sta $D765
+    sta $D775
     lda $0B
-    sta $D766
+    sta $D776
     lda $0C
-    sta $D767
+    sta $D777
 
 @divide:
 @wait:
@@ -93,34 +93,34 @@ proc _ldiv
     beq @quot_pos
     sec
     lda #0
-    sbc $D768
+    sbc $D76C
     ldy #0
     sta ($03), y
     lda #0
-    sbc $D769
+    sbc $D76D
     iny
     sta ($03), y
     lda #0
-    sbc $D76A
+    sbc $D76E
     iny
     sta ($03), y
     lda #0
-    sbc $D76B
+    sbc $D76F
     iny
     sta ($03), y
     bra @do_rem
 @quot_pos:
     ldy #0
-    lda $D768
+    lda $D76C
     sta ($03), y
     iny
-    lda $D769
+    lda $D76D
     sta ($03), y
     iny
-    lda $D76A
+    lda $D76E
     sta ($03), y
     iny
-    lda $D76B
+    lda $D76F
     sta ($03), y
 
 @do_rem:

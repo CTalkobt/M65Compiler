@@ -462,30 +462,26 @@ struct dma_regs {
 #define DMA_CMD_SWAP   0x04
 #define DMA_CMD_MIX    0x04  /* with sub-command */
 
-/* ===== MEGA65 Math Accelerator ($D760-$D77F) ===== */
+/* ===== MEGA65 Math Accelerator ($D768-$D77F) — per VHDL ===== */
+/* Multiplier and divider share input registers $D770/$D774.
+ * Writing to $D770-$D777 triggers division (div_start_over signal).
+ * Multiplier is combinational (result available immediately).
+ * No hardware remainder register — compute as: dividend - quotient * divisor. */
 
-struct math_divider {
-    unsigned char arg1[4];         /* $D760: dividend (32-bit) */
-    unsigned char arg2[4];         /* $D764: divisor (32-bit) */
-    unsigned char quotient[4];     /* $D768: quotient result (32-bit) */
-    unsigned char _reserved[2];    /* $D76C-$D76D */
-    unsigned char sign;            /* $D76E: sign scratch byte */
-    unsigned char _reserved2;      /* $D76F */
+struct math_accel {
+    unsigned char frac[4];         /* $D768: fractional quotient (32-bit) */
+    unsigned char quotient[4];     /* $D76C: integer quotient (32-bit) */
+    unsigned char arg1[4];         /* $D770: dividend / multiplicand (32-bit) */
+    unsigned char arg2[4];         /* $D774: divisor / multiplier (32-bit) */
+    unsigned char product[8];      /* $D778: 64-bit product result */
 };
 
-struct math_multiplier {
-    unsigned char arg1[4];         /* $D770: multiplicand (32-bit) */
-    unsigned char arg2[4];         /* $D774: multiplier (32-bit) */
-    unsigned char result[4];       /* $D778: product result (32-bit) */
-    unsigned char _reserved[4];    /* $D77C-$D77F */
-};
-
-#define math_div ((volatile struct math_divider *)0xD760)
-#define math_mul ((volatile struct math_multiplier *)0xD770)
+#define math ((volatile struct math_accel *)0xD768)
 
 /* Math accelerator status */
 #define MATH_BUSY  (*(volatile unsigned char *)0xD70F)
-#define MATH_BUSY_BIT  0x80  /* Bit 7 of $D70F: set while computing */
+#define MATH_BUSY_DIV  0x80  /* Bit 7: divider busy */
+#define MATH_BUSY_MUL  0x40  /* Bit 6: multiplier busy */
 
 /* Hardware RNG */
 #define HW_RANDOM  (*(volatile unsigned char *)0xD7EF)

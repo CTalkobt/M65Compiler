@@ -4,7 +4,7 @@
 ;   Converts a 32-bit integer to a NUL-terminated string.
 ;   Returns str.
 ;
-;   Uses MEGA65 hardware divider at $D760-$D773.
+;   Uses MEGA65 hardware divider at $D770-$D773.
 ;   ZP param layout: value=$03-$06, str=$07/$08, base=$09/$0A
 ;   Internal: $02=digit count, value modified in-place at $03-$06
 
@@ -82,23 +82,23 @@ proc _ltoa
 
     ; --- Extract digits: divide 32-bit value by base ---
 @extract:
-    ; Dividend: $D760-$D763 (32-bit)
+    ; Dividend: $D770-$D773 (32-bit)
     lda $03
-    sta $d760
+    sta $d770
     lda $04
-    sta $d761
+    sta $d771
     lda $05
-    sta $d762
+    sta $d772
     lda $06
-    sta $d763
-    ; Divisor: $D764-$D767 (base, 16-bit zero-extended)
+    sta $d773
+    ; Divisor: $D774-$D777 (base, 16-bit zero-extended)
     lda $09
-    sta $d764
+    sta $d774
     lda $0A
-    sta $d765
+    sta $d775
     lda #0
-    sta $d766
-    sta $d767
+    sta $d776
+    sta $d777
 
 @waitdiv:
     bit $D70F
@@ -120,14 +120,14 @@ proc _ltoa
     pha
     inc $02
 
-    ; Quotient ($D768-$D76B) becomes new value
-    lda $d768
+    ; Quotient ($D76C-$D76F) becomes new value
+    lda $d76c
     sta $03
-    lda $d769
+    lda $d76d
     sta $04
-    lda $d76a
+    lda $d76e
     sta $05
-    lda $d76b
+    lda $d76f
     sta $06
 
     ; Continue while value != 0

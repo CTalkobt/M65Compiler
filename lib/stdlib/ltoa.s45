@@ -9,7 +9,7 @@
 ;   (full 32-bit), push digit chars onto hardware stack in reverse,
 ;   then pop them into the output buffer in correct order.
 ;
-;   Uses MEGA65 hardware divider at $D760-$D773.
+;   Uses MEGA65 hardware divider (VHDL): $D770/$D774 inputs, $D76C quotient.
 ;   ZP usage: $02-$08 (saved/restored to stack)
 
 .global _ltoa
@@ -106,31 +106,50 @@ proc _ltoa, D#_p_value, W#_p_str, W#_p_base
     bra @nulterm
 
     ; --- Extract digits: divide 32-bit value by base ---
+    ; MEGA65 VHDL: dividend $D770, divisor $D774, quotient $D76C
+    ; Remainder = value - quotient * base (computed in software)
 @extract:
-    ; Dividend: $D760-$D763 (32-bit)
+    ; Save value lo byte for remainder calculation
     lda $02
-    sta $d760
+    pha
+
+    ; Dividend ($D770-$D773)
+    lda $02
+    sta $d770
     lda $03
-    sta $d761
+    sta $d771
     lda $04
-    sta $d762
+    sta $d772
     lda $05
-    sta $d763
-    ; Divisor: $D764-$D767 (base, 16-bit zero-extended)
+    sta $d773
+    ; Divisor ($D774-$D777) — base, 16-bit zero-extended
     lda $06
-    sta $d764
+    sta $d774
     lda $07
-    sta $d765
+    sta $d775
     lda #0
-    sta $d766
-    sta $d767
+    sta $d776
+    sta $d777
 
 @waitdiv:
     bit $d70f
     bne @waitdiv
 
-    ; Convert remainder ($D770) to character
-    lda $d770
+    ; Compute remainder = value - quotient * base
+    ; Write quotient to $D770, base still in $D774
+    lda $d76c
+    sta $d770
+    lda $d76d
+    sta $d771
+    lda $d76e
+    sta $d772
+    lda $d76f
+    sta $d773
+    ; Product lo byte at $D778 (combinational)
+    ; Remainder = saved_value_lo - product_lo (single digit fits in byte)
+    pla                     ; saved value lo
+    sec
+    sbc $d778               ; A = remainder (0-35)
     cmp #10
     bcs @hexdig
     clc
@@ -145,14 +164,14 @@ proc _ltoa, D#_p_value, W#_p_str, W#_p_base
     pha                 ; push digit char onto hardware stack
     inc $08             ; count it
 
-    ; Quotient ($D768-$D76B) becomes new value
-    lda $d768
+    ; Quotient ($D76C-$D76F) becomes new value
+    lda $d76c
     sta $02
-    lda $d769
+    lda $d76d
     sta $03
-    lda $d76a
+    lda $d76e
     sta $04
-    lda $d76b
+    lda $d76f
     sta $05
 
     ; Continue while value != 0

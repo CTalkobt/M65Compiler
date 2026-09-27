@@ -1884,7 +1884,7 @@ uint32_t AssemblerSimulatedOps::resolveAbsAddr(AssemblerParser* parser, int toke
 // Emit signed 16-bit multiply/divide/mod.
 // op: 0=mul, 1=div, 2=mod
 // Left in .AX, right from tokenIndex (constant or memory address).
-// Hardware: mul=$D770/$D774→$D778, div=$D760/$D764→$D768, remainder=$D770.
+// Hardware (VHDL): mul/div share inputs $D770/$D774. mul→$D778 (combinational), div→$D76C (integer quotient).
 // $D76E used as sign scratch byte.
 void AssemblerSimulatedOps::emitSignedMathOp(AssemblerParser* parser, M65Emitter& e, int op,
                              const std::string& /*dest*/, int tokenIndex, const std::string& scopePrefix) {
@@ -1895,8 +1895,9 @@ void AssemblerSimulatedOps::emitSignedMathOp(AssemblerParser* parser, M65Emitter
     if (!srcAst) return;
 
     const uint16_t SIGN = m65::MATH_SIGN;
-    uint16_t leftBase  = (op == 0) ? m65::MULT_ARG1 : m65::DIV_ARG1;
-    uint16_t rightBase = (op == 0) ? m65::MULT_ARG2 : m65::DIV_ARG2;
+    // VHDL: mul and div share input registers $D770/$D774
+    uint16_t leftBase  = m65::MULT_ARG1;
+    uint16_t rightBase = m65::MULT_ARG2;
 
     bool srcIsConst = isImmediate && srcAst->isConstant(parser);
 
@@ -1964,7 +1965,23 @@ void AssemblerSimulatedOps::emitSignedMathOp(AssemblerParser* parser, M65Emitter
     } else if (op == 1) {
         e.lda_addr(m65::DIV_RES); e.ldx_addr(m65::DIV_RES + 1);
     } else {
-        e.lda_addr(m65::DIV_REM); e.ldx_addr(m65::DIV_REM + 1);
+        // Remainder = dividend - quotient * divisor (no hardware remainder register)
+        // Quotient is at DIV_RES. Write it to MULT_ARG1, divisor still in MULT_ARG2.
+        // Product = quotient * divisor at MULT_RES (combinational, instant).
+        // Save dividend first (it's in MULT_ARG1, will be overwritten).
+        e.lda_addr(m65::MULT_ARG1);     e.pha();  // save dividend lo
+        e.lda_addr(m65::MULT_ARG1 + 1); e.pha();  // save dividend hi
+        // Write quotient to MULT_ARG1
+        e.lda_addr(m65::DIV_RES);     e.sta_addr(m65::MULT_ARG1);
+        e.lda_addr(m65::DIV_RES + 1); e.sta_addr(m65::MULT_ARG1 + 1);
+        e.lda_imm(0); e.sta_addr(m65::MULT_ARG1 + 2); e.sta_addr(m65::MULT_ARG1 + 3);
+        // Product = quotient * divisor (combinational)
+        // Remainder = dividend - product
+        e.pla();       // dividend hi
+        e.sec();
+        e.sbc_addr(m65::MULT_RES + 1); e.tax();  // X = remainder hi
+        e.pla();       // dividend lo
+        e.sbc_addr(m65::MULT_RES);                // A = remainder lo
     }
 
     // --- Step 7: Sign correction ---
@@ -1994,8 +2011,9 @@ void AssemblerSimulatedOps::emitSignedMathOp32(AssemblerParser* parser, M65Emitt
     if (!srcAst) return;
 
     const uint16_t SIGN = m65::MATH_SIGN;
-    uint16_t leftBase  = (op == 0) ? m65::MULT_ARG1 : m65::DIV_ARG1;
-    uint16_t rightBase = (op == 0) ? m65::MULT_ARG2 : m65::DIV_ARG2;
+    // VHDL: mul and div share input registers $D770/$D774
+    uint16_t leftBase  = m65::MULT_ARG1;
+    uint16_t rightBase = m65::MULT_ARG2;
     bool srcIsConst = isImmediate && srcAst->isConstant(parser);
 
     // --- Step 1: Save sign of left operand and compute abs(left) ---
@@ -2073,10 +2091,24 @@ void AssemblerSimulatedOps::emitSignedMathOp32(AssemblerParser* parser, M65Emitt
         e.lda_addr(m65::DIV_RES + 1); e.tax();
         e.lda_addr(m65::DIV_RES);
     } else {
-        e.lda_addr(m65::DIV_REM + 3); e.taz();
-        e.lda_addr(m65::DIV_REM + 2); e.tay();
-        e.lda_addr(m65::DIV_REM + 1); e.tax();
-        e.lda_addr(m65::DIV_REM);
+        // Remainder = dividend - quotient * divisor (no hardware remainder register)
+        // Save dividend to ZP scratch (4 bytes: scratchZP_ .. scratchZP_+3)
+        uint8_t zps = e.scratchZP();
+        for (int i = 0; i < 4; i++) {
+            e.lda_addr(m65::MULT_ARG1 + i);
+            e.sta_zp(zps + i);
+        }
+        // Write quotient to MULT_ARG1
+        for (int i = 0; i < 4; i++) {
+            e.lda_addr(m65::DIV_RES + i); e.sta_addr(m65::MULT_ARG1 + i);
+        }
+        // Product = quotient * divisor at MULT_RES (combinational, instant)
+        // Remainder = dividend - product (32-bit subtraction)
+        e.lda_zp(zps);     e.sec(); e.sbc_addr(m65::MULT_RES);     e.pha();
+        e.lda_zp(zps + 1); e.sbc_addr(m65::MULT_RES + 1); e.tax();
+        e.lda_zp(zps + 2); e.sbc_addr(m65::MULT_RES + 2); e.tay();
+        e.lda_zp(zps + 3); e.sbc_addr(m65::MULT_RES + 3); e.taz();
+        e.pla(); // restore byte 0 to A — result in AXYZ
     }
 
     // --- Step 7: Sign correction ---
@@ -2108,12 +2140,23 @@ void AssemblerSimulatedOps::emitMod16Code(AssemblerParser* parser, M65Emitter& e
     if (isSigned) {
         emitSignedMathOp(parser, e, 2, dest, tokenIndex, scopePrefix);
     } else {
-        // Unsigned mod: perform div.16, then read remainder from $D770/$D771
-        // (The div hardware leaves the remainder there after any division.)
+        // Unsigned mod: perform div.16, then compute remainder = dividend - quotient * divisor
+        // Save dividend before div overwrites MULT_ARG1
+        e.pha(); e.txa(); e.pha(); // save AX (dividend) on stack
+        // Store dividend to hardware
+        e.pla(); e.tax(); e.pla(); // restore AX
         emitDivCode(parser, e, 16, dest, tokenIndex, scopePrefix);
-        // divCode loaded quotient into .AX from $D768. Override with remainder:
-        e.lda_addr(m65::DIV_REM);
-        e.ldx_addr(m65::DIV_REM + 1);
+        // divCode loaded quotient into .AX. Quotient is also at DIV_RES.
+        // Dividend was already in MULT_ARG1 before div. Divisor in MULT_ARG2.
+        // After div, MULT_ARG1 still has dividend. Write quotient there for remainder calc.
+        e.lda_addr(m65::MULT_ARG1);     e.pha();  // save dividend lo
+        e.lda_addr(m65::MULT_ARG1 + 1); e.pha();  // save dividend hi
+        e.lda_addr(m65::DIV_RES);     e.sta_addr(m65::MULT_ARG1);
+        e.lda_addr(m65::DIV_RES + 1); e.sta_addr(m65::MULT_ARG1 + 1);
+        e.lda_imm(0); e.sta_addr(m65::MULT_ARG1 + 2); e.sta_addr(m65::MULT_ARG1 + 3);
+        // Product = quotient * divisor (combinational)
+        e.pla(); e.sec(); e.sbc_addr(m65::MULT_RES + 1); e.tax(); // remainder hi
+        e.pla(); e.sbc_addr(m65::MULT_RES);                       // remainder lo
     }
 }
 
@@ -3290,24 +3333,24 @@ void AssemblerSimulatedOps::emitMod32Code(AssemblerParser* parser, M65Emitter& e
         emitSignedMathOp32(parser, e, 2, dest, tokenIndex, scopePrefix);
         return;
     } else {
-        // Unsigned mod: perform div.32, then read remainder from $D76C-$D76F
+        // Unsigned mod.32: remainder = dividend - quotient * divisor (no hw remainder)
         emitDivCode(parser, e, 32, dest, tokenIndex, scopePrefix);
-        // divCode loaded quotient into .AXYZ from $D768. Override with remainder:
-        std::string DEST = dest; if (!DEST.empty() && DEST[0] != '.') DEST = "." + DEST;
-        std::transform(DEST.begin(), DEST.end(), DEST.begin(), ::toupper);
-        if (DEST == ".Q" || DEST == ".AXYZ") {
-            e.lda_addr(m65::DIV_REM + 3); e.taz();
-            e.lda_addr(m65::DIV_REM + 2); e.tay();
-            e.lda_addr(m65::DIV_REM + 1); e.tax();
-            e.lda_addr(m65::DIV_REM);
-        } else {
-            for (int i = 0; i < 4; ++i) {
-                e.lda_addr(m65::DIV_REM + i);
-                Symbol* sym = parser->resolveSymbol(dest, scopePrefix);
-                uint32_t addr = 0; if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(dest); } catch(...) { addr = 0; } }
-                e.sta_addr(addr + i);
-            }
+        // Save dividend from MULT_ARG1 to ZP scratch
+        uint8_t zps = e.scratchZP();
+        for (int i = 0; i < 4; i++) {
+            e.lda_addr(m65::MULT_ARG1 + i); e.sta_zp(zps + i);
         }
+        // Write quotient to MULT_ARG1 for remainder calculation
+        for (int i = 0; i < 4; i++) {
+            e.lda_addr(m65::DIV_RES + i); e.sta_addr(m65::MULT_ARG1 + i);
+        }
+        // Product = quotient * divisor (combinational)
+        // Remainder = dividend - product
+        e.lda_zp(zps);     e.sec(); e.sbc_addr(m65::MULT_RES);     e.pha();
+        e.lda_zp(zps + 1); e.sbc_addr(m65::MULT_RES + 1); e.tax();
+        e.lda_zp(zps + 2); e.sbc_addr(m65::MULT_RES + 2); e.tay();
+        e.lda_zp(zps + 3); e.sbc_addr(m65::MULT_RES + 3); e.taz();
+        e.pla(); // restore byte 0 to A — result in AXYZ
     }
 }
 

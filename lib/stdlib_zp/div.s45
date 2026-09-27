@@ -41,11 +41,11 @@ proc _div
     sta $06
 @numer_pos:
     lda $05
-    sta $D760
+    sta $D770
     lda $06
-    sta $D761
-    stz $D762
-    stz $D763
+    sta $D771
+    stz $D772
+    stz $D773
 
     ; Absolute value of denominator
     lda $08                 ; high byte
@@ -64,19 +64,19 @@ proc _div
     sta $08
 @denom_pos:
     lda $07
-    sta $D764
+    sta $D774
     lda $08
-    sta $D765
-    stz $D766
-    stz $D767
+    sta $D775
+    stz $D776
+    stz $D777
 
 @wait:
     bit $D70F
     bne @wait
 
     ; Quotient
-    lda $D768
-    ldx $D769
+    lda $D76C
+    ldx $D76D
     ldy $09
     beq @quot_pos
     eor #$FF
