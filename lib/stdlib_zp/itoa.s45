@@ -76,8 +76,12 @@ proc _itoa
     iny
     bra @nulterm
 
-    ; --- Extract digits: divide, push remainder as char ---
+    ; --- Extract digits: divide, compute remainder ---
 @extract:
+    ; Save value lo for remainder
+    lda $09
+    pha
+
     ; Divide value by base using hardware divider
     lda $09
     sta $d770
@@ -98,8 +102,19 @@ proc _itoa
     bit $D70F
     bne @waitdiv
 
-    ; Convert remainder to character
-    lda $d770
+    ; Compute remainder = value - quotient * base
+    ; Write quotient to $D770, base still in $D774
+    lda $d76c
+    sta $d770
+    lda $d76d
+    sta $d771
+    lda #0
+    sta $d772
+    sta $d773
+    ; Product lo at $D778 (combinational)
+    pla                     ; saved value lo
+    sec
+    sbc $d778               ; A = remainder (0-35)
     cmp #10
     bcs @hexdig
     clc

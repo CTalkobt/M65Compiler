@@ -82,7 +82,11 @@ proc _ltoa
 
     ; --- Extract digits: divide 32-bit value by base ---
 @extract:
-    ; Dividend: $D770-$D773 (32-bit)
+    ; Save value lo for remainder
+    lda $03
+    pha
+
+    ; Dividend ($D770-$D773)
     lda $03
     sta $d770
     lda $04
@@ -91,7 +95,7 @@ proc _ltoa
     sta $d772
     lda $06
     sta $d773
-    ; Divisor: $D774-$D777 (base, 16-bit zero-extended)
+    ; Divisor ($D774-$D777) — base, 16-bit zero-extended
     lda $09
     sta $d774
     lda $0A
@@ -104,8 +108,20 @@ proc _ltoa
     bit $D70F
     bne @waitdiv
 
-    ; Convert remainder ($D770) to character
-    lda $d770
+    ; Compute remainder = value - quotient * base
+    ; Write quotient to $D770, base still in $D774
+    lda $d76c
+    sta $d770
+    lda $d76d
+    sta $d771
+    lda $d76e
+    sta $d772
+    lda $d76f
+    sta $d773
+    ; Product lo at $D778 (combinational)
+    pla                     ; saved value lo
+    sec
+    sbc $d778               ; A = remainder (0-35)
     cmp #10
     bcs @hexdig
     clc

@@ -8,6 +8,7 @@
 
 .global _ldiv
 .extern __sp_base
+.extern __zp_scratch
 
 .segment "code"
 
@@ -67,14 +68,19 @@ proc _ldiv, W#_p___ret_ptr, D#_p_numer, D#_p_denom
     adc #0
     sta $07
 @numer_pos:
+    ; Save abs(numer) for remainder calculation
     lda $04
     sta $D770
+    sta __zp_scratch
     lda $05
     sta $D771
+    sta __zp_scratch+1
     lda $06
     sta $D772
+    sta __zp_scratch+2
     lda $07
     sta $D773
+    sta __zp_scratch+3
 
     ; Load denom into $04-$07
     lda _p_denom+7, sp
@@ -171,45 +177,58 @@ proc _ldiv, W#_p___ret_ptr, D#_p_numer, D#_p_denom
     sta ($04), y
 
 @do_rem:
-    ; --- Store remainder with numerator sign ---
+    ; --- Remainder = abs(numer) - abs(quotient) * abs(denom) ---
+    ; Write abs(quotient) to $D770 (mult arg1), abs(denom) still in $D774
+    lda $D76C
+    sta $D770
+    lda $D76D
+    sta $D771
+    lda $D76E
+    sta $D772
+    lda $D76F
+    sta $D773
+    ; Product = quotient * denom at $D778 (combinational)
+
     lda $02
     beq @rem_pos
-    ; Negate remainder
-    lda $D770
-    eor #$FF
-    clc
-    adc #1
+    ; Negative numer: remainder = -(abs_numer - product) = product - abs_numer
+    lda $D778
+    sec
+    sbc __zp_scratch
     ldy #4
     sta ($04), y
-    lda $D771
-    eor #$FF
-    adc #0
+    lda $D779
+    sbc __zp_scratch+1
     iny
     sta ($04), y
-    lda $D772
-    eor #$FF
-    adc #0
+    lda $D77A
+    sbc __zp_scratch+2
     iny
     sta ($04), y
-    lda $D773
-    eor #$FF
-    adc #0
+    lda $D77B
+    sbc __zp_scratch+3
     iny
     sta ($04), y
     bra @done
 
 @rem_pos:
+    ; Positive remainder = abs_numer - product
+    lda __zp_scratch
+    sec
+    sbc $D778
     ldy #4
-    lda $D770
     sta ($04), y
+    lda __zp_scratch+1
+    sbc $D779
     iny
-    lda $D771
     sta ($04), y
+    lda __zp_scratch+2
+    sbc $D77A
     iny
-    lda $D772
     sta ($04), y
+    lda __zp_scratch+3
+    sbc $D77B
     iny
-    lda $D773
     sta ($04), y
 
 @done:

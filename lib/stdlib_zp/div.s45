@@ -40,6 +40,12 @@ proc _div
     adc #0
     sta $06
 @numer_pos:
+    ; Save abs(numer) for remainder calculation
+    lda $05
+    pha
+    lda $06
+    pha
+    ; Store to dividend ($D770)
     lda $05
     sta $D770
     lda $06
@@ -95,9 +101,22 @@ proc _div
     txa
     sta ($03), y
 
-    ; Remainder
-    lda $D770
-    ldx $D771
+    ; Remainder = abs(numer) - quotient * abs(denom)
+    ; Write quotient to $D770 (mult arg1), denom still in $D774
+    lda $D76C
+    sta $D770
+    lda $D76D
+    sta $D771
+    stz $D772
+    stz $D773
+    ; Product = quotient * denom at $D778 (combinational)
+    ; Remainder = saved_numer - product
+    pla                     ; numer hi (pushed second)
+    sec
+    sbc $D779
+    tax
+    pla                     ; numer lo (pushed first)
+    sbc $D778
     ldy $02
     beq @rem_pos
     eor #$FF
