@@ -32,3 +32,4 @@ bin/nm45
 bin/objdump45
 hyper_serial.log
 test_short_final.prg
+lib45/
