@@ -133,7 +133,8 @@ CompilationResult CompilationPipeline::compile() {
         CodegenStage codegenStage(ast, analyzer, config_.optimizationLevel,
                                  config_.verboseLevel, config_.inlineSmallFunctions,
                                  config_.staticAllocMode, config_.zpCallMode, config_.saveTemps,
-                                 config_.allowImplicitFunctionDecl);
+                                 config_.allowImplicitFunctionDecl,
+                                 config_.objectOnly, config_.prgBase);
 
         // Phase 102: Pass typedef mappings to codegen stage
         codegenStage.setTypedefMappings(typedefMappings);

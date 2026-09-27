@@ -1,6 +1,7 @@
 #pragma once
 #include "Stage.hpp"
 #include <memory>
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <map>
@@ -23,7 +24,9 @@ public:
                  bool staticAlloc = false,
                  bool zpCallMode = false,
                  bool saveTemps = false,
-                 bool allowImplicitFuncDecl = false)
+                 bool allowImplicitFuncDecl = false,
+                 bool objectOnly = false,
+                 uint32_t prgBase = 0x2000)
         : ast_(ast),
           analyzer_(analyzer),
           optimizationLevel_(optimizationLevel),
@@ -32,7 +35,9 @@ public:
           staticAlloc_(staticAlloc),
           zpCallMode_(zpCallMode),
           saveTemps_(saveTemps),
-          allowImplicitFuncDecl_(allowImplicitFuncDecl) {}
+          allowImplicitFuncDecl_(allowImplicitFuncDecl),
+          objectOnly_(objectOnly),
+          prgBase_(prgBase) {}
 
     Result execute() override;
     std::string getName() const override { return "CodeGen (IR)"; }
@@ -59,6 +64,8 @@ private:
     bool zpCallMode_;
     bool saveTemps_;
     bool allowImplicitFuncDecl_;
+    bool objectOnly_;
+    uint32_t prgBase_;
     std::shared_ptr<ir::Module> irModule_;
     std::string irOutput_;
 

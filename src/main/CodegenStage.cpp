@@ -239,12 +239,12 @@ void CodegenStage::generateAssembly() {
     // Parameters: module, zpStart, relocMode, zpCallMode, emitReasons, staticAllocMode, sacDebugMode, prgBase
     codegen.generate(*irModule_,
                      0x08,              // zpStart
-                     false,             // relocMode (PRG mode, not .o45)
+                     objectOnly_,       // relocMode (true for -c/.o45, false for direct PRG)
                      zpCallMode_,       // zpCallMode
                      verboseLevel_ >= 3, // emitReasons
                      staticAlloc_,      // staticAllocMode
                      verboseLevel_ >= 3, // sacDebugMode
-                     0x2000);           // prgBase
+                     prgBase_);
 
     irOutput_ = ss.str();
 
