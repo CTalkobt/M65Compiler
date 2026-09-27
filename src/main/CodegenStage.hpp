@@ -22,7 +22,8 @@ public:
                  bool inlineFunctions = false,
                  bool staticAlloc = false,
                  bool zpCallMode = false,
-                 bool saveTemps = false)
+                 bool saveTemps = false,
+                 bool allowImplicitFuncDecl = false)
         : ast_(ast),
           analyzer_(analyzer),
           optimizationLevel_(optimizationLevel),
@@ -30,7 +31,8 @@ public:
           inlineFunctions_(inlineFunctions),
           staticAlloc_(staticAlloc),
           zpCallMode_(zpCallMode),
-          saveTemps_(saveTemps) {}
+          saveTemps_(saveTemps),
+          allowImplicitFuncDecl_(allowImplicitFuncDecl) {}
 
     Result execute() override;
     std::string getName() const override { return "CodeGen (IR)"; }
@@ -56,6 +58,7 @@ private:
     bool staticAlloc_;
     bool zpCallMode_;
     bool saveTemps_;
+    bool allowImplicitFuncDecl_;
     std::shared_ptr<ir::Module> irModule_;
     std::string irOutput_;
 

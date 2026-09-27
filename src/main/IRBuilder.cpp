@@ -3361,8 +3361,13 @@ void IRBuilder::visit(FunctionCall& node) {
                 if (it != functionReturnTypes_.end()) {
                     retType = it->second;
                 } else {
-                    warnings_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
-                        Severity::Warning, "implicit declaration of function '" + node.name + "'"));
+                    if (allowImplicitFunctionDecl) {
+                        warnings_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                            Severity::Warning, "implicit declaration of function '" + node.name + "' [-fimplicit-function-declaration]"));
+                    } else {
+                        errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                            Severity::Error, "implicit declaration of function '" + node.name + "' (use -fimplicit-function-declaration to allow)"));
+                    }
                 }
 
                 // For struct-returning functions, use the allocated structDest vreg

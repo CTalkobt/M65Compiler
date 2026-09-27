@@ -28,6 +28,9 @@ struct CompilationConfig {
     bool staticAllocMode = true;
     bool inlineSmallFunctions = false;
 
+    // Language conformance
+    bool allowImplicitFunctionDecl = false;  // -fimplicit-function-declaration: warn instead of error
+
     // Verbose output
     int verboseLevel = 0;
 

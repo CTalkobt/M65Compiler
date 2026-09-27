@@ -513,6 +513,10 @@ int main(int argc, char** argv) {
             config.staticAllocMode = false;
         } else if (arg == "--prg-base" && i + 1 < allArgs.size()) {
             config.prgBase = std::stoul(allArgs[++i], nullptr, 16);
+        } else if (arg == "-fimplicit-function-declaration") {
+            config.allowImplicitFunctionDecl = true;
+        } else if (arg == "-fno-implicit-function-declaration") {
+            config.allowImplicitFunctionDecl = false;
         } else if (arg == "-finline-functions") {
             config.inlineSmallFunctions = true;
         } else if (arg == "--pragma" && i + 1 < allArgs.size()) {

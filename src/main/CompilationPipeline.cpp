@@ -132,7 +132,8 @@ CompilationResult CompilationPipeline::compile() {
         std::string tempAsmFile = "temp_" + std::to_string(getpid()) + ".s45";
         CodegenStage codegenStage(ast, analyzer, config_.optimizationLevel,
                                  config_.verboseLevel, config_.inlineSmallFunctions,
-                                 config_.staticAllocMode, config_.zpCallMode, config_.saveTemps);
+                                 config_.staticAllocMode, config_.zpCallMode, config_.saveTemps,
+                                 config_.allowImplicitFunctionDecl);
 
         // Phase 102: Pass typedef mappings to codegen stage
         codegenStage.setTypedefMappings(typedefMappings);

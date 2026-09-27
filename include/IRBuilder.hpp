@@ -34,6 +34,7 @@ public:
     bool zpCallMode = false;
     bool staticAllocMode = false;  // -fstaticalloc (SAC)
     bool inlineFunctions = false;
+    bool allowImplicitFunctionDecl = false;  // -fimplicit-function-declaration
 
     // ASTVisitor interface
     void visit(IntegerLiteral& node) override;

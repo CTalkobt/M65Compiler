@@ -72,6 +72,7 @@ void CodegenStage::generateIR() {
     builder.zpCallMode = zpCallMode_;
     builder.staticAllocMode = staticAlloc_;
     builder.inlineFunctions = inlineFunctions_ || optimizationLevel_ >= 2;
+    builder.allowImplicitFunctionDecl = allowImplicitFuncDecl_;
 
     // Phase 102: Pass typedef mappings from parser
     builder.setTypedefMappings(typedefMappings_);
@@ -79,12 +80,16 @@ void CodegenStage::generateIR() {
     // Generate IR from AST
     builder.generate(*ast_);
 
+    // Print warnings
+    for (const auto& warn : builder.getWarnings()) {
+        std::cerr << warn << std::endl;
+    }
+
     if (builder.hasErrors()) {
-        // Always print errors to stderr, not just in verbose mode
         for (const auto& err : builder.getErrors()) {
             std::cerr << err << std::endl;
         }
-        return;
+        throw std::runtime_error(builder.getErrors().front());
     }
 
     // Get the generated module
