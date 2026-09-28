@@ -6,6 +6,9 @@
 CC="./bin/cc45"
 AS="./bin/ca45"
 LD="./bin/ln45"
+CRT0="lib/build/crt0.o45"
+STDLIB="lib/build/c45.lib"
+STDLIB_ZP="lib/build/c45_zp.lib"
 XEMU="xemu-xmega65"
 mkdir -p build/test
 
@@ -27,53 +30,58 @@ fi
 failed=0
 passed=0
 
-# Helper: Run PRG with xemu and dump memory
-# Usage: run_xemu_test "name" "prg_file" "memory_addr" "num_bytes" "expected_hex"
+# Helper: Run PRG with xemu and check memory via binary dump
+# Usage: run_xemu_test "name" "prg_file" "memory_addr_hex" "num_bytes" "expected_hex"
+#   memory_addr_hex: e.g. "4000" (without 0x prefix)
+#   expected_hex: space-separated hex bytes e.g. "01 02 03 04 AA"
 run_xemu_test() {
     local name="$1"
     local prg_file="$2"
     local mem_addr="$3"
     local num_bytes="$4"
     local expected="$5"
-    
-    local dump_file="build/test/${name}_memdump.txt"
-    
-    # Run in headless mode, exit on program completion, dump memory
-    timeout 30 $XEMU -headless -prgexit -dumpmem "$dump_file" "$prg_file" >/dev/null 2>&1
-    if [ $? -ne 0 ] && [ $? -ne 124 ]; then
-        echo "FAIL: $name (xemu execution error)"
+
+    local dump_file="build/test/${name}_memdump.bin"
+
+    # Run in headless mode with -prgexit (auto-SYS and exit on READY)
+    # -prgmode 65 forces MEGA65 mode without dialog
+    # -prgexit auto-runs BASIC programs and exits on next READY prompt
+    timeout 30 $XEMU -headless -besure -prgmode 65 -prgexit -dumpmem "$dump_file" -prg "$prg_file" </dev/null >/dev/null 2>&1
+    local exit_code=$?
+    # Accept exit 0 (clean) or 124 (timeout — program may halt instead of returning)
+    if [ $exit_code -ne 0 ] && [ $exit_code -ne 124 ]; then
+        echo "FAIL: $name (xemu exit code $exit_code)"
         failed=$((failed + 1))
         return 1
     fi
-    
-    # Parse memory dump and extract target address
+
     if [ ! -f "$dump_file" ]; then
         echo "FAIL: $name (no memory dump generated)"
         failed=$((failed + 1))
         return 1
     fi
-    
-    # Extract bytes from memory dump (format: address: XX XX XX ...)
-    actual=$(grep -A 1 "^$mem_addr:" "$dump_file" 2>/dev/null | tail -1 | awk '{print substr($0,1,3*'$num_bytes')}')
-    
+
+    # Extract bytes from raw binary dump using xxd
+    local addr_dec=$((16#$mem_addr))
+    actual=$(xxd -s $addr_dec -l $num_bytes -p "$dump_file" 2>/dev/null | \
+             sed 's/\(..\)/\1 /g' | sed 's/ $//' | tr '[:lower:]' '[:upper:]')
+
     if [ -z "$actual" ]; then
-        echo "FAIL: $name (memory not found at $mem_addr)"
+        echo "FAIL: $name (could not read memory at \$$mem_addr)"
         failed=$((failed + 1))
         return 1
     fi
-    
-    # Case-insensitive comparison
-    actual_upper=$(echo "$actual" | tr '[:lower:]' '[:upper:]')
+
     expected_upper=$(echo "$expected" | tr '[:lower:]' '[:upper:]')
-    
-    if echo "$actual_upper" | grep -qi "$expected_upper"; then
+
+    if [ "$actual" = "$expected_upper" ]; then
         echo "SUCCESS: $name"
         passed=$((passed + 1))
         return 0
     else
         echo "FAIL: $name"
-        echo "  Expected at $mem_addr: $expected"
-        echo "  Actual:                 $actual"
+        echo "  Expected at \$$mem_addr: $expected_upper"
+        echo "  Actual:                $actual"
         failed=$((failed + 1))
         return 1
     fi
@@ -90,9 +98,9 @@ compile_link_test() {
     if [ $? -ne 0 ]; then return 1; fi
 
     if [[ "$flags" == *"-fzpcall"* ]]; then
-        $LD "$o_file" lib/build/c45_zp.lib -z 0x08 -o "$prg_out" 2>/dev/null
+        $LD -basic -o "$prg_out" $CRT0 "$o_file" $STDLIB_ZP 2>/dev/null
     else
-        $LD "$o_file" lib/build/c45.lib -z 0x08 -o "$prg_out" 2>/dev/null
+        $LD -basic -o "$prg_out" $CRT0 "$o_file" $STDLIB 2>/dev/null
     fi
     if [ $? -ne 0 ]; then return 2; fi
 
@@ -151,6 +159,16 @@ if [ $? -eq 0 ]; then
     run_xemu_test "test_long_mmemu" "build/test/test_long_mmemu_xemu.prg" "4000" 4 "78 56 34 12"
 else
     echo "FAIL: test_long_mmemu.c (compilation/linking failed)"
+    failed=$((failed + 1))
+fi
+
+# Test 6: test_alloca_xemu.c (stack-based dynamic allocation)
+echo "Testing test_alloca_xemu.c (alloca)..."
+compile_link_test "src/test-resources/test_alloca_xemu.c" "build/test/test_alloca_xemu.prg"
+if [ $? -eq 0 ]; then
+    run_xemu_test "test_alloca" "build/test/test_alloca_xemu.prg" "C000" 4 "01 02 03 AA"
+else
+    echo "FAIL: test_alloca_xemu.c (compilation/linking failed)"
     failed=$((failed + 1))
 fi
 
