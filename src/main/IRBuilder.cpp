@@ -3000,15 +3000,15 @@ void IRBuilder::visit(FunctionCall& node) {
         emitAsm("lda $06");   emitAsm("pha");    // length lo
         emitAsm("lda #$00");  emitAsm("pha");    // command: copy=0x00
         // Trigger: point DMA controller at stack
+        // Write bank and MSB first, LSB last ($D700 write triggers DMA)
+        emitAsm("stz $D702");                    // DMA bank = 0
+        emitAsm("lda #$01");                     // stack page = $01
+        emitAsm("sta $D701");                    // DMA addr MSB
         emitAsm("tsx");
         emitAsm("txa");
         emitAsm("clc");
         emitAsm("adc #1");                       // SP+1 = job start
-        emitAsm("sta $D701");                    // DMA addr lo
-        emitAsm("lda #$01");                     // stack page = $01
-        emitAsm("sta $D702");                    // DMA addr mi
-        emitAsm("stz $D703");                    // DMA addr hi
-        emitAsm("stz $D700");                    // trigger DMA
+        emitAsm("sta $D700");                    // DMA addr LSB — triggers DMA
         // Clean up stack (13 bytes pushed)
         emitAsm("tsx");
         emitAsm("txa");
@@ -3052,16 +3052,15 @@ void IRBuilder::visit(FunctionCall& node) {
         emitAsm("lda $07");   emitAsm("pha");    // length hi
         emitAsm("lda $06");   emitAsm("pha");    // length lo
         emitAsm("lda #$03");  emitAsm("pha");    // command: fill=0x03
-        // Trigger DMA
+        // Trigger DMA — write bank and MSB first, LSB last ($D700 triggers)
+        emitAsm("stz $D702");                    // DMA bank = 0
+        emitAsm("lda #$01");                     // stack page = $01
+        emitAsm("sta $D701");                    // DMA addr MSB
         emitAsm("tsx");
         emitAsm("txa");
         emitAsm("clc");
         emitAsm("adc #1");
-        emitAsm("sta $D701");
-        emitAsm("lda #$01");
-        emitAsm("sta $D702");
-        emitAsm("stz $D703");
-        emitAsm("stz $D700");
+        emitAsm("sta $D700");                    // DMA addr LSB — triggers DMA
         // Clean up stack
         emitAsm("tsx");
         emitAsm("txa");

@@ -4,15 +4,14 @@
 #include <string.h>
 
 /* MEGA65 RTC I2C registers at $FFD71xx (directly mapped)
- * BCD-encoded: seconds, minutes, hours, day-of-week, day, month, year
- * Register layout (varies by board revision, this uses the common mapping):
+ * BCD-encoded per VHDL (mega65r3_i2c.vhdl / mega65r4_i2c.vhdl):
  *   $FFD7110: seconds (BCD)
  *   $FFD7111: minutes (BCD)
  *   $FFD7112: hours (BCD, 24h mode)
- *   $FFD7113: day of week (1-7)
- *   $FFD7114: day of month (BCD)
- *   $FFD7115: month (BCD)
- *   $FFD7116: year (BCD, 00-99)
+ *   $FFD7113: day of month (BCD)
+ *   $FFD7114: month (BCD)
+ *   $FFD7115: year (BCD, 00-99)
+ *   $FFD7116: day of week (1-7)
  */
 
 static int bcd_to_int(unsigned char bcd) {
@@ -56,14 +55,14 @@ void rtc_read(struct tm *tm) {
     /* Read RTC registers at $FFD7110-$FFD7116 using 32-bit address pointer */
     volatile unsigned char *rtc = (volatile unsigned char *)0xFFD7110L;
 
-    /* On emulators without RTC, these may return 0 */
+    /* Per VHDL: sec, min, hour, day, month, year, wday */
     unsigned char sec = rtc[0];
     unsigned char min = rtc[1];
     unsigned char hour = rtc[2];
-    unsigned char wday = rtc[3];
-    unsigned char day = rtc[4];
-    unsigned char month = rtc[5];
-    unsigned char year = rtc[6];
+    unsigned char day = rtc[3];
+    unsigned char month = rtc[4];
+    unsigned char year = rtc[5];
+    unsigned char wday = rtc[6];
 
     tm->tm_sec  = bcd_to_int(sec & 0x7F);
     tm->tm_min  = bcd_to_int(min & 0x7F);
