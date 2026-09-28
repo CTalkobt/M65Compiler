@@ -2910,6 +2910,8 @@ void IRBuilder::visit(FunctionCall& node) {
                         }
 
                         auto inlineResult = allocVreg(retType);
+                        auto savedInlineReturnTarget = inlineReturnTarget_;
+                        auto savedInlineReturnLabel = inlineReturnLabel_;
                         inlineReturnTarget_ = inlineResult;
                         inlineReturnLabel_ = newLabel("inline_ret");
                         auto savedInlineSourceFunc = inlineSourceFunc_;
@@ -2917,8 +2919,27 @@ void IRBuilder::visit(FunctionCall& node) {
 
                         if (inlineFunc->body) inlineFunc->body->accept(*this);
 
+                        // Emit fall-through branch to merge label for implicit return
+                        // (explicit returns already branch via visit(ReturnStatement))
+                        {
+                            bool needBr = true;
+                            if (currentBlock_ && !currentBlock_->insts.empty()) {
+                                auto lastOp = currentBlock_->insts.back().op;
+                                if (lastOp == ir::Op::BR || lastOp == ir::Op::RET || lastOp == ir::Op::RET_VOID)
+                                    needBr = false;
+                            }
+                            if (needBr) {
+                                ir::Inst br;
+                                br.op = ir::Op::BR;
+                                br.src1 = ir::Operand::label(inlineReturnLabel_);
+                                emit(br);
+                            }
+                        }
+
                         startBlock(inlineReturnLabel_);
                         lastValue_ = inlineResult;
+                        inlineReturnTarget_ = savedInlineReturnTarget;
+                        inlineReturnLabel_ = savedInlineReturnLabel;
                         inlineSourceFunc_ = savedInlineSourceFunc;
 
                         locals_ = savedLocals;
@@ -3289,6 +3310,22 @@ void IRBuilder::visit(FunctionCall& node) {
 
             // Visit the inlined function body
             inlineFunc->body->accept(*this);
+
+            // Emit fall-through branch to merge label for implicit return
+            {
+                bool needBr = true;
+                if (currentBlock_ && !currentBlock_->insts.empty()) {
+                    auto lastOp = currentBlock_->insts.back().op;
+                    if (lastOp == ir::Op::BR || lastOp == ir::Op::RET || lastOp == ir::Op::RET_VOID)
+                        needBr = false;
+                }
+                if (needBr) {
+                    ir::Inst br;
+                    br.op = ir::Op::BR;
+                    br.src1 = ir::Operand::label(mergeLabel);
+                    emit(br);
+                }
+            }
 
             // Emit merge block
             startBlock(mergeLabel);

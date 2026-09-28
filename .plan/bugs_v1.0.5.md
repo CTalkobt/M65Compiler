@@ -33,27 +33,11 @@ volatile char *r = (char *)0xC000;  // r ends up as 0x0000, not 0xC000
 
 **Fix needed**: Rewrite `alloca.s45` to read size from the software parameter stack, or implement alloca as a compiler intrinsic.
 
-## Function call with local arrays doesn't return correctly
+## Function call with local arrays doesn't return correctly — FIXED
 
-**Status**: Open
+**Status**: Fixed (2026-09-28)
 **Severity**: High
-**Found**: 2026-09-28
 
-**Issue**: When a function containing local arrays is called from another function, the caller's execution doesn't resume after the call returns. The callee executes correctly (writes to memory are visible) but the return doesn't work.
+**Root cause**: Inlined function bodies that end without an explicit `return` statement left the merge block disconnected. The dead block eliminator then removed the merge block and all subsequent code (including statements after the inlined call).
 
-```c
-void do_work() {
-    unsigned char a[4];
-    a[0] = 0x42;
-    // This works: *(volatile unsigned char *)0xC000 = 0x01;
-}
-void main() {
-    do_work();
-    // This never executes:
-    *(volatile unsigned char *)0xC001 = 0xAA;
-}
-```
-
-**Workaround**: Put all array operations in `main()` directly instead of separate functions.
-
-**Root cause**: Likely SAC (static allocation) frame management corrupting return address when local arrays are present. Needs investigation of frame setup/teardown in IRCodeGen for functions with local array variables.
+**Fix**: Added fall-through BR to merge label after visiting inlined body, at both inline expansion sites in `visit(FunctionCall)` in IRBuilder.cpp.
