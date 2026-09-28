@@ -87,6 +87,7 @@ int fputc(int c, FILE *stream);
 char *fgets(char *str, int size, FILE *stream);
 int fputs(const char *str, FILE *stream);
 int ungetc(int c, FILE *stream);
+void perror(const char *s);
 
 /* Block I/O */
 size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream);

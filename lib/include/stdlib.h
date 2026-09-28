@@ -18,6 +18,7 @@ int __builtin_popcount(unsigned int x);
 unsigned int __builtin_bswap16(unsigned int x);
 
 int atoi(char *s);
+long atol(char *s);
 char *itoa(int value, char *str, int base);
 char *ltoa(long value, char *str, int base);
 
