@@ -1327,13 +1327,12 @@ void AssemblerSimulatedOps::emitFillCode(AssemblerParser* parser, M65Emitter& e,
     if (extraOffset + 1 < 256) sta_ind_z_with_y(bufAddrZP, extraOffset + 1);  // Modulo LSB
     if (extraOffset + 2 < 256) sta_ind_z_with_y(bufAddrZP, extraOffset + 2);  // Modulo MSB
 
-    // Trigger DMA
+    // Trigger DMA — write bank and MSB first, LSB last (triggers execution)
+    e.stz_addr(m65::DMA_ADDR_BANK);      // bank = 0
     e.lda_zp(bufAddrZP + 1);
-    e.sta_addr(m65::DMA_ADDR_MI);
-    e.stz_addr(m65::DMA_ADDR_HI);
+    e.sta_addr(m65::DMA_ADDR_MSB);        // MSB of list address
     e.lda_zp(bufAddrZP);
-    e.sta_addr(m65::DMA_ADDR_LO);
-    e.stz_addr(m65::DMA_CONTROL);
+    e.sta_addr(m65::DMA_ADDR_LSB_TRIG);   // LSB — triggers DMA
 }
 
 void AssemblerSimulatedOps::emitMoveCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix, bool forceStack) {
@@ -1697,13 +1696,12 @@ void AssemblerSimulatedOps::emitMoveCode(AssemblerParser* parser, M65Emitter& e,
     if (extraOffset + 1 < 256) sta_ind_z_with_y(bufAddrZP, extraOffset + 1);  // Modulo LSB
     if (extraOffset + 2 < 256) sta_ind_z_with_y(bufAddrZP, extraOffset + 2);  // Modulo MSB
 
-    // Trigger DMA - load buffer address and pass to DMA controller
+    // Trigger DMA — write bank and MSB first, LSB last (triggers execution)
+    e.stz_addr(m65::DMA_ADDR_BANK);       // bank = 0
     e.lda_zp(bufAddrZP + 1);  // hi byte
-    e.sta_addr(m65::DMA_ADDR_MI);
-    e.stz_addr(m65::DMA_ADDR_HI);
+    e.sta_addr(m65::DMA_ADDR_MSB);        // MSB of list address
     e.lda_zp(bufAddrZP);      // lo byte
-    e.sta_addr(m65::DMA_ADDR_LO);
-    e.stz_addr(m65::DMA_CONTROL);        // Triggers DMA
+    e.sta_addr(m65::DMA_ADDR_LSB_TRIG);   // LSB — triggers DMA
 }
 
 void AssemblerSimulatedOps::emitFlatMemoryCode(AssemblerParser* parser, M65Emitter& e, const std::string& mnemonic, int tokenIndex, const std::string& scopePrefix) {
@@ -2380,11 +2378,11 @@ void AssemblerSimulatedOps::emitMOVE_FPCode(AssemblerParser* parser, M65Emitter&
     e.lda_imm(lenVal >> 8); e.pha(); e.lda_imm(lenVal & 0xFF); e.pha();
     // DMA command byte
     e.lda_imm(0x00); e.pha();
-    // Trigger DMA
+    // Trigger DMA — write bank and MSB first, LSB last (triggers execution)
+    e.stz_addr(m65::DMA_ADDR_BANK);       // bank = 0
+    e.lda_imm(sb >> 8); e.sta_addr(m65::DMA_ADDR_MSB);
     e.tsx(); e.txa(); e.clc(); e.adc_imm(sb & 0xFF);
-    e.sta_addr(m65::DMA_ADDR_LO);
-    e.lda_imm(sb >> 8); e.sta_addr(m65::DMA_ADDR_MI);
-    e.stz_addr(m65::DMA_ADDR_HI); e.stz_addr(m65::DMA_CONTROL);
+    e.sta_addr(m65::DMA_ADDR_LSB_TRIG);   // LSB — triggers DMA
     // Clean up stack
     e.tsx(); e.txa(); e.clc(); e.adc_imm(12); e.tax(); e.txs();
     e.pla();

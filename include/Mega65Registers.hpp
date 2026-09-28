@@ -21,11 +21,13 @@ namespace m65 {
 
     constexpr uint16_t MATH_SIGN        = 0xD76E; // Scratch byte for sign tracking in signed math ops
 
-    // DMA Controller
-    constexpr uint16_t DMA_CONTROL      = 0xD700;
-    constexpr uint16_t DMA_ADDR_LO      = 0xD701;
-    constexpr uint16_t DMA_ADDR_MI      = 0xD702;
-    constexpr uint16_t DMA_ADDR_HI      = 0xD703;
-    constexpr uint16_t DMA_ADDR_MB      = 0xD704;
-    constexpr uint16_t DMA_ETRIG        = 0xD705;
+    // DMA Controller — per MEGA65 VHDL (gs4510.vhdl)
+    // Writing $D700 (LSB) TRIGGERS DMA execution — must be written LAST
+    constexpr uint16_t DMA_ADDR_LSB_TRIG = 0xD700; // DMA list address bits 0-7 (write triggers DMA)
+    constexpr uint16_t DMA_ADDR_MSB      = 0xD701; // DMA list address bits 8-15
+    constexpr uint16_t DMA_ADDR_BANK     = 0xD702; // DMA list address bank bits 16-22
+    constexpr uint16_t DMA_MODE          = 0xD703; // DMA mode/control (bit 0 = F018B mode)
+    constexpr uint16_t DMA_ADDR_MB       = 0xD704; // DMA list address megabyte bits 20-27
+    constexpr uint16_t DMA_ETRIG         = 0xD705; // Enhanced trigger (LSB of flat 28-bit address)
+    constexpr uint16_t DMA_ADDR_LSB_NOTRIG = 0xD70E; // DMA list address LSB WITHOUT triggering
 }

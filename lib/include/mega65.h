@@ -57,59 +57,67 @@ struct vic4_regs {
     unsigned char bitplane_comp;   /* $D03B: bitplane companion bits */
     unsigned char bitplane_x;      /* $D03C: bitplane X offset */
     unsigned char bitplane_y;      /* $D03D: bitplane Y offset */
-    unsigned char _reserved1[2];   /* $D03E-$D03F */
+    unsigned char bitplanes_x_start; /* $D03E: bitplanes X start screen offset */
+    unsigned char bitplanes_y_start; /* $D03F: bitplanes Y start screen offset */
 
-    /* --- VIC-IV extended registers ($D040-$D07F) --- */
-    unsigned char screen_x_lo;     /* $D040: screen X position low */
-    unsigned char screen_x_hi;     /* $D041: screen X position high */
-    unsigned char screen_y_lo;     /* $D042: screen Y position low */
-    unsigned char screen_y_hi;     /* $D043: screen Y position high */
-    unsigned char xpos_lo;         /* $D044: physical raster X (read) low */
-    unsigned char xpos_hi;         /* $D045: physical raster X (read) high */
-    unsigned char raster_hi;       /* $D046: raster Y high (extended) */
-    unsigned char _reserved2;      /* $D047 */
-    unsigned char border_left_lo;  /* $D048: left border position low */
-    unsigned char border_left_hi;  /* $D049: left border position high */
-    unsigned char border_right_lo; /* $D04A: right border position low */
-    unsigned char border_right_hi; /* $D04B: right border position high */
-    unsigned char border_top_lo;   /* $D04C: top border position low */
-    unsigned char border_top_hi;   /* $D04D: top border position high */
-    unsigned char border_bot_lo;   /* $D04E: bottom border position low */
-    unsigned char border_bot_hi;   /* $D04F: bottom border position high */
-    unsigned char charstep_lo;     /* $D050: character generator step low */
-    unsigned char charstep_hi;     /* $D051: character generator step high */
-    unsigned char chrwidth;        /* $D052: character width (pixels - 1) */
-    unsigned char chrheight;       /* $D053: character height (pixels - 1) */
-    unsigned char ctrl_c;          /* $D054: VIC-IV control C */
-    unsigned char sprite_extheight_en; /* $D055: sprite extended height enable */
-    unsigned char sprite_extheight;    /* $D056: sprite extended height size */
-    unsigned char sprite_extwidth;     /* $D057: sprite extended width mode */
-    unsigned char screen_addr_lo;  /* $D058: screen RAM base low */
-    unsigned char screen_addr_mid; /* $D059: screen RAM base mid */
-    unsigned char screen_addr_hi;  /* $D05A: screen RAM base high */
-    unsigned char screen_addr_bank; /* $D05B: screen RAM bank/flags */
-    unsigned char colour_addr_lo;  /* $D05C: colour RAM base low */
-    unsigned char colour_addr_hi;  /* $D05D: colour RAM base high */
-    unsigned char charset_addr_lo; /* $D05E: charset address low */
-    unsigned char charset_addr_mid; /* $D05F: charset address mid */
-    unsigned char charset_addr_hi; /* $D060: charset address high */
-    unsigned char screen_row_lo;   /* $D061: screen row width (bytes) low */
-    unsigned char screen_row_hi;   /* $D062: screen row width high */
-    unsigned char colour_row_lo;   /* $D063: colour row step low */
-    unsigned char colour_row_hi;   /* $D064: colour row step high */
-    unsigned char _reserved3[3];   /* $D065-$D067 */
-    unsigned char screen_rows;     /* $D068: number of text rows */
-    unsigned char palette_ctrl;    /* $D069: palette control */
-    unsigned char _reserved4[2];   /* $D06A-$D06B */
-    unsigned char sprite_y_msb;    /* $D06C: sprite Y position MSBs */
-    unsigned char _reserved5[3];   /* $D06D-$D06F */
-    unsigned char palette_sel;     /* $D070: palette bank select */
-    unsigned char _reserved6[3];   /* $D071-$D073 */
-    unsigned char sprite_alpha;    /* $D074: sprite alpha/transparency */
-    unsigned char _reserved7[3];   /* $D075-$D077 */
-    unsigned char dat[4];          /* $D078: DAT (Direct Access Table) */
-    unsigned char version;         /* $D07C: VIC-IV version */
-    unsigned char _reserved8[3];   /* $D07D-$D07F */
+    /* --- VIC-IV extended registers ($D040-$D07F) — per MEGA65 VHDL (viciv.vhdl) --- */
+    unsigned char c65_dac[8];      /* $D040-$D047: Unimplemented C65 DACs (read $FF) */
+    unsigned char border_y_top_lo; /* $D048: top border position LSB */
+    unsigned char border_y_top_hi; /* $D049: top border MSB & sprite bitplane enables */
+    unsigned char border_y_bot_lo; /* $D04A: bottom border position LSB */
+    unsigned char border_y_bot_hi; /* $D04B: bottom border MSB & sprite bitplane enables */
+    unsigned char x_chargen_lo;    /* $D04C: char generator X offset LSB */
+    unsigned char x_chargen_hi;    /* $D04D: char generator X offset MSB & sprite tile enables */
+    unsigned char y_chargen_lo;    /* $D04E: char generator Y offset LSB */
+    unsigned char y_chargen_hi;    /* $D04F: char generator Y offset MSB & sprite tile enables */
+    unsigned char xpos_lo;         /* $D050: physical scanline X position LSB (read) */
+    unsigned char xpos_hi;         /* $D051: physical scanline X MSB & double raster flags */
+    unsigned char ypos_lo;         /* $D052: physical scanline Y position LSB (read) */
+    unsigned char ypos_hi;         /* $D053: physical scanline Y MSB & upscaler/bold flags */
+    unsigned char ctrl_c;          /* $D054: VIC-IV mode control C */
+    unsigned char sprite_extheight_en; /* $D055: sprite extended height enables */
+    unsigned char sprite_extheight_sz; /* $D056: sprite extended height size */
+    unsigned char sprite_extwidth_en;  /* $D057: sprite extended width enables */
+    unsigned char virtual_row_width_lo; /* $D058: memory row width/step LSB */
+    unsigned char virtual_row_width_hi; /* $D059: memory row width/step MSB */
+    unsigned char chargen_x_scale; /* $D05A: character generator X scale factor */
+    unsigned char chargen_y_scale; /* $D05B: character generator Y scale factor */
+    unsigned char side_border_lo;  /* $D05C: left side border position LSB */
+    unsigned char side_border_hi;  /* $D05D: left side border MSB & hot regs enable */
+    unsigned char display_row_width_lo; /* $D05E: active display row width LSB */
+    unsigned char sprite_h640_msbs; /* $D05F: sprite H640 position MSBs */
+    unsigned char screen_ram_base_lo;  /* $D060: screen RAM base bits 0-7 */
+    unsigned char screen_ram_base_mid; /* $D061: screen RAM base bits 8-15 */
+    unsigned char screen_ram_base_hi;  /* $D062: screen RAM base bits 16-23 */
+    unsigned char screen_ram_base_bank; /* $D063: screen RAM bank, row width MSB & FCM_MCM */
+    unsigned char colour_ram_base_lo;  /* $D064: colour RAM base bits 0-7 */
+    unsigned char colour_ram_base_hi;  /* $D065: colour RAM base bits 8-15 */
+    unsigned char xcounter_delay;  /* $D066: xcounter pipeline delay / test pattern */
+    unsigned char sprite_first_x;  /* $D067: sprite start X coordinate LSB */
+    unsigned char charset_base_lo; /* $D068: character generator base bits 0-7 */
+    unsigned char charset_base_mid; /* $D069: character generator base bits 8-15 */
+    unsigned char charset_base_hi; /* $D06A: character generator base bits 16-23 */
+    unsigned char sprite_16col_en; /* $D06B: sprite 16-colour mode enables */
+    unsigned char sprite_ptr_lo;   /* $D06C: sprite pointer base bits 0-7 */
+    unsigned char sprite_ptr_mid;  /* $D06D: sprite pointer base bits 8-15 */
+    unsigned char sprite_ptr_hi;   /* $D06E: sprite pointer base bits 16-23 */
+    unsigned char first_raster_vga60; /* $D06F: first raster line & VGA60/NTSC select */
+    unsigned char palette_sel;     /* $D070: palette bank select routing */
+    unsigned char bitplane_16col_en; /* $D071: bitplane 16-colour mode flags */
+    unsigned char sprite_y_adjust; /* $D072: sprite Y adjust offset */
+    unsigned char alpha_delay_scale; /* $D073: alpha delay (0-3) & ycounter scale (4-7) */
+    unsigned char sprite_alpha_blend; /* $D074: sprite alpha blend enables */
+    unsigned char sprite_alpha_val;  /* $D075: sprite alpha blend global value */
+    unsigned char sprite_v400_en;  /* $D076: sprite V400 enables */
+    unsigned char sprite_v400_y_msb; /* $D077: sprite V400 Y position MSBs */
+    unsigned char sprite_v400_y_smsb; /* $D078: sprite V400 Y position super MSBs */
+    unsigned char raster_compare_lo; /* $D079: raster compare LSB */
+    unsigned char raster_compare_hi; /* $D07A: raster compare MSB & source select */
+    unsigned char display_row_count; /* $D07B: number of text rows to display */
+    unsigned char bitplane_bank;   /* $D07C: bitplane bank select & HSYNC/VSYNC polarity */
+    unsigned char debug_x_lo;      /* $D07D: debug X position LSB */
+    unsigned char debug_y_lo;      /* $D07E: debug Y position LSB */
+    unsigned char debug_hi;        /* $D07F: debug X/Y MSB & out-of-frame */
 };
 
 /* Pointer to VIC-IV register block at $D000 */
@@ -438,23 +446,60 @@ static unsigned char joy2_read(void) {
  * Requires linking with c45.lib (or c45_zp.lib). */
 __regparm unsigned char key_pressed(unsigned char keycode);
 
+/* ===== Keyboard Event Queue ($D610-$D619) — per MEGA65 VHDL ===== */
+/* Buffered keyboard input via hardware typing event queue.
+ * Reading returns oldest key; writing any value advances the queue. */
+
+#define ASCII_KEY_QUEUE    (*(volatile unsigned char *)0xD610)  /* ASCII key (0=empty) */
+#define PETSCII_KEY_QUEUE  (*(volatile unsigned char *)0xD619)  /* PETSCII key (0xFF=empty) */
+#define KEY_MODIFIERS_REG  (*(volatile unsigned char *)0xD611)  /* Modifier key state */
+
+/* Modifier key bits ($D611) */
+#define KEY_MOD_LSHIFT     0x01  /* Left Shift */
+#define KEY_MOD_RSHIFT     0x02  /* Right Shift */
+#define KEY_MOD_CTRL       0x04  /* Control */
+#define KEY_MOD_MEGA       0x08  /* Mega / Commodore */
+#define KEY_MOD_ALT        0x10  /* Alternate */
+#define KEY_MOD_NOSCRL     0x20  /* No Scroll */
+#define KEY_MOD_CAPS       0x40  /* Caps Lock */
+#define KEY_MOD_DISABLE    0x80  /* Disable modifier mapping (writeable) */
+
+/* Read next ASCII key from queue (returns 0 if empty) */
+static char getkey_ascii(void) {
+    char k = ASCII_KEY_QUEUE;
+    if (k) ASCII_KEY_QUEUE = 0xFF;  /* advance queue */
+    return k;
+}
+
+/* Read next PETSCII key from queue (returns 0xFF if empty) */
+static char getkey_petscii(void) {
+    char k = PETSCII_KEY_QUEUE;
+    if ((unsigned char)k != 0xFF) PETSCII_KEY_QUEUE = 0xFF;  /* advance queue */
+    return k;
+}
+
 /* ===== Memory Pointers ===== */
 
 #define SCREEN_RAM  ((volatile unsigned char *)0x0800)
 #define COLOUR_RAM  ((volatile unsigned char *)0xD800)
 
-/* ===== F018B DMA Controller ($D700-$D705) ===== */
+/* ===== F018B DMA Controller ($D700-$D70E) — per MEGA65 VHDL ===== */
+/* IMPORTANT: Writing $D700 TRIGGERS DMA execution — write it LAST.
+ * Correct sequence: set bank ($D702), set MSB ($D701), then write LSB ($D700). */
 
 struct dma_regs {
-    unsigned char control;         /* $D700: DMA trigger (write 0 to execute) */
-    unsigned char addr_lo;         /* $D701: DMA list address low */
-    unsigned char addr_mid;        /* $D702: DMA list address mid */
-    unsigned char addr_hi;         /* $D703: DMA list address high */
-    unsigned char addr_bank;       /* $D704: DMA list address bank */
-    unsigned char etrig;           /* $D705: enhanced trigger */
+    unsigned char addr_lsb_trig;   /* $D700: DMA list addr bits 0-7 (write TRIGGERS DMA) */
+    unsigned char addr_msb;        /* $D701: DMA list addr bits 8-15 */
+    unsigned char addr_bank;       /* $D702: DMA list addr bank bits 16-22 */
+    unsigned char mode;            /* $D703: DMA mode/control (bit 0 = F018B mode) */
+    unsigned char addr_mb;         /* $D704: DMA list addr megabyte bits 20-27 */
+    unsigned char etrig;           /* $D705: enhanced trigger (flat 28-bit addr LSB) */
 };
 
 #define dma ((volatile struct dma_regs *)0xD700)
+
+/* DMA list address LSB without triggering (for setup before trigger) */
+#define DMA_ADDR_LSB_NOTRIG (*(volatile unsigned char *)0xD70E)
 
 /* DMA command bytes (for DMA job lists) */
 #define DMA_CMD_COPY   0x00
@@ -487,21 +532,25 @@ struct math_accel {
 #define HW_RANDOM  (*(volatile unsigned char *)0xD7EF)
 #define HW_RNG_READY (*(volatile unsigned char *)0xD7FE)
 
-/* ===== Audio Mixer ($D63C-$D63F) ===== */
+/* ===== Audio Mixer & Digital Audio ($D6F4-$D6FD) — per MEGA65 VHDL ===== */
+/* The mixer has 16 input sources x 8 output channels = 128 coefficients.
+ * Coefficient index = input_channel + (output_channel * 16).
+ * $D600-$D63F is C65 serial UART space, NOT audio. */
 
-struct audio_mixer_regs {
-    unsigned char sid1_vol;        /* $D63C: SID 1 left/right volume */
-    unsigned char sid2_vol;        /* $D63D: SID 2 left/right volume */
-    unsigned char sid3_vol;        /* $D63E: SID 3 left/right volume */
-    unsigned char sid4_vol;        /* $D63F: SID 4 left/right volume */
-};
+#define AUDIO_MIX_SEL      (*(volatile unsigned char *)0xD6F4)  /* Mixer register select */
+#define AUDIO_MIX_DATA     (*(volatile unsigned char *)0xD6F5)  /* Mixer register data */
 
-#define audio_mixer ((volatile struct audio_mixer_regs *)0xD63C)
+#define AUDIO_DIGI_LEFT    (*(volatile unsigned short *)0xD6F8) /* 16-bit PCM left channel */
+#define AUDIO_DIGI_RIGHT   (*(volatile unsigned short *)0xD6FA) /* 16-bit PCM right channel */
+#define AUDIO_READBACK     (*(volatile unsigned short *)0xD6FC) /* Audio loopback read-back */
 
-/* Audio mixer volume nybbles: high = left channel, low = right channel */
-#define AUDIO_LEFT(vol)   ((vol) << 4)
-#define AUDIO_RIGHT(vol)  ((vol) & 0x0F)
-#define AUDIO_BOTH(vol)   (((vol) << 4) | ((vol) & 0x0F))
+/* Set mixer coefficient N (0-127) to a 16-bit volume value */
+static void set_mixer_coefficient(unsigned char index, unsigned short volume) {
+    AUDIO_MIX_SEL = index << 1;          /* select low byte */
+    AUDIO_MIX_DATA = volume & 0xFF;
+    AUDIO_MIX_SEL = (index << 1) | 1;    /* select high byte */
+    AUDIO_MIX_DATA = volume >> 8;
+}
 
 /* ===== Floppy Disk Controller ($D080-$D09F) ===== */
 
@@ -578,29 +627,32 @@ struct sd_regs {
 #define SD_CMD_WRITE  0x02  /* Write buffer to sector */
 #define SD_CMD_FLUSH  0x03  /* Flush write cache */
 
-/* ===== Ethernet Controller ($D6E0-$D6FF) ===== */
+/* ===== Ethernet Controller ($D6E0-$D6EE) — per MEGA65 VHDL (ethernet.vhdl) ===== */
+/* RX/TX packet data is at $FFDE800-$FFDEFFF (2KB memory-mapped window),
+ * NOT through register ports. */
 
 struct eth_regs {
-    unsigned char ctrl;            /* $D6E0: Ethernet control */
-    unsigned char txszlo;          /* $D6E1: TX frame size low */
-    unsigned char txszhi;          /* $D6E2: TX frame size high */
-    unsigned char _reserved1[5];   /* $D6E3-$D6E7 */
-    unsigned char mac[6];          /* $D6E9-$D6ED: MAC address (note: starts at +8, gap at +3..+7) */
-    unsigned char _reserved2;      /* $D6EE */
-    unsigned char miimlo;          /* $D6EF: MIIM register low */
-    unsigned char _reserved3[8];   /* $D6F0-$D6F7 */
-    unsigned char rxbuf;           /* $D6E8: RX buffer read port */
-    unsigned char txbuf;           /* $D6E9: TX buffer write port */
+    unsigned char ctrl;            /* $D6E0: control (bit 0=reset, 1=TX reset, 7=TX idle) */
+    unsigned char irq_ctrl;        /* $D6E1: interrupt status/control & RX buffer count */
+    unsigned char txsz_lo;         /* $D6E2: TX frame size LSB */
+    unsigned char txsz_hi;         /* $D6E3: TX frame size MSB */
+    unsigned char cmd;             /* $D6E4: command ($01 = trigger transmit) */
+    unsigned char mode;            /* $D6E5: promiscuous, CRC check, phase adjust */
+    unsigned char miim_reg;        /* $D6E6: MIIM register & PHY select */
+    unsigned char miim_val_lo;     /* $D6E7: MIIM value LSB */
+    unsigned char miim_val_hi;     /* $D6E8: MIIM value MSB */
+    unsigned char mac[6];          /* $D6E9-$D6EE: MAC address (6 bytes) */
 };
 
 #define eth ((volatile struct eth_regs *)0xD6E0)
 
 /* Ethernet control bits ($D6E0) */
 #define ETH_RST       0x01  /* Reset ethernet controller */
-#define ETH_TXEN      0x02  /* Enable TX */
-#define ETH_RXEN      0x04  /* Enable RX */
-#define ETH_RXIRQ     0x10  /* RX interrupt pending (read) */
-#define ETH_TXDONE    0x20  /* TX complete (read) */
+#define ETH_TXRST     0x02  /* Reset TX path */
+#define ETH_TXIDLE    0x80  /* TX idle (read-only) */
+
+/* Ethernet commands ($D6E4) */
+#define ETH_CMD_TX    0x01  /* Trigger frame transmission */
 
 /* ===== Direct register access (optimal codegen) ===== */
 /* These emit direct sta/lda $D0xx via pointer constant propagation. */
