@@ -556,11 +556,11 @@ else
     else
         OUTPUT=$(echo -e "load build/test/test_bitfield_mmemu.prg\nsetpc \$2000\nstep 5000000\nm \$4000 6\nq" | $MMEMU -m rawMega65 2>/dev/null)
 
-        if echo "$OUTPUT" | grep -q "4000: 00 00 00 00 00 00"; then
+        if echo "$OUTPUT" | grep -q "4000: 01 05 0C 06 F4 1E"; then
             echo "SUCCESS: bitfield read/write/increment works correctly."
         else
             echo "FAIL: test_bitfield_mmemu.c — bitfield validation failed."
-            echo "Expected 4000: 00 00 00 00 00 00"
+            echo "Expected 4000: 01 05 0C 06 F4 1E"
             echo "Actual output:"
             echo "$OUTPUT" | grep "4000:"
             failed=$((failed + 1))

@@ -3243,6 +3243,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         case ir::Op::BFINS: {
             // src1: new field value, src2: address of storage unit
             std::string addrStr;
+            bool indirect = false;
             if (inst.src2.kind == ir::OperandKind::GLOBAL) {
                 addrStr = inst.src2.name;
             } else {
@@ -3250,16 +3251,18 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 emit("sta __zp_scratch2");
                 emit("stx __zp_scratch2+1");
                 addrStr = "__zp_scratch2";
+                indirect = true;
             }
             loadOperand(inst.src1); // AX = new value
             int offset = (int)inst.args[0].immVal;
             int width = (int)inst.args[1].immVal;
+            std::string suffix = indirect ? ".ind" : "";
             if (inst.resultType == ir::Type::I32) {
-                emit("bfins32 " + addrStr + ", #" + std::to_string(offset) + ", #" + std::to_string(width));
+                emit("bfins32" + suffix + " " + addrStr + ", #" + std::to_string(offset) + ", #" + std::to_string(width));
             } else if (inst.resultType == ir::Type::I16) {
-                emit("bfins16 " + addrStr + ", #" + std::to_string(offset) + ", #" + std::to_string(width));
+                emit("bfins16" + suffix + " " + addrStr + ", #" + std::to_string(offset) + ", #" + std::to_string(width));
             } else {
-                emit("bfins " + addrStr + ", #" + std::to_string(offset) + ", #" + std::to_string(width));
+                emit("bfins" + suffix + " " + addrStr + ", #" + std::to_string(offset) + ", #" + std::to_string(width));
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
