@@ -26,11 +26,22 @@ Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
 
     // Compiler identification
     macros["__cc45__"] = Macro{false, false, {}, "1"};
+    macros["__CC45_VERSION__"] = Macro{false, false, {}, "10005"};  // 1.00.05 → 10005
 
-    // Standard predefined macros
+    // Target platform identification
+    macros["__MEGA65__"] = Macro{false, false, {}, "1"};
+    macros["__45GS02__"] = Macro{false, false, {}, "1"};
+    macros["__6502__"] = Macro{false, false, {}, "1"};
+
+    // Standard predefined macros (C17)
     macros["__STDC__"] = Macro{false, false, {}, "1"};
-    macros["__STDC_VERSION__"] = Macro{false, false, {}, "201112L"};
-    macros["__STDC_HOSTED__"] = Macro{false, false, {}, "0"};
+    macros["__STDC_VERSION__"] = Macro{false, false, {}, "201710L"};
+    macros["__STDC_HOSTED__"] = Macro{false, false, {}, "0"};  // freestanding
+
+    // C11+ optional feature-test macros (§6.10.8.3)
+    macros["__STDC_NO_VLA__"] = Macro{false, false, {}, "1"};      // no variable-length arrays
+    macros["__STDC_NO_THREADS__"] = Macro{false, false, {}, "1"};   // no <threads.h>
+    macros["__STDC_NO_ATOMICS__"] = Macro{false, false, {}, "1"};   // no <stdatomic.h>
 
     // GCC builtin types
     macros["__builtin_va_list"] = Macro{false, false, {}, "void *"};
