@@ -29,6 +29,7 @@ TEST_FILES=(
     "src/test-resources/test_preproc_final.c"
     "src/test-resources/test_preproc_macros.c"
     "src/test-resources/test_preproc_v3.c"
+    "src/test-resources/test_predefined_macros.c"
     "src/test-resources/test_static_assert_pass.c"
     "src/test-resources/test_break_continue.c"
     "src/test-resources/test_switch.c"
