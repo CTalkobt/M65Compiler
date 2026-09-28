@@ -291,7 +291,7 @@ ln45 (Link: Combine .o45 objects + libraries → PRG/Binary)
 - **Loop Unrolling**: `repeat(N) { body }` compile-time loop unrolling
 - **Function Attributes**: `__interrupt`, `__naked`, `__regparm`, `__fastcall__`, `__attribute__` (25+ attributes silently accepted including `always_inline`, `unused`, `weak`, `pure`, `const`, `cold`, `hot`, `packed`, `noinline`; 5 warn-and-ignore: `noipa`, `aligned`, `mode`, `vector_size`, `may_alias`)
 - **Variadic Functions**: Full `<stdarg.h>` support with `struct`/`union`/`enum`/`typeof`/`const`/`float`/`double` types in `va_arg`
-- **DMA Intrinsics**: `__dma_copy(dst, src, len)` and `__dma_fill(dst, len, val)` for MEGA65 F018B DMA
+- **DMA Intrinsics**: `__dma_copy(dst, src, len)` and `__dma_fill(dst, len, val)` for MEGA65 F018B DMA. Build 12-byte job on stack, trigger by writing bank (`$D702`), MSB (`$D701`), then LSB (`$D700` — triggers execution)
 - **CPU/Flag Intrinsics**: `__cpu.A/.X/.Y/.Z/.AX/.Q` and `__flags.Carry/.Zero/.Negative/.Overflow`
 - **GCC Builtins**: `__builtin_printf`, `__builtin_abort`, `__builtin_strlen`, `__builtin_memcpy`, `__builtin_offsetof`, etc. (22 builtin→stdlib aliases)
 - **Nested Functions**: GCC extension with closure conversion, static chain, trampolines for function pointers
@@ -428,8 +428,8 @@ ln45 (Link: Combine .o45 objects + libraries → PRG/Binary)
 - **`float.h`**: `FLT_RADIX`, `FLT_MANT_DIG`, `FLT_DIG`, `FLT_MAX`, `FLT_MIN`, `FLT_EPSILON`, exponent range constants (+ `DBL_*`, `LDBL_*` aliases)
 - **`errno.h`**: `errno`, `_errnoc`, `ERANGE`, `ENOMEM`, `EINVAL`, `EDOM`
 - **`setjmp.h`**: `jmp_buf`, `setjmp`, `longjmp`
-- **`dma.h`**: `dma_copy`, `dma_fill` (MEGA65 F018B DMA controller macros)
-- **`mega65.h`**: Hardware register struct overlays — VIC-IV, SID x4, CIA x2, DMA, math accelerator, audio mixer, FDC, SD card, Ethernet, Hypervisor, `SCREEN_RAM`/`COLOUR_RAM`, `key_pressed()` + 66 `KEY_*` constants
+- **`dma.h`**: `dma_copy`, `dma_fill` (MEGA65 F018B DMA controller macros). DMA trigger: writing `$D700` (LSB) triggers DMA — must be written last after bank (`$D702`) and MSB (`$D701`)
+- **`mega65.h`**: Hardware register struct overlays — VIC-IV (full $D000-$D07F per VHDL `viciv.vhdl`), SID x4, CIA x2, DMA (F018B with correct trigger semantics), math accelerator ($D768-$D77F per `gs4510.vhdl`), audio mixer ($D6F4-$D6FD with coefficient helper), FDC, SD card, Ethernet ($D6E0-$D6EE per `ethernet.vhdl`), Hypervisor, `SCREEN_RAM`/`COLOUR_RAM`, `key_pressed()` + 66 `KEY_*` constants, keyboard event queue (`ASCII_KEY_QUEUE`/`PETSCII_KEY_QUEUE`/`KEY_MODIFIERS_REG` + `getkey_ascii()`/`getkey_petscii()` helpers)
 - **`time.h`**: `clock`, `time`, `difftime`, `CLOCKS_PER_SEC` (jiffy clock, 60Hz)
 - **`complex.h`**: `_Complex_int` and `_Complex_float` structs with operator-overloaded arithmetic (`+`, `-`, `*`, `/`, `==`, `!=`), unary (`~` conjugate, `-` negation), `__builtin_conjf`. `_Complex float`, `__complex__ float`, `float __complex__`, `_Complex long int`, `_Complex long double` syntax all supported via `COMPLEX` keyword token. Imaginary literals: `1.0fi`, `1.0i`, `2.2if`. `__real__`/`__imag__` as parser-level unary operators (lvalue + rvalue, with and without parentheses)
 - **`intwide.h`**: `struct __int64` (8-byte) and `struct __int128` (16-byte) wide integers with operator-overloaded arithmetic. Width-parameterized runtime (`__intN_add`, `__intN_mul`, etc.). Use via `__int(64)` syntax
