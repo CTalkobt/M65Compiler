@@ -1675,7 +1675,10 @@ void IRBuilder::visit(Assignment& node) {
             }
         }
         if (bitWidth > 0) {
+            bool oldAddrMode = computeAddressOnly_;
+            computeAddressOnly_ = !ma->isArrow;
             ma->structExpr->accept(*this);
+            computeAddressOnly_ = oldAddrMode;
             auto base = lastValue_;
             auto addr = allocVreg(ir::Type::PTR);
             ir::Inst add;
@@ -2380,28 +2383,76 @@ void IRBuilder::visit(UnaryOperation& node) {
         emit(inst);
 
         // Store back to the variable
-        ir::Operand addr;
-        if (auto* vr = dynamic_cast<VariableReference*>(node.operand.get())) {
-            auto lit = locals_.find(vr->name);
-            if (lit != locals_.end()) {
-                addr = lit->second; // local vreg
-            } else {
-                addr = ir::Operand::global("_" + vr->name); // global
+        // Check if operand is a bitfield member — need BFINS instead of STORE
+        bool isBitfield = false;
+        int bfWidth = 0, bfOffset = 0, bfMemberOffset = 0;
+        ir::Type bfMemberType = ir::Type::I8;
+        if (auto* ma = dynamic_cast<MemberAccess*>(node.operand.get())) {
+            IRTypeInfo baseInfo = getExprTypeInfo(ma->structExpr.get());
+            std::string sName = getAggregateName(baseInfo.typeName);
+            int accOffset = 0;
+            auto* mit = findStructMember(sName, ma->memberName, accOffset);
+            if (mit && mit->bitWidth > 0) {
+                isBitfield = true;
+                bfWidth = mit->bitWidth;
+                bfOffset = mit->bitOffset;
+                bfMemberOffset = mit->offset + accOffset;
+                bfMemberType = mapType(mit->type, mit->pointerLevel);
             }
-        } else {
-            bool oldAddrMode = computeAddressOnly_;
-            computeAddressOnly_ = true;
-            node.operand->accept(*this);
-            addr = lastValue_;
-            computeAddressOnly_ = oldAddrMode;
         }
 
-        ir::Inst store;
-        store.op = ir::Op::STORE;
-        store.src1 = dest;
-        store.src2 = addr;
-        store.resultType = src.type;
-        emit(store);
+        if (isBitfield) {
+            // Bitfield increment: use BFINS to write back into storage unit
+            auto* ma = dynamic_cast<MemberAccess*>(node.operand.get());
+            bool oldAddrMode = computeAddressOnly_;
+            computeAddressOnly_ = !ma->isArrow;
+            ma->structExpr->accept(*this);
+            computeAddressOnly_ = oldAddrMode;
+            auto base = lastValue_;
+
+            auto addr = allocVreg(ir::Type::PTR);
+            ir::Inst add;
+            add.op = ir::Op::ADD;
+            add.dest = addr;
+            add.resultType = ir::Type::PTR;
+            add.src1 = base;
+            add.src2 = ir::Operand::imm(bfMemberOffset, ir::Type::I16);
+            add.loc = loc(node);
+            emit(add);
+
+            ir::Inst bfins;
+            bfins.op = ir::Op::BFINS;
+            bfins.resultType = bfMemberType;
+            bfins.src1 = dest;
+            bfins.src2 = addr;
+            bfins.args.push_back(ir::Operand::imm(bfOffset, ir::Type::I8));
+            bfins.args.push_back(ir::Operand::imm(bfWidth, ir::Type::I8));
+            bfins.loc = loc(node);
+            emit(bfins);
+        } else {
+            ir::Operand addr;
+            if (auto* vr = dynamic_cast<VariableReference*>(node.operand.get())) {
+                auto lit = locals_.find(vr->name);
+                if (lit != locals_.end()) {
+                    addr = lit->second; // local vreg
+                } else {
+                    addr = ir::Operand::global("_" + vr->name); // global
+                }
+            } else {
+                bool oldAddrMode = computeAddressOnly_;
+                computeAddressOnly_ = true;
+                node.operand->accept(*this);
+                addr = lastValue_;
+                computeAddressOnly_ = oldAddrMode;
+            }
+
+            ir::Inst store;
+            store.op = ir::Op::STORE;
+            store.src1 = dest;
+            store.src2 = addr;
+            store.resultType = src.type;
+            emit(store);
+        }
 
         lastValue_ = isPost ? oldVal : dest;
     }
