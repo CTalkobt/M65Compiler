@@ -461,7 +461,10 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
         // Instead generates:            shift (keeps result in A:X) → store param
         // Note: ldax.fp is only used in specific contexts; for short-lived vregs defined by
         // arithmetic ops (shifts, adds, etc.), A:X stays valid until use.
-        bool canUseAX = true;  // Re-enabled for Phase 86 vreg retention
+        // IN_AX disabled: intervening CONSTs clobber AX but loadVreg's static
+        // isInAX() check doesn't detect this, causing stale operand values (#272).
+        // Vregs go to ZP or frame instead. May increase frame size for large functions.
+        bool canUseAX = false;
 
         // Bug #179 fix: Locals (including parameters) MUST go to FRAME, never ZP.
         // They may be accessed by linked functions that expect frame offsets,

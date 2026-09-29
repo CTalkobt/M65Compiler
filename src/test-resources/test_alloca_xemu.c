@@ -9,6 +9,7 @@
  *   03 = array fill pattern correct
  *   AA = completion marker
  */
+#pragma cc45 no_zp_save
 
 #define RESULT(i) (*(volatile unsigned char *)(0xC000 + (i)))
 
