@@ -491,6 +491,8 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
                 auto gpit = globalPointedToType_.find(ref->name);
                 if (gpit != globalPointedToType_.end()) {
                     baseType = gpit->second;
+                    auto gsit = globalSigned_.find(ref->name);
+                    if (gsit != globalSigned_.end()) isSigned = gsit->second;
                 } else {
                     auto tit = localTypes_.find(ref->name);
                     if (tit != localTypes_.end()) {
@@ -498,7 +500,11 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
                         isSigned = localSigned_[ref->name];
                     } else {
                         auto gtit = globalTypes_.find(ref->name);
-                        if (gtit != globalTypes_.end()) baseType = gtit->second;
+                        if (gtit != globalTypes_.end()) {
+                            baseType = gtit->second;
+                            auto gsit = globalSigned_.find(ref->name);
+                            if (gsit != globalSigned_.end()) isSigned = gsit->second;
+                        }
                     }
                 }
             }
@@ -1225,6 +1231,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
         if (!node.arrayDims.empty()) globalArrayDims_[node.name] = node.arrayDims;
         globalTypes_[node.name] = t;
         globalTypeNames_[node.name] = node.type;
+        globalSigned_[node.name] = node.isSigned;
         globalRegister_[node.name] = node.isRegister;
         module_.globals.push_back(gv);
         return;

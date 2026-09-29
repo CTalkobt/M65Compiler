@@ -130,6 +130,7 @@ private:
     std::map<std::string, std::string> localTypeNames_;
     std::map<std::string, std::string> globalTypeNames_;
     std::map<std::string, bool> localSigned_;  // true if variable was declared signed
+    std::map<std::string, bool> globalSigned_; // true if global variable was declared signed
     std::map<std::string, bool> localConst_;       // true if variable itself is const
     std::map<std::string, bool> localPointsToConst_; // true if pointed-to data is const (const int *p)
     std::map<std::string, bool> localRegister_;
