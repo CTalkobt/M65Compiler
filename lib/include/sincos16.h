@@ -118,13 +118,15 @@ const signed int sin_tab16[256] = {
  * Uses the MEGA65 hardware multiplier at $D770/$D774 → $D778 (combinational).
  * For signed multiply: negate if signs differ, multiply unsigned, apply sign.
  */
-static int fixmul16(signed int a, signed int b) {
-    /* Handle signs manually — hardware multiplier is unsigned.
-     * Note: int is unsigned on this platform, use sign bit test. */
+static int fixmul16(int a, int b) {
+    /* Handle signs — hardware multiplier is unsigned.
+     * Use two's complement (~x + 1) for absolute value since
+     * unary minus doesn't work on unsigned int. */
     int neg = 0;
     unsigned int ua, ub;
-    if (a & 0x8000) { ua = (unsigned int)(-a); neg = 1; } else { ua = (unsigned int)a; }
-    if (b & 0x8000) { ub = (unsigned int)(-b); neg = !neg; } else { ub = (unsigned int)b; }
+    /* Test sign via high byte bit 7 (workaround: & 0x8000 codegen bug) */
+    if ((a >> 8) & 0x80) { ua = (~a + 1) & 0x7FFF; neg = 1; } else { ua = a; }
+    if ((b >> 8) & 0x80) { ub = (~b + 1) & 0x7FFF; neg = neg ? 0 : 1; } else { ub = b; }
 
     /* Write to hardware multiplier */
     *(volatile unsigned char *)0xD770 = ua & 0xFF;
@@ -136,15 +138,15 @@ static int fixmul16(signed int a, signed int b) {
     *(volatile unsigned char *)0xD776 = 0;
     *(volatile unsigned char *)0xD777 = 0;
 
-    /* Read product bytes and shift right by 15.
-     * >> 15 is equivalent to: take byte 1 bit 7 as bit 0, then bytes 2-3.
-     * result = (product[1] >> 7) | (product[2] << 1) | (product[3] << 9)
-     * For 16-bit result, we only need the low 16 bits of the shifted value. */
+    /* Read product >> 15: extract bits 15-30 of the 32-bit product.
+     * Byte layout: $D778=bits 0-7, $D779=bits 8-15, $D77A=bits 16-23
+     * Bits 15-30 = byte1[7] | byte2[0-7]<<1 | byte3[0-6]<<9 */
     unsigned int result =
         ((unsigned int)(*(volatile unsigned char *)0xD779) >> 7) |
         ((unsigned int)(*(volatile unsigned char *)0xD77A) << 1);
 
-    return neg ? (int)(0 - result) : (int)result;
+    if (neg) { result = (~result + 1) & 0xFFFF; }
+    return (int)result;
 }
 
 #endif /* _SINCOS16_H */
