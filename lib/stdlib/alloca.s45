@@ -2,54 +2,63 @@
 ;
 ; void* alloca(size_t size);
 ; void* __builtin_alloca(size_t size);
+;
+; Allocates 'size' bytes on the hardware stack by decrementing SP.
+; Returns pointer to the allocated region.
+; Memory is automatically freed when the calling function returns.
+;
+; NOTE: For constant sizes, the compiler emits an inline frame buffer
+; allocation (no function call). This runtime version handles variable sizes.
 
 .global _alloca
 .global ___builtin_alloca
+.extern __sp_base
 
 .segment "code"
 
-_alloca:
-___builtin_alloca:
-    ; Pop return address
-    pla                 ; PCL
-    sta $0A             ; ret_lo
-    pla                 ; PCH
-    sta $0B             ; ret_hi
-    
-    ; Pop size
-    pla                 ; size_lo
-    sta $08
-    pla                 ; size_hi
-    sta $09
-    
-    ; SP now at original top. Grow it down by size.
+proc _alloca, W#_p_size
+    .var _fp = 0
+    ; Load size from stack parameter
     tsx
-    tsy
-    
+    lda __sp_base+_p_size, x    ; size lo
+    sta $02
+    lda __sp_base+_p_size+1, x  ; size hi
+    sta $03
+
+    ; Save return address (currently at SP+1/SP+2)
+    lda __sp_base, x            ; ret lo (at SP+1 via __sp_base+0+X)
+    sta $04
+    lda __sp_base+1, x          ; ret hi
+    sta $05
+
+    ; Grow stack down by size bytes
+    txa                         ; A = SPL
     sec
+    sbc $02                     ; subtract size lo
+    tax                         ; X = new SPL
+    ; Note: 45GS02 stack is page 1 only, no SPH adjustment needed
+    txs                         ; set new SP
+
+    ; Result pointer = new SP + 1 (first byte of allocated region)
     txa
-    sbc $08
-    tax
-    tya
-    sbc $09
-    tay
-    
-    ; Set new SP
-    txs
-    tys
-    
-    ; Push return address back onto new stack
-    lda $0B
-    pha
-    lda $0A
-    pha
-    
-    ; Result pointer in AX is new SP + 2 (points past the pushed return address)
     clc
-    txa
-    adc #2
-    tax
-    tya
+    adc #1
+    sta $06                     ; result lo
+    lda #$01                    ; stack page = $01
     adc #0
-    
+    sta $07                     ; result hi
+
+    ; Push return address back onto new stack position
+    lda $05                     ; ret hi
+    pha
+    lda $04                     ; ret lo
+    pha
+
+    ; Return pointer in AX
+    lda $06
+    ldx $07
+
     rts
+    endproc
+
+___builtin_alloca = _alloca
