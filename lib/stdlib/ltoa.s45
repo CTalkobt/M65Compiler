@@ -58,7 +58,8 @@ proc _ltoa, D#_p_value, W#_p_str, W#_p_base
     lda __sp_base+_p_str+10, x
     sta $0A
 
-    stz $08             ; digit count on stack
+    lda #0
+    sta $08             ; digit count (NOT stz — STZ stores Z reg, not zero)
     ldy #0              ; Y = write index into output
 
     ; --- Validate base (2-36) ---

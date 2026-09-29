@@ -19,8 +19,9 @@ proc _strrchr, W#_p_s, W#_p_c
     lda __sp_base+_p_c, x
     sta $04
     ; result = NULL
-    stz $05
-    stz $06
+    lda #0
+    sta $05
+    sta $06
     ldy #0
 @loop:
     lda ($02),y

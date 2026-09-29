@@ -22,8 +22,9 @@ proc _div, W#_p___ret_ptr, W#_p_numer, W#_p_denom
     lda $03
     pha
 
-    stz $02                 ; numer_neg = 0
-    stz $03                 ; sign = 0
+    lda #0
+    sta $02                 ; numer_neg = 0
+    sta $03                 ; sign = 0
 
     ; Load numerator
     ldax _p_numer+2, sp

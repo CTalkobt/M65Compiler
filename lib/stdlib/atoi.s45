@@ -39,7 +39,8 @@ proc _atoi, W#_p_s
 
     ; --- Check for sign ---
 @checksign:
-    stz $04
+    lda #0
+    sta $04             ; sign flag (NOT stz — STZ stores Z reg, not zero)
     cmp #$2d            ; '-'
     bne @checkplus
     inc $04

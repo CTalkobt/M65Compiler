@@ -92,8 +92,9 @@ proc _malloc, W#_p_size
     beq @fail
 
 @search:
-    stz $04             ; prev = 0
-    stz $05
+    lda #0
+    sta $04             ; prev = 0
+    sta $05
     lda __heap_ptr
     sta $02             ; curr = head
     lda __heap_ptr+1
@@ -324,8 +325,9 @@ proc _free, W#_p_ptr
     sty $09
     
     ; Find insertion point in sorted list (prev < curr < next_p)
-    stz $04             ; prev = 0
-    stz $05
+    lda #0
+    sta $04             ; prev = 0
+    sta $05
     lda __heap_ptr
     sta $06             ; next_p = head
     lda __heap_ptr+1
