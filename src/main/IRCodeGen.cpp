@@ -1737,8 +1737,16 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             auto alloc = alloc_.getAlloc(vregId);
             if (alloc.loc == VRegAllocator::IN_FRAME) {
                 std::string localSymbol = fn.name + "__local_" + std::to_string(vregId);
-                ir::Type varType = vregType_.count(vregId) ? vregType_[vregId] : ir::Type::I16;
-                int varSize = ir::typeSize(varType);
+                // Use vregSizes for arrays (which store the full buffer size),
+                // fall back to type size for scalars
+                int varSize = 0;
+                auto vsit = fn.vregSizes.find(vregId);
+                if (vsit != fn.vregSizes.end()) {
+                    varSize = vsit->second;  // array: full buffer size
+                } else {
+                    ir::Type varType = vregType_.count(vregId) ? vregType_[vregId] : ir::Type::I16;
+                    varSize = ir::typeSize(varType);
+                }
                 if (varSize < 2) varSize = 2;
                 emitLabel(localSymbol);
                 emit(".res " + std::to_string(varSize));
