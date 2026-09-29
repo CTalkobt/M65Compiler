@@ -12,9 +12,11 @@
 
 proc _strchr, W#_p_s, W#_p_c
     .var _fp = 0
-    ldax _p_s, sp
-    stax $02
     tsx
+    lda __sp_base+_p_s, x
+    sta $02
+    lda __sp_base+_p_s+1, x
+    sta $03
     lda __sp_base+_p_c, x
     sta $04
     ldy #0

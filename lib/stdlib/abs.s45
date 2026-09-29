@@ -2,7 +2,6 @@
 ;
 ; int abs(int value);
 ;   Returns the absolute value of a 16-bit signed integer.
-;   Result in .AX (A=low, X=high).
 
 .global _abs
 .extern __sp_base
@@ -11,21 +10,29 @@
 
 proc _abs, W#_p_value
     .var _fp = 0
-    ldax _p_value, sp
-    ; Check sign bit (high byte in X)
-    txa
-    bpl @done           ; already positive, A/X already set
-    ; Negate .AX: complement and add 1
-    ldax _p_value, sp    ; reload
-    eor #$FF            ; complement low byte
+    ; Load param via TSX into ZP
+    tsx
+    lda __sp_base+_p_value, x
+    sta $02
+    lda __sp_base+_p_value+1, x
+    sta $03
+    ; Check sign bit
+    lda $03
+    bpl @pos
+    ; Negate: complement and add 1
+    lda $02
+    eor #$FF
     clc
     adc #1
     pha
-    txa
+    lda $03
     eor #$FF
     adc #0
     tax
     pla
-@done:
+    rtn #0
+@pos:
+    lda $02
+    ldx $03
     rtn #0
     endproc

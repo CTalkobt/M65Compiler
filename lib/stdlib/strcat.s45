@@ -10,8 +10,17 @@
 
 proc _strcat, W#_p_dest, W#_p_src
     .var _fp = 0
-    ldax _p_dest, sp
-    stax $02
+    ; Load dest pointer via TSX + absolute addressing
+    tsx
+    lda __sp_base+_p_dest, x     ; dest lo
+    sta $02
+    lda __sp_base+_p_dest+1, x   ; dest hi
+    sta $03
+    lda __sp_base+_p_src, x      ; src lo
+    sta $04
+    lda __sp_base+_p_src+1, x    ; src hi
+    sta $05
+
     ; Find end of dest
     ldy #0
 @find_end:
@@ -30,9 +39,7 @@ proc _strcat, W#_p_dest, W#_p_src
     lda #0
     adc $03
     sta $03
-    ; Now copy src to $02
-    ldax _p_src, sp
-    stax $04
+    ; Now copy src ($04/$05) to dest end ($02/$03)
     ldy #0
 @copy:
     lda ($04),y
@@ -44,6 +51,11 @@ proc _strcat, W#_p_dest, W#_p_src
     inc $05
     bra @copy
 @done:
-    ldax _p_dest, sp
+    ; return dest (lo in A, hi in X)
+    tsx
+    lda __sp_base+_p_dest+1, x   ; hi
+    pha
+    lda __sp_base+_p_dest, x     ; lo
+    plx                           ; X = hi
     rtn #0
     endproc

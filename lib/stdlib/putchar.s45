@@ -14,10 +14,17 @@
 
 proc _putchar, W#_p_c
     .var _fp = 0
-    lda.sp _p_c
+    ; Load param via TSX + absolute addressing
+    tsx
+    lda __sp_base+_p_c, x        ; c lo (character)
     phz
     jsr $FFD2
     plz
-    ldax _p_c, sp
+    ; return c (lo in A, hi in X)
+    tsx
+    lda __sp_base+_p_c+1, x      ; hi
+    pha
+    lda __sp_base+_p_c, x        ; lo
+    plx                           ; X = hi
     rtn #0
     endproc
