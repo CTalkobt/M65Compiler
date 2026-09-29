@@ -3728,29 +3728,29 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::ADDR_LOCAL: {
-            if (inst.src1.isVreg()) {
-                // Use vregOffset_ (consistent with storeVreg/loadVreg frame offsets)
-                auto vit = vregOffset_.find(inst.src1.vregId);
-                if (vit != vregOffset_.end()) {
-                    int offset = vit->second;
-                    if (frameAddrZPIndex_ >= 0 && offset == 0) {
-                        // Use cached frame address from function entry
-                        std::string frameAddrZP = zpAddr(frameAddrZPIndex_);
-                        emit("lda " + frameAddrZP);
-                        emit("ldx " + frameAddrZP + "+1");
-                    } else {
-                        emit("leax.local " + std::to_string(offset));
-                    }
+            // Helper: emit address of a SAC static storage symbol for a vreg
+            auto emitSACAddr = [&](uint32_t vregId) {
+                std::string storageSymbol;
+                if (vregId < currentFn_->paramTypes.size()) {
+                    std::string pName = (vregId < currentFn_->paramNames.size() && !currentFn_->paramNames[vregId].empty())
+                        ? currentFn_->paramNames[vregId] : std::to_string(vregId);
+                    storageSymbol = currentFunctionName_ + "__param_" + pName;
                 } else {
-                    // Get allocation from VRegAllocator (should have already allocated)
-                    auto alloc = alloc_.getAlloc(inst.src1.vregId);
-                    if (alloc.loc == VRegAllocator::IN_ZP) {
-                        emit("lda #" + std::to_string(alloc.offset));
-                        emit("ldx #0");
-                    } else if (alloc.loc == VRegAllocator::IN_FRAME) {
-                        int offset = alloc.offset;
+                    storageSymbol = currentFunctionName_ + "__local_" + std::to_string(vregId);
+                }
+                emit("ldax #" + storageSymbol);
+            };
+
+            if (inst.src1.isVreg()) {
+                // SAC mode: use static storage symbol address instead of frame-relative
+                if (currentFunctionUseSAC_ && vregOffset_.count(inst.src1.vregId)) {
+                    emitSACAddr(inst.src1.vregId);
+                } else {
+                    // Use vregOffset_ (consistent with storeVreg/loadVreg frame offsets)
+                    auto vit = vregOffset_.find(inst.src1.vregId);
+                    if (vit != vregOffset_.end()) {
+                        int offset = vit->second;
                         if (frameAddrZPIndex_ >= 0 && offset == 0) {
-                            // Use cached frame address
                             std::string frameAddrZP = zpAddr(frameAddrZPIndex_);
                             emit("lda " + frameAddrZP);
                             emit("ldx " + frameAddrZP + "+1");
@@ -3758,14 +3758,27 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                             emit("leax.local " + std::to_string(offset));
                         }
                     } else {
-                        // Should not reach here - VRegAllocator should have allocated
-                        emit("; ERROR: vreg not allocated");
+                        auto alloc = alloc_.getAlloc(inst.src1.vregId);
+                        if (alloc.loc == VRegAllocator::IN_ZP) {
+                            emit("lda #" + std::to_string(alloc.offset));
+                            emit("ldx #0");
+                        } else if (alloc.loc == VRegAllocator::IN_FRAME) {
+                            int offset = alloc.offset;
+                            if (frameAddrZPIndex_ >= 0 && offset == 0) {
+                                std::string frameAddrZP = zpAddr(frameAddrZPIndex_);
+                                emit("lda " + frameAddrZP);
+                                emit("ldx " + frameAddrZP + "+1");
+                            } else {
+                                emit("leax.local " + std::to_string(offset));
+                            }
+                        } else {
+                            emit("; ERROR: vreg not allocated");
+                        }
                     }
                 }
             } else {
                 int offset = (int)inst.src1.immVal;
                 if (frameAddrZPIndex_ >= 0 && offset == 0) {
-                    // Use cached frame address
                     std::string frameAddrZP = zpAddr(frameAddrZPIndex_);
                     emit("lda " + frameAddrZP);
                     emit("ldx " + frameAddrZP + "+1");
