@@ -13,7 +13,8 @@
 
 proc _isprint, W#_p_c
     .var _fp = 0
-    lda.sp _p_c
+    tsx
+    lda __sp_base+_p_c, x
     ; Check $20-$7E
     cmp #$20
     bcc @no

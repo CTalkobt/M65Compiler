@@ -11,7 +11,8 @@
 
 proc _isgraph, W#_p_c
     .var _fp = 0
-    lda.sp _p_c
+    tsx
+    lda __sp_base+_p_c, x
     ; Reject space ($20)
     cmp #$20
     beq @no

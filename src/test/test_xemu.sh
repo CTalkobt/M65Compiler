@@ -183,6 +183,36 @@ else
     failed=$((failed + 1))
 fi
 
+# Test 8: test_string_xemu.c (string.h functions)
+echo "Testing test_string_xemu.c (string operations)..."
+compile_link_test "src/test-resources/test_string_xemu.c" "build/test/test_string_xemu.prg"
+if [ $? -eq 0 ]; then
+    run_xemu_test "test_string" "build/test/test_string_xemu.prg" "C020" 13 "01 02 03 04 05 06 07 08 09 0A 0B 0C AA"
+else
+    echo "FAIL: test_string_xemu.c (compilation/linking failed)"
+    failed=$((failed + 1))
+fi
+
+# Test 9: test_ctype_xemu.c (ctype.h functions)
+echo "Testing test_ctype_xemu.c (character classification)..."
+compile_link_test "src/test-resources/test_ctype_xemu.c" "build/test/test_ctype_xemu.prg"
+if [ $? -eq 0 ]; then
+    run_xemu_test "test_ctype" "build/test/test_ctype_xemu.prg" "C030" 9 "01 02 03 04 05 06 07 08 AA"
+else
+    echo "FAIL: test_ctype_xemu.c (compilation/linking failed)"
+    failed=$((failed + 1))
+fi
+
+# Test 10: test_stdlib_xemu.c (stdlib.h functions)
+echo "Testing test_stdlib_xemu.c (stdlib functions)..."
+compile_link_test "src/test-resources/test_stdlib_xemu.c" "build/test/test_stdlib_xemu.prg"
+if [ $? -eq 0 ]; then
+    run_xemu_test "test_stdlib" "build/test/test_stdlib_xemu.prg" "C040" 8 "01 02 03 04 05 06 07 AA"
+else
+    echo "FAIL: test_stdlib_xemu.c (compilation/linking failed)"
+    failed=$((failed + 1))
+fi
+
 echo ""
 echo "======================================================"
 echo "Xemu Test Results: $passed passed, $failed failed"

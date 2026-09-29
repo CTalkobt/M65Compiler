@@ -11,7 +11,8 @@
 
 proc _isalnum, W#_p_c
     .var _fp = 0
-    lda.sp _p_c
+    tsx
+    lda __sp_base+_p_c, x
     ; Check digit range $30-$39
     cmp #$30
     bcc @no

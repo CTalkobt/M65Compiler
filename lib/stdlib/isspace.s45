@@ -17,7 +17,8 @@
 
 proc _isspace, W#_p_c
     .var _fp = 0
-    lda.sp _p_c
+    tsx
+    lda __sp_base+_p_c, x
     cmp #$20
     beq @yes
     ; Check $09-$0D range (tab, LF, VT, FF, CR)

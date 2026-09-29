@@ -11,13 +11,12 @@
 
 proc _strlen, W#_p_s
     .var _fp = 0
-    ; Save ZP $02/$03 (used as pointer; $02 is __zp_scratch)
-    lda $02
-    pha
-    lda $03
-    pha
-    ldax _p_s+2, sp
-    stax $02
+    ; Load string pointer via TSX (proven pattern)
+    tsx
+    lda __sp_base+_p_s, x
+    sta $02
+    lda __sp_base+_p_s+1, x
+    sta $03
     ldy #0
 @loop:
     lda ($02),y
@@ -27,12 +26,5 @@ proc _strlen, W#_p_s
 @done:
     tya
     ldx #0
-    ; Restore ZP $02/$03
-    taz
-    pla
-    sta $03
-    pla
-    sta $02
-    tza
     rtn #0
     endproc

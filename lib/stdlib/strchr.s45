@@ -14,7 +14,8 @@ proc _strchr, W#_p_s, W#_p_c
     .var _fp = 0
     ldax _p_s, sp
     stax $02
-    lda.sp _p_c
+    tsx
+    lda __sp_base+_p_c, x
     sta $04
     ldy #0
 @loop:
