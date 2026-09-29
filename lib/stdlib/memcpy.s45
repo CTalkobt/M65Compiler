@@ -11,52 +11,46 @@
 
 proc _memcpy, W#_p_dest, W#_p_src, W#_p_n
     .var _fp = 0
-    ; Save ZP $02-$03 to stack (+2 bytes on stack)
-    lda $02
-    pha
-    lda $03
-    pha
-
-    ; Load dest into ZP $02/$03 (offsets +2 for the PHA saves)
+    ; Load all params into ZP (same pattern as memset)
     tsx
-    lda __sp_base+_p_dest+2, x
+    lda __sp_base+_p_dest, x     ; dest lo
     sta $02
-    lda __sp_base+_p_dest+3, x
+    lda __sp_base+_p_dest+1, x   ; dest hi
     sta $03
+    lda __sp_base+_p_src, x      ; src lo
+    sta $04
+    lda __sp_base+_p_src+1, x    ; src hi
+    sta $05
+    lda __sp_base+_p_n, x        ; count lo
+    sta $06
+    lda __sp_base+_p_n+1, x      ; count hi
+    sta $07
+
     ldy #0
 @loop:
-    ; SP-relative offsets include +2 for the PHA saves
-    lda _p_n+2, sp
+    lda $07
     bne @do_copy
-    lda _p_n+3, sp
+    lda $06
     beq @done
 @do_copy:
-    lda (_p_src+2, sp), y   ; load from src via stack-relative indirect
+    lda ($04),y         ; load from src
     sta ($02),y         ; store to dest
     iny
     bne @no_inc
-    inc $03
-    ; increment src high byte on stack
-    inc _p_src+3, sp
+    inc $03             ; dest page
+    inc $05             ; src page
 @no_inc:
-    ; decrement count in-place on stack
-    lda _p_n+2, sp
+    lda $06
     bne @dec_lo
-    dec _p_n+3, sp
+    dec $07
 @dec_lo:
-    dec _p_n+2, sp
+    dec $06
     bra @loop
 @done:
-    ; Restore ZP (pops the 2 PHA saves)
-    plz
-    stz $03
-    plz
-    stz $02
-    ; Return dest — no +2 adjustment needed here, PHA saves are gone
-    tsx
-    lda __sp_base+_p_dest+1, x     ; hi
+    ; return dest (lo in A, hi in X)
+    lda $03             ; hi
     pha
-    lda __sp_base+_p_dest, x       ; lo
-    plx                             ; X = hi
-    rts
+    lda $02             ; lo
+    plx                 ; X = hi
+    rtn #0
     endproc

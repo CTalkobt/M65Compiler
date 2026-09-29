@@ -10,12 +10,21 @@
 
 proc _memcmp, W#_p_s1, W#_p_s2, W#_p_n
     .var _fp = 0
-    ldax _p_s1, sp
-    stax $02
-    ldax _p_s2, sp
-    stax $04
-    ldax _p_n, sp
-    stax $06
+    ; Load all params into ZP via TSX (proven pattern)
+    tsx
+    lda __sp_base+_p_s1, x
+    sta $02
+    lda __sp_base+_p_s1+1, x
+    sta $03
+    lda __sp_base+_p_s2, x
+    sta $04
+    lda __sp_base+_p_s2+1, x
+    sta $05
+    lda __sp_base+_p_n, x
+    sta $06
+    lda __sp_base+_p_n+1, x
+    sta $07
+
     ldy #0
 @loop:
     lda $06
