@@ -953,6 +953,7 @@ Full documentation: `doc/bin/disk45.md`
 - **45GS02 CPU**: Extended 6502 with Q register (AXYZ) and 32-bit operations
 - **Calling Conventions**: `doc/architecture/calling-conventions.md` — Stack and ZP calling conventions, frame pointer mechanics, struct returns
 - **Test Coverage**: 282 unit tests pass (`make test`), 176 assembler validation tests (Units 1-7), 55 segment emission tests, semantic/parser error tests. 5 hardware I/O tests require mmemu MCP (mega65 mode with MAP clear — see mmemu#79, #80)
+- **Xemu Runtime Tests**: 7/7 pass (`bash src/test/test_xemu.sh`) — validates runtime correctness of generated code via xemu-xmega65 memory dumps. Tests: short type arithmetic, struct return by value, array initialization, compound literals, long (32-bit) arithmetic, local array allocation (alloca), and stdlib memory operations (memset/memcpy/memcmp/memmove with 10 subtests including overlapping memmove)
 - **GTE (GCC Torture Tests)**: 560/581 (96.4%) — comprehensive C language compatibility validation (includes 95 float/double tests, 7 complex tests). Remaining 21: 9 unfixable (sys/mman.h, stdout/FILE*, __builtin_va_arg_pack, #define L), 8 nested function closure issues, 4 parser edge cases
 - **Standards**: C99 preprocessor, C89/C99 subset for language features
 
