@@ -43,6 +43,8 @@ private:
     std::vector<State> stateStack;
 
     std::vector<std::string> pendingPragmas_; // collected by expandMacros from _Pragma()
+    int includeDepth_ = 0;          // current #include nesting level
+    std::string currentFile_;       // current file being processed (for __has_include path resolution)
 
     std::string processInternal(const std::string& source, const std::string& currentFile, int depth);
     bool isConditionTrue();

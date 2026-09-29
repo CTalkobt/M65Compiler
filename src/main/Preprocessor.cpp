@@ -164,6 +164,96 @@ std::string Preprocessor::expandMacros(const std::string& line) {
                 std::string replacement = "";
                 bool found = false;
 
+                // __INCLUDE_LEVEL__ — current include nesting depth
+                if (ident == "__INCLUDE_LEVEL__") {
+                    replacement = std::to_string(includeDepth_);
+                    found = true;
+                }
+
+                // __has_include(<header>) / __has_include("header") — check if file exists
+                if (!found && ident == "__has_include") {
+                    size_t peek = i;
+                    while (peek < result.length() && std::isspace((unsigned char)result[peek])) peek++;
+                    if (peek < result.length() && result[peek] == '(') {
+                        peek++;
+                        while (peek < result.length() && std::isspace((unsigned char)result[peek])) peek++;
+                        std::string fileName;
+                        char delim = 0;
+                        if (peek < result.length() && (result[peek] == '"' || result[peek] == '<')) {
+                            delim = (result[peek] == '<') ? '>' : '"';
+                            peek++;
+                            size_t nameStart = peek;
+                            while (peek < result.length() && result[peek] != delim) peek++;
+                            fileName = result.substr(nameStart, peek - nameStart);
+                            if (peek < result.length()) peek++; // skip closing delim
+                        }
+                        while (peek < result.length() && std::isspace((unsigned char)result[peek])) peek++;
+                        if (peek < result.length() && result[peek] == ')') peek++;
+                        // Check if file can be found
+                        std::string fullPath = findIncludeFile(fileName, getDirectory(currentFile_));
+                        replacement = fullPath.empty() ? "0" : "1";
+                        i = peek;
+                        found = true;
+                    }
+                }
+
+                // __has_builtin(__builtin_X) — check if builtin is supported
+                if (!found && ident == "__has_builtin") {
+                    size_t peek = i;
+                    while (peek < result.length() && std::isspace((unsigned char)result[peek])) peek++;
+                    if (peek < result.length() && result[peek] == '(') {
+                        peek++;
+                        while (peek < result.length() && std::isspace((unsigned char)result[peek])) peek++;
+                        size_t nameStart = peek;
+                        while (peek < result.length() && (std::isalnum((unsigned char)result[peek]) || result[peek] == '_')) peek++;
+                        std::string builtinName = result.substr(nameStart, peek - nameStart);
+                        while (peek < result.length() && std::isspace((unsigned char)result[peek])) peek++;
+                        if (peek < result.length() && result[peek] == ')') peek++;
+                        static const std::set<std::string> knownBuiltins = {
+                            "__builtin_va_list", "__builtin_va_start", "__builtin_va_end", "__builtin_va_arg",
+                            "__builtin_constant_p", "__builtin_offsetof", "__builtin_expect", "__builtin_trap",
+                            "__builtin_unreachable", "__builtin_conjf",
+                            "__builtin_printf", "__builtin_sprintf", "__builtin_puts", "__builtin_putchar",
+                            "__builtin_malloc", "__builtin_free", "__builtin_calloc", "__builtin_realloc",
+                            "__builtin_strlen", "__builtin_strcmp", "__builtin_strcpy", "__builtin_strncpy",
+                            "__builtin_strcat", "__builtin_strchr", "__builtin_strstr",
+                            "__builtin_memcpy", "__builtin_memset", "__builtin_memmove", "__builtin_memcmp",
+                            "__builtin_abs", "__builtin_labs", "__builtin_exit", "__builtin_abort",
+                            "__builtin_alloca",
+                            "__builtin_clz", "__builtin_ctz", "__builtin_ffs", "__builtin_popcount",
+                            "__builtin_bswap16",
+                        };
+                        replacement = knownBuiltins.count(builtinName) ? "1" : "0";
+                        i = peek;
+                        found = true;
+                    }
+                }
+
+                // __has_attribute(attr) — check if attribute is supported
+                if (!found && ident == "__has_attribute") {
+                    size_t peek = i;
+                    while (peek < result.length() && std::isspace((unsigned char)result[peek])) peek++;
+                    if (peek < result.length() && result[peek] == '(') {
+                        peek++;
+                        while (peek < result.length() && std::isspace((unsigned char)result[peek])) peek++;
+                        size_t nameStart = peek;
+                        while (peek < result.length() && (std::isalnum((unsigned char)result[peek]) || result[peek] == '_')) peek++;
+                        std::string attrName = result.substr(nameStart, peek - nameStart);
+                        while (peek < result.length() && std::isspace((unsigned char)result[peek])) peek++;
+                        if (peek < result.length() && result[peek] == ')') peek++;
+                        static const std::set<std::string> knownAttrs = {
+                            "always_inline", "noinline", "unused", "used", "weak",
+                            "pure", "const", "cold", "hot", "packed", "aligned",
+                            "deprecated", "naked", "interrupt", "noreturn",
+                            "section", "visibility", "constructor", "destructor",
+                            "format", "warn_unused_result",
+                        };
+                        replacement = knownAttrs.count(attrName) ? "1" : "0";
+                        i = peek;
+                        found = true;
+                    }
+                }
+
                 if (macros.count(ident)) {
                     const auto& m = macros[ident];
                     if (!m.isFunctionLike) {
@@ -397,6 +487,26 @@ long Preprocessor::evaluateExpression(const std::string& expr) {
     };
     replaceDefined(e);
 
+    // 1b. Expand __has_include, __has_builtin, __has_attribute, and macros
+    e = expandMacros(e);
+
+    // Replace any remaining undefined identifiers with 0 (C standard: undefined = 0 in #if)
+    {
+        std::string cleaned;
+        for (size_t i = 0; i < e.length(); ) {
+            if (std::isalpha((unsigned char)e[i]) || e[i] == '_') {
+                size_t start = i;
+                while (i < e.length() && (std::isalnum((unsigned char)e[i]) || e[i] == '_')) i++;
+                std::string ident = e.substr(start, i - start);
+                // Unknown identifiers in #if evaluate to 0 per C standard
+                cleaned += "0";
+            } else {
+                cleaned += e[i++];
+            }
+        }
+        e = cleaned;
+    }
+
     // 2. Simple Recursive Descent (Logical OR -> AND -> Relational -> Additive -> Multiplicative -> Unary -> Primary)
     ExprPath p{e};
     
@@ -599,6 +709,8 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
     if (depth > 16) {
         throw std::runtime_error("Maximum include depth exceeded (circular dependency?)");
     }
+    includeDepth_ = depth;
+    currentFile_ = currentFile;
 
     if (!currentFile.empty() && onceFiles.count(currentFile)) {
         return "";

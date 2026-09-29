@@ -2772,6 +2772,7 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
                 {"__builtin_abs", "abs"},
                 {"__builtin_labs", "labs"},
                 {"__builtin_exit", "exit"},
+                {"__builtin_alloca", "alloca"},
             };
             auto it = builtinAliases.find(actualName);
             if (it != builtinAliases.end()) {
