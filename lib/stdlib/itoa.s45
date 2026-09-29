@@ -22,30 +22,20 @@
 
 proc _itoa, W#_p_value, W#_p_str, W#_p_base
     .var _fp = 0
-    ; Save ZP $02-$08 to stack
-    lda $02
-    pha
-    lda $03
-    pha
-    lda $04
-    pha
-    lda $05
-    pha
-    lda $06
-    pha
-    lda $07
-    pha
-    lda $08
-    pha
-
-    ; Load params into ZP working registers.
-    ; Load in reverse order since ldax uses $02 as scratch.
-    ldax _p_str+7, sp
-    stax $07                ; $07/$08 = output buffer pointer
-    ldax _p_base+7, sp
-    stax $04                ; $04/$05 = base
-    ldax _p_value+7, sp
-    stax $02                ; $02/$03 = value
+    ; Load params via TSX (no ZP saves — ZP is scratch, caller-save)
+    tsx
+    lda __sp_base+_p_str, x
+    sta $07
+    lda __sp_base+_p_str+1, x
+    sta $08
+    lda __sp_base+_p_base, x
+    sta $04
+    lda __sp_base+_p_base+1, x
+    sta $05
+    lda __sp_base+_p_value, x
+    sta $02
+    lda __sp_base+_p_value+1, x
+    sta $03
 
     stz $06                 ; digit count on stack
     ldy #0                  ; Y = write index into output
@@ -189,20 +179,5 @@ proc _itoa, W#_p_value, W#_p_str, W#_p_base
 
     ldax $07                ; return str pointer
 @restore:
-    ; Return value in AX preserved; PLZ doesn't touch A/X.
-    plz
-    stz $08
-    plz
-    stz $07
-    plz
-    stz $06
-    plz
-    stz $05
-    plz
-    stz $04
-    plz
-    stz $03
-    plz
-    stz $02
-    rts
+    rtn #0
     endproc

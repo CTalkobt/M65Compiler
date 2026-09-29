@@ -19,7 +19,7 @@
 
 proc _ltoa, D#_p_value, W#_p_str, W#_p_base
     .var _fp = 0
-    ; Save ZP $02-$08
+    ; Save ZP $02-$0A (9 bytes)
     lda $02
     pha
     lda $03
@@ -34,18 +34,29 @@ proc _ltoa, D#_p_value, W#_p_str, W#_p_base
     pha
     lda $08
     pha
+    lda $09
+    pha
+    lda $0A
+    pha
 
-    ; Load 32-bit value into $02-$05
-    lda _p_value+7, sp
+    ; Load params via TSX (+9 for the 9 PHA saves)
+    tsx
+    lda __sp_base+_p_value+9, x
     sta $02
-    lda _p_value+8, sp
+    lda __sp_base+_p_value+10, x
     sta $03
-    lda _p_value+9, sp
+    lda __sp_base+_p_value+11, x
     sta $04
-    lda _p_value+10, sp
+    lda __sp_base+_p_value+12, x
     sta $05
-    ldax _p_base+7, sp
-    stax $06
+    lda __sp_base+_p_base+9, x
+    sta $06
+    lda __sp_base+_p_base+10, x
+    sta $07
+    lda __sp_base+_p_str+9, x
+    sta $09
+    lda __sp_base+_p_str+10, x
+    sta $0A
 
     stz $08             ; digit count on stack
     ldy #0              ; Y = write index into output
@@ -58,11 +69,12 @@ proc _ltoa, D#_p_value, W#_p_str, W#_p_base
     bcs @valid
     ; base < 2: write "0\0" and return
     lda #$30
-    sta (_p_str+8, sp),y
+    sta ($09),y
     iny
     lda #0
-    sta (_p_str+8, sp),y
-    ldax _p_str+7, sp
+    sta ($09),y
+    lda $09
+    ldx $0A
     bra @restore
 
 @valid:
@@ -77,7 +89,7 @@ proc _ltoa, D#_p_value, W#_p_str, W#_p_base
     bpl @poscheck
     ; Negative: write '-' and negate 32-bit value
     lda #$2d
-    sta (_p_str+8, sp),y
+    sta ($09),y
     iny
     sec
     lda #0
@@ -101,7 +113,7 @@ proc _ltoa, D#_p_value, W#_p_str, W#_p_base
     ora $05
     bne @extract
     lda #$30
-    sta (_p_str+8, sp),y
+    sta ($09),y
     iny
     bra @nulterm
 
@@ -183,18 +195,23 @@ proc _ltoa, D#_p_value, W#_p_str, W#_p_base
     ; --- Pop digits into output buffer (correct order) ---
 @poploop:
     pla
-    sta (_p_str+8, sp),y
+    sta ($09),y
     iny
     dec $08
     bne @poploop
 
 @nulterm:
     lda #0
-    sta (_p_str+8, sp),y
+    sta ($09),y
 
-    ldax _p_str+7, sp
+    lda $09
+    ldx $0A
 @restore:
     ; Return value in AX preserved (PLZ doesn't touch A/X).
+    plz
+    stz $0A
+    plz
+    stz $09
     plz
     stz $08
     plz

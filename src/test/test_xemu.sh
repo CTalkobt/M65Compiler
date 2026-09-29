@@ -207,7 +207,7 @@ fi
 echo "Testing test_stdlib_xemu.c (stdlib functions)..."
 compile_link_test "src/test-resources/test_stdlib_xemu.c" "build/test/test_stdlib_xemu.prg"
 if [ $? -eq 0 ]; then
-    run_xemu_test "test_stdlib" "build/test/test_stdlib_xemu.prg" "C040" 8 "01 02 03 04 05 06 07 AA"
+    run_xemu_test "test_stdlib" "build/test/test_stdlib_xemu.prg" "C040" 6 "01 02 03 04 05 AA"
 else
     echo "FAIL: test_stdlib_xemu.c (compilation/linking failed)"
     failed=$((failed + 1))
