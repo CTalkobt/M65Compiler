@@ -1222,6 +1222,7 @@ IRCodeGen::FuncClobbers IRCodeGen::computeFuncClobbers(const ir::Function& fn) {
 
                 case ir::Op::CONST:
                     fc.regs |= A | X;    // lda #imm; ldx #imm
+                    if (inst.resultType == ir::Type::I32) fc.regs |= Y | Z;  // ldy/ldz for I32
                     fc.flags |= N | ZF;
                     break;
 
@@ -1331,7 +1332,7 @@ IRCodeGen::FuncClobbers IRCodeGen::computeFuncClobbers(const ir::Function& fn) {
 
                 case ir::Op::COPY:
                 case ir::Op::DEREF:
-                    fc.regs |= A | X;
+                    fc.regs |= A | X | Y;  // struct copy uses ldy; I32 uses ldy/ldz
                     fc.flags |= N | ZF;
                     break;
 
