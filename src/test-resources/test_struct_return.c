@@ -1,23 +1,14 @@
 // Test: Return struct by value
 // Validates the hidden-pointer ABI for struct return.
-// Expected: 4000: 01 02 03 04 0A 14 AA
-// Converted to UART serialtcp validation test
-// Results transmitted via UART $D0E3 to xemu -serialtcp listener
+//
+// Expected at $C010: 01 02 03 04 0A 14 AA
 
-#define UART_DATA 0xD0E3
-
-void uart_putchar(unsigned char c) {
-    volatile unsigned char *uart = (unsigned char *)UART_DATA;
-    *uart = c;
-}
-
+#define RESULT(i) (*(volatile unsigned char *)(0xC010 + (i)))
 
 struct Point {
     int x;
     int y;
 };
-
-volatile char *results = (char *)0x4000;
 
 struct Point make_point(int x, int y) {
     struct Point p;
@@ -33,22 +24,19 @@ int sum_point(struct Point *p) {
 void main() {
     // Test 1: Basic struct return and member access
     struct Point p1 = make_point(1, 2);
-    results[0] = p1.x;  // 1
-    results[1] = p1.y;  // 2
+    RESULT(0) = p1.x;  // 1
+    RESULT(1) = p1.y;  // 2
 
     // Test 2: Different values
     struct Point p2 = make_point(3, 4);
-    results[2] = p2.x;  // 3
-    results[3] = p2.y;  // 4
+    RESULT(2) = p2.x;  // 3
+    RESULT(3) = p2.y;  // 4
 
     // Test 3: Use returned struct in computation
     struct Point p3 = make_point(10, 20);
-    results[4] = sum_point(&p3);  // 30 = 0x1E... wait, need char range
-    results[4] = p3.x;  // 10 = 0x0A
-    results[5] = p3.y;  // 20 = 0x14
+    RESULT(4) = p3.x;  // 10 = 0x0A
+    RESULT(5) = p3.y;  // 20 = 0x14
 
     // Success marker
-    results[6] = 0xAA;
-
-    __asm__("brk");        // Signal test complete to mmemu
+    RESULT(6) = 0xAA;
 }

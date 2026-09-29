@@ -111,52 +111,53 @@ echo "Testing with xemu-xmega65 (MEGA65 Hardware Emulator)"
 echo "======================================================"
 echo ""
 
-# Test 1: test_short.c (SAC parameter passing)
-echo "Testing test_short.c (short type with SAC)..."
+# Test 1: test_short.c (short type, arithmetic, function params/returns)
+echo "Testing test_short.c (short type)..."
 compile_link_test "src/test-resources/test_short.c" "build/test/test_short_xemu.prg"
 if [ $? -eq 0 ]; then
-    run_xemu_test "test_short" "build/test/test_short_xemu.prg" "4000" 7 "1E 05 02 0C 0A C8 AA"
+    run_xemu_test "test_short" "build/test/test_short_xemu.prg" "C010" 7 "1E 05 02 0C 0A 14 AA"
 else
     echo "FAIL: test_short.c (compilation/linking failed)"
     failed=$((failed + 1))
 fi
 
-# Test 2: test_struct_return.c
+# Test 2: test_struct_return.c (struct return by value)
 echo "Testing test_struct_return.c (struct return)..."
 compile_link_test "src/test-resources/test_struct_return.c" "build/test/test_struct_return_xemu.prg"
 if [ $? -eq 0 ]; then
-    # Expected: x=5, y=10 at $4000
-    run_xemu_test "test_struct_return" "build/test/test_struct_return_xemu.prg" "4000" 2 "05 0A"
+    run_xemu_test "test_struct_return" "build/test/test_struct_return_xemu.prg" "C010" 7 "01 02 03 04 0A 14 AA"
 else
     echo "FAIL: test_struct_return.c (compilation/linking failed)"
     failed=$((failed + 1))
 fi
 
-# Test 3: test_array_init.c
+# Test 3: test_array_init.c (global array initializers)
+# NOTE: may fail until #262 (initialized globals in BSS) is fixed
 echo "Testing test_array_init.c (array initialization)..."
 compile_link_test "src/test-resources/test_array_init.c" "build/test/test_array_init_xemu.prg"
 if [ $? -eq 0 ]; then
-    run_xemu_test "test_array_init" "build/test/test_array_init_xemu.prg" "4000" 5 "01 02 03 04 05"
+    run_xemu_test "test_array_init" "build/test/test_array_init_xemu.prg" "C010" 11 "10 40 64 2C 0B 16 00 00 00 00 AA"
 else
     echo "FAIL: test_array_init.c (compilation/linking failed)"
     failed=$((failed + 1))
 fi
 
-# Test 4: test_compound_literal.c
+# Test 4: test_compound_literal.c (struct/scalar compound literals)
 echo "Testing test_compound_literal.c (compound literals)..."
 compile_link_test "src/test-resources/test_compound_literal.c" "build/test/test_compound_literal_xemu.prg"
 if [ $? -eq 0 ]; then
-    run_xemu_test "test_compound_literal" "build/test/test_compound_literal_xemu.prg" "4000" 4 "2A 2B 2C 2D"
+    run_xemu_test "test_compound_literal" "build/test/test_compound_literal_xemu.prg" "C010" 8 "1E 2A 07 2C 01 14 00 AA"
 else
     echo "FAIL: test_compound_literal.c (compilation/linking failed)"
     failed=$((failed + 1))
 fi
 
-# Test 5: test_long_mmemu.c
+# Test 5: test_long_mmemu.c (32-bit long type)
+# NOTE: may fail until #262 (initialized globals in BSS) is fixed
 echo "Testing test_long_mmemu.c (long type)..."
 compile_link_test "src/test-resources/test_long_mmemu.c" "build/test/test_long_mmemu_xemu.prg"
 if [ $? -eq 0 ]; then
-    run_xemu_test "test_long_mmemu" "build/test/test_long_mmemu_xemu.prg" "4000" 4 "78 56 34 12"
+    run_xemu_test "test_long_mmemu" "build/test/test_long_mmemu_xemu.prg" "C010" 12 "04 C0 01 A0 2A A0 00 E0 93 04 00 AA"
 else
     echo "FAIL: test_long_mmemu.c (compilation/linking failed)"
     failed=$((failed + 1))
