@@ -1,3 +1,4 @@
+#pragma cc45 no_zp_save
 /* test_mem_ops_xemu.c — Validate stdlib memset/memcpy/memcmp/memmove via xemu
  *
  * Tests the hand-written 45GS02 assembly implementations in c45.lib.

@@ -4375,8 +4375,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     if (needY) emit("sty __zp_scratch4+2");  // Save Y
                     if (needZ) emit("stz __zp_scratch4+3");  // Save Z
 
-                    // Pop parameters using PLZ (4 bytes per plz instruction)
-                    for (int i = 0; i < argBytes; i += 4) {
+                    // Pop parameters using PLZ (1 byte per PLZ instruction)
+                    for (int i = 0; i < argBytes; i++) {
                         emit("plz");
                     }
 
