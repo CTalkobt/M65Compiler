@@ -1,0 +1,42 @@
+; strnlen.s — Length-limited string length
+;
+; int strnlen(const char *s, int maxlen);
+;   Returns min(strlen(s), maxlen).
+
+.global _strnlen
+.extern __sp_base
+
+.segment "code"
+
+proc _strnlen, W#_p_s, W#_p_maxlen
+    .var _fp = 0
+    ; Load params via TSX
+    tsx
+    lda __sp_base+_p_s, x
+    sta $02
+    lda __sp_base+_p_s+1, x
+    sta $03
+    lda __sp_base+_p_maxlen, x
+    sta $04
+    lda __sp_base+_p_maxlen+1, x
+    sta $05             ; $04/$05 = maxlen
+
+    ldy #0
+@loop:
+    ; Check if len (Y) >= maxlen
+    lda $05
+    bne @not_max        ; high byte nonzero → maxlen > 255
+    cpy $04
+    bcs @done           ; Y >= maxlen_lo
+@not_max:
+    lda ($02),y
+    beq @done           ; NUL found
+    iny
+    bne @loop
+    inc $03             ; handle >255 strings
+    bra @loop
+@done:
+    tya
+    ldx #0
+    rtn #0
+    endproc

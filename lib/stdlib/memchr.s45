@@ -1,0 +1,62 @@
+; memchr.s — Find byte in memory
+;
+; void *memchr(void *s, int c, int n);
+;   Returns pointer to first occurrence of (char)c in first n bytes of s,
+;   or NULL if not found.
+
+.global _memchr
+.extern __sp_base
+
+.segment "code"
+
+proc _memchr, W#_p_s, W#_p_c, W#_p_n
+    .var _fp = 0
+    ; Load params via TSX
+    tsx
+    lda __sp_base+_p_s, x
+    sta $02
+    lda __sp_base+_p_s+1, x
+    sta $03
+    lda __sp_base+_p_c, x
+    sta $04                 ; search byte
+    lda __sp_base+_p_n, x
+    sta $05
+    lda __sp_base+_p_n+1, x
+    sta $06                 ; $05/$06 = count
+
+    ldy #0
+@loop:
+    lda $05
+    ora $06
+    beq @notfound           ; count == 0
+    lda ($02),y
+    cmp $04
+    beq @found
+    iny
+    bne @no_inc
+    inc $03
+@no_inc:
+    lda $05
+    bne @dec_lo
+    dec $06
+@dec_lo:
+    dec $05
+    bra @loop
+
+@found:
+    ; return pointer = base + Y
+    tya
+    clc
+    adc $02
+    pha
+    lda #0
+    adc $03
+    tax
+    pla
+    rtn #0
+
+@notfound:
+    lda #0
+    ldx #0
+    rtn #0
+    endproc
