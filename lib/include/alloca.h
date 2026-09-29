@@ -1,28 +1,26 @@
 /*
  * alloca.h — Stack-based dynamic allocation
  *
- * NOTE: The alloca() function is currently incompatible with cc45's
- * software parameter stack. It directly manipulates the hardware SP,
- * which conflicts with how cc45 passes arguments. Using alloca() will
- * cause a BRK/crash at runtime.
+ * For constant sizes, the compiler emits an inline frame buffer
+ * allocation (no function call, zero overhead). For variable sizes,
+ * the runtime version in alloca.s45 adjusts SP at runtime.
  *
- * WORKAROUND: Use local arrays instead, which the compiler manages
- * through its own stack frame mechanism:
+ * Usage:
+ *   #include <alloca.h>
+ *   char *buf = (char *)alloca(16);  // inline allocation (constant)
+ *   char *dyn = (char *)alloca(n);   // runtime allocation (variable)
  *
- *   // Instead of:
- *   char *buf = (char *)alloca(n);
+ * Memory is automatically freed when the calling function returns.
  *
- *   // Use:
- *   char buf[16];  // fixed-size local array (compile-time constant)
- *
- * A future version will implement alloca as a compiler intrinsic that
- * works with the cc45 parameter stack.
+ * Conditional compilation:
+ *   #ifdef __CC45_STATIC_ALLOC__
+ *     // SAC mode is active — alloca uses frame buffers
+ *   #endif
  */
 
 #ifndef _ALLOCA_H
 #define _ALLOCA_H
 
-/* Declared but currently broken — see note above */
 void *alloca(unsigned int size);
 void *__builtin_alloca(unsigned int size);
 

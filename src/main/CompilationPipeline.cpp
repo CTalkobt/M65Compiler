@@ -73,10 +73,16 @@ CompilationResult CompilationPipeline::compile() {
                      << config_.optimizationLevel << ")..." << std::endl;
         }
 
+        // Add config-dependent predefined macros
+        auto symbols = config_.symbols;
+        if (config_.staticAllocMode) {
+            symbols["__CC45_STATIC_ALLOC__"] = "1";
+        }
+
         // Stage 1: Preprocess
         PreprocessStage preprocessStage(config_.inputFile, sourceRaw,
                                        config_.verboseLevel,
-                                       config_.includePaths, config_.symbols);
+                                       config_.includePaths, symbols);
         auto preprocessResult = runStage(preprocessStage);
         if (!preprocessResult.success) {
             result.success = false;

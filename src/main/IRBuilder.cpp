@@ -2966,6 +2966,42 @@ void IRBuilder::visit(FunctionCall& node) {
         }
     }
 
+    // alloca / __builtin_alloca intrinsic: allocate frame buffer, return address
+    if ((node.name == "alloca" || node.name == "__builtin_alloca") && node.arguments.size() == 1) {
+        // Check for constant size before evaluating (avoid emitting a CONST vreg)
+        int constSize = -1;
+        if (auto* lit = dynamic_cast<IntegerLiteral*>(node.arguments[0].get())) {
+            constSize = (int)lit->value;
+        } else if (auto* cast = dynamic_cast<CastExpression*>(node.arguments[0].get())) {
+            if (auto* lit2 = dynamic_cast<IntegerLiteral*>(cast->expression.get())) {
+                constSize = (int)lit2->value;
+            }
+        }
+
+        if (constSize > 0) {
+            // Constant size: allocate a frame buffer (same as local array)
+            auto buf = allocVreg(ir::Type::I16);
+            if (currentFunc_) {
+                currentFunc_->memoryVregs.insert(buf.vregId);
+                currentFunc_->vregSizes[buf.vregId] = constSize;
+            }
+            // Return address of the buffer
+            ir::Inst addr;
+            addr.op = ir::Op::ADDR_LOCAL;
+            addr.src1 = buf;
+            addr.dest = allocVreg(ir::Type::PTR);
+            addr.resultType = ir::Type::PTR;
+            addr.loc = loc(node);
+            emit(addr);
+            lastValue_ = addr.dest;
+        } else {
+            // Variable size: fall through to runtime alloca call
+            // (runtime alloca.s45 handles this via stack manipulation)
+            goto normal_call;
+        }
+        return;
+    }
+
     // DMA intrinsics: __dma_copy(dst, src, len), __dma_fill(dst, len, val)
     if (node.name == "__dma_copy" && node.arguments.size() == 3) {
         // Evaluate args: dst (ptr), src (ptr), len (int)
@@ -3074,6 +3110,7 @@ void IRBuilder::visit(FunctionCall& node) {
         return;
     }
 
+normal_call:
     // Check for passing &const_var to non-const pointer parameter
     auto pit = funcParamInfo_.find(node.name);
     auto fitConst = allFunctions_.find(node.name);
