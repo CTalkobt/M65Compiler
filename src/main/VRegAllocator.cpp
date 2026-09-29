@@ -475,7 +475,9 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
 
         // Keep short-lived temporaries in A:X to avoid ZP allocation for compound assignments
         // span <= 2 means: defined in one instruction, used in next 1-2 instructions
-        if (canUseAX && span <= 2 && !isLocal && !crossesCall) {
+        // Must not overlap with a prior IN_AX vreg's live range (axOccupiedUntil check)
+        if (canUseAX && span <= 2 && !isLocal && !crossesCall &&
+            lr.firstDef >= axOccupiedUntil) {
             // Short-lived temporary: keep in A:X (only for non-locals that don't cross calls)
             allocs_[lr.vregId] = {IN_AX, 0, lr.type};
             axOccupiedUntil = lr.lastUse;
