@@ -3416,8 +3416,14 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         vs << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << valAlloc.offset;
                         emit("lda " + vs.str());
                     } else if (valAlloc.loc == VRegAllocator::IN_FRAME) {
-                        if (vregOffset_.count(inst.src1.vregId))
-                            emit("lda.local " + std::to_string(vregOffset_[inst.src1.vregId]));
+                        if (vregOffset_.count(inst.src1.vregId)) {
+                            if (currentFunctionUseSAC_) {
+                                std::string sym = currentFunctionName_ + "__local_" + std::to_string(inst.src1.vregId);
+                                emit("lda " + sym);
+                            } else {
+                                emit("lda.local " + std::to_string(vregOffset_[inst.src1.vregId]));
+                            }
+                        }
                     } else {
                         loadOperand(inst.src1);
                     }
@@ -3534,8 +3540,14 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                                 vs << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << valAlloc.offset;
                                 emit("lda " + vs.str());
                             } else if (valAlloc.loc == VRegAllocator::IN_FRAME) {
-                                if (vregOffset_.count(inst.src1.vregId))
-                                    emit("lda.local " + std::to_string(vregOffset_[inst.src1.vregId]));
+                                if (vregOffset_.count(inst.src1.vregId)) {
+                                    if (currentFunctionUseSAC_) {
+                                        std::string sym = currentFunctionName_ + "__local_" + std::to_string(inst.src1.vregId);
+                                        emit("lda " + sym);
+                                    } else {
+                                        emit("lda.local " + std::to_string(vregOffset_[inst.src1.vregId]));
+                                    }
+                                }
                             } else {
                                 loadOperand(inst.src1);
                             }
