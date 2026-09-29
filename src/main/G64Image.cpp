@@ -195,9 +195,9 @@ bool G64Image::loadFromFile(const std::string& path) {
         int realTrack = (t / 2) + 1;
         if (realTrack > d64Tracks) continue;
 
-        if (trackOff + 2 > (int)raw.size()) continue;
+        if ((size_t)trackOff + 2 > raw.size()) continue;
         uint16_t trackSize = raw[trackOff] | (raw[trackOff + 1] << 8);
-        if (trackOff + 2 + trackSize > (int)raw.size()) continue;
+        if ((size_t)trackOff + 2 + trackSize > raw.size()) continue;
 
         const uint8_t* trackData = raw.data() + trackOff + 2;
         decodeTrack(trackData, trackSize, realTrack);

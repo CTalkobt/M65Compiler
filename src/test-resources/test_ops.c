@@ -29,3 +29,8 @@ void test_ops() {
     // Unary Minus
     c = -a;
 }
+
+int main() {
+    test_ops();
+    return 0;
+}

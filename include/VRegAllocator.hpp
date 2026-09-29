@@ -7,11 +7,11 @@
 
 class VRegAllocator {
 public:
-    enum Location { IN_AX, IN_ZP, IN_FRAME };
+    enum Location { IN_AX, IN_ZP, IN_FRAME, IN_X, IN_Y, IN_Z };
 
     struct Allocation {
         Location loc = IN_FRAME;
-        int offset = 0;       // ZP address (for IN_ZP) or frame offset (for IN_FRAME)
+        int offset = 0;       // ZP address (for IN_ZP), frame offset (for IN_FRAME), or 0 (for IN_X/Y/Z)
         ir::Type type = ir::Type::I16;
     };
 
@@ -24,6 +24,18 @@ public:
 
     // Analyze a function: compute live ranges and assign allocations
     void analyze(const ir::Function& fn, uint8_t zpStart = 0x20, int zpSlots = 64);
+
+    // Set which vregs should be prioritized for ZP allocation (for register keyword)
+    void setRegisterVregs(const std::set<uint32_t>& regs) { registerVregs_ = regs; }
+
+    // Set which vregs should be allocated to X register (for loop counters)
+    void setRegisterXVregs(const std::set<uint32_t>& regs) { registerXVregs_ = regs; }
+
+    // Set which vregs should be allocated to Y register (for nested loop counters)
+    void setRegisterYVregs(const std::set<uint32_t>& regs) { registerYVregs_ = regs; }
+
+    // Set which vregs should be allocated to Z register (for deeply nested loop counters)
+    void setRegisterZVregs(const std::set<uint32_t>& regs) { registerZVregs_ = regs; }
 
     // Get the allocation for a vReg
     Allocation getAlloc(uint32_t vregId) const;
@@ -49,6 +61,18 @@ private:
     // -1 means A:X is empty/unknown
     std::vector<int> axState_;
 
+    // vRegs declared with 'register' keyword (should be prioritized for ZP)
+    std::set<uint32_t> registerVregs_;
+
+    // vRegs marked for X-register residency (loop counters, etc)
+    std::set<uint32_t> registerXVregs_;
+
+    // vRegs marked for Y-register residency (nested loop counters)
+    std::set<uint32_t> registerYVregs_;
+
+    // vRegs marked for Z-register residency (deeply nested loop counters)
+    std::set<uint32_t> registerZVregs_;
+
     // ZP pool
     uint8_t zpStart_ = 0x20;
     int zpSlots_ = 8;
@@ -65,6 +89,9 @@ private:
     void freeZpSlot(int zpAddr, ir::Type type);
     int allocFrameSlot(ir::Type type, int overrideSize = 0);
     void freeFrameSlot(int offset, int size);
+    int findNonConflictingFrameOffset(const LiveRange& lr, int size,
+                                      const std::vector<LiveRange>& allRanges,
+                                      const std::map<uint32_t, Allocation>& existingAllocs);
 
     // Flatten all instructions in a function to a linear index
     struct FlatInst {

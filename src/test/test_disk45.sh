@@ -1,5 +1,5 @@
 #!/bin/bash
-# test_disk45.sh — disk45 feature tests
+# test_disk45.s45h — disk45 feature tests
 # Tests: create, list, add, extract, remove, rename, copy, extract-all,
 #        wildcards, T64, D80, REL files, subdirectories, block ops, chain,
 #        -a2p/-p2a filters, validate, lock/unlock

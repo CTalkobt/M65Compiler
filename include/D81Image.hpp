@@ -1,5 +1,7 @@
 #pragma once
 #include "DiskImage.hpp"
+#include "BAMOperations.hpp"
+#include <memory>
 
 // D81: 1581 disk image — 80 tracks × 40 sectors × 256 bytes = 819,200 bytes
 // BAM at track 40 sectors 1-2; directory starts at track 40 sector 3
@@ -15,6 +17,8 @@ public:
     static constexpr int BAM_SECTOR_1 = 1;
     static constexpr int BAM_SECTOR_2 = 2;
     static constexpr int DIR_FIRST_SECTOR = 3;
+
+    D81Image();
 
     void format(const std::string& diskName = "", const std::string& diskId = "CC") override;
 
@@ -44,5 +48,5 @@ protected:
     int directoryTrack() const override { return DIR_TRACK; }
 
 private:
-    void bamBitPos(int track, int sector, int& bamSector, int& byteOff, int& bitOff) const;
+    std::unique_ptr<D81BAMOperations> bamOps_;
 };

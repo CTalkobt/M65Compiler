@@ -1,0 +1,13 @@
+Test,Optimization,Level,CodeSize,Instructions,SizeReduction,ImprovementRate
+test_constant_folding.c,-O1,-O1,0,0,0,1787160203
+test_constant_folding.c,-O2,-O2,0,0,0,1787160203
+test_constant_folding.c,-O3,-O3,0,0,0,1787160203
+test_array_init.c,-O1,-O1,0,0,0,1787160203
+test_array_init.c,-O2,-O2,0,0,0,1787160203
+test_array_init.c,-O3,-O3,0,0,0,1787160203
+test_cast.c,-O1,-O1,0,0,0,1787160203
+test_cast.c,-O2,-O2,0,0,0,1787160203
+test_cast.c,-O3,-O3,0,0,0,1787160203
+test_control_flow.c,-O1,-O1,0,0,0,1787160203
+test_control_flow.c,-O2,-O2,0,0,0,1787160203
+test_control_flow.c,-O3,-O3,0,0,0,1787160203

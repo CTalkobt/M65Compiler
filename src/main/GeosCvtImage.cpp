@@ -175,7 +175,7 @@ std::vector<FileInfo> GeosCvtImage::listFiles() const {
         const uint8_t* rec = block(2);
         if (!rec) return files;
 
-        int dataBlock = 3; // data starts at block 3 for VLIR
+        // Data starts at block 3 for VLIR
         for (int i = 0; i < 127; i++) {
             uint8_t t = rec[i * 2];
             uint8_t s = rec[i * 2 + 1];

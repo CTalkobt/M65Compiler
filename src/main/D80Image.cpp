@@ -303,8 +303,7 @@ std::vector<uint8_t> D80Image::readFile(const std::string& name) const {
 bool D80Image::addFile(const std::string& name, CbmFileType type,
                         const std::vector<uint8_t>& data) {
     // Allocate directory entry
-    DirEntry newEntry;
-    std::memset(&newEntry, 0, sizeof(newEntry));
+    DirEntry newEntry = {};
     newEntry.fileType = 0x80 | (uint8_t)type; // closed + type
     padPetsciiName(newEntry.filename, name);
 
@@ -363,8 +362,6 @@ bool D80Image::addFile(const std::string& name, CbmFileType type,
     // Write directory entry
     newEntry.toSector(sectorData(dirTS.track, dirTS.sector),
                       -1); // need to find the slot again
-    // Actually, use findFileEntry to update
-    TrackSector fts; int fidx;
     // Re-write using allocDirectoryEntry's slot
     // The entry was written by allocDirectoryEntry, update it with firstDataTS
     {

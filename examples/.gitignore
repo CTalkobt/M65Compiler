@@ -1,0 +1,12 @@
+# Build artifacts
+*.prg
+*.o45
+*.bin
+*.map
+
+# Generated assembly (compiler output)
+*.o45.s
+*.o45.s45
+
+# Debug/log files
+*.log

@@ -1,4 +1,5 @@
 #include "Parser.hpp"
+#include "Diagnostic.hpp"
 #include <stdexcept>
 #include <iostream>
 
@@ -34,7 +35,8 @@ const Token& Parser::expect(TokenType type, const std::string& message) {
         return advance();
     }
     std::string foundStr = peek().value.empty() ? peek().typeToString() : peek().value;
-    throw std::runtime_error("Syntax Error at " + std::to_string(peek().line) + ":" + std::to_string(peek().column) + ": " + message + ". Found '" + foundStr + "' (" + peek().typeToString() + ") instead.");
+    std::string msg = message + ". Found '" + foundStr + "' (" + peek().typeToString() + ") instead.";
+    throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, msg));
 }
 
 std::unique_ptr<TranslationUnit> Parser::parse() {
@@ -299,9 +301,10 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
 
         bool isSig = false;
         bool isUnsig = false;
+        bool isStriped = false;  // Phase 92: Track __striped keyword
 
         while (look < tokens.size() && (tokens[look].type == TokenType::VOLATILE || tokens[look].type == TokenType::CONST || tokens[look].type == TokenType::RESTRICT || tokens[look].type == TokenType::AUTO || tokens[look].type == TokenType::REGISTER || tokens[look].type == TokenType::INLINE || tokens[look].type == TokenType::FASTCALL ||
-               tokens[look].type == TokenType::SIGNED || tokens[look].type == TokenType::UNSIGNED || tokens[look].type == TokenType::ATTRIBUTE || tokens[look].type == TokenType::EXTENSION)) {
+               tokens[look].type == TokenType::SIGNED || tokens[look].type == TokenType::UNSIGNED || tokens[look].type == TokenType::ATTRIBUTE || tokens[look].type == TokenType::EXTENSION || tokens[look].type == TokenType::STRIPED || tokens[look].type == TokenType::ZP || tokens[look].type == TokenType::ABS || tokens[look].type == TokenType::FAR)) {
             if (tokens[look].type == TokenType::ATTRIBUTE) {
                 look++; // skip __attribute__
                 if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
@@ -320,12 +323,13 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             }
             if (tokens[look].type == TokenType::VOLATILE) isVol = true;
             else if (tokens[look].type == TokenType::CONST) isConst = true;
+            else if (tokens[look].type == TokenType::STRIPED) isStriped = true;  // Phase 92
             else if (tokens[look].type == TokenType::SIGNED) {
-                if (isUnsig) throw std::runtime_error("Syntax Error at " + std::to_string(tokens[look].line) + ":" + std::to_string(tokens[look].column) + ": both 'signed' and 'unsigned' in declaration");
+                if (isUnsig) throw std::runtime_error(formatDiagnostic(tokens[look].sourceFile, tokens[look].line, tokens[look].column, Severity::Error, "both 'signed' and 'unsigned' in declaration"));
                 isSig = true;
             }
             else if (tokens[look].type == TokenType::UNSIGNED) {
-                if (isSig) throw std::runtime_error("Syntax Error at " + std::to_string(tokens[look].line) + ":" + std::to_string(tokens[look].column) + ": both 'signed' and 'unsigned' in declaration");
+                if (isSig) throw std::runtime_error(formatDiagnostic(tokens[look].sourceFile, tokens[look].line, tokens[look].column, Severity::Error, "both 'signed' and 'unsigned' in declaration"));
                 isUnsig = true;
             }
             look++;
@@ -401,6 +405,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             // Skip qualifiers that may appear after the type keyword (e.g., int volatile x)
             while (look < tokens.size() && (tokens[look].type == TokenType::VOLATILE || tokens[look].type == TokenType::CONST ||
                    tokens[look].type == TokenType::RESTRICT || tokens[look].type == TokenType::SIGNED || tokens[look].type == TokenType::UNSIGNED ||
+                   tokens[look].type == TokenType::ZP || tokens[look].type == TokenType::ABS || tokens[look].type == TokenType::FAR ||
                    tokens[look].type == TokenType::ATTRIBUTE || tokens[look].type == TokenType::EXTENSION)) {
                 if (tokens[look].type == TokenType::ATTRIBUTE) {
                     look++;
@@ -450,7 +455,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 if (isStatic) match(TokenType::STATIC);
                 if (isNR) match(TokenType::NORETURN);
                 if (isFC) match(TokenType::FASTCALL);
-                while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
+                while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || match(TokenType::ZP) || match(TokenType::ABS) || match(TokenType::FAR) || tryParseAttribute() || match(TokenType::EXTENSION));
                 auto decl = parseVariableDeclaration(isVol, isConst, isStatic);
                 if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                     vd->isGlobal = true;
@@ -470,7 +475,30 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 continue;
             }
 
-            if (look < tokens.size() && tokens[look].type == TokenType::IDENTIFIER) {
+            // Check for complex declarators: (*name) or (*name(params)) → function declaration
+            if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN &&
+                look + 1 < tokens.size() && tokens[look + 1].type == TokenType::STAR) {
+                if (isExtern) match(TokenType::EXTERN);
+                if (isStatic) match(TokenType::STATIC);
+                if (isNR) match(TokenType::NORETURN);
+                if (isFC) match(TokenType::FASTCALL);
+                if (isInterrupt) match(TokenType::INTERRUPT);
+                if (isNaked) match(TokenType::NAKED);
+                if (isRegparm) match(TokenType::REGPARM);
+                while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
+                auto decl = parseFunctionDeclaration();
+                decl->isNoreturn = isNR;
+                decl->isFastcall = isFC;
+                decl->isInterrupt = isInterrupt;
+                decl->isNaked = isNaked;
+                decl->isRegparm = isRegparm;
+                decl->isInline = isInlineFunc;
+                decl->isStatic = isStatic;
+                if (isExtern) decl->isPrototype = true;
+                flushPending(*unit);
+                unit->topLevelDecls.push_back(std::move(decl));
+            }
+            else if (look < tokens.size() && tokens[look].type == TokenType::IDENTIFIER) {
                 look++;
                 if (look < tokens.size() && tokens[look].type == TokenType::OPEN_PAREN) {
                     if (isExtern) match(TokenType::EXTERN);
@@ -480,7 +508,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     if (isInterrupt) match(TokenType::INTERRUPT);
                     if (isNaked) match(TokenType::NAKED);
                     if (isRegparm) match(TokenType::REGPARM);
-                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
+                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || match(TokenType::ZP) || match(TokenType::ABS) || match(TokenType::FAR) || tryParseAttribute() || match(TokenType::EXTENSION));
                     auto decl = parseFunctionDeclaration();
                     decl->isNoreturn = isNR;
                     decl->isFastcall = isFC;
@@ -501,8 +529,9 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     if (isInterrupt) match(TokenType::INTERRUPT);
                     if (isNaked) match(TokenType::NAKED);
                     if (isRegparm) match(TokenType::REGPARM);
-                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
-                    auto decl = parseVariableDeclaration(isVol, isConst);
+                    // NOTE: ZP/ABS/FAR are handled in parseTypeSpecifier, not here
+                    while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || match(TokenType::STRIPED) || tryParseAttribute() || match(TokenType::EXTENSION));
+                    auto decl = parseVariableDeclaration(isVol, isConst, isStatic, false, isStriped);
                     if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                         vd->isGlobal = true;
                         vd->isSigned = !isUnsig;
@@ -569,8 +598,8 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 }
                 if (isExtern) match(TokenType::EXTERN);
                 if (isStatic) match(TokenType::STATIC);
-                while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
-                auto decl = parseVariableDeclaration(isVol, isConst, isStatic);
+                while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || match(TokenType::STRIPED) || tryParseAttribute() || match(TokenType::EXTENSION));
+                auto decl = parseVariableDeclaration(isVol, isConst, isStatic, false, isStriped);
                 if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                     vd->isGlobal = true;
                     vd->isExtern = isExtern;
@@ -633,7 +662,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             returnType = "int";
         } else {
             std::string foundStr = peek().value.empty() ? peek().typeToString() : peek().value;
-            throw std::runtime_error("Syntax Error at " + std::to_string(peek().line) + ":" + std::to_string(peek().column) + ": Expected return type (int, char, void, struct, union) for function declaration. Found '" + foundStr + "' instead.");
+            throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Expected return type (int, char, void, struct, union) for function declaration. Found '" + foundStr + "' instead."));
         }
     }
     // Skip qualifiers after the type keyword (e.g., int volatile func())
@@ -655,7 +684,40 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     }
 
     std::string name;
-    if (peek().type == TokenType::IDENTIFIER && peek().value == "operator") {
+    bool isComplexDeclarator = false;
+
+    // Handle complex declarators: (*name)(params) or (*name(params))(result)
+    // Pattern: type (*func_name(actual_params))(returned_fp_params)
+    // The (actual_params) are the function's own parameters
+    // The (returned_fp_params) describe what the function returns
+    if (peek().type == TokenType::OPEN_PAREN && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::STAR) {
+        isComplexDeclarator = true;
+        advance(); // consume '('
+        advance(); // consume '*'
+        while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT)) {}
+        name = expect(TokenType::IDENTIFIER, "Expected function name").value;
+
+        // If next is '(', parse the actual function parameters (e.g., (void) in (*make_fp(void)))
+        std::vector<Parameter> actualParams;
+        if (peek().type == TokenType::OPEN_PAREN) {
+            advance(); // consume '('
+            if (peek().type == TokenType::VOID && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::CLOSE_PAREN) {
+                advance(); // consume 'void'
+            } else if (peek().type != TokenType::CLOSE_PAREN) {
+                // Parse actual parameters
+                do {
+                    std::string pType = "int";  // fallback
+                    std::string pName = "__param";
+                    Parameter p = {pType, 0, false, pName, false, false, false, false, nullptr};
+                    actualParams.push_back(p);
+                } while (match(TokenType::COMMA) && peek().type != TokenType::CLOSE_PAREN);
+            }
+            expect(TokenType::CLOSE_PAREN, "Expected ')' after function parameters");
+        }
+
+        expect(TokenType::CLOSE_PAREN, "Expected ')' after function name");
+    }
+    else if (peek().type == TokenType::IDENTIFIER && peek().value == "operator") {
         advance(); // consume 'operator'
         // Consume operator symbol(s) to form the mangled name
         const Token& opTok = advance();
@@ -697,13 +759,17 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         name = expect(TokenType::IDENTIFIER, "Expected function name").value;
     }
 
-    expect(TokenType::OPEN_PAREN, "Expected '('");
     std::vector<Parameter> params;
-    // Handle (void) as empty parameter list
-    if (peek().type == TokenType::VOID && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::CLOSE_PAREN) {
-        advance(); // consume 'void'
-    }
-    else if (peek().type != TokenType::CLOSE_PAREN) {
+
+    // For complex declarators, parameters were already parsed above
+    // The next parens (e.g., (int, int)) are the signature of returned function pointer
+    if (!isComplexDeclarator) {
+        expect(TokenType::OPEN_PAREN, "Expected '('");
+        // Handle (void) as empty parameter list
+        if (peek().type == TokenType::VOID && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::CLOSE_PAREN) {
+            advance(); // consume 'void'
+        }
+        else if (peek().type != TokenType::CLOSE_PAREN) {
         do {
             bool pIsVolatile = false;
             bool pIsConst = false;
@@ -746,7 +812,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                 }
                 else {
                     std::string foundStr = peek().value.empty() ? peek().typeToString() : peek().value;
-                    throw std::runtime_error("Syntax Error at " + std::to_string(peek().line) + ":" + std::to_string(peek().column) + ": Expected parameter type (int, char, struct, union). Found '" + foundStr + "' instead.");
+                    throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Expected parameter type (int, char, struct, union). Found '" + foundStr + "' instead."));
                 }
             }
 
@@ -832,9 +898,13 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
 
             params.push_back({pType, pPtrLevel, pIsSigned, pName, pIsVolatile, pIsConst, pIsPointerConst, false, nullptr});
         } while (match(TokenType::COMMA) && peek().type != TokenType::ELLIPSIS);
+        }
     }
     bool isVariadic = match(TokenType::ELLIPSIS);
-    expect(TokenType::CLOSE_PAREN, "Expected ')'");
+    if (!isComplexDeclarator) {
+        expect(TokenType::CLOSE_PAREN, "Expected ')'");
+    }
+    // For complex declarators, the return type params come next (e.g., (int, int))
 
     // --- K&R parameter type declarations after ')' ---
     // Pattern: int foo(a, b) int a; char *b; { ... }
@@ -1013,6 +1083,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
     bool isStatic = false;
     bool isRegister = false;
     bool isInline = false;
+    bool isStriped = false;         // Phase 92: Striped array support
     while (true) {
         if (match(TokenType::VOLATILE)) {
             isVolatile = true;
@@ -1028,6 +1099,8 @@ std::unique_ptr<Statement> Parser::parseStatement() {
             // consumed; restrict is a hint only
         } else if (match(TokenType::INLINE)) {
             isInline = true;
+        } else if (match(TokenType::STRIPED)) {
+            isStriped = true;
         } else if (match(TokenType::FASTCALL)) {
             // consumed; handled at function declaration level
         } else {
@@ -1093,6 +1166,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
             vDecl->isVolatile = isVolatile;
             vDecl->isConst = isConst;
             vDecl->isStatic = isStatic;
+            vDecl->isStriped = isStriped;
             // Array dimensions
             while (match(TokenType::OPEN_SQUARE)) {
                 if (match(TokenType::CLOSE_SQUARE)) {
@@ -1148,7 +1222,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
             for (auto& ev : extraVars) compound->statements.push_back(std::move(ev));
             return compound;
         }
-        return parseVariableDeclaration(isVolatile, isConst, isStatic, isRegister);
+        return parseVariableDeclaration(isVolatile, isConst, isStatic, isRegister, isStriped);
     }
 
     if (peek().type == TokenType::ALIGNAS || peek().type == TokenType::INT || peek().type == TokenType::SHORT || peek().type == TokenType::LONG || peek().type == TokenType::CHAR || peek().type == TokenType::BOOL ||
@@ -1160,7 +1234,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
         if (isFunctionDeclaration()) {
             return parseFunctionDeclaration();
         }
-        return parseVariableDeclaration(isVolatile, isConst, isStatic, isRegister);
+        return parseVariableDeclaration(isVolatile, isConst, isStatic, isRegister, isStriped);
     }
 
     if (match(TokenType::RETURN)) {
@@ -1320,10 +1394,10 @@ std::unique_ptr<Statement> Parser::parseStatement() {
         if (auto* lit = dynamic_cast<IntegerLiteral*>(countExpr.get())) {
             count = (int)lit->value;
         } else {
-            throw std::runtime_error("repeat count must be a compile-time constant");
+            throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "repeat count must be a compile-time constant"));
         }
         if (count < 0 || count > 1024) {
-            throw std::runtime_error("repeat count must be between 0 and 1024");
+            throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "repeat count must be between 0 and 1024"));
         }
         auto body = parseStatement();
         auto rep = setPos(std::make_unique<RepeatStatement>(count, std::move(body)), startToken);
@@ -1422,7 +1496,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
     return setPos(std::make_unique<ExpressionStatement>(std::move(expr)), startToken);
 }
 
-std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, bool isConst, bool isStatic, bool isRegister) {
+std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, bool isConst, bool isStatic, bool isRegister, bool isStriped) {
     std::unique_ptr<Expression> alignmentExpr = nullptr;
     if (match(TokenType::ALIGNAS)) {
         expect(TokenType::OPEN_PAREN, "Expected '(' after '_Alignas'");
@@ -1439,6 +1513,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     std::string type;
     bool isSigned = false;
     int basePtrLevel = 0;
+    int addressSpace = 0;  // Phase 97: Track address space qualifier
     std::vector<int> typedefArrayDims;
     if (match(TokenType::TYPEOF)) {
         // typeof(expr) or typeof(type) — resolve to type name
@@ -1447,6 +1522,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             auto ts = parseTypeSpecifier();
             type = ts.name;
             isSigned = ts.isSigned;
+            addressSpace = ts.addressSpace;  // Phase 97: Extract address space
             // skip pointer levels in typeof (already consumed by parseTypeSpecifier)
         } else {
             // Parse as expression, infer type (default to int)
@@ -1462,6 +1538,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         if (ts.valid) {
             type = ts.name;
             isSigned = ts.isSigned;
+            addressSpace = ts.addressSpace;  // Phase 97: Extract address space
             typedefArrayDims = ts.arrayDims;
             // Rewind past any stars (and their trailing qualifiers) consumed by
             // parseTypeSpecifier, so the existing star/pointer-const handling code
@@ -1540,7 +1617,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             // Implicit int: "static max;", "unsigned d;" (where unsigned was consumed as qualifier)
             type = "int";
         } else {
-            throw std::runtime_error("Syntax Error at " + std::to_string(peek().line) + ":" + std::to_string(peek().column) + ": Expected type for variable declaration. Found '" + peek().typeToString() + "' instead.");
+            throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Expected type for variable declaration. Found '" + peek().typeToString() + "' instead."));
         }
     }
 
@@ -1576,11 +1653,15 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     }
 
     // Check for function pointer declaration: type (*name)(params) or type (*name[size])(params)
+    // Also handles: type (*name(params))(result) — function returning function pointer
     if (peek().type == TokenType::OPEN_PAREN && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::STAR) {
         advance(); // consume '('
         advance(); // consume '*'
         while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT)) {}
         std::string fpName = expect(TokenType::IDENTIFIER, "Expected function pointer name").value;
+
+        // Handle complex declarators: if next is '(' it's a function declarator like (*name(void))
+        // Parse array dimensions and function parameters
         std::vector<int> fpArrayDims;
         while (match(TokenType::OPEN_SQUARE)) {
             if (peek().type == TokenType::CLOSE_SQUARE) {
@@ -1594,6 +1675,20 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
                 expect(TokenType::CLOSE_SQUARE, "Expected ']'");
             }
         }
+
+        // If we see '(' here, it's a function declarator: (*name(params))(return_type)
+        // Skip the function parameters for now; they'll be parsed as the final return type
+        if (peek().type == TokenType::OPEN_PAREN) {
+            advance(); // consume '('
+            // Skip parameters until matching ')'
+            int parenDepth = 1;
+            while (parenDepth > 0 && peek().type != TokenType::END_OF_FILE) {
+                if (match(TokenType::OPEN_PAREN)) parenDepth++;
+                else if (match(TokenType::CLOSE_PAREN)) parenDepth--;
+                else advance();
+            }
+        }
+
         expect(TokenType::CLOSE_PAREN, "Expected ')' after function pointer name");
         auto fpSig = parseFuncPtrParams(type, ptrLevel, isSigned);
         auto decl = setPos(std::make_unique<VariableDeclaration>("void", fpName, 1), typeToken);
@@ -1602,6 +1697,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         decl->isConst = isConst;
         decl->isStatic = isStatic;
         decl->isRegister = isRegister;
+        decl->isStriped = isStriped;
         decl->isFunctionPointer = true;
         decl->funcPtrSig = fpSig;
         decl->alignmentExpr = std::move(alignmentExpr);
@@ -1650,7 +1746,9 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     decl->isConst = isConst;
     decl->isStatic = isStatic;
     decl->isRegister = isRegister;
+    decl->isStriped = isStriped;
     decl->isPointerConst = isPointerConst;
+    decl->addressSpace = addressSpace;  // Phase 97: Set address space qualifier
     decl->alignmentExpr = std::move(alignmentExpr);
     decl->arrayDims = arrayDims;
 
@@ -1713,7 +1811,9 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             extraDecl->isConst = isConst;
             extraDecl->isStatic = isStatic;
             extraDecl->isRegister = isRegister;
+            extraDecl->isStriped = isStriped;
             extraDecl->isPointerConst = extraPtrConst;
+            extraDecl->addressSpace = addressSpace;  // Phase 97: Set address space qualifier
             extraDecl->arrayDims = extraDims;
             if (match(TokenType::EQUALS)) {
                 if (peek().type == TokenType::OPEN_BRACE) {
@@ -1791,7 +1891,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
 
     // Validate: cannot inherit from a final struct
     if (!parentStruct.empty() && structs.count(parentStruct) && structs[parentStruct]->isFinal) {
-        throw std::runtime_error("Error: cannot inherit from final struct '" + parentStruct + "'");
+        throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "cannot inherit from final struct '" + parentStruct + "'"));
     }
 
     while (peek().type != TokenType::CLOSE_BRACE && peek().type != TokenType::END_OF_FILE) {
@@ -1805,8 +1905,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         }
         if (peek().type == TokenType::IDENTIFIER && peek().value == "virtual") {
             if (methodIsStatic) {
-                throw std::runtime_error("Line " + std::to_string(peek().line) +
-                    ": a method cannot be both 'static' and 'virtual'");
+                throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "a method cannot be both 'static' and 'virtual'"));
             }
             advance(); // consume 'virtual'
             methodIsVirtual = true;
@@ -1904,7 +2003,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         {
             auto ts = parseTypeSpecifier();
             if (!ts.valid) {
-                throw std::runtime_error("Expected member type");
+                throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Expected member type"));
             }
             type = ts.name;
             mIsSigned = ts.isSigned;
@@ -1989,20 +2088,20 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         // Append typedef array dimensions
         memberArrayDims.insert(memberArrayDims.end(), typedefArrayDims.begin(), typedefArrayDims.end());
         if (isFlexArray && memberArrayDims.size() > 1)
-            throw std::runtime_error("Flexible array member '" + memberName + "' cannot be multi-dimensional");
+            throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Flexible array member '" + memberName + "' cannot be multi-dimensional"));
         int memberBitWidth = 0;
         if (match(TokenType::COLON)) {
             if (!memberArrayDims.empty())
-                throw std::runtime_error("Bitfield member '" + memberName + "' cannot be an array");
+                throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Bitfield member '" + memberName + "' cannot be an array"));
             if (ptrLevel > 0)
-                throw std::runtime_error("Bitfield member '" + memberName + "' cannot be a pointer");
+                throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Bitfield member '" + memberName + "' cannot be a pointer"));
             const Token& bwTok = expect(TokenType::INTEGER_LITERAL, "Expected integer literal for bitfield width");
             memberBitWidth = std::stoi(bwTok.value);
             // Max bitfield width: char=8, int=16, long=32
             // Use long for bitfields >16 bits (with __int(N) for arbitrary widths)
             int maxBits = (type == "long") ? 32 : (type == "char") ? 8 : 16;
             if (memberBitWidth < 1 || memberBitWidth > maxBits)
-                throw std::runtime_error("Bitfield width " + std::to_string(memberBitWidth) + " out of range for type '" + type + "'");
+                throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Bitfield width " + std::to_string(memberBitWidth) + " out of range for type '" + type + "'"));
         }
         while (tryParseAttribute()) {}
         StructMember sm;
@@ -2077,7 +2176,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
                         if (pm->isVirtual && pm->name.substr(pm->name.rfind("__") + 2) == method->name.substr(method->name.rfind("__") + 2)) {
                             // Validate: cannot override a final method
                             if (pm->isFinal) {
-                                throw std::runtime_error("Error: cannot override final method '" + pm->name.substr(pm->name.rfind("__") + 2) + "' in struct '" + name + "'");
+                                throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "cannot override final method '" + pm->name.substr(pm->name.rfind("__") + 2) + "' in struct '" + name + "'"));
                             }
                             method->vtableSlot = pm->vtableSlot;
                             isOverride = true;
@@ -2098,13 +2197,13 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         bool isFAM = (!m.arrayDims.empty() && m.arrayDims[0] == 0 && m.arrayDims.size() == 1);
         if (isFAM) {
             if (def->isUnion) {
-                throw std::runtime_error("Syntax Error at " + std::to_string(startToken.line) + ":" + std::to_string(startToken.column) + ": Flexible array member '" + m.name + "' not allowed in union");
+                throw std::runtime_error(formatDiagnostic(startToken.sourceFile, startToken.line, startToken.column, Severity::Error, "Flexible array member '" + m.name + "' not allowed in union"));
             }
             if (i != def->members.size() - 1) {
-                throw std::runtime_error("Syntax Error at " + std::to_string(startToken.line) + ":" + std::to_string(startToken.column) + ": Flexible array member '" + m.name + "' must be the last member of struct '" + def->name + "'");
+                throw std::runtime_error(formatDiagnostic(startToken.sourceFile, startToken.line, startToken.column, Severity::Error, "Flexible array member '" + m.name + "' must be the last member of struct '" + def->name + "'"));
             }
             if (def->members.size() < 2) {
-                throw std::runtime_error("Syntax Error at " + std::to_string(startToken.line) + ":" + std::to_string(startToken.column) + ": struct '" + def->name + "' with flexible array member must have at least one other member");
+                throw std::runtime_error(formatDiagnostic(startToken.sourceFile, startToken.line, startToken.column, Severity::Error, "struct '" + def->name + "' with flexible array member must have at least one other member"));
             }
         }
     }
@@ -2114,12 +2213,12 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         if (m.pointerLevel == 0 && m.type.rfind("struct ", 0) == 0) {
             std::string sName = m.type.substr(7);
             if (!structs.count(sName)) {
-                throw std::runtime_error("Syntax Error at " + std::to_string(startToken.line) + ":" + std::to_string(startToken.column) + ": Unknown struct/union type '" + sName + "'");
+                throw std::runtime_error(formatDiagnostic(startToken.sourceFile, startToken.line, startToken.column, Severity::Error, "Unknown struct/union type '" + sName + "'"));
             }
         } else if (m.pointerLevel == 0 && m.type.rfind("union ", 0) == 0) {
             std::string uName = m.type.substr(6);
             if (!structs.count(uName)) {
-                throw std::runtime_error("Syntax Error at " + std::to_string(startToken.line) + ":" + std::to_string(startToken.column) + ": Unknown struct/union type '" + uName + "'");
+                throw std::runtime_error(formatDiagnostic(startToken.sourceFile, startToken.line, startToken.column, Severity::Error, "Unknown struct/union type '" + uName + "'"));
             }
         }
     }
@@ -2315,22 +2414,25 @@ std::unique_ptr<Expression> Parser::parseUnary() {
         advance(); // consume '{'
         // Parse statements until we hit '}'
         // The last expression before '}' is the result value
-        std::unique_ptr<Expression> resultExpr;
+        std::unique_ptr<Expression> resultExpr = nullptr;
         while (peek().type != TokenType::CLOSE_BRACE && peek().type != TokenType::END_OF_FILE) {
             // Try to parse as a statement
             auto stmt = parseStatement();
-            // If it was an ExpressionStatement and the next token is '}', use the expression as result
-            if (peek().type == TokenType::CLOSE_BRACE) {
-                if (auto* exprStmt = dynamic_cast<ExpressionStatement*>(stmt.get())) {
-                    // The last statement's expression is the result
-                    // We already consumed the semicolon in parseStatement, so this is fine
-                }
+            // If this is an ExpressionStatement, it might be our result
+            if (auto* exprStmt = dynamic_cast<ExpressionStatement*>(stmt.get())) {
+                // Capture this expression as potential result (will be overwritten if more stmts follow)
+                resultExpr = std::move(exprStmt->expression);
             }
         }
         expect(TokenType::CLOSE_BRACE, "Expected '}' in statement expression");
         expect(TokenType::CLOSE_PAREN, "Expected ')' after statement expression");
-        // Statement expressions yield their last value; for now, treat as 0
-        std::unique_ptr<Expression> result = setPos(std::make_unique<IntegerLiteral>(0), startToken);
+        // Statement expressions yield their last value (or 0 if no expression found)
+        std::unique_ptr<Expression> result;
+        if (resultExpr) {
+            result = setPos(std::move(resultExpr), startToken);
+        } else {
+            result = setPos(std::make_unique<IntegerLiteral>(0), startToken);
+        }
         // Allow postfix operators: ({...}).member, ({...})[i]
         while (peek().type == TokenType::DOT || peek().type == TokenType::ARROW ||
                peek().type == TokenType::OPEN_SQUARE) {
@@ -2454,10 +2556,10 @@ std::unique_ptr<Expression> Parser::parseUnary() {
         std::string op = opToken.value;
         auto operand = parseUnary();
         if (dynamic_cast<CpuRegisterAccess*>(operand.get())) {
-            throw std::runtime_error("Error at " + std::to_string(opToken.line) + ":" + std::to_string(opToken.column) + ": Cannot take address of CPU register");
+            throw std::runtime_error(formatDiagnostic(opToken.sourceFile, opToken.line, opToken.column, Severity::Error, "Cannot take address of CPU register"));
         }
         if (dynamic_cast<CpuFlagAccess*>(operand.get())) {
-            throw std::runtime_error("Error at " + std::to_string(opToken.line) + ":" + std::to_string(opToken.column) + ": Cannot take address of CPU flag");
+            throw std::runtime_error(formatDiagnostic(opToken.sourceFile, opToken.line, opToken.column, Severity::Error, "Cannot take address of CPU flag"));
         }
         return setPos(std::make_unique<UnaryOperation>(op, std::move(operand)), opToken);
     }
@@ -2487,21 +2589,21 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
             expect(TokenType::CLOSE_PAREN, "Expected ')' after _Alignof type");
             return setPos(std::make_unique<AlignofExpression>(ts.name, ts.pointerLevel), tokens[pos-1]);
         } else {
-            throw std::runtime_error("Syntax Error at " + std::to_string(peek().line) + ":" + std::to_string(peek().column) + ": Expected type name in _Alignof");
+            throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Expected type name in _Alignof"));
         }
     }
 
     if (peek().type == TokenType::IDENTIFIER && (peek().value == "__func__" || peek().value == "__FUNCTION__")) {
         const Token& funcToken = advance();
         if (currentFunctionName.empty()) {
-            throw std::runtime_error("Error at " + std::to_string(funcToken.line) + ":" + std::to_string(funcToken.column) + ": __func__ used outside of a function");
+            throw std::runtime_error(formatDiagnostic(funcToken.sourceFile, funcToken.line, funcToken.column, Severity::Error, "__func__ used outside of a function"));
         }
         expr = setPos(std::make_unique<StringLiteral>(currentFunctionName), funcToken);
     } else if (peek().type == TokenType::IDENTIFIER && (peek().value == "__cpu" || peek().value == "__flags")) {
         const Token& baseToken = advance();
         std::string base = baseToken.value;
         if (!match(TokenType::DOT)) {
-            throw std::runtime_error("Error at " + std::to_string(baseToken.line) + ":" + std::to_string(baseToken.column) + ": '" + base + "' must be followed by '.' and a member name");
+            throw std::runtime_error(formatDiagnostic(baseToken.sourceFile, baseToken.line, baseToken.column, Severity::Error, "'" + base + "' must be followed by '.' and a member name"));
         }
         const Token& memberToken = expect(TokenType::IDENTIFIER, "Expected member name after " + base + ".");
         std::string member = memberToken.value;
@@ -2611,7 +2713,7 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         } else {
             auto ts = parseTypeSpecifier();
             if (!ts.valid) {
-                throw std::runtime_error("Expected type in __builtin_va_arg");
+                throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Expected type in __builtin_va_arg"));
             }
             vaType = ts.name;
             vaSigned = ts.isSigned;
@@ -2637,9 +2739,12 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         }
 
         // 'this' keyword in struct methods → hidden '__this' parameter
-        if (actualName == "this") {
-            actualName = "__this";
-        }
+        // Don't rename 'this' to '__this' - keep it as is and handle it properly
+        // The struct method's __this parameter should be accessed as __this directly
+        // Regular functions can have 'this' as a normal parameter name
+        // if (actualName == "this") {
+        //     actualName = "__this";
+        // }
 
         // Map __builtin_X → X for known stdlib-equivalent builtins
         if (actualName.rfind("__builtin_", 0) == 0) {
@@ -2652,6 +2757,7 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
                 {"__builtin_malloc", "malloc"},
                 {"__builtin_free", "free"},
                 {"__builtin_calloc", "calloc"},
+                {"__builtin_realloc", "realloc"},
                 {"__builtin_strlen", "strlen"},
                 {"__builtin_strcmp", "strcmp"},
                 {"__builtin_strcpy", "strcpy"},
@@ -2760,7 +2866,7 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         expect(TokenType::CLOSE_PAREN, "Expected ')'");
     } else {
         std::string foundStr = peek().value.empty() ? peek().typeToString() : peek().value;
-        throw std::runtime_error("Syntax Error at " + std::to_string(peek().line) + ":" + std::to_string(peek().column) + ": Expected expression. Found '" + foundStr + "' (" + peek().typeToString() + ") instead.");
+        throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Expected expression. Found '" + foundStr + "' (" + peek().typeToString() + ") instead."));
     }
 
     while (match(TokenType::DOT) || match(TokenType::ARROW) || match(TokenType::PLUS_PLUS) || match(TokenType::MINUS_MINUS) || match(TokenType::OPEN_SQUARE) || match(TokenType::OPEN_PAREN)) {
@@ -2817,7 +2923,7 @@ std::unique_ptr<Expression> Parser::parseGenericSelection() {
             else if (match(TokenType::STRUCT) || match(TokenType::UNION)) {
                 assoc.typeName = (tokens[pos-1].type == TokenType::STRUCT ? "struct " : "union ") + expect(TokenType::IDENTIFIER, "Expected aggregate name").value;
             } else {
-                throw std::runtime_error("Expected type name in _Generic association");
+                throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Expected type name in _Generic association"));
             }
             while (match(TokenType::STAR)) assoc.pointerLevel++;
         }
@@ -2908,11 +3014,16 @@ bool Parser::isTypeStartAt(size_t look) const {
 Parser::TypeSpec Parser::parseTypeSpecifier() {
     TypeSpec ts;
 
-    // Consume leading qualifiers
+    // Consume leading qualifiers (Phase 97: include address space qualifiers)
     while (match(TokenType::CONST) || match(TokenType::VOLATILE) || match(TokenType::RESTRICT) ||
+           match(TokenType::ZP) || match(TokenType::ABS) || match(TokenType::FAR) ||
            tryParseAttribute() || match(TokenType::EXTENSION)) {
         if (tokens[pos-1].type == TokenType::CONST) ts.isConst = true;
         if (tokens[pos-1].type == TokenType::VOLATILE) ts.isVolatile = true;
+        // Phase 97: Address space qualifiers
+        if (tokens[pos-1].type == TokenType::ZP) ts.addressSpace = 1;    // ZP
+        if (tokens[pos-1].type == TokenType::ABS) ts.addressSpace = 2;   // ABS
+        if (tokens[pos-1].type == TokenType::FAR) ts.addressSpace = 3;   // FAR
     }
 
     // Parse base type
@@ -3014,11 +3125,16 @@ Parser::TypeSpec Parser::parseTypeSpecifier() {
 
     ts.valid = true;
 
-    // Consume trailing qualifiers
+    // Consume trailing qualifiers (Phase 97: include address space qualifiers)
     while (match(TokenType::CONST) || match(TokenType::VOLATILE) || match(TokenType::RESTRICT) ||
+           match(TokenType::ZP) || match(TokenType::ABS) || match(TokenType::FAR) ||
            tryParseAttribute() || match(TokenType::EXTENSION)) {
         if (tokens[pos-1].type == TokenType::CONST) ts.isConst = true;
         if (tokens[pos-1].type == TokenType::VOLATILE) ts.isVolatile = true;
+        // Phase 97: Address space qualifiers
+        if (tokens[pos-1].type == TokenType::ZP) ts.addressSpace = 1;    // ZP
+        if (tokens[pos-1].type == TokenType::ABS) ts.addressSpace = 2;   // ABS
+        if (tokens[pos-1].type == TokenType::FAR) ts.addressSpace = 3;   // FAR
     }
 
     // If type is followed by __complex__ (reverse order: float __complex__)
@@ -3176,7 +3292,7 @@ void Parser::parseTypedef() {
     {
         auto ts = parseTypeSpecifier();
         if (!ts.valid) {
-            throw std::runtime_error("Expected type in typedef");
+            throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Expected type in typedef"));
         }
         baseType = ts.name;
         isSigned = ts.isSigned;
@@ -3250,7 +3366,7 @@ std::shared_ptr<FuncPtrSignature> Parser::parseFuncPtrParams(const std::string& 
             {
                 auto ts = parseTypeSpecifier();
                 if (!ts.valid) {
-                    throw std::runtime_error("Expected type in function pointer parameter list");
+                    throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Expected type in function pointer parameter list"));
                 }
                 fp.type = ts.name;
                 fp.isSigned = ts.isSigned;
@@ -3303,7 +3419,7 @@ bool Parser::isFunctionDeclaration() {
             t == TokenType::CONST || t == TokenType::EXTERN || t == TokenType::NORETURN ||
             t == TokenType::FASTCALL || t == TokenType::INTERRUPT || t == TokenType::NAKED ||
             t == TokenType::REGPARM || t == TokenType::RESTRICT || t == TokenType::AUTO ||
-            t == TokenType::REGISTER || t == TokenType::EXTENSION) {
+            t == TokenType::REGISTER || t == TokenType::EXTENSION || t == TokenType::STRIPED) {
             look++;
         } else if (t == TokenType::ATTRIBUTE) {
             look++;

@@ -73,6 +73,42 @@ public:
     static void dispatch_DEC_FP(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_INC16_FP(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_DEC16_FP(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    // Parameter access (method-agnostic)
+    static void dispatch_LDA_Param(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_STA_Param(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_LDX_Param(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_STX_Param(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_LDY_Param(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_STY_Param(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_LDZ_Param(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_STZ_Param(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_LDAX_Param(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_STAX_Param(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_LDAY_Param(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_STAY_Param(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_LDAZ_Param(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_STAZ_Param(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_LDAXYZ_Param(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_STAXYZ_Param(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_LEAX_Param(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    // Local variable access (method-agnostic)
+    static void dispatch_LDA_Local(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_STA_Local(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_LDX_Local(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_STX_Local(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_LDY_Local(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_STY_Local(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_LDZ_Local(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_STZ_Local(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_LDAX_Local(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_STAX_Local(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_LDAY_Local(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_STAY_Local(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_LDAZ_Local(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_STAZ_Local(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_LDAXYZ_Local(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_STAXYZ_Local(AssemblerParser* p, M65Emitter& e, Stmt* s);
+    static void dispatch_LEAX_Local(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_BFExt(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_BFIns(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_MulS16(AssemblerParser* p, M65Emitter& e, Stmt* s);
@@ -82,7 +118,6 @@ public:
     static void dispatch_Mod16(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_Mod32(AssemblerParser* p, M65Emitter& e, Stmt* s);
     static void dispatch_StructElem(AssemblerParser* p, M65Emitter& e, Stmt* s);
-    static void dispatch_AddrElem(AssemblerParser* p, M65Emitter& e, Stmt* s);
 
     // Original emit functions (implementations unchanged)
     static void emitExpressionCode(AssemblerParser* parser, M65Emitter& e, const std::string& target, int tokenIndex, const std::string& scopePrefix);
@@ -154,6 +189,12 @@ public:
     // Frame-pointer pseudo-ops
     static void emitLDA_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
     static void emitSTA_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
+    static void emitLDX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
+    static void emitSTX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
+    static void emitLDY_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
+    static void emitSTY_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
+    static void emitLDZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
+    static void emitSTZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
     static void emitLDAX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
     static void emitSTAX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);
     static void emitLDAY_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix);

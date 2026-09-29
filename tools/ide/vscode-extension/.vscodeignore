@@ -1,0 +1,34 @@
+# Source files (only ship compiled dist/)
+**/*.ts
+src/**
+**/*.map
+**/*.tsbuildinfo
+
+# Config files
+.eslintrc.json
+tsconfig.json
+Makefile
+.nycrc*
+**/.nycrc*
+
+# Version control and docs
+.git/**
+.gitignore
+README.md
+*.md
+LICENSE*
+
+# Parent directory files (not part of extension)
+../**
+../IDE-SETUP.md
+../README.md
+../package.json
+../package-lock.json
+../node_modules/**
+../lsp-server/**
+
+# Test directories
+test/**
+__tests__/**
+**/*.test.js
+**/*.spec.js

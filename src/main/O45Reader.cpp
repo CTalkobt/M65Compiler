@@ -161,6 +161,82 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
             }
         }
 
+        // Phase 4.3: Parse OPT_IPO_HINTS into structured IPO hints
+        if (opt.type == OPT_IPO_HINTS && opt.data.size() >= 3) {
+            const auto& d = opt.data;
+            size_t p = 0;
+
+            // Version byte
+            out.ipoHints.version = d[p++];
+            if (out.ipoHints.version != O45_IPO_HINTS_VERSION) {
+                // Version mismatch: skip parsing but don't fail
+                // (backward compatibility: newer linkers ignore unknown versions)
+            } else if (p + 2 <= d.size()) {
+                // Function count (2 bytes LE)
+                uint16_t funcCount = d[p] | (d[p+1] << 8); p += 2;
+
+                // Parse each function's hints
+                for (uint16_t fi = 0; fi < funcCount && p < d.size(); fi++) {
+                    O45IPOFunctionHints funcHints;
+
+                    // Function name (NUL-terminated)
+                    size_t nameEnd = p;
+                    while (nameEnd < d.size() && d[nameEnd] != 0) nameEnd++;
+                    if (nameEnd >= d.size()) break; // truncated
+                    funcHints.functionName.assign(d.begin() + p, d.begin() + nameEnd);
+                    p = nameEnd + 1;
+
+                    if (p + 7 > d.size()) break; // not enough data
+
+                    // Call count (2 bytes LE)
+                    funcHints.callCount = d[p] | (d[p+1] << 8); p += 2;
+
+                    // Estimated code size (2 bytes LE)
+                    funcHints.estimatedCodeSize = d[p] | (d[p+1] << 8); p += 2;
+
+                    // Flags (1 byte)
+                    funcHints.flags = d[p++];
+
+                    // External call count (1 byte)
+                    funcHints.externalCallCount = d[p++];
+
+                    // Specialization pattern count (1 byte)
+                    uint8_t specCount = d[p++];
+
+                    // Parse each specialization pattern
+                    for (uint8_t si = 0; si < specCount && p < d.size(); si++) {
+                        if (p + 1 > d.size()) break;
+
+                        O45IPOSpecPattern spec;
+
+                        // Argument count (1 byte)
+                        uint8_t argCount = d[p++];
+
+                        // Argument values (8 bytes LE each for int64_t)
+                        for (uint8_t ai = 0; ai < argCount && p + 8 <= d.size(); ai++) {
+                            int64_t val = 0;
+                            for (int shift = 0; shift < 8; shift++) {
+                                val |= ((int64_t)d[p]) << (shift * 8);
+                                p++;
+                            }
+                            spec.argumentValues.push_back(val);
+                        }
+
+                        if (p + 1 <= d.size()) {
+                            // Frequency percentage (1 byte, 0-100)
+                            spec.frequency = d[p++];
+                        }
+
+                        funcHints.specializations.push_back(spec);
+                    }
+
+                    out.ipoHints.functions.push_back(funcHints);
+                }
+
+                out.hasIPOHints = true;
+            }
+        }
+
         off += len;
     }
     if (off >= data.size()) { errorMsg = "missing option terminator"; return false; }
@@ -205,7 +281,10 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
         O45File::Export exp;
         size_t end = off;
         while (end < data.size() && data[end] != 0) end++;
-        if (end >= data.size()) { errorMsg = "truncated export name"; return false; }
+        if (end >= data.size()) {
+            errorMsg = "truncated export name";
+            return false;
+        }
         exp.name.assign(data.begin() + off, data.begin() + end);
         off = end + 1;
         // segment byte + offset (2 or 4 bytes)
@@ -215,9 +294,9 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
         off += fw;
 
         // Check for function attribute record ($FA marker)
-        // Supports both old (16 byte) and new (17 byte, with paramSize) formats
+        // Supports old (17 byte), current (18 byte with paramSize), and new (19 byte with frameSize) formats
         if (off < data.size() && data[off] == O45_FUNCATTR_MARKER) {
-            if (off + 16 > data.size()) {  // minimum 16 bytes (old format)
+            if (off + 16 > data.size()) {  // minimum 16 bytes (old format without marker)
                 errorMsg = "truncated function attribute record";
                 return false;
             }
@@ -233,6 +312,15 @@ bool O45Reader::read(const std::vector<uint8_t>& data, O45File& out, std::string
             if (off < data.size()) {
                 exp.funcAttr.paramSize = data[off++];
             }
+            // frameSize (uint16, Phase 2) - present in 19-byte format
+            if (off + 1 < data.size()) {
+                exp.funcAttr.frameSize = readU16(&data[off]); off += 2;
+            }
+
+            // Phase 3: Check for SAC parameter metadata
+            // SAC metadata reading - simplified
+            // The funcAttr structure carries parameter metadata (including constants).
+            // Metadata is analyzed by the linker, not persisted in export table format.
         }
 
         out.exports.push_back(exp);

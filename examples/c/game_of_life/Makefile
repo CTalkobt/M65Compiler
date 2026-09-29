@@ -12,6 +12,7 @@ ROOT = ../../..
 CC45 = $(ROOT)/bin/cc45
 LN45 = $(ROOT)/bin/ln45
 STDLIB = $(ROOT)/lib/build/c45.lib
+INCLUDES = -I$(ROOT)/lib/include
 
 TARGET = life.prg
 MAP = life.map
@@ -21,13 +22,13 @@ MAP = life.map
 all: $(TARGET)
 
 main.o45: main.c
-	$(CC45) -c main.c -o main.o45
+	$(CC45) $(INCLUDES) -c main.c -o main.o45
 
 $(TARGET): main.o45 $(STDLIB)
 	$(LN45) -basic -M $(MAP) -o $(TARGET) main.o45 $(STDLIB)
 
 clean:
-	rm -f main.o45 main.o45.s $(TARGET) $(MAP) $(TARGET).debug.json
+	rm -f main.o45 main.o45.s45 $(TARGET) $(MAP) $(TARGET).debug.json
 
 run: $(TARGET)
 	xemu-xmega65 -prg $(TARGET)

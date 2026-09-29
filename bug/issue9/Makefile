@@ -16,7 +16,7 @@ $(PRG): $(OBJS)
 main.o45: main.c
 	$(CC45) -c $< -o $@
 
-bug_code_label_offset.o45: bug_code_label_offset.s
+bug_code_label_offset.o45: bug_code_label_offset.s45
 	$(CA45) -c $< -o $@
 
 inspect: bug_code_label_offset.o45
@@ -30,6 +30,6 @@ disasm: $(PRG)
 	$(OBJDUMP45) -d -m map.txt $(PRG)
 
 clean:
-	rm -f $(OBJS) $(PRG) map.txt main.o45.s
+	rm -f $(OBJS) $(PRG) map.txt main.o45.s45
 
 .PHONY: all clean inspect disasm

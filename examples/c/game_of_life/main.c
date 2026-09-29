@@ -138,18 +138,18 @@ int main() {
     /* Place some patterns */
     VREG_BORDER=COLOR_CYAN;
     seed_r_pentomino(10, 18);
-    VREG_BORDER=COLOR_PURPLE;
+    VREG_BORDER=COLOR_GRAY;
     seed_glider(2, 2);
     VREG_BORDER=COLOR_GREEN;
     seed_glider(3, 30);
-    VREG_BORDER=COLOR_BLUE;
+    VREG_BORDER=COLOR_CYAN;
 
     /* Set all color RAM to green */
 
     memset(color, (char)5, WIDTH * HEIGHT);
-    VREG_BORDER=COLOR_YELLOW;
+    VREG_BORDER=COLOR_BLACK;
     for (gen = 0; gen < 500; gen++) {
-    VREG_BORDER=COLOR_ORANGE;
+    VREG_BORDER=COLOR_WHITE;
         draw();
         delay();
         step();

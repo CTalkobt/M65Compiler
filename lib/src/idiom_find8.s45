@@ -1,0 +1,108 @@
+; __idiom_find8(const unsigned char *arr, int n, unsigned char target) -> int
+; Linear search: finds first occurrence of target byte in array
+; Parameters (stack calling convention):
+;   [FP+2]: arr — array pointer (word)
+;   [FP+4]: n   — count (word)
+;   [FP+6]: target — target byte value (char, passed as int)
+; Returns: AX = index of match (0-N-1), or -1 (0xFFFF) if not found
+; Clobbers: A, X, Y, Z
+
+    .cpu 45gs02
+
+    .global __idiom_find8
+
+__idiom_find8:
+    ; Set up frame pointer
+    tsy
+    tsx
+    inx
+    bne @fp_nc
+    iny
+@fp_nc:
+    stx $FD
+    sty $FE
+
+    ; Get n from [FP+4]
+    ldy #$04
+    lda ($FD),y
+    sta $FB           ; n_lo
+    lda ($FD),y+1
+    sta $FC           ; n_hi
+
+    ; If n == 0, return -1 (not found)
+    lda $FB
+    ora $FC
+    bne @start
+    lda #$FF
+    ldx #$FF
+    ldy #$00
+    ldz #$00
+    rts
+
+@start:
+    ; Get target from [FP+6]
+    ldy #$06
+    lda ($FD),y
+    sta $FA           ; target_byte
+
+    ; Get array pointer from [FP+2]
+    ldy #$02
+    lda ($FD),y
+    sta $F8           ; arr_lo
+    lda ($FD),y+1
+    sta $F9           ; arr_hi
+
+    ; Initialize: index = 0
+    lda #$00
+    sta $F2           ; index_lo = 0
+    sta $F3           ; index_hi = 0
+
+@loop:
+    ; Check index < n
+    lda $F2           ; index_lo
+    cmp $FB           ; n_lo
+    bcc @continue
+    bne @not_found
+    lda #$00
+    cmp $FC           ; n_hi
+    bcc @continue
+
+@not_found:
+    ; Return -1 (not found)
+    lda #$FF
+    ldx #$FF
+    ldy #$00
+    ldz #$00
+    rts
+
+@continue:
+    ; Compute address: arr + index
+    lda $F8           ; arr_lo
+    clc
+    adc $F2           ; + index_lo
+    sta $F6           ; addr_lo
+    lda $F9           ; arr_hi
+    adc $F3           ; + index_hi + carry
+    sta $F7           ; addr_hi
+
+    ; Load arr[index]
+    ldy #$00
+    lda ($F6),y       ; Load byte
+
+    ; Compare with target
+    cmp $FA           ; target_byte
+    beq @found
+
+    ; Increment index
+    inc $F2
+    bne @loop
+    inc $F3
+    jmp @loop
+
+@found:
+    ; Return index (stored in $F2:$F3)
+    lda $F2
+    ldx $F3
+    ldy #$00
+    ldz #$00
+    rts

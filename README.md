@@ -1,4 +1,4 @@
-# Mega65 C Compiler Suite v1.0.4
+# Mega65 C Compiler Suite v1.0.5
 
 A modern development toolchain for the MEGA65 (45GS02) home computer. It consists of:
 
@@ -44,8 +44,8 @@ The compilation process follows a multi-pass pipeline:
 ### Direct to Binary
 Compile C to assembly, then assemble to a PRG:
 ```bash
-./bin/cc45 input.c -o output.s          # Compile to assembly
-./bin/ca45 output.s -o output.prg       # Assemble to PRG binary
+./bin/cc45 input.c -o output.s45        # Compile to assembly
+./bin/ca45 output.s45 -o output.prg     # Assemble to PRG binary
 ```
 
 ### Relocatable Objects (multi-file workflow)
@@ -64,7 +64,7 @@ Compile C files to `.o45` relocatable objects for separate compilation and linki
 
 Assembly files can also produce `.o45` objects directly:
 ```bash
-./bin/ca45 -c module.s -o module.o45    # Assemble to object
+./bin/ca45 -c module.s45 -o module.o45  # Assemble to object
 ```
 
 For a full list of command-line options, use the `-?` flag:
@@ -117,12 +117,12 @@ This compiles C source files from `src/test-resources/`, assembles them, and exe
 **Prerequisite:** The emulator-based tests (`make test-mmemu`) require [mmemu-cli](https://github.com/CTalkobt/mmsim) to be installed and available on your `PATH`.
 
 For detailed information on each tool, refer to:
-- [doc/cc45.md](doc/cc45.md) — Compiler Usage and Features
-- [doc/ca45.md](doc/ca45.md) — Assembler Syntax and Reference
-- [doc/nm45.md](doc/nm45.md) — Symbol Lister for `.o45` Object Files
-- [doc/objdump45.md](doc/objdump45.md) — Object File Inspector and Disassembler
-- [doc/cp45.md](doc/cp45.md) — Preprocessor Features and Usage
-- [doc/opcodes.md](doc/opcodes.md) — 45GS02 Instruction Reference
-- [doc/lib45.md](doc/lib45.md) — `.o45` Relocatable Object Format Specification
-- [doc/ln45.md](doc/ln45.md) — Linker Usage and Reference
-- [doc/ar45.md](doc/ar45.md) — Archiver Usage and Reference
+- [doc/bin/cc45.md](doc/bin/cc45.md) — Compiler Usage and Features
+- [doc/bin/ca45.md](doc/bin/ca45.md) — Assembler Syntax and Reference
+- [doc/bin/nm45.md](doc/bin/nm45.md) — Symbol Lister for `.o45` Object Files
+- [doc/bin/objdump45.md](doc/bin/objdump45.md) — Object File Inspector and Disassembler
+- [doc/bin/cp45.md](doc/bin/cp45.md) — Preprocessor Features and Usage
+- [doc/architecture/opcodes.md](doc/architecture/opcodes.md) — 45GS02 Instruction Reference
+- [doc/architecture/lib45.md](doc/architecture/lib45.md) — `.o45` Relocatable Object Format Specification
+- [doc/bin/ln45.md](doc/bin/ln45.md) — Linker Usage and Reference
+- [doc/bin/ar45.md](doc/bin/ar45.md) — Archiver Usage and Reference

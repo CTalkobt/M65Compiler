@@ -181,8 +181,6 @@ bool ArkImage::removeFile(const std::string& name) {
     if (targetIdx < 0) return false;
 
     ArkEntry target = readEntry(targetIdx);
-    int targetDataOff = fileDataOffset(targetIdx);
-    int targetDataSize = target.blockCount * 254;
 
     // Rebuild without this file
     int newCount = count - 1;

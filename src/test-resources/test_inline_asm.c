@@ -2,6 +2,16 @@
 // Validates __asm__() can read/write _p_ (params), _l_ (locals), _ (globals).
 // Uses memory-write pattern for mmemu validation.
 // Expected: 4000: 01 01 01 01 AA
+// Converted to UART serialtcp validation test
+// Results transmitted via UART $D0E3 to xemu -serialtcp listener
+
+#define UART_DATA 0xD0E3
+
+void uart_putchar(unsigned char c) {
+    volatile unsigned char *uart = (unsigned char *)UART_DATA;
+    *uart = c;
+}
+
 
 char *results = 0;
 
@@ -66,4 +76,5 @@ void main() {
     // Success marker
     results[4] = 0xAA;
 
+    __asm__("brk");        // Signal test complete to mmemu
 }

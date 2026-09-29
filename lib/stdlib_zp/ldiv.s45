@@ -1,0 +1,228 @@
+; ldiv.s — Long division with quotient and remainder (ZP calling convention)
+;
+; ldiv_t ldiv(long numer, long denom);
+;   Returns ldiv_t { long quot; long rem; } via hidden return pointer in $03/$04.
+;   numer in $05-$08, denom in $09-$0C.
+;   VHDL: dividend/divisor at $D770/$D774, quotient at $D76C.
+;   Remainder computed as: numer - quot * denom (no hw remainder register).
+
+.global _ldiv
+.extern __zp_scratch
+
+.segment "code"
+
+proc _ldiv
+    .zp_uses $03, $04, $05, $06, $07, $08, $09, $0A, $0B, $0C
+    .zp_clobbers $03, $04, $05, $06, $07, $08, $09, $0A, $0B, $0C
+    .zp_release $03, $04, $05, $06, $07, $08, $09, $0A, $0B, $0C
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+
+    lda $02
+    pha
+    lda $0D
+    pha
+
+    stz $02                 ; numer_neg
+    stz $0D                 ; quot sign XOR
+
+    ; --- abs(numer) → $D770 and save to __zp_scratch ---
+    lda $08                 ; byte3
+    bpl @numer_pos
+    inc $02
+    inc $0D
+    sec
+    lda #0
+    sbc $05
+    sta $D770
+    sta __zp_scratch
+    lda #0
+    sbc $06
+    sta $D771
+    sta __zp_scratch+1
+    lda #0
+    sbc $07
+    sta $D772
+    sta __zp_scratch+2
+    lda #0
+    sbc $08
+    sta $D773
+    sta __zp_scratch+3
+    bra @do_denom
+@numer_pos:
+    lda $05
+    sta $D770
+    sta __zp_scratch
+    lda $06
+    sta $D771
+    sta __zp_scratch+1
+    lda $07
+    sta $D772
+    sta __zp_scratch+2
+    lda $08
+    sta $D773
+    sta __zp_scratch+3
+
+@do_denom:
+    ; --- abs(denom) → $D774 ---
+    lda $0C                 ; byte3
+    bpl @denom_pos
+    lda $0D
+    eor #1
+    sta $0D
+    sec
+    lda #0
+    sbc $09
+    sta $D774
+    lda #0
+    sbc $0A
+    sta $D775
+    lda #0
+    sbc $0B
+    sta $D776
+    lda #0
+    sbc $0C
+    sta $D777
+    bra @divide
+@denom_pos:
+    lda $09
+    sta $D774
+    lda $0A
+    sta $D775
+    lda $0B
+    sta $D776
+    lda $0C
+    sta $D777
+
+@divide:
+@wait:
+    bit $D70F
+    bne @wait
+
+    ; --- Quotient with sign ---
+    lda $0D
+    beq @quot_pos
+    sec
+    lda #0
+    sbc $D76C
+    ldy #0
+    sta ($03), y
+    lda #0
+    sbc $D76D
+    iny
+    sta ($03), y
+    lda #0
+    sbc $D76E
+    iny
+    sta ($03), y
+    lda #0
+    sbc $D76F
+    iny
+    sta ($03), y
+    bra @do_rem
+@quot_pos:
+    ldy #0
+    lda $D76C
+    sta ($03), y
+    iny
+    lda $D76D
+    sta ($03), y
+    iny
+    lda $D76E
+    sta ($03), y
+    iny
+    lda $D76F
+    sta ($03), y
+
+@do_rem:
+    ; --- Remainder = abs(numer) - abs(quotient) * abs(denom) ---
+    ; Write abs(quotient) to $D770 (mult arg1), abs(denom) still in $D774
+    lda $D76C
+    sta $D770
+    lda $D76D
+    sta $D771
+    lda $D76E
+    sta $D772
+    lda $D76F
+    sta $D773
+    ; Product = quotient * denom at $D778 (combinational)
+    ; Remainder = saved_numer - product (32-bit subtraction)
+    lda $02
+    beq @rem_pos
+    ; Negative numer: negate remainder
+    lda __zp_scratch
+    sec
+    sbc $D778
+    pha
+    lda __zp_scratch+1
+    sbc $D779
+    pha
+    lda __zp_scratch+2
+    sbc $D77A
+    pha
+    lda __zp_scratch+3
+    sbc $D77B
+    ; Negate the 32-bit remainder
+    pha
+    ; Result is on stack: byte3, byte2, byte1, byte0 (top)
+    ; Negate: complement and add 1
+    sec
+    lda #0
+    pla                     ; byte3 (but we pushed in wrong order — let me fix)
+    ; Actually the stack has: byte0(top), byte1, byte2, byte3(bottom)
+    ; Let me just compute and negate directly
+    ; Start over for negative case
+    ; Pop the partial results
+    pla
+    pla
+    pla
+    ; Recompute: -(abs_numer - product) = product - abs_numer
+    lda $D778
+    sec
+    sbc __zp_scratch
+    ldy #4
+    sta ($03), y
+    lda $D779
+    sbc __zp_scratch+1
+    iny
+    sta ($03), y
+    lda $D77A
+    sbc __zp_scratch+2
+    iny
+    sta ($03), y
+    lda $D77B
+    sbc __zp_scratch+3
+    iny
+    sta ($03), y
+    bra @done
+
+@rem_pos:
+    ; Positive remainder = abs(numer) - product
+    lda __zp_scratch
+    sec
+    sbc $D778
+    ldy #4
+    sta ($03), y
+    lda __zp_scratch+1
+    sbc $D779
+    iny
+    sta ($03), y
+    lda __zp_scratch+2
+    sbc $D77A
+    iny
+    sta ($03), y
+    lda __zp_scratch+3
+    sbc $D77B
+    iny
+    sta ($03), y
+
+@done:
+    lda $03
+    ldx $04
+
+    pla
+    sta $0D
+    pla
+    sta $02
+    rts
+    endproc

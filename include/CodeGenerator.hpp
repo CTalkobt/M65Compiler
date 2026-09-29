@@ -1,6 +1,7 @@
 #pragma once
 #include "AST.hpp"
 #include "M65Emitter.hpp"
+#include "LineNumberProgram.hpp"
 #include <iostream>
 #include <ostream>
 #include <vector>
@@ -14,6 +15,7 @@ class CodeGenerator : public ASTVisitor {
 public:
     enum class TriState { UNKNOWN, SET, CLEAR };
     enum class FlagSource { NONE, A, X, Y, Z };
+    enum class FieldClass { FIXED_SCALAR, POINTER, FIXED_ARRAY, VARIABLE_ARRAY, FLEXIBLE_ARRAY, NESTED_STRUCT };  // Phase 96.2: Field classification
 
     CodeGenerator(std::ostream& out);
     void generate(TranslationUnit& unit);
@@ -32,10 +34,43 @@ public:
         bool isConst = false;         // base type is const (prevents *p = x)
         bool isPointerConst = false;  // pointer itself is const (prevents p = x)
         bool isRegister = false;      // allocated in zero page
+        bool isStriped = false;       // Phase 92: Striped array optimization
+        int elementSize = 0;          // Phase 94: For striped struct arrays (0 = not striped or int)
+        bool isFieldStriped = false;  // Phase 95: Field-level striping within striped struct arrays
+        std::vector<std::string> fieldNames;  // Phase 95: Names of struct fields (if field-striped)
+        std::vector<int> fieldSizes;  // Phase 95: Sizes of struct fields in bytes
+        std::vector<int> fieldOffsets; // Phase 95: Offsets of field regions in memory
+
+        // Phase 96: Union support
+        bool isUnionStriped = false;        // Union variant of striped array
+        std::vector<std::string> unionFields;  // All union field names
+        std::vector<int> unionFieldSizes;  // Size of each union field
+        int largestUnionFieldSize = 0;     // Largest field size (memory footprint)
+
+        // Phase 96.2: Variable-size field support
+        bool hasVariableFields = false;    // Struct contains pointer/array fields
+        int fixedPrefixSize = 0;           // Size of fixed-size fields only
+        std::vector<int> fieldClasses;     // Field classification (fixed/pointer/variable)
+        std::vector<std::string> pointerFieldNames;  // Names of pointer fields
+        std::vector<int> pointerFieldIndices;       // Indices of pointer fields in struct
+        std::string variableDataSymbol;    // Symbol for variable data region
+
+        // Phase 97: Address space qualifiers
+        int addressSpace = 0;              // 0=default(16-bit), 1=ZP(8-bit), 2=ABS(16-bit), 3=FAR(32-bit)
+
         std::vector<int> arrayDims;   // empty = not array; {3,4} = int[3][4]
-        int arraySize() const { if (arrayDims.empty()) return -1; int s=1; for (int d:arrayDims) s*=d; return s; }
         bool isFunctionPointer = false;
         std::shared_ptr<FuncPtrSignature> funcPtrSig;
+
+        VarInfo() = default;
+        VarInfo(const std::string& t, int p, bool s = false, bool v = false, bool c = false,
+                bool pc = false, bool r = false, const std::vector<int>& a = {},
+                bool fp = false, std::shared_ptr<FuncPtrSignature> fpSig = nullptr, int es = 0)
+            : type(t), pointerLevel(p), isSigned(s), isVolatile(v), isConst(c),
+              isPointerConst(pc), isRegister(r), arrayDims(a), isFunctionPointer(fp),
+              funcPtrSig(fpSig), isStriped(false), elementSize(es), isFieldStriped(false) {}
+
+        int arraySize() const { if (arrayDims.empty()) return -1; int s=1; for (int d:arrayDims) s*=d; return s; }
     };
     struct ExpressionType {
         std::string type;
@@ -63,6 +98,9 @@ public:
         std::map<std::string, MemberInfo> members;
         int totalSize;
         int alignment = 1;
+        bool isFieldStriped = false;  // Phase 95: Whether this struct supports field-level striping
+        bool isUnion = false;         // Phase 96: True if this is a union (overlay) rather than struct
+        int largestFieldSize = 0;     // Phase 96: For unions, the largest field size (memory footprint)
     };
     std::map<std::string, VarInfo> variableTypes;
     std::map<std::string, VarInfo> globalVariableTypes;
@@ -123,11 +161,34 @@ public:
     void visit(TranslationUnit& node) override;
     void emitAddress(Expression* expr);
     void emitIndirectIncDec(UnaryOperation& node, bool isInc, bool isPost);
+    void emitStripedArrayAccess(ArrayAccess& node, VarInfo& varInfo, VariableReference* baseRef);
+    bool tryEmitFieldStripedArrayMemberAccess(ArrayAccess& node, VarInfo& varInfo, VariableReference* baseRef, const std::string& memberName, const MemberInfo& mInfo);  // Phase 95.3: Field-level striping
+    bool tryEmitUnionStripedArrayMemberAccess(ArrayAccess& node, VarInfo& varInfo, VariableReference* baseRef, const std::string& memberName);  // Phase 96.1: Union-striped array member access
+    std::vector<int> reorganizeUnionStripedArrayData(const std::vector<int>& userData, int elementCount, int largestFieldSize, const std::vector<std::string>& fieldNames);  // Phase 96.1: Union data reorganization
+
+    // Phase 96.2: Variable-size field support
+    FieldClass classifyStructField(const StructInfo& sInfo, const std::string& fieldName, bool isLastMember);
+    bool detectVariableFields(const StructInfo& sInfo);
+    int calculateFixedPrefixSize(const StructInfo& sInfo);
+    bool tryEmitVariableSizeFieldAccess(ArrayAccess& node, VarInfo& varInfo, VariableReference* baseRef, const std::string& memberName);
+    std::vector<int> reorganizeVariableSizeData(const std::vector<int>& userData, const VarInfo& varInfo, int elementCount);
+
+    // Phase 92.4: 2D array reorganization (backward compat)
+    std::vector<int> reorganizeStripedArrayData(const std::vector<int>& userData, int height, int width);
+
+    // Phase 93: Multi-dimensional array reorganization (3D+)
+    std::vector<int> reorganizeStripedArrayData(const std::vector<int>& userData, const std::vector<int>& dims);
+    // Phase 95.4: Field-striped struct array data reorganization
+    std::vector<int> reorganizeFieldStripedArrayData(const std::vector<int>& userData, int structSize, const std::vector<int>& fieldSizes, const std::vector<int>& dims);
     void emitOperation(const std::string& op, int zpLeft, ExpressionType lhsType, ExpressionType rhsType);
     void embedSource(ASTNode& node);
     ExpressionType getExprType(Expression* expr);
     void emitNarrowingWarning(ASTNode& node, const std::string& fromType, int fromPtr, const std::string& toType, int toPtr);
     void emitBoolNormalize(int srcSize);
+    std::string formatDebugType(const std::string& type, int pointerLevel, const std::vector<int>& arrayDims);
+    void emitDebugVariable(const std::string& functionName, const std::string& varName, uint32_t offset,
+                           const std::string& type, int pointerLevel, const std::string& scope,
+                           const std::vector<int>& arrayDims, int srcLine = -1, const std::string& displayName = "");
     std::vector<std::string> warnings;
     bool isStruct(const std::string& type);
     bool isEnum(const std::string& type);
@@ -265,6 +326,18 @@ public:
     std::string newLabel();
     std::string newDontCareLabel();
 
+    struct LoopUnrollInfo {
+        std::string counterVar;
+        int64_t startVal = 0;
+        int64_t endVal = 0;
+        int64_t stepVal = 1;
+        bool isUnrollable = false;
+        int unrollCount = 0;
+    };
+    LoopUnrollInfo analyzeForUnrolling(ForStatement* node);
+    void emitUnrolledLoop(ForStatement& node, const LoopUnrollInfo& info);
+    bool tryEmitAddressTemplate(BinaryOperation& node);  // Phase 89: Address template optimization
+
     int allocateZP(int size);
     void freeZP(int index, int size);
 
@@ -284,6 +357,8 @@ public:
     bool crtNoBssInit = false; // #pragma cc45 no_bssinit
     bool crtHeap = false;      // #pragma cc45 heap
     bool crtStdio = false;     // #pragma cc45 stdio
+    int loopUnrollDefault = 0; // #pragma cc45 unroll N (0 = disabled, 3-8 typical)
+    int loopUnrollNext = 0;    // #pragma cc45 unroll (applies to next loop only, one-shot)
     std::set<std::string> knownFunctions; // defined + prototyped function names
     std::set<std::string> variadicFunctions; // functions declared with ...
     std::set<std::string> fastcallFunctions; // functions declared with __fastcall__
@@ -313,4 +388,20 @@ public:
     // Params whose address is taken — spilled from ZP to frame
     std::map<std::string, ZpSpillInfo> zpSpilledParams_; // _p_name → frame location
     bool isZpSpilledParam(const std::string& rName) const { return useZpCall_ && zpSpilledParams_.count(rName) > 0; }
+
+    // Phase 97.3: Address space helpers
+    int getAddressSpaceForVariable(const std::string& varName) const;
+    bool isZPVariable(const std::string& varName) const;
+    bool isABSVariable(const std::string& varName) const;
+    bool isFARVariable(const std::string& varName) const;
+
+    // Phase 113: Line number program for DWARF debug info
+    dwarf::LineNumberProgramBuilder lineNumberBuilder_;
+
+    // Phase 113: DWARF emission helpers
+    dwarf::DIE* currentFunctionDIE_ = nullptr;  // Current SUBPROGRAM DIE being filled
+    uint64_t currentFunctionStartAddress_ = 0; // Start address of current function
+
+    // Phase 113: Helper to emit function DWARF info
+    void emitFunctionDIE(FunctionDeclaration& node, uint64_t startAddr);
 };

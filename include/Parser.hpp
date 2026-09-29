@@ -7,9 +7,24 @@
 #include "AST.hpp"
 
 class Parser {
+    // Phase 102: Define TypeAlias before public methods that use it
+    // This struct must be defined early so public methods can reference it
 public:
+    struct TypeAlias {
+        std::string baseType;
+        int pointerLevel;
+        bool isSigned;
+        bool isFunctionPointer = false;
+        std::shared_ptr<FuncPtrSignature> funcPtrSig;
+        std::vector<int> arrayDims;
+    };
+
     Parser(const std::vector<Token>& tokens);
     std::unique_ptr<TranslationUnit> parse();
+
+    // Phase 102: Get typedef information for IR generation
+    const std::map<std::string, TypeAlias>& getTypedefs() const { return typedefs; }
+    const std::map<std::string, StructDefinition*>& getStructDefinitions() const { return structs; }
 
 private:
     std::vector<Token> tokens;
@@ -31,7 +46,7 @@ private:
     std::unique_ptr<FunctionDeclaration> parseFunctionDeclaration();
     std::unique_ptr<CompoundStatement> parseCompoundStatement();
     std::unique_ptr<Statement> parseStatement();
-    std::unique_ptr<Statement> parseVariableDeclaration(bool isVolatile, bool isConst = false, bool isStatic = false, bool isRegister = false);
+    std::unique_ptr<Statement> parseVariableDeclaration(bool isVolatile, bool isConst = false, bool isStatic = false, bool isRegister = false, bool isStriped = false);
     std::unique_ptr<StaticAssert> parseStaticAssert();
     std::unique_ptr<EnumDefinition> parseEnumDefinition();
     std::unique_ptr<StructDefinition> parseStructDefinition(bool isUnion = false);
@@ -69,19 +84,12 @@ private:
         bool isFunctionPointer = false;
         std::shared_ptr<FuncPtrSignature> funcPtrSig;
         bool valid = false;     // true if a type was successfully parsed
+        int addressSpace = 0;   // Phase 97: AddressSpace (0=DEFAULT, 1=ZP, 2=ABS, 3=FAR)
     };
     TypeSpec parseTypeSpecifier();    // consume type keywords + qualifiers, return TypeSpec
     bool isTypeStartToken() const;   // peek: does current token start a type?
     bool isTypeStartAt(size_t look) const; // lookahead version
 
-    struct TypeAlias {
-        std::string baseType;
-        int pointerLevel;
-        bool isSigned;
-        bool isFunctionPointer = false;
-        std::shared_ptr<FuncPtrSignature> funcPtrSig;
-        std::vector<int> arrayDims;
-    };
     std::map<std::string, TypeAlias> typedefs;
     std::map<std::string, int> enumConstants;
     std::set<std::string> enumNames;

@@ -100,10 +100,9 @@ std::vector<ArcImage::ArcEntry> ArcImage::parseEntries() const {
         }
 
         // RLE control byte follows header for packed modes
-        unsigned ctrlByte = 254;
         if (e.mode == 1) {
             if (pos >= image_.size()) break;
-            ctrlByte = image_[pos++];
+            pos++;  // Skip control byte (handled during decompression)
         }
 
         // Huffman code table follows for modes 2 and 4

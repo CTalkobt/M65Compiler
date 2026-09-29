@@ -1,0 +1,22 @@
+{
+  "name": "mega65-ide-tools",
+  "private": true,
+  "workspaces": [
+    "lsp-server",
+    "vscode-extension"
+  ],
+  "scripts": {
+    "build": "npm run build -w lsp-server && npm run build -w vscode-extension",
+    "watch": "npm run watch -w lsp-server",
+    "lint": "npm run lint -w lsp-server && npm run lint -w vscode-extension",
+    "test": "npm test -w lsp-server"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.64.0",
+    "@typescript-eslint/parser": "^8.64.0",
+    "eslint": "^10.7.0",
+    "typescript": "^5.0.0"
+  }
+}

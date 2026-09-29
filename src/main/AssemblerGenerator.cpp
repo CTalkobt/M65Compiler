@@ -45,6 +45,17 @@ static std::vector<uint8_t> encodeFloat(double val) {
 std::vector<uint8_t> AssemblerGenerator::generate(AssemblerParser* parser, bool isPrg) {
     std::vector<uint8_t> binary;
     uint32_t start = parser->getFirstOrgAddress();
+
+    // For PRG files with no explicit .org, check for BASIC_UPSTART directive
+    if (isPrg && start == 0xFFFFFFFF) {
+        for (const auto& stmt : parser->statements) {
+            if (stmt->type == AssemblerParser::Statement::BASIC_UPSTART) {
+                start = 0x2000;  // Standard MEGA65 code entry point
+                break;
+            }
+        }
+    }
+
     if (isPrg && start != 0xFFFFFFFF) {
         binary.push_back((uint8_t)(start & 0xFF));
         binary.push_back((uint8_t)(start >> 8));
@@ -61,7 +72,11 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
     std::shared_ptr<AssemblerParser::ProcContext> currentPass2Proc;
     std::vector<std::shared_ptr<AssemblerParser::ProcContext>> pass2ProcStack;
 
-    for (auto& [name, symbol] : parser->symbolTable) if (symbol.isVariable) symbol.value = symbol.initialValue;
+    for (auto& [name, symbol] : parser->symbolTable) {
+        if (symbol.isVariable && !parser->areAddressesFinalized()) {
+            symbol.value = symbol.initialValue;
+        }
+    }
 
     std::vector<std::string> order = parser->requestedSegmentOrder;
     if (order.empty()) {
@@ -288,6 +303,14 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                                     std::string mn2 = stmt->instr.mnemonic;
                                     std::transform(mn2.begin(), mn2.end(), mn2.begin(), ::toupper);
                                     if (resolvedMode == AddressingMode::IMMEDIATE) {
+                                        // Phase 78: SMC placeholder detection (#$00 in SAC functions)
+                                        if (val == 0 && e.isSACMode() &&
+                                            (mn2 == "LDA" || mn2 == "LDX" || mn2 == "LDY" || mn2 == "LDZ")) {
+                                            // Placeholder immediate for SMC parameter
+                                            // Will be patched by linker with actual parameter value
+                                            e.recordImmediateReloc("__smc_param_" + std::to_string(e.getAddress()), false);
+                                        }
+
                                         // LDA #imm → setConst (setReloc handled below for </>sym)
                                         if (mn2 == "LDA") e.machineState().setConst(REG_A, val & 0xFF);
                                         else if (mn2 == "LDX") e.machineState().setConst(REG_X, val & 0xFF);
@@ -465,24 +488,52 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                     if (stmt->instr.mnemonic == "rts" || stmt->instr.mnemonic == "rtn" || stmt->instr.mnemonic == "rti") isDeadCode = true;
                 }
             } else if (stmt->type == AssemblerParser::Statement::DIRECTIVE) {
+                // Reset isDeadCode for .noopt_start (indicates executable code ahead).
+                // After RTS/RTN/RTI instructions, isDeadCode is true and all following code is skipped.
+                // .noopt_start marks regions with critical instructions (like ldy #0 for array access)
+                // that must be emitted even if they appear after dead code. Resetting the flag ensures
+                // these marked regions are output to the binary.
+                if (stmt->dir.name == "noopt_start") {
+                    isDeadCode = false;
+                }
                 if (!isDeadCode || stmt->dir.name == "org") {
                     if (stmt->dir.name == "var") {
                         if (stmt->dir.varType == Directive::ASSIGN) {
                             uint32_t val = parser->evaluateExpressionAt(stmt->dir.tokenIndex, stmt->scopePrefix);
-                            parser->symbolTable[stmt->dir.varName].value = val;
-                        } else if (stmt->dir.varType == Directive::INC) parser->symbolTable[stmt->dir.varName].value++;
-                        else if (stmt->dir.varType == Directive::DEC) parser->symbolTable[stmt->dir.varName].value--;
+                            if (!parser->areAddressesFinalized()) {
+                                parser->symbolTable[stmt->dir.varName].value = val;
+                            }
+                        } else if (stmt->dir.varType == Directive::INC) {
+                            if (!parser->areAddressesFinalized()) parser->symbolTable[stmt->dir.varName].value++;
+                        } else if (stmt->dir.varType == Directive::DEC) {
+                            if (!parser->areAddressesFinalized()) parser->symbolTable[stmt->dir.varName].value--;
+                        }
                     }
                     else if (stmt->dir.name == "local") {
                         if (stmt->dir.varType == Directive::ASSIGN) {
                             uint32_t val = parser->evaluateExpressionAt(stmt->dir.tokenIndex, stmt->scopePrefix);
-                            auto& sym = parser->symbolTable[stmt->dir.varName];
-                            sym.value = val;
-                            sym.frameOffset = (int)val;
-                            sym.isFrameRelative = true;
+                            if (!parser->areAddressesFinalized()) {
+                                auto& sym = parser->symbolTable[stmt->dir.varName];
+                                sym.value = val;
+                                sym.frameOffset = (int)val;
+                                sym.isFrameRelative = true;
+                            }
                         }
                     }
                     else if (stmt->dir.name == "cleanup") { if (currentPass2Proc) currentPass2Proc->totalParamSize += parser->evaluateExpressionAt(stmt->dir.tokenIndex, stmt->scopePrefix); }
+                    else if (stmt->dir.name == "frameptr_zp") {
+                        // .frameptr_zp $FD — Set ZP location for frame pointer (for frame-relative addressing)
+                        if (!stmt->dir.arguments.empty()) {
+                            uint8_t fp = (uint8_t)parseNumericLiteral(stmt->dir.arguments[0]);
+                            e.setFramePointerZP(fp);
+                        }
+                    }
+                    // Phase 78: SAC (Static Allocation Convention) function marker
+                    else if (stmt->dir.name == "sac") {
+                        // Enable SAC mode for this function
+                        // Parameters use static AR buffer instead of stack
+                        e.setSACMode(true);
+                    }
                     else if (stmt->dir.name == "byte") for (const auto& a : stmt->dir.arguments) e.emitByte((uint8_t)parseNumericLiteral(a));
                     else if (stmt->dir.name == "word") {
                         for (const auto& a : stmt->dir.arguments) {

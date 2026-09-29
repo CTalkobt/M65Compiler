@@ -1,0 +1,1270 @@
+    .o45
+    .org $2000
+    .weak __sp_base
+    __sp_base = $0101
+    .weak __static_chain
+    .weak __zp_scratch
+    .weak __zp_scratch2
+    .weak __zp_scratch3
+    .weak __zp_scratch4
+    .weak cc45.zeroPageStart
+    __static_chain = $06
+    __zp_scratch = $08
+    __zp_scratch2 = $0A
+    __zp_scratch3 = $0C
+    __zp_scratch4 = $0E
+    cc45.zeroPageStart = $08
+
+    .extern _printf
+
+    .global _accumulate_series
+    .global _compute_stats
+    .global _iterative_refine
+    .global _chained_operations
+    .global _bitwise_accum
+    .global _nested_compound
+    .global _main
+
+    .segment "code"
+
+; function _accumulate_series
+; SAC inline storage: 8 bytes
+    .global _accumulate_series__param_n
+    _accumulate_series__param_n: .word 5
+    _accumulate_series__local_0: .word 0
+    _accumulate_series__local_1: .word 0
+    _accumulate_series__local_3: .word 0
+    _accumulate_series__local_5: .word 0
+    proc _accumulate_series, W#@_p_n
+    .sac
+    .var _fp = 0
+    .loc "/home/duck/m65/inpg/m65compiler/bin/../lib/include/stdio.h", 4
+    .local @_l_i = 6
+    .local @_l_sum = 2
+    .local @_l_term = 4
+; .debug_var: __accumulate_series @_l_i offset=6 size=2 type=int16 scope=local
+; .debug_var: __accumulate_series @_l_sum offset=2 size=2 type=int16 scope=local
+; .debug_var: __accumulate_series @_l_term offset=4 size=2 type=int16 scope=local
+    .var @_p_n = 2
+; .debug_var: __accumulate_series @_p_n offset=2 size=2 type=int16 scope=parameter
+
+@entry:
+    .loc "benchmark_compound_math.c", 9
+    lda #0
+    sta _accumulate_series__local_1
+    sta _accumulate_series__local_1+1
+    .loc "benchmark_compound_math.c", 10
+    lda #1
+    sta _accumulate_series__local_3
+    lda #0
+    sta _accumulate_series__local_3+1
+    .loc "benchmark_compound_math.c", 11
+    lda #1
+    sta _accumulate_series__local_5
+    lda #0
+    sta _accumulate_series__local_5+1
+@for_cond0:
+    lda _accumulate_series__param_n
+    ldx _accumulate_series__param_n+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _accumulate_series__local_5
+    ldx _accumulate_series__local_5+1
+    cmp.16 .AX, __zp_scratch2
+    bcc @for_body1
+    beq @for_body1
+    bra @for_end3
+@for_body1:
+    .loc "benchmark_compound_math.c", 12
+    lda _accumulate_series__local_5
+    ldx _accumulate_series__local_5+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _accumulate_series__local_3
+    ldx _accumulate_series__local_3+1
+    mul.16 .AX, __zp_scratch2
+    sta $22
+    stx $23
+    lda $22
+    ldx $23
+    sta _accumulate_series__local_3
+    stx _accumulate_series__local_3+1
+    .loc "benchmark_compound_math.c", 13
+    lda _accumulate_series__local_3
+    ldx _accumulate_series__local_3+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _accumulate_series__local_1
+    ldx _accumulate_series__local_1+1
+    add.16 .AX, __zp_scratch2
+    sta $24
+    stx $25
+    sta _accumulate_series__local_1
+    stx _accumulate_series__local_1+1
+@for_inc2:
+    .loc "benchmark_compound_math.c", 11
+    lda _accumulate_series__local_5
+    ldx _accumulate_series__local_5+1
+    sta $26
+    stx $27
+    lda $26
+    ldx $27
+    add.16 .AX, #1
+    sta _accumulate_series__local_5
+    stx _accumulate_series__local_5+1
+    bra @for_cond0
+@for_end3:
+    .loc "benchmark_compound_math.c", 15
+    lda _accumulate_series__local_1
+    ldx _accumulate_series__local_1+1
+@__return:
+    rts
+    .param_const _accumulate_series 0 5
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 8
+    endproc
+
+; function _compute_stats
+; SAC inline storage: 14 bytes
+    .global _compute_stats__param_data
+    _compute_stats__param_data: .word 0
+    .global _compute_stats__param_len
+    _compute_stats__param_len: .word 4
+    .global _compute_stats__param_out_sum
+    _compute_stats__param_out_sum: .word 0
+    .global _compute_stats__param_out_product
+    _compute_stats__param_out_product: .word 0
+    _compute_stats__local_0: .word 0
+    _compute_stats__local_1: .word 0
+    _compute_stats__local_2: .word 0
+    _compute_stats__local_3: .word 0
+    _compute_stats__local_4: .word 0
+    _compute_stats__local_6: .word 0
+    _compute_stats__local_8: .word 0
+    proc _compute_stats, W#@_p_data, W#@_p_len, W#@_p_out_sum, W#@_p_out_product
+    .sac
+    .var _fp = 0
+    .loc "/home/duck/m65/inpg/m65compiler/bin/../lib/include/stdio.h", 15
+    .local @_l_i = 12
+    .local @_l_product = 10
+    .local @_l_sum = 8
+; .debug_var: __compute_stats @_l_i offset=12 size=2 type=int16 scope=local
+; .debug_var: __compute_stats @_l_product offset=10 size=2 type=int16 scope=local
+; .debug_var: __compute_stats @_l_sum offset=8 size=2 type=int16 scope=local
+    .var @_p_data = 2
+    .var @_p_len = 4
+    .var @_p_out_sum = 6
+    .var @_p_out_product = 8
+; .debug_var: __compute_stats @_p_data offset=2 size=2 type=ptr scope=parameter
+; .debug_var: __compute_stats @_p_len offset=4 size=2 type=int16 scope=parameter
+; .debug_var: __compute_stats @_p_out_sum offset=6 size=2 type=ptr scope=parameter
+; .debug_var: __compute_stats @_p_out_product offset=8 size=2 type=ptr scope=parameter
+
+@entry:
+    .loc "benchmark_compound_math.c", 20
+    lda #0
+    sta _compute_stats__local_4
+    sta _compute_stats__local_4+1
+    .loc "benchmark_compound_math.c", 21
+    lda #1
+    sta _compute_stats__local_6
+    lda #0
+    sta _compute_stats__local_6+1
+    .loc "benchmark_compound_math.c", 22
+    lda #0
+    sta _compute_stats__local_8
+    sta _compute_stats__local_8+1
+@for_cond4:
+    lda _compute_stats__param_len
+    ldx _compute_stats__param_len+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _compute_stats__local_8
+    ldx _compute_stats__local_8+1
+    cmp.16 .AX, __zp_scratch2
+    bcc @for_body5
+    bra @for_end7
+@for_body5:
+    .loc "benchmark_compound_math.c", 23
+    lda _compute_stats__param_data
+    ldx _compute_stats__param_data+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _compute_stats__local_8
+    ldx _compute_stats__local_8+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $22
+    stx $22+1
+    ldy #0
+    lda ($22),y
+    pha
+    iny
+    lda ($22),y
+    tax
+    pla
+    sta $24
+    stx $25
+    lda _compute_stats__local_4
+    ldx _compute_stats__local_4+1
+    add.16 .AX, $24
+    sta $26
+    stx $27
+    sta _compute_stats__local_4
+    stx _compute_stats__local_4+1
+    .loc "benchmark_compound_math.c", 24
+    lda _compute_stats__param_data
+    ldx _compute_stats__param_data+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _compute_stats__local_8
+    ldx _compute_stats__local_8+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $28
+    stx $28+1
+    ldy #0
+    lda ($28),y
+    pha
+    iny
+    lda ($28),y
+    tax
+    pla
+    sta $2A
+    stx $2B
+    lda _compute_stats__local_6
+    ldx _compute_stats__local_6+1
+    mul.16 .AX, $2A
+    sta $2C
+    stx $2D
+    lda $2C
+    ldx $2D
+    sta _compute_stats__local_6
+    stx _compute_stats__local_6+1
+@for_inc6:
+    .loc "benchmark_compound_math.c", 22
+    lda _compute_stats__local_8
+    ldx _compute_stats__local_8+1
+    sta $2E
+    stx $2F
+    lda $2E
+    ldx $2F
+    add.16 .AX, #1
+    sta _compute_stats__local_8
+    stx _compute_stats__local_8+1
+    bra @for_cond4
+@for_end7:
+    .loc "benchmark_compound_math.c", 26
+    lda _compute_stats__param_out_sum
+    ldx _compute_stats__param_out_sum+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _compute_stats__local_4
+    ldx _compute_stats__local_4+1
+    ldy #0
+    sta (__zp_scratch2),y
+    txa
+    iny
+    sta (__zp_scratch2),y
+    .loc "benchmark_compound_math.c", 27
+    lda _compute_stats__param_out_product
+    ldx _compute_stats__param_out_product+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _compute_stats__local_6
+    ldx _compute_stats__local_6+1
+    ldy #0
+    sta (__zp_scratch2),y
+    txa
+    iny
+    sta (__zp_scratch2),y
+@__return:
+    rts
+    .param_const _compute_stats 1 4
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 14
+    endproc
+
+; function _iterative_refine
+; SAC inline storage: 8 bytes
+    .global _iterative_refine__param_x
+    _iterative_refine__param_x: .word 10
+    .global _iterative_refine__param_target
+    _iterative_refine__param_target: .word 50
+    .global _iterative_refine__param_iterations
+    _iterative_refine__param_iterations: .word 3
+    _iterative_refine__local_0: .word 0
+    _iterative_refine__local_1: .word 0
+    _iterative_refine__local_2: .word 0
+    _iterative_refine__local_3: .word 0
+    proc _iterative_refine, W#@_p_x, W#@_p_target, W#@_p_iterations
+    .sac
+    .var _fp = 0
+    .loc "benchmark_compound_math.c", 12
+    .local @_l_i = 6
+; .debug_var: __iterative_refine @_l_i offset=6 size=2 type=int16 scope=local
+    .var @_p_x = 2
+    .var @_p_target = 4
+    .var @_p_iterations = 6
+; .debug_var: __iterative_refine @_p_x offset=2 size=2 type=int16 scope=parameter
+; .debug_var: __iterative_refine @_p_target offset=4 size=2 type=int16 scope=parameter
+; .debug_var: __iterative_refine @_p_iterations offset=6 size=2 type=int16 scope=parameter
+
+@entry:
+    .loc "benchmark_compound_math.c", 32
+    lda #0
+    sta _iterative_refine__local_3
+    sta _iterative_refine__local_3+1
+@for_cond8:
+    lda _iterative_refine__param_iterations
+    ldx _iterative_refine__param_iterations+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _iterative_refine__local_3
+    ldx _iterative_refine__local_3+1
+    cmp.16 .AX, __zp_scratch2
+    bcc @for_body9
+    bra @for_end11
+@for_body9:
+    .loc "benchmark_compound_math.c", 33
+    lda _iterative_refine__param_x
+    ldx _iterative_refine__param_x+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _iterative_refine__param_target
+    ldx _iterative_refine__param_target+1
+    sub.16 .AX, __zp_scratch2
+    sta $22
+    stx $23
+    lda #2
+    ldx #0
+    sta $24
+    stx $25
+    lda $22
+    ldx $23
+    div.16 .AX, $24
+    sta $26
+    stx $27
+    lda _iterative_refine__param_x
+    ldx _iterative_refine__param_x+1
+    add.16 .AX, $26
+    sta $28
+    stx $29
+    sta _iterative_refine__param_x
+    stx _iterative_refine__param_x+1
+    .loc "benchmark_compound_math.c", 34
+    lda #10
+    ldx #0
+    sta $2A
+    stx $2B
+    lda _iterative_refine__param_x
+    ldx _iterative_refine__param_x+1
+    div.16 .AX, $2A
+    sta $2C
+    stx $2D
+    lda _iterative_refine__param_x
+    ldx _iterative_refine__param_x+1
+    sub.16 .AX, $2C
+    sta $2E
+    stx $2F
+    sta _iterative_refine__param_x
+    stx _iterative_refine__param_x+1
+@for_inc10:
+    .loc "benchmark_compound_math.c", 32
+    lda _iterative_refine__local_3
+    ldx _iterative_refine__local_3+1
+    sta $30
+    stx $31
+    lda $30
+    ldx $31
+    add.16 .AX, #1
+    sta _iterative_refine__local_3
+    stx _iterative_refine__local_3+1
+    bra @for_cond8
+@for_end11:
+    .loc "benchmark_compound_math.c", 36
+    lda _iterative_refine__param_x
+    ldx _iterative_refine__param_x+1
+@__return:
+    rts
+    .param_const _iterative_refine 0 10
+    .param_const _iterative_refine 1 50
+    .param_const _iterative_refine 2 3
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 8
+    endproc
+
+; function _chained_operations
+; SAC inline storage: 12 bytes
+    .global _chained_operations__param_a
+    _chained_operations__param_a: .word 1
+    .global _chained_operations__param_b
+    _chained_operations__param_b: .word 2
+    .global _chained_operations__param_c
+    _chained_operations__param_c: .word 3
+    .global _chained_operations__param_d
+    _chained_operations__param_d: .word 4
+    .global _chained_operations__param_e
+    _chained_operations__param_e: .word 5
+    _chained_operations__local_0: .word 0
+    _chained_operations__local_1: .word 0
+    _chained_operations__local_2: .word 0
+    _chained_operations__local_3: .word 0
+    _chained_operations__local_4: .word 0
+    _chained_operations__local_5: .word 0
+    proc _chained_operations, W#@_p_a, W#@_p_b, W#@_p_c, W#@_p_d, W#@_p_e
+    .sac
+    .var _fp = 0
+    .loc "benchmark_compound_math.c", 21
+    .local @_l_result = 10
+; .debug_var: __chained_operations @_l_result offset=10 size=2 type=int16 scope=local
+    .var @_p_a = 2
+    .var @_p_b = 4
+    .var @_p_c = 6
+    .var @_p_d = 8
+    .var @_p_e = 10
+; .debug_var: __chained_operations @_p_a offset=2 size=2 type=int16 scope=parameter
+; .debug_var: __chained_operations @_p_b offset=4 size=2 type=int16 scope=parameter
+; .debug_var: __chained_operations @_p_c offset=6 size=2 type=int16 scope=parameter
+; .debug_var: __chained_operations @_p_d offset=8 size=2 type=int16 scope=parameter
+; .debug_var: __chained_operations @_p_e offset=10 size=2 type=int16 scope=parameter
+
+@entry:
+    .loc "benchmark_compound_math.c", 41
+    lda _chained_operations__param_a
+    ldx _chained_operations__param_a+1
+    sta _chained_operations__local_5
+    stx _chained_operations__local_5+1
+    .loc "benchmark_compound_math.c", 42
+    lda _chained_operations__param_b
+    ldx _chained_operations__param_b+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _chained_operations__local_5
+    ldx _chained_operations__local_5+1
+    add.16 .AX, __zp_scratch2
+    sta _chained_operations__local_5
+    stx _chained_operations__local_5+1
+    .loc "benchmark_compound_math.c", 43
+    lda _chained_operations__param_c
+    ldx _chained_operations__param_c+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _chained_operations__local_5
+    ldx _chained_operations__local_5+1
+    sub.16 .AX, __zp_scratch2
+    sta _chained_operations__local_5
+    stx _chained_operations__local_5+1
+    .loc "benchmark_compound_math.c", 44
+    lda _chained_operations__param_d
+    ldx _chained_operations__param_d+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _chained_operations__local_5
+    ldx _chained_operations__local_5+1
+    mul.16 .AX, __zp_scratch2
+    sta _chained_operations__local_5
+    stx _chained_operations__local_5+1
+    .loc "benchmark_compound_math.c", 45
+    lda _chained_operations__param_e
+    ldx _chained_operations__param_e+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _chained_operations__local_5
+    ldx _chained_operations__local_5+1
+    add.16 .AX, __zp_scratch2
+    sta _chained_operations__local_5
+    stx _chained_operations__local_5+1
+    .loc "benchmark_compound_math.c", 46
+    lda _chained_operations__param_a
+    ldx _chained_operations__param_a+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _chained_operations__local_5
+    ldx _chained_operations__local_5+1
+    sub.16 .AX, __zp_scratch2
+    sta _chained_operations__local_5
+    stx _chained_operations__local_5+1
+    .loc "benchmark_compound_math.c", 47
+    lda #2
+    ldx #0
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _chained_operations__local_5
+    ldx _chained_operations__local_5+1
+    mul.16 .AX, __zp_scratch2
+    sta _chained_operations__local_5
+    stx _chained_operations__local_5+1
+    .loc "benchmark_compound_math.c", 48
+    lda _chained_operations__param_c
+    ldx _chained_operations__param_c+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _chained_operations__local_5
+    ldx _chained_operations__local_5+1
+    add.16 .AX, __zp_scratch2
+    sta _chained_operations__local_5
+    stx _chained_operations__local_5+1
+    .loc "benchmark_compound_math.c", 49
+    lda _chained_operations__param_d
+    ldx _chained_operations__param_d+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _chained_operations__local_5
+    ldx _chained_operations__local_5+1
+    sub.16 .AX, __zp_scratch2
+    sta _chained_operations__local_5
+    stx _chained_operations__local_5+1
+    .loc "benchmark_compound_math.c", 50
+    lda _chained_operations__param_e
+    ldx _chained_operations__param_e+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _chained_operations__local_5
+    ldx _chained_operations__local_5+1
+    mul.16 .AX, __zp_scratch2
+    sta _chained_operations__local_5
+    stx _chained_operations__local_5+1
+    .loc "benchmark_compound_math.c", 51
+    lda _chained_operations__local_5
+    ldx _chained_operations__local_5+1
+@__return:
+    rts
+    .param_const _chained_operations 0 1
+    .param_const _chained_operations 1 2
+    .param_const _chained_operations 2 3
+    .param_const _chained_operations 3 4
+    .param_const _chained_operations 4 5
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 12
+    endproc
+
+; function _bitwise_accum
+
+    ; Static buffer for struct return from _bitwise_accum
+    _bitwise_accum__struct_buf:
+    .byte 0, 0, 0, 0
+
+; SAC inline storage: 10 bytes
+    .global _bitwise_accum__param_flags
+    _bitwise_accum__param_flags: .word 0
+    .global _bitwise_accum__param_len
+    _bitwise_accum__param_len: .word 4
+    _bitwise_accum__local_0: .word 0
+    _bitwise_accum__local_1: .word 0
+    _bitwise_accum__local_2: .long 0
+    _bitwise_accum__local_4: .word 0
+    proc _bitwise_accum, W#@_p_flags, W#@_p_len
+    .sac
+    .var _fp = 0
+    .loc "benchmark_compound_math.c", 36
+    .local @_l_acc = 6
+    .local @_l_i = 4
+; .debug_var: __bitwise_accum @_l_acc offset=6 size=4 type=int32 scope=local
+; .debug_var: __bitwise_accum @_l_i offset=4 size=2 type=int16 scope=local
+    .var @_p_flags = 2
+    .var @_p_len = 4
+; .debug_var: __bitwise_accum @_p_flags offset=2 size=2 type=ptr scope=parameter
+; .debug_var: __bitwise_accum @_p_len offset=4 size=2 type=int16 scope=parameter
+
+@entry:
+    .loc "benchmark_compound_math.c", 56
+    lda #0
+    sta _bitwise_accum__local_2
+    sta _bitwise_accum__local_2+1
+    .loc "benchmark_compound_math.c", 57
+    lda #0
+    sta _bitwise_accum__local_4
+    sta _bitwise_accum__local_4+1
+@for_cond12:
+    lda _bitwise_accum__param_len
+    ldx _bitwise_accum__param_len+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _bitwise_accum__local_4
+    ldx _bitwise_accum__local_4+1
+    cmp.16 .AX, __zp_scratch2
+    bcc @for_body13
+    bra @for_end15
+@for_body13:
+    .loc "benchmark_compound_math.c", 58
+    lda _bitwise_accum__param_flags
+    ldx _bitwise_accum__param_flags+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _bitwise_accum__local_4
+    ldx _bitwise_accum__local_4+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $22
+    stx $22+1
+    ldy #0
+    lda ($22),y
+    pha
+    iny
+    lda ($22),y
+    tax
+    pla
+    sta $24
+    stx $25
+    lda $24
+    ldx $25
+    ldy #0
+    ldz #0
+    sta $26
+    stx $27
+    sty $28
+    stz $29
+    lda _bitwise_accum__local_2
+    ldx _bitwise_accum__local_2+1
+    ldy _bitwise_accum__local_2+2
+    ldz _bitwise_accum__local_2+3
+    ora.32 .AXYZ, $26
+    sta $2A
+    stx $2B
+    sty $2C
+    stz $2D
+    lda $2A
+    ldx $2B
+    ldy $2C
+    ldz $2D
+    sta _bitwise_accum__local_2
+    stx _bitwise_accum__local_2+1
+    sty _bitwise_accum__local_2+2
+    stz _bitwise_accum__local_2+3
+    .loc "benchmark_compound_math.c", 59
+    lda _bitwise_accum__param_flags
+    ldx _bitwise_accum__param_flags+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _bitwise_accum__local_4
+    ldx _bitwise_accum__local_4+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $2E
+    stx $2E+1
+    ldy #0
+    lda ($2E),y
+    pha
+    iny
+    lda ($2E),y
+    tax
+    pla
+    sta $30
+    stx $31
+    lda #0
+    ldx #255
+    sta $32
+    stx $33
+    lda $30
+    ldx $31
+    ora.16 .AX, $32
+    sta $34
+    stx $35
+    lda $34
+    ldx $35
+    ldy #0
+    ldz #0
+    sta $36
+    stx $37
+    sty $38
+    stz $39
+    lda _bitwise_accum__local_2
+    ldx _bitwise_accum__local_2+1
+    ldy _bitwise_accum__local_2+2
+    ldz _bitwise_accum__local_2+3
+    and.32 .AXYZ, $36
+    sta $3A
+    stx $3B
+    sty $3C
+    stz $3D
+    lda $3A
+    ldx $3B
+    ldy $3C
+    ldz $3D
+    sta _bitwise_accum__local_2
+    stx _bitwise_accum__local_2+1
+    sty _bitwise_accum__local_2+2
+    stz _bitwise_accum__local_2+3
+    .loc "benchmark_compound_math.c", 60
+    lda _bitwise_accum__param_flags
+    ldx _bitwise_accum__param_flags+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _bitwise_accum__local_4
+    ldx _bitwise_accum__local_4+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $3E
+    stx $3E+1
+    ldy #0
+    lda ($3E),y
+    pha
+    iny
+    lda ($3E),y
+    tax
+    pla
+    sta $40
+    stx $41
+    lda $40
+    ldx $41
+    lda _bitwise_accum__local_4
+    ldx _bitwise_accum__local_4+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy __zp_scratch2
+    beq @__shl_done_1
+@__shl_loop_0:
+    lsl.16 .AX
+    dey
+    bne @__shl_loop_0
+@__shl_done_1:
+    sta $42
+    stx $43
+    lda $42
+    ldx $43
+    ldy #0
+    ldz #0
+    sta $44
+    stx $45
+    sty $46
+    stz $47
+    lda _bitwise_accum__local_2
+    ldx _bitwise_accum__local_2+1
+    ldy _bitwise_accum__local_2+2
+    ldz _bitwise_accum__local_2+3
+    eor.32 .AXYZ, $44
+    sta $48
+    stx $49
+    sty $4A
+    stz $4B
+    lda $48
+    ldx $49
+    ldy $4A
+    ldz $4B
+    sta _bitwise_accum__local_2
+    stx _bitwise_accum__local_2+1
+    sty _bitwise_accum__local_2+2
+    stz _bitwise_accum__local_2+3
+@for_inc14:
+    .loc "benchmark_compound_math.c", 57
+    lda _bitwise_accum__local_4
+    ldx _bitwise_accum__local_4+1
+    sta $4C
+    stx $4D
+    lda $4C
+    ldx $4D
+    add.16 .AX, #1
+    sta _bitwise_accum__local_4
+    stx _bitwise_accum__local_4+1
+    bra @for_cond12
+@for_end15:
+    .loc "benchmark_compound_math.c", 62
+    lda _bitwise_accum__local_2
+    ldx _bitwise_accum__local_2+1
+    ldy _bitwise_accum__local_2+2
+    ldz _bitwise_accum__local_2+3
+@__return:
+    rts
+    .param_const _bitwise_accum 1 4
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    .frame_size 10
+    endproc
+
+; function _nested_compound
+; SAC inline storage: 6 bytes
+    .global _nested_compound__param_x
+    _nested_compound__param_x: .word 3
+    _nested_compound__local_0: .word 0
+    _nested_compound__local_1: .word 0
+    _nested_compound__local_2: .word 0
+    proc _nested_compound, W#@_p_x
+    .sac
+    .var _fp = 0
+    .loc "benchmark_compound_math.c", 47
+    .local @_l_i = 4
+    .local @_l_y = 2
+; .debug_var: __nested_compound @_l_i offset=4 size=2 type=int16 scope=local
+; .debug_var: __nested_compound @_l_y offset=2 size=2 type=int16 scope=local
+    .var @_p_x = 2
+; .debug_var: __nested_compound @_p_x offset=2 size=2 type=int16 scope=parameter
+
+@entry:
+    .loc "benchmark_compound_math.c", 67
+    lda _nested_compound__param_x
+    ldx _nested_compound__param_x+1
+    sta _nested_compound__local_1
+    stx _nested_compound__local_1+1
+    .loc "benchmark_compound_math.c", 68
+    lda #0
+    sta _nested_compound__local_2
+    sta _nested_compound__local_2+1
+@for_cond16:
+    lda _nested_compound__local_2
+    ldx _nested_compound__local_2+1
+    cmp.16 .AX, #5
+    bcc @for_body17
+    bra @for_end19
+@for_body17:
+    .loc "benchmark_compound_math.c", 69
+    lda _nested_compound__local_2
+    ldx _nested_compound__local_2+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _nested_compound__local_1
+    ldx _nested_compound__local_1+1
+    add.16 .AX, __zp_scratch2
+    sta $24
+    stx $25
+    sta _nested_compound__local_1
+    stx _nested_compound__local_1+1
+    .loc "benchmark_compound_math.c", 70
+    dec.16f __vr1
+    .loc "benchmark_compound_math.c", 71
+    lda #2
+    ldx #0
+    sta $2A
+    stx $2B
+    lda _nested_compound__local_1
+    ldx _nested_compound__local_1+1
+    mul.16 .AX, $2A
+    sta $2C
+    stx $2D
+    lda $2C
+    ldx $2D
+    sta _nested_compound__local_1
+    stx _nested_compound__local_1+1
+@for_inc18:
+    .loc "benchmark_compound_math.c", 68
+    lda _nested_compound__local_2
+    ldx _nested_compound__local_2+1
+    sta $2E
+    stx $2F
+    lda $2E
+    ldx $2F
+    add.16 .AX, #1
+    sta _nested_compound__local_2
+    stx _nested_compound__local_2+1
+    bra @for_cond16
+@for_end19:
+    .loc "benchmark_compound_math.c", 73
+    lda _nested_compound__local_1
+    ldx _nested_compound__local_1+1
+@__return:
+    rts
+    .param_const _nested_compound 0 3
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 6
+    endproc
+
+; function _main
+; SAC inline storage: 12 bytes
+    _main__local_0: .word 0
+    _main__local_1: .word 0
+    _main__local_2: .word 0
+    _main__local_4: .word 0
+    _main__local_14: .word 0
+    _main__local_15: .word 0
+    _main__local_16: .word 0
+    _main__local_17: .word 0
+    _main__local_18: .word 0
+    _main__local_19: .word 0
+    _main__local_20: .word 0
+    _main__local_22: .word 0
+    _main__local_23: .word 0
+    _main__local_24: .word 0
+    _main__local_25: .word 0
+    _main__local_26: .word 0
+    _main__local_28: .word 0
+    _main__local_29: .word 0
+    _main__local_30: .word 0
+    _main__local_31: .word 0
+    _main__local_32: .word 0
+    _main__local_33: .word 0
+    _main__local_34: .word 0
+    _main__local_36: .word 0
+    _main__local_37: .word 0
+    _main__local_38: .word 0
+    _main__local_39: .long 0
+    _main__local_41: .word 0
+    _main__local_42: .word 0
+    _main__local_43: .word 0
+    proc _main
+; Phase 51: zero-alloc leaf (all parameters constant)
+    .var _fp = 0
+    .loc "benchmark_compound_math.c", 57
+    .local @_l_data = 4
+    .local @_l_p = 2
+    .local @_l_s = 0
+; .debug_var: __main @_l_data offset=4 size=2 type=int16 scope=local
+; .debug_var: __main @_l_p offset=2 size=2 type=int16 scope=local
+; .debug_var: __main @_l_s offset=0 size=2 type=int16 scope=local
+
+@entry:
+    .loc "benchmark_compound_math.c", 77
+    ldax #__str_20
+    sta _main__local_0
+    stx _main__local_0+1
+    jsr _accumulate_series
+    sta _main__local_2
+    stx _main__local_2+1
+    lda _main__local_2
+    ldx _main__local_2+1
+    sta $28
+    stx $29
+    lda _main__local_0
+    ldx _main__local_0+1
+    sta $2A
+    stx $2B
+    lda $28
+    ldx $29
+    push .ax
+    lda $2A
+    ldx $2B
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_math.c", 79
+    leax.local 4
+    sta $20
+    stx $21
+    lda #2
+    ldx #0
+    lda $20
+    ldx $20+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy #0
+    sta (__zp_scratch2),y
+    txa
+    iny
+    sta (__zp_scratch2),y
+    lda #3
+    ldx #0
+    lda $20
+    ldx $20+1
+    add.16 .AX, #2
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy #0
+    sta (__zp_scratch2),y
+    txa
+    iny
+    sta (__zp_scratch2),y
+    lda #4
+    ldx #0
+    lda $20
+    ldx $20+1
+    add.16 .AX, #4
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy #0
+    sta (__zp_scratch2),y
+    txa
+    iny
+    sta (__zp_scratch2),y
+    lda #5
+    ldx #0
+    lda $20
+    ldx $20+1
+    add.16 .AX, #6
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    ldy #0
+    sta (__zp_scratch2),y
+    txa
+    iny
+    sta (__zp_scratch2),y
+    .loc "benchmark_compound_math.c", 81
+    leax.local 4
+    sta _main__local_16
+    stx _main__local_16+1
+    lda #4
+    ldx #0
+    sta _main__local_17
+    stx _main__local_17+1
+    leax.local 0
+    sta _main__local_18
+    stx _main__local_18+1
+    leax.local 2
+    sta _main__local_19
+    stx _main__local_19+1
+    lda _main__local_19
+    ldx _main__local_19+1
+    sta _compute_stats__param_out_product
+    stx _compute_stats__param_out_product+1
+    lda _main__local_18
+    ldx _main__local_18+1
+    sta _compute_stats__param_out_sum
+    stx _compute_stats__param_out_sum+1
+    lda _main__local_16
+    ldx _main__local_16+1
+    sta _compute_stats__param_data
+    stx _compute_stats__param_data+1
+    jsr _compute_stats
+    .loc "benchmark_compound_math.c", 82
+    ldax #__str_21
+    sta _main__local_20
+    stx _main__local_20+1
+    lda _main__local_15
+    ldx _main__local_15+1
+    sta $28
+    stx $29
+    lda _main__local_14
+    ldx _main__local_14+1
+    sta $2A
+    stx $2B
+    lda _main__local_20
+    ldx _main__local_20+1
+    sta $2C
+    stx $2D
+    lda $28
+    ldx $29
+    push .ax
+    lda $2A
+    ldx $2B
+    push .ax
+    lda $2C
+    ldx $2D
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_math.c", 84
+    ldax #__str_22
+    sta _main__local_22
+    stx _main__local_22+1
+    jsr _iterative_refine
+    sta _main__local_26
+    stx _main__local_26+1
+    lda _main__local_26
+    ldx _main__local_26+1
+    sta $28
+    stx $29
+    lda _main__local_22
+    ldx _main__local_22+1
+    sta $2A
+    stx $2B
+    lda $28
+    ldx $29
+    push .ax
+    lda $2A
+    ldx $2B
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_math.c", 85
+    ldax #__str_23
+    sta _main__local_28
+    stx _main__local_28+1
+    jsr _chained_operations
+    sta _main__local_34
+    stx _main__local_34+1
+    lda _main__local_34
+    ldx _main__local_34+1
+    sta $28
+    stx $29
+    lda _main__local_28
+    ldx _main__local_28+1
+    sta $2A
+    stx $2B
+    lda $28
+    ldx $29
+    push .ax
+    lda $2A
+    ldx $2B
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_math.c", 86
+    ldax #__str_24
+    sta _main__local_36
+    stx _main__local_36+1
+    leax.local 4
+    sta _main__local_37
+    stx _main__local_37+1
+    lda #4
+    ldx #0
+    sta _main__local_38
+    stx _main__local_38+1
+    lda _main__local_37
+    ldx _main__local_37+1
+    sta _bitwise_accum__param_flags
+    stx _bitwise_accum__param_flags+1
+    jsr _bitwise_accum
+    sta _main__local_39
+    stx _main__local_39+1
+    sty _main__local_39+2
+    stz _main__local_39+3
+    lda _main__local_39
+    ldx _main__local_39+1
+    ldy _main__local_39+2
+    ldz _main__local_39+3
+    sta $28
+    stx $29
+    sty $2A
+    stz $2B
+    lda _main__local_36
+    ldx _main__local_36+1
+    sta $2C
+    stx $2D
+    lda $28
+    ldx $29
+    ldy $2A
+    ldz $2B
+    push .axyz
+    lda $2C
+    ldx $2D
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_math.c", 87
+    ldax #__str_25
+    sta _main__local_41
+    stx _main__local_41+1
+    jsr _nested_compound
+    sta _main__local_43
+    stx _main__local_43+1
+    lda _main__local_43
+    ldx _main__local_43+1
+    sta $28
+    stx $29
+    lda _main__local_41
+    ldx _main__local_41+1
+    sta $2A
+    stx $2B
+    lda $28
+    ldx $29
+    push .ax
+    lda $2A
+    ldx $2B
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_math.c", 89
+    lda #0
+    ldx #0
+@__return:
+    rts
+    .func_flags stack_call, static_alloc
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    .frame_size 12
+    endproc
+
+
+    .segment "data"
+__str_20:
+    .text "sum=%d
+"
+    .byte 0
+__str_21:
+    .text "sum=%d prod=%d
+"
+    .byte 0
+__str_22:
+    .text "refined=%d
+"
+    .byte 0
+__str_23:
+    .text "chained=%d
+"
+    .byte 0
+__str_24:
+    .text "bitwise=%ld
+"
+    .byte 0
+__str_25:
+    .text "nested=%d
+"
+    .byte 0
+
+__zp_save_buf:
+; [DEBUG] Phase 87 code reached, optimize=false

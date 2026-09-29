@@ -2,6 +2,8 @@
 #include <cstring>
 #include <algorithm>
 
+D64Image::D64Image() : bamOps_(std::make_unique<D64BAMOperations>()) {}
+
 // ============================================================================
 // D64 track zone layout
 // ============================================================================
@@ -64,39 +66,24 @@ int D64Image::sectorOffset(int track, int sector) const {
 // ============================================================================
 
 bool D64Image::isSectorFree(int track, int sector) const {
-    if (track < 1 || track > TRACKS) return false;
+    if (!bamOps_) return false;
     const uint8_t* bam = sectorData(DIR_TRACK, BAM_SECTOR);
     if (!bam) return false;
-    int off = 0x04 + (track - 1) * 4;
-    int byteIdx = 1 + (sector / 8);
-    int bitIdx = sector % 8;
-    return (bam[off + byteIdx] >> bitIdx) & 1;
+    return bamOps_->isSectorFree(bam, track, sector);
 }
 
 bool D64Image::allocateSector(int track, int sector) {
-    if (track < 1 || track > TRACKS) return false;
+    if (!bamOps_) return false;
     uint8_t* bam = sectorData(DIR_TRACK, BAM_SECTOR);
     if (!bam) return false;
-    int off = 0x04 + (track - 1) * 4;
-    int byteIdx = 1 + (sector / 8);
-    int bitIdx = sector % 8;
-    if (!((bam[off + byteIdx] >> bitIdx) & 1)) return false;
-    bam[off + byteIdx] &= ~(1 << bitIdx);
-    bam[off]--; // decrement free count
-    return true;
+    return bamOps_->allocateSector(bam, track, sector);
 }
 
 bool D64Image::freeSector(int track, int sector) {
-    if (track < 1 || track > TRACKS) return false;
+    if (!bamOps_) return false;
     uint8_t* bam = sectorData(DIR_TRACK, BAM_SECTOR);
     if (!bam) return false;
-    int off = 0x04 + (track - 1) * 4;
-    int byteIdx = 1 + (sector / 8);
-    int bitIdx = sector % 8;
-    if ((bam[off + byteIdx] >> bitIdx) & 1) return false;
-    bam[off + byteIdx] |= (1 << bitIdx);
-    bam[off]++;
-    return true;
+    return bamOps_->freeSector(bam, track, sector);
 }
 
 TrackSector D64Image::allocateNextFree(int nearTrack) {
@@ -119,13 +106,10 @@ TrackSector D64Image::allocateNextFree(int nearTrack) {
 }
 
 int D64Image::freeSectors() const {
+    if (!bamOps_) return 0;
     const uint8_t* bam = sectorData(DIR_TRACK, BAM_SECTOR);
     if (!bam) return 0;
-    int count = 0;
-    for (int t = 0; t < TRACKS; t++) {
-        count += bam[0x04 + t * 4];
-    }
-    return count;
+    return bamOps_->countFreeSectors(bam);
 }
 
 // ============================================================================

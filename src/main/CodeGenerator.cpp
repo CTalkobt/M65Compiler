@@ -1,9 +1,16 @@
 #include "CodeGenerator.hpp"
+#include "Diagnostic.hpp"
+#include "AddressTemplateDetector.hpp"
+#include "AddressTemplates.hpp"
+#include "ZeroArgCallDetector.hpp"
+#include "FieldStripedOffsetCalc.hpp"
+#include "AddressSpaceValidator.hpp"
 #include <iostream>
 #include <iomanip>
 #include <sstream>
 #include <algorithm>
 #include <set>
+#include <cstdlib>
 
 CodeGenerator::CodeGenerator(std::ostream& out) : out(out) {}
 
@@ -115,6 +122,77 @@ void CodeGenerator::generate(TranslationUnit& unit) {
 
 void CodeGenerator::emit(const std::string& line) {
     out << "    " << line << std::endl;
+}
+
+std::string CodeGenerator::formatDebugType(const std::string& type, int pointerLevel, const std::vector<int>& arrayDims) {
+    std::string result;
+
+    // Map C types to debug type identifiers
+    if (type == "char") result = "char";
+    else if (type == "_Bool") result = "uint8";
+    else if (type == "int") result = "int16";
+    else if (type == "long") result = "int32";
+    else if (type == "unsigned char") result = "uint8";
+    else if (type == "unsigned") result = "uint16";
+    else if (type == "unsigned int") result = "uint16";
+    else if (type == "unsigned long") result = "uint32";
+    else if (type == "signed char") result = "int8";
+    else if (type == "signed int") result = "int16";
+    else if (type == "signed long") result = "int32";
+    else if (type == "short") result = "int16";
+    else if (type == "unsigned short") result = "uint16";
+    else if (type == "signed short") result = "int16";
+    else if (type == "float" || type == "double") result = "float";
+    else if (isStruct(type)) result = "struct_" + type;
+    else result = type;  // Keep as-is for unknown/custom types
+
+    // Add pointer levels
+    for (int i = 0; i < pointerLevel; i++) {
+        result += "*";
+    }
+
+    // Add array dimensions
+    for (int dim : arrayDims) {
+        result += "[";
+        result += std::to_string(dim);
+        result += "]";
+    }
+
+    return result;
+}
+
+void CodeGenerator::emitDebugVariable(const std::string& functionName, const std::string& varName, uint32_t offset,
+                                     const std::string& type, int pointerLevel, const std::string& scope,
+                                     const std::vector<int>& arrayDims, int srcLine, const std::string& displayName) {
+    std::string debugType = formatDebugType(type, pointerLevel, arrayDims);
+
+    // Calculate size in bytes
+    int size = 1;  // default
+    if (pointerLevel > 0) size = 2;  // pointers are 16-bit
+    else if (type == "char" || type == "_Bool" || type == "unsigned char" || type == "signed char") size = 1;
+    else if (type == "long" || type == "unsigned long" || type == "signed long") size = 4;
+    else if (type == "short" || type == "unsigned short" || type == "signed short") size = 2;
+    else if (type == "int" || type == "unsigned int" || type == "unsigned" || type == "signed int") size = 2;
+    else if (type == "float" || type == "double") size = 4;
+    else {
+        // For structs, try to look up the size
+        if (isStruct(type) && structs.count(type)) {
+            size = structs.at(type)->totalSize;
+        }
+    }
+
+    // Apply array dimensions to size
+    for (int dim : arrayDims) {
+        size *= dim;
+    }
+
+    std::stringstream ss;
+    ss << "; .debug_var: " << functionName << " " << varName << " offset=" << offset
+       << " size=" << size << " type=" << debugType << " scope=" << scope;
+    if (srcLine >= 0) ss << " src_line=" << srcLine;
+    if (!displayName.empty() && displayName != varName) ss << " name=" << displayName;
+
+    emit(ss.str());
 }
 
 void CodeGenerator::emitBranch16Beq(const std::string& target) {
@@ -442,6 +520,25 @@ void CodeGenerator::emitAddress(Expression* expr) {
             }
         }
     } else if (auto* aa = dynamic_cast<ArrayAccess*>(expr)) {
+        // Phase 92.3: Detect and handle striped arrays
+        // Striped arrays use optimized indexing for 2D int arrays
+        if (auto* inner = dynamic_cast<ArrayAccess*>(aa->arrayExpr.get())) {
+            // Check if this is a striped 2D array access
+            Expression* base = inner->arrayExpr.get();
+            if (auto* baseRef = dynamic_cast<VariableReference*>(base)) {
+                std::string rName = resolveVarName(baseRef->name);
+                VarInfo* vi = nullptr;
+                if (variableTypes.count(rName)) vi = &variableTypes.at(rName);
+                else if (globalVariableTypes.count(rName)) vi = &globalVariableTypes.at(rName);
+
+                // Use striped optimization if available
+                if (vi && vi->isStriped && vi->arrayDims.size() == 2 && vi->type == "int") {
+                    emitStripedArrayAccess(*aa, *vi, baseRef);
+                    return;  // Striped path complete
+                }
+            }
+        }
+
         bool oldNeeded = resultNeeded;
         resultNeeded = true;
         // For chained array access (multi-dim), recurse via emitAddress to get
@@ -527,7 +624,10 @@ void CodeGenerator::emitIndirectIncDec(UnaryOperation& node, bool isInc, bool is
     // Handle ++/-- on indirect lvalues: (*p)++, arr[i]--, p->field++, etc.
     // Strategy: compute lvalue address → ZP, load value, inc/dec, store back.
     ExpressionType valType = getExprType(node.operand.get());
-    if (valType.isConst) throw std::runtime_error("Compile Error: Increment/decrement of read-only location");
+    if (valType.isConst) {
+        std::string errMsg = "Cannot increment/decrement read-only location";
+        throw std::runtime_error(formatSemanticError(errMsg, node.sourceFile, node.line, node.column));
+    }
     bool is16 = (valType.pointerLevel > 0 || valType.type == "int");
     if (isStruct(valType.type)) {
         std::string sName = getAggregateName(valType.type);
@@ -786,6 +886,21 @@ public:
     std::vector<LocalInfo> locals;
     int maxFrameSize = 0;
 
+    // Phase 90: Lazy FP Initialization
+    bool hasFunctionCalls = false;      // Set to true if any function call found
+    bool hasFrameVariables = false;     // Set to true if any locals found
+    bool isLeafFunction = true;         // Set to false if any function call found (leaf detection)
+    int functionCallCount = 0;          // Count of function calls in function
+
+    bool needsFramePointer() const {
+        return hasFrameVariables || hasFunctionCalls;
+    }
+
+    bool isLeaf() const {
+        // Phase 90.2: Leaf function = no calls to other functions
+        return isLeafFunction && functionCallCount == 0;
+    }
+
     FrameScanner(const std::map<std::string, std::shared_ptr<CodeGenerator::StructInfo>>& s) : structs_(s) {}
 
     void scan(CompoundStatement& body) {
@@ -814,6 +929,9 @@ public:
         locals.push_back({lName, size, currentOffset_});
         currentOffset_ += size;
         if (currentOffset_ > maxFrameSize) maxFrameSize = currentOffset_;
+
+        // Phase 90: Track that function has frame variables
+        hasFrameVariables = true;
 
         // Walk initializer to find compound literals that need frame space
         if (node.initializer) node.initializer->accept(*this);
@@ -844,7 +962,14 @@ public:
     void visit(GenericSelection& n) override { if (n.control) n.control->accept(*this); for (auto& a : n.associations) if (a.result) a.result->accept(*this); }
     void visit(InitializerList& n) override { for (auto& e : n.elements) if (e) e->accept(*this); }
     void visit(ArrayAccess& n) override { if (n.arrayExpr) n.arrayExpr->accept(*this); if (n.indexExpr) n.indexExpr->accept(*this); }
-    void visit(FunctionCall& n) override { for (auto& a : n.arguments) if (a) a->accept(*this); }
+    void visit(FunctionCall& n) override {
+        // Phase 90: Track that function has calls (may need FP recalculation)
+        hasFunctionCalls = true;
+        // Phase 90.2: Leaf function detection - any call means not a leaf
+        isLeafFunction = false;
+        functionCallCount++;
+        for (auto& a : n.arguments) if (a) a->accept(*this);
+    }
     void visit(MemberAccess& n) override { if (n.structExpr) n.structExpr->accept(*this); }
     void visit(CastExpression& n) override { if (n.expression) n.expression->accept(*this); }
     void visit(CompoundLiteral& n) override {
@@ -988,7 +1113,7 @@ void CodeGenerator::visit(CpuFlagAccess& node) {
 
 void CodeGenerator::visit(TranslationUnit& node) {
     out << "; Generated by cc45" << std::endl;
-    out << ".segmentOrder code, data, bss" << std::endl;
+    out << ".segmentOrder code, data, bss, zp" << std::endl;
     out << ".code" << std::endl;
 
     // Collect all known function names (definitions + prototypes) for call validation
@@ -1071,6 +1196,8 @@ void CodeGenerator::visit(TranslationUnit& node) {
                 out << ".global _" << name << std::endl;
             }
         }
+
+        // NOTE: Old BSS __ar symbols removed - now using inline SAC storage instead
 
         // Emit .extern __sp_base for relocatable code (linker provides from CRT)
         out << ".extern __sp_base" << std::endl;
@@ -1226,6 +1353,17 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     scanner.scan(*node.body);
     int frameSize = scanner.maxFrameSize;
 
+    // Phase 90.2: Detect leaf functions (no calls to other functions)
+    CallCollector callCollector;
+    node.body->accept(callCollector);
+    bool isLeafFunction = callCollector.calledFunctions.empty();
+
+    // Phase 90.3: Detect zero-argument calls (FP doesn't need recalc after)
+    // TODO: Implement complete ZeroArgCallDetector visitor methods
+    // ZeroArgCallDetector zeroArgDetector;
+    // node.body->accept(zeroArgDetector);
+    // Use this info later for FP recalculation optimization
+
     // Store frame layout for use by visit(VariableDeclaration)
     frameLocals_.clear();
     for (auto& loc : scanner.locals) {
@@ -1322,10 +1460,9 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
         emit(".var _fp = 0");
         currentVars.push_back("_fp");
 
-        // Detect leaf functions — if no calls, no need for caller-save
-        CallCollector callChecker;
-        node.body->accept(callChecker);
-        bool isLeaf = callChecker.calledFunctions.empty();
+        // Phase 90.2: Detect leaf functions — if no calls, no need for caller-save
+        // Using isLeafFunction computed earlier (via CallCollector at line 1332)
+        bool isLeaf = isLeafFunction;
 
         // Compute caller-save area: save our ZP params when making calls
         // Leaf functions never need caller-save (no calls = no clobber risk)
@@ -1373,6 +1510,33 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
                 emit("; " + pi.pName + " = " + zpHex(zpi.zpAddr) + " (" + std::to_string(zpi.size) + " bytes)");
             }
         }
+
+        // Emit debug metadata for parameters
+        for (auto& pi : paramInfos) {
+            if (variableTypes.count(pi.pName)) {
+                VarInfo& vi = variableTypes.at(pi.pName);
+                uint32_t offset;
+                if (zpSpilledParams_.count(pi.pName)) {
+                    offset = zpSpilledParams_[pi.pName].frameOffset;
+                } else {
+                    offset = zpParams_[pi.pName].zpAddr;
+                }
+                emitDebugVariable("_" + node.name, pi.pName, offset, vi.type, vi.pointerLevel,
+                                "parameter", vi.arrayDims, node.line, "");
+            }
+        }
+
+        // Emit debug metadata for local variables
+        for (auto& loc : scanner.locals) {
+            if (variableTypes.count(loc.name)) {
+                VarInfo& vi = variableTypes.at(loc.name);
+                emitDebugVariable("_" + node.name, loc.name, loc.frameOffset, vi.type, vi.pointerLevel,
+                                "local", vi.arrayDims, -1, "");
+            }
+        }
+
+        // Phase 113: Emit function DWARF DIE and line entry for function start
+        emitFunctionDIE(node, currentFunction ? 0 : 0);  // Address will be set during linking
 
         node.body->accept(*this);
         if (!node.isNoreturn) {
@@ -1469,6 +1633,7 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     }
 
     // --- Stack-based calling convention (original) ---
+    emit("; DEBUG: Entering stack-based calling convention path for " + node.name);
     std::string procLine = "proc _" + node.name;
 
     if (needsHiddenPtr) {
@@ -1502,12 +1667,21 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     }
 
     // Set up ZP frame pointer ($FD/$FE) for stack-relative access.
-    // FP points to the first frame byte (SP+1 after frame allocation).
+    // FP points past the frame (SP + frameSize + 1), so parameters are at FP + 2.
     // This eliminates per-access __sp_base relocations.
-    if (!useZpCall_) {
-        emit("; setup frame pointer");
+    // Phase 90: Only set up FP if function has locals or makes calls (lazy initialization)
+    if (!useZpCall_ && scanner.needsFramePointer()) {
+        emit("; setup frame pointer (Phase 90: lazy init)");
+        // Phase 90.3: Emit diagnostic for zero-arg call optimization opportunities
+        // TODO: Implement ZeroArgCallDetector
+        // if (zeroArgDetector.zeroArgCallCount > 0) {
+        //     emit("; Phase 90.3: " + std::to_string(zeroArgDetector.zeroArgCallCount) +
+        //          " zero-arg calls detected (FP recalc can be skipped)");
+        // }
         emitter->setFramePointerZP(0xFD);
         emitter->setupFramePointer();
+    } else if (!useZpCall_) {
+        emit("; skip frame pointer (Phase 90: leaf function, no locals or calls)");
     }
 
     for (auto& loc : scanner.locals) {
@@ -1515,6 +1689,7 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
     }
 
     // Params: stack-relative, past frame + return address.
+    // FP now points past the frame (at parameter region), so parameters are at FP + 2.
     {
         int pOff = frameSize + 2;
         if (node.isVariadic) {
@@ -1531,6 +1706,44 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
             }
         }
     }
+
+    // Emit debug metadata for local variables (stack convention)
+    for (auto& loc : scanner.locals) {
+        if (variableTypes.count(loc.name)) {
+            VarInfo& vi = variableTypes.at(loc.name);
+            emitDebugVariable("_" + node.name, loc.name, loc.frameOffset, vi.type, vi.pointerLevel,
+                            "local", vi.arrayDims, -1, "");
+        }
+    }
+
+    // Emit debug metadata for parameters (stack convention)
+    emit("; DEBUG: Starting parameter metadata emission for " + node.name);
+    {
+        int pOff = frameSize + 2;  // Parameters start at FP + frameSize + 2
+        if (node.isVariadic) {
+            for (int i = 0; i < (int)paramInfos.size(); ++i) {
+                if (variableTypes.count(paramInfos[i].pName)) {
+                    VarInfo& vi = variableTypes.at(paramInfos[i].pName);
+                    emitDebugVariable("_" + node.name, paramInfos[i].pName, pOff, vi.type, vi.pointerLevel,
+                                    "parameter", vi.arrayDims, node.line, "");
+                }
+                pOff += paramInfos[i].size;
+            }
+        } else {
+            pOff = frameSize + 2;  // Parameters start at FP + frameSize + 2
+            for (int i = (int)paramInfos.size() - 1; i >= 0; --i) {
+                if (variableTypes.count(paramInfos[i].pName)) {
+                    VarInfo& vi = variableTypes.at(paramInfos[i].pName);
+                    emitDebugVariable("_" + node.name, paramInfos[i].pName, pOff, vi.type, vi.pointerLevel,
+                                    "parameter", vi.arrayDims, node.line, "");
+                }
+                pOff += paramInfos[i].size;
+            }
+        }
+    }
+
+    // Phase 113: Emit function DWARF DIE and line entry for function start
+    emitFunctionDIE(node, currentFunction ? 0 : 0);  // Address will be set during linking
 
     node.body->accept(*this);
     if (!node.isNoreturn) {
@@ -1554,11 +1767,10 @@ void CodeGenerator::visit(FunctionDeclaration& node) {
             }
         }
     }
-    // Detect leaf functions for stack path (ZP path did this at line 1169)
+    // Phase 90.2: Detect leaf functions for stack path
+    // Using isLeafFunction computed earlier (via CallCollector at line 1332)
     {
-        CallCollector stackCallChecker;
-        node.body->accept(stackCallChecker);
-        bool isLeaf = stackCallChecker.calledFunctions.empty();
+        bool isLeaf = isLeafFunction;
         emit(isLeaf ? ".func_flags stack_call, leaf" : ".func_flags stack_call");
     }
     // Emit reg/flag clobbers from tracking
@@ -1774,6 +1986,135 @@ void CodeGenerator::visit(VariableDeclaration& node) {
     if (node.isGlobal || currentFunction == nullptr) {
         std::string gName = "_" + node.name;
         globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims, node.isFunctionPointer, node.funcPtrSig};
+        globalVariableTypes[gName].isStriped = node.isStriped;  // Phase 92: Propagate striped flag
+        globalVariableTypes[gName].addressSpace = node.addressSpace;  // Phase 97: Propagate address space qualifier
+
+        // Phase 95: Field-level striping — extract field metadata if struct array is striped
+        if (node.isStriped && isStruct(node.type) && node.arrayDims.size() >= 2) {
+            std::string sName = getAggregateName(node.type);
+            if (structs.count(sName)) {
+                auto& sInfo = *structs[sName];
+                globalVariableTypes[gName].isFieldStriped = true;
+
+                // Extract field names and sizes in order of their offsets
+                std::vector<std::pair<std::string, int>> fieldInfo;
+                for (auto& [fname, finfo] : sInfo.members) {
+                    int fsize = 0;
+                    if (finfo.pointerLevel > 0) fsize = 2;
+                    else if (finfo.type == "int") fsize = 2;
+                    else if (is8BitType(finfo.type)) fsize = 1;
+                    else if (is32BitType(finfo.type)) fsize = 2;
+                    else if (is32BitType(finfo.type)) fsize = 4;
+                    else if (is32BitType(finfo.type)) fsize = 8;
+                    else if (isStruct(finfo.type)) {
+                        std::string nestedName = getAggregateName(finfo.type);
+                        if (structs.count(nestedName)) fsize = structs[nestedName]->totalSize;
+                    }
+                    if (fsize > 0) fieldInfo.push_back({fname, fsize});
+                }
+
+                // Sort by struct member offset
+                std::sort(fieldInfo.begin(), fieldInfo.end(),
+                         [&sInfo](const auto& a, const auto& b) {
+                             return sInfo.members[a.first].offset < sInfo.members[b.first].offset;
+                         });
+
+                // Populate VarInfo with field metadata
+                for (auto& [fname, fsize] : fieldInfo) {
+                    globalVariableTypes[gName].fieldNames.push_back(fname);
+                    globalVariableTypes[gName].fieldSizes.push_back(fsize);
+                    globalVariableTypes[gName].fieldOffsets.push_back(sInfo.members[fname].offset);
+                }
+            }
+        }
+
+        // Phase 96: Union support in striped arrays
+        if (node.isStriped && node.type.find("union ") == 0 && node.arrayDims.size() >= 2) {
+            std::string uName = getAggregateName(node.type);
+            if (structs.count(uName)) {
+                auto& uInfo = *structs[uName];
+
+                // For unions, all fields overlay at offset 0
+                // Store union field metadata for runtime field selection
+                globalVariableTypes[gName].isUnionStriped = true;
+
+                // Extract union field names and sizes
+                std::vector<std::pair<std::string, int>> unionFieldInfo;
+                int largestSize = 0;
+
+                for (auto& [fname, finfo] : uInfo.members) {
+                    int fsize = 0;
+                    if (finfo.pointerLevel > 0) fsize = 2;
+                    else if (finfo.type == "int") fsize = 2;
+                    else if (is8BitType(finfo.type)) fsize = 1;
+                    else if (is32BitType(finfo.type)) fsize = 2;
+                    else if (is32BitType(finfo.type)) fsize = 4;
+                    else if (is32BitType(finfo.type)) fsize = 8;
+                    else if (isStruct(finfo.type)) {
+                        std::string nestedName = getAggregateName(finfo.type);
+                        if (structs.count(nestedName)) fsize = structs[nestedName]->totalSize;
+                    }
+
+                    if (fsize > 0) {
+                        unionFieldInfo.push_back({fname, fsize});
+                        largestSize = std::max(largestSize, fsize);
+                    }
+                }
+
+                // Store union field metadata (order doesn't matter for union)
+                for (auto& [fname, fsize] : unionFieldInfo) {
+                    globalVariableTypes[gName].unionFields.push_back(fname);
+                    globalVariableTypes[gName].unionFieldSizes.push_back(fsize);
+                }
+                globalVariableTypes[gName].largestUnionFieldSize = largestSize;
+            }
+        }
+
+        // Phase 96.2: Variable-size field support detection
+        if (node.isStriped && isStruct(node.type) && node.arrayDims.size() >= 2) {
+            std::string sName = getAggregateName(node.type);
+            if (structs.count(sName)) {
+                auto& sInfo = *structs[sName];
+
+                // Check if struct has variable-size fields (pointers, FAM)
+                if (detectVariableFields(sInfo)) {
+                    globalVariableTypes[gName].hasVariableFields = true;
+                    globalVariableTypes[gName].fixedPrefixSize = calculateFixedPrefixSize(sInfo);
+
+                    // Classify all fields
+                    int fieldIdx = 0;
+                    int memberCount = sInfo.members.size();
+
+                    for (auto& [fname, finfo] : sInfo.members) {
+                        bool isLastMember = (fieldIdx == memberCount - 1);
+                        FieldClass fclass = classifyStructField(sInfo, fname, isLastMember);
+                        globalVariableTypes[gName].fieldClasses.push_back((int)fclass);
+
+                        // Track pointer fields
+                        if (fclass == FieldClass::POINTER) {
+                            globalVariableTypes[gName].pointerFieldIndices.push_back(fieldIdx);
+                            globalVariableTypes[gName].pointerFieldNames.push_back(fname);
+                        }
+
+                        fieldIdx++;
+                    }
+                }
+            }
+        }
+
+        // Phase 97.2: Validate address space constraints
+        if (node.addressSpace != 0) {  // 0 = DEFAULT, not constrained
+            AddressSpaceValidator validator;
+            std::vector<AddressSpaceError> errors;
+            if (!validator.validateVariable(node, errors)) {
+                if (!errors.empty()) {
+                    throw std::runtime_error("Compile Error: " + errors[0].message);
+                } else {
+                    throw std::runtime_error("Compile Error: Address space validation failed for variable '" + node.name + "'");
+                }
+            }
+        }
+
         if (node.isExtern) {
             // extern declaration — type is known but no storage emitted
             return;
@@ -1790,6 +2131,112 @@ void CodeGenerator::visit(VariableDeclaration& node) {
     if (node.isStatic && currentFunction != nullptr) {
         std::string sName = "__sl_" + currentFunction->name + "_" + node.name;
         globalVariableTypes[sName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims};
+        globalVariableTypes[sName].isStriped = node.isStriped;  // Phase 92: Propagate striped flag
+        globalVariableTypes[sName].addressSpace = node.addressSpace;  // Phase 97: Propagate address space qualifier
+
+        // Phase 95: Field-level striping for static local arrays
+        if (node.isStriped && isStruct(node.type) && node.arrayDims.size() >= 2) {
+            std::string structName = getAggregateName(node.type);
+            if (structs.count(structName)) {
+                auto& sInfo = *structs[structName];
+                globalVariableTypes[sName].isFieldStriped = true;
+
+                // Extract field names and sizes
+                std::vector<std::pair<std::string, int>> fieldInfo;
+                for (auto& [fname, finfo] : sInfo.members) {
+                    int fsize = 0;
+                    if (finfo.pointerLevel > 0) fsize = 2;
+                    else if (finfo.type == "int") fsize = 2;
+                    else if (is8BitType(finfo.type)) fsize = 1;
+                    else if (is32BitType(finfo.type)) fsize = 2;
+                    else if (is32BitType(finfo.type)) fsize = 4;
+                    else if (is32BitType(finfo.type)) fsize = 8;
+                    else if (isStruct(finfo.type)) {
+                        std::string nestedName = getAggregateName(finfo.type);
+                        if (structs.count(nestedName)) fsize = structs[nestedName]->totalSize;
+                    }
+                    if (fsize > 0) fieldInfo.push_back({fname, fsize});
+                }
+
+                std::sort(fieldInfo.begin(), fieldInfo.end(),
+                         [&sInfo](const auto& a, const auto& b) {
+                             return sInfo.members[a.first].offset < sInfo.members[b.first].offset;
+                         });
+
+                for (auto& [fname, fsize] : fieldInfo) {
+                    globalVariableTypes[sName].fieldNames.push_back(fname);
+                    globalVariableTypes[sName].fieldSizes.push_back(fsize);
+                    globalVariableTypes[sName].fieldOffsets.push_back(sInfo.members[fname].offset);
+                }
+            }
+        }
+
+        // Phase 96: Union support for static local arrays
+        if (node.isStriped && node.type.find("union ") == 0 && node.arrayDims.size() >= 2) {
+            std::string uName = getAggregateName(node.type);
+            if (structs.count(uName)) {
+                auto& uInfo = *structs[uName];
+                globalVariableTypes[sName].isUnionStriped = true;
+
+                std::vector<std::pair<std::string, int>> unionFieldInfo;
+                int largestSize = 0;
+
+                for (auto& [fname, finfo] : uInfo.members) {
+                    int fsize = 0;
+                    if (finfo.pointerLevel > 0) fsize = 2;
+                    else if (finfo.type == "int") fsize = 2;
+                    else if (is8BitType(finfo.type)) fsize = 1;
+                    else if (is32BitType(finfo.type)) fsize = 2;
+                    else if (is32BitType(finfo.type)) fsize = 4;
+                    else if (is32BitType(finfo.type)) fsize = 8;
+                    else if (isStruct(finfo.type)) {
+                        std::string nestedName = getAggregateName(finfo.type);
+                        if (structs.count(nestedName)) fsize = structs[nestedName]->totalSize;
+                    }
+
+                    if (fsize > 0) {
+                        unionFieldInfo.push_back({fname, fsize});
+                        largestSize = std::max(largestSize, fsize);
+                    }
+                }
+
+                for (auto& [fname, fsize] : unionFieldInfo) {
+                    globalVariableTypes[sName].unionFields.push_back(fname);
+                    globalVariableTypes[sName].unionFieldSizes.push_back(fsize);
+                }
+                globalVariableTypes[sName].largestUnionFieldSize = largestSize;
+            }
+        }
+
+        // Phase 96.2: Variable-size field support for static local arrays
+        if (node.isStriped && isStruct(node.type) && node.arrayDims.size() >= 2) {
+            std::string structName = getAggregateName(node.type);
+            if (structs.count(structName)) {
+                auto& sInfo = *structs[structName];
+
+                if (detectVariableFields(sInfo)) {
+                    globalVariableTypes[sName].hasVariableFields = true;
+                    globalVariableTypes[sName].fixedPrefixSize = calculateFixedPrefixSize(sInfo);
+
+                    int fieldIdx = 0;
+                    int memberCount = sInfo.members.size();
+
+                    for (auto& [fname, finfo] : sInfo.members) {
+                        bool isLastMember = (fieldIdx == memberCount - 1);
+                        FieldClass fclass = classifyStructField(sInfo, fname, isLastMember);
+                        globalVariableTypes[sName].fieldClasses.push_back((int)fclass);
+
+                        if (fclass == FieldClass::POINTER) {
+                            globalVariableTypes[sName].pointerFieldIndices.push_back(fieldIdx);
+                            globalVariableTypes[sName].pointerFieldNames.push_back(fname);
+                        }
+
+                        fieldIdx++;
+                    }
+                }
+            }
+        }
+
         // Create a synthetic global VariableDeclaration for emitData
         auto* synth = new VariableDeclaration(node.type, currentFunction->name + "__" + node.name, node.pointerLevel);
         synth->isSigned = node.isSigned;
@@ -1820,11 +2267,154 @@ void CodeGenerator::visit(VariableDeclaration& node) {
         variableTypes.erase("_l_" + node.name);
         std::string gName = "_" + synth->name;
         globalVariableTypes[gName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims};
+        globalVariableTypes[gName].isStriped = node.isStriped;  // Phase 92: Propagate striped flag
+        globalVariableTypes[gName].addressSpace = node.addressSpace;  // Phase 97: Propagate address space qualifier
+
+        // Phase 95: Field-level striping for synthetic global (static local)
+        if (node.isStriped && isStruct(node.type) && node.arrayDims.size() >= 2) {
+            std::string structName = getAggregateName(node.type);
+            if (structs.count(structName)) {
+                auto& sInfo = *structs[structName];
+                globalVariableTypes[gName].isFieldStriped = true;
+
+                std::vector<std::pair<std::string, int>> fieldInfo;
+                for (auto& [fname, finfo] : sInfo.members) {
+                    int fsize = 0;
+                    if (finfo.pointerLevel > 0) fsize = 2;
+                    else if (finfo.type == "int") fsize = 2;
+                    else if (is8BitType(finfo.type)) fsize = 1;
+                    else if (is32BitType(finfo.type)) fsize = 2;
+                    else if (is32BitType(finfo.type)) fsize = 4;
+                    else if (is32BitType(finfo.type)) fsize = 8;
+                    else if (isStruct(finfo.type)) {
+                        std::string nestedName = getAggregateName(finfo.type);
+                        if (structs.count(nestedName)) fsize = structs[nestedName]->totalSize;
+                    }
+                    if (fsize > 0) fieldInfo.push_back({fname, fsize});
+                }
+
+                std::sort(fieldInfo.begin(), fieldInfo.end(),
+                         [&sInfo](const auto& a, const auto& b) {
+                             return sInfo.members[a.first].offset < sInfo.members[b.first].offset;
+                         });
+
+                for (auto& [fname, fsize] : fieldInfo) {
+                    globalVariableTypes[gName].fieldNames.push_back(fname);
+                    globalVariableTypes[gName].fieldSizes.push_back(fsize);
+                    globalVariableTypes[gName].fieldOffsets.push_back(sInfo.members[fname].offset);
+                }
+            }
+        }
+
         return;
     }
 
     std::string lName = "_l_" + node.name;
     variableTypes[lName] = {node.type, node.pointerLevel, node.isSigned, node.isVolatile, node.isConst, node.isPointerConst, false, node.arrayDims, node.isFunctionPointer, node.funcPtrSig};
+    variableTypes[lName].isStriped = node.isStriped;  // Phase 92: Propagate striped flag
+    variableTypes[lName].addressSpace = node.addressSpace;  // Phase 97: Propagate address space qualifier
+
+    // Phase 95: Field-level striping for local arrays
+    if (node.isStriped && isStruct(node.type) && node.arrayDims.size() >= 2) {
+        std::string structName = getAggregateName(node.type);
+        if (structs.count(structName)) {
+            auto& sInfo = *structs[structName];
+            variableTypes[lName].isFieldStriped = true;
+
+            std::vector<std::pair<std::string, int>> fieldInfo;
+            for (auto& [fname, finfo] : sInfo.members) {
+                int fsize = 0;
+                if (finfo.pointerLevel > 0) fsize = 2;
+                else if (finfo.type == "int") fsize = 2;
+                else if (is8BitType(finfo.type)) fsize = 1;
+                else if (is32BitType(finfo.type)) fsize = 2;
+                else if (is32BitType(finfo.type)) fsize = 4;
+                else if (is32BitType(finfo.type)) fsize = 8;
+                else if (isStruct(finfo.type)) {
+                    std::string nestedName = getAggregateName(finfo.type);
+                    if (structs.count(nestedName)) fsize = structs[nestedName]->totalSize;
+                }
+                if (fsize > 0) fieldInfo.push_back({fname, fsize});
+            }
+
+            std::sort(fieldInfo.begin(), fieldInfo.end(),
+                     [&sInfo](const auto& a, const auto& b) {
+                         return sInfo.members[a.first].offset < sInfo.members[b.first].offset;
+                     });
+
+            for (auto& [fname, fsize] : fieldInfo) {
+                variableTypes[lName].fieldNames.push_back(fname);
+                variableTypes[lName].fieldSizes.push_back(fsize);
+                variableTypes[lName].fieldOffsets.push_back(sInfo.members[fname].offset);
+            }
+        }
+    }
+
+    // Phase 96: Union support for local arrays
+    if (node.isStriped && node.type.find("union ") == 0 && node.arrayDims.size() >= 2) {
+        std::string uName = getAggregateName(node.type);
+        if (structs.count(uName)) {
+            auto& uInfo = *structs[uName];
+            variableTypes[lName].isUnionStriped = true;
+
+            std::vector<std::pair<std::string, int>> unionFieldInfo;
+            int largestSize = 0;
+
+            for (auto& [fname, finfo] : uInfo.members) {
+                int fsize = 0;
+                if (finfo.pointerLevel > 0) fsize = 2;
+                else if (finfo.type == "int") fsize = 2;
+                else if (is8BitType(finfo.type)) fsize = 1;
+                else if (is32BitType(finfo.type)) fsize = 2;
+                else if (is32BitType(finfo.type)) fsize = 4;
+                else if (is32BitType(finfo.type)) fsize = 8;
+                else if (isStruct(finfo.type)) {
+                    std::string nestedName = getAggregateName(finfo.type);
+                    if (structs.count(nestedName)) fsize = structs[nestedName]->totalSize;
+                }
+
+                if (fsize > 0) {
+                    unionFieldInfo.push_back({fname, fsize});
+                    largestSize = std::max(largestSize, fsize);
+                }
+            }
+
+            for (auto& [fname, fsize] : unionFieldInfo) {
+                variableTypes[lName].unionFields.push_back(fname);
+                variableTypes[lName].unionFieldSizes.push_back(fsize);
+            }
+            variableTypes[lName].largestUnionFieldSize = largestSize;
+        }
+    }
+
+    // Phase 96.2: Variable-size field support for local arrays
+    if (node.isStriped && isStruct(node.type) && node.arrayDims.size() >= 2) {
+        std::string structName = getAggregateName(node.type);
+        if (structs.count(structName)) {
+            auto& sInfo = *structs[structName];
+
+            if (detectVariableFields(sInfo)) {
+                variableTypes[lName].hasVariableFields = true;
+                variableTypes[lName].fixedPrefixSize = calculateFixedPrefixSize(sInfo);
+
+                int fieldIdx = 0;
+                int memberCount = sInfo.members.size();
+
+                for (auto& [fname, finfo] : sInfo.members) {
+                    bool isLastMember = (fieldIdx == memberCount - 1);
+                    FieldClass fclass = classifyStructField(sInfo, fname, isLastMember);
+                    variableTypes[lName].fieldClasses.push_back((int)fclass);
+
+                    if (fclass == FieldClass::POINTER) {
+                        variableTypes[lName].pointerFieldIndices.push_back(fieldIdx);
+                        variableTypes[lName].pointerFieldNames.push_back(fname);
+                    }
+
+                    fieldIdx++;
+                }
+            }
+        }
+    }
 
     // Register variable: allocate in zero page instead of stack
     if (node.isRegister && node.arraySize() < 0 && !isStruct(node.type)) {
@@ -2791,6 +3381,12 @@ void CodeGenerator::visit(Assignment& node) {
                 std::string sName = getAggregateName(vi.type);
                 if (structs.count(sName) && structs[sName]->totalSize > 1) is16 = true;
             }
+
+            // Phase 97.3.2: Check address space for addressing mode
+            int varAddressSpace = getAddressSpaceForVariable(rName);
+            bool isZPVar = (varAddressSpace == 1);  // __zp
+            bool isFARVar = (varAddressSpace == 3); // __far
+
             if (is32) {
                 // Store 32-bit literal
                 uint32_t val = (uint32_t)lit->value;
@@ -2798,6 +3394,9 @@ void CodeGenerator::visit(Assignment& node) {
                     std::stringstream ssLo, ssHi;
                     ssLo << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (val & 0xFFFF);
                     ssHi << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << ((val >> 16) & 0xFFFF);
+                    if (isFARVar) {
+                        emit("; FAR 32-bit store not yet implemented");
+                    }
                     emit("stw " + ssLo.str() + ", " + rName);
                     emit("stw " + ssHi.str() + ", " + rName + "+2");
                 } else {
@@ -2812,8 +3411,19 @@ void CodeGenerator::visit(Assignment& node) {
                 std::stringstream ss;
                 ss << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (uint16_t)(int16_t)lit->value;
                 if (isGlobal) {
-                    emit("stw " + ss.str() + ", " + rName);
-                    invalidateRegs(); // stw to global clobbers A
+                    if (isFARVar) {
+                        emit("; FAR 16-bit store not yet implemented");
+                        emit("stw " + ss.str() + ", " + rName);
+                    } else if (isZPVar) {
+                        // ZP addressing: split into .zp-suffixed single-byte stores
+                        emit("lda " + ss.str());
+                        emit("sta.zp " + rName);
+                        emit("lda " + ss.str() + "+1");
+                        emit("sta.zp " + rName + "+1");
+                    } else {
+                        emit("stw " + ss.str() + ", " + rName);
+                    }
+                    invalidateRegs(); // stw/sta to global clobbers A
                 } else {
                     emit("stw.sp " + ss.str() + ", " + rName);
                     invalidateRegs(); // stw.sp clobbers A
@@ -2824,8 +3434,19 @@ void CodeGenerator::visit(Assignment& node) {
                 if (!regA.known || (regA.isVariable && regA.varName != rName) || (!regA.isVariable && regA.value != val)) {
                     emitter->lda_imm(val);
                 }
-                if (isGlobal) emit("sta " + rName);
-                else emit("sta.sp " + rName);
+                // Phase 97.3.2: Addressing mode for 8-bit store
+                if (isGlobal) {
+                    if (isZPVar) {
+                        emit("sta.zp " + rName);  // 8-bit ZP addressing with .zp suffix
+                    } else if (isFARVar) {
+                        emit("; FAR 8-bit store not yet implemented");
+                        emit("sta " + rName);
+                    } else {
+                        emit("sta " + rName);  // Standard ABS addressing
+                    }
+                } else {
+                    emit("sta.sp " + rName);
+                }
                 updateRegAVar(rName, 0); regA.value = val;
             }
             return;
@@ -2942,16 +3563,30 @@ void CodeGenerator::visit(Assignment& node) {
                             if (structs.count(nestedSName) && structs[nestedSName]->totalSize > 1) is16 = true;
                         }
                         std::string memberAddr = rName + (mInfo.offset ? "+" + std::to_string(mInfo.offset) : "");
+                        // Phase 97: Check base struct variable's address space
+                        int varAddressSpace = getAddressSpaceForVariable(rName);
+                        bool isZPVar = (varAddressSpace == 1);  // __zp
+                        bool isFARVar = (varAddressSpace == 3); // __far
                         if (mInfo.bitWidth > 0) {
                             // Bitfield insert: A has new value, do RMW on storage unit
                             std::string bfOp = is16 ? "bfins16" : "bfins";
                             if (!isGlobal) bfOp += ".sp";
                             emit(bfOp + " " + memberAddr + ", #" + std::to_string(mInfo.bitOffset) + ", #" + std::to_string(mInfo.bitWidth));
                         } else if (is16) {
-                            emit("stax " + memberAddr + suffix);
+                            if (isZPVar && isGlobal) {
+                                // ZP addressing: split into .zp-suffixed single-byte stores
+                                emit("sta.zp " + memberAddr);
+                                emit("stx.zp " + memberAddr + "+1");
+                            } else if (isFARVar) {
+                                emit("; FAR member store not yet implemented");
+                                emit("stax " + memberAddr + suffix);
+                            } else {
+                                emit("stax " + memberAddr + suffix);
+                            }
                             updateRegAVar(rName, mInfo.offset); updateRegXVar(rName, mInfo.offset + 1);
                         } else {
-                            if (isGlobal) emit("sta " + memberAddr);
+                            if (isGlobal && isZPVar) emit("sta.zp " + memberAddr);
+                            else if (isGlobal) emit("sta " + memberAddr);
                             else emit("sta.sp " + memberAddr);
                             updateRegAVar(rName, mInfo.offset);
                         }
@@ -3045,6 +3680,8 @@ void CodeGenerator::visit(Assignment& node) {
 }
 
 void CodeGenerator::visit(BinaryOperation& node) {
+    std::cerr << "[visit(BinaryOp)] op=" << node.op << std::endl;
+
     ExpressionType lhsType = getExprType(node.left.get());
     ExpressionType rhsType = getExprType(node.right.get());
     int scale = 1;
@@ -3144,6 +3781,11 @@ void CodeGenerator::visit(BinaryOperation& node) {
         updateRegA(0); updateRegX(0);
         out << labelEnd << ":" << std::endl;
         invalidateRegs();
+        return;
+    }
+
+    // Phase 89: Try to emit optimized address template before standard arithmetic
+    if (tryEmitAddressTemplate(node)) {
         return;
     }
 
@@ -3602,7 +4244,7 @@ void CodeGenerator::visit(UnaryOperation& node) {
         if (auto* ref = dynamic_cast<VariableReference*>(node.operand.get())) {
             std::string rName = resolveVarName(ref->name);
             VarInfo vi = lookupVar(rName, &node);
-            if ((vi.isConst && vi.pointerLevel == 0) || vi.isPointerConst) throw std::runtime_error("Compile Error: Increment/decrement of read-only variable '" + ref->name + "'");
+            if ((vi.isConst && vi.pointerLevel == 0) || vi.isPointerConst) throw std::runtime_error("Increment/decrement of read-only location");
             bool is32Bit = is32BitType(vi.type) && vi.pointerLevel == 0;
             bool is16Bit = !is32Bit && (vi.pointerLevel > 0 || vi.type == "int");
             if (!is32Bit && isStruct(vi.type)) {
@@ -3781,6 +4423,23 @@ void CodeGenerator::visit(AsmStatement& node) {
     }
     if (node.code == ".crt_stdio") {
         crtStdio = true;
+        return;
+    }
+    if (node.code.find(".crt_unroll_def ") == 0) {
+        try {
+            loopUnrollDefault = std::stoi(node.code.substr(16));
+        } catch (...) {}
+        return;
+    }
+    if (node.code == ".crt_unroll") {
+        loopUnrollNext = (loopUnrollDefault > 0) ? loopUnrollDefault : 4;
+        return;
+    }
+    if (node.code.find(".crt_unroll ") == 0) {
+        try {
+            std::string numStr = node.code.substr(12);
+            loopUnrollNext = std::stoi(numStr);
+        } catch (...) {}
         return;
     }
     if (node.code == ".encoding ascii") {
@@ -4094,6 +4753,12 @@ void CodeGenerator::visit(RepeatStatement& node) {
 void CodeGenerator::visit(ForStatement& node) {
     embedSource(node);
 
+    LoopUnrollInfo unrollInfo = analyzeForUnrolling(&node);
+    if (unrollInfo.isUnrollable) {
+        emitUnrolledLoop(node, unrollInfo);
+        return;
+    }
+
     // Scoping for for-loop initializer variables
     auto oldVars = currentVars;
     auto oldVarTypes = variableTypes;
@@ -4132,6 +4797,95 @@ void CodeGenerator::visit(ForStatement& node) {
     invalidateRegs();
 
     // Cleanup scope
+    if (currentVars.size() > oldVars.size()) {
+        emit(".cleanup " + std::to_string(currentVars.size() - oldVars.size()));
+    }
+    currentVars = std::move(oldVars);
+    variableTypes = std::move(oldVarTypes);
+    zpRegs = std::move(oldZpRegs);
+}
+
+CodeGenerator::LoopUnrollInfo CodeGenerator::analyzeForUnrolling(ForStatement* node) {
+    LoopUnrollInfo info;
+    info.unrollCount = loopUnrollNext;
+    loopUnrollNext = 0;
+
+    if (info.unrollCount == 0) return info;
+
+    auto* varDecl = dynamic_cast<VariableDeclaration*>(node->initializer.get());
+    if (!varDecl || !varDecl->initializer) return info;
+
+    info.counterVar = varDecl->name;
+
+    auto* initVal = dynamic_cast<IntegerLiteral*>(varDecl->initializer.get());
+    if (!initVal) return info;
+    info.startVal = initVal->value;
+
+    if (!node->condition) return info;
+    auto* binOp = dynamic_cast<BinaryOperation*>(node->condition.get());
+    if (!binOp || binOp->op != "<") return info;
+
+    auto* condLhs = dynamic_cast<VariableReference*>(binOp->left.get());
+    if (!condLhs || condLhs->name != info.counterVar) return info;
+
+    auto* condRhs = dynamic_cast<IntegerLiteral*>(binOp->right.get());
+    if (!condRhs) return info;
+    info.endVal = condRhs->value;
+
+    if (!node->increment) return info;
+    auto* incExpr = dynamic_cast<UnaryOperation*>(node->increment.get());
+    if (!incExpr || incExpr->op != "++") return info;
+
+    auto* incVar = dynamic_cast<VariableReference*>(incExpr->operand.get());
+    if (!incVar || incVar->name != info.counterVar) return info;
+
+    int loopCount = info.endVal - info.startVal;
+    if (loopCount <= 0 || loopCount > 1024) return info;
+    if (info.unrollCount > loopCount) {
+        info.unrollCount = loopCount;
+    }
+
+    info.isUnrollable = true;
+    return info;
+}
+
+void CodeGenerator::emitUnrolledLoop(ForStatement& node, const LoopUnrollInfo& info) {
+    auto oldVars = currentVars;
+    auto oldVarTypes = variableTypes;
+    auto oldZpRegs = zpRegs;
+
+    if (node.initializer) {
+        bool oldNeeded = resultNeeded;
+        resultNeeded = false;
+        node.initializer->accept(*this);
+        resultNeeded = oldNeeded;
+    }
+
+    int totalIter = info.endVal - info.startVal;
+    int fullUnrolls = totalIter / info.unrollCount;
+    int remainder = totalIter % info.unrollCount;
+
+    for (int iter = 0; iter < fullUnrolls; iter++) {
+        node.body->accept(*this);
+        if (node.increment) {
+            bool oldNeeded = resultNeeded;
+            resultNeeded = false;
+            node.increment->accept(*this);
+            resultNeeded = oldNeeded;
+        }
+    }
+
+    for (int iter = 0; iter < remainder; iter++) {
+        node.body->accept(*this);
+        if (node.increment) {
+            bool oldNeeded = resultNeeded;
+            resultNeeded = false;
+            node.increment->accept(*this);
+            resultNeeded = oldNeeded;
+        }
+    }
+
+    invalidateRegs();
     if (currentVars.size() > oldVars.size()) {
         emit(".cleanup " + std::to_string(currentVars.size() - oldVars.size()));
     }
@@ -4434,6 +5188,63 @@ void CodeGenerator::visit(MemberAccess& node) {
     if (!sInfo.members.count(node.memberName)) return; // method call or unknown member — handled by IR path
     MemberInfo& mInfo = sInfo.members[node.memberName];
 
+    // Phase 95.3: Check for field-striped struct array access
+    // Pattern: arr[row][col].field where arr is a field-striped struct array
+    if (!node.isArrow && sInfo.isFieldStriped) {
+        if (auto* arrayAccess = dynamic_cast<ArrayAccess*>(node.structExpr.get())) {
+            if (auto* baseRef = dynamic_cast<VariableReference*>(arrayAccess->arrayExpr.get())) {
+                // Could be nested array access for 3D+ arrays; need to unwrap
+                ArrayAccess* current = arrayAccess;
+                VariableReference* actualBase = baseRef;
+
+                // Find the actual base variable reference (skip intermediate array accesses)
+                while (auto* innerArray = dynamic_cast<ArrayAccess*>(current->arrayExpr.get())) {
+                    if (auto* ref = dynamic_cast<VariableReference*>(innerArray->arrayExpr.get())) {
+                        actualBase = ref;
+                        current = innerArray;
+                        break;
+                    } else if (auto* nestedArray = dynamic_cast<ArrayAccess*>(innerArray->arrayExpr.get())) {
+                        current = nestedArray;
+                    } else {
+                        break;
+                    }
+                }
+
+                std::string varName = resolveVarName(actualBase->name);
+                VarInfo* varInfo = nullptr;
+
+                if (variableTypes.count(varName)) {
+                    varInfo = &variableTypes[varName];
+                } else if (globalVariableTypes.count(varName)) {
+                    varInfo = &globalVariableTypes[varName];
+                }
+
+                // Phase 96: Check for union-striped array member access first
+                if (varInfo && varInfo->isUnionStriped && varInfo->arrayDims.size() >= 2) {
+                    // This is a union-striped array member access
+                    if (tryEmitUnionStripedArrayMemberAccess(*arrayAccess, *varInfo, actualBase, node.memberName)) {
+                        return;
+                    }
+                }
+
+                // Phase 96.2: Check for variable-size field access
+                if (varInfo && varInfo->hasVariableFields && varInfo->arrayDims.size() >= 2) {
+                    // This struct has variable-size fields (pointers, FAM)
+                    if (tryEmitVariableSizeFieldAccess(*arrayAccess, *varInfo, actualBase, node.memberName)) {
+                        return;
+                    }
+                }
+
+                if (varInfo && varInfo->isFieldStriped && varInfo->arrayDims.size() >= 2) {
+                    // This is a field-striped struct array member access
+                    if (tryEmitFieldStripedArrayMemberAccess(*arrayAccess, *varInfo, actualBase, node.memberName, mInfo)) {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
     if (!node.isArrow) {
         if (auto* ref = dynamic_cast<VariableReference*>(node.structExpr.get())) {
             std::string rName = resolveVarName(ref->name);
@@ -4445,14 +5256,28 @@ void CodeGenerator::visit(MemberAccess& node) {
                 if (structs.count(nestedSName) && structs[nestedSName]->totalSize > 1) is16 = true;
             }
             bool isGlobal = globalVariableTypes.count(rName);
+            // Phase 97: Check base struct variable's address space
+            int varAddressSpace = getAddressSpaceForVariable(rName);
+            bool isZPVar = (varAddressSpace == 1);  // __zp
+            bool isFARVar = (varAddressSpace == 3); // __far
             std::string suffix = isGlobal ? "" : ", s";
             std::string memberAddr = rName + (mInfo.offset ? "+" + std::to_string(mInfo.offset) : "");
             if (is16) {
-                emit("ldax " + memberAddr + suffix);
+                if (isZPVar && isGlobal) {
+                    // ZP addressing: split into .zp-suffixed single-byte loads
+                    emit("lda.zp " + memberAddr);
+                    emit("ldx.zp " + memberAddr + "+1");
+                } else if (isFARVar) {
+                    emit("; FAR member access not yet implemented");
+                    emit("ldax " + memberAddr + suffix);
+                } else {
+                    emit("ldax " + memberAddr + suffix);
+                }
                 updateRegAVar(rName, mInfo.offset); updateRegXVar(rName, mInfo.offset + 1);
                 updateZNFlags(FlagSource::A);
             } else {
-                if (isGlobal) emit("lda " + memberAddr);
+                if (isGlobal && isZPVar) emit("lda.zp " + memberAddr);
+                else if (isGlobal) emit("lda " + memberAddr);
                 else emit("lda.sp " + memberAddr);
                 updateRegAVar(rName, mInfo.offset);
                 emitter->ldx_imm(0); updateRegX(0);
@@ -4657,9 +5482,19 @@ void CodeGenerator::visit(VariableReference& node) {
         std::string sName = getAggregateName(vi.type);
         if (structs.count(sName) && structs[sName]->totalSize > 1) is16Bit = true;
     }
+
+    // Phase 97.3: Check address space for addressing mode selection
+    int varAddressSpace = getAddressSpaceForVariable(rName);
+    bool isZPVar = (varAddressSpace == 1);  // __zp
+    bool isFARVar = (varAddressSpace == 3); // __far
+
     if (is32Bit) {
         // Load 32-bit value into AXYZ via native LDQ
         if (isGlobal) {
+            if (isFARVar) {
+                // FAR 32-bit: bank prefix would go here (Phase 97.3.3)
+                emit("; FAR 32-bit not yet implemented");
+            }
             emit("ldq " + rName);
         } else {
             // Stack-relative: byte-by-byte load into AXYZ
@@ -4679,10 +5514,36 @@ void CodeGenerator::visit(VariableReference& node) {
         if (vi.isVolatile) { lowCorrect = false; highCorrect = false; }
 
         if (lowCorrect && highCorrect) {}
-        else if (lowCorrect) { emit("ldx " + rName + "+1" + suffix); updateRegXVar(rName, 1); }
-        else if (highCorrect) { emit(isGlobal ? ("lda " + rName) : ("lda.sp " + rName)); updateRegAVar(rName, 0); }
+        else if (lowCorrect) {
+            if (isZPVar) {
+                emit("ldx " + rName + "+1");  // ZP addressing: no suffix needed
+            } else {
+                emit("ldx " + rName + "+1" + suffix);
+            }
+            updateRegXVar(rName, 1);
+        }
+        else if (highCorrect) {
+            if (isZPVar) {
+                emit("lda " + rName);  // ZP addressing for global
+            } else {
+                emit(isGlobal ? ("lda " + rName) : ("lda.sp " + rName));
+            }
+            updateRegAVar(rName, 0);
+        }
         else {
-            emit("ldax " + rName + suffix); updateRegAVar(rName, 0); updateRegXVar(rName, 1); updateZNFlags(FlagSource::A);
+            // Phase 97.3: Select addressing mode based on address space
+            if (isZPVar && isGlobal) {
+                // ZP addressing: split into .zp-suffixed single-byte loads
+                emit("lda.zp " + rName);
+                emit("ldx.zp " + rName + "+1");
+            } else if (isFARVar) {
+                // FAR 16-bit: bank prefix would go here (Phase 97.3.3)
+                emit("; FAR 16-bit not yet implemented");
+                emit("ldax " + rName + suffix);
+            } else {
+                emit("ldax " + rName + suffix);  // Standard 16-bit ABS
+            }
+            updateRegAVar(rName, 0); updateRegXVar(rName, 1); updateZNFlags(FlagSource::A);
         }
     } else {
         bool lowCorrectA = (regA.known && regA.isVariable && regA.varName == rName && regA.varOffset == 0);
@@ -4700,7 +5561,17 @@ void CodeGenerator::visit(VariableReference& node) {
         } else if (lowCorrectZ) {
             emit("tza"); transferRegs(FlagSource::A, FlagSource::Z);
         } else {
-            emit(isGlobal ? ("lda " + rName) : ("lda.sp " + rName)); updateRegAVar(rName, 0);
+            // Phase 97.3: Select addressing mode for 8-bit variables
+            if (isZPVar && isGlobal) {
+                emit("lda.zp " + rName);  // 8-bit ZP addressing with .zp suffix
+            } else if (isFARVar) {
+                // FAR 8-bit: bank prefix would go here (Phase 97.3.3)
+                emit("; FAR 8-bit not yet implemented");
+                emit("lda " + (isGlobal ? rName : "invalid_local_far"));
+            } else {
+                emit(isGlobal ? ("lda " + rName) : ("lda.sp " + rName));  // Standard ABS addressing
+            }
+            updateRegAVar(rName, 0);
         }
         if (!regX.known || regX.isVariable || regX.value != 0) { emitter->ldx_imm(0); updateRegX(0); }
     }
@@ -5167,22 +6038,16 @@ void CodeGenerator::visit(FunctionCall& node) {
     if (argBytes > 0) {
         emitter->taz();  // save A to Z
         for (int i = 0; i < argBytes; ++i) emitter->pla();
-        // Recalculate frame pointer after arg cleanup (SP back at frame level).
-        // A is in Z, save X to scratch ZP.
-        if (emitter->hasFramePointer()) {
-            emitter->stx_scratch();
-            emitter->setupFramePointer();
-            emitter->ldx_scratch();
-        }
+        // NOTE: Recalculating frame pointer after arg cleanup breaks frame-relative addressing!
+        // The .local offsets are calculated based on the FP at function entry.
+        // If we recalculate FP here, those offsets become invalid.
+        // Therefore, we do NOT recalculate the frame pointer.
+        // The frame pointer should remain stable throughout the function.
         emitter->tza();  // restore A
-    } else if (emitter->hasFramePointer()) {
-        // No args but still need FP recalc
-        emitter->taz();
-        emitter->stx_scratch();
-        emitter->setupFramePointer();
-        emitter->ldx_scratch();
-        emitter->tza();
     }
+    // NOTE: Do NOT recalculate frame pointer after function calls.
+    // Frame pointer is set once at entry and must remain stable for frame-relative offsets.
+
     // Restore assembler frame tracking
     if (pushedBytes > 0) {
         for (const auto& varName : currentVars) {
@@ -5429,6 +6294,190 @@ void CodeGenerator::visit(AlignofExpression& node) {
 
 // Try to extract a compile-time constant integer from an expression tree.
 // Handles IntegerLiteral, CastExpression, unary -/~, and binary ops on constants.
+std::vector<int> CodeGenerator::reorganizeStripedArrayData(const std::vector<int>& userData, int height, int width) {
+    // Phase 92.4: Reorganize user-provided row-major data into striped layout
+    // Input: userData in row-major order (user writes [row][col])
+    // Output: same data reorganized into striped layout for efficient indexing
+
+    if (width < 4 || (width & (width - 1)) != 0) {
+        // Not a power of 2 or too small, return data unchanged (fallback to standard layout)
+        return userData;
+    }
+
+    // Determine stripe width (power of 2, max 8)
+    int stripeWidth = (width <= 8) ? width : 8;
+    int log2Stripe = 0;
+    for (int i = stripeWidth; i > 1; i >>= 1) log2Stripe++;
+
+    // Calculate striped layout size and allocate output buffer
+    int totalElements = height * width;
+    std::vector<int> striped(totalElements);
+
+    // Reorganize: for each (row, col) in user data, calculate striped position
+    for (int row = 0; row < height; row++) {
+        for (int col = 0; col < width; col++) {
+            // Source position (row-major)
+            int srcIdx = row * width + col;
+            if (srcIdx >= (int)userData.size()) continue;
+
+            // Calculate striped destination position
+            int stripeSelect = col >> log2Stripe;           // Which stripe (0, 1, 2, ...)
+            int colRemainder = col & (stripeWidth - 1);    // Position within stripe (0-3)
+
+            // Striped layout formula:
+            // offset = stripe_select * height + row + col_remainder * height
+            // This places all rows for a column-group together, with fast variation along row
+            int dstIdx = stripeSelect * height + row + colRemainder * height;
+
+            if (dstIdx < (int)striped.size()) {
+                striped[dstIdx] = userData[srcIdx];
+            }
+        }
+    }
+
+    return striped;
+}
+
+std::vector<int> CodeGenerator::reorganizeStripedArrayData(const std::vector<int>& userData, const std::vector<int>& dims) {
+    // Phase 93: Reorganize multi-dimensional (3D+) striped array data
+    // For 3D+ arrays: last 2 dimensions are striped, earlier dimensions sequence striped 2D matrices
+    // Input: userData in standard row-major order across all dimensions
+    // Output: reorganized with outer dimensions unchanged, inner 2D slices striped
+
+    if (dims.size() < 2) return userData;  // Not an array
+    if (dims.back() < 4 || (dims.back() & (dims.back() - 1)) != 0) {
+        return userData;  // Not power-of-2 width, fallback to standard layout
+    }
+
+    // For 2D, delegate to existing implementation
+    if (dims.size() == 2) {
+        return reorganizeStripedArrayData(userData, dims[0], dims[1]);
+    }
+
+    // For 3D+: reorganize each 2D slice independently
+    // Last two dimensions are height and width (to be striped)
+    int height = dims[dims.size() - 2];
+    int width = dims[dims.size() - 1];
+    int matrix2DSize = height * width;
+
+    // Calculate size of all outer dimensions (product)
+    int outerSize = 1;
+    for (size_t i = 0; i < dims.size() - 2; i++) {
+        outerSize *= dims[i];
+    }
+
+    std::vector<int> reorganized(userData.size());
+
+    // For each 2D matrix (outer dimensions)
+    for (int outerIdx = 0; outerIdx < outerSize; outerIdx++) {
+        // Extract the 2D matrix for this outer index
+        std::vector<int> matrix2D(matrix2DSize);
+        int userOffset = outerIdx * matrix2DSize;
+        for (int i = 0; i < matrix2DSize; i++) {
+            if (userOffset + i < (int)userData.size()) {
+                matrix2D[i] = userData[userOffset + i];
+            }
+        }
+
+        // Reorganize this 2D matrix
+        std::vector<int> striped2D = reorganizeStripedArrayData(matrix2D, height, width);
+
+        // Place reorganized 2D matrix back in output
+        int outputOffset = outerIdx * matrix2DSize;
+        for (int i = 0; i < matrix2DSize; i++) {
+            if (outputOffset + i < (int)reorganized.size()) {
+                reorganized[outputOffset + i] = striped2D[i];
+            }
+        }
+    }
+
+    return reorganized;
+}
+
+std::vector<int> CodeGenerator::reorganizeFieldStripedArrayData(
+    const std::vector<int>& userData,
+    int structSize,
+    const std::vector<int>& fieldSizes,
+    const std::vector<int>& dims
+) {
+    // Phase 95.4: Reorganize struct array data into field-striped layout
+    // Input: userData with struct elements in standard layout (all fields for each element together)
+    // Output: data reorganized so each field is stored contiguously with its own striping
+    //
+    // Example: struct RGB { r, g, b } array[2][2]
+    // Input (standard):  [r0,g0,b0, r1,g1,b1, r2,g2,b2, r3,g3,b3]
+    // Output (field-striped):
+    //   R region: [r0_striped, r1_striped, r2_striped, r3_striped]
+    //   G region: [g0_striped, g1_striped, g2_striped, g3_striped]
+    //   B region: [b0_striped, b1_striped, b2_striped, b3_striped]
+
+    if (dims.size() < 2) return userData;  // Not a 2D+ array
+    if (dims.back() < 4 || (dims.back() & (dims.back() - 1)) != 0) {
+        return userData;  // Width not power-of-2, fallback
+    }
+
+    if (fieldSizes.empty() || structSize <= 0) return userData;
+
+    // Calculate 2D dimensions (striping applies to last 2 dims)
+    int height = dims[dims.size() - 2];
+    int width = dims[dims.size() - 1];
+    int matrix2DSize = height * width;
+
+    // Calculate size of all outer dimensions (product of all except last 2)
+    int outerSize = 1;
+    for (size_t i = 0; i < dims.size() - 2; i++) {
+        outerSize *= dims[i];
+    }
+
+    // Calculate total output size: outer_size * (all fields striped)
+    int totalOutputSize = outerSize * matrix2DSize;
+    std::vector<int> reorganized(totalOutputSize * 0);  // Will resize as we add field regions
+
+    // Process each 2D matrix (from outer dimensions)
+    for (int outerIdx = 0; outerIdx < outerSize; outerIdx++) {
+        // For each field in the struct
+        int fieldRegionOffset = 0;
+        for (size_t fieldIdx = 0; fieldIdx < fieldSizes.size(); fieldIdx++) {
+            int fieldSize = fieldSizes[fieldIdx];
+            if (fieldSize <= 0) continue;
+
+            // Extract field values from all struct elements
+            std::vector<int> fieldValues(matrix2DSize, 0);
+            for (int elemIdx = 0; elemIdx < matrix2DSize; elemIdx++) {
+                // Calculate source position: outer offset + element offset + field offset within struct
+                int srcIdx = outerIdx * matrix2DSize * structSize +  // Outer dimension offset
+                            elemIdx * structSize +                    // Element offset
+                            fieldRegionOffset;                        // Field offset within struct
+
+                // Extract field bytes (handle multi-byte fields)
+                int fieldVal = 0;
+                for (int b = 0; b < fieldSize && srcIdx + b < (int)userData.size(); b++) {
+                    fieldVal |= (userData[srcIdx + b] & 0xFF) << (b * 8);
+                }
+                fieldValues[elemIdx] = fieldVal;
+            }
+
+            // Apply striped layout reorganization to this field's values
+            std::vector<int> stripedField;
+            if (dims.size() == 2) {
+                // 2D striped directly
+                stripedField = reorganizeStripedArrayData(fieldValues, height, width);
+            } else {
+                // 3D+: already extracted the 2D slice, reorganize it
+                stripedField = reorganizeStripedArrayData(fieldValues, height, width);
+            }
+
+            // Append this field's reorganized data to output
+            reorganized.insert(reorganized.end(), stripedField.begin(), stripedField.end());
+
+            // Move to next field in struct
+            fieldRegionOffset += fieldSize;
+        }
+    }
+
+    return reorganized;
+}
+
 void CodeGenerator::emitData() {
     // Emit .global/.weak for all global variables in relocatable mode (skip static)
     if (relocMode) {
@@ -5442,12 +6491,22 @@ void CodeGenerator::emitData() {
         }
     }
 
-    // Partition globals into initialized (data) and uninitialized (bss)
+    // Partition globals into initialized/uninitialized, and within each, into zp/non-zp
     std::vector<VariableDeclaration*> uninitializedVars;
     std::vector<VariableDeclaration*> initializedVars;
+    std::vector<VariableDeclaration*> uninitializedZpVars;
+    std::vector<VariableDeclaration*> initializedZpVars;
     for (auto* gVar : globalVars) {
-        if (!gVar->initializer) uninitializedVars.push_back(gVar);
-        else initializedVars.push_back(gVar);
+        std::string gName = "_" + gVar->name;
+        bool isZp = (globalVariableTypes.count(gName) && globalVariableTypes[gName].addressSpace == 1);
+
+        if (!gVar->initializer) {
+            if (isZp) uninitializedZpVars.push_back(gVar);
+            else uninitializedVars.push_back(gVar);
+        } else {
+            if (isZp) initializedZpVars.push_back(gVar);
+            else initializedVars.push_back(gVar);
+        }
     }
 
     // _init_bss is now emitted inline in the CRT stub (before functions)
@@ -5462,6 +6521,15 @@ void CodeGenerator::emitData() {
             gVar->alignment = resolveAlignmentExpr(gVar->alignmentExpr.get(), structs);
         if (gVar->alignment > 1) out << "    .align " << std::to_string(gVar->alignment) << std::endl;
         out << "_" << gVar->name << ":" << std::endl;
+
+        // Emit debug metadata for global variable
+        std::string globalName = "_" + gVar->name;
+        if (globalVariableTypes.count(globalName)) {
+            VarInfo& vi = globalVariableTypes.at(globalName);
+            emitDebugVariable("@global", globalName, 0x2000 + (5585 + 5593) % 0xC000,  // Placeholder address
+                            vi.type, vi.pointerLevel, "global", vi.arrayDims, gVar->line, gVar->name);
+        }
+
         int size = 0;
         if (gVar->pointerLevel > 0) size = 2;
         else if (is8BitType(gVar->type)) size = 1;
@@ -5528,18 +6596,303 @@ void CodeGenerator::emitData() {
                         nextIdx++;
                     }
                 }
+
+                // Phase 92.4: Handle striped array initialization
+                // Also Phase 95.4/96.1/96.2: Handle field-striped struct array, union array, and variable-size arrays
+                // Check if this is a striped array (2D integer), field-striped struct array, union array, or variable-size array
+                std::string gName = "_" + gVar->name;
+                bool isStripedArray = false;
+                bool isFieldStripedArray = false;
+                bool isUnionStripedArray = false;
+                bool isVariableSizeArray = false;
+                if (globalVariableTypes.count(gName)) {
+                    VarInfo& vi = globalVariableTypes[gName];
+                    if (vi.isStriped && vi.arrayDims.size() >= 2 && gVar->type == "int") {
+                        isStripedArray = true;
+                    } else if (vi.isFieldStriped && vi.arrayDims.size() >= 2 &&
+                              vi.fieldNames.size() > 0 && vi.fieldSizes.size() == vi.fieldNames.size()) {
+                        isFieldStripedArray = true;
+                    } else if (vi.isUnionStriped && vi.arrayDims.size() >= 2 &&
+                              vi.unionFields.size() > 0 && vi.unionFieldSizes.size() == vi.unionFields.size()) {
+                        isUnionStripedArray = true;
+                    } else if (vi.hasVariableFields && vi.arrayDims.size() >= 2) {
+                        // Phase 96.2: Variable-size field array
+                        isVariableSizeArray = true;
+                    }
+                }
+
+                // Convert resolved expressions to integer values
+                std::vector<int> dataValues(totalElements, 0);
                 for (int i = 0; i < totalElements; i++) {
-                    int constVal = 0;
-                    if (resolved[i]) tryEvalConstInt(resolved[i], constVal);
-                    if (elementSize == 1) out << "    .byte $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (constVal & 0xFF) << std::dec << std::endl;
-                    else if (elementSize == 2) out << "    .word $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (constVal & 0xFFFF) << std::dec << std::endl;
-                    else if (elementSize == 4) out << "    .dword $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(8) << (constVal & 0xFFFFFFFF) << std::dec << std::endl;
-                    else out << "    .res " << std::to_string(elementSize) << ", 0" << std::endl;
+                    if (resolved[i]) tryEvalConstInt(resolved[i], dataValues[i]);
+                }
+
+                // Phase 93-95.4-96.2: Reorganize into striped layout if needed
+                if (isStripedArray && gVar->arraySize() >= 0) {
+                    if (gVar->arrayDims.size() == 2) {
+                        // Phase 92: 2D striped array
+                        int height = gVar->arrayDims[0];
+                        int width = gVar->arrayDims[1];
+                        dataValues = reorganizeStripedArrayData(dataValues, height, width);
+                    } else if (gVar->arrayDims.size() > 2) {
+                        // Phase 93: 3D+ striped array (last 2 dims striped)
+                        dataValues = reorganizeStripedArrayData(dataValues, gVar->arrayDims);
+                    }
+                } else if (isUnionStripedArray && gVar->arraySize() >= 0) {
+                    // Phase 96.1: Union-striped array
+                    if (globalVariableTypes.count(gName)) {
+                        VarInfo& vi = globalVariableTypes[gName];
+                        dataValues = reorganizeUnionStripedArrayData(
+                            dataValues,
+                            totalElements,
+                            vi.largestUnionFieldSize,
+                            vi.unionFields
+                        );
+                    }
+                } else if (isVariableSizeArray && gVar->arraySize() >= 0) {
+                    // Phase 96.2: Variable-size field array (fixed-prefix striping)
+                    if (globalVariableTypes.count(gName)) {
+                        VarInfo& vi = globalVariableTypes[gName];
+
+                        // Reorganize to extract fixed prefix and separate variable data
+                        dataValues = reorganizeVariableSizeData(dataValues, vi, totalElements);
+
+                        // Apply field-striping to fixed prefix
+                        std::string sName = getAggregateName(gVar->type);
+                        if (structs.count(sName)) {
+                            auto& sInfo = *structs[sName];
+
+                            // Collect field sizes for fixed fields only
+                            std::vector<std::pair<std::string, int>> fieldInfo;
+                            for (auto& [fname, finfo] : sInfo.members) {
+                                // Stop at first variable-size field
+                                if (finfo.pointerLevel > 0 || (!finfo.arrayDims.empty() && finfo.arrayDims.back() == 0)) {
+                                    break;
+                                }
+
+                                int fsize = 0;
+                                if (finfo.type == "int") fsize = 2;
+                                else if (is8BitType(finfo.type)) fsize = 1;
+                                else if (is32BitType(finfo.type)) fsize = 4;
+                                else if (isStruct(finfo.type)) {
+                                    std::string nestedName = getAggregateName(finfo.type);
+                                    if (structs.count(nestedName)) fsize = structs[nestedName]->totalSize;
+                                }
+
+                                if (fsize > 0) fieldInfo.push_back({fname, fsize});
+                            }
+
+                            // Sort by offset
+                            std::sort(fieldInfo.begin(), fieldInfo.end(),
+                                     [&sInfo](const auto& a, const auto& b) {
+                                         return sInfo.members[a.first].offset < sInfo.members[b.first].offset;
+                                     });
+
+                            // Extract field sizes
+                            std::vector<int> fieldSizes;
+                            for (auto& [fname, fsize] : fieldInfo) {
+                                fieldSizes.push_back(fsize);
+                            }
+
+                            // Reorganize fixed prefix with field striping
+                            dataValues = reorganizeFieldStripedArrayData(dataValues, vi.fixedPrefixSize, fieldSizes, gVar->arrayDims);
+                        }
+                    }
+                } else if (isFieldStripedArray && gVar->arraySize() >= 0) {
+                    // Phase 95.4: Field-striped struct array
+                    // Get struct info for field sizes
+                    std::string sName = getAggregateName(gVar->type);
+                    if (structs.count(sName)) {
+                        auto& sInfo = *structs[sName];
+
+                        // Collect field sizes in order
+                        std::vector<std::pair<std::string, int>> fieldInfo;
+                        for (auto& [fname, finfo] : sInfo.members) {
+                            int fsize = 0;
+                            if (finfo.pointerLevel > 0 || finfo.type == "int") fsize = 2;
+                            else if (is8BitType(finfo.type)) fsize = 1;
+                            else if (is32BitType(finfo.type)) fsize = 4;
+                            fieldInfo.push_back({fname, fsize});
+                        }
+
+                        // Sort by offset to get field order
+                        std::sort(fieldInfo.begin(), fieldInfo.end(),
+                                 [&sInfo](const auto& a, const auto& b) {
+                                     return sInfo.members[a.first].offset < sInfo.members[b.first].offset;
+                                 });
+
+                        // Extract field sizes
+                        std::vector<int> fieldSizes;
+                        for (auto& [fname, fsize] : fieldInfo) {
+                            fieldSizes.push_back(fsize);
+                        }
+
+                        // Reorganize data for field-striped layout
+                        dataValues = reorganizeFieldStripedArrayData(dataValues, sInfo.totalSize, fieldSizes, gVar->arrayDims);
+                    }
+                }
+
+                // Phase 96.4.1: Emit metadata directives for assembler optimization
+                if (isVariableSizeArray && globalVariableTypes.count(gName)) {
+                    VarInfo& vi = globalVariableTypes[gName];
+
+                    // Emit variable-size field array metadata for assembler pointer caching
+                    out << "    ; Phase 96.4.1: Variable-size field array metadata" << std::endl;
+                    out << "    .var_field_array " << gVar->name << std::endl;
+
+                    // Emit array dimensions
+                    int height = gVar->arrayDims.size() >= 2 ? gVar->arrayDims[gVar->arrayDims.size()-2] : 1;
+                    int width = gVar->arrayDims.size() >= 1 ? gVar->arrayDims[gVar->arrayDims.size()-1] : 1;
+                    out << "    .array_dims " << height << " " << width << std::endl;
+
+                    // Emit fixed prefix size
+                    out << "    .fixed_prefix_size " << vi.fixedPrefixSize << std::endl;
+
+                    // Emit field classification for each field
+                    if (!vi.fieldNames.empty()) {
+                        out << "    .field_count " << vi.fieldNames.size() << std::endl;
+                        for (size_t fi = 0; fi < vi.fieldNames.size(); fi++) {
+                            std::string fieldType = "FIXED";
+                            if (fi * 2 + 1 < vi.fieldClasses.size()) {
+                                int fclass = vi.fieldClasses[fi * 2 + 1];
+                                if (fclass == 1) fieldType = "POINTER";
+                                else if (fclass == 2) fieldType = "STRUCT";
+                                else if (fclass == 3) fieldType = "ARRAY";
+                                else if (fclass == 4) fieldType = "FAM";
+                                else if (fclass == 5) fieldType = "VARIABLE";
+                            }
+                            out << "    .field_class " << vi.fieldNames[fi] << " " << fieldType << std::endl;
+                        }
+                    }
+
+                    out << std::endl;
+                }
+
+                // Emit reorganized/original data
+                if (isUnionStripedArray) {
+                    // Phase 96.1: Emit union-striped data with per-element padding
+                    std::string gName = "_" + gVar->name;
+                    int largestSize = 0;
+                    if (globalVariableTypes.count(gName)) {
+                        VarInfo& vi = globalVariableTypes[gName];
+                        largestSize = vi.largestUnionFieldSize;
+                    }
+
+                    // Emit each element padded to largest field size
+                    int elementSize = largestSize;
+                    for (int i = 0; i < totalElements; i++) {
+                        for (int j = 0; j < elementSize; j++) {
+                            int dataIdx = i * elementSize + j;
+                            int constVal = (dataIdx < (int)dataValues.size()) ? dataValues[dataIdx] : 0;
+                            if (elementSize == 1) {
+                                out << "    .byte $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (constVal & 0xFF) << std::dec << std::endl;
+                            } else if (elementSize == 2) {
+                                out << "    .word $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (constVal & 0xFFFF) << std::dec << std::endl;
+                            } else if (elementSize == 4) {
+                                out << "    .dword $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(8) << (constVal & 0xFFFFFFFF) << std::dec << std::endl;
+                            } else {
+                                out << "    .res " << std::to_string(elementSize) << ", 0" << std::endl;
+                            }
+                        }
+                    }
+                } else if (isVariableSizeArray) {
+                    // Phase 96.2: Emit variable-size array fixed-prefix with field-striping
+                    // Variable data is stored separately (not included in this emission)
+                    std::string gName = "_" + gVar->name;
+                    std::vector<int> fieldSizes;
+                    int height = gVar->arrayDims.size() >= 2 ? gVar->arrayDims[gVar->arrayDims.size()-2] : 1;
+                    int width = gVar->arrayDims.size() >= 1 ? gVar->arrayDims[gVar->arrayDims.size()-1] : 1;
+                    int matrixSize = height * width;
+
+                    if (globalVariableTypes.count(gName)) {
+                        VarInfo& vi = globalVariableTypes[gName];
+                        fieldSizes = vi.fieldSizes;
+                    }
+
+                    int dataIdx = 0;
+
+                    for (size_t fi = 0; fi < fieldSizes.size() && dataIdx < (int)dataValues.size(); fi++) {
+                        int fieldSize = fieldSizes[fi];
+                        // Emit one field region (matrixSize values, each fieldSize bytes)
+                        for (int mi = 0; mi < matrixSize && dataIdx < (int)dataValues.size(); mi++) {
+                            int constVal = dataValues[dataIdx++];
+                            if (fieldSize == 1) out << "    .byte $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (constVal & 0xFF) << std::dec << std::endl;
+                            else if (fieldSize == 2) out << "    .word $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (constVal & 0xFFFF) << std::dec << std::endl;
+                            else if (fieldSize == 4) out << "    .dword $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(8) << (constVal & 0xFFFFFFFF) << std::dec << std::endl;
+                            else out << "    .res " << std::to_string(fieldSize) << ", 0" << std::endl;
+                        }
+                    }
+                } else if (isFieldStripedArray) {
+                    // Phase 95.4: Emit field-striped data with per-field sizing
+                    std::string gName = "_" + gVar->name;
+                    std::vector<int> fieldSizes;
+                    int height = gVar->arrayDims.size() >= 2 ? gVar->arrayDims[gVar->arrayDims.size()-2] : 1;
+                    int width = gVar->arrayDims.size() >= 1 ? gVar->arrayDims[gVar->arrayDims.size()-1] : 1;
+                    int matrixSize = height * width;
+
+                    if (globalVariableTypes.count(gName)) {
+                        VarInfo& vi = globalVariableTypes[gName];
+                        fieldSizes = vi.fieldSizes;
+                    }
+
+                    int fieldIdx = 0;
+                    int dataIdx = 0;
+
+                    for (size_t fi = 0; fi < fieldSizes.size() && dataIdx < (int)dataValues.size(); fi++) {
+                        int fieldSize = fieldSizes[fi];
+                        // Emit one field region (matrixSize values, each fieldSize bytes)
+                        for (int mi = 0; mi < matrixSize && dataIdx < (int)dataValues.size(); mi++) {
+                            int constVal = dataValues[dataIdx++];
+                            if (fieldSize == 1) out << "    .byte $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (constVal & 0xFF) << std::dec << std::endl;
+                            else if (fieldSize == 2) out << "    .word $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (constVal & 0xFFFF) << std::dec << std::endl;
+                            else if (fieldSize == 4) out << "    .dword $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(8) << (constVal & 0xFFFFFFFF) << std::dec << std::endl;
+                            else out << "    .res " << std::to_string(fieldSize) << ", 0" << std::endl;
+                        }
+                    }
+                } else {
+                    // Regular striped or standard array
+                    for (int i = 0; i < totalElements; i++) {
+                        int constVal = dataValues[i];
+                        if (elementSize == 1) out << "    .byte $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (constVal & 0xFF) << std::dec << std::endl;
+                        else if (elementSize == 2) out << "    .word $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (constVal & 0xFFFF) << std::dec << std::endl;
+                        else if (elementSize == 4) out << "    .dword $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(8) << (constVal & 0xFFFFFFFF) << std::dec << std::endl;
+                        else out << "    .res " << std::to_string(elementSize) << ", 0" << std::endl;
+                    }
                 }
             }
         } else {
             int constVal;
             if (tryEvalConstInt(gVar->initializer.get(), constVal)) {
+                if (size == 1) out << "    .byte $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (constVal & 0xFF) << std::dec << std::endl;
+                else if (size == 2) out << "    .word $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (constVal & 0xFFFF) << std::dec << std::endl;
+                else if (size == 4) out << "    .dword $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(8) << (constVal & 0xFFFFFFFF) << std::dec << std::endl;
+                else out << "    .res " << std::to_string(size) << ", 0" << std::endl;
+            } else {
+                out << "    .res " << std::to_string(size) << ", 0" << std::endl;
+            }
+        }
+    }
+
+    // ZP section — zero-page initialized globals (Phase 97)
+    if (!initializedZpVars.empty()) {
+        out << std::endl << ".zp" << std::endl;
+        out << "; Zero-Page Data Section" << std::endl;
+        for (auto* gVar : initializedZpVars) {
+            if (gVar->alignment == 0 && gVar->alignmentExpr)
+                gVar->alignment = resolveAlignmentExpr(gVar->alignmentExpr.get(), structs);
+            if (gVar->alignment > 1) out << "    .align " << std::to_string(gVar->alignment) << std::endl;
+            out << "_" << gVar->name << ":" << std::endl;
+
+            int size = 0;
+            if (gVar->pointerLevel > 0) size = 2;
+            else if (is8BitType(gVar->type)) size = 1;
+            else if (is32BitType(gVar->type)) size = 4;
+            else if (gVar->type == "int") size = 2;
+            else if (isStruct(gVar->type)) { std::string sName = getAggregateName(gVar->type); if (structs.count(sName)) size = structs[sName]->totalSize; }
+            if (gVar->arraySize() >= 0) size *= gVar->arraySize();
+
+            int constVal;
+            if (gVar->initializer && tryEvalConstInt(gVar->initializer.get(), constVal)) {
                 if (size == 1) out << "    .byte $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (constVal & 0xFF) << std::dec << std::endl;
                 else if (size == 2) out << "    .word $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(4) << (constVal & 0xFFFF) << std::dec << std::endl;
                 else if (size == 4) out << "    .dword $" << std::right << std::hex << std::uppercase << std::setfill('0') << std::setw(8) << (constVal & 0xFFFFFFFF) << std::dec << std::endl;
@@ -5563,6 +6916,42 @@ void CodeGenerator::emitData() {
                 gVar->alignment = resolveAlignmentExpr(gVar->alignmentExpr.get(), structs);
             if (gVar->alignment > 1) out << "    .align " << std::to_string(gVar->alignment) << std::endl;
             std::string gName = "_" + gVar->name;
+
+            // Phase 96.4.1: Emit metadata for uninitialized variable-size field arrays
+            if (globalVariableTypes.count(gName)) {
+                VarInfo& vi = globalVariableTypes[gName];
+                if (vi.hasVariableFields && gVar->arrayDims.size() >= 2) {
+                    out << "    ; Phase 96.4.1: Variable-size field array metadata (uninitialized)" << std::endl;
+                    out << "    .var_field_array " << gVar->name << std::endl;
+
+                    // Emit array dimensions
+                    int height = gVar->arrayDims.size() >= 2 ? gVar->arrayDims[gVar->arrayDims.size()-2] : 1;
+                    int width = gVar->arrayDims.size() >= 1 ? gVar->arrayDims[gVar->arrayDims.size()-1] : 1;
+                    out << "    .array_dims " << height << " " << width << std::endl;
+
+                    // Emit fixed prefix size
+                    out << "    .fixed_prefix_size " << vi.fixedPrefixSize << std::endl;
+
+                    // Emit field classification
+                    if (!vi.fieldNames.empty()) {
+                        out << "    .field_count " << vi.fieldNames.size() << std::endl;
+                        for (size_t fi = 0; fi < vi.fieldNames.size(); fi++) {
+                            std::string fieldType = "FIXED";
+                            if (fi * 2 + 1 < vi.fieldClasses.size()) {
+                                int fclass = vi.fieldClasses[fi * 2 + 1];
+                                if (fclass == 1) fieldType = "POINTER";
+                                else if (fclass == 2) fieldType = "STRUCT";
+                                else if (fclass == 3) fieldType = "ARRAY";
+                                else if (fclass == 4) fieldType = "FAM";
+                                else if (fclass == 5) fieldType = "VARIABLE";
+                            }
+                            out << "    .field_class " << vi.fieldNames[fi] << " " << fieldType << std::endl;
+                        }
+                    }
+                    out << std::endl;
+                }
+            }
+
             if (relocMode && !staticGlobals.count(gVar->name)) out << ".global " << gName << std::endl;
             out << gName << ":" << std::endl;
             int size = 0;
@@ -5575,6 +6964,28 @@ void CodeGenerator::emitData() {
             out << "    .res " << std::to_string(size) << std::endl;
         }
         if (!relocMode) out << "__bss_end:" << std::endl;
+    }
+
+    // ZP section — zero-page uninitialized globals (Phase 97)
+    if (!uninitializedZpVars.empty()) {
+        out << std::endl << ".zp" << std::endl;
+        out << "; Zero-Page BSS Section" << std::endl;
+        for (auto* gVar : uninitializedZpVars) {
+            if (gVar->alignment == 0 && gVar->alignmentExpr)
+                gVar->alignment = resolveAlignmentExpr(gVar->alignmentExpr.get(), structs);
+            if (gVar->alignment > 1) out << "    .align " << std::to_string(gVar->alignment) << std::endl;
+            std::string gName = "_" + gVar->name;
+            if (relocMode && !staticGlobals.count(gVar->name)) out << ".global " << gName << std::endl;
+            out << gName << ":" << std::endl;
+            int size = 0;
+            if (gVar->pointerLevel > 0) size = 2;
+            else if (is8BitType(gVar->type)) size = 1;
+            else if (is32BitType(gVar->type)) size = 4;
+            else if (gVar->type == "int") size = 2;
+            else if (isStruct(gVar->type)) { std::string sName = getAggregateName(gVar->type); if (structs.count(sName)) size = structs[sName]->totalSize; }
+            if (gVar->arraySize() >= 0) size *= gVar->arraySize();
+            out << "    .res " << std::to_string(size) << std::endl;
+        }
     }
 
     out << std::endl << ".data" << std::endl;
@@ -5784,4 +7195,1166 @@ void CodeGenerator::visit(LabelAddressExpression& node) {
     if (!resultNeeded) return;
     emit("ldax #@" + node.label);
     invalidateRegs();
+}
+
+/**
+ * Phase 89: Address Template Optimization
+ * Try to emit an optimized template for address calculations
+ * Returns true if a template was emitted, false if normal code gen should be used
+ */
+bool CodeGenerator::tryEmitAddressTemplate(BinaryOperation& node) {
+    std::cerr << "[CodeGenerator::tryEmitAddressTemplate] called with op=" << node.op << std::endl;
+
+    // Only optimize addition and multiplication operations
+    if (node.op != "+" && node.op != "*") {
+        std::cerr << "  rejected: not + or *" << std::endl;
+        return false;
+    }
+
+    // Use the detector to find patterns
+    AddressTemplateDetector detector;
+    auto pattern = detector.detectPattern(node);
+
+    if (!pattern.canOptimize) {
+        std::cerr << "  pattern not found" << std::endl;
+        return false;  // No recognized pattern
+    }
+
+    std::cerr << "  PATTERN MATCHED!" << std::endl;
+
+    // Emit comment indicating template usage
+    emit("; [Phase 89: Address Template - " + pattern.name + "]");
+
+    // For now, emit a simplified template
+    // Full implementation would substitute operands into template strings
+    switch (pattern.type) {
+        case AddressTemplateDetector::PatternType::LINEAR_ROW_MAJOR: {
+            // Pattern: (row * WIDTH) + col  OR  row * WIDTH
+            // Operands: [0] = row var, [1] = col var (optional)
+            if (pattern.operands.size() >= 1 && pattern.width > 0) {
+                int width = pattern.width;
+                std::string row_var = pattern.operands[0];
+                bool hasCol = pattern.operands.size() >= 2;
+                std::string col_var = hasCol ? pattern.operands[1] : "";
+
+                // Comment showing the optimization
+                if (hasCol) {
+                    emit("; Optimized: " + row_var + " * " + std::to_string(width) + " + " + col_var);
+                } else {
+                    emit("; Optimized: " + row_var + " * " + std::to_string(width));
+                }
+
+                // Emit optimized multiply for known widths
+                if (width == 40) {
+                    // lda row; asl; asl; asl; sta temp; asl; adc temp; [adc col]
+                    emit("lda " + row_var);
+                    emit("asl");          // × 2
+                    emit("asl");          // × 4
+                    emit("asl");          // × 8
+                    emit("sta $fa");      // temp = 8 × row
+                    emit("asl");          // × 16
+                    emit("adc $fa");      // A = 24 × row
+                    emit("sta $fa");
+                    emit("lda " + row_var);
+                    emit("asl");          // × 2
+                    emit("asl");          // × 4
+                    emit("adc $fa");      // 40×row
+                    if (hasCol) {
+                        emit("clc");
+                        emit("adc " + col_var);
+                    }
+                    emit("ldx #0");       // High byte = 0
+                    invalidateRegs();
+                    regA.known = false;
+                    regX.known = false;
+                    return true;
+                } else if (width == 80) {
+                    // row * 80 = row * 64 + row * 16
+                    emit("lda " + row_var);
+                    emit("asl"); emit("asl"); emit("asl"); emit("asl");  // × 16
+                    emit("asl"); emit("asl");                             // × 64
+                    emit("sta $fa");
+                    emit("lda " + row_var);
+                    emit("asl"); emit("asl"); emit("asl"); emit("asl");  // × 16
+                    emit("clc");
+                    emit("adc $fa");      // 80×row
+                    if (hasCol) {
+                        emit("clc");
+                        emit("adc " + col_var);
+                    }
+                    emit("ldx #0");
+                    invalidateRegs();
+                    regA.known = false;
+                    regX.known = false;
+                    return true;
+                }
+            }
+            break;
+        }
+
+        case AddressTemplateDetector::PatternType::SPRITE_OFFSET: {
+            // Pattern: base + (index * SIZE)
+            if (pattern.operands.size() >= 2 && pattern.multiplier > 0) {
+                int size = pattern.multiplier;
+                std::string base_var = pattern.operands[0];
+                std::string index_var = pattern.operands[1];
+
+                emit("; Optimized: " + base_var + " + " + index_var + " * " + std::to_string(size));
+
+                // For simple cases (size is power of 2)
+                if (size > 0 && (size & (size - 1)) == 0) {
+                    // size is a power of 2, can use bit shifts
+                    int shifts = 0;
+                    int temp_size = size;
+                    while (temp_size > 1) {
+                        temp_size >>= 1;
+                        shifts++;
+                    }
+
+                    emit("lda " + index_var);
+                    for (int i = 0; i < shifts; i++) {
+                        emit("asl");
+                    }
+                    emit("clc");
+                    emit("adc " + base_var);
+                    emit("ldx #0");
+                    invalidateRegs();
+                    regA.known = false;
+                    regX.known = false;
+                    return true;
+                }
+            }
+            break;
+        }
+
+        default:
+            return false;
+    }
+
+    return false;
+}
+
+void CodeGenerator::emitStripedArrayAccess(ArrayAccess& node, VarInfo& varInfo, VariableReference* baseRef) {
+    // Phase 92.3-93-94: Striped array optimization for 2D+ primitive and struct arrays
+    // Reorganizes memory to enable 8-bit indexing instead of 16-bit offset calculations
+    // Phase 93 extends to 3D and higher: last 2 dims striped, earlier dims sequence matrices
+    // Phase 94 extends to struct types with variable element sizes
+
+    if (varInfo.arrayDims.size() < 2) {
+        return;  // Not a 2D+ array, use standard indexing
+    }
+
+    // Phase 94: Determine element size
+    // For int: 4 bytes. For structs: sizeof(struct)
+    int elementSize = 0;
+    if (varInfo.type == "int") {
+        elementSize = 4;
+    } else {
+        // Check if it's a struct type
+        if (structs.count(varInfo.type)) {
+            elementSize = structs[varInfo.type]->totalSize;
+        } else {
+            return;  // Not a supported striped array type
+        }
+    }
+
+    int height = varInfo.arrayDims[varInfo.arrayDims.size() - 2];  // second-to-last
+    int width = varInfo.arrayDims[varInfo.arrayDims.size() - 1];   // last
+
+    // Striped optimization only works well for power-of-2 widths
+    if (width < 4 || (width & (width - 1)) != 0) {
+        return;  // Not a power of 2
+    }
+
+    // Determine stripe width for bit-shift efficiency
+    int stripeWidth = (width <= 8) ? width : 8;
+    int log2Stripe = 0;
+    for (int i = stripeWidth; i > 1; i >>= 1) log2Stripe++;
+
+    // Phase 93: Handle 2D+ array access patterns
+    // For 3D+: arr[d1][d2]...[row][col] → we need to extract outer dimensions
+    // For 2D: arr[row][col] → direct access
+    // For 3D: arr[d][row][col]
+    // For 4D+: arr[d1][d2]...[row][col]
+
+    int numDims = varInfo.arrayDims.size();
+
+    // Store base address in ZP temp
+    int zpBase = allocateZP(2);
+    std::stringstream ss_base;
+    ss_base << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpBase);
+    emit("ptrstack " + resolveVarName(baseRef->name));
+    emit("stax $" + ss_base.str());
+
+    // Phase 93.2: Extract all dimension indices from nested ArrayAccess nodes
+    // Build a vector of (index_expr, dimension_size) pairs
+    std::vector<std::pair<Expression*, int>> dimIndices;  // (index expression, dimension size)
+
+    // Walk the nested array accesses to extract all indices
+    ArrayAccess* current = &node;
+    for (int i = numDims - 1; i >= 0; i--) {
+        if (!current) return;
+        dimIndices.push_back({current->indexExpr.get(), varInfo.arrayDims[i]});
+
+        // Move to parent array access (if exists)
+        auto* parentExpr = current->arrayExpr.get();
+        if (i > 0) {
+            current = dynamic_cast<ArrayAccess*>(parentExpr);
+            if (!current) return;  // Should have found parent
+        }
+    }
+
+    // Reverse to get dimensions in order (dim0, dim1, ..., row, col)
+    std::reverse(dimIndices.begin(), dimIndices.end());
+
+    // Phase 93.2: Evaluate and store all indices in ZP
+    std::vector<std::string> zpIndices;  // ZP addresses for each dimension index
+    bool oldNeeded = resultNeeded;
+
+    for (size_t i = 0; i < dimIndices.size(); i++) {
+        resultNeeded = true;
+        dimIndices[i].first->accept(*this);
+        resultNeeded = oldNeeded;
+
+        int zpIdx = allocateZP(1);
+        std::stringstream ss_idx;
+        ss_idx << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpIdx);
+        emit("sta $" + ss_idx.str());
+        zpIndices.push_back(ss_idx.str());
+    }
+
+    // Extract row and column indices (last 2 dimensions)
+    std::string zpRow = zpIndices[numDims - 2];
+    std::string zpCol = zpIndices[numDims - 1];
+
+    // Phase 93.2: Calculate depth offset for 3D+ arrays
+    int zpDepthOffset = -1;
+    std::string zpDepthOffsetStr;
+    if (numDims > 2) {
+        // Phase 94: Calculate depth offset with variable elementSize
+        // matrix_2d_size = height * width * elementSize
+        int matrix2DSize = height * width * elementSize;
+
+        // Emit depth offset calculation
+        // Start with first outer dimension index
+        emit("lda " + zpIndices[0]);
+
+        // Multiply by remaining outer dimensions
+        for (size_t i = 1; i < numDims - 2; i++) {
+            emit("tax");
+            emit("lda " + zpIndices[i]);
+            emit("mul.8x");  // A = A * X (both 8-bit)
+        }
+
+        // Now multiply by matrix_2d_size
+        if (matrix2DSize > 0 && (matrix2DSize & (matrix2DSize - 1)) == 0) {
+            // Power of 2: use shifts
+            int shifts = 0;
+            int temp = matrix2DSize;
+            while (temp > 1) {
+                temp >>= 1;
+                shifts++;
+            }
+            for (int i = 0; i < shifts; i++) {
+                emit("asl");
+            }
+        } else {
+            // General case: multiply
+            emit("tax");
+            emit("ldy #$" + std::to_string(matrix2DSize & 0xFF));
+            if (matrix2DSize > 255) {
+                emit("lda #$" + std::to_string((matrix2DSize >> 8) & 0xFF));
+                emit("mul.16 .ay");
+            } else {
+                emit("mul.8x");
+            }
+        }
+
+        // Store depth offset in ZP
+        zpDepthOffset = allocateZP(2);
+        std::stringstream ss_depth;
+        ss_depth << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpDepthOffset);
+        zpDepthOffsetStr = ss_depth.str();
+        emit("stax $" + zpDepthOffsetStr);
+    }
+
+    // Phase 93.2-94: Calculate 2D striped offset
+    // Phase 94: Use variable elementSize instead of hardcoded 4
+    // offset = (col >> log2Stripe) * height * elementSize + row * elementSize + (col & mask) * stride_factor
+
+    emit("lda " + zpCol);
+    for (int i = 0; i < log2Stripe; i++) {
+        emit("lsr");
+    }
+
+    // Multiply stripe select by height * elementSize
+    if (height <= 16 && (height & (height - 1)) == 0) {
+        // Power of 2 height: multiply by height via shifts
+        int log2Height = 0;
+        for (int i = height; i > 1; i >>= 1) log2Height++;
+        for (int i = 0; i < log2Height; i++) {
+            emit("asl");
+        }
+    } else {
+        // General case: multiply by height
+        emit("tax");
+        emit("lda #$" + std::to_string(height));
+        emit("mul.16 .ax, .tx");
+    }
+
+    // Phase 94: Now multiply result by elementSize
+    if (elementSize == 4) {
+        // For int (elementSize=4), use shifts: asl, asl
+        emit("asl");
+        emit("asl");
+    } else if (elementSize > 0 && (elementSize & (elementSize - 1)) == 0) {
+        // Power of 2: use shifts
+        int shifts = 0;
+        int temp = elementSize;
+        while (temp > 1) {
+            temp >>= 1;
+            shifts++;
+        }
+        for (int i = 0; i < shifts; i++) {
+            emit("asl");
+        }
+    } else {
+        // Non-power-of-2: use multiply
+        emit("tax");
+        emit("ldy #$" + std::to_string(elementSize & 0xFF));
+        emit("mul.8x");
+    }
+
+    // Add row * elementSize
+    emit("tax");
+    emit("lda " + zpRow);
+    if (elementSize == 4) {
+        emit("asl");
+        emit("asl");
+    } else if (elementSize > 0 && (elementSize & (elementSize - 1)) == 0) {
+        // Power of 2: use shifts
+        int shifts = 0;
+        int temp = elementSize;
+        while (temp > 1) {
+            temp >>= 1;
+            shifts++;
+        }
+        for (int i = 0; i < shifts; i++) {
+            emit("asl");
+        }
+    } else {
+        // Non-power-of-2: use multiply
+        emit("ldy #$" + std::to_string(elementSize & 0xFF));
+        emit("mul.8y");
+    }
+    emit("clc");
+    emit("adc.16 .tx");
+
+    // Add column remainder offset: (col & (stripeWidth-1)) * stride_factor
+    // stride_factor = (height * elementSize) / stripeWidth
+    emit("tax");
+    emit("lda " + zpCol);
+    int mask = stripeWidth - 1;
+    std::stringstream ss_mask;
+    ss_mask << "#$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (mask & 0xFF);
+    emit("and " + ss_mask.str());
+
+    int stride_factor = (height * elementSize) / stripeWidth;
+    if (stride_factor == 4) {
+        emit("asl");
+        emit("asl");
+    } else if (stride_factor > 0 && (stride_factor & (stride_factor - 1)) == 0) {
+        // Power of 2: use shifts
+        int shifts = 0;
+        int temp = stride_factor;
+        while (temp > 1) {
+            temp >>= 1;
+            shifts++;
+        }
+        for (int i = 0; i < shifts; i++) {
+            emit("asl");
+        }
+    } else {
+        // Non-power-of-2: use multiply
+        emit("ldy #$" + std::to_string(stride_factor & 0xFF));
+        emit("mul.8y");
+    }
+    emit("clc");
+    emit("adc.16 .tx");
+
+    // Phase 93.2: Add depth offset if 3D+
+    if (numDims > 2) {
+        emit("clc");
+        emit("adc.16 $" + zpDepthOffsetStr);
+    }
+
+    // Add base address
+    emit("clc");
+    emit("adc.16 $" + ss_base.str());
+
+    // Free all allocated ZP spaces
+    freeZP(zpBase, 2);
+    for (size_t i = 0; i < zpIndices.size(); i++) {
+        // Extract ZP address from zpIndices[i] (format: "$XX")
+        std::string zpStr = zpIndices[i];
+        if (zpStr[0] == '$') {
+            int zpVal = std::stoi(zpStr.substr(1), nullptr, 16);
+            freeZP(zpVal, 1);
+        }
+    }
+    if (zpDepthOffset >= 0) {
+        freeZP(zpDepthOffset, 2);
+    }
+    invalidateRegs();
+}
+
+bool CodeGenerator::tryEmitFieldStripedArrayMemberAccess(
+    ArrayAccess& node,
+    VarInfo& varInfo,
+    VariableReference* baseRef,
+    const std::string& memberName,
+    const MemberInfo& mInfo
+) {
+    // Phase 95.3: Code generation for field-striped struct array member access
+    // Pattern: arr[row][col].field where arr is a field-striped struct array
+
+    if (varInfo.arrayDims.size() < 2) {
+        return false;  // Not a 2D+ array
+    }
+
+    // Get struct info to check field support
+    if (!structs.count(varInfo.type)) {
+        return false;  // Struct not found
+    }
+
+    auto& structInfo = *structs[varInfo.type];
+    if (!structInfo.isFieldStriped) {
+        return false;  // Not marked as field-striped
+    }
+
+    // Check if field exists in struct
+    if (!varInfo.fieldNames.size() || !varInfo.fieldSizes.size()) {
+        return false;  // No field metadata
+    }
+
+    // Find field index
+    int fieldIndex = -1;
+    for (size_t i = 0; i < varInfo.fieldNames.size(); i++) {
+        if (varInfo.fieldNames[i] == memberName) {
+            fieldIndex = i;
+            break;
+        }
+    }
+
+    if (fieldIndex < 0 || fieldIndex >= (int)varInfo.fieldSizes.size()) {
+        return false;  // Field not in striped metadata
+    }
+
+    embedSource(node);
+    if (!resultNeeded) return true;
+
+    int height = varInfo.arrayDims[varInfo.arrayDims.size() - 2];  // second-to-last
+    int width = varInfo.arrayDims[varInfo.arrayDims.size() - 1];   // last
+
+    // Striped optimization only works well for power-of-2 widths
+    if (width < 4 || (width & (width - 1)) != 0) {
+        return false;  // Not a power of 2
+    }
+
+    // Determine stripe width and log2
+    int stripeWidth = (width <= 8) ? width : 8;
+    int log2Stripe = 0;
+    for (int i = stripeWidth; i > 1; i >>= 1) log2Stripe++;
+
+    int numDims = varInfo.arrayDims.size();
+
+    // Store base address in ZP temp
+    int zpBase = allocateZP(2);
+    std::stringstream ss_base;
+    ss_base << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpBase);
+    emit("ptrstack " + resolveVarName(baseRef->name));
+    emit("stax $" + ss_base.str());
+
+    // Extract all dimension indices from nested ArrayAccess nodes
+    std::vector<std::pair<Expression*, int>> dimIndices;
+
+    // Walk the nested array accesses to extract all indices
+    ArrayAccess* current = &node;
+    for (int i = numDims - 1; i >= 0; i--) {
+        if (!current) return false;
+        dimIndices.push_back({current->indexExpr.get(), varInfo.arrayDims[i]});
+
+        // Move to parent array access (if exists)
+        auto* parentExpr = current->arrayExpr.get();
+        if (i > 0) {
+            current = dynamic_cast<ArrayAccess*>(parentExpr);
+            if (!current) return false;
+        }
+    }
+
+    // Reverse to get dimensions in order (dim0, dim1, ..., row, col)
+    std::reverse(dimIndices.begin(), dimIndices.end());
+
+    // Evaluate and store all indices in ZP
+    std::vector<std::string> zpIndices;
+    bool oldNeeded = resultNeeded;
+
+    for (size_t i = 0; i < dimIndices.size(); i++) {
+        resultNeeded = true;
+        dimIndices[i].first->accept(*this);
+        resultNeeded = oldNeeded;
+
+        int zpIdx = allocateZP(1);
+        std::stringstream ss_idx;
+        ss_idx << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpIdx);
+        emit("sta $" + ss_idx.str());
+        zpIndices.push_back("$" + ss_idx.str());
+    }
+
+    // Extract row and column indices (last 2 dimensions)
+    std::string zpRow = zpIndices[numDims - 2];
+    std::string zpCol = zpIndices[numDims - 1];
+
+    // Calculate field region offset (sum of all preceding fields' total sizes)
+    int fieldRegionOffset = 0;
+    for (int i = 0; i < fieldIndex; i++) {
+        fieldRegionOffset += height * width * varInfo.fieldSizes[i];
+    }
+
+    int fieldSize = varInfo.fieldSizes[fieldIndex];
+    int strideFactor = (height * fieldSize) / stripeWidth;
+
+    // Create offset context for field-level calculation
+    FieldStripedOffsetContext ctx;
+    ctx.height = height;
+    ctx.width = width;
+    ctx.stripeWidth = stripeWidth;
+    ctx.log2StripeWidth = log2Stripe;
+    ctx.strideFactor = strideFactor;
+    ctx.fieldName = memberName;
+    ctx.fieldSize = fieldSize;
+    ctx.fieldRegionOffset = fieldRegionOffset;
+    ctx.zpBase = "$" + ss_base.str();
+    ctx.zpRow = zpRow;
+    ctx.zpCol = zpCol;
+
+    // Allocate ZP for result offset
+    int zpResult = allocateZP(2);
+    std::stringstream ss_result;
+    ss_result << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpResult);
+    ctx.zpResult = "$" + ss_result.str();
+
+    // Phase 93: Handle 3D+ arrays - calculate depth offset
+    int zpDepthOffset = -1;
+    if (numDims > 2) {
+        // Calculate depth offset for outer dimensions
+        int matrix2DSize = height * width * fieldSize;
+
+        // Emit depth offset calculation
+        emit("lda " + zpIndices[0]);
+
+        // Multiply by remaining outer dimensions
+        for (size_t i = 1; i < numDims - 2; i++) {
+            emit("tax");
+            emit("lda " + zpIndices[i]);
+            emit("mul.8x");
+        }
+
+        // Now multiply by matrix_2d_size
+        if (matrix2DSize > 0 && (matrix2DSize & (matrix2DSize - 1)) == 0) {
+            // Power of 2: use shifts
+            int shifts = 0;
+            int temp = matrix2DSize;
+            while (temp > 1) {
+                temp >>= 1;
+                shifts++;
+            }
+            for (int i = 0; i < shifts; i++) {
+                emit("asl");
+            }
+        } else {
+            // General case: multiply
+            emit("tax");
+            emit("ldy #$" + std::to_string(matrix2DSize & 0xFF));
+            if (matrix2DSize > 255) {
+                emit("lda #$" + std::to_string((matrix2DSize >> 8) & 0xFF));
+                emit("mul.16 .ay");
+            } else {
+                emit("mul.8x");
+            }
+        }
+
+        // Store depth offset in ZP
+        zpDepthOffset = allocateZP(2);
+        std::stringstream ss_depth;
+        ss_depth << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpDepthOffset);
+        ctx.zpOuterOffset = "$" + ss_depth.str();
+        ctx.outerDimSize = 1;
+        emit("stax $" + ss_depth.str());
+    }
+
+    // Generate field-level offset calculation
+    FieldStripedOffsetCalc offsetCalc;
+    auto asmLines = offsetCalc.generateOffsetCalculation(ctx);
+
+    // Emit generated assembly
+    for (const auto& line : asmLines) {
+        emit(line);
+    }
+
+    // Add outer dimension offset if 3D+
+    if (zpDepthOffset >= 0) {
+        emit("clc");
+        emit("adc.16 " + ctx.zpOuterOffset);
+    }
+
+    // Load the field value from calculated offset (in A:X) using base address (in zpBase)
+    // Final address = base + offset (in A:X)
+    emit("clc");
+    emit("adc.16 " + ctx.zpBase);
+
+    // Store address in ZP for indirect access
+    int zpAddr = allocateZP(2);
+    std::stringstream ss_addr;
+    ss_addr << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpAddr);
+    emit("stax $" + ss_addr.str());
+
+    // Load field value based on field size
+    if (fieldSize == 1) {
+        // 8-bit load
+        emit("lda ($" + ss_addr.str() + ")");
+        updateRegA(0);
+        emitter->ldx_imm(0);
+        updateRegX(0);
+    } else if (fieldSize == 2) {
+        // 16-bit load (AX)
+        emit("lda ($" + ss_addr.str() + ")");
+        emit("ldy #1");
+        emit("lda ($" + ss_addr.str() + "),y");
+        emit("tax");
+        emit("lda ($" + ss_addr.str() + ")");
+        regA.known = false;
+        regX.known = false;
+    } else if (fieldSize == 4) {
+        // 32-bit load (AXYZ)
+        emit("lda ($" + ss_addr.str() + ")");
+        emit("ldy #1");
+        emit("lda ($" + ss_addr.str() + "),y");
+        emit("tax");
+        emit("ldy #2");
+        emit("lda ($" + ss_addr.str() + "),y");
+        emit("tay");
+        emit("ldy #3");
+        emit("lda ($" + ss_addr.str() + "),y");
+        emit("taz");  // Move to Z
+        regA.known = false;
+        regX.known = false;
+        regY.known = false;
+    } else {
+        // Generic multi-byte load - only load first byte
+        emit("lda ($" + ss_addr.str() + ")");
+        updateRegA(0);
+        emitter->ldx_imm(0);
+        updateRegX(0);
+    }
+
+    // Free all allocated ZP spaces
+    freeZP(zpBase, 2);
+    freeZP(zpResult, 2);
+    freeZP(zpAddr, 2);
+    if (zpDepthOffset >= 0) {
+        freeZP(zpDepthOffset, 2);
+    }
+    for (size_t i = 0; i < zpIndices.size(); i++) {
+        // Extract ZP address from zpIndices[i] (format: "$XX")
+        std::string zpStr = zpIndices[i];
+        if (zpStr[0] == '$') {
+            int zpVal = std::stoi(zpStr.substr(1), nullptr, 16);
+            freeZP(zpVal, 1);
+        }
+    }
+
+    invalidateRegs();
+    return true;
+}
+
+// Phase 96.1: Union-striped array member access code generation
+bool CodeGenerator::tryEmitUnionStripedArrayMemberAccess(
+    ArrayAccess& node,
+    VarInfo& varInfo,
+    VariableReference* baseRef,
+    const std::string& memberName
+) {
+    // Pattern: arr[row][col].field where arr is a union-striped array
+    // Unlike struct field-striping, union fields all occupy offset 0 (overlay)
+
+    if (varInfo.arrayDims.size() < 2) {
+        return false;  // Not a 2D+ array
+    }
+
+    // Check if field exists in union
+    if (varInfo.unionFields.empty() || varInfo.unionFieldSizes.empty()) {
+        return false;  // No union field metadata
+    }
+
+    // Find field in union and get its size
+    int fieldIndex = -1;
+    int fieldSize = 0;
+    for (size_t i = 0; i < varInfo.unionFields.size(); i++) {
+        if (varInfo.unionFields[i] == memberName) {
+            fieldIndex = i;
+            fieldSize = varInfo.unionFieldSizes[i];
+            break;
+        }
+    }
+
+    if (fieldIndex < 0 || fieldSize <= 0) {
+        return false;  // Field not found or invalid size
+    }
+
+    embedSource(node);
+    if (!resultNeeded) return true;
+
+    int height = varInfo.arrayDims[varInfo.arrayDims.size() - 2];
+    int width = varInfo.arrayDims[varInfo.arrayDims.size() - 1];
+
+    // Union striping works for any width (no power-of-2 requirement like structs)
+    // Calculate base address: same as struct striped arrays
+
+    int numDims = varInfo.arrayDims.size();
+
+    // Store base address (array start) in ZP temp
+    int zpBase = allocateZP(2);
+    std::stringstream ss_base;
+    ss_base << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpBase);
+    emit("ptrstack " + resolveVarName(baseRef->name));
+    emit("stax $" + ss_base.str());
+
+    // Extract dimension indices
+    std::vector<std::pair<Expression*, int>> dimIndices;
+    ArrayAccess* current = &node;
+    for (int i = numDims - 1; i >= 0; i--) {
+        if (!current) return false;
+        dimIndices.push_back({current->indexExpr.get(), varInfo.arrayDims[i]});
+        auto* parentExpr = current->arrayExpr.get();
+        if (i > 0) {
+            current = dynamic_cast<ArrayAccess*>(parentExpr);
+            if (!current) return false;
+        }
+    }
+    std::reverse(dimIndices.begin(), dimIndices.end());
+
+    // Evaluate indices and store in ZP
+    std::vector<std::string> zpIndices;
+    bool oldNeeded = resultNeeded;
+
+    for (size_t i = 0; i < dimIndices.size(); i++) {
+        resultNeeded = true;
+        dimIndices[i].first->accept(*this);
+        resultNeeded = oldNeeded;
+
+        int zpIdx = allocateZP(2);
+        std::stringstream ss;
+        ss << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(zpIdx);
+        emit("stax $" + ss.str());
+        zpIndices.push_back(ss.str());
+    }
+
+    // Calculate offset within striped array
+    // For unions: offset = (row * width + col) * largestFieldSize
+    int largestSize = varInfo.largestUnionFieldSize;
+    std::string zpOffset = zpIndices.back();
+
+    // Calculate element offset
+    if (numDims == 2) {
+        // 2D: offset = (row * width + col) * largestSize
+        resultNeeded = true;
+        emitter->lda_imm(0);
+        emitter->ldx_imm(0);
+
+        // Load row index
+        emit("ldax $" + zpIndices[0]);
+        // Multiply by width
+        for (int w = width; w > 1; w >>= 1) {
+            if (w & 1) {
+                int tmpZp = allocateZP(2);
+                std::stringstream ssTmp;
+                ssTmp << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)emitter->getZP(tmpZp);
+                emit("stax $" + ssTmp.str());
+                emit("ldax $" + ssTmp.str());
+                emit("asl");
+                emit("rol");
+                freeZP(tmpZp, 2);
+            } else {
+                emit("asl");
+                emit("rol");
+            }
+        }
+
+        // Add column index
+        emit("clc");
+        emit("adc $" + zpIndices[1]);
+        emit("bcc @no_carry");
+        emit("inx");
+        emit("@no_carry:");
+    } else {
+        // 3D+: calculate using outer dimensions product
+        // Simplified: just use last 2 dimensions (row, col)
+        resultNeeded = true;
+        emit("ldax $" + zpIndices[numDims - 2]);
+        for (int w = width; w > 1; w >>= 1) {
+            emit("asl");
+            emit("rol");
+        }
+        emit("clc");
+        emit("adc $" + zpIndices[numDims - 1]);
+        emit("bcc @no_carry");
+        emit("inx");
+        emit("@no_carry:");
+    }
+
+    // Multiply by largest field size
+    for (int s = largestSize; s > 1; s >>= 1) {
+        emit("asl");
+        emit("rol");
+    }
+
+    // Add to base address
+    emit("clc");
+    emit("adc $" + ss_base.str());
+    emit("bcc @element_addr_set");
+    emit("inx");
+    emit("@element_addr_set:");
+
+    // Load field value using size-appropriate instruction
+    std::string fieldAddr = "$(" + ss_base.str() + ")";
+
+    if (fieldSize == 1) {
+        emit("lda " + fieldAddr + ", y");
+        updateRegAVar("union_field", 0);
+        emitter->ldx_imm(0);
+        updateRegX(0);
+    } else if (fieldSize == 2) {
+        emit("ldax " + fieldAddr + ", y");
+        updateRegAVar("union_field", 0);
+        updateRegXVar("union_field", 1);
+    } else if (fieldSize == 4) {
+        emit("ldq " + fieldAddr + ", y");
+        updateRegAVar("union_field", 0);
+        updateRegXVar("union_field", 1);
+        // Y and Z updated implicitly
+    } else {
+        // Larger fields: load via loop
+        for (int i = 0; i < fieldSize; i++) {
+            emit("lda " + fieldAddr + "+" + std::to_string(i) + ", y");
+        }
+    }
+
+    updateZNFlags(FlagSource::A);
+
+    // Free allocated ZP space
+    freeZP(zpBase, 2);
+    for (const auto& zpStr : zpIndices) {
+        if (zpStr[0] == '$') {
+            int zpVal = std::stoi(zpStr.substr(1), nullptr, 16);
+            freeZP(zpVal, 2);
+        }
+    }
+
+    invalidateRegs();
+    return true;
+}
+
+// Phase 96.1: Union-striped data reorganization
+std::vector<int> CodeGenerator::reorganizeUnionStripedArrayData(
+    const std::vector<int>& userData,
+    int elementCount,
+    int largestFieldSize,
+    const std::vector<std::string>& fieldNames
+) {
+    // For unions, all fields overlay at offset 0
+    // Pad each element to largest field size
+
+    std::vector<int> result;
+
+    for (int i = 0; i < elementCount; i++) {
+        // Get element value (defaults to 0 if not provided)
+        int value = (i < (int)userData.size()) ? userData[i] : 0;
+
+        // Pad to largest field size
+        for (int j = 0; j < largestFieldSize; j++) {
+            if (j < 4) {
+                result.push_back((value >> (j * 8)) & 0xFF);
+            } else {
+                result.push_back(0);
+            }
+        }
+    }
+
+    return result;
+}
+
+// Phase 96.2: Variable-size field support - Field classification
+CodeGenerator::FieldClass CodeGenerator::classifyStructField(
+    const StructInfo& sInfo,
+    const std::string& fieldName,
+    bool isLastMember
+) {
+    // Find the field in the struct
+    auto it = sInfo.members.find(fieldName);
+    if (it == sInfo.members.end()) {
+        return FieldClass::FIXED_SCALAR;  // Default if not found
+    }
+
+    const MemberInfo& field = it->second;
+
+    // Check for pointer field
+    if (field.pointerLevel > 0) {
+        return FieldClass::POINTER;
+    }
+
+    // Check for array field
+    if (!field.arrayDims.empty()) {
+        // Check if it's a variable array (size unknown)
+        if (field.arrayDims.back() == 0) {
+            if (isLastMember) {
+                return FieldClass::FLEXIBLE_ARRAY;  // FAM - last position
+            } else {
+                return FieldClass::VARIABLE_ARRAY;  // Invalid - not at end
+            }
+        }
+        // Fixed-size array
+        return FieldClass::FIXED_ARRAY;
+    }
+
+    // Check for nested struct with variable fields
+    if (field.type.find("struct ") == 0) {
+        std::string nestedName = field.type;
+        if (nestedName.find("struct ") == 0) {
+            nestedName = nestedName.substr(7);  // Remove "struct " prefix
+        }
+
+        // Check if nested struct has variable fields
+        auto nestedIt = structs.find(nestedName);
+        if (nestedIt != structs.end()) {
+            if (detectVariableFields(*nestedIt->second)) {
+                return FieldClass::NESTED_STRUCT;
+            }
+        }
+    }
+
+    // Default: fixed-size scalar
+    return FieldClass::FIXED_SCALAR;
+}
+
+// Phase 96.2: Detect if struct has any variable-size fields
+bool CodeGenerator::detectVariableFields(const StructInfo& sInfo) {
+    bool isLastMember = false;
+    int memberIndex = 0;
+    int totalMembers = sInfo.members.size();
+
+    for (const auto& [fieldName, field] : sInfo.members) {
+        isLastMember = (memberIndex == totalMembers - 1);
+        memberIndex++;
+
+        // Pointer field
+        if (field.pointerLevel > 0) {
+            return true;
+        }
+
+        // Variable-size array (not at end is error, at end is FAM)
+        if (!field.arrayDims.empty() && field.arrayDims.back() == 0) {
+            return true;
+        }
+
+        // Nested struct with variable fields
+        if (field.type.find("struct ") == 0) {
+            std::string nestedName = field.type.substr(7);
+            auto it = structs.find(nestedName);
+            if (it != structs.end() && detectVariableFields(*it->second)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+// Phase 96.2: Calculate size of fixed-size prefix (before first variable field)
+int CodeGenerator::calculateFixedPrefixSize(const StructInfo& sInfo) {
+    int prefixSize = 0;
+
+    for (const auto& [fieldName, field] : sInfo.members) {
+        // Stop at first variable-size field
+        if (field.pointerLevel > 0) {
+            break;
+        }
+
+        if (!field.arrayDims.empty() && field.arrayDims.back() == 0) {
+            break;  // Variable-size array
+        }
+
+        // Add fixed-size field to prefix
+        if (!field.arrayDims.empty()) {
+            // Fixed array: multiply element size by element count
+            int elementCount = 1;
+            for (int dim : field.arrayDims) {
+                if (dim > 0) elementCount *= dim;
+            }
+            // Size is elementCount * sizeof(elementType)
+            // For now, assume standard sizes
+            int elementSize = 4;  // Assume int-size
+            prefixSize += elementCount * elementSize;
+        } else {
+            // Scalar field
+            if (field.type.find("long") != std::string::npos) {
+                prefixSize += 4;
+            } else if (field.type.find("char") != std::string::npos) {
+                prefixSize += 1;
+            } else {
+                prefixSize += 2;  // Default to int size
+            }
+        }
+    }
+
+    return prefixSize;
+}
+
+// Phase 96.2: Try to emit variable-size field access
+bool CodeGenerator::tryEmitVariableSizeFieldAccess(
+    ArrayAccess& node,
+    VarInfo& varInfo,
+    VariableReference* baseRef,
+    const std::string& memberName
+) {
+    // Find field index
+    int fieldIdx = -1;
+    for (size_t i = 0; i < varInfo.fieldNames.size(); i++) {
+        if (varInfo.fieldNames[i] == memberName) {
+            fieldIdx = i;
+            break;
+        }
+    }
+
+    if (fieldIdx < 0 || !varInfo.hasVariableFields) {
+        return false;
+    }
+
+    FieldClass fclass = (FieldClass)varInfo.fieldClasses[fieldIdx];
+
+    // Fixed-size field: use existing field-striping
+    if (fclass == FieldClass::FIXED_SCALAR || fclass == FieldClass::FIXED_ARRAY) {
+        // Delegate to Phase 95 field-striping
+        auto it = structs.find(baseRef->name);
+        if (it != structs.end()) {
+            MemberInfo mInfo = it->second->members.at(memberName);
+            return tryEmitFieldStripedArrayMemberAccess(node, varInfo, baseRef, memberName, mInfo);
+        }
+        return false;
+    }
+
+    // Pointer field: load address from striped array
+    if (fclass == FieldClass::POINTER) {
+        embedSource(node);
+        if (!resultNeeded) return true;
+
+        // Pointer fields are stored in the fixed-prefix at specific offsets
+        // Calculate the offset of this pointer field within the fixed prefix
+
+        // Use Phase 95 field-striping to load the pointer value
+        // The pointer is treated as a 2-byte fixed field within the striped array
+        auto it = structs.find(baseRef->name);
+        if (it == structs.end()) return false;
+
+        StructInfo& sInfo = *it->second;
+        auto memberIt = sInfo.members.find(memberName);
+        if (memberIt == sInfo.members.end()) return false;
+
+        MemberInfo mInfo = memberIt->second;
+
+        // Load the pointer value using field-striping
+        // For pointer fields in variable-size structs, we treat them as
+        // fixed-size fields in the striped prefix and load them normally
+        if (tryEmitFieldStripedArrayMemberAccess(node, varInfo, baseRef, memberName, mInfo)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    // Flexible array member: cannot be accessed at compile-time
+    if (fclass == FieldClass::FLEXIBLE_ARRAY) {
+        return false;  // FAM not accessible in array context
+    }
+
+    return false;
+}
+
+// Phase 96.2: Reorganize variable-size array data
+std::vector<int> CodeGenerator::reorganizeVariableSizeData(
+    const std::vector<int>& userData,
+    const VarInfo& varInfo,
+    int elementCount
+) {
+    std::vector<int> result;
+
+    if (!varInfo.hasVariableFields) {
+        // No variable fields - return as-is
+        return userData;
+    }
+
+    // Separate fixed-prefix striping from variable data
+    // Fixed prefix fields striped normally
+    // Variable fields stored separately with pointer references
+
+    for (int i = 0; i < elementCount; i++) {
+        // For each element, extract fixed-size fields
+        int fixedStart = i * varInfo.fixedPrefixSize;
+
+        if (fixedStart >= (int)userData.size()) {
+            // No data provided, pad with zeros
+            for (int j = 0; j < varInfo.fixedPrefixSize; j++) {
+                result.push_back(0);
+            }
+        } else {
+            // Copy fixed-size prefix
+            for (int j = 0; j < varInfo.fixedPrefixSize && fixedStart + j < (int)userData.size(); j++) {
+                result.push_back(userData[fixedStart + j]);
+            }
+
+            // Pad if necessary
+            while (result.size() < (size_t)(i + 1) * varInfo.fixedPrefixSize) {
+                result.push_back(0);
+            }
+        }
+    }
+
+    return result;
+}
+
+// Phase 97.3: Address space helper methods
+int CodeGenerator::getAddressSpaceForVariable(const std::string& varName) const {
+    // Look up in global variable types first
+    if (globalVariableTypes.count(varName)) {
+        return globalVariableTypes.at(varName).addressSpace;
+    }
+    // Then check local variable types
+    if (variableTypes.count(varName)) {
+        return variableTypes.at(varName).addressSpace;
+    }
+    // Default to absolute (16-bit) addressing if not found
+    return 0;  // DEFAULT = 16-bit absolute
+}
+
+bool CodeGenerator::isZPVariable(const std::string& varName) const {
+    return getAddressSpaceForVariable(varName) == 1;  // ZP = 1
+}
+
+bool CodeGenerator::isABSVariable(const std::string& varName) const {
+    int space = getAddressSpaceForVariable(varName);
+    return space == 0 || space == 2;  // DEFAULT or ABS = 16-bit
+}
+
+bool CodeGenerator::isFARVariable(const std::string& varName) const {
+    return getAddressSpaceForVariable(varName) == 3;  // FAR = 3
 }

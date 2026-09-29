@@ -1,6 +1,10 @@
 #pragma once
 #include "AST.hpp"
 #include "IR.hpp"
+#include "TypeSystem.hpp"
+#include "IPOProfiler.hpp"
+#include "SourceLocationTracker.hpp"
+#include "DebugInfoBuilder.hpp"
 #include <map>
 #include <set>
 #include <string>
@@ -13,15 +17,24 @@ public:
 
     void generate(TranslationUnit& unit);
     void setSourceInfo(const std::string& filename);
+    void emitWarning(const std::string& warning);
     void setExternalUsedVars(const std::set<std::string>& vars) { externalUsedVars_ = vars; }
     const ir::Module& getModule() const { return module_; }
     ir::Module& getModule() { return module_; }
+    const IPOProfiler& getProfiler() const { return profiler_; }
+    IPOProfiler& getProfiler() { return profiler_; }
+    SourceLocationTracker& getSourceTracker() { return sourceTracker_; }
+    const SourceLocationTracker& getSourceTracker() const { return sourceTracker_; }
+    DebugInfoBuilder& getDebugBuilder() { return debugBuilder_; }
+    const DebugInfoBuilder& getDebugBuilder() const { return debugBuilder_; }
     bool hasErrors() const { return !errors_.empty(); }
     const std::vector<std::string>& getErrors() const { return errors_; }
     const std::vector<std::string>& getWarnings() const { return warnings_; }
 
     bool zpCallMode = false;
+    bool staticAllocMode = false;  // -fstaticalloc (SAC)
     bool inlineFunctions = false;
+    bool allowImplicitFunctionDecl = false;  // -fimplicit-function-declaration
 
     // ASTVisitor interface
     void visit(IntegerLiteral& node) override;
@@ -72,6 +85,13 @@ public:
 
     void emitConditionBranches(Expression* cond, const std::string& trueLabel,
                                const std::string& falseLabel, ir::SourceLoc sl);
+
+    // Phase 102: Typedef resolution interface
+    void registerAllStructDefinitions(TranslationUnit& unit);
+    std::string resolveTypedefToStruct(const std::string& typedefName);
+    void registerTypedefToStruct(const std::string& typedefName, const std::string& structName);
+    void setTypedefMappings(const std::map<std::string, std::string>& typedefToBaseType);
+
 private:
     struct FunctionScope {
         ir::Function* func = nullptr;
@@ -91,6 +111,9 @@ private:
     std::deque<FunctionScope> functionStack_;
 
     ir::Module module_;
+    IPOProfiler profiler_;  // Collects function profiles for cross-module optimization
+    SourceLocationTracker sourceTracker_;  // Phase 113: Tracks source locations for DWARF
+    DebugInfoBuilder debugBuilder_;        // Phase 113: Builds DWARF debug information
     ir::Function* currentFunc_ = nullptr;
     ir::Block* currentBlock_ = nullptr;
 
@@ -98,6 +121,7 @@ private:
     ir::Operand lastValue_;
     bool computeAddressOnly_ = false;
     bool weakNextFunction_ = false;
+    bool recurseNextFunction_ = false;  // #pragma cc45 recurse
 
     // Variable tracking: name → allocated vReg (address operand for locals)
     std::map<std::string, ir::Operand> locals_;
@@ -111,8 +135,10 @@ private:
     std::map<std::string, bool> localRegister_;
     std::map<std::string, bool> globalRegister_;
     std::map<std::string, ir::Type> localPointedToType_; // for pointers: the type of *ptr
+    std::map<std::string, std::string> localPointedToTypeName_; // for pointers: the type name of *ptr
     std::map<std::string, int64_t> localConstPtrValue_; // constant pointer value (for propagation)
     std::map<std::string, ir::Type> globalPointedToType_; // for global pointers
+    std::map<std::string, std::string> globalPointedToTypeName_; // for global pointers: the type name of *ptr
     std::map<std::string, std::vector<int>> localArrayDims_; // for stride computation
     std::map<std::string, std::vector<int>> globalArrayDims_; // for stride computation
 
@@ -150,6 +176,9 @@ private:
     };
     std::map<std::string, IRStructInfo> structs_;
 
+    // Phase 102: Typedef to struct mapping for resolving typedef'd struct types
+    std::map<std::string, std::string> typedefToStruct_; // typedef name → struct name (e.g., "digi_system_t" → "struct digi_system")
+
     // Break/continue label stack
     struct LoopLabels {
         std::string breakLabel;
@@ -181,10 +210,13 @@ private:
     std::set<std::string> calledFunctions_;
     std::set<std::string> definedFunctions_;
     std::map<std::string, ir::Type> functionReturnTypes_;
+    std::map<std::string, bool> functionReturnSigned_;  // Signedness of return type
     std::map<std::string, std::vector<ir::Type>> functionParamTypes_;
     std::map<std::string, std::vector<bool>> functionParamSigned_;
     std::set<std::string> variadicFunctions_;
     std::set<std::string> regparmFunctions_;
+    std::set<std::string> structReturningFunctions_;  // Functions that return struct by value
+    ir::Operand structReturnPtr_;  // Hidden return pointer parameter for current function (-1 if none)
 
     // Inline function support: store AST nodes for inline-eligible functions
     std::map<std::string, FunctionDeclaration*> inlineCandidates_;
@@ -194,6 +226,7 @@ private:
     static constexpr int INLINE_MAX_STMTS = 20;   // max body statements for auto-inline
     ir::Operand inlineReturnTarget_;               // vreg for inlined return value
     std::string inlineReturnLabel_;                // merge label for inlined returns
+    std::string inlineSourceFunc_;                 // callee function name during inline expansion (for asm rewriting)
 
     // Track function parameter info for const-qualification warnings
     struct ParamInfo { bool isConst = false; int pointerLevel = 0; };
@@ -227,7 +260,7 @@ private:
     // Helper: map C type to IR type
     ir::Type mapType(const std::string& typeName, int ptrLevel);
 
-    // Helper: get size for a type
+    // Helper: get size for a type (using unified TypeSystem)
     int getTypeSize(const std::string& typeName, int ptrLevel);
 
     // Helper: source location from AST node

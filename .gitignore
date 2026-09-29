@@ -2,6 +2,7 @@ build/
 refs/
 obj/
 bin/
+*.o45
 
 .idea/
 .tmp/
@@ -29,10 +30,6 @@ bin/disk45
 bin/ln45
 bin/nm45
 bin/objdump45
-
-# Example build artifacts
-examples/**/*.o45
-examples/**/*.o45.s
-examples/**/*.map
-examples/**/*.prg
-
+hyper_serial.log
+test_short_final.prg
+lib45/

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# test_regression.sh — 45GS02 regression tests
+# test_regression.s45h — 45GS02 regression tests
 #
 # Validates that diverse 45GS02-specific patterns compile, assemble,
 # and link correctly. Covers: 32-bit long arithmetic, struct operations,

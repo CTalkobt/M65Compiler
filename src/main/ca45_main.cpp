@@ -5,6 +5,11 @@
 #include <fstream>
 #include <sstream>
 #include <iomanip>
+#include <thread>
+#include <chrono>
+#include <sys/stat.h>
+#include <pwd.h>
+#include <unistd.h>
 #include "AssemblerLexer.hpp"
 #include "AssemblerParser.hpp"
 #include "Preprocessor.hpp"
@@ -12,6 +17,284 @@
 #include "M65Emitter.hpp"
 #include "O45Emitter.hpp"
 #include "Version.hpp"
+#include "Diagnostic.hpp"
+
+// Phase 4.1: Load configuration from config file
+static std::vector<std::string> loadConfigFile(const std::string& configPath) {
+    std::vector<std::string> args;
+    std::ifstream file(configPath);
+    if (!file.is_open()) {
+        return args;
+    }
+
+    std::string line;
+    while (std::getline(file, line)) {
+        // Trim whitespace
+        size_t start = line.find_first_not_of(" \t\r\n");
+        size_t end = line.find_last_not_of(" \t\r\n");
+
+        // Skip empty lines and comments
+        if (start == std::string::npos || line[start] == '#') {
+            continue;
+        }
+
+        line = line.substr(start, end - start + 1);
+        if (!line.empty()) {
+            args.push_back(line);
+        }
+    }
+    file.close();
+    return args;
+}
+
+// Phase 4.1: Get home directory
+static std::string getHomeDirectory() {
+    const char* home = std::getenv("HOME");
+    if (home) {
+        return std::string(home);
+    }
+
+    struct passwd* pw = getpwuid(getuid());
+    if (pw) {
+        return std::string(pw->pw_dir);
+    }
+
+    return "";
+}
+
+// Phase 4.1: Get config file path (~/.config/m65/ca45.conf)
+static std::string getConfigFilePath() {
+    std::string home = getHomeDirectory();
+    if (home.empty()) {
+        return "";
+    }
+    return home + "/.config/m65/ca45.conf";
+}
+
+// Phase 4.2: Get project config file path (.ca45rc in current directory)
+static std::string getProjectConfigFilePath() {
+    return ".ca45rc";
+}
+
+static void printHelpGeneral() {
+    std::cout << "ca45 — 45GS02 Assembler for MEGA65\n\n";
+    std::cout << "Usage: ca45 [options] <input_file.s>\n\n";
+    std::cout << "Options by category:\n";
+    std::cout << "  Input/Output:    -c, -o, -L, -l, --dry-run, --source-map, --watch\n";
+    std::cout << "  Optimization:    -O, -P, --experimental\n";
+    std::cout << "  Debugging:       -v, -vv, -Roptimizer, -Rmachstate, --emulator\n";
+    std::cout << "  Preprocessor:    -D, -I\n";
+    std::cout << "  Diagnostics:     -Woverflow, -Wunderflow\n";
+    std::cout << "  General:         -?, -V\n\n";
+    std::cout << "Configuration (precedence: CLI > Environment > Project > Global):\n";
+    std::cout << "  Global:  ~/.config/m65/ca45.conf (default settings)\n";
+    std::cout << "  Project: .ca45rc in current directory (per-project overrides)\n";
+    std::cout << "  Env:     CA45_OPTIMIZE, CA45_WARNINGS environment variables\n";
+    std::cout << "  CLI:     Command-line arguments (highest priority)\n";
+    std::cout << "  Format:  One option per line, comments start with #\n\n";
+    std::cout << "Environment variables (Phase 4.3):\n";
+    std::cout << "  CA45_OPTIMIZE=<level>  Set optimization level (0, 1, 2, 3)\n";
+    std::cout << "  CA45_WARNINGS=<list>   Comma-separated warning flags (overflow:underflow)\n";
+    std::cout << "  CC45_INCLUDE=<paths>   Colon-separated include search paths\n\n";
+    std::cout << "Use --help=<section> for detailed help. Example: ca45 --help=input-output\n";
+    std::cout << "Available sections: input-output, optimization, debugging, preprocessor, diagnostics\n";
+}
+
+static void printHelpInputOutput() {
+    std::cout << "Input/Output Options:\n\n";
+    std::cout << "  -c                 Produce relocatable .o45 object file instead of binary\n";
+    std::cout << "                     Default: produces flat binary (.bin)\n\n";
+    std::cout << "  -o <filename>      Specify output filename\n";
+    std::cout << "                     Default: out.bin (or out.o45 with -c)\n";
+    std::cout << "                     If filename ends in .prg, a 2-byte load address header is added\n";
+    std::cout << "                     Example: ca45 -o program.prg input.s45\n\n";
+    std::cout << "  -L <filename>      Generate assembly listing file\n";
+    std::cout << "                     Useful for inspecting generated code and symbol table\n";
+    std::cout << "                     Example: ca45 -L listing.txt -l2 input.s45\n\n";
+    std::cout << "  -l <level>         Listing level (requires -L)\n";
+    std::cout << "                     1 = Binary (default): hex dump with addresses\n";
+    std::cout << "                     2 = Expanded Assembly: full expanded instructions\n\n";
+    std::cout << "  --dry-run          Validate assembly without generating output\n";
+    std::cout << "                     Useful for checking syntax and finding errors\n";
+    std::cout << "                     Reports symbol count, instruction count, and size estimates\n";
+    std::cout << "                     Example: ca45 --dry-run input.s45\n\n";
+    std::cout << "  --source-map <file> Generate source-to-address mapping file\n";
+    std::cout << "                     Maps binary addresses back to source lines for debugging\n";
+    std::cout << "                     Shows address, source location, and original source code\n";
+    std::cout << "                     Example: ca45 --source-map map.txt input.s45\n\n";
+    std::cout << "  --emulator          Launch emulator with assembled output\n";
+    std::cout << "                     Automatically detects available emulator (VICE, etc.)\n";
+    std::cout << "                     Output file must be .prg format for emulator loading\n";
+    std::cout << "                     Example: ca45 --emulator -o program.prg input.s45\n\n";
+    std::cout << "  --emulator-path <path>\n";
+    std::cout << "                     Path to emulator executable (overrides auto-detection)\n";
+    std::cout << "                     Example: ca45 --emulator --emulator-path /usr/bin/x64 input.s45\n\n";
+    std::cout << "  --watch            Watch input file for changes and reassemble automatically\n";
+    std::cout << "                     Useful for continuous development workflow\n";
+    std::cout << "                     Checks for changes every second\n";
+    std::cout << "                     Example: ca45 --watch -o program.bin input.s45\n";
+}
+
+static void printHelpOptimization() {
+    std::cout << "Optimization Options:\n\n";
+    std::cout << "  -O<level>          Optimization level (default: -O2)\n";
+    std::cout << "                     0 = none (no optimization)\n";
+    std::cout << "                     1 = basic (redundant load/store elimination)\n";
+    std::cout << "                     2 = default (add branch optimization, tail calls)\n";
+    std::cout << "                     3 = aggressive (experimental optimizations)\n";
+    std::cout << "                     Example: ca45 -O3 input.s45\n\n";
+    std::cout << "  -P<OptName>        Enable individual optimization (after -O level)\n";
+    std::cout << "  -PNo<OptName>      Disable individual optimization\n";
+    std::cout << "                     Options: RedundantLoad, DeadStore, TailCall, JmpBra,\n";
+    std::cout << "                     CmpElimination, BranchInvert, JSRRelocate, etc.\n";
+    std::cout << "                     Example: ca45 -O2 -PNoRedundantLoad input.s45\n\n";
+    std::cout << "  --experimental     Enable experimental optimizations\n";
+    std::cout << "                     WARNING: HIGHLY UNSTABLE, likely to break code\n";
+}
+
+static void printHelpDebugging() {
+    std::cout << "Debugging Options:\n\n";
+    std::cout << "  -v                 Enable verbose output (show assembly phases)\n";
+    std::cout << "                     Displays preprocessing, lexing, parsing steps\n\n";
+    std::cout << "  -vv                Extra verbose output (token dumps)\n";
+    std::cout << "                     Shows every token during lexing phase\n\n";
+    std::cout << "  -Roptimizer        Report optimizer actions to stderr\n";
+    std::cout << "                     Shows which optimizations are applied\n";
+    std::cout << "                     Example: ca45 -Roptimizer input.s45 2>&1 | grep -i elim\n\n";
+    std::cout << "  -Rmachstate        Trace MachineState register/flag tracking\n";
+    std::cout << "                     Low-level debugging of optimizer state\n";
+}
+
+static void printHelpPreprocessor() {
+    std::cout << "Preprocessor Options:\n\n";
+    std::cout << "  -D<name>=<value>   Define a symbol (visible to assembler)\n";
+    std::cout << "                     Example: ca45 -DMY_CONST=42 input.s45\n";
+    std::cout << "                     Hex values: -DADDR=$2000, binary: -DMASK=%11110000\n\n";
+    std::cout << "  -D<name>           Define a symbol with value 1\n";
+    std::cout << "                     Example: ca45 -DDEBUG_MODE input.s45\n\n";
+    std::cout << "  -I<path>           Add include search path\n";
+    std::cout << "                     Searched in order for .include directives\n";
+    std::cout << "                     Example: ca45 -Ilib/ -Iinclude/ input.s45\n";
+    std::cout << "                     Can be used multiple times\n\n";
+    std::cout << "  CC45_INCLUDE       Environment variable for include paths (colon-separated)\n";
+    std::cout << "                     Example: CC45_INCLUDE=lib/:include/ ca45 input.s45\n";
+}
+
+static void printHelpDiagnostics() {
+    std::cout << "Diagnostic Warnings:\n\n";
+    std::cout << "  -Woverflow         Warn when immediate or address values overflow\n";
+    std::cout << "                     Default: silent (values silently truncate)\n";
+    std::cout << "                     Shows: original value and truncated result\n";
+    std::cout << "                     Example: ca45 -Woverflow input.s45\n\n";
+    std::cout << "  -Wunderflow        Warn when negative values are used in addresses\n";
+    std::cout << "                     Default: silent\n";
+    std::cout << "                     Example: ca45 -Wunderflow input.s45\n";
+}
+
+static time_t getFileModificationTime(const std::string& filename) {
+    struct stat stat_buf;
+    if (stat(filename.c_str(), &stat_buf) == 0) {
+        return stat_buf.st_mtime;
+    }
+    return 0;
+}
+
+static bool launchEmulatorWithBinary(const std::string& binaryPath, const std::string& customEmulatorPath) {
+    // Phase 3.3: Launch emulator with assembled binary
+    std::string emuPath = customEmulatorPath;
+
+    // If no custom path, try common emulator locations
+    if (emuPath.empty()) {
+        const char* candidates[] = {
+            "x64",           // VICE C64 emulator
+            "x64sc",         // VICE C64 (SuperCPU mode)
+            "mega65",        // MEGA65 emulator
+            "mega65_emu",    // Alternative MEGA65 name
+            "/usr/bin/x64",  // Linux typical path
+            "/usr/local/bin/x64"
+        };
+        for (const char* candidate : candidates) {
+            // Simple existence check - would need to use stat() for robust check
+            std::string cmd = std::string("which ") + candidate + " >/dev/null 2>&1";
+            if (system(cmd.c_str()) == 0) {
+                emuPath = candidate;
+                break;
+            }
+        }
+    }
+
+    if (emuPath.empty()) {
+        std::cerr << "Warning: No emulator found. Set path with --emulator-path <path>" << std::endl;
+        return false;
+    }
+
+    // Build command to launch emulator with binary
+    std::string cmd = emuPath + " \"" + binaryPath + "\" 2>/dev/null &";
+    int result = system(cmd.c_str());
+
+    if (result == 0) {
+        std::cout << "Launching emulator: " << emuPath << std::endl;
+        return true;
+    }
+    return false;
+}
+
+static void writeSourceMap(const std::string& filename, const AssemblerParser& parser, const std::string& source) {
+    std::ofstream out(filename);
+    if (!out.is_open()) return;
+
+    std::vector<std::string> sourceLines;
+    std::stringstream ss(source);
+    std::string line;
+    while (std::getline(ss, line)) sourceLines.push_back(line);
+
+    out << "Source Map — Binary Address to Source Line Mapping\n";
+    out << "=====================================================\n\n";
+    out << std::hex;
+    out << std::setfill('0');
+
+    for (const auto& stmt : parser.statements) {
+        if (stmt->deleted || stmt->bytes.empty()) continue;
+
+        // Address
+        out << std::setw(8) << stmt->address << "  ";
+
+        // Line number
+        if (stmt->line > 0) {
+            out << std::dec << "Line " << stmt->line << "  " << std::hex;
+        } else {
+            out << "(no line info)  ";
+        }
+
+        // Source line text
+        if (stmt->line > 0 && stmt->line <= (int)sourceLines.size()) {
+            std::string srcLine = sourceLines[stmt->line - 1];
+            // Trim leading whitespace for display
+            size_t start = srcLine.find_first_not_of(" \t");
+            if (start != std::string::npos) {
+                srcLine = srcLine.substr(start);
+            }
+            // Limit line length for readability
+            if (srcLine.length() > 60) {
+                srcLine = srcLine.substr(0, 57) + "...";
+            }
+            out << srcLine;
+        }
+        out << "\n";
+    }
+
+    out << "\n\nSymbol Table\n";
+    out << "============\n";
+    std::map<std::string, Symbol> sortedSymbols = parser.getSymbolTable();
+    for (const auto& [name, sym] : sortedSymbols) {
+        out << std::setw(32) << std::left << std::setfill(' ') << name << " ";
+        out << std::hex << std::setw(8) << std::right << std::setfill('0') << sym.value;
+        if (sym.isConstant) out << " (CONST)";
+        else if (sym.isVariable) out << " (VAR)";
+        else if (sym.isAddress) out << " (ADDR)";
+        out << "\n";
+    }
+}
 
 static void writeListing(const std::string& filename, const AssemblerParser& parser, const std::string& source) {
     std::ofstream out(filename);
@@ -90,6 +373,15 @@ int main(int argc, char** argv) {
     bool verboseOptimizer = false;
     bool traceMachState = false;
     bool enableExperimental = false;
+    bool warnOverflow = false;   // Phase 1.3: warn on value overflows (default: off)
+    bool warnUnderflow = false;  // Phase 1.3: warn on negative values (default: off)
+    bool dryRun = false;         // Phase 3.1: validate without generating output
+    std::string sourceMapFile;   // Phase 3.2: source map output file
+    bool launchEmulator = false; // Phase 3.3: launch emulator after assembly
+    std::string emulatorPath;    // Phase 3.3: path to emulator executable
+    bool watchMode = false;      // Phase 3.4: watch file for changes and reassemble
+    int optimizationLevel = 2;  // Default to -O2
+    OptimizationFlags optFlags = OptimizationFlags::fromLevel(2);  // Default to -O2
     int verboseLevel = 0;
     int listingLevel = 1;
     std::map<std::string, uint32_t> predefinedSymbols;
@@ -107,27 +399,78 @@ int main(int argc, char** argv) {
         if (pos < s.size()) includePaths.push_back(s.substr(pos));
     }
 
+    // Phase 4.1: Load config from ~/.config/m65/ca45.conf
+    std::vector<std::string> globalConfigArgs = loadConfigFile(getConfigFilePath());
+
+    // Phase 4.2: Load project config from .ca45rc (overrides global config)
+    std::vector<std::string> projectConfigArgs = loadConfigFile(getProjectConfigFilePath());
+
+    // Phase 4.3: Load environment variables (override precedence)
+    // CA45_CONFIG: Override config file path
+    // CA45_OPTIMIZE: Override optimization level (-O0, -O1, -O2, -O3)
+    // CA45_WARNINGS: Add warning flags (-Woverflow, -Wunderflow)
+    std::vector<std::string> envArgs;
+
+    if (const char* envOptimize = std::getenv("CA45_OPTIMIZE")) {
+        envArgs.push_back(std::string("-O") + envOptimize);
+    }
+    if (const char* envWarnings = std::getenv("CA45_WARNINGS")) {
+        std::string warnings(envWarnings);
+        size_t pos = 0, found;
+        while ((found = warnings.find(':', pos)) != std::string::npos) {
+            if (found > pos) {
+                std::string warning = warnings.substr(pos, found - pos);
+                envArgs.push_back("-W" + warning);
+            }
+            pos = found + 1;
+        }
+        if (pos < warnings.size()) {
+            envArgs.push_back("-W" + warnings.substr(pos));
+        }
+    }
+
+    // Build combined argument list: global config + project config + env vars + CLI args
+    // (later args override earlier ones)
+    std::vector<std::string> allArgs;
+    allArgs.push_back(argv[0]); // program name
+    for (const auto& arg : globalConfigArgs) {
+        allArgs.push_back(arg);
+    }
+    for (const auto& arg : projectConfigArgs) {
+        allArgs.push_back(arg);
+    }
+    for (const auto& arg : envArgs) {
+        allArgs.push_back(arg);
+    }
     for (int i = 1; i < argc; ++i) {
-        std::string arg = argv[i];
+        allArgs.push_back(argv[i]);
+    }
+
+    for (int i = 1; i < (int)allArgs.size(); ++i) {
+        std::string arg = allArgs[i];
         if (arg == "-V" || arg == "--version") {
             std::cout << suiteVersionString("ca45") << std::endl;
             return 0;
         } else if (arg == "-?" || arg == "--help") {
-            std::cout << "Usage: ca45 [options] <input_file.s>" << std::endl;
-            std::cout << "Options:" << std::endl;
-            std::cout << "  -c             Produce relocatable .o45 object file instead of binary" << std::endl;
-            std::cout << "  -o <filename>  Specify output filename (default: out.bin, or out.o45 with -c)" << std::endl;
-            std::cout << "                 If filename ends in .prg, a 2-byte load address header is added." << std::endl;
-            std::cout << "  -L <filename>  Generate assembly listing file" << std::endl;
-            std::cout << "  -l <level>     Listing level: 1=Binary (default), 2=Expanded Assembly" << std::endl;
-            std::cout << "  -v             Enable verbose output (phase info)" << std::endl;
-            std::cout << "  -vv            Extra verbose output (token dumps)" << std::endl;
-            std::cout << "  -Dname=val     Define a symbol (e.g., -Dcc45.zeroPageStart=$10)" << std::endl;
-            std::cout << "  -I<path>       Add include search path" << std::endl;
-            std::cout << "  -Roptimizer    Report optimizer actions to stderr" << std::endl;
-            std::cout << "  -Rmachstate    Trace MachineState register/flag tracking to stderr" << std::endl;
-            std::cout << "  --experimental Enable experimental optimizations (HIGHLY UNSTABLE, likely to break code)" << std::endl;
-            std::cout << "  -?             Display this help message" << std::endl;
+            printHelpGeneral();
+            return 0;
+        } else if (arg.substr(0, 7) == "--help=") {
+            std::string section = arg.substr(7);
+            if (section == "input-output" || section == "io") {
+                printHelpInputOutput();
+            } else if (section == "optimization" || section == "opt") {
+                printHelpOptimization();
+            } else if (section == "debugging" || section == "debug") {
+                printHelpDebugging();
+            } else if (section == "preprocessor" || section == "prep") {
+                printHelpPreprocessor();
+            } else if (section == "diagnostics" || section == "diag" || section == "warnings") {
+                printHelpDiagnostics();
+            } else {
+                std::cerr << "Unknown help section: " << section << std::endl;
+                std::cerr << "Available sections: input-output, optimization, debugging, preprocessor, diagnostics" << std::endl;
+                return 1;
+            }
             return 0;
         } else if (arg == "-c") {
             relocMode = true;
@@ -144,6 +487,60 @@ int main(int argc, char** argv) {
             traceMachState = true;
         } else if (arg == "--experimental") {
             enableExperimental = true;
+        } else if (arg.substr(0, 2) == "-O") {
+            std::string levelStr = arg.substr(2);
+            if (!levelStr.empty() && levelStr[0] >= '0' && levelStr[0] <= '3') {
+                optimizationLevel = levelStr[0] - '0';
+            } else {
+                optimizationLevel = 2;  // -O defaults to O2
+            }
+            optFlags = OptimizationFlags::fromLevel(optimizationLevel);
+        } else if (arg.substr(0, 2) == "-P") {
+            // Named optimization flags: -P<Name> to enable, -PNo<Name> to disable
+            std::string flagName = arg.substr(2);
+            bool enable = true;
+            if (flagName.substr(0, 2) == "No") {
+                enable = false;
+                flagName = flagName.substr(2);
+            }
+            // IR-level optimizations
+            if (flagName == "StrengthReduction") optFlags.strengthReduction = enable;
+            else if (flagName == "AlgebraicSimplify") optFlags.algebraicSimplify = enable;
+            else if (flagName == "TypeNarrowing") optFlags.typeNarrowing = enable;
+            else if (flagName == "BranchFold") optFlags.branchFold = enable;
+            else if (flagName == "CSE") optFlags.cse = enable;
+            else if (flagName == "LICM") optFlags.licm = enable;
+            else if (flagName == "CopyChains") optFlags.copyChains = enable;
+            else if (flagName == "AddrElemFusion") optFlags.addrElemFusion = enable;
+            // Assembler-level optimizations
+            else if (flagName == "JSRRelocate") optFlags.jsrRelocate = enable;
+            else if (flagName == "TailCall") optFlags.tailCall = enable;
+            else if (flagName == "BranchInvert") optFlags.branchInvert = enable;
+            else if (flagName == "JmpBra") optFlags.jmpBra = enable;
+            else if (flagName == "NoOpBra") optFlags.noOpBra = enable;
+            else if (flagName == "CmpElimination") optFlags.cmpElimination = enable;
+            else if (flagName == "RedundantLoad") optFlags.redundantLoad = enable;
+            else if (flagName == "DeadStore") optFlags.deadStore = enable;
+            else if (flagName == "TailDedup") optFlags.tailDedup = enable;
+            else if (flagName == "PreserveXSP") optFlags.preserveXSP = enable;
+            else if (flagName == "SeqExtract") optFlags.seqExtract = enable;
+            else if (flagName == "StoreLoadPair") optFlags.storeLoadPair = enable;
+            else if (flagName == "FCmpOpt") optFlags.fcmpOpt = enable;
+            else if (flagName == "TSXRedundant") optFlags.tsxRedundant = enable;
+        } else if (arg == "-Woverflow" || arg == "--warn-overflow") {
+            warnOverflow = true;  // Phase 1.3: enable overflow warnings
+        } else if (arg == "-Wunderflow" || arg == "--warn-underflow") {
+            warnUnderflow = true;  // Phase 1.3: enable underflow warnings
+        } else if (arg == "--dry-run") {
+            dryRun = true;  // Phase 3.1: validate without generating output
+        } else if (arg == "--source-map" && i + 1 < argc) {
+            sourceMapFile = argv[++i];  // Phase 3.2: generate source map
+        } else if (arg == "--emulator") {
+            launchEmulator = true;  // Phase 3.3: launch emulator after assembly
+        } else if (arg == "--emulator-path" && i + 1 < argc) {
+            emulatorPath = argv[++i];  // Phase 3.3: custom emulator path
+        } else if (arg == "--watch") {
+            watchMode = true;  // Phase 3.4: watch file for changes
         } else if (arg == "-vv") {
             verboseLevel = 2;
         } else if (arg == "-v") {
@@ -207,7 +604,7 @@ int main(int argc, char** argv) {
     try {
         source = preprocessor.process(sourceRaw, initialSymbols, includePaths, input_file);
     } catch (const std::exception& e) {
-        std::cerr << "Preprocessor Error: " << e.what() << std::endl;
+        std::cerr << formatDiagnostic(input_file, 1, 1, Severity::Error, e.what()) << std::endl;
         return 1;
     }
 
@@ -225,17 +622,41 @@ int main(int argc, char** argv) {
     }
 
     AssemblerParser parser(tokens, predefinedSymbols);
+    parser.setSourceFile(input_file);
     parser.verboseOptimizer = verboseOptimizer;
     parser.traceMachState = traceMachState;
     parser.enableExperimental = enableExperimental;
+    parser.warnOverflow = warnOverflow;    // Phase 1.3
+    parser.warnUnderflow = warnUnderflow;  // Phase 1.3
+    parser.optimizationLevel = optimizationLevel;
+    parser.optFlags = optFlags;
     try {
         parser.pass1();
 
         if (parser.hasErrors()) {
             for (const auto& err : parser.getErrors()) {
-                std::cerr << input_file << ":" << err << std::endl;
+                std::cerr << err << std::endl;
             }
             return 1;
+        }
+
+        // Phase 3.1: Dry-run mode - validate without generating output
+        if (dryRun) {
+            parser.pass2(false);  // Run optimizer and resolve addresses
+            auto symbols = parser.getSymbolTable();
+            int totalInstructions = 0;
+            uint32_t totalBytes = 0;
+            for (const auto& stmt : parser.statements) {
+                if (!stmt->deleted) {
+                    if (stmt->bytes.size() > 0) totalInstructions++;
+                    totalBytes += stmt->bytes.size();
+                }
+            }
+            std::cout << "Validation successful (dry-run mode)\n";
+            std::cout << "  Symbols: " << symbols.size() << "\n";
+            std::cout << "  Instructions: " << totalInstructions << "\n";
+            std::cout << "  Total size: " << totalBytes << " bytes\n";
+            return 0;
         }
 
         if (relocMode) {
@@ -250,6 +671,11 @@ int main(int argc, char** argv) {
                     writeListing(listing_file, parser, source);
                     std::cout << "Listing generated to " << listing_file << std::endl;
                 }
+                // Phase 3.2: Generate source map if requested
+                if (!sourceMapFile.empty()) {
+                    writeSourceMap(sourceMapFile, parser, source);
+                    std::cout << "Source map generated to " << sourceMapFile << std::endl;
+                }
             }
         } else if (listingLevel == 2) {
             parser.pass2(false); // Run optimizer and resolve addresses
@@ -257,6 +683,11 @@ int main(int argc, char** argv) {
             M65Emitter e(out, predefinedSymbols["cc45.zeroPageStart"]);
             AssemblerGenerator::generate(&parser, e);
             std::cout << "Expanded listing generated to " << output_file << std::endl;
+            // Phase 3.2: Generate source map if requested
+            if (!sourceMapFile.empty()) {
+                writeSourceMap(sourceMapFile, parser, source);
+                std::cout << "Source map generated to " << sourceMapFile << std::endl;
+            }
         } else {
             bool isPrg = false;
             if (output_file.length() >= 4 && output_file.substr(output_file.length() - 4) == ".prg") {
@@ -271,11 +702,91 @@ int main(int argc, char** argv) {
                     writeListing(listing_file, parser, source);
                     std::cout << "Listing generated to " << listing_file << std::endl;
                 }
+                // Phase 3.2: Generate source map if requested
+                if (!sourceMapFile.empty()) {
+                    writeSourceMap(sourceMapFile, parser, source);
+                    std::cout << "Source map generated to " << sourceMapFile << std::endl;
+                }
+                // Phase 3.3: Launch emulator if requested
+                if (launchEmulator && isPrg) {
+                    launchEmulatorWithBinary(output_file, emulatorPath);
+                } else if (launchEmulator && !isPrg) {
+                    std::cerr << "Warning: Emulator launch requires .prg output (use -o program.prg)" << std::endl;
+                }
             }
         }
     } catch (const std::exception& e) {
         std::cerr << input_file << ": " << e.what() << std::endl;
         return 1;
+    }
+
+    // Phase 3.4: Watch mode - monitor file for changes and reassemble
+    if (watchMode && !input_file.empty() && !dryRun) {
+        std::cout << "\n[Watch mode enabled] Monitoring " << input_file << " for changes..." << std::endl;
+        std::cout << "Press Ctrl+C to exit watch mode\n" << std::endl;
+
+        time_t lastModTime = getFileModificationTime(input_file);
+        int changeCount = 0;
+
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            time_t currentModTime = getFileModificationTime(input_file);
+
+            if (currentModTime > lastModTime) {
+                lastModTime = currentModTime;
+                changeCount++;
+
+                std::cout << "\n[" << changeCount << "] File changed, reassembling..." << std::endl;
+
+                // Re-read and re-assemble
+                try {
+                    std::ifstream file(input_file);
+                    if (!file.is_open()) {
+                        std::cerr << "Error: Cannot open " << input_file << std::endl;
+                        continue;
+                    }
+
+                    std::stringstream buffer;
+                    buffer << file.rdbuf();
+                    std::string sourceRaw = buffer.str();
+
+                    Preprocessor preprocessor(false);
+                    std::string source = preprocessor.process(sourceRaw, initialSymbols, includePaths, input_file);
+
+                    AssemblerLexer lexer(source);
+                    std::vector<AssemblerToken> tokens = lexer.tokenize();
+
+                    AssemblerParser parser(tokens, predefinedSymbols);
+                    parser.setSourceFile(input_file);
+                    parser.verboseOptimizer = verboseOptimizer;
+                    parser.traceMachState = traceMachState;
+                    parser.enableExperimental = enableExperimental;
+                    parser.warnOverflow = warnOverflow;
+                    parser.warnUnderflow = warnUnderflow;
+                    parser.optimizationLevel = optimizationLevel;
+                    parser.optFlags = optFlags;
+
+                    parser.pass1();
+                    if (parser.hasErrors()) {
+                        for (const auto& err : parser.getErrors()) {
+                            std::cerr << err << std::endl;
+                        }
+                        continue;
+                    }
+
+                    bool isPrg = output_file.length() >= 4 && output_file.substr(output_file.length() - 4) == ".prg";
+                    auto binary = parser.pass2(isPrg);
+
+                    if (!binary.empty()) {
+                        std::ofstream out(output_file, std::ios::binary);
+                        out.write(reinterpret_cast<const char*>(binary.data()), binary.size());
+                        std::cout << "✓ Reassembled to " << output_file << " (" << binary.size() << " bytes)" << std::endl;
+                    }
+                } catch (const std::exception& e) {
+                    std::cerr << "Error during reassembly: " << e.what() << std::endl;
+                }
+            }
+        }
     }
 
     return 0;

@@ -1,12 +1,14 @@
 #pragma once
 #include <cstdint>
+#include <string>
+#include <vector>
 
 // =============================================================================
 // .o45 Relocatable Object Format — Constants and Types
 //
 // The .o45 format is a 32-bit extension of Andre Fachat's .o65 relocatable
 // object format. All values below reuse .o65 definitions unless marked [ext].
-// See doc/lib45.md for the full specification.
+// See doc/architecture/lib45.md for the full specification.
 // =============================================================================
 
 // --- File markers ---
@@ -61,6 +63,8 @@ enum O45RelocType : uint8_t {
     R_WORD        = 0x80, // full 16-bit address (2 bytes)
     R_LINEAR32    = 0xA0, // 32-bit linear address (4 bytes) [ext]
     R_SEGADR      = 0xC0, // segment address (bank:addr, 3 bytes)
+    R_IMM8        = 0x00, // SMC: 8-bit immediate value in instruction [Phase 78]
+    R_IMM16       = 0x01, // SMC: 16-bit immediate value in instruction [Phase 78]
 };
 
 // Masks for splitting the type/seg byte
@@ -82,6 +86,12 @@ constexpr uint8_t  OPT_CREATED       = 0x05;
 
 // Extended option types (.o45 specific)
 constexpr uint8_t  OPT_SEGATTR       = 0x10; // sub-segment attribute (see below)
+constexpr uint8_t  OPT_LINEINFO      = 0x11; // debug line info table
+constexpr uint8_t  OPT_DEBUG_SYMBOLS = 0x12; // variable/function debug metadata
+constexpr uint8_t  OPT_SAC_PARAMS    = 0x13; // SAC parameter metadata (see below)
+
+// Phase 4: Inter-TU Optimization Hints
+constexpr uint8_t  OPT_IPO_HINTS     = 0x50; // Cross-module optimization hints (see below)
 
 // OS identifier for MEGA65
 constexpr uint8_t  OPT_OS_MEGA65     = 0x05;
@@ -91,11 +101,42 @@ constexpr uint8_t  OPT_OS_MEGA65     = 0x05;
 // Payload: seg_id(1) + offset(4 LE) + length(4 LE) + name(NUL-terminated)
 // The linker uses these to order sub-segments (e.g., "init" before "code").
 
+// --- SAC parameter metadata record (OPT_SAC_PARAMS) ---
+// Describes parameters for a SAC (Static Allocation Convention) function.
+// Payload: func_name_len(1) + func_name(string) + param_count(1) + parameters
+// Each parameter: offset(2 LE) + size(1) + sym_name_len(1) + sym_name(string)
+// The linker uses this to validate parameter passing and potentially initialize storage.
+
 // --- Function attribute record ---
 // Appended after an export entry in the export table when the function has
-// ZP calling convention metadata. Identified by the $FA marker byte.
+// ZP calling convention metadata or SAC metadata. Identified by the $FA marker byte.
+// Phase 2 addition: frameSize tracks activation record size for call-graph overlay coloring.
 constexpr uint8_t  O45_FUNCATTR_MARKER = 0xFA;
-constexpr int      O45_FUNCATTR_SIZE   = 17;   // total bytes per record (including marker)
+constexpr int      O45_FUNCATTR_SIZE   = 19;   // total bytes per record (including marker, now with frameSize)
+
+// Phase 49: Content flag record for exports
+// Appended after an export entry to indicate what type of content it has (native code, IR, etc.)
+// Identified by the $FB marker byte.
+constexpr uint8_t  O45_CONTENTFLAG_MARKER = 0xFB;
+
+struct O45SACParam {
+    uint16_t offset = 0;         // offset in activation record
+    uint8_t size = 0;            // parameter size in bytes
+    std::string symbolName;      // symbol name (e.g., "_add_short__param_a")
+    bool isConstant = false;     // true if all call sites pass same constant value
+    int64_t constantValue = 0;   // value if isConstant is true
+
+    // Phase 78: SMC (Self-Modifying Code) metadata
+    bool useSMC = false;         // true if parameter should be embedded in instructions
+    uint32_t accessCount = 0;    // number of times parameter is accessed in function
+    std::vector<uint32_t> accessOffsets;  // offsets in code where parameter is accessed
+    std::vector<uint8_t> accessSizes;     // size of each access (1=I8, 2=I16, etc.)
+};
+
+struct O45SACMetadata {
+    std::string functionName;    // function name
+    std::vector<O45SACParam> parameters;  // parameter list
+};
 
 struct O45FuncAttr {
     uint8_t flags = 0;           // see FUNC_FLAG_* constants
@@ -105,14 +146,17 @@ struct O45FuncAttr {
     uint32_t zpClobbers = 0;     // bitmask: ZP slots written
     uint32_t zpRelease = 0;      // bitmask: ZP slots consumed
     uint8_t paramSize = 0;       // total parameter bytes (for thunk generation)
+    uint16_t frameSize = 0;      // activation record / frame size in bytes (Phase 2)
+    O45SACMetadata sacMetadata;  // SAC parameter metadata (Phase 3)
 };
 
 // Bit values for O45FuncAttr::flags
-constexpr uint8_t OPT_LINEINFO        = 0x11;  // debug line info table
-
-constexpr uint8_t FUNC_FLAG_LEAF      = 0x01;  // no calls to other functions
-constexpr uint8_t FUNC_FLAG_REENTRANT = 0x02;  // re-entrant safe (no global state, stack-only locals)
-constexpr uint8_t FUNC_FLAG_ZP_CONV   = 0x04;  // ZP calling convention (0 = stack-based)
+constexpr uint8_t FUNC_FLAG_LEAF         = 0x01;  // no calls to other functions
+constexpr uint8_t FUNC_FLAG_REENTRANT    = 0x02;  // re-entrant safe (no global state, stack-only locals)
+constexpr uint8_t FUNC_FLAG_ZP_CONV      = 0x04;  // ZP calling convention (0 = stack-based)
+constexpr uint8_t FUNC_FLAG_STATIC_ALLOC = 0x08;  // uses SAC (static activation record)
+constexpr uint8_t FUNC_FLAG_ISR          = 0x10;  // interrupt handler
+constexpr uint8_t FUNC_FLAG_ZERO_ALLOC   = 0x20;  // SAC leaf with no locals and all constant params
 
 // --- Patch sizes per relocation type ---
 constexpr int o45RelocPatchSize(uint8_t rtype) {
@@ -123,6 +167,8 @@ constexpr int o45RelocPatchSize(uint8_t rtype) {
         case R_LINEAR24:  return 3;
         case R_SEGADR:    return 3;
         case R_LINEAR32:  return 4;
+        case R_IMM8:      return 1;  // Phase 78: 8-bit immediate in instruction
+        case R_IMM16:     return 2;  // Phase 78: 16-bit immediate in instruction
         default:          return 0;
     }
 }
@@ -147,3 +193,240 @@ constexpr const char* o45SegmentName(O45Segment seg) {
         default:       return "???";
     }
 }
+
+// =============================================================================
+// Phase 4: Inter-TU Optimization Hints
+// =============================================================================
+
+// Format version for OPT_IPO_HINTS
+constexpr uint8_t O45_IPO_HINTS_VERSION = 0x01;
+
+// Specialization pattern hint: constant arguments for a specific call pattern
+struct O45IPOSpecPattern {
+    std::vector<int64_t> argumentValues;  // Constant values for parameters
+    uint8_t frequency = 0;                // % of calls matching this pattern (0-100)
+};
+
+// Inter-TU optimization hints for a single function
+struct O45IPOFunctionHints {
+    std::string functionName;              // Function name
+    uint16_t callCount = 0;                // Total calls to this function (global)
+    uint16_t estimatedCodeSize = 0;        // Estimated code size (bytes)
+    uint8_t flags = 0;                     // Optimization flags (FUNC_FLAG_*)
+    std::vector<O45IPOSpecPattern> specializations;  // Specialization patterns
+    uint8_t externalCallCount = 0;         // Call sites from external modules
+};
+
+// Complete inter-TU optimization hints for a module
+struct O45IPOHints {
+    uint8_t version = O45_IPO_HINTS_VERSION;  // Format version
+    std::vector<O45IPOFunctionHints> functions;  // Hints for each function
+
+    bool isValid() const { return version == O45_IPO_HINTS_VERSION; }
+};
+
+// =============================================================================
+// IR Serialization Support (Phase 47 - Extended .o45 Format)
+// =============================================================================
+
+// IR Version tracking: Major.Minor
+// Major version mismatch = incompatible
+// Minor version mismatch = forward compatible
+constexpr uint8_t O45_IR_VERSION_MAJOR = 0;  // Initial version
+constexpr uint8_t O45_IR_VERSION_MINOR = 1;
+
+// Content type flags for exports
+// Indicates what data is present for each symbol
+constexpr uint8_t O45_CONTENT_FLAG_NATIVE_CODE = 0x01;  // Has native 6502 code
+constexpr uint8_t O45_CONTENT_FLAG_HAS_IR      = 0x02;  // Has IR metadata
+constexpr uint8_t O45_CONTENT_FLAG_RESERVED1   = 0x04;
+constexpr uint8_t O45_CONTENT_FLAG_RESERVED2   = 0x08;
+constexpr uint8_t O45_CONTENT_FLAG_IR_ENCODING = 0xF0;  // Bits 4-7: encoding type
+                                                       // 0 = uncompressed, 1 = RLE, 2 = LZ4
+
+// IR Type IDs for parameters and return values
+enum O45IRType : uint8_t {
+    IR_TYPE_VOID      = 0x00,
+    IR_TYPE_I8        = 0x01,
+    IR_TYPE_I16       = 0x02,
+    IR_TYPE_I32       = 0x03,
+    IR_TYPE_I64       = 0x04,
+    IR_TYPE_FLOAT     = 0x05,
+    IR_TYPE_PTR       = 0x06,
+    IR_TYPE_STRUCT    = 0x07,
+    IR_TYPE_UNKNOWN   = 0xFF,
+};
+
+// IR Parameter Flags
+constexpr uint8_t O45_IR_PARAM_IS_CONST   = 0x01;  // Parameter always receives constant
+constexpr uint8_t O45_IR_PARAM_IS_USED    = 0x02;  // Parameter is actually used in function
+constexpr uint8_t O45_IR_PARAM_IS_MODIFIED = 0x04; // Parameter is modified (written)
+
+// IR Call Site Information
+struct O45IRCallSite {
+    uint32_t instructionOffset = 0;      // Offset of JSR in code
+    std::string calleeName;              // Name of called function
+    std::vector<int64_t> paramValues;    // Actual parameter values passed (for constants)
+    std::vector<uint8_t> paramIsConst;   // Which parameters are constant
+};
+
+// IR Parameter Information
+struct O45IRParam {
+    O45IRType type = IR_TYPE_UNKNOWN;    // Parameter type
+    uint8_t flags = O45_IR_PARAM_IS_USED; // Flags (const, used, modified)
+    int64_t constValue = 0;              // Value if is_const flag set
+    std::string name;                    // Parameter name (optional)
+};
+
+// IR Call Graph Entry
+struct O45IRCallGraphEntry {
+    std::string calleeName;              // Called function name
+    uint16_t callCount = 0;              // Number of times called
+    bool allCallsConstant = false;       // All calls pass same constants
+};
+
+// IR Function Metadata
+struct O45IRFunction {
+    std::string functionName;            // Function name
+    uint32_t signatureHash = 0;          // Quick hash of signature for validation
+    std::vector<O45IRParam> parameters;  // Parameter information
+    std::vector<O45IRCallSite> callSites; // All call sites in this function
+    std::vector<O45IRCallGraphEntry> callGraph; // Functions this calls
+
+    // Quick validation
+    bool isValid() const { return !functionName.empty() && signatureHash != 0; }
+};
+
+// Complete IR metadata for a single object file
+struct O45IRMetadata {
+    uint8_t majorVersion = O45_IR_VERSION_MAJOR;
+    uint8_t minorVersion = O45_IR_VERSION_MINOR;
+    std::vector<O45IRFunction> functions;  // IR for each function
+
+    bool isCompatible() const {
+        return majorVersion == O45_IR_VERSION_MAJOR;  // Major must match
+    }
+};
+
+// =============================================================================
+// Function Specialization Support (Phase 52)
+// =============================================================================
+
+// A specialization pattern: vector of constant values for parameters
+// E.g., for function(int a, int b): pattern {10, 2} or {5, 2}
+using SpecializationPattern = std::vector<int64_t>;
+
+// Specialization profile for a function
+struct FunctionSpecialization {
+    std::string originalName;           // Original function name (e.g., "_calculate")
+    SpecializationPattern pattern;      // Constant parameter pattern (e.g., {10, 2})
+    std::string specializedName;        // Generated name (e.g., "_calculate_10_2")
+    int callCount = 0;                  // How many times this pattern is called
+    double estimatedBenefit = 0.0;      // Expected code size reduction (%)
+    bool isGenerated = false;           // Whether this specialization was created
+};
+
+// Specialization analysis results
+struct SpecializationAnalysis {
+    std::string functionName;           // Original function name
+    std::vector<SpecializationPattern> patterns;  // Observed call patterns
+    std::vector<int> patternCounts;     // Call count for each pattern
+    int totalCalls = 0;                 // Total call count
+    bool isProfitable = false;          // Worth generating specialization
+    float topPatternFrequency = 0.0f;   // Frequency of most common pattern
+};
+
+// =============================================================================
+// Call Site Routing (Phase 54)
+// =============================================================================
+
+// Information about a specific call site that can be routed
+struct CallSiteInfo {
+    uint32_t callSiteOffset = 0;        // Offset of JSR instruction in code
+    std::string calleeName;             // Called function
+    SpecializationPattern argumentPattern; // Detected constant arguments
+    std::string targetFunction;         // Specialized function to call
+    bool isConstantPattern = false;     // All arguments are constant
+    bool hasDispatcher = false;         // Uses dispatcher stub
+};
+
+// Routing table for a function
+struct FunctionRoutingTable {
+    std::string functionName;           // Function being called
+    std::vector<std::string> specializedVersions;  // Available specializations
+    std::vector<CallSiteInfo> callSites;           // Call sites for this function
+    bool usesDispatcher = false;        // Whether to use dispatcher
+    std::string dispatcherName;         // Generated dispatcher function name
+};
+
+// Call routing analysis: per-function information about where calls go
+struct CallRoutingAnalysis {
+    std::string functionName;           // Function being analyzed
+    std::string dispatcherName;         // Generated dispatcher function name
+    std::vector<CallSiteInfo> routableCalls;       // Calls that can be routed
+    std::vector<CallSiteInfo> dynamicCalls;        // Calls with non-constant args
+    std::vector<std::string> specializedVersions;  // Available specializations
+    int totalCalls = 0;                 // Total call count
+    float routablePercentage = 0.0f;    // % of calls that are routable
+    bool needsDispatcher = false;       // Whether dispatcher is needed
+};
+
+// =============================================================================
+// Cross-Module Inlining (Phase 55)
+// =============================================================================
+
+// Inlining candidate information
+struct InliningCandidate {
+    std::string functionName;           // Function to inline
+    std::string specializationName;     // Specialized version (if applicable)
+    int callCount = 0;                  // How many times called
+    int estimatedCodeSize = 0;          // Estimated size of inlined code
+    int callSiteOverhead = 0;           // Size of JSR + params setup
+    int estimatedSavings = 0;           // Estimated bytes saved by inlining
+    float benefitRatio = 0.0f;          // Savings / code size ratio
+    bool isProfitable = false;          // Worth inlining
+    bool isSpecialized = false;         // Is this a specialized version
+};
+
+// Inlining analysis results
+struct InliningAnalysis {
+    std::string callingSite;            // Where the call is (context)
+    std::vector<InliningCandidate> candidates;  // Functions to consider inlining
+    int totalSavingsPotential = 0;      // Total bytes saveable by inlining
+    int selectableCount = 0;            // Count of profitable candidates
+    float averageBenefit = 0.0f;        // Average benefit ratio
+};
+
+// =============================================================================
+// Dispatcher Generation (Phase 56)
+// =============================================================================
+
+// Dispatcher route: maps argument pattern to target function
+struct DispatcherRoute {
+    std::vector<int64_t> argumentPattern;   // Constant argument values (SpecializationPattern)
+    std::string targetFunction;             // Specialized version to call
+    uint32_t callCount = 0;                 // Times this pattern appears
+};
+
+// Dispatcher stub information
+struct DispatcherStub {
+    std::string dispatcherName;             // Name of dispatcher (_func__dispatch)
+    std::string genericFunction;            // Fallback generic function
+    std::vector<DispatcherRoute> routes;    // Pattern→target mappings
+    int totalRoutes = 0;                    // Number of routes
+    int routableCalls = 0;                  // Total calls to routable versions
+    int dynamicCalls = 0;                   // Calls handled by dispatcher
+    float estimatedCodeSize = 0.0f;         // Estimated dispatcher size
+    bool generateDispatcher = false;        // Should emit dispatcher code
+};
+
+// Dispatcher generation analysis results
+struct DispatcherAnalysis {
+    std::string functionName;               // Function being dispatched
+    std::vector<DispatcherStub> dispatchers;  // Dispatcher stubs to generate
+    int totalSpecializations = 0;           // Number of specialized versions
+    int dispatchersNeeded = 0;              // Count of stubs needed
+    int totalDispatchCodeSize = 0;          // Total bytes for all dispatchers
+    bool usesStaticRouting = false;         // All calls route to known versions
+    bool usesDynamicDispatch = false;       // Needs runtime dispatch logic
+};

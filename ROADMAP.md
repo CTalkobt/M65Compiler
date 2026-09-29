@@ -1,7 +1,7 @@
 # M65 Compiler Suite Roadmap: v1.0 → v2.0
 
-**Current Status:** v1.0.4
-**Last Updated:** 2026-05-30
+**Current Status:** v1.0.5
+**Last Updated:** 2026-07-19
 **Maintainer:** Craig Taylor (CTalkobt)
 
 ---
@@ -91,8 +91,8 @@
 | Per-function convention attributes in `.o45` | linker, codegen | **done** |
 | Convention mismatch detection | linker | **done** |
 | Automatic thunk generation (stack↔ZP) | linker | **done** |
-| `--no-thunks` flag and `-Wthunk` warning | linker | todo |
-| Separate ZP-convention stdlib | stdlib | todo |
+| `--no-thunks` flag and `-Wthunk` warning | linker | **done** |
+| Separate ZP-convention stdlib (`c45_zp.lib`) | stdlib | **done** |
 
 > Note: Core thunk infrastructure (s2z, z2s) was implemented ahead of schedule as part of the linker test coverage work. The linker now detects mismatches, generates bridge thunks in THUNK_AUTO mode, and supports THUNK_WARN and THUNK_ERROR modes.
 
@@ -102,9 +102,9 @@
 
 | Task | Category | Status |
 |------|----------|--------|
-| Banked segment support | linker | todo |
-| Position-Independent Code (PIC) | codegen, linker | todo |
-| `.import binary` assembler directive | asm | todo |
+| Banked segment support (Phase 99) | linker | **done** |
+| Position-Independent Code (PIC) | codegen, linker | **n/a** (45GS02 lacks PC-relative data modes; `.o45` relocation covers practical needs) |
+| `.import binary` / `.incbin` assembler directive | asm | **done** |
 
 ---
 
@@ -112,22 +112,30 @@
 
 | Task | Category | Status |
 |------|----------|--------|
-| `long long` / `unsigned long long` (64-bit) | parser, codegen | todo |
+| `long long` / `unsigned long long` (64-bit) | parser, codegen | **done** (maps to `struct __int64` + `__intN_*` runtime) |
 | Variable-Length Arrays (VLA) | parser, codegen | todo |
-| Inter-TU optimization (Phase 4) | optimizer | todo |
-| Assembler peephole optimizer (Phase 5) | asm | todo |
-| `mega65.h` platform library | stdlib | todo |
-| File I/O wrapper (`disk.h`) | stdlib | todo |
-| Comprehensive validation suite (50+ test programs) | test | in progress |
+| Inter-TU optimization (Phase 4) | optimizer | **partial** (Phase 91/96.5/99/100 cross-module done; header annotations deferred) |
+| Assembler peephole optimizer (Phase 5) | asm | **done** (AssemblerOptimizer + MachineState tracking) |
+| `mega65.h` platform library | stdlib | **done** (VIC-IV, SID, CIA, DMA, math accel, audio, FDC, SD, Ethernet, Hypervisor, keyboard) |
+| File I/O wrapper (`disk.h`) | stdlib | **done** (FILE I/O + CBM file handle I/O in `stdio.h`) |
+| Comprehensive validation suite (50+ test programs) | test | **done** (320 test programs) |
 
 ---
 
 ## Post-v2.0 (Deferred)
 
-- Floating-point support (software IEEE) — no FPU on 45GS02
+- ~~Floating-point support~~ — **done** (CBM 40-bit via BASIC 65 ROM; 27 math functions)
 - Lambda expressions
-- Link-Time Code Generation (LTO)
+- ~~Link-Time Code Generation (LTO)~~ — **done** (Phase 100 LTCO: multi-phase hint coordination)
 - Static analysis & sanitizers
+
+### Optimizer — Remaining Items
+
+| Task | Category | Status |
+|------|----------|--------|
+| Automatic parameter narrowing (generate I8 code path for `int` params when all call sites pass 0-255) | IR optimizer | todo |
+| Binary-mode dead store elimination (remove dead `sta $ZP` after RELOC_CONST forwarding) | asm optimizer | todo |
+| Array indexing pseudo-op (`addr_elem.16 dest, base, index, stride` — single expansion replacing mul.16 + add.16) | asm codegen | todo |
 
 ---
 

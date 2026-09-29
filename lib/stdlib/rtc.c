@@ -23,9 +23,6 @@ static unsigned char int_to_bcd(int val) {
     return (unsigned char)(((val / 10) << 4) | (val % 10));
 }
 
-/* Days in each month (non-leap year) */
-static int days_in_month[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
-
 static int is_leap_year(int year) {
     if (year % 4 != 0) return 0;
     if (year % 100 != 0) return 1;
@@ -35,6 +32,7 @@ static int is_leap_year(int year) {
 
 /* Compute day of year (0-based) from month and day */
 static int day_of_year(int year, int mon, int mday) {
+    static int days_in_month[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
     int doy = 0;
     int i;
     for (i = 0; i < mon; i++) {
@@ -46,7 +44,7 @@ static int day_of_year(int year, int mon, int mday) {
 
 /* Compute day of week using Tomohiko Sakamoto's algorithm (0=Sunday) */
 static int compute_wday(int year, int mon, int mday) {
-    static int t[12] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
+    int t[12] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
     if (mon < 2) year--;
     return (year + year/4 - year/100 + year/400 + t[mon] + mday) % 7;
 }
@@ -54,27 +52,41 @@ static int compute_wday(int year, int mon, int mday) {
 /* Static buffer for localtime/gmtime */
 static struct tm __tm_buf;
 
-/* Read RTC registers via DMA (they're above 1MB barrier) */
+/* Read RTC registers with debouncing per mlund/mos-hardware reference
+ * RTC I2C registers are asynchronous; debounce reads for stability
+ */
+static unsigned char read_rtc_debounced(volatile unsigned char *rtc, int offset) {
+    unsigned char val1 = rtc[offset];
+    unsigned char val2 = rtc[offset];
+    unsigned char val3 = rtc[offset];
+    /* If all three reads match, value is stable */
+    if (val1 == val2 && val2 == val3) return val1;
+    /* If any mismatch, try once more */
+    return rtc[offset];
+}
+
 void rtc_read(struct tm *tm) {
-    /* Read RTC registers at $FFD7110-$FFD7116 using 32-bit address pointer */
+    /* Read RTC registers at $FFD7110-$FFD7117 (32-bit accessible)
+     * Per mlund/mos-hardware: sec, min, hour, mday, mon, year, wday, dst_flag
+     */
     volatile unsigned char *rtc = (volatile unsigned char *)0xFFD7110L;
 
-    /* On emulators without RTC, these may return 0 */
-    unsigned char sec = rtc[0];
-    unsigned char min = rtc[1];
-    unsigned char hour = rtc[2];
-    unsigned char wday = rtc[3];
-    unsigned char day = rtc[4];
-    unsigned char month = rtc[5];
-    unsigned char year = rtc[6];
+    /* Debounced reads to handle RTC I2C asynchrony */
+    unsigned char sec = read_rtc_debounced(rtc, 0);
+    unsigned char min = read_rtc_debounced(rtc, 1);
+    unsigned char hour = read_rtc_debounced(rtc, 2);
+    unsigned char mday = read_rtc_debounced(rtc, 3);
+    unsigned char mon = read_rtc_debounced(rtc, 4);
+    unsigned char year = read_rtc_debounced(rtc, 5);
+    unsigned char wday = read_rtc_debounced(rtc, 6);
 
     tm->tm_sec  = bcd_to_int(sec & 0x7F);
     tm->tm_min  = bcd_to_int(min & 0x7F);
     tm->tm_hour = bcd_to_int(hour & 0x3F);
-    tm->tm_mday = bcd_to_int(day & 0x3F);
-    tm->tm_mon  = bcd_to_int(month & 0x1F) - 1; /* 0-based */
+    tm->tm_mday = bcd_to_int(mday & 0x3F);
+    tm->tm_mon  = bcd_to_int(mon & 0x1F) - 1; /* 0-based */
     tm->tm_year = bcd_to_int(year) + 100; /* years since 1900; RTC year 00-99 → 2000-2099 */
-    tm->tm_wday = (wday & 0x07) % 7; /* 0=Sunday */
+    tm->tm_wday = wday % 7; /* 0=Sunday */
     tm->tm_yday = day_of_year(tm->tm_year + 1900, tm->tm_mon, tm->tm_mday);
     tm->tm_isdst = 0;
 }

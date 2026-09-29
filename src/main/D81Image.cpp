@@ -2,6 +2,8 @@
 #include <cstring>
 #include <algorithm>
 
+D81Image::D81Image() : bamOps_(std::make_unique<D81BAMOperations>()) {}
+
 // ============================================================================
 // D81 sector layout: linear — (track-1) * 40 + sector
 // Tracks are numbered 1-80, sectors 0-39
@@ -29,51 +31,28 @@ int D81Image::sectorOffset(int track, int sector) const {
 //     Bytes 1-5: 40 bits (5 bytes), 1 = free, 0 = allocated
 // ============================================================================
 
-void D81Image::bamBitPos(int track, int sector, int& bamSector, int& byteOff, int& bitOff) const {
-    if (track >= 1 && track <= 40) {
-        bamSector = BAM_SECTOR_1;
-        int t = track - 1; // 0-based within this BAM sector
-        byteOff = 0x10 + t * 6 + 1 + (sector / 8);
-        bitOff = sector % 8;
-    } else {
-        bamSector = BAM_SECTOR_2;
-        int t = track - 41; // 0-based within this BAM sector
-        byteOff = 0x10 + t * 6 + 1 + (sector / 8);
-        bitOff = sector % 8;
-    }
-}
-
 bool D81Image::isSectorFree(int track, int sector) const {
-    int bs, bo, bi;
-    bamBitPos(track, sector, bs, bo, bi);
-    const uint8_t* bam = sectorData(DIR_TRACK, bs);
+    if (!bamOps_) return false;
+    int bamSector = (track >= 1 && track <= 40) ? BAM_SECTOR_1 : BAM_SECTOR_2;
+    const uint8_t* bam = sectorData(DIR_TRACK, bamSector);
     if (!bam) return false;
-    return (bam[bo] >> bi) & 1;
+    return bamOps_->isSectorFree(bam, track, sector);
 }
 
 bool D81Image::allocateSector(int track, int sector) {
-    int bs, bo, bi;
-    bamBitPos(track, sector, bs, bo, bi);
-    uint8_t* bam = sectorData(DIR_TRACK, bs);
+    if (!bamOps_) return false;
+    int bamSector = (track >= 1 && track <= 40) ? BAM_SECTOR_1 : BAM_SECTOR_2;
+    uint8_t* bam = sectorData(DIR_TRACK, bamSector);
     if (!bam) return false;
-    if (!((bam[bo] >> bi) & 1)) return false; // already allocated
-    bam[bo] &= ~(1 << bi); // clear bit = allocated
-    // Decrement free count
-    int t = (bs == BAM_SECTOR_1) ? (track - 1) : (track - 41);
-    bam[0x10 + t * 6]--;
-    return true;
+    return bamOps_->allocateSector(bam, track, sector);
 }
 
 bool D81Image::freeSector(int track, int sector) {
-    int bs, bo, bi;
-    bamBitPos(track, sector, bs, bo, bi);
-    uint8_t* bam = sectorData(DIR_TRACK, bs);
+    if (!bamOps_) return false;
+    int bamSector = (track >= 1 && track <= 40) ? BAM_SECTOR_1 : BAM_SECTOR_2;
+    uint8_t* bam = sectorData(DIR_TRACK, bamSector);
     if (!bam) return false;
-    if ((bam[bo] >> bi) & 1) return false; // already free
-    bam[bo] |= (1 << bi); // set bit = free
-    int t = (bs == BAM_SECTOR_1) ? (track - 1) : (track - 41);
-    bam[0x10 + t * 6]++;
-    return true;
+    return bamOps_->freeSector(bam, track, sector);
 }
 
 TrackSector D81Image::allocateNextFree(int nearTrack) {
@@ -96,15 +75,17 @@ TrackSector D81Image::allocateNextFree(int nearTrack) {
 }
 
 int D81Image::freeSectors() const {
+    if (!bamOps_) return 0;
     int count = 0;
-    for (int bs = BAM_SECTOR_1; bs <= BAM_SECTOR_2; bs++) {
-        const uint8_t* bam = sectorData(DIR_TRACK, bs);
-        if (!bam) continue;
-        int tracks = (bs == BAM_SECTOR_1) ? 40 : 40;
-        for (int t = 0; t < tracks; t++) {
-            count += bam[0x10 + t * 6]; // free count byte
-        }
-    }
+
+    // Count free sectors from BAM sector 1 (tracks 1-40)
+    const uint8_t* bam1 = sectorData(DIR_TRACK, BAM_SECTOR_1);
+    if (bam1) count += bamOps_->countFreeSectors(bam1);
+
+    // Count free sectors from BAM sector 2 (tracks 41-80)
+    const uint8_t* bam2 = sectorData(DIR_TRACK, BAM_SECTOR_2);
+    if (bam2) count += bamOps_->countFreeSectors(bam2);
+
     return count;
 }
 

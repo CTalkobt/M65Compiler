@@ -27,7 +27,7 @@ $(TARGET): convert.o45 $(CRT0) $(STDLIB)
 	$(LN45) -basic -o $(TARGET) $(CRT0) convert.o45 $(STDLIB)
 
 clean:
-	rm -f convert.o45 convert.o45.s $(TARGET)
+	rm -f convert.o45 convert.o45.s45 $(TARGET)
 
 run: $(TARGET)
 	xemu-xmega65 -prg $(TARGET)

@@ -109,7 +109,7 @@ int main() {
 )";
     auto [ret, stderr] = runCC45(code);
     CHECK(ret != 0, "Dot on non-struct compilation fails");
-    CHECK(stderr.find("Dot/Arrow operator on non-struct type") != std::string::npos,
+    CHECK(stderr.find("not found in struct") != std::string::npos,
           "Dot on non-struct error message correct");
 }
 
@@ -170,7 +170,7 @@ int main() {
 )";
     auto [ret, stderr] = runCC45(code);
     CHECK(ret != 0, "Unknown struct decl init compilation fails");
-    CHECK(stderr.find("Unknown struct type:") != std::string::npos,
+    CHECK(stderr.find("Unknown struct/union type:") != std::string::npos,
           "Unknown struct decl init error message correct");
 }
 

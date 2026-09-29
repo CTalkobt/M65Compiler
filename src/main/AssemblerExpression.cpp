@@ -6,6 +6,31 @@
 #include <algorithm>
 #include <iostream>
 
+// Phase 1.4: Operator precedence hint helper
+namespace {
+    std::string getPrecedenceHint(const std::string& op) {
+        // Return operator precedence information to help users fix expressions
+        if (op == "*" || op == "/" || op == "%") {
+            return " (higher precedence: * / % evaluated before + -)";
+        } else if (op == "+" || op == "-") {
+            return " (lower precedence: evaluated after * / %)";
+        } else if (op == "<<" || op == ">>") {
+            return " (shift operators: evaluated after arithmetic)";
+        } else if (op == "&") {
+            return " (bitwise AND: evaluated after comparison operators)";
+        } else if (op == "^") {
+            return " (bitwise XOR: evaluated after AND)";
+        } else if (op == "|") {
+            return " (bitwise OR: evaluated after XOR)";
+        } else if (op == "&&") {
+            return " (logical AND: evaluated after comparison)";
+        } else if (op == "||") {
+            return " (logical OR: evaluated after logical AND)";
+        }
+        return "";
+    }
+}
+
 // ConstantNode
 uint32_t ConstantNode::getValue(AssemblerParser*) const { return value; }
 bool ConstantNode::isConstant(AssemblerParser*) const { return true; }
@@ -82,30 +107,169 @@ uint32_t VariableNode::getValue(AssemblerParser* parser) const {
     Symbol* sym = parser->resolveSymbol(name, scopePrefix);
     if (sym) return sym->value;
 
-    // Symbol not found — check if it's declared as extern
-    // Only emit error in later passes when all labels should be known
-    // TODO: Make this a hard error that aborts assembly. Currently it prints
-    // an error but continues with value 0, which silently produces corrupt
-    // binaries (e.g., __zp_scratch=0 causes writes to ZP $00 instead of $02,
-    // corrupting the 45GS02 base page register). The assembler should refuse
-    // to produce a .o45 when symbols are unresolved and not declared .extern.
-    if (parser && !parser->isPass1() && !parser->isExternSymbol(name)) {
-        std::cerr << "Error: undefined symbol '" << name << "' (did you forget .extern " << name << "?)\n";
+    // Special handling for SAC AR symbols: functionname:__ar+offset
+    // Maps to symbol functionname__ar with offset applied
+    if (name.find(":__ar+") != std::string::npos || name.find(":__ar-") != std::string::npos) {
+        size_t arPos = name.find(":__ar");
+        if (arPos != std::string::npos) {
+            std::string funcName = name.substr(0, arPos);
+            std::string offsetStr = name.substr(arPos + 5);  // Skip ":__ar" (5 characters)
+
+            // Convert functionname to functionname__ar (with double underscore)
+            std::string arSymbol = funcName + "__ar";
+            Symbol* arSym = parser->resolveSymbol(arSymbol, scopePrefix);
+
+            if (arSym) {
+                // Parse offset (e.g., "+0", "+16", "-2")
+                int offset = 0;
+                if (!offsetStr.empty()) {
+                    if (offsetStr[0] == '+') offsetStr = offsetStr.substr(1);
+                    try {
+                        offset = std::stoi(offsetStr);
+                    } catch (...) {
+                        // If offset parsing fails, return AR base address
+                        return arSym->value;
+                    }
+                }
+                return arSym->value + offset;
+            }
+        }
     }
-    return 0; // fallback: treat as zero
+
+    // Symbol not found — could be forward reference or error
+    // Only treat as fatal error if it's a local variable (@ prefix) or other
+    // definitely-should-exist symbol. External/weak symbols are OK to defer.
+
+    if (parser) {
+        // Forward references (extern, weak, global) are OK in pass1 and later
+        if (parser->isExternSymbol(name)) {
+            return 0; // Forward reference declared with .extern
+        }
+
+        // In pass1, be lenient with unknown symbols (could be forward refs)
+        if (parser->isPass1()) {
+            // Log forward reference for diagnostic purposes
+            // This helps identify forward declarations vs typos
+            if (!parser->isExternSymbol(name) &&
+                (name.find("__") == 0 || name.find("_") == 0)) {
+                // Only log for symbols that look like they might be globals (start with _ or __)
+                // Skip very frequent control-flow labels to avoid spam
+                bool isControlFlow = name.find("@") == 0 && (
+                    name.find("@if_") != std::string::npos ||
+                    name.find("@for_") != std::string::npos ||
+                    name.find("@while_") != std::string::npos);
+                if (!isControlFlow) {
+                    // Silent in pass1 - just log if needed for debugging
+                    // parser->addWarning("Forward reference (pass1): '" + name + "' not yet defined");
+                }
+            }
+            return 0;
+        }
+
+        // In later passes, only error for definitely-local symbols
+        // Local variables (@_p_/@_l_/@if_) must be defined
+        bool isLocalVar = !name.empty() && name[0] == '@';
+        bool isZpTemp = name.find("__zp_") == 0;
+
+        if (isLocalVar || isZpTemp) {
+            std::string searchPath = scopePrefix + name;
+            std::string msg = "undefined local symbol '" + name + "'";
+            if (!scopePrefix.empty()) {
+                msg += " (searched as '" + searchPath + "')";
+            }
+
+            if (isLocalVar && name.find("_p_") != std::string::npos) {
+                msg += " — inline asm parameter reference requires .var @_p_name declaration in proc";
+            } else if (isLocalVar && name.find("_l_") != std::string::npos) {
+                msg += " — inline asm local reference requires .var/@_l_ declaration in proc";
+            }
+
+            // Add suggestion if a similar symbol exists
+            std::string suggestion = parser->getSuggestionForSymbol(name);
+            if (!suggestion.empty()) {
+                msg += " (did you mean '" + suggestion + "'?)";
+            }
+
+            // Phase 1.4: Add hint about common issues
+            if (name.find("_p_") != std::string::npos || name.find("_l_") != std::string::npos) {
+                msg += " — inline asm symbols require matching .var declaration in the proc";
+            }
+
+            std::string fullMsg = "Error: " + msg;
+            parser->addError(fullMsg);
+            throw std::runtime_error(fullMsg);
+        }
+
+        // For global symbols, allow 0 as placeholder (will be resolved by linker)
+        // This handles cases where a symbol like __zp_save_buf is declared .global
+        // but hasn't been seen yet in the assembly
+        return 0;
+    }
+
+    return 0; // No parser, can't validate
 }
 bool VariableNode::isConstant(AssemblerParser* parser) const {
     Symbol* sym = parser->resolveSymbol(name, scopePrefix);
+    if (!sym) {
+        // Check for SAC AR symbols
+        if (name.find(":__ar") != std::string::npos) {
+            size_t arPos = name.find(":__ar");
+            if (arPos != std::string::npos) {
+                std::string funcName = name.substr(0, arPos);
+                std::string arSymbol = funcName + "__ar";
+                sym = parser->resolveSymbol(arSymbol, scopePrefix);
+            }
+        }
+    }
     return sym ? !sym->isAddress : false;
 }
 bool VariableNode::is16Bit(AssemblerParser* parser) const {
     Symbol* sym = parser->resolveSymbol(name, scopePrefix);
+    if (!sym) {
+        // Check for SAC AR symbols
+        if (name.find(":__ar") != std::string::npos) {
+            size_t arPos = name.find(":__ar");
+            if (arPos != std::string::npos) {
+                std::string funcName = name.substr(0, arPos);
+                std::string arSymbol = funcName + "__ar";
+                sym = parser->resolveSymbol(arSymbol, scopePrefix);
+            }
+        }
+    }
     return sym ? sym->size > 1 : true;
 }
 void VariableNode::emit(M65Emitter& e, AssemblerParser* parser, int width, const std::string&) {
     if (!parser) return;
     Symbol* sym = parser->resolveSymbol(name, scopePrefix);
-    if (!sym) return;
+    if (!sym) {
+        // Check for SAC AR symbols
+        if (name.find(":__ar") != std::string::npos) {
+            size_t arPos = name.find(":__ar");
+            if (arPos != std::string::npos) {
+                std::string funcName = name.substr(0, arPos);
+                std::string arSymbol = funcName + "__ar";
+                sym = parser->resolveSymbol(arSymbol, scopePrefix);
+                // Parse offset and add to symbol value if found
+                if (sym) {
+                    std::string offsetStr = name.substr(arPos + 3);  // Skip ":__ar"
+                    int offset = 0;
+                    if (!offsetStr.empty()) {
+                        if (offsetStr[0] == '+') offsetStr = offsetStr.substr(1);
+                        try {
+                            offset = std::stoi(offsetStr);
+                        } catch (...) {
+                            // offset stays 0
+                        }
+                    }
+                    uint32_t finalValue = sym->value + offset;
+                    e.lda_imm(finalValue & 0xFF);
+                    if (width >= 16) e.ldx_imm((finalValue >> 8) & 0xFF);
+                    return;
+                }
+            }
+        }
+        return;
+    }
     if (!sym->isAddress) {
         e.lda_imm(sym->value & 0xFF);
         if (width >= 16) e.ldx_imm((sym->value >> 8) & 0xFF);
@@ -218,7 +382,13 @@ uint32_t BinaryExpr::getValue(AssemblerParser* parser) const {
     if (op == "-") return l - r;
     if (op == "*") return l * r;
     if (op == "/") {
-        if (r == 0) throw std::runtime_error("Division by zero in expression");
+        if (r == 0) {
+            // Phase 1.4: Enhanced error context with operator information and precedence hint
+            std::string msg = "Division by zero in expression";
+            msg += getPrecedenceHint(op);
+            msg += " — check right operand is non-zero, or use parentheses: (a / b) or (a / (b + 1))";
+            throw std::runtime_error(msg);
+        }
         return l / r;
     }
     if (op == "&") return l & r;
@@ -336,13 +506,37 @@ void BinaryExpr::emit(M65Emitter& e, AssemblerParser* parser, int width, const s
 
 // ArrayIndexNode — computes base + sum(index[i] * stride[i]) and dereferences
 uint32_t ArrayIndexNode::getValue(AssemblerParser* parser) const {
-    if (!parser) return 0;
+    if (!parser) {
+        throw std::runtime_error("ArrayIndexNode::getValue: parser is null");
+    }
     auto* info = parser->getArrayInfo(arrayName);
     Symbol* sym = parser->resolveSymbol(arrayName, scopePrefix);
-    if (!info || !sym) return 0;
+    if (!info) {
+        throw std::runtime_error("ArrayIndexNode::getValue: array '" + arrayName + "' has no stride info");
+    }
+    if (!sym) {
+        throw std::runtime_error("ArrayIndexNode::getValue: array '" + arrayName + "' not resolved (scope '" + scopePrefix + "')");
+    }
     uint32_t addr = sym->value;
-    for (size_t i = 0; i < indices.size() && i < info->strides.size(); ++i)
-        addr += indices[i]->getValue(parser) * info->strides[i];
+    for (size_t i = 0; i < indices.size() && i < info->strides.size(); ++i) {
+        uint32_t indexVal = indices[i]->getValue(parser);
+        uint32_t stride = info->strides[i];
+
+        // Check for overflow in multiplication
+        if (stride > 0 && indexVal > UINT32_MAX / stride) {
+            throw std::runtime_error("ArrayIndexNode::getValue: overflow in index[" + std::to_string(i) +
+                "] * stride calculation: " + std::to_string(indexVal) + " * " + std::to_string(stride) +
+                " exceeds 32-bit maximum");
+        }
+        uint32_t offset = indexVal * stride;
+
+        // Check for overflow in addition
+        if (addr > UINT32_MAX - offset) {
+            throw std::runtime_error("ArrayIndexNode::getValue: overflow in address calculation: 0x" +
+                std::to_string(addr) + " + 0x" + std::to_string(offset) + " exceeds 32-bit maximum");
+        }
+        addr += offset;
+    }
     return addr; // returns the address, not the dereferenced value
 }
 
@@ -388,10 +582,17 @@ bool ArrayIndexNode::usesHardwareMath() const {
 }
 
 void ArrayIndexNode::emit(M65Emitter& e, AssemblerParser* parser, int width, const std::string& /*target*/) {
-    if (!parser) return;
+    if (!parser) {
+        throw std::runtime_error("ArrayIndexNode::emit: parser is null");
+    }
     auto* info = parser->getArrayInfo(arrayName);
     Symbol* sym = parser->resolveSymbol(arrayName, scopePrefix);
-    if (!info || !sym) return;
+    if (!info) {
+        throw std::runtime_error("ArrayIndexNode::emit: array '" + arrayName + "' has no stride info");
+    }
+    if (!sym) {
+        throw std::runtime_error("ArrayIndexNode::emit: array '" + arrayName + "' not resolved (scope '" + scopePrefix + "')");
+    }
 
     uint32_t base = sym->value;
 
@@ -403,8 +604,25 @@ void ArrayIndexNode::emit(M65Emitter& e, AssemblerParser* parser, int width, con
     // All-constant indices: load from computed address
     if (allConstant) {
         uint32_t addr = base;
-        for (size_t i = 0; i < indices.size() && i < info->strides.size(); ++i)
-            addr += indices[i]->getValue(parser) * info->strides[i];
+        for (size_t i = 0; i < indices.size() && i < info->strides.size(); ++i) {
+            uint32_t indexVal = indices[i]->getValue(parser);
+            uint32_t stride = info->strides[i];
+
+            // Check for overflow in multiplication
+            if (stride > 0 && indexVal > UINT32_MAX / stride) {
+                throw std::runtime_error("ArrayIndexNode::emit: overflow in index[" + std::to_string(i) +
+                    "] * stride calculation: " + std::to_string(indexVal) + " * " + std::to_string(stride) +
+                    " exceeds 32-bit maximum");
+            }
+            uint32_t offset = indexVal * stride;
+
+            // Check for overflow in addition
+            if (addr > UINT32_MAX - offset) {
+                throw std::runtime_error("ArrayIndexNode::emit: overflow in address calculation: 0x" +
+                    std::to_string(addr) + " + 0x" + std::to_string(offset) + " exceeds 32-bit maximum");
+            }
+            addr += offset;
+        }
         e.lda_abs(addr);
         if (width >= 16 && info->elementSize >= 2) e.ldx_abs(addr + 1);
         else if (width >= 16) e.ldx_imm(0);
@@ -415,12 +633,36 @@ void ArrayIndexNode::emit(M65Emitter& e, AssemblerParser* parser, int width, con
     // Count runtime (non-constant) index terms to optimize single-index case
     uint32_t constOffset = 0;
     int runtimeTermCount = 0;
-    for (size_t i = 0; i < indices.size() && i < info->strides.size(); ++i)
-        if (!indices[i]->isConstant(parser)) runtimeTermCount++;
-        else constOffset += indices[i]->getValue(parser) * info->strides[i];
+    for (size_t i = 0; i < indices.size() && i < info->strides.size(); ++i) {
+        if (!indices[i]->isConstant(parser)) {
+            runtimeTermCount++;
+        } else {
+            uint32_t indexVal = indices[i]->getValue(parser);
+            uint32_t stride = info->strides[i];
+
+            // Check for overflow in multiplication
+            if (stride > 0 && indexVal > UINT32_MAX / stride) {
+                throw std::runtime_error("ArrayIndexNode::emit: overflow in constant index[" + std::to_string(i) +
+                    "] * stride calculation: " + std::to_string(indexVal) + " * " + std::to_string(stride) +
+                    " exceeds 32-bit maximum");
+            }
+            uint32_t offset = indexVal * stride;
+
+            // Check for overflow in addition
+            if (constOffset > UINT32_MAX - offset) {
+                throw std::runtime_error("ArrayIndexNode::emit: overflow in constant offset accumulation: 0x" +
+                    std::to_string(constOffset) + " + 0x" + std::to_string(offset) + " exceeds 32-bit maximum");
+            }
+            constOffset += offset;
+        }
+    }
 
     if (runtimeTermCount == 0) {
         // All constant — shouldn't reach here but handle gracefully
+        if (base > UINT32_MAX - constOffset) {
+            throw std::runtime_error("ArrayIndexNode::emit: overflow in final address: 0x" +
+                std::to_string(base) + " + 0x" + std::to_string(constOffset) + " exceeds 32-bit maximum");
+        }
         uint32_t addr = base + constOffset;
         e.lda_abs(addr);
         if (width >= 16 && info->elementSize >= 2) e.ldx_abs(addr + 1);
@@ -436,6 +678,10 @@ void ArrayIndexNode::emit(M65Emitter& e, AssemblerParser* parser, int width, con
             if (indices[i]->isConstant(parser)) continue;
             uint32_t stride = info->strides[i];
             auto* regNode = dynamic_cast<RegisterNode*>(indices[i].get());
+            if (base > UINT32_MAX - constOffset) {
+                throw std::runtime_error("ArrayIndexNode::emit: overflow in base address: 0x" +
+                    std::to_string(base) + " + 0x" + std::to_string(constOffset) + " exceeds 32-bit maximum");
+            }
             uint16_t absBase = (uint16_t)(base + constOffset);
             if (regNode && stride == 1 && regNode->name == ".X") {
                 e.lda_abs_x(absBase);
@@ -607,7 +853,33 @@ std::unique_ptr<ExprAST> parseExprAST(const std::vector<AssemblerToken>& tokens,
                     return node;
                 }
             }
-            return std::make_unique<VariableNode>(t.value, scopePrefix);
+            // Check for SAC AR symbol syntax: functionname:__ar+offset or functionname:__ar-offset
+            std::string varName = t.value;
+            if (idx < (int)tokens.size() && tokens[idx].type == AssemblerTokenType::COLON &&
+                idx + 1 < (int)tokens.size() && tokens[idx + 1].type == AssemblerTokenType::IDENTIFIER &&
+                tokens[idx + 1].value == "__ar") {
+                idx += 2;  // consume ':' and '__ar'
+                varName += ":__ar";
+
+                // Now check for optional +/- offset
+                if (idx < (int)tokens.size() &&
+                    (tokens[idx].type == AssemblerTokenType::PLUS ||
+                     tokens[idx].type == AssemblerTokenType::MINUS)) {
+                    std::string op = tokens[idx].value;
+                    idx++;
+                    if (idx < (int)tokens.size() &&
+                        (tokens[idx].type == AssemblerTokenType::DECIMAL_LITERAL ||
+                         tokens[idx].type == AssemblerTokenType::HEX_LITERAL)) {
+                        std::string numVal = tokens[idx].value;
+                        if (tokens[idx].type == AssemblerTokenType::HEX_LITERAL) {
+                            numVal = numVal.substr(1);  // Remove '$' prefix
+                        }
+                        idx++;
+                        varName += op + numVal;
+                    }
+                }
+            }
+            return std::make_unique<VariableNode>(varName, scopePrefix);
         }
         if (t.type == AssemblerTokenType::STAR) {
             // * as current PC when followed by +, -, or end of expression

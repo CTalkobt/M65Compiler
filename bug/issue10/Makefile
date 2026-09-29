@@ -16,7 +16,7 @@ $(PRG): $(OBJS)
 main.o45: main.c
 	$(CC45) -c $< -o $@
 
-bug_move_attic.o45: bug_move_attic.s
+bug_move_attic.o45: bug_move_attic.s45
 	$(CA45) -c $< -o $@
 
 inspect: bug_move_attic.o45
@@ -30,6 +30,6 @@ disasm: $(PRG)
 	$(OBJDUMP45) -d -m map.txt $(PRG)
 
 clean:
-	rm -f $(OBJS) $(PRG) map.txt main.o45.s
+	rm -f $(OBJS) $(PRG) map.txt main.o45.s45
 
 .PHONY: all clean inspect disasm

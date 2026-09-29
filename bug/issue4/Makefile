@@ -15,11 +15,11 @@ $(PRG): $(OBJS)
 main.o45: main.c
 	$(CC45) -c $< -o $@
 
-bug_zp_store.o45: bug_zp_store.s
+bug_zp_store.o45: bug_zp_store.s45
 	$(CA45) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(PRG) map.txt main.o45.s
+	rm -f $(OBJS) $(PRG) map.txt main.o45.s45
 
 disasm:
 	$(OBJDUMP45) -d $(PRG)

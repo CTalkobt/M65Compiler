@@ -1,0 +1,74 @@
+{
+  "scopeName": "source.m65-asm",
+  "fileTypes": ["s45", "asm"],
+  "name": "45GS02 Assembly",
+  "patterns": [
+    {
+      "name": "comment.line.semicolon.asm",
+      "match": ";.*$"
+    },
+    {
+      "name": "comment.block.asm",
+      "begin": "/\\*",
+      "end": "\\*/"
+    },
+    {
+      "name": "comment.line.doubleslash.asm",
+      "match": "//.*$"
+    },
+    {
+      "name": "keyword.directive.asm",
+      "match": "\\.(align|ascii|balign|basicUpstart|bss|byte|cleanup|code|const|cpu|data|dword|endrepeat|extern|fillto|flag_clobbers|float|frameptr_zp|func_flags|global|import|incbin|loc|local|long|org|reg_clobbers|repeat|res|screencode|segment|segmentOrder|text|var|vtable_entry|weak|word|zp_clobbers|zp_release|zp_uses)\\b"
+    },
+    {
+      "name": "keyword.mnemonic.asm",
+      "match": "\\b(ADC|AND|BIT|BRK|CLC|CLD|CLI|CLV|CMP|CPX|CPY|DEC|DEX|DEY|EOR|INC|INX|INY|JMP|JSR|LDA|LDX|LDY|LSR|NOP|ORA|PHA|PHP|PLA|PLP|ROL|ROR|RTI|RTS|SBC|SEC|SED|SEI|STA|STX|STY|TAX|TAY|TSX|TXA|TXS|TYA|LDZ|STZ|BRA|BRK|PLZ|PHZ|PHW|PLW|ROW|ASR|LDA\\.SP|STA\\.SP|LDX\\.SP|STX\\.SP|LDY\\.SP|STY\\.SP|LDZ\\.SP|STZ\\.SP|LDA\\.FP|STA\\.FP|INC\\.FP|DEC\\.FP|BFEXT|BFINS|MUL|DIV|MOVE|FILL)\\b"
+    },
+    {
+      "name": "variable.language.register.asm",
+      "match": "\\b(A|X|Y|Z|Q|B|SP|AXYZ)\\b"
+    },
+    {
+      "name": "entity.name.label.asm",
+      "match": "^\\s*(@?[A-Za-z_][A-Za-z0-9_:]*\\s*):"
+    },
+    {
+      "name": "constant.numeric.hex.asm",
+      "match": "\\$[0-9A-Fa-f]+"
+    },
+    {
+      "name": "constant.numeric.binary.asm",
+      "match": "%[01]+"
+    },
+    {
+      "name": "constant.numeric.decimal.asm",
+      "match": "\\b\\d+\\b"
+    },
+    {
+      "name": "string.quoted.double.asm",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.asm",
+          "match": "\\\\."
+        }
+      ]
+    },
+    {
+      "name": "string.quoted.single.asm",
+      "begin": "'",
+      "end": "'",
+      "patterns": [
+        {
+          "name": "constant.character.escape.asm",
+          "match": "\\\\."
+        }
+      ]
+    },
+    {
+      "name": "keyword.operator.asm",
+      "match": "[+\\-*/%&|^~<>=!?:]"
+    }
+  ]
+}

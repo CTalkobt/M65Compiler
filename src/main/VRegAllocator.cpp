@@ -222,6 +222,64 @@ void VRegAllocator::freeFrameSlot(int offset, int size) {
     freeFrameSlots_.push_back({offset, size});
 }
 
+// Helper: check if two live ranges overlap
+static bool liveRangesOverlap(const VRegAllocator::LiveRange& a, const VRegAllocator::LiveRange& b) {
+    // Two ranges [a.first, a.last] and [b.first, b.last] overlap if:
+    // NOT (a.last < b.first OR b.last < a.first)
+    return !(a.lastUse < b.firstDef || b.lastUse < a.firstDef);
+}
+
+// Helper: try to find a non-conflicting offset for a vreg in the frame
+// by checking if the vreg's live range overlaps with others using that offset
+int VRegAllocator::findNonConflictingFrameOffset(const LiveRange& lr, int size,
+                                                   const std::vector<LiveRange>& allRanges,
+                                                   const std::map<uint32_t, Allocation>& existingAllocs) {
+    // Try each possible offset starting from 0
+    for (int candidate = 0; candidate < 256; candidate += 2) {  // 2-byte alignment
+        bool conflicts = false;
+
+        // Check if any vreg currently allocated to [candidate, candidate+size) overlaps with lr
+        for (const auto& [existingVid, alloc] : existingAllocs) {
+            if (alloc.loc != IN_FRAME) continue;
+
+            // Check if offset ranges overlap
+            int existingSize = 2;  // typical size
+            for (const auto& r : allRanges) {
+                if (r.vregId == existingVid) {
+                    existingSize = ir::typeSize(r.type);
+                    if (existingSize < 2) existingSize = 2;
+                    break;
+                }
+            }
+
+            int existingStart = alloc.offset;
+            int existingEnd = alloc.offset + existingSize;
+            int candidateEnd = candidate + size;
+
+            // Ranges [existingStart, existingEnd) and [candidate, candidateEnd) overlap if:
+            if (!(existingEnd <= candidate || candidateEnd <= existingStart)) {
+                // Check if the live ranges actually overlap in time
+                for (const auto& existingRange : allRanges) {
+                    if (existingRange.vregId == existingVid) {
+                        if (liveRangesOverlap(lr, existingRange)) {
+                            conflicts = true;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            if (conflicts) break;
+        }
+
+        if (!conflicts) {
+            return candidate;
+        }
+    }
+
+    return -1;  // No conflict-free offset found
+}
+
 void VRegAllocator::assignLocations(const ir::Function& fn) {
     allocs_.clear();
     frameSize_ = 0;
@@ -261,7 +319,76 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
     for (const auto& [name, vid] : fn.localNames) localVarVregs.insert(vid);
     for (uint32_t i = 0; i < paramCount; i++) localVarVregs.insert(i);
 
+    // PHASE 1: Pre-allocate frame slots for non-register local variables
+    // This prevents temporaries from using frame slots that should belong to locals
+    // Process locals in declaration order first (parameters, then locals from localNamesOrder)
+    std::vector<uint32_t> localVidOrder;
+    for (uint32_t i = 0; i < paramCount; i++) {
+        localVidOrder.push_back(i);
+    }
+    for (const auto& name : fn.localNamesOrder) {
+        auto it = fn.localNames.find(name);
+        if (it != fn.localNames.end()) {
+            localVidOrder.push_back(it->second);
+        }
+    }
+
+    // Sort non-array locals before array locals to pack small objects first
+    // This prevents temporaries from being allocated between small and large locals
+    std::stable_sort(localVidOrder.begin() + paramCount, localVidOrder.end(),
+        [&fn](uint32_t a, uint32_t b) {
+            bool aIsArray = fn.vregSizes.count(a) > 0;
+            bool bIsArray = fn.vregSizes.count(b) > 0;
+            if (aIsArray != bIsArray) return !aIsArray;  // non-arrays before arrays
+            if (aIsArray && bIsArray) {
+                // Both arrays: sort by size, smaller first
+                int aSize = fn.vregSizes.at(a);
+                int bSize = fn.vregSizes.at(b);
+                return aSize < bSize;
+            }
+            return false;  // maintain original order for non-arrays
+        });
+
+    for (uint32_t vid : localVidOrder) {
+        if (registerVregs_.count(vid)) continue;        // Skip register vars (handle in phase 2)
+
+        // Find this vreg's live range to get type info
+        auto it = std::find_if(ranges_.begin(), ranges_.end(),
+            [vid](const LiveRange& lr) { return lr.vregId == vid; });
+
+        // Determine type: prefer explicit type info, fall back to live range type
+        ir::Type vtype = ir::Type::I16;  // default
+        if (fn.vregTypes.count(vid)) {
+            vtype = fn.vregTypes.at(vid);
+        } else if (it != ranges_.end()) {
+            vtype = it->type;
+        }
+
+        // Allocate frame slot for this local variable
+        int fsize = ir::typeSize(vtype);
+        if (fsize < 2) fsize = 2;
+        if (fn.vregSizes.count(vid)) {
+            fsize = fn.vregSizes.at(vid);
+        }
+
+        int foff = allocFrameSlot(vtype, fsize);
+        allocs_[vid] = {VRegAllocator::IN_FRAME, foff, vtype};
+        frameAllocMap[vid] = {foff, fsize};
+    }
+
+    // PHASE 2: Allocate temporaries and register variables
+    // Track frame offsets currently in use for smart coalescing
+    std::map<int, uint32_t> offsetToVregId;  // offset → vreg currently using it
+
     for (auto& lr : ranges_) {
+        // Skip if already allocated in phase 1
+        if (allocs_.count(lr.vregId)) continue;
+
+        // Skip non-register locals — they were pre-allocated in phase 1
+        if (localVarVregs.count(lr.vregId) && !registerVregs_.count(lr.vregId)) {
+            continue;  // Skip non-register locals
+        }
+
         int span = lr.lastUse - lr.firstDef;
 
         // Expire ZP and frame slots for temporaries whose live ranges have ended.
@@ -280,7 +407,7 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
             }
             for (auto vid : expired) zpAllocMap.erase(vid);
         }
-        // Expire frame slots
+        // Expire frame slots and clean offsetToVregId mapping
         {
             std::vector<uint32_t> expired;
             for (auto& [vid, fsi] : frameAllocMap) {
@@ -289,6 +416,10 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
                     if (r.vregId == vid && r.lastUse < lr.firstDef) {
                         expired.push_back(vid);
                         freeFrameSlot(fsi.offset, fsi.size);
+                        // Remove offset mapping
+                        for (int off = fsi.offset; off < fsi.offset + fsi.size; off++) {
+                            offsetToVregId.erase(off);
+                        }
                         break;
                     }
                 }
@@ -315,38 +446,96 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
             int size = fn.vregSizes.count(lr.vregId) ? fn.vregSizes.at(lr.vregId) : ir::typeSize(lr.type);
             int foff = allocFrameSlot(lr.type, size);
             allocs_[lr.vregId] = {IN_FRAME, foff, lr.type};
-            frameAllocMap[lr.vregId] = {foff, size < 2 ? 2 : size};
+            int fsize = size < 2 ? 2 : size;
+            frameAllocMap[lr.vregId] = {foff, fsize};
+            // Mark offsets as occupied
+            for (int i = 0; i < fsize; i++) {
+                offsetToVregId[foff + i] = lr.vregId;
+            }
             continue;
         }
 
-        // Disable IN_AX allocation: src2MemOperand for FRAME vRegs uses
-        // ldax.fp which clobbers AX, destroying IN_AX values between
-        // their definition and use. Use ZP or FRAME only.
-        bool canUseAX = false;
+        // Phase 86: Vreg Retention Optimization
+        // Re-enable IN_AX allocation for short-lived temporaries to avoid redundant store/load cycles
+        // This eliminates the pattern:  shift → store ZP → load ZP → store param
+        // Instead generates:            shift (keeps result in A:X) → store param
+        // Note: ldax.fp is only used in specific contexts; for short-lived vregs defined by
+        // arithmetic ops (shifts, adds, etc.), A:X stays valid until use.
+        bool canUseAX = true;  // Re-enabled for Phase 86 vreg retention
 
-        if (canUseAX && span <= 1) {
-            // Short-lived, no conflict — keep in A:X
+        // Bug #179 fix: Locals (including parameters) MUST go to FRAME, never ZP.
+        // They may be accessed by linked functions that expect frame offsets,
+        // and reusing ZP across different locals causes address mismatches.
+        // EXCEPTION: Register variables (register keyword) are explicitly marked for ZP
+        bool isLocal = localVarVregs.count(lr.vregId) > 0;
+        bool isRegisterVar = registerVregs_.count(lr.vregId) > 0;
+        bool isRegisterX = registerXVregs_.count(lr.vregId) > 0;
+        bool isRegisterY = registerYVregs_.count(lr.vregId) > 0;
+        bool isRegisterZ = registerZVregs_.count(lr.vregId) > 0;
+
+        // Keep short-lived temporaries in A:X to avoid ZP allocation for compound assignments
+        // span <= 2 means: defined in one instruction, used in next 1-2 instructions
+        if (canUseAX && span <= 2 && !isLocal && !crossesCall) {
+            // Short-lived temporary: keep in A:X (only for non-locals that don't cross calls)
             allocs_[lr.vregId] = {IN_AX, 0, lr.type};
             axOccupiedUntil = lr.lastUse;
             for (int i = lr.firstDef; i <= lr.lastUse && i < (int)axState_.size(); i++) {
                 axState_[i] = (int)lr.vregId;
             }
-        } else if (!crossesCall) {
-            // Try ZP for medium-lived vRegs that don't cross calls
+        } else if (isRegisterX) {
+            // X-register allocation for loop counters (Phase C5.1)
+            // Enables INX/DEX optimization for loop increment operations
+            allocs_[lr.vregId] = {IN_X, 0, lr.type};
+            // Note: X register usage not tracked in axState_ since it's separate from A:X
+        } else if (isRegisterY) {
+            // Y-register allocation for nested loop counters (Phase C5.1)
+            // Enables INY/DEY optimization for nested loop increments
+            allocs_[lr.vregId] = {IN_Y, 0, lr.type};
+        } else if (isRegisterZ) {
+            // Z-register allocation for deeply nested loop counters (Phase C5.1)
+            // 45GS02 extension: enables INZ/DEZ optimization for 3+ level nesting
+            allocs_[lr.vregId] = {IN_Z, 0, lr.type};
+        } else if (!crossesCall && (!isLocal || isRegisterVar)) {
+            // Try ZP for:
+            // - medium-lived non-local vRegs that don't cross calls, OR
+            // - register variables (even if they're locals, register keyword overrides frame allocation)
             int zpAddr = allocZpSlot(lr.type);
             if (zpAddr >= 0) {
                 allocs_[lr.vregId] = {IN_ZP, zpAddr, lr.type};
                 zpAllocMap[lr.vregId] = zpAddr;
             } else {
-                int foff = allocFrameSlot(lr.type);
+                // ZP pool exhausted, fall back to FRAME with smart coalescing
                 int fsize = ir::typeSize(lr.type); if (fsize < 2) fsize = 2;
+                int foff = findNonConflictingFrameOffset(lr, fsize, ranges_, allocs_);
+                if (foff < 0) {
+                    foff = allocFrameSlot(lr.type);
+                }
+                // Mark offsets as occupied
+                for (int i = 0; i < fsize; i++) {
+                    offsetToVregId[foff + i] = lr.vregId;
+                }
                 allocs_[lr.vregId] = {IN_FRAME, foff, lr.type};
                 frameAllocMap[lr.vregId] = {foff, fsize};
             }
         } else {
-            // Crosses a call — ZP is clobbered by callees, must use frame
-            int foff = allocFrameSlot(lr.type);
+            // Either: crosses a call (ZP is clobbered), or is a local (must use frame)
+            // In both cases, locals and call-crossing vRegs go to FRAME
             int fsize = ir::typeSize(lr.type); if (fsize < 2) fsize = 2;
+
+            // Smart frame allocation with conflict-aware coalescing:
+            // Try to find an offset that doesn't conflict with active live ranges
+            int foff = findNonConflictingFrameOffset(lr, fsize, ranges_, allocs_);
+
+            if (foff < 0) {
+                // No conflict-free slot found, allocate new space
+                foff = allocFrameSlot(lr.type);
+            }
+
+            // Mark all bytes of this offset as occupied by this vreg
+            for (int i = 0; i < fsize; i++) {
+                offsetToVregId[foff + i] = lr.vregId;
+            }
+
             allocs_[lr.vregId] = {IN_FRAME, foff, lr.type};
             frameAllocMap[lr.vregId] = {foff, fsize};
         }

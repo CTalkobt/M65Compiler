@@ -1,10 +1,12 @@
 #pragma once
 #include "AST.hpp"
-#include "CodeGenerator.hpp"
+#include "TypeInfo.hpp"
+#include "AddressTemplateDetector.hpp"
 #include <memory>
 #include <map>
 #include <set>
 #include <iostream>
+#include <cstdint>
 
 class ConstantFolder : public ASTVisitor {
 public:
@@ -18,13 +20,13 @@ public:
         bool isSigned = false;
     };
     std::map<std::string, ConstantInfo> knownConstants;
-    std::map<std::string, CodeGenerator::VarInfo> variableTypes;
+    std::map<std::string, TypeInfo::VarInfo> variableTypes;
     std::set<std::string> addressEscapedVars; // variables whose address was taken (non-const)
     std::set<std::string> volatileVars;
     std::set<std::string> constVars;        // non-pointer const vars (prevents x = ...)
     std::set<std::string> constPointerVars;  // pointer-const vars (prevents p = ...)
     std::set<std::string> boolVars;
-    std::map<std::string, std::shared_ptr<CodeGenerator::StructInfo>> structs;
+    std::map<std::string, std::shared_ptr<TypeInfo::StructInfo>> structs;
     std::set<std::string> usedVars_;
 
     std::unique_ptr<Expression> fold(std::unique_ptr<Expression> expr) {
@@ -63,16 +65,11 @@ public:
 
     void visit(VariableReference& node) override {
         usedVars_.insert(node.name);
-        if (knownConstants.count(node.name)) {
-            auto& ci = knownConstants[node.name];
-            auto lit = std::make_unique<IntegerLiteral>(ci.value);
-            lit->castType = ci.type;
-            lit->castPointerLevel = ci.pointerLevel;
-            lit->castIsSigned = ci.isSigned;
-            lastExpr = copyPos(std::move(lit), node);
-        } else {
-            lastExpr = copyPos(std::make_unique<VariableReference>(node.name), node);
-        }
+        // PHASE 2 FIX: Don't replace variable references with their initialization values.
+        // Variables can be modified, and their values can change at runtime.
+        // Replacing them with literals breaks code that accesses variables after function calls.
+        // Just return the variable reference as-is.
+        lastExpr = copyPos(std::make_unique<VariableReference>(node.name), node);
     }
 
     void visit(Assignment& node) override {
@@ -111,6 +108,17 @@ public:
     }
 
     void visit(BinaryOperation& node) override {
+        // Phase 89: Check for address template patterns BEFORE constant folding
+        // This preserves patterns that would otherwise be optimized away
+        static AddressTemplateDetector detector;
+        auto pattern = detector.detectPattern(node);
+
+        if (pattern.canOptimize) {
+            // Pattern found - preserve original expression without folding
+            lastExpr = copyPos(std::make_unique<BinaryOperation>(node.op, std::move(node.left), std::move(node.right)), node);
+            return;
+        }
+
         auto left = fold(std::move(node.left));
         auto right = fold(std::move(node.right));
 
@@ -335,7 +343,7 @@ public:
 
     void visit(VariableDeclaration& node) override {
         // Track the variable's type even if it's not currently constant
-        CodeGenerator::VarInfo vi;
+        TypeInfo::VarInfo vi;
         vi.type = node.type;
         vi.pointerLevel = node.pointerLevel;
         vi.isSigned = node.isSigned;
@@ -389,6 +397,8 @@ public:
         decl->arrayDims = node.arrayDims;
         decl->isFunctionPointer = node.isFunctionPointer;
         decl->funcPtrSig = node.funcPtrSig;
+        decl->addressSpace = node.addressSpace;  // Phase 97: Preserve address space qualifier
+        decl->isStriped = node.isStriped;
         lastStmt = std::move(decl);
     }
 
@@ -507,7 +517,7 @@ public:
         int currentOffset = 0;
         int maxAlignment = 1;
 
-        auto sInfo = std::make_shared<CodeGenerator::StructInfo>();
+        auto sInfo = std::make_shared<TypeInfo::StructInfo>();
         sInfo->name = node.name;
 
         for (auto& m : node.members) {
@@ -519,7 +529,7 @@ public:
                 }
             }
 
-            int mSize = CodeGenerator::getTypeSize(m.type, m.pointerLevel, m.arraySize(), structs);
+            int mSize = TypeInfo::getTypeSize(m.type, m.pointerLevel, m.arraySize(), structs);
             int mAlign = alignment; // Simplification, should ideally check type alignment too
             if (mAlign > maxAlignment) maxAlignment = mAlign;
 
@@ -527,7 +537,7 @@ public:
                 if (currentOffset % mAlign != 0) currentOffset += mAlign - (currentOffset % mAlign);
             }
 
-            CodeGenerator::MemberInfo mi;
+            TypeInfo::MemberInfo mi;
             mi.type = m.type; mi.pointerLevel = m.pointerLevel; mi.isSigned = m.isSigned;
             mi.isConst = m.isConst; mi.offset = currentOffset; mi.alignment = mAlign; mi.arrayDims = m.arrayDims;
             sInfo->members[m.name] = mi;
@@ -611,7 +621,7 @@ public:
         boolVars.clear();
         // Record parameter types
         for (const auto& param : node.parameters) {
-            CodeGenerator::VarInfo vi;
+            TypeInfo::VarInfo vi;
             vi.type = param.type;
             vi.pointerLevel = param.pointerLevel;
             vi.isSigned = param.isSigned;

@@ -2,17 +2,28 @@
 #include <string>
 #include <vector>
 #include <cstdlib>
+#include <cstdio>
 #ifdef __linux__
 #include <unistd.h>
 #endif
 #include <fstream>
 #include <sstream>
+#include "ConfigLoader.hpp"
+#include "CompilationPipeline.hpp"
 #include "Lexer.hpp"
 #include "Parser.hpp"
 #include "AST.hpp"
-#include "CodeGenerator.hpp"
 #include "ConstantFolder.hpp"
+#include "FunctionAnalyzer.hpp"
+#include "OptimizationSelector.hpp"
+#include "InlineSelector.hpp"
+#include "CallGraphAnalyzer.hpp"
+#include "DevirtualizationDetector.hpp"
+#include "CoOptimizationSelector.hpp"
+#include "DevirtualizationHints.hpp"
+#include "CoOptimizationApplier.hpp"
 #include "LoopOptimizer.hpp"
+#include "LoopInterchange.hpp"
 #include "Preprocessor.hpp"
 #include "AssemblerLexer.hpp"
 #include "AssemblerParser.hpp"
@@ -21,7 +32,18 @@
 #include "IRBuilder.hpp"
 #include "IRCodeGen.hpp"
 #include "IROptimizer.hpp"
+#include "IPOAnalyzer.hpp"
+#include "SpecializationCodeGenerator.hpp"
+#include "SpecializationOptimizer.hpp"
+#include "IRSpecializationGenerator.hpp"
 #include "Version.hpp"
+#include "Diagnostic.hpp"
+#include "O45Reader.hpp"
+#include "O45Writer.hpp"
+#include "O45IRSerializer.hpp"
+#include "HookIntegration.hpp"
+#include "AdaptiveLearnerIntegration.hpp"
+#include "TemplateOptimizationSystem.hpp"
 
 class ASTPrinter : public ASTVisitor {
 public:
@@ -393,25 +415,18 @@ int main(int argc, char** argv) {
     size_t lastSlash = programName.find_last_of("/\\");
     if (lastSlash != std::string::npos) programName = programName.substr(lastSlash + 1);
 
-    std::string input_file;
-    bool preprocessOnly = (programName == "cp45");
-    std::string output_file = "";
-    bool outputFileSet = false;
-    bool assemble = false;
-    int verboseLevel = 0;
-    bool optimize = true;
-    int listingLevel = 1;
-    uint32_t zeroPageStart = 0x08;
-    bool zpCallMode = false;
-    bool inlineFunctions = false;
-    bool emitIR = false;
-    bool emitReasons = false;
-    bool traceIROpt = false;
-    uint32_t zeroPageAvail = 9;
-    std::string defineFlag = "";
-    std::map<std::string, std::string> initialSymbols;
+    // Load configuration from ~/.config/m65/<program>.conf
+    std::vector<std::string> configTokens = ConfigLoader::loadConfig(programName);
+    std::vector<std::string> allArgs;
+    for (const auto& tok : configTokens) allArgs.push_back(tok);
+    for (int i = 1; i < argc; ++i) allArgs.push_back(std::string(argv[i]));
+
+    // Parse arguments
+    CompilationConfig config;
+    config.preprocessOnly = (programName == "cp45");
     std::vector<std::string> includePaths;
-    std::vector<std::string> cliPragmas;
+    std::map<std::string, std::string> symbols;
+    bool outputFileSet = false;
 
     // Add paths from CC45_INCLUDE environment variable
     if (const char* envInc = std::getenv("CC45_INCLUDE")) {
@@ -424,9 +439,7 @@ int main(int argc, char** argv) {
         if (pos < s.size()) includePaths.push_back(s.substr(pos));
     }
 
-    // Add default system include path relative to the resolved binary location.
-    // Uses /proc/self/exe (Linux) or realpath(argv[0]) to handle symlinks,
-    // PATH lookups, and invocation from any working directory.
+    // Add default system include path
     {
         std::string exePath;
 #ifdef __linux__
@@ -442,358 +455,130 @@ int main(int argc, char** argv) {
         size_t sep = exePath.find_last_of("/\\");
         std::string baseDir = (sep != std::string::npos) ? exePath.substr(0, sep + 1) : "";
         includePaths.push_back(baseDir + "../lib/include");
+        config.toolDir = baseDir;
     }
 
-    for (int i = 1; i < argc; ++i) {
-        std::string arg = argv[i];
+    // Parse all arguments
+    for (size_t i = 0; i < allArgs.size(); ++i) {
+        std::string arg = allArgs[i];
         if (arg == "-V" || arg == "--version") {
             std::cout << suiteVersionString("cc45") << std::endl;
             return 0;
         } else if (arg == "-?" || arg == "--help") {
-            std::cout << "Usage: cc45 [options] <input_file.c>" << std::endl;
-            std::cout << "Options:" << std::endl;
-            std::cout << "  -E             Run only the preprocessor (output to stdout or -o file)" << std::endl;
-            std::cout << "  -c             Compile and assemble to a .o45 relocatable object file" << std::endl;
-            std::cout << "  -o <filename>  Specify output assembly filename (default: out.s)" << std::endl;
-            std::cout << "  -l <level>     Listing level: 1=Standard (default), 2=Expanded" << std::endl;
-            std::cout << "  -v             Enable verbose output (phase info)" << std::endl;
-            std::cout << "  -vv            Extra verbose output (token dumps, AST)" << std::endl;
-            std::cout << "  -fzpcall       Use ZP parameter block calling convention" << std::endl;
-            std::cout << "  -fno-zpcall    Use stack-based calling convention (default)" << std::endl;
-            std::cout << "  -finline-functions  Inline small functions at call sites" << std::endl;
-            std::cout << "  --pragma \"...\"  Inject a #pragma directive (e.g., --pragma \"cc45 heap\")" << std::endl;
-            std::cout << "  -Dname=val     Define a symbol (e.g., -Dcc45.zeroPageStart=$10)" << std::endl;
-            std::cout << "  -I<path>       Add include search path" << std::endl;
-            std::cout << "  -Rcodegen      Annotate assembly output with codegen reasoning comments" << std::endl;
-            std::cout << "  -Roptir        Trace IR optimizer actions to stderr" << std::endl;
-            std::cout << "  -Rmachstate    Trace assembler MachineState register/flag tracking" << std::endl;
-            std::cout << "  -?             Display this help message" << std::endl;
+            // Phase 5.1: Dynamic program name in help output
+            std::string inputType = (programName == "cp45") ? "<input_file.c>" : "[options] <input_file.c>";
+            std::cout << "Usage: " << programName << " " << inputType << std::endl;
+            if (programName != "cp45") {
+                std::cout << "  -E             Preprocess only" << std::endl;
+                std::cout << "  -S             Generate assembly only" << std::endl;
+                std::cout << "  -c             Generate object file only" << std::endl;
+            } else {
+                std::cout << "  (cp45 performs C preprocessing)" << std::endl;
+            }
+            std::cout << "  -o <file>      Output filename" << std::endl;
+            if (programName != "cp45") {
+                std::cout << "  -O0..9         Optimization level" << std::endl;
+            }
+            std::cout << "  -v,-vv         Verbose output" << std::endl;
+            std::cout << "  -I<path>       Include path" << std::endl;
+            std::cout << "  -D<name>=<val> Define symbol" << std::endl;
+            if (programName != "cp45") {
+                std::cout << "  -fzpcall       Use ZP calling convention" << std::endl;
+                std::cout << "  -fstaticalloc  Use static allocation (default)" << std::endl;
+                std::cout << "  -finline-functions  Inline small functions" << std::endl;
+                std::cout << "  --pragma <p>   Inject pragma" << std::endl;
+                std::cout << "  --prg-base <a> PRG load address (hex)" << std::endl;
+                std::cout << "  --save-temps   Keep intermediate files" << std::endl;
+            }
+            std::cout << "Configuration: See ~/.config/m65/" << programName << ".conf or doc/bin/CONFIGURATION.md" << std::endl;
             return 0;
         } else if (arg == "-c") {
-            assemble = true;
+            config.objectOnly = true;
+        } else if (arg == "-S") {
+            config.assemblyOnly = true;
         } else if (arg == "-E") {
-            preprocessOnly = true;
-        } else if (arg == "-o" && i + 1 < argc) {
-            output_file = argv[++i];
+            config.preprocessOnly = true;
+        } else if (arg == "--save-temps") {
+            config.saveTemps = true;
+        } else if (arg == "-o" && i + 1 < allArgs.size()) {
+            config.outputFile = allArgs[++i];
             outputFileSet = true;
-        } else if (arg == "-l" && i + 1 < argc) {
-            listingLevel = std::stoi(argv[++i]);
         } else if (arg == "-fzpcall") {
-            zpCallMode = true;
+            config.zpCallMode = true;
         } else if (arg == "-fno-zpcall") {
-            zpCallMode = false;
+            config.zpCallMode = false;
+        } else if (arg == "-fstaticalloc") {
+            config.staticAllocMode = true;
+        } else if (arg == "-fno-staticalloc") {
+            config.staticAllocMode = false;
+        } else if (arg == "--prg-base" && i + 1 < allArgs.size()) {
+            config.prgBase = std::stoul(allArgs[++i], nullptr, 16);
+        } else if (arg == "-fimplicit-function-declaration") {
+            config.allowImplicitFunctionDecl = true;
+        } else if (arg == "-fno-implicit-function-declaration") {
+            config.allowImplicitFunctionDecl = false;
         } else if (arg == "-finline-functions") {
-            inlineFunctions = true;
-        } else if (arg == "-fno-inline-functions") {
-            inlineFunctions = false;
-        } else if (arg.rfind("-fset-bp=", 0) == 0) {
-            cliPragmas.push_back("cc45 set_bp " + arg.substr(9));
-        } else if (arg == "--pragma" && i + 1 < argc) {
-            cliPragmas.push_back(argv[++i]);
+            config.inlineSmallFunctions = true;
+        } else if (arg == "--pragma" && i + 1 < allArgs.size()) {
+            config.cliPragmas.push_back(allArgs[++i]);
         } else if (arg == "--emit-ir") {
-            emitIR = true;
+            config.emitIR = true;
         } else if (arg == "-Rcodegen") {
-            emitReasons = true;
-        } else if (arg == "-Roptir") {
-            traceIROpt = true;
-        } else if (arg == "-Roptimizer") {
-            emitReasons = true; // also enable codegen reasons for context
-            // Flag will be passed to ca45 subprocess below
-        } else if (arg == "-O0") {
-            optimize = false;
+            config.emitReasons = true;
+        } else if (arg.substr(0, 2) == "-O") {
+            std::string levelStr = arg.substr(2);
+            if (!levelStr.empty() && levelStr[0] >= '0' && levelStr[0] <= '9') {
+                config.optimizationLevel = levelStr[0] - '0';
+            } else if (levelStr == "size") {
+                config.optimizationLevel = 2;
+            } else if (levelStr == "speed") {
+                config.optimizationLevel = 3;
+            } else {
+                config.optimizationLevel = 0;
+            }
         } else if (arg == "-vv") {
-            verboseLevel = 2;
+            config.verboseLevel = 2;
         } else if (arg == "-v") {
-            verboseLevel = 1;
-        } else if (arg == "-I" && i + 1 < argc) {
-            includePaths.push_back(argv[++i]);
+            config.verboseLevel = 1;
+        } else if (arg == "-I" && i + 1 < allArgs.size()) {
+            includePaths.push_back(allArgs[++i]);
         } else if (arg.substr(0, 2) == "-I") {
             includePaths.push_back(arg.substr(2));
         } else if (arg.substr(0, 2) == "-D") {
-            defineFlag = arg;
             size_t eq = arg.find('=');
             if (eq != std::string::npos) {
                 std::string name = arg.substr(2, eq - 2);
                 std::string valStr = arg.substr(eq + 1);
-                initialSymbols[name] = valStr;
-                uint32_t val = 0;
-                if (valStr.empty()) {}
-                else if (valStr.substr(0, 1) == "$") val = std::stoul(valStr.substr(1), nullptr, 16);
-                else if (valStr.substr(0, 1) == "%") val = std::stoul(valStr.substr(1), nullptr, 2);
-                else val = std::stoul(valStr);
-
-                if (name == "cc45.zeroPageStart") {
-                    zeroPageStart = val;
-                } else if (name == "cc45.zeroPageAvail") {
-                    zeroPageAvail = val;
-                }
+                symbols[name] = valStr;
             } else {
-                initialSymbols[arg.substr(2)] = "1";
+                symbols[arg.substr(2)] = "1";
             }
         } else {
-            input_file = arg;
+            config.inputFile = arg;
         }
     }
 
-    if (input_file.empty()) {
-        std::cerr << "Usage: cc45 [options] <input_file.c>" << std::endl;
-        std::cerr << "Use -? for a list of options." << std::endl;
+    if (config.inputFile.empty()) {
+        // Phase 5.1: Dynamic program name in error message
+        std::cerr << "Usage: " << programName << " [options] <input_file.c>" << std::endl;
         return 1;
     }
 
-    std::ifstream file(input_file);
-    if (!file.is_open()) {
-        std::cerr << "Failed to open input file: " << input_file << std::endl;
-        return 1;
+    // Set compilation config
+    config.includePaths = includePaths;
+    config.symbols = symbols;
+
+    // Use CompilationPipeline to compile
+    CompilationPipeline pipeline(config);
+    CompilationResult result = pipeline.compile();
+
+    if (!result.success) {
+        std::cerr << "Compilation error: " << result.error << std::endl;
+        return result.exitCode;
     }
 
-    std::stringstream buffer;
-    buffer << file.rdbuf();
-    std::string sourceRaw = buffer.str();
-
-    if (verboseLevel >= 1) {
-        std::cout << "Preprocessing " << input_file << "..." << std::endl;
-    }
-
-    // Inject --pragma arguments as #pragma lines before source
-    if (!cliPragmas.empty()) {
-        std::string prefix;
-        for (const auto& p : cliPragmas) {
-            prefix += "#pragma " + p + "\n";
-        }
-        sourceRaw = prefix + sourceRaw;
-    }
-
-    Preprocessor preprocessor(true);
-    std::string source;
-    try {
-        source = preprocessor.process(sourceRaw, initialSymbols, includePaths, input_file);
-    } catch (const std::exception& e) {
-        std::cerr << "Preprocessor Error: " << e.what() << std::endl;
-        return 1;
-    }
-
-    if (preprocessOnly) {
-        if (outputFileSet) {
-            std::ofstream out(output_file);
-            if (!out.is_open()) {
-                std::cerr << "Failed to open output file: " << output_file << std::endl;
-                return 1;
-            }
-            out << source;
-            out.close();
-        } else {
-            std::cout << source;
-        }
-        return 0;
-    }
-
-    if (!outputFileSet) {
-        if (assemble) {
-            // -c mode: default output is input.o45
-            std::string base = input_file;
-            size_t dot = base.rfind('.');
-            if (dot != std::string::npos) base = base.substr(0, dot);
-            output_file = base + ".o45";
-        } else {
-            output_file = "out.s";
-        }
-    }
-
-    std::vector<std::string> sourceLines;
-    {
-        std::stringstream ss(source);
-        std::string line;
-        while (std::getline(ss, line)) {
-            sourceLines.push_back(line);
-        }
-    }
-
-    if (verboseLevel >= 1) {
-        std::cout << "Lexing " << input_file << "..." << std::endl;
-    }
-
-    Lexer lexer(source);
-    std::vector<Token> tokens = lexer.tokenize();
-    auto lexerLineMap = lexer.getLineToFileMap();
-
-    // Convert Lexer's FileContext map to CodeGenerator's expected format
-    std::map<int, std::pair<std::string, int>> lineToFileMap;
-    for (const auto& entry : lexerLineMap) {
-        lineToFileMap[entry.first] = {entry.second.filename, entry.second.lineOffset};
-    }
-
-    if (verboseLevel >= 2) {
-        for (const auto& token : tokens) {
-            std::cout << "Token: " << token.typeToString() << " (" << token.value << ") at " << token.line << ":" << token.column << std::endl;
-        }
-    }
-
-    if (verboseLevel >= 1) {
-        std::cout << "Parsing " << input_file << "..." << std::endl;
-    }
-
-    // In -c mode, the .s file is intermediate; output_file is the .o45
-    std::string asmFile = assemble ? (output_file + ".s") : output_file;
-
-    Parser parser(tokens);
-    try {
-        if (verboseLevel >= 1) std::cout << "Parsing " << input_file << "..." << std::endl;
-        auto ast = parser.parse();
-        if (verboseLevel >= 1) std::cout << "Parsing complete." << std::endl;
-
-        // IR pipeline: AST → IRBuilder → IR → IRCodeGen → assembly
-        IRBuilder irBuilder;
-        irBuilder.zpCallMode = zpCallMode;
-        irBuilder.inlineFunctions = inlineFunctions;
-        irBuilder.setSourceInfo(input_file);
-
-        if (optimize) {
-            if (verboseLevel >= 1) std::cout << "Constant folding..." << std::endl;
-            ConstantFolder folder;
-            ast = folder.foldTranslationUnit(std::move(ast));
-            if (verboseLevel >= 1) std::cout << "Constant folding complete." << std::endl;
-            irBuilder.setExternalUsedVars(folder.usedVars_);
-
-            if (verboseLevel >= 1) std::cout << "Loop optimization..." << std::endl;
-            LoopOptimizer loopOpt;
-            loopOpt.optimizeTranslationUnit(*ast);
-            if (verboseLevel >= 1) std::cout << "Loop optimization complete." << std::endl;
-        }
-
-        if (verboseLevel >= 2 && listingLevel >= 1) {
-            ASTPrinter printer;
-            ast->accept(printer);
-        }
-
-        if (verboseLevel >= 1) std::cout << "Code generation..." << std::endl;
-
-        // Legacy CodeGenerator validator removed (Issue #116).
-        // All semantic checks handled by IRBuilder. The legacy validator
-        // was only producing false positives (verified: non-fatal mode
-        // caused zero regressions, GTE improved from 559→560).
-
-        irBuilder.generate(*ast);
-
-        if (traceIROpt) ir::optTrace = &std::cerr;
-        if (optimize) {
-            if (verboseLevel >= 1) std::cout << "Optimizing IR (Strength Reduction)..." << std::endl;
-            ir::optimizeStrengthReduction(irBuilder.getModule());
-            if (verboseLevel >= 1) std::cout << "Optimizing IR (Algebraic Simplification)..." << std::endl;
-            ir::optimizeAlgebraic(irBuilder.getModule());
-            if (verboseLevel >= 1) std::cout << "Optimizing IR (Type Narrowing)..." << std::endl;
-            ir::optimizeTypeNarrowing(irBuilder.getModule());
-            if (verboseLevel >= 1) std::cout << "Optimizing IR (Branch Folding)..." << std::endl;
-            ir::optimizeBranchFold(irBuilder.getModule());
-            if (verboseLevel >= 1) std::cout << "Optimizing IR (CSE and Copy Propagation)..." << std::endl;
-            ir::optimizeCSE(irBuilder.getModule());
-            if (verboseLevel >= 1) std::cout << "Optimizing IR (LICM)..." << std::endl;
-            ir::optimizeLICM(irBuilder.getModule());
-            if (verboseLevel >= 1) std::cout << "Optimizing IR (COPY Chain Elimination)..." << std::endl;
-            ir::optimizeCopyChains(irBuilder.getModule());
-            if (verboseLevel >= 1) std::cout << "Optimizing IR (ADDR_ELEM Fusion)..." << std::endl;
-            ir::optimizeAddrElemFusion(irBuilder.getModule());
-        }
-
-        // Write IR text dump if requested
-        if (emitIR) {
-            std::string irFile = asmFile;
-            size_t dotPos = irFile.rfind('.');
-            if (dotPos != std::string::npos) irFile = irFile.substr(0, dotPos);
-            irFile += ".ir";
-            std::ofstream irOut(irFile);
-            if (irOut.is_open()) {
-                ir::Printer::print(irOut, irBuilder.getModule());
-                irOut.close();
-                if (verboseLevel >= 1) std::cout << "Generated IR in " << irFile << std::endl;
-            }
-        }
-
-        // Emit warnings
-        for (const auto& warn : irBuilder.getWarnings()) {
-            std::cerr << input_file << ":" << warn << std::endl;
-        }
-
-        // Check for IR errors (const violations, etc.)
-        if (irBuilder.hasErrors()) {
-            for (const auto& err : irBuilder.getErrors()) {
-                std::cerr << input_file << ":" << err << std::endl;
-            }
-            return 1;
-        }
-
-        // Emit assembly from IR
-        std::ofstream asmOut(asmFile);
-        if (!asmOut.is_open()) {
-            std::cerr << "Failed to open output file for assembly: " << asmFile << std::endl;
-            return 1;
-        }
-        IRCodeGen irCodeGen(asmOut);
-        irCodeGen.setLineToFileMap(lineToFileMap);
-        irCodeGen.generate(irBuilder.getModule(), zeroPageStart, assemble, zpCallMode, emitReasons);
-        asmOut.close();
-
-        if (verboseLevel >= 1) {
-            std::cout << "Generated assembly in " << asmFile << std::endl;
-            std::cout << "Code generation complete." << std::endl;
-        }
-
-        if (listingLevel == 2) {
-            if (verboseLevel >= 1) std::cout << "Generating expanded listing..." << std::endl;
-            
-            std::ifstream asmIn(asmFile);
-            std::stringstream asmBuf;
-            asmBuf << asmIn.rdbuf();
-            asmIn.close();
-
-            std::map<std::string, uint32_t> predefinedSymbols;
-            predefinedSymbols["cc45.zeroPageStart"] = zeroPageStart;
-            predefinedSymbols["__sp_base"] = 0x0101;
-
-            AssemblerLexer lex(asmBuf.str());
-            auto tokens = lex.tokenize();
-            AssemblerParser parser(tokens, predefinedSymbols);
-            parser.pass1();
-            if (parser.hasErrors()) {
-                for (const auto& err : parser.getErrors()) {
-                    std::cerr << asmFile << ":" << err << std::endl;
-                }
-                return 1;
-            }
-            parser.pass2(); // Run optimizer and resolve addresses
-
-            std::ofstream expandedOut(asmFile);
-            M65Emitter e(expandedOut, zeroPageStart);
-            AssemblerGenerator::generate(&parser, e);
-            expandedOut.close();
-        }
-
-    } catch (const std::exception& e) {
-        std::cerr << "Compiler Error: " << e.what() << std::endl;
-        return 1;
-    }
-    
-    if (assemble) {
-        if (verboseLevel >= 1) std::cout << "Assembling to " << output_file << "..." << std::endl;
-        // Find ca45 relative to cc45's own location
-        std::string cc45Path = argv[0];
-        std::string ca45Path = "ca45";
-        size_t lastSep = cc45Path.find_last_of("/\\");
-        if (lastSep != std::string::npos) {
-            ca45Path = cc45Path.substr(0, lastSep + 1) + "ca45";
-        }
-        std::string rOptFlag;
-        std::string rMachFlag;
-        for (int ai = 1; ai < argc; ai++) {
-            if (std::string(argv[ai]) == "-Roptimizer") rOptFlag = " -Roptimizer";
-            if (std::string(argv[ai]) == "-Rmachstate") rMachFlag = " -Rmachstate";
-        }
-        std::string command = ca45Path + " -c -opt " + defineFlag + rOptFlag + rMachFlag + " -o " + output_file + " " + asmFile;
-        int ret = std::system(command.c_str());
-        if (ret != 0) {
-            std::cerr << "Assembler failed with return code " << ret << std::endl;
-            return 1;
-        }
+    if (config.verboseLevel >= 1) {
+        std::cout << "Compilation successful: " << result.outputFile << std::endl;
     }
 
     return 0;

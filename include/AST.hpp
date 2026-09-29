@@ -60,6 +60,9 @@ public:
 class VariableReference : public Expression {
 public:
     std::string name;
+    // Phase 91.3.4: Specialization tracking
+    bool isConstantSpecialized = false;
+    long specializedConstantValue = 0;
     VariableReference(const std::string& n) : name(n) {}
     void accept(ASTVisitor& visitor) override;
 };
@@ -208,6 +211,7 @@ public:
     bool isExtern = false;
     bool isStatic = false;
     bool isRegister = false;
+    bool isStriped = false;         // Phase 92: Striped array optimization
     int alignment = 0;
     std::unique_ptr<Expression> alignmentExpr;
     std::unique_ptr<Expression> initializer;
@@ -215,6 +219,7 @@ public:
     int arraySize() const { if (arrayDims.empty()) return -1; int s=1; for (int d:arrayDims) s*=d; return s; }
     bool isFunctionPointer = false;
     std::shared_ptr<FuncPtrSignature> funcPtrSig; // non-null when isFunctionPointer
+    int addressSpace = 0;  // Phase 97: Address space (0=DEFAULT, 1=ZP, 2=ABS, 3=FAR)
     VariableDeclaration(const std::string& t, const std::string& n, int p = 0) : type(t), pointerLevel(p), name(n) {}
     void accept(ASTVisitor& visitor) override;
 };
@@ -462,6 +467,13 @@ public:
     bool isFinal = false;         // Phase 4: method cannot be overridden → direct call
     bool isOperator = false;      // Operator overload method
     int vtableSlot = -1;          // Phase 3: slot index in vtable (-1 = not virtual)
+
+    // Phase 82: Per-function optimization selection
+    bool optimizeLoopUnroll = true;
+    bool optimizeLoopInterchange = true;
+    bool optimize2PassFolding = false;
+    bool optimizeSAC = true;
+    int unrollFactor = 4;
 
     FunctionDeclaration(const std::string& n, const std::string& rt) : name(n), returnType(rt) {}
     void accept(ASTVisitor& visitor) override;

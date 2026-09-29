@@ -212,8 +212,7 @@ bool CmdImage::addFile(const std::string& name, CbmFileType type,
         }
     }
 
-    DirEntry entry;
-    std::memset(&entry, 0, sizeof(entry));
+    DirEntry entry = {};
     entry.fileType = 0x80 | (uint8_t)type;
     entry.firstDataTS = chain[0];
     padPetsciiName(entry.filename, name);

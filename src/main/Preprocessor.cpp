@@ -26,11 +26,22 @@ Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
 
     // Compiler identification
     macros["__cc45__"] = Macro{false, false, {}, "1"};
+    macros["__CC45_VERSION__"] = Macro{false, false, {}, "10005"};  // 1.00.05 → 10005
 
-    // Standard predefined macros
+    // Target platform identification
+    macros["__MEGA65__"] = Macro{false, false, {}, "1"};
+    macros["__45GS02__"] = Macro{false, false, {}, "1"};
+    macros["__6502__"] = Macro{false, false, {}, "1"};
+
+    // Standard predefined macros (C17)
     macros["__STDC__"] = Macro{false, false, {}, "1"};
-    macros["__STDC_VERSION__"] = Macro{false, false, {}, "201112L"};
-    macros["__STDC_HOSTED__"] = Macro{false, false, {}, "0"};
+    macros["__STDC_VERSION__"] = Macro{false, false, {}, "201710L"};
+    macros["__STDC_HOSTED__"] = Macro{false, false, {}, "0"};  // freestanding
+
+    // C11+ optional feature-test macros (§6.10.8.3)
+    macros["__STDC_NO_VLA__"] = Macro{false, false, {}, "1"};      // no variable-length arrays
+    macros["__STDC_NO_THREADS__"] = Macro{false, false, {}, "1"};   // no <threads.h>
+    macros["__STDC_NO_ATOMICS__"] = Macro{false, false, {}, "1"};   // no <stdatomic.h>
 
     // GCC builtin types
     macros["__builtin_va_list"] = Macro{false, false, {}, "void *"};
@@ -473,7 +484,7 @@ long Preprocessor::evaluateExpression(const std::string& expr) {
     return parseOr();
 }
 
-std::string Preprocessor::process(const std::string& source, 
+std::string Preprocessor::process(const std::string& source,
                                   const std::map<std::string, std::string>& initialSymbols,
                                   const std::vector<std::string>& includePaths,
                                   const std::string& currentFile) {
@@ -884,6 +895,22 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         output << "__asm__(\".set_bp " + bpVal + "\");\n";
                     } else if (cc45Arg == "weak") {
                         output << "__asm__(\".weak_next\");\n";
+                    } else if (cc45Arg == "recurse") {
+                        output << "__asm__(\".recurse_next\");\n";
+                    } else if (cc45Arg == "unroll") {
+                        std::string countStr;
+                        if (ss >> countStr) {
+                            output << "asm(\".crt_unroll " + countStr + "\");\n";
+                        } else {
+                            output << "asm(\".crt_unroll\");\n";
+                        }
+                    } else if (cc45Arg == "unroll_default") {
+                        std::string countStr;
+                        if (ss >> countStr) {
+                            output << "asm(\".crt_unroll_def " + countStr + "\");\n";
+                        } else {
+                            output << "\n";
+                        }
                     } else {
                         output << "\n";
                     }
@@ -963,6 +990,21 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         else if (cc45Arg == "no_zp_save") output << "__asm__(\".no_zp_save\");\n";
                         else if (cc45Arg == "set_bp") { std::string bv; ps >> bv; output << "__asm__(\".set_bp " + bv + "\");\n"; }
                         else if (cc45Arg == "weak") output << "__asm__(\".weak_next\");\n";
+                        else if (cc45Arg == "recurse") output << "__asm__(\".recurse_next\");\n";
+                        else if (cc45Arg == "unroll") {
+                            std::string countStr;
+                            if (ps >> countStr) {
+                                output << "asm(\".crt_unroll " + countStr + "\");\n";
+                            } else {
+                                output << "asm(\".crt_unroll\");\n";
+                            }
+                        }
+                        else if (cc45Arg == "unroll_default") {
+                            std::string countStr;
+                            if (ps >> countStr) {
+                                output << "asm(\".crt_unroll_def " + countStr + "\");\n";
+                            }
+                        }
                     } else if (isCompiler && pragmaArg.substr(0, 9) == "encoding(") {
                         std::string enc = pragmaArg.substr(9);
                         if (!enc.empty() && enc.back() == ')') enc.pop_back();

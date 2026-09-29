@@ -1,0 +1,3748 @@
+    .o45
+    .org $2000
+    .weak __sp_base
+    __sp_base = $0101
+    .weak __static_chain
+    .weak __zp_scratch
+    .weak __zp_scratch2
+    .weak __zp_scratch3
+    .weak __zp_scratch4
+    .weak cc45.zeroPageStart
+    __static_chain = $06
+    __zp_scratch = $08
+    __zp_scratch2 = $0A
+    __zp_scratch3 = $0C
+    __zp_scratch4 = $0E
+    cc45.zeroPageStart = $08
+
+    .extern _printf
+
+    .global _matrix_vector_mult
+    .global _element_wise_ops
+    .global _transpose_matrix
+    .global _scalar_accumulate
+    .global _row_operations
+    .global _calculate_trace
+    .global _cumulative_sum
+    .global _normalize_matrix
+    .global _main
+
+    .segment "data"
+    .byte 0
+__main__local_mat_a:
+; .debug_var: @global __main__local_mat_a offset=0 size=2 type=int16 scope=global
+    .word 0
+    .res 126
+__main__local_mat_b:
+; .debug_var: @global __main__local_mat_b offset=0 size=2 type=int16 scope=global
+    .word 0
+    .res 126
+__main__local_mat_c:
+; .debug_var: @global __main__local_mat_c offset=0 size=2 type=int16 scope=global
+    .word 0
+    .res 126
+__main__local_result:
+; .debug_var: @global __main__local_result offset=0 size=2 type=int16 scope=global
+    .word 0
+    .res 14
+
+    .segment "bss"
+__main__local_vec:
+; .debug_var: @global __main__local_vec offset=0 size=2 type=int16 scope=global
+    .res 16
+
+    .segment "code"
+
+; function _matrix_vector_mult
+; SAC inline storage: 10 bytes
+    .global _matrix_vector_mult__param_mat
+    _matrix_vector_mult__param_mat: .word 0
+    .global _matrix_vector_mult__param_vec
+    _matrix_vector_mult__param_vec: .word 0
+    .global _matrix_vector_mult__param_result
+    _matrix_vector_mult__param_result: .word 0
+    _matrix_vector_mult__local_0: .word 0
+    _matrix_vector_mult__local_1: .word 0
+    _matrix_vector_mult__local_2: .word 0
+    _matrix_vector_mult__local_3: .word 0
+    _matrix_vector_mult__local_9: .word 0
+    proc _matrix_vector_mult, W#@_p_mat, W#@_p_vec, W#@_p_result
+    .sac
+    .var _fp = 0
+    .loc "/home/duck/m65/inpg/m65compiler/bin/../lib/include/stdio.h", 6
+    .local @_l_i = 6
+    .local @_l_j = 8
+; .debug_var: __matrix_vector_mult @_l_i offset=6 size=2 type=int16 scope=local
+; .debug_var: __matrix_vector_mult @_l_j offset=8 size=2 type=int16 scope=local
+    .var @_p_mat = 2
+    .var @_p_vec = 4
+    .var @_p_result = 6
+; .debug_var: __matrix_vector_mult @_p_mat offset=2 size=2 type=ptr scope=parameter
+; .debug_var: __matrix_vector_mult @_p_vec offset=4 size=2 type=ptr scope=parameter
+; .debug_var: __matrix_vector_mult @_p_result offset=6 size=2 type=ptr scope=parameter
+
+@entry:
+    .loc "benchmark_compound_matrix.c", 11
+    lda #0
+    sta _matrix_vector_mult__local_3
+    sta _matrix_vector_mult__local_3+1
+@for_cond0:
+    lda _matrix_vector_mult__local_3
+    ldx _matrix_vector_mult__local_3+1
+    cmp.16 .AX, #8
+    bcc @for_body1
+    bra @for_end3
+@for_body1:
+    .loc "benchmark_compound_matrix.c", 12
+    lda #0
+    sta $24
+    sta $25
+    lda _matrix_vector_mult__param_result
+    ldx _matrix_vector_mult__param_result+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _matrix_vector_mult__local_3
+    ldx _matrix_vector_mult__local_3+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $26
+    stx $26+1
+    lda $24
+    ldx $25
+    ldy #0
+    sta ($26),y
+    txa
+    iny
+    sta ($26),y
+    .loc "benchmark_compound_matrix.c", 13
+    lda #0
+    sta _matrix_vector_mult__local_9
+    sta _matrix_vector_mult__local_9+1
+@for_cond4:
+    lda _matrix_vector_mult__local_9
+    ldx _matrix_vector_mult__local_9+1
+    cmp.16 .AX, #8
+    bcc @for_body5
+    bra @for_end7
+@for_body5:
+    .loc "benchmark_compound_matrix.c", 14
+    lda _matrix_vector_mult__param_mat
+    ldx _matrix_vector_mult__param_mat+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _matrix_vector_mult__local_3
+    ldx _matrix_vector_mult__local_3+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $2E
+    stx $2E+1
+    ldy #0
+    lda ($2E),y
+    pha
+    iny
+    lda ($2E),y
+    tax
+    pla
+    sta $30
+    stx $31
+    lda _matrix_vector_mult__local_9
+    ldx _matrix_vector_mult__local_9+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $30
+    ldx $30+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $32
+    stx $32+1
+    ldy #0
+    lda ($32),y
+    pha
+    iny
+    lda ($32),y
+    tax
+    pla
+    sta $34
+    stx $35
+    lda _matrix_vector_mult__param_vec
+    ldx _matrix_vector_mult__param_vec+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _matrix_vector_mult__local_9
+    ldx _matrix_vector_mult__local_9+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $36
+    stx $36+1
+    ldy #0
+    lda ($36),y
+    pha
+    iny
+    lda ($36),y
+    tax
+    pla
+    sta $38
+    stx $39
+    lda $34
+    ldx $35
+    mul.16 .AX, $38
+    sta $3A
+    stx $3B
+    lda _matrix_vector_mult__param_result
+    ldx _matrix_vector_mult__param_result+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _matrix_vector_mult__local_3
+    ldx _matrix_vector_mult__local_3+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $3C
+    stx $3C+1
+    ldy #0
+    lda ($3C),y
+    pha
+    iny
+    lda ($3C),y
+    tax
+    pla
+    sta $3E
+    stx $3F
+    lda $3E
+    clc
+    adc $3A
+    sta $40
+    lda $3F
+    adc $3A+1
+    sta $41
+    lda _matrix_vector_mult__param_result
+    ldx _matrix_vector_mult__param_result+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _matrix_vector_mult__local_3
+    ldx _matrix_vector_mult__local_3+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $42
+    stx $42+1
+    lda $40
+    ldx $41
+    ldy #0
+    sta ($42),y
+    txa
+    iny
+    sta ($42),y
+@for_inc6:
+    .loc "benchmark_compound_matrix.c", 13
+    lda _matrix_vector_mult__local_9
+    ldx _matrix_vector_mult__local_9+1
+    sta $44
+    stx $45
+    lda $44
+    clc
+    adc #1
+    sta $46
+    lda $45
+    adc #0
+    sta $47
+    lda $46
+    ldx $47
+    sta _matrix_vector_mult__local_9
+    stx _matrix_vector_mult__local_9+1
+    bra @for_cond4
+@for_end7:
+@for_inc2:
+    .loc "benchmark_compound_matrix.c", 11
+    lda _matrix_vector_mult__local_3
+    ldx _matrix_vector_mult__local_3+1
+    sta $48
+    stx $49
+    lda $48
+    ldx $49
+    add.16 .AX, #1
+    sta _matrix_vector_mult__local_3
+    stx _matrix_vector_mult__local_3+1
+    bra @for_cond0
+@for_end3:
+@__return:
+    rts
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 10
+    endproc
+
+; function _element_wise_ops
+; SAC inline storage: 10 bytes
+    .global _element_wise_ops__param_mat_a
+    _element_wise_ops__param_mat_a: .word 0
+    .global _element_wise_ops__param_mat_b
+    _element_wise_ops__param_mat_b: .word 0
+    .global _element_wise_ops__param_mat_c
+    _element_wise_ops__param_mat_c: .word 0
+    _element_wise_ops__local_0: .word 0
+    _element_wise_ops__local_1: .word 0
+    _element_wise_ops__local_2: .word 0
+    _element_wise_ops__local_3: .word 0
+    _element_wise_ops__local_7: .word 0
+    proc _element_wise_ops, W#@_p_mat_a, W#@_p_mat_b, W#@_p_mat_c
+    .sac
+    .var _fp = 0
+    .loc "/home/duck/m65/inpg/m65compiler/bin/../lib/include/stdio.h", 16
+    .local @_l_i = 6
+    .local @_l_j = 8
+; .debug_var: __element_wise_ops @_l_i offset=6 size=2 type=int16 scope=local
+; .debug_var: __element_wise_ops @_l_j offset=8 size=2 type=int16 scope=local
+    .var @_p_mat_a = 2
+    .var @_p_mat_b = 4
+    .var @_p_mat_c = 6
+; .debug_var: __element_wise_ops @_p_mat_a offset=2 size=2 type=ptr scope=parameter
+; .debug_var: __element_wise_ops @_p_mat_b offset=4 size=2 type=ptr scope=parameter
+; .debug_var: __element_wise_ops @_p_mat_c offset=6 size=2 type=ptr scope=parameter
+
+@entry:
+    .loc "benchmark_compound_matrix.c", 21
+    lda #0
+    sta _element_wise_ops__local_3
+    sta _element_wise_ops__local_3+1
+@for_cond8:
+    lda _element_wise_ops__local_3
+    ldx _element_wise_ops__local_3+1
+    cmp.16 .AX, #8
+    bcc @for_body9
+    bra @for_end11
+@for_body9:
+    .loc "benchmark_compound_matrix.c", 22
+    lda #0
+    sta _element_wise_ops__local_7
+    sta _element_wise_ops__local_7+1
+@for_cond12:
+    lda _element_wise_ops__local_7
+    ldx _element_wise_ops__local_7+1
+    cmp.16 .AX, #8
+    bcc @for_body13
+    bra @for_end15
+@for_body13:
+    .loc "benchmark_compound_matrix.c", 23
+    lda _element_wise_ops__param_mat_a
+    ldx _element_wise_ops__param_mat_a+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _element_wise_ops__local_3
+    ldx _element_wise_ops__local_3+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $2A
+    stx $2A+1
+    ldy #0
+    lda ($2A),y
+    pha
+    iny
+    lda ($2A),y
+    tax
+    pla
+    sta $2C
+    stx $2D
+    lda _element_wise_ops__local_7
+    ldx _element_wise_ops__local_7+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $2C
+    ldx $2C+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $2E
+    stx $2E+1
+    ldy #0
+    lda ($2E),y
+    pha
+    iny
+    lda ($2E),y
+    tax
+    pla
+    sta $30
+    stx $31
+    lda _element_wise_ops__param_mat_b
+    ldx _element_wise_ops__param_mat_b+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _element_wise_ops__local_3
+    ldx _element_wise_ops__local_3+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $32
+    stx $32+1
+    ldy #0
+    lda ($32),y
+    pha
+    iny
+    lda ($32),y
+    tax
+    pla
+    sta $34
+    stx $35
+    lda _element_wise_ops__local_7
+    ldx _element_wise_ops__local_7+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $34
+    ldx $34+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $36
+    stx $36+1
+    ldy #0
+    lda ($36),y
+    pha
+    iny
+    lda ($36),y
+    tax
+    pla
+    sta $38
+    stx $39
+    lda $30
+    clc
+    adc $38
+    sta $3A
+    lda $31
+    adc $38+1
+    sta $3B
+    lda _element_wise_ops__param_mat_c
+    ldx _element_wise_ops__param_mat_c+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _element_wise_ops__local_3
+    ldx _element_wise_ops__local_3+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $3C
+    stx $3C+1
+    ldy #0
+    lda ($3C),y
+    pha
+    iny
+    lda ($3C),y
+    tax
+    pla
+    sta $3E
+    stx $3F
+    lda _element_wise_ops__local_7
+    ldx _element_wise_ops__local_7+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $3E
+    ldx $3E+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $40
+    stx $40+1
+    lda $3A
+    ldx $3B
+    ldy #0
+    sta ($40),y
+    txa
+    iny
+    sta ($40),y
+    .loc "benchmark_compound_matrix.c", 24
+    lda #2
+    ldx #0
+    sta $42
+    stx $43
+    lda _element_wise_ops__param_mat_c
+    ldx _element_wise_ops__param_mat_c+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _element_wise_ops__local_3
+    ldx _element_wise_ops__local_3+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $44
+    stx $44+1
+    ldy #0
+    lda ($44),y
+    pha
+    iny
+    lda ($44),y
+    tax
+    pla
+    sta $46
+    stx $47
+    lda _element_wise_ops__local_7
+    ldx _element_wise_ops__local_7+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $46
+    ldx $46+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $48
+    stx $48+1
+    ldy #0
+    lda ($48),y
+    pha
+    iny
+    lda ($48),y
+    tax
+    pla
+    sta $4A
+    stx $4B
+    lda $4A
+    ldx $4B
+    mul.16 .AX, $42
+    sta $4C
+    stx $4D
+    lda _element_wise_ops__param_mat_c
+    ldx _element_wise_ops__param_mat_c+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _element_wise_ops__local_3
+    ldx _element_wise_ops__local_3+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $4E
+    stx $4E+1
+    ldy #0
+    lda ($4E),y
+    pha
+    iny
+    lda ($4E),y
+    tax
+    pla
+    sta $50
+    stx $51
+    lda _element_wise_ops__local_7
+    ldx _element_wise_ops__local_7+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $50
+    ldx $50+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $52
+    stx $52+1
+    lda $4C
+    ldx $4D
+    ldy #0
+    sta ($52),y
+    txa
+    iny
+    sta ($52),y
+    .loc "benchmark_compound_matrix.c", 25
+    lda _element_wise_ops__param_mat_a
+    ldx _element_wise_ops__param_mat_a+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _element_wise_ops__local_3
+    ldx _element_wise_ops__local_3+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $54
+    stx $54+1
+    ldy #0
+    lda ($54),y
+    pha
+    iny
+    lda ($54),y
+    tax
+    pla
+    sta $56
+    stx $57
+    lda _element_wise_ops__local_7
+    ldx _element_wise_ops__local_7+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $56
+    ldx $56+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $58
+    stx $58+1
+    ldy #0
+    lda ($58),y
+    pha
+    iny
+    lda ($58),y
+    tax
+    pla
+    sta $5A
+    stx $5B
+    lda _element_wise_ops__param_mat_c
+    ldx _element_wise_ops__param_mat_c+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _element_wise_ops__local_3
+    ldx _element_wise_ops__local_3+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $5C
+    stx $5C+1
+    ldy #0
+    lda ($5C),y
+    pha
+    iny
+    lda ($5C),y
+    tax
+    pla
+    sta $5E
+    stx $5F
+    lda _element_wise_ops__local_7
+    ldx _element_wise_ops__local_7+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $5E
+    ldx $5E+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $60
+    stx $60+1
+    ldy #0
+    lda ($60),y
+    pha
+    iny
+    lda ($60),y
+    tax
+    pla
+    sta $62
+    stx $63
+    lda $62
+    sec
+    sbc $5A
+    sta $64
+    lda $63
+    sbc $5A+1
+    sta $65
+    lda _element_wise_ops__param_mat_c
+    ldx _element_wise_ops__param_mat_c+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _element_wise_ops__local_3
+    ldx _element_wise_ops__local_3+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $66
+    stx $66+1
+    ldy #0
+    lda ($66),y
+    pha
+    iny
+    lda ($66),y
+    tax
+    pla
+    sta $68
+    stx $69
+    lda _element_wise_ops__local_7
+    ldx _element_wise_ops__local_7+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $68
+    ldx $68+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $6A
+    stx $6A+1
+    lda $64
+    ldx $65
+    ldy #0
+    sta ($6A),y
+    txa
+    iny
+    sta ($6A),y
+@for_inc14:
+    .loc "benchmark_compound_matrix.c", 22
+    lda _element_wise_ops__local_7
+    ldx _element_wise_ops__local_7+1
+    sta $6C
+    stx $6D
+    lda $6C
+    clc
+    adc #1
+    sta $6E
+    lda $6D
+    adc #0
+    sta $6F
+    lda $6E
+    ldx $6F
+    sta _element_wise_ops__local_7
+    stx _element_wise_ops__local_7+1
+    bra @for_cond12
+@for_end15:
+@for_inc10:
+    .loc "benchmark_compound_matrix.c", 21
+    lda _element_wise_ops__local_3
+    ldx _element_wise_ops__local_3+1
+    sta $70
+    stx $71
+    lda $70
+    ldx $71
+    add.16 .AX, #1
+    sta _element_wise_ops__local_3
+    stx _element_wise_ops__local_3+1
+    bra @for_cond8
+@for_end11:
+@__return:
+    rts
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 10
+    endproc
+
+; function _transpose_matrix
+; SAC inline storage: 8 bytes
+    .global _transpose_matrix__param_mat
+    _transpose_matrix__param_mat: .word 0
+    .global _transpose_matrix__param_result
+    _transpose_matrix__param_result: .word 0
+    _transpose_matrix__local_0: .word 0
+    _transpose_matrix__local_1: .word 0
+    _transpose_matrix__local_2: .word 0
+    _transpose_matrix__local_6: .word 0
+    proc _transpose_matrix, W#@_p_mat, W#@_p_result
+    .sac
+    .var _fp = 0
+    .loc "benchmark_compound_matrix.c", 12
+    .local @_l_i = 4
+    .local @_l_j = 6
+; .debug_var: __transpose_matrix @_l_i offset=4 size=2 type=int16 scope=local
+; .debug_var: __transpose_matrix @_l_j offset=6 size=2 type=int16 scope=local
+    .var @_p_mat = 2
+    .var @_p_result = 4
+; .debug_var: __transpose_matrix @_p_mat offset=2 size=2 type=ptr scope=parameter
+; .debug_var: __transpose_matrix @_p_result offset=4 size=2 type=ptr scope=parameter
+
+@entry:
+    .loc "benchmark_compound_matrix.c", 32
+    lda #0
+    sta _transpose_matrix__local_2
+    sta _transpose_matrix__local_2+1
+@for_cond16:
+    lda _transpose_matrix__local_2
+    ldx _transpose_matrix__local_2+1
+    cmp.16 .AX, #8
+    bcc @for_body17
+    bra @for_end19
+@for_body17:
+    .loc "benchmark_compound_matrix.c", 33
+    lda #0
+    sta _transpose_matrix__local_6
+    sta _transpose_matrix__local_6+1
+@for_cond20:
+    lda _transpose_matrix__local_6
+    ldx _transpose_matrix__local_6+1
+    cmp.16 .AX, #8
+    bcc @for_body21
+    bra @for_end23
+@for_body21:
+    .loc "benchmark_compound_matrix.c", 34
+    lda _transpose_matrix__param_mat
+    ldx _transpose_matrix__param_mat+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _transpose_matrix__local_2
+    ldx _transpose_matrix__local_2+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $2A
+    stx $2A+1
+    ldy #0
+    lda ($2A),y
+    pha
+    iny
+    lda ($2A),y
+    tax
+    pla
+    sta $2C
+    stx $2D
+    lda _transpose_matrix__local_6
+    ldx _transpose_matrix__local_6+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $2C
+    ldx $2C+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $2E
+    stx $2E+1
+    ldy #0
+    lda ($2E),y
+    pha
+    iny
+    lda ($2E),y
+    tax
+    pla
+    sta $30
+    stx $31
+    lda _transpose_matrix__param_result
+    ldx _transpose_matrix__param_result+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _transpose_matrix__local_6
+    ldx _transpose_matrix__local_6+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $32
+    stx $32+1
+    ldy #0
+    lda ($32),y
+    pha
+    iny
+    lda ($32),y
+    tax
+    pla
+    sta $34
+    stx $35
+    lda _transpose_matrix__local_2
+    ldx _transpose_matrix__local_2+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $34
+    ldx $34+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $36
+    stx $36+1
+    lda $30
+    ldx $31
+    ldy #0
+    sta ($36),y
+    txa
+    iny
+    sta ($36),y
+@for_inc22:
+    .loc "benchmark_compound_matrix.c", 33
+    lda _transpose_matrix__local_6
+    ldx _transpose_matrix__local_6+1
+    sta $38
+    stx $39
+    lda $38
+    clc
+    adc #1
+    sta $3A
+    lda $39
+    adc #0
+    sta $3B
+    lda $3A
+    ldx $3B
+    sta _transpose_matrix__local_6
+    stx _transpose_matrix__local_6+1
+    bra @for_cond20
+@for_end23:
+@for_inc18:
+    .loc "benchmark_compound_matrix.c", 32
+    lda _transpose_matrix__local_2
+    ldx _transpose_matrix__local_2+1
+    sta $3C
+    stx $3D
+    lda $3C
+    ldx $3D
+    add.16 .AX, #1
+    sta _transpose_matrix__local_2
+    stx _transpose_matrix__local_2+1
+    bra @for_cond16
+@for_end19:
+@__return:
+    rts
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 8
+    endproc
+
+; function _scalar_accumulate
+; SAC inline storage: 8 bytes
+    .global _scalar_accumulate__param_mat
+    _scalar_accumulate__param_mat: .word 0
+    .global _scalar_accumulate__param_scalar
+    _scalar_accumulate__param_scalar: .word 3
+    _scalar_accumulate__local_0: .word 0
+    _scalar_accumulate__local_1: .word 0
+    _scalar_accumulate__local_2: .word 0
+    _scalar_accumulate__local_6: .word 0
+    proc _scalar_accumulate, W#@_p_mat, W#@_p_scalar
+    .sac
+    .var _fp = 0
+    .loc "benchmark_compound_matrix.c", 21
+    .local @_l_i = 4
+    .local @_l_j = 6
+; .debug_var: __scalar_accumulate @_l_i offset=4 size=2 type=int16 scope=local
+; .debug_var: __scalar_accumulate @_l_j offset=6 size=2 type=int16 scope=local
+    .var @_p_mat = 2
+    .var @_p_scalar = 4
+; .debug_var: __scalar_accumulate @_p_mat offset=2 size=2 type=ptr scope=parameter
+; .debug_var: __scalar_accumulate @_p_scalar offset=4 size=2 type=int16 scope=parameter
+
+@entry:
+    .loc "benchmark_compound_matrix.c", 41
+    lda #0
+    sta _scalar_accumulate__local_2
+    sta _scalar_accumulate__local_2+1
+@for_cond24:
+    lda _scalar_accumulate__local_2
+    ldx _scalar_accumulate__local_2+1
+    cmp.16 .AX, #8
+    bcc @for_body25
+    bra @for_end27
+@for_body25:
+    .loc "benchmark_compound_matrix.c", 42
+    lda #0
+    sta _scalar_accumulate__local_6
+    sta _scalar_accumulate__local_6+1
+@for_cond28:
+    lda _scalar_accumulate__local_6
+    ldx _scalar_accumulate__local_6+1
+    cmp.16 .AX, #8
+    bcc @for_body29
+    bra @for_end31
+@for_body29:
+    .loc "benchmark_compound_matrix.c", 43
+    lda _scalar_accumulate__param_mat
+    ldx _scalar_accumulate__param_mat+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _scalar_accumulate__local_2
+    ldx _scalar_accumulate__local_2+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $2A
+    stx $2A+1
+    ldy #0
+    lda ($2A),y
+    pha
+    iny
+    lda ($2A),y
+    tax
+    pla
+    sta $2C
+    stx $2D
+    lda _scalar_accumulate__local_6
+    ldx _scalar_accumulate__local_6+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $2C
+    ldx $2C+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $2E
+    stx $2E+1
+    ldy #0
+    lda ($2E),y
+    pha
+    iny
+    lda ($2E),y
+    tax
+    pla
+    sta $30
+    stx $31
+    lda _scalar_accumulate__param_scalar
+    ldx _scalar_accumulate__param_scalar+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda $30
+    ldx $31
+    mul.16 .AX, __zp_scratch2
+    sta $32
+    stx $33
+    lda _scalar_accumulate__param_mat
+    ldx _scalar_accumulate__param_mat+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _scalar_accumulate__local_2
+    ldx _scalar_accumulate__local_2+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $34
+    stx $34+1
+    ldy #0
+    lda ($34),y
+    pha
+    iny
+    lda ($34),y
+    tax
+    pla
+    sta $36
+    stx $37
+    lda _scalar_accumulate__local_6
+    ldx _scalar_accumulate__local_6+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $36
+    ldx $36+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $38
+    stx $38+1
+    lda $32
+    ldx $33
+    ldy #0
+    sta ($38),y
+    txa
+    iny
+    sta ($38),y
+    .loc "benchmark_compound_matrix.c", 44
+    lda _scalar_accumulate__local_6
+    ldx _scalar_accumulate__local_6+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _scalar_accumulate__local_2
+    ldx _scalar_accumulate__local_2+1
+    add.16 .AX, __zp_scratch2
+    sta $3A
+    stx $3B
+    lda _scalar_accumulate__param_mat
+    ldx _scalar_accumulate__param_mat+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _scalar_accumulate__local_2
+    ldx _scalar_accumulate__local_2+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $3C
+    stx $3C+1
+    ldy #0
+    lda ($3C),y
+    pha
+    iny
+    lda ($3C),y
+    tax
+    pla
+    sta $3E
+    stx $3F
+    lda _scalar_accumulate__local_6
+    ldx _scalar_accumulate__local_6+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $3E
+    ldx $3E+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $40
+    stx $40+1
+    ldy #0
+    lda ($40),y
+    pha
+    iny
+    lda ($40),y
+    tax
+    pla
+    sta $42
+    stx $43
+    lda $42
+    clc
+    adc $3A
+    sta $44
+    lda $43
+    adc $3A+1
+    sta $45
+    lda _scalar_accumulate__param_mat
+    ldx _scalar_accumulate__param_mat+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _scalar_accumulate__local_2
+    ldx _scalar_accumulate__local_2+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $46
+    stx $46+1
+    ldy #0
+    lda ($46),y
+    pha
+    iny
+    lda ($46),y
+    tax
+    pla
+    sta $48
+    stx $49
+    lda _scalar_accumulate__local_6
+    ldx _scalar_accumulate__local_6+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $48
+    ldx $48+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $4A
+    stx $4A+1
+    lda $44
+    ldx $45
+    ldy #0
+    sta ($4A),y
+    txa
+    iny
+    sta ($4A),y
+@for_inc30:
+    .loc "benchmark_compound_matrix.c", 42
+    lda _scalar_accumulate__local_6
+    ldx _scalar_accumulate__local_6+1
+    sta $4C
+    stx $4D
+    lda $4C
+    clc
+    adc #1
+    sta $4E
+    lda $4D
+    adc #0
+    sta $4F
+    lda $4E
+    ldx $4F
+    sta _scalar_accumulate__local_6
+    stx _scalar_accumulate__local_6+1
+    bra @for_cond28
+@for_end31:
+@for_inc26:
+    .loc "benchmark_compound_matrix.c", 41
+    lda _scalar_accumulate__local_2
+    ldx _scalar_accumulate__local_2+1
+    sta $50
+    stx $51
+    lda $50
+    ldx $51
+    add.16 .AX, #1
+    sta _scalar_accumulate__local_2
+    stx _scalar_accumulate__local_2+1
+    bra @for_cond24
+@for_end27:
+@__return:
+    rts
+    .param_const _scalar_accumulate 1 3
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 8
+    endproc
+
+; function _row_operations
+; SAC inline storage: 10 bytes
+    .global _row_operations__param_mat
+    _row_operations__param_mat: .word 0
+    _row_operations__local_0: .word 0
+    _row_operations__local_1: .word 0
+    _row_operations__local_5: .word 0
+    _row_operations__local_18: .word 0
+    proc _row_operations, W#@_p_mat
+    .sac
+    .var _fp = 0
+    .loc "benchmark_compound_matrix.c", 31
+    .local @_l_i = 2
+    .local @_l_j = 8
+    .local @_l_row_sum = 4
+; .debug_var: __row_operations @_l_i offset=2 size=2 type=int16 scope=local
+; .debug_var: __row_operations @_l_j offset=8 size=2 type=int16 scope=local
+; .debug_var: __row_operations @_l_row_sum offset=4 size=2 type=int16 scope=local
+    .var @_p_mat = 2
+; .debug_var: __row_operations @_p_mat offset=2 size=2 type=ptr scope=parameter
+
+@entry:
+    .loc "benchmark_compound_matrix.c", 51
+    lda #0
+    sta _row_operations__local_1
+    sta _row_operations__local_1+1
+@for_cond32:
+    lda _row_operations__local_1
+    ldx _row_operations__local_1+1
+    cmp.16 .AX, #8
+    bcc @for_body33
+    bra @for_end35
+@for_body33:
+    .loc "benchmark_compound_matrix.c", 52
+    lda #0
+    sta _row_operations__local_5
+    sta _row_operations__local_5+1
+    .loc "benchmark_compound_matrix.c", 53
+    lda #0
+    sta $28
+    sta $29
+@for_cond36:
+    lda $28
+    ldx $29
+    cmp.16 .AX, #8
+    bcc @for_body37
+    bra @for_end39
+@for_body37:
+    .loc "benchmark_compound_matrix.c", 54
+    lda _row_operations__param_mat
+    ldx _row_operations__param_mat+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _row_operations__local_1
+    ldx _row_operations__local_1+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $2E
+    stx $2E+1
+    ldy #0
+    lda ($2E),y
+    pha
+    iny
+    lda ($2E),y
+    tax
+    pla
+    sta $30
+    stx $31
+    lda $28
+    ldx $29
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $30
+    ldx $30+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $32
+    stx $32+1
+    ldy #0
+    lda ($32),y
+    pha
+    iny
+    lda ($32),y
+    tax
+    pla
+    sta $34
+    stx $35
+    lda _row_operations__local_5
+    ldx _row_operations__local_5+1
+    add.16 .AX, $34
+    sta $36
+    stx $37
+    sta _row_operations__local_5
+    stx _row_operations__local_5+1
+@for_inc38:
+    .loc "benchmark_compound_matrix.c", 53
+    lda $28
+    ldx $29
+    sta $38
+    stx $39
+    lda $38
+    clc
+    adc #1
+    sta $28
+    lda $39
+    adc #0
+    sta $29
+    bra @for_cond36
+@for_end39:
+    .loc "benchmark_compound_matrix.c", 56
+    lda #0
+    sta _row_operations__local_18
+    sta _row_operations__local_18+1
+@for_cond40:
+    lda _row_operations__local_18
+    ldx _row_operations__local_18+1
+    cmp.16 .AX, #8
+    bcc @for_body41
+    bra @for_end43
+@for_body41:
+    .loc "benchmark_compound_matrix.c", 57
+    lda #8
+    ldx #0
+    sta $42
+    stx $43
+    lda _row_operations__local_5
+    ldx _row_operations__local_5+1
+    div.16 .AX, $42
+    sta $44
+    stx $45
+    lda _row_operations__param_mat
+    ldx _row_operations__param_mat+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _row_operations__local_1
+    ldx _row_operations__local_1+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $46
+    stx $46+1
+    ldy #0
+    lda ($46),y
+    pha
+    iny
+    lda ($46),y
+    tax
+    pla
+    sta $48
+    stx $49
+    lda _row_operations__local_18
+    ldx _row_operations__local_18+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $48
+    ldx $48+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $4A
+    stx $4A+1
+    ldy #0
+    lda ($4A),y
+    pha
+    iny
+    lda ($4A),y
+    tax
+    pla
+    sta $4C
+    stx $4D
+    lda $4C
+    sec
+    sbc $44
+    sta $4E
+    lda $4D
+    sbc $44+1
+    sta $4F
+    lda _row_operations__param_mat
+    ldx _row_operations__param_mat+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _row_operations__local_1
+    ldx _row_operations__local_1+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $50
+    stx $50+1
+    ldy #0
+    lda ($50),y
+    pha
+    iny
+    lda ($50),y
+    tax
+    pla
+    sta $52
+    stx $53
+    lda _row_operations__local_18
+    ldx _row_operations__local_18+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $52
+    ldx $52+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $54
+    stx $54+1
+    lda $4E
+    ldx $4F
+    ldy #0
+    sta ($54),y
+    txa
+    iny
+    sta ($54),y
+@for_inc42:
+    .loc "benchmark_compound_matrix.c", 56
+    lda _row_operations__local_18
+    ldx _row_operations__local_18+1
+    sta $56
+    stx $57
+    lda $56
+    clc
+    adc #1
+    sta $58
+    lda $57
+    adc #0
+    sta $59
+    lda $58
+    ldx $59
+    sta _row_operations__local_18
+    stx _row_operations__local_18+1
+    bra @for_cond40
+@for_end43:
+@for_inc34:
+    .loc "benchmark_compound_matrix.c", 51
+    lda _row_operations__local_1
+    ldx _row_operations__local_1+1
+    sta $5A
+    stx $5B
+    lda $5A
+    ldx $5B
+    add.16 .AX, #1
+    sta _row_operations__local_1
+    stx _row_operations__local_1+1
+    bra @for_cond32
+@for_end35:
+@__return:
+    rts
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 10
+    endproc
+
+; function _calculate_trace
+; SAC inline storage: 6 bytes
+    .global _calculate_trace__param_mat
+    _calculate_trace__param_mat: .word 0
+    _calculate_trace__local_0: .word 0
+    _calculate_trace__local_1: .word 0
+    _calculate_trace__local_3: .word 0
+    proc _calculate_trace, W#@_p_mat
+    .sac
+    .var _fp = 0
+    .loc "benchmark_compound_matrix.c", 44
+    .local @_l_i = 4
+    .local @_l_trace = 2
+; .debug_var: __calculate_trace @_l_i offset=4 size=2 type=int16 scope=local
+; .debug_var: __calculate_trace @_l_trace offset=2 size=2 type=int16 scope=local
+    .var @_p_mat = 2
+; .debug_var: __calculate_trace @_p_mat offset=2 size=2 type=ptr scope=parameter
+
+@entry:
+    .loc "benchmark_compound_matrix.c", 64
+    lda #0
+    sta _calculate_trace__local_1
+    sta _calculate_trace__local_1+1
+    .loc "benchmark_compound_matrix.c", 65
+    lda #0
+    sta _calculate_trace__local_3
+    sta _calculate_trace__local_3+1
+@for_cond44:
+    lda _calculate_trace__local_3
+    ldx _calculate_trace__local_3+1
+    cmp.16 .AX, #8
+    bcc @for_body45
+    bra @for_end47
+@for_body45:
+    .loc "benchmark_compound_matrix.c", 66
+    lda _calculate_trace__param_mat
+    ldx _calculate_trace__param_mat+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _calculate_trace__local_3
+    ldx _calculate_trace__local_3+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $24
+    stx $24+1
+    ldy #0
+    lda ($24),y
+    pha
+    iny
+    lda ($24),y
+    tax
+    pla
+    sta $26
+    stx $27
+    lda _calculate_trace__local_3
+    ldx _calculate_trace__local_3+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $26
+    ldx $26+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $28
+    stx $28+1
+    ldy #0
+    lda ($28),y
+    pha
+    iny
+    lda ($28),y
+    tax
+    pla
+    sta $2A
+    stx $2B
+    lda _calculate_trace__local_1
+    ldx _calculate_trace__local_1+1
+    add.16 .AX, $2A
+    sta $2C
+    stx $2D
+    sta _calculate_trace__local_1
+    stx _calculate_trace__local_1+1
+    .loc "benchmark_compound_matrix.c", 67
+    lda _calculate_trace__local_3
+    ldx _calculate_trace__local_3+1
+    cmp.16 .AX, #0
+    beq @tern_else49
+    bcs @tern_then48
+    bra @tern_else49
+@tern_then48:
+    lda _calculate_trace__local_3
+    ldx _calculate_trace__local_3+1
+    sub.16 .AX, #1
+    sta $34
+    stx $35
+    lda _calculate_trace__param_mat
+    ldx _calculate_trace__param_mat+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda $34
+    ldx $35
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $36
+    stx $36+1
+    ldy #0
+    lda ($36),y
+    pha
+    iny
+    lda ($36),y
+    tax
+    pla
+    sta $38
+    stx $39
+    lda _calculate_trace__local_3
+    ldx _calculate_trace__local_3+1
+    sub.16 .AX, #1
+    sta $3C
+    stx $3D
+    lda $3C
+    ldx $3D
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $38
+    ldx $38+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $3E
+    stx $3E+1
+    ldy #0
+    lda ($3E),y
+    pha
+    iny
+    lda ($3E),y
+    tax
+    pla
+    sta $40
+    stx $41
+    lda $40
+    ldx $41
+    sta $42
+    stx $43
+    bra @tern_end50
+@tern_else49:
+    lda #0
+    sta $44
+    sta $45
+    lda $44
+    ldx $45
+    sta $42
+    stx $43
+@tern_end50:
+    lda _calculate_trace__local_1
+    ldx _calculate_trace__local_1+1
+    sub.16 .AX, $42
+    sta $46
+    stx $47
+    sta _calculate_trace__local_1
+    stx _calculate_trace__local_1+1
+@for_inc46:
+    .loc "benchmark_compound_matrix.c", 65
+    lda _calculate_trace__local_3
+    ldx _calculate_trace__local_3+1
+    sta $48
+    stx $49
+    lda $48
+    ldx $49
+    add.16 .AX, #1
+    sta _calculate_trace__local_3
+    stx _calculate_trace__local_3+1
+    bra @for_cond44
+@for_end47:
+    .loc "benchmark_compound_matrix.c", 69
+    lda _calculate_trace__local_1
+    ldx _calculate_trace__local_1+1
+@__return:
+    rts
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 6
+    endproc
+
+; function _cumulative_sum
+; SAC inline storage: 8 bytes
+    .global _cumulative_sum__param_mat
+    _cumulative_sum__param_mat: .word 0
+    .global _cumulative_sum__param_result
+    _cumulative_sum__param_result: .word 0
+    _cumulative_sum__local_0: .word 0
+    _cumulative_sum__local_1: .word 0
+    _cumulative_sum__local_13: .word 0
+    _cumulative_sum__local_17: .word 0
+    _cumulative_sum__local_80: .word 0
+    _cumulative_sum__local_81: .word 0
+    _cumulative_sum__local_82: .word 0
+    proc _cumulative_sum, W#@_p_mat, W#@_p_result
+    .sac
+    .var _fp = 0
+    .loc "benchmark_compound_matrix.c", 54
+    .local @_l_i = 4
+    .local @_l_j = 6
+; .debug_var: __cumulative_sum @_l_i offset=4 size=2 type=int16 scope=local
+; .debug_var: __cumulative_sum @_l_j offset=6 size=2 type=int16 scope=local
+    .var @_p_mat = 2
+    .var @_p_result = 4
+; .debug_var: __cumulative_sum @_p_mat offset=2 size=2 type=ptr scope=parameter
+; .debug_var: __cumulative_sum @_p_result offset=4 size=2 type=ptr scope=parameter
+
+@entry:
+    .loc "benchmark_compound_matrix.c", 74
+    lda #0
+    tax
+    lda _cumulative_sum__param_mat
+    ldx _cumulative_sum__param_mat+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    pha
+    iny
+    lda (__zp_scratch),y
+    tax
+    pla
+    lda #0
+    tax
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda .AX
+    ldx .AX+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    pha
+    iny
+    lda (__zp_scratch),y
+    tax
+    pla
+    sta $20
+    stx $21
+    lda #0
+    tax
+    lda _cumulative_sum__param_result
+    ldx _cumulative_sum__param_result+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch
+    stx __zp_scratch+1
+    ldy #0
+    lda (__zp_scratch),y
+    pha
+    iny
+    lda (__zp_scratch),y
+    tax
+    pla
+    lda #0
+    tax
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda .AX
+    ldx .AX+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda $20
+    ldx $21
+    ldy #0
+    sta (__zp_scratch2),y
+    txa
+    iny
+    sta (__zp_scratch2),y
+    .loc "benchmark_compound_matrix.c", 76
+    lda #0
+    sta _cumulative_sum__local_13
+    sta _cumulative_sum__local_13+1
+@for_cond51:
+    lda _cumulative_sum__local_13
+    ldx _cumulative_sum__local_13+1
+    cmp.16 .AX, #8
+    bcc @for_body52
+    bra @for_end54
+@for_body52:
+    .loc "benchmark_compound_matrix.c", 77
+    lda #0
+    sta _cumulative_sum__local_17
+    sta _cumulative_sum__local_17+1
+@for_cond55:
+    lda _cumulative_sum__local_17
+    ldx _cumulative_sum__local_17+1
+    cmp.16 .AX, #8
+    bcc @for_body56
+    bra @for_end58
+@for_body56:
+    .loc "benchmark_compound_matrix.c", 78
+    lda _cumulative_sum__param_mat
+    ldx _cumulative_sum__param_mat+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _cumulative_sum__local_13
+    ldx _cumulative_sum__local_13+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $2A
+    stx $2A+1
+    ldy #0
+    lda ($2A),y
+    pha
+    iny
+    lda ($2A),y
+    tax
+    pla
+    sta $2C
+    stx $2D
+    lda _cumulative_sum__local_17
+    ldx _cumulative_sum__local_17+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $2C
+    ldx $2C+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $2E
+    stx $2E+1
+    ldy #0
+    lda ($2E),y
+    pha
+    iny
+    lda ($2E),y
+    tax
+    pla
+    sta $30
+    stx $31
+    lda _cumulative_sum__param_result
+    ldx _cumulative_sum__param_result+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _cumulative_sum__local_13
+    ldx _cumulative_sum__local_13+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $32
+    stx $32+1
+    ldy #0
+    lda ($32),y
+    pha
+    iny
+    lda ($32),y
+    tax
+    pla
+    sta $34
+    stx $35
+    lda _cumulative_sum__local_17
+    ldx _cumulative_sum__local_17+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $34
+    ldx $34+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $36
+    stx $36+1
+    lda $30
+    ldx $31
+    ldy #0
+    sta ($36),y
+    txa
+    iny
+    sta ($36),y
+    .loc "benchmark_compound_matrix.c", 79
+    lda _cumulative_sum__local_13
+    ldx _cumulative_sum__local_13+1
+    cmp.16 .AX, #0
+    beq @if_end61
+    bcs @if_then59
+    bra @if_end61
+@if_then59:
+    lda _cumulative_sum__local_13
+    ldx _cumulative_sum__local_13+1
+    sub.16 .AX, #1
+    sta $3E
+    stx $3F
+    lda _cumulative_sum__param_result
+    ldx _cumulative_sum__param_result+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda $3E
+    ldx $3F
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $40
+    stx $40+1
+    ldy #0
+    lda ($40),y
+    pha
+    iny
+    lda ($40),y
+    tax
+    pla
+    sta $42
+    stx $43
+    lda _cumulative_sum__local_17
+    ldx _cumulative_sum__local_17+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $42
+    ldx $42+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $44
+    stx $44+1
+    ldy #0
+    lda ($44),y
+    pha
+    iny
+    lda ($44),y
+    tax
+    pla
+    sta $46
+    stx $47
+    lda _cumulative_sum__param_result
+    ldx _cumulative_sum__param_result+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _cumulative_sum__local_13
+    ldx _cumulative_sum__local_13+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $48
+    stx $48+1
+    ldy #0
+    lda ($48),y
+    pha
+    iny
+    lda ($48),y
+    tax
+    pla
+    sta $4A
+    stx $4B
+    lda _cumulative_sum__local_17
+    ldx _cumulative_sum__local_17+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $4A
+    ldx $4A+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $4C
+    stx $4C+1
+    ldy #0
+    lda ($4C),y
+    pha
+    iny
+    lda ($4C),y
+    tax
+    pla
+    sta $4E
+    stx $4F
+    lda $4E
+    clc
+    adc $46
+    sta $50
+    lda $4F
+    adc $46+1
+    sta $51
+    lda _cumulative_sum__param_result
+    ldx _cumulative_sum__param_result+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _cumulative_sum__local_13
+    ldx _cumulative_sum__local_13+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $52
+    stx $52+1
+    ldy #0
+    lda ($52),y
+    pha
+    iny
+    lda ($52),y
+    tax
+    pla
+    sta $54
+    stx $55
+    lda _cumulative_sum__local_17
+    ldx _cumulative_sum__local_17+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $54
+    ldx $54+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $56
+    stx $56+1
+    lda $50
+    ldx $51
+    ldy #0
+    sta ($56),y
+    txa
+    iny
+    sta ($56),y
+@if_end61:
+    .loc "benchmark_compound_matrix.c", 80
+    lda _cumulative_sum__local_17
+    ldx _cumulative_sum__local_17+1
+    cmp.16 .AX, #0
+    beq @if_end64
+    bcs @if_then62
+    bra @if_end64
+@if_then62:
+    lda _cumulative_sum__param_result
+    ldx _cumulative_sum__param_result+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _cumulative_sum__local_13
+    ldx _cumulative_sum__local_13+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $5C
+    stx $5C+1
+    ldy #0
+    lda ($5C),y
+    pha
+    iny
+    lda ($5C),y
+    tax
+    pla
+    sta $5E
+    stx $5F
+    lda _cumulative_sum__local_17
+    ldx _cumulative_sum__local_17+1
+    sub.16 .AX, #1
+    sta $62
+    stx $63
+    lda $62
+    ldx $63
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $5E
+    ldx $5E+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $64
+    stx $64+1
+    ldy #0
+    lda ($64),y
+    pha
+    iny
+    lda ($64),y
+    tax
+    pla
+    sta $66
+    stx $67
+    lda _cumulative_sum__param_result
+    ldx _cumulative_sum__param_result+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _cumulative_sum__local_13
+    ldx _cumulative_sum__local_13+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $68
+    stx $68+1
+    ldy #0
+    lda ($68),y
+    pha
+    iny
+    lda ($68),y
+    tax
+    pla
+    sta $6A
+    stx $6B
+    lda _cumulative_sum__local_17
+    ldx _cumulative_sum__local_17+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $6A
+    ldx $6A+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $6C
+    stx $6C+1
+    ldy #0
+    lda ($6C),y
+    pha
+    iny
+    lda ($6C),y
+    tax
+    pla
+    sta $6E
+    stx $6F
+    lda $6E
+    clc
+    adc $66
+    sta $70
+    lda $6F
+    adc $66+1
+    sta $71
+    lda _cumulative_sum__param_result
+    ldx _cumulative_sum__param_result+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _cumulative_sum__local_13
+    ldx _cumulative_sum__local_13+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $72
+    stx $72+1
+    ldy #0
+    lda ($72),y
+    pha
+    iny
+    lda ($72),y
+    tax
+    pla
+    sta $74
+    stx $75
+    lda _cumulative_sum__local_17
+    ldx _cumulative_sum__local_17+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $74
+    ldx $74+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $76
+    stx $76+1
+    lda $70
+    ldx $71
+    ldy #0
+    sta ($76),y
+    txa
+    iny
+    sta ($76),y
+@if_end64:
+    .loc "benchmark_compound_matrix.c", 81
+    lda _cumulative_sum__local_13
+    ldx _cumulative_sum__local_13+1
+    cmp.16 .AX, #0
+    beq @if_end67
+    bcs @and_rhs68
+    bra @if_end67
+@and_rhs68:
+    lda _cumulative_sum__local_17
+    ldx _cumulative_sum__local_17+1
+    cmp.16 .AX, #0
+    beq @if_end67
+    bcs @if_then65
+    bra @if_end67
+@if_then65:
+    lda _cumulative_sum__local_13
+    ldx _cumulative_sum__local_13+1
+    sub.16 .AX, #1
+    sta $82
+    stx $83
+    lda _cumulative_sum__param_result
+    ldx _cumulative_sum__param_result+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda $82
+    ldx $83
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $84
+    stx $84+1
+    ldy #0
+    lda ($84),y
+    pha
+    iny
+    lda ($84),y
+    tax
+    pla
+    sta $86
+    stx $87
+    lda _cumulative_sum__local_17
+    ldx _cumulative_sum__local_17+1
+    sub.16 .AX, #1
+    sta $8A
+    stx $8B
+    lda $8A
+    ldx $8B
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $86
+    ldx $86+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $8C
+    stx $8C+1
+    ldy #0
+    lda ($8C),y
+    pha
+    iny
+    lda ($8C),y
+    tax
+    pla
+    sta $8E
+    stx $8F
+    lda _cumulative_sum__param_result
+    ldx _cumulative_sum__param_result+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _cumulative_sum__local_13
+    ldx _cumulative_sum__local_13+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $90
+    stx $90+1
+    ldy #0
+    lda ($90),y
+    pha
+    iny
+    lda ($90),y
+    tax
+    pla
+    sta $92
+    stx $93
+    lda _cumulative_sum__local_17
+    ldx _cumulative_sum__local_17+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $92
+    ldx $92+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $94
+    stx $94+1
+    ldy #0
+    lda ($94),y
+    pha
+    iny
+    lda ($94),y
+    tax
+    pla
+    sta $96
+    stx $97
+    lda $96
+    sec
+    sbc $8E
+    sta $98
+    lda $97
+    sbc $8E+1
+    sta $99
+    lda _cumulative_sum__param_result
+    ldx _cumulative_sum__param_result+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _cumulative_sum__local_13
+    ldx _cumulative_sum__local_13+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $9A
+    stx $9A+1
+    ldy #0
+    lda ($9A),y
+    pha
+    iny
+    lda ($9A),y
+    tax
+    pla
+    sta $9C
+    stx $9D
+    lda _cumulative_sum__local_17
+    ldx _cumulative_sum__local_17+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $9C
+    ldx $9C+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $9E
+    stx $9E+1
+    lda $98
+    ldx $99
+    ldy #0
+    sta ($9E),y
+    txa
+    iny
+    sta ($9E),y
+@if_end67:
+@for_inc57:
+    .loc "benchmark_compound_matrix.c", 77
+    lda _cumulative_sum__local_17
+    ldx _cumulative_sum__local_17+1
+    sta _cumulative_sum__local_80
+    stx _cumulative_sum__local_80+1
+    lda _cumulative_sum__local_80
+    ldx _cumulative_sum__local_80+1
+    add.16 .AX, #1
+    sta _cumulative_sum__local_81
+    stx _cumulative_sum__local_81+1
+    lda _cumulative_sum__local_81
+    ldx _cumulative_sum__local_81+1
+    sta _cumulative_sum__local_17
+    stx _cumulative_sum__local_17+1
+    bra @for_cond55
+@for_end58:
+@for_inc53:
+    .loc "benchmark_compound_matrix.c", 76
+    lda _cumulative_sum__local_13
+    ldx _cumulative_sum__local_13+1
+    sta _cumulative_sum__local_82
+    stx _cumulative_sum__local_82+1
+    lda _cumulative_sum__local_82
+    ldx _cumulative_sum__local_82+1
+    add.16 .AX, #1
+    sta _cumulative_sum__local_13
+    stx _cumulative_sum__local_13+1
+    bra @for_cond51
+@for_end54:
+@__return:
+    rts
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 8
+    endproc
+
+; function _normalize_matrix
+; SAC inline storage: 12 bytes
+    .global _normalize_matrix__param_mat
+    _normalize_matrix__param_mat: .word 0
+    _normalize_matrix__local_0: .word 0
+    _normalize_matrix__local_1: .word 0
+    _normalize_matrix__local_26: .word 0
+    _normalize_matrix__local_30: .word 0
+    proc _normalize_matrix, W#@_p_mat
+    .sac
+    .var _fp = 0
+    .loc "benchmark_compound_matrix.c", 68
+    .local @_l_i = 8
+    .local @_l_j = 10
+    .local @_l_max_val = 2
+; .debug_var: __normalize_matrix @_l_i offset=8 size=2 type=int16 scope=local
+; .debug_var: __normalize_matrix @_l_j offset=10 size=2 type=int16 scope=local
+; .debug_var: __normalize_matrix @_l_max_val offset=2 size=2 type=int16 scope=local
+    .var @_p_mat = 2
+; .debug_var: __normalize_matrix @_p_mat offset=2 size=2 type=ptr scope=parameter
+
+@entry:
+    .loc "benchmark_compound_matrix.c", 88
+    lda #0
+    sta _normalize_matrix__local_1
+    sta _normalize_matrix__local_1+1
+    .loc "benchmark_compound_matrix.c", 89
+    lda #0
+    sta $20
+    sta $21
+@for_cond69:
+    lda $20
+    ldx $21
+    cmp.16 .AX, #8
+    bcc @for_body70
+    bra @for_end72
+@for_body70:
+    .loc "benchmark_compound_matrix.c", 90
+    lda #0
+    sta $28
+    sta $29
+@for_cond73:
+    lda $28
+    ldx $29
+    cmp.16 .AX, #8
+    bcc @for_body74
+    bra @for_end76
+@for_body74:
+    .loc "benchmark_compound_matrix.c", 91
+    lda _normalize_matrix__param_mat
+    ldx _normalize_matrix__param_mat+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda $20
+    ldx $21
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $2E
+    stx $2E+1
+    ldy #0
+    lda ($2E),y
+    pha
+    iny
+    lda ($2E),y
+    tax
+    pla
+    sta $30
+    stx $31
+    lda $28
+    ldx $29
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $30
+    ldx $30+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $32
+    stx $32+1
+    ldy #0
+    lda ($32),y
+    pha
+    iny
+    lda ($32),y
+    tax
+    pla
+    sta $34
+    stx $35
+    lda _normalize_matrix__local_1
+    ldx _normalize_matrix__local_1+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda $34
+    ldx $35
+    cmp.16 .AX, __zp_scratch2
+    beq @if_end79
+    bcs @if_then77
+    bra @if_end79
+@if_then77:
+    lda _normalize_matrix__param_mat
+    ldx _normalize_matrix__param_mat+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda $20
+    ldx $21
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $38
+    stx $38+1
+    ldy #0
+    lda ($38),y
+    pha
+    iny
+    lda ($38),y
+    tax
+    pla
+    sta $3A
+    stx $3B
+    lda $28
+    ldx $29
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $3A
+    ldx $3A+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $3C
+    stx $3C+1
+    ldy #0
+    lda ($3C),y
+    pha
+    iny
+    lda ($3C),y
+    tax
+    pla
+    sta $3E
+    stx $3F
+    lda $3E
+    ldx $3F
+    sta _normalize_matrix__local_1
+    stx _normalize_matrix__local_1+1
+@if_end79:
+@for_inc75:
+    .loc "benchmark_compound_matrix.c", 90
+    lda $28
+    ldx $29
+    sta $40
+    stx $41
+    lda $40
+    clc
+    adc #1
+    sta $28
+    lda $41
+    adc #0
+    sta $29
+    bra @for_cond73
+@for_end76:
+@for_inc71:
+    .loc "benchmark_compound_matrix.c", 89
+    lda $20
+    ldx $21
+    sta $44
+    stx $45
+    lda $44
+    clc
+    adc #1
+    sta $20
+    lda $45
+    adc #0
+    sta $21
+    bra @for_cond69
+@for_end72:
+    .loc "benchmark_compound_matrix.c", 95
+    lda _normalize_matrix__local_1
+    ldx _normalize_matrix__local_1+1
+    cmp.16 .AX, #0
+    beq @if_end82
+    bcs @if_then80
+    bra @if_end82
+@if_then80:
+    .loc "benchmark_compound_matrix.c", 96
+    lda #0
+    sta _normalize_matrix__local_26
+    sta _normalize_matrix__local_26+1
+@for_cond83:
+    lda _normalize_matrix__local_26
+    ldx _normalize_matrix__local_26+1
+    cmp.16 .AX, #8
+    bcc @for_body84
+    bra @for_end86
+@for_body84:
+    .loc "benchmark_compound_matrix.c", 97
+    lda #0
+    sta _normalize_matrix__local_30
+    sta _normalize_matrix__local_30+1
+@for_cond87:
+    lda _normalize_matrix__local_30
+    ldx _normalize_matrix__local_30+1
+    cmp.16 .AX, #8
+    bcc @for_body88
+    bra @for_end90
+@for_body88:
+    .loc "benchmark_compound_matrix.c", 98
+    lda #255
+    ldx #0
+    sta $2A
+    stx $2B
+    lda _normalize_matrix__param_mat
+    ldx _normalize_matrix__param_mat+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _normalize_matrix__local_26
+    ldx _normalize_matrix__local_26+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $2C
+    stx $2C+1
+    ldy #0
+    lda ($2C),y
+    pha
+    iny
+    lda ($2C),y
+    tax
+    pla
+    sta $2E
+    stx $2F
+    lda _normalize_matrix__local_30
+    ldx _normalize_matrix__local_30+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $2E
+    ldx $2E+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $30
+    stx $30+1
+    ldy #0
+    lda ($30),y
+    pha
+    iny
+    lda ($30),y
+    tax
+    pla
+    sta $32
+    stx $33
+    lda $32
+    ldx $33
+    mul.16 .AX, $2A
+    sta $34
+    stx $35
+    lda _normalize_matrix__param_mat
+    ldx _normalize_matrix__param_mat+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _normalize_matrix__local_26
+    ldx _normalize_matrix__local_26+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $36
+    stx $36+1
+    ldy #0
+    lda ($36),y
+    pha
+    iny
+    lda ($36),y
+    tax
+    pla
+    sta $38
+    stx $39
+    lda _normalize_matrix__local_30
+    ldx _normalize_matrix__local_30+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $38
+    ldx $38+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $3A
+    stx $3A+1
+    lda $34
+    ldx $35
+    ldy #0
+    sta ($3A),y
+    txa
+    iny
+    sta ($3A),y
+    .loc "benchmark_compound_matrix.c", 99
+    lda _normalize_matrix__param_mat
+    ldx _normalize_matrix__param_mat+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _normalize_matrix__local_26
+    ldx _normalize_matrix__local_26+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $3C
+    stx $3C+1
+    ldy #0
+    lda ($3C),y
+    pha
+    iny
+    lda ($3C),y
+    tax
+    pla
+    sta $3E
+    stx $3F
+    lda _normalize_matrix__local_30
+    ldx _normalize_matrix__local_30+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $3E
+    ldx $3E+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $40
+    stx $40+1
+    ldy #0
+    lda ($40),y
+    pha
+    iny
+    lda ($40),y
+    tax
+    pla
+    sta $42
+    stx $43
+    lda _normalize_matrix__local_1
+    ldx _normalize_matrix__local_1+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda $42
+    ldx $43
+    div.16 .AX, __zp_scratch2
+    sta $44
+    stx $45
+    lda _normalize_matrix__param_mat
+    ldx _normalize_matrix__param_mat+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _normalize_matrix__local_26
+    ldx _normalize_matrix__local_26+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda __zp_scratch2
+    ldx __zp_scratch2+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $46
+    stx $46+1
+    ldy #0
+    lda ($46),y
+    pha
+    iny
+    lda ($46),y
+    tax
+    pla
+    sta $48
+    stx $49
+    lda _normalize_matrix__local_30
+    ldx _normalize_matrix__local_30+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $48
+    ldx $48+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $4A
+    stx $4A+1
+    lda $44
+    ldx $45
+    ldy #0
+    sta ($4A),y
+    txa
+    iny
+    sta ($4A),y
+@for_inc89:
+    .loc "benchmark_compound_matrix.c", 97
+    lda _normalize_matrix__local_30
+    ldx _normalize_matrix__local_30+1
+    sta $4C
+    stx $4D
+    lda $4C
+    clc
+    adc #1
+    sta $4E
+    lda $4D
+    adc #0
+    sta $4F
+    lda $4E
+    ldx $4F
+    sta _normalize_matrix__local_30
+    stx _normalize_matrix__local_30+1
+    bra @for_cond87
+@for_end90:
+@for_inc85:
+    .loc "benchmark_compound_matrix.c", 96
+    lda _normalize_matrix__local_26
+    ldx _normalize_matrix__local_26+1
+    sta $50
+    stx $51
+    lda $50
+    ldx $51
+    add.16 .AX, #1
+    sta _normalize_matrix__local_26
+    stx _normalize_matrix__local_26+1
+    bra @for_cond83
+@for_end86:
+@if_end82:
+@__return:
+    rts
+    .func_flags stack_call, static_alloc, leaf
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+    .frame_size 12
+    endproc
+
+; function _main
+; SAC inline storage: 6 bytes
+    _main__local_0: .word 0
+    _main__local_4: .word 0
+    _main__local_27: .word 0
+    _main__local_29: .word 0
+    _main__local_31: .word 0
+    _main__local_33: .word 0
+    _main__local_34: .word 0
+    _main__local_36: .word 0
+    _main__local_38: .word 0
+    _main__local_40: .word 0
+    _main__local_42: .word 0
+    _main__local_44: .word 0
+    proc _main
+; Phase 51: zero-alloc leaf (all parameters constant)
+    .var _fp = 0
+    .loc "benchmark_compound_matrix.c", 86
+    .local @_l_i = 0
+    .local @_l_j = 2
+    .local @_l_tr = 4
+; .debug_var: __main @_l_i offset=0 size=2 type=int16 scope=local
+; .debug_var: __main @_l_j offset=2 size=2 type=int16 scope=local
+; .debug_var: __main @_l_tr offset=4 size=2 type=int16 scope=local
+
+@entry:
+    .loc "benchmark_compound_matrix.c", 113
+    lda #0
+    sta _main__local_0
+    sta _main__local_0+1
+@for_cond91:
+    lda _main__local_0
+    ldx _main__local_0+1
+    cmp.16 .AX, #8
+    bcc @for_body92
+    bra @for_end94
+@for_body92:
+    .loc "benchmark_compound_matrix.c", 114
+    lda #0
+    sta _main__local_4
+    sta _main__local_4+1
+@for_cond95:
+    lda _main__local_4
+    ldx _main__local_4+1
+    cmp.16 .AX, #8
+    bcc @for_body96
+    bra @for_end98
+@for_body96:
+    .loc "benchmark_compound_matrix.c", 115
+    lda #8
+    ldx #0
+    sta $2A
+    stx $2B
+    lda _main__local_0
+    ldx _main__local_0+1
+    mul.16 .AX, $2A
+    sta $2C
+    stx $2D
+    lda _main__local_4
+    ldx _main__local_4+1
+    add.16 .AX, $2C
+    sta $2E
+    stx $2F
+    lda _main__local_0
+    ldx _main__local_0+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    ldax #__main__local_mat_a
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $30
+    stx $30+1
+    ldy #0
+    lda ($30),y
+    pha
+    iny
+    lda ($30),y
+    tax
+    pla
+    sta $32
+    stx $33
+    lda _main__local_4
+    ldx _main__local_4+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $32
+    ldx $32+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $34
+    stx $34+1
+    lda $2E
+    ldx $2F
+    ldy #0
+    sta ($34),y
+    txa
+    iny
+    sta ($34),y
+    .loc "benchmark_compound_matrix.c", 116
+    lda _main__local_4
+    ldx _main__local_4+1
+    sta __zp_scratch2
+    stx __zp_scratch2+1
+    lda _main__local_0
+    ldx _main__local_0+1
+    add.16 .AX, __zp_scratch2
+    sta $36
+    stx $37
+    lda #8
+    ldx #0
+    sta $38
+    stx $39
+    lda $36
+    ldx $37
+    mod.16 .AX, $38
+    sta $3A
+    stx $3B
+    lda _main__local_0
+    ldx _main__local_0+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    ldax #__main__local_mat_b
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $3C
+    stx $3C+1
+    ldy #0
+    lda ($3C),y
+    pha
+    iny
+    lda ($3C),y
+    tax
+    pla
+    sta $3E
+    stx $3F
+    lda _main__local_4
+    ldx _main__local_4+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    lda $3E
+    ldx $3E+1
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $40
+    stx $40+1
+    lda $3A
+    ldx $3B
+    ldy #0
+    sta ($40),y
+    txa
+    iny
+    sta ($40),y
+@for_inc97:
+    .loc "benchmark_compound_matrix.c", 114
+    lda _main__local_4
+    ldx _main__local_4+1
+    sta $42
+    stx $43
+    lda $42
+    clc
+    adc #1
+    sta $44
+    lda $43
+    adc #0
+    sta $45
+    lda $44
+    ldx $45
+    sta _main__local_4
+    stx _main__local_4+1
+    bra @for_cond95
+@for_end98:
+    .loc "benchmark_compound_matrix.c", 118
+    lda _main__local_0
+    ldx _main__local_0+1
+    add.16 .AX, #1
+    sta $48
+    stx $49
+    lda _main__local_0
+    ldx _main__local_0+1
+    mul.16 .AX, #2
+    sta __zp_scratch3
+    stx __zp_scratch3+1
+    ldax #__main__local_vec
+    clc
+    adc __zp_scratch3
+    pha
+    txa
+    adc __zp_scratch3+1
+    tax
+    pla
+    sta $4A
+    stx $4A+1
+    lda $48
+    ldx $49
+    ldy #0
+    sta ($4A),y
+    txa
+    iny
+    sta ($4A),y
+@for_inc93:
+    .loc "benchmark_compound_matrix.c", 113
+    lda _main__local_0
+    ldx _main__local_0+1
+    sta $4C
+    stx $4D
+    lda $4C
+    ldx $4D
+    add.16 .AX, #1
+    sta _main__local_0
+    stx _main__local_0+1
+    bra @for_cond91
+@for_end94:
+    .loc "benchmark_compound_matrix.c", 121
+    ldax #__main__local_result
+    sta _matrix_vector_mult__param_result
+    stx _matrix_vector_mult__param_result+1
+    ldax #__main__local_vec
+    sta _matrix_vector_mult__param_vec
+    stx _matrix_vector_mult__param_vec+1
+    ldax #__main__local_mat_a
+    sta _matrix_vector_mult__param_mat
+    stx _matrix_vector_mult__param_mat+1
+    jsr _matrix_vector_mult
+    .loc "benchmark_compound_matrix.c", 122
+    ldax #__str_99
+    sta _main__local_27
+    stx _main__local_27+1
+    lda _main__local_27
+    ldx _main__local_27+1
+    sta $28
+    stx $29
+    lda $28
+    ldx $29
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_matrix.c", 124
+    ldax #__main__local_mat_c
+    sta _element_wise_ops__param_mat_c
+    stx _element_wise_ops__param_mat_c+1
+    ldax #__main__local_mat_b
+    sta _element_wise_ops__param_mat_b
+    stx _element_wise_ops__param_mat_b+1
+    ldax #__main__local_mat_a
+    sta _element_wise_ops__param_mat_a
+    stx _element_wise_ops__param_mat_a+1
+    jsr _element_wise_ops
+    .loc "benchmark_compound_matrix.c", 125
+    ldax #__str_100
+    sta _main__local_29
+    stx _main__local_29+1
+    lda _main__local_29
+    ldx _main__local_29+1
+    sta $28
+    stx $29
+    lda $28
+    ldx $29
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_matrix.c", 127
+    ldax #__main__local_mat_c
+    sta _transpose_matrix__param_result
+    stx _transpose_matrix__param_result+1
+    ldax #__main__local_mat_a
+    sta _transpose_matrix__param_mat
+    stx _transpose_matrix__param_mat+1
+    jsr _transpose_matrix
+    .loc "benchmark_compound_matrix.c", 128
+    ldax #__str_101
+    sta _main__local_31
+    stx _main__local_31+1
+    lda _main__local_31
+    ldx _main__local_31+1
+    sta $28
+    stx $29
+    lda $28
+    ldx $29
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_matrix.c", 130
+    ldax #__main__local_mat_b
+    sta _scalar_accumulate__param_mat
+    stx _scalar_accumulate__param_mat+1
+    jsr _scalar_accumulate
+    .loc "benchmark_compound_matrix.c", 131
+    ldax #__str_102
+    sta _main__local_34
+    stx _main__local_34+1
+    lda _main__local_34
+    ldx _main__local_34+1
+    sta $28
+    stx $29
+    lda $28
+    ldx $29
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_matrix.c", 133
+    ldax #__main__local_mat_a
+    sta _row_operations__param_mat
+    stx _row_operations__param_mat+1
+    jsr _row_operations
+    .loc "benchmark_compound_matrix.c", 134
+    ldax #__str_103
+    sta _main__local_36
+    stx _main__local_36+1
+    lda _main__local_36
+    ldx _main__local_36+1
+    sta $28
+    stx $29
+    lda $28
+    ldx $29
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_matrix.c", 136
+    ldax #__main__local_mat_a
+    sta _calculate_trace__param_mat
+    stx _calculate_trace__param_mat+1
+    jsr _calculate_trace
+    sta _main__local_38
+    stx _main__local_38+1
+    .loc "benchmark_compound_matrix.c", 137
+    ldax #__str_104
+    sta _main__local_40
+    stx _main__local_40+1
+    lda _main__local_38
+    ldx _main__local_38+1
+    sta $28
+    stx $29
+    lda _main__local_40
+    ldx _main__local_40+1
+    sta $2A
+    stx $2B
+    lda $28
+    ldx $29
+    push .ax
+    lda $2A
+    ldx $2B
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_matrix.c", 139
+    ldax #__main__local_mat_c
+    sta _cumulative_sum__param_result
+    stx _cumulative_sum__param_result+1
+    ldax #__main__local_mat_a
+    sta _cumulative_sum__param_mat
+    stx _cumulative_sum__param_mat+1
+    jsr _cumulative_sum
+    .loc "benchmark_compound_matrix.c", 140
+    ldax #__str_105
+    sta _main__local_42
+    stx _main__local_42+1
+    lda _main__local_42
+    ldx _main__local_42+1
+    sta $28
+    stx $29
+    lda $28
+    ldx $29
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_matrix.c", 142
+    ldax #__main__local_mat_a
+    sta _normalize_matrix__param_mat
+    stx _normalize_matrix__param_mat+1
+    jsr _normalize_matrix
+    .loc "benchmark_compound_matrix.c", 143
+    ldax #__str_106
+    sta _main__local_44
+    stx _main__local_44+1
+    lda _main__local_44
+    ldx _main__local_44+1
+    sta $28
+    stx $29
+    lda $28
+    ldx $29
+    push .ax
+    jsr _printf
+    sta __zp_scratch4
+    stx __zp_scratch4+1
+    plz
+    lda __zp_scratch4
+    ldx __zp_scratch4+1
+    .loc "benchmark_compound_matrix.c", 145
+    lda #0
+    ldx #0
+@__return:
+    rts
+    .func_flags stack_call, static_alloc
+    .reg_clobbers A, X, Y, Z
+    .flag_clobbers C, N, Z, V
+    .frame_size 6
+    endproc
+
+
+    .segment "data"
+__str_99:
+    .text "mvmult done
+"
+    .byte 0
+__str_100:
+    .text "elemwise done
+"
+    .byte 0
+__str_101:
+    .text "transpose done
+"
+    .byte 0
+__str_102:
+    .text "scalar done
+"
+    .byte 0
+__str_103:
+    .text "row_ops done
+"
+    .byte 0
+__str_104:
+    .text "trace=%d
+"
+    .byte 0
+__str_105:
+    .text "cumsum done
+"
+    .byte 0
+__str_106:
+    .text "normalize done
+"
+    .byte 0
+
+__zp_save_buf:
+; [DEBUG] Phase 87 code reached, optimize=false

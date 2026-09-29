@@ -1,0 +1,257 @@
+; ldiv.s — Long division with quotient and remainder
+;
+; ldiv_t ldiv(long numer, long denom);
+;   Returns ldiv_t { long quot; long rem; } via hidden return pointer.
+;   Uses MEGA65 hardware divider for unsigned 32-bit division,
+;   with sign fixup for signed operands.
+;   ZP usage: $02-$08 (saved/restored)
+
+.global _ldiv
+.extern __sp_base
+.extern __zp_scratch
+
+.segment "code"
+
+proc _ldiv, W#_p___ret_ptr, D#_p_numer, D#_p_denom
+    .var _fp = 0
+
+    ; Save ZP temps $02-$08
+    lda $02
+    pha
+    lda $03
+    pha
+    lda $04
+    pha
+    lda $05
+    pha
+    lda $06
+    pha
+    lda $07
+    pha
+    lda $08
+    pha
+
+    stz $02                 ; numer_neg
+    stz $03                 ; quot sign XOR
+
+    ; Load numer into $04-$07
+    lda _p_numer+7, sp
+    sta $04
+    lda _p_numer+8, sp
+    sta $05
+    lda _p_numer+9, sp
+    sta $06
+    lda _p_numer+10, sp
+    sta $07
+
+    ; --- abs(numer) ---
+    lda $07                 ; byte3 (sign)
+    bpl @numer_pos
+    inc $02
+    inc $03
+    ; Negate
+    lda $04
+    eor #$FF
+    clc
+    adc #1
+    sta $04
+    lda $05
+    eor #$FF
+    adc #0
+    sta $05
+    lda $06
+    eor #$FF
+    adc #0
+    sta $06
+    lda $07
+    eor #$FF
+    adc #0
+    sta $07
+@numer_pos:
+    ; Save abs(numer) for remainder calculation
+    lda $04
+    sta $D770
+    sta __zp_scratch
+    lda $05
+    sta $D771
+    sta __zp_scratch+1
+    lda $06
+    sta $D772
+    sta __zp_scratch+2
+    lda $07
+    sta $D773
+    sta __zp_scratch+3
+
+    ; Load denom into $04-$07
+    lda _p_denom+7, sp
+    sta $04
+    lda _p_denom+8, sp
+    sta $05
+    lda _p_denom+9, sp
+    sta $06
+    lda _p_denom+10, sp
+    sta $07
+
+    ; --- abs(denom) ---
+    lda $07
+    bpl @denom_pos
+    lda $03
+    eor #1
+    sta $03
+    lda $04
+    eor #$FF
+    clc
+    adc #1
+    sta $04
+    lda $05
+    eor #$FF
+    adc #0
+    sta $05
+    lda $06
+    eor #$FF
+    adc #0
+    sta $06
+    lda $07
+    eor #$FF
+    adc #0
+    sta $07
+@denom_pos:
+    lda $04
+    sta $D774
+    lda $05
+    sta $D775
+    lda $06
+    sta $D776
+    lda $07
+    sta $D777
+
+    ; Wait for hardware divider
+@wait:
+    bit $D70F
+    bne @wait
+
+    ; Load ret_ptr into $04/$05 (adjusted for 7 pushed ZP bytes)
+    ldax _p___ret_ptr+7, sp
+    sta $04
+    stx $05
+
+    ; --- Store quotient with sign fixup ---
+    lda $03
+    beq @quot_pos
+    ; Negate quotient
+    lda $D76C
+    eor #$FF
+    clc
+    adc #1
+    ldy #0
+    sta ($04), y
+    lda $D76D
+    eor #$FF
+    adc #0
+    iny
+    sta ($04), y
+    lda $D76E
+    eor #$FF
+    adc #0
+    iny
+    sta ($04), y
+    lda $D76F
+    eor #$FF
+    adc #0
+    iny
+    sta ($04), y
+    bra @do_rem
+
+@quot_pos:
+    ldy #0
+    lda $D76C
+    sta ($04), y
+    iny
+    lda $D76D
+    sta ($04), y
+    iny
+    lda $D76E
+    sta ($04), y
+    iny
+    lda $D76F
+    sta ($04), y
+
+@do_rem:
+    ; --- Remainder = abs(numer) - abs(quotient) * abs(denom) ---
+    ; Write abs(quotient) to $D770 (mult arg1), abs(denom) still in $D774
+    lda $D76C
+    sta $D770
+    lda $D76D
+    sta $D771
+    lda $D76E
+    sta $D772
+    lda $D76F
+    sta $D773
+    ; Product = quotient * denom at $D778 (combinational)
+
+    lda $02
+    beq @rem_pos
+    ; Negative numer: remainder = -(abs_numer - product) = product - abs_numer
+    lda $D778
+    sec
+    sbc __zp_scratch
+    ldy #4
+    sta ($04), y
+    lda $D779
+    sbc __zp_scratch+1
+    iny
+    sta ($04), y
+    lda $D77A
+    sbc __zp_scratch+2
+    iny
+    sta ($04), y
+    lda $D77B
+    sbc __zp_scratch+3
+    iny
+    sta ($04), y
+    bra @done
+
+@rem_pos:
+    ; Positive remainder = abs_numer - product
+    lda __zp_scratch
+    sec
+    sbc $D778
+    ldy #4
+    sta ($04), y
+    lda __zp_scratch+1
+    sbc $D779
+    iny
+    sta ($04), y
+    lda __zp_scratch+2
+    sbc $D77A
+    iny
+    sta ($04), y
+    lda __zp_scratch+3
+    sbc $D77B
+    iny
+    sta ($04), y
+
+@done:
+    ; Return pointer in AX
+    lda $04
+    ldx $05
+
+    ; Restore ZP $02-$08
+    ; (Note: PLZ does not touch A/X)
+    plz
+    stz $08
+    plz
+    stz $07
+    plz
+    stz $06
+    plz
+    stz $05
+    plz
+    stz $04
+    plz
+    stz $03
+    plz
+    stz $02
+
+    rtn #0
+    endproc
