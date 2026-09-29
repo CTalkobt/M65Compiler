@@ -172,6 +172,16 @@ else
     failed=$((failed + 1))
 fi
 
+# Test 7: test_mem_ops_xemu.c (stdlib memset/memcpy/memcmp/memmove)
+echo "Testing test_mem_ops_xemu.c (memory operations)..."
+compile_link_test "src/test-resources/test_mem_ops_xemu.c" "build/test/test_mem_ops_xemu.prg"
+if [ $? -eq 0 ]; then
+    run_xemu_test "test_mem_ops" "build/test/test_mem_ops_xemu.prg" "C000" 11 "01 02 03 04 05 06 07 08 09 0A AA"
+else
+    echo "FAIL: test_mem_ops_xemu.c (compilation/linking failed)"
+    failed=$((failed + 1))
+fi
+
 echo ""
 echo "======================================================"
 echo "Xemu Test Results: $passed passed, $failed failed"

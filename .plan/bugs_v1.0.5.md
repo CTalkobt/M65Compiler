@@ -1,25 +1,13 @@
 # v1.0.5 Known Bugs
 
-## Initialized global pointers placed in BSS instead of DATA
+## Initialized global pointers placed in BSS instead of DATA — FIXED
 
-**Status**: Open
+**Status**: Fixed (2026-09-28)
 **Severity**: High
-**Found**: 2026-09-28
 
-**Issue**: Global pointer variables with constant initializers are placed in BSS (zero-filled) instead of DATA (with initial value).
+**Root cause**: `ConstantFolder::visit(TranslationUnit)` at line 80 called `decl->accept(*this)` which visited each top-level declaration but never replaced the original AST node with the folded result. The `visit(VariableDeclaration)` handler moved the initializer out of the original node via `fold(std::move(node.initializer))`, creating a new node in `lastStmt`, but since `visit(TranslationUnit)` didn't use `lastStmt` to replace, the original node lost its initializer (moved away, now null).
 
-```c
-volatile char *r = (char *)0xC000;  // r ends up as 0x0000, not 0xC000
-```
-
-**Impact**: All writes through `r[i]` go to address $0000 instead of $C000. Affects all xemu tests that use `volatile char *r = (char *)0x4000` pattern.
-
-**Workaround**: Use direct volatile casts instead:
-```c
-#define R(i) (*(volatile unsigned char *)(0xC000 + (i)))
-```
-
-**Root cause**: Likely in IRBuilder global variable handling — initializer value not propagated to linker DATA segment for pointer types.
+**Fix**: Changed `visit(TranslationUnit)` to accept-and-replace: visit each declaration, and if `lastStmt` is set (folded replacement), swap it into the AST. This ensures initializers survive constant folding.
 
 ## alloca() incompatible with cc45 calling convention
 

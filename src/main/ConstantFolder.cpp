@@ -78,8 +78,14 @@ void ConstantFolder::visit(ForStatement& node) {
 }
 
 void ConstantFolder::visit(TranslationUnit& node) {
-    for (auto& decl : node.topLevelDecls) {
-        decl->accept(*this);
+    for (size_t i = 0; i < node.topLevelDecls.size(); i++) {
+        lastStmt = nullptr;
+        lastExpr = nullptr;
+        node.topLevelDecls[i]->accept(*this);
+        if (lastStmt) {
+            node.topLevelDecls[i] = std::move(lastStmt);
+        }
+        // If lastStmt is null (e.g. StaticAssert consumed), keep original
     }
 }
 
