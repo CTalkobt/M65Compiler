@@ -286,14 +286,14 @@ ln45 (Link: Combine .o45 objects + libraries → PRG/Binary)
 - **Compound Literals**: `(int){42}`, `(struct Point){1,2}`, `(int[3]){1,2,3}`, `(int[]){...}` array casts
 - **Bitfields**: `struct S { int x:4; unsigned y:4; long z:24; }` with optimized TRB/TSB codegen, 32-bit storage units, unnamed bitfield padding
 - **Alignment**: `_Alignas(N)` for globals, locals, and struct members
-- **Preprocessor**: Full C99 preprocessor, `__cc45__` macro, `__builtin_va_list`, GCC keyword synonyms (`__volatile`, `__const`, `__inline`, `__restrict`, `__signed`)
+- **Preprocessor**: Full C99 preprocessor, `__cc45__` macro, `__builtin_va_list`, GCC keyword synonyms (`__volatile`, `__const`, `__inline`, `__restrict`, `__signed`), `__has_include()`, `__has_builtin()`, `__has_attribute()`, `__INCLUDE_LEVEL__`, `__CC45_STATIC_ALLOC__`
 - **Inline Functions**: `inline` keyword, `-finline-functions` flag, auto-inline for trivial struct methods (≤3 statements)
 - **Loop Unrolling**: `repeat(N) { body }` compile-time loop unrolling
 - **Function Attributes**: `__interrupt`, `__naked`, `__regparm`, `__fastcall__`, `__attribute__` (25+ attributes silently accepted including `always_inline`, `unused`, `weak`, `pure`, `const`, `cold`, `hot`, `packed`, `noinline`; 5 warn-and-ignore: `noipa`, `aligned`, `mode`, `vector_size`, `may_alias`)
 - **Variadic Functions**: Full `<stdarg.h>` support with `struct`/`union`/`enum`/`typeof`/`const`/`float`/`double` types in `va_arg`
 - **DMA Intrinsics**: `__dma_copy(dst, src, len)` and `__dma_fill(dst, len, val)` for MEGA65 F018B DMA. Build 12-byte job on stack, trigger by writing bank (`$D702`), MSB (`$D701`), then LSB (`$D700` — triggers execution)
 - **CPU/Flag Intrinsics**: `__cpu.A/.X/.Y/.Z/.AX/.Q` and `__flags.Carry/.Zero/.Negative/.Overflow`
-- **GCC Builtins**: `__builtin_printf`, `__builtin_abort`, `__builtin_strlen`, `__builtin_memcpy`, `__builtin_offsetof`, etc. (22 builtin→stdlib aliases)
+- **GCC Builtins**: `__builtin_printf`, `__builtin_abort`, `__builtin_strlen`, `__builtin_memcpy`, `__builtin_alloca`, `__builtin_offsetof`, etc. (23 builtin→stdlib aliases)
 - **Nested Functions**: GCC extension with closure conversion, static chain, trampolines for function pointers
 - **Array Parameters**: `int a[]`, `int *a[N]`, `int a[][M]` in function parameters (decay to pointer)
 
