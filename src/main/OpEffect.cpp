@@ -294,10 +294,10 @@ static const std::map<std::string, OpEffect>& getTable() {
         {"bfext32",  {E::A|E::X|E::Y|E::Z,   true,  true,  false}},
         {"bfins",    {E::A|E::X,              true,  true,  false}},
         {"bfins.sp", {E::A|E::X,              true,  true,  false}},
-        {"bfins.ind",{E::A|E::X,              true,  true,  false}},
+        {"bfins.ind",{E::A|E::X|E::Y,         true,  true,  false}},
         {"bfins16",  {E::A|E::X,              true,  true,  false}},
         {"bfins16.sp",  {E::A|E::X,           true,  true,  false}},
-        {"bfins16.ind", {E::A|E::X,           true,  true,  false}},
+        {"bfins16.ind", {E::A|E::X|E::Y,      true,  true,  false}},
         {"bfins32",  {E::A|E::X|E::Y|E::Z,   true,  true,  false}},
 
         // --- Proc/endproc (structural, not real ops) ---

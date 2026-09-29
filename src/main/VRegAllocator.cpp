@@ -40,12 +40,12 @@ static void recordDef(std::map<uint32_t, VRegAllocator::LiveRange>& map,
 void VRegAllocator::computeLiveRanges(const ir::Function& fn) {
     std::map<uint32_t, LiveRange> map;
 
-    // Parameters are defined at instruction -1 (before first inst)
+    // Parameters are defined at instruction 0 (start of function)
     for (uint32_t i = 0; i < (uint32_t)fn.paramTypes.size(); i++) {
         recordDef(map, i, 0, fn.paramTypes[i]);
     }
 
-    // Local variables are also effectively "defined" from start
+    // Local variables are defined from start (stay reserved throughout function)
     for (const auto& [name, vregId] : fn.localNames) {
         ir::Type t = ir::Type::I16;
         if (fn.vregTypes.count(vregId)) {
@@ -155,13 +155,13 @@ void VRegAllocator::extendLiveRangesAcrossLoops(const ir::Function& fn) {
 
     if (loops.empty()) return;
 
-    // Extend live ranges: if a vreg's live range overlaps with a loop range,
-    // extend lastUse to at least the loop's end.
+    // Extend live ranges: if a vreg was defined BEFORE a loop header and used
+    // inside or past the loop, extend lastUse to cover the loop body so it
+    // remains live across all iterations. Loop-local temporaries (defined inside
+    // the loop and used before loop.end) do not need extension.
     for (auto& lr : ranges_) {
         for (const auto& loop : loops) {
-            // A live range overlaps a loop if it's defined before/during the loop
-            // AND used during/after the loop start
-            if (lr.firstDef <= loop.end && lr.lastUse >= loop.start) {
+            if (lr.firstDef < loop.start && lr.lastUse >= loop.start) {
                 if (lr.lastUse < loop.end) {
                     lr.lastUse = loop.end;
                 }

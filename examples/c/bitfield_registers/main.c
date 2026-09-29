@@ -55,9 +55,9 @@ typedef struct {
 } screen_char;
 
 /* Map hardware registers to typed volatile pointers */
-vic_ctrl_a    *VICIV_CTRL_A = 0xD031;
-vic_ctrl_b    *VICIV_CTRL_B = 0xD054;
-sprite_enable *SPR_ENABLE   = 0xD015;
+volatile vic_ctrl_a    *VICIV_CTRL_A = (vic_ctrl_a *)0xD031;
+volatile vic_ctrl_b    *VICIV_CTRL_B = (vic_ctrl_b *) 0xD054;
+volatile sprite_enable *SPR_ENABLE   = (sprite_enable *)0xD015;
 
 /* Screen RAM (default location) */
 screen_char *SCREEN = 0x0800;
@@ -101,6 +101,7 @@ int main() {
     /* Read and display current register state */
     print_ctrl_a();
     print_ctrl_b();
+
 
     /* Set 40MHz mode via bitfield write */
     printf("\nsetting 40mhz...\n");
