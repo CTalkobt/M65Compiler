@@ -233,13 +233,17 @@ else
     failed=$((failed + 1))
 fi
 
-# Test 13: test_stdio_xemu.c — DISABLED
-# sprintf/vsprintf hang with -fno-staticalloc (stack overflow from deep frame nesting).
-# With SAC, sprintf runs but params are wrong (caller pushes to stack, callee reads SAC).
-# Needs SAC calling convention thunks or stack-based vsprintf rewrite.
-# echo "Testing test_stdio_xemu.c (formatted I/O)..."
-# compile_link_test "src/test-resources/test_stdio_xemu.c" "build/test/test_stdio_xemu.prg"
-# run_xemu_test "test_stdio" "build/test/test_stdio_xemu.prg" "C090" 9 "01 02 03 04 05 06 07 08 AA"
+# Test 13: test_stdio_xemu.c (sprintf, snprintf)
+# NOTE: sprintf hangs with -fno-staticalloc (stack overflow from vsprintf frame nesting).
+# This test is expected to FAIL until SAC calling convention thunks are implemented.
+echo "Testing test_stdio_xemu.c (formatted I/O)..."
+compile_link_test "src/test-resources/test_stdio_xemu.c" "build/test/test_stdio_xemu.prg"
+if [ $? -eq 0 ]; then
+    run_xemu_test "test_stdio" "build/test/test_stdio_xemu.prg" "C090" 9 "01 02 03 04 05 06 07 08 AA"
+else
+    echo "FAIL: test_stdio_xemu.c (compilation/linking failed)"
+    failed=$((failed + 1))
+fi
 
 echo ""
 echo "======================================================"
