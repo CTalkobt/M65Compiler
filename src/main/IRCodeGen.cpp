@@ -3131,7 +3131,10 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             if (canFuse) {
                 // Record for the following BR_COND to use
                 lastCmp_ = {inst.op, inst.dest.vregId, true};
-                // Don't materialize boolean — BR_COND will branch on flags
+                // Don't materialize boolean — BR_COND will branch on flags.
+                // NOTE: For I16 CMP_EQ/CMP_NE against 0, the compare code above
+                // (ora __zp_scratch) already set Z correctly. For other comparisons,
+                // cmp.16/cmp.s16 set flags via the simop. Flags are live here.
             } else {
                 lastCmp_.valid = false;
                 // Branch IMMEDIATELY (flags live), set result to 0 or 1
@@ -4021,11 +4024,13 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     loadOperandA(inst.src1);
                     if (!trueTarget.empty()) emit("bne " + trueTarget);
                 } else {
-                    // I16: loadOperand loads A then X. Z reflects X from ldx.
+                    // I16: need proper nonzero test.
+                    // loadOperand loads A then X, but Z from ldx only tests high byte.
+                    // Must test A|X for correct 16-bit nonzero check.
                     loadOperand(inst.src1);
-                    if (!trueTarget.empty()) emit("bne " + trueTarget); // X != 0
-                    emit("cmp #$00"); // test A (low byte)
-                    if (!trueTarget.empty()) emit("bne " + trueTarget); // A != 0
+                    emit("stx __zp_scratch");
+                    emit("ora __zp_scratch");  // Z = (A|X == 0)
+                    if (!trueTarget.empty()) emit("bne " + trueTarget);
                 }
             } else {
                 loadOperand(inst.src1);

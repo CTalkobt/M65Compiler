@@ -124,9 +124,8 @@ static int fixmul16(int a, int b) {
      * unary minus doesn't work on unsigned int. */
     int neg = 0;
     unsigned int ua, ub;
-    /* Test sign via high byte bit 7 (workaround: & 0x8000 codegen bug) */
-    if ((a >> 8) & 0x80) { ua = (~a + 1) & 0x7FFF; neg = 1; } else { ua = a; }
-    if ((b >> 8) & 0x80) { ub = (~b + 1) & 0x7FFF; neg = neg ? 0 : 1; } else { ub = b; }
+    if (a & 0x8000) { ua = (~a + 1) & 0x7FFF; neg = 1; } else { ua = a; }
+    if (b & 0x8000) { ub = (~b + 1) & 0x7FFF; neg = neg ? 0 : 1; } else { ub = b; }
 
     /* Write to hardware multiplier */
     *(volatile unsigned char *)0xD770 = ua & 0xFF;
