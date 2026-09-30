@@ -13,9 +13,6 @@
 ;   [1] PC high
 ;   [2] SPL
 ;   [3] SPH
-;
-; Stack convention: env is a pointer (2 bytes) passed on the software stack.
-; On entry to setjmp, the hardware stack has the return address from JSR.
 
 .global _setjmp
 .global _longjmp
@@ -25,36 +22,36 @@
 .segment "code"
 
 ; --- setjmp ---
-; The return address on the hardware stack points to the byte AFTER the JSR,
-; minus 1 (6502 convention: JSR pushes PC+2, RTS adds 1).
-; We save the raw value — RTS will handle the +1 on restore.
 
 proc _setjmp, W#_p_env
     .var _fp = 0
 
-    ; Get pointer to jmp_buf
-    ldax _p_env, sp
+    ; Get pointer to jmp_buf via TSX
+    tsx
+    lda __sp_base+_p_env, x
     sta __zp_scratch
-    stx __zp_scratch+1
+    lda __sp_base+_p_env+1, x
+    sta __zp_scratch+1
 
     ; Save return address from hardware stack
-    ; JSR pushed PCH then PCL; they sit at SP+1 (PCL) and SP+2 (PCH)
-    tsx
-    lda __sp_base+1, x      ; PCL (return addr low)
+    ; After JSR: SP+1=PCL, SP+2=PCH. __sp_base+X = SP+1.
+    ; But params were pushed before JSR, so ret addr is at different offset.
+    ; With proc _setjmp, W#_p_env: _p_env=2 means ret at offset 0-1.
+    ; __sp_base+0+X = SP+1 = PCL, __sp_base+1+X = SP+2 = PCH
+    lda __sp_base, x         ; PCL (at SP+1)
     ldy #0
     sta (__zp_scratch), y
-    lda __sp_base+2, x      ; PCH (return addr high)
+    lda __sp_base+1, x       ; PCH (at SP+2)
     iny
     sta (__zp_scratch), y
 
-    ; Save stack pointer (16-bit)
-    tsx
-    txa
+    ; Save stack pointer
+    txa                      ; A = SPL
     ldy #2
     sta (__zp_scratch), y    ; SPL
     tsy
-    tya
-    iny                      ; Y=3
+    tya                      ; A = SPH
+    ldy #3
     sta (__zp_scratch), y    ; SPH
 
     ; Return 0
@@ -68,24 +65,29 @@ proc _setjmp, W#_p_env
 proc _longjmp, W#_p_env, W#_p_val
     .var _fp = 0
 
-    ; Load val
-    ldax _p_val, sp
-    ; Check if AX == 0 (OR low and high bytes)
+    ; Load val via TSX
+    tsx
+    lda __sp_base+_p_val, x
     sta __zp_scratch+2
-    stx __zp_scratch+3
-    txa
-    ora __zp_scratch+2
+    lda __sp_base+_p_val+1, x
+    sta __zp_scratch+3
+
+    ; Check if val == 0 -> force to 1
+    lda __zp_scratch+2
+    ora __zp_scratch+3
     bne @nonzero
-    ; val was 0, force to 1
     lda #1
     sta __zp_scratch+2
-    stz __zp_scratch+3
+    lda #0
+    sta __zp_scratch+3
 @nonzero:
 
-    ; Load jmp_buf pointer
-    ldax _p_env, sp
+    ; Load jmp_buf pointer via TSX
+    tsx
+    lda __sp_base+_p_env, x
     sta __zp_scratch
-    stx __zp_scratch+1
+    lda __sp_base+_p_env+1, x
+    sta __zp_scratch+1
 
     ; Restore SP
     ldy #3
@@ -98,11 +100,10 @@ proc _longjmp, W#_p_env, W#_p_val
     txs                     ; restore SPL
 
     ; Push saved return address back onto hardware stack
-    ; RTS expects: PCH at SP+2, PCL at SP+1 (6502 convention)
     ldy #1
     lda (__zp_scratch), y   ; PCH
     pha
-    dey
+    ldy #0
     lda (__zp_scratch), y   ; PCL
     pha
 
