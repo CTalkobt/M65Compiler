@@ -15,92 +15,85 @@
 proc _div, W#_p___ret_ptr, W#_p_numer, W#_p_denom
     .var _fp = 0
 
-    ; Track signs for result fixup
-    ; $02 = numer_neg, $03 = result sign XOR
-    lda $02
-    pha
-    lda $03
-    pha
-
-    lda #0
-    sta $02                 ; numer_neg = 0
-    sta $03                 ; sign = 0
-
-    ; Load numerator
-    ldax _p_numer+2, sp
-    ; Check if negative
-    cpx #$80
-    bcc @numer_pos
-    ; Negate numerator
-    eor #$FF
-    clc
-    adc #1
-    pha
-    txa
-    eor #$FF
-    adc #0
-    tax
-    pla
-    inc $02                 ; numer was negative
-    inc $03                 ; flip result sign
-@numer_pos:
-    ; Store abs(numer) in dividend ($D770-$D773)
-    sta $D770
-    stx $D771
-    stz $D772
-    stz $D773
-
-    ; Save abs(numer) for remainder calculation
-    sta __zp_scratch
-    stx __zp_scratch+1
-
-    ; Load denominator
-    ldax _p_denom+2, sp
-    ; Check if negative
-    cpx #$80
-    bcc @denom_pos
-    ; Negate denominator
-    eor #$FF
-    clc
-    adc #1
-    pha
-    txa
-    eor #$FF
-    adc #0
-    tax
-    pla
-    lda $03
-    eor #1                  ; flip result sign
+    ; Load all params via TSX
+    tsx
+    lda __sp_base+_p___ret_ptr, x
+    sta $02                     ; $02/$03 = return pointer
+    lda __sp_base+_p___ret_ptr+1, x
     sta $03
-    ; Reload abs(denom) into AX
-    ldax _p_denom+2, sp
-    eor #$FF
-    clc
-    adc #1
-    pha
-    txa
-    eor #$FF
-    adc #0
-    tax
-    pla
+    lda __sp_base+_p_numer, x
+    sta $04                     ; $04/$05 = numer
+    lda __sp_base+_p_numer+1, x
+    sta $05
+    lda __sp_base+_p_denom, x
+    sta $06                     ; $06/$07 = denom
+    lda __sp_base+_p_denom+1, x
+    sta $07
+
+    ; Track signs: $08 = numer_neg, $09 = quot_sign_xor
+    lda #0
+    sta $08
+    sta $09
+
+    ; --- abs(numer) ---
+    lda $05                     ; high byte
+    bpl @numer_pos
+    inc $08                     ; numer was negative
+    inc $09                     ; flip result sign
+    sec
+    lda #0
+    sbc $04
+    sta $04
+    lda #0
+    sbc $05
+    sta $05
+@numer_pos:
+
+    ; Store abs(numer) to dividend ($D770) and save for remainder
+    lda $04
+    sta $D770
+    sta __zp_scratch
+    lda $05
+    sta $D771
+    sta __zp_scratch+1
+    lda #0
+    sta $D772
+    sta $D773
+
+    ; --- abs(denom) ---
+    lda $07
+    bpl @denom_pos
+    lda $09
+    eor #1
+    sta $09
+    sec
+    lda #0
+    sbc $06
+    sta $06
+    lda #0
+    sbc $07
+    sta $07
 @denom_pos:
-    ; Store abs(denom) in divisor ($D774-$D777)
+
+    ; Store abs(denom) to divisor ($D774)
+    lda $06
     sta $D774
-    stx $D775
-    stz $D776
-    stz $D777
+    lda $07
+    sta $D775
+    lda #0
+    sta $D776
+    sta $D777
 
     ; Wait for hardware divider
 @wait:
     bit $D70F
     bne @wait
 
-    ; Quotient at $D76C-$D76D
+    ; --- Quotient ---
     lda $D76C
     ldx $D76D
-
-    ; Apply sign to quotient
-    ldy $03
+    ; Apply sign
+    ldy $09
     beq @quot_pos
     eor #$FF
     clc
@@ -112,35 +105,33 @@ proc _div, W#_p___ret_ptr, W#_p_numer, W#_p_denom
     tax
     pla
 @quot_pos:
-    ; Store quot via hidden return pointer
+    ; Store quot via return pointer ($02/$03)
     ldy #0
-    sta (_p___ret_ptr+2, sp), y
+    sta ($02),y
     iny
     txa
-    sta (_p___ret_ptr+2, sp), y
+    sta ($02),y
 
-    ; Compute remainder = abs(numer) - quot * abs(denom)
-    ; Write quotient to $D770 (multiplier arg1), denom still in $D774
+    ; --- Remainder = abs(numer) - abs(quot) * abs(denom) ---
+    ; Write abs(quotient) to $D770 for multiply
     lda $D76C
     sta $D770
     lda $D76D
     sta $D771
-    stz $D772
-    stz $D773
-    ; Product = quot * denom at $D778 (combinational, instant)
-    ; Remainder = saved_numer - product
+    lda #0
+    sta $D772
+    sta $D773
+    ; Product at $D778 (combinational)
     lda __zp_scratch
     sec
     sbc $D778
-    pha                     ; save remainder lo
+    pha
     lda __zp_scratch+1
     sbc $D779
-    tax                     ; remainder hi
-
-    pla                     ; remainder lo
-
-    ; Remainder sign follows numerator sign
-    ldy $02
+    tax
+    pla
+    ; Apply numer sign to remainder
+    ldy $08
     beq @rem_pos
     eor #$FF
     clc
@@ -152,21 +143,15 @@ proc _div, W#_p___ret_ptr, W#_p_numer, W#_p_denom
     tax
     pla
 @rem_pos:
-    ; Store rem via hidden return pointer
+    ; Store rem via return pointer
     ldy #2
-    sta (_p___ret_ptr+2, sp), y
+    sta ($02),y
     iny
     txa
-    sta (_p___ret_ptr+2, sp), y
+    sta ($02),y
 
-    ; Return pointer to struct in AX
-    ldax _p___ret_ptr+2, sp
-
-    ; Restore ZP
-    pla
-    sta $03
-    pla
-    sta $02
-
+    ; Return pointer in AX
+    lda $02
+    ldx $03
     rtn #0
     endproc

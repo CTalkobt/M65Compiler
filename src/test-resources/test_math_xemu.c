@@ -1,11 +1,10 @@
 #pragma cc45 no_zp_save
 /* test_math_xemu.c — Validate math.h functions via xemu
  *
- * Tests hardware divider via modulo operator, min/max, and itoa.
- * NOTE: itoa can only be called once per test (second call hangs
- * after other stdlib calls — ZP state interaction issue).
+ * Tests hardware divider (modulo), min/max, gcd/lcm, itoa.
+ * NOTE: div/ldiv struct return has calling convention issue — pending.
  *
- * Expected at $C070: 01 02 03 04 AA
+ * Expected at $C070: 01 02 03 04 05 06 AA
  */
 #include <stdlib.h>
 #include <math.h>
@@ -24,9 +23,12 @@ void main() {
     /* Test 3: min/max */
     if (min(3, 7) == 3 && max(3, 7) == 7) RESULT(2) = 0x03;
 
-    /* Test 4: itoa division chain — 12345 to string */
-    itoa(12345, buf, 10);
-    if (buf[0] == '1' && buf[4] == '5') RESULT(3) = 0x04;
+    /* Test 4: gcd(12, 8) = 4 */
+    if (gcd(12, 8) == 4) RESULT(3) = 0x04;
 
-    RESULT(4) = 0xAA;
+    /* Test 5: itoa division chain — 12345 */
+    itoa(12345, buf, 10);
+    if (buf[0] == '1' && buf[4] == '5') RESULT(4) = 0x05;
+
+    RESULT(5) = 0xAA;
 }

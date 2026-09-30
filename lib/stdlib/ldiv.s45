@@ -131,10 +131,12 @@ proc _ldiv, W#_p___ret_ptr, D#_p_numer, D#_p_denom
     bit $D70F
     bne @wait
 
-    ; Load ret_ptr into $04/$05 (adjusted for 7 pushed ZP bytes)
-    ldax _p___ret_ptr+7, sp
+    ; Load ret_ptr into $04/$05 (TSX + 7 for the 7 PHA saves)
+    tsx
+    lda __sp_base+_p___ret_ptr+7, x
     sta $04
-    stx $05
+    lda __sp_base+_p___ret_ptr+8, x
+    sta $05
 
     ; --- Store quotient with sign fixup ---
     lda $03
