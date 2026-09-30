@@ -213,6 +213,16 @@ else
     failed=$((failed + 1))
 fi
 
+# Test 11: test_math_xemu.c (integer math + hardware divider)
+echo "Testing test_math_xemu.c (integer math)..."
+compile_link_test "src/test-resources/test_math_xemu.c" "build/test/test_math_xemu.prg"
+if [ $? -eq 0 ]; then
+    run_xemu_test "test_math" "build/test/test_math_xemu.prg" "C070" 5 "01 02 03 04 AA"
+else
+    echo "FAIL: test_math_xemu.c (compilation/linking failed)"
+    failed=$((failed + 1))
+fi
+
 echo ""
 echo "======================================================"
 echo "Xemu Test Results: $passed passed, $failed failed"
