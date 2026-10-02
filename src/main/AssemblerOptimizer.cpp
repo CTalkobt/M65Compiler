@@ -565,6 +565,7 @@ bool AssemblerOptimizer::optimizeInternal(
                 bool zpModified = false;
 
                 // Scan ahead for LDA $zp within next 3-5 instructions
+                bool flagsClobbered = false;
                 for (size_t k = 0; k < 5 && j < parser->statements.size(); ++k, ++j) {
                     auto* next = parser->statements[j].get();
                     if (next->deleted) { ++k; continue; }
@@ -583,6 +584,26 @@ bool AssemblerOptimizer::optimizeInternal(
                         }
                     }
 
+                    // Check if this instruction clobbers flags (N/Z).
+                    // If so, eliminating the LDA would leave stale flags for the branch.
+                    // Covers: loads, arithmetic, logic, comparisons, increments,
+                    // shifts, transfers, pulls, and bit test.
+                    if (nm == "LDA" || nm == "LDX" || nm == "LDY" || nm == "LDZ" ||
+                        nm == "ADC" || nm == "SBC" || nm == "AND" || nm == "ORA" ||
+                        nm == "EOR" || nm == "CMP" || nm == "CPX" || nm == "CPY" ||
+                        nm == "CPZ" ||
+                        nm == "INX" || nm == "INY" || nm == "INZ" ||
+                        nm == "DEX" || nm == "DEY" || nm == "DEZ" ||
+                        nm == "INC" || nm == "DEC" || nm == "ASL" || nm == "LSR" ||
+                        nm == "ROL" || nm == "ROR" || nm == "BIT" ||
+                        nm == "TAX" || nm == "TAY" || nm == "TAZ" ||
+                        nm == "TXA" || nm == "TYA" || nm == "TZA" ||
+                        nm == "TSX" || nm == "TSY" ||
+                        nm == "PLA" || nm == "PLX" || nm == "PLY" || nm == "PLZ" ||
+                        nm == "SEC" || nm == "CLC" || nm == "CLV") {
+                        flagsClobbered = true;
+                    }
+
                     // Check if this is LDA $zp (same address)
                     if (nm == "LDA" && next->instr.mode == AddressingMode::BASE_PAGE) {
                         int64_t loadAddr = 0;
@@ -596,9 +617,11 @@ bool AssemblerOptimizer::optimizeInternal(
                                 if (afterLoad->type == AssemblerParser::Statement::INSTRUCTION) {
                                     std::string afterNm = afterLoad->instr.mnemonic;
                                     std::transform(afterNm.begin(), afterNm.end(), afterNm.begin(), ::toupper);
-                                    // Only optimize if followed by a branch that tests the loaded value
-                                    if (afterNm == "BNE" || afterNm == "BEQ" || afterNm == "BMI" || afterNm == "BPL" ||
-                                        afterNm == "BCS" || afterNm == "BCC" || afterNm == "BVS" || afterNm == "BVC") {
+                                    // Only optimize if followed by a branch that tests the loaded value,
+                                    // AND no intervening instruction clobbered the flags since the STA.
+                                    if (!flagsClobbered &&
+                                        (afterNm == "BNE" || afterNm == "BEQ" || afterNm == "BMI" || afterNm == "BPL" ||
+                                        afterNm == "BCS" || afterNm == "BCC" || afterNm == "BVS" || afterNm == "BVC")) {
                                         // Found the pattern: STA $zp; LDA $zp; Bxx
                                         // Eliminate the store and load (keep the branch)
                                         int s_size = s->size;
