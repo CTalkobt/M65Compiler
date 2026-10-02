@@ -45,8 +45,8 @@ int LinkingStage::invokeLinker() {
     // Add output file
     cmd += " -o " + outputFile_;
 
-    // Add PRG base address
-    cmd += " --base " + prgBase_;
+    // Add PRG base address (-t sets text segment base)
+    cmd += " -t " + prgBase_;
 
     // Add library paths
     for (const auto& libPath : libraryPaths_) {

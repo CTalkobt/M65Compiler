@@ -42,7 +42,7 @@ $(BUILD)/%.o45: stdlib/%.s45 | $(BUILD)
 	$(CA45) -c $< -o $@
 
 $(BUILD)/%.o45: stdlib/%.c | $(BUILD)
-	$(CC45) -c -fimplicit-function-declaration -fno-staticalloc $< -o $@
+	$(CC45) -c -fimplicit-function-declaration $< -o $@
 
 $(BUILD)/c45.lib: $(CRT_OBJECTS) $(STDLIB_OBJECTS) | $(BUILD)
 	$(AR45) c $@ $(CRT_OBJECTS) $(STDLIB_OBJECTS)
@@ -53,7 +53,7 @@ $(BUILD)/zp_%.o45: stdlib_zp/%.s45 | $(BUILD)
 	$(CA45) -c $< -o $@
 
 $(BUILD)/zp_%.o45: stdlib_zp/%.c | $(BUILD)
-	$(CC45) -c -fzpcall -fimplicit-function-declaration -fno-staticalloc $< -o $@
+	$(CC45) -c -fzpcall -fimplicit-function-declaration $< -o $@
 
 $(BUILD)/c45_zp.lib: $(CRT_ZP_OBJECTS) $(STDLIB_ZP_OBJECTS) | $(BUILD)
 	$(AR45) c $@ $(CRT_ZP_OBJECTS) $(STDLIB_ZP_OBJECTS)

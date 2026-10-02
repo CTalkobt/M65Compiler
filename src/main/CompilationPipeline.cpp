@@ -169,8 +169,10 @@ CompilationResult CompilationPipeline::compile() {
         // Stage 5: Assembly
         std::string objectFile = config_.objectOnly ? config_.outputFile :
                                 (std::string("temp_") + std::to_string(getpid()) + ".o45");
+        // Always use relocatable mode (-c) when producing .o45 for linker
+        bool needRelocatable = config_.objectOnly || !config_.assemblyOnly;
         AssemblyStage asmStage(irOutput, objectFile, config_.verboseLevel,
-                              config_.objectOnly);
+                              needRelocatable);
         auto asmResult = runStage(asmStage);
         remove(tempAsmFile.c_str());
 
@@ -187,8 +189,11 @@ CompilationResult CompilationPipeline::compile() {
         }
 
         // Stage 6: Linking
+        // Convert prgBase to hex string for linker's -t flag
+        char prgBaseHex[16];
+        snprintf(prgBaseHex, sizeof(prgBaseHex), "%x", config_.prgBase);
         LinkingStage linkStage(objectFile, config_.outputFile, config_.verboseLevel,
-                              std::to_string(config_.prgBase), config_.libraryPaths);
+                              std::string(prgBaseHex), config_.libraryPaths);
         auto linkResult = runStage(linkStage);
         remove(objectFile.c_str());
 

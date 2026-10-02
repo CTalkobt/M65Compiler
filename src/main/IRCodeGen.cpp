@@ -759,8 +759,21 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     // Phase 3: Pre-scan functions to identify which ones use SAC
     // (Static Allocation Convention — uses __ar symbols instead of stack frame)
     sacFunctions_.clear();
+    functionParameterNames_.clear();
     if (staticAllocMode) {
         for (const auto& fn : mod.functions) {
+            // Pre-populate parameter names for all functions so SAC call sites
+            // can generate correct __param_<name> symbols regardless of emission order
+            std::vector<std::string> paramNames;
+            for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+                if (i < fn.paramNames.size() && !fn.paramNames[i].empty()) {
+                    paramNames.push_back(fn.paramNames[i]);
+                } else {
+                    paramNames.push_back(std::to_string(i));
+                }
+            }
+            functionParameterNames_[fn.name] = paramNames;
+
             // SAC eligibility: enabled globally, not recursive, not interrupt/naked/variadic
             bool useSAC = !fn.isRecurse && !fn.isInterrupt && !fn.isNaked && !fn.isVariadic;
             if (useSAC) {
@@ -1785,6 +1798,38 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             emit(".sac");
         } else {
             emitComment("Phase 51: zero-alloc leaf (all parameters constant)");
+        }
+    }
+
+    // SAC thunk prologue: load params from stack into SAC param symbols.
+    // This allows cross-unit callers (which push to stack) to call SAC functions.
+    // Same-unit SAC callers call _func__sac directly (skipping the thunk).
+    if (currentFunctionUseSAC_ && !fn.paramTypes.empty() && !fn.isRegparm) {
+        bool isZeroAlloc = isZeroAllocLeaf(fn.name, fn);
+        if (!isZeroAlloc) {
+            emitComment("SAC thunk: load stack params into SAC storage");
+            fprintf(stderr, "info: SAC thunk generated for %s (%zu params)\n",
+                    fn.name.c_str(), fn.paramTypes.size());
+            emit("tsx");
+            int stackOff = 2; // past return address
+            for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+                std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
+                    ? fn.paramNames[i] : std::to_string(i);
+                std::string sym = fn.name + "__param_" + pName;
+                int pSize = ir::typeSize(fn.paramTypes[i]);
+                if (pSize >= 1) emit("lda __sp_base+" + std::to_string(stackOff) + ", x");
+                if (pSize >= 1) emit("sta " + sym);
+                if (pSize >= 2) emit("lda __sp_base+" + std::to_string(stackOff + 1) + ", x");
+                if (pSize >= 2) emit("sta " + sym + "+1");
+                if (pSize >= 4) emit("lda __sp_base+" + std::to_string(stackOff + 2) + ", x");
+                if (pSize >= 4) emit("sta " + sym + "+2");
+                if (pSize >= 4) emit("lda __sp_base+" + std::to_string(stackOff + 3) + ", x");
+                if (pSize >= 4) emit("sta " + sym + "+3");
+                stackOff += (pSize < 2) ? 2 : pSize; // C promotes char to 16-bit on stack
+            }
+            // Emit __sac label for direct SAC callers to skip thunk
+            emit(".global " + fn.name + "__sac");
+            emitLabel(fn.name + "__sac");
         }
     }
 
@@ -4107,8 +4152,10 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 int nArgs = (int)inst.args.size();
 
                 // Classify args: true = simple (can push inline)
-                // Check if this is a SAC function call - if so, store parameters to inline storage
-                bool isCallingSAC = (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) &&
+                // Check if this is a SAC-to-SAC call — both caller and callee must be SAC.
+                // If caller is stack-convention (e.g., variadic), use normal push + call thunk entry.
+                bool isCallingSAC = currentFunctionUseSAC_ &&
+                                   (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) &&
                                    inst.src1.kind == ir::OperandKind::GLOBAL &&
                                    sacFunctions_.count(inst.src1.name);
 
@@ -4360,10 +4407,12 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     }
                 }
                 
-                // JSR
+                // JSR — SAC callers use __sac entry point to skip thunk
                 if (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) {
                     if (inst.src1.kind == ir::OperandKind::GLOBAL) {
-                        emit("jsr " + inst.src1.name);
+                        std::string target = inst.src1.name;
+                        if (isCallingSAC) target += "__sac";
+                        emit("jsr " + target);
                     }
                 } else {
                     // CALL_INDIRECT
