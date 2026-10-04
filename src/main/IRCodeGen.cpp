@@ -3283,15 +3283,21 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             }
 
             if (inst.resultType == ir::Type::F32 && inst.dest.isVreg()) {
-                // 5-byte float load: copy to dest vreg ZP
+                // 5-byte float load: copy to dest vreg
                 auto dAlloc = alloc_.getAlloc(inst.dest.vregId);
-                std::string da = "$" + hex8((uint8_t)dAlloc.offset);
+                std::string da;
+                if (currentFunctionUseSAC_ && dAlloc.loc == VRegAllocator::IN_FRAME)
+                    da = currentFunctionName_ + "__local_" + std::to_string(inst.dest.vregId);
+                else
+                    da = "$" + hex8((uint8_t)dAlloc.offset);
                 if (inst.src1.kind == ir::OperandKind::GLOBAL) {
-                    for (int i = 0; i < 5; i++) {
-                        // Phase 97.5: Apply .zp suffix for __zp globals
-                        emitOptimized("lda " + inst.src1.name + "+" + std::to_string(i));
-                        emit("sta " + da + "+" + std::to_string(i));
-                    }
+                    ms_.invalidateAll();
+                    emit("ldy #4");
+                    emit(std::string("@__fcpy_") + std::to_string(labelCounter_) + ":");
+                    emit("lda " + inst.src1.name + ",y");
+                    emit("sta " + da + ",y");
+                    emit("dey");
+                    emit("bpl @__fcpy_" + std::to_string(labelCounter_++));
                 } else {
                     // Indirect load via (ZP),Y
                     std::string zpPair;
@@ -3444,14 +3450,22 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             }
 
             if (inst.resultType == ir::Type::F32 && inst.src1.isVreg()) {
-                // 5-byte float store from src1 vreg ZP to dest address
+                // 5-byte float store from src1 vreg to dest address
+                // Use MOVE simulated op to avoid optimizer ZP tracking issues
                 auto sAlloc = alloc_.getAlloc(inst.src1.vregId);
-                std::string sa = "$" + hex8((uint8_t)sAlloc.offset);
+                std::string sa;
+                if (currentFunctionUseSAC_ && sAlloc.loc == VRegAllocator::IN_FRAME)
+                    sa = currentFunctionName_ + "__local_" + std::to_string(inst.src1.vregId);
+                else
+                    sa = "$" + hex8((uint8_t)sAlloc.offset);
                 if (inst.src2.kind == ir::OperandKind::GLOBAL) {
-                    for (int i = 0; i < 5; i++) {
-                        emit("lda " + sa + "+" + std::to_string(i));
-                        emit("sta " + inst.src2.name + "+" + std::to_string(i));
-                    }
+                    ms_.invalidateAll();
+                    emit("ldy #4");
+                    emit(std::string("@__fcpy_") + std::to_string(labelCounter_) + ":");
+                    emit("lda " + sa + ",y");
+                    emit("sta " + inst.src2.name + ",y");
+                    emit("dey");
+                    emit("bpl @__fcpy_" + std::to_string(labelCounter_++));
                 } else if (inst.src2.isVreg()) {
                     bool isLocalSlot = localSlotVregs_.count(inst.src2.vregId) > 0;
                     if (isLocalSlot) {
@@ -4788,98 +4802,121 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             break;
         }
         case ir::Op::FADD: case ir::Op::FSUB:
-        case ir::Op::FMUL: case ir::Op::FDIV: {
-            auto s1 = alloc_.getAlloc(inst.src1.vregId);
-            auto s2 = alloc_.getAlloc(inst.src2.vregId);
-            auto floatSrc = [&](const VRegAllocator::Allocation& a, uint32_t vregId, const std::string& dst) {
-                if (currentFunctionUseSAC_ && a.loc == VRegAllocator::IN_FRAME)
-                    emit("MOVE " + currentFunctionName_ + "__local_" + std::to_string(vregId) + ", " + dst + ", 5");
-                else
-                    emit("MOVE $" + hex8((uint8_t)a.offset) + ", " + dst + ", 5");
+        case ir::Op::FMUL: case ir::Op::FDIV:
+        case ir::Op::FNEG: case ir::Op::FCMP:
+        case ir::Op::ITOF: case ir::Op::FTOI: {
+            // Helper: copy 5-byte float from vreg to absolute symbol (e.g., __float_a)
+            // Uses byte-by-byte LDA/STA (DMA MOVE has ZP clobber issues).
+            // Invalidates machine state to prevent optimizer from eliminating loads.
+            auto emitFloatToAbs = [&](const VRegAllocator::Allocation& a, uint32_t vregId, const std::string& dst) {
+                ms_.invalidateAll();
+                if (a.loc == VRegAllocator::IN_ZP) {
+                    // Y-indexed copy loop — immune to optimizer load elimination
+                    std::string zp = "$" + hex8((uint8_t)a.offset);
+                    emit("ldy #4");
+                    emit(std::string("@__fcpy_") + std::to_string(labelCounter_) + ":");
+                    emit("lda " + zp + ",y");
+                    emit("sta " + dst + ",y");
+                    emit("dey");
+                    emit("bpl @__fcpy_" + std::to_string(labelCounter_++));
+                } else if (currentFunctionUseSAC_) {
+                    std::string sym = currentFunctionName_ + "__local_" + std::to_string(vregId);
+                    for (int b = 0; b < 5; b++) {
+                        emit("lda " + sym + "+" + std::to_string(b));
+                        emit("sta " + dst + "+" + std::to_string(b));
+                    }
+                } else {
+                    int off = a.offset;
+                    for (int b = 0; b < 5; b++) {
+                        emit("ldy #" + std::to_string(off + b));
+                        emit("lda ($fd),y");
+                        emit("sta " + dst + "+" + std::to_string(b));
+                    }
+                }
             };
-            auto floatDst = [&](const VRegAllocator::Allocation& a, uint32_t vregId, const std::string& src) {
-                if (currentFunctionUseSAC_ && a.loc == VRegAllocator::IN_FRAME)
-                    emit("MOVE " + src + ", " + currentFunctionName_ + "__local_" + std::to_string(vregId) + ", 5");
-                else
-                    emit("MOVE " + src + ", $" + hex8((uint8_t)a.offset) + ", 5");
+            // Helper: copy 5-byte float from absolute symbol to vreg
+            auto emitAbsToFloat = [&](const std::string& src, const VRegAllocator::Allocation& a, uint32_t vregId) {
+                ms_.invalidateAll();
+                if (a.loc == VRegAllocator::IN_ZP) {
+                    std::string zp = "$" + hex8((uint8_t)a.offset);
+                    emit("ldy #4");
+                    emit(std::string("@__fcpy_") + std::to_string(labelCounter_) + ":");
+                    emit("lda " + src + ",y");
+                    emit("sta " + zp + ",y");
+                    emit("dey");
+                    emit("bpl @__fcpy_" + std::to_string(labelCounter_++));
+                } else if (currentFunctionUseSAC_) {
+                    std::string sym = currentFunctionName_ + "__local_" + std::to_string(vregId);
+                    for (int b = 0; b < 5; b++) {
+                        emit("lda " + src + "+" + std::to_string(b));
+                        emit("sta " + sym + "+" + std::to_string(b));
+                    }
+                } else {
+                    int off = a.offset;
+                    for (int b = 0; b < 5; b++) {
+                        emit("lda " + src + "+" + std::to_string(b));
+                        emit("ldy #" + std::to_string(off + b));
+                        emit("sta ($fd),y");
+                    }
+                }
             };
-            floatSrc(s1, inst.src1.vregId, "__float_a");
-            floatSrc(s2, inst.src2.vregId, "__float_b");
-            if (inst.op == ir::Op::FADD) emit("jsr __float_add");
-            else if (inst.op == ir::Op::FSUB) emit("jsr __float_sub");
-            else if (inst.op == ir::Op::FMUL) emit("jsr __float_mul");
-            else emit("jsr __float_div");
-            auto da = alloc_.getAlloc(inst.dest.vregId);
-            floatDst(da, inst.dest.vregId, "__float_a");
-            break;
-        }
-        case ir::Op::FNEG: {
-            auto s1 = alloc_.getAlloc(inst.src1.vregId);
-            if (currentFunctionUseSAC_ && s1.loc == VRegAllocator::IN_FRAME)
-                emit("MOVE " + currentFunctionName_ + "__local_" + std::to_string(inst.src1.vregId) + ", __float_a, 5");
-            else
-                emit("MOVE $" + hex8((uint8_t)s1.offset) + ", __float_a, 5");
-            emit("jsr __float_neg");
-            auto da = alloc_.getAlloc(inst.dest.vregId);
-            if (currentFunctionUseSAC_ && da.loc == VRegAllocator::IN_FRAME)
-                emit("MOVE __float_a, " + currentFunctionName_ + "__local_" + std::to_string(inst.dest.vregId) + ", 5");
-            else
-                emit("MOVE __float_a, $" + hex8((uint8_t)da.offset) + ", 5");
-            break;
-        }
-        case ir::Op::FCMP: {
-            auto s1 = alloc_.getAlloc(inst.src1.vregId);
-            auto s2 = alloc_.getAlloc(inst.src2.vregId);
-            if (currentFunctionUseSAC_ && s1.loc == VRegAllocator::IN_FRAME)
-                emit("MOVE " + currentFunctionName_ + "__local_" + std::to_string(inst.src1.vregId) + ", __float_a, 5");
-            else
-                emit("MOVE $" + hex8((uint8_t)s1.offset) + ", __float_a, 5");
-            if (currentFunctionUseSAC_ && s2.loc == VRegAllocator::IN_FRAME)
-                emit("MOVE " + currentFunctionName_ + "__local_" + std::to_string(inst.src2.vregId) + ", __float_b, 5");
-            else
-                emit("MOVE $" + hex8((uint8_t)s2.offset) + ", __float_b, 5");
-            emit("jsr __float_cmp");
-            auto da = alloc_.getAlloc(inst.dest.vregId);
-            if (currentFunctionUseSAC_ && da.loc == VRegAllocator::IN_FRAME) {
-                std::string dsym = currentFunctionName_ + "__local_" + std::to_string(inst.dest.vregId);
-                emit("sta " + dsym);
-            } else {
-                emit("sta $" + hex8((uint8_t)da.offset));
-            }
-            break;
-        }
-        case ir::Op::ITOF: {
-            loadOperand(inst.src1);
-            emit("jsr __float_itof");
-            // Copy 5-byte float result from __float_a to dest vreg
-            auto da = alloc_.getAlloc(inst.dest.vregId);
-            if (currentFunctionUseSAC_ && da.loc == VRegAllocator::IN_FRAME) {
-                std::string dsym = currentFunctionName_ + "__local_" + std::to_string(inst.dest.vregId);
-                emit("MOVE __float_a, " + dsym + ", 5");
-            } else {
-                emit("MOVE __float_a, $" + hex8((uint8_t)da.offset) + ", 5");
-            }
-            break;
-        }
-        case ir::Op::FTOI: {
-            // Copy 5-byte float from source vreg to __float_a, then call ROM
-            auto s1 = alloc_.getAlloc(inst.src1.vregId);
-            if (currentFunctionUseSAC_ && s1.loc == VRegAllocator::IN_FRAME) {
-                std::string sym = currentFunctionName_ + "__local_" + std::to_string(inst.src1.vregId);
-                emit("MOVE " + sym + ", __float_a, 5");
-            } else {
-                emit("MOVE $" + hex8((uint8_t)s1.offset) + ", __float_a, 5");
-            }
-            emit("jsr __float_ftoi");
-            // Store 16-bit result to dest vreg
-            auto da = alloc_.getAlloc(inst.dest.vregId);
-            if (currentFunctionUseSAC_ && da.loc == VRegAllocator::IN_FRAME) {
-                std::string dsym = currentFunctionName_ + "__local_" + std::to_string(inst.dest.vregId);
-                emit("sta " + dsym);
-                emit("stx " + dsym + "+1");
-            } else {
-                emit("sta $" + hex8((uint8_t)da.offset));
-                emit("stx $" + hex8((uint8_t)(da.offset + 1)));
+
+            if (inst.op >= ir::Op::FADD && inst.op <= ir::Op::FDIV) {
+                auto s1 = alloc_.getAlloc(inst.src1.vregId);
+                auto s2 = alloc_.getAlloc(inst.src2.vregId);
+                emitFloatToAbs(s1, inst.src1.vregId, "__float_a");
+                emitFloatToAbs(s2, inst.src2.vregId, "__float_b");
+                if (inst.op == ir::Op::FADD) emit("jsr __float_add");
+                else if (inst.op == ir::Op::FSUB) emit("jsr __float_sub");
+                else if (inst.op == ir::Op::FMUL) emit("jsr __float_mul");
+                else emit("jsr __float_div");
+                auto da = alloc_.getAlloc(inst.dest.vregId);
+                emitAbsToFloat("__float_a", da, inst.dest.vregId);
+            } else if (inst.op == ir::Op::FNEG) {
+                auto s1 = alloc_.getAlloc(inst.src1.vregId);
+                emitFloatToAbs(s1, inst.src1.vregId, "__float_a");
+                emit("jsr __float_neg");
+                auto da = alloc_.getAlloc(inst.dest.vregId);
+                emitAbsToFloat("__float_a", da, inst.dest.vregId);
+            } else if (inst.op == ir::Op::FCMP) {
+                auto s1 = alloc_.getAlloc(inst.src1.vregId);
+                auto s2 = alloc_.getAlloc(inst.src2.vregId);
+                emitFloatToAbs(s1, inst.src1.vregId, "__float_a");
+                emitFloatToAbs(s2, inst.src2.vregId, "__float_b");
+                emit("jsr __float_cmp");
+                auto da = alloc_.getAlloc(inst.dest.vregId);
+                if (da.loc == VRegAllocator::IN_ZP) {
+                    emit("sta $" + hex8((uint8_t)da.offset));
+                } else if (currentFunctionUseSAC_) {
+                    emit("sta " + currentFunctionName_ + "__local_" + std::to_string(inst.dest.vregId));
+                } else {
+                    emit("ldy #" + std::to_string(da.offset));
+                    emit("sta ($fd),y");
+                }
+            } else if (inst.op == ir::Op::ITOF) {
+                loadOperand(inst.src1);
+                emit("jsr __float_itof");
+                auto da = alloc_.getAlloc(inst.dest.vregId);
+                emitAbsToFloat("__float_a", da, inst.dest.vregId);
+            } else { // FTOI
+                auto s1 = alloc_.getAlloc(inst.src1.vregId);
+                emitFloatToAbs(s1, inst.src1.vregId, "__float_a");
+                emit("jsr __float_ftoi");
+                auto da = alloc_.getAlloc(inst.dest.vregId);
+                if (da.loc == VRegAllocator::IN_ZP) {
+                    emit("sta $" + hex8((uint8_t)da.offset));
+                    emit("stx $" + hex8((uint8_t)(da.offset + 1)));
+                } else if (currentFunctionUseSAC_) {
+                    std::string dsym = currentFunctionName_ + "__local_" + std::to_string(inst.dest.vregId);
+                    emit("sta " + dsym);
+                    emit("stx " + dsym + "+1");
+                } else {
+                    emit("ldy #" + std::to_string(da.offset));
+                    emit("sta ($fd),y");
+                    emit("iny");
+                    emit("txa");
+                    emit("sta ($fd),y");
+                }
             }
             break;
         }
