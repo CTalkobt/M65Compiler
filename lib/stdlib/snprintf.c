@@ -21,9 +21,8 @@ int snprintf(char *buf, int size, char *fmt, ...) {
     }
 
     /* Format into a temporary buffer to get the full length.
-     * For simplicity on 8-bit, format into buf directly then truncate.
-     * This is safe as long as caller provides a buffer of at least 'size'. */
-    char tmp[256];
+     * Static to avoid 256-byte stack allocation (overflows 6502 stack page). */
+    static char tmp[256];
     int len = vsprintf(tmp, fmt, ap);
     va_end(ap);
 

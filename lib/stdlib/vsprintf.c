@@ -8,6 +8,7 @@
 #include <stdarg.h>
 
 int itoa(int value, char *str, int base);
+int utoa(int value, char *str, int base);
 char *ltoa(long value, char *str, int base);
 
 #pragma cc45 weak
@@ -34,7 +35,7 @@ int vsprintf(char *buf, char *fmt, va_list ap) {
                 int i = 0; while (tmp[i]) { *out = tmp[i]; out = out + 1; i = i + 1; }
             } else if (*fmt == 'U' || *fmt == 'u') {
                 ltoa(va_arg(ap, long), tmp, 10);
-                int i = 0; while (tmp[i]) { if (tmp[i] != '-') { *out = tmp[i]; out = out + 1; } i = i + 1; }
+                int i = 0; while (tmp[i]) { *out = tmp[i]; out = out + 1; i = i + 1; }
             } else if (*fmt == 'X' || *fmt == 'x') {
                 ltoa(va_arg(ap, long), tmp, 16);
                 int i = 0; while (tmp[i]) { *out = tmp[i]; out = out + 1; i = i + 1; }
@@ -52,15 +53,15 @@ int vsprintf(char *buf, char *fmt, va_list ap) {
             int i = 0; while (tmp[i]) { *out = tmp[i]; out = out + 1; i = i + 1; }
         } else if (*fmt == 'U' || *fmt == 'u') {
             char tmp[18];
-            itoa(va_arg(ap, int), tmp, 10);
-            int i = 0; while (tmp[i]) { if (tmp[i] != '-') { *out = tmp[i]; out = out + 1; } i = i + 1; }
+            utoa(va_arg(ap, int), tmp, 10);
+            int i = 0; while (tmp[i]) { *out = tmp[i]; out = out + 1; i = i + 1; }
         } else if (*fmt == 'X' || *fmt == 'x') {
             char tmp[18];
-            itoa(va_arg(ap, int), tmp, 16);
+            utoa(va_arg(ap, int), tmp, 16);
             int i = 0; while (tmp[i]) { *out = tmp[i]; out = out + 1; i = i + 1; }
         } else if (*fmt == 'O' || *fmt == 'o') {
             char tmp[18];
-            itoa(va_arg(ap, int), tmp, 8);
+            utoa(va_arg(ap, int), tmp, 8);
             int i = 0; while (tmp[i]) { *out = tmp[i]; out = out + 1; i = i + 1; }
         } else if (*fmt == 'S' || *fmt == 's') {
             char *s = (char *)va_arg(ap, int);

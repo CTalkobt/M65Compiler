@@ -24,8 +24,8 @@ void main() {
 
     /* Test 3: sprintf %x */
     sprintf(buf, "%x", 255);
-    if (buf[0] == 0x66 && buf[1] == 0x66) RESULT(2) = 0x03;
-    /* Note: %x outputs lowercase hex in ASCII — 'f'=0x66 in PETSCII */
+    if (buf[0] == 0x46 && buf[1] == 0x46) RESULT(2) = 0x03;
+    /* Note: itoa hex digits are ASCII uppercase — 'F'=0x46 */
 
     /* Test 4: sprintf %c */
     sprintf(buf, "%c%c%c", 0x41, 0x42, 0x43);
@@ -42,8 +42,8 @@ void main() {
     /* Test 7: snprintf truncation */
     snprintf(buf, 4, "hello");
     buf[3] = 0;  /* ensure NUL */
-    if (buf[0] == 0x68 && buf[1] == 0x65 && buf[2] == 0x6C) RESULT(6) = 0x07;
-    /* 'h'=0x68, 'e'=0x65, 'l'=0x6C in PETSCII lowercase */
+    if (buf[0] == 0x48 && buf[1] == 0x45 && buf[2] == 0x4C) RESULT(6) = 0x07;
+    /* PETSCII lowercase: 'h'=0x48, 'e'=0x45, 'l'=0x4C */
 
     /* Test 8: sprintf %ld (long) */
     sprintf(buf, "%ld", 100000L);

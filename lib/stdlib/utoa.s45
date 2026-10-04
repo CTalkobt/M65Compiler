@@ -1,0 +1,134 @@
+; utoa.s — Convert unsigned integer to string
+;
+; char *utoa(unsigned int value, char *str, int base);
+;   Like itoa but treats value as unsigned (no sign check, no negation).
+;   Same digit extraction algorithm using MEGA65 hardware divider.
+
+.global _utoa
+.extern __sp_base
+
+.segment "code"
+
+proc _utoa, W#_p_value, W#_p_str, W#_p_base
+    .var _fp = 0
+    tsx
+    lda __sp_base+_p_str, x
+    sta $07
+    lda __sp_base+_p_str+1, x
+    sta $08
+    lda __sp_base+_p_base, x
+    sta $04
+    lda __sp_base+_p_base+1, x
+    sta $05
+    lda __sp_base+_p_value, x
+    sta $02
+    lda __sp_base+_p_value+1, x
+    sta $03
+
+    lda #0
+    sta $06             ; digit count
+    ldy #0
+
+    ; Validate base (2-36)
+    lda $05
+    bne @valid
+    lda $04
+    cmp #2
+    bcs @valid
+    lda #$30
+    sta ($07),y
+    iny
+    lda #0
+    sta ($07),y
+    ldax $07
+    bra @restore
+
+@valid:
+    ; No sign check — unsigned
+
+    ; Check for zero
+    lda $02
+    ora $03
+    bne @extract
+    lda #$30
+    sta ($07),y
+    iny
+    bra @nulterm
+
+@extract:
+    lda $02
+    pha                 ; save value lo
+
+    ; Dividend
+    lda $02
+    sta $d770
+    lda $03
+    sta $d771
+    lda #0
+    sta $d772
+    sta $d773
+    ; Divisor
+    lda $04
+    sta $d774
+    lda $05
+    sta $d775
+    lda #0
+    sta $d776
+    sta $d777
+
+@waitdiv:
+    bit $d70f
+    bne @waitdiv
+
+    ; Save quotient before multiply clobbers it
+    lda $d76c
+    sta $02
+    lda $d76d
+    sta $03
+
+    ; Compute remainder = value_lo - (quotient * base)_lo
+    lda $02
+    sta $d770
+    lda $03
+    sta $d771
+    lda #0
+    sta $d772
+    sta $d773
+
+    pla                 ; saved value lo
+    sec
+    sbc $d778           ; remainder (0-35)
+
+    cmp #10
+    bcs @hexdig
+    clc
+    adc #$30
+    bra @pushdig
+@hexdig:
+    sec
+    sbc #10
+    clc
+    adc #$41            ; ASCII 'A'
+@pushdig:
+    pha
+    inc $06
+
+    ; Continue while quotient != 0
+    lda $03
+    ora $02
+    bne @extract
+
+@poploop:
+    pla
+    sta ($07),y
+    iny
+    dec $06
+    bne @poploop
+
+@nulterm:
+    lda #0
+    sta ($07),y
+    ldax $07
+@restore:
+    rtn #0
+    endproc

@@ -148,17 +148,28 @@ proc _ltoa, D#_p_value, W#_p_str, W#_p_base
     bit $d70f
     bne @waitdiv
 
-    ; Compute remainder = value - quotient * base
-    ; Write quotient to $D770, base still in $D774
+    ; Save quotient to $02-$05 BEFORE writing to multiplier.
+    ; Writing $D770 triggers a new operation, which corrupts $D76C.
     lda $d76c
-    sta $d770
+    sta $02
     lda $d76d
-    sta $d771
+    sta $03
     lda $d76e
-    sta $d772
+    sta $04
     lda $d76f
+    sta $05
+
+    ; Compute remainder = value - quotient * base
+    ; Write quotient to $D770 (multiplier input), base still in $D774
+    lda $02
+    sta $d770
+    lda $03
+    sta $d771
+    lda $04
+    sta $d772
+    lda $05
     sta $d773
-    ; Product lo byte at $D778 (combinational)
+    ; Product lo byte at $D778 (combinational multiply result)
     ; Remainder = saved_value_lo - product_lo (single digit fits in byte)
     pla                     ; saved value lo
     sec
@@ -172,22 +183,14 @@ proc _ltoa, D#_p_value, W#_p_str, W#_p_base
     sec
     sbc #10
     clc
-    adc #$41            ; PETSCII lowercase 'a'
+    adc #$41            ; ASCII 'A'
 @pushdig:
     pha                 ; push digit char onto hardware stack
     inc $08             ; count it
 
-    ; Quotient ($D76C-$D76F) becomes new value
-    lda $d76c
-    sta $02
-    lda $d76d
-    sta $03
-    lda $d76e
-    sta $04
-    lda $d76f
-    sta $05
-
+    ; $02-$05 already holds quotient (saved above) — continue loop
     ; Continue while value != 0
+    lda $05
     ora $02
     ora $03
     ora $04
