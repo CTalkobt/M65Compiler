@@ -331,8 +331,9 @@ __float_ftoi:
     lda #<BJT_AYINT
     ldx #>BJT_AYINT
     jsr __jsrfar_basic
-    lda FAC_M3      ; low byte of result
-    ldx FAC_M4      ; high byte
+    ; AYINT stores 16-bit result at FAC_M3/M4 big-endian (CBM convention)
+    lda FAC_M4      ; low byte (M4 in big-endian)
+    ldx FAC_M3      ; high byte (M3 in big-endian)
     rts
 
 ; ===========================================================================

@@ -17,11 +17,16 @@ CRT_OBJECTS = $(patsubst %.s45,$(BUILD)/%.o45,$(CRT_SOURCES))
 CRT_ZP_SOURCES = crt0_zp.s45 crt0_mega65_zp.s45 crt_heap_zp.s45 crt_bssinit_zp.s45 sac_debug.s45
 CRT_ZP_OBJECTS = $(patsubst %.s45,$(BUILD)/%.o45,$(CRT_ZP_SOURCES))
 
+# Float ROM runtime (shared between stack and ZP conventions)
+FLOAT_ROM_SOURCES = src/float_rom.s45 src/float_rom_indirect.s45
+FLOAT_ROM_OBJECTS = $(patsubst src/%.s45,$(BUILD)/%.o45,$(FLOAT_ROM_SOURCES))
+
 # Stdlib modules — stack convention (assembly + C)
 STDLIB_ASM_SOURCES = $(wildcard stdlib/*.s45)
 STDLIB_C_SOURCES = $(wildcard stdlib/*.c)
 STDLIB_OBJECTS = $(patsubst stdlib/%.s45,$(BUILD)/%.o45,$(STDLIB_ASM_SOURCES)) \
-                 $(patsubst stdlib/%.c,$(BUILD)/%.o45,$(STDLIB_C_SOURCES))
+                 $(patsubst stdlib/%.c,$(BUILD)/%.o45,$(STDLIB_C_SOURCES)) \
+                 $(FLOAT_ROM_OBJECTS)
 
 # Stdlib modules — ZP convention (assembly + C)
 STDLIB_ZP_ASM_SOURCES = $(wildcard stdlib_zp/*.s45)
@@ -36,6 +41,9 @@ all: $(BUILD)/c45.lib $(BUILD)/c45_zp.lib
 # --- Stack convention rules ---
 
 $(BUILD)/%.o45: %.s45 | $(BUILD)
+	$(CA45) -c $< -o $@
+
+$(BUILD)/%.o45: src/%.s45 | $(BUILD)
 	$(CA45) -c $< -o $@
 
 $(BUILD)/%.o45: stdlib/%.s45 | $(BUILD)
@@ -55,8 +63,8 @@ $(BUILD)/zp_%.o45: stdlib_zp/%.s45 | $(BUILD)
 $(BUILD)/zp_%.o45: stdlib_zp/%.c | $(BUILD)
 	$(CC45) -c -fzpcall -fimplicit-function-declaration $< -o $@
 
-$(BUILD)/c45_zp.lib: $(CRT_ZP_OBJECTS) $(STDLIB_ZP_OBJECTS) | $(BUILD)
-	$(AR45) c $@ $(CRT_ZP_OBJECTS) $(STDLIB_ZP_OBJECTS)
+$(BUILD)/c45_zp.lib: $(CRT_ZP_OBJECTS) $(STDLIB_ZP_OBJECTS) $(FLOAT_ROM_OBJECTS) | $(BUILD)
+	$(AR45) c $@ $(CRT_ZP_OBJECTS) $(STDLIB_ZP_OBJECTS) $(FLOAT_ROM_OBJECTS)
 
 $(BUILD):
 	mkdir -p $(BUILD)
