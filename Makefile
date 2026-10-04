@@ -162,7 +162,11 @@ $(LIB_DIR)/lib45-tools.a: $(LIB45_TOOLS_OBJS)
 # ============================================================================
 
 all: $(CC_TARGET) $(CA_TARGET) $(CP_TARGET) $(NM_TARGET) $(LN_TARGET) \
-     $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET) $(BASIC_TARGET) | $(LIB_DIR)/lib45-audio.a
+     $(AR_TARGET) $(OD_TARGET) $(DISK_TARGET) $(CVT_ASM_TARGET) $(BASIC_TARGET) stdlib | $(LIB_DIR)/lib45-audio.a
+
+# Rebuild stdlib whenever cc45 or ca45 changes
+stdlib: $(CC_TARGET) $(CA_TARGET) $(AR_TARGET)
+	$(MAKE) -C lib
 
 man: $(MAN_DIR)/cc45.1 $(MAN_DIR)/ca45.1 $(MAN_DIR)/cp45.1 $(MAN_DIR)/ln45.1 $(MAN_DIR)/nm45.1 $(MAN_DIR)/ar45.1 $(MAN_DIR)/objdump45.1
 
@@ -177,6 +181,8 @@ PIPELINE_OBJECTS = $(addprefix $(OBJ_DIR)/, \
 
 # C Compiler (cc45) - uses all libraries plus pipeline objects
 # Note: Link order matters - list libraries twice to resolve circular dependencies
+# cc45 pipeline invokes ca45 externally, so ca45 must be built first
+$(CC_TARGET): $(CA_TARGET)
 $(CC_TARGET): $(OBJ_DIR)/cc45_main.o $(PIPELINE_OBJECTS) | $(LIB_DIR)
 $(CC_TARGET): $(LIB_DIR)/lib45-opt.a $(LIB_DIR)/lib45-codegen.a \
               $(LIB_DIR)/lib45-ir.a $(LIB_DIR)/lib45-c-compile.a $(LIB_DIR)/lib45-common.a
@@ -377,7 +383,7 @@ $(LIB_DIR):
 # ============================================================================
 
 .PHONY: lib45-libraries lib45-sizes lib45-clean show-lib-deps parallel-build
-.PHONY: all clean test man test-mmemu test-stdlib test-regression test-zpcall
+.PHONY: all clean test man test-mmemu test-stdlib test-regression test-zpcall stdlib
 .PHONY: test-integration bench bench-save lib install install_local uninstall
 .PHONY: uninstall_local cppcheck coverage coverage-build coverage-clean
 .PHONY: coverage-report docker validate_performance test-assembler test-const

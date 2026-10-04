@@ -2558,9 +2558,25 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         break;
                     }
                     if (srcAlloc.loc == VRegAllocator::IN_FRAME) {
-                        std::string sym = "__vr" + std::to_string(inst.src1.vregId);
-                        std::string r = irDesc(inst.op == ir::Op::ADD ? "inc16 frame" : "dec16 frame");
-                        emit(inst.op == ir::Op::ADD ? "inc.16f " + sym : "dec.16f " + sym, r);
+                        if (currentFunctionUseSAC_) {
+                            // SAC mode: use absolute BSS symbol
+                            std::string sym = currentFunctionName_ + "__local_" + std::to_string(inst.src1.vregId);
+                            std::string r = irDesc(inst.op == ir::Op::ADD ? "inc16 SAC" : "dec16 SAC");
+                            if (inst.op == ir::Op::ADD) {
+                                emit("inc " + sym, r);
+                                emit("bne *+5");
+                                emit("inc " + sym + "+1");
+                            } else {
+                                emit("lda " + sym, r);
+                                emit("bne *+5");
+                                emit("dec " + sym + "+1");
+                                emit("dec " + sym);
+                            }
+                        } else {
+                            std::string sym = "__vr" + std::to_string(inst.src1.vregId);
+                            std::string r = irDesc(inst.op == ir::Op::ADD ? "inc16 frame" : "dec16 frame");
+                            emit(inst.op == ir::Op::ADD ? "inc.16f " + sym : "dec.16f " + sym, r);
+                        }
                         resultInAX_ = -2;
                         ms_.invalidateAll();
                         break;
