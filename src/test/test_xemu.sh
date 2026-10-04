@@ -249,7 +249,7 @@ fi
 echo "Testing test_float_xemu.c (float arithmetic)..."
 compile_link_test "src/test-resources/test_float_xemu.c" "build/test/test_float_xemu.prg"
 if [ $? -eq 0 ]; then
-    run_xemu_test "test_float" "build/test/test_float_xemu.prg" "C090" 8 "01 02 03 04 05 06 07 AA"
+    run_xemu_test "test_float" "build/test/test_float_xemu.prg" "C090" 10 "01 02 03 04 05 06 07 08 09 AA"
 else
     echo "FAIL: test_float_xemu.c (compilation/linking failed)"
     failed=$((failed + 1))

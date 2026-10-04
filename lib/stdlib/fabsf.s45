@@ -1,0 +1,30 @@
+; fabsf.s — C wrapper for BASIC 65 float ROM
+.extern __float_a
+.extern __float_load_fac
+.extern __float_store_fac
+.extern __jsrfar_basic
+.extern __sp_base
+
+.global _fabsf
+_fabsf:
+    tsx
+    lda __sp_base+7,x
+    sta __float_a+0
+    lda __sp_base+6,x
+    sta __float_a+1
+    lda __sp_base+5,x
+    sta __float_a+2
+    lda __sp_base+4,x
+    sta __float_a+3
+    lda __sp_base+3,x
+    sta __float_a+4
+    lda #<__float_a
+    ldx #>__float_a
+    jsr __float_load_fac
+    lda #<$7F4E
+    ldx #>$7F4E
+    jsr __jsrfar_basic
+    lda #<__float_a
+    ldx #>__float_a
+    jsr __float_store_fac
+    rts

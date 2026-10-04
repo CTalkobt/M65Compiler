@@ -5,7 +5,7 @@
  * CBM 40-bit ROM routines via JSRFAR.
  * Uses global float variables to avoid ZP allocation conflicts.
  *
- * Expected at $C090: 01 02 03 04 05 06 07 AA
+ * Expected at $C090: 01 02 03 04 05 06 07 08 09 AA
  */
 
 #define RESULT(i) (*(volatile unsigned char *)(0xC090 + (i)))
@@ -54,5 +54,15 @@ void main() {
     gb = 0.0 - ga;  /* negate manually → 5.0 */
     if ((int)gb == 5) RESULT(6) = 0x07;
 
-    RESULT(7) = 0xAA;
+    /* Test 8: float inequality */
+    ga = 3.0;
+    gb = 2.0;
+    if (ga != gb) RESULT(7) = 0x08;
+
+    /* Test 9: int-to-float-to-int roundtrip (variable, not constant) */
+    int x = 42;
+    ga = (float)x;
+    if ((int)ga == 42) RESULT(8) = 0x09;
+
+    RESULT(9) = 0xAA;
 }
