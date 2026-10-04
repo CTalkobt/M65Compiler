@@ -990,8 +990,15 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         localConst_[p.name] = (p.pointerLevel == 0 && p.isConst) || p.isPointerConst;
         localPointsToConst_[p.name] = p.isConst && p.pointerLevel > 0;
         if (p.pointerLevel > 0) {
-            localPointedToType_[p.name] = mapType(p.type, 0);
-            localPointedToTypeName_[p.name] = p.type;
+            // For pointer-to-pointer (char **), pointedToType is PTR (not the base type).
+            // Only single-level pointers (char *) point directly to the base type.
+            if (p.pointerLevel > 1) {
+                localPointedToType_[p.name] = ir::Type::PTR;
+                localPointedToTypeName_[p.name] = p.type + "*";
+            } else {
+                localPointedToType_[p.name] = mapType(p.type, 0);
+                localPointedToTypeName_[p.name] = p.type;
+            }
         }
         if (p.isVolatile) currentFunc_->memoryVregs.insert(vreg.vregId);
         currentFunc_->localSlotVregs.insert(vreg.vregId);
@@ -3320,8 +3327,13 @@ normal_call:
                 localSigned_[p.name] = p.isSigned;
                 localConst_[p.name] = (p.pointerLevel == 0 && p.isConst);
                 if (p.pointerLevel > 0) {
-                    localPointedToType_[p.name] = mapType(p.type, 0);
-                    localPointedToTypeName_[p.name] = p.type;
+                    if (p.pointerLevel > 1) {
+                        localPointedToType_[p.name] = ir::Type::PTR;
+                        localPointedToTypeName_[p.name] = p.type + "*";
+                    } else {
+                        localPointedToType_[p.name] = mapType(p.type, 0);
+                        localPointedToTypeName_[p.name] = p.type;
+                    }
                 }
             }
 
