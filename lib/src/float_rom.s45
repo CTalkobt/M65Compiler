@@ -53,6 +53,7 @@ ARG_EX = $6A
 ; Helper: call BASIC ROM routine via JSRFAR
 ; Call with target address in AX (A=low, X=high)
 ; ===========================================================================
+.global __jsrfar_basic
 __jsrfar_basic:
     sta $04             ; PCL
     stx $03             ; PCH
@@ -71,20 +72,21 @@ __float_load_fac:
     sta $02
     stx $03
     ldy #0
-    lda ($02),y
+    lda ($02),y         ; byte[0] → exponent
     sta FAC_EX
     iny
-    lda ($02),y
-    sta FAC_M1
+    lda ($02),y         ; byte[1] → M4 (compiler stores mantissa MSB first)
+    ora #$80            ; Set hidden '1' bit (CBM format includes it)
+    sta FAC_M4
     iny
-    lda ($02),y
-    sta FAC_M2
-    iny
-    lda ($02),y
+    lda ($02),y         ; byte[2] → M3
     sta FAC_M3
     iny
-    lda ($02),y
-    sta FAC_M4
+    lda ($02),y         ; byte[3] → M2
+    sta FAC_M2
+    iny
+    lda ($02),y         ; byte[4] → M1
+    sta FAC_M1
     lda #0
     sta FAC_SI
     rts
@@ -97,20 +99,21 @@ __float_load_arg:
     sta $02
     stx $03
     ldy #0
-    lda ($02),y
+    lda ($02),y         ; byte[0] → exponent
     sta ARG_EX
     iny
-    lda ($02),y
-    sta $6B
+    lda ($02),y         ; byte[1] → M4 (mantissa MSB first in memory)
+    ora #$80            ; Set hidden '1' bit
+    sta $6E
     iny
-    lda ($02),y
-    sta $6C
-    iny
-    lda ($02),y
+    lda ($02),y         ; byte[2] → M3
     sta $6D
     iny
-    lda ($02),y
-    sta $6E
+    lda ($02),y         ; byte[3] → M2
+    sta $6C
+    iny
+    lda ($02),y         ; byte[4] → M1
+    sta $6B
     lda #0
     sta $6F
     rts
@@ -124,29 +127,21 @@ __float_store_fac:
     stx $03
     ldy #0
     lda FAC_EX
-    sta ($02),y
-    iny
-    lda FAC_M1
-    sta ($02),y
-    iny
-    lda FAC_M2
-    sta ($02),y
-    iny
-    lda FAC_M3
-    sta ($02),y
+    sta ($02),y          ; byte[0] ← exponent
     iny
     lda FAC_M4
-    sta ($02),y
+    and #$7F             ; Clear hidden '1' bit (compiler format doesn't include it)
+    sta ($02),y          ; byte[1] ← M4 (mantissa MSB first in memory)
+    iny
+    lda FAC_M3
+    sta ($02),y          ; byte[2] ← M3
+    iny
+    lda FAC_M2
+    sta ($02),y          ; byte[3] ← M2
+    iny
+    lda FAC_M1
+    sta ($02),y          ; byte[4] ← M1
     rts
-
-; ===========================================================================
-; Shared data buffers
-; ===========================================================================
-.global __float_a
-__float_a: .res 5
-
-.global __float_b
-__float_b: .res 5
 
 ; ===========================================================================
 ; Binary: __float_add  (result = a + b)
@@ -331,9 +326,9 @@ __float_ftoi:
     lda #<BJT_AYINT
     ldx #>BJT_AYINT
     jsr __jsrfar_basic
-    ; AYINT stores 16-bit result at FAC_M3/M4 big-endian (CBM convention)
-    lda FAC_M4      ; low byte (M4 in big-endian)
-    ldx FAC_M3      ; high byte (M3 in big-endian)
+    ; MEGA65 BASIC 65 AYINT: stores 16-bit integer in FAC_M1 (low) and FAC_M2 (high)
+    lda FAC_M1      ; low byte
+    ldx FAC_M2      ; high byte
     rts
 
 ; ===========================================================================
@@ -442,3 +437,13 @@ __float_abs:
     ldx #>__float_a
     jsr __float_store_fac
     rts
+
+; ===========================================================================
+; Shared data buffers
+; ===========================================================================
+.segment "bss"
+.global __float_a
+__float_a: .res 5
+
+.global __float_b
+__float_b: .res 5

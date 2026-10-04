@@ -18,7 +18,9 @@ CRT_ZP_SOURCES = crt0_zp.s45 crt0_mega65_zp.s45 crt_heap_zp.s45 crt_bssinit_zp.s
 CRT_ZP_OBJECTS = $(patsubst %.s45,$(BUILD)/%.o45,$(CRT_ZP_SOURCES))
 
 # Float ROM runtime (shared between stack and ZP conventions)
-FLOAT_ROM_SOURCES = src/float_rom.s45 src/float_rom_indirect.s45
+# Only include float_rom.s45 (direct ZP access — faster).
+# float_rom_indirect.s45 is an alternative that uses MOVFM/MOVMF (not needed).
+FLOAT_ROM_SOURCES = src/float_rom.s45
 FLOAT_ROM_OBJECTS = $(patsubst src/%.s45,$(BUILD)/%.o45,$(FLOAT_ROM_SOURCES))
 
 # Stdlib modules — stack convention (assembly + C)
