@@ -2785,24 +2785,8 @@ void IRBuilder::visit(CastExpression& node) {
     auto src = lastValue_;
     ir::Type destType = mapType(node.targetType, node.pointerLevel);
 
-    if (src.type == destType) {
-        lastValue_ = src;
-        return;
-    }
-
-    auto dest = allocVreg(destType);
-    ir::Inst inst;
-    if (ir::typeSize(destType) > ir::typeSize(src.type)) {
-        inst.op = node.isSigned ? ir::Op::SEXT : ir::Op::ZEXT;
-    } else {
-        inst.op = ir::Op::TRUNC;
-    }
-    inst.dest = dest;
-    inst.resultType = destType;
-    inst.src1 = src;
-    inst.loc = loc(node);
-    emit(inst);
-    lastValue_ = dest;
+    // Use emitCast which handles float↔int conversions (FTOI/ITOF)
+    lastValue_ = emitCast(src, destType, node.isSigned);
 }
 
 void IRBuilder::visit(FunctionCall& node) {

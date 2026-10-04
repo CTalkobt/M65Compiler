@@ -4791,48 +4791,96 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         case ir::Op::FMUL: case ir::Op::FDIV: {
             auto s1 = alloc_.getAlloc(inst.src1.vregId);
             auto s2 = alloc_.getAlloc(inst.src2.vregId);
-            emit("MOVE $" + hex8((uint8_t)s1.offset) + ", __float_a, 5");
-            emit("MOVE $" + hex8((uint8_t)s2.offset) + ", __float_b, 5");
+            auto floatSrc = [&](const VRegAllocator::Allocation& a, uint32_t vregId, const std::string& dst) {
+                if (currentFunctionUseSAC_ && a.loc == VRegAllocator::IN_FRAME)
+                    emit("MOVE " + currentFunctionName_ + "__local_" + std::to_string(vregId) + ", " + dst + ", 5");
+                else
+                    emit("MOVE $" + hex8((uint8_t)a.offset) + ", " + dst + ", 5");
+            };
+            auto floatDst = [&](const VRegAllocator::Allocation& a, uint32_t vregId, const std::string& src) {
+                if (currentFunctionUseSAC_ && a.loc == VRegAllocator::IN_FRAME)
+                    emit("MOVE " + src + ", " + currentFunctionName_ + "__local_" + std::to_string(vregId) + ", 5");
+                else
+                    emit("MOVE " + src + ", $" + hex8((uint8_t)a.offset) + ", 5");
+            };
+            floatSrc(s1, inst.src1.vregId, "__float_a");
+            floatSrc(s2, inst.src2.vregId, "__float_b");
             if (inst.op == ir::Op::FADD) emit("jsr __float_add");
             else if (inst.op == ir::Op::FSUB) emit("jsr __float_sub");
             else if (inst.op == ir::Op::FMUL) emit("jsr __float_mul");
             else emit("jsr __float_div");
             auto da = alloc_.getAlloc(inst.dest.vregId);
-            emit("MOVE __float_a, $" + hex8((uint8_t)da.offset) + ", 5");
+            floatDst(da, inst.dest.vregId, "__float_a");
             break;
         }
         case ir::Op::FNEG: {
             auto s1 = alloc_.getAlloc(inst.src1.vregId);
-            emit("MOVE $" + hex8((uint8_t)s1.offset) + ", __float_a, 5");
+            if (currentFunctionUseSAC_ && s1.loc == VRegAllocator::IN_FRAME)
+                emit("MOVE " + currentFunctionName_ + "__local_" + std::to_string(inst.src1.vregId) + ", __float_a, 5");
+            else
+                emit("MOVE $" + hex8((uint8_t)s1.offset) + ", __float_a, 5");
             emit("jsr __float_neg");
             auto da = alloc_.getAlloc(inst.dest.vregId);
-            emit("MOVE __float_a, $" + hex8((uint8_t)da.offset) + ", 5");
+            if (currentFunctionUseSAC_ && da.loc == VRegAllocator::IN_FRAME)
+                emit("MOVE __float_a, " + currentFunctionName_ + "__local_" + std::to_string(inst.dest.vregId) + ", 5");
+            else
+                emit("MOVE __float_a, $" + hex8((uint8_t)da.offset) + ", 5");
             break;
         }
         case ir::Op::FCMP: {
             auto s1 = alloc_.getAlloc(inst.src1.vregId);
             auto s2 = alloc_.getAlloc(inst.src2.vregId);
-            emit("MOVE $" + hex8((uint8_t)s1.offset) + ", __float_a, 5");
-            emit("MOVE $" + hex8((uint8_t)s2.offset) + ", __float_b, 5");
+            if (currentFunctionUseSAC_ && s1.loc == VRegAllocator::IN_FRAME)
+                emit("MOVE " + currentFunctionName_ + "__local_" + std::to_string(inst.src1.vregId) + ", __float_a, 5");
+            else
+                emit("MOVE $" + hex8((uint8_t)s1.offset) + ", __float_a, 5");
+            if (currentFunctionUseSAC_ && s2.loc == VRegAllocator::IN_FRAME)
+                emit("MOVE " + currentFunctionName_ + "__local_" + std::to_string(inst.src2.vregId) + ", __float_b, 5");
+            else
+                emit("MOVE $" + hex8((uint8_t)s2.offset) + ", __float_b, 5");
             emit("jsr __float_cmp");
             auto da = alloc_.getAlloc(inst.dest.vregId);
-            emit("sta $" + hex8((uint8_t)da.offset));
+            if (currentFunctionUseSAC_ && da.loc == VRegAllocator::IN_FRAME) {
+                std::string dsym = currentFunctionName_ + "__local_" + std::to_string(inst.dest.vregId);
+                emit("sta " + dsym);
+            } else {
+                emit("sta $" + hex8((uint8_t)da.offset));
+            }
             break;
         }
         case ir::Op::ITOF: {
             loadOperand(inst.src1);
             emit("jsr __float_itof");
+            // Copy 5-byte float result from __float_a to dest vreg
             auto da = alloc_.getAlloc(inst.dest.vregId);
-            emit("MOVE __float_a, $" + hex8((uint8_t)da.offset) + ", 5");
+            if (currentFunctionUseSAC_ && da.loc == VRegAllocator::IN_FRAME) {
+                std::string dsym = currentFunctionName_ + "__local_" + std::to_string(inst.dest.vregId);
+                emit("MOVE __float_a, " + dsym + ", 5");
+            } else {
+                emit("MOVE __float_a, $" + hex8((uint8_t)da.offset) + ", 5");
+            }
             break;
         }
         case ir::Op::FTOI: {
+            // Copy 5-byte float from source vreg to __float_a, then call ROM
             auto s1 = alloc_.getAlloc(inst.src1.vregId);
-            emit("MOVE $" + hex8((uint8_t)s1.offset) + ", __float_a, 5");
+            if (currentFunctionUseSAC_ && s1.loc == VRegAllocator::IN_FRAME) {
+                std::string sym = currentFunctionName_ + "__local_" + std::to_string(inst.src1.vregId);
+                emit("MOVE " + sym + ", __float_a, 5");
+            } else {
+                emit("MOVE $" + hex8((uint8_t)s1.offset) + ", __float_a, 5");
+            }
             emit("jsr __float_ftoi");
+            // Store 16-bit result to dest vreg
             auto da = alloc_.getAlloc(inst.dest.vregId);
-            emit("sta $" + hex8((uint8_t)da.offset));
-            emit("stx $" + hex8((uint8_t)(da.offset + 1)));
+            if (currentFunctionUseSAC_ && da.loc == VRegAllocator::IN_FRAME) {
+                std::string dsym = currentFunctionName_ + "__local_" + std::to_string(inst.dest.vregId);
+                emit("sta " + dsym);
+                emit("stx " + dsym + "+1");
+            } else {
+                emit("sta $" + hex8((uint8_t)da.offset));
+                emit("stx $" + hex8((uint8_t)(da.offset + 1)));
+            }
             break;
         }
 
