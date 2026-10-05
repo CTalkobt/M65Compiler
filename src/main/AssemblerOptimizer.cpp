@@ -266,14 +266,24 @@ bool AssemblerOptimizer::optimizeInternal(
             if (!resolved) continue;
 
             if (m == "JMP" && parser->optFlags.jmpBra) {
-                uint32_t braPC = s->address + 2;
-                int32_t offset = (int32_t)targetAddr - (int32_t)braPC;
-                if (offset >= -128 && offset <= 127) {
-                    report("jmp-bra", s, "JMP → BRA (saved 1 byte, offset " + std::to_string(offset) + ")");
-                    s->instr.mnemonic = "bra";
-                    s->instr.mode = AddressingMode::RELATIVE;
-                    s->size = 2;
-                    changed = true;
+                // Don't convert JMP to BRA for relocatable/external symbols
+                // (target address isn't final — BRA offset would be wrong)
+                std::string operand = s->instr.operand;
+                if (operand.empty() && s->instr.operandTokenIndex >= 0 &&
+                    s->instr.operandTokenIndex < (int)parser->tokens.size())
+                    operand = parser->tokens[s->instr.operandTokenIndex].value;
+                bool isReloc = parser->isRelocatableSymbol(operand) ||
+                               parser->isRelocatableSymbol(s->scopePrefix + operand);
+                if (!isReloc) {
+                    uint32_t braPC = s->address + 2;
+                    int32_t offset = (int32_t)targetAddr - (int32_t)braPC;
+                    if (offset >= -128 && offset <= 127) {
+                        report("jmp-bra", s, "JMP → BRA (saved 1 byte, offset " + std::to_string(offset) + ")");
+                        s->instr.mnemonic = "bra";
+                        s->instr.mode = AddressingMode::RELATIVE;
+                        s->size = 2;
+                        changed = true;
+                    }
                 }
             } else {
                 bool canBSR = resolved && parser->optFlags.jsrRelocate;

@@ -4328,12 +4328,28 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                             emit("ldax #" + arg.name);
                             emit("push .ax");
                         } else if (arg.type == ir::Type::F32 && arg.isVreg()) {
-                            // Float: push 5 bytes from ZP (push byte 4 first, byte 0 last)
+                            // Float: push 5 bytes (push byte 4 first, byte 0 last)
                             auto alloc = alloc_.getAlloc(arg.vregId);
-                            std::string za = "$" + hex8((uint8_t)alloc.offset);
-                            for (int bi = 4; bi >= 0; bi--) {
-                                emit("lda " + za + "+" + std::to_string(bi));
-                                emit("pha");
+                            ms_.invalidateAll();
+                            if (alloc.loc == VRegAllocator::IN_ZP) {
+                                std::string za = "$" + hex8((uint8_t)alloc.offset);
+                                for (int bi = 4; bi >= 0; bi--) {
+                                    emit("lda " + za + "+" + std::to_string(bi));
+                                    emit("pha");
+                                }
+                            } else if (currentFunctionUseSAC_) {
+                                std::string sym = currentFunctionName_ + "__local_" + std::to_string(arg.vregId);
+                                for (int bi = 4; bi >= 0; bi--) {
+                                    emit("lda " + sym + "+" + std::to_string(bi));
+                                    emit("pha");
+                                }
+                            } else {
+                                int off = alloc.offset;
+                                for (int bi = 4; bi >= 0; bi--) {
+                                    emit("ldy #" + std::to_string(off + bi));
+                                    emit("lda ($fd),y");
+                                    emit("pha");
+                                }
                             }
                         } else {
                             // Complex operand — load and push
@@ -4385,12 +4401,28 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         const auto& arg = inst.args[ai];
                         int slot = nArgs - 1 - ai;
                         if (arg.type == ir::Type::F32 && arg.isVreg()) {
-                            // F32: copy 5 bytes from vreg ZP to scratch slot
+                            // F32: copy 5 bytes from vreg to scratch slot
                             auto alloc = alloc_.getAlloc(arg.vregId);
-                            std::string za = "$" + hex8((uint8_t)alloc.offset);
-                            for (int bi = 0; bi < 5; bi++) {
-                                emit("lda " + za + "+" + std::to_string(bi));
-                                emit("sta " + zpSlotAddr(slot, bi));
+                            ms_.invalidateAll();
+                            if (alloc.loc == VRegAllocator::IN_ZP) {
+                                std::string za = "$" + hex8((uint8_t)alloc.offset);
+                                for (int bi = 0; bi < 5; bi++) {
+                                    emit("lda " + za + "+" + std::to_string(bi));
+                                    emit("sta " + zpSlotAddr(slot, bi));
+                                }
+                            } else if (currentFunctionUseSAC_) {
+                                std::string sym = currentFunctionName_ + "__local_" + std::to_string(arg.vregId);
+                                for (int bi = 0; bi < 5; bi++) {
+                                    emit("lda " + sym + "+" + std::to_string(bi));
+                                    emit("sta " + zpSlotAddr(slot, bi));
+                                }
+                            } else {
+                                int off = alloc.offset;
+                                for (int bi = 0; bi < 5; bi++) {
+                                    emit("ldy #" + std::to_string(off + bi));
+                                    emit("lda ($fd),y");
+                                    emit("sta " + zpSlotAddr(slot, bi));
+                                }
                             }
                         } else {
                             loadOperand(arg);

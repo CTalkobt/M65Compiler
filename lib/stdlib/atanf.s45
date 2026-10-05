@@ -1,30 +1,33 @@
-; atanf.s — C wrapper for BASIC 65 float ROM
+; atanf.s — C math wrapper for BASIC 65 ROM
 .extern __float_a
 .extern __float_load_fac
 .extern __float_store_fac
 .extern __jsrfar_basic
 .extern __sp_base
+ROMADDR = $7F48
 
 .global _atanf
 _atanf:
+    ; Copy 5-byte float arg from stack to __float_a
     tsx
-    lda __sp_base+7,x
+    lda __sp_base+3,x
     sta __float_a+0
-    lda __sp_base+6,x
+    lda __sp_base+4,x
     sta __float_a+1
     lda __sp_base+5,x
     sta __float_a+2
-    lda __sp_base+4,x
+    lda __sp_base+6,x
     sta __float_a+3
-    lda __sp_base+3,x
+    lda __sp_base+7,x
     sta __float_a+4
+    ; Load into FAC, call ROM, store back
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
-    lda #<$7F48
-    ldx #>$7F48
+    lda #<ROMADDR
+    ldx #>ROMADDR
     jsr __jsrfar_basic
     lda #<__float_a
     ldx #>__float_a
-    jsr __float_store_fac
-    rts
+    jmp __float_store_fac
+    ; __float_store_fac returns via its own RTS
