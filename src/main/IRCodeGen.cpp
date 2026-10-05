@@ -739,9 +739,18 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
             FuncClobbers& myFC = baseClobbers[fn.name];
             // Union in clobbers from all called functions
             for (const auto& calleeName : fn.originalCallees) {
-                if (baseClobbers.count(calleeName) > 0) {
+                // originalCallees stores C names; baseClobbers uses IR names (_ prefix)
+                std::string irName = "_" + calleeName;
+                if (baseClobbers.count(irName) > 0) {
+                    myFC.regs |= baseClobbers[irName].regs;
+                    myFC.flags |= baseClobbers[irName].flags;
+                } else if (baseClobbers.count(calleeName) > 0) {
                     myFC.regs |= baseClobbers[calleeName].regs;
                     myFC.flags |= baseClobbers[calleeName].flags;
+                } else {
+                    // External/unknown callee: conservatively clobber everything
+                    myFC.regs |= 0x0F;  // A|X|Y|Z
+                    myFC.flags |= 0x0F; // C|N|Z|V
                 }
             }
             // Update the masks and clobber info with the unioned clobber info
@@ -1345,7 +1354,10 @@ IRCodeGen::FuncClobbers IRCodeGen::computeFuncClobbers(const ir::Function& fn) {
 
                 case ir::Op::COPY:
                 case ir::Op::DEREF:
-                    fc.regs |= A | X | Y;  // struct copy uses ldy; I32 uses ldy/ldz
+                    fc.regs |= A | X;
+                    // Y only needed for struct copy (multi-byte) or I32
+                    if (inst.resultType == ir::Type::I32) fc.regs |= Y | Z;
+                    else if (inst.resultType != ir::Type::I8 && inst.resultType != ir::Type::I16) fc.regs |= Y;
                     fc.flags |= N | ZF;
                     break;
 
@@ -1369,9 +1381,13 @@ IRCodeGen::FuncClobbers IRCodeGen::computeFuncClobbers(const ir::Function& fn) {
 
                 case ir::Op::CALL:
                 case ir::Op::CALL_VOID:
+                    // Direct calls: defer clobber info to second pass (callee union)
+                    // Only mark as non-leaf here; second pass adds callee clobbers
+                    fc.isLeaf = false;
+                    break;
+
                 case ir::Op::CALL_INDIRECT:
-                    // Calls conservatively clobber everything
-                    // (Phase 2 will refine this using callee's .reg_clobbers)
+                    // Indirect calls: target unknown, conservatively clobber everything
                     fc.regs |= A | X | Y | Z;
                     fc.flags |= C | N | ZF | V;
                     fc.isLeaf = false;

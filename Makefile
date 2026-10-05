@@ -789,7 +789,7 @@ test-validation-preprocessor: $(TEST_VALIDATION_PREPROCESSOR_TARGET) all
 
 # Linker Error Validation unit test
 TEST_VALIDATION_LINKER_TARGET = $(BIN_DIR)/test_validation_linker
-TEST_VALIDATION_LINKER_OBJECTS = $(OBJ_DIR)/test_validation_linker.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45IRSerializer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o
+TEST_VALIDATION_LINKER_OBJECTS = $(OBJ_DIR)/test_validation_linker.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45DebugSections.o $(OBJ_DIR)/O45IRSerializer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o
 
 $(TEST_VALIDATION_LINKER_TARGET): $(TEST_VALIDATION_LINKER_OBJECTS) $(CA_TARGET)
 	@mkdir -p $(BIN_DIR)
@@ -804,7 +804,7 @@ test-validation-linker: $(TEST_VALIDATION_LINKER_TARGET) all
 
 # Segment emission unit test
 TEST_SEGMENT_EMISSION_TARGET = $(BIN_DIR)/test_segment_emission
-TEST_SEGMENT_EMISSION_OBJECTS = $(OBJ_DIR)/test_segment_emission.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45IRSerializer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o
+TEST_SEGMENT_EMISSION_OBJECTS = $(OBJ_DIR)/test_segment_emission.o $(OBJ_DIR)/O45Reader.o $(OBJ_DIR)/O45Writer.o $(OBJ_DIR)/O45DebugSections.o $(OBJ_DIR)/O45IRSerializer.o $(OBJ_DIR)/O45Linker.o $(OBJ_DIR)/O45Archive.o $(OBJ_DIR)/AssemblerOpcodeDatabase.o
 
 $(TEST_SEGMENT_EMISSION_TARGET): $(TEST_SEGMENT_EMISSION_OBJECTS) $(CA_TARGET)
 	@mkdir -p $(BIN_DIR)
