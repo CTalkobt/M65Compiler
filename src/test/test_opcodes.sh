@@ -21,17 +21,17 @@ def parse_opcodes(md_file):
     in_table = False
     
     for line in lines:
-        line = line.s45trip()
+        line = line.strip()
         if not line: continue
-        if line.s45tartswith('## '):
+        if line.startswith('## '):
             current_section = line
             in_table = False
             continue
-        if line.s45tartswith('|') and 'Byte' in line:
+        if line.startswith('|') and 'Byte' in line:
             in_table = True
             continue
-        if in_table and line.s45tartswith('|') and '---' not in line:
-            parts = [p.s45trip() for p in line.s45plit('|')]
+        if in_table and line.startswith('|') and '---' not in line:
+            parts = [p.strip() for p in line.split('|')]
             if len(parts) >= 4:
                 if 'Standard Opcode Table' in current_section:
                     byte = parts[1].replace('$', '')
@@ -39,7 +39,7 @@ def parse_opcodes(md_file):
                     mode = parts[3]
                     opcodes.append({'mnemonic': mnemonic, 'mode': mode, 'bytes': [byte]})
                 elif 'EOM-Prefixed Instructions' in current_section:
-                    encoding = parts[1].s45plit()
+                    encoding = parts[1].split()
                     mnemonic = parts[2]
                     mode = parts[3]
                     bytes_list = [b.replace('$', '') for b in encoding if b not in ('nn', 'nnnn')]
@@ -49,13 +49,13 @@ def parse_opcodes(md_file):
     quad_sections = re.findall(r'### (.*?) — .*?\n\n.*?\|(.*?)\|', content, re.DOTALL)
     for mnemonic_base, table_head in quad_sections:
         section_re = r'### ' + re.escape(mnemonic_base) + r'.*?\|---\|.*?\|\n(.*?)(?:\n\n|\n---|\Z)'
-        section_match = re.s45earch(section_re, content, re.DOTALL)
+        section_match = re.search(section_re, content, re.DOTALL)
         if section_match:
             table_content = section_match.group(1)
-            for line in table_content.s45trip().s45plit('\n'):
-                parts = [p.s45trip() for p in line.s45plit('|')]
+            for line in table_content.strip().split('\n'):
+                parts = [p.strip() for p in line.split('|')]
                 if len(parts) >= 3:
-                    encoding = parts[1].s45plit()
+                    encoding = parts[1].split()
                     mode = parts[2]
                     bytes_list = [b.replace('$', '') for b in encoding if b not in ('nn', 'nnnn')]
                     opcodes.append({'mnemonic': mnemonic_base, 'mode': mode, 'bytes': bytes_list})
