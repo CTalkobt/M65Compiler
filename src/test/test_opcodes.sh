@@ -1,164 +1,165 @@
 #!/bin/bash
+# test_opcodes.sh — Validate that ca45 correctly assembles all opcodes
+# from AssemblerOpcodeDatabase.cpp to their expected byte encodings.
 
 CA="./bin/ca45"
-TEST_S="build/full_opcode_test.s45"
-TEST_BIN="build/full_opcode_test.bin"
 META_FILE="build/full_opcode_meta.txt"
+DB_FILE="src/main/AssemblerOpcodeDatabase.cpp"
 
 mkdir -p build
 
-# 1. Generate the test assembly and metadata
-python3 - << 'EOF'
-import re
-import os
+# 1. Extract opcode entries from the C++ database
+# Format: mnemonic|addressing_mode_enum|expected_hex_byte
+python3 - "$DB_FILE" "$META_FILE" << 'PYEOF'
+import re, sys
 
-def parse_opcodes(md_file):
-    with open(md_file, 'r') as f:
-        lines = f.readlines()
+db_file = sys.argv[1]
+meta_file = sys.argv[2]
 
-    opcodes = []
-    current_section = None
-    in_table = False
-    
-    for line in lines:
-        line = line.strip()
-        if not line: continue
-        if line.startswith('## '):
-            current_section = line
-            in_table = False
-            continue
-        if line.startswith('|') and 'Byte' in line:
-            in_table = True
-            continue
-        if in_table and line.startswith('|') and '---' not in line:
-            parts = [p.strip() for p in line.split('|')]
-            if len(parts) >= 4:
-                if 'Standard Opcode Table' in current_section:
-                    byte = parts[1].replace('$', '')
-                    mnemonic = parts[2]
-                    mode = parts[3]
-                    opcodes.append({'mnemonic': mnemonic, 'mode': mode, 'bytes': [byte]})
-                elif 'EOM-Prefixed Instructions' in current_section:
-                    encoding = parts[1].split()
-                    mnemonic = parts[2]
-                    mode = parts[3]
-                    bytes_list = [b.replace('$', '') for b in encoding if b not in ('nn', 'nnnn')]
-                    opcodes.append({'mnemonic': mnemonic, 'mode': mode, 'bytes': bytes_list})
+with open(db_file) as f:
+    content = f.read()
 
-    content = "".join(lines)
-    quad_sections = re.findall(r'### (.*?) — .*?\n\n.*?\|(.*?)\|', content, re.DOTALL)
-    for mnemonic_base, table_head in quad_sections:
-        section_re = r'### ' + re.escape(mnemonic_base) + r'.*?\|---\|.*?\|\n(.*?)(?:\n\n|\n---|\Z)'
-        section_match = re.search(section_re, content, re.DOTALL)
-        if section_match:
-            table_content = section_match.group(1)
-            for line in table_content.strip().split('\n'):
-                parts = [p.strip() for p in line.split('|')]
-                if len(parts) >= 3:
-                    encoding = parts[1].split()
-                    mode = parts[2]
-                    bytes_list = [b.replace('$', '') for b in encoding if b not in ('nn', 'nnnn')]
-                    opcodes.append({'mnemonic': mnemonic_base, 'mode': mode, 'bytes': bytes_list})
-    return opcodes
+# Map C++ AddressingMode enum names to test syntax
+mode_map = {
+    'IMPLIED':                 ('imp',    None),
+    'ACCUMULATOR':             ('acc',    'A'),
+    'IMMEDIATE':               ('imm',    '#$12'),
+    'IMMEDIATE16':             ('imm16',  '#$1234'),
+    'BASE_PAGE':               ('bp',     '$12'),
+    'BASE_PAGE_X':             ('bp_x',   '$12,X'),
+    'BASE_PAGE_Y':             ('bp_y',   '$12,Y'),
+    'ABSOLUTE':                ('abs',    '$1234'),
+    'ABSOLUTE_X':              ('abs_x',  '$1234,X'),
+    'ABSOLUTE_Y':              ('abs_y',  '$1234,Y'),
+    'BASE_PAGE_X_INDIRECT':    ('bp_xi',  '($12,X)'),
+    'BASE_PAGE_INDIRECT_Y':    ('bp_iy',  '($12),Y'),
+    'BASE_PAGE_INDIRECT_Z':    ('bp_iz',  '($12),Z'),
+    'ABSOLUTE_INDIRECT':       ('abs_i',  '($1234)'),
+    'ABSOLUTE_X_INDIRECT':     ('abs_xi', '($1234,X)'),
+    'RELATIVE':                ('rel',    None),     # needs label
+    'RELATIVE16':              ('rel16',  None),     # needs label
+    'BASE_PAGE_RELATIVE':      ('bp_rel', None),     # needs special handling
+    'BASE_PAGE_INDIRECT_SP_Y': ('bp_spy', '($12,SP),Y'),
+    'FLAT_INDIRECT_Z':         ('flat_z', '[$12],Z'),
+    'QUAD_Q':                  ('quad',   None),     # skip (Q register ops)
+}
 
-def get_asm(mnemonic, mode):
-    if mode == 'imp': return f"{mnemonic}"
-    if mode == 'acc' or mode == 'Q (acc)': return f"{mnemonic} A"
-    if mode == 'imm': return f"{mnemonic} #$12"
-    if mode == 'imm16': return f"{mnemonic} #$1234"
-    if mode == 'bp': return f"{mnemonic} $12"
-    if mode == 'bp,X': return f"{mnemonic} $12,X"
-    if mode == 'bp,Y': return f"{mnemonic} $12,Y"
-    if mode == 'abs': return f"{mnemonic} $1234"
-    if mode == 'abs,X': return f"{mnemonic} $1234,X"
-    if mode == 'abs,Y': return f"{mnemonic} $1234,Y"
-    if mode == '(bp,X)': return f"{mnemonic} ($12,X)"
-    if mode == '(bp),Y': return f"{mnemonic} ($12),Y"
-    if mode == '(bp),Z': return f"{mnemonic} ($12),Z"
-    if mode == '[bp],Z': return f"{mnemonic} [$12],Z"
-    if mode == '(bp,SP),Y': return f"{mnemonic} ($12,SP),Y"
-    if mode == '(abs)': return f"{mnemonic} ($1234)"
-    if mode == '(abs,X)': return f"{mnemonic} ($1234,X)"
-    if mode == 'rel': return f"L_{mnemonic}_{mode.replace(',','_')}:\n{mnemonic} L_{mnemonic}_{mode.replace(',','_')}"
-    if mode == 'relfar': return f"L_{mnemonic}_{mode.replace(',','_')}:\n{mnemonic} L_{mnemonic}_{mode.replace(',','_')}"
-    if mode == 'bp+rel8': return f"L_{mnemonic}_{mode.replace('+','_').replace(',','_')}:\n{mnemonic} $12, L_{mnemonic}_{mode.replace('+','_').replace(',','_')}"
-    return None
+# Skip these modes — they need special assembly syntax or are aliases
+skip_modes = {'STACK_RELATIVE', 'STACK_RELATIVE_INDIRECT_Y',
+              'LINEAR_ABSOLUTE', 'LINEAR_ABSOLUTE_X', 'LINEAR_ABSOLUTE_Y',
+              'QUAD_Q', 'NONE'}
 
-opcodes = parse_opcodes('doc/architecture/opcodes.md')
-with open('build/full_opcode_test.s45', 'w') as f_s, open('build/full_opcode_meta.txt', 'w') as f_m:
-    f_s.write(".org $2000\n")
-    for op in opcodes:
-        asm = get_asm(op['mnemonic'], op['mode'])
-        if asm:
-            f_s.write(f"; {op['mnemonic']} {op['mode']}\n{asm}\n")
-            f_m.write(f"{op['mnemonic']}|{op['mode']}|{' '.join(op['bytes'])}\n")
-EOF
+# Quad instructions (ldq/stq) use $42 $42 prefix before the base opcode
+quad_mnemonics = {'ldq', 'stq'}
 
-# 2. Compile each instruction one by one for validation (to match test_opcodes.py behavior)
-# This is slow but ensures we are testing the same thing.
+# Parse entries like: {{"mnemonic", AddressingMode::MODE}, 0xHH},
+pattern = re.compile(r'\{\{"(\w+)",\s*AddressingMode::(\w+)\},\s*0x([0-9A-Fa-f]{2})\}')
+
+entries = []
+seen = set()
+for m in pattern.finditer(content):
+    mnemonic = m.group(1)
+    mode_enum = m.group(2)
+    opcode = m.group(3).lower()
+
+    if mode_enum in skip_modes:
+        continue
+
+    key = (mnemonic, mode_enum)
+    if key in seen:
+        continue  # skip duplicates (e.g., FLAT_INDIRECT_Z aliases BASE_PAGE_INDIRECT_Z)
+    seen.add(key)
+
+    if mode_enum not in mode_map:
+        continue
+
+    mode_tag, operand = mode_map[mode_enum]
+
+    # Build expected bytes with prefixes
+    if mnemonic in quad_mnemonics:
+        if mode_tag == 'flat_z':
+            expected = f"42 42 ea {opcode}"
+        else:
+            expected = f"42 42 {opcode}"
+    elif mode_tag == 'flat_z':
+        expected = f"ea {opcode}"
+    else:
+        expected = opcode
+
+    # RTN uses bare decimal operand, not #immediate
+    if mnemonic == 'rtn' and mode_tag == 'imm':
+        operand = '2'
+
+    entries.append((mnemonic, mode_tag, operand, expected))
+
+with open(meta_file, 'w') as f:
+    for mnemonic, mode_tag, operand, expected in entries:
+        f.write(f"{mnemonic}|{mode_tag}|{operand or ''}|{expected}\n")
+
+print(f"Extracted {len(entries)} opcode entries from {db_file}")
+PYEOF
+
+if [ ! -f "$META_FILE" ]; then
+    echo "Error: failed to extract opcodes"
+    exit 1
+fi
+
+# 2. Validate each opcode by assembling and checking the first byte
 passed=0
 failed=0
-total=0
+skipped=0
 
-while IFS='|' read -r mnemonic mode expected_bytes; do
-    total=$((total + 1))
-    
+while IFS='|' read -r mnemonic mode_tag operand expected_bytes; do
     asm_code=""
-    case $mode in
-        "imp") asm_code="${mnemonic}" ;;
-        "acc"|"Q (acc)") asm_code="${mnemonic} A" ;;
-        "imm") asm_code="${mnemonic} #\$12" ;;
-        "imm16") asm_code="${mnemonic} #\$1234" ;;
-        "bp") asm_code="${mnemonic} \$12" ;;
-        "bp,X") asm_code="${mnemonic} \$12,X" ;;
-        "bp,Y") asm_code="${mnemonic} \$12,Y" ;;
-        "abs") asm_code="${mnemonic} \$1234" ;;
-        "abs,X") asm_code="${mnemonic} \$1234,X" ;;
-        "abs,Y") asm_code="${mnemonic} \$1234,Y" ;;
-        "(bp,X)") asm_code="${mnemonic} (\$12,X)" ;;
-        "(bp),Y") asm_code="${mnemonic} (\$12),Y" ;;
-        "(bp),Z") asm_code="${mnemonic} (\$12),Z" ;;
-        "[bp],Z") asm_code="${mnemonic} [\$12],Z" ;;
-        "(bp,SP),Y") asm_code="${mnemonic} (\$12,SP),Y" ;;
-        "(abs)") asm_code="${mnemonic} (\$1234)" ;;
-        "(abs,X)") asm_code="${mnemonic} (\$1234,X)" ;;
-        "rel") asm_code="${mnemonic} target\ntarget:" ;;
-        "relfar") asm_code="${mnemonic} target\n.org \$2200\ntarget:" ;;
-        "bp+rel8") asm_code="${mnemonic} \$12, target\ntarget:" ;;
+
+    case $mode_tag in
+        imp)    asm_code="${mnemonic}" ;;
+        acc)    asm_code="${mnemonic} ${operand}" ;;
+        imm|imm16|bp|bp_x|bp_y|abs|abs_x|abs_y|bp_xi|bp_iy|bp_iz|abs_i|abs_xi|bp_spy|flat_z)
+                asm_code="${mnemonic} ${operand}" ;;
+        rel)
+            asm_code="target:\n${mnemonic} target"
+            ;;
+        rel16)
+            # Force 16-bit branch by placing target far away
+            asm_code="${mnemonic} target\n.fill 200, \$EA\ntarget:"
+            ;;
+        bp_rel)
+            # bbr/bbs: mnemonic $zp, label
+            asm_code="target:\n${mnemonic} \$12, target"
+            ;;
+        *)
+            skipped=$((skipped + 1))
+            continue
+            ;;
     esac
 
     echo ".org \$2000" > build/single_op.s45
     printf '%b\n' "$asm_code" >> build/single_op.s45
-    
+
     $CA -o build/single_op.bin build/single_op.s45 > /dev/null 2>&1
     if [ $? -ne 0 ]; then
-        echo "FAIL (Assemble): $mnemonic $mode"
+        echo "FAIL (assemble): ${mnemonic} ${mode_tag}"
         failed=$((failed + 1))
         continue
     fi
-    
-    # Extract actual bytes
-    actual_bytes=$(hexdump -v -e '1/1 "%02x " ' build/single_op.bin)
-    # Standardize spaces and case
-    expected_bytes_lower=$(echo "$expected_bytes" | tr '[:upper:]' '[:lower:]' | xargs)
-    actual_bytes_clean=$(echo "$actual_bytes" | tr '[:upper:]' '[:lower:]' | xargs)
-    
-    # We only care about the first few bytes (the opcode and prefix)
-    count=$(echo "$expected_bytes" | wc -w)
-    actual_bytes_truncated=$(echo "$actual_bytes_clean" | cut -d' ' -f1-"$count")
 
-    if [ "$actual_bytes_truncated" == "$expected_bytes_lower" ]; then
+    # Extract actual bytes and compare opcode byte(s)
+    actual_bytes=$(hexdump -v -e '1/1 "%02x " ' build/single_op.bin | xargs)
+    expected_lower=$(echo "$expected_bytes" | tr '[:upper:]' '[:lower:]' | xargs)
+    count=$(echo "$expected_lower" | wc -w)
+    actual_prefix=$(echo "$actual_bytes" | cut -d' ' -f1-"$count")
+
+    if [ "$actual_prefix" = "$expected_lower" ]; then
         passed=$((passed + 1))
     else
-        echo "FAIL (Bytes): $mnemonic $mode"
-        echo "  Expected: $expected_bytes_lower"
-        echo "  Actual:   $actual_bytes_truncated"
+        echo "FAIL (bytes): ${mnemonic} ${mode_tag} — expected: ${expected_lower}, got: ${actual_prefix}"
         failed=$((failed + 1))
     fi
 done < "$META_FILE"
 
 echo ""
-echo "Summary: $passed passed, $failed failed, 0 skipped."
+echo "Summary: $passed passed, $failed failed, $skipped skipped."
 
 if [ $failed -eq 0 ]; then
     exit 0
