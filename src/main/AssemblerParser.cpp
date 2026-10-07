@@ -2239,8 +2239,36 @@ std::vector<uint8_t> AssemblerParser::pass2(bool isPrg) {
                 }
             }
             cP += s->size;
-            if (s->type == Statement::INSTRUCTION) {
-                if (s->instr.mnemonic == "rts" || s->instr.mnemonic == "rtn" || s->instr.mnemonic == "rti") isDeadCode = true;
+            // Cache branch offsets so generator doesn't need to recompute them
+            if (s->type == Statement::INSTRUCTION && !s->deleted) {
+                const std::string& mn = s->instr.mnemonic;
+                if (mn == "beq" || mn == "bne" || mn == "bra" || mn == "bcc" ||
+                    mn == "bcs" || mn == "bpl" || mn == "bmi" || mn == "bvc" ||
+                    mn == "bvs" || mn == "bsr") {
+                    try {
+                        uint32_t target = 0;
+                        bool resolved = false;
+                        if (s->instr.operandTokenIndex >= 0) {
+                            target = evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
+                            resolved = true;
+                        } else if (!s->instr.operand.empty() && symbolTable.count(s->instr.operand)) {
+                            target = symbolTable.at(s->instr.operand).value;
+                            resolved = true;
+                        }
+                        if (resolved) {
+                            s->resolvedBranchOffset = (int32_t)target - (int32_t)(s->address + 2);
+                            s->hasBranchOffset = true;
+                        }
+                    } catch (...) {}
+                } else if (s->instr.mode == AddressingMode::BASE_PAGE_RELATIVE &&
+                           !s->instr.bitBranchTarget.empty()) {
+                    Symbol* tsym = resolveSymbol(s->instr.bitBranchTarget, s->scopePrefix);
+                    if (tsym) {
+                        s->resolvedBranchOffset = (int32_t)tsym->value - (int32_t)(s->address + 3);
+                        s->hasBranchOffset = true;
+                    }
+                }
+                if (mn == "rts" || mn == "rtn" || mn == "rti") isDeadCode = true;
             }
         }
         // Update segment end addresses from this pass

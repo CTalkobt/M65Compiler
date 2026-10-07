@@ -244,6 +244,10 @@ public:
         bool deleted = false;
         std::vector<uint8_t> bytes; // Captured machine code for listing
 
+        // Branch offset resolved during pass2 convergence — used by generator
+        int32_t resolvedBranchOffset = 0;
+        bool hasBranchOffset = false;
+
         // Simulated op dispatch: set at parse time, used for both sizing and emission
         using SimOpEmitFn = void(*)(AssemblerParser*, M65Emitter&, Statement*);
         SimOpEmitFn emitFn = nullptr;

@@ -104,11 +104,39 @@ void main() {
 EOF
 compile_and_run "strerror" "$BUILD/test_strerror.c" "01 01 AA" 3
 
-# --- qsort: blocked by SAC codegen bug (for-loop swap after fptr call) ---
-echo "  SKIP: qsort (blocked by SAC for-loop + fptr codegen bug)"
+# --- qsort (global array) ---
+cat > $BUILD/test_qsort.c << 'EOF'
+#include <stdlib.h>
+volatile char *r = (char *)0xC010;
+signed int arr[5] = {50, 10, 40, 20, 30};
+signed int cmp(const void *a, const void *b) { return *(signed int*)a - *(signed int*)b; }
+void main() {
+    qsort(arr, 5, sizeof(signed int), cmp);
+    r[0] = (char)arr[0];
+    r[1] = (char)arr[2];
+    r[2] = (char)arr[4];
+    r[3] = 0xAA;
+}
+EOF
+compile_and_run "qsort" "$BUILD/test_qsort.c" "0A 1E 32 AA" 4
 
-# --- bsearch: blocked by same SAC codegen issue ---
-echo "  SKIP: bsearch (blocked by SAC for-loop + fptr codegen bug)"
+# --- bsearch (global array) ---
+cat > $BUILD/test_bsearch.c << 'EOF'
+#include <stdlib.h>
+volatile char *r = (char *)0xC010;
+signed int sorted[5] = {10, 20, 30, 40, 50};
+signed int cmp(const void *a, const void *b) { return *(signed int*)a - *(signed int*)b; }
+void main() {
+    signed int key = 30;
+    signed int *found = (signed int *)bsearch(&key, sorted, 5, sizeof(signed int), cmp);
+    r[0] = found ? 1 : 0;
+    key = 25;
+    found = (signed int *)bsearch(&key, sorted, 5, sizeof(signed int), cmp);
+    r[1] = found ? 1 : 0;
+    r[2] = 0xAA;
+}
+EOF
+compile_and_run "bsearch" "$BUILD/test_bsearch.c" "01 00 AA" 3
 
 # mktime, asctime: blocked by #179 (struct member access across linked objects)
 echo "  SKIP: mktime (blocked by #179)"

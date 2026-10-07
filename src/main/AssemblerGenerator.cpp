@@ -252,9 +252,14 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                             uint8_t op = AssemblerOpcodeDatabase::getOpcode(stmt->instr.mnemonic, resolvedMode);
                             e.emitByte(op);
                             e.emitByte((uint8_t)v);
-                            Symbol* tsym = parser->resolveSymbol(stmt->instr.bitBranchTarget, stmt->scopePrefix);
-                            uint32_t t = tsym ? tsym->value : 0;
-                            int32_t off = (int32_t)t - (int32_t)(stmt->address + 3);
+                            int32_t off;
+                            if (stmt->hasBranchOffset) {
+                                off = stmt->resolvedBranchOffset;
+                            } else {
+                                Symbol* tsym = parser->resolveSymbol(stmt->instr.bitBranchTarget, stmt->scopePrefix);
+                                uint32_t t = tsym ? tsym->value : 0;
+                                off = (int32_t)t - (int32_t)(stmt->address + 3);
+                            }
                             e.emitByte((uint8_t)off);
                         } else if (stmt->instr.mnemonic == "rtn") {
                             uint32_t v = 0;
@@ -461,26 +466,28 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                                     }
                                 }
                             } else { // Branch instructions
-                                uint32_t t;
-                                if (stmt->instr.operandTokenIndex >= 0) {
-                                    t = parser->evaluateExpressionAt(stmt->instr.operandTokenIndex, stmt->scopePrefix);
-                                } else if (!stmt->instr.operand.empty() && parser->symbolTable.count(stmt->instr.operand)) {
-                                    t = parser->symbolTable.at(stmt->instr.operand).value;
+                                int32_t off;
+                                if (stmt->hasBranchOffset) {
+                                    off = stmt->resolvedBranchOffset;
                                 } else {
-                                    t = stmt->address; // fallback: branch to self
+                                    // Fallback: compute offset (shouldn't happen in normal flow)
+                                    uint32_t t;
+                                    if (stmt->instr.operandTokenIndex >= 0) {
+                                        t = parser->evaluateExpressionAt(stmt->instr.operandTokenIndex, stmt->scopePrefix);
+                                    } else if (!stmt->instr.operand.empty() && parser->symbolTable.count(stmt->instr.operand)) {
+                                        t = parser->symbolTable.at(stmt->instr.operand).value;
+                                    } else {
+                                        t = stmt->address;
+                                    }
+                                    off = (int32_t)t - (int32_t)(stmt->address + 2);
                                 }
                                 if (stmt->instr.mnemonic == "bsr") {
-                                    int32_t off = (int32_t)t - (int32_t)(stmt->address + 2);
                                     e.emitInstruction("bsr", AddressingMode::RELATIVE16, (uint32_t)(uint16_t)(int16_t)off, true);
-                                    // BSR is a subroutine call (like JSR) — invalidate all state
                                     e.machineState().invalidateAll();
                                 } else if (stmt->size == 2) {
-                                    int32_t off2 = (int32_t)t - (int32_t)(stmt->address + 2);
-                                    e.emitInstruction(stmt->instr.mnemonic, AddressingMode::RELATIVE, (uint32_t)(uint8_t)(int8_t)off2, true);
+                                    e.emitInstruction(stmt->instr.mnemonic, AddressingMode::RELATIVE, (uint32_t)(uint8_t)(int8_t)off, true);
                                 } else {
-                                    // 16-bit relative: offset from PC+2 per MEGA65 book
-                                    int32_t off3 = (int32_t)t - (int32_t)(stmt->address + 2);
-                                    e.emitInstruction(stmt->instr.mnemonic, AddressingMode::RELATIVE16, (uint32_t)(uint16_t)(int16_t)off3, true);
+                                    e.emitInstruction(stmt->instr.mnemonic, AddressingMode::RELATIVE16, (uint32_t)(uint16_t)(int16_t)off, true);
                                 }
                             }
                         }

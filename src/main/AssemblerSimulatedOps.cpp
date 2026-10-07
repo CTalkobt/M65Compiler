@@ -533,10 +533,11 @@ void AssemblerSimulatedOps::emitCMP_S16Code(AssemblerParser* parser, M65Emitter&
             e.sta_scratch();
             e.txa();
             e.eor_imm(0x80);
-            e.sta_scratch2(); // save AX high byte signed in scratch2
+            // Use scratch3 for temporary to avoid aliasing when operand is at scratch2
+            e.sta_scratch3(); // save AX high byte signed in scratch3
             e.lda_addr(addr + 1);
             e.eor_imm(0x80);
-            e.cmp_zp(e.scratchZP2()); // compare high bytes signed
+            e.cmp_zp(e.scratchZP3()); // compare high bytes signed
             auto br = e.emitBranchPlaceholder(0xD0); // bne done
             e.lda_scratch();
             e.cmp_addr(addr);
