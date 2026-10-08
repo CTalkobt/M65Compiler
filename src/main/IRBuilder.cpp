@@ -3164,8 +3164,12 @@ normal_call:
     inst.loc = loc(node);
 
     // Determine calling convention
+    // Use stack convention if callee is variadic OR if caller is variadic
+    // (variadic callers are stack_call, so all their outgoing calls must use stack
+    // to match the callee's SAC thunk which reads from stack)
     bool isVariadic = variadicFunctions_.count(node.name) > 0;
-    inst.callConv = (zpCallMode && !isVariadic) ? ir::CallConv::ZP : ir::CallConv::STACK;
+    bool callerIsVariadic = currentFunc_ && currentFunc_->isVariadic;
+    inst.callConv = (zpCallMode && !isVariadic && !callerIsVariadic) ? ir::CallConv::ZP : ir::CallConv::STACK;
     inst.isRegparm = regparmFunctions_.count(node.name) > 0;
 
     std::vector<ir::Operand> castArgs;

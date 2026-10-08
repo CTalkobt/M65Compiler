@@ -78,7 +78,7 @@ proc _itoa
 
     ; --- Extract digits: divide, compute remainder ---
 @extract:
-    ; Save value lo for remainder
+    ; Save value lo for remainder calculation
     lda $16
     pha
 
@@ -102,11 +102,18 @@ proc _itoa
     bit $D70F
     bne @waitdiv
 
-    ; Compute remainder = value - quotient * base
-    ; Write quotient to $D770, base still in $D774
+    ; Save quotient BEFORE writing to $D770 for multiplication
+    ; (writing $D770 triggers new division, corrupts $D76C)
     lda $d76c
-    sta $d770
+    sta $16                 ; quotient lo → new value lo
     lda $d76d
+    sta $17                 ; quotient hi → new value hi
+
+    ; Compute remainder = value - quotient * base
+    ; Write quotient to $D770 (MultA), base still in $D774 (MultB)
+    lda $16
+    sta $d770
+    lda $17
     sta $d771
     lda #0
     sta $d772
@@ -129,13 +136,8 @@ proc _itoa
     pha
     inc $02
 
-    ; Quotient becomes new value
-    lda $d76c
-    sta $16
-    lda $d76d
-    sta $17
-
     ; Continue while value != 0
+    lda $17
     ora $16
     bne @extract
 
