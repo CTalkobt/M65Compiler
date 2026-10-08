@@ -3,9 +3,6 @@
 ; int puts(char *s);
 ;   Writes string s to the screen via KERNAL CHROUT, then a newline.
 ;   Returns 0 on success.
-;
-; Uses ZP $FB/$FC for the string pointer — these are "free" ZP
-; locations on both C64 and MEGA65 that the kernal does not use.
 
 .global _puts
 .extern __sp_base
@@ -14,14 +11,13 @@
 
 proc _puts, W#_p_s
     .var _fp = 0
-    ; Save $FB/$FC and load string pointer there
-    lda $FB
-    pha
-    lda $FC
-    pha
-    ldax _p_s+2, sp
+    ; Load string pointer from stack into $FB/$FC
+    tsx
+    lda __sp_base+_p_s, x
     sta $FB
-    stx $FC
+    lda __sp_base+_p_s+1, x
+    sta $FC
+    ; Print each character via KERNAL CHROUT
     ldy #0
 @loop:
     lda ($FB),y
@@ -34,15 +30,12 @@ proc _puts, W#_p_s
     iny
     bne @loop
 @done:
+    ; Print newline
     lda #$0D
     phz
     jsr $FFD2
     plz
-    ; Restore $FB/$FC
-    pla
-    sta $FC
-    pla
-    sta $FB
-    ldax #$0000         ; return 0
+    lda #0
+    tax
     rtn #0
     endproc
