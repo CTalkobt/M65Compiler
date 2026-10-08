@@ -8,35 +8,35 @@
 .segment "code"
 
 proc _labs
-    .zp_uses $03, $04, $05, $06
-    .zp_clobbers $03, $04, $05, $06
-    .zp_release $03, $04, $05, $06
+    .zp_uses $10, $11, $12, $13
+    .zp_clobbers $10, $11, $12, $13
+    .zp_release $10, $11, $12, $13
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z
 
-    lda $06                 ; byte3 (sign)
+    lda $13                 ; byte3 (sign)
     bpl @positive
     ; Negate 32-bit
     sec
     lda #0
-    sbc $03
+    sbc $10
     pha                     ; save byte0
     lda #0
-    sbc $04
+    sbc $11
     tax                     ; byte1
     lda #0
-    sbc $05
+    sbc $12
     tay                     ; byte2
     lda #0
-    sbc $06
+    sbc $13
     taz                     ; byte3
     pla                     ; byte0 in A
     rts
 @positive:
-    lda $06
+    lda $13
     taz                     ; byte3
-    lda $03
-    ldx $04
-    ldy $05
+    lda $10
+    ldx $11
+    ldy $12
     rts
     endproc

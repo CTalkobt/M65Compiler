@@ -8,31 +8,31 @@
 .segment "code"
 
 proc _strchr
-    .zp_uses $03, $04, $05, $06
-    .zp_clobbers $03, $04, $05, $06
-    .zp_release $03, $04, $05, $06
+    .zp_uses $10, $11, $12, $13
+    .zp_clobbers $10, $11, $12, $13
+    .zp_release $10, $11, $12, $13
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
 
-    ; s=$03/$04, c=$05 (low byte only)
+    ; s=$10/$11, c=$12 (low byte only)
     ldy #0
 @loop:
-    lda ($03),y
-    cmp $05
+    lda ($10),y
+    cmp $12
     beq @found
-    lda ($03),y
+    lda ($10),y
     beq @notfound
     iny
     bne @loop
-    inc $04
+    inc $11
     bra @loop
 @found:
     tya
     clc
-    adc $03
+    adc $10
     pha
     lda #0
-    adc $04
+    adc $11
     tax
     pla
     rts

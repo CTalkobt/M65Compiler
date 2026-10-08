@@ -7,59 +7,59 @@
 .segment "code"
 
 proc _strncat
-    .zp_uses $03, $04, $05, $06, $07, $08, $09, $0a
-    .zp_clobbers $03, $04, $05, $06, $07, $08, $09, $0a
-    .zp_release $07, $08, $09, $0a
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17
+    .zp_release $14, $15, $16, $17
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
 
-    ; $03/$04 = dest, $05/$06 = src, $07/$08 = n
+    ; $10/$11 = dest, $12/$13 = src, $14/$15 = n
     ; Save dest for return
-    lda $03
-    sta $09
-    lda $04
-    sta $0a
+    lda $10
+    sta $16
+    lda $11
+    sta $17
     ; Find end of dest
     ldy #0
 @find_end:
-    lda ($03),y
+    lda ($10),y
     beq @found
     iny
     bne @find_end
-    inc $04
+    inc $11
     bra @find_end
 @found:
-    ; Advance $03 by Y
+    ; Advance $10 by Y
     tya
     clc
-    adc $03
-    sta $03
+    adc $10
+    sta $10
     lda #0
-    adc $04
-    sta $04
+    adc $11
+    sta $11
     ldy #0
 @copy:
-    lda $07
-    ora $08
+    lda $14
+    ora $15
     beq @terminate
-    lda ($05),y
-    sta ($03),y
+    lda ($12),y
+    sta ($10),y
     beq @done
-    lda $07
+    lda $14
     bne @nodec_hi
-    dec $08
+    dec $15
 @nodec_hi:
-    dec $07
+    dec $14
     iny
     bne @copy
-    inc $04
-    inc $06
+    inc $11
+    inc $13
     bra @copy
 @terminate:
     lda #0
-    sta ($03),y
+    sta ($10),y
 @done:
-    lda $09
-    ldx $0a
+    lda $16
+    ldx $17
     rts
     endproc

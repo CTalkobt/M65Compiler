@@ -13,34 +13,34 @@ proc _utoa, W#_p_value, W#_p_str, W#_p_base
     .var _fp = 0
     tsx
     lda __sp_base+_p_str, x
-    sta $07
+    sta $14
     lda __sp_base+_p_str+1, x
-    sta $08
+    sta $15
     lda __sp_base+_p_base, x
-    sta $04
+    sta $11
     lda __sp_base+_p_base+1, x
-    sta $05
+    sta $12
     lda __sp_base+_p_value, x
     sta $02
     lda __sp_base+_p_value+1, x
-    sta $03
+    sta $10
 
     lda #0
-    sta $06             ; digit count
+    sta $13             ; digit count
     ldy #0
 
     ; Validate base (2-36)
-    lda $05
+    lda $12
     bne @valid
-    lda $04
+    lda $11
     cmp #2
     bcs @valid
     lda #$30
-    sta ($07),y
+    sta ($14),y
     iny
     lda #0
-    sta ($07),y
-    ldax $07
+    sta ($14),y
+    ldax $14
     bra @restore
 
 @valid:
@@ -48,10 +48,10 @@ proc _utoa, W#_p_value, W#_p_str, W#_p_base
 
     ; Check for zero
     lda $02
-    ora $03
+    ora $10
     bne @extract
     lda #$30
-    sta ($07),y
+    sta ($14),y
     iny
     bra @nulterm
 
@@ -62,15 +62,15 @@ proc _utoa, W#_p_value, W#_p_str, W#_p_base
     ; Dividend
     lda $02
     sta $d770
-    lda $03
+    lda $10
     sta $d771
     lda #0
     sta $d772
     sta $d773
     ; Divisor
-    lda $04
+    lda $11
     sta $d774
-    lda $05
+    lda $12
     sta $d775
     lda #0
     sta $d776
@@ -84,12 +84,12 @@ proc _utoa, W#_p_value, W#_p_str, W#_p_base
     lda $d76c
     sta $02
     lda $d76d
-    sta $03
+    sta $10
 
     ; Compute remainder = value_lo - (quotient * base)_lo
     lda $02
     sta $d770
-    lda $03
+    lda $10
     sta $d771
     lda #0
     sta $d772
@@ -111,24 +111,24 @@ proc _utoa, W#_p_value, W#_p_str, W#_p_base
     adc #$41            ; ASCII 'A'
 @pushdig:
     pha
-    inc $06
+    inc $13
 
     ; Continue while quotient != 0
-    lda $03
+    lda $10
     ora $02
     bne @extract
 
 @poploop:
     pla
-    sta ($07),y
+    sta ($14),y
     iny
-    dec $06
+    dec $13
     bne @poploop
 
 @nulterm:
     lda #0
-    sta ($07),y
-    ldax $07
+    sta ($14),y
+    ldax $14
 @restore:
     rtn #0
     endproc

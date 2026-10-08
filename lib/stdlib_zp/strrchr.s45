@@ -8,38 +8,38 @@
 .segment "code"
 
 proc _strrchr
-    .zp_uses $03, $04, $05, $06
-    .zp_clobbers $03, $04, $05, $06, $07, $08
-    .zp_release $03, $04, $05, $06
+    .zp_uses $10, $11, $12, $13
+    .zp_clobbers $10, $11, $12, $13, $14, $15
+    .zp_release $10, $11, $12, $13
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
 
-    ; s=$03/$04, c=$05 (low byte only)
-    ; result in $07/$08
-    stz $07
-    stz $08
+    ; s=$10/$11, c=$12 (low byte only)
+    ; result in $14/$15
+    stz $14
+    stz $15
     ldy #0
 @loop:
-    lda ($03),y
-    cmp $05
+    lda ($10),y
+    cmp $12
     bne @skip
     ; Save current position as result
     tya
     clc
-    adc $03
-    sta $07
+    adc $10
+    sta $14
     lda #0
-    adc $04
-    sta $08
+    adc $11
+    sta $15
 @skip:
-    lda ($03),y
+    lda ($10),y
     beq @done
     iny
     bne @loop
-    inc $04
+    inc $11
     bra @loop
 @done:
-    lda $07
-    ldx $08
+    lda $14
+    ldx $15
     rts
     endproc

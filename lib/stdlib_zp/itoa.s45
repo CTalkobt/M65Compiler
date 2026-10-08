@@ -5,94 +5,94 @@
 ;   Returns str.
 ;
 ;   Uses MEGA65 hardware divider at $D770-$D771.
-;   ZP param layout: value=$03/$04, str=$05/$06, base=$07/$08
-;   Internal scratch: $02 (digit count), $09/$0A (working value)
+;   ZP param layout: value=$10/$11, str=$12/$13, base=$14/$15
+;   Internal scratch: $02 (digit count), $16/$17 (working value)
 
 .global _itoa
 
 .segment "code"
 
 proc _itoa
-    .zp_uses $03, $04, $05, $06, $07, $08
-    .zp_clobbers $03, $04, $05, $06, $07, $08, $09, $0A
-    .zp_release $03, $04, $07, $08
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17
+    .zp_release $10, $11, $14, $15
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
 
-    ; Copy value to working location ($09/$0A) so we can modify it
-    lda $03
-    sta $09
-    lda $04
-    sta $0A
+    ; Copy value to working location ($16/$17) so we can modify it
+    lda $10
+    sta $16
+    lda $11
+    sta $17
 
     stz $02             ; $02 = digit count (__zp_scratch)
     ldy #0              ; Y = write index into output
 
     ; --- Validate base (2-36) ---
-    lda $08
+    lda $15
     bne @valid
-    lda $07
+    lda $14
     cmp #2
     bcs @valid
     ; base < 2: write "0\0" and return
     lda #$30
-    sta ($05),y
+    sta ($12),y
     iny
     lda #0
-    sta ($05),y
-    lda $05
-    ldx $06
+    sta ($12),y
+    lda $12
+    ldx $13
     rts
 
 @valid:
     ; --- Handle negative for base 10 only ---
-    lda $07
+    lda $14
     cmp #10
     bne @poscheck
-    lda $08
+    lda $15
     bne @poscheck
     ; base == 10: check sign bit
-    lda $0A
+    lda $17
     bpl @poscheck
     ; Negative: write '-' and negate
     lda #$2d
-    sta ($05),y
+    sta ($12),y
     iny
     sec
     lda #0
-    sbc $09
-    sta $09
+    sbc $16
+    sta $16
     lda #0
-    sbc $0A
-    sta $0A
+    sbc $17
+    sta $17
 @poscheck:
 
     ; --- Check for zero ---
-    lda $09
-    ora $0A
+    lda $16
+    ora $17
     bne @extract
     lda #$30
-    sta ($05),y
+    sta ($12),y
     iny
     bra @nulterm
 
     ; --- Extract digits: divide, compute remainder ---
 @extract:
     ; Save value lo for remainder
-    lda $09
+    lda $16
     pha
 
     ; Divide value by base using hardware divider
-    lda $09
+    lda $16
     sta $d770
-    lda $0A
+    lda $17
     sta $d771
     lda #0
     sta $d772
     sta $d773
-    lda $07
+    lda $14
     sta $d774
-    lda $08
+    lda $15
     sta $d775
     lda #0
     sta $d776
@@ -131,27 +131,27 @@ proc _itoa
 
     ; Quotient becomes new value
     lda $d76c
-    sta $09
+    sta $16
     lda $d76d
-    sta $0A
+    sta $17
 
     ; Continue while value != 0
-    ora $09
+    ora $16
     bne @extract
 
     ; --- Pop digits into output buffer (correct order) ---
 @poploop:
     pla
-    sta ($05),y
+    sta ($12),y
     iny
     dec $02
     bne @poploop
 
 @nulterm:
     lda #0
-    sta ($05),y
+    sta ($12),y
 
-    lda $05
-    ldx $06
+    lda $12
+    ldx $13
     rts
     endproc

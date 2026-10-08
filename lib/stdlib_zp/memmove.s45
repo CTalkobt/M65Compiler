@@ -8,98 +8,98 @@
 .segment "code"
 
 proc _memmove
-    .zp_uses $03, $04, $05, $06, $07, $08
-    .zp_clobbers $03, $04, $05, $06, $07, $08
-    .zp_release $05, $06, $07, $08
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .zp_clobbers $10, $11, $12, $13, $14, $15
+    .zp_release $12, $13, $14, $15
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z, V
 
-    ; dest=$03/$04, src=$05/$06, n=$07/$08
-    lda $07
-    ora $08
+    ; dest=$10/$11, src=$12/$13, n=$14/$15
+    lda $14
+    ora $15
     beq @done
 
     ; Compare dest vs src to decide direction
-    lda $04
-    cmp $06
+    lda $11
+    cmp $13
     bcc @forward
     bne @backward
-    lda $03
-    cmp $05
+    lda $10
+    cmp $12
     bcc @forward
     beq @done
 
 @backward:
     ; Point both pointers to last byte: base + n - 1
-    lda $07
+    lda $14
     sec
     sbc #1
     tay
-    lda $08
+    lda $15
     sbc #0
     ; Add (n-1) to dest
     tya
     clc
-    adc $03
-    sta $03
-    lda $08
-    adc $04
-    sta $04
+    adc $10
+    sta $10
+    lda $15
+    adc $11
+    sta $11
     ; Add (n-1) to src
     tya
     clc
-    adc $05
-    sta $05
-    lda $08
-    adc $06
-    sta $06
+    adc $12
+    sta $12
+    lda $15
+    adc $13
+    sta $13
     ldy #0
 @back_loop:
-    lda $07
-    ora $08
+    lda $14
+    ora $15
     beq @done
-    lda ($05),y
-    sta ($03),y
+    lda ($12),y
+    sta ($10),y
     ; Decrement pointers
-    lda $03
+    lda $10
     bne @no_borrow_d
-    dec $04
+    dec $11
 @no_borrow_d:
-    dec $03
-    lda $05
+    dec $10
+    lda $12
     bne @no_borrow_s
-    dec $06
+    dec $13
 @no_borrow_s:
-    dec $05
+    dec $12
     ; Decrement count
-    lda $07
+    lda $14
     bne @dec_back
-    dec $08
+    dec $15
 @dec_back:
-    dec $07
+    dec $14
     bra @back_loop
 
 @forward:
     ldy #0
 @fwd_loop:
-    lda $07
-    ora $08
+    lda $14
+    ora $15
     beq @done
-    lda ($05),y
-    sta ($03),y
+    lda ($12),y
+    sta ($10),y
     iny
     bne @no_inc_fwd
-    inc $04
-    inc $06
+    inc $11
+    inc $13
 @no_inc_fwd:
-    lda $07
+    lda $14
     bne @dec_fwd
-    dec $08
+    dec $15
 @dec_fwd:
-    dec $07
+    dec $14
     bra @fwd_loop
 @done:
-    lda $03
-    ldx $04
+    lda $10
+    ldx $11
     rts
     endproc

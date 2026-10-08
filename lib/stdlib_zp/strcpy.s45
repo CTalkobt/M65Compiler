@@ -8,25 +8,25 @@
 .segment "code"
 
 proc _strcpy
-    .zp_uses $03, $04, $05, $06
-    .zp_clobbers $03, $04, $05, $06
-    .zp_release $05, $06
+    .zp_uses $10, $11, $12, $13
+    .zp_clobbers $10, $11, $12, $13
+    .zp_release $12, $13
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
 
-    ; dest=$03/$04, src=$05/$06 — use directly as indirect pointers
+    ; dest=$10/$11, src=$12/$13 — use directly as indirect pointers
     ldy #0
 @loop:
-    lda ($05),y
-    sta ($03),y
+    lda ($12),y
+    sta ($10),y
     beq @done
     iny
     bne @loop
-    inc $04
-    inc $06
+    inc $11
+    inc $13
     bra @loop
 @done:
-    lda $03
-    ldx $04
+    lda $10
+    ldx $11
     rts
     endproc

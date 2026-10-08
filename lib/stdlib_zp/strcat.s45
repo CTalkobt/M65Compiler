@@ -8,46 +8,46 @@
 .segment "code"
 
 proc _strcat
-    .zp_uses $03, $04, $05, $06
-    .zp_clobbers $03, $04, $05, $06
-    .zp_release $05, $06
+    .zp_uses $10, $11, $12, $13
+    .zp_clobbers $10, $11, $12, $13
+    .zp_release $12, $13
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
 
-    ; dest=$03/$04, src=$05/$06
+    ; dest=$10/$11, src=$12/$13
     ; Save original dest for return
-    lda $03
+    lda $10
     pha
-    lda $04
+    lda $11
     pha
     ; Find end of dest
     ldy #0
 @find_end:
-    lda ($03),y
+    lda ($10),y
     beq @found
     iny
     bne @find_end
-    inc $04
+    inc $11
     bra @find_end
 @found:
-    ; Advance $03/$04 by Y to point at the NUL
+    ; Advance $10/$11 by Y to point at the NUL
     tya
     clc
-    adc $03
-    sta $03
+    adc $10
+    sta $10
     lda #0
-    adc $04
-    sta $04
+    adc $11
+    sta $11
     ; Copy src to dest end
     ldy #0
 @copy:
-    lda ($05),y
-    sta ($03),y
+    lda ($12),y
+    sta ($10),y
     beq @done
     iny
     bne @copy
-    inc $04
-    inc $06
+    inc $11
+    inc $13
     bra @copy
 @done:
     pla

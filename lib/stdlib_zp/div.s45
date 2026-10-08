@@ -1,77 +1,77 @@
 ; div.s — Integer division with quotient and remainder (ZP calling convention)
 ;
 ; div_t div(int numer, int denom);
-;   Returns div_t { int quot; int rem; } via hidden return pointer in $03/$04.
-;   numer in $05/$06, denom in $07/$08.
+;   Returns div_t { int quot; int rem; } via hidden return pointer in $10/$11.
+;   numer in $12/$13, denom in $14/$15.
 
 .global _div
 
 .segment "code"
 
 proc _div
-    .zp_uses $03, $04, $05, $06, $07, $08
-    .zp_clobbers $03, $04, $05, $06, $07, $08
-    .zp_release $03, $04, $05, $06, $07, $08
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .zp_clobbers $10, $11, $12, $13, $14, $15
+    .zp_release $10, $11, $12, $13, $14, $15
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
 
     ; Save ZP temps
     lda $02
     pha
-    lda $09
+    lda $16
     pha
 
     stz $02                 ; numer_neg
-    stz $09                 ; quot sign XOR
+    stz $16                 ; quot sign XOR
 
     ; Absolute value of numerator
-    lda $06                 ; high byte
+    lda $13                 ; high byte
     bpl @numer_pos
     inc $02
-    inc $09
+    inc $16
     ; Negate
-    lda $05
+    lda $12
     eor #$FF
     clc
     adc #1
-    sta $05
-    lda $06
+    sta $12
+    lda $13
     eor #$FF
     adc #0
-    sta $06
+    sta $13
 @numer_pos:
     ; Save abs(numer) for remainder calculation
-    lda $05
+    lda $12
     pha
-    lda $06
+    lda $13
     pha
     ; Store to dividend ($D770)
-    lda $05
+    lda $12
     sta $D770
-    lda $06
+    lda $13
     sta $D771
     stz $D772
     stz $D773
 
     ; Absolute value of denominator
-    lda $08                 ; high byte
+    lda $15                 ; high byte
     bpl @denom_pos
-    lda $09
+    lda $16
     eor #1
-    sta $09
-    lda $07
+    sta $16
+    lda $14
     eor #$FF
     clc
     adc #1
-    sta $07
-    lda $08
+    sta $14
+    lda $15
     eor #$FF
     adc #0
-    sta $08
+    sta $15
 @denom_pos:
-    lda $07
+    lda $14
     sta $D774
-    lda $08
+    lda $15
     sta $D775
     stz $D776
     stz $D777
@@ -83,7 +83,7 @@ proc _div
     ; Quotient
     lda $D76C
     ldx $D76D
-    ldy $09
+    ldy $16
     beq @quot_pos
     eor #$FF
     clc
@@ -96,10 +96,10 @@ proc _div
     pla
 @quot_pos:
     ldy #0
-    sta ($03), y
+    sta ($10), y
     iny
     txa
-    sta ($03), y
+    sta ($10), y
 
     ; Remainder = abs(numer) - quotient * abs(denom)
     ; Write quotient to $D770 (mult arg1), denom still in $D774
@@ -130,18 +130,18 @@ proc _div
     pla
 @rem_pos:
     ldy #2
-    sta ($03), y
+    sta ($10), y
     iny
     txa
-    sta ($03), y
+    sta ($10), y
 
     ; Return pointer in AX
-    lda $03
-    ldx $04
+    lda $10
+    ldx $11
 
     ; Restore temps
     pla
-    sta $09
+    sta $16
     pla
     sta $02
     rts

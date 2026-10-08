@@ -9,16 +9,16 @@
 .segment "code"
 
 proc _strlen
-    .zp_uses $03, $04
-    .zp_clobbers $03, $04
-    .zp_release $03, $04
+    .zp_uses $10, $11
+    .zp_clobbers $10, $11
+    .zp_release $10, $11
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
 
-    ; s is already at $03/$04
+    ; s is already at $10/$11
     ldy #0
 @loop:
-    lda ($03),y
+    lda ($10),y
     beq @done
     iny
     bne @loop

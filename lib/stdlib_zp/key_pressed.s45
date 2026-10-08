@@ -22,7 +22,7 @@ proc _key_pressed
     lsr
     lsr
     lsr
-    and #$07
+    and #$14
     tax                 ; X = column number (0-7)
 
     ; Select column: write ~(1 << col) to CIA1 Port A ($DC00)
@@ -32,7 +32,7 @@ proc _key_pressed
 
     ; Extract row: keycode & 7
     tya                 ; A = original keycode
-    and #$07
+    and #$14
     tax                 ; X = row number (0-7)
 
     ; Read row data from CIA1 Port B ($DC01)
@@ -48,7 +48,7 @@ proc _key_pressed
     rts
 
 @bit_table:
-    .byte $01, $02, $04, $08, $10, $20, $40, $80
+    .byte $01, $02, $11, $15, $10, $20, $40, $80
 
     .func_flags zp_call, leaf
     endproc

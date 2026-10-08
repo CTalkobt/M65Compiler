@@ -5,7 +5,7 @@
 ;   [Size] (2 bytes) — bit 0 is 1 if allocated, 0 if free.
 ;   [Next] (2 bytes) — pointer to next free block (only if free).
 ;
-; Internal ZP usage: $03-$0B (after reading params from ZP block)
+; Internal ZP usage: $10-$0B (after reading params from ZP block)
 
 .global _malloc
 .global _free
@@ -29,34 +29,34 @@ __bss_end = 0
 
 ; -----------------------------------------------------------------------------
 ; void *malloc(size_t size)
-;   size in $03/$04
+;   size in $10/$11
 ; -----------------------------------------------------------------------------
 proc _malloc
-    .zp_uses $03, $04
-    .zp_clobbers $03, $04, $05, $06, $07, $08, $09, $0A
-    .zp_release $03, $04
+    .zp_uses $10, $11
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17
+    .zp_release $10, $11
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
 
-    ; Read size param and move to $09/$0A for working storage
-    lda $03
-    sta $09
-    lda $04
-    sta $0A
+    ; Read size param and move to $16/$17 for working storage
+    lda $10
+    sta $16
+    lda $11
+    sta $17
 
     ; 1. Check for malloc(0)
-    lda $09
-    ora $0A
+    lda $16
+    ora $17
     bne @non_zero
     jmp @fail
 
 @non_zero:
     ; Adjust: add 2-byte header, align to 2 bytes, min 4
-    lda $09
+    lda $16
     clc
     adc #2
     tax
-    lda $0A
+    lda $17
     adc #0
     tay
     txa
@@ -68,8 +68,8 @@ proc _malloc
     bcs @size_ok
     ldx #4
 @size_ok:
-    stx $09             ; Req size low
-    sty $0A             ; Req size high
+    stx $16             ; Req size low
+    sty $17             ; Req size high
 
     ; 2. Ensure initialized
     lda __heap_ptr
@@ -81,39 +81,39 @@ proc _malloc
     beq @fail
 
 @search:
-    stz $05             ; prev = 0
-    stz $06
+    stz $12             ; prev = 0
+    stz $13
     lda __heap_ptr
-    sta $03             ; curr = head
+    sta $10             ; curr = head
     lda __heap_ptr+1
-    sta $04
+    sta $11
 
 @loop:
     ldy #0
-    lda ($03),y
+    lda ($10),y
     tax                 ; block size low
     iny
-    lda ($03),y
+    lda ($10),y
     tay                 ; block size high
 
-    ; Compare (Y:X) with req ($0A:$09)
+    ; Compare (Y:X) with req ($17:$16)
     tya
-    cmp $0A
+    cmp $17
     bcc @next
     bne @found
     txa
-    cmp $09
+    cmp $16
     bcc @next
 
 @found:
-    ; Found! (Y:X) = current size, ($0A:$09) = req size
+    ; Found! (Y:X) = current size, ($17:$16) = req size
     ; Check for split: remainder >= 4?
     txa
     sec
-    sbc $09
+    sbc $16
     sta $0B             ; remainder low (using extra ZP)
     tya
-    sbc $0A
+    sbc $17
     pha                 ; remainder high (on stack temporarily)
 
     ora $0B
@@ -131,60 +131,60 @@ proc _malloc
     sta $02             ; stash remainder high in scratch
 
     ; Split: new free block at curr + req_size
-    lda $03
+    lda $10
     clc
-    adc $09
-    sta $07
-    lda $04
-    adc $0A
-    sta $08
+    adc $16
+    sta $14
+    lda $11
+    adc $17
+    sta $15
 
     ; new_free->size = remainder
     ldy #0
     lda $0B
-    sta ($07),y
+    sta ($14),y
     iny
     lda $02             ; remainder high
-    sta ($07),y
+    sta ($14),y
 
     ; new_free->next = curr->next
     ldy #2
-    lda ($03),y
-    sta ($07),y
+    lda ($10),y
+    sta ($14),y
     iny
-    lda ($03),y
-    sta ($07),y
+    lda ($10),y
+    sta ($14),y
 
     ; Update link: prev->next = new_free (or __heap_ptr = new_free)
-    lda $05
-    ora $06
+    lda $12
+    ora $13
     bne @update_prev
-    lda $07
+    lda $14
     sta __heap_ptr
-    lda $08
+    lda $15
     sta __heap_ptr+1
     bra @mark_used
 @update_prev:
     ldy #2
-    lda $07
-    sta ($05),y
+    lda $14
+    sta ($12),y
     iny
-    lda $08
-    sta ($05),y
+    lda $15
+    sta ($12),y
     bra @mark_used
 
 @exact_match_pop:
     pla                 ; discard remainder high from stack
     ; Remove curr from free list
     ldy #2
-    lda ($03),y
+    lda ($10),y
     tax
     iny
-    lda ($03),y
+    lda ($10),y
     tay                 ; Y:X = curr->next
 
-    lda $05
-    ora $06
+    lda $12
+    ora $13
     bne @update_prev_exact
     stx __heap_ptr
     sty __heap_ptr+1
@@ -192,45 +192,45 @@ proc _malloc
 @update_prev_exact:
     ldy #2
     txa
-    sta ($05),y
+    sta ($12),y
     iny
     tya
-    sta ($05),y
+    sta ($12),y
 
 @mark_used:
     ; curr->size = req_size | 1
     ldy #0
-    lda $09
+    lda $16
     ora #1
-    sta ($03),y
+    sta ($10),y
     iny
-    lda $0A
-    sta ($03),y
+    lda $17
+    sta ($10),y
 
     ; Return curr + 2
-    lda $03
+    lda $10
     clc
     adc #2
     tax
-    lda $04
+    lda $11
     adc #0
     rts
 
 @next:
     ; prev = curr
-    lda $03
-    sta $05
-    lda $04
-    sta $06
+    lda $10
+    sta $12
+    lda $11
+    sta $13
     ; curr = curr->next
     ldy #2
-    lda ($03),y
+    lda ($10),y
     tax
     iny
-    lda ($03),y
-    stx $03
-    sta $04
-    ora $03
+    lda ($10),y
+    stx $10
+    sta $11
+    ora $10
     bne @loop
 
 @fail:
@@ -241,183 +241,183 @@ proc _malloc
 
 ; -----------------------------------------------------------------------------
 ; void free(void *ptr)
-;   ptr in $03/$04
+;   ptr in $10/$11
 ; -----------------------------------------------------------------------------
 proc _free
-    .zp_uses $03, $04
-    .zp_clobbers $03, $04, $05, $06, $07, $08, $09, $0A
-    .zp_release $03, $04
+    .zp_uses $10, $11
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17
+    .zp_release $10, $11
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
 
-    lda $03
-    ora $04
+    lda $10
+    ora $11
     beq @done
 
     ; curr = ptr - 2
-    lda $03
+    lda $10
     sec
     sbc #2
-    sta $03
-    lda $04
+    sta $10
+    lda $11
     sbc #0
-    sta $04
+    sta $11
 
     ; Mark free: curr->size &= ~1
     ldy #0
-    lda ($03),y
+    lda ($10),y
     and #$FE
-    sta ($03),y
+    sta ($10),y
     tax                 ; block size low
     iny
-    lda ($03),y
+    lda ($10),y
     tay                 ; block size high
-    stx $09             ; block size low
-    sty $0A             ; block size high
+    stx $16             ; block size low
+    sty $17             ; block size high
 
     ; Find insertion point in sorted list
-    stz $05             ; prev = 0
-    stz $06
+    stz $12             ; prev = 0
+    stz $13
     lda __heap_ptr
-    sta $07             ; next_p = head
+    sta $14             ; next_p = head
     lda __heap_ptr+1
-    sta $08
+    sta $15
 
 @search:
-    lda $07
-    ora $08
+    lda $14
+    ora $15
     beq @insert
 
     ; if (curr < next_p) break
-    lda $04
-    cmp $08
+    lda $11
+    cmp $15
     bcc @insert
     bne @search_next
-    lda $03
-    cmp $07
+    lda $10
+    cmp $14
     bcc @insert
 
 @search_next:
-    lda $07
-    sta $05             ; prev = next_p
-    lda $08
-    sta $06
+    lda $14
+    sta $12             ; prev = next_p
+    lda $15
+    sta $13
     ldy #2
-    lda ($07),y
+    lda ($14),y
     tax
     iny
-    lda ($07),y
-    stx $07
-    sta $08
+    lda ($14),y
+    stx $14
+    sta $15
     bra @search
 
 @insert:
     ; curr->next = next_p
     ldy #2
-    lda $07
-    sta ($03),y
+    lda $14
+    sta ($10),y
     iny
-    lda $08
-    sta ($03),y
+    lda $15
+    sta ($10),y
 
-    lda $05
-    ora $06
+    lda $12
+    ora $13
     bne @link_prev
-    lda $03
+    lda $10
     sta __heap_ptr
-    lda $04
+    lda $11
     sta __heap_ptr+1
     bra @coalesce_next
 @link_prev:
     ldy #2
-    lda $03
-    sta ($05),y
+    lda $10
+    sta ($12),y
     iny
-    lda $04
-    sta ($05),y
+    lda $11
+    sta ($12),y
 
 @coalesce_next:
     ; if (curr + curr->size == next_p)
-    lda $07
-    ora $08
+    lda $14
+    ora $15
     beq @coalesce_prev
 
-    lda $03
+    lda $10
     clc
-    adc $09
-    cmp $07
+    adc $16
+    cmp $14
     bne @coalesce_prev
-    lda $04
-    adc $0A
-    cmp $08
+    lda $11
+    adc $17
+    cmp $15
     bne @coalesce_prev
 
     ; curr->size += next_p->size
     ldy #0
-    lda ($07),y
+    lda ($14),y
     clc
-    adc $09
-    sta ($03),y
+    adc $16
+    sta ($10),y
     iny
-    lda ($07),y
-    adc $0A
-    sta ($03),y
+    lda ($14),y
+    adc $17
+    sta ($10),y
     ; curr->next = next_p->next
     ldy #2
-    lda ($07),y
-    sta ($03),y
+    lda ($14),y
+    sta ($10),y
     iny
-    lda ($07),y
-    sta ($03),y
+    lda ($14),y
+    sta ($10),y
     ; Update local size
     ldy #0
-    lda ($03),y
-    sta $09
+    lda ($10),y
+    sta $16
     iny
-    lda ($03),y
-    sta $0A
+    lda ($10),y
+    sta $17
 
 @coalesce_prev:
     ; if (prev + prev->size == curr)
-    lda $05
-    ora $06
+    lda $12
+    ora $13
     beq @done
 
     ldy #0
-    lda ($05),y
+    lda ($12),y
     tax                 ; prev->size low
     iny
-    lda ($05),y
+    lda ($12),y
     tay                 ; prev->size high
 
     txa
     clc
-    adc $05
-    cmp $03
+    adc $12
+    cmp $10
     bne @done
     tya
-    adc $06
-    cmp $04
+    adc $13
+    cmp $11
     bne @done
 
     ; prev->size += curr->size
     ldy #0
-    lda ($03),y
+    lda ($10),y
     clc
-    adc ($05),y
-    sta ($05),y
+    adc ($12),y
+    sta ($12),y
     iny
-    lda ($03),y
-    adc ($05),y
-    sta ($05),y
+    lda ($10),y
+    adc ($12),y
+    sta ($12),y
 
     ; prev->next = curr->next
     ldy #2
-    lda ($03),y
-    sta ($05),y
+    lda ($10),y
+    sta ($12),y
     iny
-    lda ($03),y
-    sta ($05),y
+    lda ($10),y
+    sta ($12),y
 
 @done:
     rts
@@ -425,44 +425,44 @@ proc _free
 
 ; -----------------------------------------------------------------------------
 ; void *calloc(size_t nmemb, size_t size)
-;   nmemb=$03/$04, size=$05/$06
+;   nmemb=$10/$11, size=$12/$13
 ; -----------------------------------------------------------------------------
 proc _calloc
-    .zp_uses $03, $04, $05, $06
-    .zp_clobbers $03, $04, $05, $06, $07, $08, $09, $0A
-    .zp_release $03, $04, $05, $06
+    .zp_uses $10, $11, $12, $13
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17
+    .zp_release $10, $11, $12, $13
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
 
     ; total = nmemb * size
-    ldax $03
-    mul.16 .ax, $05
-    stax $09            ; save total in $09/$0A
+    ldax $10
+    mul.16 .ax, $12
+    stax $16            ; save total in $16/$17
 
     ; malloc(total)
-    sta $03
-    stx $04
+    sta $10
+    stx $11
     jsr _malloc
-    sta $07             ; save result lo
-    stx $08             ; save result hi
-    ora $08
+    sta $14             ; save result lo
+    stx $15             ; save result hi
+    ora $15
     beq @fail
 
     ; memset(result, 0, total)
-    lda $07
-    sta $03
-    lda $08
-    sta $04             ; dest = result
-    stz $05             ; c = 0
-    stz $06
-    lda $09
-    sta $07
-    lda $0A
-    sta $08             ; n = total
+    lda $14
+    sta $10
+    lda $15
+    sta $11             ; dest = result
+    stz $12             ; c = 0
+    stz $13
+    lda $16
+    sta $14
+    lda $17
+    sta $15             ; n = total
     jsr _memset
 
-    lda $03             ; memset returns dest
-    ldx $04
+    lda $10             ; memset returns dest
+    ldx $11
     rts
 @fail:
     lda #0
@@ -472,126 +472,126 @@ proc _calloc
 
 ; -----------------------------------------------------------------------------
 ; void *realloc(void *ptr, size_t size)
-;   ptr=$03/$04, size=$05/$06
+;   ptr=$10/$11, size=$12/$13
 ; -----------------------------------------------------------------------------
 proc _realloc
-    .zp_uses $03, $04, $05, $06
-    .zp_clobbers $03, $04, $05, $06, $07, $08, $09, $0A
-    .zp_release $03, $04, $05, $06
+    .zp_uses $10, $11, $12, $13
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17
+    .zp_release $10, $11, $12, $13
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
 
     ; Save params
-    lda $03
-    sta $09             ; ptr lo
-    lda $04
-    sta $0A             ; ptr hi
-    lda $05
-    sta $07             ; size lo
-    lda $06
-    sta $08             ; size hi
+    lda $10
+    sta $16             ; ptr lo
+    lda $11
+    sta $17             ; ptr hi
+    lda $12
+    sta $14             ; size lo
+    lda $13
+    sta $15             ; size hi
 
     ; If ptr is NULL, realloc is malloc
-    lda $09
-    ora $0A
+    lda $16
+    ora $17
     bne @not_null
-    lda $07
-    sta $03
-    lda $08
-    sta $04
+    lda $14
+    sta $10
+    lda $15
+    sta $11
     jmp _malloc
 
 @not_null:
     ; If size is 0, realloc is free
-    lda $07
-    ora $08
+    lda $14
+    ora $15
     bne @do_realloc
-    lda $09
-    sta $03
-    lda $0A
-    sta $04
+    lda $16
+    sta $10
+    lda $17
+    sta $11
     jmp _free
 
 @do_realloc:
     ; malloc(size)
-    lda $07
-    sta $03
-    lda $08
-    sta $04
+    lda $14
+    sta $10
+    lda $15
+    sta $11
     jsr _malloc
-    sta $05             ; new_ptr lo (reuse $05/$06 for new ptr)
-    stx $06
-    ora $06
+    sta $12             ; new_ptr lo (reuse $12/$13 for new ptr)
+    stx $13
+    ora $13
     beq @fail
 
     ; Get old block size: read header at (ptr - 2)
-    lda $09
+    lda $16
     sec
     sbc #2
-    sta $03
-    lda $0A
+    sta $10
+    lda $17
     sbc #0
-    sta $04
+    sta $11
     ldy #0
-    lda ($03),y
+    lda ($10),y
     and #$FE
     sec
     sbc #2              ; old_data_size low
     tax
     iny
-    lda ($03),y
+    lda ($10),y
     sbc #0              ; old_data_size high
     tay                 ; Y:X = old_data_size
 
     ; count = min(old_data_size, new_size)
     tya
-    cmp $08
+    cmp $15
     bcc @use_old
     bne @use_new
     txa
-    cmp $07
+    cmp $14
     bcc @use_old
 @use_new:
-    lda $07
-    sta $03             ; count lo (reuse $03/$04 for count... wait)
-    lda $08
+    lda $14
+    sta $10             ; count lo (reuse $10/$11 for count... wait)
+    lda $15
     bra @do_copy_setup
 @use_old:
     txa
-    sta $03
+    sta $10
     tya
 @do_copy_setup:
-    sta $04             ; count hi in $04, count lo in $03
-    ; Now: new_ptr=$05/$06, old_ptr=$09/$0A, count=$03/$04
-    ; Set up memcpy(new_ptr, old_ptr, count): dest=$03/$04, src=$05/$06, n=$07/$08
-    lda $03
+    sta $11             ; count hi in $11, count lo in $10
+    ; Now: new_ptr=$12/$13, old_ptr=$16/$17, count=$10/$11
+    ; Set up memcpy(new_ptr, old_ptr, count): dest=$10/$11, src=$12/$13, n=$14/$15
+    lda $10
     pha                 ; save count lo
-    lda $04
+    lda $11
     pha                 ; save count hi
-    lda $05
-    sta $03             ; dest = new_ptr
-    lda $06
-    sta $04
-    lda $09
-    sta $05             ; src = old_ptr
-    lda $0A
-    sta $06
+    lda $12
+    sta $10             ; dest = new_ptr
+    lda $13
+    sta $11
+    lda $16
+    sta $12             ; src = old_ptr
+    lda $17
+    sta $13
     pla
-    sta $08             ; n hi
+    sta $15             ; n hi
     pla
-    sta $07             ; n lo
-    ; Save new_ptr before memcpy clobbers $03/$04
-    lda $03
+    sta $14             ; n lo
+    ; Save new_ptr before memcpy clobbers $10/$11
+    lda $10
     pha
-    lda $04
+    lda $11
     pha
     jsr _memcpy
 
     ; free(old_ptr)
-    lda $09
-    sta $03
-    lda $0A
-    sta $04
+    lda $16
+    sta $10
+    lda $17
+    sta $11
     jsr _free
 
     ; Return new_ptr
@@ -613,47 +613,47 @@ proc _realloc
 
 _heap_init:
     lda #<__heap_start
-    sta $03
+    sta $10
     lda #>__heap_start
-    sta $04
+    sta $11
 
-    lda $03
-    ora $04
+    lda $10
+    ora $11
     bne @check_end
     lda #<__bss_end
-    sta $03
+    sta $10
     lda #>__bss_end
-    sta $04
+    sta $11
 
 @check_end:
-    lda $03
+    lda $10
     and #1
     beq @aligned
-    inc $03
+    inc $10
     bne @aligned
-    inc $04
+    inc $11
 @aligned:
 
     lda #<__heap_end
-    sta $05
+    sta $12
     lda #>__heap_end
-    sta $06
+    sta $13
 
-    lda $05
-    ora $06
+    lda $12
+    ora $13
     bne @calc_size
     lda #$00
-    sta $05
+    sta $12
     lda #$D0
-    sta $06
+    sta $13
 
 @calc_size:
-    lda $05
+    lda $12
     sec
-    sbc $03
+    sbc $10
     tax             ; size low
-    lda $06
-    sbc $04
+    lda $13
+    sbc $11
     tay             ; size high
 
     ; Ensure size >= 4
@@ -665,25 +665,25 @@ _heap_init:
 
 @init_ok:
     ; head = __heap_start
-    lda $03
+    lda $10
     sta __heap_ptr
-    lda $04
+    lda $11
     sta __heap_ptr+1
 
     ; head->size = (Y:X)
     ldy #0
     txa
-    sta ($03),y
+    sta ($10),y
     iny
     tya
-    sta ($03),y
+    sta ($10),y
 
     ; head->next = 0
     lda #0
     ldy #2
-    sta ($03),y
+    sta ($10),y
     iny
-    sta ($03),y
+    sta ($10),y
 
     rts
 

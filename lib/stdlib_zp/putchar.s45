@@ -9,17 +9,17 @@
 .segment "code"
 
 proc _putchar
-    .zp_uses $03, $04
-    .zp_clobbers $03, $04
-    .zp_release $03, $04
+    .zp_uses $10, $11
+    .zp_clobbers $10, $11
+    .zp_release $10, $11
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
 
-    lda $03
+    lda $10
     phz
     jsr $FFD2
     plz
-    lda $03
-    ldx $04
+    lda $10
+    ldx $11
     rts
     endproc

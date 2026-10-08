@@ -8,35 +8,35 @@
 .segment "code"
 
 proc _memset
-    .zp_uses $03, $04, $05, $06, $07, $08
-    .zp_clobbers $03, $04, $05, $06, $07, $08
-    .zp_release $05, $06, $07, $08
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .zp_clobbers $10, $11, $12, $13, $14, $15
+    .zp_release $12, $13, $14, $15
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
 
-    ; s=$03/$04, c=$05 (low byte), n=$07/$08
+    ; s=$10/$11, c=$12 (low byte), n=$14/$15
     ldy #0
-    lda $05             ; fill byte
+    lda $12             ; fill byte
 @loop:
-    ldx $08
+    ldx $15
     bne @do
-    ldx $07
+    ldx $14
     beq @done
 @do:
-    sta ($03),y
+    sta ($10),y
     iny
     bne @noinc
-    inc $04
+    inc $11
 @noinc:
-    ldx $07
+    ldx $14
     bne @declow
-    dec $08
+    dec $15
 @declow:
-    dec $07
-    lda $05
+    dec $14
+    lda $12
     bra @loop
 @done:
-    lda $03
-    ldx $04
+    lda $10
+    ldx $11
     rts
     endproc

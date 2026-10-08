@@ -1,8 +1,8 @@
 ; ldiv.s — Long division with quotient and remainder (ZP calling convention)
 ;
 ; ldiv_t ldiv(long numer, long denom);
-;   Returns ldiv_t { long quot; long rem; } via hidden return pointer in $03/$04.
-;   numer in $05-$08, denom in $09-$0C.
+;   Returns ldiv_t { long quot; long rem; } via hidden return pointer in $10/$11.
+;   numer in $12-$15, denom in $16-$0C.
 ;   VHDL: dividend/divisor at $D770/$D774, quotient at $D76C.
 ;   Remainder computed as: numer - quot * denom (no hw remainder register).
 
@@ -12,9 +12,9 @@
 .segment "code"
 
 proc _ldiv
-    .zp_uses $03, $04, $05, $06, $07, $08, $09, $0A, $0B, $0C
-    .zp_clobbers $03, $04, $05, $06, $07, $08, $09, $0A, $0B, $0C
-    .zp_release $03, $04, $05, $06, $07, $08, $09, $0A, $0B, $0C
+    .zp_uses $10, $11, $12, $13, $14, $15, $16, $17, $0B, $0C
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16, $17, $0B, $0C
+    .zp_release $10, $11, $12, $13, $14, $15, $16, $17, $0B, $0C
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
 
@@ -27,39 +27,39 @@ proc _ldiv
     stz $0D                 ; quot sign XOR
 
     ; --- abs(numer) → $D770 and save to __zp_scratch ---
-    lda $08                 ; byte3
+    lda $15                 ; byte3
     bpl @numer_pos
     inc $02
     inc $0D
     sec
     lda #0
-    sbc $05
+    sbc $12
     sta $D770
     sta __zp_scratch
     lda #0
-    sbc $06
+    sbc $13
     sta $D771
     sta __zp_scratch+1
     lda #0
-    sbc $07
+    sbc $14
     sta $D772
     sta __zp_scratch+2
     lda #0
-    sbc $08
+    sbc $15
     sta $D773
     sta __zp_scratch+3
     bra @do_denom
 @numer_pos:
-    lda $05
+    lda $12
     sta $D770
     sta __zp_scratch
-    lda $06
+    lda $13
     sta $D771
     sta __zp_scratch+1
-    lda $07
+    lda $14
     sta $D772
     sta __zp_scratch+2
-    lda $08
+    lda $15
     sta $D773
     sta __zp_scratch+3
 
@@ -72,10 +72,10 @@ proc _ldiv
     sta $0D
     sec
     lda #0
-    sbc $09
+    sbc $16
     sta $D774
     lda #0
-    sbc $0A
+    sbc $17
     sta $D775
     lda #0
     sbc $0B
@@ -85,9 +85,9 @@ proc _ldiv
     sta $D777
     bra @divide
 @denom_pos:
-    lda $09
+    lda $16
     sta $D774
-    lda $0A
+    lda $17
     sta $D775
     lda $0B
     sta $D776
@@ -106,33 +106,33 @@ proc _ldiv
     lda #0
     sbc $D76C
     ldy #0
-    sta ($03), y
+    sta ($10), y
     lda #0
     sbc $D76D
     iny
-    sta ($03), y
+    sta ($10), y
     lda #0
     sbc $D76E
     iny
-    sta ($03), y
+    sta ($10), y
     lda #0
     sbc $D76F
     iny
-    sta ($03), y
+    sta ($10), y
     bra @do_rem
 @quot_pos:
     ldy #0
     lda $D76C
-    sta ($03), y
+    sta ($10), y
     iny
     lda $D76D
-    sta ($03), y
+    sta ($10), y
     iny
     lda $D76E
-    sta ($03), y
+    sta ($10), y
     iny
     lda $D76F
-    sta ($03), y
+    sta ($10), y
 
 @do_rem:
     ; --- Remainder = abs(numer) - abs(quotient) * abs(denom) ---
@@ -181,19 +181,19 @@ proc _ldiv
     sec
     sbc __zp_scratch
     ldy #4
-    sta ($03), y
+    sta ($10), y
     lda $D779
     sbc __zp_scratch+1
     iny
-    sta ($03), y
+    sta ($10), y
     lda $D77A
     sbc __zp_scratch+2
     iny
-    sta ($03), y
+    sta ($10), y
     lda $D77B
     sbc __zp_scratch+3
     iny
-    sta ($03), y
+    sta ($10), y
     bra @done
 
 @rem_pos:
@@ -202,23 +202,23 @@ proc _ldiv
     sec
     sbc $D778
     ldy #4
-    sta ($03), y
+    sta ($10), y
     lda __zp_scratch+1
     sbc $D779
     iny
-    sta ($03), y
+    sta ($10), y
     lda __zp_scratch+2
     sbc $D77A
     iny
-    sta ($03), y
+    sta ($10), y
     lda __zp_scratch+3
     sbc $D77B
     iny
-    sta ($03), y
+    sta ($10), y
 
 @done:
-    lda $03
-    ldx $04
+    lda $10
+    ldx $11
 
     pla
     sta $0D

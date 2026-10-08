@@ -8,33 +8,33 @@
 .segment "code"
 
 proc _memcpy
-    .zp_uses $03, $04, $05, $06, $07, $08
-    .zp_clobbers $03, $04, $05, $06, $07, $08
-    .zp_release $05, $06, $07, $08
+    .zp_uses $10, $11, $12, $13, $14, $15
+    .zp_clobbers $10, $11, $12, $13, $14, $15
+    .zp_release $12, $13, $14, $15
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
 
-    ; dest=$03/$04, src=$05/$06, n=$07/$08
+    ; dest=$10/$11, src=$12/$13, n=$14/$15
     ldy #0
 @loop:
-    lda $07
-    ora $08
+    lda $14
+    ora $15
     beq @done
-    lda ($05),y
-    sta ($03),y
+    lda ($12),y
+    sta ($10),y
     iny
     bne @no_inc
-    inc $04
-    inc $06
+    inc $11
+    inc $13
 @no_inc:
-    lda $07
+    lda $14
     bne @dec_lo
-    dec $08
+    dec $15
 @dec_lo:
-    dec $07
+    dec $14
     bra @loop
 @done:
-    lda $03
-    ldx $04
+    lda $10
+    ldx $11
     rts
     endproc

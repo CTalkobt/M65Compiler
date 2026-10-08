@@ -14,23 +14,23 @@
 .segment "code"
 
 proc _exit
-    .zp_uses $03, $04
-    .zp_clobbers $03, $04
-    .zp_release $03, $04
+    .zp_uses $10, $11
+    .zp_clobbers $10, $11
+    .zp_release $10, $11
     .reg_clobbers A, X
 
-    lda $03
-    ldx $04
+    lda $10
+    ldx $11
     jmp __exit
     endproc
 
 proc __exit_
-    .zp_uses $03, $04
-    .zp_clobbers $03, $04
-    .zp_release $03, $04
+    .zp_uses $10, $11
+    .zp_clobbers $10, $11
+    .zp_release $10, $11
     .reg_clobbers A, X
 
-    lda $03
-    ldx $04
+    lda $10
+    ldx $11
     jmp __exit
     endproc

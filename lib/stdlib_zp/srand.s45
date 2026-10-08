@@ -8,8 +8,8 @@
 .segment "code"
 
 proc _srand
-    .zp_uses $03, $04
-    .zp_release $03, $04
+    .zp_uses $10, $11
+    .zp_release $10, $11
     .reg_clobbers A
 
     ; No-op: MEGA65 hardware RNG cannot be seeded

@@ -9,21 +9,21 @@
 .segment "code"
 
 proc _atoi
-    .zp_uses $03, $04
-    .zp_clobbers $03, $04, $05, $06, $07, $08, $09
-    .zp_release $03, $04
+    .zp_uses $10, $11
+    .zp_clobbers $10, $11, $12, $13, $14, $15, $16
+    .zp_release $10, $11
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
 
-    ; s=$03/$04 — use as indirect pointer
+    ; s=$10/$11 — use as indirect pointer
     ldy #0
 
     ; --- Skip leading whitespace ---
 @skipws:
-    lda ($03),y
+    lda ($10),y
     cmp #$20
     beq @skipnext
-    cmp #$09
+    cmp #$16
     bcc @checksign
     cmp #$0e
     bcc @skipnext
@@ -35,10 +35,10 @@ proc _atoi
 
     ; --- Check for sign ---
 @checksign:
-    stz $09             ; $09 = sign flag (0=positive)
+    stz $16             ; $16 = sign flag (0=positive)
     cmp #$2d            ; '-'
     bne @checkplus
-    inc $09
+    inc $16
     iny
     bra @startnum
 @checkplus:
@@ -47,23 +47,23 @@ proc _atoi
     iny
 @startnum:
     ; --- Initialize result = 0 ---
-    stz $05             ; $05/$06 = result (lo/hi)
-    stz $06
+    stz $12             ; $12/$13 = result (lo/hi)
+    stz $13
 
     ; --- Parse digits ---
 @digit:
-    lda ($03),y
+    lda ($10),y
     sec
     sbc #$30
     bcc @done
     cmp #10
     bcs @done
-    sta $07             ; $07 = current digit
+    sta $14             ; $14 = current digit
 
     ; result = result * 10 using hardware multiplier
-    lda $05
+    lda $12
     sta $d770
-    lda $06
+    lda $13
     sta $d771
     lda #0
     sta $d772
@@ -75,36 +75,36 @@ proc _atoi
     sta $d776
     sta $d777
     lda $d778
-    sta $05
+    sta $12
     lda $d779
-    sta $06
+    sta $13
 
     ; result += digit
-    lda $05
+    lda $12
     clc
-    adc $07
-    sta $05
-    lda $06
+    adc $14
+    sta $12
+    lda $13
     adc #0
-    sta $06
+    sta $13
 
     iny
     bne @digit
 
 @done:
-    lda $09
+    lda $16
     beq @positive
     ; Negate
     sec
     lda #0
-    sbc $05
-    sta $05
+    sbc $12
+    sta $12
     lda #0
-    sbc $06
-    sta $06
+    sbc $13
+    sta $13
 @positive:
-    lda $05
-    ldx $06
+    lda $12
+    ldx $13
     rts
 
 @retzero:

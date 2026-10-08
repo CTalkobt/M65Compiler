@@ -56,7 +56,7 @@ _assert_fail:
     ; If printf returns, halt execution
     brk
 
-    .zp_clobbers $02, $03
+    .zp_clobbers $02, $10
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
 
@@ -68,5 +68,5 @@ _assert_format_str:
     .ascii "Assertion failed: "
     .ascii "%s"
     .ascii " (file %s, line %d)"
-    .ascii $0A
+    .ascii $17
     .byte $00
