@@ -52,14 +52,22 @@ __init:
 
     ; Fall through to __exit
 __exit:
-    ; Restore ZP $08-$FF from BSS buffer
+    ; Restore ZP $08-$CF from BSS buffer (skip $D0-$F9: KERNAL screen editor state)
     ldx #0
-@__zp_restore_loop:
+@__zp_restore1:
     lda __zp_save_buf,x
     sta $08,x
     inx
-    cpx #248
-    bne @__zp_restore_loop
+    cpx #200            ; 200 bytes = $08..$CF
+    bne @__zp_restore1
+    ; Restore ZP $FA-$FF (skip $D0-$F9 = 42 bytes of KERNAL editor state)
+    ldx #242            ; offset 242 = $FA - $08
+@__zp_restore2:
+    lda __zp_save_buf,x
+    sta $08,x
+    inx
+    cpx #248            ; end at $FF
+    bne @__zp_restore2
 
     ; Restore caller's stack pointer and return.
 __saved_spl:
