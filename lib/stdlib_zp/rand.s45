@@ -24,4 +24,5 @@ proc _rand
     tax
     pla
     rts
+    .func_flags zp_call
     endproc

@@ -32,4 +32,5 @@ proc _abs
     lda $10
     ldx $11
     rts
+    .func_flags zp_call
     endproc

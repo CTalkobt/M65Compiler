@@ -34,4 +34,5 @@ proc _isgraph, W#_p_c
     lda #1
     ldx #0
     rtn #0
+    .func_flags zp_call
     endproc

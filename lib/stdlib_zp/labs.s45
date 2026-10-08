@@ -39,4 +39,5 @@ proc _labs
     ldx $11
     ldy $12
     rts
+    .func_flags zp_call
     endproc

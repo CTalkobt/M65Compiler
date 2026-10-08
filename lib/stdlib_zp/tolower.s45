@@ -23,4 +23,5 @@ proc _tolower
 @done:
     ldx #0
     rts
+    .func_flags zp_call
     endproc

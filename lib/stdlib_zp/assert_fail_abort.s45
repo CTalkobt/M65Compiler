@@ -10,4 +10,5 @@ _assert_fail_abort:
     .zp_clobbers
     .reg_clobbers
     .flag_clobbers
+    .func_flags zp_call
     endproc

@@ -54,4 +54,5 @@ proc _strcat
     tax             ; original dest hi
     pla             ; original dest lo
     rts
+    .func_flags zp_call
     endproc

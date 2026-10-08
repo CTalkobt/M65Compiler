@@ -131,4 +131,5 @@ proc _utoa, W#_p_value, W#_p_str, W#_p_base
     ldax $14
 @restore:
     rtn #0
+    .func_flags zp_call
     endproc

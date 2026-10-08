@@ -225,4 +225,5 @@ proc _ldiv
     pla
     sta $02
     rts
+    .func_flags zp_call
     endproc

@@ -62,4 +62,5 @@ proc _strncat
     lda $16
     ldx $17
     rts
+    .func_flags zp_call
     endproc

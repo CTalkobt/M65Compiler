@@ -145,4 +145,5 @@ proc _div
     pla
     sta $02
     rts
+    .func_flags zp_call
     endproc

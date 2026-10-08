@@ -22,6 +22,7 @@ proc _exit
     lda $10
     ldx $11
     jmp __exit
+    .func_flags zp_call
     endproc
 
 proc __exit_
@@ -33,4 +34,5 @@ proc __exit_
     lda $10
     ldx $11
     jmp __exit
+    .func_flags zp_call
     endproc

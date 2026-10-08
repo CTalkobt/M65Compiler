@@ -50,4 +50,5 @@ proc _puts
     lda #0
     tax
     rts
+    .func_flags zp_call
     endproc

@@ -29,4 +29,5 @@ proc _isprint
     lda #1
     ldx #0
     rts
+    .func_flags zp_call
     endproc

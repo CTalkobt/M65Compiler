@@ -40,4 +40,5 @@ proc _strchr
     lda #0
     tax
     rts
+    .func_flags zp_call
     endproc

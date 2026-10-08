@@ -15,4 +15,5 @@ proc _clock
     tya             ; A = lo byte
                     ; X = mid byte
     rts
+    .func_flags zp_call
     endproc

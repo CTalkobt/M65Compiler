@@ -29,4 +29,5 @@ proc _strcpy
     lda $10
     ldx $11
     rts
+    .func_flags zp_call
     endproc

@@ -167,4 +167,5 @@ proc _ltoa
     lda $14
     ldx $15
     rts
+    .func_flags zp_call
     endproc

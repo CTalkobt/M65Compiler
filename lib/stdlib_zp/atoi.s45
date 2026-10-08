@@ -111,4 +111,5 @@ proc _atoi
     lda #0
     ldx #0
     rts
+    .func_flags zp_call
     endproc

@@ -60,6 +60,7 @@ _assert_fail:
     .reg_clobbers A, X, Y, Z
     .flag_clobbers C, N, Z, V
 
+    .func_flags zp_call
     endproc
 
 ; Format string for assertion failures
