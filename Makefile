@@ -393,7 +393,7 @@ $(LIB_DIR):
 .PHONY: test-validation-linker test-segment-emission test-validation-assembler
 .PHONY: test-validation-simops test-validation-directives test-validation-symbols
 .PHONY: test-validation-segments test-validation-proc test-validation-addressing
-.PHONY: test-validation-simops-extended test-objdump45
+.PHONY: test-validation-simops-extended test-objdump45 test-examples
 .PHONY: test-phase12 test-phase13 test-phase14 test-phase15 test-phase16 test-phase17 test-phase18
 
 # Build all lib45 libraries
@@ -511,6 +511,11 @@ test: all lib
 	@bash src/test/test_disk45.sh
 	@echo "Running new stdlib tests..."
 	@bash src/test/test_stdlib_new.sh
+	@echo "Running example tests..."
+	@bash src/test/test_examples.sh
+
+test-examples: all
+	@bash src/test/test_examples.sh
 
 test-assembler: all
 	@bash src/test/test_assembler.sh
