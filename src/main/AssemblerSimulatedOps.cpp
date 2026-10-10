@@ -2174,7 +2174,7 @@ void AssemblerSimulatedOps::emitMod16Code(AssemblerParser* parser, M65Emitter& e
 
 // lda.fp varOffset — Load 8-bit value from frame-relative offset into A
 void AssemblerSimulatedOps::emitLDA_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    Symbol* fpSym = parser->resolveFrameVar(scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     e.lda_frame(fpOff, yOff);
@@ -2182,7 +2182,7 @@ void AssemblerSimulatedOps::emitLDA_FPCode(AssemblerParser* parser, M65Emitter& 
 
 // sta.fp varOffset — Store 8-bit value from A to frame-relative offset
 void AssemblerSimulatedOps::emitSTA_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    Symbol* fpSym = parser->resolveFrameVar(scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     e.sta_frame(fpOff, yOff);
@@ -2190,7 +2190,7 @@ void AssemblerSimulatedOps::emitSTA_FPCode(AssemblerParser* parser, M65Emitter& 
 
 // ldx.fp varOffset — Load 8-bit value from frame into X
 void AssemblerSimulatedOps::emitLDX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    Symbol* fpSym = parser->resolveFrameVar(scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     e.lda_frame(fpOff, yOff);  // Load into A
@@ -2199,7 +2199,7 @@ void AssemblerSimulatedOps::emitLDX_FPCode(AssemblerParser* parser, M65Emitter& 
 
 // stx.fp varOffset — Store 8-bit value from X to frame-relative offset
 void AssemblerSimulatedOps::emitSTX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    Symbol* fpSym = parser->resolveFrameVar(scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     e.txa();                    // Transfer X to A
@@ -2208,7 +2208,7 @@ void AssemblerSimulatedOps::emitSTX_FPCode(AssemblerParser* parser, M65Emitter& 
 
 // ldy.fp varOffset — Load 8-bit value from frame into Y
 void AssemblerSimulatedOps::emitLDY_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    Symbol* fpSym = parser->resolveFrameVar(scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     e.lda_frame(fpOff, yOff);  // Load into A
@@ -2217,7 +2217,7 @@ void AssemblerSimulatedOps::emitLDY_FPCode(AssemblerParser* parser, M65Emitter& 
 
 // sty.fp varOffset — Store 8-bit value from Y to frame-relative offset
 void AssemblerSimulatedOps::emitSTY_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    Symbol* fpSym = parser->resolveFrameVar(scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     e.tya();                    // Transfer Y to A
@@ -2226,7 +2226,7 @@ void AssemblerSimulatedOps::emitSTY_FPCode(AssemblerParser* parser, M65Emitter& 
 
 // ldz.fp varOffset — Load 8-bit value from frame into Z
 void AssemblerSimulatedOps::emitLDZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    Symbol* fpSym = parser->resolveFrameVar(scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     e.lda_frame(fpOff, yOff);  // Load into A
@@ -2235,7 +2235,7 @@ void AssemblerSimulatedOps::emitLDZ_FPCode(AssemblerParser* parser, M65Emitter& 
 
 // stz.fp varOffset — Store 8-bit value from Z to frame-relative offset
 void AssemblerSimulatedOps::emitSTZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    Symbol* fpSym = parser->resolveFrameVar(scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     e.tza();                    // Transfer Z to A
@@ -2347,7 +2347,7 @@ void AssemblerSimulatedOps::emitMOVE_FPCode(AssemblerParser* parser, M65Emitter&
     int idx = tokenIndex;
     if (idx < 0 || idx >= (int)parser->tokens.size()) return;
 
-    Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+    Symbol* fpSym = parser->resolveFrameVar(scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint16_t sb = e.spBase();
 
@@ -3272,20 +3272,20 @@ void AssemblerSimulatedOps::dispatch_MOVE_FP(AssemblerParser* p, M65Emitter& e, 
 }
 // inc.fp / dec.fp — 8-bit increment/decrement of frame-relative variable
 void AssemblerSimulatedOps::dispatch_INC_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
-    Symbol* fpSym = p->resolveSymbol("_fp", s->scopePrefix);
+    Symbol* fpSym = p->resolveFrameVar(s->scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
     e.inc_stack(fpOff + yOff);
 }
 void AssemblerSimulatedOps::dispatch_DEC_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
-    Symbol* fpSym = p->resolveSymbol("_fp", s->scopePrefix);
+    Symbol* fpSym = p->resolveFrameVar(s->scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
     e.dec_stack(fpOff + yOff);
 }
 // inc.16fp / dec.16fp — 16-bit increment/decrement of frame-relative variable
 void AssemblerSimulatedOps::dispatch_INC16_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
-    Symbol* fpSym = p->resolveSymbol("_fp", s->scopePrefix);
+    Symbol* fpSym = p->resolveFrameVar(s->scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
     uint8_t off = fpOff + yOff;
@@ -3295,7 +3295,7 @@ void AssemblerSimulatedOps::dispatch_INC16_FP(AssemblerParser* p, M65Emitter& e,
     e.patchBranchTarget(br);
 }
 void AssemblerSimulatedOps::dispatch_DEC16_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
-    Symbol* fpSym = p->resolveSymbol("_fp", s->scopePrefix);
+    Symbol* fpSym = p->resolveFrameVar(s->scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
     uint8_t yOff = (uint8_t)p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
     uint8_t off = fpOff + yOff;

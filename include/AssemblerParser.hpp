@@ -62,6 +62,9 @@ public:
     bool hasFramePointer() const { return framePointerZP != 0; }
     bool getSACMode() const { return sacMode; }
     Symbol* resolveSymbol(const std::string& name, const std::string& scopePrefix = "");
+    // The proc's frame-pointer variable: cc45 emits ".var cc45.fp" (a name no C
+    // identifier can take); hand-written assembly may use ".var _fp"
+    Symbol* resolveFrameVar(const std::string& scopePrefix);
     bool hasErrors() const { return !errors.empty(); }
     const std::vector<std::string>& getErrors() const { return errors; }
     void addError(const std::string& msg) { errors.push_back(msg); }

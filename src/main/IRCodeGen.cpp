@@ -2081,8 +2081,8 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         emit("lda #>__zp_page_isr"); emit("tab");
     }
 
-    // Frame pointer variable
-    emit(".var _fp = 0");
+    // Frame pointer variable ("cc45.fp" can't clash with a C global named fp)
+    emit(".var cc45.fp = 0");
 
     // Emit .loc for function declaration line (before prologue and param loading,
     // so objdump attributes setup code to the function signature, not the first statement)

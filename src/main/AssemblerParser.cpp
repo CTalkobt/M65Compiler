@@ -214,6 +214,11 @@ uint32_t AssemblerParser::evaluateExpressionAt(int index, const std::string& sco
     return ast->getValue(this);
 }
 
+Symbol* AssemblerParser::resolveFrameVar(const std::string& scopePrefix) {
+    if (Symbol* s = resolveSymbol("cc45.fp", scopePrefix)) return s;
+    return resolveSymbol("_fp", scopePrefix);
+}
+
 Symbol* AssemblerParser::resolveSymbol(const std::string& name, const std::string& scopePrefix) {
     // For @ local labels outside proc scope, try auto-scope under last global label
     if (!name.empty() && name[0] == '@' && !currentLocalScope_.empty() && scopePrefix.empty()) {
@@ -331,7 +336,7 @@ AssemblerParser::FrameAccessInfo AssemblerParser::resolveFrameAccess(int tokenIn
         info.isFrame = true;
         uint32_t exprVal = evaluateExpressionAt(tokenIndex, scopePrefix);
         info.yOff = (uint8_t)exprVal;
-        Symbol* fpSym = resolveSymbol("_fp", scopePrefix);
+        Symbol* fpSym = resolveFrameVar(scopePrefix);
         info.fpOff = fpSym ? (uint8_t)fpSym->value : 1;
     }
     return info;

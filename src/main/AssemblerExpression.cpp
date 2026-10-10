@@ -275,7 +275,7 @@ void VariableNode::emit(M65Emitter& e, AssemblerParser* parser, int width, const
         if (width >= 16) e.ldx_imm((sym->value >> 8) & 0xFF);
     } else {
         if (sym->isFrameRelative) {
-            Symbol* fpSym = parser->resolveSymbol("_fp", scopePrefix);
+            Symbol* fpSym = parser->resolveFrameVar(scopePrefix);
             uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 1;
             uint8_t yOff = (uint8_t)sym->frameOffset;
             uint8_t totalOff = fpOff + yOff;
