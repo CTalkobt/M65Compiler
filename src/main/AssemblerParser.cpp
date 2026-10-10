@@ -1924,10 +1924,8 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
             return 0;
         }
         int len = (int)dir.arguments[0].size();
-        // Subtract 1 for encoding prefix (s/S/p/P) if present
-        if (len > 1 && (dir.arguments[0][0] == 's' || dir.arguments[0][0] == 'S' ||
-                        dir.arguments[0][0] == 'p' || dir.arguments[0][0] == 'P'))
-            len--;
+        // Encoding prefix marker "\x01s" / "\x01p" (see AssemblerLexer) takes no space
+        if (len >= 2 && dir.arguments[0][0] == '\x01') len -= 2;
         return len;
     }
     if (dir.name == "res" || dir.name == "fill" || dir.name == "space") {

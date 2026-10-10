@@ -559,11 +559,11 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                     else if (stmt->dir.name == "text" || stmt->dir.name == "ascii" || stmt->dir.name == "screencode") {
                         if (!stmt->dir.arguments.empty()) {
                             std::string str = stmt->dir.arguments[0];
-                            // Check for encoding prefix: s"..." or p"..."
+                            // Encoding prefix s"..." / p"..." arrives from the lexer as "\x01s..." / "\x01p..."
                             char prefix = 0;
-                            if (str.size() > 1 && (str[0] == 's' || str[0] == 'S' || str[0] == 'p' || str[0] == 'P')) {
-                                prefix = str[0];
-                                str = str.substr(1);
+                            if (str.size() >= 2 && str[0] == '\x01') {
+                                prefix = str[1];
+                                str = str.substr(2);
                             }
                             for (char c : str) {
                                 if (prefix == 's' || prefix == 'S' || (prefix == 0 && stmt->dir.name == "screencode"))

@@ -246,7 +246,8 @@ AssemblerToken AssemblerLexer::lexIdentifierOrInstruction() {
             return tok;
         } else {
             auto tok = lexString();
-            tok.value = std::string(1, prefix) + tok.value; // prepend prefix
+            // Marked with \x01 so an unprefixed string starting with s/p isn't mistaken for one
+            tok.value = std::string("\x01") + prefix + tok.value;
             return tok;
         }
     }
