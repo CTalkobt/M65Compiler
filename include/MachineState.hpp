@@ -361,6 +361,21 @@ struct MachineState {
         memAge_ = 0;
     }
 
+    // A store to an unresolved absolute symbol: forget absolute-memory knowledge.
+    void clobberAbsMem() {
+        for (auto& e : memCache) e.valid = false;
+        for (int i = 0; i < REG_COUNT; i++)
+            if (reg[i].kind == ValueInfo::SAME_AS_MEM && reg[i].mirrorAddr >= 256) reg[i] = ValueInfo::unknown();
+    }
+
+    // A store to an address that can't be resolved (indexed, indirect,
+    // expression): forget all memory and any register mirroring memory.
+    void clobberUnknownMem() {
+        invalidateAllMem();
+        for (int i = 0; i < REG_COUNT; i++)
+            if (reg[i].kind == ValueInfo::SAME_AS_MEM) reg[i] = ValueInfo::unknown();
+    }
+
     // --- Register value updates (non-standard) ---
 
     // Set a register to NONZERO (known != 0 but exact value unknown).

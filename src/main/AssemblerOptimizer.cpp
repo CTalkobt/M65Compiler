@@ -37,21 +37,20 @@ bool AssemblerOptimizer::optimizeInternal(
 
     // Parse a numeric operand string to a value.
     // Handles decimal, $hex, %binary. Returns true if parseable.
+    // A plain number only: an expression such as "$28+1" must not parse as $28
     auto parseNum = [](const std::string& op, int64_t& val) -> bool {
         if (op.empty()) return false;
         try {
+            size_t used = 0;
             if (op[0] == '$') {
-                val = std::stol(op.substr(1), nullptr, 16);
-                return true;
+                val = std::stol(op.substr(1), &used, 16);
+                return used == op.size() - 1;
             } else if (op[0] == '%') {
-                val = std::stol(op.substr(1), nullptr, 2);
-                return true;
-            } else if (op[0] >= '0' && op[0] <= '9') {
-                val = std::stol(op, nullptr, 10);
-                return true;
-            } else if (op[0] == '-' && op.size() > 1) {
-                val = std::stol(op, nullptr, 10);
-                return true;
+                val = std::stol(op.substr(1), &used, 2);
+                return used == op.size() - 1;
+            } else if ((op[0] >= '0' && op[0] <= '9') || (op[0] == '-' && op.size() > 1)) {
+                val = std::stol(op, &used, 10);
+                return used == op.size();
             }
         } catch (...) {}
         return false;
@@ -422,6 +421,22 @@ bool AssemblerOptimizer::optimizeInternal(
             bool isImm = (mode == AddressingMode::IMMEDIATE);
             bool isZP = (mode == AddressingMode::BASE_PAGE);
             bool isAbs = (mode == AddressingMode::ABSOLUTE);
+            // Forget what is known about the memory a write (store or RMW) touches
+            auto memWritten = [&](int bytes) {
+                int64_t addr = -1;
+                if ((isZP || isAbs) && hasNumVal) addr = numVal & 0xFFFF;
+                else if ((isZP || isAbs) && s->instr.operandTokenIndex >= 0) {
+                    try { addr = parser->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix); }
+                    catch (...) {}
+                    if (addr >= 256) { ms.clobberAbsMem(); return; }  // relocatable placeholder
+                }
+                if (addr < 0) { ms.clobberUnknownMem(); return; }
+                for (int b = 0; b < bytes; b++) {
+                    uint32_t a = (uint32_t)addr + b;
+                    if (a < 256) ms.invalidateZP((uint8_t)a);
+                    else ms.invalidateAbs((uint16_t)a);
+                }
+            };
 
             // --- CMP #0 elimination ---
             if (parser->optFlags.cmpElimination && m == "CMP" && isImm && hasNumVal && numVal == 0) {
@@ -710,6 +725,21 @@ bool AssemblerOptimizer::optimizeInternal(
                     uint16_t addr = (uint16_t)(numVal & 0xFFFF);
                     if (addr < 256) ms.storeZP((uint8_t)addr, r);
                     else ms.storeAbs(addr, r);
+                } else if (isZP || isAbs) {
+                    // Symbol or expression operand ("$28+1", "__zp_scratch4+3")
+                    bool known = false;
+                    if (s->instr.operandTokenIndex >= 0) {
+                        try {
+                            uint32_t addr = parser->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
+                            if (addr < 256) { ms.storeZP((uint8_t)addr, r); known = true; }
+                        } catch (...) {}
+                    }
+                    // Relocatable symbols evaluate to placeholders; they can't
+                    // alias ZP, but may alias tracked absolute addresses
+                    if (!known) ms.clobberAbsMem();
+                } else {
+                    // Indexed / indirect / stack-relative: target unknown
+                    ms.clobberUnknownMem();
                 }
                 // Stores don't modify the source register or flags
             }
@@ -721,6 +751,8 @@ bool AssemblerOptimizer::optimizeInternal(
             else if (m == "TYA") { ms.setTransfer(REG_A, REG_Y); }
             else if (m == "TAZ") { ms.setTransfer(REG_Z, REG_A); }
             else if (m == "TZA") { ms.setTransfer(REG_A, REG_Z); }
+            else if (m == "TBA") { ms.invalidateReg(REG_A); ms.flags.invalidate(); }
+            else if (m == "TSY") { ms.invalidateReg(REG_Y); ms.flags.invalidate(); }
             else if (m == "TSX") {
                 // Redundant TSX elimination: skip if X already holds SP
                 if (parser->optFlags.tsxRedundant && ms.xHoldsSP()) {
@@ -767,24 +799,38 @@ bool AssemblerOptimizer::optimizeInternal(
                 ms.invalidateReg(REG_A);
                 ms.flags.invalidate();
             }
-            else if (m == "ASL" || m == "LSR" || m == "ROL" || m == "ROR") {
+            else if (m == "ASL" || m == "LSR" || m == "ROL" || m == "ROR" || m == "ASR" ||
+                     m == "INC" || m == "DEC" || m == "NEG") {
                 if (mode == AddressingMode::ACCUMULATOR || mode == AddressingMode::IMPLIED) {
                     ms.invalidateReg(REG_A);
-                } else if (isZP && hasNumVal) {
-                    ms.invalidateZP((uint8_t)(numVal & 0xFF));
-                } else if (isAbs && hasNumVal) {
-                    ms.invalidateAbs((uint16_t)(numVal & 0xFFFF));
+                } else {
+                    memWritten(1);
                 }
                 ms.flags.invalidate();
             }
-            else if (m == "INC" || m == "DEC") {
-                if (mode == AddressingMode::ACCUMULATOR || mode == AddressingMode::IMPLIED) {
-                    ms.invalidateReg(REG_A);
-                } else if (isZP && hasNumVal) {
-                    ms.invalidateZP((uint8_t)(numVal & 0xFF));
-                } else if (isAbs && hasNumVal) {
-                    ms.invalidateAbs((uint16_t)(numVal & 0xFFFF));
+            // 32-bit (Q = AXYZ) instructions
+            else if (m == "LDQ" || m == "STQ" || m == "ADCQ" || m == "SBCQ" || m == "ANDQ" ||
+                     m == "ORQ" || m == "EORQ" || m == "ASLQ" || m == "LSRQ" || m == "ROLQ" ||
+                     m == "RORQ" || m == "ASRQ" || m == "INQ" || m == "DEQ" || m == "NEGQ" ||
+                     m == "CMPQ" || m == "BITQ") {
+                bool regOnly = (mode == AddressingMode::ACCUMULATOR || mode == AddressingMode::IMPLIED);
+                bool writesMem = !regOnly && m != "LDQ" && m != "ADCQ" && m != "SBCQ" && m != "ANDQ" &&
+                                 m != "ORQ" && m != "EORQ" && m != "CMPQ" && m != "BITQ";
+                if (writesMem) memWritten(4);
+                if (m != "STQ" && m != "CMPQ" && m != "BITQ" && (regOnly || m == "LDQ" || m == "ADCQ" ||
+                    m == "SBCQ" || m == "ANDQ" || m == "ORQ" || m == "EORQ")) {
+                    ms.invalidateReg(REG_A); ms.invalidateReg(REG_X);
+                    ms.invalidateReg(REG_Y); ms.invalidateReg(REG_Z);
                 }
+                if (m != "STQ") ms.flags.invalidate();
+            }
+            // Other read-modify-write instructions on memory
+            else if (m == "TSB" || m == "TRB" || (m.size() == 4 && (m.compare(0, 3, "RMB") == 0 || m.compare(0, 3, "SMB") == 0))) {
+                memWritten(1);
+                if (m == "TSB" || m == "TRB") ms.flags.invalidate();
+            }
+            else if (m == "INW" || m == "DEW" || m == "ASW" || m == "ROW") {
+                memWritten(2);
                 ms.flags.invalidate();
             }
             else if (m == "INX" || m == "DEX") { ms.invalidateReg(REG_X); ms.flags.invalidate(); }
