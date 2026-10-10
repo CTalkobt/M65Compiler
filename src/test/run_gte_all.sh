@@ -5,7 +5,7 @@
 # A test passes when the program returns to BASIC (xemu -prgexit exits on READY).
 # abort() executes BRK, which stops in the monitor, so a failing test hits the timeout.
 #
-# Usage: run_gte_all.sh [-j N]   (default: one job per CPU)
+# Usage: run_gte_all.sh [-j N] [-l names.txt]   (default: all tests, one job per CPU)
 
 CC="./bin/cc45"
 LD="./bin/ln45"
@@ -17,7 +17,14 @@ BUILD_DIR="build/test/gte"
 RUN_TIMEOUT=8
 
 JOBS=$(nproc 2>/dev/null || echo 4)
-if [ "$1" = "-j" ] && [ -n "$2" ]; then JOBS=$2; fi
+LIST=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -j) JOBS=$2; shift 2 ;;
+        -l) LIST=$2; shift 2 ;;   # only run the test names listed in this file
+        *) shift ;;
+    esac
+done
 
 if ! command -v $XEMU &>/dev/null; then
     echo "xemu-xmega65 not found — skipping GTE tests"
@@ -36,6 +43,11 @@ run_one() {
         # Bitfield widths >16 bits exceed the 16-bit target's limits
         bitfld-6|bitfld-7|pr103417|pr19689|pr31448-2|pr31448|pr40404|pr52979-1|pr52979-2|pr57344-2|pr58570|pr70602|pr78170|pr78436|pr89195|pr97764)
             echo "SKIP: $name (bitfield width >16 bits)"
+            return
+            ;;
+        # GCC vector extension (__attribute__((vector_size))) is not supported
+        pr53645|pr53645-2)
+            echo "SKIP: $name (GCC vector types unsupported)"
             return
             ;;
     esac
@@ -59,11 +71,16 @@ run_one() {
 export -f run_one
 export CC LD CRT0 LIB XEMU GTE_DIR BUILD_DIR RUN_TIMEOUT
 
-TOTAL=$(ls "$GTE_DIR"/*.c | wc -l)
+if [ -n "$LIST" ]; then
+    TEST_FILES=$(grep -v '^\s*\(#\|$\)' "$LIST" | sed "s|^|$GTE_DIR/|; s|$|.c|")
+else
+    TEST_FILES=$(ls "$GTE_DIR"/*.c)
+fi
+TOTAL=$(echo "$TEST_FILES" | wc -l)
 echo "Running $TOTAL GTE tests ($JOBS parallel)..."
 
 RESULTS="$BUILD_DIR/results.txt"
-ls "$GTE_DIR"/*.c | xargs -P "$JOBS" -I{} bash -c 'run_one "$@"' _ {} | sort -t: -k2 > "$RESULTS"
+echo "$TEST_FILES" | xargs -P "$JOBS" -I{} bash -c 'run_one "$@"' _ {} | sort -t: -k2 > "$RESULTS"
 grep -v "^PASS" "$RESULTS"
 
 passed=$(grep -c "^PASS" "$RESULTS")

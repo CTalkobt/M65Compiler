@@ -544,6 +544,10 @@ test-cast-fold: all
 test-inline: all
 	@bash src/test/test_inline_control.sh
 
+# Temporary: known failing tests being worked down (see src/test/test_failures.sh)
+test-failures: all lib
+	@bash src/test/test_failures.sh
+
 test-integration: all
 	@bash src/test/test_integration.sh
 

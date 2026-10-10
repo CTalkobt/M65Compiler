@@ -49,6 +49,8 @@ fi
 shadow_test() {
     local name="$1"
     local src="$2"
+    # SHADOW_ONLY="a b": run only the named tests
+    if [ -n "$SHADOW_ONLY" ] && [[ " $SHADOW_ONLY " != *" $name "* ]]; then return; fi
     local base="build/test/shadow/${name}"
 
     # Reference: host compiler, exit status = low byte of main's return value
