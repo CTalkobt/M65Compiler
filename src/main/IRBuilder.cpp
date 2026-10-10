@@ -1002,6 +1002,11 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         auto vreg = allocVreg(pt);
         locals_[p.name] = vreg;
         localDeclLocs_[p.name] = declLoc(node);
+        if (p.line > 0) {
+            localDeclLocs_[p.name].line = p.line;
+            localDeclLocs_[p.name].column = p.column;
+            if (!p.sourceFile.empty()) localDeclLocs_[p.name].file = p.sourceFile;
+        }
         if (currentFunc_) currentFunc_->localNames[p.name] = vreg.vregId;
         localTypes_[p.name] = pt;
         // Phase 102: Resolve typedef to struct name for parameter types
@@ -1050,10 +1055,12 @@ void IRBuilder::visit(FunctionDeclaration& node) {
             std::string file = sl.valid() ? sl.file : node.sourceFile;
             int col = sl.valid() ? sl.column : node.column;
             // A function can be lowered more than once (e.g. constant-argument specialization)
-            std::string w = formatDiagnostic(file, line, col, Severity::Warning,
-                "unused variable '" + name + "'");
-            if (std::find(warnings_.begin(), warnings_.end(), w) == warnings_.end())
-                warnings_.push_back(w);
+            bool isParam = std::any_of(node.parameters.begin(), node.parameters.end(),
+                                       [&](const Parameter& p) { return p.name == name; });
+            const char* kind = isParam ? "unused parameter '" : "unused variable '";
+            std::string key = file + ":" + std::to_string(line) + ":" + std::to_string(col) + ":" + name;
+            if (reportedUnused_.insert(key).second)
+                warnings_.push_back(formatDiagnostic(file, line, col, Severity::Warning, kind + name + "'"));
         }
     }
 

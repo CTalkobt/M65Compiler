@@ -436,6 +436,9 @@ struct Parameter {
     bool isPointerConst = false;
     bool isFunctionPointer = false;
     std::shared_ptr<FuncPtrSignature> funcPtrSig;
+    std::string sourceFile;  // position of the parameter name (0 line = unknown)
+    int line = 0;
+    int column = 0;
 };
 
 class FunctionDeclaration : public Statement {

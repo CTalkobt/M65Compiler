@@ -771,6 +771,9 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             advance(); // consume 'void'
         }
         else if (peek().type != TokenType::CLOSE_PAREN) {
+        auto markParamPos = [](Parameter& p, const Token& t) {
+            p.sourceFile = t.sourceFile; p.line = t.line; p.column = t.column;
+        };
         do {
             bool pIsVolatile = false;
             bool pIsConst = false;
@@ -801,6 +804,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                         p.isConst = pIsConst;
                         p.isFunctionPointer = true;
                         p.funcPtrSig = ts.funcPtrSig;
+                        markParamPos(p, tokens[pos - 1]);
                         params.push_back(p);
                         continue;
                     }
@@ -809,6 +813,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                     // K&R style: parameter is just a name, type declared after ')'
                     std::string pName = advance().value;
                     params.push_back({"int", 0, false, pName, pIsVolatile, pIsConst, false, false, nullptr});
+                    markParamPos(params.back(), tokens[pos - 1]);
                     continue; // skip the pointer/name parsing below
                 }
                 else {
@@ -824,6 +829,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                 advance(); // consume '('
                 advance(); // consume '*'
                 std::string pName;
+                const Token& fpNameTok = peek();
                 if (peek().type == TokenType::IDENTIFIER) {
                     pName = advance().value;
                 } else {
@@ -840,6 +846,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                 p.isConst = pIsConst;
                 p.isFunctionPointer = true;
                 p.funcPtrSig = sig;
+                markParamPos(p, fpNameTok);
                 params.push_back(p);
                 continue;
             }
@@ -854,6 +861,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             }
 
             std::string pName;
+            const Token& pNameTok = peek();
             if (peek().type == TokenType::IDENTIFIER) {
                 pName = advance().value;
             } else {
@@ -898,6 +906,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             while (tryParseAttribute()) {}
 
             params.push_back({pType, pPtrLevel, pIsSigned, pName, pIsVolatile, pIsConst, pIsPointerConst, false, nullptr});
+            markParamPos(params.back(), pNameTok);
         } while (match(TokenType::COMMA) && peek().type != TokenType::ELLIPSIS);
         }
     }
