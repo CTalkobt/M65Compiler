@@ -148,6 +148,7 @@ private:
     // Unused variable tracking
     std::set<uint32_t> usedVregs_;
     std::map<std::string, ir::SourceLoc> localDeclLocs_;
+    void resetFunctionLocalState();
     std::set<std::string> reportedUnused_;  // file:line:col:name of unused-variable warnings already issued
     std::set<std::string> externalUsedVars_;
 

@@ -950,20 +950,10 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         scope.usedVregs = std::move(usedVregs_);
         scope.localDeclLocs = std::move(localDeclLocs_);
         functionStack_.push_back(std::move(scope));
-
-        // Reset state for new function
-        locals_.clear();
-        localTypes_.clear();
-        localTypeNames_.clear();
-        localSigned_.clear();
-        localConst_.clear();
-        localPointsToConst_.clear();
-        localRegister_.clear();
-        localPointedToType_.clear();
-        localArrayDims_.clear();
-        usedVregs_.clear();
-        localDeclLocs_.clear();
     }
+    // Each function starts with no locals; without this, a top-level function
+    // inherited the previous function's names and vreg-use set.
+    resetFunctionLocalState();
 
     currentFunc_ = fnPtr;
     startBlock("entry");
@@ -1189,7 +1179,22 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     } else {
         currentFunc_ = nullptr;
         currentBlock_ = nullptr;
+        resetFunctionLocalState();
     }
+}
+
+void IRBuilder::resetFunctionLocalState() {
+    locals_.clear();
+    localTypes_.clear();
+    localTypeNames_.clear();
+    localSigned_.clear();
+    localConst_.clear();
+    localPointsToConst_.clear();
+    localRegister_.clear();
+    localPointedToType_.clear();
+    localArrayDims_.clear();
+    usedVregs_.clear();
+    localDeclLocs_.clear();
 }
 
 void IRBuilder::visit(CompoundStatement& node) {

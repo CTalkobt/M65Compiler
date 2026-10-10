@@ -470,6 +470,8 @@ test: all lib
 	@bash src/test/test_cast_fold.sh
 	@echo "Running inline control tests..."
 	@bash src/test/test_inline_control.sh
+	@echo "Running function-local state tests..."
+	@bash src/test/test_function_locals.sh
 	@echo "Running clobber tracking tests..."
 	@bash src/test/test_clobber.sh
 	@echo "Validating mmemu-cli integration..."
