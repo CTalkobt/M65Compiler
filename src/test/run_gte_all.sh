@@ -15,8 +15,9 @@ XEMU="xemu-xmega65"
 GTE_DIR="src/test-resources/gte"
 BUILD_DIR="build/test/gte"
 RUN_TIMEOUT=8
-# GTE tests are standard C: plain char/int/long are signed
-GTE_CFLAGS="${GTE_CFLAGS--fsigned-default}"
+# GTE tests are standard (often C89) C: plain char/int/long are signed and
+# functions may be called without a declaration
+GTE_CFLAGS="${GTE_CFLAGS--fsigned-default -fimplicit-function-declaration}"
 
 JOBS=$(nproc 2>/dev/null || echo 4)
 LIST=""
