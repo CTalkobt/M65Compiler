@@ -172,7 +172,7 @@ CompilationResult CompilationPipeline::compile() {
         // Always use relocatable mode (-c) when producing .o45 for linker
         bool needRelocatable = config_.objectOnly || !config_.assemblyOnly;
         AssemblyStage asmStage(irOutput, objectFile, config_.verboseLevel,
-                              needRelocatable);
+                              needRelocatable, config_.toolDir);
         auto asmResult = runStage(asmStage);
         remove(tempAsmFile.c_str());
 
@@ -193,7 +193,7 @@ CompilationResult CompilationPipeline::compile() {
         char prgBaseHex[16];
         snprintf(prgBaseHex, sizeof(prgBaseHex), "%x", config_.prgBase);
         LinkingStage linkStage(objectFile, config_.outputFile, config_.verboseLevel,
-                              std::string(prgBaseHex), config_.libraryPaths);
+                              std::string(prgBaseHex), config_.libraryPaths, config_.toolDir);
         auto linkResult = runStage(linkStage);
         remove(objectFile.c_str());
 
