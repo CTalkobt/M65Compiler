@@ -474,8 +474,8 @@ test: all lib
 	@bash src/test/test_function_locals.sh
 	@echo "Running clobber tracking tests..."
 	@bash src/test/test_clobber.sh
-	@echo "Validating mmemu-cli integration..."
-	@bash src/test/test_mmemu.sh
+	@echo "Running xemu runtime tests..."
+	@bash src/test/test_xemu.sh
 	@echo "Running parser syntax error validation tests..."
 	@$(MAKE) test-validation-parser
 	@echo "Running struct/union semantic error validation tests..."
