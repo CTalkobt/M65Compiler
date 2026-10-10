@@ -18,9 +18,11 @@ RUN_TIMEOUT=12
 # GTE tests are standard (often C89) C: plain char/int/long are signed and
 # functions may be called without a declaration
 GTE_CFLAGS="${GTE_CFLAGS--fsigned-default -fimplicit-function-declaration}"
-# ZP calling convention runs link the ZP runtime and use their own build dir
+# cc45 defaults to the ZP calling convention (c45.lib); stack-convention runs
+# (-fno-zpcall) link the stack runtime and use their own build dir
 case " $GTE_CFLAGS " in
-    *" -fzpcall "*) CRT0="lib/build/crt0_zp.o45"; LIB="lib/build/c45_zp.lib"; BUILD_DIR="build/test/gte_zp" ;;
+    *" -fno-zpcall "*) LIB="lib/build/c45_stack.lib"; BUILD_DIR="build/test/gte_stack" ;;
+    *) CRT0="lib/build/crt0_zp.o45" ;;
 esac
 
 JOBS=$(nproc 2>/dev/null || echo 4)

@@ -1,4 +1,4 @@
-# GTE tests currently failing on xemu (regenerated 2026-10-10 (stack mode)).
+# GTE tests currently failing on xemu with the default (ZP + SAC) convention (regenerated 2026-10-10).
 # Remove names as they are fixed; test_failures.sh runs this list.
 # pr58574: program too large (code runs into I/O at $D000).
 # struct-ret-1: global struct initializer with an array member is mis-emitted.

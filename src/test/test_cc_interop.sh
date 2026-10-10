@@ -10,12 +10,12 @@
 #   6. Parameter passing edge cases
 #   7. Variadic calls from ZP functions
 
-CC="./bin/cc45"
+CC="./bin/cc45 -fno-zpcall"  # interop tests mark ZP functions __fastcall__; the rest is stack
 AS="./bin/ca45"
 LD="./bin/ln45"
 XEMU="xemu-xmega65"
 CRT0="lib/build/crt0.o45"
-LIB="lib/build/c45.lib"
+LIB="lib/build/c45_stack.lib"
 NM="./bin/nm45"
 mkdir -p build/test
 

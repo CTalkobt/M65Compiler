@@ -7,8 +7,8 @@ CC="./bin/cc45"
 AS="./bin/ca45"
 LD="./bin/ln45"
 CRT0="lib/build/crt0.o45"
-STDLIB="lib/build/c45.lib"
-STDLIB_ZP="lib/build/c45_zp.lib"
+STDLIB="lib/build/c45.lib"            # ZP calling convention (cc45 default)
+STDLIB_STACK="lib/build/c45_stack.lib" # -fno-zpcall
 XEMU="xemu-xmega65"
 mkdir -p build/test
 
@@ -97,8 +97,8 @@ compile_link_test() {
     $CC -c $flags "$src" -o "$o_file" 2>/dev/null
     if [ $? -ne 0 ]; then return 1; fi
 
-    if [[ "$flags" == *"-fzpcall"* ]]; then
-        $LD -basic -o "$prg_out" $CRT0 "$o_file" $STDLIB_ZP 2>/dev/null
+    if [[ "$flags" == *"-fno-zpcall"* ]]; then
+        $LD -basic -o "$prg_out" $CRT0 "$o_file" $STDLIB_STACK 2>/dev/null
     else
         $LD -basic -o "$prg_out" $CRT0 "$o_file" $STDLIB 2>/dev/null
     fi
@@ -307,7 +307,7 @@ fi
 
 # Test: 16-bit CPU stack (default) and the 8-bit page-1 stack (-fno-stack16),
 # stack and ZP conventions: deep recursion with IRQs, alloca, setjmp, ROM calls
-for s16mode in "stack||BF 00" "zp|-fzpcall|BF 00" "stack8|-fno-stack16 -DDEPTH=4 -DVA_N=50|01 20" "zp8|-fzpcall -fno-stack16 -DDEPTH=4 -DVA_N=50|01 20"; do
+for s16mode in "stack|-fno-zpcall|BF 00" "zp||BF 00" "stack8|-fno-zpcall -fno-stack16 -DDEPTH=4 -DVA_N=50|01 20" "zp8|-fno-stack16 -DDEPTH=4 -DVA_N=50|01 20"; do
     IFS='|' read -r s16name s16flags s16sp <<< "$s16mode"
     echo "Testing test_stack16_xemu.c ($s16name)..."
     compile_link_test "src/test-resources/test_stack16_xemu.c" "build/test/test_stack16_${s16name}_xemu.prg" "$s16flags"
@@ -321,7 +321,7 @@ done
 
 # Test: globals initialized with addresses (&var, arrays, functions) and
 # pointer compares against relocated addresses, stack and ZP conventions
-for gaimode in "stack|" "zp|-fzpcall"; do
+for gaimode in "stack|-fno-zpcall" "zp|"; do
     IFS='|' read -r gainame gaiflags <<< "$gaimode"
     echo "Testing test_global_addr_init_xemu.c ($gainame)..."
     compile_link_test "src/test-resources/test_global_addr_init_xemu.c" "build/test/test_global_addr_init_${gainame}_xemu.prg" "$gaiflags"
@@ -334,7 +334,7 @@ for gaimode in "stack|" "zp|-fzpcall"; do
 done
 
 # Test: pointer differences (element counts, signed), stack and ZP conventions
-for pdmode in "stack|" "zp|-fzpcall"; do
+for pdmode in "stack|-fno-zpcall" "zp|"; do
     IFS='|' read -r pdname pdflags <<< "$pdmode"
     echo "Testing test_ptrdiff_xemu.c ($pdname)..."
     compile_link_test "src/test-resources/test_ptrdiff_xemu.c" "build/test/test_ptrdiff_${pdname}_xemu.prg" "$pdflags"

@@ -483,7 +483,8 @@ int main(int argc, char** argv) {
             std::cout << "  -I<path>       Include path" << std::endl;
             std::cout << "  -D<name>=<val> Define symbol" << std::endl;
             if (programName != "cp45") {
-                std::cout << "  -fzpcall       Use ZP calling convention" << std::endl;
+                std::cout << "  -fzpcall       ZP parameter calling convention (default)" << std::endl;
+                std::cout << "  -fno-zpcall    Stack parameter calling convention" << std::endl;
                 std::cout << "  -fno-stack16   Keep the ROM's 8-bit CPU stack on page 1 (default: 16-bit stack topped at $BFFF)" << std::endl;
                 std::cout << "  -fstack-top=ADDR  Top byte of the 16-bit CPU stack (e.g. 0x9FFF or $9FFF)" << std::endl;
                 std::cout << "  -fstaticalloc  Use static allocation (default)" << std::endl;

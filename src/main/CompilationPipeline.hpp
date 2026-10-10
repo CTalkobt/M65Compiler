@@ -27,7 +27,7 @@ struct CompilationConfig {
     bool unsignedChar = false;  // -funsigned-char: plain char stays unsigned even with -fsigned-default
 
     // Calling conventions
-    bool zpCallMode = false;
+    bool zpCallMode = true;     // ZP parameter convention (default); -fno-zpcall selects stack parameters
     bool staticAllocMode = true;
     int stackTop = -1;          // -fno-stack16 (0) / -fstack-top=ADDR; -1 = 16-bit stack at $BFFF
     bool inlineSmallFunctions = false;
