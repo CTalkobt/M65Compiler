@@ -16,6 +16,7 @@ void IRBuilder::setSourceInfo(const std::string& filename) {
 
 // Helper to output warnings immediately to stderr
 void IRBuilder::emitWarning(const std::string& warning) {
+    printedWarnings_.insert(warnings_.size());
     warnings_.push_back(warning);
     std::cerr << warning << std::endl;
 }

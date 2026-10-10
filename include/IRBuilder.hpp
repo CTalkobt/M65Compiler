@@ -30,6 +30,7 @@ public:
     bool hasErrors() const { return !errors_.empty(); }
     const std::vector<std::string>& getErrors() const { return errors_; }
     const std::vector<std::string>& getWarnings() const { return warnings_; }
+    bool warningAlreadyPrinted(size_t i) const { return printedWarnings_.count(i) > 0; }
 
     bool zpCallMode = false;
     bool staticAllocMode = false;  // -fstaticalloc (SAC)
@@ -241,6 +242,7 @@ private:
     // Error and warning reporting
     std::vector<std::string> errors_;
     std::vector<std::string> warnings_;
+    std::set<size_t> printedWarnings_;  // indices emitted immediately by emitWarning
 
     friend class CaseCollector;
 

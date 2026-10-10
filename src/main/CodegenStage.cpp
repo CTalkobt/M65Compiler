@@ -82,8 +82,9 @@ void CodegenStage::generateIR() {
     builder.generate(*ast_);
 
     // Print warnings
-    for (const auto& warn : builder.getWarnings()) {
-        std::cerr << warn << std::endl;
+    const auto& warnings = builder.getWarnings();
+    for (size_t i = 0; i < warnings.size(); i++) {
+        if (!builder.warningAlreadyPrinted(i)) std::cerr << warnings[i] << std::endl;
     }
 
     if (builder.hasErrors()) {
