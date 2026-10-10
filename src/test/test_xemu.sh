@@ -255,6 +255,16 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: && / || as values (short-circuit result must be 0/1, not stale)
+echo "Testing test_logical_value_xemu.c (logical operators as values)..."
+compile_link_test "src/test-resources/test_logical_value_xemu.c" "build/test/test_logical_value_xemu.prg"
+if [ $? -eq 0 ]; then
+    run_xemu_test "test_logical_value" "build/test/test_logical_value_xemu.prg" "C0A0" 9 "01 00 01 00 01 00 01 01 AA"
+else
+    echo "FAIL: test_logical_value_xemu.c (compilation/linking failed)"
+    failed=$((failed + 1))
+fi
+
 echo ""
 echo "======================================================"
 echo "Xemu Test Results: $passed passed, $failed failed"

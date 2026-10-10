@@ -1183,6 +1183,18 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     }
 }
 
+bool IRBuilder::isBooleanValue(const ir::Operand& v) const {
+    if (v.isImm()) return v.immVal == 0 || v.immVal == 1;
+    if (v.kind != ir::OperandKind::VREG) return false;
+    if (boolVregs_.count(v.vregId)) return true;
+    if (!currentBlock_) return false;
+    for (auto it = currentBlock_->insts.rbegin(); it != currentBlock_->insts.rend(); ++it) {
+        if (it->dest.kind == ir::OperandKind::VREG && it->dest.vregId == v.vregId)
+            return it->op >= ir::Op::CMP_EQ && it->op <= ir::Op::CMP_GEU;
+    }
+    return false;
+}
+
 void IRBuilder::resetFunctionLocalState() {
     locals_.clear();
     localTypes_.clear();
@@ -2213,10 +2225,29 @@ void IRBuilder::visit(BinaryOperation& node) {
             emit(br);
         }
 
+        // Both paths write one result vreg, normalized to 0/1
+        auto result = allocVreg(ir::Type::I8);
+        boolVregs_.insert(result.vregId);
+
         // RHS evaluation block (merge)
         startBlock(mergeLabel);
         node.right->accept(*this);
         auto rhs = lastValue_;
+        {
+            ir::Inst set;
+            if (isBooleanValue(rhs)) {
+                set.op = ir::Op::COPY;
+                set.src1 = rhs;
+            } else {
+                set.op = ir::Op::CMP_NE;
+                set.src1 = rhs;
+                set.src2 = ir::Operand::imm(0, rhs.type);
+            }
+            set.dest = result;
+            set.resultType = ir::Type::I8;
+            set.loc = loc(node);
+            emit(set);
+        }
 
         // Jump to done
         std::string doneLabel = newLabel("sc_done");
@@ -2230,11 +2261,10 @@ void IRBuilder::visit(BinaryOperation& node) {
 
         // Short-circuit block: result is 0 for &&, 1 for ||
         startBlock(shortLabel);
-        auto shortVal = allocVreg(ir::Type::I8);
         {
             ir::Inst c;
             c.op = ir::Op::CONST;
-            c.dest = shortVal;
+            c.dest = result;
             c.resultType = ir::Type::I8;
             c.src1 = ir::Operand::imm(node.op == "&&" ? 0 : 1, ir::Type::I8);
             c.loc = loc(node);
@@ -2248,11 +2278,10 @@ void IRBuilder::visit(BinaryOperation& node) {
             emit(br);
         }
 
-        // Done block — use RHS result directly (no extra CMP_NE wrapper).
-        // For if-conditions, the BR_COND fusion will use the RHS comparison
-        // result's flags directly.
+        // if/while conditions don't come through here; emitConditionBranches
+        // branches on && / || directly.
         startBlock(doneLabel);
-        lastValue_ = rhs;
+        lastValue_ = result;
         return;
     }
 

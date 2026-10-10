@@ -149,6 +149,8 @@ private:
     std::set<uint32_t> usedVregs_;
     std::map<std::string, ir::SourceLoc> localDeclLocs_;
     void resetFunctionLocalState();
+    std::set<int> boolVregs_;  // results of && / || (already 0/1)
+    bool isBooleanValue(const ir::Operand& v) const;
     std::set<std::string> reportedUnused_;  // file:line:col:name of unused-variable warnings already issued
     std::set<std::string> externalUsedVars_;
 
