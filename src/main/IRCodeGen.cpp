@@ -4147,15 +4147,16 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
         case ir::Op::RET: {
             loadOperand(inst.src1);
-            // Jump to common return point (endproc handles frame cleanup + rts)
-            if (nextBlockLabel_ != "__return") {
+            // Jump to common return point (endproc handles frame cleanup + rts).
+            // Falling through is only safe when nothing follows in this block.
+            if (nextBlockLabel_ != "__return" || peekNextInst()) {
                 emit("bra @__return");
             }
             break;
         }
 
         case ir::Op::RET_VOID: {
-            if (nextBlockLabel_ != "__return") {
+            if (nextBlockLabel_ != "__return" || peekNextInst()) {
                 emit("bra @__return");
             }
             break;
