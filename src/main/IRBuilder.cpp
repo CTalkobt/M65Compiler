@@ -717,6 +717,13 @@ ir::SourceLoc IRBuilder::loc(ASTNode& node) {
     return sl;
 }
 
+ir::SourceLoc IRBuilder::declLoc(ASTNode& node) {
+    ir::SourceLoc sl = loc(node);
+    if (!node.sourceFile.empty()) sl.file = node.sourceFile;
+    sl.column = node.column;
+    return sl;
+}
+
 // ============================================================================
 // Top-level
 // ============================================================================
@@ -994,7 +1001,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         ir::Type pt = mapType(p.type, p.pointerLevel);
         auto vreg = allocVreg(pt);
         locals_[p.name] = vreg;
-        localDeclLocs_[p.name] = loc(node);
+        localDeclLocs_[p.name] = declLoc(node);
         if (currentFunc_) currentFunc_->localNames[p.name] = vreg.vregId;
         localTypes_[p.name] = pt;
         // Phase 102: Resolve typedef to struct name for parameter types
@@ -1042,8 +1049,11 @@ void IRBuilder::visit(FunctionDeclaration& node) {
             int line = sl.valid() ? sl.line : node.line;
             std::string file = sl.valid() ? sl.file : node.sourceFile;
             int col = sl.valid() ? sl.column : node.column;
-            warnings_.push_back(formatDiagnostic(file, line, col, Severity::Warning,
-                "unused variable '" + name + "'"));
+            // A function can be lowered more than once (e.g. constant-argument specialization)
+            std::string w = formatDiagnostic(file, line, col, Severity::Warning,
+                "unused variable '" + name + "'");
+            if (std::find(warnings_.begin(), warnings_.end(), w) == warnings_.end())
+                warnings_.push_back(w);
         }
     }
 
@@ -1319,7 +1329,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
         localSigned_[node.name] = node.isSigned;
         localConst_[node.name] = node.isConst && node.pointerLevel == 0;
         localPointsToConst_[node.name] = node.isConst && node.pointerLevel > 0;
-        localDeclLocs_[node.name] = loc(node);
+        localDeclLocs_[node.name] = declLoc(node);
         if (node.pointerLevel > 0) {
             localPointedToType_[node.name] = mapType(node.type, node.pointerLevel - 1);
             localPointedToTypeName_[node.name] = resolvedGlobalTypeName;
@@ -1331,7 +1341,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
     auto vreg = allocVreg(t);
     locals_[node.name] = vreg;
     localRegister_[node.name] = node.isRegister;
-    localDeclLocs_[node.name] = loc(node);
+    localDeclLocs_[node.name] = declLoc(node);
     if (currentFunc_) {
         currentFunc_->localNames[node.name] = vreg.vregId;
         currentFunc_->localNamesOrder.push_back(node.name);

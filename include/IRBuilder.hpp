@@ -273,6 +273,7 @@ private:
 
     // Helper: source location from AST node
     ir::SourceLoc loc(ASTNode& node);
+    ir::SourceLoc declLoc(ASTNode& node);  // loc() plus the node's own file and column, for diagnostics
 
     // Helper: emit explicit or implicit cast
     ir::Operand emitCast(ir::Operand src, ir::Type targetType, bool isSigned);
