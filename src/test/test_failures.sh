@@ -42,14 +42,6 @@ run_mem() {
     [ "$got" = "$expected" ]
 }
 
-section "Structs larger than 4 bytes (assignment, return)"
-run_mem src/test-resources/failures/struct_large.c C0C0 44118855070809070809aa
-result $? "struct > 4 bytes"
-
-section "Float arguments and return values"
-run_mem src/test-resources/failures/float_func.c C0C0 0101aa
-result $? "float functions"
-
 section "File I/O links (cbm_k_* wrappers)"
 ./bin/cc45 -c src/test-resources/failures/file_io_link.c -o build/test/failure_file_io.o45 >/dev/null 2>&1 &&
 ./bin/ln45 -basic -o build/test/failure_file_io.prg lib/build/crt0.o45 build/test/failure_file_io.o45 lib/build/c45.lib 2>&1 | grep -E "undefined" | head -3

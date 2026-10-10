@@ -400,6 +400,10 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             info.typeName = localTypeNames_[ref->name];
             info.isSigned = localSigned_[ref->name];
             info.totalSize = ir::typeSize(info.type);
+            // Struct/union variable (or by-copy parameter): its full size
+            if (structs_.count(getAggregateName(info.typeName)) &&
+                (info.type != ir::Type::PTR || aggCopyParams_.count(ref->name)))
+                info.totalSize = getTypeSize(info.typeName, 0);
             if (info.type == ir::Type::PTR) {
                 auto pit = localPointedToType_.find(ref->name);
                 if (pit != localPointedToType_.end()) info.pointedToType = pit->second;
@@ -414,6 +418,8 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             auto gsit = globalSigned_.find(ref->name);
             info.isSigned = gsit != globalSigned_.end() && gsit->second;
             info.totalSize = ir::typeSize(info.type);
+            if (structs_.count(getAggregateName(info.typeName)) && info.type != ir::Type::PTR)
+                info.totalSize = getTypeSize(info.typeName, 0);
             if (info.type == ir::Type::PTR) {
                 auto gpit = globalPointedToType_.find(ref->name);
                 if (gpit != globalPointedToType_.end()) info.pointedToType = gpit->second;
@@ -588,6 +594,13 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
     }
 
     if (auto* call = dynamic_cast<FunctionCall*>(expr)) {
+        // Struct/union/float result (returned through the hidden pointer): the declared type
+        auto sit = sretSize_.find(call->name);
+        auto fit = allFunctions_.find(call->name);
+        if (sit != sretSize_.end() && fit != allFunctions_.end()) {
+            const std::string& rt = fit->second->returnType;
+            return {mapType(rt, 0), rt, false, ir::Type::VOID, sit->second};
+        }
         auto it = functionReturnTypes_.find(call->name);
         if (it != functionReturnTypes_.end()) {
             bool sig = false; // unsigned by default
@@ -771,23 +784,38 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         std::vector<ir::Type> ptypes;
         std::vector<bool> psigned;
 
-        // Detect struct returns: function returns struct by value (not pointer)
-        bool isStructReturn = node.returnPointerLevel == 0 && node.returnType.rfind("struct ", 0) == 0 &&
-                              getTypeSize(node.returnType, 0) > 2;
-        if (isStructReturn) {
-            structReturningFunctions_.insert(node.name);
-            // No hidden return pointer - struct returned in AXYZ, caller copies to destination
+        // Struct/union/float results go through a hidden first parameter
+        bool retFloat = node.returnPointerLevel == 0 &&
+                        mapType(node.returnType, 0) == ir::Type::F32;
+        bool retAggregate = node.returnPointerLevel == 0 && structs_.count(getAggregateName(node.returnType));
+        if (retFloat || retAggregate) {
+            sretSize_[node.name] = retFloat ? 5 : getTypeSize(node.returnType, 0);
+            if (retFloat) sretFloat_.insert(node.name);
+            if (node.parameters.empty() || node.parameters[0].name != "__sret") {
+                Parameter hidden;
+                hidden.type = "void";
+                hidden.pointerLevel = 1;
+                hidden.name = "__sret";
+                node.parameters.insert(node.parameters.begin(), hidden);
+            }
         }
 
+        std::vector<int> aggSizes;
         for (const auto& p : node.parameters) {
             pinfo.push_back({p.isConst, p.pointerLevel});
-            ptypes.push_back(mapType(p.type, p.pointerLevel));
+            // A struct/union parameter (other than 1/2/4 bytes) is passed as a
+            // pointer to a caller-made copy
+            int agg = aggregateBlockSize(p.type, p.pointerLevel);
+            aggSizes.push_back(agg);
+            ptypes.push_back(agg ? ir::Type::PTR : mapType(p.type, p.pointerLevel));
             psigned.push_back(p.isSigned);
         }
+        paramAggSizes_[node.name] = aggSizes;
         funcParamInfo_[node.name] = pinfo;
         functionParamTypes_[node.name] = ptypes;
         functionParamSigned_[node.name] = psigned;
-        functionReturnTypes_[node.name] = mapType(node.returnType, node.returnPointerLevel);
+        functionReturnTypes_[node.name] = sretSize_.count(node.name) ? ir::Type::PTR
+                                                                      : mapType(node.returnType, node.returnPointerLevel);
         functionReturnSigned_[node.name] = node.isSigned;
         if (node.isVariadic) variadicFunctions_.insert(node.name);
         if (node.isRegparm) regparmFunctions_.insert(node.name);
@@ -828,23 +856,18 @@ void IRBuilder::visit(FunctionDeclaration& node) {
             shouldInline = true;
         }
         if (noInlineNames_.count(node.name)) shouldInline = false;
+        if (sretSize_.count(node.name)) shouldInline = false;  // result goes through __sret
+        for (int agg : paramAggSizes_[node.name]) if (agg) shouldInline = false;  // by-copy aggregate param
         if (shouldInline && (forced || stmtCount <= INLINE_MAX_STMTS)) {
             inlineCandidates_[node.name] = &node;
         }
     }
 
-    // Detect struct returns for function definition
-    bool isStructReturn = node.returnPointerLevel == 0 && node.returnType.rfind("struct ", 0) == 0 &&
-                          getTypeSize(node.returnType, 0) > 2;
-
-    if (isStructReturn) {
-        // Mark as struct-returning function (no hidden parameters needed)
-        // Struct value is returned in AXYZ and caller copies to destination
-        structReturningFunctions_.insert(node.name);
-    }
+    if (sretSize_.count(node.name)) fn.returnType = ir::Type::PTR;  // returns the __sret pointer
 
     for (const auto& p : node.parameters) {
-        fn.paramTypes.push_back(mapType(p.type, p.pointerLevel));
+        fn.paramTypes.push_back(aggregateBlockSize(p.type, p.pointerLevel) ? ir::Type::PTR
+                                                                            : mapType(p.type, p.pointerLevel));
         fn.paramNames.push_back(p.name);
     }
 
@@ -990,7 +1013,10 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     }
 
     for (const auto& p : node.parameters) {
-        ir::Type pt = mapType(p.type, p.pointerLevel);
+        if (p.isFunctionPointer && p.funcPtrSig) fnPtrSigs_[p.name] = p.funcPtrSig;
+        bool byCopy = aggregateBlockSize(p.type, p.pointerLevel) > 0;
+        if (byCopy) aggCopyParams_.insert(p.name);
+        ir::Type pt = byCopy ? ir::Type::PTR : mapType(p.type, p.pointerLevel);
         auto vreg = allocVreg(pt);
         locals_[p.name] = vreg;
         localDeclLocs_[p.name] = declLoc(node);
@@ -1040,7 +1066,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
 
     // Check for unused local variables and parameters
     for (const auto& [name, vregOp] : locals_) {
-        if (usedVregs_.find(vregOp.vregId) == usedVregs_.end() &&
+        if (name != "__sret" && usedVregs_.find(vregOp.vregId) == usedVregs_.end() &&
             externalUsedVars_.find(name) == externalUsedVars_.end()) {
             ir::SourceLoc sl = localDeclLocs_[name];
             int line = sl.valid() ? sl.line : node.line;
@@ -1262,12 +1288,138 @@ void IRBuilder::emitBlockCopy(const ir::Operand& dst, const ir::Operand& src, in
     calledFunctions_.insert("_memcpy");
 }
 
+// Evaluate a call argument. A by-copy aggregate parameter (aggSize > 0) gets the
+// address of a fresh copy of the argument.
+ir::Operand IRBuilder::evalArgument(Expression* arg, int aggSize, const ir::SourceLoc& sl) {
+    if (aggSize > 0 && currentFunc_) {
+        auto buf = allocVreg(ir::Type::I16);
+        currentFunc_->vregSizes[buf.vregId] = aggSize;
+        currentFunc_->memoryVregs.insert(buf.vregId);
+        auto addr = allocVreg(ir::Type::PTR);
+        ir::Inst a;
+        a.op = ir::Op::ADDR_LOCAL;
+        a.dest = addr;
+        a.resultType = ir::Type::PTR;
+        a.src1 = ir::Operand::vreg(buf.vregId, ir::Type::PTR);
+        a.loc = sl;
+        emit(a);
+        emitAggregateInto(arg, addr, aggSize, sl);
+        return addr;
+    }
+    arg->accept(*this);
+    return lastValue_;
+}
+
+int IRBuilder::paramAggSize(const std::string& fname, size_t index) {
+    auto it = paramAggSizes_.find(fname);
+    if (it == paramAggSizes_.end() || index >= it->second.size()) return 0;
+    return it->second[index];
+}
+
+// Hidden result pointer for a call to a struct/union/float-returning function:
+// the caller-supplied destination (sretDest_) or a fresh temporary buffer (buf).
+ir::Operand IRBuilder::sretCallBuffer(const std::string& fname, ir::Operand& buf, const ir::SourceLoc& sl) {
+    if (sretDestSet_) {
+        sretDestSet_ = false;
+        buf = ir::Operand();
+        return sretDest_;
+    }
+    if (!currentFunc_) return ir::Operand();
+    buf = allocVreg(sretFloat_.count(fname) ? ir::Type::F32 : ir::Type::I16);
+    currentFunc_->vregSizes[buf.vregId] = sretSize_[fname];
+    currentFunc_->memoryVregs.insert(buf.vregId);
+    ir::Operand addr = allocVreg(ir::Type::PTR);
+    ir::Inst a;
+    a.op = ir::Op::ADDR_LOCAL;
+    a.dest = addr;
+    a.resultType = ir::Type::PTR;
+    a.src1 = ir::Operand::vreg(buf.vregId, ir::Type::PTR);
+    a.loc = sl;
+    emit(a);
+    return addr;
+}
+
+// Value of an sret call (after the CALL_VOID): a float or 1/2/4-byte aggregate is
+// loaded from the buffer; larger aggregates are the buffer (or destination) itself.
+void IRBuilder::sretCallResult(const std::string& fname, const ir::Operand& buf, const ir::Operand& addr,
+                               const ir::SourceLoc& sl) {
+    int size = sretSize_[fname];
+    ir::Type t = ir::Type::VOID;
+    if (sretFloat_.count(fname)) t = ir::Type::F32;
+    else if (buf.kind == ir::OperandKind::VREG)
+        t = size == 1 ? ir::Type::I8 : size == 2 ? ir::Type::I16 : size == 4 ? ir::Type::I32 : ir::Type::VOID;
+    if (t != ir::Type::VOID) {
+        auto v = allocVreg(t);
+        ir::Inst ld;
+        ld.op = ir::Op::LOAD;
+        ld.dest = v;
+        ld.resultType = t;
+        ld.src1 = addr;
+        ld.loc = sl;
+        emit(ld);
+        lastValue_ = v;
+    } else {
+        // Larger aggregates: the buffer, or its address when an address is wanted
+        lastValue_ = (buf.kind == ir::OperandKind::VREG && !computeAddressOnly_) ? buf : addr;
+    }
+    lastValueSigned_ = false;
+}
+
+// Call to an operator method built by hand (this, rhs...): handles the hidden result pointer
+// sretBuf/sretAddr: the hidden result buffer when already claimed (sretCallBuffer)
+// before the arguments were evaluated.
+void IRBuilder::emitMethodCall(const std::string& mangledName, std::vector<ir::Operand> args, const ir::SourceLoc& sl,
+                               const ir::Operand* sretBuf, const ir::Operand* sretAddr) {
+    ir::Inst call;
+    call.src1 = ir::Operand::global("_" + mangledName);
+    call.callConv = ir::CallConv::STACK;
+    call.loc = sl;
+    if (sretSize_.count(mangledName)) {
+        ir::Operand buf, addr;
+        if (sretAddr) { buf = *sretBuf; addr = *sretAddr; }
+        else addr = sretCallBuffer(mangledName, buf, sl);
+        args.insert(args.begin(), addr);
+        call.op = ir::Op::CALL_VOID;
+        call.resultType = ir::Type::VOID;
+        call.args = args;
+        emit(call);
+        sretCallResult(mangledName, buf, addr, sl);
+        return;
+    }
+    auto retType = functionReturnTypes_[mangledName];
+    auto dest = allocVreg(retType);
+    call.op = (retType == ir::Type::VOID) ? ir::Op::CALL_VOID : ir::Op::CALL;
+    call.dest = dest;
+    call.resultType = retType;
+    call.args = args;
+    emit(call);
+    lastValue_ = dest;
+    lastValueSigned_ = functionReturnSigned_[mangledName];
+}
+
 void IRBuilder::emitAggregateInto(Expression* expr, const ir::Operand& dst, int size, const ir::SourceLoc& sl) {
+    if (auto* call = dynamic_cast<FunctionCall*>(expr)) {
+        // An aggregate-returning call (function, method or function pointer)
+        // writes its result straight into dst through the hidden pointer
+        sretDest_ = dst;
+        sretDestSet_ = true;
+        bool saved = computeAddressOnly_;
+        computeAddressOnly_ = false;
+        call->accept(*this);
+        computeAddressOnly_ = saved;
+        bool consumed = !sretDestSet_;
+        sretDestSet_ = false;
+        if (consumed) return;
+        // Not an sret call: lastValue_ is the result's address
+        emitBlockCopy(dst, lastValue_, size, sl);
+        return;
+    }
     auto src = emitAddressOf(expr);
     emitBlockCopy(dst, src, size, sl);
 }
 
 void IRBuilder::resetFunctionLocalState() {
+    aggCopyParams_.clear();
     locals_.clear();
     localTypes_.clear();
     localTypeNames_.clear();
@@ -1292,6 +1444,7 @@ void IRBuilder::visit(CompoundStatement& node) {
 // ============================================================================
 
 void IRBuilder::visit(VariableDeclaration& node) {
+    if (node.isFunctionPointer && node.funcPtrSig) fnPtrSigs_[node.name] = node.funcPtrSig;
     bool isStructOrUnion = (node.type.rfind("struct ", 0) == 0 || node.type.rfind("union ", 0) == 0);
     if (isStructOrUnion && node.pointerLevel == 0) {
         std::string sName = getAggregateName(node.type);
@@ -1305,8 +1458,20 @@ void IRBuilder::visit(VariableDeclaration& node) {
 
     if (!currentFunc_) {
         // Extern declaration: add to externs list, no BSS allocation
+        auto recordGlobalType = [&]() {
+            if (node.pointerLevel > 0) {
+                globalPointedToType_[node.name] = mapType(node.type, 0);
+                globalPointedToTypeName_[node.name] = node.type;
+            }
+            if (!node.arrayDims.empty()) globalArrayDims_[node.name] = node.arrayDims;
+            globalTypes_[node.name] = t;
+            globalTypeNames_[node.name] = node.type;
+            globalSigned_[node.name] = node.isSigned;
+            globalRegister_[node.name] = node.isRegister;
+        };
         if (node.isExtern) {
             module_.externs.push_back("_" + node.name);
+            recordGlobalType();  // its type is still needed to use it
             return;
         }
         // Global variable
@@ -1319,10 +1484,21 @@ void IRBuilder::visit(VariableDeclaration& node) {
         gv.isStatic = node.isStatic;
         gv.addressSpace = node.addressSpace;  // Phase 97: Preserve address space qualifier
         if (node.initializer) {
+            // -1.5: a negated float literal
+            double negFloat = 0;
+            bool isNegFloat = false;
+            if (auto* un = dynamic_cast<UnaryOperation*>(node.initializer.get())) {
+                if (un->op == "-") {
+                    if (auto* f = dynamic_cast<FloatLiteral*>(un->operand.get())) { negFloat = -f->value; isNegFloat = true; }
+                }
+            }
             if (auto* flit = dynamic_cast<FloatLiteral*>(node.initializer.get())) {
                 gv.hasInitValue = true;
                 // Store double bits in initValue for CBM conversion in IRCodeGen
                 std::memcpy(&gv.initValue, &flit->value, sizeof(double));
+            } else if (isNegFloat) {
+                gv.hasInitValue = true;
+                std::memcpy(&gv.initValue, &negFloat, sizeof(double));
             } else if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
                 gv.hasInitValue = true;
                 gv.initValue = lit->value;
@@ -1368,15 +1544,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
                 }
             }
         }
-        if (node.pointerLevel > 0) {
-            globalPointedToType_[node.name] = mapType(node.type, 0);
-            globalPointedToTypeName_[node.name] = node.type;
-        }
-        if (!node.arrayDims.empty()) globalArrayDims_[node.name] = node.arrayDims;
-        globalTypes_[node.name] = t;
-        globalTypeNames_[node.name] = node.type;
-        globalSigned_[node.name] = node.isSigned;
-        globalRegister_[node.name] = node.isRegister;
+        recordGlobalType();
         module_.globals.push_back(gv);
         return;
     }
@@ -1831,6 +1999,13 @@ void IRBuilder::visit(VariableReference& node) {
         // Mark as used whether reading value or taking address (&var).
         // Address-of still "uses" the variable (e.g. passing struct by pointer).
         usedVregs_.insert(it->second.vregId);
+
+        // By-copy aggregate parameter: the parameter holds the copy's address
+        if (aggCopyParams_.count(node.name)) {
+            lastValue_ = it->second;
+            lastValueSigned_ = false;
+            return;
+        }
 
         // Array-to-pointer decay: when an array name is used as a value
         // (not in address-only mode), it decays to a pointer to its first element.
@@ -2425,29 +2600,25 @@ void IRBuilder::visit(BinaryOperation& node) {
             if (opIt != opMethodMap.end()) {
                 std::string mangledName = sName + "__operator_" + opIt->second;
                 if (functionReturnTypes_.count(mangledName)) {
+                    // Claim the result buffer before evaluating the operands
+                    ir::Operand sretBuf, sretAddr;
+                    bool mSret = sretSize_.count(mangledName) > 0;
+                    if (mSret) sretAddr = sretCallBuffer(mangledName, sretBuf, loc(node));
+
                     // Compute 'this' pointer (address of LHS)
+                    bool savedAddrMode = computeAddressOnly_;
                     computeAddressOnly_ = true;
                     node.left->accept(*this);
                     computeAddressOnly_ = false;
                     auto thisPtr = lastValue_;
 
-                    // Evaluate RHS
-                    node.right->accept(*this);
-                    auto rhsVal = lastValue_;
+                    // Evaluate RHS (an aggregate operand is passed as a copy)
+                    auto rhsVal = evalArgument(node.right.get(), paramAggSize(mangledName, mSret ? 2 : 1), loc(node));
 
                     // Call StructName__operator_OP(&lhs, rhs)
-                    auto retType = functionReturnTypes_[mangledName];
-                    auto dest = allocVreg(retType);
-                    ir::Inst call;
-                    call.op = (retType == ir::Type::VOID) ? ir::Op::CALL_VOID : ir::Op::CALL;
-                    call.dest = dest;
-                    call.resultType = retType;
-                    call.src1 = ir::Operand::global("_" + mangledName);
-                    call.args = {thisPtr, rhsVal};
-                    call.callConv = ir::CallConv::STACK;
-                    call.loc = loc(node);
-                    emit(call);
-                    lastValue_ = dest;
+                    computeAddressOnly_ = savedAddrMode;  // result form follows the caller's mode
+                    emitMethodCall(mangledName, {thisPtr, rhsVal}, loc(node),
+                                   mSret ? &sretBuf : nullptr, mSret ? &sretAddr : nullptr);
                     return;
                 }
             }
@@ -2660,22 +2831,16 @@ void IRBuilder::visit(UnaryOperation& node) {
                 if (opIt != unaryOpMap.end()) {
                     std::string mangledName = sName + "__operator_" + opIt->second;
                     if (functionReturnTypes_.count(mangledName)) {
+                        ir::Operand sretBuf, sretAddr;
+                        bool mSret = sretSize_.count(mangledName) > 0;
+                        if (mSret) sretAddr = sretCallBuffer(mangledName, sretBuf, loc(node));
+                        bool savedAddrMode = computeAddressOnly_;
                         computeAddressOnly_ = true;
                         node.operand->accept(*this);
-                        computeAddressOnly_ = false;
+                        computeAddressOnly_ = savedAddrMode;
                         auto thisPtr = lastValue_;
-                        auto retType = functionReturnTypes_[mangledName];
-                        auto dest = allocVreg(retType);
-                        ir::Inst call;
-                        call.op = (retType == ir::Type::VOID) ? ir::Op::CALL_VOID : ir::Op::CALL;
-                        call.dest = dest;
-                        call.resultType = retType;
-                        call.src1 = ir::Operand::global("_" + mangledName);
-                        call.args = {thisPtr};
-                        call.callConv = ir::CallConv::STACK;
-                        call.loc = loc(node);
-                        emit(call);
-                        lastValue_ = dest;
+                        emitMethodCall(mangledName, {thisPtr}, loc(node),
+                                       mSret ? &sretBuf : nullptr, mSret ? &sretAddr : nullptr);
                         return;
                     }
                 }
@@ -3001,6 +3166,12 @@ void IRBuilder::visit(FunctionCall& node) {
             std::string mangledName = sName + "__" + ma->memberName;
             std::string irName = "_" + mangledName;
             if (functionReturnTypes_.count(mangledName)) {
+                // Struct/float result: hidden result pointer goes first (claim the
+                // caller's destination before anything else is evaluated)
+                ir::Operand sretBuf, sretAddr;
+                bool mSret = sretSize_.count(mangledName) > 0;
+                if (mSret) sretAddr = sretCallBuffer(mangledName, sretBuf, loc(node));
+
                 // Compute 'this' pointer
                 bool oldAddrMode = computeAddressOnly_;
                 if (!ma->isArrow) {
@@ -3012,11 +3183,10 @@ void IRBuilder::visit(FunctionCall& node) {
 
                 // Build argument list with 'this' prepended
                 std::vector<ir::Operand> args;
+                if (mSret) args.push_back(sretAddr);
                 args.push_back(thisPtr);
-                for (auto& arg : node.arguments) {
-                    arg->accept(*this);
-                    args.push_back(lastValue_);
-                }
+                for (auto& arg : node.arguments)
+                    args.push_back(evalArgument(arg.get(), paramAggSize(mangledName, args.size()), loc(node)));
 
                 auto retType = functionReturnTypes_[mangledName];
 
@@ -3086,7 +3256,7 @@ void IRBuilder::visit(FunctionCall& node) {
                     if (inlineIt != inlineCandidates_.end() && inlineExpansionStack_.count(mangledName) &&
                         alwaysInlineNames_.count(mangledName))
                         warnRecursiveForcedInline(mangledName, node);
-                    if (inlineIt != inlineCandidates_.end() &&
+                    if (!mSret && inlineIt != inlineCandidates_.end() &&
                         inlineExpansionStack_.find(mangledName) == inlineExpansionStack_.end()) {
                         // Inline expand: temporarily bind params to args
                         FunctionDeclaration* inlineFunc = inlineIt->second;
@@ -3148,6 +3318,14 @@ void IRBuilder::visit(FunctionCall& node) {
                     }
                     inst.op = ir::Op::CALL;
                     inst.src1 = ir::Operand::global(irName);
+                }
+
+                if (mSret) {
+                    if (inst.op == ir::Op::CALL) inst.op = ir::Op::CALL_VOID;
+                    inst.resultType = ir::Type::VOID;
+                    emit(inst);
+                    sretCallResult(mangledName, sretBuf, sretAddr, loc(node));
+                    return;
                 }
 
                 auto dest = allocVreg(retType);
@@ -3357,9 +3535,52 @@ normal_call:
         }
     }
 
+    // Struct/union/float result: pass the result buffer as the hidden first argument
+    ir::Operand sretBuf, sretAddr;
+    // Callee name; for a call expression such as (*fp)(...), the function or
+    // function-pointer variable it dereferences
+    std::string calleeName = node.name;
+    if (node.callExpr) {
+        Expression* e = node.callExpr.get();
+        while (auto* u = dynamic_cast<UnaryOperation*>(e)) {
+            if (u->op != "*") break;
+            e = u->operand.get();
+        }
+        if (auto* vr = dynamic_cast<VariableReference*>(e)) calleeName = vr->name;
+    }
+    std::string sretKey = calleeName;
+    std::shared_ptr<FuncPtrSignature> fpSig;
+    if (!functionReturnTypes_.count(calleeName) && !definedFunctions_.count("_" + calleeName) &&
+        (locals_.count(calleeName) || globalTypes_.count(calleeName))) {
+        auto fit = fnPtrSigs_.find(calleeName);
+        if (fit != fnPtrSigs_.end()) fpSig = fit->second;
+    }
+    if (fpSig && fpSig->returnPointerLevel == 0) {
+        // Call through a function pointer whose target returns a struct/union/float
+        bool retFloat = mapType(fpSig->returnType, 0) == ir::Type::F32;
+        bool retAggregate = structs_.count(getAggregateName(fpSig->returnType)) > 0;
+        if (retFloat || retAggregate) {
+            sretKey = "(*)" + calleeName;
+            sretSize_[sretKey] = retFloat ? 5 : getTypeSize(fpSig->returnType, 0);
+            if (retFloat) sretFloat_.insert(sretKey);
+        }
+    }
+    bool isSret = sretSize_.count(sretKey) > 0;
+    if (isSret) {
+        sretAddr = sretCallBuffer(sretKey, sretBuf, loc(node));
+        args.push_back(sretAddr);
+    }
+
     for (auto& arg : node.arguments) {
-        arg->accept(*this);
-        args.push_back(lastValue_);
+        int agg = 0;
+        if (fpSig) {
+            size_t pi = args.size() - (isSret ? 1 : 0);
+            if (pi < fpSig->params.size())
+                agg = aggregateBlockSize(fpSig->params[pi].type, fpSig->params[pi].pointerLevel);
+        } else {
+            agg = paramAggSize(calleeName, args.size());
+        }
+        args.push_back(evalArgument(arg.get(), agg, loc(node)));
     }
 
     ir::Inst inst;
@@ -3459,13 +3680,30 @@ normal_call:
         // Indirect call via function pointer
         node.callExpr->accept(*this);
         inst.src1 = lastValue_;
-        auto dest = allocVreg(ir::Type::I16);
         inst.op = ir::Op::CALL_INDIRECT;
         inst.callConv = zpCallMode ? ir::CallConv::ZP : ir::CallConv::STACK;
-        inst.dest = dest;
-        inst.resultType = ir::Type::I16;
-        emit(inst);
-        lastValue_ = dest;
+        if (isSret) {
+            inst.resultType = ir::Type::VOID;
+            emit(inst);
+            sretCallResult(sretKey, sretBuf, sretAddr, loc(node));
+        } else {
+            // Result type from the pointer's signature or the function (int when unknown)
+            ir::Type rt = ir::Type::I16;
+            bool rs = true;
+            if (fpSig) { rt = mapType(fpSig->returnType, fpSig->returnPointerLevel); rs = fpSig->returnIsSigned; }
+            else if (functionReturnTypes_.count(calleeName)) { rt = functionReturnTypes_[calleeName]; rs = functionReturnSigned_[calleeName]; }
+            if (rt == ir::Type::VOID) {
+                inst.resultType = ir::Type::VOID;
+                emit(inst);
+            } else {
+                auto dest = allocVreg(rt);
+                inst.dest = dest;
+                inst.resultType = rt;
+                emit(inst);
+                lastValue_ = dest;
+            }
+            lastValueSigned_ = rs;
+        }
     } else {
         // Record function call for cross-module optimization profiling
         if (currentFunc_) {
@@ -3610,6 +3848,7 @@ normal_call:
                     // The vreg already contains the function address value.
                     // Use it directly without dereferencing (unlike data pointers).
                     ptrVal = varIt->second;
+                    usedVregs_.insert(ptrVal.vregId);
                 } else {
                     // Global function pointer variable — load from global
                     auto addr = allocVreg(ir::Type::PTR);
@@ -3623,14 +3862,27 @@ normal_call:
                     ptrVal = addr;
                 }
                 inst.src1 = ptrVal;
-                auto dest = allocVreg(ir::Type::I16);
                 inst.op = ir::Op::CALL_INDIRECT;
                 inst.callConv = ir::CallConv::STACK;
-                inst.dest = dest;
-                inst.resultType = ir::Type::I16;
-                emit(inst);
-                lastValue_ = dest;
-                lastValueSigned_ = true; // function pointer returns signed int by default
+                if (isSret) {
+                    inst.resultType = ir::Type::VOID;
+                    emit(inst);
+                    sretCallResult(sretKey, sretBuf, sretAddr, loc(node));
+                } else {
+                    // Result type from the pointer's signature (int when unknown)
+                    ir::Type rt = fpSig ? mapType(fpSig->returnType, fpSig->returnPointerLevel) : ir::Type::I16;
+                    if (rt == ir::Type::VOID) {
+                        inst.resultType = ir::Type::VOID;
+                        emit(inst);
+                    } else {
+                        auto dest = allocVreg(rt);
+                        inst.dest = dest;
+                        inst.resultType = rt;
+                        emit(inst);
+                        lastValue_ = dest;
+                    }
+                    lastValueSigned_ = fpSig ? fpSig->returnIsSigned : true;
+                }
             } else {
                 // Normal direct call path
                 std::string mangledName = "_" + node.name;
@@ -3651,9 +3903,12 @@ normal_call:
                     }
                 }
 
-                // For struct-returning functions, use the allocated structDest vreg
-                // and emit a normal CALL (struct value returned in AXYZ)
-                if (structReturningFunctions_.count(node.name) > 0) {
+                if (isSret) {
+                    inst.op = ir::Op::CALL_VOID;
+                    inst.resultType = ir::Type::VOID;
+                    emit(inst);
+                    sretCallResult(node.name, sretBuf, sretAddr, loc(node));
+                } else if (structReturningFunctions_.count(node.name) > 0) {
                     // Struct function returns struct value in AXYZ (4 bytes for I32)
                     // Call it with struct return type (I32)
                     inst.op = ir::Op::CALL;
@@ -3674,9 +3929,8 @@ normal_call:
                     inst.resultType = retType;
                     emit(inst);
                     lastValue_ = dest;
-                    // Function returns are signed by default (int, long)
-                    // unless the return type is explicitly unsigned
-                    lastValueSigned_ = true;
+                    auto rsit = functionReturnSigned_.find(node.name);
+                    lastValueSigned_ = rsit != functionReturnSigned_.end() && rsit->second;
                 }
             }
         }
@@ -3720,6 +3974,47 @@ void IRBuilder::visit(ReturnStatement& node) {
         // Start a new block for any code after this return (dead, but keeps IR well-formed)
         startBlock(newLabel("inline_after_ret"));
         return;
+    }
+
+    // Struct/union/float result: copy into the caller's buffer (*__sret), return the pointer
+    if (currentFunc_) {
+        std::string fname = currentFunc_->name.substr(currentFunc_->name[0] == '_' ? 1 : 0);
+        auto sit = sretSize_.find(fname);
+        if (sit != sretSize_.end() && locals_.count("__sret")) {
+            // Read the pointer out of the parameter (a STORE to the parameter's own
+            // slot would assign the variable instead of storing through it)
+            ir::Operand dst = allocVreg(ir::Type::PTR);
+            ir::Inst cp;
+            cp.op = ir::Op::COPY;
+            cp.dest = dst;
+            cp.src1 = locals_["__sret"];
+            cp.resultType = ir::Type::PTR;
+            cp.loc = loc(node);
+            emit(cp);
+            if (node.expression) {
+                if (sretFloat_.count(fname)) {
+                    node.expression->accept(*this);
+                    IRTypeInfo info = getExprTypeInfo(node.expression.get());
+                    auto fval = emitCast(lastValue_, ir::Type::F32, info.isSigned);
+                    ir::Inst st;
+                    st.op = ir::Op::STORE;
+                    st.resultType = ir::Type::F32;
+                    st.src1 = fval;
+                    st.src2 = dst;
+                    st.loc = loc(node);
+                    emit(st);
+                } else {
+                    emitAggregateInto(node.expression.get(), dst, sit->second, loc(node));
+                }
+            }
+            ir::Inst ret;
+            ret.op = ir::Op::RET;
+            ret.src1 = dst;
+            ret.resultType = ir::Type::PTR;
+            ret.loc = loc(node);
+            emit(ret);
+            return;
+        }
     }
 
     // Struct-returning functions return struct value in AXYZ (4 bytes)
@@ -4970,9 +5265,10 @@ void IRBuilder::visit(StructDefinition& node) {
     structs_[node.name] = info;
     parsedStructIsFinal_[node.name] = node.isFinal;
 
-    // Emit struct methods as top-level functions
-    for (auto& method : node.methods) {
-        method->accept(*this);
+    // Emit struct methods as top-level functions (once: the definition is
+    // revisited when a method body declares a variable of its own struct type)
+    if (methodsEmitted_.insert(node.name).second) {
+        for (auto& method : node.methods) method->accept(*this);
     }
 
     // Phase 3: Generate vtable for structs with virtual methods

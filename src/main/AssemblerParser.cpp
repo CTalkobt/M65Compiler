@@ -1390,10 +1390,11 @@ void AssemblerParser::pass1() {
                     std::vector<ProcArg> args;
                     while (match(AssemblerTokenType::COMMA)) {
                         int pSize = 2; // default: word
-                        if (peek().type == AssemblerTokenType::IDENTIFIER && (peek().value == "B" || peek().value == "W" || peek().value == "D")) {
+                        if (peek().type == AssemblerTokenType::IDENTIFIER && (peek().value == "B" || peek().value == "W" || peek().value == "D" || peek().value == "F")) {
                             std::string sizeSpec = advance().value;
                             if (sizeSpec == "B") pSize = 1;
                             else if (sizeSpec == "D") pSize = 4;
+                            else if (sizeSpec == "F") pSize = 5;  // CBM 40-bit float
                             match(AssemblerTokenType::HASH);
                         }
                         // C calling convention promotes char (B#) to 16-bit on the stack.

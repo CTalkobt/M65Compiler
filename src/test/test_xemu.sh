@@ -285,6 +285,26 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: struct results via the hidden result pointer, struct arguments by copy
+echo "Testing test_sret_xemu.c (struct results/arguments)..."
+compile_link_test "src/test-resources/test_sret_xemu.c" "build/test/test_sret_xemu.prg"
+if [ $? -eq 0 ]; then
+    run_xemu_test "test_sret" "build/test/test_sret_xemu.prg" "C0C0" 22 "44 11 88 55 07 08 09 07 08 09 0A 14 0B 0D 0F 02 06 05 07 06 07 AA"
+else
+    echo "FAIL: test_sret_xemu.c (compilation/linking failed)"
+    failed=$((failed + 1))
+fi
+
+# Test: float arguments/results, negative values, ROM math functions
+echo "Testing test_float_func_xemu.c (float functions)..."
+compile_link_test "src/test-resources/test_float_func_xemu.c" "build/test/test_float_func_xemu.prg"
+if [ $? -eq 0 ]; then
+    run_xemu_test "test_float_func" "build/test/test_float_func_xemu.prg" "C0C0" 16 "0F 01 01 01 06 07 04 00 0A 1B 03 20 3A 0F F9 AA"
+else
+    echo "FAIL: test_float_func_xemu.c (compilation/linking failed)"
+    failed=$((failed + 1))
+fi
+
 # Test: stack frames (recursion via SAC fallback, caller FP preserved, long return)
 echo "Testing test_stackframe_xemu.c (stack frames)..."
 compile_link_test "src/test-resources/test_stackframe_xemu.c" "build/test/test_stackframe_xemu.prg"

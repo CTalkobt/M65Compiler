@@ -44,6 +44,79 @@ static std::string hex32(uint32_t val) {
 
 IRCodeGen::IRCodeGen(std::ostream& out) : out_(out) {}
 
+void IRCodeGen::emitF32Byte(const std::string& op, uint32_t vregId, int i) {
+    auto a = alloc_.getAlloc(vregId);
+    std::string idx = "+" + std::to_string(i);
+    if (a.loc == VRegAllocator::IN_ZP) {
+        emit(op + " $" + hex8((uint8_t)a.offset) + idx);
+    } else if (currentFunctionUseSAC_) {
+        std::string sym;
+        if (currentFn_ && vregId < currentFn_->paramTypes.size()) {
+            std::string pName = (vregId < currentFn_->paramNames.size() && !currentFn_->paramNames[vregId].empty())
+                ? currentFn_->paramNames[vregId] : std::to_string(vregId);
+            sym = currentFunctionName_ + "__param_" + pName;
+        } else {
+            sym = currentFunctionName_ + "__local_" + std::to_string(vregId);
+        }
+        emit(op + " " + sym + idx);
+    } else {
+        int off = vregOffset_.count(vregId) ? vregOffset_[vregId] : a.offset;
+        emit("ldy #" + std::to_string(off + i));
+        emit(op + " ($fd),y");
+    }
+}
+
+// SAC storage symbol of a frame vreg: fn__param_<name> for parameters, else fn__local_<id>
+std::string IRCodeGen::sacSymbol(uint32_t vregId) const {
+    if (currentFn_ && vregId < currentFn_->paramTypes.size()) {
+        std::string pName = (vregId < currentFn_->paramNames.size() && !currentFn_->paramNames[vregId].empty())
+            ? currentFn_->paramNames[vregId] : std::to_string(vregId);
+        return currentFunctionName_ + "__param_" + pName;
+    }
+    return currentFunctionName_ + "__local_" + std::to_string(vregId);
+}
+
+bool IRCodeGen::f32AbsBase(uint32_t vregId, std::string& base) {
+    auto a = alloc_.getAlloc(vregId);
+    if (a.loc == VRegAllocator::IN_ZP) { base = "$" + hex8((uint8_t)a.offset); return true; }
+    if (!currentFunctionUseSAC_) return false;
+    if (currentFn_ && vregId < currentFn_->paramTypes.size()) {
+        std::string pName = (vregId < currentFn_->paramNames.size() && !currentFn_->paramNames[vregId].empty())
+            ? currentFn_->paramNames[vregId] : std::to_string(vregId);
+        base = currentFunctionName_ + "__param_" + pName;
+    } else {
+        base = currentFunctionName_ + "__local_" + std::to_string(vregId);
+    }
+    return true;
+}
+
+void IRCodeGen::emitF32CopyAbs(const std::string& src, const std::string& dst) {
+    ms_.invalidateAll();
+    std::string lbl = "@__fcpy_" + std::to_string(labelCounter_++);
+    // X-indexed: LDA/STA have no base-page,Y mode, so "$20,y" would assemble
+    // as absolute $0020,y and miss the relocated base page.
+    emit("ldx #4");
+    emit(lbl + ":");
+    emit("lda " + src + ",x");
+    emit("sta " + dst + ",x");
+    emit("dex");
+    emit("bpl " + lbl);
+}
+
+void IRCodeGen::emitF32VregToAbs(uint32_t vregId, const std::string& dst) {
+    std::string base;
+    if (f32AbsBase(vregId, base)) { emitF32CopyAbs(base, dst); return; }
+    ms_.invalidateAll();
+    for (int b = 0; b < 5; b++) { emitF32Byte("lda", vregId, b); emit("sta " + dst + "+" + std::to_string(b)); }
+}
+
+void IRCodeGen::emitF32AbsToVreg(const std::string& src, uint32_t vregId) {
+    std::string base;
+    if (f32AbsBase(vregId, base)) { emitF32CopyAbs(src, base); return; }
+    ms_.invalidateAll();
+    for (int b = 0; b < 5; b++) { emit("lda " + src + "+" + std::to_string(b)); emitF32Byte("sta", vregId, b); }
+}
+
 const ir::Inst* IRCodeGen::peekNextInst() const {
     if (!currentFn_) return nullptr;
     const auto& block = currentFn_->blocks[currentBlockIdx_];
@@ -539,11 +612,12 @@ std::string IRCodeGen::src2MemOperand(const ir::Operand& op) {
     }
     if (op.isVreg()) {
         // Check for suppressed CONST vreg — use immediate instead of ZP
+        auto alloc = alloc_.getAlloc(op.vregId);
+        bool is32 = alloc.type == ir::Type::I32 || op.type == ir::Type::I32;
         auto cit = vregConstVal_.find(op.vregId);
         if (cit != vregConstVal_.end() && suppressedVregs_.count(op.vregId)) {
-            return "#" + std::to_string((int)(cit->second & 0xFFFF));
+            return "#" + std::to_string(is32 ? (long long)(uint32_t)cit->second : (long long)(cit->second & 0xFFFF));
         }
-        auto alloc = alloc_.getAlloc(op.vregId);
         switch (alloc.loc) {
             case VRegAllocator::IN_ZP: {
                 std::stringstream ss;
@@ -555,6 +629,7 @@ std::string IRCodeGen::src2MemOperand(const ir::Operand& op) {
                 // Spill to __zp_scratch2 to avoid conflict when loadOperand(src1)
                 // also needs __zp_scratch for its own ldax.fp.
                 loadVreg(op.vregId);
+                if (is32) { emit("stq __zp_scratch2"); return "__zp_scratch2"; }  // all 4 bytes (AXYZ)
                 emit("sta __zp_scratch2");
                 emit("stx __zp_scratch2+1");
                 return "__zp_scratch2";
@@ -562,6 +637,7 @@ std::string IRCodeGen::src2MemOperand(const ir::Operand& op) {
                 // Value is in A:X — spill to __zp_scratch2 (not __zp_scratch,
                 // because loadOperand for the other operand may use ldax.fp
                 // which clobbers __zp_scratch internally).
+                if (is32) { emit("stq __zp_scratch2"); return "__zp_scratch2"; }
                 emit("sta __zp_scratch2");
                 emit("stx __zp_scratch2+1");
                 return "__zp_scratch2";
@@ -1801,6 +1877,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         int pSize = ir::typeSize(fn.paramTypes[i]);
         if (pSize == 1) procLine += "B";
         else if (pSize == 4) procLine += "D";
+        else if (pSize == 5) procLine += "F";
         else procLine += "W";
         if (i < fn.paramNames.size() && !fn.paramNames[i].empty()) {
             procLine += "#@_p_" + fn.paramNames[i];
@@ -1837,14 +1914,10 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                     ? fn.paramNames[i] : std::to_string(i);
                 std::string sym = fn.name + "__param_" + pName;
                 int pSize = ir::typeSize(fn.paramTypes[i]);
-                if (pSize >= 1) emit("lda __sp_base+" + std::to_string(stackOff) + ", x");
-                if (pSize >= 1) emit("sta " + sym);
-                if (pSize >= 2) emit("lda __sp_base+" + std::to_string(stackOff + 1) + ", x");
-                if (pSize >= 2) emit("sta " + sym + "+1");
-                if (pSize >= 4) emit("lda __sp_base+" + std::to_string(stackOff + 2) + ", x");
-                if (pSize >= 4) emit("sta " + sym + "+2");
-                if (pSize >= 4) emit("lda __sp_base+" + std::to_string(stackOff + 3) + ", x");
-                if (pSize >= 4) emit("sta " + sym + "+3");
+                for (int b = 0; b < pSize; b++) {
+                    emit("lda __sp_base+" + std::to_string(stackOff + b) + ", x");
+                    emit("sta " + sym + (b ? "+" + std::to_string(b) : std::string()));
+                }
                 stackOff += (pSize < 2) ? 2 : pSize; // C promotes char to 16-bit on stack
             }
             // Emit __sac label for direct SAC callers to skip thunk
@@ -2128,12 +2201,10 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
                     ? fn.paramNames[i] : std::to_string(i);
                 if (fn.paramTypes[i] == ir::Type::F32) {
-                    // 5-byte float: copy from stack frame to ZP vreg
-                    auto alloc = alloc_.getAlloc(vid);
-                    std::string za = "$" + hex8((uint8_t)alloc.offset);
+                    // 5-byte float: copy from the caller's arguments into the vreg
                     for (int bi = 0; bi < 5; bi++) {
                         emit("lda.param @_p_" + pName + "+" + std::to_string(bi));
-                        emit("sta " + za + "+" + std::to_string(bi));
+                        emitF32Byte("sta", vid, bi);
                     }
                 } else if (fn.paramTypes[i] == ir::Type::I32) {
                     emit("ldaxyz.param @_p_" + pName);
@@ -2608,7 +2679,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     if (srcAlloc.loc == VRegAllocator::IN_FRAME) {
                         if (currentFunctionUseSAC_) {
                             // SAC mode: use absolute BSS symbol
-                            std::string sym = currentFunctionName_ + "__local_" + std::to_string(inst.src1.vregId);
+                            std::string sym = sacSymbol(inst.src1.vregId);
                             std::string r = irDesc(inst.op == ir::Op::ADD ? "inc16 SAC" : "dec16 SAC");
                             if (inst.op == ir::Op::ADD) {
                                 emit("inc " + sym, r);
@@ -3332,21 +3403,9 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
             if (inst.resultType == ir::Type::F32 && inst.dest.isVreg()) {
                 // 5-byte float load: copy to dest vreg
-                auto dAlloc = alloc_.getAlloc(inst.dest.vregId);
-                std::string da;
-                if (currentFunctionUseSAC_ && dAlloc.loc == VRegAllocator::IN_FRAME)
-                    da = currentFunctionName_ + "__local_" + std::to_string(inst.dest.vregId);
-                else
-                    da = "$" + hex8((uint8_t)dAlloc.offset);
+                ms_.invalidateAll();
                 if (inst.src1.kind == ir::OperandKind::GLOBAL) {
-                    ms_.invalidateAll();
-                    // X-indexed: LDA/STA have no base-page,Y mode
-                    emit("ldx #4");
-                    emit(std::string("@__fcpy_") + std::to_string(labelCounter_) + ":");
-                    emit("lda " + inst.src1.name + ",x");
-                    emit("sta " + da + ",x");
-                    emit("dex");
-                    emit("bpl @__fcpy_" + std::to_string(labelCounter_++));
+                    emitF32AbsToVreg(inst.src1.name, inst.dest.vregId);
                 } else {
                     // Indirect load via (ZP),Y
                     std::string zpPair;
@@ -3359,7 +3418,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     for (int i = 0; i < 5; i++) {
                         emit("ldy #" + std::to_string(i));
                         emit("lda (" + zpPair + "),y");
-                        emit("sta " + da + "+" + std::to_string(i));
+                        emitF32Byte("sta", inst.dest.vregId, i);
                     }
                 }
                 break;
@@ -3500,31 +3559,21 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
             if (inst.resultType == ir::Type::F32 && inst.src1.isVreg()) {
                 // 5-byte float store from src1 vreg to dest address
-                // Use MOVE simulated op to avoid optimizer ZP tracking issues
-                auto sAlloc = alloc_.getAlloc(inst.src1.vregId);
-                std::string sa;
-                if (currentFunctionUseSAC_ && sAlloc.loc == VRegAllocator::IN_FRAME)
-                    sa = currentFunctionName_ + "__local_" + std::to_string(inst.src1.vregId);
-                else
-                    sa = "$" + hex8((uint8_t)sAlloc.offset);
+                ms_.invalidateAll();
                 if (inst.src2.kind == ir::OperandKind::GLOBAL) {
-                    ms_.invalidateAll();
-                    // X-indexed: LDA/STA have no base-page,Y mode
-                    emit("ldx #4");
-                    emit(std::string("@__fcpy_") + std::to_string(labelCounter_) + ":");
-                    emit("lda " + sa + ",x");
-                    emit("sta " + inst.src2.name + ",x");
-                    emit("dex");
-                    emit("bpl @__fcpy_" + std::to_string(labelCounter_++));
+                    emitF32VregToAbs(inst.src1.vregId, inst.src2.name);
                 } else if (inst.src2.isVreg()) {
                     bool isLocalSlot = localSlotVregs_.count(inst.src2.vregId) > 0;
                     if (isLocalSlot) {
-                        // Direct 5-byte copy to local variable's ZP storage
-                        auto destAlloc = alloc_.getAlloc(inst.src2.vregId);
-                        std::string da = "$" + hex8((uint8_t)destAlloc.offset);
-                        for (int i = 0; i < 5; i++) {
-                            emit("lda " + sa + "+" + std::to_string(i));
-                            emit("sta " + da + "+" + std::to_string(i));
+                        // Store into a float local variable
+                        std::string dstBase;
+                        if (f32AbsBase(inst.src2.vregId, dstBase)) {
+                            emitF32VregToAbs(inst.src1.vregId, dstBase);
+                        } else {
+                            for (int i = 0; i < 5; i++) {
+                                emitF32Byte("lda", inst.src1.vregId, i);
+                                emitF32Byte("sta", inst.src2.vregId, i);
+                            }
                         }
                     } else {
                         // Indirect store via (ZP),Y — dest vreg holds a pointer address
@@ -3534,8 +3583,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                             zpPair = "$" + hex8((uint8_t)addrAlloc.offset);
                         else { loadVreg(inst.src2.vregId); emit("sta __zp_scratch"); emit("stx __zp_scratch+1"); zpPair = "__zp_scratch"; }
                         for (int i = 0; i < 5; i++) {
+                            emitF32Byte("lda", inst.src1.vregId, i);
                             emit("ldy #" + std::to_string(i));
-                            emit("lda " + sa + "+" + std::to_string(i));
                             emit("sta (" + zpPair + "),y");
                         }
                     }
@@ -3554,7 +3603,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     } else if (valAlloc.loc == VRegAllocator::IN_FRAME) {
                         if (vregOffset_.count(inst.src1.vregId)) {
                             if (currentFunctionUseSAC_) {
-                                std::string sym = currentFunctionName_ + "__local_" + std::to_string(inst.src1.vregId);
+                                std::string sym = sacSymbol(inst.src1.vregId);
                                 emit("lda " + sym);
                             } else {
                                 emit("lda.local " + std::to_string(vregOffset_[inst.src1.vregId]));
@@ -3678,7 +3727,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                             } else if (valAlloc.loc == VRegAllocator::IN_FRAME) {
                                 if (vregOffset_.count(inst.src1.vregId)) {
                                     if (currentFunctionUseSAC_) {
-                                        std::string sym = currentFunctionName_ + "__local_" + std::to_string(inst.src1.vregId);
+                                        std::string sym = sacSymbol(inst.src1.vregId);
                                         emit("lda " + sym);
                                     } else {
                                         emit("lda.local " + std::to_string(vregOffset_[inst.src1.vregId]));
@@ -4301,6 +4350,11 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                             continue;
                         }
 
+                        if (arg.type == ir::Type::F32 && arg.isVreg()) {
+                            emitF32VregToAbs(arg.vregId, paramSymbol);
+                            continue;
+                        }
+
                         // Check if we can emit a direct constant load
                         bool emittedConst = false;
                         if (arg.isImm()) {
@@ -4384,27 +4438,10 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                             emit("push .ax");
                         } else if (arg.type == ir::Type::F32 && arg.isVreg()) {
                             // Float: push 5 bytes (push byte 4 first, byte 0 last)
-                            auto alloc = alloc_.getAlloc(arg.vregId);
                             ms_.invalidateAll();
-                            if (alloc.loc == VRegAllocator::IN_ZP) {
-                                std::string za = "$" + hex8((uint8_t)alloc.offset);
-                                for (int bi = 4; bi >= 0; bi--) {
-                                    emit("lda " + za + "+" + std::to_string(bi));
-                                    emit("pha");
-                                }
-                            } else if (currentFunctionUseSAC_) {
-                                std::string sym = currentFunctionName_ + "__local_" + std::to_string(arg.vregId);
-                                for (int bi = 4; bi >= 0; bi--) {
-                                    emit("lda " + sym + "+" + std::to_string(bi));
-                                    emit("pha");
-                                }
-                            } else {
-                                int off = alloc.offset;
-                                for (int bi = 4; bi >= 0; bi--) {
-                                    emit("ldy #" + std::to_string(off + bi));
-                                    emit("lda ($fd),y");
-                                    emit("pha");
-                                }
+                            for (int bi = 4; bi >= 0; bi--) {
+                                emitF32Byte("lda", arg.vregId, bi);
+                                emit("pha");
                             }
                         } else {
                             // Complex operand — load and push
@@ -4457,27 +4494,10 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         int slot = nArgs - 1 - ai;
                         if (arg.type == ir::Type::F32 && arg.isVreg()) {
                             // F32: copy 5 bytes from vreg to scratch slot
-                            auto alloc = alloc_.getAlloc(arg.vregId);
                             ms_.invalidateAll();
-                            if (alloc.loc == VRegAllocator::IN_ZP) {
-                                std::string za = "$" + hex8((uint8_t)alloc.offset);
-                                for (int bi = 0; bi < 5; bi++) {
-                                    emit("lda " + za + "+" + std::to_string(bi));
-                                    emit("sta " + zpSlotAddr(slot, bi));
-                                }
-                            } else if (currentFunctionUseSAC_) {
-                                std::string sym = currentFunctionName_ + "__local_" + std::to_string(arg.vregId);
-                                for (int bi = 0; bi < 5; bi++) {
-                                    emit("lda " + sym + "+" + std::to_string(bi));
-                                    emit("sta " + zpSlotAddr(slot, bi));
-                                }
-                            } else {
-                                int off = alloc.offset;
-                                for (int bi = 0; bi < 5; bi++) {
-                                    emit("ldy #" + std::to_string(off + bi));
-                                    emit("lda ($fd),y");
-                                    emit("sta " + zpSlotAddr(slot, bi));
-                                }
+                            for (int bi = 0; bi < 5; bi++) {
+                                emitF32Byte("lda", arg.vregId, bi);
+                                emit("sta " + zpSlotAddr(slot, bi));
                             }
                         } else {
                             loadOperand(arg);
@@ -4884,11 +4904,9 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             int64_t bits = inst.src1.immVal; double val;
             std::memcpy(&val, &bits, sizeof(double));
             uint8_t cbm[5]; doubleToCBM40(val, cbm);
-            auto da = alloc_.getAlloc(inst.dest.vregId);
-            std::string d = "$" + hex8((uint8_t)da.offset);
             for (int i = 0; i < 5; i++) {
                 emit("lda #$" + hex8(cbm[i]));
-                emit("sta " + d + "+" + std::to_string(i));
+                emitF32Byte("sta", inst.dest.vregId, i);
             }
             break;
         }
@@ -4899,59 +4917,12 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             // Helper: copy 5-byte float from vreg to absolute symbol (e.g., __float_a)
             // Uses byte-by-byte LDA/STA (DMA MOVE has ZP clobber issues).
             // Invalidates machine state to prevent optimizer from eliminating loads.
-            auto emitFloatToAbs = [&](const VRegAllocator::Allocation& a, uint32_t vregId, const std::string& dst) {
-                ms_.invalidateAll();
-                if (a.loc == VRegAllocator::IN_ZP) {
-                    // Y-indexed copy loop — immune to optimizer load elimination
-                    std::string zp = "$" + hex8((uint8_t)a.offset);
-                    // X-indexed: LDA/STA have no base-page,Y mode
-                    emit("ldx #4");
-                    emit(std::string("@__fcpy_") + std::to_string(labelCounter_) + ":");
-                    emit("lda " + zp + ",x");
-                    emit("sta " + dst + ",x");
-                    emit("dex");
-                    emit("bpl @__fcpy_" + std::to_string(labelCounter_++));
-                } else if (currentFunctionUseSAC_) {
-                    std::string sym = currentFunctionName_ + "__local_" + std::to_string(vregId);
-                    for (int b = 0; b < 5; b++) {
-                        emit("lda " + sym + "+" + std::to_string(b));
-                        emit("sta " + dst + "+" + std::to_string(b));
-                    }
-                } else {
-                    int off = a.offset;
-                    for (int b = 0; b < 5; b++) {
-                        emit("ldy #" + std::to_string(off + b));
-                        emit("lda ($fd),y");
-                        emit("sta " + dst + "+" + std::to_string(b));
-                    }
-                }
+            auto emitFloatToAbs = [&](const VRegAllocator::Allocation&, uint32_t vregId, const std::string& dst) {
+                emitF32VregToAbs(vregId, dst);
             };
             // Helper: copy 5-byte float from absolute symbol to vreg
-            auto emitAbsToFloat = [&](const std::string& src, const VRegAllocator::Allocation& a, uint32_t vregId) {
-                ms_.invalidateAll();
-                if (a.loc == VRegAllocator::IN_ZP) {
-                    std::string zp = "$" + hex8((uint8_t)a.offset);
-                    // X-indexed: LDA/STA have no base-page,Y mode
-                    emit("ldx #4");
-                    emit(std::string("@__fcpy_") + std::to_string(labelCounter_) + ":");
-                    emit("lda " + src + ",x");
-                    emit("sta " + zp + ",x");
-                    emit("dex");
-                    emit("bpl @__fcpy_" + std::to_string(labelCounter_++));
-                } else if (currentFunctionUseSAC_) {
-                    std::string sym = currentFunctionName_ + "__local_" + std::to_string(vregId);
-                    for (int b = 0; b < 5; b++) {
-                        emit("lda " + src + "+" + std::to_string(b));
-                        emit("sta " + sym + "+" + std::to_string(b));
-                    }
-                } else {
-                    int off = a.offset;
-                    for (int b = 0; b < 5; b++) {
-                        emit("lda " + src + "+" + std::to_string(b));
-                        emit("ldy #" + std::to_string(off + b));
-                        emit("sta ($fd),y");
-                    }
-                }
+            auto emitAbsToFloat = [&](const std::string& src, const VRegAllocator::Allocation&, uint32_t vregId) {
+                emitF32AbsToVreg(src, vregId);
             };
 
             if (inst.op >= ir::Op::FADD && inst.op <= ir::Op::FDIV) {

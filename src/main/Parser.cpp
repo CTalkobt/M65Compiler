@@ -1944,7 +1944,10 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         }
 
         if (!isUnion && (methodIsVirtual || methodIsStatic || isFunctionDeclaration())) {
+            // 'this' in a non-static method body names the hidden __this parameter
+            if (!methodIsStatic) inStructMethod_++;
             auto method = parseFunctionDeclaration();
+            if (!methodIsStatic) inStructMethod_--;
             method->isVirtual = methodIsVirtual;
             method->isStatic = methodIsStatic;
             // Mangle name: StructName__methodName
@@ -2769,13 +2772,11 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
             actualName = nestedFunctionMap.at(name);
         }
 
-        // 'this' keyword in struct methods → hidden '__this' parameter
-        // Don't rename 'this' to '__this' - keep it as is and handle it properly
-        // The struct method's __this parameter should be accessed as __this directly
-        // Regular functions can have 'this' as a normal parameter name
-        // if (actualName == "this") {
-        //     actualName = "__this";
-        // }
+        // 'this' in a struct method → the hidden '__this' parameter.
+        // Elsewhere 'this' is an ordinary identifier (C allows it as a name).
+        if (inStructMethod_ > 0 && actualName == "this") {
+            actualName = "__this";
+        }
 
         // Map __builtin_X → X for known stdlib-equivalent builtins
         if (actualName.rfind("__builtin_", 0) == 0) {

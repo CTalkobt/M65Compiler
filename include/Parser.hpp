@@ -49,6 +49,7 @@ private:
         return node;
     }
 
+    int inStructMethod_ = 0;  // >0 while parsing a non-static struct method body
     std::unique_ptr<FunctionDeclaration> parseFunctionDeclaration();
     std::unique_ptr<CompoundStatement> parseCompoundStatement();
     std::unique_ptr<Statement> parseStatement();

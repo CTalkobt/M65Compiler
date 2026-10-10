@@ -149,6 +149,22 @@ private:
     std::set<uint32_t> usedVregs_;
     std::map<std::string, ir::SourceLoc> localDeclLocs_;
     void resetFunctionLocalState();
+    // Struct/union and float returns use a caller-allocated result buffer passed
+    // as a hidden first parameter "__sret" (the callee also returns it in AX).
+    ir::Operand sretCallBuffer(const std::string& fname, ir::Operand& buf, const ir::SourceLoc& sl);
+    void sretCallResult(const std::string& fname, const ir::Operand& buf, const ir::Operand& addr, const ir::SourceLoc& sl);
+    void emitMethodCall(const std::string& mangledName, std::vector<ir::Operand> args, const ir::SourceLoc& sl,
+                        const ir::Operand* sretBuf = nullptr, const ir::Operand* sretAddr = nullptr);
+    std::map<std::string, std::shared_ptr<FuncPtrSignature>> fnPtrSigs_;  // function-pointer variables
+    std::map<std::string, std::vector<int>> paramAggSizes_;  // per function: by-copy aggregate param sizes (0 = scalar)
+    std::set<std::string> aggCopyParams_;  // current function's by-copy aggregate params
+    ir::Operand evalArgument(Expression* arg, int aggSize, const ir::SourceLoc& sl);
+    int paramAggSize(const std::string& fname, size_t index);
+    std::set<std::string> methodsEmitted_;  // structs whose methods were lowered
+    std::map<std::string, int> sretSize_;      // function name -> result size
+    std::set<std::string> sretFloat_;          // ... of which return float/double
+    ir::Operand sretDest_;                      // destination for the next sret call
+    bool sretDestSet_ = false;
     // Aggregates (struct/union) whose size is not 1, 2 or 4 bytes are copied
     // by address rather than as a scalar value; returns that size, else 0.
     int aggregateBlockSize(const std::string& typeName, int pointerLevel);
