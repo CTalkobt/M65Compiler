@@ -26,6 +26,7 @@ static int day_of_year(int year, int mon, int mday) {
 }
 
 /* Convert struct tm to time_t (seconds since 2000-01-01 00:00:00) */
+#pragma cc45 weak
 time_t mktime(struct tm *tm) {
     long days = 0;
     int y;

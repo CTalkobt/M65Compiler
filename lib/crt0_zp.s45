@@ -5,6 +5,7 @@
 
 .global __init
 .global __exit
+.global __abort
 .global __sp_base
 .global __bp_rom
 .global __bp_prog
@@ -55,6 +56,11 @@ __saved_sph:
 ; Default init_features — does nothing. Override with a strong definition.
 _init_features:
     rts
+
+; __abort — abnormal termination. Non-overridable core implementation.
+; abort() (weak) calls this.
+__abort:
+    brk
 
 ; __bp_rom — switch to the ROM's base page (0) before calling KERNAL/BASIC.
 ; Preserves A, X, Y and Z.

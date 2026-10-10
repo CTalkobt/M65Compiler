@@ -81,8 +81,9 @@ proc _malloc
     beq @fail
 
 @search:
-    stz $12             ; prev = 0
-    stz $13
+    lda #0              ; prev = 0 (STZ stores the Z register, not zero)
+    sta $12
+    sta $13
     lda __heap_ptr
     sta $10             ; curr = head
     lda __heap_ptr+1
@@ -277,8 +278,9 @@ proc _free
     sty $17             ; block size high
 
     ; Find insertion point in sorted list
-    stz $12             ; prev = 0
-    stz $13
+    lda #0              ; prev = 0 (STZ stores the Z register, not zero)
+    sta $12
+    sta $13
     lda __heap_ptr
     sta $14             ; next_p = head
     lda __heap_ptr+1
@@ -455,8 +457,9 @@ proc _calloc
     sta $10
     lda $15
     sta $11             ; dest = result
-    stz $12             ; c = 0
-    stz $13
+    lda #0              ; c = 0
+    sta $12
+    sta $13
     lda $16
     sta $14
     lda $17

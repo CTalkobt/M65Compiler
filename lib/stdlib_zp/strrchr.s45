@@ -16,8 +16,9 @@ proc _strrchr
 
     ; s=$10/$11, c=$12 (low byte only)
     ; result in $14/$15
-    stz $14
-    stz $15
+    lda #0              ; (STZ stores the Z register, not zero)
+    sta $14
+    sta $15
     ldy #0
 @loop:
     lda ($10),y

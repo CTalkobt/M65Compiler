@@ -40,9 +40,15 @@ proc _setjmp
     ldy #2
     sta ($10), y            ; SPL
     tsy
-    tya
-    iny
+    tya                     ; (TSY loads Y: index explicitly)
+    ldy #3
     sta ($10), y            ; SPH
+    lda $FD                 ; frame pointer
+    iny
+    sta ($10), y
+    lda $FE
+    iny
+    sta ($10), y
 
     ; Return 0
     lda #0
@@ -66,7 +72,8 @@ proc _longjmp
     bne @nonzero
     lda #1
     sta $12
-    stz $13
+    lda #0
+    sta $13
 @nonzero:
 
     ; Restore SPH
@@ -79,7 +86,15 @@ proc _longjmp
     ldy #2
     lda ($10), y
     tax
+    inx                     ; SP as after setjmp's return (the return address
+    inx                     ; is pushed back below and popped by rts)
     txs
+    ldy #4                  ; frame pointer
+    lda ($10), y
+    sta $FD
+    iny
+    lda ($10), y
+    sta $FE
 
     ; Push saved return address onto hardware stack
     ldy #1

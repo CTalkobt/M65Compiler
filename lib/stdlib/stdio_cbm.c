@@ -349,79 +349,9 @@ int cbm_status(fd_t fd) {
  * (Stubs for Phase 4)
  */
 
-/**
- * cbm_opendir - Open directory listing
- */
-
-int cbm_opendir(unsigned char device) {
-    /* TODO: Implement directory listing
-     * Open "$" (directory) file for reading
-     * Parse directory format from device
-     */
-    return -1;
-}
-
-/**
- * cbm_readdir - Read next directory entry
- */
-
-int cbm_readdir(fd_t fd, char *filename, unsigned char *type, unsigned int *size) {
-    /* TODO: Implement directory reading
-     * Parse directory entry format:
-     * - 2 bytes: size (little-endian)
-     * - 16 bytes: filename (padded)
-     * - 1 byte: file type
-     */
-    return 0;
-}
-
-/**
- * cbm_closedir - Close directory
- */
-
-int cbm_closedir(fd_t fd) {
-    return cbm_close(fd);
-}
-
 /* ============================================================================
  * FILE OPERATIONS
  * ============================================================================
  * (Stubs for Phase 4)
  */
-
-/**
- * cbm_delete - Delete a file
- */
-
-int cbm_delete(unsigned char device, const char *filename) {
-    /* TODO: Implement file deletion
-     * Use KERNAL SCRATCH command format:
-     * Device responds to "S-FILENAME"
-     */
-    return -1;
-}
-
-/**
- * cbm_rename - Rename a file
- */
-
-int cbm_rename(unsigned char device, const char *old_name, const char *new_name) {
-    /* TODO: Implement file renaming
-     * Use KERNAL RENAME command format:
-     * Device responds to "R-NEWNAME=OLDNAME"
-     */
-    return -1;
-}
-
-/**
- * cbm_format - Format a disk
- */
-
-int cbm_format(unsigned char device, const char *name, const char *id) {
-    /* TODO: Implement disk formatting
-     * Use KERNAL format command format
-     * WARNING: This is destructive! Requires user confirmation.
-     */
-    return -1;
-}
 

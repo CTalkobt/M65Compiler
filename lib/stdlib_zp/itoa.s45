@@ -25,7 +25,8 @@ proc _itoa
     lda $11
     sta $17
 
-    stz $02             ; $02 = digit count (__zp_scratch)
+    lda #0
+    sta $02             ; $02 = digit count (__zp_scratch); STZ would store Z
     ldy #0              ; Y = write index into output
 
     ; --- Validate base (2-36) ---

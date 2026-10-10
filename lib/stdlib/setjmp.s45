@@ -55,6 +55,12 @@ proc _setjmp, W#_p_env
     tya                      ; A = SPH
     ldy #3
     sta (__zp_scratch), y    ; SPH
+    lda $FD                  ; frame pointer
+    iny
+    sta (__zp_scratch), y
+    lda $FE
+    iny
+    sta (__zp_scratch), y
 
     ; Return 0
     lda #0
@@ -99,7 +105,15 @@ proc _longjmp, W#_p_env, W#_p_val
     ldy #2
     lda (__zp_scratch), y   ; SPL
     tax
+    inx                     ; SP as after setjmp's return (the return address
+    inx                     ; is pushed back below and popped by rts)
     txs                     ; restore SPL
+    ldy #4                  ; frame pointer
+    lda (__zp_scratch), y
+    sta $FD
+    iny
+    lda (__zp_scratch), y
+    sta $FE
 
     ; Push saved return address back onto hardware stack
     ldy #1

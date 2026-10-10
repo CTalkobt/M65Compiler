@@ -50,8 +50,9 @@ proc _atoi
     iny
 @startnum:
     ; --- Initialize result = 0 ---
-    stz $12             ; $12/$13 = result (lo/hi)
-    stz $13
+    lda #0              ; $12/$13 = result (lo/hi); STZ would store Z
+    sta $12
+    sta $13
 
     ; --- Parse digits ---
 @digit:

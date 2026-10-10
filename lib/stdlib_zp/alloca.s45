@@ -1,0 +1,56 @@
+; alloca.s — Allocate stack space (ZP calling convention)
+;
+; void *alloca(size_t size);
+;   size in $10/$11 (only the low byte is used: the stack is one page).
+;   Lowers SP by size and returns a pointer to the allocated bytes in AX.
+;   The space is reclaimed when the calling function returns.
+
+.global _alloca
+.global ___builtin_alloca
+.extern __sp_base
+
+.segment "code"
+
+proc _alloca
+    .zp_uses $10, $11
+    .zp_clobbers $04, $05, $06, $07
+    .reg_clobbers A, X
+    .flag_clobbers C, N, Z, V
+
+    ; Return address (SP+1 = lo, SP+2 = hi)
+    tsx
+    lda __sp_base, x
+    sta $04
+    lda __sp_base+1, x
+    sta $05
+
+    ; New SP = SP + 2 (return address dropped) - size
+    txa
+    clc
+    adc #2
+    sec
+    sbc $10
+    tax
+    txs
+
+    ; Result = new SP + 1 (first allocated byte, stack page $01)
+    txa
+    clc
+    adc #1
+    sta $06
+    lda #$01
+    adc #0
+    sta $07
+
+    ; Return through the saved address
+    lda $05
+    pha
+    lda $04
+    pha
+    lda $06
+    ldx $07
+    rts
+    .func_flags zp_call
+    endproc
+
+___builtin_alloca = _alloca
