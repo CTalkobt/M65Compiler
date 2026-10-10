@@ -536,13 +536,15 @@ void AssemblerSimulatedOps::emitCMP_S16Code(AssemblerParser* parser, M65Emitter&
                 if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(src2); } catch(...) { addr = 0; } }
             }
             e.sta_scratch();
-            e.txa();
-            e.eor_imm(0x80);
-            // Use scratch3 for temporary to avoid aliasing when operand is at scratch2
-            e.sta_scratch3(); // save AX high byte signed in scratch3
+            // Biased (x ^ $80) high bytes compare as unsigned in signed order.
+            // Operand's high byte goes to scratch3 (the operand is often at scratch2),
+            // then compare AX's high byte against it so C = (AX >= operand).
             e.lda_addr(addr + 1);
             e.eor_imm(0x80);
-            e.cmp_zp(e.scratchZP3()); // compare high bytes signed
+            e.sta_scratch3();
+            e.txa();
+            e.eor_imm(0x80);
+            e.cmp_zp(e.scratchZP3());
             auto br = e.emitBranchPlaceholder(0xD0); // bne done
             e.lda_scratch();
             e.cmp_addr(addr);
@@ -2886,8 +2888,9 @@ void AssemblerSimulatedOps::emitCMP_S32Code(AssemblerParser* parser, M65Emitter&
                 if (sym) addr = sym->value; else { try { addr = parseNumericLiteral(src); } catch(...) { addr = 0; } }
             }
             e.sta_zp(zpScratch + 1); // save A to scratch+1 (scratch used by sign-flip below)
-            e.tza(); e.eor_imm(0x80); e.sta_scratch();
-            e.lda_addr(addr + 3); e.eor_imm(0x80); e.cmp_scratch();
+            // Top bytes biased (^$80); compare AXYZ's against the operand's so C = (AXYZ >= operand)
+            e.lda_addr(addr + 3); e.eor_imm(0x80); e.sta_scratch();
+            e.tza(); e.eor_imm(0x80); e.cmp_scratch();
             br0 = e.emitBranchPlaceholder(0xD0); // BNE
             e.tya(); e.cmp_addr(addr + 2);
             br1 = e.emitBranchPlaceholder(0xD0); // BNE
