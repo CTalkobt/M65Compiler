@@ -1,81 +1,76 @@
 #!/bin/bash
 
-# run_gte_all.sh — Run all GTE tests and report failures
+# run_gte_all.sh — Run all GTE (GCC torture) tests on xemu-xmega65 and report failures
+#
+# A test passes when the program returns to BASIC (xemu -prgexit exits on READY).
+# abort() executes BRK, which stops in the monitor, so a failing test hits the timeout.
+#
+# Usage: run_gte_all.sh [-j N]   (default: one job per CPU)
 
 CC="./bin/cc45"
-AS="./bin/ca45"
 LD="./bin/ln45"
+CRT0="lib/build/crt0.o45"
 LIB="lib/build/c45.lib"
-MMEMU="mmemu-cli"
+XEMU="xemu-xmega65"
 GTE_DIR="src/test-resources/gte"
 BUILD_DIR="build/test/gte"
+RUN_TIMEOUT=8
+
+JOBS=$(nproc 2>/dev/null || echo 4)
+if [ "$1" = "-j" ] && [ -n "$2" ]; then JOBS=$2; fi
+
+if ! command -v $XEMU &>/dev/null; then
+    echo "xemu-xmega65 not found — skipping GTE tests"
+    exit 0
+fi
 
 mkdir -p "$BUILD_DIR"
 
-passed=0
-skipped=0
-failed_compile=0
-failed_link=0
-failed_run=0
+run_one() {
+    local f="$1"
+    local name; name=$(basename "$f" .c)
+    local obj="$BUILD_DIR/$name.o45"
+    local prg="$BUILD_DIR/$name.prg"
 
-# Check mmemu is available
-if ! command -v $MMEMU &>/dev/null; then
-    echo "mmemu-cli not found"
-    exit 1
-fi
-
-TEST_FILES=$(ls "$GTE_DIR"/*.c)
-TOTAL=$(echo "$TEST_FILES" | wc -l)
-echo "Running $TOTAL GTE tests..."
-
-for f in $TEST_FILES; do
-    name=$(basename "$f" .c)
-    obj="$BUILD_DIR/$name.o45"
-    prg="$BUILD_DIR/$name.prg"
-    
-    # Check if skipped
     case "$name" in
-        # Issue #1: 16-bit Bitfield Limits (exceeds 16-bit targets)
+        # Bitfield widths >16 bits exceed the 16-bit target's limits
         bitfld-6|bitfld-7|pr103417|pr19689|pr31448-2|pr31448|pr40404|pr52979-1|pr52979-2|pr57344-2|pr58570|pr70602|pr78170|pr78436|pr89195|pr97764)
-            echo "SKIP: $name (Bitfield width limits (>16 bits) exceed 16-bit target architecture constraints)"
-            skipped=$((skipped + 1))
-            continue
+            echo "SKIP: $name (bitfield width >16 bits)"
+            return
             ;;
     esac
-    
-    # 1. Compile
-    $CC -c -I"$GTE_DIR" "$f" -o "$obj" > "$BUILD_DIR/$name.compile.log" 2>&1
-    res=$?
-    if [ $res -ne 0 ]; then
-        echo "COMPILE FAIL: $name"
-        failed_compile=$((failed_compile + 1))
-        continue
+
+    if ! $CC -c -I"$GTE_DIR" "$f" -o "$obj" > "$BUILD_DIR/$name.compile.log" 2>&1; then
+        echo "COMPILE FAIL: $name"; return
     fi
-    
-    # 2. Link
-    $LD -basic -o "$prg" "$obj" "$LIB" > "$BUILD_DIR/$name.link.log" 2>&1
-    res=$?
-    if [ $res -ne 0 ]; then
-        echo "LINK FAIL: $name"
-        failed_link=$((failed_link + 1))
-        continue
+    if ! $LD -basic -o "$prg" "$CRT0" "$obj" "$LIB" > "$BUILD_DIR/$name.link.log" 2>&1; then
+        echo "LINK FAIL: $name"; return
     fi
-    
-    # 3. Run
-    OUTPUT=$(echo -e "load $prg\nsetpc \$200D\nrun\nregs\nq" | timeout 5s $MMEMU -m rawMega65 2>/dev/null)
-    res=$?
-    
-    if [ $res -eq 124 ]; then
-        echo "RUN FAIL (timeout): $name"
-        failed_run=$((failed_run + 1))
-    elif echo "$OUTPUT" | grep -q "B: \$01"; then
-        echo "RUN FAIL (abort): $name"
-        failed_run=$((failed_run + 1))
-    else
+    timeout "$RUN_TIMEOUT" $XEMU -headless -besure -prgmode 65 -prgexit -prg "$prg" </dev/null >/dev/null 2>&1
+    local res=$?
+    if [ $res -eq 0 ]; then
         echo "PASS: $name"
-        passed=$((passed + 1))
+    elif [ $res -eq 124 ]; then
+        echo "RUN FAIL (abort or hang): $name"
+    else
+        echo "RUN FAIL (xemu exit $res): $name"
     fi
-done
+}
+export -f run_one
+export CC LD CRT0 LIB XEMU GTE_DIR BUILD_DIR RUN_TIMEOUT
+
+TOTAL=$(ls "$GTE_DIR"/*.c | wc -l)
+echo "Running $TOTAL GTE tests ($JOBS parallel)..."
+
+RESULTS="$BUILD_DIR/results.txt"
+ls "$GTE_DIR"/*.c | xargs -P "$JOBS" -I{} bash -c 'run_one "$@"' _ {} | sort -t: -k2 > "$RESULTS"
+grep -v "^PASS" "$RESULTS"
+
+passed=$(grep -c "^PASS" "$RESULTS")
+skipped=$(grep -c "^SKIP" "$RESULTS")
+failed_compile=$(grep -c "^COMPILE FAIL" "$RESULTS")
+failed_link=$(grep -c "^LINK FAIL" "$RESULTS")
+failed_run=$(grep -c "^RUN FAIL" "$RESULTS")
 
 echo ""
 echo "Summary:"

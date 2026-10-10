@@ -1,14 +1,17 @@
 #!/bin/bash
-# Shadow comparison test: compile programs through both legacy CodeGenerator
-# and IR codegen paths, verify both assemble successfully.
-# When mmemu is available, also compare execution results.
+# Differential execution test: run small self-contained programs on xemu-xmega65
+# and compare main()'s return value (low byte) with the same program compiled
+# natively by the host gcc.
 #
-# Tests that the IR pipeline (IRBuilder → IRCodeGen) produces assembly
-# that is accepted by ca45 and structurally correct.
+# (Originally compared the legacy CodeGenerator with the IR path; the legacy
+# path no longer exists, so the host compiler is the reference.)
 
 CC=./bin/cc45
-AS=./bin/ca45
-MMEMU=mmemu-cli
+LD=./bin/ln45
+CRT0=lib/build/crt0.o45
+LIB=lib/build/c45.lib
+XEMU=xemu-xmega65
+HOSTCC=${HOSTCC:-gcc}
 
 failed=0
 passed=0
@@ -16,92 +19,73 @@ skipped=0
 
 mkdir -p build/test/shadow
 
-# Check if mmemu can run (rawMega65 machine type)
-MMEMU_OK=0
-if command -v $MMEMU &>/dev/null; then
-    MTEST=$(echo -e "q" | timeout 5 $MMEMU -m rawMega65 2>&1)
-    if echo "$MTEST" | grep -q "^>"; then
-        MMEMU_OK=1
-    fi
+if ! command -v $XEMU &>/dev/null; then
+    echo "xemu-xmega65 not found — skipping shadow execution tests"
+    exit 0
 fi
-if [ "$MMEMU_OK" = "1" ]; then
-    echo "(mmemu available — will compare execution results)"
-else
-    echo "(mmemu not available — assembly-only validation)"
+if ! command -v $HOSTCC &>/dev/null; then
+    echo "$HOSTCC not found — skipping shadow execution tests"
+    exit 0
 fi
 
-run_mmemu() {
-    local prg="$1"
-    echo -e "load $prg\nsetpc \$2000\nstep 5000\nregs\nq" | timeout 10 $MMEMU -m rawMega65 2>/dev/null
+# Harness: calls the test's main (renamed) and stores the result at $C0F0
+HARNESS=build/test/shadow/harness
+cat > $HARNESS.c << 'END_HARNESS'
+int __shadow_main(void);
+void main(void) {
+    int r = __shadow_main();
+    *(volatile unsigned char *)0xC0F0 = (unsigned char)r;
+    *(volatile unsigned char *)0xC0F1 = 0xAA;
 }
+END_HARNESS
+if ! $CC -c $HARNESS.c -o $HARNESS.o45 2>/dev/null; then
+    echo "FAIL: harness compilation"
+    exit 1
+fi
 
-get_a_reg() {
-    echo "$1" | grep -oP 'A:\s*\$\K[0-9A-Fa-f]+' | tail -1
-}
-
-# Test a C source file through both paths
 shadow_test() {
     local name="$1"
     local src="$2"
-    local legacy_s="build/test/shadow/${name}_legacy.s45"
-    local legacy_prg="build/test/shadow/${name}_legacy.prg"
-    local ir_prg="build/test/shadow/${name}_ir.prg"
+    local base="build/test/shadow/${name}"
 
-    # Legacy path: cc45 → .s45 → ca45 → .prg
-    $CC "$src" -o "$legacy_s" 2>/dev/null
-    if [ $? -ne 0 ]; then
-        echo "SKIP: $name (legacy compilation failed)"
+    # Reference: host compiler, exit status = low byte of main's return value
+    if ! $HOSTCC -w -O0 -o "$base.host" "$src" 2>/dev/null; then
+        echo "SKIP: $name (host compilation failed)"
         skipped=$((skipped + 1))
         return
     fi
-    $AS "$legacy_s" -o "$legacy_prg" 2>/dev/null
-    if [ $? -ne 0 ]; then
-        echo "SKIP: $name (legacy assembly failed)"
-        skipped=$((skipped + 1))
-        return
-    fi
+    "$base.host"
+    local expected=$(( $? & 0xFF ))
 
-    # IR path: cc45 (IR is default) → .s45 → ca45 → .prg
-    $CC "$src" -o "build/test/shadow/${name}_ir.s45" 2>/dev/null
-    if [ $? -ne 0 ]; then
-        echo "SKIP: $name (IR compilation failed)"
-        skipped=$((skipped + 1))
-        return
-    fi
-
-    $AS "build/test/shadow/${name}_ir.s45" -o "$ir_prg" 2>/dev/null
-    if [ $? -ne 0 ]; then
-        echo "FAIL: $name (IR assembly failed)"
-        echo "  IR assembly file: $ir_s"
+    if ! $CC -c -Dmain=__shadow_main "$src" -o "$base.o45" 2>"$base.err"; then
+        echo "FAIL: $name (cc45 compilation failed: $(head -1 "$base.err"))"
         failed=$((failed + 1))
         return
     fi
-
-    # Both paths assembled successfully
-    if [ "$MMEMU_OK" = "1" ]; then
-        # Run both on mmemu and compare A register
-        LEGACY_OUT=$(run_mmemu "$legacy_prg")
-        LEGACY_A=$(get_a_reg "$LEGACY_OUT")
-        IR_OUT=$(run_mmemu "$ir_prg")
-        IR_A=$(get_a_reg "$IR_OUT")
-
-        if [ "$LEGACY_A" = "$IR_A" ]; then
-            echo "PASS: $name (legacy A=\$$LEGACY_A, IR A=\$$IR_A)"
-        else
-            echo "FAIL: $name (legacy A=\$$LEGACY_A, IR A=\$$IR_A)"
-            failed=$((failed + 1))
-            return
-        fi
-    else
-        # No mmemu — just verify both assembled
-        local legacy_size=$(wc -c < "$legacy_prg")
-        local ir_size=$(wc -c < "$ir_prg")
-        echo "PASS: $name (both assembled: legacy=${legacy_size}B, ir=${ir_size}B)"
+    if ! $LD -basic -o "$base.prg" "$CRT0" "$HARNESS.o45" "$base.o45" "$LIB" >/dev/null 2>"$base.lderr"; then
+        echo "FAIL: $name (link failed: $(head -1 "$base.lderr"))"
+        failed=$((failed + 1))
+        return
     fi
-    passed=$((passed + 1))
+    rm -f "$base.mem"
+    timeout 30 $XEMU -headless -besure -prgmode 65 -prgexit -dumpmem "$base.mem" -prg "$base.prg" </dev/null >/dev/null 2>&1
+    local out; out=$(xxd -s $((16#C0F0)) -l 2 -p "$base.mem" 2>/dev/null)
+    if [ "${out:2:2}" != "aa" ]; then
+        echo "FAIL: $name (program did not finish)"
+        failed=$((failed + 1))
+        return
+    fi
+    local got=$((16#${out:0:2}))
+    if [ "$got" -eq "$expected" ]; then
+        echo "PASS: $name (result $got)"
+        passed=$((passed + 1))
+    else
+        echo "FAIL: $name (cc45 $got, $HOSTCC $expected)"
+        failed=$((failed + 1))
+    fi
 }
 
-echo "Running IR shadow comparison tests..."
+echo "Running shadow execution tests (cc45 on xemu vs $HOSTCC)..."
 echo ""
 
 # Write inline test programs to temp files and test them
@@ -426,6 +410,28 @@ int fib(int n) {
 int main() { return fib(8); }
 EOF
 shadow_test "fibonacci" "build/test/shadow/t_fib.c"
+
+# Regression: unsigned global with the top bit set must use unsigned division
+cat > build/test/shadow/t_ugdiv.c << 'EOF'
+unsigned int u = 65531u;
+int main() { return (int)(u / 7u % 256u) + (int)(u % 14u); }
+EOF
+shadow_test "unsigned_global_div" "build/test/shadow/t_ugdiv.c"
+
+# Regression: globals declared in one comma list keep their signedness
+cat > build/test/shadow/t_commasign.c << 'EOF'
+int a = -100, b = 7;
+int main() { return (a / b) + 20; }
+EOF
+shadow_test "comma_decl_signed" "build/test/shadow/t_commasign.c"
+
+# Regression: code after a return in the same block must not run
+cat > build/test/shadow/t_deadret.c << 'EOF'
+int g;
+void set(void) { g = 99; }
+int main() { if (1) return g + 5; set(); return g; }
+EOF
+shadow_test "return_then_dead_code" "build/test/shadow/t_deadret.c"
 
 echo ""
 echo "========================================"

@@ -1,5 +1,5 @@
 #!/bin/bash
-# test_cc_interop.s45h — Comprehensive tests for calling convention interoperability
+# test_cc_interop.sh — Comprehensive tests for calling convention interoperability
 #
 # Tests safe and unsafe calling convention combinations:
 #   1. Stack → ZP calls (ALLOWED — fastcall interop)
@@ -13,7 +13,9 @@
 CC="./bin/cc45"
 AS="./bin/ca45"
 LD="./bin/ln45"
-MMEMU="mmemu-cli"
+XEMU="xemu-xmega65"
+CRT0="lib/build/crt0.o45"
+LIB="lib/build/c45.lib"
 NM="./bin/nm45"
 mkdir -p build/test
 
@@ -23,12 +25,29 @@ passed=0
 pass() { echo "  ✓ PASS: $1"; passed=$((passed + 1)); }
 fail() { echo "  ✗ FAIL: $1"; if [ -n "$2" ]; then echo "         $2"; fi; failed=$((failed + 1)); }
 
-run_mmemu() {
-    local bin=$1
-    local addr=$2
-    local len=$3
-    echo -e "load $bin $addr\nsetpc $addr\nstep 1000\nm $addr $len\nq" | $MMEMU -m rawMega65 2>/dev/null
+# run_xemu NAME SRC EXPECTED — build SRC, run it on xemu, compare the bytes at $4000
+# (results[] in each test program) with EXPECTED (space-separated hex)
+run_xemu() {
+    local name=$1 src=$2 expected=$3
+    local base="build/test/test_cc_$name"
+    local n; n=$(echo "$expected" | wc -w)
+    if ! $CC -c "$src" -o "$base.o45" 2>"$base.err"; then
+        fail "$name compilation" "Compiler failed: $(head -3 "$base.err")"; return 1
+    fi
+    if ! $LD -basic -o "$base.prg" "$CRT0" "$base.o45" "$LIB" >/dev/null 2>"$base.lderr"; then
+        fail "$name link" "Linker failed: $(head -3 "$base.lderr")"; return 1
+    fi
+    rm -f "$base.mem"
+    timeout 30 $XEMU -headless -besure -prgmode 65 -prgexit -dumpmem "$base.mem" -prg "$base.prg" </dev/null >/dev/null 2>&1
+    if [ ! -f "$base.mem" ]; then fail "$name execution" "no memory dump"; return 1; fi
+    ACTUAL=$(xxd -s $((16#4000)) -l "$n" -p "$base.mem" | sed 's/../& /g; s/ $//' | tr '[:lower:]' '[:upper:]')
+    [ "$ACTUAL" = "$expected" ]
 }
+
+if ! command -v $XEMU &>/dev/null; then
+    echo "xemu-xmega65 not found — skipping calling convention interop tests"
+    exit 0
+fi
 
 echo "=========================================================================="
 echo "  Calling Convention Interoperability Tests"
@@ -39,23 +58,10 @@ echo "==========================================================================
 echo ""
 echo "=== Test 1: Stack → ZP calls (ALLOWED — fastcall interop) ==="
 
-$CC -S src/test-resources/test_cc_stack_to_zp.c -o build/test/test_cc_stack_to_zp.s45 2>build/test/test_cc_stack_to_zp.err
-if [ $? -eq 0 ]; then
-    $AS build/test/test_cc_stack_to_zp.s45 -o build/test/test_cc_stack_to_zp.bin 2>/dev/null
-    if [ $? -eq 0 ]; then
-        OUTPUT=$(run_mmemu build/test/test_cc_stack_to_zp.bin 0x2000 6)
-        # Expected results: [0]=30, [1]=0, [2]=155, [3]=0, [4]=35, [5]=0xFF
-        if echo "$OUTPUT" | grep -qi "4000:.*1e.*9b.*23.*ff"; then
-            pass "Stack→ZP: zp_add(10,20)=30, zp_add(100,55)=155, zp_char_mul(5,7)=35"
-        else
-            ACTUAL=$(echo "$OUTPUT" | grep -i '4000:' | head -1)
-            fail "Stack→ZP execution results" "Expected: 1E 00 9B 00 23 00, Got: $(echo "$ACTUAL" | sed 's/.*4000: //')"
-        fi
-    else
-        fail "Stack→ZP assembly" "Assembler failed"
-    fi
-else
-    fail "Stack→ZP compilation" "Compiler failed: $(cat build/test/test_cc_stack_to_zp.err | head -3)"
+if run_xemu stack_to_zp src/test-resources/test_cc_stack_to_zp.c "1E 00 9B 00 23 FF"; then
+    pass "Stack→ZP: zp_add(10,20)=30, zp_add(100,55)=155, zp_char_mul(5,7)=35"
+elif [ -n "$ACTUAL" ]; then
+    fail "stack_to_zp execution" "Expected: 1E 00 9B 00 23 FF, Got: $ACTUAL"
 fi
 
 # Test 2: ZP → Stack calls (FORBIDDEN)
@@ -85,23 +91,10 @@ fi
 echo ""
 echo "=== Test 3: Struct returns across conventions ==="
 
-$CC -S src/test-resources/test_cc_struct_return.c -o build/test/test_cc_struct_return.s45 2>build/test/test_cc_struct_return.err
-if [ $? -eq 0 ]; then
-    $AS build/test/test_cc_struct_return.s45 -o build/test/test_cc_struct_return.bin 2>/dev/null
-    if [ $? -eq 0 ]; then
-        OUTPUT=$(run_mmemu build/test/test_cc_struct_return.bin 0x2000 7)
-        # Expected: p.x=10, p.y=20, r.left={0,1}, r.top={0,2}
-        if echo "$OUTPUT" | grep -qi "4000:.*0a.*14.*00.*01.*00.*02.*ff"; then
-            pass "Struct returns: stack Point(10,20) and ZP Rect(256,512)"
-        else
-            ACTUAL=$(echo "$OUTPUT" | grep -i '4000:' | head -1)
-            fail "Struct returns execution" "Expected: 0A 14 00 01 00 02 FF, Got: $(echo "$ACTUAL" | sed 's/.*4000: //')"
-        fi
-    else
-        fail "Struct returns assembly" "Assembler failed"
-    fi
-else
-    fail "Struct returns compilation" "Compiler failed: $(cat build/test/test_cc_struct_return.err | head -3)"
+if run_xemu struct_return src/test-resources/test_cc_struct_return.c "0A 14 00 01 00 02 FF"; then
+    pass "Struct returns: stack Point(10,20) and ZP Rect(256,512)"
+elif [ -n "$ACTUAL" ]; then
+    fail "struct_return execution" "Expected: 0A 14 00 01 00 02 FF, Got: $ACTUAL"
 fi
 
 # Test 4: Long (32-bit) returns across conventions
@@ -109,23 +102,10 @@ fi
 echo ""
 echo "=== Test 4: Long (32-bit) returns across conventions ==="
 
-$CC -S src/test-resources/test_cc_long_return.c -o build/test/test_cc_long_return.s45 2>build/test/test_cc_long_return.err
-if [ $? -eq 0 ]; then
-    $AS build/test/test_cc_long_return.s45 -o build/test/test_cc_long_return.bin 2>/dev/null
-    if [ $? -eq 0 ]; then
-        OUTPUT=$(run_mmemu build/test/test_cc_long_return.bin 0x2000 9)
-        # Expected: r1 = 0x12345678, r2 = 0xABCDEF01
-        if echo "$OUTPUT" | grep -qi "4000:.*78.*56.*34.*12.*01.*ef.*cd.*ab.*ff"; then
-            pass "Long returns: stack (0x12345678) and ZP (0xABCDEF01)"
-        else
-            ACTUAL=$(echo "$OUTPUT" | grep -i '4000:' | head -1)
-            fail "Long returns execution" "Expected AXYZ registers to preserve 32-bit values"
-        fi
-    else
-        fail "Long returns assembly" "Assembler failed"
-    fi
-else
-    fail "Long returns compilation" "Compiler failed: $(cat build/test/test_cc_long_return.err | head -3)"
+if run_xemu long_return src/test-resources/test_cc_long_return.c "78 56 34 12 01 EF CD AB FF"; then
+    pass "Long returns: stack (0x12345678) and ZP (0xABCDEF01)"
+elif [ -n "$ACTUAL" ]; then
+    fail "long_return execution" "Expected: 78 56 34 12 01 EF CD AB FF, Got: $ACTUAL"
 fi
 
 # Test 5: Parameter passing edge cases
@@ -133,23 +113,10 @@ fi
 echo ""
 echo "=== Test 5: Parameter passing edge cases ==="
 
-$CC -S src/test-resources/test_cc_param_edge_cases.c -o build/test/test_cc_param_edge_cases.s45 2>build/test/test_cc_param_edge_cases.err
-if [ $? -eq 0 ]; then
-    $AS build/test/test_cc_param_edge_cases.s45 -o build/test/test_cc_param_edge_cases.bin 2>/dev/null
-    if [ $? -eq 0 ]; then
-        OUTPUT=$(run_mmemu build/test/test_cc_param_edge_cases.bin 0x2000 5)
-        # Expected: r1=10 (1+2+3+4), r2=150 (10+20+30+40+50), r3=105 (5+100), r4=110 (11+22+33+44)
-        if echo "$OUTPUT" | grep -qi "4000:.*0a.*96.*69.*6e.*ff"; then
-            pass "Parameter edge cases: 4-param ZP, 5-param stack, mixed types"
-        else
-            ACTUAL=$(echo "$OUTPUT" | grep -i '4000:' | head -1)
-            fail "Parameter edge cases execution" "Expected: 0A 96 69 6E FF, Got: $(echo "$ACTUAL" | sed 's/.*4000: //')"
-        fi
-    else
-        fail "Parameter edge cases assembly" "Assembler failed"
-    fi
-else
-    fail "Parameter edge cases compilation" "Compiler failed: $(cat build/test/test_cc_param_edge_cases.err | head -3)"
+if run_xemu param_edge_cases src/test-resources/test_cc_param_edge_cases.c "0A 96 69 6E FF"; then
+    pass "Parameter edge cases: 4-param ZP, 5-param stack, mixed types"
+elif [ -n "$ACTUAL" ]; then
+    fail "param_edge_cases execution" "Expected: 0A 96 69 6E FF, Got: $ACTUAL"
 fi
 
 # Test 6: Variadic calls from ZP functions
@@ -157,23 +124,10 @@ fi
 echo ""
 echo "=== Test 6: Variadic calls from ZP functions ==="
 
-$CC -S src/test-resources/test_cc_zp_variadic.c -o build/test/test_cc_zp_variadic.s45 2>build/test/test_cc_zp_variadic.err
-if [ $? -eq 0 ]; then
-    $AS build/test/test_cc_zp_variadic.s45 -o build/test/test_cc_zp_variadic.bin 2>/dev/null
-    if [ $? -eq 0 ]; then
-        OUTPUT=$(run_mmemu build/test/test_cc_zp_variadic.bin 0x2000 7)
-        # Expected: r1=30 (5+10+15), r2=20 (7+3+10), r3=312 (100+56+156)
-        if echo "$OUTPUT" | grep -qi "4000:.*1e.*14.*38.*01.*ff"; then
-            pass "Variadic from ZP: auto-fallback to stack convention"
-        else
-            ACTUAL=$(echo "$OUTPUT" | grep -i '4000:' | head -1)
-            fail "Variadic from ZP execution" "Expected: 1E 14 38 01 FF, Got: $(echo "$ACTUAL" | sed 's/.*4000: //')"
-        fi
-    else
-        fail "Variadic from ZP assembly" "Assembler failed"
-    fi
-else
-    fail "Variadic from ZP compilation" "Compiler failed: $(cat build/test/test_cc_zp_variadic.err | head -3)"
+if run_xemu zp_variadic src/test-resources/test_cc_zp_variadic.c "1E 00 14 00 38 01 FF"; then
+    pass "Variadic from ZP: auto-fallback to stack convention"
+elif [ -n "$ACTUAL" ]; then
+    fail "zp_variadic execution" "Expected: 1E 00 14 00 38 01 FF, Got: $ACTUAL"
 fi
 
 # Test 7: Function attribute verification in .o45 objects
