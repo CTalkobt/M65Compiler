@@ -247,7 +247,7 @@ AssemblerToken AssemblerLexer::lexIdentifierOrInstruction() {
         } else {
             auto tok = lexString();
             // Marked with \x01 so an unprefixed string starting with s/p isn't mistaken for one
-            tok.value = std::string("\x01") + prefix + tok.value;
+            tok.value = std::string(1, asmstr::PREFIX) + prefix + tok.value;
             return tok;
         }
     }
@@ -285,8 +285,39 @@ AssemblerToken AssemblerLexer::lexString() {
     int startCol = column;
     get(); // skip "
     std::string value;
-    while (peek() != '"' && peek() != '\0') {
-        value += get();
+    while (peek() != '"' && peek() != '\0' && peek() != '\n') {
+        char c = get();
+        if (c != '\\' || peek() == '\0') { value += c; continue; }
+        char e = get();
+        int b;
+        switch (e) {
+            case 'n': value += asmstr::NEWLINE; continue;
+            case 'r': value += asmstr::RETURN; continue;
+            case 't': b = 0x09; break;
+            case 'a': b = 0x07; break;
+            case 'b': b = 0x08; break;
+            case 'f': b = 0x0C; break;
+            case 'v': b = 0x0B; break;
+            case 'x': {
+                b = 0; int digits = 0;
+                while (std::isxdigit((unsigned char)peek())) {
+                    char h = get();
+                    b = b * 16 + (std::isdigit((unsigned char)h) ? h - '0' : (std::tolower(h) - 'a' + 10));
+                    digits++;
+                }
+                if (!digits) b = 'x';
+                break;
+            }
+            default:
+                if (e >= '0' && e <= '7') {
+                    b = e - '0';
+                    for (int k = 0; k < 2 && peek() >= '0' && peek() <= '7'; k++) b = b * 8 + (get() - '0');
+                } else {
+                    b = (unsigned char)e;  // \" \\ \' and unknown escapes: the character itself
+                }
+        }
+        value += asmstr::EXACT;
+        value += (char)(unsigned char)b;
     }
     if (peek() == '"') get();
     return {AssemblerTokenType::STRING_LITERAL, value, startLine, startCol};

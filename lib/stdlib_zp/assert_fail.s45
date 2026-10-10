@@ -66,8 +66,8 @@ _assert_fail:
 ; Format string for assertion failures
 .segment "data"
 _assert_format_str:
-    .ascii "Assertion failed: "
-    .ascii "%s"
-    .ascii " (file %s, line %d)"
-    .ascii $17
+    .text "Assertion failed: "
+    .text "%s"
+    .text " (file %s, line %d)"
+    .byte $0D          ; PETSCII newline
     .byte $00

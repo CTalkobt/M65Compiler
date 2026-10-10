@@ -1,3 +1,4 @@
+#include "AssemblerLexer.hpp"
 #include "AssemblerParser.hpp"
 #include "AssemblerExpression.hpp"
 #include "AssemblerOptimizer.hpp"
@@ -1019,6 +1020,7 @@ void AssemblerParser::pass1() {
                 stmt->dir.tokenIndex = (int)pos;
                 while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
                     if (peek().type == AssemblerTokenType::COMMA) { advance(); continue; }
+                    stmt->dir.argTokenIndices.push_back((int)pos);
                     stmt->dir.arguments.push_back(advance().value);
                 }
                 if (stmt->dir.name == "org") {
@@ -1923,10 +1925,16 @@ int AssemblerParser::calculateDirectiveSize(const Directive& dir, uint32_t curre
             }
             return 0;
         }
-        int len = (int)dir.arguments[0].size();
-        // Encoding prefix marker "\x01s" / "\x01p" (see AssemblerLexer) takes no space
-        if (len >= 2 && dir.arguments[0][0] == '\x01') len -= 2;
-        return len;
+        bool isString = dir.tokenIndex < 0 || dir.tokenIndex >= (int)tokens.size() ||
+                        tokens[dir.tokenIndex].type == AssemblerTokenType::STRING_LITERAL;
+        if (!isString || dir.arguments.size() != 1) {
+            std::string msg = "Directive ." + dir.name + " takes a single string argument"
+                              " (escape quotes inside it as \\\")";
+            if (stmt) addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error, msg));
+            else addError(msg);
+            return 0;
+        }
+        return asmstr::byteLength(dir.arguments[0]);
     }
     if (dir.name == "res" || dir.name == "fill" || dir.name == "space") {
         if (dir.arguments.empty()) {

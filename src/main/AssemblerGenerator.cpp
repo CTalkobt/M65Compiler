@@ -1,3 +1,4 @@
+#include "AssemblerLexer.hpp"
 #include "AssemblerGenerator.hpp"
 #include "AssemblerParser.hpp"
 #include "M65Emitter.hpp"
@@ -541,7 +542,15 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                         // Parameters use static AR buffer instead of stack
                         e.setSACMode(true);
                     }
-                    else if (stmt->dir.name == "byte") for (const auto& a : stmt->dir.arguments) e.emitByte((uint8_t)parseNumericLiteral(a));
+                    else if (stmt->dir.name == "byte") {
+                        for (size_t ai = 0; ai < stmt->dir.arguments.size(); ++ai) {
+                            int ti = ai < stmt->dir.argTokenIndices.size() ? stmt->dir.argTokenIndices[ai] : -1;
+                            if (ti >= 0 && parser->tokens[ti].type == AssemblerTokenType::CHAR_LITERAL)
+                                e.emitByte((uint8_t)parser->evaluateExpressionAt(ti, stmt->scopePrefix));  // 'A', s'A', p'A'
+                            else
+                                e.emitByte((uint8_t)parseNumericLiteral(stmt->dir.arguments[ai]));
+                        }
+                    }
                     else if (stmt->dir.name == "word") {
                         for (const auto& a : stmt->dir.arguments) {
                             // Try numeric first, fall back to symbol with relocation
@@ -561,17 +570,20 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                             std::string str = stmt->dir.arguments[0];
                             // Encoding prefix s"..." / p"..." arrives from the lexer as "\x01s..." / "\x01p..."
                             char prefix = 0;
-                            if (str.size() >= 2 && str[0] == '\x01') {
+                            if (str.size() >= 2 && str[0] == asmstr::PREFIX) {
                                 prefix = str[1];
                                 str = str.substr(2);
                             }
-                            for (char c : str) {
-                                if (prefix == 's' || prefix == 'S' || (prefix == 0 && stmt->dir.name == "screencode"))
-                                    e.emitByte(toScreencode(c));
-                                else if (prefix == 0 && stmt->dir.name == "ascii")
-                                    e.emitByte((uint8_t)c);
-                                else
-                                    e.emitByte(toPetscii(c));
+                            bool screen = prefix == 's' || prefix == 'S' || (prefix == 0 && stmt->dir.name == "screencode");
+                            bool ascii = prefix == 0 && stmt->dir.name == "ascii";
+                            for (size_t i = 0; i < str.size(); ++i) {
+                                char c = str[i];
+                                if (c == asmstr::EXACT && i + 1 < str.size()) e.emitByte((uint8_t)str[++i]);
+                                else if (c == asmstr::NEWLINE) e.emitByte(ascii ? 0x0A : 0x0D);
+                                else if (c == asmstr::RETURN) e.emitByte(ascii ? 0x0D : 0x0A);
+                                else if (screen) e.emitByte(toScreencode(c));
+                                else if (ascii) e.emitByte((uint8_t)c);
+                                else e.emitByte(toPetscii(c));
                             }
                         }
                     }

@@ -31,6 +31,7 @@ struct Directive {
     std::string varName;
     enum VarType { NONE, ASSIGN, INC, DEC } varType = NONE;
     int tokenIndex = -1;
+    std::vector<int> argTokenIndices;  // token position of each argument (generic directives)
 };
 
 class AssemblerParser {
