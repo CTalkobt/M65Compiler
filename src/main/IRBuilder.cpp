@@ -1197,6 +1197,76 @@ bool IRBuilder::isBooleanValue(const ir::Operand& v) const {
     return false;
 }
 
+int IRBuilder::aggregateBlockSize(const std::string& typeName, int pointerLevel) {
+    if (pointerLevel > 0) return 0;
+    if (!structs_.count(getAggregateName(typeName))) return 0;
+    int size = getTypeSize(typeName, 0);
+    return (size == 1 || size == 2 || size == 4) ? 0 : size;
+}
+
+ir::Operand IRBuilder::emitAddressOf(Expression* expr) {
+    bool saved = computeAddressOnly_;
+    computeAddressOnly_ = true;
+    expr->accept(*this);
+    computeAddressOnly_ = saved;
+    return lastValue_;
+}
+
+ir::Operand IRBuilder::emitPtrOffset(const ir::Operand& base, int offset, const ir::SourceLoc& sl) {
+    if (offset == 0) return base;
+    auto p = allocVreg(ir::Type::PTR);
+    ir::Inst add;
+    add.op = ir::Op::ADD;
+    add.dest = p;
+    add.resultType = ir::Type::PTR;
+    add.src1 = base;
+    add.src2 = ir::Operand::imm(offset, ir::Type::I16);
+    add.loc = sl;
+    emit(add);
+    return p;
+}
+
+void IRBuilder::emitBlockCopy(const ir::Operand& dst, const ir::Operand& src, int size, const ir::SourceLoc& sl) {
+    if (size <= 0) return;
+    if (size <= 4) {
+        for (int off = 0; off < size;) {
+            int chunk = (size - off >= 2) ? 2 : 1;
+            ir::Type t = (chunk == 2) ? ir::Type::I16 : ir::Type::I8;
+            auto v = allocVreg(t);
+            ir::Inst ld;
+            ld.op = ir::Op::LOAD;
+            ld.dest = v;
+            ld.resultType = t;
+            ld.src1 = emitPtrOffset(src, off, sl);
+            ld.loc = sl;
+            emit(ld);
+            ir::Inst st;
+            st.op = ir::Op::STORE;
+            st.resultType = t;
+            st.src1 = v;
+            st.src2 = emitPtrOffset(dst, off, sl);
+            st.loc = sl;
+            emit(st);
+            off += chunk;
+        }
+        return;
+    }
+    ir::Inst call;
+    call.op = ir::Op::CALL_VOID;
+    call.resultType = ir::Type::VOID;
+    call.src1 = ir::Operand::global("_memcpy");
+    call.args = {dst, src, ir::Operand::imm(size, ir::Type::I16)};
+    call.callConv = zpCallMode ? ir::CallConv::ZP : ir::CallConv::STACK;
+    call.loc = sl;
+    emit(call);
+    calledFunctions_.insert("_memcpy");
+}
+
+void IRBuilder::emitAggregateInto(Expression* expr, const ir::Operand& dst, int size, const ir::SourceLoc& sl) {
+    auto src = emitAddressOf(expr);
+    emitBlockCopy(dst, src, size, sl);
+}
+
 void IRBuilder::resetFunctionLocalState() {
     locals_.clear();
     localTypes_.clear();
@@ -1598,6 +1668,19 @@ void IRBuilder::visit(VariableDeclaration& node) {
                 emit(store);
             }
             currentFunc_->memoryVregs.insert(vreg.vregId);
+        } else if (int aggSize = node.arrayDims.empty() ? aggregateBlockSize(node.type, node.pointerLevel) : 0;
+                   aggSize > 0 && !dynamic_cast<CompoundLiteral*>(node.initializer.get())) {
+            // Struct/union initialised from another aggregate: copy by address
+            currentFunc_->memoryVregs.insert(vreg.vregId);
+            auto dst = allocVreg(ir::Type::PTR);
+            ir::Inst addrInst;
+            addrInst.op = ir::Op::ADDR_LOCAL;
+            addrInst.dest = dst;
+            addrInst.resultType = ir::Type::PTR;
+            addrInst.src1 = ir::Operand::vreg(vreg.vregId, ir::Type::PTR);
+            addrInst.loc = loc(node);
+            emit(addrInst);
+            emitAggregateInto(node.initializer.get(), dst, aggSize, loc(node));
         } else {
             // Simple scalar initializer
             node.initializer->accept(*this);
@@ -1937,6 +2020,18 @@ void IRBuilder::visit(Assignment& node) {
                     }
                 }
             }
+        }
+    }
+
+    // Struct/union assignment: copy by address
+    if (node.op == "=") {
+        IRTypeInfo ti = getExprTypeInfo(node.target.get());
+        int aggSize = (ti.type == ir::Type::PTR) ? 0 : aggregateBlockSize(ti.typeName, 0);
+        if (aggSize > 0) {
+            auto dst = emitAddressOf(node.target.get());
+            emitAggregateInto(node.expression.get(), dst, aggSize, loc(node));
+            lastValue_ = dst;
+            return;
         }
     }
 

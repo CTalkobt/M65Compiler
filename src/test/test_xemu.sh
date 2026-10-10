@@ -275,6 +275,16 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: struct copies (assignment / initialisation) of sizes other than 1, 2, 4
+echo "Testing test_struct_copy_xemu.c (struct copy)..."
+compile_link_test "src/test-resources/test_struct_copy_xemu.c" "build/test/test_struct_copy_xemu.prg"
+if [ $? -eq 0 ]; then
+    run_xemu_test "test_struct_copy" "build/test/test_struct_copy_xemu.prg" "C0C0" 10 "07 08 09 0A 03 03 07 0A 08 AA"
+else
+    echo "FAIL: test_struct_copy_xemu.c (compilation/linking failed)"
+    failed=$((failed + 1))
+fi
+
 # Test: stack frames (recursion via SAC fallback, caller FP preserved, long return)
 echo "Testing test_stackframe_xemu.c (stack frames)..."
 compile_link_test "src/test-resources/test_stackframe_xemu.c" "build/test/test_stackframe_xemu.prg"

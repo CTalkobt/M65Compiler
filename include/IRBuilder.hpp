@@ -149,6 +149,14 @@ private:
     std::set<uint32_t> usedVregs_;
     std::map<std::string, ir::SourceLoc> localDeclLocs_;
     void resetFunctionLocalState();
+    // Aggregates (struct/union) whose size is not 1, 2 or 4 bytes are copied
+    // by address rather than as a scalar value; returns that size, else 0.
+    int aggregateBlockSize(const std::string& typeName, int pointerLevel);
+    ir::Operand emitAddressOf(Expression* expr);
+    ir::Operand emitPtrOffset(const ir::Operand& base, int offset, const ir::SourceLoc& sl);
+    void emitBlockCopy(const ir::Operand& dst, const ir::Operand& src, int size, const ir::SourceLoc& sl);
+    // Evaluate an aggregate-valued expression into the memory at dst
+    void emitAggregateInto(Expression* expr, const ir::Operand& dst, int size, const ir::SourceLoc& sl);
     std::set<int> boolVregs_;  // results of && / || (already 0/1)
     bool isBooleanValue(const ir::Operand& v) const;
     std::set<std::string> reportedUnused_;  // location keys of warnings already issued (unused names, x < 0)
