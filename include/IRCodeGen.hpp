@@ -122,6 +122,13 @@ private:
     // ZP allocator for frame address tracking
     struct ZPReg { bool inUse = false; };
     std::vector<ZPReg> zpRegs_;
+    // Zero-page layout (the program owns its whole relocated base page):
+    //   $06-$07 static chain, $08-$0F scratch, $10-$2F ZP parameters / stack-call
+    //   argument staging, $30-$E9 vreg pool, $EA-$ED 32-bit temp, $EE-$EF
+    //   (spare), $F0-$FC library temps, $FD-$FE frame pointer
+    static constexpr int ZP_POOL_START = 0x30;
+    static constexpr int ZP_POOL_SLOTS = (0xEA - 0x30) / 2;
+    static constexpr int ZP_TEMP32 = 0xEA;
     uint32_t zeroPageAvail_ = 248;  // Available ZP space (usually $08-$FF)
     int frameAddrZPIndex_ = -1;  // allocated ZP index for frame address (2 bytes), -1 if not allocated
     bool frameAddrCacheValid_ = true;  // Frame pointer cache valid flag (invalidated after function calls)

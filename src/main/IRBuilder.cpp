@@ -358,7 +358,7 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
     if (auto* lit = dynamic_cast<IntegerLiteral*>(expr)) {
         ir::Type t = ir::Type::I16;
         std::string tn = "int";
-        bool isSigned = false;  // cc45 defaults to unsigned
+        bool isSigned = lit->value < 0;  // cc45 defaults to unsigned; a negative constant is signed
         if (!lit->castType.empty()) {
             tn = lit->castType;
             t = mapType(lit->castType, lit->castPointerLevel);
@@ -558,6 +558,16 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
     }
     
     if (auto* deref = dynamic_cast<UnaryOperation*>(expr)) {
+        // -<constant> is a (negative) signed constant
+        if (deref->op == "-") {
+            if (auto* lit = dynamic_cast<IntegerLiteral*>(deref->operand.get())) {
+                if (lit->castType.empty()) {
+                    IRTypeInfo li = getExprTypeInfo(lit);
+                    li.isSigned = true;
+                    return li;
+                }
+            }
+        }
         if (deref->op == "*") {
             if (auto* ref = dynamic_cast<VariableReference*>(deref->operand.get())) {
                 auto pit = localPointedToType_.find(ref->name);
@@ -595,16 +605,17 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
 
     if (auto* call = dynamic_cast<FunctionCall*>(expr)) {
         // Struct/union/float result (returned through the hidden pointer): the declared type
-        auto sit = sretSize_.find(call->name);
-        auto fit = allFunctions_.find(call->name);
+        std::string cname = resolvedFunctionName(call->name);
+        auto sit = sretSize_.find(cname);
+        auto fit = allFunctions_.find(cname);
         if (sit != sretSize_.end() && fit != allFunctions_.end()) {
             const std::string& rt = fit->second->returnType;
             return {mapType(rt, 0), rt, false, ir::Type::VOID, sit->second};
         }
-        auto it = functionReturnTypes_.find(call->name);
+        auto it = functionReturnTypes_.find(cname);
         if (it != functionReturnTypes_.end()) {
             bool sig = false; // unsigned by default
-            auto sit = functionReturnSigned_.find(call->name);
+            auto sit = functionReturnSigned_.find(cname);
             if (sit != functionReturnSigned_.end()) {
                 sig = sit->second;
             }
@@ -768,7 +779,38 @@ void IRBuilder::warnRecursiveForcedInline(const std::string& name, ASTNode& at) 
         "always_inline function '" + name + "' is recursive; emitting a normal call"));
 }
 
+// A static function's symbol gets the module's name appended, so modules with
+// static functions of the same name link together (their SAC storage and entry
+// symbols are exported like any function's).
+std::string IRBuilder::staticFunctionName(const std::string& name) {
+    std::string tag = module_.sourceFile;
+    size_t slash = tag.find_last_of("/\\");
+    if (slash != std::string::npos) tag = tag.substr(slash + 1);
+    size_t dot = tag.find('.');
+    if (dot != std::string::npos) tag = tag.substr(0, dot);
+    for (auto& c : tag) if (!isalnum((unsigned char)c)) c = '_';
+    return tag.empty() ? name : name + "__" + tag;
+}
+
+// Symbol of a called function: a static function's module-unique name
+std::string IRBuilder::resolvedFunctionName(const std::string& name) const {
+    auto it = staticRenames_.find(name);
+    return it == staticRenames_.end() ? name : it->second;
+}
+
 void IRBuilder::visit(FunctionDeclaration& node) {
+    // Module-private name for a static function (also when only its prototype is static)
+    if (!node.isMethod) {
+        auto rn = staticRenames_.find(node.name);
+        if (rn != staticRenames_.end()) node.name = rn->second;
+        else if (node.isStatic && !node.parentFunc) {
+            std::string unique = staticFunctionName(node.name);
+            if (unique != node.name) {
+                staticRenames_[node.name] = unique;
+                node.name = unique;
+            }
+        }
+    }
     // Attributes may appear on a prototype or the definition; accumulate by name
     if (node.isAlwaysInline) alwaysInlineNames_.insert(node.name);
     if (node.isNoInline) noInlineNames_.insert(node.name);
@@ -811,6 +853,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
             psigned.push_back(p.isSigned);
         }
         paramAggSizes_[node.name] = aggSizes;
+        if (node.isFastcall) fastcallFunctions_.insert(node.name);
         funcParamInfo_[node.name] = pinfo;
         functionParamTypes_[node.name] = ptypes;
         functionParamSigned_[node.name] = psigned;
@@ -827,7 +870,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     fn.name = "_" + node.name;
     definedFunctions_.insert(fn.name);
     fn.returnType = mapType(node.returnType, node.returnPointerLevel);
-    fn.conv = (zpCallMode || node.isFastcall) ? ir::CallConv::ZP : ir::CallConv::STACK;
+    fn.conv = usesZpConv(node.name) ? ir::CallConv::ZP : ir::CallConv::STACK;
     fn.isVariadic = node.isVariadic;
     fn.isStatic = node.isStatic;
     fn.isWeak = weakNextFunction_;
@@ -886,7 +929,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
 
             // Check if this is a FunctionCall node
             if (auto* fc = dynamic_cast<FunctionCall*>(n)) {
-                fnPtr->originalCallees.insert(fc->name);
+                fnPtr->originalCallees.insert(resolvedFunctionName(fc->name));
                 fnPtr->originalIsLeaf = false;
                 return true;
             }
@@ -1288,6 +1331,33 @@ void IRBuilder::emitBlockCopy(const ir::Operand& dst, const ir::Operand& src, in
     calledFunctions_.insert("_memcpy");
 }
 
+// ZP calling convention: parameters go in the 32-byte block at $10 (each slot at
+// least 2 bytes). A variadic function, or one whose parameters don't fit, uses
+// the stack convention instead; callers apply the same rule to the prototype.
+int IRBuilder::zpParamBytes(const std::vector<ir::Type>& types) {
+    int n = 0;
+    for (auto t : types) n += std::max(2, (int)ir::typeSize(t));
+    return n;
+}
+
+bool IRBuilder::usesZpConv(const std::string& fname) {
+    if (variadicFunctions_.count(fname)) return false;
+    if (!zpCallMode && !fastcallFunctions_.count(fname)) return false;
+    auto it = functionParamTypes_.find(fname);
+    return it == functionParamTypes_.end() || zpParamBytes(it->second) <= ZP_PARAM_BYTES;
+}
+
+bool IRBuilder::usesZpConvSig(const FuncPtrSignature& sig) {
+    if (!zpCallMode) return false;
+    std::vector<ir::Type> types;
+    if (sig.returnPointerLevel == 0 && (mapType(sig.returnType, 0) == ir::Type::F32 ||
+                                        structs_.count(getAggregateName(sig.returnType))))
+        types.push_back(ir::Type::PTR);  // hidden result pointer
+    for (const auto& p : sig.params)
+        types.push_back(aggregateBlockSize(p.type, p.pointerLevel) ? ir::Type::PTR : mapType(p.type, p.pointerLevel));
+    return zpParamBytes(types) <= ZP_PARAM_BYTES;
+}
+
 // Evaluate a call argument. A by-copy aggregate parameter (aggSize > 0) gets the
 // address of a fresh copy of the argument.
 ir::Operand IRBuilder::evalArgument(Expression* arg, int aggSize, const ir::SourceLoc& sl) {
@@ -1372,7 +1442,7 @@ void IRBuilder::emitMethodCall(const std::string& mangledName, std::vector<ir::O
                                const ir::Operand* sretBuf, const ir::Operand* sretAddr) {
     ir::Inst call;
     call.src1 = ir::Operand::global("_" + mangledName);
-    call.callConv = ir::CallConv::STACK;
+    call.callConv = usesZpConv(mangledName) ? ir::CallConv::ZP : ir::CallConv::STACK;
     call.loc = sl;
     if (sretSize_.count(mangledName)) {
         ir::Operand buf, addr;
@@ -1937,6 +2007,10 @@ void IRBuilder::visit(StringLiteral& node) {
 }
 
 void IRBuilder::visit(VariableReference& node) {
+    if (!locals_.count(node.name)) {
+        auto rn = staticRenames_.find(node.name);
+        if (rn != staticRenames_.end()) node.name = rn->second;
+    }
     // Check if this is a function name used as a value (function pointer)
     auto fit = allFunctions_.find(node.name);
     if (fit != allFunctions_.end()) {
@@ -3155,6 +3229,10 @@ void IRBuilder::visit(CastExpression& node) {
 }
 
 void IRBuilder::visit(FunctionCall& node) {
+    if (!node.callExpr && !locals_.count(node.name)) {
+        auto rn = staticRenames_.find(node.name);
+        if (rn != staticRenames_.end()) node.name = rn->second;
+    }
     // Struct method call: p.method(args) or ptr->method(args)
     // callExpr is MemberAccess, check if member is a known method
     if (node.callExpr) {
@@ -3212,7 +3290,7 @@ void IRBuilder::visit(FunctionCall& node) {
                 ir::Inst inst;
                 inst.args = args;
                 inst.loc = loc(node);
-                inst.callConv = ir::CallConv::STACK;
+                inst.callConv = usesZpConv(mangledName) ? ir::CallConv::ZP : ir::CallConv::STACK;
 
                 if (isVirtualCall && vtSlot >= 0) {
                     // Virtual dispatch: load vtable ptr from this->__vt, index by slot
@@ -3587,13 +3665,17 @@ normal_call:
     inst.args = args;
     inst.loc = loc(node);
 
-    // Determine calling convention
-    // Use stack convention if callee is variadic OR if caller is variadic
-    // (variadic callers are stack_call, so all their outgoing calls must use stack
-    // to match the callee's SAC thunk which reads from stack)
-    bool isVariadic = variadicFunctions_.count(node.name) > 0;
-    bool callerIsVariadic = currentFunc_ && currentFunc_->isVariadic;
-    inst.callConv = (zpCallMode && !isVariadic && !callerIsVariadic) ? ir::CallConv::ZP : ir::CallConv::STACK;
+    // Calling convention: the callee's (see usesZpConv). A call without a
+    // prototype applies the rule to the arguments passed.
+    bool calleeZp;
+    if (fpSig) calleeZp = usesZpConvSig(*fpSig);
+    else if (functionParamTypes_.count(calleeName) || variadicFunctions_.count(calleeName)) calleeZp = usesZpConv(calleeName);
+    else {
+        std::vector<ir::Type> at;
+        for (auto& a : args) at.push_back(a.type);
+        calleeZp = zpCallMode && zpParamBytes(at) <= ZP_PARAM_BYTES;
+    }
+    inst.callConv = calleeZp ? ir::CallConv::ZP : ir::CallConv::STACK;
     inst.isRegparm = regparmFunctions_.count(node.name) > 0;
 
     std::vector<ir::Operand> castArgs;
@@ -3681,7 +3763,6 @@ normal_call:
         node.callExpr->accept(*this);
         inst.src1 = lastValue_;
         inst.op = ir::Op::CALL_INDIRECT;
-        inst.callConv = zpCallMode ? ir::CallConv::ZP : ir::CallConv::STACK;
         if (isSret) {
             inst.resultType = ir::Type::VOID;
             emit(inst);
@@ -3863,7 +3944,6 @@ normal_call:
                 }
                 inst.src1 = ptrVal;
                 inst.op = ir::Op::CALL_INDIRECT;
-                inst.callConv = ir::CallConv::STACK;
                 if (isSret) {
                     inst.resultType = ir::Type::VOID;
                     emit(inst);

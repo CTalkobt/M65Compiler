@@ -160,6 +160,14 @@ private:
     std::set<std::string> aggCopyParams_;  // current function's by-copy aggregate params
     ir::Operand evalArgument(Expression* arg, int aggSize, const ir::SourceLoc& sl);
     int paramAggSize(const std::string& fname, size_t index);
+    static constexpr int ZP_PARAM_BYTES = 32;  // ZP convention parameter block ($10-$2F)
+    std::set<std::string> fastcallFunctions_;
+    static int zpParamBytes(const std::vector<ir::Type>& types);
+    bool usesZpConv(const std::string& fname);
+    bool usesZpConvSig(const FuncPtrSignature& sig);
+    std::map<std::string, std::string> staticRenames_;  // static function -> module-unique symbol
+    std::string staticFunctionName(const std::string& name);
+    std::string resolvedFunctionName(const std::string& name) const;
     std::set<std::string> methodsEmitted_;  // structs whose methods were lowered
     std::map<std::string, int> sretSize_;      // function name -> result size
     std::set<std::string> sretFloat_;          // ... of which return float/double

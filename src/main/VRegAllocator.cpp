@@ -242,9 +242,11 @@ int VRegAllocator::findNonConflictingFrameOffset(const LiveRange& lr, int size,
         for (const auto& [existingVid, alloc] : existingAllocs) {
             if (alloc.loc != IN_FRAME) continue;
 
-            // Check if offset ranges overlap
-            int existingSize = 2;  // typical size
-            for (const auto& r : allRanges) {
+            // Check if offset ranges overlap (using the slot's real size)
+            int existingSize = 2;
+            auto ss = frameSlotSize_.find(existingVid);
+            if (ss != frameSlotSize_.end()) existingSize = ss->second;
+            else for (const auto& r : allRanges) {
                 if (r.vregId == existingVid) {
                     existingSize = ir::typeSize(r.type);
                     if (existingSize < 2) existingSize = 2;
@@ -258,6 +260,9 @@ int VRegAllocator::findNonConflictingFrameOffset(const LiveRange& lr, int size,
 
             // Ranges [existingStart, existingEnd) and [candidate, candidateEnd) overlap if:
             if (!(existingEnd <= candidate || candidateEnd <= existingStart)) {
+                // Locals, parameters and address-taken vregs live for the whole
+                // function (a pointer to them may be used after their last mention)
+                if (pinnedFrameVregs_.count(existingVid)) { conflicts = true; break; }
                 // Check if the live ranges actually overlap in time
                 for (const auto& existingRange : allRanges) {
                     if (existingRange.vregId == existingVid) {
@@ -374,6 +379,8 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
         int foff = allocFrameSlot(vtype, fsize);
         allocs_[vid] = {VRegAllocator::IN_FRAME, foff, vtype};
         frameAllocMap[vid] = {foff, fsize};
+        frameSlotSize_[vid] = fsize < 2 ? 2 : fsize;
+        pinnedFrameVregs_.insert(vid);
     }
 
     // PHASE 2: Allocate temporaries and register variables
@@ -447,6 +454,8 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
             int foff = allocFrameSlot(lr.type, size);
             allocs_[lr.vregId] = {IN_FRAME, foff, lr.type};
             int fsize = size < 2 ? 2 : size;
+            frameSlotSize_[lr.vregId] = fsize;
+            pinnedFrameVregs_.insert(lr.vregId);
             frameAllocMap[lr.vregId] = {foff, fsize};
             if (foff + fsize > frameSize_) frameSize_ = foff + fsize;  // reused offsets may lie past the end
             // Mark offsets as occupied
@@ -558,6 +567,8 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
 // ============================================================================
 
 void VRegAllocator::analyze(const ir::Function& fn, uint8_t zpStart, int zpSlots) {
+    frameSlotSize_.clear();
+    pinnedFrameVregs_.clear();
     zpStart_ = zpStart;
     zpSlots_ = zpSlots;
     flatten(fn);

@@ -77,6 +77,7 @@ void CodegenStage::generateIR() {
 
     // Phase 102: Pass typedef mappings from parser
     builder.setTypedefMappings(typedefMappings_);
+    if (!sourceFile_.empty()) builder.setSourceInfo(sourceFile_);
 
     // Generate IR from AST
     builder.generate(*ast_);

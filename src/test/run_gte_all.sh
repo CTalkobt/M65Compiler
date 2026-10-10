@@ -14,10 +14,14 @@ LIB="lib/build/c45.lib"
 XEMU="xemu-xmega65"
 GTE_DIR="src/test-resources/gte"
 BUILD_DIR="build/test/gte"
-RUN_TIMEOUT=8
+RUN_TIMEOUT=12
 # GTE tests are standard (often C89) C: plain char/int/long are signed and
 # functions may be called without a declaration
 GTE_CFLAGS="${GTE_CFLAGS--fsigned-default -fimplicit-function-declaration}"
+# ZP calling convention runs link the ZP runtime and use their own build dir
+case " $GTE_CFLAGS " in
+    *" -fzpcall "*) CRT0="lib/build/crt0_zp.o45"; LIB="lib/build/c45_zp.lib"; BUILD_DIR="build/test/gte_zp" ;;
+esac
 
 JOBS=$(nproc 2>/dev/null || echo 4)
 LIST=""

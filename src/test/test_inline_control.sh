@@ -14,7 +14,7 @@ pass() { echo "  PASS: $1"; passed=$((passed + 1)); }
 fail() { echo "  FAIL: $1"; failed=$((failed + 1)); }
 
 # Number of calls emitted to function $1 (direct or SAC entry)
-calls() { grep -cE "jsr _$1(__sac)?\$" "$TEMP_S"; }
+calls() { grep -cE "jsr _$1(__[A-Za-z0-9_]+)?\$" "$TEMP_S"; }  # static functions carry a __<module> suffix
 check() { # function expected_calls description
     local n; n=$(calls "$1")
     if [ "$n" -eq "$2" ]; then pass "$3"; else fail "$3 (got $n calls)"; fi

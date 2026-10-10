@@ -993,6 +993,13 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     emit("__zp_scratch3 = " + hex8(zeroPageStart_ + 4));
     emit("__zp_scratch4 = " + hex8(zeroPageStart_ + 6));
     emit("cc45.zeroPageStart = " + hex8(zeroPageStart_));
+    if (relocMode) {
+        // Compilation mode marker: the linker knows calls between objects of the
+        // same mode already use the callee's convention (no thunk needed)
+        std::string modeSym = zpCallMode_ ? "cc45.mode_zp" : "cc45.mode_stack";
+        emit(".weak " + modeSym);
+        emit(modeSym + " = 1");
+    }
     emitBlank();
 
     // Emit extern declarations (only for symbols actually referenced in code)
@@ -1539,7 +1546,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     alloc_.setRegisterXVregs(fn.registerXVregs);
     alloc_.setRegisterYVregs(fn.registerYVregs);
     alloc_.setRegisterZVregs(fn.registerZVregs);
-    alloc_.analyze(fn);
+    alloc_.analyze(fn, ZP_POOL_START, ZP_POOL_SLOTS);
 
     // Populate vregOffset_ from allocator decisions (frame-allocated vregs only)
     // This prevents IRCodeGen from re-allocating frame slots that VRegAllocator already assigned
@@ -1693,7 +1700,10 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // (NOT needed for SAC functions, which use direct absolute addressing)
     // This prevents leax.fp results from being clobbered by intermediate operations
     if (frameSize_ > 0 && !earlyUseSAC) {
-        frameAddrZPIndex_ = allocateZP(2);
+        // The frame's address is the frame pointer itself ($FD/$FE), which is
+        // saved and restored around calls (a shared cache slot would be
+        // overwritten by callees)
+        frameAddrZPIndex_ = 0xFD - (int)zeroPageStart_;
     }
 
     frameAddrCacheValid_ = true;  // Initialize cache validity for new function
@@ -1737,6 +1747,8 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // Linker will verify runtime-checkable constraints (4-5): not reachable from ISR, no cycles
     bool useSAC = staticAllocMode_ && !fn.isRecurse && !fn.isInterrupt &&
                   !fn.isNaked && !fn.isVariadic;
+    // This function's own convention (the IRBuilder's per-function decision)
+    bool fnZp = fn.conv == ir::CallConv::ZP && !fn.isVariadic;
 
     // Compile-time self-recursion check (not authoritative, but good UX)
     // Scan for direct calls to this function name
@@ -1904,9 +1916,25 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     if (currentFunctionUseSAC_ && !fn.paramTypes.empty() && !fn.isRegparm) {
         bool isZeroAlloc = isZeroAllocLeaf(fn.name, fn);
         if (!isZeroAlloc) {
-            emitComment("SAC thunk: load stack params into SAC storage");
             fprintf(stderr, "info: SAC thunk generated for %s (%zu params)\n",
                     fn.name.c_str(), fn.paramTypes.size());
+            if (fnZp) {
+                // ZP convention: copy the parameter block into SAC storage
+                emitComment("SAC thunk: load ZP params into SAC storage");
+                int zpOff = (int)zeroPageStart_ + 8;
+                for (size_t i = 0; i < fn.paramTypes.size(); i++) {
+                    std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
+                        ? fn.paramNames[i] : std::to_string(i);
+                    std::string sym = fn.name + "__param_" + pName;
+                    int pSize = ir::typeSize(fn.paramTypes[i]);
+                    for (int b = 0; b < pSize; b++) {
+                        emit("lda $" + hex8((uint8_t)(zpOff + b)));
+                        emit("sta " + sym + (b ? "+" + std::to_string(b) : std::string()));
+                    }
+                    zpOff += (pSize < 2) ? 2 : pSize;
+                }
+            } else {
+            emitComment("SAC thunk: load stack params into SAC storage");
             emit("tsx");
             int stackOff = 2; // past return address
             for (size_t i = 0; i < fn.paramTypes.size(); i++) {
@@ -1919,6 +1947,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                     emit("sta " + sym + (b ? "+" + std::to_string(b) : std::string()));
                 }
                 stackOff += (pSize < 2) ? 2 : pSize; // C promotes char to 16-bit on stack
+            }
             }
             // Emit __sac label for direct SAC callers to skip thunk
             emit(".global " + fn.name + "__sac");
@@ -1976,7 +2005,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // Frame-pointer functions save the caller's FP ($FD/$FE) below their frame;
     // without this a caller that uses FP-relative locals reads the callee's
     // frame after any call (and recursion fails).
-    savedCallerFP_ = (!zpCallMode_ || fn.isVariadic) && !useSAC && localFrameSize > 0;
+    savedCallerFP_ = !useSAC && localFrameSize > 0;
     // Push $FD then $FE through A: "phw $00FD" is absolute and would read the
     // ROM's page 0 rather than the program's relocated base page.
     if (savedCallerFP_) {
@@ -2011,20 +2040,20 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     // Set up ZP frame pointer for local variable access (stack convention only)
     // SAC functions use direct absolute addressing to inline storage, no FP needed
-    useStackParams_ = !zpCallMode_ || fn.isVariadic;  // Stack params for all non-ZP functions
+    useStackParams_ = !fnZp;  // Stack params for all non-ZP functions
 
     // PHASE 80: Optimize frame pointer initialization
     // Detect if function actually uses frame-pointer-relative addressing
     // to avoid unnecessary FP setup (12 bytes per function)
     bool needsFP = false;
-    if (useStackParams_ && !useSAC && localFrameSize > 0) {
+    if (!useSAC && localFrameSize > 0) {
         // Only functions with local variables that actually use them need FP
         // For now, conservatively assume all stack-convention functions with locals need FP
         // Future: analyze IR to detect actual .fp references
         needsFP = true;
     }
 
-    if (useStackParams_ && !useSAC && needsFP) {
+    if (!useSAC && needsFP) {
         // Stack convention only: Calculate frame pointer from SP: FP = __sp_base + SPL + 1
         emit("tsy");           // SPH → Y
         emit("tsx");           // SPL → X
@@ -2040,12 +2069,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     // Compute and cache frame address in dedicated ZP slot if function uses frame-relative access
     // (NOT needed for SAC functions, which use direct absolute addressing)
-    if (frameAddrZPIndex_ >= 0 && !currentFunctionUseSAC_) {
-        std::string frameAddrZP = zpAddr(frameAddrZPIndex_);
-        emit("leax.local 0");
-        emit("sta " + frameAddrZP);
-        emit("stx " + frameAddrZP + "+1");
-    }
+    // (frameAddrZPIndex_ names the frame pointer $FD/$FE: nothing to set up)
 
     // Emit .local for frame-allocated vRegs only (skipped in SAC mode, which uses AR-relative)
     if (!currentFunctionUseSAC_) {
@@ -2109,7 +2133,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // For SAC functions, parameters are still on the stack (accessed via FP)
     // Only local vregs are allocated to the AR buffer
     // In SAC mode, frame is NOT pushed, so parameter offsets are 2 bytes less
-    bool useStackParams = (!zpCallMode_ || fn.isVariadic);
+    bool useStackParams = !fnZp;
     if (useStackParams) {
         // Stack convention (or variadic in zpCall mode): args pushed right-to-left,
         // first param is closest to SP (smallest offset past frame + return address).
@@ -2215,8 +2239,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 }
             }
         }
-    } else if (zpCallMode_ && !useSAC) {
-        // ZP call convention (non-SAC): params already in ZP block, copy to vReg slots
+    } else if (fnZp && !useSAC) {
+        // ZP call convention (non-SAC): params arrive in the ZP block; copy them
+        // to their vregs (calls made by this function reuse the block)
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
             uint32_t vid = (uint32_t)i;
             if (fn.isRegparm && i == 0) {
@@ -2226,9 +2251,20 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             }
             std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
                 ? fn.paramNames[i] : std::to_string(i);
-            // ZP params are at $10 + offset; load from the .var @_p_ location
-            emit("lda @_p_" + pName);
-            emit("ldx @_p_" + pName + "+1");
+            std::string p = "@_p_" + pName;
+            if (fn.paramTypes[i] == ir::Type::F32) {
+                for (int bi = 0; bi < 5; bi++) {
+                    emit("lda " + p + "+" + std::to_string(bi));
+                    emitF32Byte("sta", vid, bi);
+                }
+                continue;
+            }
+            emit("lda " + p);
+            if (fn.paramTypes[i] != ir::Type::I8) emit("ldx " + p + "+1");
+            if (fn.paramTypes[i] == ir::Type::I32) {
+                emit("ldy " + p + "+2");
+                emit("pha"); emit("lda " + p + "+3"); emit("taz"); emit("pla");  // no LDZ base-page mode
+            }
             storeVreg(vid);
         }
     }
@@ -2329,7 +2365,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     }
 
     {
-        std::string funcFlags = (zpCallMode_ && !fn.isVariadic) ? "zp_call" : "stack_call";
+        std::string funcFlags = fnZp ? "zp_call" : "stack_call";
         if (useSAC) funcFlags += ", static_alloc";
         if (zeroAllocLeaves_.count(fn.name)) funcFlags += ", zeroalloc";
         if (fn.isInterrupt) funcFlags += ", isr";
@@ -2845,7 +2881,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 // Both I32 operands in frame: ldaxyz.fp clobbers __zp_scratch2/__zp_scratch3.
                 // Load src2 first, save to safe ZP area ($10-$13), then load src1 into AXYZ.
                 auto hex8 = [](int v) { std::stringstream s; s << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << v; return s.str(); };
-                int safeZP = (int)zeroPageStart_ + 8; // past scratch area
+                int safeZP = ZP_TEMP32;  // dedicated 4-byte temp
                 loadOperand(inst.src2);
                 emit("sta " + hex8(safeZP));
                 emit("stx " + hex8(safeZP + 1));
@@ -3743,13 +3779,20 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         loadOperand(inst.src1);
                     }
 
+                    if (inst.resultType == ir::Type::I32) {
+                        // Bytes 2/3 are in Y/Z: save them before Y becomes the index.
+                        // A narrower value (e.g. an int constant initialising a long)
+                        // only set A/X: zero-extend it.
+                        bool narrow = inst.src1.isVreg() ? ir::typeSize(alloc_.getAlloc(inst.src1.vregId).type) < 4
+                                                         : (inst.src1.isImm() && inst.src1.type != ir::Type::I32);
+                        if (narrow) { emit("ldy #0"); emit("ldz #0"); }
+                        emit("sty __zp_scratch3");
+                        emit("stz __zp_scratch3+1");
+                    }
                     emit("ldy #0");
                     if (inst.resultType == ir::Type::I8) {
                         emit("sta (" + zpPair + "),y");
                     } else if (inst.resultType == ir::Type::I32) {
-                        // Store 4 bytes. LDY clobbers Y, so save Y/Z to scratch3.
-                        emit("sty __zp_scratch3");
-                        emit("stz __zp_scratch3+1");
                         emit("sta (" + zpPair + "),y"); // lo
                         emit("txa"); emit("iny"); emit("sta (" + zpPair + "),y"); // byte 1
                         emit("lda __zp_scratch3"); emit("iny"); emit("sta (" + zpPair + "),y"); // byte 2
@@ -4242,38 +4285,35 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         case ir::Op::CALL_VOID:
         case ir::Op::CALL_INDIRECT: {
             if (inst.callConv == ir::CallConv::ZP) {
-                // ZP convention: store args to ZP param block (past scratch)
+                // ZP convention: store args to the ZP parameter block ($10-$2F),
+                // one slot per argument of at least 2 bytes
                 int zpOff = (int)zeroPageStart_ + 8; // 8 bytes of scratch
                 for (size_t argIdx = 0; argIdx < inst.args.size(); argIdx++) {
                     const auto& arg = inst.args[argIdx];
+                    int ps = ir::typeSize(arg.type);
+                    int slot = ps < 2 ? 2 : ps;
                     if (inst.isRegparm && argIdx == 0) {
                         // First param: leave in A/AX, skip ZP store
                         loadOperand(arg);
-                        zpOff += ir::typeSize(arg.type);
+                        zpOff += slot;
+                        continue;
+                    }
+                    auto zp = [&](int b) { return "$" + hex8((uint8_t)(zpOff + b)); };
+                    if (arg.type == ir::Type::F32) {
+                        if (arg.isVreg()) emitF32VregToAbs(arg.vregId, zp(0));
+                        zpOff += slot;
                         continue;
                     }
                     loadOperand(arg);
-                    int ps = ir::typeSize(arg.type);
-                    std::stringstream ss;
-                    ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << zpOff;
-                    std::string zpAddr = ss.str();
-
                     if (arg.type == ir::Type::I32) {
-                        emit("sta " + zpAddr);
-                        ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (zpOff + 1);
-                        emit("stx " + ss.str());
-                        ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (zpOff + 2);
-                        emit("sty " + ss.str());
-                        ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (zpOff + 3);
-                        emit("stz " + ss.str());
+                        emit("stq " + zp(0));
                     } else if (arg.type != ir::Type::I8) {
-                        emit("sta " + zpAddr);
-                        ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (zpOff + 1);
-                        emit("stx " + ss.str());
+                        emit("sta " + zp(0));
+                        emit("stx " + zp(1));
                     } else {
-                        emit("sta " + zpAddr);
+                        emit("sta " + zp(0));
                     }
-                    zpOff += ir::typeSize(arg.type);
+                    zpOff += slot;
                 }
             } else {
                 // STACK convention: Push arguments right-to-left (C convention).
@@ -4485,7 +4525,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     auto zpSlotAddr = [&](int idx, int byteOff) {
                         std::stringstream ss;
                         ss << "$" << std::hex << std::uppercase << std::setfill('0')
-                           << std::setw(2) << ((int)zeroPageStart_ + 0x20 + slotOffsets[idx] + byteOff);
+                           << std::setw(2) << ((int)zeroPageStart_ + 8 + slotOffsets[idx] + byteOff);  // parameter block
                         return ss.str();
                     };
                     // Phase 1: load all args (right-to-left) into ZP scratch slots
@@ -4601,6 +4641,14 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 if (inst.src1.kind == ir::OperandKind::GLOBAL) {
                     emit("jsr " + inst.src1.name);
                 }
+            } else if (inst.callConv == ir::CallConv::ZP && inst.op == ir::Op::CALL_INDIRECT) {
+                // Through a function pointer: self-modified JSR (as for stack calls)
+                loadOperand(inst.src1);
+                std::string callLabel = "@__call_site_" + std::to_string(labelCounter_++);
+                emit("sta " + callLabel + "+1");
+                emit("stx " + callLabel + "+2");
+                emitLabel(callLabel);
+                emit("jsr $0000");
             }
 
             // Invalidate frame pointer cache after function calls

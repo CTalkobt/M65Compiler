@@ -1,4 +1,4 @@
-# GTE tests currently failing on xemu (regenerated 2026-10-10).
+# GTE tests currently failing on xemu (regenerated 2026-10-10 (stack mode)).
 # Remove names as they are fixed; test_failures.sh runs this list.
 # pr58574: program too large (code runs into I/O at $D000).
 # struct-ret-1: global struct initializer with an array member is mis-emitted.
@@ -54,7 +54,6 @@
 20080502-1
 20090113-2
 20191023-1
-900409-1
 920302-1
 920410-1
 920415-1
@@ -98,7 +97,6 @@ align-3
 bitfld-10
 bitfld-4
 bswap-3
-built-in-setjmp
 cbrt
 cmpsf-1
 cmpsi-2
@@ -119,7 +117,6 @@ frame-address
 loop-2f
 loop-2g
 loop-4
-loop-4b
 loop-8
 medce-1
 memset-4
@@ -152,7 +149,6 @@ pr28982a
 pr28982b
 pr29797-1
 pr29797-2
-pr30778
 pr31072
 pr32500
 pr35163
@@ -174,7 +170,6 @@ pr44683
 pr44852
 pr44942
 pr45262
-pr47237
 pr49279
 pr49390
 pr49886
@@ -218,7 +213,6 @@ pr79737-1
 pr79737-2
 pr80421
 pr82210
-pr84521
 pr85095
 pr85156
 pr85169
@@ -239,7 +233,6 @@ pr97404
 pr97421-2
 pr97836
 pr98366
-pr98727
 pr99751
 printf-chk-1
 pushpop_macro

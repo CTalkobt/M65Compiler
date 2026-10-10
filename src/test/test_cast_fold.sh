@@ -75,7 +75,7 @@ void test(void) { use_long((long)42); }
 EOF
 $CC -S -O1 -fzpcall -fno-staticalloc $TEMP_C -o $TEMP_S 2>/dev/null
 # Should store all 4 bytes to ZP param block ($10-$13)
-if grep -q '\$12' $TEMP_S && grep -q '\$13' $TEMP_S; then
+if grep -q 'stq \$10' $TEMP_S || (grep -q '\$12' $TEMP_S && grep -q '\$13' $TEMP_S); then
     pass "(long)42 argument stores all 4 bytes to ZP"
 else
     fail "(long)42 argument stores all 4 bytes to ZP"
@@ -139,7 +139,7 @@ void test(void) {
 EOF
 $CC -S -O1 -fzpcall -fno-staticalloc $TEMP_C -o $TEMP_S 2>/dev/null
 # Optimizer may propagate constant directly; either way, all 4 ZP param bytes must be stored
-if grep -q '\$12' $TEMP_S && grep -q '\$13' $TEMP_S; then
+if grep -q 'stq \$10' $TEMP_S || (grep -q '\$12' $TEMP_S && grep -q '\$13' $TEMP_S); then
     pass "long propagated through variable stores 4 bytes to ZP"
 else
     fail "long propagated through variable stores 4 bytes to ZP"

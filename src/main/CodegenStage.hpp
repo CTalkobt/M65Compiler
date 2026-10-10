@@ -52,6 +52,7 @@ public:
     // Map: typedef_name → struct/union base type name
     void setMaxInlineIRSize(int n) { maxInlineIRSize_ = n; }
 
+    void setSourceFile(const std::string& f) { sourceFile_ = f; }
     void setTypedefMappings(const std::map<std::string, std::string>& typedefMappings) {
         typedefMappings_ = typedefMappings;
     }
@@ -74,6 +75,7 @@ private:
 
     // Phase 102: Typedef mappings from parser (typedef_name → baseType)
     std::map<std::string, std::string> typedefMappings_;
+    std::string sourceFile_;  // input file (module name for static symbols)
 
     // Helper methods for codegen phases
     void configureIRBuilder();
