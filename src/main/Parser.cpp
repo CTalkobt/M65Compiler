@@ -2866,11 +2866,16 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         bool isAscii = (peek().type == TokenType::ASCII_STRING_LITERAL);
         const Token& litToken = advance();
         std::string concatStr = litToken.value;
+        std::string concatMask = litToken.escMask;
         // C string literal concatenation: "hello" " world" → "hello world"
         while (peek().type == TokenType::STRING_LITERAL || peek().type == TokenType::ASCII_STRING_LITERAL) {
-            concatStr += advance().value;
+            const Token& next = advance();
+            concatStr += next.value;
+            concatMask += next.escMask;
         }
-        expr = setPos(std::make_unique<StringLiteral>(concatStr, isAscii), litToken);
+        auto strLit = std::make_unique<StringLiteral>(concatStr, isAscii);
+        strLit->escMask = concatMask;
+        expr = setPos(std::move(strLit), litToken);
     } else if (match(TokenType::OPEN_PAREN)) {
         const Token& parenToken = tokens[pos-1];
         expr = parseExpression();

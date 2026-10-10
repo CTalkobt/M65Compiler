@@ -426,24 +426,54 @@ Token Lexer::lexString(bool ascii) {
     int startLine = line;
     int startCol = column;
     get(); // skip opening quote
-    std::string value;
+    std::string value, mask;
     while (peek() != '"' && peek() != '\0') {
         if (peek() == '\\') {
             get();
-            char next = peek();
-            switch (next) {
-                case 'n': value += '\n'; get(); break;
-                case 'r': value += '\r'; get(); break;
-                case 't': value += '\t'; get(); break;
-                default: value += get(); break;
-            }
+            char kind;
+            value += (char)lexEscape(&kind);
+            mask += kind;
         } else {
             value += get();
+            mask += '.';
         }
     }
     if (peek() == '"') get(); // skip closing quote
-    if (ascii) return {TokenType::ASCII_STRING_LITERAL, value, startLine, startCol, sourceFile};
-    return {TokenType::STRING_LITERAL, value, startLine, startCol, sourceFile};
+    Token tok{ascii ? TokenType::ASCII_STRING_LITERAL : TokenType::STRING_LITERAL, value, startLine, startCol, sourceFile};
+    tok.escMask = mask;
+    return tok;
+}
+
+// Escape sequence after the backslash, returning C's value (\n = $0A).
+// \x and octal escapes give the exact byte. *kind is set to 'n', 'r' or 'x'.
+unsigned char Lexer::lexEscape(char* kind) {
+    char next = get();
+    *kind = 'x';
+    switch (next) {
+        case 'n': *kind = 'n'; return 0x0A;
+        case 'r': *kind = 'r'; return 0x0D;
+        case 't': return 0x09;
+        case 'a': return 0x07;
+        case 'b': return 0x08;
+        case 'f': return 0x0C;
+        case 'v': return 0x0B;
+        case 'x': {
+            int v = 0, digits = 0;
+            while (std::isxdigit((unsigned char)peek())) {
+                char h = get();
+                v = v * 16 + (std::isdigit((unsigned char)h) ? h - '0' : (std::tolower(h) - 'a' + 10));
+                digits++;
+            }
+            return digits ? (uint8_t)v : (uint8_t)'x';
+        }
+        default:
+            if (next >= '0' && next <= '7') {
+                int v = next - '0';
+                for (int i = 0; i < 2 && peek() >= '0' && peek() <= '7'; i++) v = v * 8 + (get() - '0');
+                return (uint8_t)v;
+            }
+            return (uint8_t)next;
+    }
 }
 
 Token Lexer::lexChar(bool ascii) {
@@ -451,21 +481,20 @@ Token Lexer::lexChar(bool ascii) {
     int startCol = column;
     get(); // skip opening '
     char c = 0;
+    bool escaped = false;
     if (peek() == '\\') {
         get();
-        char next = get();
-        switch (next) {
-            case 'n': c = '\n'; break;
-            case 'r': c = '\r'; break;
-            case 't': c = '\t'; break;
-            case '0': c = '\0'; break;
-            default: c = next; break;
-        }
+        char kind;
+        c = (char)lexEscape(&kind);
+        // Character literals are data: \n is the PETSCII newline ($0D) unless ascii
+        if (!ascii && kind == 'n') c = 0x0D;
+        else if (!ascii && kind == 'r') c = 0x0A;
+        escaped = true;
     } else {
         c = get();
     }
     if (peek() == '\'') get(); // skip closing '
-    if (!ascii) {
+    if (!ascii && !escaped) {
         // Convert to PETSCII to match .text string encoding
         uint8_t petscii = (uint8_t)c;
         if (c >= 'a' && c <= 'z') petscii = c - 32;

@@ -45,4 +45,5 @@ private:
     Token lexNumber();
     Token lexString(bool ascii = false);
     Token lexChar(bool ascii = false);
+    unsigned char lexEscape(char* kind);  // after the backslash; C values, kind = 'n'/'r'/'x'
 };

@@ -1174,7 +1174,7 @@ std::unique_ptr<Expression> cloneAndSubstituteExpression(Expression* expr, const
     if (auto* lit = dynamic_cast<FloatLiteral*>(expr))
         return std::make_unique<FloatLiteral>(lit->value);
     if (auto* lit = dynamic_cast<StringLiteral*>(expr))
-        return std::make_unique<StringLiteral>(lit->value);
+        return StringLiteral::copyOf(*lit);
     if (auto* binOp = dynamic_cast<BinaryOperation*>(expr))
         return std::make_unique<BinaryOperation>(binOp->op, cloneAndSubstituteExpression(binOp->left.get(), varName, value), cloneAndSubstituteExpression(binOp->right.get(), varName, value));
     if (auto* unOp = dynamic_cast<UnaryOperation*>(expr))
@@ -1272,7 +1272,7 @@ std::unique_ptr<Expression> cloneExpression(Expression* expr) {
     if (auto* lit = dynamic_cast<FloatLiteral*>(expr))
         return std::make_unique<FloatLiteral>(lit->value);
     if (auto* lit = dynamic_cast<StringLiteral*>(expr))
-        return std::make_unique<StringLiteral>(lit->value);
+        return StringLiteral::copyOf(*lit);
     if (auto* ref = dynamic_cast<VariableReference*>(expr))
         return std::make_unique<VariableReference>(ref->name);
     if (auto* binOp = dynamic_cast<BinaryOperation*>(expr))

@@ -72,7 +72,7 @@ build_example "$EXAMPLES/c/hello_linked"
 test_text "hello_linked" "$EXAMPLES/c/hello_linked/hello.prg" "LINKED HELLO"
 
 build_example "$EXAMPLES/c/multi_module"
-test_text "multi_module" "$EXAMPLES/c/multi_module/program.prg" "MULTI-MODULE EXAMPLE"
+test_text "multi_module" "$EXAMPLES/c/multi_module/program.prg" "^6/6 TESTS PASSED"
 
 build_example "$EXAMPLES/c/unit_convert"
 test_text "unit_convert" "$EXAMPLES/c/unit_convert/convert.prg" "26 MILES = 41 KM"

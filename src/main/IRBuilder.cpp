@@ -1260,6 +1260,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
                 ir::Module::StringLiteral sl;
                 sl.label = label;
                 sl.value = slit->value;
+                sl.escMask = slit->escMask;
                 sl.isAscii = slit->isAscii || (currentStringEncoding_ == StringEncoding::ASCII);
                 sl.encoding = slit->isAscii ? 1 : (currentStringEncoding_ == StringEncoding::SCREENCODE ? 2 : 0);
                 module_.strings.push_back(sl);
@@ -1282,6 +1283,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
                         ir::Module::StringLiteral sl;
                         sl.label = label;
                         sl.value = slit->value;
+                        sl.escMask = slit->escMask;
                         sl.isAscii = slit->isAscii || (currentStringEncoding_ == StringEncoding::ASCII);
                         sl.encoding = slit->isAscii ? 1 : (currentStringEncoding_ == StringEncoding::SCREENCODE ? 2 : 0);
                         module_.strings.push_back(sl);
@@ -1666,6 +1668,7 @@ void IRBuilder::visit(StringLiteral& node) {
     ir::Module::StringLiteral sl;
     sl.label = name;
     sl.value = node.value;
+    sl.escMask = node.escMask;
     sl.isAscii = (encoding == 1);
     sl.encoding = encoding;
     module_.strings.push_back(sl);

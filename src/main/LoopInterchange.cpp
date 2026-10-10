@@ -147,7 +147,7 @@ std::unique_ptr<Expression> cloneExpr(Expression* expr) {
     if (auto* lit = dynamic_cast<FloatLiteral*>(expr))
         return std::make_unique<FloatLiteral>(lit->value);
     if (auto* lit = dynamic_cast<StringLiteral*>(expr))
-        return std::make_unique<StringLiteral>(lit->value);
+        return StringLiteral::copyOf(*lit);
     if (auto* ref = dynamic_cast<VariableReference*>(expr))
         return std::make_unique<VariableReference>(ref->name);
     if (auto* binOp = dynamic_cast<BinaryOperation*>(expr))

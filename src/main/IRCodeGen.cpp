@@ -1210,13 +1210,24 @@ void IRCodeGen::emitStrings(const ir::Module& mod) {
     if (relocMode_) emit(".segment \"data\"");
     for (const auto& sl : mod.strings) {
         emitLabel(sl.label);
-        if (sl.encoding == 1) {
-            emit(".ascii \"" + sl.value + "\"");
-        } else if (sl.encoding == 2) {
-            emit(".screencode \"" + sl.value + "\"");
-        } else {
-            emit(".text \"" + sl.value + "\"");
+        const std::string dir = sl.encoding == 1 ? ".ascii" : sl.encoding == 2 ? ".screencode" : ".text";
+        // One escaped literal: \n/\r are left for the assembler to map for the
+        // directive (PETSCII newline is $0D); other escapes and non-printable
+        // bytes become exact 3-digit octal escapes.
+        std::string out;
+        for (size_t i = 0; i < sl.value.size(); ++i) {
+            unsigned char c = (unsigned char)sl.value[i];
+            char kind = i < sl.escMask.size() ? sl.escMask[i] : '.';
+            if (kind == 'n') { out += "\\n"; continue; }
+            if (kind == 'r') { out += "\\r"; continue; }
+            if (kind == '.' && c == '"') { out += "\\\""; continue; }
+            if (kind == '.' && c == '\\') { out += "\\\\"; continue; }
+            if (kind == '.' && c >= 0x20 && c < 0x7F) { out += (char)c; continue; }
+            char oct[5];
+            snprintf(oct, sizeof(oct), "\\%03o", c);
+            out += oct;
         }
+        if (!out.empty()) emit(dir + " \"" + out + "\"");
         emit(".byte 0");
     }
 }

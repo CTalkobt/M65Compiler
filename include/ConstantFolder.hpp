@@ -60,7 +60,7 @@ public:
     }
 
     void visit(StringLiteral& node) override {
-        lastExpr = copyPos(std::make_unique<StringLiteral>(node.value), node);
+        lastExpr = copyPos(StringLiteral::copyOf(node), node);
     }
 
     void visit(VariableReference& node) override {

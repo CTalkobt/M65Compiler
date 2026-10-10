@@ -134,6 +134,9 @@ struct Token {
     int line;
     int column;
     std::string sourceFile;  // Filename from #line directive, if any
+    // String literals: one char per byte of value — '.' literal, 'n' from \n,
+    // 'r' from \r, 'x' exact byte from another escape. Empty for other tokens.
+    std::string escMask;
 
     std::string typeToString() const {
         switch (type) {

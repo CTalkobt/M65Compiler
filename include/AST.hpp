@@ -53,7 +53,13 @@ class StringLiteral : public Expression {
 public:
     std::string value;
     bool isAscii = false;  // @"..." prefix — emit .ascii instead of .text
+    std::string escMask;   // per byte: '.', 'n', 'r', 'x' (see Token::escMask)
     StringLiteral(const std::string& v, bool ascii = false) : value(v), isAscii(ascii) {}
+    static std::unique_ptr<StringLiteral> copyOf(const StringLiteral& s) {
+        auto c = std::make_unique<StringLiteral>(s.value, s.isAscii);
+        c->escMask = s.escMask;
+        return c;
+    }
     void accept(ASTVisitor& visitor) override;
 };
 
