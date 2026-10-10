@@ -48,6 +48,7 @@ BJT_COS     = $7F3F
 BJT_TAN     = $7F45
 BJT_ATN     = $7F48
 BJT_ABS     = $7F4E
+BJT_ROUND   = $7F4B
 
 ; FAC/ARG ZP locations
 FAC_EX = $63
@@ -56,7 +57,13 @@ FAC_M2 = $65
 FAC_M3 = $66
 FAC_M4 = $67
 FAC_SI = $68
+FAC_OV = $71
 ARG_EX = $6A
+ARG_M1 = $6B
+ARG_M2 = $6C
+ARG_M3 = $6D
+ARG_M4 = $6E
+ARG_SI = $6F
 
 ; ===========================================================================
 ; Helper: call BASIC ROM routine via JSRFAR
@@ -68,88 +75,102 @@ __jsrfar_basic:
     stx $03             ; PCH
     lda #BASIC_BANK
     sta $02             ; Bank
+    lda #0
+    sta $09             ; Z = 0 on entry: BASIC 65 routines assume it (e.g. tza)
     jsr JSRFAR
     rts
 
 ; ===========================================================================
-; Load 5-byte float from memory (AX = pointer) into FAC
-; Direct ZP access (default). For indirect access via BASIC 65 jump table,
-; see float_rom_indirect.s.
+; Memory format is CBM packed: exponent, then the mantissa MSB first with the
+; sign in bit 7 of the first mantissa byte (the hidden 1 bit is implied).
+; BASIC 65 keeps FAC/ARG unpacked with the mantissa LSB first:
+;   FAC: $63 exp, $64-$67 mantissa (LSB..MSB), $68 sign (bit 7), $71 rounding
+;   ARG: $6A exp, $6B-$6E mantissa (LSB..MSB), $6F sign (bit 7)
+; (Same as the ROM's MOVFM / MOVMF.)
 ; ===========================================================================
+
+; Load 5-byte float from memory (AX = pointer) into FAC
 .global __float_load_fac
 __float_load_fac:
     sta $02
     stx $03
     ldy #0
-    lda ($02),y         ; byte[0] → exponent
+    lda ($02),y
     sta FAC_EX
     iny
-    lda ($02),y         ; byte[1] → M4 (compiler stores mantissa MSB first)
-    ora #$80            ; Set hidden '1' bit (CBM format includes it)
+    lda ($02),y
+    sta FAC_SI          ; sign = bit 7
+    ora #$80            ; hidden 1 bit
     sta FAC_M4
     iny
-    lda ($02),y         ; byte[2] → M3
+    lda ($02),y
     sta FAC_M3
     iny
-    lda ($02),y         ; byte[3] → M2
+    lda ($02),y
     sta FAC_M2
     iny
-    lda ($02),y         ; byte[4] → M1
+    lda ($02),y
     sta FAC_M1
     lda #0
-    sta FAC_SI
+    sta FAC_OV          ; rounding byte
     rts
 
-; ===========================================================================
 ; Load 5-byte float from memory (AX = pointer) into ARG
-; ===========================================================================
 .global __float_load_arg
 __float_load_arg:
     sta $02
     stx $03
     ldy #0
-    lda ($02),y         ; byte[0] → exponent
+    lda ($02),y
     sta ARG_EX
     iny
-    lda ($02),y         ; byte[1] → M4 (mantissa MSB first in memory)
-    ora #$80            ; Set hidden '1' bit
-    sta $6E
+    lda ($02),y
+    sta ARG_SI
+    ora #$80
+    sta ARG_M4
     iny
-    lda ($02),y         ; byte[2] → M3
-    sta $6D
+    lda ($02),y
+    sta ARG_M3
     iny
-    lda ($02),y         ; byte[3] → M2
-    sta $6C
+    lda ($02),y
+    sta ARG_M2
     iny
-    lda ($02),y         ; byte[4] → M1
-    sta $6B
-    lda #0
-    sta $6F
+    lda ($02),y
+    sta ARG_M1
     rts
 
-; ===========================================================================
-; Store FAC to memory (AX = destination, 5 bytes)
-; ===========================================================================
+; Store FAC to memory (AX = destination), rounded
 .global __float_store_fac
 __float_store_fac:
+    pha
+    phx
+    lda #<BJT_ROUND
+    ldx #>BJT_ROUND
+    jsr __jsrfar_basic
+    plx
+    pla
     sta $02
     stx $03
     ldy #0
     lda FAC_EX
-    sta ($02),y          ; byte[0] ← exponent
+    sta ($02),y
     iny
+    lda FAC_SI          ; sign bit replaces the hidden 1 bit of the MSB
+    and #$80
+    sta $04
     lda FAC_M4
-    and #$7F             ; Clear hidden '1' bit (compiler format doesn't include it)
-    sta ($02),y          ; byte[1] ← M4 (mantissa MSB first in memory)
+    and #$7F
+    ora $04
+    sta ($02),y
     iny
     lda FAC_M3
-    sta ($02),y          ; byte[2] ← M3
+    sta ($02),y
     iny
     lda FAC_M2
-    sta ($02),y          ; byte[3] ← M2
+    sta ($02),y
     iny
     lda FAC_M1
-    sta ($02),y          ; byte[4] ← M1
+    sta ($02),y
     rts
 
 ; ===========================================================================
@@ -269,8 +290,7 @@ __float_cmp:
     ; FAC = a - b. Check sign.
     lda FAC_EX
     beq @zero           ; exponent 0 = value is 0 (equal)
-    lda FAC_SI
-    bne @negative        ; sign byte nonzero = negative
+    bbs7 FAC_SI, @negative  ; sign is bit 7 (the other bits are mantissa leftovers)
     lda #$01            ; positive: a > b
     jmp __bp_prog
 @negative:
@@ -299,6 +319,8 @@ __float_itof:
     sta $03
     lda #<BJT_GIVAYF
     sta $04
+    lda #0
+    sta $09             ; Z = 0
     jsr JSRFAR
     ; FAC now has the float value — store to __float_a
     lda #<__float_a
