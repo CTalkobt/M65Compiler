@@ -537,6 +537,9 @@ private:
     std::string formatOrchestrationReport(const CrossProgramAnalysis& analysis);  // Phase 74: Format orchestration report
     RuntimeProfile collectProfileData(const BenchmarkResult& estimate, int actualSize, int execMs);  // Phase 75: Collect profile
     std::string formatProfileReport(const RuntimeProfile& profile);  // Phase 75: Format profile report
+    std::map<std::string, int> funcObjMode_;  // function -> its object's cc45 mode (1 zp, 0 stack)
+    int funcMode(const std::string& fn) const;
+    bool callNeedsThunk(const std::string& caller, const std::string& callee, bool& callerIsZp) const;
     void emitDiagnostics();
     void verifyStaticAllocSafety();  // Verify SAC (static allocation convention) constraints
     void validateSACParameters();     // Phase 3: Validate SAC parameter metadata

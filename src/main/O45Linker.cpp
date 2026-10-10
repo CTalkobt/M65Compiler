@@ -848,6 +848,19 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
 
 // 3.1 — Extract function attributes from all loaded objects into a global map.
 void O45Linker::buildFuncAttrs() {
+    // Compilation mode of each object (cc45.mode_zp / cc45.mode_stack marker)
+    funcObjMode_.clear();
+    for (const auto& input : objects_) {
+        int mode = -1;
+        for (const auto& exp : input.obj.exports) {
+            if (exp.name == "cc45.mode_zp") mode = 1;
+            else if (exp.name == "cc45.mode_stack") mode = 0;
+        }
+        if (mode < 0) continue;
+        for (const auto& exp : input.obj.exports)
+            if (exp.segmentId() == SEG_TEXT) funcObjMode_[exp.name] = mode;
+    }
+
     funcAttrs_.clear();
     for (const auto& input : objects_) {
         for (const auto& exp : input.obj.exports) {
@@ -2438,6 +2451,28 @@ void O45Linker::writeDispatcherReport(std::ostream& out) const {
     }
 }
 
+// Convention a call site used, and whether it needs a bridge thunk.
+// An object built by cc45 exports cc45.mode_zp or cc45.mode_stack. Its calls to
+// functions of an object with the same mode already follow the callee's
+// convention. Otherwise a cc45 caller used its module's mode, and a hand-written
+// (unmarked) caller is assumed to use its own convention.
+int O45Linker::funcMode(const std::string& fn) const {
+    auto it = funcObjMode_.find(fn);
+    return it == funcObjMode_.end() ? -1 : it->second;
+}
+
+bool O45Linker::callNeedsThunk(const std::string& caller, const std::string& callee, bool& callerIsZp) const {
+    auto callerIt = funcAttrs_.find(caller);
+    auto calleeIt = funcAttrs_.find(callee);
+    if (callerIt == funcAttrs_.end() || calleeIt == funcAttrs_.end()) return false;
+    bool calleeIsZp = (calleeIt->second.flags & FUNC_FLAG_ZP_CONV) != 0;
+    int callerMode = funcMode(caller), calleeMode = funcMode(callee);
+    if (callerMode < 0) callerIsZp = (callerIt->second.flags & FUNC_FLAG_ZP_CONV) != 0;
+    else if (calleeMode == callerMode) callerIsZp = calleeIsZp;
+    else callerIsZp = callerMode == 1;
+    return callerIsZp != calleeIsZp;
+}
+
 // 3.3 — Emit diagnostics: enforce calling convention compatibility.
 // Detect all mismatches (both directions). In THUNK_ERROR mode, report them
 // as errors. In THUNK_AUTO/THUNK_WARN mode, record them for thunk generation.
@@ -2445,16 +2480,9 @@ void O45Linker::emitDiagnostics() {
     convErrors_.clear();
 
     for (const auto& [caller, callees] : callGraph_) {
-        auto callerIt = funcAttrs_.find(caller);
-        if (callerIt == funcAttrs_.end()) continue;
-        bool callerIsZp = (callerIt->second.flags & FUNC_FLAG_ZP_CONV) != 0;
-
         for (const auto& callee : callees) {
-            auto calleeIt = funcAttrs_.find(callee);
-            if (calleeIt == funcAttrs_.end()) continue;
-            bool calleeIsZp = (calleeIt->second.flags & FUNC_FLAG_ZP_CONV) != 0;
-
-            if (callerIsZp == calleeIsZp) continue; // same convention, fine
+            bool callerIsZp = false;
+            if (!callNeedsThunk(caller, callee, callerIsZp)) continue;
 
             std::string direction = callerIsZp ? "zp_call -> stack_call" : "stack_call -> zp_call";
             std::string msg = "calling convention mismatch: '" + caller + "' calls '" + callee + "' (" + direction + ")";
@@ -2919,15 +2947,9 @@ void O45Linker::generateThunks() {
     std::map<std::string, ThunkNeed> needed; // key: thunk symbol name
 
     for (const auto& [caller, callees] : callGraph_) {
-        auto callerIt = funcAttrs_.find(caller);
-        if (callerIt == funcAttrs_.end()) continue;
-        bool callerIsZp = (callerIt->second.flags & FUNC_FLAG_ZP_CONV) != 0;
-
         for (const auto& callee : callees) {
-            auto calleeIt = funcAttrs_.find(callee);
-            if (calleeIt == funcAttrs_.end()) continue;
-            bool calleeIsZp = (calleeIt->second.flags & FUNC_FLAG_ZP_CONV) != 0;
-            if (callerIsZp == calleeIsZp) continue;
+            bool callerIsZp = false;
+            if (!callNeedsThunk(caller, callee, callerIsZp)) continue;
 
             std::string prefix = callerIsZp ? "__thunk_z2s_" : "__thunk_s2z_";
             std::string thunkName = prefix + callee;
