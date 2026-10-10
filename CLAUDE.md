@@ -263,6 +263,7 @@ ln45 (Link: Combine .o45 objects + libraries → PRG/Binary)
 
 - **Types**: `char`, `short`, `int`, `long`, `long long`, `float`, `double`, `unsigned` variants, `__int(N)`/`__uint(N)` (arbitrary width), `_Decimal32`/`_Decimal64`/`_Decimal128`, pointers, arrays, structs, unions, function pointers, `_Bool`
 - **Qualifiers**: `const`, `volatile`, `static` (all orderings), `register`, `extern`, `_Alignas`
+- **Signedness**: `char`, `short`, `int` and `long` are **unsigned unless declared `signed`** (deliberate difference from standard C). `-fsigned-default` or `#pragma cc45 signed_default` selects standard-C signedness (`#pragma cc45 unsigned_default` switches back); explicit `signed`/`unsigned` and typedefs keep their own signedness. `x < 0` on an unsigned value warns (always false)
 - **Declarations**: Function declarations, variable declarations, typedefs, type qualifiers in any order, implicit int (`static max;`, `unsigned d;`)
 - **Initializers**: Scalar, aggregate, designated initializers (`{.x=1}`, `{[2]=3}`), flexible array members, string literal concatenation
 - **Operators**: All C arithmetic, logical, bitwise, comparison, ternary, cast, sizeof, `_Alignof`, `_Generic`, comma operator, Elvis operator (`?:`)

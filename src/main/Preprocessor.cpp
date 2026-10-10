@@ -1024,6 +1024,10 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         } else {
                             output << "\n";
                         }
+                    } else if (cc45Arg == "signed_default") {
+                        output << "__asm__(\".signed_default\");\n";
+                    } else if (cc45Arg == "unsigned_default") {
+                        output << "__asm__(\".unsigned_default\");\n";
                     } else if (cc45Arg.rfind("max_inline_ir_size", 0) == 0) {
                         // Accepts "max_inline_ir_size N" and "max_inline_ir_size(N)"
                         std::string rest = cc45Arg.substr(18), tail;

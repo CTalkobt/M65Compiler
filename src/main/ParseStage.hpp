@@ -23,6 +23,9 @@ public:
     Result execute() override;
     std::string getName() const override { return "Parse"; }
 
+    // -fsigned-default: plain integer types are signed (standard C)
+    void setSignedDefault(bool on) { signedDefault_ = on; }
+
     // Get parsed AST
     std::shared_ptr<TranslationUnit> getAST() const { return ast_; }
 
@@ -39,6 +42,7 @@ private:
     std::string source_;
     std::string filename_;  // Source filename for error reporting
     int verboseLevel_;
+    bool signedDefault_ = false;
     std::shared_ptr<TranslationUnit> ast_;
     std::vector<std::pair<int, std::pair<std::string, int>>> lineMap_;
 

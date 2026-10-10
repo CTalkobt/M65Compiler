@@ -40,6 +40,7 @@ Stage::Result ParseStage::execute() {
 
         // Parse the tokens into an AST
         Parser parser(tokens);
+        parser.signedDefault = signedDefault_;
         ast_ = parser.parse();
 
         // Phase 102: Extract typedef information from parser for IR generation

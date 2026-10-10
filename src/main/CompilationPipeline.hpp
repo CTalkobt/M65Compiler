@@ -23,6 +23,7 @@ struct CompilationConfig {
     bool emitIR = false;        // --emit-ir: write IR text dump
     bool emitReasons = false;   // -Rcodegen: annotate assembly
     int maxInlineIRSize = 11;   // -fmax-inline-ir-size: max IR instructions for inlining
+    bool signedDefault = false; // -fsigned-default: plain char/short/int/long are signed (standard C)
 
     // Calling conventions
     bool zpCallMode = false;

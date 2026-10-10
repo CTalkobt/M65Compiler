@@ -15,6 +15,8 @@ XEMU="xemu-xmega65"
 GTE_DIR="src/test-resources/gte"
 BUILD_DIR="build/test/gte"
 RUN_TIMEOUT=8
+# GTE tests are standard C: plain char/int/long are signed
+GTE_CFLAGS="${GTE_CFLAGS--fsigned-default}"
 
 JOBS=$(nproc 2>/dev/null || echo 4)
 LIST=""
@@ -52,7 +54,7 @@ run_one() {
             ;;
     esac
 
-    if ! $CC -c -I"$GTE_DIR" "$f" -o "$obj" > "$BUILD_DIR/$name.compile.log" 2>&1; then
+    if ! $CC -c $GTE_CFLAGS -I"$GTE_DIR" "$f" -o "$obj" > "$BUILD_DIR/$name.compile.log" 2>&1; then
         echo "COMPILE FAIL: $name"; return
     fi
     if ! $LD -basic -o "$prg" "$CRT0" "$obj" "$LIB" > "$BUILD_DIR/$name.link.log" 2>&1; then
@@ -69,7 +71,7 @@ run_one() {
     fi
 }
 export -f run_one
-export CC LD CRT0 LIB XEMU GTE_DIR BUILD_DIR RUN_TIMEOUT
+export CC LD CRT0 LIB XEMU GTE_DIR BUILD_DIR RUN_TIMEOUT GTE_CFLAGS
 
 if [ -n "$LIST" ]; then
     TEST_FILES=$(grep -v '^\s*\(#\|$\)' "$LIST" | sed "s|^|$GTE_DIR/|; s|$|.c|")

@@ -14,9 +14,9 @@ fail() { echo "  FAIL: $1"; failed=$((failed + 1)); }
 # expect_mod "<C source>" "<expected mod.* mnemonic>"
 expect_mod() {
     printf '%s\n' "$1" > $T.c
-    $CC -S $T.c -o $T.s45 >/dev/null 2>&1
+    $CC -S $FLAGS $T.c -o $T.s45 >/dev/null 2>&1
     local got; got=$(grep -oE 'mod\.[a-z0-9]+' $T.s45 | tail -1)
-    if [ "$got" = "$2" ]; then pass "$1"; else fail "$1 (got '$got', expected $2)"; fi
+    if [ "$got" = "$2" ]; then pass "$FLAGS $1"; else fail "$FLAGS $1 (got '$got', expected $2)"; fi
 }
 
 echo "--- Test: integer signedness defaults ---"
@@ -38,6 +38,27 @@ expect_mod 'signed int g(void); int f(void) { return g() % 14; }'               
 expect_mod 'int g(void); int f(void) { return g() % 14; }'                       mod.16
 expect_mod 'int *p; int f(void) { return *p % 14; }'                             mod.16
 expect_mod 'signed int *p; int f(void) { return *p % 14; }'                      mod.s16
+
+echo "--- Test: -fsigned-default (standard C signedness) ---"
+FLAGS=-fsigned-default
+expect_mod 'int v = 5; int f(void) { return v % 14; }'                           mod.s16
+expect_mod 'int v = 5, w = 1; int f(void) { return w % 14; }'                    mod.s16
+expect_mod 'unsigned int v = 5; int f(void) { return v % 14; }'                  mod.16
+expect_mod 'char v = 5; int f(void) { return v % 14; }'                          mod.s16
+expect_mod 'long v = 5; int f(void) { return v % 14; }'                          mod.s32
+expect_mod 'static v = 5; int f(void) { return v % 14; }'                        mod.s16
+expect_mod 'int f(int v) { return v % 14; }'                                     mod.s16
+expect_mod 'int g(void); int f(void) { return g() % 14; }'                       mod.s16
+expect_mod 'unsigned int g(void); int f(void) { return g() % 14; }'              mod.16
+expect_mod 'typedef unsigned int U; U v = 5; int f(void) { return v % 14; }'     mod.16
+FLAGS=
+
+echo "--- Test: #pragma cc45 signed_default / unsigned_default ---"
+expect_mod '#pragma cc45 signed_default
+int v = 5; int f(void) { return v % 14; }'                                        mod.s16
+expect_mod '#pragma cc45 signed_default
+#pragma cc45 unsigned_default
+int v = 5; int f(void) { return v % 14; }'                                        mod.16
 
 # x < 0 on an unsigned value is always false and warns
 warns() {

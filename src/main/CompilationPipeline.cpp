@@ -101,6 +101,7 @@ CompilationResult CompilationPipeline::compile() {
 
         // Stage 2: Parse
         ParseStage parseStage(preprocessedSource, config_.verboseLevel, config_.inputFile);
+        parseStage.setSignedDefault(config_.signedDefault);
         auto parseResult = runStage(parseStage);
         if (!parseResult.success) {
             result.success = false;

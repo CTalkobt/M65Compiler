@@ -22,6 +22,11 @@ public:
     Parser(const std::vector<Token>& tokens);
     std::unique_ptr<TranslationUnit> parse();
 
+    // Plain char/short/int/long are signed (standard C) instead of cc45's
+    // unsigned default. Set by -fsigned-default; toggled by #pragma cc45
+    // signed_default / unsigned_default.
+    bool signedDefault = false;
+
     // Phase 102: Get typedef information for IR generation
     const std::map<std::string, TypeAlias>& getTypedefs() const { return typedefs; }
     const std::map<std::string, StructDefinition*>& getStructDefinitions() const { return structs; }
@@ -86,9 +91,11 @@ private:
         bool isFunctionPointer = false;
         std::shared_ptr<FuncPtrSignature> funcPtrSig;
         bool valid = false;     // true if a type was successfully parsed
+        bool fromTypedef = false; // signedness came from a typedef
         int addressSpace = 0;   // Phase 97: AddressSpace (0=DEFAULT, 1=ZP, 2=ABS, 3=FAR)
     };
     TypeSpec parseTypeSpecifier();    // consume type keywords + qualifiers, return TypeSpec
+    TypeSpec parseTypeSpecifierRaw(); // parseTypeSpecifier without the signedness default
     bool isTypeStartToken() const;   // peek: does current token start a type?
     bool isTypeStartAt(size_t look) const; // lookahead version
 

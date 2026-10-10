@@ -487,6 +487,7 @@ int main(int argc, char** argv) {
                 std::cout << "  -fstaticalloc  Use static allocation (default)" << std::endl;
                 std::cout << "  -finline-functions  Inline small functions" << std::endl;
                 std::cout << "  -fmax-inline-ir-size=N  Max IR instructions for an inlined function (default 11)" << std::endl;
+                std::cout << "  -fsigned-default  Plain char/short/int/long are signed (standard C); default is unsigned" << std::endl;
                 std::cout << "  --pragma <p>   Inject pragma" << std::endl;
                 std::cout << "  --prg-base <a> PRG load address (hex)" << std::endl;
                 std::cout << "  --save-temps   Keep intermediate files" << std::endl;
@@ -520,6 +521,10 @@ int main(int argc, char** argv) {
             config.allowImplicitFunctionDecl = false;
         } else if (arg == "-finline-functions") {
             config.inlineSmallFunctions = true;
+        } else if (arg == "-fsigned-default") {
+            config.signedDefault = true;
+        } else if (arg == "-fno-signed-default") {
+            config.signedDefault = false;
         } else if (arg.rfind("-fmax-inline-ir-size=", 0) == 0) {
             std::string sizeStr = arg.substr(21);
             try {
