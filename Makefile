@@ -468,6 +468,8 @@ test: all lib
 	@bash src/test/test_register.sh
 	@echo "Running cast fold type preservation tests..."
 	@bash src/test/test_cast_fold.sh
+	@echo "Running inline control tests..."
+	@bash src/test/test_inline_control.sh
 	@echo "Running clobber tracking tests..."
 	@bash src/test/test_clobber.sh
 	@echo "Validating mmemu-cli integration..."
@@ -532,6 +534,9 @@ test-register: all
 
 test-cast-fold: all
 	@bash src/test/test_cast_fold.sh
+
+test-inline: all
+	@bash src/test/test_inline_control.sh
 
 test-integration: all
 	@bash src/test/test_integration.sh

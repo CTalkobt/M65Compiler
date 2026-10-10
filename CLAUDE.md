@@ -289,7 +289,8 @@ ln45 (Link: Combine .o45 objects + libraries → PRG/Binary)
 - **Preprocessor**: Full C99 preprocessor, `__cc45__` macro, `__builtin_va_list`, GCC keyword synonyms (`__volatile`, `__const`, `__inline`, `__restrict`, `__signed`), `__has_include()`, `__has_builtin()`, `__has_attribute()`, `__INCLUDE_LEVEL__`, `__CC45_STATIC_ALLOC__`
 - **Inline Functions**: `inline` keyword, `-finline-functions` flag, auto-inline for trivial struct methods (≤3 statements)
 - **Loop Unrolling**: `repeat(N) { body }` compile-time loop unrolling
-- **Function Attributes**: `__interrupt`, `__naked`, `__regparm`, `__fastcall__`, `__attribute__` (25+ attributes silently accepted including `always_inline`, `unused`, `weak`, `pure`, `const`, `cold`, `hot`, `packed`, `noinline`; 5 warn-and-ignore: `noipa`, `aligned`, `mode`, `vector_size`, `may_alias`)
+- **Inline Control**: `-fmax-inline-ir-size=N` / `#pragma cc45 max_inline_ir_size(N)` (default 11 IR instructions; inline candidates larger than this are called). `__attribute__((always_inline))` or `__forceinline` bypasses the limit; `__attribute__((noinline))` prevents inlining (wins over always_inline). A recursive always_inline function warns and is emitted as a normal call
+- **Function Attributes**: `__interrupt`, `__naked`, `__regparm`, `__fastcall__`, `__attribute__` (25+ attributes silently accepted including `unused`, `weak`, `pure`, `const`, `cold`, `hot`, `packed`; 5 warn-and-ignore: `noipa`, `aligned`, `mode`, `vector_size`, `may_alias`)
 - **Variadic Functions**: Full `<stdarg.h>` support with `struct`/`union`/`enum`/`typeof`/`const`/`float`/`double` types in `va_arg`
 - **DMA Intrinsics**: `__dma_copy(dst, src, len)` and `__dma_fill(dst, len, val)` for MEGA65 F018B DMA. Build 12-byte job on stack, trigger by writing bank (`$D702`), MSB (`$D701`), then LSB (`$D700` — triggers execution)
 - **CPU/Flag Intrinsics**: `__cpu.A/.X/.Y/.Z/.AX/.Q` and `__flags.Carry/.Zero/.Negative/.Overflow`

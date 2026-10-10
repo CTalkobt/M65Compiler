@@ -455,6 +455,8 @@ public:
     bool isNaked = false;
     bool isRegparm = false;
     bool isInline = false;
+    bool isAlwaysInline = false;  // __attribute__((always_inline)) / __forceinline
+    bool isNoInline = false;      // __attribute__((noinline))
 
     // Nested function support
     bool isNested = false;

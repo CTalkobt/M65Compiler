@@ -42,6 +42,7 @@ const Token& Parser::expect(TokenType type, const std::string& message) {
 std::unique_ptr<TranslationUnit> Parser::parse() {
     auto unit = setPos(std::make_unique<TranslationUnit>(), tokens[0]);
     while (peek().type != TokenType::END_OF_FILE) {
+        pendingAlwaysInline_ = pendingNoInline_ = false;
         // Skip __extension__ and __attribute__ at top level (GCC compatibility)
         while (match(TokenType::EXTENSION) || tryParseAttribute()) {}
         // Skip stray semicolons at top level (e.g., }; after function)
@@ -978,6 +979,9 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         func->isRegparm = isRegparm;
         func->isPrototype = true;
         func->isVariadic = isVariadic;
+        func->isAlwaysInline = pendingAlwaysInline_;
+        func->isNoInline = pendingNoInline_;
+        pendingAlwaysInline_ = pendingNoInline_ = false;
         return func;
     }
 
@@ -998,6 +1002,9 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     func->isRegparm = isRegparm;
     func->isVariadic = isVariadic;
     func->isInline = isInline;
+    func->isAlwaysInline = pendingAlwaysInline_;
+    func->isNoInline = pendingNoInline_;
+    pendingAlwaysInline_ = pendingNoInline_ = false;
     func->isStatic = isStatic;
 
     if (currentFunction) {
@@ -3222,6 +3229,9 @@ bool Parser::tryParseAttribute() {
             if (canonical.size() > 4 && canonical.substr(0, 2) == "__" &&
                 canonical.substr(canonical.size() - 2) == "__")
                 canonical = canonical.substr(2, canonical.size() - 4);
+
+            if (canonical == "always_inline") pendingAlwaysInline_ = true;
+            if (canonical == "noinline") pendingNoInline_ = true;
 
             // Recognized — silently accept
             if (canonical == "noinline" || canonical == "noclone" || canonical == "packed" ||

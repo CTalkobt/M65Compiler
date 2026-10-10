@@ -222,6 +222,10 @@ private:
 
     // Inline function support: store AST nodes for inline-eligible functions
     std::map<std::string, FunctionDeclaration*> inlineCandidates_;
+    std::set<std::string> alwaysInlineNames_;   // always_inline: bypass size limits
+    std::set<std::string> noInlineNames_;       // noinline: never expand
+    std::set<std::string> warnedRecursiveInline_;
+    void warnRecursiveForcedInline(const std::string& name, ASTNode& at);
     std::map<std::string, FunctionDeclaration*> allFunctions_;
     std::map<std::string, bool> parsedStructIsFinal_; // struct name → isFinal
     std::set<std::string> inlineExpansionStack_;  // recursion guard

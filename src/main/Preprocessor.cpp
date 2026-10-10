@@ -54,6 +54,7 @@ Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
     macros["__restrict"] = Macro{false, false, {}, "restrict"};
     macros["__restrict__"] = Macro{false, false, {}, "restrict"};
     macros["__inline"] = Macro{false, false, {}, "inline"};
+    macros["__forceinline"] = Macro{false, false, {}, "inline __attribute__((always_inline))"};
     macros["__inline__"] = Macro{false, false, {}, "inline"};
     macros["__signed"] = Macro{false, false, {}, "signed"};
     macros["__signed__"] = Macro{false, false, {}, "signed"};

@@ -739,7 +739,22 @@ void IRBuilder::visit(TranslationUnit& node) {
 // Functions
 // ============================================================================
 
+void IRBuilder::warnRecursiveForcedInline(const std::string& name, ASTNode& at) {
+    if (!warnedRecursiveInline_.insert(name).second) return;
+    warnings_.push_back(formatDiagnostic(at.sourceFile, at.line, at.column, Severity::Warning,
+        "always_inline function '" + name + "' is recursive; emitting a normal call"));
+}
+
 void IRBuilder::visit(FunctionDeclaration& node) {
+    // Attributes may appear on a prototype or the definition; accumulate by name
+    if (node.isAlwaysInline) alwaysInlineNames_.insert(node.name);
+    if (node.isNoInline) noInlineNames_.insert(node.name);
+    if (alwaysInlineNames_.count(node.name) && noInlineNames_.count(node.name) && node.body) {
+        warnings_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Warning,
+            "function '" + node.name + "' has both always_inline and noinline; ignoring always_inline"));
+        alwaysInlineNames_.erase(node.name);
+    }
+
     // Record parameter info and return type for all functions (including prototypes)
     {
         std::vector<ParamInfo> pinfo;
@@ -796,12 +811,14 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     // Register inline candidate if marked inline, -finline-functions, or trivial method
     if (!node.isVariadic && !node.isInterrupt && !node.isNaked) {
         int stmtCount = node.body ? (int)node.body->statements.size() : 0;
-        bool shouldInline = node.isInline || inlineFunctions;
+        bool forced = alwaysInlineNames_.count(node.name) > 0;
+        bool shouldInline = node.isInline || inlineFunctions || forced;
         // Auto-inline trivial methods (≤3 statements — getters, setters, simple computations)
         if (!shouldInline && node.isMethod && stmtCount <= 3) {
             shouldInline = true;
         }
-        if (shouldInline && stmtCount <= INLINE_MAX_STMTS) {
+        if (noInlineNames_.count(node.name)) shouldInline = false;
+        if (shouldInline && (forced || stmtCount <= INLINE_MAX_STMTS)) {
             inlineCandidates_[node.name] = &node;
         }
     }
@@ -890,6 +907,11 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         };
 
         hasFunctionCalls(node.body.get());
+    }
+
+    if (alwaysInlineNames_.count(node.name) && fnPtr->originalCallees.count(node.name)) {
+        warnRecursiveForcedInline(node.name, node);
+        inlineCandidates_.erase(node.name);
     }
 
     // Record function definition for cross-module optimization profiling
@@ -1034,7 +1056,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         emit(ret);
     }
 
-    if (inlineCandidates_.count(node.name)) {
+    if (inlineCandidates_.count(node.name) && !alwaysInlineNames_.count(node.name)) {
         int irCount = 0;
         for (const auto& blk : currentFunc_->blocks) irCount += (int)blk.insts.size();
         if (irCount > maxInlineIRSize) inlineCandidates_.erase(node.name);
@@ -2889,6 +2911,9 @@ void IRBuilder::visit(FunctionCall& node) {
                 } else {
                     // Direct call — check for inline expansion of trivial methods
                     auto inlineIt = inlineCandidates_.find(mangledName);
+                    if (inlineIt != inlineCandidates_.end() && inlineExpansionStack_.count(mangledName) &&
+                        alwaysInlineNames_.count(mangledName))
+                        warnRecursiveForcedInline(mangledName, node);
                     if (inlineIt != inlineCandidates_.end() &&
                         inlineExpansionStack_.find(mangledName) == inlineExpansionStack_.end()) {
                         // Inline expand: temporarily bind params to args
@@ -3282,6 +3307,9 @@ normal_call:
 
         // Check for inline expansion
         auto inlineIt = inlineCandidates_.find(node.name);
+        if (inlineIt != inlineCandidates_.end() && inlineExpansionStack_.count(node.name) &&
+            alwaysInlineNames_.count(node.name))
+            warnRecursiveForcedInline(node.name, node);
         if (inlineIt != inlineCandidates_.end() &&
             inlineExpansionStack_.find(node.name) == inlineExpansionStack_.end()) {
 
