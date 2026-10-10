@@ -185,6 +185,7 @@ private:
 
     // .global / .extern / .weak tracking
     std::set<std::string> globalSymbols;         // symbols declared with .global
+    std::set<int> zpYWarned_;                    // operand tokens already warned for zp → absolute
     std::set<std::string> weakSymbols;           // symbols declared with .weak
     std::vector<std::string> externSymbols;      // symbols declared with .extern (ordered)
     std::map<std::string, uint32_t> externIndex; // name -> index in externSymbols

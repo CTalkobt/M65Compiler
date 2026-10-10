@@ -5,6 +5,8 @@
 ;   Returns c.
 
 .global _putchar
+.extern __bp_rom
+.extern __bp_prog
 
 .segment "code"
 
@@ -17,7 +19,9 @@ proc _putchar
 
     lda $10
     phz
+    jsr __bp_rom
     jsr $FFD2
+    jsr __bp_prog
     plz
     lda $10
     ldx $11

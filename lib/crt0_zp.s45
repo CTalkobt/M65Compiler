@@ -6,7 +6,9 @@
 .global __init
 .global __exit
 .global __sp_base
-.global __zp_save_buf
+.global __bp_rom
+.global __bp_prog
+.extern __zp_page
 .weak _init_features
 .extern _main
 
@@ -27,36 +29,20 @@ __init:
     lda #$53            ; 'S'
     sta $D02F
 
-    ; Save ZP $08-$FF to BSS buffer
-    ldx #0
-@__zp_save_loop:
-    lda $08,x
-    sta __zp_save_buf,x
-    inx
-    cpx #248
-    bne @__zp_save_loop
+    ; Move the base page (zero page) to a private page-aligned block at the
+    ; end of BSS. The program never touches the ROM's zero page, so nothing
+    ; needs saving; ROM calls switch back to page 0 via __bp_rom/__bp_prog.
+    lda #>__zp_page
+    tab
 
     jsr _init_features
     jsr _main
 
     ; Fall through to __exit
 __exit:
-    ; Restore ZP $08-$CF from BSS buffer (skip $D0-$F9: KERNAL screen editor state)
-    ldx #0
-@__zp_restore1:
-    lda __zp_save_buf,x
-    sta $08,x
-    inx
-    cpx #200            ; 200 bytes = $08..$CF
-    bne @__zp_restore1
-    ; Restore ZP $FA-$FF (skip $D0-$F9 = 42 bytes of KERNAL editor state)
-    ldx #242            ; offset 242 = $FA - $08
-@__zp_restore2:
-    lda __zp_save_buf,x
-    sta $08,x
-    inx
-    cpx #248            ; end at $FF
-    bne @__zp_restore2
+    ; Back to the ROM's zero page
+    lda #0
+    tab
 
 __saved_spl:
     ldx #$FF
@@ -70,8 +56,22 @@ __saved_sph:
 _init_features:
     rts
 
+; __bp_rom — switch to the ROM's base page (0) before calling KERNAL/BASIC.
+; Preserves A, X, Y and Z.
+__bp_rom:
+    pha
+    lda #0
+    tab
+    pla
+    rts
 
-
-.segment "bss"
-__zp_save_buf:
-    .res 248
+; __bp_prog — switch back to the program's base page after a ROM call.
+; Preserves A, X, Y, Z and the flags (ROM routines return status in C).
+__bp_prog:
+    php
+    pha
+    lda #>__zp_page
+    tab
+    pla
+    plp
+    rts

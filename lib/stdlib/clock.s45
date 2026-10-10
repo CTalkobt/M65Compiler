@@ -5,11 +5,15 @@
 ;   KERNAL RDTIM ($FFDE) returns A=hi, X=mid, Y=lo.
 
 .global _clock
+.extern __bp_rom
+.extern __bp_prog
 
 .segment "code"
 
 proc _clock
+    jsr __bp_rom
     jsr $FFDE       ; RDTIM: A=hi, X=mid, Y=lo
+    jsr __bp_prog
     tya             ; A = lo byte
                     ; X = mid byte (already set)
     rtn #0

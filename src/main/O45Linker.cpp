@@ -362,6 +362,23 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
         }
     }
 
+    // __zp_page: a page-aligned 256-byte block at the end of BSS. The CRT moves
+    // the base page register there (TAB) so the program's zero page never
+    // overlaps the ROM's. Only allocated when some object references it.
+    if (!globalSymbols_.count("__zp_page")) {
+        bool wanted = false;
+        for (const auto& input : objects_)
+            for (const auto& imp : input.obj.imports)
+                if (imp.name == "__zp_page") wanted = true;
+        if (wanted) {
+            uint32_t page = (bssBase_ + mergedBssLen_ + 0xFF) & ~0xFFu;
+            mergedBssLen_ = page + 0x100 - bssBase_;
+            globalSymbols_["__zp_page"] = page;
+            symbolSource_["__zp_page"] = "<linker>";
+            symbolWeak_["__zp_page"] = false;
+        }
+    }
+
     // Inject linker-defined BSS boundary symbols.
     // These are used by _init_bss in the CRT to zero BSS at startup.
     if (!globalSymbols_.count("__bss_start")) {

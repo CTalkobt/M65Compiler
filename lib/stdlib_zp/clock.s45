@@ -4,6 +4,8 @@
 ;   Returns low 16 bits of the 24-bit KERNAL jiffy clock.
 
 .global _clock
+.extern __bp_rom
+.extern __bp_prog
 
 .segment "code"
 
@@ -11,7 +13,11 @@ proc _clock
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
 
+    jsr __bp_rom
+
     jsr $FFDE       ; RDTIM: A=hi, X=mid, Y=lo
+
+    jsr __bp_prog
     tya             ; A = lo byte
                     ; X = mid byte
     rts

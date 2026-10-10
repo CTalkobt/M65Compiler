@@ -715,6 +715,7 @@ int main(int argc, char** argv) {
                 }
             }
         }
+        for (const auto& w : parser.getWarnings()) std::cerr << w << std::endl;
     } catch (const std::exception& e) {
         std::cerr << input_file << ": " << e.what() << std::endl;
         return 1;

@@ -7,6 +7,8 @@
 ; Uses ZP $FB/$FC for the string pointer — kernal-safe locations.
 
 .global _puts
+.extern __bp_rom
+.extern __bp_prog
 
 .segment "code"
 
@@ -32,7 +34,9 @@ proc _puts
     beq @done
     phz
     phy
+    jsr __bp_rom
     jsr $FFD2
+    jsr __bp_prog
     ply
     plz
     iny
@@ -40,7 +44,9 @@ proc _puts
 @done:
     lda #$0D
     phz
+    jsr __bp_rom
     jsr $FFD2
+    jsr __bp_prog
     plz
     ; Restore $FB/$FC
     pla

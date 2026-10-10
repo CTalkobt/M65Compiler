@@ -5,6 +5,8 @@
 ;   Returns the PETSCII character code in .AX (hi byte = 0).
 
 .global _getchar
+.extern __bp_rom
+.extern __bp_prog
 .extern __sp_base
 
 .segment "code"
@@ -13,7 +15,9 @@ proc _getchar
     .var _fp = 0
 @wait:
     phz
+    jsr __bp_rom
     jsr $FFE4
+    jsr __bp_prog
     plz
     cmp #0
     beq @wait

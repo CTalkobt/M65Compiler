@@ -5,6 +5,8 @@
 ;   Returns 0 on success.
 
 .global _puts
+.extern __bp_rom
+.extern __bp_prog
 .extern __sp_base
 
 .segment "code"
@@ -24,7 +26,9 @@ proc _puts, W#_p_s
     beq @done
     phz
     phy
+    jsr __bp_rom
     jsr $FFD2
+    jsr __bp_prog
     ply
     plz
     iny
@@ -33,7 +37,9 @@ proc _puts, W#_p_s
     ; Print newline
     lda #$0D
     phz
+    jsr __bp_rom
     jsr $FFD2
+    jsr __bp_prog
     plz
     lda #0
     tax

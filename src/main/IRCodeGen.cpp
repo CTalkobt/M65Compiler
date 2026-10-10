@@ -302,13 +302,8 @@ void IRCodeGen::loadVreg(uint32_t vregId) {
                 emit("lda " + zpAddr, r);
                 emit("ldx #0", "zext I8→I16");
             } else if (alloc.type == ir::Type::I32) {
-                emit("lda " + zpAddr, r);
-                ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 1);
-                emit("ldx " + ss.str(), r);
-                ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 2);
-                emit("ldy " + ss.str(), r);
-                ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 3);
-                emit("ldz " + ss.str(), r);
+                // LDQ base-page (LDZ has no base-page mode)
+                emit("ldq " + zpAddr, r);
             } else {
                 emit("lda " + zpAddr, r);
                 ss.str(""); ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << (int)(alloc.offset + 1);
@@ -879,38 +874,25 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
             emit("tab");
         }
 
-        // --- ZP Save ---
-        if (mod.saveZP) {
-            emitComment("Save ZP $08-$FF to BSS buffer");
-            emit("ldx #0");
-            emitLabel("@__zp_save_loop");
-            emit("lda $08,x");
-            emit("sta __zp_save_buf,x");
-            emit("inx");
-            emit("cpx #248");
-            emit("bne @__zp_save_loop");
+        // --- Base page relocation ---
+        // Move the zero page to a private page after the program so the ROM's
+        // zero page is never disturbed (no save/restore needed).
+        if (mod.saveZP && mod.setBP < 0) {
+            emitComment("Relocate base page to __zp_page");
+            emit("lda #>__zp_page");
+            emit("tab");
         }
 
         if (hasMain) {
             emit("jsr _main");
         }
 
-        // Halt or exit
-        if (mod.saveZP) {
-            // Save return value to $02/$03 (below save/restore range $08-$FF)
-            emit("sta $02");
-            emit("stx $03");
-            emitComment("Restore ZP $08-$FF from BSS buffer");
-            emit("ldx #0");
-            emitLabel("@__zp_restore_loop");
-            emit("lda __zp_save_buf,x");
-            emit("sta $08,x");
-            emit("inx");
-            emit("cpx #248");
-            emit("bne @__zp_restore_loop");
-            // Reload return value
-            emit("lda $02");
-            emit("ldx $03");
+        if (mod.saveZP && mod.setBP < 0) {
+            // Back to the ROM's zero page; preserve the return value in A
+            emit("tay");
+            emit("lda #0");
+            emit("tab");
+            emit("tya");
         }
         emitLabel("__halt");
         emit("jmp __halt");
@@ -1009,6 +991,16 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         }
     }
 
+    // __interrupt handlers reload the base page from __zp_page (linker-provided;
+    // in a standalone build it is the page after the program, or 0 if the base
+    // page isn't relocated)
+    bool hasInterrupt = false;
+    for (const auto& fn : mod.functions) if (fn.isInterrupt) hasInterrupt = true;
+    if (hasInterrupt) {
+        if (relocMode) emit(".extern __zp_page");
+        else if (!(mod.saveZP && mod.setBP < 0)) emit("__zp_page = $" + hex16(mod.setBP >= 0 ? (uint16_t)(mod.setBP << 8) : 0));
+    }
+
     if (!mod.externs.empty()) emitBlank();
 
     // Emit global declarations (segment switching only in reloc mode)
@@ -1030,11 +1022,12 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     // Emit string data
     emitStrings(mod);
 
-    // ZP save buffer: label at end of program, no .res needed.
-    // The 248 bytes after the program are unused RAM — written before read.
-    if (mod.saveZP) {
+    // Relocated base page: the first page boundary after the program
+    // (unused RAM, no .res needed).
+    if (!relocMode && mod.saveZP && mod.setBP < 0) {
         emitBlank();
-        emitLabel("__zp_save_buf");
+        emit(".align 256");
+        emitLabel("__zp_page");
     }
 }
 
@@ -1867,6 +1860,10 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // __interrupt: save all registers at entry
     if (fn.isInterrupt) {
         emit("pha"); emit("phx"); emit("phy"); emit("phz");
+        // The ROM IRQ entry sets the base page to 0; switch to the program's
+        // relocated zero page (saving the interrupted B)
+        emit("tba"); emit("pha");
+        emit("lda #>__zp_page"); emit("tab");
     }
 
     // Frame pointer variable
@@ -1907,7 +1904,16 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // without this a caller that uses FP-relative locals reads the callee's
     // frame after any call (and recursion fails).
     savedCallerFP_ = (!zpCallMode_ || fn.isVariadic) && !useSAC && localFrameSize > 0;
-    if (savedCallerFP_) emit("phw $00FD");
+    // Push $FD then $FE through A: "phw $00FD" is absolute and would read the
+    // ROM's page 0 rather than the program's relocated base page.
+    if (savedCallerFP_) {
+        if (fn.isRegparm) emit("sta __zp_scratch");
+        emit("lda $FD");
+        emit("pha");
+        emit("lda $FE");
+        emit("pha");
+        if (fn.isRegparm) emit("lda __zp_scratch");
+    }
 
     // Push stack frame only for non-SAC functions
     // SAC functions use static AR buffers instead of stack frames
@@ -2194,7 +2200,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             emit("sta __zp_scratch");
             for (int i = 0; i < localFrameSize; i++) emit("pla");
             emit("pla");
-            emit("sta $FE");   // phw pushed $FD then $FE
+            emit("sta $FE");   // prologue pushed $FD then $FE
             emit("pla");
             emit("sta $FD");
             emit("lda __zp_scratch");
@@ -2205,6 +2211,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     // __interrupt: restore registers and return with RTI
     if (fn.isInterrupt) {
+        emit("pla"); emit("tab");
         emit("plz"); emit("ply"); emit("plx"); emit("pla");
         emit("rti");
     }
@@ -3333,11 +3340,12 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     da = "$" + hex8((uint8_t)dAlloc.offset);
                 if (inst.src1.kind == ir::OperandKind::GLOBAL) {
                     ms_.invalidateAll();
-                    emit("ldy #4");
+                    // X-indexed: LDA/STA have no base-page,Y mode
+                    emit("ldx #4");
                     emit(std::string("@__fcpy_") + std::to_string(labelCounter_) + ":");
-                    emit("lda " + inst.src1.name + ",y");
-                    emit("sta " + da + ",y");
-                    emit("dey");
+                    emit("lda " + inst.src1.name + ",x");
+                    emit("sta " + da + ",x");
+                    emit("dex");
                     emit("bpl @__fcpy_" + std::to_string(labelCounter_++));
                 } else {
                     // Indirect load via (ZP),Y
@@ -3501,11 +3509,12 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     sa = "$" + hex8((uint8_t)sAlloc.offset);
                 if (inst.src2.kind == ir::OperandKind::GLOBAL) {
                     ms_.invalidateAll();
-                    emit("ldy #4");
+                    // X-indexed: LDA/STA have no base-page,Y mode
+                    emit("ldx #4");
                     emit(std::string("@__fcpy_") + std::to_string(labelCounter_) + ":");
-                    emit("lda " + sa + ",y");
-                    emit("sta " + inst.src2.name + ",y");
-                    emit("dey");
+                    emit("lda " + sa + ",x");
+                    emit("sta " + inst.src2.name + ",x");
+                    emit("dex");
                     emit("bpl @__fcpy_" + std::to_string(labelCounter_++));
                 } else if (inst.src2.isVreg()) {
                     bool isLocalSlot = localSlotVregs_.count(inst.src2.vregId) > 0;
@@ -3932,9 +3941,13 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
         case ir::Op::BR_INDIRECT: {
             loadVreg(inst.src1.vregId);
-            emit("sta $0008");
-            emit("stx $0009");
-            emit("jmp ($0008)");
+            // Self-modified JMP, as for indirect calls: JMP (abs) can't
+            // address the relocated base page.
+            std::string jmpLabel = "@__goto_site_" + std::to_string(labelCounter_++);
+            emit("sta " + jmpLabel + "+1");
+            emit("stx " + jmpLabel + "+2");
+            emitLabel(jmpLabel);
+            emit("jmp $0000");
             break;
         }
 
@@ -4490,10 +4503,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                                 emit("pha");
                             }
                         } else if (arg.type == ir::Type::I32) {
-                            emit("lda " + zpSlotAddr(i, 0));
-                            emit("ldx " + zpSlotAddr(i, 1));
-                            emit("ldy " + zpSlotAddr(i, 2));
-                            emit("ldz " + zpSlotAddr(i, 3));
+                            emit("ldq " + zpSlotAddr(i, 0));  // LDZ has no base-page mode
                             emit("push .axyz");
                         } else {
                             emit("lda " + zpSlotAddr(i, 0));
@@ -4546,11 +4556,14 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         emit("plz");
                     }
 
-                    // Restore result from __zp_scratch4
-                    emit("lda __zp_scratch4");
-                    emit("ldx __zp_scratch4+1");
-                    if (needY) emit("ldy __zp_scratch4+2");
-                    if (needZ) emit("ldz __zp_scratch4+3");
+                    // Restore result from __zp_scratch4 (LDQ: LDZ has no base-page mode)
+                    if (needZ) {
+                        emit("ldq __zp_scratch4");
+                    } else {
+                        emit("lda __zp_scratch4");
+                        emit("ldx __zp_scratch4+1");
+                        if (needY) emit("ldy __zp_scratch4+2");
+                    }
                 }
 
                 // NOTE: Do NOT recalculate frame pointer after function calls!
@@ -4792,7 +4805,11 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     if (reg == "A") { emit("lda " + zp); optimized = true; }
                     else if (reg == "X") { emit("ldx " + zp); optimized = true; }
                     else if (reg == "Y") { emit("ldy " + zp); optimized = true; }
-                    else if (reg == "Z") { emit("ldz " + zp); optimized = true; }
+                    else if (reg == "Z") {
+                        // LDZ has no base-page mode: load through A, preserving A
+                        emit("pha"); emit("lda " + zp); emit("taz"); emit("pla");
+                        optimized = true;
+                    }
                     else if (reg == "AX") { emit("ldax " + zp); optimized = true; }
                     else if (reg == "AY") { emit("lday " + zp); optimized = true; }
                     else if (reg == "AZ") { emit("ldaz " + zp); optimized = true; }
@@ -4887,11 +4904,12 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 if (a.loc == VRegAllocator::IN_ZP) {
                     // Y-indexed copy loop — immune to optimizer load elimination
                     std::string zp = "$" + hex8((uint8_t)a.offset);
-                    emit("ldy #4");
+                    // X-indexed: LDA/STA have no base-page,Y mode
+                    emit("ldx #4");
                     emit(std::string("@__fcpy_") + std::to_string(labelCounter_) + ":");
-                    emit("lda " + zp + ",y");
-                    emit("sta " + dst + ",y");
-                    emit("dey");
+                    emit("lda " + zp + ",x");
+                    emit("sta " + dst + ",x");
+                    emit("dex");
                     emit("bpl @__fcpy_" + std::to_string(labelCounter_++));
                 } else if (currentFunctionUseSAC_) {
                     std::string sym = currentFunctionName_ + "__local_" + std::to_string(vregId);
@@ -4913,11 +4931,12 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 ms_.invalidateAll();
                 if (a.loc == VRegAllocator::IN_ZP) {
                     std::string zp = "$" + hex8((uint8_t)a.offset);
-                    emit("ldy #4");
+                    // X-indexed: LDA/STA have no base-page,Y mode
+                    emit("ldx #4");
                     emit(std::string("@__fcpy_") + std::to_string(labelCounter_) + ":");
-                    emit("lda " + src + ",y");
-                    emit("sta " + zp + ",y");
-                    emit("dey");
+                    emit("lda " + src + ",x");
+                    emit("sta " + zp + ",x");
+                    emit("dex");
                     emit("bpl @__fcpy_" + std::to_string(labelCounter_++));
                 } else if (currentFunctionUseSAC_) {
                     std::string sym = currentFunctionName_ + "__local_" + std::to_string(vregId);

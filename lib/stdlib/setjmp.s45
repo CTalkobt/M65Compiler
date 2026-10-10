@@ -17,7 +17,9 @@
 .global _setjmp
 .global _longjmp
 .extern __sp_base
-.extern __zp_scratch
+; Compiler scratch ($08). A constant, not .extern: an external symbol is
+; assembled as absolute $0008, which ignores the relocated base page.
+__zp_scratch = $08
 
 .segment "code"
 

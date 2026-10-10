@@ -1,7 +1,9 @@
 /* cbm.h — Commodore KERNAL interface for cc45 / MEGA65
  *
  * Provides inline wrappers for the standard CBM KERNAL jump table.
- * All functions use __asm__ to call KERNAL routines directly.
+ * All functions use __asm__ to call KERNAL routines directly. Each call is
+ * bracketed by __bp_rom/__bp_prog (crt0), which switch the base page to the
+ * ROM's page 0 and back to the program's relocated zero page.
  * Compatible with C64, C128, and MEGA65 KERNAL.
  *
  * Usage:
@@ -58,19 +60,25 @@
 /* Output a character to the current output channel */
 static void cbm_chrout(char c) {
     __asm__("lda.sp @_p_c");
+    __asm__("jsr __bp_rom");
     __asm__("jsr $FFD2");
+    __asm__("jsr __bp_prog");
 }
 
 /* Read a character from the current input channel */
 static int cbm_chrin(void) {
+    __asm__("jsr __bp_rom");
     __asm__("jsr $FFCF");
+    __asm__("jsr __bp_prog");
     __asm__("ldx #$00");
     return;
 }
 
 /* Get a character from the keyboard queue (non-blocking, 0 if empty) */
 static int cbm_getin(void) {
+    __asm__("jsr __bp_rom");
     __asm__("jsr $FFE4");
+    __asm__("jsr __bp_prog");
     __asm__("ldx #$00");
     return;
 }
@@ -79,7 +87,9 @@ static int cbm_getin(void) {
 
 /* Read the I/O status byte */
 static int cbm_readst(void) {
+    __asm__("jsr __bp_rom");
     __asm__("jsr $FFB7");
+    __asm__("jsr __bp_prog");
     __asm__("ldx #$00");
     return;
 }
@@ -95,7 +105,9 @@ static void cbm_setlfs(char lfn, char device, char sa) {
     __asm__("lda.sp @_p_device");
     __asm__("tax");
     __asm__("lda.sp @_p_lfn");
+    __asm__("jsr __bp_rom");
     __asm__("jsr $FFBA");
+    __asm__("jsr __bp_prog");
 }
 
 /* Set filename for next OPEN/LOAD/SAVE
@@ -104,14 +116,18 @@ static void cbm_setlfs(char lfn, char device, char sa) {
 static void cbm_setnam(char *name, char len) {
     __asm__("ldxy @_p_name, sp");  /* X=lo, Y=hi */
     __asm__("lda.sp @_p_len");
+    __asm__("jsr __bp_rom");
     __asm__("jsr $FFBD");
+    __asm__("jsr __bp_prog");
 }
 
 /* Open a logical file (call cbm_setlfs and cbm_setnam first)
  * Returns 0 on success, 1 on error (carry set)
  */
 static int cbm_open(void) {
+    __asm__("jsr __bp_rom");
     __asm__("jsr $FFC0");
+    __asm__("jsr __bp_prog");
     __asm__("lda #$00");
     __asm__("tax");
     __asm__("adc #$00");  /* A = carry (0=ok, 1=error) */
@@ -121,14 +137,18 @@ static int cbm_open(void) {
 /* Close a logical file */
 static void cbm_close(char lfn) {
     __asm__("lda.sp @_p_lfn");
+    __asm__("jsr __bp_rom");
     __asm__("jsr $FFC3");
+    __asm__("jsr __bp_prog");
 }
 
 /* Set input channel. Returns 0 on success, 1 on error. */
 static int cbm_chkin(char lfn) {
     __asm__("lda.sp @_p_lfn");
     __asm__("tax");
+    __asm__("jsr __bp_rom");
     __asm__("jsr $FFC6");
+    __asm__("jsr __bp_prog");
     __asm__("lda #$00");
     __asm__("tax");
     __asm__("adc #$00");
@@ -139,7 +159,9 @@ static int cbm_chkin(char lfn) {
 static int cbm_chkout(char lfn) {
     __asm__("lda.sp @_p_lfn");
     __asm__("tax");
+    __asm__("jsr __bp_rom");
     __asm__("jsr $FFC9");
+    __asm__("jsr __bp_prog");
     __asm__("lda #$00");
     __asm__("tax");
     __asm__("adc #$00");
@@ -148,19 +170,25 @@ static int cbm_chkout(char lfn) {
 
 /* Restore default I/O channels */
 static void cbm_clrchn(void) {
+    __asm__("jsr __bp_rom");
     __asm__("jsr $FFCC");
+    __asm__("jsr __bp_prog");
 }
 
 /* Close all open files */
 static void cbm_clall(void) {
+    __asm__("jsr __bp_rom");
     __asm__("jsr $FFE7");
+    __asm__("jsr __bp_prog");
 }
 
 /* ===== Keyboard ===== */
 
 /* Check if STOP key is pressed (returns non-zero if pressed) */
 static int cbm_stop(void) {
+    __asm__("jsr __bp_rom");
     __asm__("jsr $FFE1");
+    __asm__("jsr __bp_prog");
     /* Z=1 if STOP pressed. Preserve Z across LDX. */
     __asm__("php");
     __asm__("ldx #$00");
@@ -182,13 +210,17 @@ static void cbm_gotoxy(char col, char row) {
     __asm__("tax");
     __asm__("lda.sp @_p_col");
     __asm__("tay");
+    __asm__("jsr __bp_rom");
     __asm__("jsr $FFF0");
+    __asm__("jsr __bp_prog");
 }
 
 /* Get cursor position. Returns col in low byte, row in high byte. */
 static int cbm_wherexy(void) {
     __asm__("sec");
+    __asm__("jsr __bp_rom");
     __asm__("jsr $FFF0");
+    __asm__("jsr __bp_prog");
     /* X=row, Y=col → return col(lo) | row(hi) */
     __asm__("tya");      /* A = col */
     /* X already = row */
@@ -199,7 +231,9 @@ static int cbm_wherexy(void) {
  * KERNAL SCREEN returns X=cols, Y=rows.
  */
 static int cbm_screen(void) {
+    __asm__("jsr __bp_rom");
     __asm__("jsr $FFED");
+    __asm__("jsr __bp_prog");
     /* X=cols, Y=rows → need A=cols, X=rows */
     __asm__("txa");      /* A = cols (save) */
     __asm__("taz");      /* Z = cols */
@@ -215,7 +249,9 @@ static int cbm_screen(void) {
  * Returns low 16 bits (Y=lo, X=mid from KERNAL).
  */
 static int cbm_rdtim(void) {
+    __asm__("jsr __bp_rom");
     __asm__("jsr $FFDE");
+    __asm__("jsr __bp_prog");
     /* RDTIM returns A=hi, X=mid, Y=lo (24-bit clock) */
     __asm__("tya");      /* A = lo byte */
     /* X already = mid byte */
@@ -227,46 +263,62 @@ static int cbm_rdtim(void) {
 /* Send LISTEN command to device */
 static void cbm_listen(char device) {
     __asm__("lda.sp @_p_device");
+    __asm__("jsr __bp_rom");
     __asm__("jsr $FFB1");
+    __asm__("jsr __bp_prog");
 }
 
 /* Send UNLISTEN */
 static void cbm_unlisten(void) {
+    __asm__("jsr __bp_rom");
     __asm__("jsr $FFAE");
+    __asm__("jsr __bp_prog");
 }
 
 /* Send TALK command to device */
 static void cbm_talk(char device) {
     __asm__("lda.sp @_p_device");
+    __asm__("jsr __bp_rom");
     __asm__("jsr $FFB4");
+    __asm__("jsr __bp_prog");
 }
 
 /* Send UNTALK */
 static void cbm_untalk(void) {
+    __asm__("jsr __bp_rom");
     __asm__("jsr $FFAB");
+    __asm__("jsr __bp_prog");
 }
 
 /* Send secondary address after LISTEN */
 static void cbm_second(char sa) {
     __asm__("lda.sp @_p_sa");
+    __asm__("jsr __bp_rom");
     __asm__("jsr $FF93");
+    __asm__("jsr __bp_prog");
 }
 
 /* Send secondary address after TALK */
 static void cbm_tksa(char sa) {
     __asm__("lda.sp @_p_sa");
+    __asm__("jsr __bp_rom");
     __asm__("jsr $FF96");
+    __asm__("jsr __bp_prog");
 }
 
 /* Send byte to serial bus */
 static void cbm_ciout(char data) {
     __asm__("lda.sp @_p_data");
+    __asm__("jsr __bp_rom");
     __asm__("jsr $FFA8");
+    __asm__("jsr __bp_prog");
 }
 
 /* Get byte from serial bus */
 static int cbm_acptr(void) {
+    __asm__("jsr __bp_rom");
     __asm__("jsr $FF13");
+    __asm__("jsr __bp_prog");
     __asm__("ldx #$00");
     return;
 }

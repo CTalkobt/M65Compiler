@@ -8,6 +8,8 @@
 ; because the compiler uses it as a temp register (TAZ/TZA pattern).
 
 .global _putchar
+.extern __bp_rom
+.extern __bp_prog
 .extern __sp_base
 
 .segment "code"
@@ -18,7 +20,9 @@ proc _putchar, W#_p_c
     tsx
     lda __sp_base+_p_c, x        ; c lo (character)
     phz
+    jsr __bp_rom
     jsr $FFD2
+    jsr __bp_prog
     plz
     ; return c (lo in A, hi in X)
     tsx

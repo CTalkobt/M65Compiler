@@ -364,7 +364,16 @@ void M65Emitter::row_abs(uint16_t addr) { ms_.invalidateAbs(addr); ms_.invalidat
 void M65Emitter::lda_zp(uint8_t addr) { ms_.setRegFromZP(REG_A, addr); emitInstruction("lda", AddressingMode::BASE_PAGE, addr, true); }
 void M65Emitter::ldx_zp(uint8_t addr) { ms_.setRegFromZP(REG_X, addr); emitInstruction("ldx", AddressingMode::BASE_PAGE, addr, true); }
 void M65Emitter::ldy_zp(uint8_t addr) { ms_.setRegFromZP(REG_Y, addr); emitInstruction("ldy", AddressingMode::BASE_PAGE, addr, true); }
-void M65Emitter::ldz_zp(uint8_t addr) { ms_.setRegFromZP(REG_Z, addr); emitInstruction("ldz", AddressingMode::ABSOLUTE, addr, true); }
+// LDZ has no base-page mode ("ldz $xx" is absolute $00xx and ignores the base
+// page register), so load through A, preserving A.
+void M65Emitter::ldz_zp(uint8_t addr) {
+    emitInstruction("pha", AddressingMode::IMPLIED);
+    emitInstruction("lda", AddressingMode::BASE_PAGE, addr, true);
+    emitInstruction("taz", AddressingMode::IMPLIED);
+    emitInstruction("pla", AddressingMode::IMPLIED);
+    ms_.setRegFromZP(REG_Z, addr);
+    ms_.flags.invalidate();
+}
 void M65Emitter::sta_zp(uint8_t addr) { ms_.storeZP(addr, REG_A); emitInstruction("sta", AddressingMode::BASE_PAGE, addr, true); }
 void M65Emitter::stx_zp(uint8_t addr) { ms_.storeZP(addr, REG_X); emitInstruction("stx", AddressingMode::BASE_PAGE, addr, true); }
 void M65Emitter::sty_zp(uint8_t addr) { ms_.storeZP(addr, REG_Y); emitInstruction("sty", AddressingMode::BASE_PAGE, addr, true); }

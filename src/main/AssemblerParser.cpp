@@ -1822,15 +1822,31 @@ int AssemblerParser::calculateInstructionSize(const Instruction& instr, uint32_t
                 if (isRelocatableSymbol(symName)) forceAbs = true;
             }
 
+            // A zero-page operand on an instruction without the matching
+            // base-page mode (LDZ, LDA zp,Y, ...) is assembled as absolute
+            // $00xx, which ignores the base page register (B).
+            auto warnNoBP = [&](const char* idx) {
+                if (!fitsIn8 || forceAbs || !zpYWarned_.insert(instr.operandTokenIndex).second) return;
+                const auto& tok = tokens[instr.operandTokenIndex];
+                char buf[192];
+                std::snprintf(buf, sizeof(buf),
+                    "'%s $%02X%s' has no base-page mode: assembled as absolute $00%02X%s, "
+                    "which ignores the base page register",
+                    instr.mnemonic.c_str(), val, idx, val, idx);
+                addWarning(formatDiagnostic(currentSourceFile_, tok.line, tok.column, Severity::Warning, buf));
+            };
             if (instr.mode == AddressingMode::BASE_PAGE || instr.mode == AddressingMode::ABSOLUTE) {
                 bool supportsBP = AssemblerOpcodeDatabase::isValidMode(instr.mnemonic, AddressingMode::BASE_PAGE);
                 resolvedMode = (fitsIn8 && !forceAbs && supportsBP) ? AddressingMode::BASE_PAGE : AddressingMode::ABSOLUTE;
+                if (!supportsBP && AssemblerOpcodeDatabase::isValidMode(instr.mnemonic, AddressingMode::ABSOLUTE)) warnNoBP("");
             } else if (instr.mode == AddressingMode::BASE_PAGE_X || instr.mode == AddressingMode::ABSOLUTE_X) {
                 bool supportsBPX = AssemblerOpcodeDatabase::isValidMode(instr.mnemonic, AddressingMode::BASE_PAGE_X);
                 resolvedMode = (fitsIn8 && !forceAbs && supportsBPX) ? AddressingMode::BASE_PAGE_X : AddressingMode::ABSOLUTE_X;
+                if (!supportsBPX) warnNoBP(",x");
             } else if (instr.mode == AddressingMode::BASE_PAGE_Y || instr.mode == AddressingMode::ABSOLUTE_Y) {
                 bool supportsBPY = AssemblerOpcodeDatabase::isValidMode(instr.mnemonic, AddressingMode::BASE_PAGE_Y);
                 resolvedMode = (fitsIn8 && !forceAbs && supportsBPY) ? AddressingMode::BASE_PAGE_Y : AddressingMode::ABSOLUTE_Y;
+                if (!supportsBPY) warnNoBP(",y");
             }
         } catch(...) {
             // If we can't evaluate yet, assume ABSOLUTE to be safe

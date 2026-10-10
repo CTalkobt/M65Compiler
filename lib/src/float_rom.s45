@@ -11,8 +11,17 @@
 ; ARG (secondary accumulator) at $6A-$6F
 ;
 ; Float values are 5 bytes: exponent (1) + mantissa (4), big-endian.
+;
+; The program runs with its base page relocated (see crt0), but the ROM and
+; the FAC/ARG/JSRFAR locations above are in page 0. Each public __float_*
+; entry switches to page 0 (__bp_rom) and returns through __bp_prog. The
+; internal helpers (__jsrfar_basic, __float_load_*, __float_store_fac) must
+; only be called with the base page already at 0.
 
     .cpu 45gs02
+
+.extern __bp_rom
+.extern __bp_prog
 
 ; KERNAL far-call entry
 JSRFAR      = $FF6E
@@ -148,6 +157,7 @@ __float_store_fac:
 ; ===========================================================================
 .global __float_add
 __float_add:
+    jsr __bp_rom
     lda #<__float_b
     ldx #>__float_b
     jsr __float_load_fac
@@ -160,13 +170,14 @@ __float_add:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jmp __bp_prog
 
 ; ===========================================================================
 ; Binary: __float_sub  (result = a - b)
 ; ===========================================================================
 .global __float_sub
 __float_sub:
+    jsr __bp_rom
     lda #<__float_b
     ldx #>__float_b
     jsr __float_load_fac
@@ -179,13 +190,14 @@ __float_sub:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jmp __bp_prog
 
 ; ===========================================================================
 ; Binary: __float_mul  (result = a * b)
 ; ===========================================================================
 .global __float_mul
 __float_mul:
+    jsr __bp_rom
     lda #<__float_b
     ldx #>__float_b
     jsr __float_load_fac
@@ -198,13 +210,14 @@ __float_mul:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jmp __bp_prog
 
 ; ===========================================================================
 ; Binary: __float_div  (result = a / b)
 ; ===========================================================================
 .global __float_div
 __float_div:
+    jsr __bp_rom
     lda #<__float_b
     ldx #>__float_b
     jsr __float_load_fac
@@ -217,13 +230,14 @@ __float_div:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jmp __bp_prog
 
 ; ===========================================================================
 ; Unary: __float_neg  (result = -a)
 ; ===========================================================================
 .global __float_neg
 __float_neg:
+    jsr __bp_rom
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
@@ -233,13 +247,14 @@ __float_neg:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jmp __bp_prog
 
 ; ===========================================================================
 ; Compare: __float_cmp  (a vs b → A = $FF/-1, $00, $01)
 ; ===========================================================================
 .global __float_cmp
 __float_cmp:
+    jsr __bp_rom
     ; Compute a - b via FSUBT, then check sign
     ; FSUBT: FAC = ARG - FAC, so load b→FAC, a→ARG → FAC = a - b
     lda #<__float_b
@@ -257,19 +272,20 @@ __float_cmp:
     lda FAC_SI
     bne @negative        ; sign byte nonzero = negative
     lda #$01            ; positive: a > b
-    rts
+    jmp __bp_prog
 @negative:
     lda #$FF            ; negative: a < b
-    rts
+    jmp __bp_prog
 @zero:
     lda #$00            ; equal
-    rts
+    jmp __bp_prog
 
 ; ===========================================================================
 ; Conversion: __float_itof (int AX → float at __float_a)
 ; ===========================================================================
 .global __float_itof
 __float_itof:
+    jsr __bp_rom
     ; Input: A=low byte, X=high byte of 16-bit integer
     ; GIVAYF expects: A=high byte, Y=low byte
     ; JSRFAR loads: A from $06, Y from $08
@@ -288,13 +304,14 @@ __float_itof:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jmp __bp_prog
 
 ; ===========================================================================
 ; Conversion: __float_ftoi (float at __float_a → int AX)
 ; ===========================================================================
 .global __float_ftoi
 __float_ftoi:
+    jsr __bp_rom
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
@@ -304,13 +321,14 @@ __float_ftoi:
     ; MEGA65 BASIC 65 AYINT: stores 16-bit integer in FAC_M1 (low) and FAC_M2 (high)
     lda FAC_M1      ; low byte
     ldx FAC_M2      ; high byte
-    rts
+    jmp __bp_prog
 
 ; ===========================================================================
 ; Math: unary float functions
 ; ===========================================================================
 .global __float_sin
 __float_sin:
+    jsr __bp_rom
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
@@ -320,10 +338,11 @@ __float_sin:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jmp __bp_prog
 
 .global __float_cos
 __float_cos:
+    jsr __bp_rom
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
@@ -333,10 +352,11 @@ __float_cos:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jmp __bp_prog
 
 .global __float_tan
 __float_tan:
+    jsr __bp_rom
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
@@ -346,10 +366,11 @@ __float_tan:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jmp __bp_prog
 
 .global __float_atn
 __float_atn:
+    jsr __bp_rom
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
@@ -359,10 +380,11 @@ __float_atn:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jmp __bp_prog
 
 .global __float_log
 __float_log:
+    jsr __bp_rom
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
@@ -372,10 +394,11 @@ __float_log:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jmp __bp_prog
 
 .global __float_exp
 __float_exp:
+    jsr __bp_rom
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
@@ -385,10 +408,11 @@ __float_exp:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jmp __bp_prog
 
 .global __float_sqr
 __float_sqr:
+    jsr __bp_rom
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
@@ -398,10 +422,11 @@ __float_sqr:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jmp __bp_prog
 
 .global __float_abs
 __float_abs:
+    jsr __bp_rom
     lda #<__float_a
     ldx #>__float_a
     jsr __float_load_fac
@@ -411,7 +436,7 @@ __float_abs:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
-    rts
+    jmp __bp_prog
 
 ; ===========================================================================
 ; Shared data buffers

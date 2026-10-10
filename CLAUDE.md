@@ -101,22 +101,12 @@ PRG Executable or Flat Binary
    - Stack frame metadata (.zp_uses, .zp_clobbers, .reg_clobbers, .flag_clobbers directives)
    - Per-instruction debugging: .loc directives for source line attribution
 
-6. **Zero-Page Save/Restore Mechanism** (Runtime Boundary Preservation):
-   - **What it does**: Preserves zero-page RAM ($08–$FF, 248 bytes) at program startup and restores it on exit
-   - **When needed**: Programs called from BASIC, KERNAL, or disk-based loaders that expect ZP to be unchanged
-   - **Implementation**:
-     * `crt0.s` performs save at startup (before `_main()`) and restore before exit
-     * Global buffer `__zp_save_buf` (248 bytes in BSS) holds saved data
-     * Save loop: `LDA $08,Y` → `STA __zp_save_buf,Y` (248 iterations)
-     * Restore loop: `LDA __zp_save_buf,Y` → `STA $08,Y` (248 iterations)
-     * Return value preserved in $02–$03 (below save/restore range)
-   - **Code size impact**: ~500 bytes of code + 248 bytes BSS = ~750 bytes total
-   - **Performance**: ~2ms on 48MHz MEGA65 (negligible)
-   - **Disabling**: Use `#pragma cc45 no_zp_save` to disable for standalone executables
-     * Saves ~750 bytes when standalone guarantees no BASIC/KERNAL callbacks
-     * Pragma parsed in Preprocessor, converted to `.no_zp_save` directive
-     * Code generation conditional on `module_.saveZP` flag (set via IRBuilder)
-   - **Calling convention interaction**: Safe with both stack and ZP conventions (uses $02–$03 scratch space)
+6. **Relocated Base Page** (the program's private zero page):
+   - **What it does**: crt0 moves the 45GS02 base page register (`TAB`) to `__zp_page`, a page-aligned 256-byte block the linker allocates at the end of BSS. The program's "zero page" never overlaps the ROM's page 0, so nothing is saved or restored; `__exit` sets B back to 0.
+   - **ROM calls**: KERNAL/BASIC routines expect B=0. Call sites bracket them with `jsr __bp_rom` / `jsr __bp_prog` (crt0): `__bp_rom` sets B=0 preserving A/X/Y/Z, `__bp_prog` restores the program page preserving A/X/Y/Z and the flags. Used by `putchar`, `getchar`, `puts`, `clock`, `cbm.h`, and the float runtime (`float_rom.s45`: each public `__float_*` entry switches to page 0 for its whole body).
+   - **Interrupts**: the ROM IRQ handler saves B and sets it to 0 (`tba/pha/lda #0/tab` … `pla/tab`), so IRQs are safe while B is relocated. A C `__interrupt` handler saves B and loads `>__zp_page` in its prologue.
+   - **Pitfalls** (ca45 warns: "has no base-page mode"): an instruction without a base-page form is assembled absolute and ignores B — `ldz $xx` (use `ldq`, or `lda`+`taz`), `lda/sta $xx,y` (use `,x` or `(zp),y`), `jmp ($xx)`, `phw $00xx`. An `.extern` ZP symbol is also assembled absolute, so library `.s45` files define ZP temps as constants.
+   - **Standalone builds** (no linker): the startup stub relocates to `.align 256` after the program. `#pragma cc45 no_zp_save` (or `set_bp`) keeps the base page at 0 / the given page.
 
 ### Key Files and Directories
 
@@ -273,10 +263,7 @@ ln45 (Link: Combine .o45 objects + libraries → PRG/Binary)
   * `heap` — Enable dynamic memory allocation via `malloc`/`free` (sets up heap manager)
   * `no_bssinit` — Skip BSS (Block Started by Symbol) zero-initialization. Use when BSS is already cleared by loader.
   * `no_0100_stack` — Don't initialize stack pointer at $0100. Use when caller provides valid stack.
-  * `no_zp_save` — Skip zero-page ($08–$FF) save/restore cycles. For standalone executables that don't need BASIC/KERNAL compatibility.
-    - Typical usage: `#pragma cc45 no_zp_save` at file top
-    - Disables ~500 bytes of save/restore code and ~248 bytes of BSS buffer
-    - Pair with `exit_rts halt` for fully standalone ROM-based programs
+  * `no_zp_save` — Standalone (non-linked) builds only: don't relocate the base page; the program uses page 0 directly.
   * `exit_rts` / `halt` / `brk` — Set program termination behavior:
     - `exit_rts`: Return to caller with value in A:X (default for BASIC-callable programs)
     - `halt`: Infinite loop (BRA *; for ROM programs)
@@ -441,25 +428,25 @@ ln45 (Link: Combine .o45 objects + libraries → PRG/Binary)
 **Entry (crt0.s)**:
 1. MEGA65 I/O initialization: Send 0x47 0x53 ('GS') to $D02F to enable hardware registers
 2. Stack pointer initialization: SEI; LDX #$FF; TXS (unless `#pragma cc45 no_0100_stack`)
-3. **Zero-page save**: Save $08–$FF to `__zp_save_buf` (unless `#pragma cc45 no_zp_save`)
+3. **Base page relocation**: `lda #>__zp_page / tab` — the program's zero page is a private page at the end of BSS
 4. BSS initialization: Zero all BSS variables (unless `#pragma cc45 no_bssinit`)
 5. Call `_main()`: Entry point to user code
 
 **Exit**:
 1. Capture return value (A:X or full value depending on type)
-2. **Zero-page restore**: Restore $08–$FF from `__zp_save_buf` (unless `#pragma cc45 no_zp_save`)
+2. **Base page reset**: `lda #0 / tab` (back to the ROM's page 0)
 3. Select exit mode (`#pragma cc45 exit_rts` / `halt` / `brk`):
    - `exit_rts` (default): Return to caller (BASIC, KERNAL)
    - `halt`: Infinite loop (ROM programs)
    - `brk`: Trigger BRK for debugger
 
 **Use Case Examples**:
-- **BASIC-callable programs**: Include ZP save (default), use `exit_rts`
+- **BASIC-callable programs**: default (relocated base page), use `exit_rts`
   ```c
   #include <stdio.h>
-  int main() { printf("Hello\n"); return 0; }  // Saves ZP, returns to BASIC
+  int main() { printf("Hello\n"); return 0; }  // ROM page 0 untouched, returns to BASIC
   ```
-- **Standalone/ROM programs**: Disable ZP save and use `halt`
+- **Standalone/ROM programs**: use page 0 directly and `halt`
   ```c
   #pragma cc45 no_zp_save
   #pragma cc45 exit_rts halt
