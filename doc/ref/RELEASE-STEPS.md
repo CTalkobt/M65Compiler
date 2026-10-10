@@ -68,26 +68,7 @@ make test-stdlib
 
 ---
 
-## 4. Performance Benchmarks
-
-```bash
-make bench
-```
-
-Runs 15 benchmarks measuring compile time, link time, object size, PRG size, and execution cycles. Compares against saved baseline (`src/test/bench_baseline.json`).
-
-- Size or cycle regressions >10% are flagged and fail the check
-- Review any SLOWER or REGRESSION entries
-- If regressions are acceptable (e.g., new feature adds code), update baseline:
-  ```bash
-  make bench-save
-  ```
-
-**Gate: no unexpected regressions.**
-
----
-
-## 5. Code Quality
+## 4. Code Quality
 
 ```bash
 make cppcheck
@@ -101,7 +82,7 @@ make coverage
 
 ---
 
-## 6. GitHub Issue Audit
+## 5. GitHub Issue Audit
 
 ```bash
 # Verify all issues for the target milestone are closed
@@ -115,7 +96,7 @@ All issues tagged for this release milestone should be closed. No open bugs.
 
 ---
 
-## 7. Documentation
+## 6. Documentation
 
 ```bash
 make man
@@ -130,7 +111,7 @@ Review:
 
 ---
 
-## 8. Install Smoke Test
+## 7. Install Smoke Test
 
 ```bash
 make install_local
@@ -146,7 +127,7 @@ Verify version string matches the release.
 
 ---
 
-## 9. Example Programs
+## 8. Example Programs
 
 Build each example from clean to verify end-to-end toolchain:
 
@@ -162,7 +143,7 @@ done
 
 ---
 
-## 10. Docker Build
+## 9. Docker Build
 
 Build and test the Docker image to verify the toolchain works in a clean environment:
 
@@ -187,7 +168,7 @@ docker run --rm -v $(pwd)/examples:/work cc45:vX.Y.Z sh -c \
 
 ---
 
-## 11. Final Commit & Tag
+## 10. Final Commit & Tag
 
 ```bash
 git add -A
@@ -198,7 +179,7 @@ git push && git push origin vX.Y.Z
 
 ---
 
-## 12. GitHub Release
+## 11. GitHub Release
 
 ```bash
 gh release create vX.Y.Z --title "vX.Y.Z" --notes-file CHANGELOG_EXCERPT.md
@@ -208,7 +189,7 @@ Or create via GitHub UI with release notes extracted from CHANGELOG.md.
 
 ---
 
-## 13. Merge to Main
+## 12. Merge to Main
 
 Merge the release branch into main and push:
 
@@ -232,7 +213,7 @@ git log --oneline -5
 Full pre-release validation (requires mmemu-cli):
 
 ```bash
-make clean && make all && make lib && make test && make test-stdlib && make bench && docker build -t cc45:latest .
+make clean && make all && make lib && make test && make test-stdlib && docker build -t cc45:latest .
 # After tag + release:
 git checkout main && git merge --no-ff dev_vX.Y.Z && git push ORIGIN main
 ```

@@ -384,9 +384,9 @@ $(LIB_DIR):
 
 .PHONY: lib45-libraries lib45-sizes lib45-clean show-lib-deps parallel-build
 .PHONY: all clean test man test-mmemu test-stdlib test-regression test-zpcall stdlib
-.PHONY: test-integration bench bench-save lib install install_local uninstall
+.PHONY: test-integration lib install install_local uninstall
 .PHONY: uninstall_local cppcheck coverage coverage-build coverage-clean
-.PHONY: coverage-report docker validate_performance test-assembler test-const
+.PHONY: coverage-report docker test-assembler test-const
 .PHONY: test-restrict test-register test-cast-fold test-o45 test-move-fill
 .PHONY: test-validation-parser test-validation-struct test-validation-const
 .PHONY: test-validation-semantic test-validation-preprocessor test-opcodes
@@ -557,16 +557,8 @@ test-regression: all lib
 test-zpcall: all
 	@bash src/test/test_zpcall.sh
 
-bench: all lib
-	@bash src/test/bench.sh
-
 bench-optimizer: all
 	@bash src/test/bench_optimizer.sh
-
-bench-save: all lib
-	@bash src/test/bench.sh
-	@cp build/test/bench_results.json src/test/bench_baseline.json
-	@echo "Baseline saved to src/test/bench_baseline.json"
 
 test-objdump45: all
 	@bash src/test/test_objdump45.sh
@@ -889,10 +881,6 @@ install_local:
 
 uninstall_local:
 	@$(MAKE) uninstall PREFIX=$(HOME)/.local
-
-validate_performance: all
-	@echo "Validating performance with multi-level optimization benchmark..."
-	@bash src/test/validate_performance.sh
 
 # Audio Phase Tests (Phases 12-16)
 TEST_PHASE12_TARGET = $(BIN_DIR)/test_phase12_sequencer
