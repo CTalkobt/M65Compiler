@@ -78,7 +78,7 @@ proc _div
 
 @wait:
     bit $D70F
-    bne @wait
+    bmi @wait
 
     ; Quotient
     lda $D76C

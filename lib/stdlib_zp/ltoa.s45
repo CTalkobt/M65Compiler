@@ -106,7 +106,7 @@ proc _ltoa
 
 @waitdiv:
     bit $D70F
-    bne @waitdiv
+    bmi @waitdiv
 
     ; Compute remainder = value - quotient * base
     ; Write quotient to $D770, base still in $D774

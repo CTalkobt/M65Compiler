@@ -78,7 +78,7 @@ proc _utoa, W#_p_value, W#_p_str, W#_p_base
 
 @waitdiv:
     bit $d70f
-    bne @waitdiv
+    bmi @waitdiv
 
     ; Save quotient before multiply clobbers it
     lda $d76c

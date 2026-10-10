@@ -97,7 +97,7 @@ proc _ldiv
 @divide:
 @wait:
     bit $D70F
-    bne @wait
+    bmi @wait
 
     ; --- Quotient with sign ---
     lda $0D

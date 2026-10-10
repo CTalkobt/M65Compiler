@@ -145,7 +145,12 @@ void AssemblerSimulatedOps::emitDivCode(AssemblerParser* parser, M65Emitter& e, 
             if (bytes >= 4) storeMath(m65::DIV_ARG2, 3, ".Z");
         } else for (int i = 0; i < bytes; ++i) storeMath(m65::DIV_ARG2, i, srcName);
     }
-    e.bit_addr(m65::MATH_BUSY_STATUS); e.bne(-5);
+    // The divider always uses all 32 bits of both inputs; clear bytes this op didn't write
+    if (bytes < 4) {
+        e.lda_imm(0);
+        for (int i = bytes; i < 4; ++i) { e.sta_addr(m65::DIV_ARG1 + i); e.sta_addr(m65::DIV_ARG2 + i); }
+    }
+    e.bit_addr(m65::MATH_BUSY_STATUS); e.bmi(-5);  // DIVBUSY is bit 7 → N
     if (dest == ".A" || dest == ".AX" || dest == ".AXY" || dest == ".AXYZ" || dest == ".Q") {
         if (bytes >= 4) { e.lda_addr(m65::DIV_RES + 3); e.taz(); }
         if (bytes >= 3) { e.lda_addr(m65::DIV_RES + 2); e.tay(); }
@@ -1888,7 +1893,7 @@ uint32_t AssemblerSimulatedOps::resolveAbsAddr(AssemblerParser* parser, int toke
 // op: 0=mul, 1=div, 2=mod
 // Left in .AX, right from tokenIndex (constant or memory address).
 // Hardware (VHDL): mul/div share inputs $D770/$D774. mul→$D778 (combinational), div→$D76C (integer quotient).
-// $D76E used as sign scratch byte.
+// Result sign is kept in Y (mul/div/mod.s16 are declared to clobber Y).
 void AssemblerSimulatedOps::emitSignedMathOp(AssemblerParser* parser, M65Emitter& e, int op,
                              const std::string& /*dest*/, int tokenIndex, const std::string& scopePrefix) {
     int idx = tokenIndex;
@@ -1897,7 +1902,6 @@ void AssemblerSimulatedOps::emitSignedMathOp(AssemblerParser* parser, M65Emitter
     auto srcAst = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
     if (!srcAst) return;
 
-    const uint16_t SIGN = m65::MATH_SIGN;
     // VHDL: mul and div share input registers $D770/$D774
     uint16_t leftBase  = m65::MULT_ARG1;
     uint16_t rightBase = m65::MULT_ARG2;
@@ -1908,7 +1912,7 @@ void AssemblerSimulatedOps::emitSignedMathOp(AssemblerParser* parser, M65Emitter
     // Must preserve AX intact for neg_16, so save A before using it.
     e.pha();                              // save original A (byte 0)
     e.txa();                              // A = X = byte 1 (sign byte)
-    e.sta_addr(SIGN);                     // SIGN = left sign byte
+    e.tay();                              // Y = left sign byte (N still reflects it)
     auto brPos = e.emitBranchPlaceholder(0x10); // BPL: left is positive
     e.pla();                              // restore A for neg_16
     e.neg_16();                           // AX = abs(left)
@@ -1921,19 +1925,25 @@ void AssemblerSimulatedOps::emitSignedMathOp(AssemblerParser* parser, M65Emitter
     e.sta_addr(leftBase);
     e.txa();
     e.sta_addr(leftBase + 1);
+    if (op != 0) {
+        // The divider uses all 32 bits of both inputs; clear the high bytes
+        e.lda_imm(0);
+        e.sta_addr(leftBase + 2);  e.sta_addr(leftBase + 3);
+        e.sta_addr(rightBase + 2); e.sta_addr(rightBase + 3);
+    }
 
     // --- Step 3: Compute result sign (XOR of operand signs for mul/div) ---
     if (op != 2 && !srcIsConst) {
         uint32_t srcAddr = resolveAbsAddr(parser, tokenIndex, scopePrefix);
-        e.lda_addr(srcAddr + 1);      // right high byte
-        e.eor_addr(SIGN);             // XOR signs
-        e.sta_addr(SIGN);             // SIGN = left_sign ^ right_sign
+        e.tya();
+        e.eor_addr(srcAddr + 1);      // XOR with right high byte
+        e.tay();                      // Y = left_sign ^ right_sign
     } else if (op != 2 && srcIsConst) {
         int32_t val = (int32_t)(int16_t)srcAst->getValue(parser);
         if (val < 0) {
-            e.lda_addr(SIGN);
+            e.tya();
             e.eor_imm(0x80);
-            e.sta_addr(SIGN);
+            e.tay();
         }
     }
 
@@ -1952,14 +1962,14 @@ void AssemblerSimulatedOps::emitSignedMathOp(AssemblerParser* parser, M65Emitter
         // Check sign: lda_abs already loaded high byte and set N flag
         // Negation block: lda(3)+eor(2)+sec(1)+adc(2)+sta(3)+lda(3)+eor(2)+adc(2)+sta(3) = 21 bytes
         auto br1784 = e.emitBranchPlaceholder(0x10);              // BPL: skip negation
-        e.lda_addr(rightBase);     e.eor_imm(0xFF); e.sec(); e.adc_imm(1); e.sta_addr(rightBase);      // 11
+        e.lda_addr(rightBase);     e.eor_imm(0xFF); e.clc(); e.adc_imm(1); e.sta_addr(rightBase);      // 11
         e.lda_addr(rightBase + 1); e.eor_imm(0xFF);            e.adc_imm(0); e.sta_addr(rightBase + 1); // 10
         e.patchBranchTarget(br1784);
     }
 
     // --- Step 5: Wait for hardware (div/mod only) ---
     if (op != 0) {
-        e.bit_addr(m65::MATH_BUSY_STATUS); e.bne(-5);
+        e.bit_addr(m65::MATH_BUSY_STATUS); e.bmi(-5);  // DIVBUSY is bit 7 → N
     }
 
     // --- Step 6: Read result ---
@@ -1988,18 +1998,11 @@ void AssemblerSimulatedOps::emitSignedMathOp(AssemblerParser* parser, M65Emitter
     }
 
     // --- Step 7: Sign correction ---
-    // If SIGN bit 7 set, negate .AX.
-    // Sequence: pha(1) lda_abs(3) bpl(2) pla(1) neg_16(13) bra(2) pla(1) = 23 total
-    // bpl skips: pla(1)+neg_16(13)+bra(2) = 16 bytes
-    e.pha();
-    e.lda_addr(SIGN);
-    auto br1810 = e.emitBranchPlaceholder(0x10); // BPL: skip sign correction
-    e.pla();
+    // If Y bit 7 set, negate .AX
+    e.cpy_imm(0x80);
+    auto brPosResult = e.emitBranchPlaceholder(0x90); // BCC: Y < $80, result positive
     e.neg_16();
-    auto br1813 = e.emitBranchPlaceholder(0x80); // BRA: skip positive-path pla
-    e.patchBranchTarget(br1810);
-    e.pla();
-    e.patchBranchTarget(br1813);
+    e.patchBranchTarget(brPosResult);
 }
 
 // emitSignedMathOp32 — 32-bit signed mul/div/mod via abs→unsigned hw→sign fixup
@@ -2013,7 +2016,8 @@ void AssemblerSimulatedOps::emitSignedMathOp32(AssemblerParser* parser, M65Emitt
     auto srcAst = parseExprAST(parser->tokens, idx, parser->symbolTable, scopePrefix);
     if (!srcAst) return;
 
-    const uint16_t SIGN = m65::MATH_SIGN;
+    // Sign byte lives in scratch ZP+4; the mod path below uses ZP+0..+3
+    const uint8_t SIGN = e.scratchZP() + 4;
     // VHDL: mul and div share input registers $D770/$D774
     uint16_t leftBase  = m65::MULT_ARG1;
     uint16_t rightBase = m65::MULT_ARG2;
@@ -2023,7 +2027,7 @@ void AssemblerSimulatedOps::emitSignedMathOp32(AssemblerParser* parser, M65Emitt
     // Must preserve AXYZ intact for neg_32, so save A before using it.
     e.pha();                              // save original A (byte 0)
     e.tza();                              // A = Z = byte 3 (sign byte)
-    e.sta_addr(SIGN);                     // SIGN = left sign byte
+    e.sta_zp(SIGN);                     // SIGN = left sign byte
     auto brPos = e.emitBranchPlaceholder(0x10); // BPL: left is positive, skip neg
     e.pla();                              // restore A for neg_32
     e.neg_32();                           // AXYZ = abs(left)
@@ -2042,14 +2046,14 @@ void AssemblerSimulatedOps::emitSignedMathOp32(AssemblerParser* parser, M65Emitt
     if (op != 2 && !srcIsConst) {
         uint32_t srcAddr = resolveAbsAddr(parser, tokenIndex, scopePrefix);
         e.lda_addr(srcAddr + 3);          // right high byte (byte 3)
-        e.eor_addr(SIGN);                 // XOR signs
-        e.sta_addr(SIGN);                 // SIGN = left_sign ^ right_sign
+        e.eor_zp(SIGN);                 // XOR signs
+        e.sta_zp(SIGN);                 // SIGN = left_sign ^ right_sign
     } else if (op != 2 && srcIsConst) {
         int64_t val = (int64_t)(int32_t)srcAst->getValue(parser);
         if (val < 0) {
-            e.lda_addr(SIGN);
+            e.lda_zp(SIGN);
             e.eor_imm(0x80);
-            e.sta_addr(SIGN);
+            e.sta_zp(SIGN);
         }
     }
 
@@ -2079,7 +2083,7 @@ void AssemblerSimulatedOps::emitSignedMathOp32(AssemblerParser* parser, M65Emitt
 
     // --- Step 5: Wait for hardware (div/mod only) ---
     if (op != 0) {
-        e.bit_addr(m65::MATH_BUSY_STATUS); e.bne(-5);
+        e.bit_addr(m65::MATH_BUSY_STATUS); e.bmi(-5);  // DIVBUSY is bit 7 → N
     }
 
     // --- Step 6: Read result into .AXYZ ---
@@ -2117,7 +2121,7 @@ void AssemblerSimulatedOps::emitSignedMathOp32(AssemblerParser* parser, M65Emitt
     // --- Step 7: Sign correction ---
     // If SIGN bit 7 set, negate .AXYZ
     e.pha();
-    e.lda_addr(SIGN);
+    e.lda_zp(SIGN);
     auto br3 = e.emitBranchPlaceholder(0x10); // BPL: skip sign correction
     e.pla();
     e.neg_32();

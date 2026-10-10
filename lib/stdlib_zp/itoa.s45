@@ -100,7 +100,7 @@ proc _itoa
 
 @waitdiv:
     bit $D70F
-    bne @waitdiv
+    bmi @waitdiv
 
     ; Save quotient BEFORE writing to $D770 for multiplication
     ; (writing $D770 triggers new division, corrupts $D76C)

@@ -146,7 +146,7 @@ proc _ltoa, D#_p_value, W#_p_str, W#_p_base
 
 @waitdiv:
     bit $d70f
-    bne @waitdiv
+    bmi @waitdiv
 
     ; Save quotient to $02-$05 BEFORE writing to multiplier.
     ; Writing $D770 triggers a new operation, which corrupts $D76C.

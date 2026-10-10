@@ -445,7 +445,7 @@ void BinaryExpr::emit(M65Emitter& e, AssemblerParser* parser, int width, const s
             }
         } else if (op == "/") {
             e.bit_abs(m65::MATH_BUSY_STATUS);
-            e.bne(-5);
+            e.bmi(-5);  // DIVBUSY is bit 7 → N
             for (int i = 0; i < bytes; ++i) {
                 e.lda_abs(m65::DIV_RES + i);
                 if (i == 1) e.tax();

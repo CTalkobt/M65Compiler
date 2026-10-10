@@ -121,7 +121,7 @@ proc _itoa, W#_p_value, W#_p_str, W#_p_base
 
 @waitdiv:
     bit $d70f
-    bne @waitdiv
+    bmi @waitdiv
 
     ; Read quotient from $D76C/$D76D
     ; Store quotient to $02/$03 (becomes next iteration's value)

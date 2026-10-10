@@ -19,7 +19,6 @@ namespace m65 {
     constexpr uint16_t DIV_RES          = 0xD76C; // 0xD76C-0xD76F (Integer quotient)
     // No hardware remainder register — compute as: dividend - quotient * divisor
 
-    constexpr uint16_t MATH_SIGN        = 0xD76E; // Scratch byte for sign tracking in signed math ops
 
     // DMA Controller — per MEGA65 VHDL (gs4510.vhdl)
     // Writing $D700 (LSB) TRIGGERS DMA execution — must be written LAST
