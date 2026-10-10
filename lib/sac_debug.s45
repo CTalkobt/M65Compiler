@@ -4,6 +4,7 @@
 
     .global __sac_debug_enter
     .global __sac_debug_exit
+    .extern _printf
 
     ; __sac_debug_enter: Called at SAC function entry
     ; Parameters (registers):
@@ -25,22 +26,33 @@ __sac_debug_enter:
     phx                  ; Push X (AR address high byte)
     pha                  ; Push A (AR address low byte)
 
-    ; Call printf with format string
+    ; Format string pointer is the first (last pushed) argument
+    lda #>sac_enter_fmt
+    pha
     lda #<sac_enter_fmt
-    ldx #>sac_enter_fmt
-    jsr printf
+    pha
+    jsr _printf
 
-    ; printf will clean up its own stack parameters
+    ; The caller drops the arguments (6 bytes)
+    pla
+    pla
+    pla
+    pla
+    pla
+    pla
     rts
 
     ; __sac_debug_exit: Called at SAC function exit
     ; No parameters
 __sac_debug_exit:
-    ; Call printf with exit message
+    ; Call printf with exit message (variadic: stack convention)
+    lda #>sac_exit_fmt
+    pha
     lda #<sac_exit_fmt
-    ldx #>sac_exit_fmt
-    jsr printf
-
+    pha
+    jsr _printf
+    pla
+    pla
     rts
 
     .data

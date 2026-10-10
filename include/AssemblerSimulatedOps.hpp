@@ -211,5 +211,5 @@ public:
     static void emitSpBaseAddrCalc16(AssemblerParser* parser, M65Emitter& e, uint16_t addend);
     static void emitLoadIndexToAX(AssemblerParser* parser, M65Emitter& e, bool indexIsReg, const std::string& indexRegName, int idxIndexStart, const std::string& scopePrefix);
     static void emitWriteOperand16(AssemblerParser* parser, M65Emitter& e, bool isReg, const std::string& regName, int idxStart, uint16_t destAddr, const std::string& scopePrefix);
-    static void emitLoadAddrConst(AssemblerParser* parser, M65Emitter& e, const std::string& name, uint16_t offset, char reg2);
+    static void emitLoadAddrConst(AssemblerParser* parser, M65Emitter& e, const std::string& name, uint16_t offset, char reg2, const std::string& scopePrefix = "");
 };

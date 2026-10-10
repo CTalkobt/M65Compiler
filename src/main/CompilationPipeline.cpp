@@ -148,6 +148,7 @@ CompilationResult CompilationPipeline::compile() {
         codegenStage.setTypedefMappings(typedefMappings);
         codegenStage.setMaxInlineIRSize(config_.maxInlineIRSize);
         codegenStage.setSourceFile(config_.inputFile);
+        codegenStage.setStackTop(config_.stackTop);
 
         auto codegenResult = runStage(codegenStage);
         if (!codegenResult.success) {

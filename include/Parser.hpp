@@ -103,6 +103,13 @@ private:
 
     std::map<std::string, TypeAlias> typedefs;
     std::map<std::string, int> enumConstants;
+    // Byte sizes of declared variables with known scalar/array types (sizeof var
+    // in constant expressions such as array dimensions)
+    std::map<std::string, long> varByteSizes;
+    // Evaluate an integer constant expression; false if it isn't one
+    bool evalConstInt(Expression* e, long& out);
+    // Size of a scalar/pointer type in bytes; -1 for aggregates and unknowns
+    static int scalarTypeSize(const std::string& type, int ptrLevel);
     std::set<std::string> enumNames;
     bool isTypedef(const std::string& name) const;
 

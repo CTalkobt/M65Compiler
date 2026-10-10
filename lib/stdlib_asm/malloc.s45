@@ -13,17 +13,15 @@
 .global _realloc
 .global _heap_init
 .global __heap_ptr
-.weak __bss_end
-.weak __bss_start
+.extern __bss_end
+.extern __stack_top
+.extern __heap_start
+.extern __heap_end
 .extern _memcpy
 .extern _memset
 
 .segment "bss"
 __heap_ptr: .res 2       ; Head of the sorted free list
-
-; Default weak values for BSS if not provided by the compiler
-__bss_start = 0
-__bss_end = 0
 
 .segment "code"
 
@@ -615,9 +613,12 @@ proc _realloc
 ; -----------------------------------------------------------------------------
 ; Internal: heap initialization
 ; -----------------------------------------------------------------------------
-.weak __heap_start
-.weak __heap_end
-
+; The heap runs from __heap_start (0: the end of the program, __bss_end, which
+; includes the private base page) to __heap_end (0: 4KB below the 16-bit CPU
+; stack's top, or $C000 with the 8-bit page-1 stack; bank 0 $C000-$CFFF reads
+; as ROM). The defaults come from the __heap_bounds library member; these
+; symbols are externs so the linker's values are used (a weak equate defined
+; here would be folded at assembly time).
 _heap_init:
     lda #<__heap_start
     sta $10
@@ -651,7 +652,14 @@ _heap_init:
     bne @calc_size
     lda #$00
     sta $12
-    lda #$D0
+    lda #>__stack_top
+    beq @stack8
+    sec                 ; leave 4KB for the 16-bit stack: (top_hi + 1 - $10) << 8
+    sbc #$0F
+    bra @set_end
+@stack8:
+    lda #$C0
+@set_end:
     sta $13
 
 @calc_size:
@@ -694,6 +702,3 @@ _heap_init:
 
     rts
 
-; Default weak values
-__heap_start = 0
-__heap_end = 0

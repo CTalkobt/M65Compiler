@@ -253,6 +253,9 @@ struct Module {
     std::string sourceFile;
     bool saveZP = true;
     int setBP = -1;  // -1 = don't emit; 0-255 = emit LDA #N; TAB in startup
+    // CPU stack: -1 = crt0 default (16-bit stack topped at $BFFF), 0 = keep
+    // the ROM's 8-bit page-1 stack (-fno-stack16), else the stack's top byte
+    int stackTop = -1;
     std::list<Function> functions;
     std::vector<std::string> externs;
 

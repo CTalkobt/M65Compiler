@@ -71,6 +71,10 @@ void IRBuilder::generate(TranslationUnit& unit) {
                 for (const auto& methodName : g.vtableMethodNames) {
                     if (!methodName.empty()) usedFuncs.insert(methodName);
                 }
+                // Functions whose address initializes a global (int (*f)() = func)
+                for (const auto& lbl : g.initLabels) {
+                    if (!lbl.empty()) usedFuncs.insert(lbl);
+                }
             }
 
             // DEBUG: Verify DCE inputs for small test cases
@@ -594,7 +598,11 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         }
         if (deref->op == "&") {
             IRTypeInfo sub = getExprTypeInfo(deref->operand.get());
-            return {ir::Type::PTR, sub.typeName + "*", false, sub.type, 2};
+            // A pointer's typeName names its pointee (as for pointer variables):
+            // &struct_value points to the struct itself
+            std::string tn = sub.typeName;
+            if (sub.type == ir::Type::PTR || !structs_.count(getAggregateName(tn))) tn += "*";
+            return {ir::Type::PTR, tn, false, sub.type, 2};
         }
         // ++, --, ++_POST, --_POST: same type as operand
         if (deref->op == "++" || deref->op == "--" ||
@@ -631,6 +639,9 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         // For arithmetic/bitwise ops, result type comes from operands
         auto lhs = getExprTypeInfo(bin->left.get());
         auto rhs = getExprTypeInfo(bin->right.get());
+        // Pointer difference: a signed element count (ptrdiff_t)
+        if (bin->op == "-" && lhs.type == ir::Type::PTR && rhs.type == ir::Type::PTR)
+            return {ir::Type::I16, "", true, ir::Type::VOID, 2};
         // Signed if both operands are signed, or one is signed and the other
         // is an unsigned literal that fits in signed range
         bool sig = lhs.isSigned && rhs.isSigned;
@@ -1273,6 +1284,32 @@ int IRBuilder::aggregateBlockSize(const std::string& typeName, int pointerLevel)
     return (size == 1 || size == 2 || size == 4) ? 0 : size;
 }
 
+// Link-time constant address for a global initializer: &global, or the name of
+// a global array or a function (optionally cast). Returns the assembler label,
+// or "" when the expression isn't such an address.
+std::string IRBuilder::staticAddressLabel(Expression* e) {
+    while (auto* c = dynamic_cast<CastExpression*>(e)) e = c->expression.get();
+    bool addrOf = false;
+    if (auto* u = dynamic_cast<UnaryOperation*>(e)) {
+        if (u->op != "&") return "";
+        e = u->operand.get();
+        addrOf = true;
+    }
+    auto* v = dynamic_cast<VariableReference*>(e);
+    if (!v || locals_.count(v->name)) return "";
+    if (globalTypes_.count(v->name)) {
+        if (addrOf || globalArrayDims_.count(v->name)) return "_" + v->name;
+        return "";
+    }
+    if (functionReturnTypes_.count(v->name) || staticRenames_.count(v->name) ||
+        definedFunctions_.count("_" + v->name)) {
+        std::string label = "_" + resolvedFunctionName(v->name);
+        calledFunctions_.insert(label);  // extern if defined elsewhere; keeps it alive
+        return label;
+    }
+    return "";
+}
+
 ir::Operand IRBuilder::emitAddressOf(Expression* expr) {
     bool saved = computeAddressOnly_;
     computeAddressOnly_ = true;
@@ -1584,6 +1621,10 @@ void IRBuilder::visit(VariableDeclaration& node) {
                 module_.strings.push_back(sl);
                 gv.hasInitValue = true;
                 gv.initLabels.push_back(label); // symbolic reference
+            } else if (std::string label = staticAddressLabel(node.initializer.get()); !label.empty()) {
+                // int *p = &x; void (*f)(void) = func; char *q = buf;
+                gv.hasInitValue = true;
+                gv.initLabels.push_back(label);
             } else if (auto* cast = dynamic_cast<CastExpression*>(node.initializer.get())) {
                 if (auto* clit = dynamic_cast<IntegerLiteral*>(cast->expression.get())) {
                     gv.hasInitValue = true;
@@ -1607,6 +1648,9 @@ void IRBuilder::visit(VariableDeclaration& node) {
                         module_.strings.push_back(sl);
                         gv.initList.push_back(0);
                         gv.initLabels.push_back(label);
+                    } else if (std::string alabel = staticAddressLabel(elem.get()); !alabel.empty()) {
+                        gv.initList.push_back(0);
+                        gv.initLabels.push_back(alabel);
                     } else {
                         gv.initList.push_back(0);
                         gv.initLabels.push_back("");
@@ -2767,6 +2811,32 @@ void IRBuilder::visit(BinaryOperation& node) {
             auto sit = structs_.find(sName);
             if (sit != structs_.end()) elemSize = sit->second.totalSize;
         }
+        if (node.op == "-" && lhsInfo.type == ir::Type::PTR && rhsInfo.type == ir::Type::PTR) {
+            // Pointer difference: (a - b) / sizeof(*a), a signed integer
+            auto diff = allocVreg(ir::Type::I16);
+            ir::Inst sub;
+            sub.op = ir::Op::SUB;
+            sub.dest = diff;
+            sub.resultType = ir::Type::I16;
+            sub.src1 = lhsVal;
+            sub.src2 = rhsVal;
+            sub.loc = loc(node);
+            emit(sub);
+            lastValue_ = diff;
+            if (elemSize > 1) {
+                auto q = allocVreg(ir::Type::I16);
+                ir::Inst div;
+                div.op = ir::Op::DIV;
+                div.dest = q;
+                div.resultType = ir::Type::I16;
+                div.src1 = diff;
+                div.src2 = ir::Operand::imm(elemSize, ir::Type::I16);
+                div.loc = loc(node);
+                emit(div);
+                lastValue_ = q;
+            }
+            return;
+        }
         if (elemSize > 1) {
             // Scale the non-pointer operand
             auto& intOp = (lhsInfo.type != ir::Type::PTR) ? lhsVal : rhsVal;
@@ -3489,21 +3559,21 @@ void IRBuilder::visit(FunctionCall& node) {
         emitAsm("lda #$00");  emitAsm("pha");    // command: copy=0x00
         // Trigger: point DMA controller at stack
         // Write bank and MSB first, LSB last ($D700 write triggers DMA)
-        emitAsm("stz $D702");                    // DMA bank = 0
-        emitAsm("lda #$01");                     // stack page = $01
-        emitAsm("sta $D701");                    // DMA addr MSB
+        emitAsm("lda #0");
+        emitAsm("sta $D702");                    // DMA list bank = 0 (STZ would store Z)
+        // Job address = SP+1, 16 bits (the stack may be on any page)
         emitAsm("tsx");
+        emitAsm("tsy");
         emitAsm("txa");
         emitAsm("clc");
-        emitAsm("adc #1");                       // SP+1 = job start
-        emitAsm("sta $D700");                    // DMA addr LSB — triggers DMA
-        // Clean up stack (13 bytes pushed)
-        emitAsm("tsx");
-        emitAsm("txa");
-        emitAsm("clc");
-        emitAsm("adc #13");
+        emitAsm("adc #1");
         emitAsm("tax");
-        emitAsm("txs");
+        emitAsm("tya");
+        emitAsm("adc #0");
+        emitAsm("sta $D701");                    // DMA addr MSB
+        emitAsm("stx $D700");                    // DMA addr LSB — triggers DMA
+        // Drop the 12-byte job, then restore A
+        for (int i = 0; i < 12; i++) emitAsm("pla");
         emitAsm("pla");                          // restore A
         return;
     }
@@ -3541,21 +3611,21 @@ void IRBuilder::visit(FunctionCall& node) {
         emitAsm("lda $06");   emitAsm("pha");    // length lo
         emitAsm("lda #$03");  emitAsm("pha");    // command: fill=0x03
         // Trigger DMA — write bank and MSB first, LSB last ($D700 triggers)
-        emitAsm("stz $D702");                    // DMA bank = 0
-        emitAsm("lda #$01");                     // stack page = $01
-        emitAsm("sta $D701");                    // DMA addr MSB
+        emitAsm("lda #0");
+        emitAsm("sta $D702");                    // DMA list bank = 0 (STZ would store Z)
+        // Job address = SP+1, 16 bits (the stack may be on any page)
         emitAsm("tsx");
+        emitAsm("tsy");
         emitAsm("txa");
         emitAsm("clc");
         emitAsm("adc #1");
-        emitAsm("sta $D700");                    // DMA addr LSB — triggers DMA
-        // Clean up stack
-        emitAsm("tsx");
-        emitAsm("txa");
-        emitAsm("clc");
-        emitAsm("adc #13");
         emitAsm("tax");
-        emitAsm("txs");
+        emitAsm("tya");
+        emitAsm("adc #0");
+        emitAsm("sta $D701");                    // DMA addr MSB
+        emitAsm("stx $D700");                    // DMA addr LSB — triggers DMA
+        // Drop the 12-byte job, then restore A
+        for (int i = 0; i < 12; i++) emitAsm("pla");
         emitAsm("pla");                          // restore A
         return;
     }
@@ -5156,6 +5226,18 @@ void IRBuilder::visit(AsmStatement& node) {
     }
     if (node.code == ".no_zp_save") {
         module_.saveZP = false;
+        return;
+    }
+    if (node.code == ".no_stack16") {
+        module_.stackTop = 0;
+        return;
+    }
+    if (node.code.rfind(".stack_top ", 0) == 0) {
+        std::string v = node.code.substr(11);
+        int base = 10;
+        if (!v.empty() && v[0] == '$') { v = v.substr(1); base = 16; }
+        else if (v.size() > 2 && v[0] == '0' && (v[1] == 'x' || v[1] == 'X')) { v = v.substr(2); base = 16; }
+        try { module_.stackTop = (int)(std::stoul(v, nullptr, base) & 0xFFFF); } catch (...) {}
         return;
     }
     if (node.code.rfind(".set_bp ", 0) == 0) {

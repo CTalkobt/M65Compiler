@@ -263,6 +263,8 @@ ln45 (Link: Combine .o45 objects + libraries → PRG/Binary)
   * `heap` — Enable dynamic memory allocation via `malloc`/`free` (sets up heap manager)
   * `no_bssinit` — Skip BSS (Block Started by Symbol) zero-initialization. Use when BSS is already cleared by loader.
   * `no_0100_stack` — Don't initialize stack pointer at $0100. Use when caller provides valid stack.
+  * `no_stack16` — Keep the ROM's 8-bit CPU stack on page 1 (same as `-fno-stack16`); default is a 16-bit stack topped at `$BFFF`
+  * `stack_top(<addr>)` — Top byte of the 16-bit CPU stack (same as `-fstack-top=<addr>`)
   * `no_zp_save` — Standalone (non-linked) builds only: don't relocate the base page; the program uses page 0 directly.
   * `exit_rts` / `halt` / `brk` — Set program termination behavior:
     - `exit_rts`: Return to caller with value in A:X (default for BASIC-callable programs)
@@ -427,15 +429,17 @@ ln45 (Link: Combine .o45 objects + libraries → PRG/Binary)
 
 **Entry (crt0.s)**:
 1. MEGA65 I/O initialization: Send 0x47 0x53 ('GS') to $D02F to enable hardware registers
-2. Stack pointer initialization: SEI; LDX #$FF; TXS (unless `#pragma cc45 no_0100_stack`)
+2. Save the caller's SP (SPL/SPH) and flags for the return
 3. **Base page relocation**: `lda #>__zp_page / tab` — the program's zero page is a private page at the end of BSS
-4. BSS initialization: Zero all BSS variables (unless `#pragma cc45 no_bssinit`)
-5. Call `_main()`: Entry point to user code
+4. **16-bit CPU stack** (default): `SEI; CLE; LDY #>__stack_top; TYS; LDX #<__stack_top; TXS`, then the caller's I flag is restored. `__stack_top` is `$BFFF` (the last byte below `$C000`; bank 0 `$C000`-`$CFFF` reads as ROM in C65 mode). `-fno-stack16` / `#pragma cc45 no_stack16` keep the ROM's 8-bit page-1 stack (the main module defines `__stack_top = 0`, overriding the library default); `-fstack-top=ADDR` / `#pragma cc45 stack_top(ADDR)` move the top. KERNAL calls, ROM IRQs and the BASIC float routines work on the relocated stack (verified on xemu). Hand-written asm must read the stack through a pointer (`tsx; tsy; stx $08; sty $09; lda ($08),y`), never `$0100,x`/`__sp_base,x`
+5. BSS initialization: Zero all BSS variables (unless `#pragma cc45 no_bssinit`)
+6. Call `_main()`: Entry point to user code
 
 **Exit**:
 1. Capture return value (A:X or full value depending on type)
 2. **Base page reset**: `lda #0 / tab` (back to the ROM's page 0)
-3. Select exit mode (`#pragma cc45 exit_rts` / `halt` / `brk`):
+3. **Stack reset**: `SEI; SEE`, restore the caller's SPL/SPH, then its flags (`PLP`)
+4. Select exit mode (`#pragma cc45 exit_rts` / `halt` / `brk`):
    - `exit_rts` (default): Return to caller (BASIC, KERNAL)
    - `halt`: Infinite loop (ROM programs)
    - `brk`: Trigger BRK for debugger

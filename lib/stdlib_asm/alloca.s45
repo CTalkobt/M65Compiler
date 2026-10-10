@@ -1,0 +1,71 @@
+; alloca.s — Allocate stack space (ZP calling convention)
+;
+; void *alloca(size_t size);
+;   size in $10/$11. Works with the 16-bit stack (E clear) and the 8-bit
+;   page-1 stack alike.
+;   Lowers SP by size+2 and returns a pointer to the allocated bytes in AX.
+;   The 2 spare bytes sit just above the new SP: a stack-convention caller
+;   (through the linker's thunk) pops its 2-byte argument after the call, so
+;   the block must start above them. The caller's epilogue resets SP from FP.
+
+.global _alloca
+.global ___builtin_alloca
+
+.segment "code"
+
+proc _alloca
+    .zp_uses $10, $11
+    .zp_clobbers $04, $05, $06, $07
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z, V
+
+    ; Pop the return address; SP is then the caller's SP
+    pla
+    sta $04
+    pla
+    sta $05
+
+    ; New SP = SP - size - 2
+    tsx
+    tsy
+    txa
+    clc                     ; borrow 1 more: SP - size - 1 ...
+    sbc $10
+    sta $06
+    tya
+    sbc $11
+    sta $07
+    lda $06                 ; ... - 1
+    bne @nob
+    dec $07
+@nob:
+    dec $06
+
+    ; SP is lowered: write SPH first so an interrupt between the two writes
+    ; pushes below the old SP, never over live data
+    ldy $07
+    tys
+    ldx $06
+    txs
+
+    ; Result = new SP + 3 (first allocated byte, above the 2 spare bytes)
+    lda $06
+    clc
+    adc #3
+    sta $06
+    bcc @noc
+    inc $07
+@noc:
+
+    ; Return through the saved address
+    lda $05
+    pha
+    lda $04
+    pha
+    lda $06
+    ldx $07
+    rts
+    .func_flags zp_call
+    endproc
+
+___builtin_alloca = _alloca

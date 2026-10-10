@@ -305,6 +305,47 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: 16-bit CPU stack (default) and the 8-bit page-1 stack (-fno-stack16),
+# stack and ZP conventions: deep recursion with IRQs, alloca, setjmp, ROM calls
+for s16mode in "stack||BF 00" "zp|-fzpcall|BF 00" "stack8|-fno-stack16 -DDEPTH=4 -DVA_N=50|01 20" "zp8|-fzpcall -fno-stack16 -DDEPTH=4 -DVA_N=50|01 20"; do
+    IFS='|' read -r s16name s16flags s16sp <<< "$s16mode"
+    echo "Testing test_stack16_xemu.c ($s16name)..."
+    compile_link_test "src/test-resources/test_stack16_xemu.c" "build/test/test_stack16_${s16name}_xemu.prg" "$s16flags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_stack16_$s16name" "build/test/test_stack16_${s16name}_xemu.prg" "C0C0" 9 "$s16sp 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_stack16_xemu.c $s16name (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: globals initialized with addresses (&var, arrays, functions) and
+# pointer compares against relocated addresses, stack and ZP conventions
+for gaimode in "stack|" "zp|-fzpcall"; do
+    IFS='|' read -r gainame gaiflags <<< "$gaimode"
+    echo "Testing test_global_addr_init_xemu.c ($gainame)..."
+    compile_link_test "src/test-resources/test_global_addr_init_xemu.c" "build/test/test_global_addr_init_${gainame}_xemu.prg" "$gaiflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_global_addr_init_$gainame" "build/test/test_global_addr_init_${gainame}_xemu.prg" "C0C0" 7 "05 03 07 07 01 01 AA"
+    else
+        echo "FAIL: test_global_addr_init_xemu.c $gainame (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: pointer differences (element counts, signed), stack and ZP conventions
+for pdmode in "stack|" "zp|-fzpcall"; do
+    IFS='|' read -r pdname pdflags <<< "$pdmode"
+    echo "Testing test_ptrdiff_xemu.c ($pdname)..."
+    compile_link_test "src/test-resources/test_ptrdiff_xemu.c" "build/test/test_ptrdiff_${pdname}_xemu.prg" "$pdflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_ptrdiff_$pdname" "build/test/test_ptrdiff_${pdname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_ptrdiff_xemu.c $pdname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: stack frames (recursion via SAC fallback, caller FP preserved, long return)
 echo "Testing test_stackframe_xemu.c (stack frames)..."
 compile_link_test "src/test-resources/test_stackframe_xemu.c" "build/test/test_stackframe_xemu.prg"

@@ -23,26 +23,18 @@ CRT_ZP_OBJECTS = $(patsubst %.s45,$(BUILD)/%.o45,$(CRT_ZP_SOURCES))
 FLOAT_ROM_SOURCES = src/float_rom.s45
 FLOAT_ROM_OBJECTS = $(patsubst src/%.s45,$(BUILD)/%.o45,$(FLOAT_ROM_SOURCES))
 
-# Stdlib modules — stack convention (assembly + C)
-STDLIB_ASM_SOURCES = $(wildcard stdlib/*.s45)
-STDLIB_C_SOURCES = $(wildcard stdlib/*.c)
-STDLIB_OBJECTS = $(patsubst stdlib/%.s45,$(BUILD)/%.o45,$(STDLIB_ASM_SOURCES)) \
-                 $(patsubst stdlib/%.c,$(BUILD)/%.o45,$(STDLIB_C_SOURCES)) \
-                 $(FLOAT_ROM_OBJECTS)
-
-# Stdlib modules — ZP convention. The C sources are shared with the stack
-# library (compiled with -fzpcall); stdlib_zp/ holds only ZP-convention
-# hand-written assembly and the C replacements for stack-only assembly.
-STDLIB_ZP_ASM_SOURCES = $(wildcard stdlib_zp/*.s45)
-# Calling-convention-neutral assembly shared with the stack library
-STDLIB_SHARED_ASM = __builtin_aliases __builtin_prefetch __builtin_stack
-STDLIB_ZP_OWN_C = $(wildcard stdlib_zp/*.c)
-STDLIB_ZP_OWN_NAMES = $(basename $(notdir $(STDLIB_ZP_ASM_SOURCES) $(STDLIB_ZP_OWN_C)))
-STDLIB_ZP_SHARED_C = $(filter-out $(addprefix stdlib/,$(addsuffix .c,$(STDLIB_ZP_OWN_NAMES))),$(STDLIB_C_SOURCES))
-STDLIB_ZP_OBJECTS = $(patsubst stdlib_zp/%.s45,$(BUILD)/zp_%.o45,$(STDLIB_ZP_ASM_SOURCES)) \
-                    $(patsubst stdlib_zp/%.c,$(BUILD)/zp_%.o45,$(STDLIB_ZP_OWN_C)) \
-                    $(patsubst stdlib/%.c,$(BUILD)/zp_%.o45,$(STDLIB_ZP_SHARED_C)) \
-                    $(addprefix $(BUILD)/zp_,$(addsuffix .o45,$(STDLIB_SHARED_ASM)))
+# Stdlib modules. The C sources (stdlib/) are compiled once per calling
+# convention; the hand-written assembly (stdlib_asm/) uses the ZP convention
+# and is shared by both libraries — stack-convention callers reach it through
+# ln45's stack→ZP bridge thunks. A C file with an assembly version is skipped.
+STDLIB_ASM_SOURCES = $(wildcard stdlib_asm/*.s45)
+STDLIB_ASM_NAMES = $(basename $(notdir $(STDLIB_ASM_SOURCES)))
+STDLIB_C_SOURCES = $(filter-out $(addprefix stdlib/,$(addsuffix .c,$(STDLIB_ASM_NAMES))),$(wildcard stdlib/*.c))
+STDLIB_ASM_OBJECTS = $(patsubst stdlib_asm/%.s45,$(BUILD)/asm_%.o45,$(STDLIB_ASM_SOURCES))
+STDLIB_OBJECTS = $(patsubst stdlib/%.c,$(BUILD)/%.o45,$(STDLIB_C_SOURCES)) \
+                 $(STDLIB_ASM_OBJECTS) $(FLOAT_ROM_OBJECTS)
+STDLIB_ZP_OBJECTS = $(patsubst stdlib/%.c,$(BUILD)/zp_%.o45,$(STDLIB_C_SOURCES)) \
+                    $(STDLIB_ASM_OBJECTS)
 
 # Library C sources are written as standard C (signed int/long) with unsigned
 # char for PETSCII; cc45's own default makes int/long unsigned too.
@@ -55,7 +47,7 @@ C_TOOL_DEPS = $(CC45) $(CA45) $(wildcard include/*.h)
 
 all: $(BUILD)/c45.lib $(BUILD)/c45_zp.lib
 
-# --- Stack convention rules ---
+# --- Rules ---
 
 $(BUILD)/%.o45: %.s45 $(CA45) | $(BUILD)
 	$(CA45) -c $< -o $@
@@ -63,30 +55,21 @@ $(BUILD)/%.o45: %.s45 $(CA45) | $(BUILD)
 $(BUILD)/%.o45: src/%.s45 $(CA45) | $(BUILD)
 	$(CA45) -c $< -o $@
 
-$(BUILD)/%.o45: stdlib/%.s45 $(CA45) | $(BUILD)
+$(BUILD)/asm_%.o45: stdlib_asm/%.s45 $(CA45) | $(BUILD)
 	$(CA45) -c $< -o $@
 
 $(BUILD)/%.o45: stdlib/%.c $(C_TOOL_DEPS) | $(BUILD)
 	$(CC45) -c $(LIB_CFLAGS) $< -o $@
 
-$(BUILD)/c45.lib: $(CRT_OBJECTS) $(STDLIB_OBJECTS) | $(BUILD)
-	$(AR45) c $@ $(CRT_OBJECTS) $(STDLIB_OBJECTS)
-
-# --- ZP convention rules ---
-
-$(BUILD)/zp_%.o45: stdlib_zp/%.s45 $(CA45) | $(BUILD)
-	$(CA45) -c $< -o $@
-
-$(BUILD)/zp_%.o45: stdlib_zp/%.c $(C_TOOL_DEPS) | $(BUILD)
-	$(CC45) -c -fzpcall $(LIB_CFLAGS) $< -o $@
-
-$(BUILD)/zp_%.o45: stdlib/%.s45 $(CA45) | $(BUILD)
-	$(CA45) -c $< -o $@
-
 $(BUILD)/zp_%.o45: stdlib/%.c $(C_TOOL_DEPS) | $(BUILD)
 	$(CC45) -c -fzpcall $(LIB_CFLAGS) $< -o $@
 
+$(BUILD)/c45.lib: $(CRT_OBJECTS) $(STDLIB_OBJECTS) | $(BUILD)
+	rm -f $@
+	$(AR45) c $@ $(CRT_OBJECTS) $(STDLIB_OBJECTS)
+
 $(BUILD)/c45_zp.lib: $(CRT_ZP_OBJECTS) $(STDLIB_ZP_OBJECTS) $(FLOAT_ROM_OBJECTS) | $(BUILD)
+	rm -f $@
 	$(AR45) c $@ $(CRT_ZP_OBJECTS) $(STDLIB_ZP_OBJECTS) $(FLOAT_ROM_OBJECTS)
 
 $(BUILD):

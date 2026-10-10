@@ -10,7 +10,7 @@
 ;   Restores SP and jumps to saved return address.
 ;   setjmp appears to return val (or 1 if val==0).
 ;
-; jmp_buf layout: [0] PCL, [1] PCH, [2] SPL, [3] SPH
+; jmp_buf layout: [0] PCL, [1] PCH, [2] SPL, [3] SPH, [4-5] frame pointer
 
 .global _setjmp
 .global _longjmp
@@ -21,27 +21,32 @@
 
 proc _setjmp
     .zp_uses $10, $11
-    .zp_clobbers $10, $11
+    .zp_clobbers $08, $09, $10, $11
     .zp_release $10, $11
     .reg_clobbers A, X, Y
     .flag_clobbers C, N, Z
 
-    ; Save return address from hardware stack
+    ; Return address and SP, read through a pointer so the stack may live
+    ; on any page (16-bit SP)
     tsx
-    lda $0101, x            ; PCL
-    ldy #0
-    sta ($10), y
-    lda $0102, x            ; PCH
-    iny
-    sta ($10), y
-
-    ; Save SP (16-bit)
-    txa
-    ldy #2
-    sta ($10), y            ; SPL
     tsy
-    tya                     ; (TSY loads Y: index explicitly)
-    ldy #3
+    stx $08
+    sty $09
+    ldy #1
+    lda ($08), y            ; PCL
+    tax
+    iny
+    lda ($08), y            ; PCH
+    ldy #1
+    sta ($10), y
+    dey
+    txa
+    sta ($10), y
+    ldy #2
+    lda $08
+    sta ($10), y            ; SPL
+    iny
+    lda $09
     sta ($10), y            ; SPH
     lda $FD                 ; frame pointer
     iny
@@ -76,19 +81,20 @@ proc _longjmp
     sta $13
 @nonzero:
 
-    ; Restore SPH
-    ldy #3
-    lda ($10), y
-    tay
-    tys
-
-    ; Restore SPL
+    ; SP = saved SP + 2 (as after setjmp's return; the return address is
+    ; pushed back below and popped by rts). The stack unwinds upward, so
+    ; SPL is written first: an interrupt in between pushes below the target.
     ldy #2
     lda ($10), y
+    clc
+    adc #2
     tax
-    inx                     ; SP as after setjmp's return (the return address
-    inx                     ; is pushed back below and popped by rts)
+    iny
+    lda ($10), y
+    adc #0
+    tay
     txs
+    tys
     ldy #4                  ; frame pointer
     lda ($10), y
     sta $FD

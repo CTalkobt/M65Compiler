@@ -263,6 +263,15 @@ bool AssemblerOptimizer::optimizeInternal(
                 } catch (...) {}
             }
             if (!resolved) continue;
+            // An undefined symbol evaluates to 0: never turn it into a branch
+            {
+                std::string op = s->instr.operand;
+                if (op.empty() && s->instr.operandTokenIndex < (int)parser->tokens.size())
+                    op = parser->tokens[s->instr.operandTokenIndex].value;
+                if (!op.empty() && (std::isalpha((unsigned char)op[0]) || op[0] == '_') &&
+                    !parser->resolveSymbol(op, s->scopePrefix))
+                    continue;
+            }
 
             if (m == "JMP" && parser->optFlags.jmpBra) {
                 // Don't convert JMP to BRA for relocatable/external symbols

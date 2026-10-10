@@ -36,6 +36,17 @@ static std::string hex16(uint16_t val) {
     return ss.str();
 }
 
+// A runtime alloca (variable size) lowers SP inside the function: it needs a
+// stack frame and FP so the epilogue can reset SP, and can't use SAC.
+static bool callsRuntimeAlloca(const ir::Function& fn) {
+    for (const auto& blk : fn.blocks)
+        for (const auto& inst : blk.insts)
+            if (inst.op == ir::Op::CALL && inst.src1.kind == ir::OperandKind::GLOBAL &&
+                (inst.src1.name == "_alloca" || inst.src1.name == "___builtin_alloca"))
+                return true;
+    return false;
+}
+
 static std::string hex32(uint32_t val) {
     std::stringstream ss;
     ss << std::hex << std::uppercase << std::setfill('0') << std::setw(8) << (int)val;
@@ -836,6 +847,33 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         }
     }
 
+    // Functions on a call cycle within this module (direct or mutual
+    // recursion) can't use SAC: each activation needs its own frame
+    recursiveFunctions_.clear();
+    {
+        std::map<std::string, std::set<std::string>> calls;
+        for (const auto& fn : mod.functions) {
+            auto& out = calls[fn.name];
+            for (const auto& blk : fn.blocks)
+                for (const auto& inst : blk.insts)
+                    if ((inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) &&
+                        inst.src1.kind == ir::OperandKind::GLOBAL)
+                        out.insert(inst.src1.name);
+        }
+        // A function is recursive when it can reach itself
+        for (const auto& [name, _] : calls) {
+            std::set<std::string> seen;
+            std::vector<std::string> work(calls[name].begin(), calls[name].end());
+            while (!work.empty()) {
+                std::string f = work.back(); work.pop_back();
+                if (f == name) { recursiveFunctions_.insert(name); break; }
+                if (!seen.insert(f).second) continue;
+                auto it = calls.find(f);
+                if (it != calls.end()) work.insert(work.end(), it->second.begin(), it->second.end());
+            }
+        }
+    }
+
     // Phase 3: Pre-scan functions to identify which ones use SAC
     // (Static Allocation Convention — uses __ar symbols instead of stack frame)
     sacFunctions_.clear();
@@ -855,13 +893,14 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
             functionParameterNames_[fn.name] = paramNames;
 
             // SAC eligibility: enabled globally, not recursive, not interrupt/naked/variadic
-            bool useSAC = !fn.isRecurse && !fn.isInterrupt && !fn.isNaked && !fn.isVariadic;
+            bool useSAC = !fn.isRecurse && !fn.isInterrupt && !fn.isNaked && !fn.isVariadic &&
+                          !callsRuntimeAlloca(fn) && !recursiveFunctions_.count(fn.name);
             if (useSAC) {
                 // Quick self-recursion check
                 bool hasSelfCall = false;
                 for (const auto& blk : fn.blocks) {
                     for (const auto& inst : blk.insts) {
-                        if (inst.op == ir::Op::CALL && inst.src1.kind == ir::OperandKind::GLOBAL) {
+                        if ((inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) && inst.src1.kind == ir::OperandKind::GLOBAL) {
                             if (inst.src1.name == fn.name) {
                                 hasSelfCall = true;
                                 break;
@@ -924,6 +963,21 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         // __sp_base is weak — linker may provide it, or we use default
         emit(".weak __sp_base");
         emit("__sp_base = $0101");  // Default stack page
+        // crt0 helpers that inline asm (cbm.h) calls around ROM routines
+        emit(".extern __bp_rom");
+        emit(".extern __bp_prog");
+
+        // The module defining main chooses the CPU stack: crt0's weak
+        // __stack_top ($BFFF, 16-bit stack) is overridden here; 0 keeps the
+        // ROM's 8-bit page-1 stack (-fno-stack16)
+        if (mod.stackTop >= 0) {
+            for (const auto& fn : mod.functions) {
+                if (fn.name != "_main") continue;
+                emit(".global __stack_top");
+                emit("__stack_top = $" + hex16((uint16_t)mod.stackTop));
+                break;
+            }
+        }
 
         // SAC __ar symbols are linker-computed overlay addresses
         // Don't export them — they will be defined by the linker's overlay allocation pass
@@ -957,6 +1011,19 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
             emitComment("Relocate base page to __zp_page");
             emit("lda #>__zp_page");
             emit("tab");
+        }
+
+        // --- 16-bit CPU stack (E clear) topped at stackTop ---
+        if (hasMain && mod.stackTop != 0) {
+            uint16_t top = mod.stackTop < 0 ? 0xBFFF : (uint16_t)mod.stackTop;
+            emitComment("16-bit CPU stack at $" + hex16(top));
+            emit("sei");
+            emit("cle");
+            emit("ldy #$" + hex8((uint8_t)(top >> 8)));
+            emit("tys");
+            emit("ldx #$" + hex8((uint8_t)top));
+            emit("txs");
+            emit("cli");
         }
 
         if (hasMain) {
@@ -1138,6 +1205,11 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
             if (!fn.isStatic) {
                 if (fn.isWeak) emit(".weak " + fn.name);
                 else emit(".global " + fn.name);
+            } else if (!mod.sourceFile.empty()) {
+                // A static function has a module-unique name (_name__<file>):
+                // exporting it lets the linker attribute its call sites to it
+                // rather than to the preceding exported function
+                emit(".global " + fn.name);
             }
         }
         emitBlank();
@@ -1745,8 +1817,19 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // 2. Not marked #pragma cc55 recurse (function-level opt-out)
     // 3. Not __interrupt, __naked, or variadic
     // Linker will verify runtime-checkable constraints (4-5): not reachable from ISR, no cycles
+    bool usesAlloca = callsRuntimeAlloca(fn);
     bool useSAC = staticAllocMode_ && !fn.isRecurse && !fn.isInterrupt &&
-                  !fn.isNaked && !fn.isVariadic;
+                  !fn.isNaked && !fn.isVariadic && !usesAlloca;
+    // Mutual recursion within the module (a direct self-call warns below)
+    if (useSAC && recursiveFunctions_.count(fn.name)) {
+        bool selfCall = false;
+        for (const auto& blk : fn.blocks)
+            for (const auto& inst : blk.insts)
+                if ((inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) &&
+                    inst.src1.kind == ir::OperandKind::GLOBAL && inst.src1.name == fn.name)
+                    selfCall = true;
+        if (!selfCall) useSAC = false;
+    }
     // This function's own convention (the IRBuilder's per-function decision)
     bool fnZp = fn.conv == ir::CallConv::ZP && !fn.isVariadic;
 
@@ -1756,7 +1839,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         bool hasSelfCall = false;
         for (const auto& blk : fn.blocks) {
             for (const auto& inst : blk.insts) {
-                if (inst.op == ir::Op::CALL && inst.src1.kind == ir::OperandKind::GLOBAL) {
+                if ((inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_VOID) && inst.src1.kind == ir::OperandKind::GLOBAL) {
                     if (inst.src1.name == fn.name) {
                         hasSelfCall = true;
                         break;
@@ -1910,6 +1993,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         }
     }
 
+    bool sacLabelEmitted = false;
     // SAC thunk prologue: load params from stack into SAC param symbols.
     // This allows cross-unit callers (which push to stack) to call SAC functions.
     // Same-unit SAC callers call _func__sac directly (skipping the thunk).
@@ -1935,7 +2019,15 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 }
             } else {
             emitComment("SAC thunk: load stack params into SAC storage");
-            emit("tsx");
+            // Read through a pointer to SP so the stack may be on any page
+            bool anyParamBytes = false;
+            for (auto t : fn.paramTypes) if (ir::typeSize(t) > 0) anyParamBytes = true;
+            if (anyParamBytes) {
+                emit("tsx");
+                emit("tsy");
+                emit("stx $08");
+                emit("sty $09");
+            }
             int stackOff = 2; // past return address
             for (size_t i = 0; i < fn.paramTypes.size(); i++) {
                 std::string pName = (i < fn.paramNames.size() && !fn.paramNames[i].empty())
@@ -1943,7 +2035,8 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                 std::string sym = fn.name + "__param_" + pName;
                 int pSize = ir::typeSize(fn.paramTypes[i]);
                 for (int b = 0; b < pSize; b++) {
-                    emit("lda __sp_base+" + std::to_string(stackOff + b) + ", x");
+                    emit("ldy #" + std::to_string(1 + stackOff + b));
+                    emit("lda ($08),y");
                     emit("sta " + sym + (b ? "+" + std::to_string(b) : std::string()));
                 }
                 stackOff += (pSize < 2) ? 2 : pSize; // C promotes char to 16-bit on stack
@@ -1952,7 +2045,14 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             // Emit __sac label for direct SAC callers to skip thunk
             emit(".global " + fn.name + "__sac");
             emitLabel(fn.name + "__sac");
+            sacLabelEmitted = true;
         }
+    }
+    // Same-unit SAC callers always call _func__sac: without a parameter thunk
+    // (no params, regparm, zero-alloc leaf) it is the function entry itself
+    if (currentFunctionUseSAC_ && !sacLabelEmitted) {
+        emit(".global " + fn.name + "__sac");
+        emitLabel(fn.name + "__sac");
     }
 
     // Reset source location tracking for this function
@@ -1998,6 +2098,8 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     // Allocate frame only for frame-allocated vRegs
     int localFrameSize = frameSize_;
+    // A runtime alloca needs FP (set up only with a frame) to reset SP on return
+    if (usesAlloca && localFrameSize == 0) localFrameSize = 1;
     localFrameSize_ = localFrameSize;  // save for RET cleanup
 
     // SAC storage is now emitted BEFORE proc directive for correct memory placement
@@ -2305,6 +2407,24 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             // Drop the frame and restore the caller's FP using only A (saved in
             // scratch), so X/Y/Z of the return value are preserved
             emit("sta __zp_scratch");
+            if (usesAlloca) {
+                // alloca moved SP: reset it to just below the frame (FP - 1).
+                // SP rises, so SPL is written first (an interrupt between the
+                // writes pushes below the frame). X/Y of the result are kept.
+                emit("stx __zp_scratch+1");
+                emit("sty __zp_scratch+2");
+                emit("lda $FD");
+                emit("sec");
+                emit("sbc #1");
+                emit("tax");
+                emit("lda $FE");
+                emit("sbc #0");
+                emit("tay");
+                emit("txs");
+                emit("tys");
+                emit("ldx __zp_scratch+1");
+                emit("ldy __zp_scratch+2");
+            }
             for (int i = 0; i < localFrameSize; i++) emit("pla");
             emit("pla");
             emit("sta $FE");   // prologue pushed $FD then $FE
@@ -2665,8 +2785,12 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 }
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+            // A skipped transfer (equal bytes stored from A) leaves X/Y/Z unloaded
+            bool skippedTransfer = canSkipTransfer && inst.resultType != ir::Type::I8 &&
+                (b1 == b0 || (inst.resultType == ir::Type::I32 && (b2 == b0 || b3 == b0)));
             // stax.fp clobbers X via TSX — don't claim result is in AX after frame store
-            if (inst.dest.isVreg() && alloc_.getAlloc(inst.dest.vregId).loc != VRegAllocator::IN_FRAME)
+            if (inst.dest.isVreg() && !skippedTransfer &&
+                alloc_.getAlloc(inst.dest.vregId).loc != VRegAllocator::IN_FRAME)
                 resultInAX_ = (int32_t)inst.dest.vregId;
             else
                 resultInAX_ = -1;
@@ -4125,16 +4249,21 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 if (destAlloc.loc == VRegAllocator::IN_ZP) {
                     destPtr = "$" + hex8((uint8_t)destAlloc.offset);
                 } else {
-                    // Load frame pointer for destination
-                    emit("tsx");
-                    emit("txa");
-                    emit("clc");
-                    emit("adc #" + std::to_string(destAlloc.offset));
-                    emit("sta __zp_scratch2");
-                    emit("lda #$00");
-                    emit("adc #$00");
-                    emit("sta __zp_scratch2+1");
-                    destPtr = "__zp_scratch2";  // Will use __zp_scratch2/__zp_scratch2+1 as dest pointer
+                    // Frame destination: load the 4 bytes into AXYZ and store the vreg
+                    emit("ldy #3");
+                    emit("lda (__zp_scratch),y");
+                    emit("taz");
+                    emit("dey");
+                    emit("lda (__zp_scratch),y");
+                    emit("pha");
+                    emit("dey");
+                    emit("lda (__zp_scratch),y");
+                    emit("tax");
+                    emit("dey");
+                    emit("lda (__zp_scratch),y");
+                    emit("ply");
+                    storeVreg(inst.dest.vregId);
+                    break;
                 }
 
                 // Copy 4 bytes from (address) to (dest)

@@ -148,6 +148,7 @@ bool O45Linker::layoutSegments(std::string& errorMsg) {
     mergedText_.clear();
     mergedData_.clear();
     mergedBssLen_ = 0;
+    bssLenBeforeZpPage_ = -1;
     mergedZpLen_ = 0;
 
     // --- Text segment: sub-segment-aware layout ---
@@ -371,7 +372,8 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
             for (const auto& imp : input.obj.imports)
                 if (imp.name == "__zp_page") wanted = true;
         if (wanted) {
-            uint32_t page = (bssBase_ + mergedBssLen_ + 0xFF) & ~0xFFu;
+            if (bssLenBeforeZpPage_ < 0) bssLenBeforeZpPage_ = (int64_t)mergedBssLen_;
+            uint32_t page = (bssBase_ + (uint32_t)bssLenBeforeZpPage_ + 0xFF) & ~0xFFu;
             mergedBssLen_ = page + 0x100 - bssBase_;
             globalSymbols_["__zp_page"] = page;
             symbolSource_["__zp_page"] = "<linker>";
@@ -815,6 +817,21 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     // Generate thunks for convention mismatches (appends to mergedText_)
     generateThunks();
 
+    // Thunks were appended to the text after data/BSS were placed: if they now
+    // overlap automatically placed data, move data and BSS up and re-resolve.
+    {
+        uint32_t textEnd = textBase_ + (uint32_t)mergedText_.size();
+        if (!dataBaseSet_ && dataBase_ < textEnd) {
+            uint32_t delta = textEnd - dataBase_;
+            dataBase_ += delta;
+            if (!bssBaseSet_) bssBase_ += delta;
+            if (!resolveSymbols(errorMsg)) return {};
+            for (const auto& [name, addr] : thunkAddresses_) globalSymbols_[name] = addr;
+            colorStaticAllocRegisters();
+            patchStaticAllocAddresses();
+        }
+    }
+
     if (!applyRelocations(errorMsg)) return {};
 
     // Build the output binary: text + data (BSS is not emitted)
@@ -954,12 +971,20 @@ void O45Linker::buildCallGraph() {
                 continue; // Ignore other segment types
             }
 
-            // Find which function owns this call site
+            // Find which function owns this call site. A SAC function's
+            // X__sac label (its body past the parameter thunk) is the same
+            // function as X: SAC frame overlap and thunk decisions need one node
+            auto sacBase = [this](std::string n) {
+                if (n.size() > 5 && n.compare(n.size() - 5, 5, "__sac") == 0 &&
+                    funcAttrs_.count(n.substr(0, n.size() - 5)))
+                    n.resize(n.size() - 5);
+                return n;
+            };
             uint32_t siteInMerged = input.textOffset + r.offset;
             for (const auto& fn : funcs) {
                 if (siteInMerged >= fn.startOff && siteInMerged < fn.endOff) {
                     if (!callee.empty()) {
-                        callGraph_[fn.name].insert(callee);
+                        callGraph_[sacBase(fn.name)].insert(sacBase(callee));
                     }
                     break;
                 }
@@ -2461,12 +2486,19 @@ int O45Linker::funcMode(const std::string& fn) const {
     return it == funcObjMode_.end() ? -1 : it->second;
 }
 
-bool O45Linker::callNeedsThunk(const std::string& caller, const std::string& callee, bool& callerIsZp) const {
+bool O45Linker::callNeedsThunk(const std::string& callerName, const std::string& callee, bool& callerIsZp) const {
+    // A call inside a SAC function lies past its __sac entry label
+    std::string caller = callerName;
+    if (!funcAttrs_.count(caller) && caller.size() > 5 && caller.compare(caller.size() - 5, 5, "__sac") == 0)
+        caller = caller.substr(0, caller.size() - 5);
     auto callerIt = funcAttrs_.find(caller);
     auto calleeIt = funcAttrs_.find(callee);
-    if (callerIt == funcAttrs_.end() || calleeIt == funcAttrs_.end()) return false;
+    int callerMode = funcMode(caller);
+    if (callerMode < 0 && callerIt == funcAttrs_.end()) callerMode = funcMode(callerName);
+    // Static functions export no attributes; their object's mode marker decides
+    if ((callerIt == funcAttrs_.end() && callerMode < 0) || calleeIt == funcAttrs_.end()) return false;
     bool calleeIsZp = (calleeIt->second.flags & FUNC_FLAG_ZP_CONV) != 0;
-    int callerMode = funcMode(caller), calleeMode = funcMode(callee);
+    int calleeMode = funcMode(callee);
     if (callerMode < 0) callerIsZp = (callerIt->second.flags & FUNC_FLAG_ZP_CONV) != 0;
     else if (calleeMode == callerMode) callerIsZp = calleeIsZp;
     else callerIsZp = callerMode == 1;
@@ -2961,13 +2993,9 @@ void O45Linker::generateThunks() {
 
     if (needed.empty()) return;
 
-    // ZP param base for zpcall convention (matches CodeGenerator/IRCodeGen: zpBase = zpBase_ + 8)
-    uint8_t zpParamBase = (uint8_t)(zpBase_ + 8);
+    // ZP convention parameter block ($10-$2F, IRCodeGen: zeroPageStart $08 + 8)
+    const uint8_t zpParamBase = 0x10;
 
-    // __sp_base symbol (needed for stack-relative access in thunks)
-    uint32_t spBase = 0x0101; // default
-    auto spIt = globalSymbols_.find("__sp_base");
-    if (spIt != globalSymbols_.end()) spBase = spIt->second;
 
     for (auto& [thunkName, need] : needed) {
         auto calleeIt = funcAttrs_.find(need.callee);
@@ -2981,47 +3009,55 @@ void O45Linker::generateThunks() {
         globalSymbols_[thunkName] = thunkAddr;
 
         if (!need.callerIsZp) {
-            // Stack→ZP thunk (s2z): copy stack args to ZP param slots, then JMP callee
-            // Stack layout at entry: [ret_lo, ret_hi, param0, param1, ...]
-            // TSX; LDA spBase+2+i,X; STA $03+i  for each param byte
-            for (int i = 0; i < paramSize; i++) {
-                mergedText_.push_back(0xBA);                       // TSX
-                mergedText_.push_back(0xBD);                       // LDA abs,X
-                uint16_t srcAddr = (uint16_t)(spBase + 2 + i);
-                mergedText_.push_back((uint8_t)(srcAddr & 0xFF));
-                mergedText_.push_back((uint8_t)(srcAddr >> 8));
+            // Stack→ZP thunk (s2z): copy the stack arguments into the ZP parameter
+            // block, then JMP to the callee (its RTS returns to the original caller).
+            // The stack is reached through a pointer (TSX/TSY), not page-1 abs,X,
+            // so it works with a 16-bit stack. Stack slots and ZP slots have the
+            // same layout (at least 2 bytes per argument).
+            int copy = paramSize;
+            if (calleeIt != funcAttrs_.end()) {
+                // Hand-written ZP routines declare their parameters with .zp_uses
+                // (bit 0 = $09): copy up to the highest parameter byte used
+                uint32_t uses = calleeIt->second.zpUses;
+                for (int bit = 31; bit >= 0; bit--) {
+                    int addr = 0x09 + bit;
+                    if ((uses & (1u << bit)) && addr >= zpParamBase && addr < zpParamBase + 32) {
+                        copy = std::max(copy, addr - zpParamBase + 1);
+                        break;
+                    }
+                }
+            }
+            mergedText_.push_back(0xBA);                           // TSX
+            mergedText_.push_back(0x0B);                           // TSY
+            mergedText_.push_back(0x86); mergedText_.push_back(0x08);  // STX $08
+            mergedText_.push_back(0x84); mergedText_.push_back(0x09);  // STY $09
+            for (int i = 0; i < copy; i++) {
+                mergedText_.push_back(0xA0);                       // LDY #(3+i): past the return address
+                mergedText_.push_back((uint8_t)(3 + i));
+                mergedText_.push_back(0xB1); mergedText_.push_back(0x08);  // LDA ($08),Y
                 mergedText_.push_back(0x85);                       // STA zp
                 mergedText_.push_back((uint8_t)(zpParamBase + i));
             }
-            // JMP callee (tail-call; callee's RTS returns directly to original caller)
-            mergedText_.push_back(0x4C);                           // JMP abs
+            mergedText_.push_back(0x4C);                           // JMP callee
             mergedText_.push_back((uint8_t)(calleeAddr & 0xFF));
             mergedText_.push_back((uint8_t)(calleeAddr >> 8));
         } else {
-            // ZP→Stack thunk (z2s): push ZP params onto stack, JSR callee, clean up, RTS
-            // Push params in reverse order (highest address first) so they appear
-            // in the correct order on the stack for the callee
+            // ZP→Stack thunk (z2s): push the ZP parameters (highest first), JSR the
+            // callee, drop them with PLA (correct for a 16-bit stack; X/Y/Z of the
+            // result are untouched, A is saved), RTS.
             for (int i = paramSize - 1; i >= 0; i--) {
                 mergedText_.push_back(0xA5);                       // LDA zp
                 mergedText_.push_back((uint8_t)(zpParamBase + i));
                 mergedText_.push_back(0x48);                       // PHA
             }
-            // JSR callee
-            mergedText_.push_back(0x20);                           // JSR abs
+            mergedText_.push_back(0x20);                           // JSR callee
             mergedText_.push_back((uint8_t)(calleeAddr & 0xFF));
             mergedText_.push_back((uint8_t)(calleeAddr >> 8));
-            // Clean up stack: remove paramSize bytes
-            // TSX; TXA; CLC; ADC #paramSize; TAX; TXS
             if (paramSize > 0) {
-                mergedText_.push_back(0xBA);                       // TSX
-                mergedText_.push_back(0x8A);                       // TXA
-                mergedText_.push_back(0x18);                       // CLC
-                mergedText_.push_back(0x69);                       // ADC #imm
-                mergedText_.push_back((uint8_t)paramSize);
-                mergedText_.push_back(0xAA);                       // TAX
-                mergedText_.push_back(0x9A);                       // TXS
+                mergedText_.push_back(0x85); mergedText_.push_back(0x0E);  // STA $0E
+                for (int i = 0; i < paramSize; i++) mergedText_.push_back(0x68);  // PLA
+                mergedText_.push_back(0xA5); mergedText_.push_back(0x0E);  // LDA $0E
             }
-            // RTS (return to ZP caller)
             mergedText_.push_back(0x60);                           // RTS
         }
     }
@@ -3072,13 +3108,8 @@ void O45Linker::generateThunks() {
             }
             if (caller.empty()) continue;
 
-            auto callerIt = funcAttrs_.find(caller);
-            auto calleeIt = funcAttrs_.find(callee);
-            if (callerIt == funcAttrs_.end() || calleeIt == funcAttrs_.end()) continue;
-
-            bool callerIsZp = (callerIt->second.flags & FUNC_FLAG_ZP_CONV) != 0;
-            bool calleeIsZp = (calleeIt->second.flags & FUNC_FLAG_ZP_CONV) != 0;
-            if (callerIsZp == calleeIsZp) continue;
+            bool callerIsZp = false;
+            if (!callNeedsThunk(caller, callee, callerIsZp)) continue;
 
             std::string prefix = callerIsZp ? "__thunk_z2s_" : "__thunk_s2z_";
             std::string thunkName = prefix + callee;

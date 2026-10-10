@@ -10,6 +10,7 @@
 .global __bp_rom
 .global __bp_prog
 .extern __zp_page
+.extern __stack_top
 .weak _init_features
 .extern _main
 
@@ -36,6 +37,24 @@ __init:
     lda #>__zp_page
     tab
 
+    ; Move the CPU stack to a 16-bit stack at __stack_top (E flag clear).
+    ; Interrupts are masked while SPH/SPL change, then the caller's I flag
+    ; is restored (PLP would also reload E, so it isn't used here).
+    php
+    pla
+    sta __saved_p + 1
+    ldy #>__stack_top
+    beq @stack8
+    sei
+    cle
+    tys
+    ldx #<__stack_top
+    txs
+    and #$04            ; caller's I flag
+    bne @stack8
+    cli
+@stack8:
+
     jsr _init_features
     jsr _main
 
@@ -45,12 +64,19 @@ __exit:
     lda #0
     tab
 
+    ; Back to the caller's 8-bit stack (E set; SPH still selects the page)
+    sei
+    see
 __saved_spl:
     ldx #$FF
     txs
 __saved_sph:
     ldy #$01
     tys
+__saved_p:
+    lda #$00
+    pha
+    plp
     rts
 
 ; Default init_features — does nothing. Override with a strong definition.

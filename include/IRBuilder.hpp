@@ -168,6 +168,7 @@ private:
     std::map<std::string, std::string> staticRenames_;  // static function -> module-unique symbol
     std::string staticFunctionName(const std::string& name);
     std::string resolvedFunctionName(const std::string& name) const;
+    std::string staticAddressLabel(Expression* e);
     std::set<std::string> methodsEmitted_;  // structs whose methods were lowered
     std::map<std::string, int> sretSize_;      // function name -> result size
     std::set<std::string> sretFloat_;          // ... of which return float/double

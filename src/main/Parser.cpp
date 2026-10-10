@@ -1,3 +1,4 @@
+#include <cstring>
 #include "Parser.hpp"
 #include "Diagnostic.hpp"
 #include <stdexcept>
@@ -186,7 +187,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                             } else {
                                 auto szExpr = parseExpression();
                                 int sz = 1;
-                                if (auto* lit = dynamic_cast<IntegerLiteral*>(szExpr.get())) sz = (int)lit->value;
+                                { long cv; if (evalConstInt(szExpr.get(), cv)) sz = (int)cv; }
                                 vDecl->arrayDims.push_back(sz);
                                 expect(TokenType::CLOSE_SQUARE, "Expected ']'");
                             }
@@ -213,7 +214,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                                 else {
                                     auto se = parseExpression();
                                     int ss = 1;
-                                    if (auto* lit = dynamic_cast<IntegerLiteral*>(se.get())) ss = (int)lit->value;
+                                    { long cv; if (evalConstInt(se.get(), cv)) ss = (int)cv; }
                                     ev->arrayDims.push_back(ss);
                                     expect(TokenType::CLOSE_SQUARE, "Expected ']'");
                                 }
@@ -1205,7 +1206,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
                 } else {
                     auto szExpr = parseExpression();
                     int sz = 1;
-                    if (auto* lit = dynamic_cast<IntegerLiteral*>(szExpr.get())) sz = (int)lit->value;
+                    { long cv; if (evalConstInt(szExpr.get(), cv)) sz = (int)cv; }
                     vDecl->arrayDims.push_back(sz);
                     expect(TokenType::CLOSE_SQUARE, "Expected ']'");
                 }
@@ -1233,7 +1234,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
                     else {
                         auto se = parseExpression();
                         int ss = 1;
-                        if (auto* lit = dynamic_cast<IntegerLiteral*>(se.get())) ss = (int)lit->value;
+                        { long cv; if (evalConstInt(se.get(), cv)) ss = (int)cv; }
                         ev->arrayDims.push_back(ss);
                         expect(TokenType::CLOSE_SQUARE, "Expected ']'");
                     }
@@ -1630,7 +1631,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
                     } else {
                         auto szExpr = parseExpression();
                         int sz = 1;
-                        if (auto* lit = dynamic_cast<IntegerLiteral*>(szExpr.get())) sz = (int)lit->value;
+                        { long cv; if (evalConstInt(szExpr.get(), cv)) sz = (int)cv; }
                         decl->arrayDims.push_back(sz);
                         expect(TokenType::CLOSE_SQUARE, "Expected ']'");
                     }
@@ -1701,7 +1702,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             } else {
                 auto szExpr = parseExpression();
                 int arrSize = 1;
-                if (auto* lit = dynamic_cast<IntegerLiteral*>(szExpr.get())) arrSize = (int)lit->value;
+                { long cv; if (evalConstInt(szExpr.get(), cv)) arrSize = (int)cv; }
                 fpArrayDims.push_back(arrSize);
                 expect(TokenType::CLOSE_SQUARE, "Expected ']'");
             }
@@ -1756,7 +1757,8 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
             auto sizeExpr = parseExpression();
             // Evaluate constant array size: integer literals, sizeof, constant expressions
             int arrSize = 0;
-            if (auto* lit = dynamic_cast<IntegerLiteral*>(sizeExpr.get())) arrSize = (int)lit->value;
+            long cv;
+            if (evalConstInt(sizeExpr.get(), cv)) arrSize = (int)cv;
             else if (auto* szExpr = dynamic_cast<SizeofExpression*>(sizeExpr.get())) {
                 if (szExpr->typeName == "int" || szExpr->typeName == "short") arrSize = 2;
                 else if (szExpr->typeName == "long") arrSize = 4;
@@ -1800,6 +1802,15 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         }
     }
 
+    {
+        int es = scalarTypeSize(type, ptrLevel);
+        if (es > 0) {
+            long n = es;
+            for (int d : decl->arrayDims) n *= d;
+            varByteSizes[name] = n;
+        }
+    }
+
     // Skip __attribute__ after variable declaration: int x __attribute__((unused));
     while (tryParseAttribute()) {}
 
@@ -1828,7 +1839,8 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
                 } else {
                     auto stExpr = parseExpression();
                     int estSize = 0;
-                    if (auto* lit = dynamic_cast<IntegerLiteral*>(stExpr.get())) estSize = (int)lit->value;
+                    long cv;
+                    if (evalConstInt(stExpr.get(), cv)) estSize = (int)cv;
                     else estSize = 1;
                     extraDims.push_back(estSize);
                 }
@@ -2113,8 +2125,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             } else {
                 auto mSizeExpr = parseExpression();
                 int mArrSize = 0;
-                if (auto* lit = dynamic_cast<IntegerLiteral*>(mSizeExpr.get())) mArrSize = (int)lit->value;
-                else mArrSize = 1;
+                { long cv; if (evalConstInt(mSizeExpr.get(), cv)) mArrSize = (int)cv; else mArrSize = 1; }
                 memberArrayDims.push_back(mArrSize);
                 expect(TokenType::CLOSE_SQUARE, "Expected ']' after array size");
             }
@@ -2805,6 +2816,9 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
                 {"__builtin_labs", "labs"},
                 {"__builtin_exit", "exit"},
                 {"__builtin_alloca", "alloca"},
+                {"__builtin_setjmp", "setjmp"},
+                {"__builtin_longjmp", "longjmp"},
+                {"__builtin_vprintf", "vprintf"},
             };
             auto it = builtinAliases.find(actualName);
             if (it != builtinAliases.end()) {
@@ -3387,7 +3401,7 @@ void Parser::parseTypedef() {
         } else {
             auto szExpr = parseExpression();
             int arrSize = 1;
-            if (auto* lit = dynamic_cast<IntegerLiteral*>(szExpr.get())) arrSize = (int)lit->value;
+            { long cv; if (evalConstInt(szExpr.get(), cv)) arrSize = (int)cv; }
             arrayDims.push_back(arrSize);
             expect(TokenType::CLOSE_SQUARE, "Expected ']'");
         }
@@ -3433,6 +3447,91 @@ std::shared_ptr<FuncPtrSignature> Parser::parseFuncPtrParams(const std::string& 
     return sig;
 }
 
+int Parser::scalarTypeSize(const std::string& type, int ptrLevel) {
+    if (ptrLevel > 0) return 2;
+    std::string t = type;
+    for (const char* q : {"unsigned ", "signed ", "const ", "volatile "})
+        for (size_t at; (at = t.find(q)) != std::string::npos; ) t.erase(at, std::strlen(q));
+    if (t == "char" || t == "_Bool" || t == "bool") return 1;
+    if (t == "short" || t == "int" || t == "unsigned" || t == "signed" || t == "short int") return 2;
+    if (t == "long" || t == "long int") return 4;
+    if (t == "long long" || t == "long long int") return 8;
+    if (t == "float" || t == "double" || t == "long double") return 5;
+    return -1;
+}
+
+bool Parser::evalConstInt(Expression* e, long& out) {
+    if (!e) return false;
+    if (auto* lit = dynamic_cast<IntegerLiteral*>(e)) { out = (long)lit->value; return true; }
+    if (auto* v = dynamic_cast<VariableReference*>(e)) {
+        auto it = enumConstants.find(v->name);
+        if (it == enumConstants.end()) return false;
+        out = it->second;
+        return true;
+    }
+    if (auto* c = dynamic_cast<CastExpression*>(e)) return evalConstInt(c->expression.get(), out);
+    if (auto* sz = dynamic_cast<SizeofExpression*>(e)) {
+        if (sz->isType) {
+            int s = scalarTypeSize(sz->typeName, sz->pointerLevel);
+            if (s < 0) return false;
+            long n = s;
+            for (int d : sz->arrayDims) n *= d;
+            out = n;
+            return true;
+        }
+        if (auto* v = dynamic_cast<VariableReference*>(sz->expression.get())) {
+            auto it = varByteSizes.find(v->name);
+            if (it == varByteSizes.end()) return false;
+            out = it->second;
+            return true;
+        }
+        return false;
+    }
+    if (auto* u = dynamic_cast<UnaryOperation*>(e)) {
+        long a;
+        if (!evalConstInt(u->operand.get(), a)) return false;
+        if (u->op == "-") out = -a;
+        else if (u->op == "+") out = a;
+        else if (u->op == "~") out = ~a;
+        else if (u->op == "!") out = !a;
+        else return false;
+        return true;
+    }
+    if (auto* c = dynamic_cast<ConditionalExpression*>(e)) {
+        long k, a, b;
+        if (!evalConstInt(c->condition.get(), k) || !evalConstInt(c->thenExpr.get(), a) ||
+            !evalConstInt(c->elseExpr.get(), b)) return false;
+        out = k ? a : b;
+        return true;
+    }
+    if (auto* b = dynamic_cast<BinaryOperation*>(e)) {
+        long l, r;
+        if (!evalConstInt(b->left.get(), l) || !evalConstInt(b->right.get(), r)) return false;
+        const std::string& op = b->op;
+        if (op == "+") out = l + r;
+        else if (op == "-") out = l - r;
+        else if (op == "*") out = l * r;
+        else if (op == "/") { if (!r) return false; out = l / r; }
+        else if (op == "%") { if (!r) return false; out = l % r; }
+        else if (op == "<<") out = l << r;
+        else if (op == ">>") out = l >> r;
+        else if (op == "&") out = l & r;
+        else if (op == "|") out = l | r;
+        else if (op == "^") out = l ^ r;
+        else if (op == "&&") out = l && r;
+        else if (op == "||") out = l || r;
+        else if (op == "==") out = l == r;
+        else if (op == "!=") out = l != r;
+        else if (op == "<") out = l < r;
+        else if (op == ">") out = l > r;
+        else if (op == "<=") out = l <= r;
+        else if (op == ">=") out = l >= r;
+        else return false;
+        return true;
+    }
+    return false;
+}
+
 std::unique_ptr<EnumDefinition> Parser::parseEnumDefinition() {
     const Token& startToken = tokens[pos-1]; // 'enum'
     std::string name;
@@ -3449,7 +3548,11 @@ std::unique_ptr<EnumDefinition> Parser::parseEnumDefinition() {
             if (match(TokenType::EQUALS)) {
                 // For simplicity, only integer literals for now. 
                 // Full expression evaluation would be better but this covers most cases.
-                currentValue = std::stoi(expect(TokenType::INTEGER_LITERAL, "Expected integer literal for enum value").value);
+                auto valExpr = parseConditional();
+                long cv;
+                if (!evalConstInt(valExpr.get(), cv))
+                    throw std::runtime_error("Expected an integer constant expression for enum value '" + enumName + "'");
+                currentValue = (int)cv;
             }
             enumConstants[enumName] = currentValue;
             def->enumerators.push_back({enumName, currentValue});

@@ -2,6 +2,9 @@
 # Remove names as they are fixed; test_failures.sh runs this list.
 # pr58574: program too large (code runs into I/O at $D000).
 # struct-ret-1: global struct initializer with an array member is mis-emitted.
+# pr23467: __attribute__((aligned(8))) is ignored; passes only when the layout
+#   happens to put the member on an 8-byte boundary.
+# vrp-6: needs 32-bit int (dg int32plus); 0x80000000 truncates to 0 in a 16-bit unsigned int.
 20000605-1
 20000731-1
 20000801-3
@@ -121,11 +124,11 @@ loop-8
 medce-1
 memset-4
 nest-align-1
+nest-stdar-1
 nestfunc-1
 nestfunc-3
 nestfunc-5
 nestfunc-6
-nest-stdar-1
 packed-aligned
 pr103209
 pr103255
@@ -257,7 +260,8 @@ va-arg-7
 vfprintf-1
 vfprintf-chk-1
 vrp-5
+vrp-6
 widechar-3
+zero-struct-1
 zerolen-1
 zerolen-2
-zero-struct-1

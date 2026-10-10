@@ -662,6 +662,30 @@ int main(int argc, char** argv) {
         if (relocMode) {
             // Relocatable object mode: produce .o45 file
             parser.pass2(false);
+            // A call/jump to a symbol that is neither defined nor .extern would
+            // silently assemble to $0000 (and the optimizer may even turn it into
+            // a branch): report it
+            {
+                int undefinedTargets = 0;
+                for (const auto& st : parser.statements) {
+                    if (st->deleted || st->type != AssemblerParser::Statement::INSTRUCTION) continue;
+                    std::string mn = st->instr.mnemonic;
+                    for (auto& ch : mn) ch = (char)std::tolower((unsigned char)ch);
+                    if (mn != "jsr" && mn != "jmp" && mn != "bsr") continue;
+                    const std::string& op = st->instr.operand;
+                    if (op.empty() || !(std::isalpha((unsigned char)op[0]) || op[0] == '_')) continue;
+                    bool plain = true;
+                    for (char ch : op) if (!(std::isalnum((unsigned char)ch) || ch == '_' || ch == '.')) { plain = false; break; }
+                    if (!plain) continue;
+                    if (parser.isExternSymbol(op) || parser.resolveSymbol(op, st->scopePrefix)) continue;
+                    std::cerr << (st->sourceFile.empty() ? input_file : st->sourceFile) << ":"
+                              << (st->sourceLine ? st->sourceLine : st->line)
+                              << ": error: undefined symbol '" << op << "' (" << mn
+                              << "); declare it .extern if another object defines it" << std::endl;
+                    undefinedTargets++;
+                }
+                if (undefinedTargets) return 1;
+            }
             auto o45 = emitO45(parser);
             if (!o45.empty()) {
                 std::ofstream out(output_file, std::ios::binary);

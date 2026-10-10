@@ -77,6 +77,7 @@ public:
     bool isExternSymbol(const std::string& name) const { return externIndex.count(name) > 0; }
     // Returns true if the symbol's final address is not yet known (extern or in a non-org'd segment like BSS)
     bool isRelocatableSymbol(const std::string& name) const;
+    bool isRelocatableSymbolIn(const std::string& name, const std::string& scopePrefix);
     uint32_t getExternIndex(const std::string& name) const;
 
     bool isPass1() const { return isPass1_; }

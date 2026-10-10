@@ -109,15 +109,25 @@ proc _ltoa
     bit $D70F
     bmi @waitdiv
 
+    ; Quotient becomes the new value — saved before writing $D770 below,
+    ; which starts a new division and changes $D76C-$D76F
+    lda $d76c
+    sta $10
+    lda $d76d
+    sta $11
+    lda $d76e
+    sta $12
+    lda $d76f
+    sta $13
     ; Compute remainder = value - quotient * base
     ; Write quotient to $D770, base still in $D774
-    lda $d76c
+    lda $10
     sta $d770
-    lda $d76d
+    lda $11
     sta $d771
-    lda $d76e
+    lda $12
     sta $d772
-    lda $d76f
+    lda $13
     sta $d773
     ; Product lo at $D778 (combinational)
     pla                     ; saved value lo
@@ -137,17 +147,8 @@ proc _ltoa
     pha
     inc $02
 
-    ; Quotient ($D76C-$D76F) becomes new value
-    lda $d76c
-    sta $10
-    lda $d76d
-    sta $11
-    lda $d76e
-    sta $12
-    lda $d76f
-    sta $13
-
     ; Continue while value != 0
+    lda $13
     ora $10
     ora $11
     ora $12

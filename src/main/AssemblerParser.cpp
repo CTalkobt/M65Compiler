@@ -252,6 +252,18 @@ Symbol* AssemblerParser::resolveSymbol(const std::string& name, const std::strin
     return nullptr;
 }
 
+// isRelocatableSymbol for a name as written in a scope (e.g. an @local label
+// inside a proc), resolved the way an operand is
+bool AssemblerParser::isRelocatableSymbolIn(const std::string& name, const std::string& scopePrefix) {
+    if (externIndex.count(name)) return true;
+    Symbol* sym = resolveSymbol(name, scopePrefix);
+    if (!sym) return false;
+    const auto& seg = sym->segment;
+    if (seg.empty() || seg == "__extern__") return seg == "__extern__";
+    auto sit = segments.find(seg);
+    return sit != segments.end() && !sit->second->hasOrg;
+}
+
 bool AssemblerParser::isRelocatableSymbol(const std::string& name) const {
     if (externIndex.count(name)) return true;
     auto it = symbolTable.find(name);

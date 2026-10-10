@@ -537,6 +537,7 @@ private:
     std::string formatOrchestrationReport(const CrossProgramAnalysis& analysis);  // Phase 74: Format orchestration report
     RuntimeProfile collectProfileData(const BenchmarkResult& estimate, int actualSize, int execMs);  // Phase 75: Collect profile
     std::string formatProfileReport(const RuntimeProfile& profile);  // Phase 75: Format profile report
+    int64_t bssLenBeforeZpPage_ = -1;  // BSS length before the __zp_page block was added
     std::map<std::string, int> funcObjMode_;  // function -> its object's cc45 mode (1 zp, 0 stack)
     int funcMode(const std::string& fn) const;
     bool callNeedsThunk(const std::string& caller, const std::string& callee, bool& callerIsZp) const;

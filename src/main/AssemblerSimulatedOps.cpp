@@ -597,7 +597,7 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
                 if (symIdx < (int)parser->tokens.size() && parser->tokens[symIdx].type == AssemblerTokenType::HASH) symIdx++;
                 std::string srcName = (symIdx < (int)parser->tokens.size()) ? parser->tokens[symIdx].value : "";
                 // Use emitLoadAddrConst which handles symbol relocations
-                emitLoadAddrConst(parser, e, srcName, 0, reg2);
+                emitLoadAddrConst(parser, e, srcName, 0, reg2, scopePrefix);
             } else {
                 uint32_t addr = 0;
                 try {
@@ -3498,10 +3498,11 @@ void AssemblerSimulatedOps::emitWriteOperand16(AssemblerParser* parser, M65Emitt
     }
 }
 
-void AssemblerSimulatedOps::emitLoadAddrConst(AssemblerParser* parser, M65Emitter& e, const std::string& name, uint16_t offset, char reg2) {
-    Symbol* sym = parser->resolveSymbol(name, "");
+void AssemblerSimulatedOps::emitLoadAddrConst(AssemblerParser* parser, M65Emitter& e, const std::string& name, uint16_t offset, char reg2, const std::string& scopePrefix) {
+    // Resolve in the statement's scope: an @label inside a proc lives under it
+    Symbol* sym = parser->resolveSymbol(name, scopePrefix);
     uint32_t baseVal = 0;
-    bool isReloc = parser->isRelocatableSymbol(name);
+    bool isReloc = parser->isRelocatableSymbolIn(name, scopePrefix);
     if (sym) {
         baseVal = sym->value;
     } else {
@@ -3520,6 +3521,16 @@ void AssemblerSimulatedOps::emitLoadAddrConst(AssemblerParser* parser, M65Emitte
     if (reg2 == 'X') e.ldx_imm((total >> 8) & 0xFF);
     else if (reg2 == 'Y') e.ldy_imm((total >> 8) & 0xFF);
     else if (reg2 == 'Z') e.ldz_imm((total >> 8) & 0xFF);
+    if (isReloc) {
+        // The bytes are only known after linking: a value tracked as the
+        // constant (unrelocated) offset would be folded into later operands
+        // (e.g. cmp.16 against the stored pointer) without its relocation
+        auto& ms = e.machineState();
+        ms.invalidateReg(REG_A);
+        if (reg2 == 'X') ms.invalidateReg(REG_X);
+        else if (reg2 == 'Y') ms.invalidateReg(REG_Y);
+        else if (reg2 == 'Z') ms.invalidateReg(REG_Z);
+    }
 }
 
 void AssemblerSimulatedOps::dispatch_StructElem(AssemblerParser* p, M65Emitter& e, Stmt* s) {
@@ -3575,7 +3586,7 @@ void AssemblerSimulatedOps::dispatch_StructElem(AssemblerParser* p, M65Emitter& 
             catch (...) { baseAddr = 0; }
         }
         if (baseIsImmediate) {
-            emitLoadAddrConst(p, e, baseSymName, offsetVal, 'X');
+            emitLoadAddrConst(p, e, baseSymName, offsetVal, 'X', s->scopePrefix);
         } else {
             bool isZP = (!baseSymName.empty() && baseSymName[0] == '$');
             if (isZP) {

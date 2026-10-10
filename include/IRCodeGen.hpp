@@ -220,6 +220,7 @@ private:
     // Track which functions use SAC (Static Allocation Convention)
     // Used to emit .global declarations for __ar symbols in preamble
     std::set<std::string> sacFunctions_;
+    std::set<std::string> recursiveFunctions_;  // on a call cycle within the module
 
     // Track parameter names for each function (for SAC naming consistency)
     // Maps function name → vector of parameter names

@@ -1002,6 +1002,15 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         output << "__asm__(\".crt_stdio\");\n";
                     } else if (cc45Arg == "no_zp_save") {
                         output << "__asm__(\".no_zp_save\");\n";
+                    } else if (cc45Arg == "no_stack16") {
+                        output << "__asm__(\".no_stack16\");\n";
+                    } else if (cc45Arg.rfind("stack_top", 0) == 0) {
+                        // Accepts "stack_top ADDR" and "stack_top(ADDR)"
+                        std::string rest = cc45Arg.substr(9), tail;
+                        while (ss >> tail) rest += tail;
+                        std::string addr;
+                        for (char ch : rest) if (std::isxdigit((unsigned char)ch) || ch == '$' || ch == 'x' || ch == 'X') addr += ch;
+                        output << (addr.empty() ? std::string("\n") : "__asm__(\".stack_top " + addr + "\");\n");
                     } else if (cc45Arg == "set_bp") {
                         std::string bpVal;
                         ss >> bpVal;
@@ -1115,6 +1124,14 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         else if (cc45Arg == "heap") output << "__asm__(\".crt_heap\");\n";
                         else if (cc45Arg == "stdio") output << "__asm__(\".crt_stdio\");\n";
                         else if (cc45Arg == "no_zp_save") output << "__asm__(\".no_zp_save\");\n";
+                        else if (cc45Arg == "no_stack16") output << "__asm__(\".no_stack16\");\n";
+                        else if (cc45Arg.rfind("stack_top", 0) == 0) {
+                            std::string rest = cc45Arg.substr(9), tail;
+                            while (ps >> tail) rest += tail;
+                            std::string addr;
+                            for (char ch : rest) if (std::isxdigit((unsigned char)ch) || ch == '$' || ch == 'x' || ch == 'X') addr += ch;
+                            output << (addr.empty() ? std::string("\n") : "__asm__(\".stack_top " + addr + "\");\n");
+                        }
                         else if (cc45Arg == "set_bp") { std::string bv; ps >> bv; output << "__asm__(\".set_bp " + bv + "\");\n"; }
                         else if (cc45Arg == "weak") output << "__asm__(\".weak_next\");\n";
                         else if (cc45Arg == "recurse") output << "__asm__(\".recurse_next\");\n";

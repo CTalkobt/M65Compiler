@@ -29,6 +29,7 @@ struct CompilationConfig {
     // Calling conventions
     bool zpCallMode = false;
     bool staticAllocMode = true;
+    int stackTop = -1;          // -fno-stack16 (0) / -fstack-top=ADDR; -1 = 16-bit stack at $BFFF
     bool inlineSmallFunctions = false;
 
     // Language conformance

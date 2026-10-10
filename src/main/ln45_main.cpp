@@ -178,6 +178,32 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    // The 16-bit CPU stack grows down from __stack_top towards the end of the
+    // program (BSS and the private base page): make sure there is room
+    {
+        const auto& syms = linker.getSymbolMap();
+        auto st = syms.find("__stack_top");
+        if (st != syms.end() && st->second != 0) {
+            uint32_t end = 0;
+            auto be = syms.find("__bss_end");
+            if (be != syms.end()) end = be->second;
+            auto zp = syms.find("__zp_page");
+            if (zp != syms.end() && zp->second + 0x100 > end) end = zp->second + 0x100;
+            if (end > 0 && end > st->second) {
+                std::cerr << "ln45: error: program ends at $" << std::hex << std::uppercase << end
+                          << ", above the CPU stack top $" << st->second << std::dec
+                          << " (cc45 -fstack-top=ADDR or -fno-stack16)" << std::endl;
+                return 1;
+            }
+            if (end > 0 && st->second + 1 - end < 0x200) {
+                std::cerr << "ln45: warning: only " << (st->second + 1 - end)
+                          << " bytes left for the CPU stack between the program end ($"
+                          << std::hex << std::uppercase << end << ") and $" << st->second
+                          << std::dec << std::endl;
+            }
+        }
+    }
+
     // Phase 91.4: Cross-Module Optimization Analysis
     // Analyze specialization opportunities across module boundaries
     CrossModuleOptimizer cmoOptimizer;

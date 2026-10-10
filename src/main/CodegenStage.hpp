@@ -53,6 +53,7 @@ public:
     void setMaxInlineIRSize(int n) { maxInlineIRSize_ = n; }
 
     void setSourceFile(const std::string& f) { sourceFile_ = f; }
+    void setStackTop(int top) { stackTop_ = top; }
     void setTypedefMappings(const std::map<std::string, std::string>& typedefMappings) {
         typedefMappings_ = typedefMappings;
     }
@@ -64,6 +65,7 @@ private:
     int verboseLevel_;
     bool inlineFunctions_;
     int maxInlineIRSize_ = 11;
+    int stackTop_ = -1;
     bool staticAlloc_;
     bool zpCallMode_;
     bool saveTemps_;

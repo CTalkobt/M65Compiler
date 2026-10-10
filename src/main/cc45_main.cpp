@@ -484,6 +484,8 @@ int main(int argc, char** argv) {
             std::cout << "  -D<name>=<val> Define symbol" << std::endl;
             if (programName != "cp45") {
                 std::cout << "  -fzpcall       Use ZP calling convention" << std::endl;
+                std::cout << "  -fno-stack16   Keep the ROM's 8-bit CPU stack on page 1 (default: 16-bit stack topped at $BFFF)" << std::endl;
+                std::cout << "  -fstack-top=ADDR  Top byte of the 16-bit CPU stack (e.g. 0x9FFF or $9FFF)" << std::endl;
                 std::cout << "  -fstaticalloc  Use static allocation (default)" << std::endl;
                 std::cout << "  -finline-functions  Inline small functions" << std::endl;
                 std::cout << "  -fmax-inline-ir-size=N  Max IR instructions for an inlined function (default 11)" << std::endl;
@@ -510,6 +512,17 @@ int main(int argc, char** argv) {
             config.zpCallMode = true;
         } else if (arg == "-fno-zpcall") {
             config.zpCallMode = false;
+        } else if (arg == "-fno-stack16") {
+            config.stackTop = 0;
+        } else if (arg == "-fstack16") {
+            config.stackTop = -1;
+        } else if (arg.rfind("-fstack-top=", 0) == 0) {
+            std::string v = arg.substr(12);
+            int base = 10;
+            if (!v.empty() && v[0] == '$') { v = v.substr(1); base = 16; }
+            else if (v.size() > 2 && v[0] == '0' && (v[1] == 'x' || v[1] == 'X')) { v = v.substr(2); base = 16; }
+            try { config.stackTop = (int)(std::stoul(v, nullptr, base) & 0xFFFF); }
+            catch (...) { std::cerr << "cc45: error: invalid -fstack-top value '" << arg.substr(12) << "'" << std::endl; return 1; }
         } else if (arg == "-fstaticalloc") {
             config.staticAllocMode = true;
         } else if (arg == "-fno-staticalloc") {
