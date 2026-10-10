@@ -412,7 +412,7 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             info.type = git->second;
             info.typeName = globalTypeNames_[ref->name];
             auto gsit = globalSigned_.find(ref->name);
-            info.isSigned = gsit == globalSigned_.end() || gsit->second;
+            info.isSigned = gsit != globalSigned_.end() && gsit->second;
             info.totalSize = ir::typeSize(info.type);
             if (info.type == ir::Type::PTR) {
                 auto gpit = globalPointedToType_.find(ref->name);
@@ -481,7 +481,7 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         
         if (auto* ref = dynamic_cast<VariableReference*>(root)) {
             ir::Type baseType = ir::Type::I16;
-            bool isSigned = true;
+            bool isSigned = false;  // cc45: unsigned unless declared signed
             std::vector<int> dims;
             
             auto pit = localPointedToType_.find(ref->name);
@@ -564,7 +564,8 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
                 if (gpit != globalPointedToType_.end()) {
                     std::string tn = globalTypeNames_.count(ref->name) ? globalTypeNames_[ref->name] : "";
                     int sz = tn.empty() ? ir::typeSize(gpit->second) : getTypeSize(tn, 0);
-                    return {gpit->second, tn, true, ir::Type::VOID, sz};
+                    auto gsit = globalSigned_.find(ref->name);
+                    return {gpit->second, tn, gsit != globalSigned_.end() && gsit->second, ir::Type::VOID, sz};
                 }
             }
             // General case: derive pointee type from operand expression
@@ -2291,6 +2292,26 @@ void IRBuilder::visit(BinaryOperation& node) {
 
     IRTypeInfo lhsInfo = getExprTypeInfo(node.left.get());
     IRTypeInfo rhsInfo = getExprTypeInfo(node.right.get());
+
+    // `x < 0` / `0 > x` can never be true when x is unsigned (cc45 integers are
+    // unsigned unless declared signed)
+    {
+        auto isZero = [](Expression* e) {
+            auto* lit = dynamic_cast<IntegerLiteral*>(e);
+            return lit && lit->value == 0;
+        };
+        auto isUnsignedInt = [](const IRTypeInfo& t) {
+            return !t.isSigned && (t.type == ir::Type::I8 || t.type == ir::Type::I16 || t.type == ir::Type::I32);
+        };
+        bool alwaysFalse = (node.op == "<" && isZero(node.right.get()) && isUnsignedInt(lhsInfo)) ||
+                           (node.op == ">" && isZero(node.left.get()) && isUnsignedInt(rhsInfo));
+        if (alwaysFalse) {
+            std::string key = node.sourceFile + ":" + std::to_string(node.line) + ":" + std::to_string(node.column) + ":lt0";
+            if (reportedUnused_.insert(key).second)
+                warnings_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Warning,
+                    "comparison of unsigned expression < 0 is always false (declare it 'signed' if it can be negative)"));
+        }
+    }
 
     // Operator overloading: if LHS is a struct with an operator method, dispatch to it
     if (!lhsInfo.typeName.empty() && lhsInfo.type != ir::Type::PTR) {

@@ -461,14 +461,14 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                     vd->isGlobal = true;
                     vd->isExtern = isExtern;
-                    vd->isSigned = !isUnsig;
+                    vd->isSigned = vd->isSigned || isSig;  // cc45: unsigned unless declared signed
                 } else if (auto* cs = dynamic_cast<CompoundStatement*>(decl.get())) {
                     for (auto& s : cs->statements) {
                         if (auto* vd2 = dynamic_cast<VariableDeclaration*>(s.get())) {
                             vd2->isGlobal = true;
                             vd2->isExtern = isExtern;
                             vd2->isStatic = isStatic;
-                            vd2->isSigned = !isUnsig;
+                            vd2->isSigned = vd2->isSigned || isSig;
                         }
                     }
                 }
@@ -489,6 +489,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 if (isRegparm) match(TokenType::REGPARM);
                 while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
                 auto decl = parseFunctionDeclaration();
+                if (isSig) decl->isSigned = true;  // 'signed' was consumed with the qualifiers above
                 decl->isNoreturn = isNR;
                 decl->isFastcall = isFC;
                 decl->isInterrupt = isInterrupt;
@@ -512,6 +513,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     if (isRegparm) match(TokenType::REGPARM);
                     while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::FASTCALL) || match(TokenType::INTERRUPT) || match(TokenType::NAKED) || match(TokenType::REGPARM) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || match(TokenType::ZP) || match(TokenType::ABS) || match(TokenType::FAR) || tryParseAttribute() || match(TokenType::EXTENSION));
                     auto decl = parseFunctionDeclaration();
+                    if (isSig) decl->isSigned = true;  // 'signed' was consumed with the qualifiers above
                     decl->isNoreturn = isNR;
                     decl->isFastcall = isFC;
                     decl->isInterrupt = isInterrupt;
@@ -536,14 +538,14 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     auto decl = parseVariableDeclaration(isVol, isConst, isStatic, false, isStriped);
                     if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                         vd->isGlobal = true;
-                        vd->isSigned = !isUnsig;
+                        vd->isSigned = vd->isSigned || isSig;
                         vd->isExtern = isExtern;
                         vd->isStatic = isStatic;
                     } else if (auto* cs = dynamic_cast<CompoundStatement*>(decl.get())) {
                         for (auto& s : cs->statements) {
                             if (auto* vd2 = dynamic_cast<VariableDeclaration*>(s.get())) {
                                 vd2->isGlobal = true;
-                                vd2->isSigned = !isUnsig;  // same rule as a single declarator
+                                vd2->isSigned = vd2->isSigned || isSig;
                                 vd2->isExtern = isExtern;
                                 vd2->isStatic = isStatic;
                             }
@@ -560,6 +562,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     if (isRegparm) match(TokenType::REGPARM);
                 while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
                 auto decl = parseFunctionDeclaration();
+                if (isSig) decl->isSigned = true;  // 'signed' was consumed with the qualifiers above
                 decl->isNoreturn = isNR;
                 decl->isFastcall = isFC;
                 decl->isInterrupt = isInterrupt;
@@ -592,6 +595,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     if (isRegparm) match(TokenType::REGPARM);
                     while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::REGISTER) || match(TokenType::INLINE) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
                     auto decl = parseFunctionDeclaration();
+                    if (isSig) decl->isSigned = true;  // 'signed' was consumed with the qualifiers above
                     decl->isStatic = isStatic;
                     decl->isInline = isInlineFunc;
                     flushPending(*unit);
@@ -605,7 +609,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                 if (auto* vd = dynamic_cast<VariableDeclaration*>(decl.get())) {
                     vd->isGlobal = true;
                     vd->isExtern = isExtern;
-                    vd->isSigned = !isUnsig; // implicit int: signed unless 'unsigned' was explicit
+                    vd->isSigned = vd->isSigned || isSig; // implicit int: unsigned unless declared signed
                 }
                 flushPending(*unit);
                 unit->topLevelDecls.push_back(std::move(decl));
@@ -621,6 +625,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
             if (isInlineFunc) match(TokenType::INLINE);
             while (match(TokenType::VOLATILE) || match(TokenType::CONST) || match(TokenType::RESTRICT) || match(TokenType::AUTO) || match(TokenType::SIGNED) || match(TokenType::UNSIGNED) || tryParseAttribute() || match(TokenType::EXTENSION));
             auto decl = parseFunctionDeclaration();
+            if (isSig) decl->isSigned = true;  // 'signed' was consumed with the qualifiers above
             decl->isNoreturn = isNR;
             decl->isFastcall = isFC;
             decl->isInterrupt = isInterrupt;

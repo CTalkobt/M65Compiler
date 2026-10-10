@@ -3,6 +3,9 @@
 # and compare main()'s return value (low byte) with the same program compiled
 # natively by the host gcc.
 #
+# cc45 integer types are unsigned unless declared signed (gcc: signed), so
+# programs that rely on negative values declare them "signed".
+#
 # (Originally compared the legacy CodeGenerator with the IR path; the legacy
 # path no longer exists, so the host compiler is the reference.)
 
@@ -172,7 +175,7 @@ shadow_test "bitwise_and" "build/test/shadow/t_bitwise.c"
 
 # Test 10: multiple returns
 cat > build/test/shadow/t_multiret.c << 'EOF'
-int abs_val(int x) {
+signed int abs_val(signed int x) {
     if (x < 0) return -x;
     return x;
 }
@@ -418,9 +421,9 @@ int main() { return (int)(u / 7u % 256u) + (int)(u % 14u); }
 EOF
 shadow_test "unsigned_global_div" "build/test/shadow/t_ugdiv.c"
 
-# Regression: globals declared in one comma list keep their signedness
+# Regression: "signed" applies to every global in a comma list
 cat > build/test/shadow/t_commasign.c << 'EOF'
-int a = -100, b = 7;
+signed int a = -100, b = 7;
 int main() { return (a / b) + 20; }
 EOF
 shadow_test "comma_decl_signed" "build/test/shadow/t_commasign.c"

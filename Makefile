@@ -474,6 +474,8 @@ test: all lib
 	@bash src/test/test_function_locals.sh
 	@echo "Running string escape tests..."
 	@bash src/test/test_string_escapes.sh
+	@echo "Running signedness tests..."
+	@bash src/test/test_signedness.sh
 	@echo "Running clobber tracking tests..."
 	@bash src/test/test_clobber.sh
 	@echo "Running xemu runtime tests..."
