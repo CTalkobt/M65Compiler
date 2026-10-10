@@ -2055,8 +2055,9 @@ void IRBuilder::visit(VariableReference& node) {
         auto rn = staticRenames_.find(node.name);
         if (rn != staticRenames_.end()) node.name = rn->second;
     }
-    // Check if this is a function name used as a value (function pointer)
-    auto fit = allFunctions_.find(node.name);
+    // Check if this is a function name used as a value (function pointer);
+    // a local or parameter of the same name shadows the function
+    auto fit = locals_.count(node.name) ? allFunctions_.end() : allFunctions_.find(node.name);
     if (fit != allFunctions_.end()) {
         auto* fn = fit->second;
         if (fn->isNested) {

@@ -374,10 +374,22 @@ bool O45Linker::resolveSymbols(std::string& errorMsg) {
         if (wanted) {
             if (bssLenBeforeZpPage_ < 0) bssLenBeforeZpPage_ = (int64_t)mergedBssLen_;
             uint32_t page = (bssBase_ + (uint32_t)bssLenBeforeZpPage_ + 0xFF) & ~0xFFu;
-            mergedBssLen_ = page + 0x100 - bssBase_;
+            // __interrupt handlers run on their own base page (__zp_page_isr),
+            // the page after __zp_page, so they never clobber the zero page
+            // (parameters, temporaries, frame pointer) of the code they interrupt
+            bool hasIsr = false;
+            for (const auto& input : objects_)
+                for (const auto& exp : input.obj.exports)
+                    if (exp.hasFuncAttr && (exp.funcAttr.flags & FUNC_FLAG_ISR)) hasIsr = true;
+            mergedBssLen_ = page + (hasIsr ? 0x200 : 0x100) - bssBase_;
             globalSymbols_["__zp_page"] = page;
             symbolSource_["__zp_page"] = "<linker>";
             symbolWeak_["__zp_page"] = false;
+            if (!globalSymbols_.count("__zp_page_isr")) {
+                globalSymbols_["__zp_page_isr"] = hasIsr ? page + 0x100 : page;
+                symbolSource_["__zp_page_isr"] = "<linker>";
+                symbolWeak_["__zp_page_isr"] = false;
+            }
         }
     }
 

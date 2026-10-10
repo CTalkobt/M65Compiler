@@ -20,6 +20,8 @@
 .global __bp_rom
 .global __bp_prog
 .extern __zp_page
+.extern __zp_page_isr
+.global __isr_depth
 .extern __stack_top
 .weak _init_features
 .extern _main
@@ -110,13 +112,25 @@ __bp_rom:
     pla
     rts
 
-; __bp_prog — switch back to the program's base page after a ROM call.
+; __bp_prog — switch back to the program's base page after a ROM call: the
+; interrupt handlers' page (__zp_page_isr) while an __interrupt handler runs.
 ; Preserves A, X, Y, Z and the flags (ROM routines return status in C).
 __bp_prog:
     php
     pha
+    lda __isr_depth
+    bne @isr
     lda #>__zp_page
+    bra @set
+@isr:
+    lda #>__zp_page_isr
+@set:
     tab
     pla
     plp
     rts
+
+; Nesting depth of running __interrupt handlers (their prologue increments
+; it). Kept in the init code (RAM) so crt0 adds nothing to the data segment.
+__isr_depth:
+    .byte 0

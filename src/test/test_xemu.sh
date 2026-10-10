@@ -346,6 +346,20 @@ for pdmode in "stack|-fno-zpcall" "zp|"; do
     fi
 done
 
+# Test: __interrupt handlers run on their own base page (__zp_page_isr),
+# including after ROM calls, in both calling conventions
+for isrmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r isrname isrflags <<< "$isrmode"
+    echo "Testing test_isr_page_xemu.c ($isrname)..."
+    compile_link_test "src/test-resources/test_isr_page_xemu.c" "build/test/test_isr_page_${isrname}_xemu.prg" "$isrflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_isr_page_$isrname" "build/test/test_isr_page_${isrname}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_isr_page_xemu.c $isrname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: stack frames (recursion via SAC fallback, caller FP preserved, long return)
 echo "Testing test_stackframe_xemu.c (stack frames)..."
 compile_link_test "src/test-resources/test_stackframe_xemu.c" "build/test/test_stackframe_xemu.prg"

@@ -1147,8 +1147,13 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     bool hasInterrupt = false;
     for (const auto& fn : mod.functions) if (fn.isInterrupt) hasInterrupt = true;
     if (hasInterrupt) {
-        if (relocMode) emit(".extern __zp_page");
-        else if (!(mod.saveZP && mod.setBP < 0)) emit("__zp_page = $" + hex16(mod.setBP >= 0 ? (uint16_t)(mod.setBP << 8) : 0));
+        if (relocMode) {
+            emit(".extern __zp_page_isr");
+            emit(".extern __isr_depth");
+        } else if (!(mod.saveZP && mod.setBP < 0)) {
+            // Base page not relocated: handlers share the program's page
+            emit("__zp_page_isr = $" + hex16(mod.setBP >= 0 ? (uint16_t)(mod.setBP << 8) : 0));
+        }
     }
 
     if (!mod.externs.empty()) emitBlank();
@@ -1174,10 +1179,16 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
 
     // Relocated base page: the first page boundary after the program
     // (unused RAM, no .res needed).
+    if (!relocMode && hasInterrupt) {
+        emitLabel("__isr_depth");
+        emit(".byte 0");
+    }
     if (!relocMode && mod.saveZP && mod.setBP < 0) {
         emitBlank();
         emit(".align 256");
         emitLabel("__zp_page");
+        // Interrupt handlers' base page: the page after (unused RAM too)
+        if (hasInterrupt) emit("__zp_page_isr = __zp_page + $100");
     }
 }
 
@@ -2062,10 +2073,12 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // __interrupt: save all registers at entry
     if (fn.isInterrupt) {
         emit("pha"); emit("phx"); emit("phy"); emit("phz");
-        // The ROM IRQ entry sets the base page to 0; switch to the program's
-        // relocated zero page (saving the interrupted B)
+        // The ROM IRQ entry sets the base page to 0; switch to the interrupt
+        // handlers' own page (saving the interrupted B) so the zero page of
+        // the interrupted code (parameters, temporaries, FP) is untouched
         emit("tba"); emit("pha");
-        emit("lda #>__zp_page"); emit("tab");
+        emit("inc __isr_depth");  // __bp_prog returns to this page after ROM calls
+        emit("lda #>__zp_page_isr"); emit("tab");
     }
 
     // Frame pointer variable
@@ -2438,6 +2451,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     // __interrupt: restore registers and return with RTI
     if (fn.isInterrupt) {
+        emit("dec __isr_depth");
         emit("pla"); emit("tab");
         emit("plz"); emit("ply"); emit("plx"); emit("pla");
         emit("rti");
