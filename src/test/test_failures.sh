@@ -30,11 +30,30 @@ section "Calling convention interop"
 bash src/test/test_cc_interop.sh | grep -E "PASS|FAIL|Expected|Summary"
 result ${PIPESTATUS[0]} "cc_interop"
 
-section "Library: unsigned < 0 comparisons (should be 0)"
-make -C lib clean >/dev/null 2>&1
-n=$(make -C lib 2>&1 | grep -c "unsigned expression < 0 is always false")
-echo "warnings: $n"
-result "$n" "library < 0"
+# run_mem SRC ADDR EXPECTED_HEX — build, run on xemu, compare bytes at ADDR
+run_mem() {
+    local src=$1 addr=$2 expected=$3 base=build/test/failure_$(basename "$1" .c)
+    rm -f $base.mem
+    ./bin/cc45 -c "$src" -o $base.o45 >/dev/null 2>&1 &&
+    ./bin/ln45 -basic -o $base.prg lib/build/crt0.o45 $base.o45 lib/build/c45.lib >/dev/null 2>&1 &&
+    timeout 30 xemu-xmega65 -headless -besure -prgmode 65 -prgexit -dumpmem $base.mem -prg $base.prg </dev/null >/dev/null 2>&1
+    local got; got=$(xxd -s $((16#$addr)) -l $(( ${#expected} / 2 )) -p $base.mem 2>/dev/null)
+    echo "got $got, expected $expected"
+    [ "$got" = "$expected" ]
+}
+
+section "Structs larger than 4 bytes (assignment, return)"
+run_mem src/test-resources/failures/struct_large.c C0C0 44118855070809070809aa
+result $? "struct > 4 bytes"
+
+section "Float arguments and return values"
+run_mem src/test-resources/failures/float_func.c C0C0 0101aa
+result $? "float functions"
+
+section "File I/O links (cbm_k_* wrappers)"
+./bin/cc45 -c src/test-resources/failures/file_io_link.c -o build/test/failure_file_io.o45 >/dev/null 2>&1 &&
+./bin/ln45 -basic -o build/test/failure_file_io.prg lib/build/crt0.o45 build/test/failure_file_io.o45 lib/build/c45.lib 2>&1 | grep -E "undefined" | head -3
+result ${PIPESTATUS[0]} "file I/O link"
 
 echo ""
 echo "test_failures: $groups_failed group(s) still failing"
