@@ -468,6 +468,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                             vd2->isGlobal = true;
                             vd2->isExtern = isExtern;
                             vd2->isStatic = isStatic;
+                            vd2->isSigned = !isUnsig;
                         }
                     }
                 }
@@ -542,7 +543,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                         for (auto& s : cs->statements) {
                             if (auto* vd2 = dynamic_cast<VariableDeclaration*>(s.get())) {
                                 vd2->isGlobal = true;
-                                vd2->isSigned = isSig;
+                                vd2->isSigned = !isUnsig;  // same rule as a single declarator
                                 vd2->isExtern = isExtern;
                                 vd2->isStatic = isStatic;
                             }

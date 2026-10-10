@@ -411,7 +411,8 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             IRTypeInfo info;
             info.type = git->second;
             info.typeName = globalTypeNames_[ref->name];
-            info.isSigned = true; 
+            auto gsit = globalSigned_.find(ref->name);
+            info.isSigned = gsit == globalSigned_.end() || gsit->second;
             info.totalSize = ir::typeSize(info.type);
             if (info.type == ir::Type::PTR) {
                 auto gpit = globalPointedToType_.find(ref->name);
