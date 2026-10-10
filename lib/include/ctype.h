@@ -32,14 +32,14 @@ static inline int isalnum(int c) {
     return isdigit(c) || isalpha(c);
 }
 
-/* Inlined space/whitespace test: $20 (space), $09 (tab), $0A (LF), $0D (CR) */
+/* Space or $09-$0D (TAB, LF, VT, FF, CR) */
 static inline int isspace(int c) {
-    return (c == 0x20 || c == 0x09 || c == 0x0A || c == 0x0D) ? 1 : 0;
+    return (c == 0x20 || (c >= 0x09 && c <= 0x0D)) ? 1 : 0;
 }
 
-/* Inlined printable character test: space through tilde, plus PETSCII letters */
+/* $20-$7E or $A0-$FF */
 static inline int isprint(int c) {
-    return ((c >= 0x20 && c <= 0x7E) || (c >= 0x41 && c <= 0x5A) || (c >= 0xC1 && c <= 0xDA)) ? 1 : 0;
+    return ((c >= 0x20 && c < 0x7F) || c >= 0xA0) ? 1 : 0;
 }
 
 /* Inlined uppercase test: A-Z in PETSCII = $C1-$DA */
@@ -62,9 +62,9 @@ static inline int isblank(int c) {
     return (c == 0x20 || c == 0x09) ? 1 : 0;
 }
 
-/* Inlined control character test: $00-$1F and $7F-$9F */
+/* $00-$1F or $80-$9F */
 static inline int iscntrl(int c) {
-    return ((c >= 0x00 && c <= 0x1F) || (c >= 0x7F && c <= 0x9F)) ? 1 : 0;
+    return (c < 0x20 || (c >= 0x80 && c < 0xA0)) ? 1 : 0;
 }
 
 /* Inlined isgraph test: printable excluding space */
@@ -92,8 +92,8 @@ static inline int ispunct(int c) {
     if (c >= 0x41 && c < 0x5B) return 0;
     /* Reject uppercase $C1-$DA */
     if (c >= 0xC1 && c < 0xDB) return 0;
-    /* Accept everything else that's printable: $21-$2F, $3A-$40, $5B-$C0, $DB-$FF */
-    return isprint(c);
+    /* Everything else: $21-$2F, $3A-$40, $5B-$C0, $DB-$FF */
+    return 1;
 }
 
 /* Inlined uppercase conversion: lowercase $41-$5A → uppercase $C1-$DA (set bit 7) */

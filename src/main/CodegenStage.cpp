@@ -72,6 +72,7 @@ void CodegenStage::generateIR() {
     builder.zpCallMode = zpCallMode_;
     builder.staticAllocMode = staticAlloc_;
     builder.inlineFunctions = inlineFunctions_ || optimizationLevel_ >= 2;
+    builder.maxInlineIRSize = maxInlineIRSize_;
     builder.allowImplicitFunctionDecl = allowImplicitFuncDecl_;
 
     // Phase 102: Pass typedef mappings from parser

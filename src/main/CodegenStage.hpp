@@ -50,6 +50,8 @@ public:
 
     // Phase 102: Set typedef information from parser
     // Map: typedef_name → struct/union base type name
+    void setMaxInlineIRSize(int n) { maxInlineIRSize_ = n; }
+
     void setTypedefMappings(const std::map<std::string, std::string>& typedefMappings) {
         typedefMappings_ = typedefMappings;
     }
@@ -60,6 +62,7 @@ private:
     int optimizationLevel_;
     int verboseLevel_;
     bool inlineFunctions_;
+    int maxInlineIRSize_ = 11;
     bool staticAlloc_;
     bool zpCallMode_;
     bool saveTemps_;

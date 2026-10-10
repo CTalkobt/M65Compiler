@@ -34,6 +34,7 @@ public:
     bool zpCallMode = false;
     bool staticAllocMode = false;  // -fstaticalloc (SAC)
     bool inlineFunctions = false;
+    int maxInlineIRSize = 11;  // -fmax-inline-ir-size / #pragma cc45 max_inline_ir_size
     bool allowImplicitFunctionDecl = false;  // -fimplicit-function-declaration
 
     // ASTVisitor interface

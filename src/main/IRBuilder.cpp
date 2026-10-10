@@ -1034,6 +1034,12 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         emit(ret);
     }
 
+    if (inlineCandidates_.count(node.name)) {
+        int irCount = 0;
+        for (const auto& blk : currentFunc_->blocks) irCount += (int)blk.insts.size();
+        if (irCount > maxInlineIRSize) inlineCandidates_.erase(node.name);
+    }
+
     // Dead block elimination: remove trailing blocks after while(1) infinite loops.
     // Conservative approach: only remove blocks that follow a block ending with an
     // unconditional back-branch (BR to an earlier block) where no other block
@@ -4567,6 +4573,10 @@ void IRBuilder::visit(AsmStatement& node) {
     }
     if (node.code == ".recurse_next") {
         recurseNextFunction_ = true;
+        return;
+    }
+    if (node.code.rfind(".max_inline_ir_size ", 0) == 0) {
+        maxInlineIRSize = std::stoi(node.code.substr(20));
         return;
     }
     if (node.code == ".no_zp_save") {
