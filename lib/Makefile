@@ -36,22 +36,25 @@ STDLIB_ZP_C_SOURCES = $(wildcard stdlib_zp/*.c)
 STDLIB_ZP_OBJECTS = $(patsubst stdlib_zp/%.s45,$(BUILD)/zp_%.o45,$(STDLIB_ZP_ASM_SOURCES)) \
                     $(patsubst stdlib_zp/%.c,$(BUILD)/zp_%.o45,$(STDLIB_ZP_C_SOURCES))
 
+# Rebuild objects when the tools or library headers change
+C_TOOL_DEPS = $(CC45) $(CA45) $(wildcard include/*.h)
+
 .PHONY: all clean
 
 all: $(BUILD)/c45.lib $(BUILD)/c45_zp.lib
 
 # --- Stack convention rules ---
 
-$(BUILD)/%.o45: %.s45 | $(BUILD)
+$(BUILD)/%.o45: %.s45 $(CA45) | $(BUILD)
 	$(CA45) -c $< -o $@
 
-$(BUILD)/%.o45: src/%.s45 | $(BUILD)
+$(BUILD)/%.o45: src/%.s45 $(CA45) | $(BUILD)
 	$(CA45) -c $< -o $@
 
-$(BUILD)/%.o45: stdlib/%.s45 | $(BUILD)
+$(BUILD)/%.o45: stdlib/%.s45 $(CA45) | $(BUILD)
 	$(CA45) -c $< -o $@
 
-$(BUILD)/%.o45: stdlib/%.c | $(BUILD)
+$(BUILD)/%.o45: stdlib/%.c $(C_TOOL_DEPS) | $(BUILD)
 	$(CC45) -c -fimplicit-function-declaration $< -o $@
 
 $(BUILD)/c45.lib: $(CRT_OBJECTS) $(STDLIB_OBJECTS) | $(BUILD)
@@ -59,10 +62,10 @@ $(BUILD)/c45.lib: $(CRT_OBJECTS) $(STDLIB_OBJECTS) | $(BUILD)
 
 # --- ZP convention rules ---
 
-$(BUILD)/zp_%.o45: stdlib_zp/%.s45 | $(BUILD)
+$(BUILD)/zp_%.o45: stdlib_zp/%.s45 $(CA45) | $(BUILD)
 	$(CA45) -c $< -o $@
 
-$(BUILD)/zp_%.o45: stdlib_zp/%.c | $(BUILD)
+$(BUILD)/zp_%.o45: stdlib_zp/%.c $(C_TOOL_DEPS) | $(BUILD)
 	$(CC45) -c -fzpcall -fimplicit-function-declaration $< -o $@
 
 $(BUILD)/c45_zp.lib: $(CRT_ZP_OBJECTS) $(STDLIB_ZP_OBJECTS) $(FLOAT_ROM_OBJECTS) | $(BUILD)
