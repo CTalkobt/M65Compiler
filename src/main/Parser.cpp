@@ -3053,7 +3053,7 @@ Parser::TypeSpec Parser::parseTypeSpecifier() {
     // Plain integer types follow the active default (cc45: unsigned)
     if (ts.valid && !ts.fromTypedef && !ts.isSigned && !ts.isUnsigned &&
         (ts.name == "char" || ts.name == "int" || ts.name == "long"))
-        ts.isSigned = signedDefault;
+        ts.isSigned = signedDefault && !(unsignedChar && ts.name == "char");
     return ts;
 }
 

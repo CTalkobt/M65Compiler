@@ -26,6 +26,7 @@ public:
     // unsigned default. Set by -fsigned-default; toggled by #pragma cc45
     // signed_default / unsigned_default.
     bool signedDefault = false;
+    bool unsignedChar = false;  // -funsigned-char: plain char unsigned regardless of signedDefault
 
     // Phase 102: Get typedef information for IR generation
     const std::map<std::string, TypeAlias>& getTypedefs() const { return typedefs; }
