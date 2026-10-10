@@ -1003,9 +1003,15 @@ bool AssemblerOptimizer::optimizeInternal(
                 if (savedBytes < 2) continue;
 
                 std::string sharedLabel = "__tail_opt_dedup_" + std::to_string(tailCounter++);
-                bool isFirst = true;
 
-                for (auto& tail : tails) {
+                // Rewrite from the highest statement index down so each insertion
+                // leaves the indices of the tails still to be processed valid; the
+                // lowest tail keeps its code and receives the shared label (last).
+                std::sort(tails.begin(), tails.end(),
+                          [](const TailInfo& a, const TailInfo& b) { return a.startIdx > b.startIdx; });
+                for (size_t ti = 0; ti < tails.size(); ++ti) {
+                    auto& tail = tails[ti];
+                    bool isFirst = (ti + 1 == tails.size());
                     if (isFirst) {
                         auto* refStmt = parser->statements[tail.startIdx].get();
                         auto labelStmt = std::make_unique<AssemblerParser::Statement>();
@@ -1019,7 +1025,6 @@ bool AssemblerOptimizer::optimizeInternal(
                             parser->statements.begin() + tail.startIdx,
                             std::move(labelStmt)
                         );
-                        isFirst = false;
                     } else {
                         auto* firstInstr = parser->statements[tail.startIdx].get();
                         auto braStmt = std::make_unique<AssemblerParser::Statement>();
@@ -1058,9 +1063,10 @@ bool AssemblerOptimizer::optimizeInternal(
             }
 
             // Suffix matching for function tails: if one tail is a suffix of another,
-            // the shorter one can jump into the middle of the longer one
+            // the shorter one can jump into the middle of the longer one.
+            // (Skipped after an exact-match rewrite: the recorded indices are stale.)
             std::vector<TailInfo> allTails;
-            for (auto& [sig, tailList] : tailsBySignature) {
+            if (!tailDedupChanged) for (auto& [sig, tailList] : tailsBySignature) {
                 for (auto& tail : tailList) {
                     allTails.push_back(tail);
                 }
@@ -1110,8 +1116,11 @@ bool AssemblerOptimizer::optimizeInternal(
                         parser->statements.begin() + insertPos,
                         std::move(labelStmt)
                     );
+                    // The label insertion shifts statements at or after insertPos
+                    std::vector<size_t> shortIdx = allTails[i].instrIndices;
+                    for (auto& idx : shortIdx) if (idx >= insertPos) ++idx;
 
-                    auto* firstInstr = parser->statements[allTails[i].instrIndices.front()].get();
+                    auto* firstInstr = parser->statements[shortIdx.front()].get();
                     auto braStmt = std::make_unique<AssemblerParser::Statement>();
                     braStmt->type = AssemblerParser::Statement::INSTRUCTION;
                     braStmt->instr.mnemonic = "bra";
@@ -1125,13 +1134,13 @@ bool AssemblerOptimizer::optimizeInternal(
                     braStmt->localLabelScope = firstInstr->localLabelScope;
                     braStmt->scopePrefix = firstInstr->scopePrefix;
 
-                    for (size_t idx : allTails[i].instrIndices) {
+                    for (size_t idx : shortIdx) {
                         parser->statements[idx]->deleted = true;
                         parser->statements[idx]->size = 0;
                     }
 
                     parser->statements.insert(
-                        parser->statements.begin() + allTails[i].instrIndices.front(),
+                        parser->statements.begin() + shortIdx.front(),
                         std::move(braStmt)
                     );
 

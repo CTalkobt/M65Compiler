@@ -66,6 +66,9 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
     std::vector<M65Emitter::SpBaseReloc> allSpBaseRelocs;
     std::vector<M65Emitter::SymbolReloc> allSymbolRelocs;
     std::vector<M65Emitter::ImmediateReloc> allImmediateRelocs; // Phase 78: SMC immediate relocations
+    // Segment each recorded reloc was emitted in (segments overlap in address
+    // space in relocatable mode, so an address alone can't identify it)
+    std::vector<std::string> spBaseRelocSeg, symbolRelocSeg, immediateRelocSeg;
 
     for (const auto& segName : allSegNames) {
         auto seg = parser.segments[segName];
@@ -82,13 +85,16 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
 
         auto spRelocs = e.spBaseRelocs();
         allSpBaseRelocs.insert(allSpBaseRelocs.end(), spRelocs.begin(), spRelocs.end());
+        spBaseRelocSeg.insert(spBaseRelocSeg.end(), spRelocs.size(), segName);
 
         auto symRelocs = e.symbolRelocs();
         allSymbolRelocs.insert(allSymbolRelocs.end(), symRelocs.begin(), symRelocs.end());
+        symbolRelocSeg.insert(symbolRelocSeg.end(), symRelocs.size(), segName);
 
         // Phase 78: Collect immediate relocations for SMC parameters
         auto immRelocs = e.immediateRelocs();
         allImmediateRelocs.insert(allImmediateRelocs.end(), immRelocs.begin(), immRelocs.end());
+        immediateRelocSeg.insert(immediateRelocSeg.end(), immRelocs.size(), segName);
 
         segBodies[segName] = {segName, seg->startAddress, body};
     }
@@ -528,9 +534,10 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
     // the addend so the linker can add the resolved __sp_base value.
     if (parser.isExternSymbol("__sp_base")) {
         uint32_t spBaseIdx = syms.getImportIndex("__sp_base");
-        for (const auto& sr : allSpBaseRelocs) {
-            // Determine which segment this address falls into
-            for (const auto& segName : allSegNames) {
+        for (size_t spi = 0; spi < allSpBaseRelocs.size(); spi++) {
+            const auto& sr = allSpBaseRelocs[spi];
+            // The segment this site was emitted in
+            for (const auto& segName : {spBaseRelocSeg[spi]}) {
                 auto seg = parser.segments[segName];
                 uint32_t segStart = (seg->startAddress != 0xFFFFFFFF) ? seg->startAddress : 0;
                 if (sr.address >= segStart && sr.address < seg->pc) {
@@ -558,7 +565,8 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
     }
 
     // Scan symbol relocation sites from simulated ops (ldax/stax of global variables).
-    for (const auto& sr : allSymbolRelocs) {
+    for (size_t sri = 0; sri < allSymbolRelocs.size(); sri++) {
+        const auto& sr = allSymbolRelocs[sri];
         std::string symName = sr.symbolName;
         Symbol* sym = parser.resolveSymbol(symName, "");
         if (!sym) continue;
@@ -570,8 +578,8 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             if (targetSeg.empty()) continue;
         }
 
-        // Find which source segment this reloc site falls into
-        for (const auto& segName : allSegNames) {
+        // The source segment it was emitted in
+        for (const auto& segName : {symbolRelocSeg[sri]}) {
             auto seg = parser.segments[segName];
             uint32_t segStart = (seg->startAddress != 0xFFFFFFFF) ? seg->startAddress : 0;
             if (sr.address >= segStart && sr.address < seg->pc) {
@@ -592,7 +600,8 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
     }
 
     // Phase 78: Process immediate relocations for SMC parameters
-    for (const auto& ir : allImmediateRelocs) {
+    for (size_t iri = 0; iri < allImmediateRelocs.size(); iri++) {
+        const auto& ir = allImmediateRelocs[iri];
         std::string symName = ir.symbolName;
         Symbol* sym = parser.resolveSymbol(symName, "");
         if (!sym) continue;
@@ -604,8 +613,8 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
             if (targetSeg.empty()) continue;
         }
 
-        // Find which source segment this reloc site falls into
-        for (const auto& segName : allSegNames) {
+        // The source segment it was emitted in
+        for (const auto& segName : {immediateRelocSeg[iri]}) {
             auto seg = parser.segments[segName];
             uint32_t segStart = (seg->startAddress != 0xFFFFFFFF) ? seg->startAddress : 0;
             if (ir.address >= segStart && ir.address < seg->pc) {
@@ -629,6 +638,11 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
     for (auto& [segName, relocs] : segRelocs) {
         std::sort(relocs.begin(), relocs.end(),
                   [](const O45Reloc& a, const O45Reloc& b) { return a.offset < b.offset; });
+        // The same site can be found by more than one scan (e.g. a .word
+        // directive and the emitter's symbol reloc): keep one entry per offset
+        relocs.erase(std::unique(relocs.begin(), relocs.end(),
+                                 [](const O45Reloc& a, const O45Reloc& b) { return a.offset == b.offset; }),
+                     relocs.end());
     }
 
     // --- Step 4: Package into .o45 ---
