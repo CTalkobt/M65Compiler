@@ -177,6 +177,7 @@ private:
 
     // Frame management
     int localFrameSize_ = 0;
+    bool savedCallerFP_ = false;  // prologue pushed the caller's $FD/$FE
     std::map<uint32_t, int> vregSizes_; // override sizes for array vRegs
 
     // Register allocator

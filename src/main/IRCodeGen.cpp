@@ -1685,9 +1685,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             if (hasSelfCall) break;
         }
         if (hasSelfCall) {
-            std::cerr << fn.name << ": error: static allocation (SAC) function cannot be recursive"
-                      << " (add #pragma cc45 recurse before function declaration to opt out)\n";
-            useSAC = false;  // Disable SAC for this function; will still be emitted with flag for linker check
+            std::cerr << fn.name << ": warning: recursive function uses a stack frame instead of static allocation"
+                      << " (add #pragma cc45 recurse before the function to silence)\n";
+            useSAC = false;  // Fall back to a stack frame for this function
         }
     }
 
@@ -1903,6 +1903,12 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     // SAC storage is now emitted BEFORE proc directive for correct memory placement
 
+    // Frame-pointer functions save the caller's FP ($FD/$FE) below their frame;
+    // without this a caller that uses FP-relative locals reads the callee's
+    // frame after any call (and recursion fails).
+    savedCallerFP_ = (!zpCallMode_ || fn.isVariadic) && !useSAC && localFrameSize > 0;
+    if (savedCallerFP_) emit("phw $00FD");
+
     // Push stack frame only for non-SAC functions
     // SAC functions use static AR buffers instead of stack frames
     if (!useSAC) {
@@ -2030,7 +2036,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         // first param is closest to SP (smallest offset past frame + return address).
         // In SAC mode, no frame is pushed, so offset is 2 (just return address)
         // In non-SAC mode, offset is 2 + frame size
-        int pOff = useSAC ? 2 : (localFrameSize + 2);
+        int pOff = useSAC ? 2 : (localFrameSize + 2 + (savedCallerFP_ ? 2 : 0));
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
             int ps = ir::typeSize(fn.paramTypes[i]);
             if (ps < 2) ps = 2;
@@ -2062,7 +2068,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         // Stack convention: parameters on stack
         // In SAC mode, no frame is pushed, so offset is 2 (just return address)
         // In non-SAC mode, offset is 2 + frame size
-        int pOff = useSAC ? 2 : (localFrameSize + 2);
+        int pOff = useSAC ? 2 : (localFrameSize + 2 + (savedCallerFP_ ? 2 : 0));
         for (size_t i = 0; i < fn.paramTypes.size(); i++) {
             int ps = ir::typeSize(fn.paramTypes[i]);
             if (ps < 2) ps = 2;
@@ -2182,11 +2188,19 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
 
     // SAC functions don't have a stack frame to clean up
     if (!useSAC && localFrameSize > 0) {
-        int retSize = ir::typeSize(fn.returnType);
-        // For I32 returns, preserve Z register (it's part of the return value AXYZ)
-        // Don't execute the "stz + ldz #0" epilogue sequence as it destroys Z
-        // For all return types, just clean up the frame
-        emitStackCleanup(localFrameSize);
+        if (savedCallerFP_) {
+            // Drop the frame and restore the caller's FP using only A (saved in
+            // scratch), so X/Y/Z of the return value are preserved
+            emit("sta __zp_scratch");
+            for (int i = 0; i < localFrameSize; i++) emit("pla");
+            emit("pla");
+            emit("sta $FE");   // phw pushed $FD then $FE
+            emit("pla");
+            emit("sta $FD");
+            emit("lda __zp_scratch");
+        } else {
+            emitStackCleanup(localFrameSize);
+        }
     }
 
     // __interrupt: restore registers and return with RTI

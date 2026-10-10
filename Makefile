@@ -476,6 +476,8 @@ test: all lib
 	@bash src/test/test_string_escapes.sh
 	@echo "Running signedness tests..."
 	@bash src/test/test_signedness.sh
+	@echo "Running shadow execution tests (cc45 vs host gcc)..."
+	@bash src/test/test_shadow_ir.sh
 	@echo "Running clobber tracking tests..."
 	@bash src/test/test_clobber.sh
 	@echo "Running xemu runtime tests..."

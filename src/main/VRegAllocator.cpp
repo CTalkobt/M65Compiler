@@ -448,6 +448,7 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
             allocs_[lr.vregId] = {IN_FRAME, foff, lr.type};
             int fsize = size < 2 ? 2 : size;
             frameAllocMap[lr.vregId] = {foff, fsize};
+            if (foff + fsize > frameSize_) frameSize_ = foff + fsize;  // reused offsets may lie past the end
             // Mark offsets as occupied
             for (int i = 0; i < fsize; i++) {
                 offsetToVregId[foff + i] = lr.vregId;
@@ -521,6 +522,7 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
                 }
                 allocs_[lr.vregId] = {IN_FRAME, foff, lr.type};
                 frameAllocMap[lr.vregId] = {foff, fsize};
+                if (foff + fsize > frameSize_) frameSize_ = foff + fsize;  // reused offsets may lie past the end
             }
         } else {
             // Either: crosses a call (ZP is clobbered), or is a local (must use frame)
@@ -543,6 +545,7 @@ void VRegAllocator::assignLocations(const ir::Function& fn) {
 
             allocs_[lr.vregId] = {IN_FRAME, foff, lr.type};
             frameAllocMap[lr.vregId] = {foff, fsize};
+            if (foff + fsize > frameSize_) frameSize_ = foff + fsize;  // reused offsets may lie past the end
         }
     }
 
