@@ -168,7 +168,7 @@ static int _kernal_open(const char *filename, unsigned char cbm_type, unsigned c
  * Flush FILE write buffer to device
  * Returns 0 on success, EOF on error
  */
-static int _flush_write_buffer(FILE *stream) {
+int _flush_write_buffer(FILE *stream) {
     if (!stream || !(stream->flags & _IOWRITE)) {
         return 0;
     }
@@ -190,7 +190,7 @@ static int _flush_write_buffer(FILE *stream) {
  * Fill FILE read buffer from device
  * Returns 0 on success, EOF on error or EOF
  */
-static int _fill_read_buffer(FILE *stream) {
+int _fill_read_buffer(FILE *stream) {
     if (!stream || !(stream->flags & _IOREAD)) {
         return EOF;
     }

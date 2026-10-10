@@ -36,6 +36,10 @@ STDLIB_ZP_C_SOURCES = $(wildcard stdlib_zp/*.c)
 STDLIB_ZP_OBJECTS = $(patsubst stdlib_zp/%.s45,$(BUILD)/zp_%.o45,$(STDLIB_ZP_ASM_SOURCES)) \
                     $(patsubst stdlib_zp/%.c,$(BUILD)/zp_%.o45,$(STDLIB_ZP_C_SOURCES))
 
+# Library C sources are written as standard C (signed int/long) with unsigned
+# char for PETSCII; cc45's own default makes int/long unsigned too.
+LIB_CFLAGS = -fimplicit-function-declaration -fsigned-default -funsigned-char
+
 # Rebuild objects when the tools or library headers change
 C_TOOL_DEPS = $(CC45) $(CA45) $(wildcard include/*.h)
 
@@ -55,7 +59,7 @@ $(BUILD)/%.o45: stdlib/%.s45 $(CA45) | $(BUILD)
 	$(CA45) -c $< -o $@
 
 $(BUILD)/%.o45: stdlib/%.c $(C_TOOL_DEPS) | $(BUILD)
-	$(CC45) -c -fimplicit-function-declaration $< -o $@
+	$(CC45) -c $(LIB_CFLAGS) $< -o $@
 
 $(BUILD)/c45.lib: $(CRT_OBJECTS) $(STDLIB_OBJECTS) | $(BUILD)
 	$(AR45) c $@ $(CRT_OBJECTS) $(STDLIB_OBJECTS)
@@ -66,7 +70,7 @@ $(BUILD)/zp_%.o45: stdlib_zp/%.s45 $(CA45) | $(BUILD)
 	$(CA45) -c $< -o $@
 
 $(BUILD)/zp_%.o45: stdlib_zp/%.c $(C_TOOL_DEPS) | $(BUILD)
-	$(CC45) -c -fzpcall -fimplicit-function-declaration $< -o $@
+	$(CC45) -c -fzpcall $(LIB_CFLAGS) $< -o $@
 
 $(BUILD)/c45_zp.lib: $(CRT_ZP_OBJECTS) $(STDLIB_ZP_OBJECTS) $(FLOAT_ROM_OBJECTS) | $(BUILD)
 	$(AR45) c $@ $(CRT_ZP_OBJECTS) $(STDLIB_ZP_OBJECTS) $(FLOAT_ROM_OBJECTS)

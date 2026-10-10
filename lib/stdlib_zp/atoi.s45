@@ -35,7 +35,10 @@ proc _atoi
 
     ; --- Check for sign ---
 @checksign:
-    stz $16             ; $16 = sign flag (0=positive)
+    pha
+    lda #0
+    sta $16             ; $16 = sign flag (0=positive); not stz, which stores Z
+    pla
     cmp #$2d            ; '-'
     bne @checkplus
     inc $16

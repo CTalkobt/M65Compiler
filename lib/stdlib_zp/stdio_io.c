@@ -8,6 +8,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Buffer helpers shared with stdio_file.c */
+int _fill_read_buffer(FILE *stream);
+int _flush_write_buffer(FILE *stream);
+
 /* ============================================================================
  * CHARACTER I/O
  * ============================================================================ */

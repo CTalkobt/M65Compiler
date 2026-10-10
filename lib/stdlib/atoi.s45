@@ -41,6 +41,7 @@ proc _atoi, W#_p_s
 @checksign:
     lda #0
     sta $04             ; sign flag (NOT stz — STZ stores Z reg, not zero)
+    lda ($02),y         ; reload the character (A was used to clear the flag)
     cmp #$2d            ; '-'
     bne @checkplus
     inc $04

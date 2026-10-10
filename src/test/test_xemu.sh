@@ -255,6 +255,26 @@ else
     failed=$((failed + 1))
 fi
 
+# Test: signed comparisons where the operands have different signs
+echo "Testing test_signed_compare_xemu.c (signed compare)..."
+compile_link_test "src/test-resources/test_signed_compare_xemu.c" "build/test/test_signed_compare_xemu.prg"
+if [ $? -eq 0 ]; then
+    run_xemu_test "test_signed_compare" "build/test/test_signed_compare_xemu.prg" "C0C0" 10 "01 00 01 00 01 01 01 00 00 AA"
+else
+    echo "FAIL: test_signed_compare_xemu.c (compilation/linking failed)"
+    failed=$((failed + 1))
+fi
+
+# Test: library functions returning negative values
+echo "Testing test_stdlib_signed_xemu.c (atoi/min/max/div)..."
+compile_link_test "src/test-resources/test_stdlib_signed_xemu.c" "build/test/test_stdlib_signed_xemu.prg"
+if [ $? -eq 0 ]; then
+    run_xemu_test "test_stdlib_signed" "build/test/test_stdlib_signed_xemu.prg" "C0C0" 11 "85 FF F4 FF 05 00 FD FF FF FF AA"
+else
+    echo "FAIL: test_stdlib_signed_xemu.c (compilation/linking failed)"
+    failed=$((failed + 1))
+fi
+
 # Test: stack frames (recursion via SAC fallback, caller FP preserved, long return)
 echo "Testing test_stackframe_xemu.c (stack frames)..."
 compile_link_test "src/test-resources/test_stackframe_xemu.c" "build/test/test_stackframe_xemu.prg"

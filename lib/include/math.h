@@ -9,30 +9,30 @@
 #include <stdlib.h>
 
 typedef struct {
-    int quot;
-    int rem;
+    signed int quot;
+    signed int rem;
 } div_t;
 
 typedef struct {
-    long quot;
-    long rem;
+    signed long quot;
+    signed long rem;
 } ldiv_t;
 
 /* abs/labs are declared in stdlib.h per C standard; re-declared here */
 #ifdef __NOMACRO_ABS
-int abs(int value);
+signed int abs(signed int value);
 #endif
 #ifdef __NOMACRO_LABS
-long labs(long value);
+signed long labs(signed long value);
 #endif
 
-div_t div(int numer, int denom);
-ldiv_t ldiv(long numer, long denom);
+div_t div(signed int numer, signed int denom);
+ldiv_t ldiv(signed long numer, signed long denom);
 
-int min(int a, int b);
-int max(int a, int b);
-int gcd(int a, int b);
-int lcm(int a, int b);
+signed int min(signed int a, signed int b);
+signed int max(signed int a, signed int b);
+signed int gcd(signed int a, signed int b);
+signed int lcm(signed int a, signed int b);
 
 /* Floating-point math functions (CBM 40-bit float via BASIC 65 ROM) */
 float sinf(float x);
