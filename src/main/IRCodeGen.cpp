@@ -1728,14 +1728,37 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
             std::string paramSymbol = fn.name + "__param_" + pName;
             emit(".global " + paramSymbol);
 
-            // SAC parameters MUST be in BSS and uninitialized
-            // They are loaded from the stack by the SAC thunk at function entry
-            // Pre-initializing them breaks the parameter passing contract
-            // (parameters may be called with different values than the constant propagation analysis assumes)
-            // Note: Phase 91 may identify constant parameters, but that's an optimization hint
-            // that should NOT affect SAC parameter storage allocation
-            emitLabel(paramSymbol);
-            emit(".res " + std::to_string(ps));
+            // Check if this is a constant parameter
+            int64_t constValue = 0;
+            bool isConstParam = false;
+            if (sacConstParams_.count(fn.name)) {
+                const auto& params = sacConstParams_[fn.name];
+                if (params.count((int)i) && params.at((int)i).isConstant) {
+                    isConstParam = true;
+                    constValue = params.at((int)i).value;
+                }
+            }
+
+            // In BSS, use .res to reserve space (no initial value in binary)
+            // Constant parameters will be initialized by CRT or first call
+            if (isConstParam) {
+                // Constant params go in data segment (initialized)
+                emit(".segment \"data\"");
+                if (ps == 2) {
+                    emit(paramSymbol + ": .word " + std::to_string((int)(constValue & 0xFFFF)));
+                } else if (ps == 4) {
+                    emit(paramSymbol + ": .long " + std::to_string((int)(constValue & 0xFFFFFFFF)));
+                } else {
+                    emit(paramSymbol + ": .word " + std::to_string((int)(constValue & 0xFFFF)));
+                    for (int j = 2; j < ps; j += 2) {
+                        emit(".word 0");
+                    }
+                }
+                emit(".segment \"bss\"");
+            } else {
+                emitLabel(paramSymbol);
+                emit(".res " + std::to_string(ps));
+            }
         }
 
         // Emit storage for locals
