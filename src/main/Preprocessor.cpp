@@ -1023,6 +1023,15 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         } else {
                             output << "\n";
                         }
+                    } else if (cc45Arg == "max_inline_ir_size") {
+                        std::string sizeStr;
+                        if (ss >> sizeStr) {
+                            // Remove trailing parenthesis if present
+                            if (sizeStr.back() == ')') sizeStr.pop_back();
+                            output << "__asm__(\".max_inline_ir_size " + sizeStr + "\");\n";
+                        } else {
+                            output << "\n";
+                        }
                     } else {
                         output << "\n";
                     }

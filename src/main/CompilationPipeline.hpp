@@ -22,6 +22,7 @@ struct CompilationConfig {
     int optimizationLevel = 2;
     bool emitIR = false;        // --emit-ir: write IR text dump
     bool emitReasons = false;   // -Rcodegen: annotate assembly
+    int maxInlineIRSize = 10;   // -fmax-inline-ir-size: max IR instructions for inlining (default 10)
 
     // Calling conventions
     bool zpCallMode = false;

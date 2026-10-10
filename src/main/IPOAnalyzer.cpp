@@ -42,20 +42,23 @@ std::vector<InliningDecision> IPOAnalyzer::analyzeInlining(const GlobalFunctionD
         decision.codeSize = profile->codeSize;
         decision.callSites = profile->callSites.size();
 
+        // Use the more restrictive of: standard heuristic threshold or IR size limit
+        int effectiveThreshold = std::min(inlineThreshold_, effectiveInlineThreshold_);
+
         // Heuristic 1: Single-caller functions are good candidates
-        if (decision.callSites == 1 && decision.codeSize < inlineThreshold_) {
+        if (decision.callSites == 1 && decision.codeSize < effectiveThreshold) {
             decision.shouldInline = true;
             decision.savingsEstimate = decision.codeSize - 3;  // Save func body, lose call overhead
             decision.reason = "Single caller, small function";
         }
         // Heuristic 2: Leaf functions in loops can benefit
-        else if (profile->isLeaf && decision.codeSize < inlineThreshold_ / 2) {
+        else if (profile->isLeaf && decision.codeSize < effectiveThreshold / 2) {
             decision.shouldInline = true;
             decision.savingsEstimate = decision.codeSize * 0.5f;
             decision.reason = "Leaf function, significant savings";
         }
-        // Heuristic 3: Very small functions (<10 bytes)
-        else if (decision.codeSize < 10 && decision.callSites <= 3) {
+        // Heuristic 3: Very small functions (respecting IR size limit)
+        else if (decision.codeSize < std::min(10, effectiveThreshold) && decision.callSites <= 3) {
             decision.shouldInline = true;
             decision.savingsEstimate = decision.codeSize - 2;
             decision.reason = "Tiny function, minimal overhead";

@@ -51,13 +51,24 @@ public:
     void setSpecializationROIThreshold(float roi) { roiThreshold_ = roi; }
     void setDeadCodeThreshold(int unused) { deadCodeThreshold_ = unused; }
 
+    // Max inline IR size limit (in estimated IR instructions)
+    // Converts internally to bytes: irSize * 2.5 ≈ bytes of code
+    void setMaxInlineIRSize(int irInstructions) {
+        maxInlineIRSize_ = irInstructions;
+        // Convert IR instruction count to code size threshold in bytes
+        // Empirically: 1 IR instruction ≈ 2.5 bytes of 45GS02 code
+        effectiveInlineThreshold_ = static_cast<int>(irInstructions * 2.5f);
+    }
+
     // Print analysis decisions
     void printDecisions(const IPOAnalysisResult& result) const;
 
 private:
-    int inlineThreshold_ = 20;      // Functions < 20 bytes good candidates for inlining
-    float roiThreshold_ = 1.5f;     // Require ROI > 1.5 for specialization
-    int deadCodeThreshold_ = 0;     // Any unused function is dead code
+    int inlineThreshold_ = 20;          // Functions < 20 bytes good candidates (default heuristic)
+    int maxInlineIRSize_ = 10;          // Default: 10 IR instructions max for inline
+    int effectiveInlineThreshold_ = 25; // Derived: maxInlineIRSize_ * 2.5
+    float roiThreshold_ = 1.5f;         // Require ROI > 1.5 for specialization
+    int deadCodeThreshold_ = 0;         // Any unused function is dead code
 
     // Helper methods
     std::vector<InliningDecision> analyzeInlining(const GlobalFunctionDatabase& db);

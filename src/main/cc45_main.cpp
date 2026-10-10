@@ -519,6 +519,13 @@ int main(int argc, char** argv) {
             config.allowImplicitFunctionDecl = false;
         } else if (arg == "-finline-functions") {
             config.inlineSmallFunctions = true;
+        } else if (arg.substr(0, 24) == "-fmax-inline-ir-size=") {
+            std::string sizeStr = arg.substr(24);
+            try {
+                config.maxInlineIRSize = std::stoi(sizeStr);
+            } catch (...) {
+                std::cerr << "Invalid IR size for -fmax-inline-ir-size: " << sizeStr << std::endl;
+            }
         } else if (arg == "--pragma" && i + 1 < allArgs.size()) {
             config.cliPragmas.push_back(allArgs[++i]);
         } else if (arg == "--emit-ir") {
