@@ -755,6 +755,7 @@ void IRCodeGen::emitStackCleanup(int frameSize) {
 // ============================================================================
 
 void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode, bool zpCallMode, bool emitReasons, bool staticAllocMode, bool sacDebugMode, uint32_t prgBase) {
+    dataAlign_ = bssAlign_ = 1;
     emitReasons_ = emitReasons;
     relocMode_ = relocMode;
     zpCallMode_ = zpCallMode;
@@ -1177,6 +1178,12 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     // Emit string data
     emitStrings(mod);
 
+    // Aligned data/BSS: tell ln45 to start this object's part on that boundary
+    if (relocMode) {
+        if (dataAlign_ > 1) { emit(".weak cc45.align.data"); emit("cc45.align.data = " + std::to_string(dataAlign_)); }
+        if (bssAlign_ > 1) { emit(".weak cc45.align.bss"); emit("cc45.align.bss = " + std::to_string(bssAlign_)); }
+    }
+
     // Relocated base page: the first page boundary after the program
     // (unused RAM, no .res needed).
     if (!relocMode && hasInterrupt) {
@@ -1284,6 +1291,10 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
                 hasData = true;
                 hasBss = false; // reset so next uninit global re-emits .segment "bss"
             }
+            if (g.align > 1) {
+                emit(".align " + std::to_string(g.align));
+                dataAlign_ = std::max(dataAlign_, g.align);
+            }
             emitLabel(g.name);
             // Emit debug metadata for global variable
             emitDebugVariable("@global", g.name, 0, g.type, "global");
@@ -1347,6 +1358,10 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
                 if (hasData) emitBlank();
                 if (relocMode) emit(".segment \"bss\"");
                 hasBss = true;
+            }
+            if (g.align > 1) {
+                emit(".align " + std::to_string(g.align));
+                bssAlign_ = std::max(bssAlign_, g.align);
             }
             emitLabel(g.name);
             // Emit debug metadata for global variable
@@ -1963,6 +1978,11 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
                     varSize = ir::typeSize(varType);
                 }
                 if (varSize < 2) varSize = 2;
+                auto ait = fn.vregAlign.find(vregId);
+                if (ait != fn.vregAlign.end() && ait->second > 1) {
+                    emit(".align " + std::to_string(ait->second));
+                    bssAlign_ = std::max(bssAlign_, ait->second);
+                }
                 emitLabel(localSymbol);
                 emit(".res " + std::to_string(varSize));
             }

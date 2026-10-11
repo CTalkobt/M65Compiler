@@ -252,12 +252,28 @@ bool O45Linker::layoutSegments(std::string& errorMsg) {
         }
     }
 
-    // --- Data, BSS, ZP: simple concatenation (unchanged) ---
+    // --- Data, BSS, ZP: concatenation. An object whose data/BSS holds aligned
+    // variables (_Alignas, __attribute__((aligned))) exports cc45.align.data /
+    // cc45.align.bss: its part starts on that boundary, and the segment bases
+    // are aligned to the largest such value.
+    auto objAlign = [](const O45File& o, const char* marker) -> uint32_t {
+        uint32_t a = 1;
+        for (const auto& exp : o.exports)
+            if (exp.name == marker && exp.offset > a) a = exp.offset;
+        return a;
+    };
+    dataAlign_ = bssAlign_ = 1;
     for (auto& input : objects_) {
+        uint32_t da = objAlign(input.obj, "cc45.align.data");
+        uint32_t ba = objAlign(input.obj, "cc45.align.bss");
+        dataAlign_ = std::max(dataAlign_, da);
+        bssAlign_ = std::max(bssAlign_, ba);
+        while (mergedData_.size() % da) mergedData_.push_back(0);
         input.dataOffset = (uint32_t)mergedData_.size();
         mergedData_.insert(mergedData_.end(),
                            input.obj.dataBody.begin(), input.obj.dataBody.end());
 
+        mergedBssLen_ = (mergedBssLen_ + ba - 1) / ba * ba;
         input.bssOffset = mergedBssLen_;
         mergedBssLen_ += input.obj.blen;
 
@@ -266,11 +282,12 @@ bool O45Linker::layoutSegments(std::string& errorMsg) {
     }
 
     // Auto-place data right after text if not explicitly set
+    auto alignUp = [](uint32_t v, uint32_t a) { return (v + a - 1) / a * a; };
     if (!dataBaseSet_) {
-        dataBase_ = textBase_ + (uint32_t)mergedText_.size();
+        dataBase_ = alignUp(textBase_ + (uint32_t)mergedText_.size(), dataAlign_);
     }
     if (!bssBaseSet_) {
-        bssBase_ = dataBase_ + (uint32_t)mergedData_.size();
+        bssBase_ = alignUp(dataBase_ + (uint32_t)mergedData_.size(), bssAlign_);
     }
     if (!zpBaseSet_) {
         zpBase_ = 0x02; // default ZP start
@@ -834,9 +851,9 @@ std::vector<uint8_t> O45Linker::link(std::string& errorMsg, bool isPrg) {
     {
         uint32_t textEnd = textBase_ + (uint32_t)mergedText_.size();
         if (!dataBaseSet_ && dataBase_ < textEnd) {
-            uint32_t delta = textEnd - dataBase_;
-            dataBase_ += delta;
-            if (!bssBaseSet_) bssBase_ += delta;
+            dataBase_ = (textEnd + dataAlign_ - 1) / dataAlign_ * dataAlign_;
+            if (!bssBaseSet_)
+                bssBase_ = (dataBase_ + (uint32_t)mergedData_.size() + bssAlign_ - 1) / bssAlign_ * bssAlign_;
             if (!resolveSymbols(errorMsg)) return {};
             for (const auto& [name, addr] : thunkAddresses_) globalSymbols_[name] = addr;
             colorStaticAllocRegisters();

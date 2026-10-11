@@ -428,6 +428,7 @@ public:
     std::string parentStruct;  // Phase 3: single inheritance (empty = no parent)
     bool hasVirtual = false;   // Phase 3: true if any method is virtual
     bool isFinal = false;      // Phase 4: struct cannot be inherited from
+    int alignment = 0;         // __attribute__((aligned(N))) on the struct type
     StructDefinition(const std::string& n, bool isUnion = false) : name(n), isUnion(isUnion) {}
     void accept(ASTVisitor& visitor) override;
 };

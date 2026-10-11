@@ -226,6 +226,7 @@ struct Function {
     std::map<uint32_t, int> vregOffsets; // vregId -> final frame offset
     std::map<uint32_t, Type> vregTypes;
     std::map<uint32_t, int> vregSizes;
+    std::map<uint32_t, int> vregAlign;  // locals with _Alignas / aligned (> 1)
  // override sizes for array vRegs (bytes)
     std::map<std::string, uint32_t> localNames; // name (without _l_ or _p_ prefix) -> vregId
     std::vector<std::string> localNamesOrder; // preserves declaration order of local variables
@@ -272,6 +273,7 @@ struct Module {
         std::vector<std::string> initLabels; // symbolic labels for pointer array elements (e.g. string literals)
         std::vector<std::string> vtableMethodNames; // Phase 3: function names for vtable entries
         int addressSpace = 0;   // Phase 97: 0=default(__abs), 1=__zp, 2=__far
+        int align = 1;          // _Alignas / __attribute__((aligned)) / aligned struct type
     };
     std::vector<GlobalVar> globals;
 

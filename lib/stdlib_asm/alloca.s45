@@ -3,7 +3,8 @@
 ; void *alloca(size_t size);
 ;   size in $10/$11. Works with the 16-bit stack (E clear) and the 8-bit
 ;   page-1 stack alike.
-;   Lowers SP by size+2 and returns a pointer to the allocated bytes in AX.
+;   Lowers SP by size+2 (+1 to keep the block 2-byte aligned) and returns a
+;   pointer to the allocated bytes in AX.
 ;   The 2 spare bytes sit just above the new SP: a stack-convention caller
 ;   (through the linker's thunk) pops its 2-byte argument after the call, so
 ;   the block must start above them. The caller's epilogue resets SP from FP.
@@ -40,6 +41,18 @@ proc _alloca
     dec $07
 @nob:
     dec $06
+
+    ; Keep the block 2-byte aligned (result = new SP + 3 is even when new SP
+    ; is odd): one more byte when new SP is even
+    lda $06
+    lsr a
+    bcs @odd
+    lda $06
+    bne @nob2
+    dec $07
+@nob2:
+    dec $06
+@odd:
 
     ; SP is lowered: write SPH first so an interrupt between the two writes
     ; pushes below the old SP, never over live data

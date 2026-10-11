@@ -213,8 +213,13 @@ private:
         std::map<std::string, IRMemberInfo> members;
         std::vector<std::string> memberOrder;
         int totalSize = 0;
+        int align = 1;       // largest member / declared alignment (cc45 packs otherwise)
     };
     std::map<std::string, IRStructInfo> structs_;
+    // Alignment of a type (an aligned struct's alignment; 1 otherwise: cc45 packs)
+    int typeAlign(const std::string& type, int ptrLevel);
+    // Value of an _Alignas / aligned expression (a constant or _Alignof(type))
+    int alignValue(Expression* e);
 
     // Phase 102: Typedef to struct mapping for resolving typedef'd struct types
     std::map<std::string, std::string> typedefToStruct_; // typedef name → struct name (e.g., "digi_system_t" → "struct digi_system")

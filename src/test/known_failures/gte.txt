@@ -2,8 +2,6 @@
 # Remove names as they are fixed; test_failures.sh runs this list.
 # pr58574: program too large (code runs into I/O at $D000).
 # struct-ret-1: global struct initializer with an array member is mis-emitted.
-# pr23467: __attribute__((aligned(8))) is ignored; passes only when the layout
-#   happens to put the member on an 8-byte boundary.
 # vrp-6: needs 32-bit int (dg int32plus); 0x80000000 truncates to 0 in a 16-bit unsigned int.
 20000605-1
 20000731-1
@@ -145,7 +143,6 @@ pr22098-1
 pr22098-3
 pr22141-1
 pr22141-2
-pr23467
 pr24135
 pr28865
 pr28982a

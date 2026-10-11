@@ -76,6 +76,10 @@ private:
     void parseTypedef();
     bool tryParseAttribute();  // parse __attribute__((...)), returns true if found
     bool pendingAlwaysInline_ = false;  // set by always_inline, consumed by next function declaration
+    // __attribute__((aligned(N))): consumed by the declaration it belongs to
+    // (variable, struct member or struct type) as if _Alignas(N) were written
+    int pendingAlign_ = 0;
+    int takePendingAlign() { int a = pendingAlign_; pendingAlign_ = 0; return a; }
     bool pendingNoInline_ = false;
     std::string resolveComplexType(); // consume type after COMPLEX token, return struct name
     std::string resolveIntNType(bool isSigned); // consume (N) after __int/__uint, return type name

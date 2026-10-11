@@ -49,7 +49,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
         // Skip stray semicolons at top level (e.g., }; after function)
         if (match(TokenType::SEMICOLON)) continue;
         if (match(TokenType::TYPEDEF)) {
-            parseTypedef();
+            parseTypedef(); pendingAlign_ = 0;  // aligned on a typedef is not supported
             continue;
         }
         if (peek().type == TokenType::ASM) {
@@ -1005,6 +1005,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         func->isPrototype = true;
         func->isVariadic = isVariadic;
         func->isAlwaysInline = pendingAlwaysInline_;
+    pendingAlign_ = 0;  // aligned on a function: code alignment isn't supported
         func->isNoInline = pendingNoInline_;
         pendingAlwaysInline_ = pendingNoInline_ = false;
         return func;
@@ -1028,6 +1029,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     func->isVariadic = isVariadic;
     func->isInline = isInline;
     func->isAlwaysInline = pendingAlwaysInline_;
+    pendingAlign_ = 0;  // aligned on a function: code alignment isn't supported
     func->isNoInline = pendingNoInline_;
     pendingAlwaysInline_ = pendingNoInline_ = false;
     func->isStatic = isStatic;
@@ -1083,7 +1085,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
     }
 
     if (match(TokenType::TYPEDEF)) {
-        parseTypedef();
+        parseTypedef(); pendingAlign_ = 0;  // aligned on a typedef is not supported
         return setPos(std::make_unique<CompoundStatement>(), tokens[pos-1]); // Dummy empty statement
     }
 
@@ -1784,6 +1786,8 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     decl->addressSpace = addressSpace;  // Phase 97: Set address space qualifier
     decl->alignmentExpr = std::move(alignmentExpr);
     decl->arrayDims = arrayDims;
+    // int x __attribute__((aligned(8))) = 5;
+    while (tryParseAttribute()) {}
 
     if (match(TokenType::EQUALS)) {
         if (peek().type == TokenType::OPEN_BRACE) {
@@ -1813,6 +1817,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
 
     // Skip __attribute__ after variable declaration: int x __attribute__((unused));
     while (tryParseAttribute()) {}
+    decl->alignment = std::max(decl->alignment, takePendingAlign());
 
     // --- Multi-variable declarations: int a, b = 3, *c, d[4]; ---
     if (peek().type == TokenType::COMMA) {
@@ -1898,6 +1903,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
     bool isUnpacked = match(TokenType::UNPACKED);
     // Skip __attribute__ after struct/union keyword: struct __attribute__((packed)) S { }
     while (tryParseAttribute()) {}
+    int structAlign = takePendingAlign();
     std::string name;
     if (peek().type == TokenType::IDENTIFIER) {
         name = advance().value;
@@ -1931,6 +1937,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
     def->isUnpacked = isUnpacked;
     def->isFinal = structIsFinal;
     def->parentStruct = parentStruct;
+    def->alignment = structAlign;
 
     // Validate: cannot inherit from a final struct
     if (!parentStruct.empty() && structs.count(parentStruct) && structs[parentStruct]->isFinal) {
@@ -2151,7 +2158,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         while (tryParseAttribute()) {}
         StructMember sm;
         sm.type = type; sm.pointerLevel = ptrLevel; sm.isSigned = mIsSigned;
-        sm.name = memberName; sm.isConst = mIsConst; sm.alignment = 0;
+        sm.name = memberName; sm.isConst = mIsConst; sm.alignment = takePendingAlign();
         sm.alignmentExpr = std::move(mAlignmentExpr); sm.isAnonymous = false;
         sm.arrayDims = memberArrayDims; sm.bitWidth = memberBitWidth;
         def->members.push_back(std::move(sm));
@@ -2180,12 +2187,16 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             esm.type = type; esm.pointerLevel = extraPtr; esm.isSigned = mIsSigned;
             esm.name = extraName; esm.isConst = mIsConst;
             esm.arrayDims = extraDims; esm.bitWidth = extraBitWidth;
+            esm.alignment = takePendingAlign();
             def->members.push_back(std::move(esm));
         }
         while (tryParseAttribute()) {}
         expect(TokenType::SEMICOLON, "Expected ';'");
     }
     expect(TokenType::CLOSE_BRACE, "Expected '}'");
+    // struct S { ... } __attribute__((aligned(N)))
+    while (tryParseAttribute()) {}
+    def->alignment = std::max(def->alignment, takePendingAlign());
 
     // Phase 3: If this struct has virtual methods, insert __vt pointer as first member
     if (def->hasVirtual || (!def->parentStruct.empty() && structs.count(def->parentStruct) && structs[def->parentStruct]->hasVirtual)) {
@@ -3288,6 +3299,23 @@ bool Parser::tryParseAttribute() {
             if (canonical == "always_inline") pendingAlwaysInline_ = true;
             if (canonical == "noinline") pendingNoInline_ = true;
 
+            if (canonical == "aligned") {
+                // aligned(N), or plain aligned: the widest natural alignment (2)
+                int a = 2;
+                if (match(TokenType::OPEN_PAREN)) {
+                    auto e = parseConditional();
+                    long v;
+                    if (evalConstInt(e.get(), v) && v > 0) a = (int)v;
+                    else std::cerr << tokens[pos-1].line << ": warning: __attribute__((aligned)) needs a constant; using 2\n";
+                    expect(TokenType::CLOSE_PAREN, "Expected ')' after aligned argument");
+                }
+                if (a & (a - 1))
+                    std::cerr << tokens[pos-1].line << ": warning: alignment " << a << " is not a power of two\n";
+                pendingAlign_ = std::max(pendingAlign_, a);
+                match(TokenType::COMMA);
+                continue;
+            }
+
             // Recognized — silently accept
             if (canonical == "noinline" || canonical == "noclone" || canonical == "packed" ||
                 canonical == "always_inline" || canonical == "gnu_inline" ||
@@ -3310,7 +3338,7 @@ bool Parser::tryParseAttribute() {
                 }
             }
             // Warn-and-skip (#110-#114)
-            else if (canonical == "noipa" || canonical == "aligned" ||
+            else if (canonical == "noipa" ||
                      canonical == "mode" || canonical == "vector_size" ||
                      canonical == "may_alias") {
                 std::cerr << tokens[pos-1].line << ": warning: __attribute__(("

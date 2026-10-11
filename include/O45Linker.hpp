@@ -393,6 +393,7 @@ private:
     uint32_t textBase_ = 0x0000;
     uint32_t dataBase_ = 0;  bool dataBaseSet_ = false;
     uint32_t bssBase_ = 0;   bool bssBaseSet_ = false;
+    uint32_t dataAlign_ = 1, bssAlign_ = 1;  // largest cc45.align.data/.bss of any object
     uint32_t zpBase_ = 0;    bool zpBaseSet_ = false;
 
     // Merged segment bodies

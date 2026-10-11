@@ -373,6 +373,20 @@ for fpgmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: __attribute__((aligned(N))) / _Alignas on globals, locals, struct
+# members and struct types
+for almode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r alname alflags <<< "$almode"
+    echo "Testing test_aligned_xemu.c ($alname)..."
+    compile_link_test "src/test-resources/test_aligned_xemu.c" "build/test/test_aligned_${alname}_xemu.prg" "$alflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_aligned_$alname" "build/test/test_aligned_${alname}_xemu.prg" "C0C0" 10 "01 01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_aligned_xemu.c $alname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: stack frames (recursion via SAC fallback, caller FP preserved, long return)
 echo "Testing test_stackframe_xemu.c (stack frames)..."
 compile_link_test "src/test-resources/test_stackframe_xemu.c" "build/test/test_stackframe_xemu.prg"

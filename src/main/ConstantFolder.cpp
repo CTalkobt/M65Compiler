@@ -93,11 +93,13 @@ void ConstantFolder::visit(AlignofExpression& node) {
     int alignment = 1;
     if (node.pointerLevel > 0 || node.typeName == "int") alignment = 2;
     else if (node.typeName == "char" || node.typeName == "_Bool") alignment = 1;
-    else if (node.typeName.substr(0, 7) == "struct ") {
-        // Struct alignment would need full struct info, but we don't have it here easily
-        // Default to 1 for now, or 2 if we assume they might contain ints.
-        // Actually, let's keep it as 1 for now as a safe default for char-only structs.
-        alignment = 1; 
+    else if (node.typeName.rfind("struct ", 0) == 0 || node.typeName.rfind("union ", 0) == 0) {
+        // cc45 packs structs: alignment 1 unless a member or the struct itself
+        // is aligned (_Alignas / __attribute__((aligned)))
+        std::string tn = node.typeName.substr(node.typeName.find(' ') + 1);
+        auto sit = structs.find(tn);
+        alignment = (sit != structs.end() && sit->second && sit->second->alignment > 1)
+                    ? sit->second->alignment : 1;
     }
     lastExpr = copyPos(std::make_unique<IntegerLiteral>(alignment), node);
 }

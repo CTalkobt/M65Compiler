@@ -1590,6 +1590,8 @@ void IRBuilder::visit(VariableDeclaration& node) {
         gv.isConst = node.isConst;
         gv.isStatic = node.isStatic;
         gv.addressSpace = node.addressSpace;  // Phase 97: Preserve address space qualifier
+        gv.align = std::max({1, node.alignment, alignValue(node.alignmentExpr.get()),
+                             typeAlign(node.type, node.pointerLevel)});
         if (node.initializer) {
             // -1.5: a negated float literal
             double negFloat = 0;
@@ -1677,6 +1679,8 @@ void IRBuilder::visit(VariableDeclaration& node) {
         gv.isConst = node.isConst;
         gv.isStatic = true;
         gv.addressSpace = node.addressSpace;  // Phase 97: Preserve address space qualifier
+        gv.align = std::max({1, node.alignment, alignValue(node.alignmentExpr.get()),
+                             typeAlign(node.type, node.pointerLevel)});
 
         // Handle initializer
         if (node.initializer) {
@@ -1759,6 +1763,11 @@ void IRBuilder::visit(VariableDeclaration& node) {
     if (node.isVolatile && currentFunc_) currentFunc_->memoryVregs.insert(vreg.vregId);
     if (node.isRegister && currentFunc_) currentFunc_->registerVregs.insert(vreg.vregId);
     if (currentFunc_) currentFunc_->localSlotVregs.insert(vreg.vregId);
+    if (currentFunc_) {
+        int la = std::max({1, node.alignment, alignValue(node.alignmentExpr.get()),
+                           typeAlign(node.type, node.pointerLevel)});
+        if (la > 1) currentFunc_->vregAlign[vreg.vregId] = la;
+    }
     if (!node.arrayDims.empty()) {
         localArrayDims_[node.name] = node.arrayDims;
         // Record total byte size for array vRegs
@@ -3505,6 +3514,7 @@ void IRBuilder::visit(FunctionCall& node) {
             if (currentFunc_) {
                 currentFunc_->memoryVregs.insert(buf.vregId);
                 currentFunc_->vregSizes[buf.vregId] = constSize;
+                currentFunc_->vregAlign[buf.vregId] = 2;  // alloca: the widest natural alignment
             }
             // Return address of the buffer
             ir::Inst addr;
@@ -4919,8 +4929,21 @@ void IRBuilder::visit(CompoundLiteral& node) {
     }
 }
 
-void IRBuilder::visit(AlignofExpression&) {
-    lastValue_ = ir::Operand::imm(1, ir::Type::I16);
+int IRBuilder::typeAlign(const std::string& type, int ptrLevel) {
+    if (ptrLevel > 0) return 1;
+    auto sit = structs_.find(getAggregateName(type));
+    return sit != structs_.end() ? std::max(1, sit->second.align) : 1;
+}
+
+int IRBuilder::alignValue(Expression* e) {
+    if (!e) return 1;
+    if (auto* lit = dynamic_cast<IntegerLiteral*>(e)) return lit->value > 1 ? (int)lit->value : 1;
+    if (auto* al = dynamic_cast<AlignofExpression*>(e)) return typeAlign(al->typeName, al->pointerLevel);
+    return 1;
+}
+
+void IRBuilder::visit(AlignofExpression& node) {
+    lastValue_ = ir::Operand::imm(typeAlign(node.typeName, node.pointerLevel), ir::Type::I16);
 }
 
 void IRBuilder::visit(SizeofExpression& node) {
@@ -5402,11 +5425,16 @@ void IRBuilder::visit(StructDefinition& node) {
             mi.size = getTypeSize(m.type, m.pointerLevel);
             if (m.arraySize() > 0) mi.size *= m.arraySize();
 
+            // Explicit alignment (_Alignas / aligned) and aligned struct types
+            int explicitAlign = std::max({1, m.alignment, alignValue(m.alignmentExpr.get()),
+                                          typeAlign(m.type, m.pointerLevel)});
+            info.align = std::max(info.align, explicitAlign);
             if (node.isUnion) {
                 mi.offset = 0;
             } else {
-                // Packed by default — only align if __unpacked
+                // Packed by default — only align if __unpacked or requested
                 int align = node.isUnpacked ? std::max(1, getTypeSize(m.type, m.pointerLevel)) : 1;
+                align = std::max(align, explicitAlign);
                 if (align > 1 && currentOffset % align != 0)
                     currentOffset += align - (currentOffset % align);
                 mi.offset = currentOffset;
@@ -5425,6 +5453,11 @@ void IRBuilder::visit(StructDefinition& node) {
         for (const auto& [n, mi] : info.members)
             if (mi.size > info.totalSize) info.totalSize = mi.size;
     }
+    // An aligned struct's size is a multiple of its alignment (arrays of it
+    // keep every element aligned)
+    info.align = std::max(info.align, node.alignment);
+    if (info.align > 1 && info.totalSize % info.align)
+        info.totalSize += info.align - info.totalSize % info.align;
     structs_[node.name] = info;
     parsedStructIsFinal_[node.name] = node.isFinal;
 

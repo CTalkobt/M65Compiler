@@ -522,15 +522,25 @@ public:
 
         for (auto& m : node.members) {
             auto alignmentExpr = m.alignmentExpr ? fold(std::move(m.alignmentExpr)) : nullptr;
-            int alignment = 1;
+            // __attribute__((aligned)) arrives as m.alignment, _Alignas as an expression
+            int alignment = m.alignment > 1 ? m.alignment : 1;
             if (alignmentExpr) {
                 if (auto* lit = dynamic_cast<IntegerLiteral*>(alignmentExpr.get())) {
-                    alignment = lit->value;
+                    if (lit->value > alignment) alignment = (int)lit->value;
                 }
             }
 
             int mSize = TypeInfo::getTypeSize(m.type, m.pointerLevel, m.arraySize(), structs);
-            int mAlign = alignment; // Simplification, should ideally check type alignment too
+            int mAlign = alignment;
+            // A member of an aligned struct type takes that struct's alignment
+            if (m.pointerLevel == 0) {
+                std::string tn = m.type;
+                for (const char* kw : {"struct ", "union "})
+                    if (tn.rfind(kw, 0) == 0) tn = tn.substr(std::string(kw).size());
+                auto sit = structs.find(tn);
+                if (sit != structs.end() && sit->second && sit->second->alignment > mAlign)
+                    mAlign = sit->second->alignment;
+            }
             if (mAlign > maxAlignment) maxAlignment = mAlign;
 
             if (!node.isUnion) {
@@ -555,12 +565,15 @@ public:
             }
         }
 
+        if (node.alignment > maxAlignment) maxAlignment = node.alignment;
         if (currentOffset % maxAlignment != 0) currentOffset += maxAlignment - (currentOffset % maxAlignment);
         sInfo->totalSize = currentOffset;
         sInfo->alignment = maxAlignment;
         structs[node.name] = sInfo;
 
-        // Preserve OOP fields
+        // Preserve layout and OOP fields
+        def->isUnpacked = node.isUnpacked;
+        def->alignment = node.alignment;
         def->parentStruct = node.parentStruct;
         def->hasVirtual = node.hasVirtual;
         def->isFinal = node.isFinal;
