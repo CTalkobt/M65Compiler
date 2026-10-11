@@ -1,0 +1,15 @@
+; Test: .func_flags in a bare `proc` (the function named by a label before
+; it) reaches no symbol: ca45 must warn instead of dropping it silently.
+
+.cpu _45gs02
+
+    .global labelled_add
+
+labelled_add:
+    proc
+    .func_flags zp_call
+    lda $10
+    clc
+    adc $12
+    rts
+    endproc

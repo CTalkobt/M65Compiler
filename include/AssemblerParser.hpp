@@ -119,6 +119,8 @@ public:
         uint8_t funcFlags = 0;         // bit 0=leaf, bit 1=interrupt-safe
         uint16_t frameSize = 0;        // activation record / frame size in bytes (Phase 2)
         bool hasFuncAttrs = false;     // true if any .zp_*/reg_*/flag_* directive was used
+        bool unnamed = false;          // bare `proc` (no name): its attributes reach no symbol
+        bool warnedUnnamed = false;
         std::map<int, int64_t> paramConstants;  // parameter index → constant value (.param_const directives)
         std::vector<int> paramSizes;   // parameter index → size in bytes (.param_sizes directive)
     };

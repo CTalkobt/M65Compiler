@@ -194,6 +194,14 @@ else
     fail "Assembly: .func_flags directive parsing" "Assembler failed: $(cat build/test/test_cc_asm.err | head -1)"
 fi
 
+# A bare `proc` cannot carry .func_flags: ca45 warns
+if $AS -c src/test-resources/test_cc_asm_unnamed.s45 -o build/test/test_cc_asm_unnamed.o45 >/dev/null 2>build/test/test_cc_asm_unnamed.err &&
+   grep -q "func_flags in an unnamed 'proc' is ignored" build/test/test_cc_asm_unnamed.err; then
+    pass "Assembly: .func_flags in a bare proc warns"
+else
+    fail "Assembly: .func_flags in a bare proc" "no warning: $(head -1 build/test/test_cc_asm_unnamed.err)"
+fi
+
 # Summary
 # ===================================================================
 echo ""

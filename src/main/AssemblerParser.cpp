@@ -835,6 +835,13 @@ void AssemblerParser::pass1() {
                 if (!currentProc) {
                     errors.push_back("Error: .func_flags outside proc/endproc block");
                 } else {
+                    // The record attaches to the global symbol `proc name` names: a
+                    // bare `proc` (after a `name:` label) would drop it silently
+                    if (currentProc->unnamed && !currentProc->warnedUnnamed) {
+                        currentProc->warnedUnnamed = true;
+                        addWarning(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Warning,
+                            ".func_flags in an unnamed 'proc' is ignored: name the function with 'proc <name>' (and .global <name>)"));
+                    }
                     while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
                         if (peek().type == AssemblerTokenType::COMMA) { advance(); continue; }
                         std::string flag = advance().value;
@@ -1398,11 +1405,13 @@ void AssemblerParser::pass1() {
                         addError(formatDiagnostic(stmt->sourceFile, stmt->line, 1, Severity::Error,
                             "nested 'proc' not allowed (inside '" + currentProc->name + "')"));
                     }
+                    bool unnamedProc = peek().type == AssemblerTokenType::NEWLINE || peek().type == AssemblerTokenType::END_OF_FILE;
                     std::string pN = advance().value;
                     stmt->label = pN;
                     symbolTable[pN] = {pc, true, 2, false, false, pc, false, 0, false, 0, currentSegment->name};
                     auto ctx = std::make_shared<ProcContext>();
                     ctx->name = pN; ctx->totalParamSize = 0;
+                    ctx->unnamed = unnamedProc;
                     // args: {name, accessSize, stackSize}
                     struct ProcArg { std::string name; int accessSize; int stackSize; };
                     std::vector<ProcArg> args;

@@ -397,16 +397,28 @@ jsr func_zpcall
 Each ZP-convention function tracks which registers it clobbers:
 
 ```asm
-.func_flags zp_call
-.reg_clobbers A, X, Y
-.flag_clobbers C, N, Z
+    .global my_func
+    proc my_func
+    ...
+    .func_flags zp_call
+    .reg_clobbers A, X, Y
+    .flag_clobbers C, N, Z
+    endproc
 ```
 
-The linker verifies that ZP callees are only called from ZP callers (one-directional safety):
-- **ZP caller → Stack callee**: ERROR (unsafe; parameters in wrong place)
-- **Stack caller → ZP callee**: OK (caller doesn't assume stack layout; adjusts its call)
-- **ZP caller → ZP callee**: OK (both use ZP convention)
-- **Stack caller → Stack callee**: OK (both use stack convention)
+The attribute record attaches to the global symbol that `proc <name>` names.
+In hand-written assembly a bare `proc` after a `my_func:` label names no
+symbol: ca45 warns (".func_flags in an unnamed 'proc' is ignored") and the
+object carries no record. ln45 checks only calls to functions with a record,
+so calls to such a function are never bridged.
+
+ln45 checks each call against the callee's convention (within one module
+cc45 already calls a `__fastcall__` function the ZP way):
+- **Same convention** (ZP → ZP, stack → stack): called directly
+- **Different conventions across modules** (ZP → stack or stack → ZP): ln45
+  generates a bridge thunk that moves the parameters to where the callee
+  expects them (`-Wthunk` reports each one); with `--no-thunks` the call is
+  an error ("calling convention mismatch")
 
 ### Struct Returns (ZP Convention)
 
