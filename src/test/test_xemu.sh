@@ -624,6 +624,19 @@ for vcmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: <stdint.h> signed exact-width types in the default (unsigned) mode
+for simode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r siname siflags <<< "$simode"
+    echo "Testing test_stdint_xemu.c ($siname)..."
+    compile_link_test "src/test-resources/test_stdint_xemu.c" "build/test/test_stdint_${siname}_xemu.prg" "$siflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_stdint_$siname" "build/test/test_stdint_${siname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_stdint_xemu.c $siname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: int64_t (struct __int64): arithmetic, narrowing, parameters, comparisons
 for i6mode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r i6name i6flags <<< "$i6mode"

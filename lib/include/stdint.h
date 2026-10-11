@@ -16,10 +16,10 @@
 typedef signed char         int8_t;
 typedef unsigned char       uint8_t;
 
-typedef int                 int16_t;
+typedef signed int          int16_t;
 typedef unsigned int        uint16_t;
 
-typedef long                int32_t;
+typedef signed long         int32_t;
 typedef unsigned long       uint32_t;
 
 /* 64-bit types: the __int(64) wide integer (struct __int64 of <intwide.h>,
@@ -37,10 +37,10 @@ typedef struct __int64      uint64_t;
 typedef signed char         int_fast8_t;
 typedef unsigned char       uint_fast8_t;
 
-typedef int                 int_fast16_t;
+typedef signed int          int_fast16_t;
 typedef unsigned int        uint_fast16_t;
 
-typedef long                int_fast32_t;
+typedef signed long         int_fast32_t;
 typedef unsigned long       uint_fast32_t;
 
 typedef struct __int64      int_fast64_t;
@@ -53,10 +53,10 @@ typedef struct __int64      uint_fast64_t;
 typedef signed char         int_least8_t;
 typedef unsigned char       uint_least8_t;
 
-typedef int                 int_least16_t;
+typedef signed int          int_least16_t;
 typedef unsigned int        uint_least16_t;
 
-typedef long                int_least32_t;
+typedef signed long         int_least32_t;
 typedef unsigned long       uint_least32_t;
 
 typedef struct __int64      int_least64_t;
@@ -66,10 +66,10 @@ typedef struct __int64      uint_least64_t;
  * POINTER AND MAXIMUM WIDTH TYPES
  * ============================================================================ */
 
-typedef int                 intptr_t;
+typedef signed int          intptr_t;
 typedef unsigned int        uintptr_t;
 
-typedef long                intmax_t;
+typedef signed long         intmax_t;
 typedef unsigned long       uintmax_t;
 
 /* ============================================================================
