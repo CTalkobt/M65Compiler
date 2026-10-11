@@ -429,6 +429,19 @@ for cxmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: GCC statement expressions ({ stmt; ...; expr; })
+for semode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r sename seflags <<< "$semode"
+    echo "Testing test_stmt_expr_xemu.c ($sename)..."
+    compile_link_test "src/test-resources/test_stmt_expr_xemu.c" "build/test/test_stmt_expr_${sename}_xemu.prg" "$seflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_stmt_expr_$sename" "build/test/test_stmt_expr_${sename}_xemu.prg" "C0C0" 7 "01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_stmt_expr_xemu.c $sename (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: pointer/float compound assignment, float initializers, nested
 # function static chain, variably modified parameters
 for ammode in "zp|" "stack|-fno-zpcall"; do

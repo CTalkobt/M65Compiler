@@ -376,6 +376,30 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         return {t, tn, isSigned, (t == ir::Type::PTR) ? mapType(lit->castType, 0) : ir::Type::VOID, ir::typeSize(t)};
     }
     
+    if (auto* se = dynamic_cast<StatementExpression*>(expr)) {
+        if (!se->result) return {ir::Type::I16, "int", false, ir::Type::VOID, 2};
+        // The value is often a variable declared in the block itself, which
+        // isn't known until the block has been visited
+        if (auto* v = dynamic_cast<VariableReference*>(se->result.get())) {
+            std::function<VariableDeclaration*(CompoundStatement*)> find = [&](CompoundStatement* cs) -> VariableDeclaration* {
+                for (auto& st : cs->statements) {
+                    if (auto* d = dynamic_cast<VariableDeclaration*>(st.get()); d && d->name == v->name) return d;
+                    if (auto* inner = dynamic_cast<CompoundStatement*>(st.get()))
+                        if (auto* d = find(inner)) return d;
+                }
+                return nullptr;
+            };
+            if (auto* d = se->body ? find(se->body.get()) : nullptr) {
+                if (!d->arrayDims.empty())
+                    return {ir::Type::PTR, d->type, false, mapType(d->type, d->pointerLevel), 2};
+                ir::Type t = mapType(d->type, d->pointerLevel);
+                return {t, d->type, d->isSigned, t == ir::Type::PTR ? mapType(d->type, d->pointerLevel - 1) : ir::Type::VOID,
+                        getTypeSize(d->type, d->pointerLevel)};
+            }
+        }
+        return getExprTypeInfo(se->result.get());
+    }
+
     if (auto* cl = dynamic_cast<CompoundLiteral*>(expr)) {
         // (T){...}: an array literal decays to a pointer to its elements
         if (!cl->arrayDims.empty())
@@ -2023,6 +2047,15 @@ void IRBuilder::visit(CompoundStatement& node) {
     for (auto& stmt : node.statements) {
         stmt->accept(*this);
     }
+}
+
+void IRBuilder::visit(StatementExpression& node) {
+    bool savedAddrOnly = computeAddressOnly_;
+    computeAddressOnly_ = false;
+    if (node.body) node.body->accept(*this);
+    computeAddressOnly_ = savedAddrOnly;
+    if (node.result) node.result->accept(*this);
+    else lastValue_ = ir::Operand::imm(0, ir::Type::I16);
 }
 
 // ============================================================================

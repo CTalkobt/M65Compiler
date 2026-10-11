@@ -628,6 +628,14 @@ public:
         lastStmt = std::move(def);
     }
 
+    void visit(StatementExpression& node) override {
+        auto r = std::make_unique<StatementExpression>();
+        if (node.body) node.body->accept(*this);  // folded in place
+        r->body = std::move(node.body);
+        r->result = fold(std::move(node.result));
+        lastExpr = copyPos(std::move(r), node);
+    }
+
     void visit(CompoundStatement& node) override {
         // Track last dead-store-candidate index per variable for elimination.
         // A store is "dead" if a subsequent constant store overwrites it with no

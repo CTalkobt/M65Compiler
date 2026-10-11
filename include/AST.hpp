@@ -396,6 +396,16 @@ public:
     void accept(ASTVisitor& visitor) override;
 };
 
+// GCC statement expression ({ stmt; ...; expr; }): the statements run in
+// order, then `result` (null when the block doesn't end in an expression
+// statement) is the value
+class StatementExpression : public Expression {
+public:
+    std::unique_ptr<CompoundStatement> body;
+    std::unique_ptr<Expression> result;
+    void accept(ASTVisitor& visitor) override;
+};
+
 struct StructMember {
     std::string type;
     int pointerLevel;
@@ -589,4 +599,6 @@ public:
     virtual void visit(CpuFlagAccess& node) = 0;
     virtual void visit(LabelAddressExpression& node) = 0;
     virtual void visit(TranslationUnit& node) = 0;
+    // Default: visit the statements, then the result
+    virtual void visit(StatementExpression& node);
 };

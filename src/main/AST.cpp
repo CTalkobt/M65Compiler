@@ -1,6 +1,11 @@
 #include "AST.hpp"
 
 void IntegerLiteral::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void StatementExpression::accept(ASTVisitor& visitor) { visitor.visit(*this); }
+void ASTVisitor::visit(StatementExpression& node) {
+    if (node.body) node.body->accept(*this);
+    if (node.result) node.result->accept(*this);
+}
 void FloatLiteral::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void StringLiteral::accept(ASTVisitor& visitor) { visitor.visit(*this); }
 void VariableReference::accept(ASTVisitor& visitor) { visitor.visit(*this); }

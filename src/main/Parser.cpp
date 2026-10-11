@@ -2469,27 +2469,21 @@ std::unique_ptr<Expression> Parser::parseUnary() {
         const Token& startToken = tokens[pos];
         advance(); // consume '('
         advance(); // consume '{'
-        // Parse statements until we hit '}'
-        // The last expression before '}' is the result value
-        std::unique_ptr<Expression> resultExpr = nullptr;
-        while (peek().type != TokenType::CLOSE_BRACE && peek().type != TokenType::END_OF_FILE) {
-            // Try to parse as a statement
-            auto stmt = parseStatement();
-            // If this is an ExpressionStatement, it might be our result
-            if (auto* exprStmt = dynamic_cast<ExpressionStatement*>(stmt.get())) {
-                // Capture this expression as potential result (will be overwritten if more stmts follow)
-                resultExpr = std::move(exprStmt->expression);
-            }
-        }
+        // Parse statements until '}'; a final expression statement is the value
+        auto stmtExpr = std::make_unique<StatementExpression>();
+        stmtExpr->body = std::make_unique<CompoundStatement>();
+        while (peek().type != TokenType::CLOSE_BRACE && peek().type != TokenType::END_OF_FILE)
+            stmtExpr->body->statements.push_back(parseStatement());
         expect(TokenType::CLOSE_BRACE, "Expected '}' in statement expression");
         expect(TokenType::CLOSE_PAREN, "Expected ')' after statement expression");
-        // Statement expressions yield their last value (or 0 if no expression found)
-        std::unique_ptr<Expression> result;
-        if (resultExpr) {
-            result = setPos(std::move(resultExpr), startToken);
-        } else {
-            result = setPos(std::make_unique<IntegerLiteral>(0), startToken);
+        auto& stmts = stmtExpr->body->statements;
+        if (!stmts.empty()) {
+            if (auto* exprStmt = dynamic_cast<ExpressionStatement*>(stmts.back().get())) {
+                stmtExpr->result = std::move(exprStmt->expression);
+                stmts.pop_back();
+            }
         }
+        std::unique_ptr<Expression> result = setPos(std::move(stmtExpr), startToken);
         // Allow postfix operators: ({...}).member, ({...})[i]
         while (peek().type == TokenType::DOT || peek().type == TokenType::ARROW ||
                peek().type == TokenType::OPEN_SQUARE) {

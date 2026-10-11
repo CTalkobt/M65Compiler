@@ -77,6 +77,7 @@ public:
     void visit(EnumDefinition& node) override;
     void visit(StructDefinition& node) override;
     void visit(CompoundStatement& node) override;
+    void visit(StatementExpression& node) override;
     void visit(FunctionDeclaration& node) override;
     void visit(BuiltinVaStart& node) override;
     void visit(BuiltinVaArg& node) override;
