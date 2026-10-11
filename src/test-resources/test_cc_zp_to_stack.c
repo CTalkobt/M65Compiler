@@ -1,18 +1,26 @@
-// Test: ZP-convention caller → Stack-convention callee (FORBIDDEN)
-// This should FAIL at link time because ZP callers cannot pass stack params
+// Test: ZP-convention caller -> stack-convention callee in another module
+// Built with -fzpcall; its callees (test_cc_zp_to_stack_callee.c) with
+// -fno-zpcall. The caller passes its arguments in the ZP block, so ln45
+// must bridge each call: with --no-thunks it reports "calling convention
+// mismatch", by default it generates a thunk that pushes them for the callee.
+//
+// Results at $4000: stack_add(1000, 234) = $04D2,
+// stack_mix(5, $12345678, $100) = $12345773, then $FF.
 
-// Stack-convention function (default)
-int stack_add(int a, int b) {
-    return a + b;
-}
+int stack_add(int a, int b);
+long stack_mix(char c, long l, int i);
 
-// ZP-convention caller trying to call stack-convention function
-__fastcall__ int zp_caller(int x) {
-    // This call should fail at link time
-    // ZP caller has no mechanism to push stack parameters
-    return stack_add(x, 10);
-}
+volatile unsigned char *results = (volatile unsigned char *)0x4000;
 
-void main() {
-    __asm__("brk");
+int main(void) {
+    int r = stack_add(1000, 234);
+    long m = stack_mix(5, 0x12345678L, 0x100);
+    results[0] = r;
+    results[1] = r >> 8;
+    results[2] = m;
+    results[3] = m >> 8;
+    results[4] = m >> 16;
+    results[5] = m >> 24;
+    results[6] = 0xFF;
+    return 0;
 }

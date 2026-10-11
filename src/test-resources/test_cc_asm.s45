@@ -1,76 +1,51 @@
-; Test: Hand-written ZP calling convention with .func_flags directives
-; Validates that .func_flags directive parsing and function attribute records work correctly
+; Test: hand-written functions with .func_flags directives
+; (a .func_flags record attaches to the global symbol named by `proc name`)
+; test_cc_interop.sh assembles this with -c and checks the function
+; attribute records nm45 -f shows: zp_add zp_call, zp_mul zp_call + leaf,
+; stack_answer stack_call.
+;
+; ZP convention: parameters in the ZP block from $10 (a at $10/$11, b at
+; $12/$13), result in A (low) / X (high).
 
 .cpu _45gs02
 
-* = $2000
+    .global zp_add
+    .global zp_mul
+    .global stack_answer
 
-main:
-    ; Test 1: Call zp_add (ZP convention)
-    lda #$0A        ; arg 1 = 10
-    sta $03
-    ldx #$00
-    stx $04
-    lda #$14        ; arg 2 = 20
-    sta $05
-    ldx #$00
-    stx $06
-    jsr zp_add
-    sta $4000       ; Store result (30)
-
-    ; Test 2: Call stack_add (Stack convention)
-    phw.sp #$14     ; Push 20 (arg 2)
-    phw.sp #$0A     ; Push 10 (arg 1)
-    jsr stack_add
-    sta $4001       ; Store result (30)
-
-    ; Test 3: Call zp_mul (ZP with char result)
-    lda #$05        ; arg 1 = 5
-    sta $03
-    lda #$07        ; arg 2 = 7
-    sta $05
-    jsr zp_mul
-    sta $4002       ; Store result (35)
-
-    brk
-
-; ===== ZP-convention functions =====
-
-zp_add:
-    proc
+; int zp_add(int a, int b)
+    proc zp_add
     .func_flags zp_call
-    ; a at $03/$04, b at $05/$06
-    lda $03
+    lda $10
     clc
-    adc $05
+    adc $12
+    pha
+    lda $11
+    adc $13
     tax
-    lda $04
-    adc $06
+    pla
     rts
     endproc
 
-zp_mul:
-    proc
+; char zp_mul(char a, char b): shift-and-add
+    proc zp_mul
     .func_flags zp_call, leaf
-    ; a at $03, b at $05 (both char)
-    lda $03
-    ldy $05
-    mul.8 a, y
+    lda #0
+    ldx $10
+    beq @done
+@loop:
+    clc
+    adc $12
+    dex
+    bne @loop
+@done:
     rts
     endproc
 
-; ===== Stack-convention functions =====
-
-stack_add:
-    proc
+; int stack_answer(void): no parameters, so nothing on the stack to read
+    proc stack_answer
     .func_flags stack_call
-    ; arg 1 at __sp_base+4,X; arg 2 at __sp_base+2,X
-    tsx
-    lda $0104,x     ; Load arg 1 lo
-    clc
-    adc $0102,x     ; Add arg 2 lo
-    tax
-    lda $0105,x
-    adc $0103,x
-    rts #4          ; Remove 4 param bytes
+    lda #42
+    ldx #0
+    rts
     endproc

@@ -3,12 +3,13 @@
 #
 # Tests safe and unsafe calling convention combinations:
 #   1. Stack → ZP calls (ALLOWED — fastcall interop)
-#   2. ZP → Stack calls (FORBIDDEN — linker error)
+#   2. ZP → Stack calls across modules (linker thunk; error with --no-thunks)
 #   3. Indirect calls through function pointers
 #   4. Struct returns across conventions
 #   5. Long (32-bit) returns across conventions
 #   6. Parameter passing edge cases
 #   7. Variadic calls from ZP functions
+#   8. .func_flags records from hand-written assembly
 
 CC="./bin/cc45 -fno-zpcall"  # interop tests mark ZP functions __fastcall__; the rest is stack
 AS="./bin/ca45"
@@ -64,26 +65,35 @@ elif [ -n "$ACTUAL" ]; then
     fail "stack_to_zp execution" "Expected: 1E 00 9B 00 23 FF, Got: $ACTUAL"
 fi
 
-# Test 2: ZP → Stack calls (FORBIDDEN)
+# Test 2: ZP → Stack calls across modules (thunked; an error with --no-thunks)
 # ===================================================================
 echo ""
-echo "=== Test 2: ZP → Stack calls (FORBIDDEN — linker error) ==="
+echo "=== Test 2: ZP → Stack calls (linker thunk; --no-thunks rejects) ==="
 
-$CC -c src/test-resources/test_cc_zp_to_stack.c -o build/test/test_cc_zp_to_stack.o45 2>build/test/test_cc_zp_to_stack_cc.err
-if [ $? -eq 0 ]; then
-    $LD -t 0x2000 build/test/test_cc_zp_to_stack.o45 -o build/test/test_cc_zp_to_stack.bin 2>build/test/test_cc_zp_to_stack_ld.err
-    if [ $? -ne 0 ]; then
-        LINKER_ERR=$(cat build/test/test_cc_zp_to_stack_ld.err)
-        if echo "$LINKER_ERR" | grep -q "calling convention mismatch"; then
-            pass "ZP→Stack linker error detected" "Error message: $(echo "$LINKER_ERR" | grep -o 'calling convention mismatch.*' | head -1)"
-        else
-            fail "ZP→Stack linker error" "Linker reported error but wrong message: $(echo "$LINKER_ERR" | head -1)"
-        fi
+ZS=build/test/test_cc_zp_to_stack
+if ./bin/cc45 -c -fzpcall src/test-resources/test_cc_zp_to_stack.c -o $ZS.o45 >/dev/null 2>$ZS.err &&
+   ./bin/cc45 -c -fno-zpcall src/test-resources/test_cc_zp_to_stack_callee.c -o ${ZS}_callee.o45 >/dev/null 2>>$ZS.err; then
+    if $LD --no-thunks -basic -o $ZS.prg "$CRT0" $ZS.o45 ${ZS}_callee.o45 "$LIB" >/dev/null 2>$ZS.lderr; then
+        fail "ZP→Stack --no-thunks" "Linker should have rejected the zp_call -> stack_call calls, but succeeded"
+    elif grep -q "calling convention mismatch: '_main' calls '_stack_add' (zp_call -> stack_call)" $ZS.lderr; then
+        pass "ZP→Stack --no-thunks: calling convention mismatch reported"
     else
-        fail "ZP→Stack linker enforcement" "Linker should have rejected ZP→Stack call, but succeeded"
+        fail "ZP→Stack --no-thunks" "Wrong linker message: $(grep -v '^INFO\|^DEBUG' $ZS.lderr | head -1)"
+    fi
+    rm -f $ZS.prg $ZS.mem
+    if ! $LD -basic -o $ZS.prg "$CRT0" $ZS.o45 ${ZS}_callee.o45 "$LIB" >/dev/null 2>$ZS.lderr; then
+        fail "ZP→Stack thunk link" "Linker failed: $(grep -v '^INFO\|^DEBUG' $ZS.lderr | head -1)"
+    else
+        timeout 15 $XEMU -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem $ZS.mem -prg $ZS.prg </dev/null >/dev/null 2>&1
+        ACTUAL=$(xxd -s $((16#4000)) -l 7 -p $ZS.mem 2>/dev/null | sed 's/../& /g; s/ $//' | tr '[:lower:]' '[:upper:]')
+        if [ "$ACTUAL" = "D2 04 73 57 34 12 FF" ]; then
+            pass "ZP→Stack thunks: stack_add(1000,234)=1234, stack_mix(5,0x12345678,0x100)=0x12345773"
+        else
+            fail "ZP→Stack thunk execution" "Expected: D2 04 73 57 34 12 FF, Got: $ACTUAL"
+        fi
     fi
 else
-    fail "ZP→Stack compilation" "Compiler failed (unexpected)"
+    fail "ZP→Stack compilation" "Compiler failed: $(head -1 $ZS.err)"
 fi
 
 # Test 3: Struct returns across conventions
@@ -175,10 +185,10 @@ if [ $? -eq 0 ]; then
         fail "Assembly: zp_mul .func_flags" "zp_mul missing zp_call or leaf flag"
     fi
 
-    if echo "$NM_OUT" | grep -q "stack_add.*stack_call"; then
-        pass "Assembly: stack_add has stack_call from .func_flags"
+    if echo "$NM_OUT" | grep -q "stack_answer.*stack_call"; then
+        pass "Assembly: stack_answer has stack_call from .func_flags"
     else
-        fail "Assembly: stack_add .func_flags" "stack_add missing stack_call flag"
+        fail "Assembly: stack_answer .func_flags" "stack_answer missing stack_call flag"
     fi
 else
     fail "Assembly: .func_flags directive parsing" "Assembler failed: $(cat build/test/test_cc_asm.err | head -1)"
