@@ -142,7 +142,9 @@ CompilationResult CompilationPipeline::compile() {
                                  config_.verboseLevel, config_.inlineSmallFunctions,
                                  config_.staticAllocMode, config_.zpCallMode, config_.saveTemps,
                                  config_.allowImplicitFunctionDecl,
-                                 config_.objectOnly, config_.prgBase);
+                                 // relocatable for an object, and for a program (ln45
+                                 // links it with crt0); standalone only for -S
+                                 !config_.assemblyOnly, config_.prgBase);
 
         // Phase 102: Pass typedef mappings to codegen stage
         codegenStage.setTypedefMappings(typedefMappings);
@@ -199,7 +201,8 @@ CompilationResult CompilationPipeline::compile() {
         char prgBaseHex[16];
         snprintf(prgBaseHex, sizeof(prgBaseHex), "%x", config_.prgBase);
         LinkingStage linkStage(objectFile, config_.outputFile, config_.verboseLevel,
-                              std::string(prgBaseHex), config_.libraryPaths, config_.toolDir);
+                              config_.prgBaseSet ? std::string(prgBaseHex) : std::string(),
+                              config_.libraryPaths, config_.toolDir, config_.zpCallMode);
         auto linkResult = runStage(linkStage);
         remove(objectFile.c_str());
 

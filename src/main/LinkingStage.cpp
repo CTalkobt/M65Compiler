@@ -38,25 +38,15 @@ int LinkingStage::invokeLinker() {
         std::cout << "  Invoking ln45..." << std::endl;
     }
 
-    // Build ln45 command line
-    // Format: ln45 input.o45 -o output.prg --base address [--lib path...]
-    std::string cmd = toolDir_ + "ln45 " + objectFile_;
-
-    // Add output file
-    cmd += " -o " + outputFile_;
-
-    // Add PRG base address (-t sets text segment base)
-    cmd += " -t " + prgBase_;
-
-    // Add library paths
-    for (const auto& libPath : libraryPaths_) {
-        cmd += " --lib " + libPath;
-    }
-
-    // Add verbosity flags
-    if (verboseLevel_ >= 2) {
-        cmd += " -v";
-    }
+    // Build ln45 command line: the object, the extra libraries, then the
+    // standard library (its crt0 member is the startup code; ln45 adds the
+    // BASIC "SYS" line of a -basic PRG itself)
+    std::string cmd = toolDir_ + "ln45";
+    if (prgBase_.empty()) cmd += " -basic";
+    else cmd += " -prg -t 0x" + prgBase_;
+    cmd += " -o " + outputFile_ + " " + objectFile_;
+    for (const auto& libPath : libraryPaths_) cmd += " " + libPath;
+    cmd += " " + standardLibrary();
 
     if (verboseLevel_ >= 3) {
         std::cout << "    Command: " << cmd << std::endl;
@@ -71,4 +61,16 @@ int LinkingStage::invokeLinker() {
     }
 
     return exitCode;
+}
+
+// The standard library for the calling convention: c45.lib (ZP) or
+// c45_stack.lib, from the build tree (bin/../lib/build) or an installed
+// tree (bin/../lib/cc45); else by name, which ln45 looks up in CC45_LIB
+std::string LinkingStage::standardLibrary() const {
+    std::string name = zpCallMode_ ? "c45.lib" : "c45_stack.lib";
+    for (const char* dir : {"../lib/build/", "../lib/cc45/"}) {
+        std::string path = toolDir_ + dir + name;
+        if (access(path.c_str(), R_OK) == 0) return path;
+    }
+    return "-l " + name;
 }

@@ -9,15 +9,17 @@ public:
     LinkingStage(const std::string& objectFile,
                 const std::string& outputFile,
                 int verboseLevel = 0,
-                const std::string& prgBase = "0x0801",
+                const std::string& prgBase = "",
                 const std::vector<std::string>& libraryPaths = {},
-                const std::string& toolDir = "")
+                const std::string& toolDir = "",
+                bool zpCallMode = true)
         : objectFile_(objectFile),
           outputFile_(outputFile),
           verboseLevel_(verboseLevel),
           prgBase_(prgBase),
           libraryPaths_(libraryPaths),
-          toolDir_(toolDir) {}
+          toolDir_(toolDir),
+          zpCallMode_(zpCallMode) {}
 
     Result execute() override;
     std::string getName() const override { return "Linking (ln45)"; }
@@ -29,9 +31,12 @@ private:
     std::string objectFile_;
     std::string outputFile_;
     int verboseLevel_;
-    std::string prgBase_;
+    std::string prgBase_;           // hex load address of a plain PRG; "" = BASIC-startable PRG
     std::vector<std::string> libraryPaths_;
     std::string toolDir_;
+    bool zpCallMode_;
+
+    std::string standardLibrary() const;
 
     // Helper methods
     int invokeLinker();

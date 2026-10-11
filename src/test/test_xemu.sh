@@ -624,6 +624,19 @@ for vcmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: one-step build (cc45 file.c -o file.prg: cc45 runs ca45 and ln45 with
+# the standard library of the calling convention)
+for osmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r osname osflags <<< "$osmode"
+    echo "Testing one-step cc45 -o .prg ($osname)..."
+    if $CC $osflags src/test-resources/test_stdint_xemu.c -o "build/test/test_onestep_${osname}_xemu.prg" >/dev/null 2>&1; then
+        run_xemu_test "test_onestep_$osname" "build/test/test_onestep_${osname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: one-step cc45 -o .prg $osname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: <stdint.h> signed exact-width types in the default (unsigned) mode
 for simode in "zp|" "stack|-fno-zpcall"; do
     IFS='|' read -r siname siflags <<< "$simode"

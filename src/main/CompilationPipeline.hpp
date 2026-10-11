@@ -46,6 +46,7 @@ struct CompilationConfig {
     // Linking
     std::vector<std::string> libraryPaths;
     uint32_t prgBase = 0x2000;
+    bool prgBaseSet = false;    // --prg-base: a plain PRG at prgBase (else a BASIC-startable PRG)
 
     // Pragmas from CLI
     std::vector<std::string> cliPragmas;
