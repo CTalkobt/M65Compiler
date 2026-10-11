@@ -1,4 +1,5 @@
 #include "IRBuilder.hpp"
+#include "CBMFloat.hpp"
 #include "Diagnostic.hpp"
 #include <algorithm>
 #include <cmath>
@@ -1317,6 +1318,201 @@ std::string IRBuilder::staticAddressLabel(Expression* e) {
     return "";
 }
 
+// ---------------------------------------------------------------------------
+// Constant initializer images (aggregate / array globals and local statics)
+// ---------------------------------------------------------------------------
+
+struct IRBuilder::InitImageCtx {
+    ir::Module::GlobalVar* gv;
+};
+
+const IRBuilder::IRStructInfo* IRBuilder::structOf(const std::string& type) {
+    std::string t = type;
+    if (t.rfind("struct ", 0) != 0 && t.rfind("union ", 0) != 0) t = resolveTypedefToStruct(t);
+    auto it = structs_.find(getAggregateName(t));
+    return it == structs_.end() ? nullptr : &it->second;
+}
+
+int IRBuilder::objectSize(const std::string& type, int ptr, const std::vector<int>& dims) {
+    int n = getTypeSize(type, ptr);
+    for (int d : dims) n *= d;
+    return n;
+}
+
+bool IRBuilder::buildInitImage(ir::Module::GlobalVar& gv, const std::string& type, int ptrLevel,
+                               const std::vector<int>& dims, Expression* init) {
+    ir::Module::GlobalVar trial = gv;
+    trial.initBytes.assign((size_t)std::max(0, objectSize(type, ptrLevel, dims)), 0);
+    trial.initWords.clear();
+    trial.initStrings.clear();
+    InitImageCtx c{&trial};
+    if (!initObject(c, 0, type, ptrLevel, dims, init)) return false;
+    trial.hasImage = true;
+    trial.hasInitValue = true;
+    gv = trial;
+    return true;
+}
+
+// One object (scalar, array or struct) initialized by a single initializer
+bool IRBuilder::initObject(InitImageCtx& c, int off, const std::string& type, int ptr, std::vector<int> dims,
+                           Expression* e) {
+    while (auto* cast = dynamic_cast<CastExpression*>(e)) e = cast->expression.get();
+    bool isArray = !dims.empty();
+    const IRStructInfo* si = (!isArray && ptr == 0) ? structOf(type) : nullptr;
+    if (auto* list = dynamic_cast<InitializerList*>(e)) {
+        if (!isArray && !si) {
+            // Scalar in braces: int x = {5};
+            if (list->elements.empty()) return true;
+            return initScalar(c, off, type, ptr, 0, 0, list->elements[0].get());
+        }
+        size_t idx = 0;
+        return fillAggregate(c, off, type, ptr, dims, *list, idx, true);
+    }
+    if (auto* str = dynamic_cast<StringLiteral*>(e)) {
+        if (isArray && dims.size() == 1 && ptr == 0 && getTypeSize(type, 0) == 1) {
+            // char a[N] = "text": the text (cut to N), the rest stays zero
+            ir::Module::GlobalVar::ImageString is;
+            int n = dims[0] > 0 ? std::min<int>(dims[0], (int)str->value.size()) : (int)str->value.size();
+            is.value = str->value.substr(0, n);
+            is.escMask = str->escMask.substr(0, std::min(str->escMask.size(), (size_t)n));
+            is.encoding = (str->isAscii || currentStringEncoding_ == StringEncoding::ASCII) ? 1
+                        : (currentStringEncoding_ == StringEncoding::SCREENCODE ? 2 : 0);
+            if (n > 0) c.gv->initStrings[off] = is;
+            return true;
+        }
+    }
+    if (isArray || si) return false;  // e.g. a struct copied from another variable
+    return initScalar(c, off, type, ptr, 0, 0, e);
+}
+
+// The next sub-object of an aggregate from list[idx]: a braced initializer, a
+// string for a char array, or (brace elision) as many scalars as it takes
+bool IRBuilder::initElement(InitImageCtx& c, int off, const std::string& type, int ptr, std::vector<int> dims,
+                            InitializerList& list, size_t& idx) {
+    Expression* e = list.elements[idx].get();
+    Expression* bare = e;
+    while (auto* cast = dynamic_cast<CastExpression*>(bare)) bare = cast->expression.get();
+    bool isArray = !dims.empty();
+    bool aggregate = isArray || (ptr == 0 && structOf(type));
+    if (dynamic_cast<InitializerList*>(bare) || !aggregate ||
+        (isArray && dims.size() == 1 && ptr == 0 && getTypeSize(type, 0) == 1 && dynamic_cast<StringLiteral*>(bare))) {
+        ++idx;
+        return initObject(c, off, type, ptr, dims, e);
+    }
+    return fillAggregate(c, off, type, ptr, dims, list, idx, false);
+}
+
+// The sub-objects of an array or struct from list[idx...]. braced: the list is
+// this object's own braces (designators apply); otherwise brace elision stops
+// at a designator, which belongs to an enclosing object.
+bool IRBuilder::fillAggregate(InitImageCtx& c, int off, const std::string& type, int ptr, std::vector<int> dims,
+                              InitializerList& list, size_t& idx, bool braced) {
+    auto designatorAt = [&](size_t i) -> const InitializerList::Designator* {
+        return i < list.designators.size() && list.designators[i].isDesignated() ? &list.designators[i] : nullptr;
+    };
+    if (!dims.empty()) {
+        std::vector<int> elemDims(dims.begin() + 1, dims.end());
+        int esz = objectSize(type, ptr, elemDims);
+        int n = dims[0];
+        for (int k = 0; idx < list.elements.size() && (n <= 0 || k < n); ++k) {
+            if (auto* d = designatorAt(idx)) {
+                if (!braced) return true;
+                if (d->arrayIndex < 0) return false;
+                k = d->arrayIndex;
+                if (n > 0 && k >= n) return false;
+            }
+            if (!initElement(c, off + k * esz, type, ptr, elemDims, list, idx)) return false;
+        }
+        return true;
+    }
+    const IRStructInfo* si = structOf(type);
+    if (!si) return false;
+    const auto& order = si->memberOrder;
+    for (size_t m = 0; idx < list.elements.size() && m < order.size(); ++m) {
+        if (auto* d = designatorAt(idx)) {
+            if (!braced) return true;
+            if (d->memberName.empty()) return false;
+            auto pos = std::find(order.begin(), order.end(), d->memberName);
+            if (pos == order.end()) return false;
+            m = (size_t)(pos - order.begin());
+        }
+        const IRMemberInfo& mi = si->members.at(order[m]);
+        if (mi.bitWidth > 0) {
+            if (!initScalar(c, off + mi.offset, mi.type, 0, mi.bitWidth, mi.bitOffset, list.elements[idx].get()))
+                return false;
+            ++idx;
+        } else if (!initElement(c, off + mi.offset, mi.type, mi.pointerLevel, mi.arrayDims, list, idx)) {
+            return false;
+        }
+        if (si->isUnion) break;  // a union initializes one member
+    }
+    return true;
+}
+
+// A scalar: integer, float, or an address (string literal, &var, array or
+// function name) written little-endian at off
+bool IRBuilder::initScalar(InitImageCtx& c, int off, const std::string& type, int ptr, int bitWidth, int bitOffset,
+                           Expression* e) {
+    while (auto* cast = dynamic_cast<CastExpression*>(e)) e = cast->expression.get();
+    auto& bytes = c.gv->initBytes;
+    ir::Type t = mapType(type, ptr);
+    int size = ptr > 0 ? 2 : getTypeSize(type, 0);
+    if (off < 0 || off + std::max(size, 1) > (int)bytes.size()) return false;
+    // Addresses: a 2-byte relocated word
+    if (auto* str = dynamic_cast<StringLiteral*>(e)) {
+        if (size != 2) return false;
+        std::string label = "__str_" + std::to_string(nextLabel_++);
+        ir::Module::StringLiteral sl;
+        sl.label = label;
+        sl.value = str->value;
+        sl.escMask = str->escMask;
+        sl.isAscii = str->isAscii || (currentStringEncoding_ == StringEncoding::ASCII);
+        sl.encoding = str->isAscii ? 1 : (currentStringEncoding_ == StringEncoding::SCREENCODE ? 2 : 0);
+        module_.strings.push_back(sl);
+        c.gv->initWords[off] = label;
+        return true;
+    }
+    std::string label = staticAddressLabel(e);
+    if (!label.empty()) {
+        if (size != 2) return false;
+        c.gv->initWords[off] = label;
+        return true;
+    }
+    // Numbers
+    bool isFloat = false, isInt = false;
+    double fv = 0;
+    int64_t iv = 0;
+    Expression* v = e;
+    bool neg = false;
+    while (auto* u = dynamic_cast<UnaryOperation*>(v)) {
+        if (u->op == "-") neg = !neg;
+        else if (u->op != "+") return false;
+        v = u->operand.get();
+        while (auto* cast = dynamic_cast<CastExpression*>(v)) v = cast->expression.get();
+    }
+    if (auto* il = dynamic_cast<IntegerLiteral*>(v)) { isInt = true; iv = neg ? -il->value : il->value; }
+    else if (auto* fl = dynamic_cast<FloatLiteral*>(v)) { isFloat = true; fv = neg ? -fl->value : fl->value; }
+    else return false;
+    if (t == ir::Type::F32 && ptr == 0) {
+        uint8_t cbm[5];
+        doubleToCBM40(isFloat ? fv : (double)iv, cbm);
+        for (int i = 0; i < 5 && off + i < (int)bytes.size(); ++i) bytes[off + i] = cbm[i];
+        return true;
+    }
+    if (isFloat) iv = (int64_t)fv;
+    if (bitWidth > 0) {
+        // OR the field into its storage unit (little-endian)
+        uint64_t unit = 0;
+        for (int i = 0; i < size; ++i) unit |= (uint64_t)bytes[off + i] << (8 * i);
+        uint64_t mask = (bitWidth >= 64) ? ~0ull : ((1ull << bitWidth) - 1);
+        unit = (unit & ~(mask << bitOffset)) | (((uint64_t)iv & mask) << bitOffset);
+        for (int i = 0; i < size; ++i) bytes[off + i] = (uint8_t)(unit >> (8 * i));
+        return true;
+    }
+    for (int i = 0; i < size; ++i) bytes[off + i] = (uint8_t)((uint64_t)iv >> (8 * i));
+    return true;
+}
+
 ir::Operand IRBuilder::emitAddressOf(Expression* expr) {
     bool saved = computeAddressOnly_;
     computeAddressOnly_ = true;
@@ -1639,6 +1835,9 @@ void IRBuilder::visit(VariableDeclaration& node) {
                     gv.hasInitValue = true;
                     gv.initValue = clit->value;
                 }
+            } else if (dynamic_cast<InitializerList*>(node.initializer.get()) &&
+                       buildInitImage(gv, node.type, node.pointerLevel, node.arrayDims, node.initializer.get())) {
+                // Laid out byte by byte (structs, nested arrays, designators)
             } else if (auto* il = dynamic_cast<InitializerList*>(node.initializer.get())) {
                 gv.hasInitValue = true;
                 for (auto const& elem : il->elements) {
@@ -1690,7 +1889,12 @@ void IRBuilder::visit(VariableDeclaration& node) {
                              typeAlign(node.type, node.pointerLevel)});
 
         // Handle initializer
-        if (node.initializer) {
+        bool aggregateInit = node.initializer &&
+            (dynamic_cast<InitializerList*>(node.initializer.get()) ||
+             (dynamic_cast<StringLiteral*>(node.initializer.get()) && !node.arrayDims.empty()));
+        if (aggregateInit && buildInitImage(gv, node.type, node.pointerLevel, node.arrayDims, node.initializer.get())) {
+            // static struct S s = {...}; static char buf[8] = "text";
+        } else if (node.initializer) {
             if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
                 gv.hasInitValue = true;
                 gv.initValue = lit->value;
@@ -2146,7 +2350,10 @@ void IRBuilder::visit(VariableReference& node) {
         // (not in address-only mode), it decays to a pointer to its first element.
         bool isArray = localArrayDims_.count(node.name) > 0;
 
-        if (computeAddressOnly_ || isArray) {
+        if ((computeAddressOnly_ || isArray) && it->second.kind == ir::OperandKind::GLOBAL) {
+            // A local static lives in a global: the operand is its address
+            lastValue_ = it->second;
+        } else if (computeAddressOnly_ || isArray) {
             // Return the address of the local variable (or array decay)
             auto addr = allocVreg(ir::Type::PTR);
             ir::Inst addrInst;
@@ -3724,10 +3931,11 @@ normal_call:
     if (fpSig && fpSig->returnPointerLevel == 0) {
         // Call through a function pointer whose target returns a struct/union/float
         bool retFloat = mapType(fpSig->returnType, 0) == ir::Type::F32;
-        bool retAggregate = structs_.count(getAggregateName(fpSig->returnType)) > 0;
+        const IRStructInfo* retStruct = structOf(fpSig->returnType);  // also typedef names
+        bool retAggregate = retStruct != nullptr;
         if (retFloat || retAggregate) {
             sretKey = "(*)" + calleeName;
-            sretSize_[sretKey] = retFloat ? 5 : getTypeSize(fpSig->returnType, 0);
+            sretSize_[sretKey] = retFloat ? 5 : retStruct->totalSize;
             if (retFloat) sretFloat_.insert(sretKey);
         }
     }
@@ -3847,8 +4055,17 @@ normal_call:
     inst.args = castArgs;
 
     if (node.callExpr) {
-        // Indirect call via function pointer
-        node.callExpr->accept(*this);
+        // Indirect call via function pointer. *fp designates the function fp
+        // points to (its value is the same address): (*fp)(...) == fp(...)
+        Expression* target = node.callExpr.get();
+        while (auto* u = dynamic_cast<UnaryOperation*>(target)) {
+            if (u->op != "*") break;
+            auto* vr = dynamic_cast<VariableReference*>(u->operand.get());
+            if (!vr || !(fnPtrSigs_.count(vr->name) || allFunctions_.count(vr->name) ||
+                         functionReturnTypes_.count(vr->name))) break;
+            target = u->operand.get();
+        }
+        target->accept(*this);
         inst.src1 = lastValue_;
         inst.op = ir::Op::CALL_INDIRECT;
         if (isSret) {

@@ -1,7 +1,6 @@
 # GTE tests currently failing on xemu with the default (ZP + SAC) convention (regenerated 2026-10-10).
 # Remove names as they are fixed; test_failures.sh runs this list.
 # pr58574: program too large (code runs into I/O at $D000).
-# struct-ret-1: global struct initializer with an array member is mis-emitted.
 # vrp-6: needs 32-bit int (dg int32plus); 0x80000000 truncates to 0 in a 16-bit unsigned int.
 # 970217-1, nestfunc-7, postmod-1, pr28982a: report failure through a non-zero exit
 #   status (counted as passes before the harness read $FD/$FE).
@@ -253,7 +252,6 @@ strcpy-2
 strct-pack-4
 strlen-5
 strlen-6
-struct-ret-1
 struct-ret-2
 usmul
 va-arg-22

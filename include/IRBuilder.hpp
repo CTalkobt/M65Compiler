@@ -169,6 +169,20 @@ private:
     std::string staticFunctionName(const std::string& name);
     std::string resolvedFunctionName(const std::string& name) const;
     std::string staticAddressLabel(Expression* e);
+    // Constant initializer of an aggregate/array global laid out as bytes
+    // (struct layout, nested braces, brace elision, designators); false if
+    // some element isn't a link-time constant
+    bool buildInitImage(ir::Module::GlobalVar& gv, const std::string& type, int ptrLevel,
+                        const std::vector<int>& dims, Expression* init);
+    struct InitImageCtx;
+    bool initObject(InitImageCtx& c, int off, const std::string& type, int ptr, std::vector<int> dims, Expression* e);
+    bool initElement(InitImageCtx& c, int off, const std::string& type, int ptr, std::vector<int> dims,
+                     InitializerList& list, size_t& idx);
+    bool fillAggregate(InitImageCtx& c, int off, const std::string& type, int ptr, std::vector<int> dims,
+                       InitializerList& list, size_t& idx, bool braced);
+    bool initScalar(InitImageCtx& c, int off, const std::string& type, int ptr, int bitWidth, int bitOffset,
+                    Expression* e);
+    int objectSize(const std::string& type, int ptr, const std::vector<int>& dims);
     std::set<std::string> methodsEmitted_;  // structs whose methods were lowered
     std::map<std::string, int> sretSize_;      // function name -> result size
     std::set<std::string> sretFloat_;          // ... of which return float/double
@@ -216,6 +230,7 @@ private:
         int align = 1;       // largest member / declared alignment (cc45 packs otherwise)
     };
     std::map<std::string, IRStructInfo> structs_;
+    const IRStructInfo* structOf(const std::string& type);  // struct/union or typedef of one
     // Alignment of a type (an aligned struct's alignment; 1 otherwise: cc45 packs)
     int typeAlign(const std::string& type, int ptrLevel);
     // Value of an _Alignas / aligned expression (a constant or _Alignof(type))

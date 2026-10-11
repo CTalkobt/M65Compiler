@@ -255,7 +255,7 @@ ln45 (Link: Combine .o45 objects + libraries → PRG/Binary)
 - **Qualifiers**: `const`, `volatile`, `static` (all orderings), `register`, `extern`, `_Alignas`
 - **Signedness**: `char`, `short`, `int` and `long` are **unsigned unless declared `signed`** (deliberate difference from standard C). `-fsigned-default` or `#pragma cc45 signed_default` selects standard-C signedness (`#pragma cc45 unsigned_default` switches back); explicit `signed`/`unsigned` and typedefs keep their own signedness. `x < 0` on an unsigned value warns (always false)
 - **Declarations**: Function declarations, variable declarations, typedefs, type qualifiers in any order, implicit int (`static max;`, `unsigned d;`)
-- **Initializers**: Scalar, aggregate, designated initializers (`{.x=1}`, `{[2]=3}`), flexible array members, string literal concatenation
+- **Initializers**: Scalar, aggregate, designated initializers (`{.x=1}`, `{[2]=3}`; one designator level), flexible array members, string literal concatenation. Constant initializers of aggregate/array globals and local statics are laid out byte by byte from the struct layout (nested braces, brace elision, strings into `char` arrays, floats, bitfields, unions, addresses as relocated words)
 - **Operators**: All C arithmetic, logical, bitwise, comparison, ternary, cast, sizeof, `_Alignof`, `_Generic`, comma operator, Elvis operator (`?:`)
 - **Control Flow**: if/else, while, do-while, for, switch/case (with GCC range syntax `case A ... Z:`), break, continue, return, goto, computed goto (`&&label`, `goto *expr`)
 - **Inline Assembly**: `asm("...")` and `__asm__("...")` with full variable access via naming prefixes

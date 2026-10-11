@@ -274,6 +274,14 @@ struct Module {
         std::vector<std::string> vtableMethodNames; // Phase 3: function names for vtable entries
         int addressSpace = 0;   // Phase 97: 0=default(__abs), 1=__zp, 2=__far
         int align = 1;          // _Alignas / __attribute__((aligned)) / aligned struct type
+        // Constant initializer laid out byte by byte (structs, nested arrays):
+        // initBytes covers the whole object; initWords are 2-byte addresses
+        // (labels) and initStrings string literal text, at their offsets
+        struct ImageString { std::string value, escMask; int encoding = 0; };
+        bool hasImage = false;
+        std::vector<uint8_t> initBytes;
+        std::map<int, std::string> initWords;
+        std::map<int, ImageString> initStrings;
     };
     std::vector<GlobalVar> globals;
 

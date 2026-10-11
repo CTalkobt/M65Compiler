@@ -9,19 +9,7 @@
 #include <algorithm>
 #include <set>
 
-// Convert IEEE 754 double to CBM 40-bit float (5 bytes)
-static void doubleToCBM40(double val, uint8_t out[5]) {
-    if (val == 0.0) { out[0]=out[1]=out[2]=out[3]=out[4]=0; return; }
-    bool neg = val < 0; if (neg) val = -val;
-    int exp; double mant = std::frexp(val, &exp);
-    int cbmExp = exp + 128;
-    if (cbmExp < 0) cbmExp = 0; if (cbmExp > 255) cbmExp = 255;
-    out[0] = (uint8_t)cbmExp;
-    uint32_t m = (uint32_t)(mant * 4294967296.0);
-    out[1] = (uint8_t)(m >> 24); out[2] = (uint8_t)(m >> 16);
-    out[3] = (uint8_t)(m >> 8);  out[4] = (uint8_t)(m);
-    if (neg) out[1] |= 0x80; else out[1] &= 0x7F;
-}
+#include "CBMFloat.hpp"
 
 
 static std::string hex8(uint8_t val) {
@@ -1298,6 +1286,30 @@ void IRCodeGen::emitGlobals(const ir::Module& mod, bool relocMode) {
             emitLabel(g.name);
             // Emit debug metadata for global variable
             emitDebugVariable("@global", g.name, 0, g.type, "global");
+            if (g.hasImage) {
+                // Byte image: plain bytes, address words and string text
+                int n = (int)g.initBytes.size();
+                for (int off = 0; off < n; ) {
+                    auto w = g.initWords.find(off);
+                    if (w != g.initWords.end()) { emit(".word " + w->second); off += 2; continue; }
+                    auto st = g.initStrings.find(off);
+                    if (st != g.initStrings.end()) {
+                        std::string line = stringDirective(st->second.value, st->second.escMask, st->second.encoding);
+                        if (!line.empty()) emit(line);
+                        off += (int)st->second.value.size();
+                        continue;
+                    }
+                    std::string run;
+                    int cnt = 0;
+                    while (off < n && cnt < 16 && !g.initWords.count(off) && !g.initStrings.count(off)) {
+                        run += (cnt ? ", " : "") + std::to_string((int)g.initBytes[off]);
+                        ++off; ++cnt;
+                    }
+                    emit(".byte " + run);
+                }
+                if (n < g.size) emit(".res " + std::to_string(g.size - n));
+                continue;
+            }
             // Phase 3: Vtable — emit function address entries
             if (!g.vtableMethodNames.empty()) {
                 for (size_t slot = 0; slot < g.vtableMethodNames.size(); slot++) {
@@ -1384,26 +1396,32 @@ void IRCodeGen::emitStrings(const ir::Module& mod) {
     if (relocMode_) emit(".segment \"data\"");
     for (const auto& sl : mod.strings) {
         emitLabel(sl.label);
-        const std::string dir = sl.encoding == 1 ? ".ascii" : sl.encoding == 2 ? ".screencode" : ".text";
-        // One escaped literal: \n/\r are left for the assembler to map for the
-        // directive (PETSCII newline is $0D); other escapes and non-printable
-        // bytes become exact 3-digit octal escapes.
-        std::string out;
-        for (size_t i = 0; i < sl.value.size(); ++i) {
-            unsigned char c = (unsigned char)sl.value[i];
-            char kind = i < sl.escMask.size() ? sl.escMask[i] : '.';
-            if (kind == 'n') { out += "\\n"; continue; }
-            if (kind == 'r') { out += "\\r"; continue; }
-            if (kind == '.' && c == '"') { out += "\\\""; continue; }
-            if (kind == '.' && c == '\\') { out += "\\\\"; continue; }
-            if (kind == '.' && c >= 0x20 && c < 0x7F) { out += (char)c; continue; }
-            char oct[5];
-            snprintf(oct, sizeof(oct), "\\%03o", c);
-            out += oct;
-        }
-        if (!out.empty()) emit(dir + " \"" + out + "\"");
+        std::string line = stringDirective(sl.value, sl.escMask, sl.encoding);
+        if (!line.empty()) emit(line);
         emit(".byte 0");
     }
+}
+
+// The directive for a string literal's text (no terminator): .text (PETSCII),
+// .ascii or .screencode. \n/\r are left for the assembler to map for the
+// directive (PETSCII newline is $0D); other escapes and non-printable bytes
+// become exact 3-digit octal escapes. Empty for an empty string.
+std::string IRCodeGen::stringDirective(const std::string& value, const std::string& escMask, int encoding) {
+    const std::string dir = encoding == 1 ? ".ascii" : encoding == 2 ? ".screencode" : ".text";
+    std::string out;
+    for (size_t i = 0; i < value.size(); ++i) {
+        unsigned char c = (unsigned char)value[i];
+        char kind = i < escMask.size() ? escMask[i] : '.';
+        if (kind == 'n') { out += "\\n"; continue; }
+        if (kind == 'r') { out += "\\r"; continue; }
+        if (kind == '.' && c == '"') { out += "\\\""; continue; }
+        if (kind == '.' && c == '\\') { out += "\\\\"; continue; }
+        if (kind == '.' && c >= 0x20 && c < 0x7F) { out += (char)c; continue; }
+        char oct[5];
+        snprintf(oct, sizeof(oct), "\\%03o", c);
+        out += oct;
+    }
+    return out.empty() ? std::string() : dir + " \"" + out + "\"";
 }
 
 // ============================================================================

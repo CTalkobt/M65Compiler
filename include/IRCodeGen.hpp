@@ -222,6 +222,7 @@ private:
     std::set<std::string> sacFunctions_;
     std::set<std::string> recursiveFunctions_;  // on a call cycle within the module
     int dataAlign_ = 1, bssAlign_ = 1;  // largest .align emitted in data / bss
+    static std::string stringDirective(const std::string& value, const std::string& escMask, int encoding);
 
     // Track parameter names for each function (for SAC naming consistency)
     // Maps function name → vector of parameter names
