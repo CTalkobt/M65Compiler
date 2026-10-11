@@ -191,6 +191,8 @@ private:
     bool buildInitImage(ir::Module::GlobalVar& gv, const std::string& type, int ptrLevel,
                         const std::vector<int>& dims, Expression* init);
     struct InitImageCtx;
+    bool initLocalAggregate(const ir::Operand& vreg, const std::string& type, int ptr,
+                            const std::vector<int>& dims, Expression* init, const ir::SourceLoc& sl);
     bool initObject(InitImageCtx& c, int off, const std::string& type, int ptr, std::vector<int> dims, Expression* e);
     bool initElement(InitImageCtx& c, int off, const std::string& type, int ptr, std::vector<int> dims,
                      InitializerList& list, size_t& idx);

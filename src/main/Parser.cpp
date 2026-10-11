@@ -3026,43 +3026,48 @@ std::unique_ptr<Expression> Parser::parseInitializerList() {
     bool hasDesignators = false;
     if (peek().type != TokenType::CLOSE_BRACE) {
         do {
-            InitializerList::Designator desig;
-            // Check for designators: .member = , .member.sub = , or [index] =
-            if (peek().type == TokenType::DOT && pos + 1 < tokens.size()
-                && tokens[pos + 1].type == TokenType::IDENTIFIER) {
-                // Consume .member chain (e.g., .f.f9)
-                std::string chain;
-                while (peek().type == TokenType::DOT && pos + 1 < tokens.size()
-                       && tokens[pos + 1].type == TokenType::IDENTIFIER) {
-                    advance(); // consume '.'
-                    if (!chain.empty()) chain += ".";
-                    chain += advance().value; // consume identifier
-                }
-                if (match(TokenType::EQUALS)) {
-                    desig.memberName = chain;
-                    hasDesignators = true;
+            // Designator chain: .member, [index], or several (.a.x, [1].y, [2][0]);
+            // .a.x = v is taken as .a = { .x = v }
+            std::vector<InitializerList::Designator> parts;
+            size_t save = pos;
+            while (true) {
+                if (peek().type == TokenType::DOT && pos + 1 < tokens.size() &&
+                    tokens[pos + 1].type == TokenType::IDENTIFIER) {
+                    advance();
+                    InitializerList::Designator d;
+                    d.memberName = advance().value;
+                    parts.push_back(d);
+                } else if (peek().type == TokenType::OPEN_SQUARE && pos + 2 < tokens.size() &&
+                           tokens[pos + 1].type == TokenType::INTEGER_LITERAL &&
+                           tokens[pos + 2].type == TokenType::CLOSE_SQUARE) {
+                    advance();
+                    InitializerList::Designator d;
+                    std::string v = advance().value;
+                    while (!v.empty() && std::strchr("uUlL", v.back())) v.pop_back();
+                    d.arrayIndex = (int)std::stoll(v, nullptr, 0);
+                    advance();
+                    parts.push_back(d);
                 } else {
-                    // Not a designator — backtrack would be needed, but for simplicity
-                    // treat as designator without '=' (some C99 code uses this)
-                    desig.memberName = chain;
-                    hasDesignators = true;
+                    break;
                 }
-            } else if (peek().type == TokenType::OPEN_SQUARE && pos + 3 < tokens.size()
-                && tokens[pos + 1].type == TokenType::INTEGER_LITERAL
-                && tokens[pos + 2].type == TokenType::CLOSE_SQUARE
-                && tokens[pos + 3].type == TokenType::EQUALS) {
-                advance(); // consume '['
-                desig.arrayIndex = std::stoi(advance().value); // consume integer
-                advance(); // consume ']'
-                advance(); // consume '='
-                hasDesignators = true;
             }
+            if (!parts.empty() && !match(TokenType::EQUALS)) {
+                // .member without '=' (GNU old style) is accepted; [n] needs '='
+                if (parts[0].arrayIndex >= 0) { pos = save; parts.clear(); }
+            }
+            InitializerList::Designator desig;
+            if (!parts.empty()) { desig = parts[0]; hasDesignators = true; }
             initList->designators.push_back(desig);
-            if (peek().type == TokenType::OPEN_BRACE) {
-                initList->elements.push_back(parseInitializerList());
-            } else {
-                initList->elements.push_back(parseConditional());
+            std::unique_ptr<Expression> elem;
+            if (peek().type == TokenType::OPEN_BRACE) elem = parseInitializerList();
+            else elem = parseConditional();
+            for (size_t k = parts.size(); k-- > 1;) {
+                auto inner = setPos(std::make_unique<InitializerList>(), startToken);
+                inner->designators.push_back(parts[k]);
+                inner->elements.push_back(std::move(elem));
+                elem = std::move(inner);
             }
+            initList->elements.push_back(std::move(elem));
         } while (match(TokenType::COMMA) && peek().type != TokenType::CLOSE_BRACE);
     }
     // Strip empty designators if none were used

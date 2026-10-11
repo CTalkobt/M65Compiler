@@ -484,6 +484,20 @@ for sxmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: local aggregate initializers (nested braces, unions, designators,
+# run-time values), pp-numbers and char constants vs macros, float limits
+for limode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r liname liflags <<< "$limode"
+    echo "Testing test_local_init_xemu.c ($liname)..."
+    compile_link_test "src/test-resources/test_local_init_xemu.c" "build/test/test_local_init_${liname}_xemu.prg" "$liflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_local_init_$liname" "build/test/test_local_init_${liname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_local_init_xemu.c $liname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: pointer/float compound assignment, float initializers, nested
 # function static chain, variably modified parameters
 for ammode in "zp|" "stack|-fno-zpcall"; do

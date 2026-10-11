@@ -352,6 +352,20 @@ public:
         // A cast to a struct/union type (e.g. (_Complex double)2) isn't an integer
         bool toAggregate = node.pointerLevel == 0 &&
             (node.targetType.rfind("struct ", 0) == 0 || node.targetType.rfind("union ", 0) == 0);
+        // (double)1: a floating constant (value converted by the literal's
+        // own signedness)
+        bool toFloat = node.pointerLevel == 0 &&
+            (node.targetType == "float" || node.targetType == "double" || node.targetType == "long double");
+        if (auto* lit = dynamic_cast<IntegerLiteral*>(operand.get()); lit && toFloat) {
+            double v = (double)lit->value;
+            if (!lit->castType.empty() && !lit->castIsSigned && !lit->castPointerLevel) {
+                if (lit->castType.find("long") != std::string::npos) v = (double)(uint32_t)lit->value;
+                else if (lit->castType.find("char") != std::string::npos) v = (double)(uint8_t)lit->value;
+                else v = (double)(uint16_t)lit->value;
+            }
+            lastExpr = copyPos(std::make_unique<FloatLiteral>(v), node);
+            return;
+        }
         if (auto* lit = dynamic_cast<IntegerLiteral*>(operand.get()); lit && !toAggregate) {
             int val = lit->value;
             if (node.pointerLevel == 0 && node.targetType == "_Bool") {

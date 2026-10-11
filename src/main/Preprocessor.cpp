@@ -1,3 +1,4 @@
+#include <cstring>
 #include "Preprocessor.hpp"
 #include <fstream>
 #include <sstream>
@@ -87,6 +88,23 @@ Preprocessor::Preprocessor(bool isCompiler) : isCompiler(isCompiler) {
     macros["__SHRT_MAX__"] = Macro{false, false, {}, "32767"};
     macros["__LONG_LONG_MAX__"] = Macro{false, false, {}, "0"}; // not supported
     macros["__ORDER_LITTLE_ENDIAN__"] = Macro{false, false, {}, "1234"};
+    // Floating types: float, double and long double are all the CBM 40-bit
+    // format (32-bit mantissa, exponent range 2^-128 .. 2^127); see <float.h>
+    for (const char* f : {"FLT", "DBL", "LDBL"}) {
+        std::string p = std::string("__") + f;
+        macros[p + "_MAX__"] = Macro{false, false, {}, "1.7014118e38"};
+        macros[p + "_MIN__"] = Macro{false, false, {}, "2.9387359e-39"};
+        macros[p + "_EPSILON__"] = Macro{false, false, {}, "4.6566129e-10"};
+        macros[p + "_MANT_DIG__"] = Macro{false, false, {}, "32"};
+        macros[p + "_DIG__"] = Macro{false, false, {}, "9"};
+        macros[p + "_MIN_EXP__"] = Macro{false, false, {}, "(-127)"};
+        macros[p + "_MAX_EXP__"] = Macro{false, false, {}, "127"};
+        macros[p + "_MIN_10_EXP__"] = Macro{false, false, {}, "(-38)"};
+        macros[p + "_MAX_10_EXP__"] = Macro{false, false, {}, "38"};
+    }
+    macros["__SIZEOF_FLOAT__"] = Macro{false, false, {}, "5"};
+    macros["__SIZEOF_DOUBLE__"] = Macro{false, false, {}, "5"};
+    macros["__SIZEOF_LONG_DOUBLE__"] = Macro{false, false, {}, "5"};
     // GCC type macros — map to cc45 native types
     macros["__SIZE_TYPE__"] = Macro{false, false, {}, "unsigned int"};
     macros["__PTRDIFF_TYPE__"] = Macro{false, false, {}, "int"};
@@ -153,6 +171,34 @@ std::string Preprocessor::expandMacros(const std::string& line) {
             }
             if (inString) {
                 nextResult += result[i++];
+                continue;
+            }
+
+            // Character constants ('F', '\'') are not scanned for macros
+            if (result[i] == '\'') {
+                nextResult += result[i++];
+                while (i < result.length() && result[i] != '\'') {
+                    if (result[i] == '\\' && i + 1 < result.length()) nextResult += result[i++];
+                    nextResult += result[i++];
+                }
+                if (i < result.length()) nextResult += result[i++];
+                continue;
+            }
+
+            // A pp-number (1.0F, 0x1fUL, 1e-5) is one token: its letters are
+            // not identifiers (#define F 140 must not touch 1.0F)
+            if (std::isdigit((unsigned char)result[i]) ||
+                (result[i] == '.' && i + 1 < result.length() && std::isdigit((unsigned char)result[i + 1]))) {
+                while (i < result.length()) {
+                    char ch = result[i];
+                    if ((ch == '+' || ch == '-') && i > 0 && std::strchr("eEpP", result[i - 1])) {
+                        nextResult += result[i++];
+                    } else if (std::isalnum((unsigned char)ch) || ch == '_' || ch == '.') {
+                        nextResult += result[i++];
+                    } else {
+                        break;
+                    }
+                }
                 continue;
             }
 
@@ -428,8 +474,9 @@ struct ExprPath {
             return s.substr(start, pos - start);
         }
         if (std::isdigit((unsigned char)s[pos])) {
+            // A whole pp-number: 0x7fffffff, 100UL
             size_t start = pos;
-            while (pos < s.length() && std::isdigit((unsigned char)s[pos])) pos++;
+            while (pos < s.length() && (std::isalnum((unsigned char)s[pos]) || s[pos] == '_')) pos++;
             return s.substr(start, pos - start);
         }
         if (pos + 1 < s.length()) {
@@ -495,7 +542,10 @@ long Preprocessor::evaluateExpression(const std::string& expr) {
     {
         std::string cleaned;
         for (size_t i = 0; i < e.length(); ) {
-            if (std::isalpha((unsigned char)e[i]) || e[i] == '_') {
+            if (std::isdigit((unsigned char)e[i])) {
+                // Numbers stay as written (0x7fffffff, 10UL)
+                while (i < e.length() && (std::isalnum((unsigned char)e[i]) || e[i] == '_')) cleaned += e[i++];
+            } else if (std::isalpha((unsigned char)e[i]) || e[i] == '_') {
                 size_t start = i;
                 while (i < e.length() && (std::isalnum((unsigned char)e[i]) || e[i] == '_')) i++;
                 std::string ident = e.substr(start, i - start);
@@ -527,7 +577,12 @@ long Preprocessor::evaluateExpression(const std::string& expr) {
             return val;
         }
         if (t.empty()) return 0;
-        if (isdigit((unsigned char)t[0])) return std::stol(t, nullptr, 0);
+        if (isdigit((unsigned char)t[0])) {
+            // Integer constant: decimal, octal or hex, U/L suffixes ignored
+            std::string d = t;
+            while (!d.empty() && std::strchr("uUlL", d.back())) d.pop_back();
+            try { return (long)std::stoull(d, nullptr, 0); } catch (...) { return 0; }
+        }
         // Symbols not in defined() but in #if are treated as 0
         if (macros.count(t)) {
             try { return std::stol(macros[t].body, nullptr, 0); } catch(...) { return 0; }

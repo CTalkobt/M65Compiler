@@ -1420,6 +1420,11 @@ std::string IRBuilder::staticAddressLabel(Expression* e) {
 
 struct IRBuilder::InitImageCtx {
     ir::Module::GlobalVar* gv;
+    // Run-time mode (a local's initializer): scalars are evaluated and
+    // stored at base + offset instead of being laid out in gv's image
+    bool runtime = false;
+    ir::Operand base;
+    ir::SourceLoc sl;
 };
 
 const IRBuilder::IRStructInfo* IRBuilder::structOf(const std::string& type) {
@@ -1449,9 +1454,69 @@ bool IRBuilder::buildInitImage(ir::Module::GlobalVar& gv, const std::string& typ
     return true;
 }
 
+// A local array/struct/union with a braced initializer (or a char array from
+// a string): an all-constant initializer is laid out like a static one and
+// copied in; otherwise the object is zeroed and each value stored. Returns
+// false (nothing emitted) when the initializer can't be laid out this way.
+bool IRBuilder::initLocalAggregate(const ir::Operand& vreg, const std::string& type, int ptr,
+                                   const std::vector<int>& dims, Expression* init, const ir::SourceLoc& sl) {
+    int size = objectSize(type, ptr, dims);
+    if (size <= 0) return false;
+    ir::Module::GlobalVar image;
+    image.name = "_" + currentFunc_->name + "__init_" + std::to_string(nextLabel_++);
+    image.type = ir::Type::I8;
+    image.size = size;
+    image.isConst = true;
+    image.isStatic = true;
+    image.align = std::max(1, typeAlign(type, ptr));
+    bool constant = buildInitImage(image, type, ptr, dims, init);
+    if (!constant) {
+        // Run-time stores don't handle bitfields: leave those to the caller
+        std::function<bool(const std::string&, int)> hasBitfield = [&](const std::string& t, int p) {
+            const IRStructInfo* si = p == 0 ? structOf(t) : nullptr;
+            if (!si) return false;
+            for (auto& [n, mi] : si->members)
+                if (mi.bitWidth > 0 || hasBitfield(mi.type, mi.pointerLevel)) return true;
+            return false;
+        };
+        if (hasBitfield(type, ptr)) return false;
+    }
+    auto base = allocVreg(ir::Type::PTR);
+    ir::Inst addr;
+    addr.op = ir::Op::ADDR_LOCAL;
+    addr.dest = base;
+    addr.resultType = ir::Type::PTR;
+    addr.src1 = ir::Operand::vreg(vreg.vregId, ir::Type::PTR);
+    addr.loc = sl;
+    emit(addr);
+    currentFunc_->memoryVregs.insert(vreg.vregId);
+    if (constant) {
+        module_.globals.push_back(image);
+        emitBlockCopy(base, ir::Operand::global(image.name), size, sl);
+        return true;
+    }
+    // Zero, then store each value
+    ir::Inst call;
+    call.op = ir::Op::CALL_VOID;
+    call.resultType = ir::Type::VOID;
+    call.src1 = ir::Operand::global("_memset");
+    call.args = {base, ir::Operand::imm(0, ir::Type::I16), ir::Operand::imm(size, ir::Type::I16)};
+    call.callConv = zpCallMode ? ir::CallConv::ZP : ir::CallConv::STACK;
+    call.loc = sl;
+    emit(call);
+    calledFunctions_.insert("_memset");
+    InitImageCtx c{&image};
+    c.runtime = true;
+    c.base = base;
+    c.sl = sl;
+    initObject(c, 0, type, ptr, dims, init);
+    return true;
+}
+
 // One object (scalar, array or struct) initialized by a single initializer
 bool IRBuilder::initObject(InitImageCtx& c, int off, const std::string& type, int ptr, std::vector<int> dims,
                            Expression* e) {
+    Expression* orig = e;
     while (auto* cast = dynamic_cast<CastExpression*>(e)) e = cast->expression.get();
     bool isArray = !dims.empty();
     const IRStructInfo* si = (!isArray && ptr == 0) ? structOf(type) : nullptr;
@@ -1473,12 +1538,42 @@ bool IRBuilder::initObject(InitImageCtx& c, int off, const std::string& type, in
             is.escMask = str->escMask.substr(0, std::min(str->escMask.size(), (size_t)n));
             is.encoding = (str->isAscii || currentStringEncoding_ == StringEncoding::ASCII) ? 1
                         : (currentStringEncoding_ == StringEncoding::SCREENCODE ? 2 : 0);
+            if (c.runtime) {
+                // Copy the text from the string literal (the rest is zeroed)
+                if (n > 0) {
+                    str->accept(*this);
+                    emitBlockCopy(emitPtrOffset(c.base, off, c.sl), lastValue_, n, c.sl);
+                }
+                return true;
+            }
             if (n > 0) c.gv->initStrings[off] = is;
             return true;
         }
     }
+    if (c.runtime && !isArray && si) {
+        // A struct member initialized from another struct value. One of 1, 2
+        // or 4 bytes is carried as an integer value: store it as one
+        int sz = objectSize(type, ptr, dims);
+        if (aggregateBlockSize(type, ptr) == 0) {
+            ir::Type t = mapType(type, ptr);
+            bool saved = computeAddressOnly_;
+            computeAddressOnly_ = false;
+            orig->accept(*this);
+            computeAddressOnly_ = saved;
+            ir::Inst st;
+            st.op = ir::Op::STORE;
+            st.resultType = t;
+            st.src1 = lastValue_;
+            st.src2 = emitPtrOffset(c.base, off, c.sl);
+            st.loc = c.sl;
+            emit(st);
+            return true;
+        }
+        emitAggregateInto(orig, emitPtrOffset(c.base, off, c.sl), sz, c.sl);
+        return true;
+    }
     if (isArray || si) return false;  // e.g. a struct copied from another variable
-    return initScalar(c, off, type, ptr, 0, 0, e);
+    return initScalar(c, off, type, ptr, 0, 0, c.runtime ? orig : e);
 }
 
 // The next sub-object of an aggregate from list[idx]: a braced initializer, a
@@ -1490,7 +1585,14 @@ bool IRBuilder::initElement(InitImageCtx& c, int off, const std::string& type, i
     while (auto* cast = dynamic_cast<CastExpression*>(bare)) bare = cast->expression.get();
     bool isArray = !dims.empty();
     bool aggregate = isArray || (ptr == 0 && structOf(type));
-    if (dynamic_cast<InitializerList*>(bare) || !aggregate ||
+    // A struct-typed value initializes the whole member (no brace elision)
+    bool wholeStruct = false;
+    if (aggregate && !isArray && !dynamic_cast<InitializerList*>(bare) && !dynamic_cast<StringLiteral*>(bare)) {
+        IRTypeInfo ti = getExprTypeInfo(bare);
+        wholeStruct = (ti.type != ir::Type::PTR || isAggCopyParam(bare)) && !ti.typeName.empty() &&
+                      structOf(ti.typeName) == structOf(type);
+    }
+    if (dynamic_cast<InitializerList*>(bare) || !aggregate || wholeStruct ||
         (isArray && dims.size() == 1 && ptr == 0 && getTypeSize(type, 0) == 1 && dynamic_cast<StringLiteral*>(bare))) {
         ++idx;
         return initObject(c, off, type, ptr, dims, e);
@@ -1503,36 +1605,49 @@ bool IRBuilder::initElement(InitImageCtx& c, int off, const std::string& type, i
 // at a designator, which belongs to an enclosing object.
 bool IRBuilder::fillAggregate(InitImageCtx& c, int off, const std::string& type, int ptr, std::vector<int> dims,
                               InitializerList& list, size_t& idx, bool braced) {
+    // Without braces, the first element's designator is the one that led
+    // here (.m = 0 for a union member m); a later one belongs to an enclosing
+    // object and ends this sub-object
+    size_t first = idx;
     auto designatorAt = [&](size_t i) -> const InitializerList::Designator* {
+        if (!braced && i == first) return nullptr;
         return i < list.designators.size() && list.designators[i].isDesignated() ? &list.designators[i] : nullptr;
     };
     if (!dims.empty()) {
         std::vector<int> elemDims(dims.begin() + 1, dims.end());
         int esz = objectSize(type, ptr, elemDims);
         int n = dims[0];
-        for (int k = 0; idx < list.elements.size() && (n <= 0 || k < n); ++k) {
+        // A designator may move back after the end was reached ([2].y, [2].x)
+        for (int k = 0; idx < list.elements.size(); ++k) {
             if (auto* d = designatorAt(idx)) {
                 if (!braced) return true;
                 if (d->arrayIndex < 0) return false;
                 k = d->arrayIndex;
                 if (n > 0 && k >= n) return false;
+            } else if (n > 0 && k >= n) {
+                break;
             }
+            size_t before = idx;
             if (!initElement(c, off + k * esz, type, ptr, elemDims, list, idx)) return false;
+            if (idx == before) return false;  // no progress: malformed
         }
         return true;
     }
     const IRStructInfo* si = structOf(type);
     if (!si) return false;
     const auto& order = si->memberOrder;
-    for (size_t m = 0; idx < list.elements.size() && m < order.size(); ++m) {
+    for (size_t m = 0; idx < list.elements.size(); ++m) {
         if (auto* d = designatorAt(idx)) {
             if (!braced) return true;
             if (d->memberName.empty()) return false;
             auto pos = std::find(order.begin(), order.end(), d->memberName);
             if (pos == order.end()) return false;
             m = (size_t)(pos - order.begin());
+        } else if (m >= order.size()) {
+            break;
         }
         const IRMemberInfo& mi = si->members.at(order[m]);
+        size_t before = idx;
         if (mi.bitWidth > 0) {
             if (!initScalar(c, off + mi.offset, mi.type, 0, mi.bitWidth, mi.bitOffset, list.elements[idx].get()))
                 return false;
@@ -1540,6 +1655,7 @@ bool IRBuilder::fillAggregate(InitImageCtx& c, int off, const std::string& type,
         } else if (!initElement(c, off + mi.offset, mi.type, mi.pointerLevel, mi.arrayDims, list, idx)) {
             return false;
         }
+        if (idx == before) return false;  // no progress: malformed
         if (si->isUnion) break;  // a union initializes one member
     }
     return true;
@@ -1549,6 +1665,26 @@ bool IRBuilder::fillAggregate(InitImageCtx& c, int off, const std::string& type,
 // function name) written little-endian at off
 bool IRBuilder::initScalar(InitImageCtx& c, int off, const std::string& type, int ptr, int bitWidth, int bitOffset,
                            Expression* e) {
+    if (c.runtime) {
+        // Evaluate and store, converted to the object's type
+        if (bitWidth > 0) return false;
+        ir::Type t = mapType(type, ptr);
+        bool saved = computeAddressOnly_;
+        computeAddressOnly_ = false;
+        e->accept(*this);
+        computeAddressOnly_ = saved;
+        ir::Operand v = lastValue_;
+        if (v.type != t && v.type != ir::Type::VOID && t != ir::Type::I_N)
+            v = emitCast(v, t, getExprTypeInfo(e).isSigned);
+        ir::Inst st;
+        st.op = ir::Op::STORE;
+        st.resultType = t;
+        st.src1 = v;
+        st.src2 = emitPtrOffset(c.base, off, c.sl);
+        st.loc = c.sl;
+        emit(st);
+        return true;
+    }
     while (auto* cast = dynamic_cast<CastExpression*>(e)) e = cast->expression.get();
     auto& bytes = c.gv->initBytes;
     ir::Type t = mapType(type, ptr);
@@ -2392,7 +2528,19 @@ void IRBuilder::visit(VariableDeclaration& node) {
     }
 
     // Emit initializer (skip for local statics - they're initialized at startup in DATA segment)
+    // Braced initializer of a local array/struct/union (nested braces, brace
+    // elision, designators, unions), or a local char array from a string
+    bool localAggInit = false;
     if (node.initializer && !node.isStatic) {
+        Expression* init = node.initializer.get();
+        bool isAgg = !node.arrayDims.empty() || (node.pointerLevel == 0 && structOf(node.type));
+        bool charArrayFromString = dynamic_cast<StringLiteral*>(init) && node.arrayDims.size() == 1 &&
+                                   node.pointerLevel == 0 && getTypeSize(node.type, 0) == 1;
+        if (((dynamic_cast<InitializerList*>(init) && isAgg) || charArrayFromString) &&
+            initLocalAggregate(vreg, node.type, node.pointerLevel, node.arrayDims, init, loc(node)))
+            localAggInit = true;
+    }
+    if (node.initializer && !node.isStatic && !localAggInit) {
         if (auto* initList = dynamic_cast<InitializerList*>(node.initializer.get())) {
             if (!node.arrayDims.empty()) {
                 // Array initializer: store each element at base + i*elemSize
@@ -5379,8 +5527,13 @@ void IRBuilder::visit(ArrayAccess& node) {
         // A multi-dimensional member (double x[2][3]): the stride covers the
         // dimensions not yet indexed
         if (auto* mi = arrayMemberOf(ma)) {
-            elemSize = getTypeSize(mi->type, mi->pointerLevel);
-            for (size_t i = depth; i < mi->arrayDims.size(); i++) elemSize *= mi->arrayDims[i];
+            if (!mi->arrayDims.empty()) {
+                elemSize = getTypeSize(mi->type, mi->pointerLevel);
+                for (size_t i = depth; i < mi->arrayDims.size(); i++) elemSize *= mi->arrayDims[i];
+            } else if (mi->pointerLevel > 0) {
+                // A pointer member: s->p[i] steps by the pointed-to size
+                elemSize = getTypeSize(mi->type, mi->pointerLevel - 1);
+            }
         }
     } else {
         // General case: derive element size from expression type info
