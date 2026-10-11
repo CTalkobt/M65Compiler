@@ -1142,7 +1142,14 @@ void IRBuilder::visit(FunctionDeclaration& node) {
          currentBlock_->insts.back().op != ir::Op::RET_VOID &&
          currentBlock_->insts.back().op != ir::Op::BR))) {
         ir::Inst ret;
-        ret.op = ir::Op::RET_VOID;
+        if (currentFunc_->name == "_main" && currentFunc_->returnType != ir::Type::VOID) {
+            // C99 5.1.2.2.3: reaching the } of main returns 0
+            ret.op = ir::Op::RET;
+            ret.resultType = currentFunc_->returnType;
+            ret.src1 = ir::Operand::imm(0, currentFunc_->returnType);
+        } else {
+            ret.op = ir::Op::RET_VOID;
+        }
         emit(ret);
     }
 

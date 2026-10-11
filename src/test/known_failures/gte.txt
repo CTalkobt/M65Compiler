@@ -3,6 +3,8 @@
 # pr58574: program too large (code runs into I/O at $D000).
 # struct-ret-1: global struct initializer with an array member is mis-emitted.
 # vrp-6: needs 32-bit int (dg int32plus); 0x80000000 truncates to 0 in a 16-bit unsigned int.
+# 970217-1, nestfunc-7, postmod-1, pr28982a: report failure through a non-zero exit
+#   status (counted as passes before the harness read $FD/$FE).
 20000605-1
 20000731-1
 20000801-3
@@ -84,6 +86,7 @@
 961223-1
 970214-1
 970214-2
+970217-1
 980205
 990130-1
 990326-1
@@ -127,7 +130,9 @@ nestfunc-1
 nestfunc-3
 nestfunc-5
 nestfunc-6
+nestfunc-7
 packed-aligned
+postmod-1
 pr103209
 pr103255
 pr10352-1

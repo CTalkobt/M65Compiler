@@ -38,7 +38,7 @@ run_xemu() {
         fail "$name link" "Linker failed: $(head -3 "$base.lderr")"; return 1
     fi
     rm -f "$base.mem"
-    timeout 30 $XEMU -headless -besure -prgmode 65 -prgexit -dumpmem "$base.mem" -prg "$base.prg" </dev/null >/dev/null 2>&1
+    timeout 15 $XEMU -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem "$base.mem" -prg "$base.prg" </dev/null >/dev/null 2>&1
     if [ ! -f "$base.mem" ]; then fail "$name execution" "no memory dump"; return 1; fi
     ACTUAL=$(xxd -s $((16#4000)) -l "$n" -p "$base.mem" | sed 's/../& /g; s/ $//' | tr '[:lower:]' '[:upper:]')
     [ "$ACTUAL" = "$expected" ]

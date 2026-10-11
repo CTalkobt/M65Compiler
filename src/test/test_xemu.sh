@@ -46,7 +46,7 @@ run_xemu_test() {
     # Run in headless mode with -prgexit (auto-SYS and exit on READY)
     # -prgmode 65 forces MEGA65 mode without dialog
     # -prgexit auto-runs BASIC programs and exits on next READY prompt
-    timeout 30 $XEMU -headless -besure -prgmode 65 -prgexit -dumpmem "$dump_file" -prg "$prg_file" </dev/null >/dev/null 2>&1
+    timeout 15 $XEMU -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem "$dump_file" -prg "$prg_file" </dev/null >/dev/null 2>&1
     local exit_code=$?
     # Accept exit 0 (clean) or 124 (timeout — program may halt instead of returning)
     if [ $exit_code -ne 0 ] && [ $exit_code -ne 124 ]; then

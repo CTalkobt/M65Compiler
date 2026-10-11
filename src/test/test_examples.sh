@@ -33,7 +33,7 @@ build_example() {
 test_text() {
     local name="$1" prg="$2" expected="$3" timeout_sec="${4:-15}"
     if [ ! -f "$prg" ]; then fail "$name" "PRG not found"; return; fi
-    timeout "$timeout_sec" $XEMU -headless -besure -prgmode 65 -prgexit \
+    timeout "$timeout_sec" $XEMU -headless -besure -sleepless -prgmode 65 -prgexit \
         -dumpscreen "$BUILDDIR/${name}.screen.txt" \
         -prg "$prg" </dev/null >/dev/null 2>&1
     if [ ! -f "$BUILDDIR/${name}.screen.txt" ]; then
@@ -49,7 +49,7 @@ test_text() {
 test_screenshot() {
     local name="$1" prg="$2" timeout_sec="${3:-15}"
     if [ ! -f "$prg" ]; then fail "$name" "PRG not found"; return; fi
-    timeout "$timeout_sec" $XEMU -headless -besure -prgmode 65 -prgexit \
+    timeout "$timeout_sec" $XEMU -headless -besure -sleepless -prgmode 65 -prgexit \
         -screenshot "$BUILDDIR/${name}.png" \
         -prg "$prg" </dev/null >/dev/null 2>&1
     if [ ! -f "$BUILDDIR/${name}.png" ] || [ ! -s "$BUILDDIR/${name}.png" ]; then

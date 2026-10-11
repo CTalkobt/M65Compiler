@@ -28,7 +28,7 @@ compile_and_run() {
     if [ $? -ne 0 ]; then fail "$name (link)"; return; fi
 
     local dump_file="$BUILD/${name}_memdump.bin"
-    timeout 30 $XEMU -headless -besure -prgmode 65 -prgexit -dumpmem "$dump_file" -prg "$BUILD/$name.prg" </dev/null >/dev/null 2>&1
+    timeout 15 $XEMU -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem "$dump_file" -prg "$BUILD/$name.prg" </dev/null >/dev/null 2>&1
     local exit_code=$?
     if [ $exit_code -ne 0 ] && [ $exit_code -ne 124 ]; then
         fail "$name (xemu exit code $exit_code)"

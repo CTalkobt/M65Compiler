@@ -20,6 +20,12 @@
 
 __sp_base = $0101
 
+; Exit status, left in the ROM's zero page at $FD/$FE (BASIC 65 leaves these
+; alone; a BASIC caller can PEEK(253)+256*PEEK(254), test harnesses read it
+; from a memory dump): main's return value / exit()'s argument, $FFFE after
+; abort(), and $FFFF (set at startup) if the program never reached __exit.
+__exit_status = $FD
+
 __init:
     ; Save caller's stack pointer for clean return
     tsx
@@ -32,6 +38,11 @@ __init:
     sta $D02F
     lda #$53            ; 'S'
     sta $D02F
+
+    ; "Never reached __exit" until the program exits (B is still 0 here)
+    lda #$FF
+    sta __exit_status
+    sta __exit_status + 1
 
     ; Move the base page (zero page) to a private page-aligned block at the
     ; end of BSS. The program never touches the ROM's zero page, so nothing
@@ -62,9 +73,12 @@ __init:
 
     ; Fall through to __exit
 __exit:
-    ; Back to the ROM's zero page
+    ; Back to the ROM's zero page, then record the exit status (A:X) there
+    tay
     lda #0
     tab
+    sty __exit_status
+    stx __exit_status + 1
 
     ; Back to the caller's 8-bit stack (E set; SPH still selects the page)
     sei
@@ -88,7 +102,11 @@ _init_features:
 ; __abort — abnormal termination. Non-overridable core implementation.
 ; abort() (weak) calls this.
 __abort:
-    brk
+    ; Return to the caller (BASIC's READY. prompt) like exit(), marked as an
+    ; abort, rather than stopping in the monitor with BRK
+    lda #$FE            ; exit status $FFFE
+    ldx #$FF
+    bra __exit
 
 ; __bp_rom — switch to the ROM's base page (0) before calling KERNAL/BASIC.
 ; Preserves A, X, Y and Z.

@@ -73,7 +73,7 @@ shadow_test() {
         return
     fi
     rm -f "$base.mem"
-    timeout 30 $XEMU -headless -besure -prgmode 65 -prgexit -dumpmem "$base.mem" -prg "$base.prg" </dev/null >/dev/null 2>&1
+    timeout 15 $XEMU -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem "$base.mem" -prg "$base.prg" </dev/null >/dev/null 2>&1
     local out; out=$(xxd -s $((16#C0F0)) -l 2 -p "$base.mem" 2>/dev/null)
     if [ "${out:2:2}" != "aa" ]; then
         echo "FAIL: $name (program did not finish)"

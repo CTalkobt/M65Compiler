@@ -436,8 +436,8 @@ ln45 (Link: Combine .o45 objects + libraries → PRG/Binary)
 6. Call `_main()`: Entry point to user code
 
 **Exit**:
-1. Capture return value (A:X or full value depending on type)
-2. **Base page reset**: `lda #0 / tab` (back to the ROM's page 0)
+1. Capture return value (A:X or full value depending on type); `main` without a `return` returns 0
+2. **Base page reset**: `lda #0 / tab` (back to the ROM's page 0), then the **exit status** is stored at ROM page-0 `$FD/$FE`: `main`'s return value / `exit()`'s argument, `$FFFE` after `abort()`, `$FFFF` (set at startup) if `__exit` was never reached. A BASIC caller can `PEEK(253)+256*PEEK(254)`. `abort()` returns to the caller like `exit()` (it no longer stops in the monitor with `BRK`)
 3. **Stack reset**: `SEI; SEE`, restore the caller's SPL/SPH, then its flags (`PLP`)
 4. Select exit mode (`#pragma cc45 exit_rts` / `halt` / `brk`):
    - `exit_rts` (default): Return to caller (BASIC, KERNAL)
@@ -946,6 +946,7 @@ Full documentation: `doc/bin/disk45.md`
 - **45GS02 CPU**: Extended 6502 with Q register (AXYZ) and 32-bit operations
 - **Calling Conventions**: `doc/architecture/calling-conventions.md` — Stack and ZP calling conventions, frame pointer mechanics, struct returns
 - **Test Coverage**: 282 unit tests pass (`make test`), 176 assembler validation tests (Units 1-7), 55 segment emission tests, semantic/parser error tests. 5 hardware I/O tests require mmemu MCP (mega65 mode with MAP clear — see mmemu#79, #80)
+- **xemu runs**: all test scripts run `xemu-xmega65 -headless -besure -sleepless -prgmode 65 -prgexit` (full emulation speed; xemu exits at BASIC's `READY.` prompt) with a 15 s timeout. GTE results come from the exit status at `$FD/$FE` in a `-dumpmem` dump: pass = status 0; `abort()` and failing `exit(n)` return to `READY.` at once, so only hangs/crashes cost the timeout
 - **Xemu Runtime Tests**: 11/11 pass (`bash src/test/test_xemu.sh`), ~95 subtests — validates runtime correctness via xemu-xmega65 memory dumps. Tests: short arithmetic, struct return, array init, compound literals, long (32-bit) arithmetic, alloca, memory ops (memset/memcpy/memcmp/memmove/memchr), string ops (strlen/strcpy/strcmp/strcat/strchr/strrchr/strncpy/strncmp/strncat/strnlen), ctype (isdigit/isalpha/isalnum/isspace/isupper/islower/toupper/tolower/isxdigit/isprint/iscntrl), stdlib (abs/itoa/labs/atoi), math (modulo, min/max, itoa division chain)
 - **GTE (GCC Torture Tests)**: 560/581 (96.4%) — comprehensive C language compatibility validation (includes 95 float/double tests, 7 complex tests). Remaining 21: 9 unfixable (sys/mman.h, stdout/FILE*, __builtin_va_arg_pack, #define L), 8 nested function closure issues, 4 parser edge cases
 - **Standards**: C99 preprocessor, C89/C99 subset for language features

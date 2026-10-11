@@ -2,8 +2,11 @@
 
 # run_gte_all.sh — Run all GTE (GCC torture) tests on xemu-xmega65 and report failures
 #
-# A test passes when the program returns to BASIC (xemu -prgexit exits on READY).
-# abort() executes BRK, which stops in the monitor, so a failing test hits the timeout.
+# Programs run at full emulation speed (-sleepless) and return to BASIC's READY.
+# prompt (xemu -prgexit then exits) both on success and on abort(): crt0 leaves
+# the exit status in the ROM's zero page at $FD/$FE ($FFFE after abort, $FFFF
+# if __exit was never reached). A test passes when xemu exits at READY. and the
+# status is 0; a hang or crash runs into the timeout.
 #
 # Usage: run_gte_all.sh [-j N] [-l names.txt]   (default: all tests, one job per CPU)
 
@@ -14,7 +17,7 @@ LIB="lib/build/c45.lib"
 XEMU="xemu-xmega65"
 GTE_DIR="src/test-resources/gte"
 BUILD_DIR="build/test/gte"
-RUN_TIMEOUT=12
+RUN_TIMEOUT=15
 # GTE tests are standard (often C89) C: plain char/int/long are signed and
 # functions may be called without a declaration
 GTE_CFLAGS="${GTE_CFLAGS--fsigned-default -fimplicit-function-declaration}"
@@ -67,14 +70,25 @@ run_one() {
     if ! $LD -basic -o "$prg" "$CRT0" "$obj" "$LIB" > "$BUILD_DIR/$name.link.log" 2>&1; then
         echo "LINK FAIL: $name"; return
     fi
-    timeout "$RUN_TIMEOUT" $XEMU -headless -besure -prgmode 65 -prgexit -prg "$prg" </dev/null >/dev/null 2>&1
+    local mem="$BUILD_DIR/$name.mem"
+    rm -f "$mem"
+    timeout "$RUN_TIMEOUT" $XEMU -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem "$mem" -prg "$prg" </dev/null >/dev/null 2>&1
     local res=$?
-    if [ $res -eq 0 ]; then
-        echo "PASS: $name"
-    elif [ $res -eq 124 ]; then
-        echo "RUN FAIL (abort or hang): $name"
-    else
+    local status=""
+    [ -f "$mem" ] && status=$(od -An -tx1 -j 253 -N 2 "$mem" | tr -d ' \n')
+    rm -f "$mem"
+    if [ $res -eq 124 ]; then
+        echo "RUN FAIL (hang or crash): $name"
+    elif [ $res -ne 0 ]; then
         echo "RUN FAIL (xemu exit $res): $name"
+    elif [ "$status" = "0000" ]; then
+        echo "PASS: $name"
+    elif [ "$status" = "feff" ]; then
+        echo "RUN FAIL (abort): $name"
+    elif [ "$status" = "ffff" ]; then
+        echo "RUN FAIL (no exit status): $name"
+    else
+        echo "RUN FAIL (exit status \$${status:2:2}${status:0:2}): $name"
     fi
 }
 export -f run_one
