@@ -28,6 +28,8 @@ private:
         std::string body;
     };
     std::map<std::string, Macro> macros;
+    // #pragma push_macro("X") / pop_macro("X"): saved definitions (absent = not defined)
+    std::map<std::string, std::vector<std::pair<bool, Macro>>> pushedMacros_;
     
     std::vector<std::string> includePaths;
     std::set<std::string> includedFiles; // To prevent infinite recursion

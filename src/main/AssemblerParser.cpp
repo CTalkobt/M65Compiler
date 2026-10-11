@@ -335,9 +335,9 @@ AssemblerParser::FrameAccessInfo AssemblerParser::resolveFrameAccess(int tokenIn
     if (sym && sym->isFrameRelative) {
         info.isFrame = true;
         uint32_t exprVal = evaluateExpressionAt(tokenIndex, scopePrefix);
-        info.yOff = (uint8_t)exprVal;
+        info.yOff = (uint16_t)exprVal;
         Symbol* fpSym = resolveFrameVar(scopePrefix);
-        info.fpOff = fpSym ? (uint8_t)fpSym->value : 1;
+        info.fpOff = fpSym ? (uint16_t)fpSym->value : 1;
     }
     return info;
 }

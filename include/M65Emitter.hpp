@@ -206,21 +206,22 @@ public:
     void cmp_s(uint8_t index) { cmp_zp(getZP(index)); }
 
     // --- Other Addressing Modes ---
-    void lda_stack(uint8_t offset);
+    uint8_t framePtrFor(uint16_t offset);  // (FP),Y or $FB/$FC for offsets > 255
+    void lda_stack(uint16_t offset);
     void lda_stack_noTSX(uint8_t offset); // LDA __sp_base+offset,X without tsx
-    void ldx_stack(uint8_t offset);
-    void ldy_stack(uint8_t offset);
-    void ldz_stack(uint8_t offset);
-    void sta_stack(uint8_t offset);
-    void stx_stack(uint8_t offset);
-    void sty_stack(uint8_t offset);
-    void stz_stack(uint8_t offset);
-    void inc_stack(uint8_t offset);
-    void dec_stack(uint8_t offset);
+    void ldx_stack(uint16_t offset);
+    void ldy_stack(uint16_t offset);
+    void ldz_stack(uint16_t offset);
+    void sta_stack(uint16_t offset);
+    void stx_stack(uint16_t offset);
+    void sty_stack(uint16_t offset);
+    void stz_stack(uint16_t offset);
+    void inc_stack(uint16_t offset);
+    void dec_stack(uint16_t offset);
 
     // Frame-pointer-relative access via ($nn,SP),Y addressing
-    void lda_frame(uint8_t fpOff, uint8_t yOff);
-    void sta_frame(uint8_t fpOff, uint8_t yOff);
+    void lda_frame(uint8_t fpOff, uint16_t yOff);
+    void sta_frame(uint8_t fpOff, uint16_t yOff);
     void lda_ind_z(uint8_t addr, bool flat = false);
     void sta_ind_z(uint8_t addr, bool flat = false);
     void bit_abs(uint16_t addr);

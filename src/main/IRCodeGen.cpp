@@ -1439,6 +1439,15 @@ void IRCodeGen::emitStrings(const ir::Module& mod) {
     if (relocMode_) emit(".segment \"data\"");
     for (const auto& sl : mod.strings) {
         emitLabel(sl.label);
+        if (sl.wide) {
+            // L"...": each character in a 16-bit unit (low byte first)
+            for (size_t i = 0; i < sl.value.size(); i++) {
+                emit(stringDirective(sl.value.substr(i, 1), i < sl.escMask.size() ? sl.escMask.substr(i, 1) : ".", sl.encoding));
+                emit(".byte 0");
+            }
+            emit(".word 0");
+            continue;
+        }
         std::string line = stringDirective(sl.value, sl.escMask, sl.encoding);
         if (!line.empty()) emit(line);
         emit(".byte 0");

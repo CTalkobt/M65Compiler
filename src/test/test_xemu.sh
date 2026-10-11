@@ -597,6 +597,20 @@ for ndmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: structs with run-time member sizes, large stack frames, __int128 from
+# int, wide strings, complex members, label differences, push/pop_macro
+for vmmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r vmname vmflags <<< "$vmmode"
+    echo "Testing test_vmstruct_misc_xemu.c ($vmname)..."
+    compile_link_test "src/test-resources/test_vmstruct_misc_xemu.c" "build/test/test_vmstruct_misc_${vmname}_xemu.prg" "$vmflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_vmstruct_misc_$vmname" "build/test/test_vmstruct_misc_${vmname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_vmstruct_misc_xemu.c $vmname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: pointer/float compound assignment, float initializers, nested
 # function static chain, variably modified parameters
 for ammode in "zp|" "stack|-fno-zpcall"; do

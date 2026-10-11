@@ -97,10 +97,10 @@ void ConstantFolder::visit(AlignofExpression& node) {
         lastExpr = std::move(copy);
         return;
     }
+    // Scalars and pointers need no alignment on the 6502 (structs are packed
+    // too, so a struct of ints has the alignment of int)
     int alignment = 1;
-    if (node.pointerLevel > 0 || node.typeName == "int") alignment = 2;
-    else if (node.typeName == "char" || node.typeName == "_Bool") alignment = 1;
-    else if (node.typeName.rfind("struct ", 0) == 0 || node.typeName.rfind("union ", 0) == 0) {
+    if (node.typeName.rfind("struct ", 0) == 0 || node.typeName.rfind("union ", 0) == 0) {
         // cc45 packs structs: alignment 1 unless a member or the struct itself
         // is aligned (_Alignas / __attribute__((aligned)))
         std::string tn = node.typeName.substr(node.typeName.find(' ') + 1);
@@ -149,6 +149,18 @@ void ConstantFolder::visit(GenericSelection& node) {
 }
 
 void ConstantFolder::visit(SizeofExpression& node) {
+    // A struct with run-time member sizes: its size is known at run time
+    if (node.isType && node.pointerLevel == 0) {
+        std::string tn = node.typeName;
+        for (const char* kw : {"struct ", "union "})
+            if (tn.rfind(kw, 0) == 0) tn = tn.substr(std::string(kw).size());
+        if (vmStructs_.count(tn)) {
+            auto copy = copyPos(std::make_unique<SizeofExpression>(node.typeName, node.pointerLevel), node);
+            copy->arrayDims = node.arrayDims;
+            lastExpr = std::move(copy);
+            return;
+        }
+    }
     if (node.isType) {
         int size = TypeInfo::getTypeSize(node.typeName, node.pointerLevel, -1, structs);
         if (node.pointerLevel == 0) {

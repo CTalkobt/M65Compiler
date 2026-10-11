@@ -567,6 +567,16 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                                 // symbol + addend ("+1", "-2"); anything more
                                 // complex goes through the expression evaluator
                                 std::string rest = a.substr(name.size());
+                                // sym1-sym2 of two symbols defined here: a
+                                // constant distance, no relocation
+                                if (rest.size() > 1 && rest[0] == '-' &&
+                                    (std::isalpha((unsigned char)rest[1]) || rest[1] == '_' || rest[1] == '@')) {
+                                    Symbol* sym2 = parser->resolveSymbol(rest.substr(1), stmt->scopePrefix);
+                                    if (sym && sym2 && sym->segment == sym2->segment) {
+                                        e.emitWord((uint16_t)(sym->value - sym2->value));
+                                        continue;
+                                    }
+                                }
                                 uint32_t val = sym ? sym->value : 0;
                                 bool simple = true;
                                 if (!rest.empty()) {

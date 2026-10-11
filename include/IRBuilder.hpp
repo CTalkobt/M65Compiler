@@ -196,6 +196,8 @@ private:
     std::set<std::string> nestedLabelAddrs_;  // &&label taken inside nested functions
     std::unique_ptr<Expression> cloneSimpleExpr(Expression* e);
     void toComplex(std::unique_ptr<Expression>& e, const std::string& kind);
+    std::string wideKindOf(Expression* e);
+    void toWide(std::unique_ptr<Expression>& e, const std::string& kind, bool braced);
     bool evalConstComplex(Expression* e, double& re, double& im);
     // C library math functions known without a prototype (as GCC knows its
     // builtins): float signatures registered before the translation unit
@@ -359,6 +361,20 @@ private:
 
     IRTypeInfo getExprTypeInfo(Expression* expr);
     void markStaticLinkProvider();
+    // Structs with run-time member sizes: hidden locals with each member's
+    // offset and the size; variables of such a type are pointers to alloca'd
+    // storage (vmVars_: variable -> struct name)
+    struct VmStruct {
+        std::string sizeVar;
+        std::map<std::string, std::string> offsetVar;
+        std::map<std::string, std::vector<std::string>> memberDims;  // "" = constant dimension
+    };
+    std::map<std::string, VmStruct> vmStructs_;
+    std::map<std::string, std::string> vmVars_;
+    ir::Operand vmCopySize_;
+    bool inVmVarLoad_ = false;
+    std::string vmStructOf(Expression* e);
+    bool registeringStructs_ = false;  // registerAllStructDefinitions pre-pass
     int ptrArrayRowSize(Expression* e);
     std::map<std::string, int> declaredAlign_;  // variable -> declared alignment
     std::map<std::string, int> funcAlign_;      // function -> __attribute__((aligned))

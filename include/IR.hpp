@@ -300,6 +300,7 @@ struct Module {
         std::string escMask;  // per byte: '.', 'n', 'r', 'x' (see Token::escMask)
         int encoding = 0;
         bool isAscii = false;
+        bool wide = false;    // 16-bit characters (L"...")
     };
     std::vector<StringLiteral> strings;
 };

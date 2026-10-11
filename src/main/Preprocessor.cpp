@@ -698,6 +698,14 @@ std::string Preprocessor::process(const std::string& source,
     // Default initial state: everything is active.
     stateStack.push_back({true, true, false});
     
+    // __int128 / __int(N) / __uint(N) are the structs of <intwide.h>: a unit
+    // that uses them without the header gets it (as _Complex gets its types)
+    if (isCompiler && source.find("intwide.h") == std::string::npos &&
+        (source.find("__int128") != std::string::npos || source.find("__int(") != std::string::npos ||
+         source.find("__uint(") != std::string::npos) &&
+        !findIncludeFile("intwide.h", getDirectory(currentFile)).empty()) {
+        return processInternal("#include <intwide.h>\n#line 1 \"" + currentFile + "\"\n" + source, currentFile, 0);
+    }
     return processInternal(source, currentFile, 0);
 }
 
@@ -1082,7 +1090,27 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
             } else if (cmd == "#pragma") {
                 std::string pragmaArg;
                 ss >> pragmaArg;
-                if (pragmaArg == "once") {
+                if (pragmaArg.rfind("push_macro", 0) == 0 || pragmaArg.rfind("pop_macro", 0) == 0) {
+                    // #pragma push_macro("NAME") / pop_macro("NAME")
+                    std::string rest;
+                    std::getline(ss, rest);
+                    std::string all = pragmaArg + rest;
+                    size_t q1 = all.find('"'), q2 = q1 == std::string::npos ? q1 : all.find('"', q1 + 1);
+                    if (isConditionTrue() && q2 != std::string::npos) {
+                        std::string mname = all.substr(q1 + 1, q2 - q1 - 1);
+                        auto& stack = pushedMacros_[mname];
+                        if (pragmaArg[1] == 'u') {
+                            auto it = macros.find(mname);
+                            stack.push_back(it != macros.end() ? std::make_pair(true, it->second)
+                                                               : std::make_pair(false, Macro{}));
+                        } else if (!stack.empty()) {
+                            if (stack.back().first) macros[mname] = stack.back().second;
+                            else macros.erase(mname);
+                            stack.pop_back();
+                        }
+                    }
+                    output << "\n";
+                } else if (pragmaArg == "once") {
                     if (!currentFile.empty()) onceFiles.insert(currentFile);
                     output << "\n";
                 } else if (isCompiler && pragmaArg == "weak") {

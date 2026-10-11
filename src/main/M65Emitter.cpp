@@ -458,18 +458,31 @@ void M65Emitter::restoreFramePointer() {
     sta_zp(fp);
 }
 
-void M65Emitter::lda_stack(uint8_t offset) {
-    if (hasFramePointer()) {
-        // Use frame pointer: LDY #offset; LDA ($FP),Y
-        ldy_imm(offset);
-        emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
-    } else {
-        // Fallback: assume frame pointer at $FD/$FE (cc45 default)
-        // When frame-relative variables are used, cc45 always sets FP at $FD/$FE
-        // Use frame pointer indirect addressing: LDY #offset; LDA ($FD),Y
-        ldy_imm(offset);
-        emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, 0xFD, true);
+// The frame is reached as (FP),Y. An offset past 255 (a frame or
+// parameter area over 255 bytes) goes through $FB/$FC = FP + the offset's
+// high byte, with A preserved (the carry is changed). Returns the pointer to
+// index and sets Y.
+uint8_t M65Emitter::framePtrFor(uint16_t offset) {
+    uint8_t fp = (sacMode_ || hasFramePointer()) ? framePointerZP_ : 0xFD;
+    if (offset > 0xFF) {
+        pha();
+        lda_zp(fp);
+        sta_zp(0xFB);
+        lda_zp(fp + 1);
+        clc();
+        adc_imm((offset >> 8) & 0xFF);
+        sta_zp(0xFC);
+        pla();
+        ms_.flags.invalidate();
+        fp = 0xFB;
     }
+    ldy_imm(offset & 0xFF);
+    return fp;
+}
+
+void M65Emitter::lda_stack(uint16_t offset) {
+    uint8_t zp = framePtrFor(offset);
+    emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, zp, true);
 }
 
 void M65Emitter::lda_stack_noTSX(uint8_t offset) {
@@ -478,112 +491,84 @@ void M65Emitter::lda_stack_noTSX(uint8_t offset) {
     recordSpBaseReloc(offset);
     emitInstruction("lda", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
 }
-void M65Emitter::ldx_stack(uint8_t offset) {
-    if (hasFramePointer()) {
-        ldy_imm(offset);
-        emitInstruction("ldx", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
-    } else {
-        // Fallback: assume frame pointer at $FD/$FE (cc45 default)
-        ldy_imm(offset);
-        emitInstruction("ldx", AddressingMode::BASE_PAGE_INDIRECT_Y, 0xFD, true);
-    }
+void M65Emitter::ldx_stack(uint16_t offset) {
+    // No LDX (zp),Y: through A (preserved)
+    pha();
+    lda_stack(offset);
+    tax();
+    pla();
     ms_.invalidateReg(REG_X);
 }
-void M65Emitter::ldy_stack(uint8_t offset) {
+void M65Emitter::ldy_stack(uint16_t offset) {
     // Y holds the offset for the indirect access: load through A (the frame
     // is always reached through the frame pointer, never page 1)
     lda_stack(offset);
     tay();
 }
-void M65Emitter::ldz_stack(uint8_t offset) {
-    if (hasFramePointer()) {
-        ldy_imm(offset);
-        emitInstruction("ldz", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
-    } else {
-        // Fallback: assume frame pointer at $FD/$FE (cc45 default)
-        ldy_imm(offset);
-        emitInstruction("ldz", AddressingMode::BASE_PAGE_INDIRECT_Y, 0xFD, true);
-    }
+void M65Emitter::ldz_stack(uint16_t offset) {
+    // No LDZ (zp),Y: through A (preserved)
+    pha();
+    lda_stack(offset);
+    taz();
+    pla();
 }
-void M65Emitter::sta_stack(uint8_t offset) {
-    ms_.storeStack(offset, REG_A);
-    if (sacMode_ || hasFramePointer()) {
-        // Both SAC and stack modes use indirect addressing through FP
-        // In SAC: $FD/$FE point to AR buffer at fixed address
-        // In stack: $FD/$FE point to stack frame
-        ldy_imm(offset);
-        emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
-    } else {
-        // Fallback: assume frame pointer at $FD/$FE (cc45 default)
-        ldy_imm(offset);
-        emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, 0xFD, true);
-    }
+// The tracked stack copy (8-bit offsets only)
+static inline bool trackable(uint16_t offset) { return offset <= 0xFF; }
+void M65Emitter::sta_stack(uint16_t offset) {
+    if (trackable(offset)) ms_.storeStack((uint8_t)offset, REG_A);
+    else ms_.invalidateStack((uint8_t)offset);
+    uint8_t zp = framePtrFor(offset);
+    emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, zp, true);
 }
-void M65Emitter::stx_stack(uint8_t offset) {
-    ms_.storeStack(offset, REG_X);
-    if (sacMode_ || hasFramePointer()) {
-        // Both SAC and stack modes use indirect addressing through FP
-        ldy_imm(offset);
-        emitInstruction("stx", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
-    } else {
-        // Fallback: assume frame pointer at $FD/$FE (cc45 default)
-        ldy_imm(offset);
-        emitInstruction("stx", AddressingMode::BASE_PAGE_INDIRECT_Y, 0xFD, true);
-    }
+void M65Emitter::stx_stack(uint16_t offset) {
+    // Through A (preserved)
+    pha();
+    txa();
+    sta_stack(offset);
+    pla();
+    if (trackable(offset)) ms_.storeStack((uint8_t)offset, REG_X);
 }
-void M65Emitter::sty_stack(uint8_t offset) {
-    ms_.storeStack(offset, REG_Y);
+void M65Emitter::sty_stack(uint16_t offset) {
     // Y is needed as the index: store through A (preserved)
     pha();
     tya();
     sta_stack(offset);
     pla();
+    if (trackable(offset)) ms_.storeStack((uint8_t)offset, REG_Y);
 }
-void M65Emitter::stz_stack(uint8_t offset) {
-    ms_.storeStack(offset, REG_Z);
-    if (sacMode_ || hasFramePointer()) {
-        // Both SAC and stack modes: STZ doesn't support indirect addressing, use A as intermediate
-        sta_zp(scratchZP_);  // save A
-        tza();               // A = Z
-        ldy_imm(offset);
-        emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, framePointerZP_, true);
-        lda_zp(scratchZP_);  // restore A
-    } else {
-        // Fallback: assume frame pointer at $FD/$FE (cc45 default)
-        // Since STZ doesn't support indirect addressing, use indirect store via A
-        sta_zp(scratchZP_);  // save A
-        tza();               // A = Z
-        ldy_imm(offset);
-        emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, 0xFD, true);
-        lda_zp(scratchZP_);  // restore A
-    }
+void M65Emitter::stz_stack(uint16_t offset) {
+    // STZ has no indirect mode: through A (preserved)
+    pha();
+    tza();
+    sta_stack(offset);
+    pla();
+    if (trackable(offset)) ms_.storeStack((uint8_t)offset, REG_Z);
 }
 // Frame-relative increment/decrement through the frame pointer (A and Y
 // are clobbered; Z/N reflect the new value). Page-1 addressing ($0100,X)
 // would miss a frame on the 16-bit stack.
-void M65Emitter::inc_stack(uint8_t offset) {
+void M65Emitter::inc_stack(uint16_t offset) {
     lda_stack(offset);
     emitInstruction("inc", AddressingMode::ACCUMULATOR, 0, true);
     sta_stack(offset);
     ms_.invalidateReg(REG_A);
-    ms_.invalidateStack(offset);
+    ms_.invalidateStack((uint8_t)offset);
     ms_.flags.invalidate();
 }
-void M65Emitter::dec_stack(uint8_t offset) {
+void M65Emitter::dec_stack(uint16_t offset) {
     lda_stack(offset);
     emitInstruction("dec", AddressingMode::ACCUMULATOR, 0, true);
     sta_stack(offset);
     ms_.invalidateReg(REG_A);
-    ms_.invalidateStack(offset);
+    ms_.invalidateStack((uint8_t)offset);
     ms_.flags.invalidate();
 }
-void M65Emitter::lda_frame(uint8_t fpOff, uint8_t yOff) {
-    uint8_t totalOff = fpOff + yOff;
+void M65Emitter::lda_frame(uint8_t fpOff, uint16_t yOff) {
+    uint16_t totalOff = fpOff + yOff;
     lda_stack(totalOff);
 }
-void M65Emitter::sta_frame(uint8_t fpOff, uint8_t yOff) {
-    // Direct stack access: TSX; STA __sp_base + fpOff + yOff, X
-    uint8_t totalOff = fpOff + yOff;
+void M65Emitter::sta_frame(uint8_t fpOff, uint16_t yOff) {
+    uint16_t totalOff = fpOff + yOff;
     sta_stack(totalOff);
 }
 

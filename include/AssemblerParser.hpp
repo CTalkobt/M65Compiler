@@ -375,8 +375,8 @@ private:
 
     struct FrameAccessInfo {
         bool isFrame = false;
-        uint8_t fpOff = 0;
-        uint8_t yOff = 0;
+        uint16_t fpOff = 0;
+        uint16_t yOff = 0;
     };
     FrameAccessInfo resolveFrameAccess(int tokenIndex, const std::string& scopePrefix);
 

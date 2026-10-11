@@ -102,6 +102,18 @@ void IRBuilder::generate(TranslationUnit& unit) {
             changed = (it != module_.functions.end());
             module_.functions.erase(it, module_.functions.end());
         }
+        // A data word naming a label of a removed function (a static &&label
+        // table of that function): the table goes with it
+        std::set<std::string> kept;
+        for (const auto& fn : module_.functions) kept.insert(fn.name);
+        module_.globals.erase(std::remove_if(module_.globals.begin(), module_.globals.end(),
+            [&](const ir::Module::GlobalVar& g) {
+                for (const auto& [off, w] : g.initWords) {
+                    size_t at = w.find("__lbl_");
+                    if (at != std::string::npos && !kept.count(w.substr(0, at))) return true;
+                }
+                return false;
+            }), module_.globals.end());
     }
     // Phase 4: Compiler-level devirtualization
     // For each vtable slot, if only one implementation exists across all vtables,
@@ -327,6 +339,15 @@ int IRBuilder::getTypeSize(const std::string& typeName, int ptrLevel) {
 
 IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
     if (!expr) return {};
+    if (!vmVars_.empty()) {
+        if (auto* vr = dynamic_cast<VariableReference*>(expr)) {
+            auto it = vmVars_.find(vr->name);
+            if (it != vmVars_.end() && locals_.count(vr->name)) {
+                std::string tn = localTypeNames_.count(vr->name) ? localTypeNames_[vr->name] : "struct " + it->second;
+                return {mapType(tn, 0), tn, false, ir::Type::VOID, structs_[it->second].totalSize};
+            }
+        }
+    }
     
     if (auto* gs = dynamic_cast<GenericSelection*>(expr)) {
         IRTypeInfo controlInfo = getExprTypeInfo(gs->control.get());
@@ -378,6 +399,9 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
     
     if (auto* str = dynamic_cast<StringLiteral*>(expr)) {
         // A string literal is a char array: decays to a pointer to char
+        // (L"...": to 16-bit wchar_t)
+        if (str->isWide)
+            return {ir::Type::PTR, "int", false, ir::Type::I16, 2 * ((int)str->value.size() + 1)};
         return {ir::Type::PTR, "char", false, ir::Type::I8, (int)str->value.size() + 1};
     }
 
@@ -1676,6 +1700,13 @@ bool IRBuilder::isBooleanValue(const ir::Operand& v) const {
 int IRBuilder::aggregateBlockSize(const std::string& typeName, int pointerLevel) {
     if (pointerLevel > 0) return 0;
     if (!structs_.count(getAggregateName(typeName))) return 0;
+    // A struct with run-time member sizes is always handled by address
+    {
+        std::string vn = getAggregateName(typeName);
+        if (vn.rfind("struct ", 0) == 0) vn = vn.substr(7);
+        else if (vn.rfind("union ", 0) == 0) vn = vn.substr(6);
+        if (vmStructs_.count(vn)) return std::max(6, structs_[getAggregateName(typeName)].totalSize);
+    }
     int size = getTypeSize(typeName, 0);
     return (size == 1 || size == 2 || size == 4) ? 0 : size;
 }
@@ -2068,6 +2099,29 @@ bool IRBuilder::initElement(InitImageCtx& c, int off, const std::string& type, i
     while (auto* cast = dynamic_cast<CastExpression*>(bare)) bare = cast->expression.get();
     bool isArray = !dims.empty();
     bool aggregate = isArray || (ptr == 0 && structOf(type));
+    // A complex member from a complex (or real) value: {re, im} when constant,
+    // else the value converted to the member's complex type
+    if (aggregate && !isArray && !dynamic_cast<InitializerList*>(bare)) {
+        std::string sn = getAggregateName(type);
+        if (sn.rfind("_Complex_", 0) == 0) {
+            double re = 0, im = 0;
+            if (evalConstComplex(bare, re, im)) {
+                bool isFloat = sn == "_Complex_float";
+                auto il = std::make_unique<InitializerList>();
+                il->line = e->line; il->column = e->column; il->sourceFile = e->sourceFile;
+                for (double v : {re, im}) {
+                    if (isFloat) il->elements.push_back(std::make_unique<FloatLiteral>(v));
+                    else il->elements.push_back(std::make_unique<IntegerLiteral>((int64_t)v));
+                }
+                list.elements[idx] = std::move(il);
+            } else {
+                toComplex(list.elements[idx], sn);
+            }
+            e = list.elements[idx].get();
+            ++idx;
+            return initObject(c, off, type, ptr, dims, e);
+        }
+    }
     // A struct-typed value initializes the whole member (no brace elision)
     bool wholeStruct = false;
     if (aggregate && !isArray && !dynamic_cast<InitializerList*>(bare) && !dynamic_cast<StringLiteral*>(bare)) {
@@ -2212,6 +2266,21 @@ bool IRBuilder::initScalar(InitImageCtx& c, int off, const std::string& type, in
             return true;
         }
     }
+    // &&a - &&b: the distance between two labels of this function
+    if (auto* bo = dynamic_cast<BinaryOperation*>(e); bo && bo->op == "-" && currentFunc_) {
+        Expression* l = bo->left.get();
+        Expression* r = bo->right.get();
+        while (auto* cc = dynamic_cast<CastExpression*>(l)) l = cc->expression.get();
+        while (auto* cc = dynamic_cast<CastExpression*>(r)) r = cc->expression.get();
+        auto* la = dynamic_cast<LabelAddressExpression*>(l);
+        auto* lb = dynamic_cast<LabelAddressExpression*>(r);
+        if (la && lb && size == 2) {
+            currentFunc_->addressTakenLabels.insert(la->label);
+            currentFunc_->addressTakenLabels.insert(lb->label);
+            c.gv->initWords[off] = currentFunc_->labelAlias(la->label) + "-" + currentFunc_->labelAlias(lb->label);
+            return true;
+        }
+    }
     // &&label (a static goto * table): the label's global alias
     if (auto* la = dynamic_cast<LabelAddressExpression*>(e); la && currentFunc_) {
         if (size != 2) return false;
@@ -2325,6 +2394,73 @@ std::unique_ptr<Expression> IRBuilder::cloneSimpleExpr(Expression* e) {
 }
 
 // Rewrite e as a value of complex type `kind` (no-op when it already is one)
+// Wide integers (__int(N), struct __intN { char bytes[N/8]; }): the struct
+// name when e has that type, else ""
+std::string IRBuilder::wideKindOf(Expression* e) {
+    IRTypeInfo ti = getExprTypeInfo(e);
+    if (ti.type == ir::Type::PTR && !isAggCopyParam(e)) return "";
+    std::string n = getAggregateName(ti.typeName);
+    if (n.rfind("struct ", 0) == 0) n = n.substr(7);
+    if (n.size() > 5 && n.compare(0, 5, "__int") == 0 &&
+        std::all_of(n.begin() + 5, n.end(), ::isdigit) && structs_.count(n))
+        return n;
+    return "";
+}
+
+// An integer as the wide integer type `kind` (no-op when it already is one):
+// its bytes, then zeros or sign fill. braced: an initializer list (for a
+// declaration's initializer), else a compound literal value
+void IRBuilder::toWide(std::unique_ptr<Expression>& e, const std::string& kind, bool braced) {
+    if (!e || !wideKindOf(e.get()).empty()) return;
+    IRTypeInfo ti = getExprTypeInfo(e.get());
+    if (ti.type != ir::Type::I8 && ti.type != ir::Type::I16 && ti.type != ir::Type::I32) return;
+    auto sit = structs_.find(kind);
+    if (sit == structs_.end()) return;
+    int n = sit->second.totalSize;
+    int srcBytes = ir::typeSize(ti.type);
+    bool sgn = ti.isSigned;
+    int line = e->line, col = e->column; std::string file = e->sourceFile;
+    auto list = std::make_unique<InitializerList>();
+    double cre = 0, cim = 0;
+    Expression* inner = e.get();
+    while (auto* c = dynamic_cast<CastExpression*>(inner)) inner = c->expression.get();
+    auto* lit = dynamic_cast<IntegerLiteral*>(inner);
+    if (lit || (dynamic_cast<UnaryOperation*>(inner) && evalConstComplex(inner, cre, cim) && cim == 0)) {
+        int64_t v = lit ? lit->value : (int64_t)cre;
+        if (srcBytes < 8) {
+            int64_t m = (int64_t)1 << (8 * srcBytes);
+            v &= m - 1;
+            if (sgn && (v & (m >> 1))) v -= m;
+        }
+        for (int k = 0; k < n; k++) list->elements.push_back(std::make_unique<IntegerLiteral>(k < 8 ? (v >> (8 * k)) & 0xFF : (v < 0 ? 0xFF : 0)));
+    } else {
+        // A run-time value: through a hidden local (evaluated once)
+        std::string tmp = "__wide" + std::to_string(complexTemp_++);
+        auto decl = std::make_unique<VariableDeclaration>(ti.type == ir::Type::I32 ? "long" : ti.type == ir::Type::I16 ? "int" : "char", tmp, 0);
+        decl->isSigned = sgn;
+        decl->initializer = std::move(e);
+        decl->line = line; decl->column = col; decl->sourceFile = file;
+        decl->accept(*this);
+        for (int k = 0; k < n; k++) {
+            std::unique_ptr<Expression> b;
+            if (k < srcBytes) {
+                b = std::make_unique<BinaryOperation>(">>", std::make_unique<VariableReference>(tmp), std::make_unique<IntegerLiteral>(8 * k));
+            } else if (sgn) {
+                // 0xFF when negative: -(tmp < 0)
+                b = std::make_unique<UnaryOperation>("-", std::make_unique<BinaryOperation>("<", std::make_unique<VariableReference>(tmp), std::make_unique<IntegerLiteral>(0)));
+            } else {
+                b = std::make_unique<IntegerLiteral>(0);
+            }
+            list->elements.push_back(std::make_unique<CastExpression>("char", 0, false, std::move(b)));
+        }
+    }
+    list->line = line; list->column = col; list->sourceFile = file;
+    if (braced) { e = std::move(list); return; }
+    auto cl = std::make_unique<CompoundLiteral>("struct " + kind, 0, false, std::move(list));
+    cl->line = line; cl->column = col; cl->sourceFile = file;
+    e = std::move(cl);
+}
+
 void IRBuilder::toComplex(std::unique_ptr<Expression>& e, const std::string& kind) {
     std::string k = complexKindOf(e.get());
     auto* cast = dynamic_cast<CastExpression*>(e.get());
@@ -2466,6 +2602,32 @@ ir::Operand IRBuilder::emitAddressOf(Expression* expr) {
     return lastValue_;
 }
 
+// The struct with run-time member sizes an expression's value has, or ""
+std::string IRBuilder::vmStructOf(Expression* e) {
+    if (vmStructs_.empty() || !e) return "";
+    // ({ ...; v; }) and a = b: the type of v / a
+    while (true) {
+        if (auto* se = dynamic_cast<StatementExpression*>(e); se && se->result) { e = se->result.get(); continue; }
+        if (auto* as = dynamic_cast<Assignment*>(e)) { e = as->target.get(); continue; }
+        break;
+    }
+    if (auto* vr = dynamic_cast<VariableReference*>(e)) {
+        auto it = vmVars_.find(vr->name);
+        if (it != vmVars_.end()) return it->second;
+    }
+    if (auto* va = dynamic_cast<BuiltinVaArg*>(e)) {
+        if (va->pointerLevel) return "";
+        std::string n = getAggregateName(va->typeName);
+        return vmStructs_.count(n) ? n : "";
+    }
+    IRTypeInfo ti = getExprTypeInfo(e);
+    if (ti.type == ir::Type::PTR) return "";
+    std::string n = getAggregateName(ti.typeName);
+    if (n.rfind("struct ", 0) == 0) n = n.substr(7);
+    else if (n.rfind("union ", 0) == 0) n = n.substr(6);
+    return vmStructs_.count(n) ? n : "";
+}
+
 ir::Operand IRBuilder::emitPtrOffset(const ir::Operand& base, int offset, const ir::SourceLoc& sl) {
     if (offset == 0) return base;
     auto p = allocVreg(ir::Type::PTR);
@@ -2481,6 +2643,19 @@ ir::Operand IRBuilder::emitPtrOffset(const ir::Operand& base, int offset, const 
 }
 
 void IRBuilder::emitBlockCopy(const ir::Operand& dst, const ir::Operand& src, int size, const ir::SourceLoc& sl) {
+    // A struct with run-time member sizes: its size from its hidden local
+    if (vmCopySize_.kind != ir::OperandKind::NONE) {
+        ir::Inst call;
+        call.op = ir::Op::CALL_VOID;
+        call.resultType = ir::Type::VOID;
+        call.src1 = ir::Operand::global("_memcpy");
+        call.args = {dst, src, vmCopySize_};
+        call.callConv = zpCallMode ? ir::CallConv::ZP : ir::CallConv::STACK;
+        call.loc = sl;
+        emit(call);
+        calledFunctions_.insert("_memcpy");
+        return;
+    }
     if (size <= 0) return;
     if (size <= 4) {
         for (int off = 0; off < size;) {
@@ -2546,6 +2721,9 @@ bool IRBuilder::usesZpConvSig(const FuncPtrSignature& sig) {
 // Evaluate a call argument. A by-copy aggregate parameter (aggSize > 0) gets the
 // address of a fresh copy of the argument.
 ir::Operand IRBuilder::evalArgument(Expression* arg, int aggSize, const ir::SourceLoc& sl) {
+    // A struct with run-time member sizes goes by its own address (va_arg
+    // copies it)
+    if (!vmStructOf(arg).empty()) return emitAddressOf(arg);
     if (aggSize > 0 && currentFunc_) {
         auto buf = allocVreg(ir::Type::I16);
         currentFunc_->vregSizes[buf.vregId] = aggSize;
@@ -2654,6 +2832,16 @@ void IRBuilder::emitMethodCall(const std::string& mangledName, std::vector<ir::O
 
 void IRBuilder::emitAggregateInto(Expression* expr, const ir::Operand& dst, int size, const ir::SourceLoc& sl,
                                   bool dstMayAlias) {
+    // A struct with run-time member sizes: copied with its run-time size
+    if (vmCopySize_.kind == ir::OperandKind::NONE) {
+        std::string vn = vmStructOf(expr);
+        if (!vn.empty()) {
+            vmCopySize_ = locals_[vmStructs_[vn].sizeVar];
+            emitAggregateInto(expr, dst, size, sl, dstMayAlias);
+            vmCopySize_ = ir::Operand::none();
+            return;
+        }
+    }
     if (auto* call = dynamic_cast<FunctionCall*>(expr)) {
         // An aggregate-returning call (function, method or function pointer)
         // writes its result straight into dst through the hidden pointer —
@@ -2690,6 +2878,8 @@ void IRBuilder::emitAggregateInto(Expression* expr, const ir::Operand& dst, int 
 
 void IRBuilder::resetFunctionLocalState() {
     aggCopyParams_.clear();
+    vmVars_.clear();
+    vmStructs_.clear();
     locals_.clear();
     localTypes_.clear();
     localTypeNames_.clear();
@@ -2779,6 +2969,49 @@ void IRBuilder::visit(StatementExpression& node) {
 
 void IRBuilder::visit(VariableDeclaration& node) {
     if (node.isFunctionPointer && node.funcPtrSig) fnPtrSigs_[node.name] = node.funcPtrSig;
+    // A variable of a struct with run-time member sizes: storage of the
+    // run-time size on the stack (alloca); the variable is its address
+    if (currentFunc_ && !node.isStatic && !node.isExtern && node.pointerLevel == 0 && node.arrayDims.empty()) {
+        std::string sn = getAggregateName(node.type);
+        if (sn.rfind("struct ", 0) == 0) sn = sn.substr(7);
+        else if (sn.rfind("union ", 0) == 0) sn = sn.substr(6);
+        auto vsit = vmStructs_.find(sn);
+        if (vsit != vmStructs_.end()) {
+            currentFunc_->originalIsLeaf = false;
+            currentFunc_->originalCallees.insert("_alloca");
+            if (!functionReturnTypes_.count("alloca")) {
+                auto proto = std::make_unique<FunctionDeclaration>("alloca", "void");
+                proto->returnPointerLevel = 1;
+                proto->isPrototype = true;
+                Parameter prm;
+                prm.type = "int";
+                prm.pointerLevel = 0;
+                prm.name = "size";
+                proto->parameters.push_back(prm);
+                auto* savedFunc = currentFunc_;
+                auto savedBlock = currentBlock_;
+                proto->accept(*this);
+                currentFunc_ = savedFunc;
+                currentBlock_ = savedBlock;
+                vlaAllocaProtos_.push_back(std::move(proto));
+            }
+            auto call = std::make_unique<FunctionCall>("alloca");
+            call->arguments.push_back(std::make_unique<VariableReference>(vsit->second.sizeVar));
+            call->line = node.line; call->column = node.column; call->sourceFile = node.sourceFile;
+            auto pd = std::make_unique<VariableDeclaration>(node.type, node.name, 1);
+            pd->initializer = std::make_unique<CastExpression>(node.type, 1, false, std::move(call));
+            pd->line = node.line; pd->column = node.column; pd->sourceFile = node.sourceFile;
+            pd->accept(*this);
+            vmVars_[node.name] = sn;
+            if (node.initializer) {
+                VariableReference self(node.name);
+                self.line = node.line; self.column = node.column; self.sourceFile = node.sourceFile;
+                ir::Operand dst = emitAddressOf(&self);
+                emitAggregateInto(node.initializer.get(), dst, structs_[sn].totalSize, loc(node));
+            }
+            return;
+        }
+    }
     // A variable-length array (int a[n][4]): the run-time dimensions are
     // evaluated once into hidden locals, the array is allocated on the stack
     // (alloca) and the variable is a pointer to it, indexed with run-time
@@ -2866,6 +3099,13 @@ void IRBuilder::visit(VariableDeclaration& node) {
         }
     }
 
+    // Wide integer variable initialized from an integer
+    if (node.pointerLevel == 0 && node.arrayDims.empty() && node.initializer &&
+        !dynamic_cast<InitializerList*>(node.initializer.get())) {
+        std::string wn = getAggregateName(node.type);
+        if (wn.rfind("struct ", 0) == 0) wn = wn.substr(7);
+        if (wn.rfind("__int", 0) == 0 && structs_.count(wn)) toWide(node.initializer, wn, true);
+    }
     // Complex variable initialized from an expression: a constant initializer
     // (globals/statics) becomes {real, imag}; otherwise the value is converted
     if (node.pointerLevel == 0 && node.arrayDims.empty() && node.initializer &&
@@ -3435,6 +3675,7 @@ void IRBuilder::visit(StringLiteral& node) {
     sl.escMask = node.escMask;
     sl.isAscii = (encoding == 1);
     sl.encoding = encoding;
+    sl.wide = node.isWide;
     module_.strings.push_back(sl);
     auto dest = allocVreg(ir::Type::PTR);
     ir::Inst inst;
@@ -3448,6 +3689,16 @@ void IRBuilder::visit(StringLiteral& node) {
 }
 
 void IRBuilder::visit(VariableReference& node) {
+    if (!vmVars_.empty() && vmVars_.count(node.name) && locals_.count(node.name) && !inVmVarLoad_) {
+        // A struct with run-time member sizes: the variable holds its address
+        bool saved = computeAddressOnly_;
+        computeAddressOnly_ = false;
+        inVmVarLoad_ = true;
+        visit(node);
+        inVmVarLoad_ = false;
+        computeAddressOnly_ = saved;
+        return;
+    }
     if (!locals_.count(node.name)) {
         auto rn = staticRenames_.find(node.name);
         if (rn != staticRenames_.end()) node.name = rn->second;
@@ -3649,6 +3900,18 @@ void IRBuilder::visit(VariableReference& node) {
 }
 
 void IRBuilder::visit(Assignment& node) {
+    // Wide integer target: x op= y as x = x op y, an integer value converted
+    if (std::string w = wideKindOf(node.target.get()); !w.empty()) {
+        if (node.op.size() == 2 && node.op[1] == '=' && std::string("+-*&|^").find(node.op[0]) != std::string::npos) {
+            if (auto copy = cloneSimpleExpr(node.target.get())) {
+                auto bin = std::make_unique<BinaryOperation>(node.op.substr(0, 1), std::move(copy), std::move(node.expression));
+                bin->line = node.line; bin->column = node.column; bin->sourceFile = node.sourceFile;
+                node.expression = std::move(bin);
+                node.op = "=";
+            }
+        }
+        if (node.op == "=") toWide(node.expression, w, false);
+    }
     // Complex target: the value as that complex type; x op= y as x = x op y
     if (std::string k = complexKindOf(node.target.get()); !k.empty()) {
         if (node.op == "+=" || node.op == "-=" || node.op == "*=" || node.op == "/=") {
@@ -4075,6 +4338,12 @@ void IRBuilder::visit(Assignment& node) {
 }
 
 void IRBuilder::visit(BinaryOperation& node) {
+    // Wide integer with an integer operand: the integer converted
+    if (node.op != "," && node.op != "&&" && node.op != "||" && node.op != "<<" && node.op != ">>") {
+        std::string wl = wideKindOf(node.left.get()), wr = wideKindOf(node.right.get());
+        if (!wl.empty() && wr.empty()) toWide(node.right, wl, false);
+        else if (wl.empty() && !wr.empty()) toWide(node.left, wr, false);
+    }
     // Complex arithmetic/equality: both operands as the common complex type,
     // then the struct's operator method does the work
     if (node.op == "+" || node.op == "-" || node.op == "*" || node.op == "/" ||
@@ -4624,6 +4893,10 @@ void IRBuilder::visit(UnaryOperation& node) {
         lastValue_ = dest;
     } else if (node.op == "&") {
         // Address-of: compute the runtime address of the operand
+        if (auto* vr = dynamic_cast<VariableReference*>(node.operand.get()); vr && vmVars_.count(vr->name) && locals_.count(vr->name)) {
+            vr->accept(*this);  // a struct with run-time member sizes: the variable holds the address
+            return;
+        }
         if (auto* vr = dynamic_cast<VariableReference*>(node.operand.get())) {
             auto rit = localRegister_.find(vr->name);
             if (rit != localRegister_.end() && rit->second) {
@@ -4930,6 +5203,19 @@ void IRBuilder::visit(FunctionCall& node) {
     if (!node.callExpr && !locals_.count(node.name)) {
         auto rn = staticRenames_.find(node.name);
         if (rn != staticRenames_.end()) node.name = rn->second;
+    }
+    // An integer argument for a wide integer parameter (__int(N)): converted
+    if (!node.callExpr) {
+        auto fit = allFunctions_.find(node.name);
+        if (fit != allFunctions_.end()) {
+            const auto& params = fit->second->parameters;
+            for (size_t i = 0; i < node.arguments.size() && i < params.size(); i++) {
+                if (params[i].pointerLevel) continue;
+                std::string wn = getAggregateName(params[i].type);
+                if (wn.rfind("struct ", 0) == 0) wn = wn.substr(7);
+                if (wn.rfind("__int", 0) == 0 && structs_.count(wn)) toWide(node.arguments[i], wn, false);
+            }
+        }
     }
     // Struct method call: p.method(args) or ptr->method(args)
     // callExpr is MemberAccess, check if member is a known method
@@ -6429,6 +6715,7 @@ void IRBuilder::visit(ArrayAccess& node) {
 
     // Determine element size from array type (handling multi-dimensional arrays)
     int elemSize = 2; // default
+    std::vector<ir::Operand> rtDims;  // run-time strides (see below)
     Expression* root = node.arrayExpr.get();
     int depth = 1;
     while (auto* inner = dynamic_cast<ArrayAccess*>(root)) {
@@ -6504,7 +6791,25 @@ void IRBuilder::visit(ArrayAccess& node) {
         // A multi-dimensional member (double x[2][3]): the stride covers the
         // dimensions not yet indexed
         if (auto* mi = arrayMemberOf(ma)) {
-            if (!mi->arrayDims.empty()) {
+            // A member with run-time dimensions (struct with run-time sizes):
+            // the remaining dimensions' strides at run time
+            std::vector<std::string> mdv;
+            if (!vmStructs_.empty()) {
+                IRTypeInfo bi = getExprTypeInfo(ma->structExpr.get());
+                std::string vn = getAggregateName(bi.typeName);
+                if (vn.rfind("struct ", 0) == 0) vn = vn.substr(7);
+                else if (vn.rfind("union ", 0) == 0) vn = vn.substr(6);
+                auto vsit = vmStructs_.find(vn);
+                if (vsit != vmStructs_.end() && vsit->second.memberDims.count(ma->memberName))
+                    mdv = vsit->second.memberDims[ma->memberName];
+            }
+            if (!mdv.empty() && !mi->arrayDims.empty()) {
+                elemSize = std::max(1, getTypeSize(mi->type, mi->pointerLevel));
+                for (size_t i = depth; i < mi->arrayDims.size(); i++) {
+                    if (i < mdv.size() && !mdv[i].empty()) rtDims.push_back(locals_[mdv[i]]);
+                    else elemSize *= mi->arrayDims[i];
+                }
+            } else if (!mi->arrayDims.empty()) {
                 elemSize = getTypeSize(mi->type, mi->pointerLevel);
                 for (size_t i = depth; i < mi->arrayDims.size(); i++) elemSize *= mi->arrayDims[i];
             } else if (mi->pointerLevel > 0) {
@@ -6524,7 +6829,6 @@ void IRBuilder::visit(ArrayAccess& node) {
     // A parameter with run-time inner dimensions (char a[2][n]): the stride
     // is (element size x constant dims) x the run-time dims, multiplied at
     // run time
-    std::vector<ir::Operand> rtDims;
     if (auto* ref = dynamic_cast<VariableReference*>(root)) {
         auto vit = paramVlaDims_.find(ref->name);
         auto pit = paramArrayDims_.find(ref->name);
@@ -6539,6 +6843,15 @@ void IRBuilder::visit(ArrayAccess& node) {
                     rtDims.push_back(vit->second[i - 1]);
             }
             if (!rtDims.empty()) elemSize = constStride;
+        }
+    }
+
+    // Elements of a struct with run-time member sizes: its run-time size
+    if (rtDims.empty()) {
+        std::string vn = vmStructOf(&node);
+        if (!vn.empty()) {
+            rtDims.push_back(locals_[vmStructs_[vn].sizeVar]);
+            elemSize = 1;
         }
     }
 
@@ -6642,6 +6955,32 @@ void IRBuilder::visit(MemberAccess& node) {
     auto base = lastValue_;
     computeAddressOnly_ = oldAddrMode;
 
+    // f().m of a small struct returned in registers: the value has no
+    // address; it is stored into a hidden local first
+    if (!node.isArrow && dynamic_cast<FunctionCall*>(node.structExpr.get()) &&
+        base.type != ir::Type::PTR && base.type != ir::Type::VOID && currentFunc_) {
+        auto slot = allocVreg(base.type);
+        currentFunc_->localSlotVregs.insert(slot.vregId);
+        currentFunc_->memoryVregs.insert(slot.vregId);
+        usedVregs_.insert(slot.vregId);
+        ir::Inst st;
+        st.op = ir::Op::STORE;
+        st.resultType = base.type;
+        st.src1 = base;
+        st.src2 = slot;
+        st.loc = loc(node);
+        emit(st);
+        auto addr = allocVreg(ir::Type::PTR);
+        ir::Inst la;
+        la.op = ir::Op::ADDR_LOCAL;
+        la.dest = addr;
+        la.resultType = ir::Type::PTR;
+        la.src1 = slot;
+        la.loc = loc(node);
+        emit(la);
+        base = addr;
+    }
+
     IRTypeInfo baseInfo = getExprTypeInfo(node.structExpr.get());
     std::string sName = getAggregateName(baseInfo.typeName);
 
@@ -6670,6 +7009,28 @@ void IRBuilder::visit(MemberAccess& node) {
     }
 
     int memberOffset = mit->offset + accumulatedOffset;
+    // A struct with run-time member sizes: the member's offset from its
+    // hidden local
+    {
+        std::string vn = sName;
+        if (vn.rfind("struct ", 0) == 0) vn = vn.substr(7);
+        else if (vn.rfind("union ", 0) == 0) vn = vn.substr(6);
+        auto vsit = vmStructs_.find(vn);
+        if (vsit != vmStructs_.end() && vsit->second.offsetVar.count(node.memberName)) {
+            ir::Operand off = locals_[vsit->second.offsetVar[node.memberName]];
+            auto nb = allocVreg(ir::Type::PTR);
+            ir::Inst a;
+            a.op = ir::Op::ADD;
+            a.dest = nb;
+            a.resultType = ir::Type::PTR;
+            a.src1 = base;
+            a.src2 = off;
+            a.loc = loc(node);
+            emit(a);
+            base = nb;
+            memberOffset = 0;
+        }
+    }
     int bitWidth = mit->bitWidth;
     int bitOffset = mit->bitOffset;
     bool memberIsArray = !mit->arrayDims.empty();
@@ -6931,6 +7292,25 @@ void IRBuilder::visit(SizeofExpression& node) {
         auto vit = vlaSizeVars_.find(vr->name);
         if (vit != vlaSizeVars_.end()) {
             VariableReference sv(vit->second);
+            sv.accept(*this);
+            return;
+        }
+    }
+    // sizeof of a struct with run-time member sizes (or of such a variable)
+    {
+        std::string tn;
+        if (node.isType && node.pointerLevel == 0 && node.arrayDims.empty()) tn = getAggregateName(node.typeName);
+        else if (!node.isType) {
+            if (auto* vr = dynamic_cast<VariableReference*>(node.expression.get())) {
+                auto vit = vmVars_.find(vr->name);
+                if (vit != vmVars_.end()) tn = vit->second;
+            }
+        }
+        if (tn.rfind("struct ", 0) == 0) tn = tn.substr(7);
+        else if (tn.rfind("union ", 0) == 0) tn = tn.substr(6);
+        auto vsit = vmStructs_.find(tn);
+        if (vsit != vmStructs_.end()) {
+            VariableReference sv(vsit->second.sizeVar);
             sv.accept(*this);
             return;
         }
@@ -7496,7 +7876,79 @@ void IRBuilder::visit(StructDefinition& node) {
     if (info.align > 1 && info.totalSize % info.align)
         info.totalSize += info.align - info.totalSize % info.align;
     structs_[node.name] = info;
+
+    // A struct defined in a function with run-time member sizes (char x[n]):
+    // its member offsets and size are computed here, at the definition, into
+    // hidden locals. The static layout is kept for type lookups, with a size
+    // that is never 1, 2 or 4 (such a struct is always handled by address)
+    if (currentFunc_ && !registeringStructs_) {
+        bool vm = false;
+        for (const auto& m : node.members)
+            for (const auto& d : m.vlaDimExprs) if (d) vm = true;
+        if (!vm) {
+            vmStructs_.erase(node.name);
+        } else {
+            VmStruct vs;
+            std::string base = "__vms" + std::to_string(nextLabel_++);
+            int k = 0;
+            auto declInt = [&](const std::string& n, std::unique_ptr<Expression> init) {
+                auto d = std::make_unique<VariableDeclaration>("int", n, 0);
+                d->initializer = std::move(init);
+                d->line = node.line; d->column = node.column; d->sourceFile = node.sourceFile;
+                d->accept(*this);
+                usedVregs_.insert(locals_[n].vregId);
+            };
+            std::string running;   // the size so far ("" = 0)
+            for (auto& m : node.members) {
+                std::unique_ptr<Expression> sz = std::make_unique<IntegerLiteral>(std::max(1, getTypeSize(m.type, m.pointerLevel)));
+                auto& dimVars = vs.memberDims[m.name];
+                for (size_t j = 0; j < m.arrayDims.size(); j++) {
+                    std::unique_ptr<Expression> dim;
+                    if (j < m.vlaDimExprs.size() && m.vlaDimExprs[j]) {
+                        std::string dn = base + "_d" + std::to_string(k) + "_" + std::to_string(j);
+                        declInt(dn, std::move(m.vlaDimExprs[j]));
+                        dim = std::make_unique<VariableReference>(dn);
+                        dimVars.push_back(dn);
+                    } else {
+                        dimVars.push_back("");
+                        dim = std::make_unique<IntegerLiteral>(std::max(0, m.arrayDims[j]));
+                    }
+                    sz = std::make_unique<BinaryOperation>("*", std::move(sz), std::move(dim));
+                }
+                std::string sn = base + "_s" + std::to_string(k);
+                declInt(sn, std::move(sz));
+                std::string on = base + "_o" + std::to_string(k);
+                if (node.isUnion || running.empty())
+                    declInt(on, std::make_unique<IntegerLiteral>(0));
+                else
+                    declInt(on, std::make_unique<VariableReference>(running));
+                vs.offsetVar[m.name] = on;
+                std::string next = base + "_r" + std::to_string(k);
+                if (node.isUnion && !running.empty()) {
+                    // the largest member
+                    declInt(next, std::make_unique<ConditionalExpression>(
+                        std::make_unique<BinaryOperation>(">", std::make_unique<VariableReference>(running), std::make_unique<VariableReference>(sn)),
+                        std::make_unique<VariableReference>(running), std::make_unique<VariableReference>(sn)));
+                } else {
+                    declInt(next, std::make_unique<BinaryOperation>("+", std::make_unique<VariableReference>(on),
+                                                                     std::make_unique<VariableReference>(sn)));
+                }
+                running = next;
+                k++;
+            }
+            vs.sizeVar = running.empty() ? base + "_r0" : running;
+            if (running.empty()) declInt(vs.sizeVar, std::make_unique<IntegerLiteral>(0));
+            vmStructs_[node.name] = vs;
+            int& ts = structs_[node.name].totalSize;
+            if (ts < 6) ts = 6;
+        }
+    }
     parsedStructIsFinal_[node.name] = node.isFinal;
+
+    // The registration pre-pass only records the layout: methods and vtables
+    // come in the main pass, after the declarations that precede the struct
+    // (a method calling a function declared above it)
+    if (registeringStructs_) return;
 
     // Emit struct methods as top-level functions (once: the definition is
     // revisited when a method body declares a variable of its own struct type)
@@ -7812,7 +8264,9 @@ void IRBuilder::registerAllStructDefinitions(TranslationUnit& unit) {
     for (const auto& decl : unit.topLevelDecls) {
         if (auto* structDef = dynamic_cast<StructDefinition*>(decl.get())) {
             // Register the struct definition immediately
+            registeringStructs_ = true;
             visit(*structDef);
+            registeringStructs_ = false;
         }
         // Note: Variable declarations are visited normally during IR generation
         // and will establish typedef mappings through getExprTypeInfo()

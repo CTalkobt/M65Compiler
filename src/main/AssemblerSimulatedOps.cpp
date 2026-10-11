@@ -565,7 +565,7 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
             auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
             if (fa.isFrame) {
                 // Frame-relative: use direct stack access
-                uint8_t totalOff = fa.fpOff + fa.yOff;
+                uint16_t totalOff = fa.fpOff + fa.yOff;
                 if (reg2 == 'X') {
                     e.lda_stack(totalOff + 1); e.sta_scratch();
                     e.lda_stack(totalOff); e.ldx_scratch();
@@ -628,7 +628,7 @@ void AssemblerSimulatedOps::emitLDWCode(AssemblerParser* parser, M65Emitter& e, 
         if (isStack) {
             auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
             if (fa.isFrame) {
-                uint8_t totalOff = fa.fpOff + fa.yOff;
+                uint16_t totalOff = fa.fpOff + fa.yOff;
                 e.lda_stack(totalOff + 1); e.tay();
                 e.lda_stack(totalOff); e.tax();
             } else {
@@ -702,7 +702,7 @@ void AssemblerSimulatedOps::emitSTWCode(AssemblerParser* parser, M65Emitter& e, 
             auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
             if (fa.isFrame) {
                 // Frame-relative store: same pattern as non-frame (save hi to scratch first)
-                uint8_t totalOff = fa.fpOff + fa.yOff;
+                uint16_t totalOff = fa.fpOff + fa.yOff;
                 if (reg2 == 'X') { e.stx_scratch(); e.sta_stack(totalOff); e.lda_scratch(); e.sta_stack(totalOff + 1); }
                 else if (reg2 == 'Y') { e.sty_scratch(); e.sta_stack(totalOff); e.lda_scratch(); e.sta_stack(totalOff + 1); }
                 else if (reg2 == 'Z') { e.sta_stack(totalOff); e.tza(); e.sta_stack(totalOff + 1); }
@@ -727,7 +727,7 @@ void AssemblerSimulatedOps::emitSTWCode(AssemblerParser* parser, M65Emitter& e, 
         if (isStack) {
             auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
             if (fa.isFrame) {
-                uint8_t totalOff = fa.fpOff + fa.yOff;
+                uint16_t totalOff = fa.fpOff + fa.yOff;
                 e.txa(); e.sta_stack(totalOff); e.tya(); e.sta_stack(totalOff + 1);
             } else {
                 e.txa(); e.sta_stack(offset); e.tya(); e.sta_stack(offset + 1);
@@ -1729,7 +1729,7 @@ void AssemblerSimulatedOps::emitPHWStackCode(AssemblerParser* parser, M65Emitter
     auto fa = parser->resolveFrameAccess(tokenIndex, scopePrefix);
     if (fa.isFrame) {
         // Push 16-bit frame-relative value: hi byte first, then lo
-        uint8_t totalOff = fa.fpOff + fa.yOff;
+        uint16_t totalOff = fa.fpOff + fa.yOff;
         e.lda_stack(totalOff + 1); e.pha();
         e.lda_stack(totalOff); e.pha();
     } else {
@@ -2176,7 +2176,7 @@ void AssemblerSimulatedOps::emitMod16Code(AssemblerParser* parser, M65Emitter& e
 void AssemblerSimulatedOps::emitLDA_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
     Symbol* fpSym = parser->resolveFrameVar(scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
-    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    uint16_t yOff = (uint16_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     e.lda_frame(fpOff, yOff);
 }
 
@@ -2184,7 +2184,7 @@ void AssemblerSimulatedOps::emitLDA_FPCode(AssemblerParser* parser, M65Emitter& 
 void AssemblerSimulatedOps::emitSTA_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
     Symbol* fpSym = parser->resolveFrameVar(scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
-    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    uint16_t yOff = (uint16_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     e.sta_frame(fpOff, yOff);
 }
 
@@ -2192,7 +2192,7 @@ void AssemblerSimulatedOps::emitSTA_FPCode(AssemblerParser* parser, M65Emitter& 
 void AssemblerSimulatedOps::emitLDX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
     Symbol* fpSym = parser->resolveFrameVar(scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
-    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    uint16_t yOff = (uint16_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     e.lda_frame(fpOff, yOff);  // Load into A
     e.tax();                    // Transfer A to X
 }
@@ -2201,7 +2201,7 @@ void AssemblerSimulatedOps::emitLDX_FPCode(AssemblerParser* parser, M65Emitter& 
 void AssemblerSimulatedOps::emitSTX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
     Symbol* fpSym = parser->resolveFrameVar(scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
-    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    uint16_t yOff = (uint16_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     e.txa();                    // Transfer X to A
     e.sta_frame(fpOff, yOff);   // Store from A
 }
@@ -2210,7 +2210,7 @@ void AssemblerSimulatedOps::emitSTX_FPCode(AssemblerParser* parser, M65Emitter& 
 void AssemblerSimulatedOps::emitLDY_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
     Symbol* fpSym = parser->resolveFrameVar(scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
-    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    uint16_t yOff = (uint16_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     e.lda_frame(fpOff, yOff);  // Load into A
     e.tay();                    // Transfer A to Y
 }
@@ -2219,7 +2219,7 @@ void AssemblerSimulatedOps::emitLDY_FPCode(AssemblerParser* parser, M65Emitter& 
 void AssemblerSimulatedOps::emitSTY_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
     Symbol* fpSym = parser->resolveFrameVar(scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
-    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    uint16_t yOff = (uint16_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     e.tya();                    // Transfer Y to A
     e.sta_frame(fpOff, yOff);   // Store from A
 }
@@ -2228,7 +2228,7 @@ void AssemblerSimulatedOps::emitSTY_FPCode(AssemblerParser* parser, M65Emitter& 
 void AssemblerSimulatedOps::emitLDZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
     Symbol* fpSym = parser->resolveFrameVar(scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
-    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    uint16_t yOff = (uint16_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     e.lda_frame(fpOff, yOff);  // Load into A
     e.tza();                    // Transfer A to Z
 }
@@ -2237,14 +2237,14 @@ void AssemblerSimulatedOps::emitLDZ_FPCode(AssemblerParser* parser, M65Emitter& 
 void AssemblerSimulatedOps::emitSTZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
     Symbol* fpSym = parser->resolveFrameVar(scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
-    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    uint16_t yOff = (uint16_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     e.tza();                    // Transfer Z to A
     e.sta_frame(fpOff, yOff);   // Store from A
 }
 
 // ldax.fp varOffset — Load 16-bit value from frame into AX (lo in A, hi in X)
 void AssemblerSimulatedOps::emitLDAX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    uint16_t yOff = (uint16_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     if (e.hasFramePointer()) {
         e.lda_stack(yOff + 1);
         e.sta_scratch();
@@ -2263,7 +2263,7 @@ void AssemblerSimulatedOps::emitLDAX_FPCode(AssemblerParser* parser, M65Emitter&
 // lday.fp varOffset — Load 16-bit value from frame into AY (lo in A, hi in Y)
 // Use when Z must be preserved (e.g., loop counter).
 void AssemblerSimulatedOps::emitLDAY_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    uint16_t yOff = (uint16_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     e.ldy_stack(yOff + 1);           // Y = hi byte
     e.lda_stack(yOff);               // A = lo byte
 }
@@ -2271,7 +2271,7 @@ void AssemblerSimulatedOps::emitLDAY_FPCode(AssemblerParser* parser, M65Emitter&
 // stay.fp varOffset — Store AY (lo=A, hi=Y) to frame-relative offset
 // Use when Z must be preserved (e.g., loop counter).
 void AssemblerSimulatedOps::emitSTAY_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    uint16_t yOff = (uint16_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     e.sta_stack(yOff);               // Frame-relative: LDY #yOff; STA ($FD),Y (lo byte)
     e.sty_stack(yOff + 1);           // Frame-relative: STY offset+1 via scratch (hi byte)
 }
@@ -2279,7 +2279,7 @@ void AssemblerSimulatedOps::emitSTAY_FPCode(AssemblerParser* parser, M65Emitter&
 // ldaz.fp varOffset — Load 16-bit value from frame into AZ (lo in A, hi in Z)
 // Preferred over ldax.fp: leaves X free for TSX, no scratch needed.
 void AssemblerSimulatedOps::emitLDAZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    uint16_t yOff = (uint16_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     e.ldz_stack(yOff + 1);           // Z = hi byte
     e.lda_stack(yOff);               // A = lo byte
 }
@@ -2288,7 +2288,7 @@ void AssemblerSimulatedOps::emitLDAZ_FPCode(AssemblerParser* parser, M65Emitter&
 // Transfers X→Z internally for IRQ-safe frame access (no ZP scratch).
 // For constant values, prefer staz.fp which avoids the transfer entirely.
 void AssemblerSimulatedOps::emitSTAX_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    uint16_t yOff = (uint16_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     // Move X (hi byte) to Z via A, preserving A on stack
     e.pha(); e.txa(); e.taz(); e.pla();
     e.sta_stack(yOff);               // Frame-relative: LDY #yOff; STA ($FD),Y (lo byte)
@@ -2298,14 +2298,14 @@ void AssemblerSimulatedOps::emitSTAX_FPCode(AssemblerParser* parser, M65Emitter&
 // staz.fp varOffset — Store AZ (lo=A, hi=Z) to frame-relative offset
 // Preferred over stax.fp: no ZP scratch needed, IRQ-safe.
 void AssemblerSimulatedOps::emitSTAZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    uint16_t yOff = (uint16_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
     e.sta_stack(yOff);               // Frame-relative: LDY #yOff; STA ($FD),Y (lo byte)
     e.stz_stack(yOff + 1);           // Frame-relative: LDY #yOff+1; STZ ($FD),Y (hi byte)
 }
 
 // ldaxyz.fp varOffset — Load 32-bit value from frame into A,X,Y,Z
 void AssemblerSimulatedOps::emitLDAXYZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    uint16_t yOff = (uint16_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
 
     // Y indexes the frame, so byte 2 goes through the stack. No ZP scratch
     // is used: the generated code keeps operands in __zp_scratch2/3
@@ -2318,7 +2318,7 @@ void AssemblerSimulatedOps::emitLDAXYZ_FPCode(AssemblerParser* parser, M65Emitte
 
 // staxyz.fp varOffset — Store 32-bit value from A,X,Y,Z to frame
 void AssemblerSimulatedOps::emitSTAXYZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
-    uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
+    uint16_t yOff = (uint16_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
 
     // Y indexes the frame, so byte 2 goes through the stack (no ZP scratch)
     e.phy();
@@ -3253,21 +3253,21 @@ void AssemblerSimulatedOps::dispatch_MOVE_FP(AssemblerParser* p, M65Emitter& e, 
 void AssemblerSimulatedOps::dispatch_INC_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
     Symbol* fpSym = p->resolveFrameVar(s->scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
-    uint8_t yOff = (uint8_t)p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
+    uint16_t yOff = (uint16_t)p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
     e.inc_stack(fpOff + yOff);
 }
 void AssemblerSimulatedOps::dispatch_DEC_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
     Symbol* fpSym = p->resolveFrameVar(s->scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
-    uint8_t yOff = (uint8_t)p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
+    uint16_t yOff = (uint16_t)p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
     e.dec_stack(fpOff + yOff);
 }
 // inc.16fp / dec.16fp — 16-bit increment/decrement of frame-relative variable
 void AssemblerSimulatedOps::dispatch_INC16_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
     Symbol* fpSym = p->resolveFrameVar(s->scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
-    uint8_t yOff = (uint8_t)p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
-    uint8_t off = fpOff + yOff;
+    uint16_t yOff = (uint16_t)p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
+    uint16_t off = fpOff + yOff;
     e.inc_stack(off);
     auto br = e.emitBranchPlaceholder(0xD0); // bne skip
     e.inc_stack(off + 1);
@@ -3276,8 +3276,8 @@ void AssemblerSimulatedOps::dispatch_INC16_FP(AssemblerParser* p, M65Emitter& e,
 void AssemblerSimulatedOps::dispatch_DEC16_FP(AssemblerParser* p, M65Emitter& e, Stmt* s) {
     Symbol* fpSym = p->resolveFrameVar(s->scopePrefix);
     uint8_t fpOff = fpSym ? (uint8_t)fpSym->value : 0;
-    uint8_t yOff = (uint8_t)p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
-    uint8_t off = fpOff + yOff;
+    uint16_t yOff = (uint16_t)p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
+    uint16_t off = fpOff + yOff;
     e.lda_stack(off);                       // check lo byte for borrow
     auto br = e.emitBranchPlaceholder(0xD0); // bne skip
     e.dec_stack(off + 1);                   // borrow: dec hi
@@ -3398,7 +3398,7 @@ void AssemblerSimulatedOps::emitLoadIndexToAX(AssemblerParser* parser, M65Emitte
         if (isStack) {
             auto fa = parser->resolveFrameAccess(idxIndexStart, scopePrefix);
             if (fa.isFrame) {
-                uint8_t totalOff = fa.fpOff + fa.yOff;
+                uint16_t totalOff = fa.fpOff + fa.yOff;
                 e.lda_stack(totalOff + 1); e.sta_scratch();
                 e.lda_stack(totalOff); e.ldx_scratch();
             } else {
@@ -3452,7 +3452,7 @@ void AssemblerSimulatedOps::emitWriteOperand16(AssemblerParser* parser, M65Emitt
         if (isStack) {
             auto fa = parser->resolveFrameAccess(idxStart, scopePrefix);
             if (fa.isFrame) {
-                uint8_t totalOff = fa.fpOff + fa.yOff;
+                uint16_t totalOff = fa.fpOff + fa.yOff;
                 e.lda_stack(totalOff); e.sta_addr(destAddr);
                 e.lda_stack(totalOff + 1); e.sta_addr(destAddr + 1);
             } else {
@@ -3662,7 +3662,7 @@ void AssemblerSimulatedOps::dispatch_LDAX_Param(AssemblerParser* p, M65Emitter& 
     if (e.isSACMode()) {
         // SAC: Parameters are on stack, NOT in FP-relative location
         // Load using stack-relative addressing (like stack convention but with explicit offsets)
-        uint8_t offset = (uint8_t)p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
+        uint16_t offset = (uint16_t)p->evaluateExpressionAt(s->instr.operandTokenIndex, s->scopePrefix);
         // Load hi byte first, save to scratch, then load lo byte
         e.lda_stack(offset + 1);      // hi byte at stack[offset+1]
         e.sta_scratch();               // save hi to scratch

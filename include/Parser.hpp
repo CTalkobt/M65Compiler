@@ -17,6 +17,9 @@ public:
         bool isFunctionPointer = false;
         std::shared_ptr<FuncPtrSignature> funcPtrSig;
         std::vector<int> arrayDims;
+        // typedef int T[n] in a function: the hidden variable holding each
+        // run-time dimension ("" for a constant one)
+        std::vector<std::string> vlaDimVars;
     };
 
     Parser(const std::vector<Token>& tokens);
@@ -74,6 +77,9 @@ private:
     std::unique_ptr<Expression> parseGenericSelection();
     std::unique_ptr<Expression> parseInitializerList();
     void parseTypedef();
+    // Declarations of the hidden variables of a typedef's run-time dimensions
+    std::vector<std::unique_ptr<Statement>> typedefVlaDecls_;
+    int typedefVlaCounter_ = 0;
     bool tryParseAttribute();  // parse __attribute__((...)), returns true if found
     bool pendingAlwaysInline_ = false;  // set by always_inline, consumed by next function declaration
     // __attribute__((aligned(N))): consumed by the declaration it belongs to
@@ -82,6 +88,11 @@ private:
     int takePendingAlign() { int a = pendingAlign_; pendingAlign_ = 0; return a; }
     // __attribute__((alias("target"))): the declared name is another name
     // for target; later uses of it are read as target
+    // Declared variables' types, for typeof(name)
+    struct DeclType { std::string type; int ptrLevel = 0; bool isSigned = false; };
+    std::map<std::string, DeclType> declTypes_;
+    // typeof(expression): the declared type of a variable name, else int
+    DeclType typeofExpr(Expression* e);
     std::string pendingAlias_;
     std::map<std::string, std::string> aliasNames_;
     void applyAlias(std::string& declName) {
@@ -104,6 +115,7 @@ private:
         bool isVolatile = false;
         int pointerLevel = 0;
         std::vector<int> arrayDims;  // from typedef
+        std::vector<std::string> vlaDimVars;  // run-time typedef dimensions (see TypeAlias)
         bool isFunctionPointer = false;
         std::shared_ptr<FuncPtrSignature> funcPtrSig;
         bool valid = false;     // true if a type was successfully parsed

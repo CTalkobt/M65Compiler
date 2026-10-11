@@ -54,10 +54,12 @@ public:
     std::string value;
     bool isAscii = false;  // @"..." prefix — emit .ascii instead of .text
     std::string escMask;   // per byte: '.', 'n', 'r', 'x' (see Token::escMask)
+    bool isWide = false;   // L"...": an array of 16-bit wchar_t
     StringLiteral(const std::string& v, bool ascii = false) : value(v), isAscii(ascii) {}
     static std::unique_ptr<StringLiteral> copyOf(const StringLiteral& s) {
         auto c = std::make_unique<StringLiteral>(s.value, s.isAscii);
         c->escMask = s.escMask;
+        c->isWide = s.isWide;
         return c;
     }
     void accept(ASTVisitor& visitor) override;
@@ -424,6 +426,9 @@ struct StructMember {
     bool isAnonymous = false;
     std::vector<int> arrayDims; // empty means not an array
     bool isFlexible = false;    // name[] (a zero-length name[0] is a GNU extension)
+    // Run-time array dimensions (char x[n] in a struct defined in a function):
+    // parallel to arrayDims (whose entry is then 1), null for a constant one
+    std::vector<std::unique_ptr<Expression>> vlaDimExprs;
     int arraySize() const { if (arrayDims.empty()) return -1; int s=1; for (int d:arrayDims) s*=d; return s; }
     int bitWidth = 0; // 0 = not a bitfield; >0 = bitfield width in bits
 };

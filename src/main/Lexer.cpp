@@ -309,7 +309,7 @@ Token Lexer::lexIdentifierOrKeyword() {
 
     // Wide char/string prefix: L'x' or L"str" → downgrade to regular char/string
     if (value == "L" && (peek() == '\'' || peek() == '"')) {
-        if (peek() == '"') return lexString(false);
+        if (peek() == '"') { Token t = lexString(false); t.wide = true; return t; }
         else return lexChar(false);
     }
 

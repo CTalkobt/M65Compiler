@@ -496,8 +496,15 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
 
         for (size_t ai = 0; ai < stmt->dir.arguments.size(); ai++) {
             // The symbol of an expression argument (lbl+1)
-            const std::string arg = stmt->dir.arguments[ai].substr(0, stmt->dir.arguments[ai].find_first_of("+-", 1));
+            const std::string& full = stmt->dir.arguments[ai];
+            const std::string arg = full.substr(0, full.find_first_of("+-", 1));
             Symbol* sym = parser.resolveSymbol(arg, stmt->scopePrefix);
+            // sym1-sym2 of two symbols in one segment: a constant distance
+            if (sym && full.size() > arg.size() + 1 && full[arg.size()] == '-' &&
+                (std::isalpha((unsigned char)full[arg.size() + 1]) || full[arg.size() + 1] == '_' || full[arg.size() + 1] == '@')) {
+                Symbol* sym2 = parser.resolveSymbol(full.substr(arg.size() + 1), stmt->scopePrefix);
+                if (sym2 && sym2->segment == sym->segment) { patchAddr += 2; continue; }
+            }
             // For 32-bit symbols in .word directives, skip (they should use .dword)
             if (!sym) { patchAddr += 2; continue; }
             if (sym->value > 0xFFFF) {
@@ -868,52 +875,44 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         payload.push_back((uint8_t)(procCount & 0xFF));
         payload.push_back((uint8_t)(procCount >> 8));
 
-        // Emit each procedure's debug info
+        // Emit each procedure's debug info: name, parameter count, then
+        // (name, 16-bit offset) per parameter, ended by $FF. Records are
+        // kept under the 253-byte option limit; a procedure with more
+        // parameters than fit is split into several records of the same name
+        auto flush = [&]() {
+            if (payload.size() > 2) writer.addOptionRaw(OPT_DEBUG_SYMBOLS, payload);
+            payload.clear();
+            payload.push_back((uint8_t)(procCount & 0xFF));
+            payload.push_back((uint8_t)(procCount >> 8));
+        };
         for (const auto& [addr, proc] : procedures) {
-            // Keep payload under 253 bytes per option; if it gets too large,
-            // emit current option and start a new one
-
-            // Estimate needed space: name length + param count + (name + 2-byte offset) per param + terminator
-            size_t estimatedSize = proc->name.length() + 1 + 1;  // name + nul + param count
-            for (const auto& [paramName, offset] : proc->localArgs) {
-                estimatedSize += paramName.length() + 1 + 2;  // param name + nul + offset
-            }
-            estimatedSize += 1;  // terminator for this function
-
-            // Flush if adding this function would exceed limit
-            if (!payload.empty() && payload.size() > 2 && payload.size() + estimatedSize > 240) {
-                writer.addOptionRaw(OPT_DEBUG_SYMBOLS, payload);
-                payload.clear();
-                // Re-add count header for continuation
-                payload.push_back((uint8_t)(procCount & 0xFF));
-                payload.push_back((uint8_t)(procCount >> 8));
-            }
-
-            // Emit function name (null-terminated string)
-            for (char c : proc->name) {
-                payload.push_back((uint8_t)c);
-            }
-            payload.push_back(0x00);
-
-            // Emit parameter count
-            uint8_t paramCount = (uint8_t)proc->localArgs.size();
-            payload.push_back(paramCount);
-
-            // Emit each parameter: name (null-terminated) + offset (little-endian 16-bit)
-            for (const auto& [paramName, offset] : proc->localArgs) {
-                for (char c : paramName) {
-                    payload.push_back((uint8_t)c);
+            std::vector<std::pair<std::string, int>> args(proc->localArgs.begin(), proc->localArgs.end());
+            size_t next = 0;
+            do {
+                // How many parameters fit in one record
+                size_t room = 240 - std::min<size_t>(240, proc->name.length() + 3);
+                size_t take = 0, used = 0;
+                while (next + take < args.size() && used + args[next + take].first.length() + 3 <= room) {
+                    used += args[next + take].first.length() + 3;
+                    take++;
                 }
+                if (take == 0 && next < args.size()) take = 1;  // a name too long to share a record
+                size_t recSize = proc->name.length() + 3 + used;
+                if (payload.size() > 2 && payload.size() + recSize > 240) flush();
+
+                for (char c : proc->name) payload.push_back((uint8_t)c);
                 payload.push_back(0x00);
-
-                // Encode 16-bit offset (frame-relative address)
-                int16_t signedOffset = (int16_t)offset;
-                payload.push_back((uint8_t)(signedOffset & 0xFF));
-                payload.push_back((uint8_t)((signedOffset >> 8) & 0xFF));
-            }
-
-            // Terminator for this function record (0xFF marks end of params for this function)
-            payload.push_back(0xFF);
+                payload.push_back((uint8_t)take);
+                for (size_t k = next; k < next + take; k++) {
+                    for (char c : args[k].first) payload.push_back((uint8_t)c);
+                    payload.push_back(0x00);
+                    int16_t signedOffset = (int16_t)args[k].second;
+                    payload.push_back((uint8_t)(signedOffset & 0xFF));
+                    payload.push_back((uint8_t)((signedOffset >> 8) & 0xFF));
+                }
+                payload.push_back(0xFF);
+                next += take;
+            } while (next < args.size());
         }
 
         // Emit final payload

@@ -137,6 +137,7 @@ struct Token {
     // String literals: one char per byte of value — '.' literal, 'n' from \n,
     // 'r' from \r, 'x' exact byte from another escape. Empty for other tokens.
     std::string escMask;
+    bool wide = false;  // L"..." / L'x' (wchar_t, 16 bits)
 
     std::string typeToString() const {
         switch (type) {
