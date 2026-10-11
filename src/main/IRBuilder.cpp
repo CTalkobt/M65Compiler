@@ -376,6 +376,15 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         return {t, tn, isSigned, (t == ir::Type::PTR) ? mapType(lit->castType, 0) : ir::Type::VOID, ir::typeSize(t)};
     }
     
+    if (auto* cl = dynamic_cast<CompoundLiteral*>(expr)) {
+        // (T){...}: an array literal decays to a pointer to its elements
+        if (!cl->arrayDims.empty())
+            return {ir::Type::PTR, cl->targetType, false, mapType(cl->targetType, cl->pointerLevel), 2};
+        ir::Type t = mapType(cl->targetType, cl->pointerLevel);
+        return {t, cl->targetType, cl->isSigned, (t == ir::Type::PTR) ? mapType(cl->targetType, 0) : ir::Type::VOID,
+                getTypeSize(cl->targetType, cl->pointerLevel)};
+    }
+
     if (auto* cast = dynamic_cast<CastExpression*>(expr)) {
         ir::Type t = mapType(cast->targetType, cast->pointerLevel);
         return {t, cast->targetType, cast->isSigned, (t == ir::Type::PTR) ? mapType(cast->targetType, 0) : ir::Type::VOID, ir::typeSize(t)};
@@ -1577,6 +1586,178 @@ bool IRBuilder::initScalar(InitImageCtx& c, int off, const std::string& type, in
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// _Complex: the types are struct _Complex_float / _Complex_int (built-in
+// definitions, see ComplexBuiltin.hpp) and arithmetic is their overloaded
+// operators. Before an operator is dispatched, real operands, casts to a
+// complex type and int complex operands mixed with float complex ones are
+// rewritten as compound literals of the common complex type.
+// ---------------------------------------------------------------------------
+
+// A struct/union parameter passed by value (its vreg holds the copy's address)
+bool IRBuilder::isAggCopyParam(Expression* e) {
+    auto* v = dynamic_cast<VariableReference*>(e);
+    return v && aggCopyParams_.count(v->name) && localTypes_.count(v->name);
+}
+
+// "_Complex_float", "_Complex_int" or "" (not a complex value)
+std::string IRBuilder::complexKindOf(Expression* e) {
+    auto kindOfType = [&](const std::string& t) -> std::string {
+        std::string n = getAggregateName(t.rfind("struct ", 0) == 0 ? t : resolveTypedefToStruct(t));
+        return (n == "_Complex_float" || n == "_Complex_int") ? n : "";
+    };
+    if (auto* c = dynamic_cast<CastExpression*>(e))
+        return c->pointerLevel ? "" : kindOfType(c->targetType);
+    if (auto* cl = dynamic_cast<CompoundLiteral*>(e))
+        return (cl->pointerLevel || !cl->arrayDims.empty()) ? "" : kindOfType(cl->targetType);
+    if (auto* b = dynamic_cast<BinaryOperation*>(e)) {
+        if (b->op == "+" || b->op == "-" || b->op == "*" || b->op == "/") {
+            std::string kl = complexKindOf(b->left.get()), kr = complexKindOf(b->right.get());
+            if (kl.empty() && kr.empty()) return "";
+            if (kl == "_Complex_float" || kr == "_Complex_float") return "_Complex_float";
+            Expression* real = kl.empty() ? b->left.get() : (kr.empty() ? b->right.get() : nullptr);
+            if (real && getExprTypeInfo(real).type == ir::Type::F32) return "_Complex_float";
+            return "_Complex_int";
+        }
+        if (b->op == ",") return complexKindOf(b->right.get());
+        return "";
+    }
+    if (auto* u = dynamic_cast<UnaryOperation*>(e)) {
+        if (u->op == "-" || u->op == "+" || u->op == "~") return complexKindOf(u->operand.get());
+    }
+    IRTypeInfo info = getExprTypeInfo(e);
+    if ((info.type == ir::Type::PTR && !isAggCopyParam(e)) || info.typeName.empty()) return "";
+    return kindOfType(info.typeName);
+}
+
+// A copy of a side-effect-free lvalue/constant expression, or nullptr
+std::unique_ptr<Expression> IRBuilder::cloneSimpleExpr(Expression* e) {
+    std::unique_ptr<Expression> r;
+    if (auto* v = dynamic_cast<VariableReference*>(e)) r = std::make_unique<VariableReference>(v->name);
+    else if (auto* i = dynamic_cast<IntegerLiteral*>(e)) {
+        auto l = std::make_unique<IntegerLiteral>(i->value);
+        l->castType = i->castType; l->castPointerLevel = i->castPointerLevel; l->castIsSigned = i->castIsSigned;
+        r = std::move(l);
+    } else if (auto* f = dynamic_cast<FloatLiteral*>(e)) r = std::make_unique<FloatLiteral>(f->value);
+    else if (auto* m = dynamic_cast<MemberAccess*>(e)) {
+        auto s = cloneSimpleExpr(m->structExpr.get());
+        if (s) r = std::make_unique<MemberAccess>(std::move(s), m->memberName, m->isArrow);
+    } else if (auto* a = dynamic_cast<ArrayAccess*>(e)) {
+        auto b = cloneSimpleExpr(a->arrayExpr.get()), x = cloneSimpleExpr(a->indexExpr.get());
+        if (b && x) r = std::make_unique<ArrayAccess>(std::move(b), std::move(x));
+    } else if (auto* u = dynamic_cast<UnaryOperation*>(e)) {
+        if (u->op == "*" || u->op == "-" || u->op == "&") {
+            auto o = cloneSimpleExpr(u->operand.get());
+            if (o) r = std::make_unique<UnaryOperation>(u->op, std::move(o));
+        }
+    }
+    if (r) { r->line = e->line; r->column = e->column; r->sourceFile = e->sourceFile; }
+    return r;
+}
+
+// Rewrite e as a value of complex type `kind` (no-op when it already is one)
+void IRBuilder::toComplex(std::unique_ptr<Expression>& e, const std::string& kind) {
+    std::string k = complexKindOf(e.get());
+    auto* cast = dynamic_cast<CastExpression*>(e.get());
+    if (cast && !k.empty()) {
+        // (T _Complex)x: x converted to that complex type
+        std::unique_ptr<Expression> inner = std::move(cast->expression);
+        toComplex(inner, k);
+        e = std::move(inner);
+    }
+    if (k == kind) return;
+    bool isFloat = kind == "_Complex_float";
+    auto list = std::make_unique<InitializerList>();
+    int line = e->line, col = e->column; std::string file = e->sourceFile;
+    if (k.empty()) {
+        // real value x -> x + 0i
+        list->elements.push_back(std::move(e));
+        if (isFloat) list->elements.push_back(std::make_unique<FloatLiteral>(0.0));
+        else list->elements.push_back(std::make_unique<IntegerLiteral>(0));
+    } else {
+        // the other complex type: convert both parts
+        auto copy = cloneSimpleExpr(e.get());
+        double cre, cim;
+        if (!copy && evalConstComplex(e.get(), cre, cim)) {
+            if (isFloat) {
+                list->elements.push_back(std::make_unique<FloatLiteral>(cre));
+                list->elements.push_back(std::make_unique<FloatLiteral>(cim));
+            } else {
+                list->elements.push_back(std::make_unique<IntegerLiteral>((int64_t)cre));
+                list->elements.push_back(std::make_unique<IntegerLiteral>((int64_t)cim));
+            }
+            auto cl = std::make_unique<CompoundLiteral>("struct " + kind, 0, !isFloat, std::move(list));
+            cl->line = line; cl->column = col; cl->sourceFile = file;
+            e = std::move(cl);
+            return;
+        }
+        if (!copy && currentFunc_) {
+            // Evaluate it once into a hidden local, then convert that
+            std::string tmp = "__cplx" + std::to_string(complexTemp_++);
+            auto decl = std::make_unique<VariableDeclaration>("struct " + k, tmp, 0);
+            decl->initializer = std::move(e);
+            decl->line = line; decl->column = col; decl->sourceFile = file;
+            decl->accept(*this);
+            e = std::make_unique<VariableReference>(tmp);
+            copy = std::make_unique<VariableReference>(tmp);
+        }
+        if (!copy) return;  // left for the operator dispatch to reject
+        list->elements.push_back(std::make_unique<MemberAccess>(std::move(e), "real", false));
+        list->elements.push_back(std::make_unique<MemberAccess>(std::move(copy), "imag", false));
+    }
+    auto cl = std::make_unique<CompoundLiteral>("struct " + kind, 0, !isFloat, std::move(list));
+    cl->line = line; cl->column = col; cl->sourceFile = file;
+    e = std::move(cl);
+}
+
+// Constant complex value (real or imaginary literals, casts, + - * / ~)
+bool IRBuilder::evalConstComplex(Expression* e, double& re, double& im) {
+    if (auto* c = dynamic_cast<CastExpression*>(e)) {
+        if (!evalConstComplex(c->expression.get(), re, im)) return false;
+        if (complexKindOf(c).empty()) {
+            if (c->pointerLevel) return false;
+            im = 0;
+            if (mapType(c->targetType, 0) != ir::Type::F32) re = (double)(int64_t)re;
+        }
+        return true;
+    }
+    if (auto* cl = dynamic_cast<CompoundLiteral*>(e)) {
+        if (complexKindOf(cl).empty() || !cl->initializer || cl->initializer->elements.empty() ||
+            cl->initializer->elements.size() > 2) return false;
+        double a, b, c2 = 0, d = 0;
+        if (!evalConstComplex(cl->initializer->elements[0].get(), a, b)) return false;
+        if (cl->initializer->elements.size() == 2 &&
+            !evalConstComplex(cl->initializer->elements[1].get(), c2, d)) return false;
+        re = a; im = c2;
+        return true;
+    }
+    if (auto* u = dynamic_cast<UnaryOperation*>(e)) {
+        if (!evalConstComplex(u->operand.get(), re, im)) return false;
+        if (u->op == "-") { re = -re; im = -im; return true; }
+        if (u->op == "+") return true;
+        if (u->op == "~") { im = -im; return true; }
+        return false;
+    }
+    if (auto* b = dynamic_cast<BinaryOperation*>(e)) {
+        double a, bi, c, d;
+        if (!evalConstComplex(b->left.get(), a, bi) || !evalConstComplex(b->right.get(), c, d)) return false;
+        if (b->op == "+") { re = a + c; im = bi + d; return true; }
+        if (b->op == "-") { re = a - c; im = bi - d; return true; }
+        if (b->op == "*") { re = a * c - bi * d; im = a * d + bi * c; return true; }
+        if (b->op == "/") {
+            double den = c * c + d * d;
+            if (den == 0) return false;
+            re = (a * c + bi * d) / den; im = (bi * c - a * d) / den;
+            return true;
+        }
+        return false;
+    }
+    double v;
+    if (auto* i = dynamic_cast<IntegerLiteral*>(e)) { re = (double)i->value; im = 0; return true; }
+    if (evalConstFloat(e, v)) { re = v; im = 0; return true; }
+    return false;
+}
+
 bool IRBuilder::evalConstFloat(Expression* e, double& out) {
     if (!e) return false;
     if (auto* f = dynamic_cast<FloatLiteral*>(e)) { out = f->value; return true; }
@@ -1856,6 +2037,29 @@ void IRBuilder::visit(VariableDeclaration& node) {
         if (!structs_.count(sName)) {
             std::string errMsg = "Unknown struct/union type: " + node.type;
             throw std::runtime_error(formatSemanticError(errMsg, node.sourceFile, node.line, node.column));
+        }
+    }
+
+    // Complex variable initialized from an expression: a constant initializer
+    // (globals/statics) becomes {real, imag}; otherwise the value is converted
+    if (node.pointerLevel == 0 && node.arrayDims.empty() && node.initializer &&
+        !dynamic_cast<InitializerList*>(node.initializer.get())) {
+        std::string k = getAggregateName(node.type);
+        if (k == "_Complex_float" || k == "_Complex_int") {
+            double re, im;
+            if ((!currentFunc_ || node.isStatic) && evalConstComplex(node.initializer.get(), re, im)) {
+                auto list = std::make_unique<InitializerList>();
+                if (k == "_Complex_float") {
+                    list->elements.push_back(std::make_unique<FloatLiteral>(re));
+                    list->elements.push_back(std::make_unique<FloatLiteral>(im));
+                } else {
+                    list->elements.push_back(std::make_unique<IntegerLiteral>((int64_t)re));
+                    list->elements.push_back(std::make_unique<IntegerLiteral>((int64_t)im));
+                }
+                node.initializer = std::move(list);
+            } else {
+                toComplex(node.initializer, k);
+            }
         }
     }
 
@@ -2572,6 +2776,18 @@ void IRBuilder::visit(VariableReference& node) {
 }
 
 void IRBuilder::visit(Assignment& node) {
+    // Complex target: the value as that complex type; x op= y as x = x op y
+    if (std::string k = complexKindOf(node.target.get()); !k.empty()) {
+        if (node.op == "+=" || node.op == "-=" || node.op == "*=" || node.op == "/=") {
+            if (auto copy = cloneSimpleExpr(node.target.get())) {
+                auto bin = std::make_unique<BinaryOperation>(node.op.substr(0, 1), std::move(copy), std::move(node.expression));
+                bin->line = node.line; bin->column = node.column; bin->sourceFile = node.sourceFile;
+                node.expression = std::move(bin);
+                node.op = "=";
+            }
+        }
+        if (node.op == "=") toComplex(node.expression, k);
+    }
     // 1. Semantic checks for constness
     if (auto* ma = dynamic_cast<MemberAccess*>(node.target.get())) {
         // Determine the struct type of the variable being accessed
@@ -2670,7 +2886,8 @@ void IRBuilder::visit(Assignment& node) {
     // Struct/union assignment: copy by address
     if (node.op == "=") {
         IRTypeInfo ti = getExprTypeInfo(node.target.get());
-        int aggSize = (ti.type == ir::Type::PTR) ? 0 : aggregateBlockSize(ti.typeName, 0);
+        int aggSize = (ti.type == ir::Type::PTR && !isAggCopyParam(node.target.get()))
+                      ? 0 : aggregateBlockSize(ti.typeName, 0);
         if (aggSize > 0) {
             auto dst = emitAddressOf(node.target.get());
             emitAggregateInto(node.expression.get(), dst, aggSize, loc(node));
@@ -2973,6 +3190,23 @@ void IRBuilder::visit(Assignment& node) {
 }
 
 void IRBuilder::visit(BinaryOperation& node) {
+    // Complex arithmetic/equality: both operands as the common complex type,
+    // then the struct's operator method does the work
+    if (node.op == "+" || node.op == "-" || node.op == "*" || node.op == "/" ||
+        node.op == "==" || node.op == "!=") {
+        std::string kl = complexKindOf(node.left.get()), kr = complexKindOf(node.right.get());
+        if (!kl.empty() || !kr.empty()) {
+            std::string k = "_Complex_int";
+            if (kl == "_Complex_float" || kr == "_Complex_float") k = "_Complex_float";
+            else {
+                Expression* real = kl.empty() ? node.left.get() : (kr.empty() ? node.right.get() : nullptr);
+                if (real && getExprTypeInfo(real).type == ir::Type::F32) k = "_Complex_float";
+            }
+            toComplex(node.left, k);
+            toComplex(node.right, k);
+        }
+    }
+
     // Comma operator: evaluate left for side effects, discard, return right
     if (node.op == ",") {
         node.left->accept(*this);
@@ -3096,7 +3330,7 @@ void IRBuilder::visit(BinaryOperation& node) {
     }
 
     // Operator overloading: if LHS is a struct with an operator method, dispatch to it
-    if (!lhsInfo.typeName.empty() && lhsInfo.type != ir::Type::PTR) {
+    if (!lhsInfo.typeName.empty() && (lhsInfo.type != ir::Type::PTR || isAggCopyParam(node.left.get()))) {
         std::string sName = getAggregateName(lhsInfo.typeName);
         if (structs_.count(sName)) {
             // Map operator to method name suffix
@@ -3359,7 +3593,7 @@ void IRBuilder::visit(UnaryOperation& node) {
     // Unary operator overloading for struct types
     if (node.op == "~" || node.op == "-" || node.op == "!" || node.op == "++" || node.op == "--") {
         IRTypeInfo srcInfo = getExprTypeInfo(node.operand.get());
-        if (!srcInfo.typeName.empty() && srcInfo.type != ir::Type::PTR) {
+        if (!srcInfo.typeName.empty() && (srcInfo.type != ir::Type::PTR || isAggCopyParam(node.operand.get()))) {
             std::string sName = getAggregateName(srcInfo.typeName);
             if (structs_.count(sName)) {
                 static const std::map<std::string, std::string> unaryOpMap = {
@@ -5277,6 +5511,9 @@ void IRBuilder::visit(CompoundLiteral& node) {
         alloc.loc = loc(node);
         emit(alloc);
 
+        // The elements are values even when the literal's address is wanted
+        bool savedAddrOnly = computeAddressOnly_;
+        computeAddressOnly_ = false;
         if (node.initializer) {
             std::string sName = getAggregateName(node.targetType);
             bool isStruct = structs_.count(sName) > 0;
@@ -5288,6 +5525,9 @@ void IRBuilder::visit(CompoundLiteral& node) {
                     auto val = lastValue_;
                     auto& mi = si.members[si.memberOrder[i]];
                     ir::Type mt = mapType(mi.type, mi.pointerLevel);
+                    if ((mt == ir::Type::F32) != (val.type == ir::Type::F32) && mt != ir::Type::I_N &&
+                        mi.pointerLevel == 0 && val.type != ir::Type::VOID)
+                        val = emitCast(val, mt, getExprTypeInfo(node.initializer->elements[i].get()).isSigned);
                     auto addr = allocVreg(ir::Type::PTR);
                     ir::Inst add;
                     add.op = ir::Op::ADD;
@@ -5328,7 +5568,22 @@ void IRBuilder::visit(CompoundLiteral& node) {
                 }
             }
         }
+        computeAddressOnly_ = savedAddrOnly;
         lastValue_ = temp;
+        // A small struct/union is carried as an integer value (I8/I16/I32):
+        // its value is the buffer's contents, not its address
+        if (isStructOrUnion && node.pointerLevel == 0 && node.arrayDims.empty() && !computeAddressOnly_ &&
+            (t == ir::Type::I8 || t == ir::Type::I16 || t == ir::Type::I32)) {
+            auto v = allocVreg(t);
+            ir::Inst ld;
+            ld.op = ir::Op::LOAD;
+            ld.dest = v;
+            ld.resultType = t;
+            ld.src1 = temp;
+            ld.loc = loc(node);
+            emit(ld);
+            lastValue_ = v;
+        }
     }
 }
 

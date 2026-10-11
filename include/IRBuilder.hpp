@@ -172,6 +172,13 @@ private:
     // Compile-time value of a constant arithmetic expression (float or int
     // literals, unary +/-, + - * /, casts) for static initializers
     bool evalConstFloat(Expression* e, double& out);
+    // _Complex support (complex types are struct _Complex_float/_Complex_int)
+    std::string complexKindOf(Expression* e);
+    bool isAggCopyParam(Expression* e);
+    int complexTemp_ = 0;
+    std::unique_ptr<Expression> cloneSimpleExpr(Expression* e);
+    void toComplex(std::unique_ptr<Expression>& e, const std::string& kind);
+    bool evalConstComplex(Expression* e, double& re, double& im);
     // C library math functions known without a prototype (as GCC knows its
     // builtins): float signatures registered before the translation unit
     void declareBuiltinPrototypes();

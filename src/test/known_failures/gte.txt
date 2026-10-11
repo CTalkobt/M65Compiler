@@ -23,7 +23,6 @@
 20051012-1
 20060420-1
 20061220-1
-20070614-1
 20070919-1
 20071029-1
 20071120-1
@@ -58,12 +57,6 @@ bswap-3
 cbrt
 cmpsf-1
 cmpsi-2
-complex-1
-complex-2
-complex-4
-complex-5
-complex-6
-complex-7
 eeprof-1
 ffs-1
 ffs-2
@@ -79,7 +72,6 @@ nestfunc-5
 nestfunc-6
 pr103209
 pr103255
-pr104604
 pr17377
 pr19449
 pr22061-1
@@ -115,7 +107,6 @@ pr52286
 pr53084
 pr55137
 pr55750
-pr56837
 pr57124
 pr57130
 pr57344-1

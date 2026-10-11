@@ -349,7 +349,10 @@ public:
 
     void visit(CastExpression& node) override {
         auto operand = fold(std::move(node.expression));
-        if (auto* lit = dynamic_cast<IntegerLiteral*>(operand.get())) {
+        // A cast to a struct/union type (e.g. (_Complex double)2) isn't an integer
+        bool toAggregate = node.pointerLevel == 0 &&
+            (node.targetType.rfind("struct ", 0) == 0 || node.targetType.rfind("union ", 0) == 0);
+        if (auto* lit = dynamic_cast<IntegerLiteral*>(operand.get()); lit && !toAggregate) {
             int val = lit->value;
             if (node.pointerLevel == 0 && node.targetType == "_Bool") {
                 val = (val != 0) ? 1 : 0;
