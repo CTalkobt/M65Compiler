@@ -2,7 +2,6 @@
 # Remove names as they are fixed; test_failures.sh runs this list.
 # pr58574: program too large (code runs into I/O at $D000).
 # vrp-6: needs 32-bit int (dg int32plus); 0x80000000 truncates to 0 in a 16-bit unsigned int.
-# cbrt: builds its first estimate by editing IEEE double exponent bits through a union; CBM 40-bit floats differ.
 # pr56799: needs 32-bit int (dg int32plus); (int)0x10000 is 0 and a >> 16 shifts out a 16-bit int.
 20001009-2
 20010122-1
@@ -48,7 +47,6 @@ align-3
 bitfld-10
 bitfld-4
 bswap-3
-cbrt
 cmpsi-2
 eeprof-1
 ffs-1

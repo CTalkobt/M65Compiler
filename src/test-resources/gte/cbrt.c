@@ -25,6 +25,67 @@ static const double
 	F =  1.60714285714285720630e+00, /* 45/28     = 0x3FF9B6DB, 0x6DB6DB6E */
 	G =  3.57142857142857150787e-01; /* 5/14      = 0x3FD6DB6D, 0xB6DB6DB7 */
 
+#ifdef __cc45__
+/* cc45: double is the CBM 40-bit float. Byte 0 is the exponent (the value
+   is 1.f * 2^(exp-129)), bit 7 of byte 1 the sign, then 31 fraction bits.
+   The same algorithm on that layout: the first estimate divides the
+   exponent with the top 7 fraction bits (w) by 3, like the high word of an
+   IEEE double above; 86 = 129*2/3 plays the part of 682 = 1023*2/3. */
+double
+cbrtl (double x)
+{
+  union {
+    double t;
+    unsigned char b[5];
+  } ut, ux;
+  unsigned char sign;
+  unsigned int w;
+  double r, s, d;
+  double lt;
+
+  ux.t = x;
+  sign = ux.b[1] & 0x80;		/* sign= sign(x) */
+  if (ux.b[0] == 0)
+    return x;				/* cbrt(0) is itself */
+  ux.b[1] &= 0x7f;			/* |x| */
+
+  /* rough cbrt to 5 bits */
+  w = ((unsigned int) ux.b[0] << 7) | ux.b[1];
+  w = w / 3 + 11004;			/* 11004 = (86-0.03306235651)*128 */
+  ut.b[0] = w >> 7;
+  ut.b[1] = w & 0x7f;
+  ut.b[2] = 0;
+  ut.b[3] = 0;
+  ut.b[4] = 0;
+
+  /* new cbrt to 23 bits */
+  r=ut.t*ut.t/ux.t;
+  s=C+r*ut.t;
+  ut.t*=G+F/(s+E+D/s);
+
+  /* chopped to 15 bits and made larger than cbrt(x) */
+  ut.b[3] = 0;
+  ut.b[4] = 0;
+  if (++ut.b[2] == 0 && ++ut.b[1] == 0x80)
+    {
+      ut.b[1] = 0;
+      ut.b[0]++;
+    }
+
+  /* one step newton iteration */
+  s=ut.t*ut.t;
+  r=ux.t/s;
+  d=ut.t+ut.t;
+  r=(r-ut.t)/(d+r);
+  ut.t=ut.t+ut.t*r;
+
+  /* restore the sign bit */
+  ut.b[1] |= sign;
+  lt = ut.t;
+  lt -= (lt - (x/(lt*lt))) * 0.333333333333333333333;
+  return lt;
+}
+#else
 double
 cbrtl (double x)
 {
@@ -83,6 +144,7 @@ cbrtl (double x)
   lt -= (lt - (x/(lt*lt))) * 0.333333333333333333333;
   return lt;
 }
+#endif /* __cc45__ */
 
 int
 main (void)
