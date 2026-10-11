@@ -200,6 +200,8 @@ private:
     void toComplex(std::unique_ptr<Expression>& e, const std::string& kind);
     std::string wideKindOf(Expression* e);
     void toWide(std::unique_ptr<Expression>& e, const std::string& kind, bool braced);
+    void narrowWide(std::unique_ptr<Expression>& e, ir::Type t);
+    bool currentFuncReturnsStruct();
     bool evalConstComplex(Expression* e, double& re, double& im);
     // C library math functions known without a prototype (as GCC knows its
     // builtins): float signatures registered before the translation unit

@@ -36,6 +36,13 @@ int __intN_cmp_u(char *a, char *b, int n) {
     return 0;
 }
 
+/* Signed compare (two's complement): -1, 0 or 1 */
+int __intN_cmp_s(char *a, char *b, int n) {
+    int sa = (a[n - 1] & 0x80) != 0, sb = (b[n - 1] & 0x80) != 0;
+    if (sa != sb) return sa ? -1 : 1;
+    return __intN_cmp_u(a, b, n);
+}
+
 void __intN_neg(char *a, int n) {
     int i = 0;
     while (i < n) { a[i] = a[i] ^ 0xFF; i = i + 1; }

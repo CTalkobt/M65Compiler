@@ -624,6 +624,19 @@ for vcmode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: int64_t (struct __int64): arithmetic, narrowing, parameters, comparisons
+for i6mode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r i6name i6flags <<< "$i6mode"
+    echo "Testing test_int64_xemu.c ($i6name)..."
+    compile_link_test "src/test-resources/test_int64_xemu.c" "build/test/test_int64_${i6name}_xemu.prg" "$i6flags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_int64_$i6name" "build/test/test_int64_${i6name}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_int64_xemu.c $i6name (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: pointer/float compound assignment, float initializers, nested
 # function static chain, variably modified parameters
 for ammode in "zp|" "stack|-fno-zpcall"; do

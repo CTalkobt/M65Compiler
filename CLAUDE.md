@@ -330,7 +330,7 @@ ln45 (Link: Combine .o45 objects + libraries → PRG/Binary)
 ### Wide Integer Support (v1.0.5)
 
 - **`__int(N)` / `__uint(N)`**: Arbitrary-width integers via operator-overloaded structs. Preprocessor maps `__int(N)` → `struct __intN`. Operators call width-parameterized runtime (`__intN_add(a,b,byteCount)` etc.)
-- **Pre-defined widths**: `struct __int64` (8 bytes), `struct __int128` (16 bytes) in `<intwide.h>`
+- **Pre-defined widths**: `struct __int64` (8 bytes), `struct __int128` (16 bytes) in `<intwide.h>`. `long long` and `<stdint.h>`'s `int64_t`/`uint64_t` are `struct __int64` (the header is added automatically); integers convert to and from it implicitly, comparisons are signed (`__intN_cmp_s`), `LL` constants keep 64 bits
 - **Runtime library**: `__intN_add`, `__intN_sub`, `__intN_mul`, `__intN_cmp_u`, `__intN_neg`, `__intN_not`, `__intN_and`, `__intN_or`, `__intN_xor`, `__intN_shl`, `__intN_shr_u` — single set of routines handles all widths
 - **Extensibility**: New widths need only a struct definition with operators; runtime handles any byte count. Same pattern extends to `_Decimal(N)`
 

@@ -7,7 +7,6 @@
 #   pr66556, pr67781, pr68648, pr7284-1, pr98366, usmul, vrp-5, vrp-6
 #   (20040811-1: with a 16-bit int n < 1000000 never ends; pr98366: int e:17 is wider
 #   than int; pr56799: (int)0x10000 is 0; vrp-6: 0x80000000 truncates to 0)
-# Won't do — needs a native 64-bit integer type (int64_t arithmetic): pr103209
 # Won't do — needs <sys/mman.h> (mmap, page protection): loop-2f, loop-2g
 # Won't do — needs -finstrument-functions (__cyg_profile_func_enter/exit hooks): eeprof-1
 # Won't do — need stack frames over 64 KB (the whole 6502 address space): 920410-1, 921208-2, pr28982b
@@ -32,7 +31,6 @@ cmpsi-2
 eeprof-1
 loop-2f
 loop-2g
-pr103209
 pr28982b
 pr29797-1
 pr37573

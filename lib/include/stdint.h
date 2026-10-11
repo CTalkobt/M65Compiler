@@ -22,18 +22,13 @@ typedef unsigned int        uint16_t;
 typedef long                int32_t;
 typedef unsigned long       uint32_t;
 
-/* 64-bit types — use __int(64) wide integer struct
- * Note: Requires intwide.h for full support. For now, typedef as struct.
- * Applications using int64_t should #include <intwide.h> first.
+/* 64-bit types: the __int(64) wide integer (struct __int64 of <intwide.h>,
+ * which cc45 includes in a unit that names a 64-bit type). Arithmetic is
+ * through its operators; integers convert to it and it narrows to integers
+ * (low bytes). uint64_t is the same struct.
  */
-#ifdef __INT64_DEFINED__
 typedef struct __int64      int64_t;
 typedef struct __int64      uint64_t;
-#else
-/* Fallback: two 32-bit values (basic, not recommended) */
-typedef struct { int32_t lo, hi; } int64_t;
-typedef struct { uint32_t lo, hi; } uint64_t;
-#endif
 
 /* ============================================================================
  * FASTEST TYPES (native word size)
@@ -48,13 +43,8 @@ typedef unsigned int        uint_fast16_t;
 typedef long                int_fast32_t;
 typedef unsigned long       uint_fast32_t;
 
-#ifdef __INT64_DEFINED__
 typedef struct __int64      int_fast64_t;
 typedef struct __int64      uint_fast64_t;
-#else
-typedef struct { int32_t lo, hi; } int_fast64_t;
-typedef struct { uint32_t lo, hi; } uint_fast64_t;
-#endif
 
 /* ============================================================================
  * LEAST-WIDTH TYPES (minimum size that fits)
@@ -69,13 +59,8 @@ typedef unsigned int        uint_least16_t;
 typedef long                int_least32_t;
 typedef unsigned long       uint_least32_t;
 
-#ifdef __INT64_DEFINED__
 typedef struct __int64      int_least64_t;
 typedef struct __int64      uint_least64_t;
-#else
-typedef struct { int32_t lo, hi; } int_least64_t;
-typedef struct { uint32_t lo, hi; } uint_least64_t;
-#endif
 
 /* ============================================================================
  * POINTER AND MAXIMUM WIDTH TYPES

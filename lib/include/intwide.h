@@ -11,7 +11,8 @@
 // Runtime function declarations
 void __intN_add(char *r, char *a, char *b, int n);
 void __intN_sub(char *r, char *a, char *b, int n);
-int  __intN_cmp_u(char *a, char *b, int n);
+signed int __intN_cmp_u(char *a, char *b, int n);  /* -1, 0, 1: signed whatever the default */
+signed int __intN_cmp_s(char *a, char *b, int n);
 void __intN_neg(char *a, int n);
 void __intN_not(char *a, int n);
 void __intN_and(char *r, char *a, char *b, int n);
@@ -45,6 +46,14 @@ struct __int64 {
     int operator!=(struct __int64 o) {
         return __intN_cmp_u(this->bytes, o.bytes, 8) != 0;
     }
+    /* signed (int64_t), as the struct has no signedness */
+    int operator<(struct __int64 o) { return __intN_cmp_s(this->bytes, o.bytes, 8) < 0; }
+    int operator>(struct __int64 o) { return __intN_cmp_s(this->bytes, o.bytes, 8) > 0; }
+    int operator<=(struct __int64 o) { return __intN_cmp_s(this->bytes, o.bytes, 8) <= 0; }
+    int operator>=(struct __int64 o) { return __intN_cmp_s(this->bytes, o.bytes, 8) >= 0; }
+    struct __int64 operator&(struct __int64 o) { struct __int64 r; __intN_and(r.bytes, this->bytes, o.bytes, 8); return r; }
+    struct __int64 operator|(struct __int64 o) { struct __int64 r; __intN_or(r.bytes, this->bytes, o.bytes, 8); return r; }
+    struct __int64 operator^(struct __int64 o) { struct __int64 r; __intN_xor(r.bytes, this->bytes, o.bytes, 8); return r; }
     struct __int64 operator~() {
         struct __int64 r;
         int i = 0; while (i < 8) { r.bytes[i] = this->bytes[i]; i = i + 1; }
@@ -85,6 +94,14 @@ struct __int128 {
     int operator!=(struct __int128 o) {
         return __intN_cmp_u(this->bytes, o.bytes, 16) != 0;
     }
+    /* signed (int64_t), as the struct has no signedness */
+    int operator<(struct __int128 o) { return __intN_cmp_s(this->bytes, o.bytes, 16) < 0; }
+    int operator>(struct __int128 o) { return __intN_cmp_s(this->bytes, o.bytes, 16) > 0; }
+    int operator<=(struct __int128 o) { return __intN_cmp_s(this->bytes, o.bytes, 16) <= 0; }
+    int operator>=(struct __int128 o) { return __intN_cmp_s(this->bytes, o.bytes, 16) >= 0; }
+    struct __int128 operator&(struct __int128 o) { struct __int128 r; __intN_and(r.bytes, this->bytes, o.bytes, 16); return r; }
+    struct __int128 operator|(struct __int128 o) { struct __int128 r; __intN_or(r.bytes, this->bytes, o.bytes, 16); return r; }
+    struct __int128 operator^(struct __int128 o) { struct __int128 r; __intN_xor(r.bytes, this->bytes, o.bytes, 16); return r; }
     struct __int128 operator~() {
         struct __int128 r;
         int i = 0; while (i < 16) { r.bytes[i] = this->bytes[i]; i = i + 1; }

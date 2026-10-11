@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdio>
 #include "Lexer.hpp"
 #include <cctype>
@@ -339,19 +340,21 @@ Token Lexer::lexNumber() {
                 std::snprintf(buf, sizeof buf, "%.17g", std::strtod(text.c_str(), nullptr));
                 return {TokenType::FLOAT_LITERAL, buf, startLine, startCol, sourceFile};
             }
-            uint32_t val = 0;
-            try {
-                unsigned long long ull = std::stoull(value.substr(2), nullptr, 16);
-                if (ull > 0xFFFFFFFF) {
-                    std::cerr << startLine << ":" << startCol << ": warning: hex literal " << value << " overflows 32-bit integer" << std::endl;
-                }
-                val = static_cast<uint32_t>(ull);
-            } catch (...) {
-                std::cerr << startLine << ":" << startCol << ": warning: hex literal " << value << " overflows integer" << std::endl;
-            }
             // Optional L/l/U/u suffixes, kept in the token for the parser
             std::string suffix;
             while (peek() == 'L' || peek() == 'l' || peek() == 'U' || peek() == 'u') suffix += get();
+            // an LL literal keeps 64 bits (for int64_t, struct __int64)
+            bool ll = std::count_if(suffix.begin(), suffix.end(), [](char c) { return c == 'l' || c == 'L'; }) >= 2;
+            unsigned long long val = 0;
+            try {
+                unsigned long long ull = std::stoull(value.substr(2), nullptr, 16);
+                if (ull > 0xFFFFFFFF && !ll) {
+                    std::cerr << startLine << ":" << startCol << ": warning: hex literal " << value << " overflows 32-bit integer" << std::endl;
+                }
+                val = ll ? ull : static_cast<uint32_t>(ull);
+            } catch (...) {
+                std::cerr << startLine << ":" << startCol << ": warning: hex literal " << value << " overflows integer" << std::endl;
+            }
             return {TokenType::INTEGER_LITERAL, std::to_string(val) + suffix, startLine, startCol, sourceFile};
         }
     }

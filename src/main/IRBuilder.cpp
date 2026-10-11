@@ -1195,7 +1195,9 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     fn.conv = usesZpConv(node.name) ? ir::CallConv::ZP : ir::CallConv::STACK;
     fn.isVariadic = node.isVariadic;
     fn.isStatic = node.isStatic;
-    fn.isWeak = weakNextFunction_;
+    // a struct method is defined by every unit that includes its struct (as a
+    // C++ inline member function): weak, so the units link together
+    fn.isWeak = weakNextFunction_ || node.isMethod;
     weakNextFunction_ = false;
     fn.isRecurse = recurseNextFunction_;
     recurseNextFunction_ = false;
@@ -2425,6 +2427,13 @@ std::unique_ptr<Expression> IRBuilder::cloneSimpleExpr(Expression* e) {
 // Wide integers (__int(N), struct __intN { char bytes[N/8]; }): the struct
 // name when e has that type, else ""
 std::string IRBuilder::wideKindOf(Expression* e) {
+    // a comparison or logical operation is an int, whatever its operands
+    if (auto* b = dynamic_cast<BinaryOperation*>(e)) {
+        const std::string& o = b->op;
+        if (o == "==" || o == "!=" || o == "<" || o == ">" || o == "<=" || o == ">=" || o == "&&" || o == "||")
+            return "";
+    }
+    if (auto* u = dynamic_cast<UnaryOperation*>(e); u && u->op == "!") return "";
     IRTypeInfo ti = getExprTypeInfo(e);
     if (ti.type == ir::Type::PTR && !isAggCopyParam(e)) return "";
     std::string n = getAggregateName(ti.typeName);
@@ -2440,6 +2449,12 @@ std::string IRBuilder::wideKindOf(Expression* e) {
 // declaration's initializer), else a compound literal value
 void IRBuilder::toWide(std::unique_ptr<Expression>& e, const std::string& kind, bool braced) {
     if (!e || !wideKindOf(e.get()).empty()) return;
+    // c ? x : y: each branch converted (keeps 64-bit LL constants whole)
+    if (auto* ce = dynamic_cast<ConditionalExpression*>(e.get()); ce && ce->thenExpr) {
+        toWide(ce->thenExpr, kind, false);
+        toWide(ce->elseExpr, kind, false);
+        return;
+    }
     IRTypeInfo ti = getExprTypeInfo(e.get());
     if (ti.type != ir::Type::I8 && ti.type != ir::Type::I16 && ti.type != ir::Type::I32) return;
     auto sit = structs_.find(kind);
@@ -2455,7 +2470,8 @@ void IRBuilder::toWide(std::unique_ptr<Expression>& e, const std::string& kind, 
     auto* lit = dynamic_cast<IntegerLiteral*>(inner);
     if (lit || (dynamic_cast<UnaryOperation*>(inner) && evalConstComplex(inner, cre, cim) && cim == 0)) {
         int64_t v = lit ? lit->value : (int64_t)cre;
-        if (srcBytes < 8) {
+        // a bare literal keeps its whole value (0x1ffffffffLL); a cast truncates it
+        if (srcBytes < 8 && !(lit && inner == e.get() && (lit->castType.empty() || lit->castType == "long"))) {
             int64_t m = (int64_t)1 << (8 * srcBytes);
             v &= m - 1;
             if (sgn && (v & (m >> 1))) v -= m;
@@ -2487,6 +2503,24 @@ void IRBuilder::toWide(std::unique_ptr<Expression>& e, const std::string& kind, 
     auto cl = std::make_unique<CompoundLiteral>("struct " + kind, 0, false, std::move(list));
     cl->line = line; cl->column = col; cl->sourceFile = file;
     e = std::move(cl);
+}
+
+// Does the function being built return a struct/union (by value)?
+bool IRBuilder::currentFuncReturnsStruct() {
+    if (!currentFunc_) return false;
+    auto it = allFunctions_.find(currentFunc_->name.substr(1));
+    return it != allFunctions_.end() && it->second->returnPointerLevel == 0 && structOf(it->second->returnType);
+}
+
+// A wide integer converted to an integer type t: its low bytes (as an
+// explicit cast, which visit(CastExpression) lowers)
+void IRBuilder::narrowWide(std::unique_ptr<Expression>& e, ir::Type t) {
+    if (!e || (t != ir::Type::I8 && t != ir::Type::I16 && t != ir::Type::I32)) return;
+    if (wideKindOf(e.get()).empty()) return;
+    const char* tn = t == ir::Type::I8 ? "char" : t == ir::Type::I32 ? "long" : "int";
+    int line = e->line, col = e->column; std::string file = e->sourceFile;
+    e = std::make_unique<CastExpression>(tn, 0, false, std::move(e));
+    e->line = line; e->column = col; e->sourceFile = file;
 }
 
 void IRBuilder::toComplex(std::unique_ptr<Expression>& e, const std::string& kind) {
@@ -2997,6 +3031,10 @@ void IRBuilder::visit(StatementExpression& node) {
 
 void IRBuilder::visit(VariableDeclaration& node) {
     if (node.isFunctionPointer && node.funcPtrSig) fnPtrSigs_[node.name] = node.funcPtrSig;
+    // An integer variable initialized from a wide integer: its low bytes
+    if (node.pointerLevel == 0 && node.arrayDims.empty() && node.initializer &&
+        !dynamic_cast<InitializerList*>(node.initializer.get()) && !structOf(node.type))
+        narrowWide(node.initializer, mapType(node.type, 0));
     // A global or static aggregate initialized with (T){...} of its own type:
     // the literal's brace list
     if ((!currentFunc_ || node.isStatic) && node.pointerLevel == 0 && node.initializer) {
@@ -3939,6 +3977,11 @@ void IRBuilder::visit(VariableReference& node) {
 }
 
 void IRBuilder::visit(Assignment& node) {
+    // An integer target of a wide integer value: its low bytes
+    if (node.op == "=" && wideKindOf(node.target.get()).empty()) {
+        IRTypeInfo tt = getExprTypeInfo(node.target.get());
+        if (!structOf(tt.typeName)) narrowWide(node.expression, tt.type);
+    }
     // A vector target: v op= x is v = v op x
     if (node.op != "=" && !vecOf(node.target.get()).empty()) {
         if (auto copy = cloneSimpleExpr(node.target.get())) {
@@ -5555,6 +5598,24 @@ void IRBuilder::visit(UnaryOperation& node) {
 }
 
 void IRBuilder::visit(CastExpression& node) {
+    // (integer)wide: the wide integer's low bytes
+    if (node.pointerLevel == 0 && !wideKindOf(node.expression.get()).empty()) {
+        ir::Type t = mapType(node.targetType, 0);
+        if (t == ir::Type::I8 || t == ir::Type::I16 || t == ir::Type::I32) {
+            ir::Operand addr = emitAddressOf(node.expression.get());
+            auto v = allocVreg(t);
+            ir::Inst ld;
+            ld.op = ir::Op::LOAD;
+            ld.dest = v;
+            ld.resultType = t;
+            ld.src1 = addr;
+            ld.loc = loc(node);
+            emit(ld);
+            lastValue_ = v;
+            lastValueSigned_ = node.isSigned;
+            return;
+        }
+    }
     // A vector cast to another vector type of the same size: the same bits
     if (node.pointerLevel == 0 && !vecOfType(node.targetType, 0).empty() && !vecOf(node.expression.get()).empty()) {
         node.expression->accept(*this);
@@ -6541,6 +6602,7 @@ void IRBuilder::visit(ExpressionStatement& node) {
 // ============================================================================
 
 void IRBuilder::visit(ReturnStatement& node) {
+    if (currentFunc_ && !currentFuncReturnsStruct()) narrowWide(node.expression, currentFunc_->returnType);
     // Inline expansion: return stores to inline result vreg and branches to merge
     if (!inlineReturnLabel_.empty()) {
         if (node.expression) {
@@ -6929,7 +6991,11 @@ void IRBuilder::visit(ForStatement& node) {
 // ============================================================================
 
 void IRBuilder::visit(ConditionalExpression& node) {
+    // the condition is a value even when the result is wanted as an address
+    bool savedAddrOnly = computeAddressOnly_;
+    computeAddressOnly_ = false;
     node.condition->accept(*this);
+    computeAddressOnly_ = savedAddrOnly;
     auto cond = lastValue_;
 
     std::string thenLabel = newLabel("tern_then");

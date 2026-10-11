@@ -677,6 +677,41 @@ long Preprocessor::evaluateExpression(const std::string& expr) {
     return parseOr();
 }
 
+// The source with comments and string/character literals blanked
+static std::string stripCommentsAndStrings(const std::string& s) {
+    std::string r(s);
+    for (size_t i = 0; i < r.size(); i++) {
+        if (r[i] == '/' && i + 1 < r.size() && r[i + 1] == '/') {
+            while (i < r.size() && r[i] != '\n') r[i++] = ' ';
+        } else if (r[i] == '/' && i + 1 < r.size() && r[i + 1] == '*') {
+            r[i] = r[i + 1] = ' ';
+            for (i += 2; i < r.size() && !(r[i] == '*' && i + 1 < r.size() && r[i + 1] == '/'); i++)
+                if (r[i] != '\n') r[i] = ' ';
+            if (i < r.size()) { r[i] = ' '; if (i + 1 < r.size()) r[++i] = ' '; }
+        } else if (r[i] == '"' || r[i] == '\'') {
+            char q = r[i];
+            for (i++; i < r.size() && r[i] != q && r[i] != '\n'; i++) {
+                if (r[i] == '\\' && i + 1 < r.size()) r[i++] = ' ';
+                r[i] = ' ';
+            }
+        }
+    }
+    return r;
+}
+
+// Does the source spell "long long" (struct __int64)?
+static bool hasLongLong(const std::string& s) {
+    for (size_t p = s.find("long"); p != std::string::npos; p = s.find("long", p + 4)) {
+        if (p > 0 && (std::isalnum((unsigned char)s[p - 1]) || s[p - 1] == '_')) continue;
+        size_t q = p + 4;
+        if (q >= s.size() || !std::isspace((unsigned char)s[q])) continue;
+        while (q < s.size() && std::isspace((unsigned char)s[q])) q++;
+        if (s.compare(q, 4, "long") == 0 && (q + 4 >= s.size() || !(std::isalnum((unsigned char)s[q + 4]) || s[q + 4] == '_')))
+            return true;
+    }
+    return false;
+}
+
 std::string Preprocessor::process(const std::string& source,
                                   const std::map<std::string, std::string>& initialSymbols,
                                   const std::vector<std::string>& includePaths,
@@ -698,11 +733,15 @@ std::string Preprocessor::process(const std::string& source,
     // Default initial state: everything is active.
     stateStack.push_back({true, true, false});
     
-    // __int128 / __int(N) / __uint(N) are the structs of <intwide.h>: a unit
-    // that uses them without the header gets it (as _Complex gets its types)
+    // __int128 / __int(N) / __uint(N) / int64_t are the structs of
+    // <intwide.h>: a unit that uses them without the header gets it (as
+    // _Complex gets its types)
+    // (the code only: a comment or string that names them does not count)
+    std::string code = isCompiler ? stripCommentsAndStrings(source) : std::string();
     if (isCompiler && source.find("intwide.h") == std::string::npos &&
-        (source.find("__int128") != std::string::npos || source.find("__int(") != std::string::npos ||
-         source.find("__uint(") != std::string::npos) &&
+        (code.find("__int128") != std::string::npos || code.find("__int(") != std::string::npos ||
+         code.find("__uint(") != std::string::npos || code.find("int64_t") != std::string::npos ||
+         code.find("__int64") != std::string::npos || hasLongLong(code)) &&
         !findIncludeFile("intwide.h", getDirectory(currentFile)).empty()) {
         return processInternal("#include <intwide.h>\n#line 1 \"" + currentFile + "\"\n" + source, currentFile, 0);
     }
