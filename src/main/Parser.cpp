@@ -877,6 +877,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             }
 
             std::string pName;
+            std::shared_ptr<Expression> pVlaSize;  // int a[n++]
             const Token& pNameTok = peek();
             if (peek().type == TokenType::IDENTIFIER) {
                 pName = advance().value;
@@ -893,14 +894,13 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             if (peek().type == TokenType::OPEN_SQUARE) {
                 pPtrLevel++; // first [] decays to pointer
                 advance(); // consume '['
-                // Skip the dimension expression (may be empty for [])
+                // The dimension (may be empty for []): only a non-constant one
+                // matters, for its side effects (int a[n++])
+                if (match(TokenType::STATIC)) {}  // int a[static 10]
                 if (peek().type != TokenType::CLOSE_SQUARE) {
-                    int depth = 1;
-                    while (depth > 0 && peek().type != TokenType::END_OF_FILE) {
-                        if (peek().type == TokenType::OPEN_SQUARE) depth++;
-                        else if (peek().type == TokenType::CLOSE_SQUARE) { depth--; if (depth > 0) advance(); else break; }
-                        else advance();
-                    }
+                    auto dimExpr = parseExpression();
+                    long cv;
+                    if (dimExpr && !evalConstInt(dimExpr.get(), cv)) pVlaSize = std::move(dimExpr);
                 }
                 expect(TokenType::CLOSE_SQUARE, "Expected ']' in array parameter");
                 // Additional dimensions: int a[][M], int a[2][3]
@@ -922,6 +922,7 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
             while (tryParseAttribute()) {}
 
             params.push_back({pType, pPtrLevel, pIsSigned, pName, pIsVolatile, pIsConst, pIsPointerConst, false, nullptr});
+            params.back().vlaSizeExpr = std::move(pVlaSize);
             markParamPos(params.back(), pNameTok);
         } while (match(TokenType::COMMA) && peek().type != TokenType::ELLIPSIS);
         }

@@ -70,13 +70,18 @@ run_one() {
     if ! $LD -basic -o "$prg" "$CRT0" "$obj" "$LIB" > "$BUILD_DIR/$name.link.log" 2>&1; then
         echo "LINK FAIL: $name"; return
     fi
-    local mem="$BUILD_DIR/$name.mem"
-    rm -f "$mem"
-    timeout "$RUN_TIMEOUT" $XEMU -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem "$mem" -prg "$prg" </dev/null >/dev/null 2>&1
-    local res=$?
-    local status=""
-    [ -f "$mem" ] && status=$(od -An -tx1 -j 253 -N 2 "$mem" | tr -d ' \n')
-    rm -f "$mem"
+    local mem="$BUILD_DIR/$name.mem" res status attempt
+    # A run that times out or leaves no memory dump is retried once: under a
+    # fully loaded machine that is the emulator, not the program
+    for attempt in 1 2; do
+        rm -f "$mem"
+        timeout "$RUN_TIMEOUT" $XEMU -headless -besure -sleepless -prgmode 65 -prgexit -dumpmem "$mem" -prg "$prg" </dev/null >/dev/null 2>&1
+        res=$?
+        status=""
+        [ -f "$mem" ] && status=$(od -An -tx1 -j 253 -N 2 "$mem" | tr -d ' \n')
+        rm -f "$mem"
+        if [ $res -ne 124 ] && { [ $res -ne 0 ] || [ ${#status} -eq 4 ]; }; then break; fi
+    done
     if [ $res -eq 124 ]; then
         echo "RUN FAIL (hang or crash): $name"
     elif [ $res -ne 0 ]; then
@@ -87,6 +92,8 @@ run_one() {
         echo "RUN FAIL (abort): $name"
     elif [ "$status" = "ffff" ]; then
         echo "RUN FAIL (no exit status): $name"
+    elif [ ${#status} -ne 4 ]; then
+        echo "RUN FAIL (no memory dump): $name"
     else
         echo "RUN FAIL (exit status \$${status:2:2}${status:0:2}): $name"
     fi

@@ -2,12 +2,8 @@
 # Remove names as they are fixed; test_failures.sh runs this list.
 # pr58574: program too large (code runs into I/O at $D000).
 # vrp-6: needs 32-bit int (dg int32plus); 0x80000000 truncates to 0 in a 16-bit unsigned int.
-# 970217-1, nestfunc-7, postmod-1, pr28982a: report failure through a non-zero exit
-#   status (counted as passes before the harness read $FD/$FE).
-20000605-1
 20000731-1
 20000801-3
-20000822-1
 20000917-1
 20001009-2
 20001111-1
@@ -20,14 +16,11 @@
 20020206-2
 20020320-1
 20020412-1
-20020413-1
 20020720-1
 20021118-2
-20021120-1
 20030109-1
 20030209-1
 20030501-1
-20030914-1
 20031201-1
 20040302-1
 20040520-1
@@ -80,12 +73,9 @@
 941202-1
 950426-2
 960312-1
-960513-1
 960802-1
-961223-1
 970214-1
 970214-2
-970217-1
 980205
 990130-1
 990326-1
@@ -123,15 +113,12 @@ loop-4
 loop-8
 medce-1
 memset-4
-nest-align-1
 nest-stdar-1
 nestfunc-1
 nestfunc-3
 nestfunc-5
 nestfunc-6
-nestfunc-7
 packed-aligned
-postmod-1
 pr103209
 pr103255
 pr10352-1
@@ -149,7 +136,6 @@ pr22141-1
 pr22141-2
 pr24135
 pr28865
-pr28982a
 pr28982b
 pr29797-1
 pr29797-2

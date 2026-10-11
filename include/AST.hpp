@@ -443,6 +443,9 @@ struct Parameter {
     bool isPointerConst = false;
     bool isFunctionPointer = false;
     std::shared_ptr<FuncPtrSignature> funcPtrSig;
+    // int a[n++]: a non-constant array size, evaluated on entry for its side
+    // effects (C11 6.9.1p10); the parameter itself is a pointer
+    std::shared_ptr<Expression> vlaSizeExpr;
     std::string sourceFile;  // position of the parameter name (0 line = unknown)
     int line = 0;
     int column = 0;

@@ -643,6 +643,11 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         // Pointer difference: a signed element count (ptrdiff_t)
         if (bin->op == "-" && lhs.type == ir::Type::PTR && rhs.type == ir::Type::PTR)
             return {ir::Type::I16, "", true, ir::Type::VOID, 2};
+        // Pointer +/- integer: the pointer's type (keeps the pointed-to type)
+        if ((bin->op == "+" || bin->op == "-") && lhs.type == ir::Type::PTR && rhs.type != ir::Type::PTR)
+            return lhs;
+        if (bin->op == "+" && rhs.type == ir::Type::PTR && lhs.type != ir::Type::PTR)
+            return rhs;
         // Signed if both operands are signed, or one is signed and the other
         // is an unsigned literal that fits in signed range
         bool sig = lhs.isSigned && rhs.isSigned;
@@ -895,11 +900,6 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     fn.isRegparm = node.isRegparm;
     fn.isNested = node.isNested;
 
-    if (node.isNested) {
-        ir::Type pt = ir::Type::PTR;
-        auto vreg = allocVreg(pt);
-        fn.staticLinkVreg = vreg.vregId;
-    }
 
     // Register inline candidate if marked inline, -finline-functions, or trivial method
     if (!node.isVariadic && !node.isInterrupt && !node.isNaked) {
@@ -1042,26 +1042,6 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     sourceTracker_.setCurrentFile(node.sourceFile);
     sourceTracker_.trackFunctionDef(node.name, node.line, node.column, 0, 0);  // Address ranges set during codegen
 
-    // Load static link from ZP if nested
-    if (fnPtr->isNested) {
-        ir::Type pt = ir::Type::PTR;
-        auto vreg = ir::Operand::vreg(fnPtr->staticLinkVreg, pt);
-        locals_["__static_link"] = vreg;
-        localTypes_["__static_link"] = pt;
-        localTypeNames_["__static_link"] = "void*";
-        localSigned_["__static_link"] = false;
-        localConst_["__static_link"] = true;
-        currentFunc_->localNames["__static_link"] = vreg.vregId;
-        currentFunc_->localSlotVregs.insert(vreg.vregId);
-
-        ir::Inst loadSl;
-        loadSl.op = ir::Op::LOAD_ZP;
-        loadSl.dest = vreg;
-        loadSl.resultType = pt;
-        loadSl.src1 = ir::Operand::global("__static_chain");
-        loadSl.loc = loc(node);
-        emit(loadSl);
-    }
     currentFuncParams_.clear();
     for (const auto& p : node.parameters) {
         currentFuncParams_.insert(p.name);
@@ -1115,6 +1095,34 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         // Use function line/column since parameters don't have their own location
         sourceTracker_.trackVariableDecl(p.name, node.line, node.column, p.type, 0, true);
     }
+
+    // Load static link from ZP if nested
+    if (fnPtr->isNested) {
+        // Numbered after the parameters (vregs 0..n-1 are the parameters)
+        ir::Type pt = ir::Type::PTR;
+        auto vreg = allocVreg(pt);
+        fnPtr->staticLinkVreg = (int)vreg.vregId;
+        locals_["__static_link"] = vreg;
+        localTypes_["__static_link"] = pt;
+        localTypeNames_["__static_link"] = "void*";
+        localSigned_["__static_link"] = false;
+        localConst_["__static_link"] = true;
+        currentFunc_->localNames["__static_link"] = vreg.vregId;
+        currentFunc_->localSlotVregs.insert(vreg.vregId);
+
+        ir::Inst loadSl;
+        loadSl.op = ir::Op::LOAD_ZP;
+        loadSl.dest = vreg;
+        loadSl.resultType = pt;
+        loadSl.src1 = ir::Operand::global("__static_chain");
+        loadSl.loc = loc(node);
+        emit(loadSl);
+    }
+
+    // Variably modified parameters: evaluate their size expressions now, for
+    // their side effects (sub(int i, int a[i++]) increments i)
+    for (const auto& p : node.parameters)
+        if (p.vlaSizeExpr) p.vlaSizeExpr->accept(*this);
 
     // Visit body
     node.body->accept(*this);
@@ -1813,7 +1821,13 @@ void IRBuilder::visit(VariableDeclaration& node) {
                 std::memcpy(&gv.initValue, &negFloat, sizeof(double));
             } else if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
                 gv.hasInitValue = true;
-                gv.initValue = lit->value;
+                if (t == ir::Type::F32) {
+                    // float f = 10; — stored as the double's bits like a float literal
+                    double dv = (double)lit->value;
+                    std::memcpy(&gv.initValue, &dv, sizeof(double));
+                } else {
+                    gv.initValue = lit->value;
+                }
             } else if (auto* slit = dynamic_cast<StringLiteral*>(node.initializer.get())) {
                 // Scalar string literal init: char *p = "hello"
                 std::string label = "__str_" + std::to_string(nextLabel_++);
@@ -1897,7 +1911,12 @@ void IRBuilder::visit(VariableDeclaration& node) {
         } else if (node.initializer) {
             if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
                 gv.hasInitValue = true;
-                gv.initValue = lit->value;
+                if (t == ir::Type::F32) {
+                    double dv = (double)lit->value;
+                    std::memcpy(&gv.initValue, &dv, sizeof(double));
+                } else {
+                    gv.initValue = lit->value;
+                }
             } else if (auto* flit = dynamic_cast<FloatLiteral*>(node.initializer.get())) {
                 gv.hasInitValue = true;
                 std::memcpy(&gv.initValue, &flit->value, sizeof(double));
@@ -2186,10 +2205,14 @@ void IRBuilder::visit(VariableDeclaration& node) {
         } else {
             // Simple scalar initializer
             node.initializer->accept(*this);
+            ir::Operand initVal = lastValue_;
+            // float x = 3; int i = 2.5; — convert between integer and float
+            if ((t == ir::Type::F32) != (initVal.type == ir::Type::F32) && initVal.type != ir::Type::VOID)
+                initVal = emitCast(initVal, t, lastValueSigned_);
             ir::Inst store;
             store.op = ir::Op::STORE;
             store.resultType = t;
-            store.src1 = lastValue_;
+            store.src1 = initVal;
             store.src2 = vreg;
             store.loc = loc(node);
             emit(store);
@@ -2380,6 +2403,9 @@ void IRBuilder::visit(VariableReference& node) {
             // Found in parent frame!
             // Mark as escaped/captured in the parent function
             scope.func->memoryVregs.insert(pit->second.vregId);
+            // The nested function reaches it through the parent's frame
+            // pointer (static chain): the parent needs a real stack frame
+            scope.func->isRecurse = true;
             scope.usedVregs.insert(pit->second.vregId);
 
             // Use ADDR_UPLEVEL to get its address
@@ -2603,9 +2629,52 @@ void IRBuilder::visit(Assignment& node) {
         else if (node.op == "<<=") binOp = ir::Op::SHL;
         else if (node.op == ">>=") binOp = bothSigned ? ir::Op::ASR : ir::Op::SHR;
 
+        // Float operands: x op= y is computed in floating point and converted
+        // back to x's type (int += float included)
+        ir::Op floatOp = ir::Op::NOP;
+        if (node.op == "+=") floatOp = ir::Op::FADD;
+        else if (node.op == "-=") floatOp = ir::Op::FSUB;
+        else if (node.op == "*=") floatOp = ir::Op::FMUL;
+        else if (node.op == "/=") floatOp = ir::Op::FDIV;
+        if (floatOp != ir::Op::NOP && (lhsVal.type == ir::Type::F32 || rhs.type == ir::Type::F32)) {
+            auto fl = emitCast(lhsVal, ir::Type::F32, lhsSigned);
+            auto fr = emitCast(rhs, ir::Type::F32, rhsInfo.isSigned);
+            auto fd = allocVreg(ir::Type::F32);
+            ir::Inst inst;
+            inst.op = floatOp;
+            inst.dest = fd;
+            inst.resultType = ir::Type::F32;
+            inst.src1 = fl;
+            inst.src2 = fr;
+            inst.loc = loc(node);
+            emit(inst);
+            rhs = emitCast(fd, lhsVal.type, lhsSigned);
+            binOp = ir::Op::NOP;
+        }
+
         if (binOp != ir::Op::NOP) {
             ir::Type opType = lhsVal.type;
             auto castRhs = emitCast(rhs, opType, false);
+            // p += n / p -= n: scale n by the pointed-to element size
+            if (opType == ir::Type::PTR && (binOp == ir::Op::ADD || binOp == ir::Op::SUB)) {
+                IRTypeInfo pinfo = getExprTypeInfo(node.target.get());
+                int elemSize = 1;
+                if (pinfo.pointedToType != ir::Type::VOID) elemSize = ir::typeSize(pinfo.pointedToType);
+                if (const IRStructInfo* si = pinfo.typeName.empty() ? nullptr : structOf(pinfo.typeName))
+                    elemSize = si->totalSize;
+                if (elemSize > 1) {
+                    auto scaled = allocVreg(ir::Type::PTR);
+                    ir::Inst mul;
+                    mul.op = ir::Op::MUL_U;
+                    mul.dest = scaled;
+                    mul.resultType = ir::Type::PTR;
+                    mul.src1 = castRhs;
+                    mul.src2 = ir::Operand::imm(elemSize, ir::Type::PTR);
+                    mul.loc = loc(node);
+                    emit(mul);
+                    castRhs = scaled;
+                }
+            }
             auto dest = allocVreg(opType);
             ir::Inst inst;
             inst.op = binOp;
