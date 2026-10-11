@@ -5,6 +5,7 @@
 # pr98366: needs 32-bit int (dg int32); int e:17 is wider than a 16-bit int.
 # pr56799: needs 32-bit int (dg int32plus); (int)0x10000 is 0 and a >> 16 shifts out a 16-bit int.
 # 20040811-1, pr43220: need 32-bit int (dg int32plus); with a 16-bit int n < 1000000 never ends.
+# eeprof-1: won't do — needs -finstrument-functions (__cyg_profile_func_enter/exit hooks), not supported.
 20030209-1
 20040629-1
 20040703-1
