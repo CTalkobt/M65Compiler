@@ -6356,12 +6356,24 @@ void IRBuilder::visit(BuiltinVaArg& node) {
     advance.loc = loc(node);
     emit(advance);
 
-    // Store back
+    // Store back. ap is normally a variable's slot (STORE assigns it); an
+    // inlined va_list parameter is a plain vreg, which is reassigned instead
+    // (a STORE would write through the pointer)
+    bool isSlot = !apAddr.isVreg() || !currentFunc_ ||
+                  currentFunc_->localSlotVregs.count(apAddr.vregId) ||
+                  currentFunc_->memoryVregs.count(apAddr.vregId);
     ir::Inst storeAp;
-    storeAp.op = ir::Op::STORE;
-    storeAp.resultType = ir::Type::PTR;
-    storeAp.src1 = newAp;
-    storeAp.src2 = apAddr;
+    if (isSlot) {
+        storeAp.op = ir::Op::STORE;
+        storeAp.resultType = ir::Type::PTR;
+        storeAp.src1 = newAp;
+        storeAp.src2 = apAddr;
+    } else {
+        storeAp.op = ir::Op::COPY;
+        storeAp.dest = apAddr;
+        storeAp.resultType = ir::Type::PTR;
+        storeAp.src1 = newAp;
+    }
     emit(storeAp);
 
     lastValue_ = val;

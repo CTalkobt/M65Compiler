@@ -1099,6 +1099,7 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     if (relocMode) {
         bool hasFloat = false;
         bool hasFloatArg = false;
+        bool hasFloatSprintf = false;
         for (const auto& fn : mod.functions) {
             for (const auto& blk : fn.blocks) {
                 for (const auto& inst : blk.insts) {
@@ -1107,14 +1108,16 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
                     }
                     if (inst.op == ir::Op::CALL || inst.op == ir::Op::CALL_INDIRECT || inst.op == ir::Op::CALL_VOID) {
                         for (const auto& arg : inst.args) {
-                            if (arg.type == ir::Type::F32) { hasFloatArg = true; break; }
+                            if (arg.type == ir::Type::F32) {
+                                hasFloatArg = true;
+                                if (inst.src1.kind == ir::OperandKind::GLOBAL && inst.src1.name == "_sprintf")
+                                    hasFloatSprintf = true;
+                                break;
+                            }
                         }
                     }
-                    if (hasFloat && hasFloatArg) break;
                 }
-                if (hasFloat && hasFloatArg) break;
             }
-            if (hasFloat && hasFloatArg) break;
         }
         if (hasFloat) {
             emit(".extern __float_a");
@@ -1134,6 +1137,10 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
         }
         if (hasFloatArg) {
             emit(".extern _printf_float");
+        }
+        // sprintf with a float argument: link the %f-aware sprintf
+        if (hasFloatSprintf) {
+            emit(".extern _sprintf_float");
         }
     }
 
@@ -3286,7 +3293,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     // Shift entirely out — result is 0 (SHR) or 0/-1 (ASR)
                     if (isASR) {
                         if (is32) emit("tza"); else emit("txa"); // sign byte → A
-                        emit("cmp #$80"); emit("lda #0"); emit("sbc #0"); // $FF if neg, $00 if pos
+                        emit("cmp #$80"); emit("lda #0"); emit("adc #$FF"); emit("eor #$FF"); // $FF if neg (C set), $00 if pos
                         emit("tax");
                         if (is32) { emit("tay"); emit("taz"); }
                     } else {
@@ -3305,7 +3312,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     // I32 >> 8 signed: A=X, X=Y, Y=Z, Z=sign_ext(Z)
                     emit("txa"); emit("pha"); emit("tya"); emit("tax");
                     emit("tza"); emit("tay");             // Y = old Z (byte 3)
-                    emit("cmp #$80"); emit("lda #0"); emit("sbc #0"); // sign extend
+                    emit("cmp #$80"); emit("lda #0"); emit("adc #$FF"); emit("eor #$FF"); // sign extend: $FF if neg
                     emit("taz"); emit("pla");             // Z = sign, A = old X
                 } else if (shiftCount == 16 && is32 && !isASR) {
                     // I32 >> 16 unsigned: A=Y, X=Z, Y=Z=0
@@ -3316,7 +3323,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     // I32 >> 16 signed: A=Y, X=Z, Y=Z=sign_ext(Z)
                     emit("tya"); emit("pha");             // save Y (new byte 0)
                     emit("tza"); emit("tax");             // X = old Z (new byte 1)
-                    emit("cmp #$80"); emit("lda #0"); emit("sbc #0"); // sign extend
+                    emit("cmp #$80"); emit("lda #0"); emit("adc #$FF"); emit("eor #$FF"); // sign extend: $FF if neg
                     emit("tay"); emit("taz");             // Y=Z=sign
                     emit("pla");                          // A = old Y (byte 0)
                 } else if (shiftCount == 24 && is32 && !isASR) {
@@ -3325,7 +3332,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 } else if (shiftCount == 24 && is32 && isASR) {
                     // I32 >> 24 signed: A=Z, X=Y=Z=sign_ext(Z)
                     emit("tza"); emit("cmp #$80"); emit("pha"); // save Z, set sign
-                    emit("lda #0"); emit("sbc #0");       // A = sign
+                    emit("lda #0"); emit("adc #$FF"); emit("eor #$FF"); // A = sign ($FF if neg)
                     emit("tax"); emit("tay"); emit("taz"); // X=Y=Z=sign
                     emit("pla");                           // A = old Z (byte 0)
                 } else {

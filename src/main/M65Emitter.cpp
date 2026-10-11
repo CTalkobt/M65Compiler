@@ -866,6 +866,10 @@ size_t M65Emitter::emitBranchPlaceholder(uint8_t opcode) {
 }
 
 void M65Emitter::patchBranchTarget(size_t branchPos) {
+    // The target is a join point: what is known about registers and memory
+    // on the fall-through path doesn't hold on the branch path
+    // (lda #0 / bcc + / lda #$ff / +: A is not $FF)
+    ms_.invalidateAll();
     if (!binary || branchPos + 1 >= binary->size()) return;
     // Relative branch: offset from byte AFTER the branch instruction (branchPos + 2)
     int offset = (int)binary->size() - (int)(branchPos + 2);

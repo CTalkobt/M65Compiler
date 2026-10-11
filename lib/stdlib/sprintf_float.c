@@ -10,6 +10,10 @@ int itoa(int value, char *str, int base);
 char *ltoa(long value, char *str, int base);
 int printf_float(char *buf, float val);
 
+/* Referenced by cc45 when sprintf is called with a float argument, so this
+ * member (and its strong sprintf) is linked instead of the integer-only one */
+void sprintf_float(void) {}
+
 static void sf_emit_buf(char **out, char *buf, int skip_minus) {
     int i = 0;
     while (buf[i]) {

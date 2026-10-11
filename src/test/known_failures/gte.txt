@@ -2,6 +2,7 @@
 # Remove names as they are fixed; test_failures.sh runs this list.
 # pr58574: program too large (code runs into I/O at $D000).
 # vrp-6: needs 32-bit int (dg int32plus); 0x80000000 truncates to 0 in a 16-bit unsigned int.
+# pr56799: needs 32-bit int (dg int32plus); (int)0x10000 is 0 and a >> 16 shifts out a 16-bit int.
 20001009-2
 20010122-1
 20010325-1
@@ -30,7 +31,6 @@
 920410-1
 920428-2
 920501-4
-920501-8
 920721-4
 920728-1
 921017-1
@@ -40,7 +40,6 @@
 970214-1
 970214-2
 990130-1
-990326-1
 alias-2
 alias-3
 alias-4
@@ -59,7 +58,6 @@ fprintf-chk-1
 loop-2f
 loop-2g
 medce-1
-memset-4
 nest-stdar-1
 nestfunc-3
 nestfunc-5
@@ -97,8 +95,8 @@ pr51877
 pr51933
 pr52286
 pr53084
-pr55137
 pr55750
+pr56799
 pr57124
 pr57130
 pr57344-1
@@ -131,7 +129,6 @@ pr85156
 pr85169
 pr88904
 pr90025
-pr92140
 pr93213
 pr93744-3
 pr93908
@@ -149,7 +146,6 @@ simd-1
 simd-2
 simd-4
 simd-6
-stdarg-4
 stkalign
 strcpy-2
 strlen-5
