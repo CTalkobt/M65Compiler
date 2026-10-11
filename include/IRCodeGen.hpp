@@ -410,6 +410,7 @@ private:
     // Current function, block, and instruction index for peephole lookahead
     const ir::Function* currentFn_ = nullptr;
     const ir::Module* currentModule_ = nullptr;
+    bool vregUsedOutside(uint32_t id, const ir::Inst* a, const ir::Inst* b) const;
     size_t currentBlockIdx_ = 0;
     size_t currentInstInBlock_ = 0; // index within current block's inst vector
 

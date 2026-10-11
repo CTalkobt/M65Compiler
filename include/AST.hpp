@@ -222,6 +222,9 @@ public:
     std::unique_ptr<Expression> alignmentExpr;
     std::unique_ptr<Expression> initializer;
     std::vector<int> arrayDims; // empty means not an array; e.g. {3,4} for int a[3][4]
+    // A variable-length array (int a[n][4]): the expression of each run-time
+    // dimension (its arrayDims entry is 0); empty otherwise
+    std::vector<std::shared_ptr<Expression>> vlaDimExprs;
     int arraySize() const { if (arrayDims.empty()) return -1; int s=1; for (int d:arrayDims) s*=d; return s; }
     bool isFunctionPointer = false;
     std::shared_ptr<FuncPtrSignature> funcPtrSig; // non-null when isFunctionPointer
@@ -393,6 +396,8 @@ public:
 class CompoundStatement : public Statement {
 public:
     std::vector<std::unique_ptr<Statement>> statements;
+    // The declarators of one declaration (int a, b[n];), not a block
+    bool isDeclGroup = false;
     void accept(ASTVisitor& visitor) override;
 };
 
@@ -456,6 +461,10 @@ struct Parameter {
     // int a[n++]: a non-constant array size, evaluated on entry for its side
     // effects (C11 6.9.1p10); the parameter itself is a pointer
     std::shared_ptr<Expression> vlaSizeExpr;
+    // int a[][M][N]: the dimensions after the first ({M, N}); a run-time
+    // one (char a[2][n]) is 0 here with its expression in innerDimExprs
+    std::vector<int> innerArrayDims;
+    std::vector<std::shared_ptr<Expression>> innerDimExprs;
     std::string sourceFile;  // position of the parameter name (0 line = unknown)
     int line = 0;
     int column = 0;

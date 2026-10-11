@@ -878,6 +878,8 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
 
             std::string pName;
             std::shared_ptr<Expression> pVlaSize;  // int a[n++]
+            std::vector<int> pInnerDims;           // int a[][M]
+            std::vector<std::shared_ptr<Expression>> pInnerDimExprs;
             const Token& pNameTok = peek();
             if (peek().type == TokenType::IDENTIFIER) {
                 pName = advance().value;
@@ -903,19 +905,29 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                     if (dimExpr && !evalConstInt(dimExpr.get(), cv)) pVlaSize = std::move(dimExpr);
                 }
                 expect(TokenType::CLOSE_SQUARE, "Expected ']' in array parameter");
-                // Additional dimensions: int a[][M], int a[2][3]
+                // Additional dimensions: int a[][M], int a[2][3] — kept when
+                // constant (the parameter points to an array of them)
+                bool knownDims = true;
                 while (peek().type == TokenType::OPEN_SQUARE) {
                     advance(); // consume '['
                     if (peek().type != TokenType::CLOSE_SQUARE) {
-                        int depth2 = 1;
-                        while (depth2 > 0 && peek().type != TokenType::END_OF_FILE) {
-                            if (peek().type == TokenType::OPEN_SQUARE) depth2++;
-                            else if (peek().type == TokenType::CLOSE_SQUARE) { depth2--; if (depth2 > 0) advance(); else break; }
-                            else advance();
+                        auto dimExpr = parseExpression();
+                        long cv;
+                        if (dimExpr && evalConstInt(dimExpr.get(), cv) && cv > 0) {
+                            pInnerDims.push_back((int)cv);
+                            pInnerDimExprs.push_back(nullptr);
+                        } else if (dimExpr) {
+                            pInnerDims.push_back(0);  // run-time dimension
+                            pInnerDimExprs.push_back(std::shared_ptr<Expression>(std::move(dimExpr)));
+                        } else {
+                            knownDims = false;
                         }
+                    } else {
+                        knownDims = false;
                     }
                     expect(TokenType::CLOSE_SQUARE, "Expected ']' in array parameter");
                 }
+                if (!knownDims) { pInnerDims.clear(); pInnerDimExprs.clear(); }
             }
 
             // Skip __attribute__ after array params
@@ -923,6 +935,8 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
 
             params.push_back({pType, pPtrLevel, pIsSigned, pName, pIsVolatile, pIsConst, pIsPointerConst, false, nullptr});
             params.back().vlaSizeExpr = std::move(pVlaSize);
+            params.back().innerArrayDims = pInnerDims;
+            params.back().innerDimExprs = pInnerDimExprs;
             markParamPos(params.back(), pNameTok);
         } while (match(TokenType::COMMA) && peek().type != TokenType::ELLIPSIS);
         }
@@ -1253,6 +1267,7 @@ std::unique_ptr<Statement> Parser::parseStatement() {
                 return vDecl;
             }
             auto compound = std::make_unique<CompoundStatement>();
+            compound->isDeclGroup = true;
             compound->statements.push_back(std::move(vDecl));
             for (auto& ev : extraVars) compound->statements.push_back(std::move(ev));
             return compound;
@@ -1750,6 +1765,8 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
 
     std::string name = expect(TokenType::IDENTIFIER, "Expected variable name").value;
     std::vector<int> arrayDims;
+    std::vector<std::shared_ptr<Expression>> vlaDimExprs;
+    bool isVla = false;
     bool unsizedArray = false;
     while (match(TokenType::OPEN_SQUARE)) {
         if (peek().type == TokenType::CLOSE_SQUARE) {
@@ -1769,14 +1786,25 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
                 else arrSize = 2; // default
                 for (int _p = 0; _p < szExpr->pointerLevel; _p++) arrSize = 2;
             }
-            else arrSize = 1; // fallback for non-constant expressions
+            else arrSize = 0; // a run-time size: a variable-length array
+            if (arrSize == 0 && !dynamic_cast<SizeofExpression*>(sizeExpr.get())) {
+                isVla = true;
+                vlaDimExprs.push_back(std::shared_ptr<Expression>(std::move(sizeExpr)));
+            } else {
+                vlaDimExprs.push_back(nullptr);
+            }
             arrayDims.push_back(arrSize);
         }
+        if (vlaDimExprs.size() < arrayDims.size()) vlaDimExprs.push_back(nullptr);
         expect(TokenType::CLOSE_SQUARE, "Expected ']' after array size");
     }
     // Append typedef array dimensions
     arrayDims.insert(arrayDims.end(), typedefArrayDims.begin(), typedefArrayDims.end());
     auto decl = setPos(std::make_unique<VariableDeclaration>(type, name, ptrLevel), typeToken);
+    if (isVla) {
+        vlaDimExprs.resize(arrayDims.size());  // typedef dimensions are constant
+        decl->vlaDimExprs = std::move(vlaDimExprs);
+    }
     decl->isSigned = isSigned;
     decl->isVolatile = isVolatile;
     decl->isConst = isConst;
@@ -1823,6 +1851,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     // --- Multi-variable declarations: int a, b = 3, *c, d[4]; ---
     if (peek().type == TokenType::COMMA) {
         auto compound = setPos(std::make_unique<CompoundStatement>(), typeToken);
+        compound->isDeclGroup = true;
         compound->statements.push_back(std::move(decl));
 
         while (match(TokenType::COMMA)) {

@@ -455,6 +455,7 @@ public:
         decl->isStatic = node.isStatic;
         decl->isRegister = node.isRegister;
         decl->arrayDims = node.arrayDims;
+        decl->vlaDimExprs = node.vlaDimExprs;
         decl->isFunctionPointer = node.isFunctionPointer;
         decl->funcPtrSig = node.funcPtrSig;
         decl->addressSpace = node.addressSpace;  // Phase 97: Preserve address space qualifier
@@ -491,9 +492,31 @@ public:
         lastStmt = copyPos(std::make_unique<ExpressionStatement>(fold(std::move(node.expression))), node);
     }
 
+    // A statement that can be entered by a jump: it contains a case/default
+    // of the enclosing switch or a goto label
+    static bool hasJumpTarget(Statement* st, bool inNestedSwitch = false) {
+        if (!st) return false;
+        if (dynamic_cast<LabelledStatement*>(st)) return true;
+        if (!inNestedSwitch && (dynamic_cast<CaseStatement*>(st) || dynamic_cast<DefaultStatement*>(st))) return true;
+        if (auto* c = dynamic_cast<CompoundStatement*>(st)) {
+            for (auto& x : c->statements) if (hasJumpTarget(x.get(), inNestedSwitch)) return true;
+            return false;
+        }
+        if (auto* i = dynamic_cast<IfStatement*>(st))
+            return hasJumpTarget(i->thenBranch.get(), inNestedSwitch) || hasJumpTarget(i->elseBranch.get(), inNestedSwitch);
+        if (auto* w = dynamic_cast<WhileStatement*>(st)) return hasJumpTarget(w->body.get(), inNestedSwitch);
+        if (auto* d = dynamic_cast<DoWhileStatement*>(st)) return hasJumpTarget(d->body.get(), inNestedSwitch);
+        if (auto* f = dynamic_cast<ForStatement*>(st)) return hasJumpTarget(f->body.get(), inNestedSwitch);
+        if (auto* r = dynamic_cast<RepeatStatement*>(st)) return hasJumpTarget(r->body.get(), inNestedSwitch);
+        if (auto* sw = dynamic_cast<SwitchStatement*>(st)) return hasJumpTarget(sw->body.get(), true);
+        return false;
+    }
+
     void visit(IfStatement& node) override {
         auto condition = fold(std::move(node.condition));
         auto* lit = dynamic_cast<IntegerLiteral*>(condition.get());
+        // if (0) { ... case 1: ... }: the branch is still reachable by a jump
+        if (lit && (hasJumpTarget(node.thenBranch.get()) || hasJumpTarget(node.elseBranch.get()))) lit = nullptr;
         if (lit) {
             if (lit->value) {
                 lastStmt = fold(std::move(node.thenBranch));

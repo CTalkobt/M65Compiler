@@ -185,6 +185,22 @@ void IRCodeGen::emitOptimized(const std::string& line, const std::string& reason
     emit(optimized, reason);
 }
 
+// Is vreg id read by any instruction of the current function other than
+// a and b? (the inc/dec peephole leaves the incremented value unloaded)
+bool IRCodeGen::vregUsedOutside(uint32_t id, const ir::Inst* a, const ir::Inst* b) const {
+    if (!currentFn_) return true;
+    auto uses = [&](const ir::Operand& o) { return o.isVreg() && o.vregId == id; };
+    for (const auto& blk : currentFn_->blocks)
+        for (const auto& in : blk.insts) {
+            if (&in == a || &in == b) continue;
+            if (uses(in.src1) || uses(in.src2)) return true;
+            if (in.op == ir::Op::STORE && uses(in.dest)) return true;
+            for (const auto& x : in.args) if (uses(x)) return true;
+            for (const auto& ph : in.phiIncoming) if (uses(ph.first)) return true;
+        }
+    return false;
+}
+
 void IRCodeGen::emitLabel(const std::string& label) {
     out_ << label << ":\n";
 }
@@ -2902,7 +2918,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 if (nextInst && nextInst->op == ir::Op::STORE &&
                     nextInst->src1.isVreg() && nextInst->src1.vregId == inst.dest.vregId &&
                     nextInst->src2.isVreg() && nextInst->src2.vregId == inst.src1.vregId &&
-                    localSlotVregs_.count(nextInst->src2.vregId)) {
+                    localSlotVregs_.count(nextInst->src2.vregId) &&
+                    !vregUsedOutside(inst.dest.vregId, &inst, nextInst)) {
                     auto srcAlloc = alloc_.getAlloc(inst.src1.vregId);
                     if (srcAlloc.loc == VRegAllocator::IN_ZP) {
                         std::stringstream lo, hi;
@@ -3269,28 +3286,21 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     for (int i = 0; i < shiftCount && i < maxBits; i++) emit(shOp);
                 }
             } else {
+                // The count first (it may be loaded through A/X), then the
+                // value; the count is tested in memory (inc/dec)
                 std::string cntOp = src2MemOperand(inst.src2);
                 std::string lbl = "@__shl_loop_" + std::to_string(labelCounter_++);
                 std::string done = "@__shl_done_" + std::to_string(labelCounter_++);
-                if (is32) {
-                    emit("lda " + cntOp);
-                    emit("sta __zp_scratch4");
-                    loadOperand(inst.src1);
-                    emit("lda __zp_scratch4");
-                    emit("beq " + done);
-                    emit("sta __zp_scratch4");
-                    emitLabel(lbl);
-                    emit(shOp);
-                    emit("dec __zp_scratch4");
-                    emit("bne " + lbl);
-                } else {
-                    emit("ldy " + cntOp);
-                    emit("beq " + done);
-                    emitLabel(lbl);
-                    emit(shOp);
-                    emit("dey");
-                    emit("bne " + lbl);
-                }
+                emit("lda " + cntOp);
+                emit("sta __zp_scratch4");
+                loadOperand(inst.src1);
+                emit("inc __zp_scratch4");
+                emit("dec __zp_scratch4");
+                emit("beq " + done);
+                emitLabel(lbl);
+                emit(shOp);
+                emit("dec __zp_scratch4");
+                emit("bne " + lbl);
                 emitLabel(done);
             }
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
@@ -3362,29 +3372,22 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     for (int i = 0; i < shiftCount && i < maxBits; i++) emit(mn);
                 }
             } else {
+                // The count first (loading it may use A/X), kept in zero
+                // page; then the value. inc/dec test the count without
+                // touching the value's registers.
                 std::string cntOp = src2MemOperand(inst.src2);
                 std::string lbl = "@__shr_loop_" + std::to_string(labelCounter_++);
                 std::string done = "@__shr_done_" + std::to_string(labelCounter_++);
-                if (is32) {
-                    // 32-bit shift clobbers Y — use ZP counter instead of DEY
-                    emit("lda " + cntOp);
-                    emit("sta __zp_scratch4");
-                    loadOperand(inst.src1);
-                    emit("lda __zp_scratch4");
-                    emit("beq " + done);
-                    emit("sta __zp_scratch4");
-                    emitLabel(lbl);
-                    emit(mn);
-                    emit("dec __zp_scratch4");
-                    emit("bne " + lbl);
-                } else {
-                    emit("ldy " + cntOp);
-                    emit("beq " + done);
-                    emitLabel(lbl);
-                    emit(mn);
-                    emit("dey");
-                    emit("bne " + lbl);
-                }
+                emit("lda " + cntOp);
+                emit("sta __zp_scratch4");
+                loadOperand(inst.src1);
+                emit("inc __zp_scratch4");
+                emit("dec __zp_scratch4");
+                emit("beq " + done);
+                emitLabel(lbl);
+                emit(mn);
+                emit("dec __zp_scratch4");
+                emit("bne " + lbl);
                 emitLabel(done);
             }
 
@@ -4973,6 +4976,9 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             loadOperand(inst.src1);
             if (inst.src1.type == ir::Type::I8 && inst.resultType == ir::Type::I16) {
                 emit("sxt.8");
+            } else if (inst.src1.type == ir::Type::I8 && inst.resultType == ir::Type::I32) {
+                emit("sxt.8");   // byte -> word, then word -> long
+                emit("sxt.16");
             } else if (inst.src1.type == ir::Type::I16 && inst.resultType == ir::Type::I32) {
                 emit("sxt.16");
             }
@@ -5092,7 +5098,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             else if (reg == "AY") { emit("phy"); emit("plx"); }
             else if (reg == "AZ") { emit("phz"); emit("plx"); }
             else if (reg == "XY") { emit("txa"); emit("phy"); emit("plx"); emit("pla"); } // Swap AX/XY
-            else if (reg == "SP") { emit("tsy"); emit("phy"); emit("plx"); }
+            else if (reg == "SP") { emit("tsx"); emit("tsy"); emit("txa"); emit("phy"); emit("plx"); }  // A = SPL, X = SPH
             else if (reg == "Q" || reg == "AXYZ") ; // already in AXYZ
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
@@ -5149,7 +5155,9 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 else if (reg == "AY") { emit("phx"); emit("ply"); }
                 else if (reg == "AZ") { emit("phx"); emit("plz"); }
                 else if (reg == "XY") { emit("tax"); emit("phx"); emit("ply"); emit("plx"); }
-                else if (reg == "SP") { emit("phx"); emit("ply"); emit("tys"); }
+                // SP = AX: low byte first, then the high byte (raising SP:
+                // the in-between value stays within the area being freed)
+                else if (reg == "SP") { emit("phx"); emit("ply"); emit("tax"); emit("txs"); emit("tys"); }
             }
             break;
         }

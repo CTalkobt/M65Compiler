@@ -784,6 +784,34 @@ void optimizeBranchFold(Module& mod) {
                 }
             }
 
+            // Pass 2a: a conditional branch on a constant (if (0) { ... } kept
+            // for a case label inside it) becomes a plain branch
+            for (auto& blk : fn.blocks) {
+                if (blk.insts.empty() || blk.insts.back().op != Op::BR_COND) continue;
+                auto& br = blk.insts.back();
+                bool known = false;
+                int64_t v = 0;
+                if (br.src1.isImm()) { known = true; v = br.src1.immVal; }
+                else if (br.src1.isVreg()) {
+                    for (size_t k = blk.insts.size() - 1; k-- > 0;) {
+                        const auto& d = blk.insts[k];
+                        if (d.dest.isVreg() && d.dest.vregId == br.src1.vregId) {
+                            if (d.op == Op::CONST && d.src1.isImm()) { known = true; v = d.src1.immVal; }
+                            break;
+                        }
+                    }
+                }
+                if (!known || br.dest.name.empty() || br.src2.name.empty()) continue;
+                std::string target = v ? br.dest.name : br.src2.name;
+                trace("branch", fn.name, "constant condition: br " + target, br.loc);
+                Inst b;
+                b.op = Op::BR;
+                b.src1 = Operand::label(target);
+                b.loc = br.loc;
+                br = b;
+                changed = true;
+            }
+
             // Pass 2b: Remove redundant BR to next block (fallthrough)
             for (size_t bi = 0; bi + 1 < fn.blocks.size(); bi++) {
                 auto& insts = fn.blocks[bi].insts;

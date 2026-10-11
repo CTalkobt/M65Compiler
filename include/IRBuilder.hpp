@@ -146,6 +146,15 @@ private:
     std::map<std::string, std::vector<int>> localArrayDims_; // for stride computation
     std::map<std::string, std::vector<int>> globalArrayDims_; // for stride computation
     std::map<std::string, int> localPtrLevel_;   // declared pointer level (arrays: of the element)
+    std::map<std::string, std::vector<int>> paramArrayDims_;  // int a[][M] parameter: {0, M}
+    std::map<std::string, std::vector<ir::Operand>> paramVlaDims_;  // run-time inner dims (slots)
+    std::map<std::string, std::string> vlaSizeVars_;  // variable-length array -> its size variable
+    std::vector<std::unique_ptr<FunctionDeclaration>> vlaAllocaProtos_;  // kept alive
+    // Blocks with variable-length arrays: the saved SP and the loop depth
+    struct VlaBlock { ir::Operand spSlot; size_t loopDepth; };
+    std::vector<VlaBlock> vlaBlocks_;
+    void restoreVlaStack(const ir::Operand& spSlot);
+    void releaseVlasForJump();
     std::map<std::string, int> globalPtrLevel_;
 
     // Unused variable tracking

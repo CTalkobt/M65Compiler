@@ -4,25 +4,23 @@
 # vrp-6: needs 32-bit int (dg int32plus); 0x80000000 truncates to 0 in a 16-bit unsigned int.
 # pr98366: needs 32-bit int (dg int32); int e:17 is wider than a 16-bit int.
 # pr56799: needs 32-bit int (dg int32plus); (int)0x10000 is 0 and a >> 16 shifts out a 16-bit int.
+# 20040811-1, pr43220: need 32-bit int (dg int32plus); with a 16-bit int n < 1000000 never ends.
 20001009-2
 20010122-1
-20010325-1
 20020108-1
-20020206-2
 20020412-1
 20030209-1
 20030501-1
 20040629-1
 20040703-1
 20040709-3
+20040811-1
 20041124-1
 20041201-1
 20041218-2
 20050604-1
 20061220-1
 20070919-1
-20071029-1
-20071120-1
 920410-1
 920428-2
 920728-1
@@ -45,7 +43,6 @@ ffs-2
 fprintf-chk-1
 loop-2f
 loop-2g
-medce-1
 nestfunc-3
 nestfunc-5
 nestfunc-6
@@ -53,32 +50,22 @@ pr103209
 pr103255
 pr17377
 pr19449
-pr22061-1
 pr22061-3
-pr22061-4
-pr22098-1
 pr22141-1
 pr22141-2
 pr24135
 pr28982b
 pr29797-1
-pr35163
 pr37573
-pr38048-2
 pr41935
 pr44164
-pr44852
 pr45262
 pr49279
 pr49390
-pr51323
 pr51447
-pr51877
 pr52286
 pr56799
 pr57124
-pr57130
-pr58209
 pr58574
 pr60960
 pr61725
@@ -100,15 +87,12 @@ pr82210
 pr85095
 pr85156
 pr85169
-pr90025
 pr93213
-pr93744-3
 pr93945
 pr94412
 pr94524-1
 pr94524-2
 pr94591
-pr97404
 pr98366
 printf-chk-1
 pushpop_macro

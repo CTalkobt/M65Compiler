@@ -376,6 +376,11 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         return {t, tn, isSigned, (t == ir::Type::PTR) ? mapType(lit->castType, 0) : ir::Type::VOID, ir::typeSize(t)};
     }
     
+    if (auto* str = dynamic_cast<StringLiteral*>(expr)) {
+        // A string literal is a char array: decays to a pointer to char
+        return {ir::Type::PTR, "char", false, ir::Type::I8, (int)str->value.size() + 1};
+    }
+
     if (auto* se = dynamic_cast<StatementExpression*>(expr)) {
         if (!se->result) return {ir::Type::I16, "int", false, ir::Type::VOID, 2};
         // The value is often a variable declared in the block itself, which
@@ -515,6 +520,14 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
     }
     
     if (auto* aa = dynamic_cast<ArrayAccess*>(expr)) {
+        // i[p] is p[i]
+        {
+            IRTypeInfo ai = getExprTypeInfo(aa->arrayExpr.get());
+            IRTypeInfo ii = getExprTypeInfo(aa->indexExpr.get());
+            bool aPtr = ai.type == ir::Type::PTR || dynamic_cast<StringLiteral*>(aa->arrayExpr.get());
+            bool iPtr = ii.type == ir::Type::PTR || dynamic_cast<StringLiteral*>(aa->indexExpr.get());
+            if (!aPtr && iPtr) std::swap(aa->arrayExpr, aa->indexExpr);
+        }
         std::string tn = getExprTypeInfo(aa->arrayExpr.get()).typeName;
         if (tn.empty()) tn = "int";
         Expression* root = aa->arrayExpr.get();
@@ -558,6 +571,7 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
 
             auto ait = localArrayDims_.find(ref->name);
             if (ait != localArrayDims_.end()) dims = ait->second;
+            else if (paramArrayDims_.count(ref->name)) dims = paramArrayDims_[ref->name];
             else {
                 auto gait = globalArrayDims_.find(ref->name);
                 if (gait != globalArrayDims_.end()) dims = gait->second;
@@ -594,7 +608,9 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
                     auto gtit = globalTypes_.find(ref->name);
                     if (gtit != globalTypes_.end()) varType = gtit->second;
                 }
-                if (varType == ir::Type::PTR && !dims.empty()) {
+                bool ptrElems = varType == ir::Type::PTR;
+                if (paramArrayDims_.count(ref->name)) ptrElems = localPtrLevel_[ref->name] > 0;  // int a[][M]
+                if (ptrElems && !dims.empty()) {
                     // Array of pointers: element type is PTR, pointed-to is baseType
                     return {ir::Type::PTR, tn, isSigned, baseType, 2};
                 }
@@ -676,6 +692,12 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
             auto sit = functionReturnSigned_.find(cname);
             if (sit != functionReturnSigned_.end()) {
                 sig = sit->second;
+            }
+            // A pointer result: what it points to (f() + 1 scales by it)
+            if (fit != allFunctions_.end() && fit->second->returnPointerLevel > 0) {
+                const std::string& rt = fit->second->returnType;
+                int rpl = fit->second->returnPointerLevel;
+                return {ir::Type::PTR, rt, sig, mapType(rt, rpl - 1), 2};
             }
             return {it->second, "", sig, ir::Type::VOID, ir::typeSize(it->second)};
         }
@@ -1175,6 +1197,15 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         }
         localTypeNames_[p.name] = resolvedTypeName;
         localPtrLevel_[p.name] = p.pointerLevel;
+        // int a[][M]: indexed like an array a[0][M] at the pointer's value
+        if (!p.innerArrayDims.empty()) {
+            std::vector<int> d{0};
+            d.insert(d.end(), p.innerArrayDims.begin(), p.innerArrayDims.end());
+            paramArrayDims_[p.name] = d;
+            localPtrLevel_[p.name] = p.pointerLevel - 1;
+        } else {
+            paramArrayDims_.erase(p.name);
+        }
         localSigned_[p.name] = p.isSigned;
         // For non-pointers: const int x → isConst=true, variable is read-only
         // For pointers: const int *p → isConst=true, pointed-to is read-only, pointer itself is writable
@@ -1227,6 +1258,27 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     // their side effects (sub(int i, int a[i++]) increments i)
     for (const auto& p : node.parameters)
         if (p.vlaSizeExpr) p.vlaSizeExpr->accept(*this);
+    // Run-time inner dimensions of array parameters (char a[2][n]):
+    // evaluated once on entry into hidden locals used for indexing
+    for (const auto& p : node.parameters) {
+        if (p.innerDimExprs.empty()) continue;
+        std::vector<ir::Operand> ops;
+        for (const auto& de : p.innerDimExprs) {
+            if (!de) { ops.push_back(ir::Operand::none()); continue; }
+            de->accept(*this);
+            ir::Operand v = emitCast(lastValue_, ir::Type::I16, getExprTypeInfo(de.get()).isSigned);
+            auto slot = allocVreg(ir::Type::I16);
+            if (currentFunc_) currentFunc_->localSlotVregs.insert(slot.vregId);  // a variable
+            ir::Inst st;
+            st.op = ir::Op::STORE;
+            st.resultType = ir::Type::I16;
+            st.src1 = v;
+            st.src2 = slot;
+            emit(st);
+            ops.push_back(slot);
+        }
+        paramVlaDims_[p.name] = ops;
+    }
 
     // Visit body
     node.body->accept(*this);
@@ -1298,13 +1350,43 @@ void IRBuilder::visit(FunctionDeclaration& node) {
                 for (auto& sc : inst.switchCases) referenced.insert(sc.second);
             }
         }
-        // Remove trailing blocks that are never referenced by any branch
-        while (currentFunc_->blocks.size() > 1) {
-            auto& last = currentFunc_->blocks.back();
-            if (referenced.find(last.label) == referenced.end()) {
-                currentFunc_->blocks.pop_back();
-            } else {
-                break;
+        // Remove blocks nothing reaches: not a branch/switch target, not an
+        // address-taken label, not fallen into from the block before (e.g.
+        // the code before a case label inside if (0) { ... }). Repeated until
+        // stable, since removing a block can orphan the next one.
+        auto isTerminator = [](const ir::Inst& in) {
+            return in.op == ir::Op::BR || in.op == ir::Op::BR_COND || in.op == ir::Op::RET ||
+                   in.op == ir::Op::RET_VOID || in.op == ir::Op::SWITCH || in.op == ir::Op::BR_INDIRECT;
+        };
+        bool removed = true;
+        while (removed && currentFunc_->blocks.size() > 1) {
+            removed = false;
+            std::set<std::string> reach(referenced);
+            for (size_t bi = 0; bi < currentFunc_->blocks.size(); bi++) {
+                auto& blk = currentFunc_->blocks[bi];
+                if (bi == 0) reach.insert(blk.label);
+                bool term = !blk.insts.empty() && isTerminator(blk.insts.back());
+                if (!term && bi + 1 < currentFunc_->blocks.size() && (bi == 0 || reach.count(blk.label)))
+                    reach.insert(currentFunc_->blocks[bi + 1].label);
+            }
+            for (size_t bi = 1; bi < currentFunc_->blocks.size(); bi++) {
+                if (!reach.count(currentFunc_->blocks[bi].label)) {
+                    currentFunc_->blocks.erase(currentFunc_->blocks.begin() + bi);
+                    removed = true;
+                    break;
+                }
+            }
+            if (removed) {
+                // Branches from the removed block no longer count
+                referenced = std::set<std::string>(currentFunc_->addressTakenLabels.begin(),
+                                                   currentFunc_->addressTakenLabels.end());
+                for (auto& blk : currentFunc_->blocks)
+                    for (auto& inst : blk.insts) {
+                        if (inst.src1.kind == ir::OperandKind::LABEL) referenced.insert(inst.src1.name);
+                        if (inst.src2.kind == ir::OperandKind::LABEL) referenced.insert(inst.src2.name);
+                        if (inst.dest.kind == ir::OperandKind::LABEL) referenced.insert(inst.dest.name);
+                        for (auto& sc : inst.switchCases) referenced.insert(sc.second);
+                    }
             }
         }
     }
@@ -2405,14 +2487,66 @@ void IRBuilder::resetFunctionLocalState() {
     localPointedToType_.clear();
     localArrayDims_.clear();
     localPtrLevel_.clear();
+    paramArrayDims_.clear();
+    paramVlaDims_.clear();
+    vlaSizeVars_.clear();
     usedVregs_.clear();
     localDeclLocs_.clear();
 }
 
+// Does a block declare a variable-length array directly (or in a
+// multi-declarator group)? Its stack space is released when the block ends.
+static bool declaresVla(CompoundStatement& node) {
+    if (node.isDeclGroup) return false;  // its block does it
+    for (auto& st : node.statements) {
+        if (auto* vd = dynamic_cast<VariableDeclaration*>(st.get()); vd && !vd->vlaDimExprs.empty() && !vd->isStatic)
+            return true;
+        if (auto* grp = dynamic_cast<CompoundStatement*>(st.get())) {
+            for (auto& g : grp->statements)
+                if (auto* vd = dynamic_cast<VariableDeclaration*>(g.get()); vd && !vd->vlaDimExprs.empty() && !vd->isStatic)
+                    return true;
+        }
+    }
+    return false;
+}
+
 void IRBuilder::visit(CompoundStatement& node) {
+    bool vla = currentFunc_ && declaresVla(node);
+    ir::Operand spSlot;
+    if (vla) {
+        // Save the stack pointer: the arrays' space is released at the end
+        spSlot = allocVreg(ir::Type::I16);
+        currentFunc_->localSlotVregs.insert(spSlot.vregId);
+        auto sp = allocVreg(ir::Type::I16);
+        ir::Inst rd;
+        rd.op = ir::Op::CPU_REG_READ; rd.dest = sp; rd.resultType = ir::Type::I16; rd.asmText = "SP";
+        emit(rd);
+        ir::Inst st;
+        st.op = ir::Op::STORE; st.resultType = ir::Type::I16; st.src1 = sp; st.src2 = spSlot;
+        emit(st);
+        vlaBlocks_.push_back({spSlot, loopStack_.size()});
+    }
     for (auto& stmt : node.statements) {
         stmt->accept(*this);
     }
+    if (vla) {
+        restoreVlaStack(spSlot);
+        vlaBlocks_.pop_back();
+    }
+}
+
+// SP = the value saved when a block with variable-length arrays began
+void IRBuilder::restoreVlaStack(const ir::Operand& spSlot) {
+    ir::Inst wr;
+    wr.op = ir::Op::CPU_REG_WRITE; wr.resultType = ir::Type::I16; wr.asmText = "SP"; wr.src1 = spSlot;
+    emit(wr);
+}
+
+// break/continue leave the blocks opened inside the current loop: release
+// their variable-length arrays (from the outermost of them)
+void IRBuilder::releaseVlasForJump() {
+    for (const auto& vb : vlaBlocks_)
+        if (vb.loopDepth == loopStack_.size()) { restoreVlaStack(vb.spSlot); return; }
 }
 
 void IRBuilder::visit(StatementExpression& node) {
@@ -2430,6 +2564,80 @@ void IRBuilder::visit(StatementExpression& node) {
 
 void IRBuilder::visit(VariableDeclaration& node) {
     if (node.isFunctionPointer && node.funcPtrSig) fnPtrSigs_[node.name] = node.funcPtrSig;
+    // A variable-length array (int a[n][4]): the run-time dimensions are
+    // evaluated once into hidden locals, the array is allocated on the stack
+    // (alloca) and the variable is a pointer to it, indexed with run-time
+    // strides; sizeof reads the computed size
+    if (currentFunc_ && !node.isStatic && !node.vlaDimExprs.empty()) {
+        std::string base = "__vla_" + node.name + "_" + std::to_string(nextLabel_++);
+        std::unique_ptr<Expression> size = std::make_unique<SizeofExpression>(node.type, node.pointerLevel);
+        std::vector<ir::Operand> dimOps;
+        for (size_t i = 0; i < node.arrayDims.size(); i++) {
+            std::unique_ptr<Expression> dimRef;
+            if (i < node.vlaDimExprs.size() && node.vlaDimExprs[i]) {
+                std::string dn = base + "_d" + std::to_string(i);
+                auto dd = std::make_unique<VariableDeclaration>("int", dn, 0);
+                dd->isSigned = true;
+                dd->line = node.line; dd->column = node.column; dd->sourceFile = node.sourceFile;
+                dd->accept(*this);
+                // dn = <dimension>
+                node.vlaDimExprs[i]->accept(*this);
+                ir::Operand dv = emitCast(lastValue_, ir::Type::I16, getExprTypeInfo(node.vlaDimExprs[i].get()).isSigned);
+                ir::Inst st;
+                st.op = ir::Op::STORE; st.resultType = ir::Type::I16; st.src1 = dv; st.src2 = locals_[dn];
+                emit(st);
+                usedVregs_.insert(locals_[dn].vregId);
+                dimRef = std::make_unique<VariableReference>(dn);
+                dimOps.push_back(locals_[dn]);
+            } else {
+                dimRef = std::make_unique<IntegerLiteral>(node.arrayDims[i]);
+                dimOps.push_back(ir::Operand::none());
+            }
+            size = std::make_unique<BinaryOperation>("*", std::move(size), std::move(dimRef));
+        }
+        std::string sz = base + "_size";
+        auto sd = std::make_unique<VariableDeclaration>("int", sz, 0);
+        sd->initializer = std::move(size);
+        sd->line = node.line; sd->column = node.column; sd->sourceFile = node.sourceFile;
+        sd->accept(*this);
+        usedVregs_.insert(locals_[sz].vregId);
+        // The function calls alloca: it is not a leaf (its ZP parameters
+        // would be overwritten by the call's)
+        currentFunc_->originalIsLeaf = false;
+        currentFunc_->originalCallees.insert("_alloca");
+        // T *name = (T *)alloca(size)  (declaring void *alloca(unsigned) if needed)
+        if (!functionReturnTypes_.count("alloca")) {
+            auto proto = std::make_unique<FunctionDeclaration>("alloca", "void");
+            proto->returnPointerLevel = 1;
+            proto->isPrototype = true;
+            Parameter prm;
+            prm.type = "int";
+            prm.pointerLevel = 0;
+            prm.name = "size";
+            proto->parameters.push_back(prm);
+            auto* savedFunc = currentFunc_;
+            auto savedBlock = currentBlock_;
+            proto->accept(*this);
+            currentFunc_ = savedFunc;
+            currentBlock_ = savedBlock;
+            vlaAllocaProtos_.push_back(std::move(proto));
+        }
+        auto call = std::make_unique<FunctionCall>("alloca");
+        call->arguments.push_back(std::make_unique<VariableReference>(sz));
+        call->line = node.line; call->column = node.column; call->sourceFile = node.sourceFile;
+        auto pd = std::make_unique<VariableDeclaration>(node.type, node.name, node.pointerLevel + 1);
+        pd->isSigned = node.isSigned;
+        pd->initializer = std::make_unique<CastExpression>(node.type, node.pointerLevel + 1, node.isSigned, std::move(call));
+        pd->line = node.line; pd->column = node.column; pd->sourceFile = node.sourceFile;
+        pd->accept(*this);
+        // Indexed like an array a[d0][d1]... at the pointer's value
+        paramArrayDims_[node.name] = node.arrayDims;
+        std::vector<ir::Operand> inner(dimOps.begin() + 1, dimOps.end());
+        paramVlaDims_[node.name] = inner;
+        localPtrLevel_[node.name] = node.pointerLevel;
+        vlaSizeVars_[node.name] = sz;
+        return;
+    }
     // char a[] = "text": the size includes the terminating 0
     if (node.arrayDims.size() == 1 && node.arrayDims[0] <= 0 && node.pointerLevel == 0)
         if (auto* str = dynamic_cast<StringLiteral*>(node.initializer.get()))
@@ -2909,8 +3117,10 @@ void IRBuilder::visit(VariableDeclaration& node) {
             // Simple scalar initializer
             node.initializer->accept(*this);
             ir::Operand initVal = lastValue_;
-            // float x = 3; int i = 2.5; — convert between integer and float
-            if ((t == ir::Type::F32) != (initVal.type == ir::Type::F32) && initVal.type != ir::Type::VOID)
+            // float x = 3; int i = 2.5; long l = c; — convert to the variable's
+            // type (widening by the value's signedness)
+            if (initVal.type != t && initVal.type != ir::Type::VOID && t != ir::Type::I_N &&
+                initVal.type != ir::Type::I_N)
                 initVal = emitCast(initVal, t, getExprTypeInfo(node.initializer.get()).isSigned);
             ir::Inst store;
             store.op = ir::Op::STORE;
@@ -3092,6 +3302,18 @@ void IRBuilder::visit(VariableReference& node) {
             addrInst.loc = loc(node);
             emit(addrInst);
             lastValue_ = addr;
+        } else if (it->second.kind == ir::OperandKind::GLOBAL) {
+            // A scalar local static: load its value from the global
+            ir::Type t = localTypes_.count(node.name) ? localTypes_[node.name] : ir::Type::I16;
+            auto v = allocVreg(t);
+            ir::Inst ld;
+            ld.op = ir::Op::LOAD;
+            ld.dest = v;
+            ld.resultType = t;
+            ld.src1 = it->second;
+            ld.loc = loc(node);
+            emit(ld);
+            lastValue_ = v;
         } else {
             lastValue_ = it->second;
         }
@@ -3351,7 +3573,7 @@ void IRBuilder::visit(Assignment& node) {
         else if (node.op == "|=") binOp = ir::Op::OR;
         else if (node.op == "^=") binOp = ir::Op::XOR;
         else if (node.op == "<<=") binOp = ir::Op::SHL;
-        else if (node.op == ">>=") binOp = bothSigned ? ir::Op::ASR : ir::Op::SHR;
+        else if (node.op == ">>=") binOp = lhsSigned ? ir::Op::ASR : ir::Op::SHR;
 
         // Float operands: x op= y is computed in floating point and converted
         // back to x's type (int += float included)
@@ -3904,6 +4126,14 @@ void IRBuilder::visit(BinaryOperation& node) {
             bothSigned = true;
         else if (rhsInfo.isSigned && !lhsInfo.isSigned && lhsLit && lhsLit->castType.empty() && lhsLit->value >= 0 && lhsLit->value <= 32767)
             bothSigned = true;
+        // A wider signed type holds every value of a narrower unsigned one:
+        // the common type is the signed one (long vs unsigned short)
+        auto intSize = [](ir::Type t) { return t == ir::Type::I8 ? 2 : (int)ir::typeSize(t); };
+        if (!bothSigned && lhsInfo.type != ir::Type::PTR && rhsInfo.type != ir::Type::PTR &&
+            lhsInfo.type != ir::Type::F32 && rhsInfo.type != ir::Type::F32) {
+            int ls = intSize(lhsInfo.type), rs = intSize(rhsInfo.type);
+            if ((lhsInfo.isSigned && ls > rs) || (rhsInfo.isSigned && rs > ls)) bothSigned = true;
+        }
     }
 
     ir::Op op = ir::Op::NOP;
@@ -3970,7 +4200,9 @@ void IRBuilder::visit(BinaryOperation& node) {
     else if (node.op == "|") op = ir::Op::OR;
     else if (node.op == "^") op = ir::Op::XOR;
     else if (node.op == "<<") op = ir::Op::SHL;
-    else if (node.op == ">>") op = bothSigned ? ir::Op::ASR : ir::Op::SHR;
+    // A shift has the (promoted) type of its left operand: the count's
+    // signedness doesn't matter
+    else if (node.op == ">>") op = lhsInfo.isSigned ? ir::Op::ASR : ir::Op::SHR;
     else if (node.op == "==") { op = ir::Op::CMP_EQ; finalResultType = ir::Type::I8; }
     else if (node.op == "!=") { op = ir::Op::CMP_NE; finalResultType = ir::Type::I8; }
     else if (node.op == "<") { op = bothSigned ? ir::Op::CMP_LT : ir::Op::CMP_LTU; finalResultType = ir::Type::I8; }
@@ -3993,6 +4225,74 @@ void IRBuilder::visit(BinaryOperation& node) {
 }
 
 void IRBuilder::visit(UnaryOperation& node) {
+    // ++/-- on an lvalue other than a plain variable (*p++, a[i], p->m):
+    // its address is computed once (the operand may have side effects),
+    // then load / add / store through it
+    if (node.op == "++" || node.op == "--" || node.op == "++_POST" || node.op == "--_POST") {
+        Expression* opnd = node.operand.get();
+        IRTypeInfo info = getExprTypeInfo(opnd);
+        bool scalar = info.type == ir::Type::I8 || info.type == ir::Type::I16 || info.type == ir::Type::I32 ||
+                      info.type == ir::Type::PTR;
+        bool isBitfield = false;
+        if (auto* ma = dynamic_cast<MemberAccess*>(opnd)) {
+            std::string t = getExprTypeInfo(ma->structExpr.get()).typeName;
+            if (t.rfind("struct ", 0) != 0 && t.rfind("union ", 0) != 0) t = resolveTypedefToStruct(t);
+            int acc = 0;
+            auto* mi = structs_.count(getAggregateName(t)) ? findStructMember(getAggregateName(t), ma->memberName, acc) : nullptr;
+            isBitfield = mi && mi->bitWidth > 0;
+        }
+        bool structValue = info.type != ir::Type::PTR && structOf(info.typeName);
+        if (scalar && !isBitfield && !structValue && !dynamic_cast<VariableReference*>(opnd) &&
+            (dynamic_cast<UnaryOperation*>(opnd) || dynamic_cast<ArrayAccess*>(opnd) || dynamic_cast<MemberAccess*>(opnd))) {
+            // Read-only targets (as checked for the other ++/-- forms below)
+            if (auto* deref = dynamic_cast<UnaryOperation*>(opnd); deref && deref->op == "*") {
+                if (auto* vr = dynamic_cast<VariableReference*>(deref->operand.get())) {
+                    auto pit = localPointsToConst_.find(vr->name);
+                    auto ptit = localPointedToType_.find(vr->name);
+                    bool isMultiPtr = ptit != localPointedToType_.end() && ptit->second == ir::Type::PTR;
+                    if (pit != localPointsToConst_.end() && pit->second && !isMultiPtr) {
+                        errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                            Severity::Error, "Compile Error: Increment/decrement of read-only location"));
+                        return;
+                    }
+                }
+            }
+            if (auto* ma = dynamic_cast<MemberAccess*>(opnd)) {
+                IRTypeInfo baseInfo = getExprTypeInfo(ma->structExpr.get());
+                int accOffset = 0;
+                auto* mit = findStructMember(getAggregateName(baseInfo.typeName), ma->memberName, accOffset);
+                if (mit && mit->isConst) {
+                    errors_.push_back(formatDiagnostic(node.sourceFile, node.line, node.column,
+                        Severity::Error, "Compile Error: Increment/decrement of read-only member"));
+                    return;
+                }
+            }
+            bool isPost = node.op.size() > 2;
+            bool isInc = node.op[0] == '+';
+            int step = 1;
+            if (info.type == ir::Type::PTR) {
+                if (info.pointedToType != ir::Type::VOID) step = std::max(1, (int)ir::typeSize(info.pointedToType));
+                if (const IRStructInfo* si = structOf(info.typeName)) step = si->totalSize;
+            }
+            auto addr = emitAddressOf(opnd);
+            auto oldV = allocVreg(info.type);
+            ir::Inst ld;
+            ld.op = ir::Op::LOAD; ld.dest = oldV; ld.resultType = info.type; ld.src1 = addr; ld.loc = loc(node);
+            emit(ld);
+            auto newV = allocVreg(info.type);
+            ir::Inst ar;
+            ar.op = isInc ? ir::Op::ADD : ir::Op::SUB; ar.dest = newV; ar.resultType = info.type;
+            ar.src1 = oldV; ar.src2 = ir::Operand::imm(step, info.type); ar.loc = loc(node);
+            emit(ar);
+            ir::Inst st;
+            st.op = ir::Op::STORE; st.resultType = info.type; st.src1 = newV; st.src2 = addr; st.loc = loc(node);
+            emit(st);
+            lastValue_ = isPost ? oldV : newV;
+            lastValueSigned_ = info.isSigned;
+            return;
+        }
+    }
+
     // Skip pre-visit for dereference (*) and address-of (&) — they handle
     // their own operand evaluation with different computeAddressOnly_ state.
     // Pre-visiting would double-evaluate operands with side effects (e.g. *p++
@@ -4031,6 +4331,11 @@ void IRBuilder::visit(UnaryOperation& node) {
             }
         }
     }
+
+    // Integer promotion: a char-width operand of - or ~ is widened to int
+    // first (-(x < y) is -1, not 255)
+    if ((node.op == "-" || node.op == "~") && src.type == ir::Type::I8)
+        src = emitCast(src, ir::Type::I16, getExprTypeInfo(node.operand.get()).isSigned);
 
     if (node.op == "-") {
         auto dest = allocVreg(src.type);
@@ -4079,7 +4384,13 @@ void IRBuilder::visit(UnaryOperation& node) {
                 return;
             }
             auto it = locals_.find(vr->name);
-            if (it != locals_.end()) {
+            if (it != locals_.end() && aggCopyParams_.count(vr->name)) {
+                // A by-value struct parameter holds its copy's address
+                lastValue_ = it->second;
+            } else if (it != locals_.end() && it->second.kind == ir::OperandKind::GLOBAL) {
+                // A local static: its global's address
+                lastValue_ = it->second;
+            } else if (it != locals_.end()) {
                 // Force to frame because address is taken
                 if (currentFunc_) currentFunc_->memoryVregs.insert(it->second.vregId);
 
@@ -4304,8 +4615,15 @@ void IRBuilder::visit(UnaryOperation& node) {
             ir::Operand addr;
             if (auto* vr = dynamic_cast<VariableReference*>(node.operand.get())) {
                 auto lit = locals_.find(vr->name);
+                bool uplevel = false;
+                if (lit == locals_.end())
+                    for (auto& scope : functionStack_) if (scope.locals.count(vr->name)) uplevel = true;
                 if (lit != locals_.end()) {
                     addr = lit->second; // local vreg
+                } else if (uplevel) {
+                    // A variable of an enclosing function (nested function):
+                    // its address in that function's frame
+                    addr = emitAddressOf(vr);
                 } else {
                     addr = ir::Operand::global("_" + vr->name); // global
                 }
@@ -4337,8 +4655,12 @@ void IRBuilder::visit(CastExpression& node) {
     // Use emitCast which handles float↔int conversions (FTOI/ITOF). An
     // int -> float conversion depends on the source's signedness, not the
     // target's: (float)(signed long)x
+    // A widening integer cast also extends by the source's signedness
+    // ((unsigned short)(signed char)-31 is 0xFFE1)
     bool sig = node.isSigned;
-    if (destType == ir::Type::F32 && src.type != ir::Type::F32)
+    if ((destType == ir::Type::F32 && src.type != ir::Type::F32) ||
+        (destType != ir::Type::F32 && src.type != ir::Type::F32 && src.type != ir::Type::PTR &&
+         ir::typeSize(destType) > ir::typeSize(src.type) && ir::typeSize(src.type) > 0))
         sig = getExprTypeInfo(node.expression.get()).isSigned;
     lastValue_ = emitCast(src, destType, sig);
 }
@@ -4991,6 +5313,14 @@ normal_call:
                 localTypes_[p.name] = pt;
                 localTypeNames_[p.name] = p.type;
                 localPtrLevel_[p.name] = p.pointerLevel;
+                if (!p.innerArrayDims.empty()) {
+                    std::vector<int> d{0};
+                    d.insert(d.end(), p.innerArrayDims.begin(), p.innerArrayDims.end());
+                    paramArrayDims_[p.name] = d;
+                    localPtrLevel_[p.name] = p.pointerLevel - 1;
+                } else {
+                    paramArrayDims_.erase(p.name);
+                }
                 localSigned_[p.name] = p.isSigned;
                 localConst_[p.name] = (p.pointerLevel == 0 && p.isConst);
                 if (p.pointerLevel > 0) {
@@ -5365,9 +5695,19 @@ void IRBuilder::visit(IfStatement& node) {
     std::string endLabel = newLabel("if_end");
     std::string falseTarget = node.elseBranch ? elseLabel : endLabel;
 
-    // Optimization: for && and || conditions, emit chained branches directly
-    // to the if's true/false targets — no boolean materialization.
-    emitConditionBranches(node.condition.get(), thenLabel, falseTarget, loc(node));
+    // A constant condition (kept by the folder because a case/goto label is
+    // inside): a plain branch, the other side is only reached by that label
+    if (auto* lit = dynamic_cast<IntegerLiteral*>(node.condition.get())) {
+        ir::Inst br;
+        br.op = ir::Op::BR;
+        br.src1 = ir::Operand::label(lit->value ? thenLabel : falseTarget);
+        br.loc = loc(node);
+        emit(br);
+    } else {
+        // Optimization: for && and || conditions, emit chained branches directly
+        // to the if's true/false targets — no boolean materialization.
+        emitConditionBranches(node.condition.get(), thenLabel, falseTarget, loc(node));
+    }
 
     startBlock(thenLabel);
     node.thenBranch->accept(*this);
@@ -5664,6 +6004,14 @@ void IRBuilder::visit(InitializerList& node) {
 }
 
 void IRBuilder::visit(ArrayAccess& node) {
+    // i[p] is p[i]: put the pointer/array operand first
+    {
+        IRTypeInfo ai = getExprTypeInfo(node.arrayExpr.get());
+        IRTypeInfo ii = getExprTypeInfo(node.indexExpr.get());
+        bool aPtr = ai.type == ir::Type::PTR || dynamic_cast<StringLiteral*>(node.arrayExpr.get());
+        bool iPtr = ii.type == ir::Type::PTR || dynamic_cast<StringLiteral*>(node.indexExpr.get());
+        if (!aPtr && iPtr) std::swap(node.arrayExpr, node.indexExpr);
+    }
     bool oldAddrMode = computeAddressOnly_;
     computeAddressOnly_ = false;
 
@@ -5734,6 +6082,7 @@ void IRBuilder::visit(ArrayAccess& node) {
 
         auto ait = localArrayDims_.find(ref->name);
         if (ait != localArrayDims_.end()) dims = ait->second;
+        else if (paramArrayDims_.count(ref->name)) dims = paramArrayDims_[ref->name];  // int a[][M]
         else {
             auto gait = globalArrayDims_.find(ref->name);
             if (gait != globalArrayDims_.end()) dims = gait->second;
@@ -5757,6 +6106,10 @@ void IRBuilder::visit(ArrayAccess& node) {
             // For pointer arrays (e.g. char *arr[7]), each element is a pointer (2 bytes),
             // not the pointed-to type size.  Detect via localPointedToType_/globalPointedToType_.
             bool isPointerElement = localPointedToType_.count(ref->name) || globalPointedToType_.count(ref->name);
+            // The element's own pointer level when known (an int a[][M]
+            // parameter is a pointer, but its elements are ints)
+            if (isLocalRef && localPtrLevel_.count(ref->name)) isPointerElement = localPtrLevel_[ref->name] > 0;
+            else if (!isLocalRef && globalPtrLevel_.count(ref->name)) isPointerElement = globalPtrLevel_[ref->name] > 0;
             int stride = isPointerElement ? 2 : getTypeSize(tn, 0);
             for (size_t i = depth; i < dims.size(); i++) {
                 stride *= dims[i];
@@ -5792,8 +6145,54 @@ void IRBuilder::visit(ArrayAccess& node) {
         }
     }
 
+    // A parameter with run-time inner dimensions (char a[2][n]): the stride
+    // is (element size x constant dims) x the run-time dims, multiplied at
+    // run time
+    std::vector<ir::Operand> rtDims;
+    if (auto* ref = dynamic_cast<VariableReference*>(root)) {
+        auto vit = paramVlaDims_.find(ref->name);
+        auto pit = paramArrayDims_.find(ref->name);
+        if (vit != paramVlaDims_.end() && pit != paramArrayDims_.end()) {
+            const auto& dims = pit->second;
+            std::string tn = localTypeNames_[ref->name];
+            int lvl = localPtrLevel_.count(ref->name) ? localPtrLevel_[ref->name] : 0;
+            int constStride = std::max(1, getTypeSize(tn, lvl));
+            for (size_t i = depth; i < dims.size(); i++) {
+                if (dims[i] > 0) constStride *= dims[i];
+                else if (i - 1 < vit->second.size() && vit->second[i - 1].kind != ir::OperandKind::NONE)
+                    rtDims.push_back(vit->second[i - 1]);
+            }
+            if (!rtDims.empty()) elemSize = constStride;
+        }
+    }
+
     // addr = base + index * elemSize
     auto addr = allocVreg(ir::Type::PTR);
+    if (!rtDims.empty()) {
+        ir::Operand off = emitCast(index, ir::Type::I16, getExprTypeInfo(node.indexExpr.get()).isSigned);
+        auto mulBy = [&](const ir::Operand& f) {
+            auto r = allocVreg(ir::Type::I16);
+            ir::Inst m;
+            m.op = ir::Op::MUL;
+            m.dest = r;
+            m.resultType = ir::Type::I16;
+            m.src1 = off;
+            m.src2 = f;
+            m.loc = loc(node);
+            emit(m);
+            off = r;
+        };
+        for (const auto& d : rtDims) mulBy(d);  // the slot vreg is the dimension's value
+        if (elemSize != 1) mulBy(ir::Operand::imm(elemSize, ir::Type::I16));
+        ir::Inst add;
+        add.op = ir::Op::ADD;
+        add.dest = addr;
+        add.resultType = ir::Type::PTR;
+        add.src1 = base;
+        add.src2 = off;
+        add.loc = loc(node);
+        emit(add);
+    } else {
     ir::Inst inst;
     inst.op = ir::Op::ADDR_ELEM;
     inst.dest = addr;
@@ -5803,6 +6202,7 @@ void IRBuilder::visit(ArrayAccess& node) {
     inst.args.push_back(ir::Operand::imm(elemSize, ir::Type::I16));
     inst.loc = loc(node);
     emit(inst);
+    }
 
     // Determine if we need to LOAD the final value or just use the sub-array address
     bool isFinal = true;
@@ -5810,6 +6210,7 @@ void IRBuilder::visit(ArrayAccess& node) {
         std::vector<int> dims;
         auto ait = localArrayDims_.find(ref->name);
         if (ait != localArrayDims_.end()) dims = ait->second;
+        else if (paramArrayDims_.count(ref->name)) dims = paramArrayDims_[ref->name];
         else {
             auto git = globalArrayDims_.find(ref->name);
             if (git != globalArrayDims_.end()) dims = git->second;
@@ -6000,9 +6401,15 @@ void IRBuilder::visit(CompoundLiteral& node) {
         size *= total;
     }
 
-    if (node.initializer && node.initializer->elements.size() == 1 && node.arrayDims.empty()) {
-        // Scalar compound literal: just evaluate the value
+    if (node.initializer && node.initializer->elements.size() == 1 && node.arrayDims.empty() &&
+        !isStructOrUnion && !structOf(node.targetType)) {
+        // Scalar compound literal (int){5}: just evaluate the value
+        bool savedAddrOnly = computeAddressOnly_;
+        computeAddressOnly_ = false;
         node.initializer->elements[0]->accept(*this);
+        computeAddressOnly_ = savedAddrOnly;
+        if (lastValue_.type != t && t != ir::Type::VOID && lastValue_.type != ir::Type::VOID)
+            lastValue_ = emitCast(lastValue_, t, getExprTypeInfo(node.initializer->elements[0].get()).isSigned);
     } else {
         // Aggregate: allocate a frame buffer with the actual struct/array size,
         // then a separate PTR vReg for the address (so ADDR_LOCAL doesn't overwrite the buffer)
@@ -6123,6 +6530,15 @@ void IRBuilder::visit(AlignofExpression& node) {
 }
 
 void IRBuilder::visit(SizeofExpression& node) {
+    // sizeof a variable-length array: its size computed at the declaration
+    if (auto* vr = dynamic_cast<VariableReference*>(node.expression.get())) {
+        auto vit = vlaSizeVars_.find(vr->name);
+        if (vit != vlaSizeVars_.end()) {
+            VariableReference sv(vit->second);
+            sv.accept(*this);
+            return;
+        }
+    }
     int sz = 2;
     if (node.isType) {
         sz = getTypeSize(node.typeName, node.pointerLevel);
@@ -6370,6 +6786,7 @@ void IRBuilder::visit(DefaultStatement& node) {
 
 void IRBuilder::visit(BreakStatement&) {
     if (loopStack_.empty()) return;
+    releaseVlasForJump();
     ir::Inst br;
     br.op = ir::Op::BR;
     br.src1 = ir::Operand::label(loopStack_.back().breakLabel);
@@ -6378,6 +6795,7 @@ void IRBuilder::visit(BreakStatement&) {
 
 void IRBuilder::visit(ContinueStatement&) {
     if (loopStack_.empty() || loopStack_.back().continueLabel.empty()) return;
+    releaseVlasForJump();
     ir::Inst br;
     br.op = ir::Op::BR;
     br.src1 = ir::Operand::label(loopStack_.back().continueLabel);
