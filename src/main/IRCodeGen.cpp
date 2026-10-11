@@ -688,8 +688,11 @@ void IRCodeGen::emitArrayElemAddr(const std::string& baseStr, const ir::Operand&
     }
 
     // Runtime index: need to compute address = base + (index * stride)
-    // Step 1: Load index into A:X
+    // Step 1: Load index into A:X (a byte index loads only A: clear X)
     loadOperand(indexOp);  // Load into A:X
+    if (indexOp.type == ir::Type::I8 ||
+        (indexOp.isVreg() && alloc_.getAlloc(indexOp.vregId).type == ir::Type::I8))
+        emit("ldx #0");
 
     // Step 2: Multiply index by stride if stride > 1
     if (stride > 1) {

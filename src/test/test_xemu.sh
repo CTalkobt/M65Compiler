@@ -442,6 +442,20 @@ for semode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: float overflow saturation, float literals, function-pointer argument
+# conversion, byte-indexed access to a float's bytes
+for frmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r frname frflags <<< "$frmode"
+    echo "Testing test_float_range_xemu.c ($frname)..."
+    compile_link_test "src/test-resources/test_float_range_xemu.c" "build/test/test_float_range_${frname}_xemu.prg" "$frflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_float_range_$frname" "build/test/test_float_range_${frname}_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_float_range_xemu.c $frname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: pointer/float compound assignment, float initializers, nested
 # function static chain, variably modified parameters
 for ammode in "zp|" "stack|-fno-zpcall"; do

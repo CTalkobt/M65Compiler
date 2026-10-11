@@ -4417,12 +4417,31 @@ normal_call:
     inst.isRegparm = regparmFunctions_.count(node.name) > 0;
 
     std::vector<ir::Operand> castArgs;
-    auto const& pTypes = functionParamTypes_[node.name];
-    auto const& pSigned = functionParamSigned_[node.name];
+    std::vector<ir::Type> fpTypes;
+    std::vector<bool> fpSigned;
+    if (fpSig) {
+        // Through a function pointer: convert to its prototype's parameter
+        // types (an aggregate passes its copy's address as is)
+        if (isSret) { fpTypes.push_back(ir::Type::PTR); fpSigned.push_back(false); }
+        for (auto& p : fpSig->params) {
+            if (p.type == "void" && p.pointerLevel == 0 && fpSig->params.size() == 1) break;
+            bool agg = aggregateBlockSize(p.type, p.pointerLevel) > 0;
+            fpTypes.push_back(agg ? ir::Type::PTR : mapType(p.type, p.pointerLevel));
+            fpSigned.push_back(p.isSigned);
+        }
+    }
+    auto const& pTypes = fpSig ? fpTypes : functionParamTypes_[node.name];
+    auto const& pSigned = fpSig ? fpSigned : functionParamSigned_[node.name];
 
     for (size_t i = 0; i < args.size(); i++) {
         if (i < pTypes.size()) {
-            castArgs.push_back(emitCast(args[i], pTypes[i], pSigned[i]));
+            bool sig = i < pSigned.size() && pSigned[i];
+            size_t ai = i - (isSret ? 1 : 0);
+            // int -> float converts by the argument's signedness
+            if (pTypes[i] == ir::Type::F32 && args[i].type != ir::Type::F32 && (!isSret || i > 0) &&
+                ai < node.arguments.size())
+                sig = getExprTypeInfo(node.arguments[ai].get()).isSigned;
+            castArgs.push_back(emitCast(args[i], pTypes[i], sig));
         } else {
             // Variadic or extra arguments: use default promotions?
             // For now just pass as is.

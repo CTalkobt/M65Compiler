@@ -317,8 +317,8 @@ ln45 (Link: Combine .o45 objects + libraries → PRG/Binary)
 ### Floating-Point Support (v1.0.5)
 
 - **`float` / `double` / `long double`**: All map to CBM 40-bit (5 bytes: 1 exponent + 4 mantissa). Supported everywhere: variables, function params/returns, struct members, arrays, pointers, casts, sizeof, _Alignas, va_arg, typedef, function pointer params
-- **Literals**: Decimal (`3.14`, `1.5f`) and exponent notation (`1.5e-3`, `3.14e0`). Positive integer exponents (`1e2`) stay as integer
-- **Arithmetic & Comparisons**: `+ - * / == != < <= > >=` via BASIC 65 ROM routines (JSRFAR). Assembler peephole optimizes `<`/`>=` via BMI/BPL (saves 2 bytes each)
+- **Literals**: Decimal (`3.14`, `1.5f`), exponent notation (`1.5e-3`, `1e38` — any exponent makes a floating constant, as in C) and hex floats (`0x1.fp1`)
+- **Arithmetic & Comparisons**: `+ - * / == != < <= > >=` via BASIC 65 ROM routines (JSRFAR). Assembler peephole optimizes `<`/`>=` via BMI/BPL (saves 2 bytes each). The ROM never sees an overflowing operation (its `?OVERFLOW ERROR` would not return): a result beyond the range saturates to the largest float with its sign, `x / 0` gives that too (`0 / 0` gives 0), underflow gives 0. Float ↔ integer conversions are done without the ROM (truncating toward zero, 32-bit range)
 - **Casts**: `(float)i`, `(int)f`, implicit promotion in mixed expressions
 - **Indirect access**: Pointer dereference, struct members, array elements — 5-byte `(ZP),Y` loops
 - **I/O**: `printf %f`, `sprintf %f`, `sscanf %f`, `strtof()`, `atof()`

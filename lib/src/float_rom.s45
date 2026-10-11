@@ -174,11 +174,134 @@ __float_store_fac:
     rts
 
 ; ===========================================================================
+; Overflow: the ROM reports a result >= 2^127 as ?OVERFLOW ERROR, which never
+; returns to the program. Before a ROM add/sub/mul/div, __float_scale_*
+; lowers the exponent of __float_a (and for add/sub __float_b) by
+; __float_k so the result stays in range; __float_unscale adds it back and
+; saturates to the largest float (sign kept) if it no longer fits. Division
+; by zero gives that saturated value too (0/0 gives 0). Underflow is 0.
+; Called with the base page at 0 (absolute addressing only).
+; ===========================================================================
+
+; Largest float with the sign in bit 7 of A, into __float_a
+__float_saturate:
+    and #$80
+    ora #$7F
+    sta __float_a+1
+    lda #$FF
+    sta __float_a
+    sta __float_a+2
+    sta __float_a+3
+    sta __float_a+4
+    rts
+
+; a * b: exponent ea + eb - 128 (or -129) must stay <= 254
+__float_scale_mul:
+    lda #0
+    sta __float_k
+    lda __float_a
+    beq @sm_done
+    ldx __float_b
+    beq @sm_done
+    clc
+    adc __float_b
+    tax                     ; X = low byte of ea + eb
+    lda #0
+    adc #0                  ; A = high byte
+    beq @sm_done            ; ea + eb <= 255
+    cpx #$7F                ; ea + eb > 382 ($17E)?
+    bcc @sm_done
+    txa
+    sec
+    sbc #$7E                ; k = ea + eb - 382
+    sta __float_k
+    lda __float_a
+    sec
+    sbc __float_k
+    sta __float_a
+@sm_done:
+    rts
+
+; a / b: exponent ea - eb + 129 (or +128) must stay <= 254. C set when b
+; is 0 and the result has been stored.
+__float_scale_div:
+    lda #0
+    sta __float_k
+    lda __float_b
+    bne @sd_nonzero
+    lda __float_a
+    beq @sd_by_zero         ; 0 / 0: 0
+    lda __float_a+1
+    eor __float_b+1
+    jsr __float_saturate
+@sd_by_zero:
+    sec
+    rts
+@sd_nonzero:
+    lda __float_a
+    beq @sd_ok
+    sec
+    sbc __float_b           ; ea - eb
+    bcc @sd_ok              ; negative: in range
+    cmp #126
+    bcc @sd_ok              ; ea - eb <= 125
+    sbc #125                ; k = ea - eb - 125 (C is set)
+    sta __float_k
+    lda __float_a
+    sec
+    sbc __float_k
+    sta __float_a
+@sd_ok:
+    clc
+    rts
+
+; a +/- b: only an exponent of 254 or 255 can carry out; halve both
+__float_scale_add:
+    lda #0
+    sta __float_k
+    lda __float_a
+    cmp __float_b
+    bcs @sa_max
+    lda __float_b
+@sa_max:
+    cmp #254
+    bcc @sa_done
+    lda #1
+    sta __float_k
+    lda __float_a
+    beq @sa_b
+    dec __float_a
+@sa_b:
+    lda __float_b
+    beq @sa_done
+    dec __float_b
+@sa_done:
+    rts
+
+; Add __float_k back to the result's exponent, saturating on overflow
+__float_unscale:
+    lda __float_k
+    beq @us_done
+    lda __float_a
+    beq @us_done            ; zero stays zero
+    clc
+    adc __float_k
+    bcs @us_sat
+    sta __float_a
+    rts
+@us_sat:
+    lda __float_a+1
+    jmp __float_saturate
+@us_done:
+    rts
+
+; ===========================================================================
 ; Binary: __float_add  (result = a + b)
 ; ===========================================================================
 .global __float_add
 __float_add:
     jsr __bp_rom
+    jsr __float_scale_add
     lda #<__float_b
     ldx #>__float_b
     jsr __float_load_fac
@@ -191,6 +314,7 @@ __float_add:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
+    jsr __float_unscale
     jmp __bp_prog
 
 ; ===========================================================================
@@ -199,6 +323,7 @@ __float_add:
 .global __float_sub
 __float_sub:
     jsr __bp_rom
+    jsr __float_scale_add
     lda #<__float_b
     ldx #>__float_b
     jsr __float_load_fac
@@ -211,6 +336,7 @@ __float_sub:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
+    jsr __float_unscale
     jmp __bp_prog
 
 ; ===========================================================================
@@ -219,6 +345,7 @@ __float_sub:
 .global __float_mul
 __float_mul:
     jsr __bp_rom
+    jsr __float_scale_mul
     lda #<__float_b
     ldx #>__float_b
     jsr __float_load_fac
@@ -231,6 +358,7 @@ __float_mul:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
+    jsr __float_unscale
     jmp __bp_prog
 
 ; ===========================================================================
@@ -239,6 +367,8 @@ __float_mul:
 .global __float_div
 __float_div:
     jsr __bp_rom
+    jsr __float_scale_div
+    bcs @div_done           ; divisor 0: result already set
     lda #<__float_b
     ldx #>__float_b
     jsr __float_load_fac
@@ -251,6 +381,8 @@ __float_div:
     lda #<__float_a
     ldx #>__float_a
     jsr __float_store_fac
+    jsr __float_unscale
+@div_done:
     jmp __bp_prog
 
 ; ===========================================================================
@@ -590,3 +722,5 @@ __float_a: .res 5
 
 .global __float_b
 __float_b: .res 5
+
+__float_k: .res 1           ; exponent scale (see __float_scale_*)
