@@ -323,7 +323,7 @@ ln45 (Link: Combine .o45 objects + libraries → PRG/Binary)
 - **Indirect access**: Pointer dereference, struct members, array elements — 5-byte `(ZP),Y` loops
 - **I/O**: `printf %f`, `sprintf %f`, `sscanf %f`, `strtof()`, `atof()`
 - **Printf auto-linking**: Weak/strong symbol pattern — integer-only printf linked by default; float-aware version pulled automatically when float args passed to variadic calls (zero cost for int-only programs)
-- **Math library**: 27 functions — ROM-backed trig/transcendental (`sinf`, `cosf`, `tanf`, `atanf`, `logf`, `expf`, `sqrtf`, `fabsf`) plus C-implemented `powf`, `fmodf`, `ceilf`, `floorf`, `roundf`, `truncf`, `atan2f`, `log10f`, `log2f`, `ldexpf`, `frexpf`, `modff`, `copysignf`, `fmaxf`, `fminf`, `fdimf`
+- **Math library**: 27 functions — ROM-backed trig/transcendental (`sinf`, `cosf`, `tanf`, `atanf`, `logf`, `expf`, `sqrtf`, `fabsf`) plus C-implemented `powf`, `fmodf`, `ceilf`, `floorf`, `roundf`, `truncf`, `atan2f`, `log10f`, `log2f`, `ldexpf`, `frexpf`, `modff`, `copysignf`, `fmaxf`, `fminf`, `fdimf`. Domain/range errors never reach the ROM (whose `?ILLEGAL QUANTITY`/`?OVERFLOW ERROR` would not return): `sqrtf`/`logf` of a negative number, `powf` of a negative base to a fraction and `fmodf(x, 0)` return 0 with `errno = EDOM`; `logf(0)` returns -FLT_MAX, `expf`/`powf` overflow FLT_MAX (underflow 0) and `powf(0, y<0)` FLT_MAX, with `errno = ERANGE`; `strtof`/`atof` saturate or underflow to 0 with `ERANGE`. There is no NaN or infinity: `INFINITY` is FLT_MAX, `isnan`/`isinf` are always 0
 - **Headers**: `<float.h>` (FLT_MAX/MIN/EPSILON, FLT_DIG, etc.), `<math.h>` (M_PI, M_E, INFINITY, all function declarations + double aliases)
 
 ### Wide Integer Support (v1.0.5)

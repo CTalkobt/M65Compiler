@@ -11,19 +11,32 @@ float logf(float x);
 float expf(float x);
 float sqrtf(float x);
 float fabsf(float x);
+float truncf(float x);
 
-/* powf: x^y = exp(y * log(x)) */
+#include <errno.h>
+
+#define FLOAT_MAX 1.7014118e38
+
+/* powf: x^y = exp(y * log(|x|)). A negative base needs an integer exponent
+ * (otherwise there is no value: 0, EDOM; an odd one keeps the sign);
+ * 0 to a negative power is a pole: FLOAT_MAX, ERANGE. Overflow saturates
+ * in expf (ERANGE). */
 float powf(float x, float y) {
+    float r;
+    int odd = 0;
     if (y == 0.0) return 1.0;
-    if (x == 0.0) return 0.0;
-    if (x < 0.0) {
-        /* Negative base: only works for integer exponents */
-        signed int iy = (signed int)y;
-        float r = expf((float)iy * logf(0.0 - x));
-        if (iy % 2 != 0) r = 0.0 - r;
-        return r;
+    if (x == 0.0) {
+        if (y < 0.0) { errno = ERANGE; return FLOAT_MAX; }
+        return 0.0;
     }
-    return expf(y * logf(x));
+    if (x < 0.0) {
+        if (truncf(y) != y) { errno = EDOM; return 0.0; }
+        /* |y| >= 2^31 is even (a float that large has no fraction bits) */
+        if (fabsf(y) < 2147483648.0) odd = ((signed long)y & 1) != 0;
+        x = 0.0 - x;
+    }
+    r = expf(y * logf(x));
+    return odd ? 0.0 - r : r;
 }
 
 /* truncf: truncate toward zero. |x| >= 2^31 is already an integer (the
@@ -61,7 +74,7 @@ float roundf(float x) {
 
 /* fmodf: floating-point remainder */
 float fmodf(float x, float y) {
-    if (y == 0.0) return 0.0;
+    if (y == 0.0) { errno = EDOM; return 0.0; }  /* no value (NaN in IEEE) */
     return x - truncf(x / y) * y;
 }
 

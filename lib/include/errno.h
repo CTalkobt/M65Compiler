@@ -15,9 +15,11 @@ extern int errno;
 extern char _errnoc;
 
 /* Standard error codes */
-#define ERANGE  1   /* Result out of range (strtol, strtoul overflow) */
+#define ERANGE  1   /* Result out of range (strtol, strtoul, strtof, math functions) */
 #define ENOMEM  2   /* Not enough memory (malloc failure) */
 #define EINVAL  3   /* Invalid argument */
 
-/* TODO: Enable EDOM validation for future math functions (sqrt, etc.) */
+/* Math functions: EDOM for an argument with no result (sqrt/log of a
+   negative number, pow of a negative base to a fraction, fmod by 0),
+   ERANGE for a result beyond the float range (exp, pow, log(0), strtof) */
 #define EDOM    4   /* Math argument out of domain */
