@@ -200,6 +200,7 @@ public:
     std::string typeName;
     int pointerLevel;
     bool isSigned = false;
+    std::unique_ptr<Expression> expression;  // __alignof__(expr) (typeName empty)
     AlignofExpression(const std::string& t, int p = 0) : typeName(t), pointerLevel(p) {}
     void accept(ASTVisitor& visitor) override;
 };
@@ -225,6 +226,7 @@ public:
     // A variable-length array (int a[n][4]): the expression of each run-time
     // dimension (its arrayDims entry is 0); empty otherwise
     std::vector<std::shared_ptr<Expression>> vlaDimExprs;
+    std::vector<int> ptrArrayDims;   // T (*p)[N][M]: the pointed-to array's dims
     int arraySize() const { if (arrayDims.empty()) return -1; int s=1; for (int d:arrayDims) s*=d; return s; }
     bool isFunctionPointer = false;
     std::shared_ptr<FuncPtrSignature> funcPtrSig; // non-null when isFunctionPointer
@@ -490,6 +492,7 @@ public:
     bool isInline = false;
     bool isAlwaysInline = false;  // __attribute__((always_inline)) / __forceinline
     bool isNoInline = false;      // __attribute__((noinline))
+    int alignment = 0;            // __attribute__((aligned(N))): code address alignment
 
     // Nested function support
     bool isNested = false;

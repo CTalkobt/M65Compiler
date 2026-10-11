@@ -138,7 +138,7 @@ int main() {
     /* Place some patterns */
     VREG_BORDER=COLOR_CYAN;
     seed_r_pentomino(10, 18);
-    VREG_BORDER=COLOR_GRAY;
+    VREG_BORDER=COLOR_MGREY;
     seed_glider(2, 2);
     VREG_BORDER=COLOR_GREEN;
     seed_glider(3, 30);

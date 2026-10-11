@@ -25,8 +25,8 @@ int fgetc(FILE *stream) {
     }
 
     /* Check for pushback character */
-    if (stream->flags & _IOUNGETC) {
-        stream->flags &= ~_IOUNGETC;
+    if (stream->ungetc_pending) {
+        stream->ungetc_pending = 0;
         return stream->ungetc_char;
     }
 
@@ -60,9 +60,11 @@ int fputc(int c, FILE *stream) {
         return EOF;
     }
 
-    /* For unbuffered output to stdout/stderr, write directly via KERNAL */
-    if ((stream == stdout || stream == stderr) && stream->buf_size == 0) {
-        return putchar(c);
+    /* stdout/stderr are the screen: written directly */
+    if (stream == stdout || stream == stderr) {
+        putchar(c);
+        stream->position++;
+        return (unsigned char)c;
     }
 
     /* Add character to buffer */
@@ -100,12 +102,12 @@ int ungetc(int c, FILE *stream) {
     }
 
     /* Only one character can be pushed back */
-    if (stream->flags & _IOUNGETC) {
+    if (stream->ungetc_pending) {
         return EOF;  /* Already have a pushback character */
     }
 
     stream->ungetc_char = (unsigned char)c;
-    stream->flags |= _IOUNGETC;
+    stream->ungetc_pending = 1;
     stream->position--;  /* Back up position counter */
 
     return (int)(unsigned char)c;
@@ -135,9 +137,9 @@ size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream) {
     size_t bytes_read = 0;
 
     /* Handle ungetc character first */
-    if (stream->flags & _IOUNGETC) {
+    if (stream->ungetc_pending) {
         if (total_bytes > 0) {
-            stream->flags &= ~_IOUNGETC;
+            stream->ungetc_pending = 0;
             buf[0] = stream->ungetc_char;
             buf++;
             bytes_read++;
@@ -194,6 +196,13 @@ size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream) {
     const unsigned char *buf = (const unsigned char *)ptr;
     size_t total_bytes = size * nmemb;
     size_t bytes_written = 0;
+
+    /* stdout/stderr are the screen: written directly */
+    if (stream == stdout || stream == stderr) {
+        for (; bytes_written < total_bytes; bytes_written++) putchar(buf[bytes_written]);
+        stream->position += total_bytes;
+        return nmemb;
+    }
 
     while (bytes_written < total_bytes) {
         /* Check if buffer is full */

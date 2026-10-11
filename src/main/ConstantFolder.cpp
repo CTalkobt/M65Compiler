@@ -90,6 +90,13 @@ void ConstantFolder::visit(TranslationUnit& node) {
 }
 
 void ConstantFolder::visit(AlignofExpression& node) {
+    if (node.expression) {
+        // __alignof__(expr): resolved by the IR builder (declared alignments)
+        auto copy = copyPos(std::make_unique<AlignofExpression>("", 0), node);
+        copy->expression = std::move(node.expression);
+        lastExpr = std::move(copy);
+        return;
+    }
     int alignment = 1;
     if (node.pointerLevel > 0 || node.typeName == "int") alignment = 2;
     else if (node.typeName == "char" || node.typeName == "_Bool") alignment = 1;

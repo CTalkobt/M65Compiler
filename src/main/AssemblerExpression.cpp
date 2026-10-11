@@ -200,9 +200,22 @@ uint32_t VariableNode::getValue(AssemblerParser* parser) const {
             throw std::runtime_error(fullMsg);
         }
 
-        // For global symbols, allow 0 as placeholder (will be resolved by linker)
-        // This handles cases where a symbol like __zp_save_buf is declared .global
-        // but hasn't been seen yet in the assembly
+        // A symbol neither defined nor declared .extern has no relocation:
+        // the operand would silently be 0
+        // Register operands of simulated ops (bfext A, ..., fill A, ...)
+        // reach here as names: they are not symbols
+        std::string up = name;
+        for (auto& ch : up) ch = (char)std::toupper((unsigned char)ch);
+        if (!up.empty() && up[0] == '.') up.erase(0, 1);
+        static const char* regs[] = {"A", "X", "Y", "Z", "Q", "AX", "AY", "AZ", "XY", "XZ", "YZ",
+                                     "AXY", "AXYZ", "SP", "S"};
+        bool isReg = false;
+        for (const char* r : regs) if (up == r) isReg = true;
+        if (!isReg && !parser->isExternSymbol(name)) {
+            std::string fullMsg = "Error: undefined symbol '" + name + "' (not defined here or declared .extern)";
+            parser->addError(fullMsg);
+            throw std::runtime_error(fullMsg);
+        }
         return 0;
     }
 

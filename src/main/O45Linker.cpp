@@ -219,10 +219,21 @@ bool O45Linker::layoutSegments(std::string& errorMsg) {
         if (!found) orderedNames.push_back(name);
     }
 
-    // Concatenate chunks in order, building remaps for each object
+    // Concatenate chunks in order, building remaps for each object. An
+    // object with aligned functions (cc45.align.text) keeps its code at the
+    // same address modulo that alignment as its offset in the object
+    auto textAlignOf = [](const O45File& o) -> uint32_t {
+        uint32_t a = 1;
+        for (const auto& exp : o.exports)
+            if (exp.name == "cc45.align.text" && exp.offset > a) a = exp.offset;
+        return a;
+    };
     for (const auto& name : orderedNames) {
         for (const auto& chunk : chunksByName[name]) {
             auto& input = objects_[chunk.objectIdx];
+            uint32_t ta = textAlignOf(input.obj);
+            if (ta > 1)
+                while ((textBase_ + (uint32_t)mergedText_.size() - chunk.srcOffset) % ta) mergedText_.push_back(0);
             uint32_t destOffset = (uint32_t)mergedText_.size();
 
             // Copy bytes from object's textBody

@@ -14,8 +14,6 @@
 #include <string.h>
 
 /* Forward declarations - these exist in stdlib */
-extern int vprintf(const char *format, va_list ap);
-extern int vsprintf(char *str, const char *format, va_list ap);
 extern int vfscanf(FILE *stream, const char *format, va_list ap);
 
 /* ============================================================================
@@ -98,25 +96,22 @@ int fputs(const char *s, FILE *stream) {
  *
  * Returns: number of characters written, or -1 on error
  */
+int __vformat(void (*put)(int c, void *ctx), void *ctx, char *fmt, va_list ap,
+              int (*ffmt)(char *, float));
+
+/* Writes a character to the FILE given as the context */
+static void vf_file_put(int c, void *ctx) {
+    fputc(c, (FILE *)ctx);
+}
+
 int vfprintf(FILE *stream, const char *format, va_list ap) {
-    if (!stream || !format) {
+    if (!stream || !format || !(stream->flags & _IOWRITE)) {
         return -1;
     }
-
-    /* Use a stack buffer for formatting (1KB max) */
-    char buffer[1024];
-
-    /* Format into buffer using vsprintf */
-    int n = vsprintf(buffer, format, ap);
-
-    if (n < 0) {
-        return -1;
-    }
-
-    /* Write buffer to stream */
-    int written = fwrite(buffer, 1, n, stream);
-
-    return written;
+    unsigned char err = stream->flags & _IOERR;
+    int n = __vformat(vf_file_put, stream, (char *)format, ap, 0);
+    if (!err && (stream->flags & _IOERR)) return -1;
+    return n;
 }
 
 /**

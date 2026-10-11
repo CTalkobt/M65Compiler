@@ -2,6 +2,10 @@
 
 #pragma once
 
+#ifndef NULL
+#define NULL 0
+#endif
+
 /* String operations */
 int strlen(char *s);
 char *strcpy(char *dest, char *src);

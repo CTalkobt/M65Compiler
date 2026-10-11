@@ -21,6 +21,18 @@ extern unsigned char cbm_k_setlfs(unsigned char fd, unsigned char device, unsign
 extern unsigned char cbm_k_open(void);
 extern unsigned char cbm_k_close(unsigned char fd);
 
+/* KERNAL I/O status (READST) bits */
+#define STATUS_TIMEOUT_W 0x01   /* serial bus write timeout */
+#define STATUS_TIMEOUT_R 0x02   /* serial bus read timeout */
+#define STATUS_VERIFY    0x10   /* verify / read error */
+#define STATUS_EOF       0x40   /* end of file */
+#define STATUS_DEVICE    0x80   /* device not present */
+#define STATUS_ERROR     (STATUS_TIMEOUT_W | STATUS_TIMEOUT_R | STATUS_VERIFY)
+/* A missing file or write protection is reported by the drive's error
+ * channel, not in the status byte */
+#define STATUS_NOTFND    0x00
+#define STATUS_WPROT     0x00
+
 /* ============================================================================
  * FILE OPENING
  * ============================================================================ */

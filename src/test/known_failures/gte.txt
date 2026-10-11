@@ -5,10 +5,8 @@
 # pr98366: needs 32-bit int (dg int32); int e:17 is wider than a 16-bit int.
 # pr56799: needs 32-bit int (dg int32plus); (int)0x10000 is 0 and a >> 16 shifts out a 16-bit int.
 # 20040811-1, pr43220: need 32-bit int (dg int32plus); with a 16-bit int n < 1000000 never ends.
-20020108-1
 20020412-1
 20030209-1
-20030501-1
 20040629-1
 20040703-1
 20040709-3
@@ -17,36 +15,19 @@
 20041201-1
 20041218-2
 20050604-1
-20061220-1
 20070919-1
 920410-1
-920428-2
-921017-1
 921208-2
-921215-1
-970214-1
-970214-2
-alias-2
-alias-3
-alias-4
-align-3
 cmpsi-2
 eeprof-1
-fprintf-chk-1
 loop-2f
 loop-2g
-nestfunc-3
-nestfunc-5
-nestfunc-6
 pr103209
-pr22061-3
-pr24135
 pr28982b
 pr29797-1
 pr37573
 pr41935
 pr45262
-pr51447
 pr56799
 pr57124
 pr58574
@@ -56,7 +37,6 @@ pr66556
 pr67781
 pr68648
 pr70460
-pr71494
 pr71626-1
 pr71626-2
 pr7284-1
@@ -68,21 +48,16 @@ pr94524-1
 pr94524-2
 pr94591
 pr98366
-printf-chk-1
 pushpop_macro
 scal-to-vec2
 simd-1
 simd-2
 simd-4
 simd-6
-stkalign
 strlen-5
-strlen-6
 usmul
 va-arg-22
 va-arg-7
-vfprintf-1
-vfprintf-chk-1
 vrp-5
 vrp-6
 widechar-3

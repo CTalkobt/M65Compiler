@@ -640,6 +640,14 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         }
         if (deref->op == "*") {
             if (auto* ref = dynamic_cast<VariableReference*>(deref->operand.get())) {
+                // *p of a pointer to an array: the array, i.e. a pointer to
+                // its first element
+                if (ptrArrayRowSize(ref)) {
+                    bool local = localTypes_.count(ref->name) > 0;
+                    std::string tn = local ? localTypeNames_[ref->name] : globalTypeNames_[ref->name];
+                    bool sg = local ? localSigned_[ref->name] : (globalSigned_.count(ref->name) && globalSigned_[ref->name]);
+                    return {ir::Type::PTR, tn, sg, mapType(tn, 0), 2};
+                }
                 auto pit = localPointedToType_.find(ref->name);
                 if (pit != localPointedToType_.end()) {
                     std::string tn = localTypeNames_.count(ref->name) ? localTypeNames_[ref->name] : "";
@@ -1023,6 +1031,44 @@ std::string IRBuilder::resolvedFunctionName(const std::string& name) const {
     return it == staticRenames_.end() ? name : it->second;
 }
 
+// The current function passes its frame pointer as a child's static link:
+// it needs a real stack frame, and its own static link stays in that frame
+// for the child to follow up the chain
+void IRBuilder::markStaticLinkProvider() {
+    if (!currentFunc_) return;
+    currentFunc_->isRecurse = true;
+    if (currentFunc_->isNested && currentFunc_->staticLinkVreg >= 0) {
+        currentFunc_->memoryVregs.insert((uint32_t)currentFunc_->staticLinkVreg);
+        usedVregs_.insert((uint32_t)currentFunc_->staticLinkVreg);
+        keepStaticLink(currentFunc_);
+    }
+}
+
+// The static link gets a frame slot (frame locals are laid out from
+// localNamesOrder) even when the function itself never reads it
+void IRBuilder::keepStaticLink(ir::Function* f) {
+    auto& order = f->localNamesOrder;
+    if (std::find(order.begin(), order.end(), "__static_link") == order.end())
+        order.push_back("__static_link");
+}
+
+// ADDR_UPLEVEL over more than one level: name the functions whose frames
+// are passed through (args[2..]), whose static links lead further up
+void IRBuilder::addUplevelChain(ir::Inst& inst, int levels) {
+    for (int k = 0; k < levels - 1; k++) {
+        int idx = (int)functionStack_.size() - 1 - k;
+        if (idx < 0) break;
+        ir::Function* f = functionStack_[idx].func;
+        if (f->staticLinkVreg >= 0) {
+            f->memoryVregs.insert((uint32_t)f->staticLinkVreg);
+            functionStack_[idx].usedVregs.insert((uint32_t)f->staticLinkVreg);
+            keepStaticLink(f);
+        }
+        f->isRecurse = true;
+        inst.args.push_back(ir::Operand::global(f->name));
+    }
+}
+
 void IRBuilder::visit(FunctionDeclaration& node) {
     // Module-private name for a static function (also when only its prototype is static)
     if (!node.isMethod) {
@@ -1036,6 +1082,8 @@ void IRBuilder::visit(FunctionDeclaration& node) {
             }
         }
     }
+    // __attribute__((aligned(N))) on any declaration aligns the function
+    if (node.alignment > 1) funcAlign_[node.name] = std::max(funcAlign_[node.name], node.alignment);
     // Attributes may appear on a prototype or the definition; accumulate by name
     if (node.isAlwaysInline) alwaysInlineNames_.insert(node.name);
     if (node.isNoInline) noInlineNames_.insert(node.name);
@@ -1108,6 +1156,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     fn.isNaked = node.isNaked;
     fn.isRegparm = node.isRegparm;
     fn.isNested = node.isNested;
+    if (funcAlign_.count(node.name)) fn.align = funcAlign_[node.name];
 
 
     // Register inline candidate if marked inline, -finline-functions, or trivial method
@@ -1406,6 +1455,44 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         int irCount = 0;
         for (const auto& blk : currentFunc_->blocks) irCount += (int)blk.insts.size();
         if (irCount > maxInlineIRSize) inlineCandidates_.erase(node.name);
+    }
+    // A goto in a nested function to a label of the enclosing function (a
+    // non-local goto): the parent's frame is restored (FP from the static
+    // link, SP = FP - 1 as at any statement of the parent) and control jumps
+    // to the label's global alias in the parent
+    bool nonlocalGoto = false;
+    if (currentFunc_ && currentFunc_->isNested && currentFunc_->staticLinkVreg >= 0 && !functionStack_.empty()) {
+        std::set<std::string> own;
+        for (const auto& blk : currentFunc_->blocks) own.insert(blk.label);
+        for (auto& blk : currentFunc_->blocks) {
+            for (size_t k = 0; k < blk.insts.size(); k++) {
+                ir::Inst br = blk.insts[k];
+                if (br.op != ir::Op::BR || br.src1.kind != ir::OperandKind::LABEL || own.count(br.src1.name))
+                    continue;
+                nonlocalGoto = true;
+                FunctionScope& parent = functionStack_.back();
+                parent.func->isRecurse = true;  // a real stack frame
+                nestedLabelAddrs_.insert(br.src1.name);
+                ir::Inst addr;
+                addr.op = ir::Op::ADDR_LABEL;
+                addr.dest = allocVreg(ir::Type::I16);
+                addr.src1 = br.src1;
+                addr.loc = br.loc;
+                ir::Inst jmp;
+                jmp.op = ir::Op::BR_INDIRECT;
+                jmp.src1 = addr.dest;
+                jmp.args = {ir::Operand::vreg(currentFunc_->staticLinkVreg, ir::Type::PTR),
+                            ir::Operand::imm(1, ir::Type::I16)};
+                jmp.loc = br.loc;
+                blk.insts[k] = jmp;
+                blk.insts.insert(blk.insts.begin() + k, addr);
+                k++;
+            }
+        }
+    }
+    if (nonlocalGoto) {
+        inlineCandidates_.erase(node.name);
+        alwaysInlineNames_.erase(node.name);
     }
     // __builtin_return_address(0): store the captured address at entry
     if (currentFunc_ && currentFunc_->retAddrSlot >= 0 && !currentFunc_->blocks.empty()) {
@@ -1721,7 +1808,25 @@ bool IRBuilder::constLvalue(Expression* e, std::string& label, int& off) {
 }
 
 // Size of what a constant pointer expression points to (for p + k)
+// A pointer to an array (T (*p)[M], or an int a[][M] parameter): the size of
+// the array it points to (0 for anything else, or run-time dimensions)
+int IRBuilder::ptrArrayRowSize(Expression* e) {
+    auto* vr = dynamic_cast<VariableReference*>(e);
+    if (!vr) return 0;
+    auto pit = paramArrayDims_.find(vr->name);
+    if (pit == paramArrayDims_.end() || pit->second.size() < 2) return 0;
+    if (paramVlaDims_.count(vr->name)) return 0;
+    bool local = localTypes_.count(vr->name) > 0;
+    std::string tn = local ? localTypeNames_[vr->name] : globalTypeNames_[vr->name];
+    int lvl = local ? (localPtrLevel_.count(vr->name) ? localPtrLevel_[vr->name] : 0)
+                    : (globalPtrLevel_.count(vr->name) ? globalPtrLevel_[vr->name] : 0);
+    int size = std::max(1, getTypeSize(tn, lvl));
+    for (size_t i = 1; i < pit->second.size(); i++) size *= std::max(1, pit->second[i]);
+    return size;
+}
+
 int IRBuilder::pointeeStride(Expression* e) {
+    if (int row = ptrArrayRowSize(e)) return row;
     while (auto* c = dynamic_cast<CastExpression*>(e)) {
         if (c->pointerLevel > 0) return std::max(1, getTypeSize(c->targetType, c->pointerLevel - 1));
         e = c->expression.get();
@@ -2596,6 +2701,8 @@ void IRBuilder::resetFunctionLocalState() {
     localArrayDims_.clear();
     localPtrLevel_.clear();
     paramArrayDims_.clear();
+    // Global pointers to arrays are indexed like int a[][M] parameters
+    for (const auto& [n, d] : globalPtrArrayDims_) paramArrayDims_[n] = d;
     paramVlaDims_.clear();
     vlaSizeVars_.clear();
     usedVregs_.clear();
@@ -2794,7 +2901,9 @@ void IRBuilder::visit(VariableDeclaration& node) {
             if (!node.arrayDims.empty()) globalArrayDims_[node.name] = node.arrayDims;
             globalTypes_[node.name] = t;
             globalTypeNames_[node.name] = node.type;
-            globalPtrLevel_[node.name] = node.pointerLevel;
+            // T (*p)[M] is indexed like an int a[][M] parameter: its
+            // elements are Ts
+            globalPtrLevel_[node.name] = node.pointerLevel - (node.ptrArrayDims.empty() ? 0 : 1);
             globalSigned_[node.name] = node.isSigned;
             globalRegister_[node.name] = node.isRegister;
         };
@@ -2814,6 +2923,13 @@ void IRBuilder::visit(VariableDeclaration& node) {
         gv.addressSpace = node.addressSpace;  // Phase 97: Preserve address space qualifier
         gv.align = std::max({1, node.alignment, alignValue(node.alignmentExpr.get()),
                              typeAlign(node.type, node.pointerLevel)});
+        declaredAlign_[node.name] = gv.align;
+        if (!node.ptrArrayDims.empty()) {
+            std::vector<int> d{0};
+            d.insert(d.end(), node.ptrArrayDims.begin(), node.ptrArrayDims.end());
+            globalPtrArrayDims_[node.name] = d;
+            paramArrayDims_[node.name] = d;
+        }
         if (node.initializer) {
             // -1.5: a negated float literal
             double negFloat = 0;
@@ -2935,6 +3051,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
         gv.addressSpace = node.addressSpace;  // Phase 97: Preserve address space qualifier
         gv.align = std::max({1, node.alignment, alignValue(node.alignmentExpr.get()),
                              typeAlign(node.type, node.pointerLevel)});
+        declaredAlign_[node.name] = gv.align;
 
         // Handle initializer
         bool aggregateInit = node.initializer &&
@@ -3015,6 +3132,15 @@ void IRBuilder::visit(VariableDeclaration& node) {
     }
     localTypeNames_[node.name] = resolvedVarTypeName;
     localPtrLevel_[node.name] = node.pointerLevel;
+    // T (*p)[M]: indexed like an int a[][M] parameter
+    if (!node.ptrArrayDims.empty()) {
+        std::vector<int> d{0};
+        d.insert(d.end(), node.ptrArrayDims.begin(), node.ptrArrayDims.end());
+        paramArrayDims_[node.name] = d;
+        localPtrLevel_[node.name] = node.pointerLevel - 1;
+    } else {
+        paramArrayDims_.erase(node.name);
+    }
     localSigned_[node.name] = node.isSigned;
     localConst_[node.name] = node.isConst && node.pointerLevel == 0;
     localPointsToConst_[node.name] = node.isConst && node.pointerLevel > 0;
@@ -3039,6 +3165,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
         int la = std::max({1, node.alignment, alignValue(node.alignmentExpr.get()),
                            typeAlign(node.type, node.pointerLevel)});
         if (la > 1) currentFunc_->vregAlign[vreg.vregId] = la;
+        declaredAlign_[node.name] = la;
     }
     if (!node.arrayDims.empty()) {
         localArrayDims_[node.name] = node.arrayDims;
@@ -3345,6 +3472,7 @@ void IRBuilder::visit(VariableReference& node) {
             FunctionDeclaration* calleeParent = fn->parentFunc;
             if (currentFunc_ && "_" + calleeParent->name == currentFunc_->name) {
                 sl = allocVreg(ir::Type::PTR);
+                markStaticLinkProvider();
                 ir::Inst getFp;
                 getFp.op = ir::Op::GET_FP;
                 getFp.dest = sl;
@@ -3461,6 +3589,7 @@ void IRBuilder::visit(VariableReference& node) {
             ir::Operand parentVreg = pit->second;
             parentVreg.name = scope.func->name;
             addrInst.args = { parentVreg, ir::Operand::imm(levels, ir::Type::I16) };
+            addUplevelChain(addrInst, levels);
             addrInst.loc = loc(node);
             emit(addrInst);
 
@@ -3482,6 +3611,14 @@ void IRBuilder::visit(VariableReference& node) {
             lastValueSigned_ = scope.localSigned.at(node.name);
             return;
         }
+    }
+
+    // An identifier declared nowhere (C99 6.5.1p2): without this it would be
+    // an unresolved symbol the assembler reads as address 0
+    if (!globalTypes_.count(node.name) && !globalArrayDims_.count(node.name) &&
+        node.name.rfind("__", 0) != 0) {
+        throw std::runtime_error(formatDiagnostic(node.sourceFile, node.line, node.column, Severity::Error,
+            "'" + node.name + "' undeclared"));
     }
 
     // Global variable
@@ -4187,6 +4324,9 @@ void IRBuilder::visit(BinaryOperation& node) {
             auto sit = structs_.find(sName);
             if (sit != structs_.end()) elemSize = sit->second.totalSize;
         }
+        // p + n on a pointer to an array steps over whole arrays
+        if (int row = ptrArrayRowSize(lhsInfo.type == ir::Type::PTR ? node.left.get() : node.right.get()))
+            elemSize = row;
         if (node.op == "-" && lhsInfo.type == ir::Type::PTR && rhsInfo.type == ir::Type::PTR) {
             // Pointer difference: (a - b) / sizeof(*a), a signed integer
             auto diff = allocVreg(ir::Type::I16);
@@ -4553,6 +4693,13 @@ void IRBuilder::visit(UnaryOperation& node) {
             computeAddressOnly_ = oldAddrMode;
         }
     } else if (node.op == "*") {
+        // *p of a pointer to an array (T (*p)[M], or an int a[][M]
+        // parameter) is that array: its address, the pointer's value
+        if (auto* pr = dynamic_cast<VariableReference*>(node.operand.get());
+            pr && !computeAddressOnly_ && paramArrayDims_.count(pr->name) && paramArrayDims_[pr->name].size() >= 2) {
+            node.operand->accept(*this);
+            return;
+        }
         // Dereference
         bool oldAddrMode = computeAddressOnly_;
         computeAddressOnly_ = false;
@@ -5379,6 +5526,7 @@ normal_call:
         if (currentFunc_ && "_" + calleeParent->name == currentFunc_->name) {
             // Case 1: Calling a direct child. SL = current FP.
             sl = allocVreg(ir::Type::PTR);
+            markStaticLinkProvider();
             ir::Inst getFp;
             getFp.op = ir::Op::GET_FP;
             getFp.dest = sl;
@@ -5417,6 +5565,7 @@ normal_call:
                     addrUp.src1 = currentSL;
                     // Pack levels. In this case, we just want the frame base, so vregId is -1
                     addrUp.args = { ir::Operand::vreg(0xFFFFFFFF, ir::Type::PTR), ir::Operand::imm(levels, ir::Type::I16) };
+                    addUplevelChain(addrUp, levels);
                     addrUp.loc = loc(node);
                     emit(addrUp);
                 }
@@ -6217,6 +6366,20 @@ void IRBuilder::visit(InitializerList& node) {
 }
 
 void IRBuilder::visit(ArrayAccess& node) {
+    // (*p)[i] of a pointer to an array is p[0][i]
+    if (auto* u = dynamic_cast<UnaryOperation*>(node.arrayExpr.get());
+        u && u->op == "*" && ptrArrayRowSize(u->operand.get())) {
+        std::unique_ptr<Expression> deref = std::move(node.arrayExpr);
+        auto* du = static_cast<UnaryOperation*>(deref.get());
+        auto row = std::make_unique<ArrayAccess>(std::move(du->operand), std::make_unique<IntegerLiteral>(0));
+        row->line = node.line; row->column = node.column; row->sourceFile = node.sourceFile;
+        node.arrayExpr = std::move(row);
+        visit(node);
+        // Give the operand back to the original expression
+        du->operand = std::move(static_cast<ArrayAccess*>(node.arrayExpr.get())->arrayExpr);
+        node.arrayExpr = std::move(deref);
+        return;
+    }
     // i[p] is p[i]: put the pointer/array operand first
     {
         IRTypeInfo ai = getExprTypeInfo(node.arrayExpr.get());
@@ -6739,6 +6902,26 @@ int IRBuilder::alignValue(Expression* e) {
 }
 
 void IRBuilder::visit(AlignofExpression& node) {
+    if (node.expression) {
+        // __alignof__(expr): a function's or object's declared alignment,
+        // else its type's (the expression is not evaluated)
+        int a = 1;
+        if (auto* vr = dynamic_cast<VariableReference*>(node.expression.get())) {
+            auto fa = funcAlign_.find(vr->name);
+            auto da = declaredAlign_.find(vr->name);
+            if (fa != funcAlign_.end()) a = fa->second;
+            else if (da != declaredAlign_.end()) a = da->second;
+            else {
+                IRTypeInfo ti = getExprTypeInfo(vr);
+                a = typeAlign(ti.typeName, ti.type == ir::Type::PTR ? 1 : 0);
+            }
+        } else {
+            IRTypeInfo ti = getExprTypeInfo(node.expression.get());
+            a = typeAlign(ti.typeName, ti.type == ir::Type::PTR ? 1 : 0);
+        }
+        lastValue_ = ir::Operand::imm(std::max(1, a), ir::Type::I16);
+        return;
+    }
     lastValue_ = ir::Operand::imm(typeAlign(node.typeName, node.pointerLevel), ir::Type::I16);
 }
 
@@ -6750,6 +6933,53 @@ void IRBuilder::visit(SizeofExpression& node) {
             VariableReference sv(vit->second);
             sv.accept(*this);
             return;
+        }
+    }
+    // sizeof *p of a pointer to an array: the array's size
+    if (!node.isType) {
+        if (auto* u = dynamic_cast<UnaryOperation*>(node.expression.get()); u && u->op == "*") {
+            if (int row = ptrArrayRowSize(u->operand.get())) {
+                lastValue_ = ir::Operand::imm(row, ir::Type::I16);
+                return;
+            }
+        }
+    }
+    // sizeof a[i]... of a parameter with run-time inner dimensions
+    // (char a[2][n]): element size x the remaining dimensions, the run-time
+    // ones read from their entry-time values
+    if (!node.isType) {
+        Expression* e = node.expression.get();
+        size_t depth = 0;
+        while (auto* aa = dynamic_cast<ArrayAccess*>(e)) { e = aa->arrayExpr.get(); depth++; }
+        auto* ref = dynamic_cast<VariableReference*>(e);
+        if (ref && depth > 0 && paramVlaDims_.count(ref->name) && paramArrayDims_.count(ref->name)) {
+            const auto& dims = paramArrayDims_[ref->name];
+            const auto& rt = paramVlaDims_[ref->name];
+            std::string tn = localTypeNames_[ref->name];
+            int lvl = localPtrLevel_.count(ref->name) ? localPtrLevel_[ref->name] : 0;
+            int constSize = std::max(1, getTypeSize(tn, lvl));
+            std::vector<ir::Operand> rtDims;
+            for (size_t i = depth; i < dims.size(); i++) {
+                if (dims[i] > 0) constSize *= dims[i];
+                else if (i - 1 < rt.size() && rt[i - 1].kind != ir::OperandKind::NONE) rtDims.push_back(rt[i - 1]);
+            }
+            if (!rtDims.empty()) {
+                ir::Operand v = ir::Operand::imm(constSize, ir::Type::I16);
+                for (const auto& d : rtDims) {
+                    auto r = allocVreg(ir::Type::I16);
+                    ir::Inst m;
+                    m.op = ir::Op::MUL;
+                    m.dest = r;
+                    m.resultType = ir::Type::I16;
+                    m.src1 = d;  // the slot vreg is the dimension's value
+                    m.src2 = v;
+                    m.loc = loc(node);
+                    emit(m);
+                    v = r;
+                }
+                lastValue_ = v;
+                return;
+            }
         }
     }
     int sz = 2;

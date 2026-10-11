@@ -80,6 +80,16 @@ private:
     // (variable, struct member or struct type) as if _Alignas(N) were written
     int pendingAlign_ = 0;
     int takePendingAlign() { int a = pendingAlign_; pendingAlign_ = 0; return a; }
+    // __attribute__((alias("target"))): the declared name is another name
+    // for target; later uses of it are read as target
+    std::string pendingAlias_;
+    std::map<std::string, std::string> aliasNames_;
+    void applyAlias(std::string& declName) {
+        if (pendingAlias_.empty()) return;
+        aliasNames_[declName] = pendingAlias_;
+        declName = pendingAlias_;
+        pendingAlias_.clear();
+    }
     bool pendingNoInline_ = false;
     std::string resolveComplexType(); // consume type after COMPLEX token, return struct name
     std::string resolveIntNType(bool isSigned); // consume (N) after __int/__uint, return type name

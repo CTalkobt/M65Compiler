@@ -225,6 +225,7 @@ struct Function {
     // __builtin_return_address(0): the entry code copies the return address
     // to __zp_scratch3, and the first instruction stores it to this slot
     int retAddrSlot = -1;
+    int align = 1;          // __attribute__((aligned(N))): code address alignment
     int staticLinkVreg = -1; // vreg holding the static link to parent frame
     int declLine = 0;                   // source line of function declaration
 

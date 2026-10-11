@@ -208,6 +208,14 @@ std::string Preprocessor::expandMacros(const std::string& line) {
                 while (i < result.length() && (std::isalnum((unsigned char)result[i]) || result[i] == '_')) i++;
                 std::string ident = result.substr(start, i - start);
 
+                // An encoding prefix (L'1', u"x", U'a', u8"s") is part of the
+                // literal, not a macro name
+                if ((ident == "L" || ident == "u" || ident == "U" || ident == "u8") &&
+                    i < result.length() && (result[i] == '\'' || result[i] == '"')) {
+                    nextResult += ident;
+                    continue;
+                }
+
                 std::string replacement = "";
                 bool found = false;
 
@@ -393,7 +401,20 @@ std::string Preprocessor::expandMacros(const std::string& line) {
                                     }
                                 }
 
-                                // 3. Replace parameters
+                                // 3. Replace parameters (not inside string/character
+                                // literals, nor an L/u/U/u8 literal prefix)
+                                auto inLiteral = [](const std::string& b, size_t at) {
+                                    char q = 0;
+                                    for (size_t k = 0; k < at && k < b.size(); k++) {
+                                        if (q) {
+                                            if (b[k] == '\\') k++;
+                                            else if (b[k] == q) q = 0;
+                                        } else if (b[k] == '"' || b[k] == '\'') {
+                                            q = b[k];
+                                        }
+                                    }
+                                    return q != 0;
+                                };
                                 for (size_t p = 0; p < m.params.size(); ++p) {
                                     size_t pos = 0;
                                     while ((pos = body.find(m.params[p], pos)) != std::string::npos) {
@@ -401,7 +422,13 @@ std::string Preprocessor::expandMacros(const std::string& line) {
                                                          (pos + m.params[p].length() + 2 <= body.length() && body.substr(pos + m.params[p].length(), 2) == "##");
                                         bool bBefore = (pos == 0 || (!std::isalnum((unsigned char)body[pos-1]) && body[pos-1] != '_'));
                                         bool bAfter = (pos + m.params[p].length() == body.length() || (!std::isalnum((unsigned char)body[pos + m.params[p].length()]) && body[pos + m.params[p].length()] != '_'));
-                                        if (nextToGlue || (bBefore && bAfter)) {
+                                        size_t endp = pos + m.params[p].length();
+                                        bool litPrefix = (m.params[p] == "L" || m.params[p] == "u" || m.params[p] == "U" ||
+                                                          m.params[p] == "u8") && endp < body.length() &&
+                                                         (body[endp] == '\'' || body[endp] == '"');
+                                        if (litPrefix || inLiteral(body, pos)) {
+                                            pos = endp;
+                                        } else if (nextToGlue || (bBefore && bAfter)) {
                                             body.replace(pos, m.params[p].length(), args[p]);
                                             pos += args[p].length();
                                         } else {
@@ -798,6 +825,12 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
         // Strip comments (Phase 3)
         std::string currentLine = stripComments(currentLineRaw, inBlockComment);
         std::string trimmed = trim(currentLine);
+        // "# define X": white space may separate '#' from the directive name
+        if (trimmed.size() > 1 && trimmed[0] == '#' && std::isspace((unsigned char)trimmed[1])) {
+            size_t k = 1;
+            while (k < trimmed.size() && std::isspace((unsigned char)trimmed[k])) k++;
+            trimmed = "#" + trimmed.substr(k);
+        }
 
         if (!hasSeenNonWhitespace && !trimmed.empty()) {
             if (trimmed.substr(0, 1) != "#") {
@@ -874,6 +907,24 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                             p = trim(p);
                             if (p == "...") {
                                 m.isVariadic = true;
+                            } else if (p.size() > 3 && p.compare(p.size() - 3, 3, "...") == 0) {
+                                // GNU named variadic parameter (args...): the
+                                // body's uses of the name become __VA_ARGS__
+                                std::string vn = trim(p.substr(0, p.size() - 3));
+                                m.isVariadic = true;
+                                std::string nb;
+                                for (size_t k = 0; k < m.body.size();) {
+                                    bool startOk = k == 0 || !(std::isalnum((unsigned char)m.body[k - 1]) || m.body[k - 1] == '_');
+                                    size_t e = k + vn.size();
+                                    if (startOk && m.body.compare(k, vn.size(), vn) == 0 &&
+                                        (e >= m.body.size() || !(std::isalnum((unsigned char)m.body[e]) || m.body[e] == '_'))) {
+                                        nb += "__VA_ARGS__";
+                                        k = e;
+                                    } else {
+                                        nb += m.body[k++];
+                                    }
+                                }
+                                m.body = nb;
                             } else {
                                 m.params.push_back(p);
                             }

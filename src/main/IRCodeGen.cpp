@@ -764,6 +764,7 @@ void IRCodeGen::emitStackCleanup(int frameSize) {
 void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode, bool zpCallMode, bool emitReasons, bool staticAllocMode, bool sacDebugMode, uint32_t prgBase) {
     currentModule_ = &mod;
     dataAlign_ = bssAlign_ = 1;
+    textAlign_ = 1;
     emitReasons_ = emitReasons;
     relocMode_ = relocMode;
     zpCallMode_ = zpCallMode;
@@ -1210,6 +1211,7 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     // Aligned data/BSS: tell ln45 to start this object's part on that boundary
     if (relocMode) {
         if (dataAlign_ > 1) { emit(".weak cc45.align.data"); emit("cc45.align.data = " + std::to_string(dataAlign_)); }
+        if (textAlign_ > 1) { emit(".weak cc45.align.text"); emit("cc45.align.text = " + std::to_string(textAlign_)); }
         if (bssAlign_ > 1) { emit(".weak cc45.align.bss"); emit("cc45.align.bss = " + std::to_string(bssAlign_)); }
     }
 
@@ -2057,6 +2059,13 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         }  // Close if (!isZeroAlloc)
     }
 
+    // An aligned function starts on its boundary (ln45 keeps the object's
+    // code at the same offset modulo cc45.align.text)
+    if (fn.align > 1) {
+        emit(".align " + std::to_string(fn.align));
+        textAlign_ = std::max(textAlign_, fn.align);
+    }
+
     // proc directive with parameter specs
     // For regparm, first param is in A/AX — not on stack, not in proc line
     std::string procLine = "proc " + fn.name;
@@ -2288,6 +2297,9 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         for (const auto& [vregId, offset] : vregOffset_) {
             auto alloc = alloc_.getAlloc(vregId);
             if (alloc.loc == VRegAllocator::IN_FRAME) {
+                // Nested functions reach the variable at this offset from the
+                // frame pointer (their static link)
+                frameOffsetsByFn_[fn.name][vregId] = offset;
                 emit(".local __vr" + std::to_string(vregId) + " = " + std::to_string(offset));
             }
         }
@@ -4074,7 +4086,10 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 throw std::runtime_error("TRAMPOLINE: buffer vreg " + std::to_string(bufVregId) +
                     " not allocated on stack (vregOffset_ map has " + std::to_string(vregOffset_.size()) + " entries)");
             }
-            emit("leax.local " + std::to_string(vregOffset_.at(bufVregId)));
+            if (currentFunctionUseSAC_)
+                emit("ldax #" + currentFunctionName_ + "__local_" + std::to_string(bufVregId));  // static storage
+            else
+                emit("leax.local " + std::to_string(vregOffset_.at(bufVregId)));
             emit("sta $08");
             emit("stx $09");
 
@@ -4163,25 +4178,35 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             const ir::Operand& targetVar = inst.args[0];
             int targetOffset = 0;
             if (targetVar.vregId != 0xFFFFFFFF) {
-                if (!functionMap_.empty()) {
-                    if (functionMap_.count(targetVar.name)) {
-                        const auto* targetFn = functionMap_.at(targetVar.name);
-                        if (targetFn->vregOffsets.count(targetVar.vregId)) {
-                            targetOffset = targetFn->vregOffsets.at(targetVar.vregId);
-                        }
-                    }
+                auto fit = frameOffsetsByFn_.find(targetVar.name);
+                if (fit != frameOffsetsByFn_.end() && fit->second.count(targetVar.vregId)) {
+                    targetOffset = fit->second.at(targetVar.vregId);
+                } else if (functionMap_.count(targetVar.name)) {
+                    const auto* targetFn = functionMap_.at(targetVar.name);
+                    if (targetFn->vregOffsets.count(targetVar.vregId))
+                        targetOffset = targetFn->vregOffsets.at(targetVar.vregId);
                 }
             }
 
             // Start by loading the static link (pointer to direct parent frame)
             loadVreg(inst.src1.vregId);
 
-            // Follow static chain if target is higher than direct parent
+            // Follow static chain if target is higher than direct parent:
+            // each frame passed through holds its function's static link
             for (int i = 0; i < levels - 1; i++) {
                 emit("sta $08");
                 emit("stx $09");
-                // Static link is always at offset 0 in every nested frame
-                emit("ldy #0");
+                int slOff = 0;
+                if ((size_t)(2 + i) < inst.args.size()) {
+                    const std::string& fname = inst.args[2 + i].name;
+                    auto mit = functionMap_.find(fname);
+                    auto fit = frameOffsetsByFn_.find(fname);
+                    if (mit != functionMap_.end() && fit != frameOffsetsByFn_.end() &&
+                        mit->second->staticLinkVreg >= 0 &&
+                        fit->second.count((uint32_t)mit->second->staticLinkVreg))
+                        slOff = fit->second.at((uint32_t)mit->second->staticLinkVreg);
+                }
+                emit("ldy #" + std::to_string(slOff));
                 emit("lda ($08),y");
                 emit("pha");
                 emit("iny");
@@ -4275,6 +4300,36 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             std::string jmpLabel = "@__goto_site_" + std::to_string(labelCounter_++);
             emit("sta " + jmpLabel + "+1");
             emit("stx " + jmpLabel + "+2");
+            if (inst.args.size() == 2) {
+                // Non-local goto: args = static link, levels. The target
+                // function's frame pointer is the static link (followed up
+                // the chain); its stack pointer at a statement is FP - 1
+                loadVreg(inst.args[0].vregId);
+                for (int i = 0; i < (int)inst.args[1].immVal - 1; i++) {
+                    emit("sta $08");
+                    emit("stx $09");
+                    emit("ldy #1");
+                    emit("lda ($08),y");
+                    emit("tax");
+                    emit("dey");
+                    emit("lda ($08),y");
+                }
+                emit("sta $FD");
+                emit("stx $FE");
+                std::string nb = "@__nlg_" + std::to_string(labelCounter_++);
+                emit("sec");
+                emit("sbc #1");
+                emit("bcs " + nb);
+                emit("dex");
+                emitLabel(nb);
+                emit("phx");
+                emit("ply");
+                emit("tax");
+                emit("sei");
+                emit("txs");
+                emit("tys");
+                emit("cli");
+            }
             emitLabel(jmpLabel);
             emit("jmp $0000");
             break;
@@ -4614,8 +4669,12 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     // For immediate/constant VREG arguments, emit direct loads using vregConstVal_
 
                     std::vector<std::string> paramNames;
+                    // Arguments beyond the callee's parameters (an old-style
+                    // f() called as f(x)) have nowhere to go: dropped
+                    int calleeParams = nArgs;
                     if (functionParameterNames_.count(inst.src1.name)) {
                         paramNames = functionParameterNames_[inst.src1.name];
+                        calleeParams = std::min(nArgs, (int)paramNames.size());
                     }
                     // Fall back to indices if no parameter names available
                     while (paramNames.size() < (size_t)nArgs) {
@@ -4624,7 +4683,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
                     // Process arguments right-to-left (C convention)
                     // For constant VREGs, emit direct loads using tracked constant values
-                    for (int ai = nArgs - 1; ai >= 0; ai--) {
+                    for (int ai = calleeParams - 1; ai >= 0; ai--) {
                         const auto& arg = inst.args[ai];
                         int ps = ir::typeSize(arg.type);
                         if (ps < 2) ps = 2;

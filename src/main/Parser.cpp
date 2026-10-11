@@ -843,9 +843,12 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
 
             int pPtrLevel = pBasePtrLevel;
 
-            // Check for function pointer parameter: type (*name)(params)
-            if (peek().type == TokenType::OPEN_PAREN && pos + 1 < tokens.size() && tokens[pos + 1].type == TokenType::STAR) {
-                advance(); // consume '('
+            // Check for function pointer parameter: type (*name)(params), also
+            // with the declarator in extra parentheses: type ((*name)(params))
+            size_t fpParens = 0;
+            while (pos + fpParens < tokens.size() && tokens[pos + fpParens].type == TokenType::OPEN_PAREN) fpParens++;
+            if (fpParens > 0 && pos + fpParens < tokens.size() && tokens[pos + fpParens].type == TokenType::STAR) {
+                for (size_t k = 0; k < fpParens; k++) advance(); // the '('s
                 advance(); // consume '*'
                 std::string pName;
                 const Token& fpNameTok = peek();
@@ -856,6 +859,8 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
                 }
                 expect(TokenType::CLOSE_PAREN, "Expected ')' after function pointer name");
                 auto sig = parseFuncPtrParams(pType, pPtrLevel, pIsSigned);
+                for (size_t k = 1; k < fpParens; k++)
+                    expect(TokenType::CLOSE_PAREN, "Expected ')' after function pointer declarator");
                 Parameter p;
                 p.type = "void";
                 p.pointerLevel = 1;
@@ -1023,7 +1028,8 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
         func->isPrototype = true;
         func->isVariadic = isVariadic;
         func->isAlwaysInline = pendingAlwaysInline_;
-    pendingAlign_ = 0;  // aligned on a function: code alignment isn't supported
+        func->alignment = takePendingAlign();
+        applyAlias(func->name);
         func->isNoInline = pendingNoInline_;
         pendingAlwaysInline_ = pendingNoInline_ = false;
         return func;
@@ -1047,7 +1053,8 @@ std::unique_ptr<FunctionDeclaration> Parser::parseFunctionDeclaration() {
     func->isVariadic = isVariadic;
     func->isInline = isInline;
     func->isAlwaysInline = pendingAlwaysInline_;
-    pendingAlign_ = 0;  // aligned on a function: code alignment isn't supported
+    func->alignment = takePendingAlign();
+    applyAlias(func->name);
     func->isNoInline = pendingNoInline_;
     pendingAlwaysInline_ = pendingNoInline_ = false;
     func->isStatic = isStatic;
@@ -1787,6 +1794,30 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
         }
 
         expect(TokenType::CLOSE_PAREN, "Expected ')' after function pointer name");
+        // A pointer to an array: T (*name)[N]...
+        if (peek().type == TokenType::OPEN_SQUARE && fpArrayDims.empty()) {
+            auto decl = setPos(std::make_unique<VariableDeclaration>(type, fpName, ptrLevel + 1), typeToken);
+            decl->isSigned = isSigned;
+            decl->isVolatile = isVolatile;
+            decl->isConst = isConst;
+            decl->isStatic = isStatic;
+            decl->isRegister = isRegister;
+            decl->alignmentExpr = std::move(alignmentExpr);
+            while (match(TokenType::OPEN_SQUARE)) {
+                auto szExpr = parseExpression();
+                int arrSize = 1;
+                { long cv; if (evalConstInt(szExpr.get(), cv)) arrSize = (int)cv; }
+                decl->ptrArrayDims.push_back(arrSize);
+                expect(TokenType::CLOSE_SQUARE, "Expected ']'");
+            }
+            while (tryParseAttribute()) {}
+            if (match(TokenType::EQUALS)) {
+                if (peek().type == TokenType::OPEN_BRACE) decl->initializer = parseInitializerList();
+                else decl->initializer = parseExpression();
+            }
+            expect(TokenType::SEMICOLON, "Expected ';'");
+            return decl;
+        }
         auto fpSig = parseFuncPtrParams(type, ptrLevel, isSigned);
         auto decl = setPos(std::make_unique<VariableDeclaration>("void", fpName, 1), typeToken);
         decl->isSigned = false;
@@ -1894,6 +1925,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     // Skip __attribute__ after variable declaration: int x __attribute__((unused));
     while (tryParseAttribute()) {}
     decl->alignment = std::max(decl->alignment, takePendingAlign());
+    applyAlias(decl->name);
 
     // --- Multi-variable declarations: int a, b = 3, *c, d[4]; ---
     if (peek().type == TokenType::COMMA) {
@@ -2719,13 +2751,23 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         return parseGenericSelection();
     }
     if (match(TokenType::ALIGNOF)) {
+        bool gnuSpelling = tokens[pos-1].value != "_Alignof";  // __alignof__ also takes an expression
         expect(TokenType::OPEN_PAREN, "Expected '(' after '_Alignof'");
         if (isTypeStartToken()) {
             auto ts = parseTypeSpecifier();
             expect(TokenType::CLOSE_PAREN, "Expected ')' after _Alignof type");
             return setPos(std::make_unique<AlignofExpression>(ts.name, ts.pointerLevel), tokens[pos-1]);
-        } else {
+        } else if (!gnuSpelling) {
             throw std::runtime_error(formatDiagnostic(peek().sourceFile, peek().line, peek().column, Severity::Error, "Expected type name in _Alignof"));
+        } else {
+            // GCC __alignof__(expression): the alignment of its type, or of
+            // the object or function it names
+            const Token& at = peek();
+            auto e = parseExpression();
+            expect(TokenType::CLOSE_PAREN, "Expected ')' after _Alignof expression");
+            auto ae = setPos(std::make_unique<AlignofExpression>("", 0), at);
+            ae->expression = std::move(e);
+            return ae;
         }
     }
 
@@ -2966,6 +3008,7 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
                 actualName = it->second;
             }
         }
+        if (auto al = aliasNames_.find(actualName); al != aliasNames_.end()) actualName = al->second;
 
         auto enumIt = enumConstants.find(name);
         if (enumIt != enumConstants.end()) {
@@ -3433,6 +3476,14 @@ bool Parser::tryParseAttribute() {
             if (canonical == "always_inline") pendingAlwaysInline_ = true;
             if (canonical == "noinline") pendingNoInline_ = true;
 
+            if (canonical == "alias") {
+                expect(TokenType::OPEN_PAREN, "Expected '(' after alias");
+                pendingAlias_ = expect(TokenType::STRING_LITERAL, "Expected alias target name").value;
+                expect(TokenType::CLOSE_PAREN, "Expected ')' after alias target");
+                match(TokenType::COMMA);
+                continue;
+            }
+
             if (canonical == "aligned") {
                 // aligned(N), or plain aligned: the widest natural alignment (2)
                 int a = 2;
@@ -3599,6 +3650,21 @@ std::shared_ptr<FuncPtrSignature> Parser::parseFuncPtrParams(const std::string& 
                 fp.type = ts.name;
                 fp.isSigned = ts.isSigned;
                 fp.pointerLevel = ts.pointerLevel;
+            }
+            // A function or function pointer parameter (void (), int (*)(int),
+            // int (*name)(int)): a pointer; the declarator is skipped
+            if (peek().type == TokenType::OPEN_PAREN) {
+                while (peek().type == TokenType::OPEN_PAREN) {
+                    int depth = 0;
+                    do {
+                        if (peek().type == TokenType::OPEN_PAREN) depth++;
+                        else if (peek().type == TokenType::CLOSE_PAREN) depth--;
+                        advance();
+                    } while (depth > 0 && peek().type != TokenType::END_OF_FILE);
+                }
+                fp.type = "void";
+                fp.pointerLevel = 1;
+                fp.isSigned = false;
             }
             // Skip optional parameter name
             if (peek().type == TokenType::IDENTIFIER && !isTypedef(peek().value)) advance();

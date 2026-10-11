@@ -10,6 +10,10 @@
 
 #pragma once
 
+#ifndef NULL
+#define NULL 0
+#endif
+
 #define CLOCKS_PER_SEC 60
 
 typedef long time_t;

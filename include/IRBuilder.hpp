@@ -358,6 +358,13 @@ private:
     };
 
     IRTypeInfo getExprTypeInfo(Expression* expr);
+    void markStaticLinkProvider();
+    int ptrArrayRowSize(Expression* e);
+    std::map<std::string, int> declaredAlign_;  // variable -> declared alignment
+    std::map<std::string, int> funcAlign_;      // function -> __attribute__((aligned))
+    std::map<std::string, std::vector<int>> globalPtrArrayDims_;  // global T (*p)[M] -> {0, M}
+    void keepStaticLink(ir::Function* f);
+    void addUplevelChain(ir::Inst& inst, int levels);
 
     // Helper: map C type to IR type
     ir::Type mapType(const std::string& typeName, int ptrLevel);

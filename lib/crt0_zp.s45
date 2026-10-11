@@ -69,6 +69,16 @@ __init:
 @stack8:
 
     jsr _init_features
+    ; main(argc, argv) gets argc = 0, argv = NULL under either calling
+    ; convention: the ZP parameter block and two stacked words (__exit
+    ; restores the caller's stack pointer, so they are never popped)
+    lda #0
+    sta $10
+    sta $11
+    sta $12
+    sta $13
+    phw #0
+    phw #0
     jsr _main
 
     ; Fall through to __exit

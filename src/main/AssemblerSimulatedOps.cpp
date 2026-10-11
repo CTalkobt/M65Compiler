@@ -2307,31 +2307,25 @@ void AssemblerSimulatedOps::emitSTAZ_FPCode(AssemblerParser* parser, M65Emitter&
 void AssemblerSimulatedOps::emitLDAXYZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
 
-    // Load all bytes into scratch first (lda_stack clobbers X in non-FP mode)
-    e.lda_stack(yOff + 3); e.sta_scratch3_hi();
-    e.lda_stack(yOff + 2); e.sta_scratch3();
-    e.lda_stack(yOff + 1); e.sta_scratch2();
-    e.lda_stack(yOff); // byte 0 stays in A
-
-    e.ldx_scratch2();
-    e.ldy_scratch3();
-    e.ldz_scratch3_hi();
+    // Y indexes the frame, so byte 2 goes through the stack. No ZP scratch
+    // is used: the generated code keeps operands in __zp_scratch2/3
+    e.lda_stack(yOff + 3); e.taz();
+    e.lda_stack(yOff + 1); e.tax();
+    e.lda_stack(yOff + 2); e.pha();
+    e.lda_stack(yOff);     // byte 0 in A
+    e.ply();
 }
 
 // staxyz.fp varOffset — Store 32-bit value from A,X,Y,Z to frame
 void AssemblerSimulatedOps::emitSTAXYZ_FPCode(AssemblerParser* parser, M65Emitter& e, int tokenIndex, const std::string& scopePrefix) {
     uint8_t yOff = (uint8_t)parser->evaluateExpressionAt(tokenIndex, scopePrefix);
 
-    // Store all bytes to scratch first (sta_stack clobbers X in non-FP mode)
-    e.sta_scratch();      // A
-    e.stx_scratch2();     // X
-    e.sty_scratch3();     // Y
-    e.stz_scratch3_hi();  // Z
-
-    e.lda_scratch();    e.sta_stack(yOff);
-    e.lda_scratch2();   e.sta_stack(yOff + 1);
-    e.lda_scratch3();   e.sta_stack(yOff + 2);
-    e.lda_scratch3_hi(); e.sta_stack(yOff + 3);
+    // Y indexes the frame, so byte 2 goes through the stack (no ZP scratch)
+    e.phy();
+    e.sta_stack(yOff);
+    e.txa(); e.sta_stack(yOff + 1);
+    e.tza(); e.sta_stack(yOff + 3);
+    e.pla(); e.sta_stack(yOff + 2);
 }
 
 // leax.fp varOffset — Load effective address of frame variable into AX

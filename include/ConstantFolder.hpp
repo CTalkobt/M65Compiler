@@ -456,6 +456,7 @@ public:
         decl->isRegister = node.isRegister;
         decl->arrayDims = node.arrayDims;
         decl->vlaDimExprs = node.vlaDimExprs;
+        decl->ptrArrayDims = node.ptrArrayDims;
         decl->isFunctionPointer = node.isFunctionPointer;
         decl->funcPtrSig = node.funcPtrSig;
         decl->addressSpace = node.addressSpace;  // Phase 97: Preserve address space qualifier

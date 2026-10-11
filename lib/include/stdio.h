@@ -44,6 +44,7 @@ typedef struct {
     unsigned int buf_len;            /* Bytes in buffer */
     unsigned char backend;           /* 0=KERNAL, 1=disk45, 2=memory */
     unsigned char ungetc_char;       /* Character pushed back by ungetc() */
+    unsigned char ungetc_pending;    /* 1 while ungetc_char is pending */
 } FILE;
 
 /* File position type */
@@ -58,7 +59,6 @@ typedef unsigned long fpos_t;
 #define _IOERR      0x20             /* Error occurred */
 #define _IOMYBUF    0x40             /* Buffer allocated by FILE */
 #define _IOTRUNC    0x80             /* Truncate file on open (for write mode) */
-#define _IOUNGETC   0x01             /* Ungetc character pending (reuses as needed) */
 
 /* Standard file pointers */
 extern FILE *stdin;
