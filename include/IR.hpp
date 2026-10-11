@@ -222,6 +222,9 @@ struct Function {
     // (labelAlias()) the data can refer to
     std::set<std::string> addressTakenLabels;
     std::string labelAlias(const std::string& label) const { return name + "__lbl_" + label; }
+    // __builtin_return_address(0): the entry code copies the return address
+    // to __zp_scratch3, and the first instruction stores it to this slot
+    int retAddrSlot = -1;
     int staticLinkVreg = -1; // vreg holding the static link to parent frame
     int declLine = 0;                   // source line of function declaration
 

@@ -2076,6 +2076,19 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     }
     emit(procLine);
 
+    // __builtin_return_address(0): copy the return address (the stacked JSR
+    // address + 1) to __zp_scratch3 before anything is pushed
+    auto emitRetAddrCapture = [&]() {
+        if (fn.retAddrSlot < 0) return;
+        emit("tsx"); emit("tsy");
+        emit("stx __zp_scratch4"); emit("sty __zp_scratch4+1");
+        emit("ldy #1"); emit("lda (__zp_scratch4),y");
+        emit("clc"); emit("adc #1"); emit("sta __zp_scratch3");
+        emit("iny"); emit("lda (__zp_scratch4),y");
+        emit("adc #0"); emit("sta __zp_scratch3+1");
+    };
+    if (!currentFunctionUseSAC_) emitRetAddrCapture();
+
     // Mark SAC functions for assembler
     // Phase 51: Skip for zero-alloc leaves (all parameters constant)
     if (currentFunctionUseSAC_) {
@@ -2148,6 +2161,7 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         emit(".global " + fn.name + "__sac");
         emitLabel(fn.name + "__sac");
     }
+    if (currentFunctionUseSAC_) emitRetAddrCapture();
 
     // Reset source location tracking for this function
     lastLocLine_ = -1;
@@ -3245,14 +3259,14 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
         case ir::Op::NEG: {
             loadOperand(inst.src1);
-            emit("neg.16 .AX");
+            emit(inst.resultType == ir::Type::I32 ? "neg.32 .AXYZ" : "neg.16 .AX");
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
 
         case ir::Op::NOT: {
             loadOperand(inst.src1);
-            emit("not.16 .AX");
+            emit(inst.resultType == ir::Type::I32 ? "not.32 .AXYZ" : "not.16 .AX");
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
@@ -4487,6 +4501,13 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     loadOperand(inst.src1);
                     emit("stx __zp_scratch");
                     emit("ora __zp_scratch");  // Z = (A|X == 0)
+                    if (alloc.type == ir::Type::I32) {
+                        // and the upper bytes in Y/Z
+                        emit("sty __zp_scratch");
+                        emit("ora __zp_scratch");
+                        emit("stz __zp_scratch");
+                        emit("ora __zp_scratch");
+                    }
                     if (!trueTarget.empty()) emit("bne " + trueTarget);
                 }
             } else {
@@ -5098,6 +5119,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             else if (reg == "AY") { emit("phy"); emit("plx"); }
             else if (reg == "AZ") { emit("phz"); emit("plx"); }
             else if (reg == "XY") { emit("txa"); emit("phy"); emit("plx"); emit("pla"); } // Swap AX/XY
+            else if (reg == "RETADDR") { emit("lda __zp_scratch3"); emit("ldx __zp_scratch3+1"); }
             else if (reg == "SP") { emit("tsx"); emit("tsy"); emit("txa"); emit("phy"); emit("plx"); }  // A = SPL, X = SPH
             else if (reg == "Q" || reg == "AXYZ") ; // already in AXYZ
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
@@ -5368,6 +5390,27 @@ void IRCodeGen::loadFrameAddr(int offset) {
 // If vreg is a frame address at offset 0 and we have a cache, use cached location directly
 // Otherwise, load vreg and return location where it was stored
 
+// Does the function assign its parameter or take its address? Its storage
+// then cannot be preset to a constant the callers no longer store
+static bool paramWritten(const ir::Module& mod, const std::string& funcName, size_t paramIdx) {
+    for (const auto& fn : mod.functions) {
+        if (fn.name != funcName) continue;
+        if (paramIdx >= fn.paramNames.size()) return true;
+        auto it = fn.localNames.find(fn.paramNames[paramIdx]);
+        if (it == fn.localNames.end()) return true;
+        uint32_t v = it->second;
+        for (const auto& block : fn.blocks)
+            for (const auto& inst : block.insts) {
+                if (inst.op == ir::Op::STORE && inst.src2.isVreg() && inst.src2.vregId == v) return true;
+                if (inst.op == ir::Op::ADDR_LOCAL && inst.src1.isVreg() && inst.src1.vregId == v) return true;
+                if (inst.op == ir::Op::ADDR_UPLEVEL) return true;
+                if (inst.dest.isVreg() && inst.dest.vregId == v) return true;
+            }
+        return false;
+    }
+    return true;
+}
+
 // Analyze all CALL instructions to detect SAC functions with constant parameters
 void IRCodeGen::analyzeConstantParameters(const ir::Module& mod) {
     // First pass: build a map of VREG ID → constant value for each function
@@ -5428,7 +5471,8 @@ void IRCodeGen::analyzeConstantParameters(const ir::Module& mod) {
 
             // If this parameter has exactly one value across all call sites
             // AND that value is not the non-constant marker, it's a constant parameter
-            if (freqMap.size() == 1 && freqMap.begin()->first != -999999) {
+            if (freqMap.size() == 1 && freqMap.begin()->first != -999999 &&
+                !paramWritten(mod, funcName, paramIdx)) {
                 sacConstParams_[funcName][(int)paramIdx].isConstant = true;
                 sacConstParams_[funcName][(int)paramIdx].value = freqMap.begin()->first;
             }

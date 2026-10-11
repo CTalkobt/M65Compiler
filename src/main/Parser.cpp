@@ -1,4 +1,6 @@
 #include <cstring>
+#include <algorithm>
+#include <map>
 #include "Parser.hpp"
 #include "Diagnostic.hpp"
 #include <stdexcept>
@@ -172,6 +174,7 @@ std::unique_ptr<TranslationUnit> Parser::parse() {
                     } else {
                         // struct Name { ... } var; — inline definition + variable
                         std::string sType = (isUnion ? "union " : "struct ") + def->name;
+                        flushPending(*unit);  // nested definitions come first
                         unit->topLevelDecls.push_back(std::move(def));
                         // Parse the variable declaration using the struct type
                         int ptrLevel = 0;
@@ -1490,40 +1493,84 @@ std::unique_ptr<Statement> Parser::parseStatement() {
         if (peek().type == TokenType::IDENTIFIER && peek().value == "goto") advance();
         expect(TokenType::OPEN_PAREN, "Expected '(' after asm");
         std::string code = expect(TokenType::STRING_LITERAL, "Expected string literal for asm code").value;
-        // Extended asm: "template" : outputs : inputs : clobbers
-        // Parse and discard constraint sections (template is still emitted)
-        for (int section = 0; section < 3 && match(TokenType::COLON); section++) {
-            // Each section is comma-separated: "constraint" (expr) or just "string"
-            if (peek().type == TokenType::CLOSE_PAREN || peek().type == TokenType::COLON)
+        // Extended asm: "template" : outputs : inputs : clobbers [: labels]
+        // The template is emitted as is (no %N substitution). The operands
+        // keep their meaning around it: inputs are evaluated, an output tied
+        // to an input ("0") receives the input's value, and a "+" output's
+        // lvalue is evaluated once
+        struct AsmOperand { std::string constraint; std::unique_ptr<Expression> expr; };
+        std::vector<AsmOperand> asmOps[2];   // outputs, inputs
+        bool pendingColon = false;           // the second half of a '::' token
+        auto takeColon = [&]() {
+            if (pendingColon) { pendingColon = false; return true; }
+            if (match(TokenType::COLON)) return true;
+            if (match(TokenType::SCOPE_RESOLUTION)) { pendingColon = true; return true; }
+            return false;
+        };
+        for (int section = 0; section < 4 && takeColon(); section++) {
+            if (pendingColon || peek().type == TokenType::CLOSE_PAREN || peek().type == TokenType::COLON ||
+                peek().type == TokenType::SCOPE_RESOLUTION)
                 continue; // empty section
             do {
-                // Skip optional constraint name [name]
-                if (peek().type == TokenType::OPEN_SQUARE) {
-                    advance();
+                // Optional symbolic name [name]
+                if (match(TokenType::OPEN_SQUARE)) {
                     while (peek().type != TokenType::CLOSE_SQUARE && peek().type != TokenType::END_OF_FILE)
                         advance();
                     match(TokenType::CLOSE_SQUARE);
                 }
-                if (peek().type == TokenType::STRING_LITERAL) {
-                    advance(); // constraint string
-                    if (match(TokenType::OPEN_PAREN)) {
-                        // Parse and discard the operand expression
-                        int depth = 1;
-                        while (depth > 0 && peek().type != TokenType::END_OF_FILE) {
-                            if (match(TokenType::OPEN_PAREN)) depth++;
-                            else if (peek().type == TokenType::CLOSE_PAREN) { depth--; if (depth > 0) advance(); }
-                            else advance();
-                        }
-                        match(TokenType::CLOSE_PAREN);
+                if (section == 3) {
+                    // asm goto labels
+                    expect(TokenType::IDENTIFIER, "Expected label in asm goto");
+                } else if (peek().type == TokenType::STRING_LITERAL) {
+                    std::string constraint = advance().value;
+                    while (peek().type == TokenType::STRING_LITERAL) constraint += advance().value;
+                    if (section < 2) {
+                        expect(TokenType::OPEN_PAREN, "Expected '(' before asm operand");
+                        auto e = parseExpression();
+                        expect(TokenType::CLOSE_PAREN, "Expected ')' after asm operand");
+                        asmOps[section].push_back({constraint, std::move(e)});
                     }
                 } else {
-                    break; // not a constraint
+                    break;
                 }
             } while (match(TokenType::COMMA));
         }
         expect(TokenType::CLOSE_PAREN, "Expected ')' after asm");
         expect(TokenType::SEMICOLON, "Expected ';'");
-        return setPos(std::make_unique<AsmStatement>(code), startToken);
+        if (asmOps[0].empty() && asmOps[1].empty())
+            return setPos(std::make_unique<AsmStatement>(code), startToken);
+
+        auto group = setPos(std::make_unique<CompoundStatement>(), startToken);
+        group->isDeclGroup = true;  // not a scope
+        auto isPlain = [](Expression* e) {
+            return dynamic_cast<VariableReference*>(e) || dynamic_cast<IntegerLiteral*>(e) ||
+                   dynamic_cast<StringLiteral*>(e);
+        };
+        // Inputs tied to an output: output index -> input
+        std::map<size_t, std::unique_ptr<Expression>> tied;
+        for (auto& in : asmOps[1]) {
+            const std::string& c = in.constraint;
+            if (!c.empty() && std::all_of(c.begin(), c.end(), ::isdigit)) {
+                size_t n = (size_t)std::stoul(c);
+                if (n < asmOps[0].size()) { tied[n] = std::move(in.expr); continue; }
+            }
+            if (!isPlain(in.expr.get()))
+                group->statements.push_back(setPos(std::make_unique<ExpressionStatement>(std::move(in.expr)), startToken));
+        }
+        group->statements.push_back(setPos(std::make_unique<AsmStatement>(code), startToken));
+        for (size_t i = 0; i < asmOps[0].size(); i++) {
+            auto& out = asmOps[0][i];
+            if (tied.count(i)) {
+                // The output register held the input's value
+                group->statements.push_back(setPos(std::make_unique<ExpressionStatement>(
+                    setPos(std::make_unique<Assignment>(std::move(out.expr), std::move(tied[i])), startToken)), startToken));
+            } else if (!isPlain(out.expr.get())) {
+                // Evaluate the lvalue for its side effects (the value is unchanged)
+                group->statements.push_back(setPos(std::make_unique<ExpressionStatement>(
+                    setPos(std::make_unique<UnaryOperation>("&", std::move(out.expr)), startToken)), startToken));
+            }
+        }
+        return group;
     }
 
     if (peek().type == TokenType::STATIC_ASSERT) {
@@ -2191,6 +2238,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
         sm.name = memberName; sm.isConst = mIsConst; sm.alignment = takePendingAlign();
         sm.alignmentExpr = std::move(mAlignmentExpr); sm.isAnonymous = false;
         sm.arrayDims = memberArrayDims; sm.bitWidth = memberBitWidth;
+        sm.isFlexible = isFlexArray;
         def->members.push_back(std::move(sm));
 
         // Multi-member declarations: long p_x, p_y;
@@ -2199,8 +2247,9 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             while (match(TokenType::STAR)) extraPtr++;
             std::string extraName = expect(TokenType::IDENTIFIER, "Expected member name").value;
             std::vector<int> extraDims;
+            bool extraFlex = false;
             while (match(TokenType::OPEN_SQUARE)) {
-                if (match(TokenType::CLOSE_SQUARE)) { extraDims.push_back(0); }
+                if (match(TokenType::CLOSE_SQUARE)) { extraDims.push_back(0); extraFlex = true; }
                 else {
                     extraDims.push_back(std::stoi(expect(TokenType::INTEGER_LITERAL, "Expected array size").value));
                     expect(TokenType::CLOSE_SQUARE, "Expected ']'");
@@ -2217,6 +2266,7 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
             esm.type = type; esm.pointerLevel = extraPtr; esm.isSigned = mIsSigned;
             esm.name = extraName; esm.isConst = mIsConst;
             esm.arrayDims = extraDims; esm.bitWidth = extraBitWidth;
+            esm.isFlexible = extraFlex;
             esm.alignment = takePendingAlign();
             def->members.push_back(std::move(esm));
         }
@@ -2280,7 +2330,8 @@ std::unique_ptr<StructDefinition> Parser::parseStructDefinition(bool isUnion) {
     // Validate flexible array members (C99)
     for (size_t i = 0; i < def->members.size(); i++) {
         auto& m = def->members[i];
-        bool isFAM = (!m.arrayDims.empty() && m.arrayDims[0] == 0 && m.arrayDims.size() == 1);
+        // name[0] (GNU zero-length array) may be anywhere, also alone or in a union
+        bool isFAM = m.isFlexible && m.arrayDims.size() == 1;
         if (isFAM) {
             if (def->isUnion) {
                 throw std::runtime_error(formatDiagnostic(startToken.sourceFile, startToken.line, startToken.column, Severity::Error, "Flexible array member '" + m.name + "' not allowed in union"));
@@ -2705,7 +2756,9 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         expect(TokenType::CLOSE_PAREN, "Expected ')'");
         // Check if the argument is a compile-time constant
         bool isConst = false;
-        if (dynamic_cast<IntegerLiteral*>(arg.get())) isConst = true;
+        long cv0;
+        if (evalConstInt(arg.get(), cv0)) isConst = true;
+        else if (dynamic_cast<IntegerLiteral*>(arg.get())) isConst = true;
         else if (dynamic_cast<StringLiteral*>(arg.get())) isConst = true;
         else if (auto* unary = dynamic_cast<UnaryOperation*>(arg.get())) {
             if (dynamic_cast<IntegerLiteral*>(unary->operand.get())) isConst = true;
@@ -2714,6 +2767,22 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
                 dynamic_cast<IntegerLiteral*>(binop->right.get())) isConst = true;
         }
         expr = setPos(std::make_unique<IntegerLiteral>(isConst ? 1 : 0), bToken);
+    } else if (peek().type == TokenType::IDENTIFIER && peek().value == "__builtin_choose_expr") {
+        // __builtin_choose_expr(c, a, b) → a if the constant c is nonzero, else b
+        // (the other operand is not evaluated)
+        const Token& bToken = advance();
+        expect(TokenType::OPEN_PAREN, "Expected '(' after __builtin_choose_expr");
+        auto cond = parseConditional();
+        expect(TokenType::COMMA, "Expected ',' in __builtin_choose_expr");
+        auto a = parseConditional();
+        expect(TokenType::COMMA, "Expected ',' in __builtin_choose_expr");
+        auto b = parseConditional();
+        expect(TokenType::CLOSE_PAREN, "Expected ')'");
+        long cv;
+        if (!evalConstInt(cond.get(), cv))
+            throw std::runtime_error(formatDiagnostic(bToken.sourceFile, bToken.line, bToken.column, Severity::Error,
+                "first argument to __builtin_choose_expr is not a constant"));
+        expr = cv ? std::move(a) : std::move(b);
     } else if (peek().type == TokenType::IDENTIFIER && peek().value == "__builtin_offsetof") {
         // __builtin_offsetof(type, member) → compile-time offset
         const Token& bToken = advance();
@@ -2729,29 +2798,36 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
             ofType = expect(TokenType::IDENTIFIER, "Expected type name").value;
         }
         expect(TokenType::COMMA, "Expected ',' in __builtin_offsetof");
-        // Parse member (may include array subscripts: member[i][j])
+        // offsetof(T, m[i].n) is (unsigned)&((T *)0)->m[i].n
+        std::unique_ptr<Expression> cur = setPos(std::make_unique<CastExpression>(ofType, 1, false,
+            setPos(std::make_unique<IntegerLiteral>(0), bToken)), bToken);
         std::string memberName = expect(TokenType::IDENTIFIER, "Expected member name").value;
-        // Skip array subscripts if present
-        while (match(TokenType::OPEN_SQUARE)) {
-            while (peek().type != TokenType::CLOSE_SQUARE && peek().type != TokenType::END_OF_FILE) advance();
-            expect(TokenType::CLOSE_SQUARE, "Expected ']'");
-        }
-        // Skip nested member access (.submember)
-        while (match(TokenType::DOT)) {
-            expect(TokenType::IDENTIFIER, "Expected member name");
+        cur = setPos(std::make_unique<MemberAccess>(std::move(cur), memberName, true), bToken);
+        while (true) {
+            if (match(TokenType::OPEN_SQUARE)) {
+                auto idx = parseExpression();
+                expect(TokenType::CLOSE_SQUARE, "Expected ']'");
+                cur = setPos(std::make_unique<ArrayAccess>(std::move(cur), std::move(idx)), bToken);
+            } else if (match(TokenType::DOT)) {
+                std::string sub = expect(TokenType::IDENTIFIER, "Expected member name").value;
+                cur = setPos(std::make_unique<MemberAccess>(std::move(cur), sub, false), bToken);
+            } else {
+                break;
+            }
         }
         expect(TokenType::CLOSE_PAREN, "Expected ')' after __builtin_offsetof");
-        // For now, emit 0 as placeholder — the actual offset would need struct layout info
-        // which the parser doesn't have. The IRBuilder will resolve it.
-        expr = setPos(std::make_unique<IntegerLiteral>(0), bToken);
+        expr = setPos(std::make_unique<CastExpression>("int", 0, false,
+            setPos(std::make_unique<UnaryOperation>("&", std::move(cur)), bToken)), bToken);
     } else if (peek().type == TokenType::IDENTIFIER && peek().value == "__builtin_expect") {
         // __builtin_expect(x, v) → evaluates to x (branch prediction hint, no-op)
         const Token& bToken = advance();
         expect(TokenType::OPEN_PAREN, "Expected '(' after __builtin_expect");
-        expr = parseExpression();
+        auto val = parseExpression();
         expect(TokenType::COMMA, "Expected ',' in __builtin_expect");
-        parseExpression(); // parse and discard expected value
+        auto hint = parseExpression();  // evaluated too (it may have side effects)
         expect(TokenType::CLOSE_PAREN, "Expected ')'");
+        // (hint, val): the value of val, both evaluated
+        expr = setPos(std::make_unique<BinaryOperation>(",", std::move(hint), std::move(val)), bToken);
     } else if (peek().type == TokenType::IDENTIFIER && peek().value == "__builtin_trap") {
         // __builtin_trap() → BRK instruction
         const Token& bToken = advance();

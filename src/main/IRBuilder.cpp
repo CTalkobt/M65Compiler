@@ -892,6 +892,90 @@ void IRBuilder::declareBuiltinPrototypes() {
             builtinProtos_.push_back(std::move(fd));
         }
     }
+    // Integer bit builtins (int 16-bit, long 32-bit): their argument and
+    // result widths, so a call needs no declaration
+    struct IProto { const char* name; const char* ret; bool retSigned; const char* param; bool paramSigned; };
+    static const IProto iprotos[] = {
+        {"__builtin_ffs", "int", true, "int", true},
+        {"__builtin_ffsl", "int", true, "long", true},
+        {"__builtin_ffsll", "int", true, "long", true},
+        {"__builtin_clz", "int", true, "int", false},
+        {"__builtin_clzl", "int", true, "long", false},
+        {"__builtin_clzll", "int", true, "long", false},
+        {"__builtin_ctz", "int", true, "int", false},
+        {"__builtin_ctzl", "int", true, "long", false},
+        {"__builtin_ctzll", "int", true, "long", false},
+        {"__builtin_popcount", "int", true, "int", false},
+        {"__builtin_popcountl", "int", true, "long", false},
+        {"__builtin_popcountll", "int", true, "long", false},
+        {"__builtin_parity", "int", true, "int", false},
+        {"__builtin_parityl", "int", true, "long", false},
+        {"__builtin_parityll", "int", true, "long", false},
+        {"__builtin_bswap16", "int", false, "int", false},
+        {"__builtin_bswap32", "long", false, "long", false},
+    };
+    // The variadic stdio builtins (__builtin_printf etc. become these names):
+    // without a declaration their arguments would be passed as for a fixed
+    // parameter list instead of on the stack
+    {
+        struct VProto { const char* name; std::vector<std::pair<const char*, int>> params; };
+        static const std::vector<VProto> vprotos = {
+            {"printf", {{"char", 1}}},
+            {"sprintf", {{"char", 1}, {"char", 1}}},
+            {"snprintf", {{"char", 1}, {"int", 0}, {"char", 1}}},
+        };
+        for (const auto& p : vprotos) {
+            auto fd = std::make_unique<FunctionDeclaration>(p.name, "int");
+            fd->isPrototype = true;
+            fd->isSigned = true;
+            fd->isVariadic = true;
+            int i = 0;
+            for (const auto& [t, ptr] : p.params) {
+                Parameter prm;
+                prm.type = t;
+                prm.pointerLevel = ptr;
+                prm.isSigned = ptr == 0;
+                prm.name = "a" + std::to_string(i++);
+                fd->parameters.push_back(prm);
+            }
+            visit(*fd);
+            builtinProtoNames_.insert(p.name);
+            builtinProtos_.push_back(std::move(fd));
+        }
+    }
+    // int __overflow(unsigned long a, unsigned long b, unsigned char *res,
+    //                unsigned int flags): the __builtin_*_overflow helper
+    {
+        auto fd = std::make_unique<FunctionDeclaration>("__overflow", "int");
+        fd->isPrototype = true;
+        fd->isSigned = true;
+        const std::pair<const char*, int> ps[] = {{"long", 0}, {"long", 0}, {"char", 1}, {"int", 0}};
+        int i = 0;
+        for (const auto& [t, ptr] : ps) {
+            Parameter prm;
+            prm.type = t;
+            prm.pointerLevel = ptr;
+            prm.name = "a" + std::to_string(i++);
+            fd->parameters.push_back(prm);
+        }
+        visit(*fd);
+        builtinProtoNames_.insert("__overflow");
+        builtinProtos_.push_back(std::move(fd));
+    }
+    for (const auto& p : iprotos) {
+        auto fd = std::make_unique<FunctionDeclaration>(p.name, p.ret);
+        fd->isPrototype = true;
+        fd->isSigned = p.retSigned;
+        Parameter prm;
+        prm.type = p.param;
+        prm.pointerLevel = 0;
+        prm.isSigned = p.paramSigned;
+        prm.name = "x";
+        fd->parameters.push_back(prm);
+        visit(*fd);
+        builtinProtoNames_.insert(p.name);
+        builtinProtos_.push_back(std::move(fd));
+    }
 }
 
 void IRBuilder::visit(TranslationUnit& node) {
@@ -1323,9 +1407,21 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         for (const auto& blk : currentFunc_->blocks) irCount += (int)blk.insts.size();
         if (irCount > maxInlineIRSize) inlineCandidates_.erase(node.name);
     }
+    // __builtin_return_address(0): store the captured address at entry
+    if (currentFunc_ && currentFunc_->retAddrSlot >= 0 && !currentFunc_->blocks.empty()) {
+        ir::Operand slot = ir::Operand::vreg(currentFunc_->retAddrSlot, ir::Type::I16);
+        auto v = allocVreg(ir::Type::I16);
+        ir::Inst rd;
+        rd.op = ir::Op::CPU_REG_READ; rd.dest = v; rd.resultType = ir::Type::I16; rd.asmText = "RETADDR";
+        ir::Inst st;
+        st.op = ir::Op::STORE; st.resultType = ir::Type::I16; st.src1 = v; st.src2 = slot;
+        auto& insts = currentFunc_->blocks[0].insts;
+        insts.insert(insts.begin(), st);
+        insts.insert(insts.begin(), rd);
+    }
     // A label whose address is stored in data (static &&label table) must
     // stay in one copy of the function: never inline it
-    if (currentFunc_ && !currentFunc_->addressTakenLabels.empty()) {
+    if (currentFunc_ && (!currentFunc_->addressTakenLabels.empty() || currentFunc_->retAddrSlot >= 0)) {
         inlineCandidates_.erase(node.name);
         alwaysInlineNames_.erase(node.name);
     }
@@ -1646,6 +1742,12 @@ int IRBuilder::pointeeStride(Expression* e) {
 bool IRBuilder::constAddress(Expression* e, std::string& label, int& off) {
     Expression* inner = e;
     while (auto* c = dynamic_cast<CastExpression*>(inner)) inner = c->expression.get();
+    // A pointer made from an integer ((T *)0 in offsetof): no label
+    if (auto* il = dynamic_cast<IntegerLiteral*>(inner); il && (il->castPointerLevel > 0 || inner != e)) {
+        label.clear();
+        off = (int)il->value;
+        return true;
+    }
     if (auto* str = dynamic_cast<StringLiteral*>(inner)) {
         label = "__str_" + std::to_string(nextLabel_++);
         ir::Module::StringLiteral sl;
@@ -1995,7 +2097,13 @@ bool IRBuilder::initScalar(InitImageCtx& c, int off, const std::string& type, in
         std::string label;
         int aoff = 0;
         if (size == 2 && constAddress(e, label, aoff)) {
-            c.gv->initWords[off] = labelPlus(label, aoff);
+            if (label.empty()) {
+                // A plain number (offsetof): its bytes
+                c.gv->initBytes[off] = (uint8_t)aoff;
+                c.gv->initBytes[off + 1] = (uint8_t)(aoff >> 8);
+            } else {
+                c.gv->initWords[off] = labelPlus(label, aoff);
+            }
             return true;
         }
     }
@@ -2744,10 +2852,11 @@ void IRBuilder::visit(VariableDeclaration& node) {
                 // char a[] = "text": the characters (not a pointer to them)
             } else if (std::string clabel; node.pointerLevel > 0 && node.arrayDims.empty() &&
                        [&] { int coff = 0; if (!constAddress(node.initializer.get(), clabel, coff)) return false;
+                             if (clabel.empty()) { gv.initValue = coff; return true; }  // (T *)0x1234
                              clabel = labelPlus(clabel, coff); return true; }()) {
                 // int *p = &a[3][5]; const char *s = "abc" + 1; char *q = buf + 2;
                 gv.hasInitValue = true;
-                gv.initLabels.push_back(clabel);
+                if (!clabel.empty()) gv.initLabels.push_back(clabel);
             } else if (auto* slit = dynamic_cast<StringLiteral*>(node.initializer.get())) {
                 // Scalar string literal init: char *p = "hello"
                 std::string label = "__str_" + std::to_string(nextLabel_++);
@@ -2764,6 +2873,11 @@ void IRBuilder::visit(VariableDeclaration& node) {
                 // int *p = &x; void (*f)(void) = func; char *q = buf;
                 gv.hasInitValue = true;
                 gv.initLabels.push_back(label);
+            } else if (int noff = 0; node.pointerLevel == 0 && t != ir::Type::F32 &&
+                       [&] { std::string nl; return constAddress(node.initializer.get(), nl, noff) && nl.empty(); }()) {
+                // A constant computed through an address: static int o = offsetof(T, m);
+                gv.hasInitValue = true;
+                gv.initValue = noff;
             } else if (auto* cast = dynamic_cast<CastExpression*>(node.initializer.get())) {
                 if (auto* clit = dynamic_cast<IntegerLiteral*>(cast->expression.get())) {
                     gv.hasInitValue = true;
@@ -4851,6 +4965,105 @@ void IRBuilder::visit(FunctionCall& node) {
                 return;
             }
         }
+    }
+
+    // __builtin_{add,sub,mul}_overflow(a, b, &r), the _p forms (the third
+    // operand only gives the type) and the typed __builtin_[su]op[l|ll]_overflow:
+    // a call of __overflow (lib/stdlib/__builtin_overflow.c) with the operands
+    // widened to 32 bits and the result type's size and signedness
+    if (node.name.rfind("__builtin_", 0) == 0 && node.arguments.size() == 3 &&
+        node.name.size() > 19 && (node.name.compare(node.name.size() - 9, 9, "_overflow") == 0 ||
+                                  node.name.compare(node.name.size() - 11, 11, "_overflow_p") == 0)) {
+        std::string core = node.name.substr(10);          // e.g. "sadd_overflow"
+        bool isP = core.size() > 2 && core.compare(core.size() - 2, 2, "_p") == 0;
+        if (isP) core.resize(core.size() - 2);
+        core.resize(core.size() - 9);                       // drop "_overflow"
+        int typed = 0;                                      // 1 signed, 2 unsigned
+        int typedSize = 2;
+        if (!isP && (core[0] == 's' || core[0] == 'u') && core.size() >= 4 &&
+            (core.compare(1, 3, "add") == 0 || core.compare(1, 3, "sub") == 0 || core.compare(1, 3, "mul") == 0)) {
+            typed = core[0] == 's' ? 1 : 2;
+            std::string sfx = core.substr(4);
+            if (sfx == "l" || sfx == "ll") typedSize = 4;
+            else if (!sfx.empty()) typed = -1;
+            core = core.substr(1, 3);
+        }
+        int op = core == "add" ? 0 : core == "sub" ? 1 : core == "mul" ? 2 : -1;
+        if (op >= 0 && typed >= 0) {
+            // The result type
+            int rsize; bool rsigned;
+            if (typed) {
+                rsize = typedSize; rsigned = typed == 1;
+            } else if (isP) {
+                IRTypeInfo ri = getExprTypeInfo(node.arguments[2].get());
+                rsize = ir::typeSize(ri.type); rsigned = ri.isSigned;
+            } else if (auto* ad = dynamic_cast<UnaryOperation*>(node.arguments[2].get()); ad && ad->op == "&") {
+                IRTypeInfo ri = getExprTypeInfo(ad->operand.get());
+                rsize = ir::typeSize(ri.type); rsigned = ri.isSigned;
+            } else {
+                auto deref = std::make_unique<UnaryOperation>("*", std::move(node.arguments[2]));
+                IRTypeInfo ri = getExprTypeInfo(deref.get());
+                node.arguments[2] = std::move(deref->operand);
+                rsize = ir::typeSize(ri.type); rsigned = ri.isSigned;
+            }
+            if (rsize != 1 && rsize != 2 && rsize != 4) rsize = 4;
+            // Operands: converted to the builtin's type (typed forms), then
+            // widened to long by their own signedness
+            bool sg[2];
+            std::vector<std::unique_ptr<Expression>> wide;
+            for (int k = 0; k < 2; k++) {
+                std::unique_ptr<Expression> e = std::move(node.arguments[k]);
+                if (typed) {
+                    sg[k] = typed == 1;
+                    e = std::make_unique<CastExpression>(typedSize == 4 ? "long" : "int", 0, sg[k], std::move(e));
+                } else {
+                    IRTypeInfo ti = getExprTypeInfo(e.get());
+                    sg[k] = ti.isSigned && ti.type != ir::Type::PTR;
+                }
+                wide.push_back(std::make_unique<CastExpression>("long", 0, sg[k], std::move(e)));
+            }
+            unsigned flags = (unsigned)op | (sg[0] ? 4u : 0u) | (sg[1] ? 8u : 0u) |
+                             (rsigned ? 16u : 0u) | ((unsigned)rsize << 8);
+            FunctionCall call("__overflow");
+            call.line = node.line; call.column = node.column; call.sourceFile = node.sourceFile;
+            call.arguments.push_back(std::move(wide[0]));
+            call.arguments.push_back(std::move(wide[1]));
+            if (isP) {
+                // Not evaluated: no result is stored
+                call.arguments.push_back(std::make_unique<IntegerLiteral>(0));
+            } else {
+                call.arguments.push_back(std::make_unique<CastExpression>("char", 1, false, std::move(node.arguments[2])));
+            }
+            call.arguments.push_back(std::make_unique<IntegerLiteral>((int64_t)flags));
+            call.accept(*this);
+            // Give the operands back to the original node
+            for (int k = 0; k < 2; k++) {
+                auto* c = static_cast<CastExpression*>(call.arguments[k].get());
+                std::unique_ptr<Expression> e = std::move(c->expression);
+                if (typed) e = std::move(static_cast<CastExpression*>(e.get())->expression);
+                node.arguments[k] = std::move(e);
+            }
+            if (!isP) node.arguments[2] = std::move(static_cast<CastExpression*>(call.arguments[2].get())->expression);
+            return;
+        }
+    }
+
+    // __builtin_return_address(0): the caller's return address (the address
+    // after its JSR), captured at function entry. Outer frames give 0
+    if (node.name == "__builtin_return_address" && node.arguments.size() == 1 && currentFunc_) {
+        auto* lit = dynamic_cast<IntegerLiteral*>(node.arguments[0].get());
+        if (lit && lit->value == 0 && !currentFunc_->isRegparm && !currentFunc_->isNaked) {
+            if (currentFunc_->retAddrSlot < 0) {
+                auto slot = allocVreg(ir::Type::I16);
+                currentFunc_->localSlotVregs.insert(slot.vregId);
+                currentFunc_->retAddrSlot = slot.vregId;
+                usedVregs_.insert(slot.vregId);
+            }
+            lastValue_ = ir::Operand::vreg(currentFunc_->retAddrSlot, ir::Type::I16);
+        } else {
+            lastValue_ = ir::Operand::imm(0, ir::Type::I16);
+        }
+        return;
     }
 
     // alloca / __builtin_alloca intrinsic: allocate frame buffer, return address

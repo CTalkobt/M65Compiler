@@ -258,7 +258,7 @@ std::string Preprocessor::expandMacros(const std::string& line) {
                         if (peek < result.length() && result[peek] == ')') peek++;
                         static const std::set<std::string> knownBuiltins = {
                             "__builtin_va_list", "__builtin_va_start", "__builtin_va_end", "__builtin_va_arg",
-                            "__builtin_constant_p", "__builtin_offsetof", "__builtin_expect", "__builtin_trap",
+                            "__builtin_constant_p", "__builtin_offsetof", "__builtin_expect", "__builtin_trap", "__builtin_choose_expr",
                             "__builtin_unreachable", "__builtin_conjf",
                             "__builtin_printf", "__builtin_sprintf", "__builtin_puts", "__builtin_putchar",
                             "__builtin_malloc", "__builtin_free", "__builtin_calloc", "__builtin_realloc",

@@ -11,8 +11,6 @@
 #include <stdarg.h>
 
 int itoa(int value, char *str, int base);
-char *ltoa(long value, char *str, int base);
-int putchar(int c);
 
 /* _printf_float: convert float to decimal string in buf.
  * Returns number of chars written. Default precision = 6.
@@ -81,72 +79,14 @@ int printf_float(char *buf, float val) {
 
 /* --- printf with %f support (strong, overrides weak integer-only version) --- */
 
-static int fp_emit_buf(char *buf, int skip_minus) {
-    int i = 0; int c = 0;
-    while (buf[i]) {
-        if (!skip_minus || buf[i] != '-') { putchar(buf[i]); c = c + 1; }
-        i = i + 1;
-    }
-    return c;
-}
-
-static int fp_emit_int(int val, int base, int skip_minus) {
-    char tmp[18];
-    itoa(val, tmp, base);
-    return fp_emit_buf(tmp, skip_minus);
-}
-
-static int fp_emit_long(long val, int base, int skip_minus) {
-    char tmp[34];
-    ltoa(val, tmp, base);
-    return fp_emit_buf(tmp, skip_minus);
-}
+int __vformat(void (*put)(int c, void *ctx), void *ctx, char *fmt, va_list ap,
+              int (*ffmt)(char *, float));
+void __vformat_con_put(int c, void *ctx);
 
 int printf(char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
-
-    int count = 0;
-
-    while (*fmt) {
-        if (*fmt != '%') {
-            putchar(*fmt); count = count + 1; fmt = fmt + 1;
-            continue;
-        }
-        fmt = fmt + 1;
-
-        if (*fmt == '%') {
-            putchar('%'); count = count + 1; fmt = fmt + 1;
-            continue;
-        }
-
-        if (*fmt == 'L' || *fmt == 'l') {
-            fmt = fmt + 1;
-            if (*fmt == 'D' || *fmt == 'd') count = count + fp_emit_long(va_arg(ap, long), 10, 0);
-            else if (*fmt == 'U' || *fmt == 'u') count = count + fp_emit_long(va_arg(ap, long), 10, 1);
-            else if (*fmt == 'X' || *fmt == 'x') count = count + fp_emit_long(va_arg(ap, long), 16, 0);
-            else if (*fmt == 'O' || *fmt == 'o') count = count + fp_emit_long(va_arg(ap, long), 8, 0);
-            fmt = fmt + 1;
-            continue;
-        }
-
-        if (*fmt == 'F' || *fmt == 'f') {
-            char tmp[24];
-            printf_float(tmp, va_arg(ap, float));
-            count = count + fp_emit_buf(tmp, 0);
-        } else if (*fmt == 'D' || *fmt == 'd') count = count + fp_emit_int(va_arg(ap, int), 10, 0);
-        else if (*fmt == 'U' || *fmt == 'u') count = count + fp_emit_int(va_arg(ap, int), 10, 1);
-        else if (*fmt == 'X' || *fmt == 'x') count = count + fp_emit_int(va_arg(ap, int), 16, 0);
-        else if (*fmt == 'O' || *fmt == 'o') count = count + fp_emit_int(va_arg(ap, int), 8, 0);
-        else if (*fmt == 'S' || *fmt == 's') {
-            char *s = (char *)va_arg(ap, int);
-            while (*s) { putchar(*s); count = count + 1; s = s + 1; }
-        } else if (*fmt == 'C' || *fmt == 'c') {
-            putchar(va_arg(ap, int)); count = count + 1;
-        }
-        fmt = fmt + 1;
-    }
-
+    int count = __vformat(__vformat_con_put, 0, fmt, ap, printf_float);
     va_end(ap);
     return count;
 }
