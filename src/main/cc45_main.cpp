@@ -490,6 +490,7 @@ int main(int argc, char** argv) {
                 std::cout << "  -fstaticalloc  Use static allocation (default)" << std::endl;
                 std::cout << "  -finline-functions  Inline small functions" << std::endl;
                 std::cout << "  -fmax-inline-ir-size=N  Max IR instructions for an inlined function (default 11)" << std::endl;
+                std::cout << "  -fmax-unroll-bytes=N    Max estimated code bytes of an unrolled loop (default 128)" << std::endl;
                 std::cout << "  -fsigned-default  Plain char/short/int/long are signed (standard C); default is unsigned" << std::endl;
                 std::cout << "  -funsigned-char   With -fsigned-default, keep plain char unsigned" << std::endl;
                 std::cout << "  --pragma <p>   Inject pragma" << std::endl;
@@ -544,6 +545,13 @@ int main(int argc, char** argv) {
             config.unsignedChar = true;
         } else if (arg == "-fsigned-char") {
             config.unsignedChar = false;
+        } else if (arg.rfind("-fmax-unroll-bytes=", 0) == 0) {
+            std::string sizeStr = arg.substr(19);
+            try {
+                config.maxUnrollBytes = std::stoi(sizeStr);
+            } catch (...) {
+                std::cerr << "Invalid size for -fmax-unroll-bytes: " << sizeStr << std::endl;
+            }
         } else if (arg.rfind("-fmax-inline-ir-size=", 0) == 0) {
             std::string sizeStr = arg.substr(21);
             try {

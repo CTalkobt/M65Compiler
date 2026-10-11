@@ -94,6 +94,12 @@ private:
     // typeof(expression): the declared type of a variable name, else int
     DeclType typeofExpr(Expression* e);
     std::string pendingAlias_;
+    // __attribute__((vector_size(N))) / ((mode(M))): applied by
+    // applyVectorMode to the declared type
+    int pendingVectorSize_ = 0;
+    std::string pendingMode_;
+    void applyVectorMode(std::string& type, int ptrLevel, bool& isSigned);
+    std::set<std::string> vectorTypes_;
     std::map<std::string, std::string> aliasNames_;
     void applyAlias(std::string& declName) {
         if (pendingAlias_.empty()) return;

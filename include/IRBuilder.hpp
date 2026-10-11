@@ -6,6 +6,7 @@
 #include "SourceLocationTracker.hpp"
 #include "DebugInfoBuilder.hpp"
 #include <map>
+#include <functional>
 #include <set>
 #include <string>
 #include <vector>
@@ -36,6 +37,7 @@ public:
     bool staticAllocMode = false;  // -fstaticalloc (SAC)
     bool inlineFunctions = false;
     int maxInlineIRSize = 11;  // -fmax-inline-ir-size / #pragma cc45 max_inline_ir_size
+    int maxUnrollBytes = 128;  // -fmax-unroll-bytes / #pragma cc45 max_unroll_bytes: largest unrolled code
     bool allowImplicitFunctionDecl = false;  // -fimplicit-function-declaration
 
     // ASTVisitor interface
@@ -361,6 +363,23 @@ private:
 
     IRTypeInfo getExprTypeInfo(Expression* expr);
     void markStaticLinkProvider();
+    // GCC vectors (struct __vec_<T>_<s|u>_<n> { T e[n]; })
+    std::string vecOfType(const std::string& typeName, int ptrLevel);
+    std::string vecOf(Expression* e);
+    void vecElem(const std::string& vn, std::string& type, bool& isSigned, int& count);
+    std::string vecMaskType(const std::string& vn);
+    std::string vecTemp(const ir::Operand& v, ir::Type t, const std::string& typeName, int ptrLevel, bool sg);
+    std::string vecOperand(Expression* e, bool isVec, const std::string& et, bool sg);
+public:
+    using VecIndex = std::function<std::unique_ptr<Expression>()>;  // a fresh element index expression
+private:
+    void vecResult(const std::string& rn, const std::function<std::unique_ptr<Expression>(const VecIndex&)>& elem, ASTNode& at);
+    void emitVectorBinary(BinaryOperation& node);
+    void emitVectorUnary(UnaryOperation& node);
+    void emitVectorShuffle(FunctionCall& node);
+    void vecSubscript(ArrayAccess& node);
+    std::vector<std::unique_ptr<ASTNode>> vecNodes_;  // AST built for vector operations (kept alive)
+    int vecTempCount_ = 0;
     // Structs with run-time member sizes: hidden locals with each member's
     // offset and the size; variables of such a type are pointers to alloca'd
     // storage (vmVars_: variable -> struct name)

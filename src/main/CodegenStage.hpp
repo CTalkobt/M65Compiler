@@ -51,6 +51,7 @@ public:
     // Phase 102: Set typedef information from parser
     // Map: typedef_name → struct/union base type name
     void setMaxInlineIRSize(int n) { maxInlineIRSize_ = n; }
+    void setMaxUnrollBytes(int n) { maxUnrollBytes_ = n; }
 
     void setSourceFile(const std::string& f) { sourceFile_ = f; }
     void setStackTop(int top) { stackTop_ = top; }
@@ -65,6 +66,7 @@ private:
     int verboseLevel_;
     bool inlineFunctions_;
     int maxInlineIRSize_ = 11;
+    int maxUnrollBytes_ = 128;
     int stackTop_ = -1;
     bool staticAlloc_;
     bool zpCallMode_;

@@ -23,6 +23,7 @@ struct CompilationConfig {
     bool emitIR = false;        // --emit-ir: write IR text dump
     bool emitReasons = false;   // -Rcodegen: annotate assembly
     int maxInlineIRSize = 11;   // -fmax-inline-ir-size: max IR instructions for inlining
+    int maxUnrollBytes = 128;   // -fmax-unroll-bytes: largest code an unrolled loop may take
     bool signedDefault = false; // -fsigned-default: plain char/short/int/long are signed (standard C)
     bool unsignedChar = false;  // -funsigned-char: plain char stays unsigned even with -fsigned-default
 

@@ -1,18 +1,20 @@
 # GTE tests currently failing on xemu with the default (ZP + SAC) convention (regenerated 2026-10-10).
 # Remove names as they are fixed; test_failures.sh runs this list.
 # pr58574: program too large (code runs into I/O at $D000).
+# 20020108-1: too large (program ends at $D000) since mode(SI) makes its 32-bit shift tests really 32-bit.
 # vrp-6: needs 32-bit int (dg int32plus); 0x80000000 truncates to 0 in a 16-bit unsigned int.
 # pr98366: needs 32-bit int (dg int32); int e:17 is wider than a 16-bit int.
 # pr56799: needs 32-bit int (dg int32plus); (int)0x10000 is 0 and a >> 16 shifts out a 16-bit int.
 # 20040811-1, pr43220: need 32-bit int (dg int32plus); with a 16-bit int n < 1000000 never ends.
 # eeprof-1: won't do — needs -finstrument-functions (__cyg_profile_func_enter/exit hooks), not supported.
+# pr53645: too large (~55 KB) and written for 32-bit int (4 elements set in 8-element vectors); pr53645-2 is the short version.
 # 920410-1, 921208-2, pr28982b: won't do — need stack frames over 64 KB (the whole 6502 address space).
+20020108-1
 20030209-1
 20040629-1
 20040703-1
 20040709-3
 20040811-1
-20050604-1
 920410-1
 921208-2
 cmpsi-2
@@ -24,28 +26,15 @@ pr28982b
 pr29797-1
 pr37573
 pr45262
+pr53645
 pr56799
 pr57124
 pr58574
-pr60960
-pr65427
 pr66556
 pr67781
 pr68648
-pr71626-1
-pr71626-2
 pr7284-1
-pr85169
-pr94412
-pr94524-1
-pr94524-2
-pr94591
 pr98366
-scal-to-vec2
-simd-1
-simd-2
-simd-4
-simd-6
 strlen-5
 usmul
 vrp-5

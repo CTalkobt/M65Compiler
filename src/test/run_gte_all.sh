@@ -57,11 +57,6 @@ run_one() {
             echo "SKIP: $name (bitfield width >16 bits)"
             return
             ;;
-        # GCC vector extension (__attribute__((vector_size))) is not supported
-        pr53645|pr53645-2)
-            echo "SKIP: $name (GCC vector types unsupported)"
-            return
-            ;;
     esac
 
     if ! $CC -c $GTE_CFLAGS -I"$GTE_DIR" "$f" -o "$obj" > "$BUILD_DIR/$name.compile.log" 2>&1; then

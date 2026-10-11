@@ -544,6 +544,7 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
     }
     
     if (auto* aa = dynamic_cast<ArrayAccess*>(expr)) {
+        vecSubscript(*aa);
         // i[p] is p[i]
         {
             IRTypeInfo ai = getExprTypeInfo(aa->arrayExpr.get());
@@ -651,6 +652,15 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         }
     }
     
+    if (auto* deref = dynamic_cast<UnaryOperation*>(expr);
+        deref && (deref->op == "-" || deref->op == "~" || deref->op == "+" || deref->op == "!")) {
+        std::string v = vecOf(deref->operand.get());
+        if (!v.empty()) {
+            if (deref->op == "!") v = vecMaskType(v);
+            std::string tn = "struct " + v;
+            return {mapType(tn, 0), tn, false, ir::Type::VOID, getTypeSize(tn, 0)};
+        }
+    }
     if (auto* deref = dynamic_cast<UnaryOperation*>(expr)) {
         // -<constant> is a (negative) signed constant
         if (deref->op == "-") {
@@ -709,6 +719,9 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         }
     }
 
+    if (auto* call = dynamic_cast<FunctionCall*>(expr); call && call->name == "__builtin_shuffle" && !call->arguments.empty()) {
+        return getExprTypeInfo(call->arguments[0].get());
+    }
     if (auto* call = dynamic_cast<FunctionCall*>(expr)) {
         // Struct/union/float result (returned through the hidden pointer): the declared type
         std::string cname = resolvedFunctionName(call->name);
@@ -751,6 +764,17 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
     if (auto* bin = dynamic_cast<BinaryOperation*>(expr)) {
         if (bin->op == ",") {
             return getExprTypeInfo(bin->right.get());
+        }
+        // A vector operation: the vector type (a comparison: the mask vector)
+        if (bin->op != "&&" && bin->op != "||") {
+            std::string v = vecOf(bin->left.get());
+            if (v.empty()) v = vecOf(bin->right.get());
+            if (!v.empty()) {
+                const std::string& o = bin->op;
+                if (o == "==" || o == "!=" || o == "<" || o == ">" || o == "<=" || o == ">=") v = vecMaskType(v);
+                std::string tn = "struct " + v;
+                return {mapType(tn, 0), tn, false, ir::Type::VOID, getTypeSize(tn, 0)};
+            }
         }
         // For arithmetic/bitwise ops, result type comes from operands
         auto lhs = getExprTypeInfo(bin->left.get());
@@ -2034,6 +2058,10 @@ bool IRBuilder::initObject(InitImageCtx& c, int off, const std::string& type, in
     while (auto* cast = dynamic_cast<CastExpression*>(e)) e = cast->expression.get();
     bool isArray = !dims.empty();
     const IRStructInfo* si = (!isArray && ptr == 0) ? structOf(type) : nullptr;
+    // (T){...} of this aggregate type (a GNU constant initializer): its list
+    if (auto* cl = dynamic_cast<CompoundLiteral*>(e); cl && cl->initializer && cl->pointerLevel == 0 &&
+        (isArray ? !cl->arrayDims.empty() : (si && cl->arrayDims.empty() && structOf(cl->targetType) == si)))
+        e = cl->initializer.get();
     if (auto* list = dynamic_cast<InitializerList*>(e)) {
         if (!isArray && !si) {
             // Scalar in braces: int x = {5};
@@ -2969,6 +2997,17 @@ void IRBuilder::visit(StatementExpression& node) {
 
 void IRBuilder::visit(VariableDeclaration& node) {
     if (node.isFunctionPointer && node.funcPtrSig) fnPtrSigs_[node.name] = node.funcPtrSig;
+    // A global or static aggregate initialized with (T){...} of its own type:
+    // the literal's brace list
+    if ((!currentFunc_ || node.isStatic) && node.pointerLevel == 0 && node.initializer) {
+        Expression* ie = node.initializer.get();
+        while (auto* ce = dynamic_cast<CastExpression*>(ie)) ie = ce->expression.get();
+        if (auto* cl = dynamic_cast<CompoundLiteral*>(ie); cl && cl->initializer && cl->pointerLevel == 0 &&
+            cl->arrayDims.empty() == node.arrayDims.empty() && getAggregateName(cl->targetType) == getAggregateName(node.type)) {
+            std::unique_ptr<InitializerList> list = std::move(cl->initializer);
+            node.initializer = std::move(list);
+        }
+    }
     // A variable of a struct with run-time member sizes: storage of the
     // run-time size on the stack (alloca); the variable is its address
     if (currentFunc_ && !node.isStatic && !node.isExtern && node.pointerLevel == 0 && node.arrayDims.empty()) {
@@ -3900,6 +3939,15 @@ void IRBuilder::visit(VariableReference& node) {
 }
 
 void IRBuilder::visit(Assignment& node) {
+    // A vector target: v op= x is v = v op x
+    if (node.op != "=" && !vecOf(node.target.get()).empty()) {
+        if (auto copy = cloneSimpleExpr(node.target.get())) {
+            auto bin = std::make_unique<BinaryOperation>(node.op.substr(0, node.op.size() - 1), std::move(copy), std::move(node.expression));
+            bin->line = node.line; bin->column = node.column; bin->sourceFile = node.sourceFile;
+            node.expression = std::move(bin);
+            node.op = "=";
+        }
+    }
     // Wide integer target: x op= y as x = x op y, an integer value converted
     if (std::string w = wideKindOf(node.target.get()); !w.empty()) {
         if (node.op.size() == 2 && node.op[1] == '=' && std::string("+-*&|^").find(node.op[0]) != std::string::npos) {
@@ -4337,7 +4385,272 @@ void IRBuilder::visit(Assignment& node) {
     lastValue_ = rhsVal;
 }
 
+// ============================================================================
+// GCC vector extension: typedef T V __attribute__((vector_size(N))) is the
+// struct __vec_<T>_<s|u>_<n> { T e[n]; } (made by the parser). Operators work
+// element by element; v[i] is v.e[i].
+// ============================================================================
+
+// v[i] of a vector is v.e[i] (the subscript is rewritten in place)
+void IRBuilder::vecSubscript(ArrayAccess& node) {
+    if (vecOf(node.arrayExpr.get()).empty()) return;
+    auto ma = std::make_unique<MemberAccess>(std::move(node.arrayExpr), "e", false);
+    ma->line = node.line; ma->column = node.column; ma->sourceFile = node.sourceFile;
+    node.arrayExpr = std::move(ma);
+}
+
+// The vector struct of a type name, or ""
+std::string IRBuilder::vecOfType(const std::string& typeName, int ptrLevel) {
+    if (ptrLevel > 0) return "";
+    std::string n = getAggregateName(typeName);
+    return (n.rfind("__vec_", 0) == 0 && structs_.count(n)) ? n : "";
+}
+
+// The vector struct an expression's value has, or ""
+std::string IRBuilder::vecOf(Expression* e) {
+    if (!e) return "";
+    IRTypeInfo ti = getExprTypeInfo(e);
+    // a pointer to vectors or an array of them (PTR) is not one; a vector
+    // value is I16/I32 or a by-copy parameter
+    if (ti.type == ir::Type::PTR && !isAggCopyParam(e)) return "";
+    std::string v = vecOfType(ti.typeName, 0);
+    if (v.empty()) return "";
+    // a pointer to a vector is not one
+    if (auto* vr = dynamic_cast<VariableReference*>(e)) {
+        auto pl = localPtrLevel_.find(vr->name);
+        if (pl != localPtrLevel_.end() && locals_.count(vr->name) && pl->second > 0) return "";
+        auto gp = globalPtrLevel_.find(vr->name);
+        if (!locals_.count(vr->name) && gp != globalPtrLevel_.end() && gp->second > 0) return "";
+    }
+    return v;
+}
+
+// The element of a vector struct
+void IRBuilder::vecElem(const std::string& vn, std::string& type, bool& isSigned, int& count) {
+    auto& si = structs_[vn];
+    auto it = si.members.find("e");
+    type = it->second.type;
+    isSigned = it->second.isSigned;
+    count = it->second.arrayDims.empty() ? 1 : it->second.arrayDims[0];
+}
+
+// The vector of signed integers as wide as vn's elements (a comparison's result)
+std::string IRBuilder::vecMaskType(const std::string& vn) {
+    std::string et; bool sg; int n;
+    vecElem(vn, et, sg, n);
+    int es = std::max(1, getTypeSize(et, 0));
+    std::string it = es == 1 ? "char" : es == 2 ? "int" : "long";
+    std::string name = "__vec_" + it + "_s_" + std::to_string(n);
+    if (!structs_.count(name)) {
+        auto def = std::make_unique<StructDefinition>(name, false);
+        StructMember sm;
+        sm.type = it;
+        sm.pointerLevel = 0;
+        sm.isSigned = true;
+        sm.name = "e";
+        sm.arrayDims = {n};
+        def->members.push_back(std::move(sm));
+        bool saved = registeringStructs_;
+        registeringStructs_ = true;  // layout only
+        def->accept(*this);
+        registeringStructs_ = saved;
+        vecNodes_.push_back(std::move(def));
+    }
+    return name;
+}
+
+// A hidden local holding a value (an operand evaluated once): a pointer to a
+// vector's elements, or a scalar converted to the element type
+std::string IRBuilder::vecTemp(const ir::Operand& v, ir::Type t, const std::string& typeName, int ptrLevel, bool sg) {
+    std::string name = "__vop" + std::to_string(vecTempCount_++);
+    auto slot = allocVreg(t);
+    currentFunc_->localSlotVregs.insert(slot.vregId);
+    usedVregs_.insert(slot.vregId);
+    locals_[name] = slot;
+    localTypes_[name] = t;
+    localTypeNames_[name] = typeName;
+    localPtrLevel_[name] = ptrLevel;
+    localSigned_[name] = sg;
+    if (ptrLevel > 0) {
+        localPointedToType_[name] = mapType(typeName, 0);
+        localPointedToTypeName_[name] = typeName;
+    }
+    ir::Inst st;
+    st.op = ir::Op::STORE;
+    st.resultType = t;
+    st.src1 = v;
+    st.src2 = slot;
+    emit(st);
+    return name;
+}
+
+// An operand of a vector operation: "" for none, else a hidden local:
+// isVec - a pointer to the elements; else the scalar converted
+std::string IRBuilder::vecOperand(Expression* e, bool isVec, const std::string& et, bool sg) {
+    if (!e) return "";
+    if (isVec) {
+        ir::Operand a = emitAddressOf(e);
+        return vecTemp(a, ir::Type::PTR, et, 1, sg);
+    }
+    bool saved = computeAddressOnly_;
+    computeAddressOnly_ = false;
+    e->accept(*this);
+    computeAddressOnly_ = saved;
+    ir::Type t = mapType(et, 0);
+    ir::Operand v = emitCast(lastValue_, t, getExprTypeInfo(e).isSigned);
+    return vecTemp(v, t, et, 0, sg);
+}
+
+// The result of a vector operation: a hidden local array of rn's size; each
+// element from elem(i). The value: its address, or (a 1, 2 or 4-byte vector,
+// a register value) its contents
+void IRBuilder::vecResult(const std::string& rn, const std::function<std::unique_ptr<Expression>(const VecIndex&)>& elem,
+                          ASTNode& at) {
+    std::string et; bool sg; int n;
+    vecElem(rn, et, sg, n);
+    std::string res = "__vres" + std::to_string(vecTempCount_++);
+    auto decl = std::make_unique<VariableDeclaration>(et, res, 0);
+    decl->isSigned = sg;
+    decl->arrayDims = {n};
+    decl->line = at.line; decl->column = at.column; decl->sourceFile = at.sourceFile;
+    bool saved = computeAddressOnly_;
+    computeAddressOnly_ = false;
+    decl->accept(*this);
+    usedVregs_.insert(locals_[res].vregId);
+    // Unrolled when the estimated code fits -fmax-unroll-bytes, else a loop.
+    // Per element (measured): about 110 bytes for 1/2-byte elements (two
+    // indexed loads, the operation, the store), 40 more per further byte
+    int es = std::max(1, getTypeSize(et, 0));
+    if (n * (110 + 40 * std::max(0, es - 2)) <= maxUnrollBytes) {
+        // unrolled
+        for (int i = 0; i < n; i++) {
+            VecIndex idx = [i]() -> std::unique_ptr<Expression> { return std::make_unique<IntegerLiteral>(i); };
+            auto lhs = std::make_unique<ArrayAccess>(std::make_unique<VariableReference>(res), idx());
+            auto as = std::make_unique<Assignment>(std::move(lhs), std::make_unique<CastExpression>(et, 0, sg, elem(idx)));
+            as->line = at.line; as->column = at.column; as->sourceFile = at.sourceFile;
+            as->accept(*this);
+            vecNodes_.push_back(std::move(as));
+        }
+    } else {
+        // for (iv = 0; iv < n; iv = iv + 1) res[iv] = elem(iv);
+        std::string iv = "__vi" + std::to_string(vecTempCount_++);
+        auto ivd = std::make_unique<VariableDeclaration>("int", iv, 0);
+        ivd->line = at.line; ivd->column = at.column; ivd->sourceFile = at.sourceFile;
+        ivd->accept(*this);
+        usedVregs_.insert(locals_[iv].vregId);
+        vecNodes_.push_back(std::move(ivd));
+        VecIndex idx = [iv]() -> std::unique_ptr<Expression> { return std::make_unique<VariableReference>(iv); };
+        auto body = std::make_unique<ExpressionStatement>(std::make_unique<Assignment>(
+            std::make_unique<ArrayAccess>(std::make_unique<VariableReference>(res), idx()),
+            std::make_unique<CastExpression>(et, 0, sg, elem(idx))));
+        auto loop = std::make_unique<ForStatement>(
+            std::make_unique<ExpressionStatement>(std::make_unique<Assignment>(std::make_unique<VariableReference>(iv), std::make_unique<IntegerLiteral>(0))),
+            std::make_unique<BinaryOperation>("<", std::make_unique<VariableReference>(iv), std::make_unique<IntegerLiteral>(n)),
+            std::make_unique<Assignment>(std::make_unique<VariableReference>(iv),
+                std::make_unique<BinaryOperation>("+", std::make_unique<VariableReference>(iv), std::make_unique<IntegerLiteral>(1))),
+            std::move(body));
+        loop->line = at.line; loop->column = at.column; loop->sourceFile = at.sourceFile;
+        loop->accept(*this);
+        vecNodes_.push_back(std::move(loop));
+    }
+    vecNodes_.push_back(std::move(decl));
+    computeAddressOnly_ = saved;
+    // The array's address
+    VariableReference rv(res);
+    rv.line = at.line; rv.column = at.column; rv.sourceFile = at.sourceFile;
+    rv.accept(*this);
+    ir::Operand addr = lastValue_;
+    int size = getTypeSize("struct " + rn, 0);
+    if (!computeAddressOnly_ && (size == 1 || size == 2 || size == 4)) {
+        ir::Type t = mapType("struct " + rn, 0);
+        auto v = allocVreg(t);
+        ir::Inst ld;
+        ld.op = ir::Op::LOAD;
+        ld.dest = v;
+        ld.resultType = t;
+        ld.src1 = addr;
+        emit(ld);
+        lastValue_ = v;
+        return;
+    }
+    lastValue_ = addr;
+}
+
+static std::unique_ptr<Expression> vecRef(const std::string& tmp, bool isVec, const IRBuilder::VecIndex& i) {
+    if (isVec) return std::make_unique<ArrayAccess>(std::make_unique<VariableReference>(tmp), i());
+    return std::make_unique<VariableReference>(tmp);
+}
+
+// a op b with a vector operand (the other a vector of the same type or a
+// scalar); comparisons give -1/0 per element
+void IRBuilder::emitVectorBinary(BinaryOperation& node) {
+    std::string vl = vecOf(node.left.get()), vr = vecOf(node.right.get());
+    std::string vn = !vl.empty() ? vl : vr;
+    std::string et; bool sg; int n;
+    vecElem(vn, et, sg, n);
+    const std::string& op = node.op;
+    bool cmp = op == "==" || op == "!=" || op == "<" || op == ">" || op == "<=" || op == ">=";
+    std::string a = vecOperand(node.left.get(), !vl.empty(), et, sg);
+    std::string b = vecOperand(node.right.get(), !vr.empty(), et, sg);
+    bool av = !vl.empty(), bv = !vr.empty();
+    std::string rn = cmp ? vecMaskType(vn) : vn;
+    vecResult(rn, [&](const VecIndex& i) -> std::unique_ptr<Expression> {
+        std::unique_ptr<Expression> e = std::make_unique<BinaryOperation>(op, vecRef(a, av, i), vecRef(b, bv, i));
+        if (cmp) e = std::make_unique<UnaryOperation>("-", std::move(e));
+        return e;
+    }, node);
+}
+
+// -v, ~v, +v of a vector (!v: each element == 0, as -1/0)
+void IRBuilder::emitVectorUnary(UnaryOperation& node) {
+    std::string vn = vecOf(node.operand.get());
+    std::string et; bool sg; int n;
+    vecElem(vn, et, sg, n);
+    std::string a = vecOperand(node.operand.get(), true, et, sg);
+    std::string op = node.op;
+    std::string rn = op == "!" ? vecMaskType(vn) : vn;
+    vecResult(rn, [&](const VecIndex& i) -> std::unique_ptr<Expression> {
+        if (op == "!")
+            return std::make_unique<UnaryOperation>("-", std::make_unique<BinaryOperation>("==", vecRef(a, true, i), std::make_unique<IntegerLiteral>(0)));
+        return std::make_unique<UnaryOperation>(op, vecRef(a, true, i));
+    }, node);
+}
+
+// __builtin_shuffle(a, mask) / (a, b, mask): element i is a[mask[i] % n]
+// (two vectors: a then b, indexed modulo 2n)
+void IRBuilder::emitVectorShuffle(FunctionCall& node) {
+    std::string vn = vecOf(node.arguments[0].get());
+    std::string et; bool sg; int n;
+    vecElem(vn, et, sg, n);
+    bool two = node.arguments.size() == 3;
+    Expression* maskE = node.arguments.back().get();
+    std::string mn = vecOf(maskE);
+    std::string mt; bool msg; int mcount;
+    vecElem(mn, mt, msg, mcount);
+    std::string a = vecOperand(node.arguments[0].get(), true, et, sg);
+    std::string b = two ? vecOperand(node.arguments[1].get(), true, et, sg) : "";
+    std::string m = vecOperand(maskE, true, mt, msg);
+    vecResult(vn, [&](const VecIndex& i) -> std::unique_ptr<Expression> {
+        auto idx = [&](int mod) {
+            return std::make_unique<BinaryOperation>("&", vecRef(m, true, i), std::make_unique<IntegerLiteral>(mod - 1));
+        };
+        if (!two)
+            return std::make_unique<ArrayAccess>(std::make_unique<VariableReference>(a), idx(n));
+        // (m & (2n-1)) < n ? a[m & (n-1)] : b[m & (n-1)]
+        return std::make_unique<ConditionalExpression>(
+            std::make_unique<BinaryOperation>("<", idx(2 * n), std::make_unique<IntegerLiteral>(n)),
+            std::make_unique<ArrayAccess>(std::make_unique<VariableReference>(a), idx(n)),
+            std::make_unique<ArrayAccess>(std::make_unique<VariableReference>(b), idx(n)));
+    }, node);
+}
+
 void IRBuilder::visit(BinaryOperation& node) {
+    // GCC vectors: element by element
+    if (node.op != "," && node.op != "&&" && node.op != "||" && currentFunc_ &&
+        (!vecOf(node.left.get()).empty() || !vecOf(node.right.get()).empty())) {
+        emitVectorBinary(node);
+        return;
+    }
     // Wide integer with an integer operand: the integer converted
     if (node.op != "," && node.op != "&&" && node.op != "||" && node.op != "<<" && node.op != ">>") {
         std::string wl = wideKindOf(node.left.get()), wr = wideKindOf(node.right.get());
@@ -4748,6 +5061,11 @@ void IRBuilder::visit(BinaryOperation& node) {
 }
 
 void IRBuilder::visit(UnaryOperation& node) {
+    if ((node.op == "-" || node.op == "~" || node.op == "+" || node.op == "!") && currentFunc_ &&
+        !vecOf(node.operand.get()).empty()) {
+        emitVectorUnary(node);
+        return;
+    }
     // ++/-- on an lvalue other than a plain variable (*p++, a[i], p->m):
     // its address is computed once (the operand may have side effects),
     // then load / add / store through it
@@ -5182,6 +5500,11 @@ void IRBuilder::visit(UnaryOperation& node) {
 }
 
 void IRBuilder::visit(CastExpression& node) {
+    // A vector cast to another vector type of the same size: the same bits
+    if (node.pointerLevel == 0 && !vecOfType(node.targetType, 0).empty() && !vecOf(node.expression.get()).empty()) {
+        node.expression->accept(*this);
+        return;
+    }
     node.expression->accept(*this);
     auto src = lastValue_;
     ir::Type destType = mapType(node.targetType, node.pointerLevel);
@@ -5200,6 +5523,11 @@ void IRBuilder::visit(CastExpression& node) {
 }
 
 void IRBuilder::visit(FunctionCall& node) {
+    if (node.name == "__builtin_shuffle" && (node.arguments.size() == 2 || node.arguments.size() == 3) && currentFunc_ &&
+        !vecOf(node.arguments[0].get()).empty()) {
+        emitVectorShuffle(node);
+        return;
+    }
     if (!node.callExpr && !locals_.count(node.name)) {
         auto rn = staticRenames_.find(node.name);
         if (rn != staticRenames_.end()) node.name = rn->second;
@@ -6652,6 +6980,7 @@ void IRBuilder::visit(InitializerList& node) {
 }
 
 void IRBuilder::visit(ArrayAccess& node) {
+    vecSubscript(node);
     // (*p)[i] of a pointer to an array is p[0][i]
     if (auto* u = dynamic_cast<UnaryOperation*>(node.arrayExpr.get());
         u && u->op == "*" && ptrArrayRowSize(u->operand.get())) {
@@ -7659,6 +7988,10 @@ void IRBuilder::visit(AsmStatement& node) {
     }
     if (node.code == ".recurse_next") {
         recurseNextFunction_ = true;
+        return;
+    }
+    if (node.code.rfind(".max_unroll_bytes ", 0) == 0) {
+        maxUnrollBytes = std::stoi(node.code.substr(18));
         return;
     }
     if (node.code.rfind(".max_inline_ir_size ", 0) == 0) {

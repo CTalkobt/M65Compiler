@@ -147,6 +147,7 @@ CompilationResult CompilationPipeline::compile() {
         // Phase 102: Pass typedef mappings to codegen stage
         codegenStage.setTypedefMappings(typedefMappings);
         codegenStage.setMaxInlineIRSize(config_.maxInlineIRSize);
+        codegenStage.setMaxUnrollBytes(config_.maxUnrollBytes);
         codegenStage.setSourceFile(config_.inputFile);
         codegenStage.setStackTop(config_.stackTop);
 

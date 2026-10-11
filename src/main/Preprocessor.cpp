@@ -1171,6 +1171,16 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         output << "__asm__(\".signed_default\");\n";
                     } else if (cc45Arg == "unsigned_default") {
                         output << "__asm__(\".unsigned_default\");\n";
+                    } else if (cc45Arg.rfind("max_unroll_bytes", 0) == 0) {
+                        // Accepts "max_unroll_bytes N" and "max_unroll_bytes(N)"
+                        std::string rest = cc45Arg.substr(16), tail;
+                        while (ss >> tail) rest += tail;
+                        std::string digits;
+                        for (char ch : rest) if (std::isdigit((unsigned char)ch)) digits += ch;
+                        if (!digits.empty())
+                            output << "__asm__(\".max_unroll_bytes " + digits + "\");\n";
+                        else
+                            output << "\n";
                     } else if (cc45Arg.rfind("max_inline_ir_size", 0) == 0) {
                         // Accepts "max_inline_ir_size N" and "max_inline_ir_size(N)"
                         std::string rest = cc45Arg.substr(18), tail;

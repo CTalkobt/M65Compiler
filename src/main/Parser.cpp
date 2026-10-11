@@ -1953,6 +1953,7 @@ std::unique_ptr<Statement> Parser::parseVariableDeclaration(bool isVolatile, boo
     while (tryParseAttribute()) {}
     decl->alignment = std::max(decl->alignment, takePendingAlign());
     applyAlias(decl->name);
+    applyVectorMode(decl->type, decl->pointerLevel, decl->isSigned);
     declTypes_[decl->name] = {decl->type, decl->pointerLevel, decl->isSigned};
 
     // --- Multi-variable declarations: int a, b = 3, *c, d[4]; ---
@@ -3540,6 +3541,27 @@ bool Parser::tryParseAttribute() {
             if (canonical == "always_inline") pendingAlwaysInline_ = true;
             if (canonical == "noinline") pendingNoInline_ = true;
 
+            // vector_size(N): a GCC vector of N bytes; mode(QI/HI/SI/...): an
+            // integer of that width. Both apply to the declaration's type
+            if (canonical == "vector_size") {
+                expect(TokenType::OPEN_PAREN, "Expected '(' after vector_size");
+                auto e = parseConditional();
+                long v;
+                if (evalConstInt(e.get(), v) && v > 0) pendingVectorSize_ = (int)v;
+                expect(TokenType::CLOSE_PAREN, "Expected ')' after vector_size");
+                match(TokenType::COMMA);
+                continue;
+            }
+            if (canonical == "mode") {
+                expect(TokenType::OPEN_PAREN, "Expected '(' after mode");
+                std::string m = expect(TokenType::IDENTIFIER, "Expected machine mode").value;
+                if (m.size() > 4 && m.compare(0, 2, "__") == 0) m = m.substr(2, m.size() - 4);
+                pendingMode_ = m;
+                expect(TokenType::CLOSE_PAREN, "Expected ')' after mode");
+                match(TokenType::COMMA);
+                continue;
+            }
+
             if (canonical == "alias") {
                 expect(TokenType::OPEN_PAREN, "Expected '(' after alias");
                 pendingAlias_ = expect(TokenType::STRING_LITERAL, "Expected alias target name").value;
@@ -3588,7 +3610,7 @@ bool Parser::tryParseAttribute() {
             }
             // Warn-and-skip (#110-#114)
             else if (canonical == "noipa" ||
-                     canonical == "mode" || canonical == "vector_size" ||
+                     
                      canonical == "may_alias") {
                 std::cerr << tokens[pos-1].line << ": warning: __attribute__(("
                           << attr << ")) ignored\n";
@@ -3702,6 +3724,7 @@ void Parser::parseTypedef() {
     while (tryParseAttribute()) {}
     expect(TokenType::SEMICOLON, "Expected ';' after typedef");
 
+    applyVectorMode(baseType, ptrLevel, isSigned);
     TypeAlias ta{baseType, ptrLevel, isSigned, false, nullptr, arrayDims};
     bool anyVla = false;
     for (const auto& v : vlaDimVars) if (!v.empty()) anyVla = true;
@@ -3711,6 +3734,46 @@ void Parser::parseTypedef() {
         ta.vlaDimVars.insert(ta.vlaDimVars.end(), vlaDimVars.begin(), vlaDimVars.end());
     }
     typedefs[newName] = ta;
+}
+
+// mode(QI/HI/SI/word) picks the integer of that width; vector_size(N) makes
+// the type a GCC vector: struct __vec_<elem>_<n> { T e[n]; } (one definition
+// per element type and count, so equal vector types are the same struct)
+void Parser::applyVectorMode(std::string& type, int ptrLevel, bool& isSigned) {
+    if (!pendingMode_.empty()) {
+        const std::string& m = pendingMode_;
+        if (m == "QI") type = "char";
+        else if (m == "HI" || m == "word" || m == "pointer") type = "int";
+        else if (m == "SI") type = "long";
+        pendingMode_.clear();
+    }
+    if (pendingVectorSize_ > 0 && ptrLevel == 0) {
+        int total = pendingVectorSize_;
+        pendingVectorSize_ = 0;
+        int es = scalarTypeSize(type, 0);
+        if (es <= 0) return;
+        int n = total / es;
+        if (n < 1) n = 1;
+        std::string tag;
+        for (char c : type) tag += std::isalnum((unsigned char)c) ? c : '_';
+        std::string name = "__vec_" + tag + (isSigned ? "_s_" : "_u_") + std::to_string(n);
+        if (!vectorTypes_.count(name)) {
+            vectorTypes_.insert(name);
+            auto def = std::make_unique<StructDefinition>(name, false);
+            StructMember sm;
+            sm.type = type;
+            sm.pointerLevel = 0;
+            sm.isSigned = isSigned;
+            sm.name = "e";
+            sm.arrayDims = {n};
+            def->members.push_back(std::move(sm));
+            structs[name] = def.get();
+            pendingDefinitions.push_back(std::move(def));
+        }
+        type = "struct " + name;
+        isSigned = false;
+    }
+    pendingVectorSize_ = 0;
 }
 
 Parser::DeclType Parser::typeofExpr(Expression* e) {
