@@ -17,11 +17,13 @@
 #   20030209-1, 20040629-1, pr58574 (code runs into I/O at $D000), strlen-5
 # pr53645: passes with the ZP convention; with -fno-zpcall it ends at $C000, just over the $BFFF stack top.
 #
-# 20040709-3: includes 20040709-2.c, which is missing from the test set
+# Won't do — 20040709-2 (and 20040709-3, which includes it): bitfields of unsigned long long
+#   and of more than 16 bits in unsigned int (int32plus, native 64-bit integers)
 20020108-1
 20030209-1
 20040629-1
 20040703-1
+20040709-2
 20040709-3
 20040811-1
 920410-1
