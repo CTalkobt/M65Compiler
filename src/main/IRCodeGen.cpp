@@ -65,6 +65,19 @@ void IRCodeGen::emitF32Byte(const std::string& op, uint32_t vregId, int i) {
     }
 }
 
+// The pointer for a folded base + offset address: the base's ZP pair, or the
+// base copied to scratch; yOff = the offset
+std::string IRCodeGen::foldedPtr(uint32_t addrVreg, const std::string& scratch, int& yOff) {
+    const auto& fa = foldedAddrs_.at(addrVreg);
+    yOff = fa.offset;
+    auto ba = alloc_.getAlloc(fa.base);
+    if (ba.loc == VRegAllocator::IN_ZP) return "$" + hex8((uint8_t)ba.offset);
+    loadVreg(fa.base);
+    emit("sta " + scratch);
+    emit("stx " + scratch + "+1");
+    return scratch;
+}
+
 // SAC storage symbol of a frame vreg: fn__param_<name> for parameters, else fn__local_<id>
 std::string IRCodeGen::sacSymbol(uint32_t vregId) const {
     if (currentFn_ && vregId < currentFn_->paramTypes.size()) {
@@ -1625,6 +1638,11 @@ IRCodeGen::FuncClobbers IRCodeGen::computeFuncClobbers(const ir::Function& fn) {
                     fc.flags |= N | ZF;
                     break;
 
+                case ir::Op::VEC_BIN:
+                    fc.regs |= A | X | Y;
+                    fc.flags |= C | N | ZF | V;
+                    break;
+
                 case ir::Op::RET:
                     fc.regs |= A | X;    // return value in AX
                     fc.flags |= N | ZF;
@@ -1736,6 +1754,68 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // Copy local slot info from IR function
     localSlotVregs_ = fn.localSlotVregs;
     vregConstVal_.clear();
+
+    // Pointer + constant offsets used only as load/store addresses: the ADD
+    // is not emitted; the access indexes the base pointer with Y = offset
+    // (p->m, a[3], v[i] with a constant index)
+    foldedAddrs_.clear();
+    {
+        // Every use of each vreg: (block, index, how)
+        struct Use { size_t blk, idx; bool addrOnly; };
+        std::map<uint32_t, std::vector<Use>> uses;
+        std::vector<const ir::Block*> blocks;
+        for (const auto& blk : fn.blocks) blocks.push_back(&blk);
+        for (size_t b = 0; b < blocks.size(); b++) {
+            const auto& insts = blocks[b]->insts;
+            for (size_t i = 0; i < insts.size(); i++) {
+                const auto& in = insts[i];
+                auto note = [&](const ir::Operand& o, bool addr) {
+                    if (o.isVreg()) uses[o.vregId].push_back({b, i, addr});
+                };
+                bool plain = in.args.empty();
+                note(in.src1, plain && in.op == ir::Op::LOAD && in.resultType != ir::Type::F32);
+                note(in.src2, plain && in.op == ir::Op::STORE && in.resultType != ir::Type::F32 &&
+                              !(in.src1.isVreg() && in.src2.isVreg() && in.src1.vregId == in.src2.vregId));
+                for (const auto& a : in.args) note(a, false);
+            }
+        }
+        for (size_t b = 0; b < blocks.size(); b++) {
+            const auto& insts = blocks[b]->insts;
+            for (size_t i = 0; i < insts.size(); i++) {
+                const auto& in = insts[i];
+                if (in.op != ir::Op::ADD || in.resultType != ir::Type::PTR || !in.dest.isVreg() ||
+                    !in.src2.isImm() || in.src2.immVal < 0 || in.src2.immVal > 250 || !in.src1.isVreg())
+                    continue;
+                uint32_t d = in.dest.vregId, base = in.src1.vregId;
+                if (fn.localSlotVregs.count(d) || fn.memoryVregs.count(d)) continue;
+                // A base kept only in registers may be gone by the access
+                auto bl = alloc_.getAlloc(base).loc;
+                if (bl != VRegAllocator::IN_ZP && bl != VRegAllocator::IN_FRAME) continue;
+                if (fn.memoryVregs.count(base)) continue;  // could change through a pointer
+                auto uit = uses.find(d);
+                if (uit == uses.end() || uit->second.empty()) continue;
+                bool ok = true;
+                size_t last = i;
+                for (const auto& u : uit->second) {
+                    if (!u.addrOnly || u.blk != b || u.idx <= i) { ok = false; break; }
+                    last = std::max(last, u.idx);
+                }
+                if (!ok) continue;
+                // A temporary base lives (for the allocator) only up to the
+                // ADD: then only one access right after it can use it
+                if ((!fn.localSlotVregs.count(base) || fn.registerVregs.count(base)) &&
+                    (uit->second.size() != 1 || uit->second[0].idx != i + 1)) continue;
+                // The base keeps its value up to the last use
+                for (size_t j = i + 1; j <= last && ok; j++) {
+                    const auto& x = insts[j];
+                    if (x.dest.isVreg() && x.dest.vregId == base) ok = false;
+                    if (x.op == ir::Op::STORE && x.src2.isVreg() && x.src2.vregId == base) ok = false;
+                }
+                if (!ok) continue;
+                foldedAddrs_[d] = {base, (int)in.src2.immVal};
+            }
+        }
+    }
 
     // Pre-scan: identify CONST vregs and detect which are only used as
     // STORE addresses. These can be suppressed (no emit, no frame slot)
@@ -2938,6 +3018,8 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
         case ir::Op::ADD:
         case ir::Op::SUB: {
+            // A pointer + offset folded into its loads/stores
+            if (inst.op == ir::Op::ADD && inst.dest.isVreg() && foldedAddrs_.count(inst.dest.vregId)) break;
             // --- I16 INC/DEC peephole for local += 1 / local -= 1 ---
             // Pattern: %n = add/sub i16 %local, 1; store %n, %local
             // Emit: inc $ZP; bne +2; inc $ZP+1 (or dec variant)
@@ -3757,7 +3839,10 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             } else if (inst.src1.kind != ir::OperandKind::NONE) {
                 // Load value from address held in an operand via (ZP),Y
                 std::string zpPair;
-                if (inst.src1.isVreg()) {
+                int yOff = 0;
+                if (inst.src1.isVreg() && foldedAddrs_.count(inst.src1.vregId)) {
+                    zpPair = foldedPtr(inst.src1.vregId, "__zp_scratch", yOff);
+                } else if (inst.src1.isVreg()) {
                     auto addrAlloc = alloc_.getAlloc(inst.src1.vregId);
                     if (addrAlloc.loc == VRegAllocator::IN_ZP) {
                         std::stringstream ss;
@@ -3776,7 +3861,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     zpPair = "__zp_scratch";
                 }
                 
-                emit("ldy #0");
+                emit("ldy #" + std::to_string(yOff));
                 if (inst.resultType == ir::Type::I8) {
                     emit("lda (" + zpPair + "),y");
                     emit("ldx #0");
@@ -3987,7 +4072,10 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     // Indirect store: write value through pointer address
                     auto addrAlloc = alloc_.getAlloc(inst.src2.vregId);
                     std::string zpPair;
-                    if (addrAlloc.loc == VRegAllocator::IN_ZP) {
+                    int yOff = 0;
+                    if (foldedAddrs_.count(inst.src2.vregId)) {
+                        zpPair = foldedPtr(inst.src2.vregId, "__zp_scratch2", yOff);
+                    } else if (addrAlloc.loc == VRegAllocator::IN_ZP) {
                         std::stringstream ss;
                         ss << "$" << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << addrAlloc.offset;
                         zpPair = ss.str();
@@ -4038,7 +4126,7 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         emit("sty __zp_scratch3");
                         emit("stz __zp_scratch3+1");
                     }
-                    emit("ldy #0");
+                    emit("ldy #" + std::to_string(yOff));
                     if (inst.resultType == ir::Type::I8) {
                         emit("sta (" + zpPair + "),y");
                     } else if (inst.resultType == ir::Type::I32) {
@@ -4083,6 +4171,46 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             std::string addr = inst.src2.name; // target ZP name
             emit("sta " + addr);
             emit("stx " + addr + "+1");
+            break;
+        }
+
+        case ir::Op::VEC_BIN: {
+            // r[i] = a[i] op b[i] (or op scalar b) on 1- or 2-byte elements:
+            // (a),y / (b),y / (r),y with the pointers in the scratch pairs
+            int op = (int)inst.args[1].immVal, es = (int)inst.args[2].immVal, n = (int)inst.args[3].immVal;
+            bool scalar = inst.args[4].immVal != 0, unroll = inst.args[5].immVal != 0;
+            auto toZp = [&](const ir::Operand& o, const std::string& zp) {
+                loadOperand(o);
+                emit("sta " + zp);
+                emit("stx " + zp + "+1");
+            };
+            toZp(inst.src1, "__zp_scratch");
+            toZp(inst.src2, "__zp_scratch2");   // B's address, or the scalar value
+            toZp(inst.args[0], "__zp_scratch3");
+            static const char* mn[] = {"adc", "sbc", "and", "ora", "eor"};
+            auto element = [&](bool first) {
+                for (int b = 0; b < es; b++) {
+                    if (!first || b) emit("iny");
+                    emit("lda (__zp_scratch),y");
+                    if (b == 0 && op == 0) emit("clc");
+                    if (b == 0 && op == 1) emit("sec");
+                    if (scalar) emit(std::string(mn[op]) + " __zp_scratch2" + (b ? "+1" : ""));
+                    else emit(std::string(mn[op]) + " (__zp_scratch2),y");
+                    emit("sta (__zp_scratch3),y");
+                }
+            };
+            emit("ldy #0");
+            if (unroll) {
+                for (int i = 0; i < n; i++) element(i == 0);
+            } else {
+                std::string top = "@__vec_" + std::to_string(labelCounter_++);
+                emitLabel(top);
+                element(true);
+                emit("iny");
+                emit("cpy #" + std::to_string(n * es));
+                emit("bne " + top);
+            }
+            ms_.invalidateAll();
             break;
         }
 

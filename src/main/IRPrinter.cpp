@@ -189,6 +189,12 @@ void Printer::print(std::ostream& out, const Inst& inst) {
             out << operandStr(inst.dest) << " = load_zp " << operandStr(inst.src1) << locComment << "\n";
             return;
 
+        case Op::VEC_BIN:
+            out << "vec_bin " << operandStr(inst.src1) << ", " << operandStr(inst.src2);
+            for (const auto& a : inst.args) out << ", " << operandStr(a);
+            out << locComment << "\n";
+            return;
+
         case Op::TRAMPOLINE:
             out << operandStr(inst.dest) << " = trampoline target=" << operandStr(inst.src1)
                 << ", link=" << operandStr(inst.src2) << ", buf=" << operandStr(inst.args[0]) << locComment << "\n";

@@ -4504,8 +4504,8 @@ std::string IRBuilder::vecOperand(Expression* e, bool isVec, const std::string& 
 // The result of a vector operation: a hidden local array of rn's size; each
 // element from elem(i). The value: its address, or (a 1, 2 or 4-byte vector,
 // a register value) its contents
-void IRBuilder::vecResult(const std::string& rn, const std::function<std::unique_ptr<Expression>(const VecIndex&)>& elem,
-                          ASTNode& at) {
+// The hidden local array holding a vector operation's result
+std::string IRBuilder::vecResultArray(const std::string& rn, ASTNode& at) {
     std::string et; bool sg; int n;
     vecElem(rn, et, sg, n);
     std::string res = "__vres" + std::to_string(vecTempCount_++);
@@ -4516,12 +4516,51 @@ void IRBuilder::vecResult(const std::string& rn, const std::function<std::unique
     bool saved = computeAddressOnly_;
     computeAddressOnly_ = false;
     decl->accept(*this);
+    computeAddressOnly_ = saved;
     usedVregs_.insert(locals_[res].vregId);
+    vecNodes_.push_back(std::move(decl));
+    return res;
+}
+
+// The value of a vector result array: its address, or (a 1, 2 or 4-byte
+// vector, a register value) its contents
+void IRBuilder::vecResultValue(const std::string& rn, const std::string& res, ASTNode& at) {
+    VariableReference rv(res);
+    rv.line = at.line; rv.column = at.column; rv.sourceFile = at.sourceFile;
+    bool saved = computeAddressOnly_;
+    computeAddressOnly_ = false;
+    rv.accept(*this);
+    computeAddressOnly_ = saved;
+    ir::Operand addr = lastValue_;
+    int size = getTypeSize("struct " + rn, 0);
+    if (!computeAddressOnly_ && (size == 1 || size == 2 || size == 4)) {
+        ir::Type t = mapType("struct " + rn, 0);
+        auto v = allocVreg(t);
+        ir::Inst ld;
+        ld.op = ir::Op::LOAD;
+        ld.dest = v;
+        ld.resultType = t;
+        ld.src1 = addr;
+        emit(ld);
+        lastValue_ = v;
+        return;
+    }
+    lastValue_ = addr;
+}
+
+void IRBuilder::vecResult(const std::string& rn, const std::function<std::unique_ptr<Expression>(const VecIndex&)>& elem,
+                          ASTNode& at) {
+    std::string et; bool sg; int n;
+    vecElem(rn, et, sg, n);
+    std::string res = vecResultArray(rn, at);
+    bool saved = computeAddressOnly_;
+    computeAddressOnly_ = false;
     // Unrolled when the estimated code fits -fmax-unroll-bytes, else a loop.
-    // Per element (measured): about 110 bytes for 1/2-byte elements (two
-    // indexed loads, the operation, the store), 40 more per further byte
+    // Per element (measured): about 20 bytes for 1/2-byte elements (indexed
+    // loads and the store; * / % are calls), 210 for 4-byte and 60 for float
     int es = std::max(1, getTypeSize(et, 0));
-    if (n * (110 + 40 * std::max(0, es - 2)) <= maxUnrollBytes) {
+    int perElem = mapType(et, 0) == ir::Type::F32 ? 60 : es <= 2 ? 20 : 210;
+    if (n * perElem <= maxUnrollBytes) {
         // unrolled
         for (int i = 0; i < n; i++) {
             VecIndex idx = [i]() -> std::unique_ptr<Expression> { return std::make_unique<IntegerLiteral>(i); };
@@ -4553,27 +4592,8 @@ void IRBuilder::vecResult(const std::string& rn, const std::function<std::unique
         loop->accept(*this);
         vecNodes_.push_back(std::move(loop));
     }
-    vecNodes_.push_back(std::move(decl));
     computeAddressOnly_ = saved;
-    // The array's address
-    VariableReference rv(res);
-    rv.line = at.line; rv.column = at.column; rv.sourceFile = at.sourceFile;
-    rv.accept(*this);
-    ir::Operand addr = lastValue_;
-    int size = getTypeSize("struct " + rn, 0);
-    if (!computeAddressOnly_ && (size == 1 || size == 2 || size == 4)) {
-        ir::Type t = mapType("struct " + rn, 0);
-        auto v = allocVreg(t);
-        ir::Inst ld;
-        ld.op = ir::Op::LOAD;
-        ld.dest = v;
-        ld.resultType = t;
-        ld.src1 = addr;
-        emit(ld);
-        lastValue_ = v;
-        return;
-    }
-    lastValue_ = addr;
+    vecResultValue(rn, res, at);
 }
 
 static std::unique_ptr<Expression> vecRef(const std::string& tmp, bool isVec, const IRBuilder::VecIndex& i) {
@@ -4590,6 +4610,41 @@ void IRBuilder::emitVectorBinary(BinaryOperation& node) {
     vecElem(vn, et, sg, n);
     const std::string& op = node.op;
     bool cmp = op == "==" || op == "!=" || op == "<" || op == ">" || op == "<=" || op == ">=";
+    int es = std::max(1, getTypeSize(et, 0));
+    static const std::map<std::string, int> direct = {{"+", 0}, {"-", 1}, {"&", 2}, {"|", 3}, {"^", 4}};
+    if (direct.count(op) && (es == 1 || es == 2) && !vl.empty() && mapType(et, 0) != ir::Type::F32) {
+        // Byte-wise: one VEC_BIN (unrolled when it fits -fmax-unroll-bytes:
+        // about 8 bytes per element byte, a loop adds 8)
+        bool scalar = vr.empty();
+        ir::Operand pa = emitAddressOf(node.left.get());
+        ir::Operand pb;
+        if (scalar) {
+            bool saved = computeAddressOnly_;
+            computeAddressOnly_ = false;
+            node.right->accept(*this);
+            computeAddressOnly_ = saved;
+            pb = emitCast(lastValue_, ir::Type::I16, getExprTypeInfo(node.right.get()).isSigned);
+        } else {
+            pb = emitAddressOf(node.right.get());
+        }
+        std::string res = vecResultArray(vn, node);
+        VariableReference rv(res);
+        rv.line = node.line; rv.column = node.column; rv.sourceFile = node.sourceFile;
+        ir::Operand pr = emitAddressOf(&rv);
+        ir::Inst vb;
+        vb.op = ir::Op::VEC_BIN;
+        vb.resultType = ir::Type::VOID;
+        vb.src1 = pa;
+        vb.src2 = pb;
+        bool unroll = n * es * 8 <= maxUnrollBytes;
+        vb.args = {pr, ir::Operand::imm(direct.at(op), ir::Type::I16), ir::Operand::imm(es, ir::Type::I16),
+                   ir::Operand::imm(n, ir::Type::I16), ir::Operand::imm(scalar ? 1 : 0, ir::Type::I16),
+                   ir::Operand::imm(unroll ? 1 : 0, ir::Type::I16)};
+        vb.loc = loc(node);
+        emit(vb);
+        vecResultValue(vn, res, node);
+        return;
+    }
     std::string a = vecOperand(node.left.get(), !vl.empty(), et, sg);
     std::string b = vecOperand(node.right.get(), !vr.empty(), et, sg);
     bool av = !vl.empty(), bv = !vr.empty();
@@ -7035,10 +7090,28 @@ void IRBuilder::visit(ArrayAccess& node) {
     }
     auto base = lastValue_;
 
-    // Evaluate index
-    node.indexExpr->accept(*this);
-    auto index = lastValue_;
-    
+    // Evaluate index (a constant one is folded into the address below)
+    bool constIdx = false;
+    long constIdxVal = 0;
+    {
+        Expression* ie = node.indexExpr.get();
+        while (auto* c = dynamic_cast<CastExpression*>(ie)) {
+            if (c->pointerLevel || mapType(c->targetType, 0) == ir::Type::F32) break;
+            ie = c->expression.get();
+        }
+        if (auto* lit = dynamic_cast<IntegerLiteral*>(ie); lit && lit->castPointerLevel == 0) {
+            constIdx = true;
+            constIdxVal = (long)lit->value;
+        }
+    }
+    ir::Operand index;
+    if (!constIdx) {
+        node.indexExpr->accept(*this);
+        index = lastValue_;
+    } else {
+        index = ir::Operand::imm(constIdxVal, ir::Type::I16);
+    }
+
     computeAddressOnly_ = oldAddrMode;
 
 
@@ -7185,8 +7258,26 @@ void IRBuilder::visit(ArrayAccess& node) {
     }
 
     // addr = base + index * elemSize
-    auto addr = allocVreg(ir::Type::PTR);
-    if (!rtDims.empty()) {
+    ir::Operand addr = allocVreg(ir::Type::PTR);
+    if (constIdx && rtDims.empty()) {
+        // A constant index: base + constant (base itself for 0)
+        long off = constIdxVal * elemSize;
+        // (a variable's slot as an address would mean the variable itself:
+        // only a temporary pointer is used as is)
+        if (off == 0 && base.isVreg() && base.type == ir::Type::PTR && currentFunc_ &&
+            !currentFunc_->localSlotVregs.count(base.vregId) && !currentFunc_->memoryVregs.count(base.vregId)) {
+            addr = base;
+        } else {
+            ir::Inst add;
+            add.op = ir::Op::ADD;
+            add.dest = addr;
+            add.resultType = ir::Type::PTR;
+            add.src1 = base;
+            add.src2 = ir::Operand::imm(off, ir::Type::I16);
+            add.loc = loc(node);
+            emit(add);
+        }
+    } else if (!rtDims.empty()) {
         ir::Operand off = emitCast(index, ir::Type::I16, getExprTypeInfo(node.indexExpr.get()).isSigned);
         auto mulBy = [&](const ir::Operand& f) {
             auto r = allocVreg(ir::Type::I16);

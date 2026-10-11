@@ -375,6 +375,8 @@ public:
 private:
     void vecResult(const std::string& rn, const std::function<std::unique_ptr<Expression>(const VecIndex&)>& elem, ASTNode& at);
     void emitVectorBinary(BinaryOperation& node);
+    std::string vecResultArray(const std::string& rn, ASTNode& at);
+    void vecResultValue(const std::string& rn, const std::string& res, ASTNode& at);
     void emitVectorUnary(UnaryOperation& node);
     void emitVectorShuffle(FunctionCall& node);
     void vecSubscript(ArrayAccess& node);

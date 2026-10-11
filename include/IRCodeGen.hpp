@@ -217,6 +217,9 @@ private:
     std::map<uint32_t, int64_t> vregConstVal_;
     // CONST vregs only used as STORE addresses — skip emission and frame allocation
     std::set<uint32_t> suppressedVregs_;
+    struct FoldedAddr { uint32_t base; int offset; };
+    std::map<uint32_t, FoldedAddr> foldedAddrs_;  // vreg = base + offset, used only as load/store address
+    std::string foldedPtr(uint32_t addrVreg, const std::string& scratch, int& yOff);
 
     // Track which functions use SAC (Static Allocation Convention)
     // Used to emit .global declarations for __ar symbols in preamble

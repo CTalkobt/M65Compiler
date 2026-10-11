@@ -97,6 +97,8 @@ enum class Op : uint8_t {
     ASM_INLINE,     // asm("...")
     VA_START,       // %d = va_start(lastParamName) — compute stack addr past last named param
     TRAMPOLINE,     // %d = trampoline <target>, <link>
+    VEC_BIN,        // vec_bin <ptrA>, <ptrB|scalar>: args = ptrR, op (0 + 1 - 2 & 3 | 4 ^),
+                    // element size (1/2), count, B is a scalar, unrolled
     CPU_REG_READ,   // %d = cpu_reg_read <regName>
     CPU_REG_WRITE,  // cpu_reg_write <regName>, <val>
     CPU_FLAG_READ,  // %d = cpu_flag_read <flagName>
