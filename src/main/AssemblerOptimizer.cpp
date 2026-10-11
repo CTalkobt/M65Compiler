@@ -282,7 +282,11 @@ bool AssemblerOptimizer::optimizeInternal(
                     operand = parser->tokens[s->instr.operandTokenIndex].value;
                 bool isReloc = parser->isRelocatableSymbol(operand) ||
                                parser->isRelocatableSymbol(s->scopePrefix + operand);
-                if (!isReloc) {
+                // A numeric target is a fixed address (e.g. the jmp $0000 of a
+                // computed goto, patched at run time): never a relative branch
+                bool numeric = operand.empty() || operand[0] == '$' || operand[0] == '%' ||
+                               (operand[0] >= '0' && operand[0] <= '9');
+                if (!isReloc && !numeric) {
                     uint32_t braPC = s->address + 2;
                     int32_t offset = (int32_t)targetAddr - (int32_t)braPC;
                     if (offset >= -128 && offset <= 127) {

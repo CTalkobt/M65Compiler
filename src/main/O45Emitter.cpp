@@ -495,7 +495,8 @@ std::vector<uint8_t> emitO45(AssemblerParser& parser, const std::string& asmVers
         uint32_t patchAddr = stmt->address;
 
         for (size_t ai = 0; ai < stmt->dir.arguments.size(); ai++) {
-            const std::string& arg = stmt->dir.arguments[ai];
+            // The symbol of an expression argument (lbl+1)
+            const std::string arg = stmt->dir.arguments[ai].substr(0, stmt->dir.arguments[ai].find_first_of("+-", 1));
             Symbol* sym = parser.resolveSymbol(arg, stmt->scopePrefix);
             // For 32-bit symbols in .word directives, skip (they should use .dword)
             if (!sym) { patchAddr += 2; continue; }

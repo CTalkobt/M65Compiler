@@ -512,6 +512,34 @@ for memode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: bitfield stores (16/32-bit units, signed fields, char units next to
+# other members, unnamed ':0' fields in initializers)
+for bsmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r bsname bsflags <<< "$bsmode"
+    echo "Testing test_bitfield_store_xemu.c ($bsname)..."
+    compile_link_test "src/test-resources/test_bitfield_store_xemu.c" "build/test/test_bitfield_store_${bsname}_xemu.prg" "$bsflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_bitfield_store_$bsname" "build/test/test_bitfield_store_${bsname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_bitfield_store_xemu.c $bsname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
+# Test: link-time constant initializers (label tables for goto *, string +
+# offset, &a[i][j], arr + n, global char arrays, extern then definition)
+for simode2 in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r sname sflags <<< "$simode2"
+    echo "Testing test_static_init_xemu.c ($sname)..."
+    compile_link_test "src/test-resources/test_static_init_xemu.c" "build/test/test_static_init_${sname}_xemu.prg" "$sflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_static_init_$sname" "build/test/test_static_init_${sname}_xemu.prg" "C0C0" 8 "01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_static_init_xemu.c $sname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: pointer/float compound assignment, float initializers, nested
 # function static chain, variably modified parameters
 for ammode in "zp|" "stack|-fno-zpcall"; do

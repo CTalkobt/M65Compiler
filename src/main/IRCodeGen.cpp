@@ -746,6 +746,7 @@ void IRCodeGen::emitStackCleanup(int frameSize) {
 // ============================================================================
 
 void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode, bool zpCallMode, bool emitReasons, bool staticAllocMode, bool sacDebugMode, uint32_t prgBase) {
+    currentModule_ = &mod;
     dataAlign_ = bssAlign_ = 1;
     emitReasons_ = emitReasons;
     relocMode_ = relocMode;
@@ -1062,6 +1063,12 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
     emitBlank();
 
     // Emit extern declarations (only for symbols actually referenced in code)
+    // Symbols this module defines (a global variable or function)
+    auto definedHere = [&](const std::string& sym) {
+        for (const auto& g : mod.globals) if (g.name == sym) return true;
+        for (const auto& f : mod.functions) if (f.name == sym && !f.blocks.empty()) return true;
+        return false;
+    };
     if (relocMode) {
         // Collect all symbol references from instructions and globals
         std::set<std::string> referencedSymbols;
@@ -1078,20 +1085,24 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
                 }
             }
         }
+        // Initializer words may be label+offset: the symbol part
+        auto symOf = [](const std::string& l) { return l.substr(0, l.find_first_of("+-", 1)); };
         for (const auto& g : mod.globals) {
             for (const auto& lbl : g.initLabels) {
-                if (!lbl.empty()) referencedSymbols.insert(lbl);
+                if (!lbl.empty()) referencedSymbols.insert(symOf(lbl));
             }
+            for (const auto& [off, lbl] : g.initWords) referencedSymbols.insert(symOf(lbl));
         }
-        // Only emit .extern for symbols actually used
+        // Only emit .extern for symbols actually used, and not for one this
+        // module defines (extern int x; ... int x = 1;)
         for (const auto& ext : mod.externs) {
-            if (referencedSymbols.count(ext)) {
+            if (referencedSymbols.count(ext) && !definedHere(ext)) {
                 emit(".extern " + ext);
             }
         }
     } else {
         for (const auto& ext : mod.externs) {
-            emit(".extern " + ext);
+            if (!definedHere(ext)) emit(".extern " + ext);
         }
     }
 
@@ -1859,6 +1870,10 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         emit("proc " + fn.name);
         for (const auto& block : fn.blocks) {
             emitLabel("@" + block.label);
+            if (fn.addressTakenLabels.count(block.label)) {
+                emit(".global " + fn.labelAlias(block.label));
+                emitLabel(fn.labelAlias(block.label));
+            }
             for (const auto& inst : block.insts) {
                 emitInst(inst);
                 currentInstIdx_++;
@@ -2450,6 +2465,12 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
         // Track the next block's label for no-op branch elimination
         nextBlockLabel_ = (bi + 1 < fn.blocks.size()) ? fn.blocks[bi + 1].label : "__return";
         emitLabel("@" + block.label);
+        // A label used from data (static &&label table): a global alias
+        if (fn.addressTakenLabels.count(block.label)) {
+            ms_.invalidateAll();
+            emit(".global " + fn.labelAlias(block.label));  // not scoped to the proc
+            emitLabel(fn.labelAlias(block.label));
+        }
         for (size_t ii = 0; ii < block.insts.size(); ii++) {
             currentInstInBlock_ = ii;
             emitInst(block.insts[ii]);
@@ -4106,7 +4127,16 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
         }
 
         case ir::Op::ADDR_LABEL: {
-            emit("ldax #@" + inst.src1.name);
+            // A label of another function (a nested function's &&label of
+            // its parent): that function's global alias for it
+            bool own = false;
+            if (currentFn_)
+                for (const auto& b : currentFn_->blocks) if (b.label == inst.src1.name) { own = true; break; }
+            std::string target = "@" + inst.src1.name;
+            if (!own && currentModule_)
+                for (const auto& f : currentModule_->functions)
+                    if (&f != currentFn_ && f.addressTakenLabels.count(inst.src1.name)) { target = f.labelAlias(inst.src1.name); break; }
+            emit("ldax #" + target);
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }

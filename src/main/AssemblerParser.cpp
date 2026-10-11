@@ -538,12 +538,6 @@ void AssemblerParser::pass1() {
         stmt->sourceFile = currentSourceFile_;
         stmt->sourceLine = currentSourceLine_;
 
-        {
-            FILE* f = fopen("/tmp/debug_add16.log", "a");
-            fprintf(f, "Token at pos %zu: type=%d value='%s'\n", pos, (int)peek().type, peek().value.c_str());
-            fclose(f);
-        }
-
         if ((peek().type == AssemblerTokenType::IDENTIFIER || peek().type == AssemblerTokenType::INSTRUCTION) && pos + 1 < tokens.size() && tokens[pos+1].type == AssemblerTokenType::COLON) {
             std::string labelName = advance().value;
             if (!labelName.empty() && labelName[0] != '@' && scopeStack.empty()) {
@@ -1035,6 +1029,22 @@ void AssemblerParser::pass1() {
             }
             else {
                 stmt->dir.tokenIndex = (int)pos;
+                if (stmt->dir.name == "word") {
+                    // Each comma-separated argument is one expression (lbl+1)
+                    std::string cur;
+                    int first = -1;
+                    while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
+                        if (peek().type == AssemblerTokenType::COMMA) {
+                            if (first >= 0) { stmt->dir.argTokenIndices.push_back(first); stmt->dir.arguments.push_back(cur); }
+                            cur.clear(); first = -1;
+                            advance();
+                            continue;
+                        }
+                        if (first < 0) first = (int)pos;
+                        cur += advance().value;
+                    }
+                    if (first >= 0) { stmt->dir.argTokenIndices.push_back(first); stmt->dir.arguments.push_back(cur); }
+                }
                 while (peek().type != AssemblerTokenType::NEWLINE && peek().type != AssemblerTokenType::END_OF_FILE) {
                     if (peek().type == AssemblerTokenType::COMMA) { advance(); continue; }
                     stmt->dir.argTokenIndices.push_back((int)pos);
@@ -1074,18 +1084,7 @@ void AssemblerParser::pass1() {
             using S = AssemblerSimulatedOps;
             #define SIMOP(T, F) stmt->type = Statement::T; stmt->emitFn = S::F
 
-            {
-                FILE* f = fopen("/tmp/debug_add16.log", "a");
-                fprintf(f, "DEBUG: Instruction mnemonic='%s'\n", fullMnemonic.c_str());
-                fclose(f);
-            }
-
             if (fullMnemonic == "add.16") {
-                {
-                    FILE* f = fopen("/tmp/debug_add16.log", "a");
-                    fprintf(f, "DEBUG: Recognized add.16 instruction at pos %zu\n", pos);
-                    fclose(f);
-                }
                 SIMOP(ADD16, dispatch_AddSub16);
             }
             else if (fullMnemonic == "sub.16") { SIMOP(SUB16, dispatch_AddSub16); }
@@ -1177,6 +1176,8 @@ void AssemblerParser::pass1() {
             else if (fullMnemonic == "bfins16.sp") { SIMOP(BFINS16_SP, dispatch_BFIns); }
             else if (fullMnemonic == "bfins16.ind") { SIMOP(BFINS16_IND, dispatch_BFIns); }
             else if (fullMnemonic == "bfins32") { SIMOP(BFINS32, dispatch_BFIns); }
+            else if (fullMnemonic == "bfins32.sp") { SIMOP(BFINS32_SP, dispatch_BFIns); }
+            else if (fullMnemonic == "bfins32.ind") { SIMOP(BFINS32_IND, dispatch_BFIns); }
             else if (fullMnemonic == "struct_elem.16" || fullMnemonic == "struct_elem") { SIMOP(STRUCT_ELEM, dispatch_StructElem); }
             // Parameter and local variable access (method-agnostic, interpreted based on function flags)
             else if (fullMnemonic == "lda.param") { SIMOP(LDA_PARAM, dispatch_LDA_Param); }

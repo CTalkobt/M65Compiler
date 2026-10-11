@@ -217,6 +217,11 @@ struct Function {
     bool isRegparm = false;
     bool isNested = false;
     bool isRecurse = false;      // opt-out of static allocation (SAC)
+    // Labels whose address (&&label) is used from data, e.g. a static
+    // table for goto *: their blocks are kept and get a global alias
+    // (labelAlias()) the data can refer to
+    std::set<std::string> addressTakenLabels;
+    std::string labelAlias(const std::string& label) const { return name + "__lbl_" + label; }
     int staticLinkVreg = -1; // vreg holding the static link to parent frame
     int declLine = 0;                   // source line of function declaration
 

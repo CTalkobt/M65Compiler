@@ -799,11 +799,14 @@ void optimizeBranchFold(Module& mod) {
                 // Collect all referenced labels
                 std::set<std::string> referenced;
                 referenced.insert(fn.blocks[0].label); // entry is always reachable
+                // A label whose address is taken can be reached by goto *
+                referenced.insert(fn.addressTakenLabels.begin(), fn.addressTakenLabels.end());
 
                 for (size_t i = 0; i < fn.blocks.size(); i++) {
                     auto& block = fn.blocks[i];
                     bool hasTerminator = false;
                     for (auto& inst : block.insts) {
+                        if (inst.op == Op::ADDR_LABEL) referenced.insert(inst.src1.name);
                         if (inst.op == Op::BR) {
                             referenced.insert(inst.src1.name);
                             hasTerminator = true;

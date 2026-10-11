@@ -2,6 +2,7 @@
 # Remove names as they are fixed; test_failures.sh runs this list.
 # pr58574: program too large (code runs into I/O at $D000).
 # vrp-6: needs 32-bit int (dg int32plus); 0x80000000 truncates to 0 in a 16-bit unsigned int.
+# pr98366: needs 32-bit int (dg int32); int e:17 is wider than a 16-bit int.
 # pr56799: needs 32-bit int (dg int32plus); (int)0x10000 is 0 and a >> 16 shifts out a 16-bit int.
 20001009-2
 20010122-1
@@ -11,8 +12,6 @@
 20020412-1
 20030209-1
 20030501-1
-20031201-1
-20040302-1
 20040629-1
 20040703-1
 20040709-3
@@ -20,18 +19,12 @@
 20041201-1
 20041218-2
 20050604-1
-20051012-1
-20060420-1
 20061220-1
 20070919-1
 20071029-1
 20071120-1
-20071220-1
-920302-1
 920410-1
 920428-2
-920501-4
-920721-4
 920728-1
 921017-1
 921112-1
@@ -44,8 +37,6 @@ alias-2
 alias-3
 alias-4
 align-3
-bitfld-10
-bitfld-4
 bswap-3
 cmpsi-2
 eeprof-1
@@ -66,19 +57,15 @@ pr22061-1
 pr22061-3
 pr22061-4
 pr22098-1
-pr22098-3
 pr22141-1
 pr22141-2
 pr24135
 pr28982b
 pr29797-1
-pr31072
 pr35163
 pr37573
 pr38048-2
-pr40493
 pr41935
-pr43784
 pr44164
 pr44852
 pr45262
@@ -88,16 +75,11 @@ pr51323
 pr51447
 pr51877
 pr52286
-pr53084
-pr55750
 pr56799
 pr57124
 pr57130
-pr57344-1
-pr57568
 pr58209
 pr58574
-pr58984
 pr60960
 pr61725
 pr65427
@@ -107,25 +89,20 @@ pr68328
 pr68381
 pr68648
 pr70460
-pr71083
 pr71494
 pr71554
 pr71626-1
 pr71626-2
 pr7284-1
 pr79327
-pr79737-1
-pr79737-2
 pr80421
 pr82210
 pr85095
 pr85156
 pr85169
-pr88904
 pr90025
 pr93213
 pr93744-3
-pr93908
 pr93945
 pr94412
 pr94524-1
@@ -141,7 +118,6 @@ simd-2
 simd-4
 simd-6
 stkalign
-strcpy-2
 strlen-5
 strlen-6
 usmul
@@ -152,6 +128,5 @@ vfprintf-chk-1
 vrp-5
 vrp-6
 widechar-3
-zero-struct-1
 zerolen-1
 zerolen-2

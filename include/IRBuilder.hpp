@@ -145,6 +145,8 @@ private:
     std::map<std::string, std::string> globalPointedToTypeName_; // for global pointers: the type name of *ptr
     std::map<std::string, std::vector<int>> localArrayDims_; // for stride computation
     std::map<std::string, std::vector<int>> globalArrayDims_; // for stride computation
+    std::map<std::string, int> localPtrLevel_;   // declared pointer level (arrays: of the element)
+    std::map<std::string, int> globalPtrLevel_;
 
     // Unused variable tracking
     std::set<uint32_t> usedVregs_;
@@ -170,6 +172,11 @@ private:
     std::string staticFunctionName(const std::string& name);
     std::string resolvedFunctionName(const std::string& name) const;
     std::string staticAddressLabel(Expression* e);
+    // Link-time constant addresses (label + offset) for static initializers
+    bool constAddress(Expression* e, std::string& label, int& off);
+    bool constLvalue(Expression* e, std::string& label, int& off);
+    bool arrayShape(Expression* e, int& elemSize, std::vector<int>& dims);
+    int pointeeStride(Expression* e);
     // Compile-time value of a constant arithmetic expression (float or int
     // literals, unary +/-, + - * /, casts) for static initializers
     bool evalConstFloat(Expression* e, double& out);
@@ -177,6 +184,7 @@ private:
     std::string complexKindOf(Expression* e);
     bool isAggCopyParam(Expression* e);
     int complexTemp_ = 0;
+    std::set<std::string> nestedLabelAddrs_;  // &&label taken inside nested functions
     std::unique_ptr<Expression> cloneSimpleExpr(Expression* e);
     void toComplex(std::unique_ptr<Expression>& e, const std::string& kind);
     bool evalConstComplex(Expression* e, double& re, double& im);
@@ -213,7 +221,8 @@ private:
     ir::Operand emitPtrOffset(const ir::Operand& base, int offset, const ir::SourceLoc& sl);
     void emitBlockCopy(const ir::Operand& dst, const ir::Operand& src, int size, const ir::SourceLoc& sl);
     // Evaluate an aggregate-valued expression into the memory at dst
-    void emitAggregateInto(Expression* expr, const ir::Operand& dst, int size, const ir::SourceLoc& sl);
+    void emitAggregateInto(Expression* expr, const ir::Operand& dst, int size, const ir::SourceLoc& sl,
+                           bool dstMayAlias = false);
     std::set<int> boolVregs_;  // results of && / || (already 0/1)
     bool isBooleanValue(const ir::Operand& v) const;
     std::set<std::string> reportedUnused_;  // location keys of warnings already issued (unused names, x < 0)

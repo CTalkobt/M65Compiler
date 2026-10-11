@@ -552,14 +552,31 @@ void AssemblerGenerator::generate(AssemblerParser* parser, M65Emitter& e, const 
                         }
                     }
                     else if (stmt->dir.name == "word") {
-                        for (const auto& a : stmt->dir.arguments) {
-                            // Try numeric first, fall back to symbol with relocation
+                        for (size_t ai = 0; ai < stmt->dir.arguments.size(); ai++) {
+                            const auto& a = stmt->dir.arguments[ai];
+                            // Try numeric first, otherwise the whole expression
+                            // (lbl, lbl+1, lbl-2); a symbol gets a relocation
                             try {
                                 e.emitWord((uint16_t)parseNumericLiteral(a));
                             } catch (...) {
-                                Symbol* sym = parser->resolveSymbol(a, stmt->scopePrefix);
-                                uint16_t val = sym ? (uint16_t)sym->value : 0;
-                                e.emitWordReloc(a, val);
+                                int ti = ai < stmt->dir.argTokenIndices.size() ? stmt->dir.argTokenIndices[ai] : -1;
+                                std::string name = a.substr(0, a.find_first_of("+-", 1));
+                                Symbol* sym = parser->resolveSymbol(name, stmt->scopePrefix);
+                                if (!sym && !parser->isExternSymbol(name))
+                                    throw std::runtime_error("undefined symbol '" + name + "' in .word");
+                                // symbol + addend ("+1", "-2"); anything more
+                                // complex goes through the expression evaluator
+                                std::string rest = a.substr(name.size());
+                                uint32_t val = sym ? sym->value : 0;
+                                bool simple = true;
+                                if (!rest.empty()) {
+                                    try {
+                                        long add = (long)parseNumericLiteral(rest.substr(1));
+                                        val += (uint32_t)(rest[0] == '-' ? -add : add);
+                                    } catch (...) { simple = false; }
+                                }
+                                if (!simple && ti >= 0) val = parser->evaluateExpressionAt(ti, stmt->scopePrefix);
+                                e.emitWordReloc(name, (uint16_t)val);
                             }
                         }
                     }

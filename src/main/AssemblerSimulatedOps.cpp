@@ -2439,20 +2439,12 @@ void AssemblerSimulatedOps::emitBFExtCode(AssemblerParser* parser, M65Emitter& e
             e.emitInstruction("ror", AddressingMode::BASE_PAGE, s1, true);
             e.emitInstruction("ror", AddressingMode::BASE_PAGE, s0, true);
         }
+        // All four bytes of the field (a field may be wider than 16 bits)
         uint32_t mask = (bitWidth >= 32) ? 0xFFFFFFFF : ((1u << bitWidth) - 1);
-        e.lda_zp(s0);
-        e.and_imm(mask & 0xFF);
-        if (bitWidth > 8) {
-            e.pha();
-            e.lda_zp(s1);
-            e.and_imm((mask >> 8) & 0xFF);
-            e.tax();
-            e.pla();
-        } else {
-            e.ldx_imm(0);
-        }
-        e.ldy_imm(0);
-        e.ldz_imm(0);
+        e.lda_zp(s3); e.and_imm((mask >> 24) & 0xFF); e.taz();
+        e.lda_zp(s2); e.and_imm((mask >> 16) & 0xFF); e.tay();
+        e.lda_zp(s1); e.and_imm((mask >> 8) & 0xFF); e.tax();
+        e.lda_zp(s0); e.and_imm(mask & 0xFF);
     } else if (unitWidth == 16) {
         // AX contains 16-bit storage unit (A=lo, X=hi)
         e.stx_scratch();
@@ -2519,68 +2511,61 @@ void AssemblerSimulatedOps::emitBFInsCode(AssemblerParser* parser, M65Emitter& e
     uint16_t shiftedMask16 = (uint16_t)(mask16 << bitOff);
 
     if (is16) {
-        // 16-bit storage unit. A=lo of new value, X=hi of new value.
-        // Mask to bitWidth, shift left by bitOff, then do RMW on both bytes.
-        // Use scratch for lo byte, stack for hi byte.
-        e.and_imm(mask16 & 0xFF); e.sta_scratch();
-        e.txa(); e.and_imm((mask16 >> 8) & 0xFF); e.pha(); // hi on stack
-
-        // Shift scratch(lo) and stack-top(hi) left by bitOff
-        for (uint32_t i = 0; i < bitOff; i++) {
-            e.emitInstruction("asl", AddressingMode::BASE_PAGE, e.scratchZP(), true);
-            // Rotate carry into hi: pull, rol, push
-            e.pla(); e.rol_a(); e.pha();
+        // 2- or 4-byte storage unit; the new value is in A/X (Y/Z). It is
+        // masked to the field width and shifted into place in the scratch
+        // bytes, then only the bytes the field touches are read-modify-
+        // written. The whole updated unit is left in A/X (Y/Z), since the
+        // compiler stores the result back to the same unit.
+        int nb = unitWidth >= 32 ? 4 : 2;
+        uint32_t fmask = bitWidth >= 32 ? 0xFFFFFFFFu : ((1u << bitWidth) - 1);
+        uint32_t smask = bitOff >= 32 ? 0 : (fmask << bitOff);
+        uint8_t z0 = e.scratchZP();  // value bytes at z0 .. z0+nb-1
+        e.sta_zp(z0);
+        e.stx_zp(z0 + 1);
+        if (nb == 4) { e.sty_zp(z0 + 2); e.stz_zp(z0 + 3); }
+        for (int i = 0; i < nb; i++) {
+            uint8_t m = (uint8_t)(fmask >> (8 * i));
+            if (m == 0xFF) continue;
+            e.lda_zp(z0 + i); e.and_imm(m); e.sta_zp(z0 + i);
         }
-
-        // Mask to exact field position
-        e.lda_scratch(); e.and_imm(shiftedMask16 & 0xFF); e.sta_scratch();
-        e.pla(); e.and_imm((shiftedMask16 >> 8) & 0xFF); e.pha(); // hi still on stack
-
-        // RMW lo byte
-        if (mode == 1) {
-            e.lda_stack(addr + 1); // +1 because we pushed 1 byte
-            e.and_imm(~shiftedMask16 & 0xFF); e.ora_zp(e.scratchZP()); e.sta_stack(addr + 1);
-            e.lda_stack(addr + 1); // load lo byte result back into A
-        } else if (mode == 2) {
-            e.ldy_imm(0);
-            e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
-            e.and_imm(~shiftedMask16 & 0xFF); e.ora_zp(e.scratchZP());
-            e.emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
-            e.ldy_imm(0);
-            e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
-        } else {
-            if (addrIsZP) {
-                e.lda_imm(shiftedMask16 & 0xFF);
-                e.emitInstruction("trb", AddressingMode::BASE_PAGE, addr, true);
-                e.lda_scratch();
-                e.emitInstruction("tsb", AddressingMode::BASE_PAGE, addr, true);
-            } else {
-                e.lda_addr(addr); e.and_imm(~shiftedMask16 & 0xFF); e.ora_zp(e.scratchZP()); e.sta_addr(addr);
-            }
+        // Shift into position: whole bytes, then single bits
+        uint32_t sh = bitOff;
+        while (sh >= 8) {
+            for (int i = nb - 1; i > 0; i--) { e.lda_zp(z0 + i - 1); e.sta_zp(z0 + i); }
+            e.lda_imm(0); e.sta_zp(z0);
+            sh -= 8;
         }
-
-        // RMW hi byte: pull prepared hi from stack into scratch
-        e.pla(); e.sta_scratch();
-        if (mode == 1) {
-            e.lda_stack(addr + 1); // stack restored now
-            e.and_imm((~shiftedMask16 >> 8) & 0xFF); e.ora_zp(e.scratchZP()); e.sta_stack(addr + 1);
-            e.lda_stack(addr + 1); // load hi byte result back into A
-        } else if (mode == 2) {
-            e.ldy_imm(1);
-            e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
-            e.and_imm((~shiftedMask16 >> 8) & 0xFF); e.ora_zp(e.scratchZP());
-            e.emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
-            e.ldy_imm(1);
-            e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true);
+        for (uint32_t k = 0; k < sh; k++) {
+            e.emitInstruction("asl", AddressingMode::BASE_PAGE, z0, true);
+            for (int i = 1; i < nb; i++) e.emitInstruction("rol", AddressingMode::BASE_PAGE, z0 + i, true);
+        }
+        auto loadMem = [&](int i) {
+            if (mode == 1) e.lda_stack(addr + i);
+            else if (mode == 2) { e.ldy_imm(i); e.emitInstruction("lda", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true); }
+            else if (addrIsZP) e.emitInstruction("lda", AddressingMode::BASE_PAGE, addr + i, true);
+            else e.lda_addr(addr + i);
+        };
+        auto storeMem = [&](int i) {
+            if (mode == 1) e.sta_stack(addr + i);
+            else if (mode == 2) { e.ldy_imm(i); e.emitInstruction("sta", AddressingMode::BASE_PAGE_INDIRECT_Y, addr, true); }
+            else if (addrIsZP) e.emitInstruction("sta", AddressingMode::BASE_PAGE, addr + i, true);
+            else e.sta_addr(addr + i);
+        };
+        for (int i = 0; i < nb; i++) {
+            uint8_t m = (uint8_t)(smask >> (8 * i));
+            if (m == 0) continue;
+            if (m == 0xFF) { e.lda_zp(z0 + i); storeMem(i); continue; }
+            loadMem(i); e.and_imm((uint8_t)~m); e.ora_zp(z0 + i); storeMem(i);
+        }
+        // Result: the updated unit
+        if (nb == 4) {
+            loadMem(3); e.taz();
+            loadMem(2); e.sta_zp(z0 + 2);
+            loadMem(1); e.sta_zp(z0 + 1);
+            loadMem(0); e.ldy_zp(z0 + 2); e.ldx_zp(z0 + 1);
         } else {
-            if (addrIsZP) {
-                e.lda_imm((shiftedMask16 >> 8) & 0xFF);
-                e.emitInstruction("trb", AddressingMode::BASE_PAGE, addr + 1, true);
-                e.lda_scratch();
-                e.emitInstruction("tsb", AddressingMode::BASE_PAGE, addr + 1, true);
-            } else {
-                e.lda_addr(addr + 1); e.and_imm((~shiftedMask16 >> 8) & 0xFF); e.ora_zp(e.scratchZP()); e.sta_addr(addr + 1);
-            }
+            loadMem(1); e.sta_zp(z0 + 1);
+            loadMem(0); e.ldx_zp(z0 + 1);
         }
         return;
     }
@@ -3311,10 +3296,10 @@ void AssemblerSimulatedOps::dispatch_BFExt(AssemblerParser* p, M65Emitter& e, St
 }
 void AssemblerSimulatedOps::dispatch_BFIns(AssemblerParser* p, M65Emitter& e, Stmt* s) {
     bool is16 = (s->type == Stmt::BFINS16 || s->type == Stmt::BFINS16_SP || s->type == Stmt::BFINS16_IND);
-    bool is32 = (s->type == Stmt::BFINS32);
+    bool is32 = (s->type == Stmt::BFINS32 || s->type == Stmt::BFINS32_SP || s->type == Stmt::BFINS32_IND);
     int mode = 0;
-    if (s->type == Stmt::BFINS_SP || s->type == Stmt::BFINS16_SP) mode = 1;
-    else if (s->type == Stmt::BFINS_IND || s->type == Stmt::BFINS16_IND) mode = 2;
+    if (s->type == Stmt::BFINS_SP || s->type == Stmt::BFINS16_SP || s->type == Stmt::BFINS32_SP) mode = 1;
+    else if (s->type == Stmt::BFINS_IND || s->type == Stmt::BFINS16_IND || s->type == Stmt::BFINS32_IND) mode = 2;
     emitBFInsCode(p, e, is32 ? 32 : is16 ? 16 : 8, mode, s->instr.operandTokenIndex, s->scopePrefix);
 }
 void AssemblerSimulatedOps::dispatch_MulS16(AssemblerParser* p, M65Emitter& e, Stmt* s) {

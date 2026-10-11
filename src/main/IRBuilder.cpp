@@ -563,6 +563,21 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
                 if (gait != globalArrayDims_.end()) dims = gait->second;
             }
 
+            // With pointers involved: the element is the declared type at
+            // pointer level (level - indices past the array dimensions)
+            {
+                bool isLocalRef = localTypes_.count(ref->name) > 0;
+                auto& lvls = isLocalRef ? localPtrLevel_ : globalPtrLevel_;
+                auto lit = lvls.find(ref->name);
+                int through = depth - (int)dims.size();
+                if (lit != lvls.end() && lit->second > 0 && through >= 0 && lit->second >= through) {
+                    std::string declTn = isLocalRef ? localTypeNames_[ref->name] : globalTypeNames_[ref->name];
+                    int lvl = lit->second - through;
+                    ir::Type et = mapType(declTn, lvl);
+                    return {et, declTn, isSigned, lvl > 0 ? mapType(declTn, lvl - 1) : ir::Type::VOID,
+                            getTypeSize(declTn, lvl)};
+                }
+            }
             if (depth < (int)dims.size()) {
                 // Not the final dimension -> it's still an array/pointer
                 int totalSize = getTypeSize(tn, 0);
@@ -1159,6 +1174,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
             }
         }
         localTypeNames_[p.name] = resolvedTypeName;
+        localPtrLevel_[p.name] = p.pointerLevel;
         localSigned_[p.name] = p.isSigned;
         // For non-pointers: const int x → isConst=true, variable is read-only
         // For pointers: const int *p → isConst=true, pointed-to is read-only, pointer itself is writable
@@ -1255,14 +1271,25 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         for (const auto& blk : currentFunc_->blocks) irCount += (int)blk.insts.size();
         if (irCount > maxInlineIRSize) inlineCandidates_.erase(node.name);
     }
+    // A label whose address is stored in data (static &&label table) must
+    // stay in one copy of the function: never inline it
+    if (currentFunc_ && !currentFunc_->addressTakenLabels.empty()) {
+        inlineCandidates_.erase(node.name);
+        alwaysInlineNames_.erase(node.name);
+    }
 
     // Dead block elimination: remove trailing blocks after while(1) infinite loops.
     // Conservative approach: only remove blocks that follow a block ending with an
     // unconditional back-branch (BR to an earlier block) where no other block
     // branches to the trailing blocks.
     if (currentFunc_ && currentFunc_->blocks.size() > 1) {
-        // Find all referenced labels
-        std::set<std::string> referenced;
+        // Find all referenced labels (a label used from data, &&label in a
+        // static table, can be reached by goto *)
+        // A label whose address a nested function took: reachable by goto *
+        for (auto& blk : currentFunc_->blocks)
+            if (nestedLabelAddrs_.count(blk.label)) currentFunc_->addressTakenLabels.insert(blk.label);
+        std::set<std::string> referenced(currentFunc_->addressTakenLabels.begin(),
+                                         currentFunc_->addressTakenLabels.end());
         for (auto& blk : currentFunc_->blocks) {
             for (auto& inst : blk.insts) {
                 if (inst.src1.kind == ir::OperandKind::LABEL) referenced.insert(inst.src1.name);
@@ -1415,6 +1442,184 @@ std::string IRBuilder::staticAddressLabel(Expression* e) {
 }
 
 // ---------------------------------------------------------------------------
+// Link-time constant addresses: label + offset
+// ---------------------------------------------------------------------------
+
+static bool constIntOf(Expression* e, int64_t& v) {
+    while (auto* c = dynamic_cast<CastExpression*>(e)) e = c->expression.get();
+    if (auto* i = dynamic_cast<IntegerLiteral*>(e)) { v = i->value; return true; }
+    if (auto* u = dynamic_cast<UnaryOperation*>(e); u && (u->op == "-" || u->op == "+")) {
+        if (!constIntOf(u->operand.get(), v)) return false;
+        if (u->op == "-") v = -v;
+        return true;
+    }
+    return false;
+}
+
+// Element size and dimensions of an array-valued expression (a global or
+// local static array, an array member, a sub-array, a string literal)
+bool IRBuilder::arrayShape(Expression* e, int& elemSize, std::vector<int>& dims) {
+    if (auto* v = dynamic_cast<VariableReference*>(e)) {
+        auto lit = locals_.find(v->name);
+        bool local = lit != locals_.end();
+        if (local && lit->second.kind != ir::OperandKind::GLOBAL) return false;
+        auto& dimMap = local ? localArrayDims_ : globalArrayDims_;
+        auto dit = dimMap.find(v->name);
+        if (dit == dimMap.end() || dit->second.empty()) return false;
+        dims = dit->second;
+        bool ptrElem = local ? localPointedToType_.count(v->name) > 0 : globalPointedToType_.count(v->name) > 0;
+        std::string tn = local ? localTypeNames_[v->name] : globalTypeNames_[v->name];
+        elemSize = ptrElem ? 2 : getTypeSize(tn, 0);
+        return elemSize > 0;
+    }
+    if (auto* str = dynamic_cast<StringLiteral*>(e)) {
+        elemSize = 1;
+        dims = {(int)str->value.size() + 1};
+        return true;
+    }
+    if (auto* ma = dynamic_cast<MemberAccess*>(e)) {
+        auto* mi = arrayMemberOf(ma);
+        if (!mi || mi->arrayDims.empty()) return false;
+        elemSize = getTypeSize(mi->type, mi->pointerLevel);
+        dims = mi->arrayDims;
+        return true;
+    }
+    if (auto* aa = dynamic_cast<ArrayAccess*>(e)) {
+        if (!arrayShape(aa->arrayExpr.get(), elemSize, dims) || dims.size() < 2) return false;
+        dims.erase(dims.begin());
+        return true;
+    }
+    return false;
+}
+
+// The address of an lvalue that lives at a fixed place: label + offset
+bool IRBuilder::constLvalue(Expression* e, std::string& label, int& off) {
+    while (auto* c = dynamic_cast<CastExpression*>(e)) e = c->expression.get();
+    if (auto* v = dynamic_cast<VariableReference*>(e)) {
+        auto lit = locals_.find(v->name);
+        if (lit != locals_.end()) {
+            if (lit->second.kind != ir::OperandKind::GLOBAL) return false;  // a frame local
+            label = lit->second.name;
+        } else if (globalTypes_.count(v->name)) {
+            label = "_" + v->name;
+        } else {
+            return false;
+        }
+        off = 0;
+        return true;
+    }
+    if (dynamic_cast<StringLiteral*>(e)) return constAddress(e, label, off);
+    if (auto* aa = dynamic_cast<ArrayAccess*>(e)) {
+        int64_t k;
+        if (!constIntOf(aa->indexExpr.get(), k)) return false;
+        int es; std::vector<int> dims;
+        if (arrayShape(aa->arrayExpr.get(), es, dims)) {
+            int stride = es;
+            for (size_t i = 1; i < dims.size(); i++) stride *= dims[i];
+            if (!constLvalue(aa->arrayExpr.get(), label, off)) return false;
+            off += (int)k * stride;
+            return true;
+        }
+        // p[k] on a constant pointer
+        if (!constAddress(aa->arrayExpr.get(), label, off)) return false;
+        off += (int)k * pointeeStride(aa->arrayExpr.get());
+        return true;
+    }
+    if (auto* ma = dynamic_cast<MemberAccess*>(e)) {
+        std::string t = getExprTypeInfo(ma->structExpr.get()).typeName;
+        if (t.rfind("struct ", 0) != 0 && t.rfind("union ", 0) != 0) t = resolveTypedefToStruct(t);
+        std::string sName = getAggregateName(t);
+        int acc = 0;
+        auto* mi = structs_.count(sName) ? findStructMember(sName, ma->memberName, acc) : nullptr;
+        if (!mi || mi->bitWidth > 0) return false;
+        bool ok = ma->isArrow ? constAddress(ma->structExpr.get(), label, off)
+                              : constLvalue(ma->structExpr.get(), label, off);
+        if (!ok) return false;
+        off += mi->offset + acc;
+        return true;
+    }
+    if (auto* u = dynamic_cast<UnaryOperation*>(e); u && u->op == "*") return constAddress(u->operand.get(), label, off);
+    return false;
+}
+
+// Size of what a constant pointer expression points to (for p + k)
+int IRBuilder::pointeeStride(Expression* e) {
+    while (auto* c = dynamic_cast<CastExpression*>(e)) {
+        if (c->pointerLevel > 0) return std::max(1, getTypeSize(c->targetType, c->pointerLevel - 1));
+        e = c->expression.get();
+    }
+    int es; std::vector<int> dims;
+    if (arrayShape(e, es, dims)) {
+        int stride = es;
+        for (size_t i = 1; i < dims.size(); i++) stride *= dims[i];
+        return stride;
+    }
+    IRTypeInfo ti = getExprTypeInfo(e);
+    if (ti.type == ir::Type::PTR && ti.pointedToType != ir::Type::VOID) return std::max(1, (int)ir::typeSize(ti.pointedToType));
+    return 1;
+}
+
+// A link-time constant address value: "abc" + 1, &a[3][5], &s.m, arr + 2,
+// a function or array name, &x (globals and local statics)
+bool IRBuilder::constAddress(Expression* e, std::string& label, int& off) {
+    Expression* inner = e;
+    while (auto* c = dynamic_cast<CastExpression*>(inner)) inner = c->expression.get();
+    if (auto* str = dynamic_cast<StringLiteral*>(inner)) {
+        label = "__str_" + std::to_string(nextLabel_++);
+        ir::Module::StringLiteral sl;
+        sl.label = label;
+        sl.value = str->value;
+        sl.escMask = str->escMask;
+        sl.isAscii = str->isAscii || (currentStringEncoding_ == StringEncoding::ASCII);
+        sl.encoding = str->isAscii ? 1 : (currentStringEncoding_ == StringEncoding::SCREENCODE ? 2 : 0);
+        module_.strings.push_back(sl);
+        off = 0;
+        return true;
+    }
+    if (auto* u = dynamic_cast<UnaryOperation*>(inner); u && u->op == "&") return constLvalue(u->operand.get(), label, off);
+    if (auto* b = dynamic_cast<BinaryOperation*>(inner); b && (b->op == "+" || b->op == "-")) {
+        int64_t k;
+        if (constIntOf(b->right.get(), k) && constAddress(b->left.get(), label, off)) {
+            int stride = pointeeStride(b->left.get());
+            off += (int)(b->op == "+" ? k : -k) * stride;
+            return true;
+        }
+        if (b->op == "+" && constIntOf(b->left.get(), k) && constAddress(b->right.get(), label, off)) {
+            off += (int)k * pointeeStride(b->right.get());
+            return true;
+        }
+        return false;
+    }
+    if (auto* v = dynamic_cast<VariableReference*>(inner)) {
+        // An array decays to its address; a function name is its address
+        int es; std::vector<int> dims;
+        if (arrayShape(inner, es, dims)) return constLvalue(inner, label, off);
+        std::string l = staticAddressLabel(inner);
+        if (l.empty()) return false;
+        label = l;
+        off = 0;
+        return true;
+    }
+    if (auto* aa = dynamic_cast<ArrayAccess*>(inner)) {
+        // A sub-array decays: a[1] of int a[3][4]
+        int es; std::vector<int> dims;
+        if (arrayShape(inner, es, dims)) return constLvalue(inner, label, off);
+        (void)aa;
+    }
+    if (auto* ma = dynamic_cast<MemberAccess*>(inner)) {
+        int es; std::vector<int> dims;
+        if (arrayShape(inner, es, dims)) return constLvalue(inner, label, off);
+        (void)ma;
+    }
+    return false;
+}
+
+static std::string labelPlus(const std::string& label, int off) {
+    if (off == 0) return label;
+    return label + (off > 0 ? "+" : "-") + std::to_string(off > 0 ? off : -off);
+}
+
+// ---------------------------------------------------------------------------
 // Constant initializer images (aggregate / array globals and local statics)
 // ---------------------------------------------------------------------------
 
@@ -1470,17 +1675,6 @@ bool IRBuilder::initLocalAggregate(const ir::Operand& vreg, const std::string& t
     image.isStatic = true;
     image.align = std::max(1, typeAlign(type, ptr));
     bool constant = buildInitImage(image, type, ptr, dims, init);
-    if (!constant) {
-        // Run-time stores don't handle bitfields: leave those to the caller
-        std::function<bool(const std::string&, int)> hasBitfield = [&](const std::string& t, int p) {
-            const IRStructInfo* si = p == 0 ? structOf(t) : nullptr;
-            if (!si) return false;
-            for (auto& [n, mi] : si->members)
-                if (mi.bitWidth > 0 || hasBitfield(mi.type, mi.pointerLevel)) return true;
-            return false;
-        };
-        if (hasBitfield(type, ptr)) return false;
-    }
     auto base = allocVreg(ir::Type::PTR);
     ir::Inst addr;
     addr.op = ir::Op::ADDR_LOCAL;
@@ -1645,6 +1839,8 @@ bool IRBuilder::fillAggregate(InitImageCtx& c, int off, const std::string& type,
             m = (size_t)(pos - order.begin());
         } else if (m >= order.size()) {
             break;
+        } else if (order[m].rfind("__unnamed_bf_", 0) == 0) {
+            continue;  // an unnamed bitfield is not initialized
         }
         const IRMemberInfo& mi = si->members.at(order[m]);
         size_t before = idx;
@@ -1667,7 +1863,6 @@ bool IRBuilder::initScalar(InitImageCtx& c, int off, const std::string& type, in
                            Expression* e) {
     if (c.runtime) {
         // Evaluate and store, converted to the object's type
-        if (bitWidth > 0) return false;
         ir::Type t = mapType(type, ptr);
         bool saved = computeAddressOnly_;
         computeAddressOnly_ = false;
@@ -1676,6 +1871,29 @@ bool IRBuilder::initScalar(InitImageCtx& c, int off, const std::string& type, in
         ir::Operand v = lastValue_;
         if (v.type != t && v.type != ir::Type::VOID && t != ir::Type::I_N)
             v = emitCast(v, t, getExprTypeInfo(e).isSigned);
+        if (bitWidth > 0) {
+            // Insert into the storage unit (as an assignment to the field does)
+            auto addr = emitPtrOffset(c.base, off, c.sl);
+            auto unit = allocVreg(t);
+            ir::Inst bf;
+            bf.op = ir::Op::BFINS;
+            bf.resultType = t;
+            bf.dest = unit;
+            bf.src1 = v;
+            bf.src2 = addr;
+            bf.args.push_back(ir::Operand::imm(bitOffset, ir::Type::I8));
+            bf.args.push_back(ir::Operand::imm(bitWidth, ir::Type::I8));
+            bf.loc = c.sl;
+            emit(bf);
+            ir::Inst st;
+            st.op = ir::Op::STORE;
+            st.resultType = t;
+            st.src1 = unit;
+            st.src2 = addr;
+            st.loc = c.sl;
+            emit(st);
+            return true;
+        }
         ir::Inst st;
         st.op = ir::Op::STORE;
         st.resultType = t;
@@ -1690,24 +1908,20 @@ bool IRBuilder::initScalar(InitImageCtx& c, int off, const std::string& type, in
     ir::Type t = mapType(type, ptr);
     int size = ptr > 0 ? 2 : getTypeSize(type, 0);
     if (off < 0 || off + std::max(size, 1) > (int)bytes.size()) return false;
-    // Addresses: a 2-byte relocated word
-    if (auto* str = dynamic_cast<StringLiteral*>(e)) {
-        if (size != 2) return false;
-        std::string label = "__str_" + std::to_string(nextLabel_++);
-        ir::Module::StringLiteral sl;
-        sl.label = label;
-        sl.value = str->value;
-        sl.escMask = str->escMask;
-        sl.isAscii = str->isAscii || (currentStringEncoding_ == StringEncoding::ASCII);
-        sl.encoding = str->isAscii ? 1 : (currentStringEncoding_ == StringEncoding::SCREENCODE ? 2 : 0);
-        module_.strings.push_back(sl);
-        c.gv->initWords[off] = label;
-        return true;
+    // Addresses: a 2-byte relocated word (label + offset)
+    {
+        std::string label;
+        int aoff = 0;
+        if (size == 2 && constAddress(e, label, aoff)) {
+            c.gv->initWords[off] = labelPlus(label, aoff);
+            return true;
+        }
     }
-    std::string label = staticAddressLabel(e);
-    if (!label.empty()) {
+    // &&label (a static goto * table): the label's global alias
+    if (auto* la = dynamic_cast<LabelAddressExpression*>(e); la && currentFunc_) {
         if (size != 2) return false;
-        c.gv->initWords[off] = label;
+        currentFunc_->addressTakenLabels.insert(la->label);
+        c.gv->initWords[off] = currentFunc_->labelAlias(la->label);
         return true;
     }
     // Numbers
@@ -2143,21 +2357,36 @@ void IRBuilder::emitMethodCall(const std::string& mangledName, std::vector<ir::O
     lastValueSigned_ = functionReturnSigned_[mangledName];
 }
 
-void IRBuilder::emitAggregateInto(Expression* expr, const ir::Operand& dst, int size, const ir::SourceLoc& sl) {
+void IRBuilder::emitAggregateInto(Expression* expr, const ir::Operand& dst, int size, const ir::SourceLoc& sl,
+                                  bool dstMayAlias) {
     if (auto* call = dynamic_cast<FunctionCall*>(expr)) {
         // An aggregate-returning call (function, method or function pointer)
-        // writes its result straight into dst through the hidden pointer
+        // writes its result straight into dst through the hidden pointer —
+        // unless dst may be memory the callee reads (*q = f() where f reads
+        // an overlapping *p): then into its own buffer, copied afterwards
         sretDest_ = dst;
-        sretDestSet_ = true;
+        sretDestSet_ = !dstMayAlias;
         bool saved = computeAddressOnly_;
         computeAddressOnly_ = false;
         call->accept(*this);
         computeAddressOnly_ = saved;
-        bool consumed = !sretDestSet_;
+        bool consumed = !dstMayAlias && !sretDestSet_;
         sretDestSet_ = false;
         if (consumed) return;
-        // Not an sret call: lastValue_ is the result's address
-        emitBlockCopy(dst, lastValue_, size, sl);
+        // The result's address (an sret call leaves its buffer vreg)
+        ir::Operand src = lastValue_;
+        if (src.isVreg() && src.type != ir::Type::PTR && currentFunc_ && currentFunc_->memoryVregs.count(src.vregId)) {
+            auto a = allocVreg(ir::Type::PTR);
+            ir::Inst al;
+            al.op = ir::Op::ADDR_LOCAL;
+            al.dest = a;
+            al.resultType = ir::Type::PTR;
+            al.src1 = ir::Operand::vreg(src.vregId, ir::Type::PTR);
+            al.loc = sl;
+            emit(al);
+            src = a;
+        }
+        emitBlockCopy(dst, src, size, sl);
         return;
     }
     auto src = emitAddressOf(expr);
@@ -2175,6 +2404,7 @@ void IRBuilder::resetFunctionLocalState() {
     localRegister_.clear();
     localPointedToType_.clear();
     localArrayDims_.clear();
+    localPtrLevel_.clear();
     usedVregs_.clear();
     localDeclLocs_.clear();
 }
@@ -2200,6 +2430,10 @@ void IRBuilder::visit(StatementExpression& node) {
 
 void IRBuilder::visit(VariableDeclaration& node) {
     if (node.isFunctionPointer && node.funcPtrSig) fnPtrSigs_[node.name] = node.funcPtrSig;
+    // char a[] = "text": the size includes the terminating 0
+    if (node.arrayDims.size() == 1 && node.arrayDims[0] <= 0 && node.pointerLevel == 0)
+        if (auto* str = dynamic_cast<StringLiteral*>(node.initializer.get()))
+            node.arrayDims[0] = (int)str->value.size() + 1;
     bool isStructOrUnion = (node.type.rfind("struct ", 0) == 0 || node.type.rfind("union ", 0) == 0);
     if (isStructOrUnion && node.pointerLevel == 0) {
         std::string sName = getAggregateName(node.type);
@@ -2244,6 +2478,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
             if (!node.arrayDims.empty()) globalArrayDims_[node.name] = node.arrayDims;
             globalTypes_[node.name] = t;
             globalTypeNames_[node.name] = node.type;
+            globalPtrLevel_[node.name] = node.pointerLevel;
             globalSigned_[node.name] = node.isSigned;
             globalRegister_[node.name] = node.isRegister;
         };
@@ -2296,6 +2531,15 @@ void IRBuilder::visit(VariableDeclaration& node) {
                 } else {
                     gv.initValue = lit->value;
                 }
+            } else if (dynamic_cast<StringLiteral*>(node.initializer.get()) && !node.arrayDims.empty() &&
+                       buildInitImage(gv, node.type, node.pointerLevel, node.arrayDims, node.initializer.get())) {
+                // char a[] = "text": the characters (not a pointer to them)
+            } else if (std::string clabel; node.pointerLevel > 0 && node.arrayDims.empty() &&
+                       [&] { int coff = 0; if (!constAddress(node.initializer.get(), clabel, coff)) return false;
+                             clabel = labelPlus(clabel, coff); return true; }()) {
+                // int *p = &a[3][5]; const char *s = "abc" + 1; char *q = buf + 2;
+                gv.hasInitValue = true;
+                gv.initLabels.push_back(clabel);
             } else if (auto* slit = dynamic_cast<StringLiteral*>(node.initializer.get())) {
                 // Scalar string literal init: char *p = "hello"
                 std::string label = "__str_" + std::to_string(nextLabel_++);
@@ -2412,6 +2656,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
             }
         }
         localTypeNames_[node.name] = resolvedGlobalTypeName;
+        localPtrLevel_[node.name] = node.pointerLevel;
         localSigned_[node.name] = node.isSigned;
         localConst_[node.name] = node.isConst && node.pointerLevel == 0;
         localPointsToConst_[node.name] = node.isConst && node.pointerLevel > 0;
@@ -2420,6 +2665,8 @@ void IRBuilder::visit(VariableDeclaration& node) {
             localPointedToType_[node.name] = mapType(node.type, node.pointerLevel - 1);
             localPointedToTypeName_[node.name] = resolvedGlobalTypeName;
         }
+        // A local static array: its dimensions (indexing strides, decay)
+        if (!node.arrayDims.empty()) localArrayDims_[node.name] = node.arrayDims;
         return;  // Skip frame allocation
     }
 
@@ -2445,6 +2692,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
         }
     }
     localTypeNames_[node.name] = resolvedVarTypeName;
+    localPtrLevel_[node.name] = node.pointerLevel;
     localSigned_[node.name] = node.isSigned;
     localConst_[node.name] = node.isConst && node.pointerLevel == 0;
     localPointsToConst_[node.name] = node.isConst && node.pointerLevel > 0;
@@ -2639,40 +2887,11 @@ void IRBuilder::visit(VariableDeclaration& node) {
                 emit(store);
             }
         } else if (auto* cl = dynamic_cast<CompoundLiteral*>(node.initializer.get());
-                   cl && cl->initializer && structs_.count(getAggregateName(node.type))) {
-            // Struct compound literal — store members directly into variable
-            auto& si = structs_[getAggregateName(node.type)];
-            auto baseAddr = allocVreg(ir::Type::PTR);
-            ir::Inst addrInst;
-            addrInst.op = ir::Op::ADDR_LOCAL;
-            addrInst.dest = baseAddr;
-            addrInst.resultType = ir::Type::PTR;
-            addrInst.src1 = ir::Operand::vreg(vreg.vregId, ir::Type::PTR);
-            addrInst.loc = loc(node);
-            emit(addrInst);
-            for (size_t i = 0; i < cl->initializer->elements.size() && i < si.memberOrder.size(); i++) {
-                cl->initializer->elements[i]->accept(*this);
-                auto val = lastValue_;
-                auto& mi = si.members[si.memberOrder[i]];
-                ir::Type mt = mapType(mi.type, mi.pointerLevel);
-                auto elemAddr = allocVreg(ir::Type::PTR);
-                ir::Inst add;
-                add.op = ir::Op::ADD;
-                add.dest = elemAddr;
-                add.resultType = ir::Type::PTR;
-                add.src1 = baseAddr;
-                add.src2 = ir::Operand::imm(mi.offset, ir::Type::I16);
-                add.loc = loc(node);
-                emit(add);
-                ir::Inst store;
-                store.op = ir::Op::STORE;
-                store.resultType = mt;
-                store.src1 = val;
-                store.src2 = elemAddr;
-                store.loc = loc(node);
-                emit(store);
-            }
-            currentFunc_->memoryVregs.insert(vreg.vregId);
+                   cl && cl->initializer && node.pointerLevel == 0 && node.arrayDims.empty() &&
+                   cl->pointerLevel == 0 && cl->arrayDims.empty() && structOf(node.type) &&
+                   structOf(cl->targetType) == structOf(node.type) &&
+                   initLocalAggregate(vreg, node.type, 0, {}, cl->initializer.get(), loc(node))) {
+            // struct S x = (struct S){...}: laid out directly in the variable
         } else if (int aggSize = node.arrayDims.empty() ? aggregateBlockSize(node.type, node.pointerLevel) : 0;
                    aggSize > 0 && !dynamic_cast<CompoundLiteral*>(node.initializer.get())) {
             // Struct/union initialised from another aggregate: copy by address
@@ -3071,7 +3290,13 @@ void IRBuilder::visit(Assignment& node) {
                       ? 0 : aggregateBlockSize(ti.typeName, 0);
         if (aggSize > 0) {
             auto dst = emitAddressOf(node.target.get());
-            emitAggregateInto(node.expression.get(), dst, aggSize, loc(node));
+            // Only a local variable can't be memory the callee reads
+            bool localTarget = false;
+            if (auto* vr = dynamic_cast<VariableReference*>(node.target.get())) {
+                auto lit = locals_.find(vr->name);
+                localTarget = lit != locals_.end() && lit->second.kind != ir::OperandKind::GLOBAL;
+            }
+            emitAggregateInto(node.expression.get(), dst, aggSize, loc(node), !localTarget);
             lastValue_ = dst;
             return;
         }
@@ -3213,14 +3438,19 @@ void IRBuilder::visit(Assignment& node) {
     if (auto* ma = dynamic_cast<MemberAccess*>(node.target.get())) {
         int bitWidth = 0, bitOffset = 0, memberOffset = 0;
         ir::Type memberType = ir::Type::I16;
-        for (const auto& [sname, sinfo] : structs_) {
-            auto mit = sinfo.members.find(ma->memberName);
-            if (mit != sinfo.members.end() && mit->second.bitWidth > 0) {
-                bitWidth = mit->second.bitWidth;
-                bitOffset = mit->second.bitOffset;
-                memberOffset = mit->second.offset;
-                memberType = mapType(mit->second.type, mit->second.pointerLevel);
-                break;
+        // The member of the struct actually accessed (another struct may
+        // have a bitfield of the same name)
+        {
+            std::string t = getExprTypeInfo(ma->structExpr.get()).typeName;
+            if (t.rfind("struct ", 0) != 0 && t.rfind("union ", 0) != 0) t = resolveTypedefToStruct(t);
+            int accOffset = 0;
+            auto* mit = structs_.count(getAggregateName(t))
+                      ? findStructMember(getAggregateName(t), ma->memberName, accOffset) : nullptr;
+            if (mit && mit->bitWidth > 0) {
+                bitWidth = mit->bitWidth;
+                bitOffset = mit->bitOffset;
+                memberOffset = mit->offset + accOffset;
+                memberType = mapType(mit->type, mit->pointerLevel);
             }
         }
         if (bitWidth > 0) {
@@ -3251,12 +3481,12 @@ void IRBuilder::visit(Assignment& node) {
             bfins.loc = loc(node);
             emit(bfins);
 
-            // Store the modified value back to the original storage location
+            // Store the modified unit back (its own width: a char unit is 1 byte)
             ir::Inst store;
             store.op = ir::Op::STORE;
             store.src1 = bfinsResult;
             store.src2 = addr;
-            store.resultType = ir::Type::VOID;
+            store.resultType = memberType;
             store.loc = loc(node);
             emit(store);
 
@@ -4760,6 +4990,7 @@ normal_call:
                 locals_[p.name] = paramVreg;
                 localTypes_[p.name] = pt;
                 localTypeNames_[p.name] = p.type;
+                localPtrLevel_[p.name] = p.pointerLevel;
                 localSigned_[p.name] = p.isSigned;
                 localConst_[p.name] = (p.pointerLevel == 0 && p.isConst);
                 if (p.pointerLevel > 0) {
@@ -5440,9 +5671,12 @@ void IRBuilder::visit(ArrayAccess& node) {
     if (auto* ref = dynamic_cast<VariableReference*>(node.arrayExpr.get())) {
         auto ait = localArrayDims_.find(ref->name);
         if (ait != localArrayDims_.end() && !ait->second.empty()) {
-            // Local array — compute address via ADDR_LOCAL
+            // Local array — compute address via ADDR_LOCAL (a local static
+            // array is a global: its operand is the address)
             auto it = locals_.find(ref->name);
-            if (it != locals_.end()) {
+            if (it != locals_.end() && it->second.kind == ir::OperandKind::GLOBAL) {
+                lastValue_ = it->second;
+            } else if (it != locals_.end()) {
                 auto dest = allocVreg(ir::Type::PTR);
                 ir::Inst addrInst;
                 addrInst.op = ir::Op::ADDR_LOCAL;
@@ -5505,7 +5739,17 @@ void IRBuilder::visit(ArrayAccess& node) {
             if (gait != globalArrayDims_.end()) dims = gait->second;
         }
 
-        if (!dims.empty() && depth <= (int)dims.size()) {
+        // Indexing past the array dimensions goes through pointer elements:
+        // each further index steps by the type one pointer level down
+        // (p[i][k] for char *p[], pp[0][1] for char **pp)
+        bool isLocalRef = localTypes_.count(ref->name) > 0;
+        int ptrLevel = isLocalRef ? (localPtrLevel_.count(ref->name) ? localPtrLevel_[ref->name] : -1)
+                                  : (globalPtrLevel_.count(ref->name) ? globalPtrLevel_[ref->name] : -1);
+        int through = depth - (int)dims.size();
+        if (through > 0 && ptrLevel >= through) {
+            std::string tn = isLocalRef ? localTypeNames_[ref->name] : globalTypeNames_[ref->name];
+            elemSize = std::max(1, getTypeSize(tn, ptrLevel - through));
+        } else if (!dims.empty() && depth <= (int)dims.size()) {
             std::string tn;
             if (localTypeNames_.count(ref->name)) tn = localTypeNames_[ref->name];
             else tn = globalTypeNames_[ref->name];
@@ -5521,6 +5765,10 @@ void IRBuilder::visit(ArrayAccess& node) {
         } else {
             elemSize = ir::typeSize(baseType);
         }
+    } else if (auto* cl = dynamic_cast<CompoundLiteral*>(root); cl && !cl->arrayDims.empty()) {
+        // (T[N][M]){...}[i]: stride over the dimensions not yet indexed
+        elemSize = getTypeSize(cl->targetType, cl->pointerLevel);
+        for (size_t i = depth; i < cl->arrayDims.size(); i++) elemSize *= cl->arrayDims[i];
     } else if (auto* ma = dynamic_cast<MemberAccess*>(root)) {
         // Array member of a struct (e.g., sid1->voice[1], vic4->sprite[0])
         // Look up the member's element type from struct info
@@ -5569,6 +5817,8 @@ void IRBuilder::visit(ArrayAccess& node) {
         if (depth < (int)dims.size()) isFinal = false;
     } else if (auto* ma = dynamic_cast<MemberAccess*>(root)) {
         if (auto* mi = arrayMemberOf(ma); mi && depth < (int)mi->arrayDims.size()) isFinal = false;
+    } else if (auto* cl = dynamic_cast<CompoundLiteral*>(root)) {
+        if (depth < (int)cl->arrayDims.size()) isFinal = false;
     }
 
     if (isFinal) {
@@ -5691,12 +5941,48 @@ void IRBuilder::visit(MemberAccess& node) {
         bfext.loc = loc(node);
         emit(bfext);
         lastValue_ = extracted;
+        // A signed field: sign-extend from its width (shift up, then
+        // arithmetic shift back down)
+        int unitBits = 8 * ir::typeSize(loadType);
+        if (info.isSigned && bitWidth < unitBits) {
+            int sh = unitBits - bitWidth;
+            auto up = allocVreg(loadType);
+            ir::Inst shl;
+            shl.op = ir::Op::SHL;
+            shl.dest = up;
+            shl.resultType = loadType;
+            shl.src1 = extracted;
+            shl.src2 = ir::Operand::imm(sh, ir::Type::I8);
+            shl.loc = loc(node);
+            emit(shl);
+            auto down = allocVreg(loadType);
+            ir::Inst asr;
+            asr.op = ir::Op::ASR;
+            asr.dest = down;
+            asr.resultType = loadType;
+            asr.src1 = up;
+            asr.src2 = ir::Operand::imm(sh, ir::Type::I8);
+            asr.loc = loc(node);
+            emit(asr);
+            lastValue_ = down;
+        }
     } else {
         lastValue_ = val;
     }
 }
 
 void IRBuilder::visit(CompoundLiteral& node) {
+    // (T[]){...}: the size comes from the initializer
+    if (!node.arrayDims.empty() && node.arrayDims[0] <= 0 && node.initializer) {
+        int n = 0, pos = 0;
+        auto& il = *node.initializer;
+        for (size_t i = 0; i < il.elements.size(); i++) {
+            auto d = il.getDesignator(i);
+            if (d.arrayIndex >= 0) pos = d.arrayIndex;
+            n = std::max(n, ++pos);
+        }
+        node.arrayDims[0] = n;
+    }
     bool isStructOrUnion = (node.targetType.rfind("struct ", 0) == 0 || node.targetType.rfind("union ", 0) == 0);
     if (isStructOrUnion && node.pointerLevel == 0) {
         std::string sName = getAggregateName(node.targetType);
@@ -5737,16 +6023,25 @@ void IRBuilder::visit(CompoundLiteral& node) {
         // The elements are values even when the literal's address is wanted
         bool savedAddrOnly = computeAddressOnly_;
         computeAddressOnly_ = false;
-        if (node.initializer) {
+        // Laid out like a local's initializer (nested braces, designators,
+        // bitfields, unnamed bitfields skipped)
+        bool laidOut = currentFunc_ && node.initializer && (isStructOrUnion || !node.arrayDims.empty()) &&
+                       initLocalAggregate(buf, node.targetType, node.pointerLevel, node.arrayDims,
+                                          node.initializer.get(), loc(node));
+        if (node.initializer && !laidOut) {
             std::string sName = getAggregateName(node.targetType);
             bool isStruct = structs_.count(sName) > 0;
             if (isStruct) {
                 // Store each member at its correct offset using struct layout
                 auto& si = structs_[sName];
-                for (size_t i = 0; i < node.initializer->elements.size() && i < si.memberOrder.size(); i++) {
+                // Positional: the next named member (unnamed bitfields are skipped)
+                std::vector<std::string> named;
+                for (auto& mn : si.memberOrder)
+                    if (mn.rfind("__unnamed_bf_", 0) != 0) named.push_back(mn);
+                for (size_t i = 0; i < node.initializer->elements.size() && i < named.size(); i++) {
                     node.initializer->elements[i]->accept(*this);
                     auto val = lastValue_;
-                    auto& mi = si.members[si.memberOrder[i]];
+                    auto& mi = si.members[named[i]];
                     ir::Type mt = mapType(mi.type, mi.pointerLevel);
                     if ((mt == ir::Type::F32) != (val.type == ir::Type::F32) && mt != ir::Type::I_N &&
                         mi.pointerLevel == 0 && val.type != ir::Type::VOID)
@@ -6566,6 +6861,9 @@ void IRBuilder::visit(CpuFlagAccess& node) {
 
 
 void IRBuilder::visit(LabelAddressExpression& node) {
+    // In a nested function the label may be the enclosing function's
+    // (a non-local label): that function keeps it and gives it an alias
+    if (currentFunc_ && currentFunc_->isNested) nestedLabelAddrs_.insert(node.label);
     ir::Inst addr;
     addr.op = ir::Op::ADDR_LABEL;
     addr.dest = allocVreg(ir::Type::I16);

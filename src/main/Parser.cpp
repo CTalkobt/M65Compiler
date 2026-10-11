@@ -2511,6 +2511,7 @@ std::unique_ptr<Expression> Parser::parseUnary() {
         std::string castType;
         bool castSigned = false;
         int castPtrLevel = 0;
+        std::vector<int> castArrayDims;
         bool castVolatile = false, castConst = false;
 
         if (isTypeStartToken()) {
@@ -2521,15 +2522,22 @@ std::unique_ptr<Expression> Parser::parseUnary() {
             castVolatile = ts.isVolatile;
             castConst = ts.isConst;
 
-            // Array cast: (int []) or (int [N]) — array compound literal
+            // Array type: (int []) or (int [N]) — an array compound literal;
+            // a 0 dimension is taken from the initializer
             while (peek().type == TokenType::OPEN_SQUARE) {
                 advance(); // [
-                if (peek().type != TokenType::CLOSE_SQUARE) {
-                    // Skip size expression
+                int dim = 0;
+                if (peek().type == TokenType::INTEGER_LITERAL && pos + 1 < tokens.size() &&
+                    tokens[pos + 1].type == TokenType::CLOSE_SQUARE) {
+                    std::string v = advance().value;
+                    while (!v.empty() && std::strchr("uUlL", v.back())) v.pop_back();
+                    dim = (int)std::stoll(v, nullptr, 0);
+                } else {
+                    // Skip a size expression (taken from the initializer)
                     while (peek().type != TokenType::CLOSE_SQUARE && peek().type != TokenType::END_OF_FILE) advance();
                 }
                 expect(TokenType::CLOSE_SQUARE, "Expected ']' in array cast");
-                castPtrLevel++; // array decays to pointer
+                castArrayDims.push_back(dim);
             }
 
             // Function pointer cast: (return_type (*)(params))
@@ -2566,12 +2574,8 @@ std::unique_ptr<Expression> Parser::parseUnary() {
                 auto initList = parseInitializerList();
                 std::unique_ptr<InitializerList> initListPtr(static_cast<InitializerList*>(initList.release()));
                 auto cl = std::make_unique<CompoundLiteral>(castType, castPtrLevel, castSigned, std::move(initListPtr));
-                // For array compound literals like (int[]){1,2,3}, infer dimension from element count
-                if (castPtrLevel == 0 && !castType.empty() && castType.substr(0, 7) != "struct " && castType.substr(0, 6) != "union ") {
-                    if (cl->initializer && cl->initializer->elements.size() > 1) {
-                        cl->arrayDims.push_back((int)cl->initializer->elements.size());
-                    }
-                }
+                // (T[]){...} / (T[N]){...}: an array (a 0 size comes from the initializer)
+                cl->arrayDims = castArrayDims;
                 std::unique_ptr<Expression> result = setPos(std::move(cl), startToken);
                 // Allow postfix operators on compound literals: (int[]){1,2}[0]
                 while (peek().type == TokenType::OPEN_SQUARE || peek().type == TokenType::DOT ||
@@ -2591,6 +2595,7 @@ std::unique_ptr<Expression> Parser::parseUnary() {
                 return result;
             }
             auto operand = parseUnary();
+            castPtrLevel += (int)castArrayDims.size();  // a cast to an array type decays
             return setPos(std::make_unique<CastExpression>(castType, castPtrLevel, castSigned, std::move(operand)), startToken);
         } else {
             pos = savedPos; // backtrack, let parsePrimary handle it as parenthesized expr
