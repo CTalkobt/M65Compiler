@@ -247,6 +247,7 @@ private:
     };
     std::map<std::string, IRStructInfo> structs_;
     const IRStructInfo* structOf(const std::string& type);  // struct/union or typedef of one
+    const IRMemberInfo* arrayMemberOf(MemberAccess* ma);
     // Alignment of a type (an aligned struct's alignment; 1 otherwise: cc45 packs)
     int typeAlign(const std::string& type, int ptrLevel);
     // Value of an _Alignas / aligned expression (a constant or _Alignof(type))

@@ -490,16 +490,10 @@ void M65Emitter::ldx_stack(uint8_t offset) {
     ms_.invalidateReg(REG_X);
 }
 void M65Emitter::ldy_stack(uint8_t offset) {
-    if (hasFramePointer()) {
-        // Special case: we need Y to hold the offset for indirect addressing.
-        // We must load through scratch.
-        lda_stack(offset);
-        tay();
-    } else {
-        tsx();
-        recordSpBaseReloc(offset);
-        emitInstruction("ldy", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
-    }
+    // Y holds the offset for the indirect access: load through A (the frame
+    // is always reached through the frame pointer, never page 1)
+    lda_stack(offset);
+    tay();
 }
 void M65Emitter::ldz_stack(uint8_t offset) {
     if (hasFramePointer()) {
@@ -539,20 +533,11 @@ void M65Emitter::stx_stack(uint8_t offset) {
 }
 void M65Emitter::sty_stack(uint8_t offset) {
     ms_.storeStack(offset, REG_Y);
-    if (hasFramePointer()) {
-        // Special case: we need Y for indirect offset.
-        // We must save Y to scratch first, or use a temporary ZP pair.
-        // For now, let's assume we can use Z as scratch if available?
-        // Better: PHA; TYA; STA_STACK; PLA
-        pha();
-        tya();
-        sta_stack(offset);
-        pla();
-    } else {
-        tsx();
-        recordSpBaseReloc(offset);
-        emitInstruction("sty", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
-    }
+    // Y is needed as the index: store through A (preserved)
+    pha();
+    tya();
+    sta_stack(offset);
+    pla();
 }
 void M65Emitter::stz_stack(uint8_t offset) {
     ms_.storeStack(offset, REG_Z);
@@ -573,19 +558,24 @@ void M65Emitter::stz_stack(uint8_t offset) {
         lda_zp(scratchZP_);  // restore A
     }
 }
+// Frame-relative increment/decrement through the frame pointer (A and Y
+// are clobbered; Z/N reflect the new value). Page-1 addressing ($0100,X)
+// would miss a frame on the 16-bit stack.
 void M65Emitter::inc_stack(uint8_t offset) {
+    lda_stack(offset);
+    emitInstruction("inc", AddressingMode::ACCUMULATOR, 0, true);
+    sta_stack(offset);
+    ms_.invalidateReg(REG_A);
     ms_.invalidateStack(offset);
     ms_.flags.invalidate();
-    tsxCached();
-    recordSpBaseReloc(offset);
-    emitInstruction("inc", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
 }
 void M65Emitter::dec_stack(uint8_t offset) {
+    lda_stack(offset);
+    emitInstruction("dec", AddressingMode::ACCUMULATOR, 0, true);
+    sta_stack(offset);
+    ms_.invalidateReg(REG_A);
     ms_.invalidateStack(offset);
     ms_.flags.invalidate();
-    tsxCached();
-    recordSpBaseReloc(offset);
-    emitInstruction("dec", AddressingMode::ABSOLUTE_X, spBase_ + offset, true);
 }
 void M65Emitter::lda_frame(uint8_t fpOff, uint8_t yOff) {
     uint8_t totalOff = fpOff + yOff;

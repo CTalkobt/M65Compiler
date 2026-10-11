@@ -2544,7 +2544,7 @@ void IRBuilder::visit(VariableDeclaration& node) {
             ir::Operand initVal = lastValue_;
             // float x = 3; int i = 2.5; — convert between integer and float
             if ((t == ir::Type::F32) != (initVal.type == ir::Type::F32) && initVal.type != ir::Type::VOID)
-                initVal = emitCast(initVal, t, lastValueSigned_);
+                initVal = emitCast(initVal, t, getExprTypeInfo(node.initializer.get()).isSigned);
             ir::Inst store;
             store.op = ir::Op::STORE;
             store.resultType = t;
@@ -3120,7 +3120,8 @@ void IRBuilder::visit(Assignment& node) {
     // 4. Standard assignment
     IRTypeInfo lhsInfo = getExprTypeInfo(node.target.get());
     ir::Type storeType = lhsInfo.type;
-    auto rhsVal = emitCast(rhs, storeType, lhsInfo.isSigned);
+    // A conversion (widening, int -> float) follows the value's signedness
+    auto rhsVal = emitCast(rhs, storeType, getExprTypeInfo(node.expression.get()).isSigned);
 
     // Fast path: simple local or global variable → direct vreg/global store
     if (auto* ref = dynamic_cast<VariableReference*>(node.target.get())) {
@@ -4396,6 +4397,14 @@ normal_call:
         } else {
             agg = paramAggSize(calleeName, args.size());
         }
+        // A struct/union passed through '...' (or without a prototype) goes
+        // as the address of a copy, like a by-value parameter
+        size_t named = functionParamTypes_.count(calleeName) ? functionParamTypes_[calleeName].size() : 0;
+        if (agg == 0 && args.size() >= named) {
+            IRTypeInfo ai = getExprTypeInfo(arg.get());
+            if (ai.type != ir::Type::PTR || isAggCopyParam(arg.get()))
+                agg = aggregateBlockSize(ai.typeName, 0);
+        }
         args.push_back(evalArgument(arg.get(), agg, loc(node)));
     }
 
@@ -5367,14 +5376,11 @@ void IRBuilder::visit(ArrayAccess& node) {
     } else if (auto* ma = dynamic_cast<MemberAccess*>(root)) {
         // Array member of a struct (e.g., sid1->voice[1], vic4->sprite[0])
         // Look up the member's element type from struct info
-        IRTypeInfo parentInfo = getExprTypeInfo(ma->structExpr.get());
-        std::string parentName = getAggregateName(parentInfo.typeName);
-        auto psit = structs_.find(parentName);
-        if (psit != structs_.end()) {
-            auto pmit = psit->second.members.find(ma->memberName);
-            if (pmit != psit->second.members.end()) {
-                elemSize = getTypeSize(pmit->second.type, pmit->second.pointerLevel);
-            }
+        // A multi-dimensional member (double x[2][3]): the stride covers the
+        // dimensions not yet indexed
+        if (auto* mi = arrayMemberOf(ma)) {
+            elemSize = getTypeSize(mi->type, mi->pointerLevel);
+            for (size_t i = depth; i < mi->arrayDims.size(); i++) elemSize *= mi->arrayDims[i];
         }
     } else {
         // General case: derive element size from expression type info
@@ -5408,6 +5414,8 @@ void IRBuilder::visit(ArrayAccess& node) {
             if (git != globalArrayDims_.end()) dims = git->second;
         }
         if (depth < (int)dims.size()) isFinal = false;
+    } else if (auto* ma = dynamic_cast<MemberAccess*>(root)) {
+        if (auto* mi = arrayMemberOf(ma); mi && depth < (int)mi->arrayDims.size()) isFinal = false;
     }
 
     if (isFinal) {
@@ -5433,6 +5441,16 @@ void IRBuilder::visit(ArrayAccess& node) {
         // Intermediate sub-array address: no LOAD needed, address is the value
         lastValue_ = addr;
     }
+}
+
+// The struct member a MemberAccess names, or nullptr
+const IRBuilder::IRMemberInfo* IRBuilder::arrayMemberOf(MemberAccess* ma) {
+    std::string t = getExprTypeInfo(ma->structExpr.get()).typeName;
+    if (t.rfind("struct ", 0) != 0 && t.rfind("union ", 0) != 0) t = resolveTypedefToStruct(t);
+    std::string sName = getAggregateName(t);
+    if (!structs_.count(sName)) return nullptr;
+    int off = 0;
+    return findStructMember(sName, ma->memberName, off);
 }
 
 void IRBuilder::visit(MemberAccess& node) {
@@ -6285,23 +6303,47 @@ void IRBuilder::visit(BuiltinVaStart& node) {
 }
 
 void IRBuilder::visit(BuiltinVaArg& node) {
-    // va_arg(ap, type): load value from *ap, then advance ap by sizeof(type)
+    // va_arg(ap, type): load value from *ap, then advance ap by its slot size.
+    // ap is always read as a value here, even when the caller wants an
+    // address (copying a struct out of the argument list)
+    bool addrMode = computeAddressOnly_;
+    computeAddressOnly_ = false;
     node.ap->accept(*this);
+    computeAddressOnly_ = addrMode;
     auto apAddr = lastValue_;
 
     ir::Type argType = mapType(node.typeName, node.pointerLevel);
     int argSize = ir::typeSize(argType);
     if (argSize < 2) argSize = 2; // default argument promotion
 
-    // Load the argument from *ap (ap is a ZP pointer pair — single dereference)
-    auto val = allocVreg(argType);
-    ir::Inst loadVal;
-    loadVal.op = ir::Op::LOAD;
-    loadVal.dest = val;
-    loadVal.resultType = argType;
-    loadVal.src1 = apAddr;
-    loadVal.loc = loc(node);
-    emit(loadVal);
+    // A struct/union (other than 1, 2 or 4 bytes) is passed through '...' as
+    // the address of the caller's copy, like a by-value parameter
+    int agg = aggregateBlockSize(node.typeName, node.pointerLevel);
+    if (agg > 0) { argType = ir::Type::PTR; argSize = 2; }
+
+    ir::Operand val;
+    if (addrMode && agg == 0) {
+        // Address of the argument itself (a small struct passed by value)
+        val = allocVreg(ir::Type::PTR);
+        ir::Inst cur;
+        cur.op = ir::Op::ADD;
+        cur.dest = val;
+        cur.resultType = ir::Type::PTR;
+        cur.src1 = apAddr;
+        cur.src2 = ir::Operand::imm(0, ir::Type::I16);
+        cur.loc = loc(node);
+        emit(cur);
+    } else {
+        // Load the argument from *ap (ap is a ZP pointer pair — single dereference)
+        val = allocVreg(argType);
+        ir::Inst loadVal;
+        loadVal.op = ir::Op::LOAD;
+        loadVal.dest = val;
+        loadVal.resultType = argType;
+        loadVal.src1 = apAddr;
+        loadVal.loc = loc(node);
+        emit(loadVal);
+    }
 
     // Advance ap: ap += argSize
     auto newAp = allocVreg(ir::Type::PTR);

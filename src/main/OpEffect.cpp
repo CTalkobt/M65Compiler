@@ -279,10 +279,10 @@ static const std::map<std::string, OpEffect>& getTable() {
         {"move.fp",  {E::A|E::X,              true,  true,  false}},
 
         // --- Frame inc/dec ---
-        {"inc.fp",   {E::A|E::X,              true,  true,  false}},
-        {"dec.fp",   {E::A|E::X,              true,  true,  false}},
-        {"inc.16f",  {E::A|E::X,              true,  true,  false}},
-        {"dec.16f",  {E::A|E::X,              true,  true,  false}},
+        {"inc.fp",   {E::A|E::X|E::Y,         true,  true,  false}},
+        {"dec.fp",   {E::A|E::X|E::Y,         true,  true,  false}},
+        {"inc.16f",  {E::A|E::X|E::Y,         true,  true,  false}},
+        {"dec.16f",  {E::A|E::X|E::Y,         true,  true,  false}},
 
         // --- Stack-relative ops ---
         {"inw",      {E::A|E::X,              true,  true,  false}},
