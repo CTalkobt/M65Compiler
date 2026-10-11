@@ -360,6 +360,7 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         return {ir::Type::I16, "int", false, ir::Type::VOID, 2};
     }
     
+    if (dynamic_cast<FloatLiteral*>(expr)) return {ir::Type::F32, "float", true, ir::Type::VOID, 5};
     if (auto* lit = dynamic_cast<IntegerLiteral*>(expr)) {
         ir::Type t = ir::Type::I16;
         std::string tn = "int";
@@ -632,6 +633,18 @@ IRBuilder::IRTypeInfo IRBuilder::getExprTypeInfo(Expression* expr) {
         }
     }
 
+    // cond ? a : b — the usual arithmetic conversions of a and b (a float
+    // branch makes the result float; a pointer branch makes it a pointer)
+    if (auto* ce = dynamic_cast<ConditionalExpression*>(expr)) {
+        IRTypeInfo a = ce->thenExpr ? getExprTypeInfo(ce->thenExpr.get()) : getExprTypeInfo(ce->condition.get());
+        IRTypeInfo b = getExprTypeInfo(ce->elseExpr.get());
+        if (a.type == ir::Type::F32) return a;
+        if (b.type == ir::Type::F32) return b;
+        if (a.type == ir::Type::PTR) return a;
+        if (b.type == ir::Type::PTR) return b;
+        return ir::typeSize(a.type) >= ir::typeSize(b.type) ? a : b;
+    }
+
     // Binary operations: propagate type and signedness
     if (auto* bin = dynamic_cast<BinaryOperation*>(expr)) {
         if (bin->op == ",") {
@@ -679,7 +692,9 @@ ir::Operand IRBuilder::emitCast(ir::Operand src, ir::Type targetType, bool isSig
     if (targetType == ir::Type::F32 && src.type != ir::Type::F32) {
         auto dest = allocVreg(ir::Type::F32);
         ir::Inst inst; inst.op = ir::Op::ITOF; inst.dest = dest;
-        inst.resultType = ir::Type::F32; inst.src1 = src; emit(inst);
+        inst.resultType = ir::Type::F32; inst.src1 = src;
+        inst.src2 = ir::Operand::imm(isSigned ? 1 : 0, ir::Type::I8);  // signed source?
+        emit(inst);
         return dest;
     }
 
@@ -771,6 +786,44 @@ ir::SourceLoc IRBuilder::declLoc(ASTNode& node) {
 // Top-level
 // ============================================================================
 
+void IRBuilder::declareBuiltinPrototypes() {
+    struct Proto { const char* name; const char* ret; std::vector<std::pair<const char*, int>> params; };
+    static const std::vector<Proto> protos = [] {
+        std::vector<Proto> v;
+        for (const char* n : {"fabs", "floor", "ceil", "sqrt", "trunc", "round", "sin", "cos", "tan",
+                              "atan", "log", "log10", "log2", "exp"}) {
+            v.push_back({n, "float", {{"float", 0}}});
+        }
+        for (const char* n : {"fmod", "pow", "atan2", "copysign", "fmax", "fmin", "fdim"})
+            v.push_back({n, "float", {{"float", 0}, {"float", 0}}});
+        v.push_back({"ldexp", "float", {{"float", 0}, {"int", 0}}});
+        v.push_back({"frexp", "float", {{"float", 0}, {"int", 1}}});
+        v.push_back({"modf", "float", {{"float", 0}, {"float", 1}}});
+        v.push_back({"signbit", "int", {{"float", 0}}});
+        return v;
+    }();
+    for (const auto& p : protos) {
+        for (int f = 0; f < 2; ++f) {   // name and name##f
+            std::string name = std::string(p.name) + (f ? "f" : "");
+            auto fd = std::make_unique<FunctionDeclaration>(name, p.ret);
+            fd->isPrototype = true;
+            fd->isSigned = std::string(p.ret) == "int";
+            int i = 0;
+            for (const auto& [t, ptr] : p.params) {
+                Parameter prm;
+                prm.type = t;
+                prm.pointerLevel = ptr;
+                prm.isSigned = std::string(t) == "int";
+                prm.name = "a" + std::to_string(i++);
+                fd->parameters.push_back(prm);
+            }
+            visit(*fd);
+            builtinProtoNames_.insert(name);
+            builtinProtos_.push_back(std::move(fd));
+        }
+    }
+}
+
 void IRBuilder::visit(TranslationUnit& node) {
     // Pre-scan for encoding pragma directives to set state before visiting strings
     for (auto& decl : node.topLevelDecls) {
@@ -780,6 +833,7 @@ void IRBuilder::visit(TranslationUnit& node) {
             if (as->code == ".encoding screencode") currentStringEncoding_ = StringEncoding::SCREENCODE;
         }
     }
+    declareBuiltinPrototypes();
     // Now visit all declarations
     for (auto& decl : node.topLevelDecls) {
         decl->accept(*this);
@@ -880,6 +934,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
         if (node.isVariadic) variadicFunctions_.insert(node.name);
         if (node.isRegparm) regparmFunctions_.insert(node.name);
         allFunctions_[node.name] = &node;
+        if (builtinProtos_.empty() || builtinProtos_.back().get() != &node) builtinProtoNames_.erase(node.name);
     }
     if (node.isPrototype || !node.body) return;
 
@@ -1500,6 +1555,7 @@ bool IRBuilder::initScalar(InitImageCtx& c, int off, const std::string& type, in
     }
     if (auto* il = dynamic_cast<IntegerLiteral*>(v)) { isInt = true; iv = neg ? -il->value : il->value; }
     else if (auto* fl = dynamic_cast<FloatLiteral*>(v)) { isFloat = true; fv = neg ? -fl->value : fl->value; }
+    else if (double cv; evalConstFloat(e, cv)) { isFloat = true; fv = cv; }
     else return false;
     if (t == ir::Type::F32 && ptr == 0) {
         uint8_t cbm[5];
@@ -1519,6 +1575,37 @@ bool IRBuilder::initScalar(InitImageCtx& c, int off, const std::string& type, in
     }
     for (int i = 0; i < size; ++i) bytes[off + i] = (uint8_t)((uint64_t)iv >> (8 * i));
     return true;
+}
+
+bool IRBuilder::evalConstFloat(Expression* e, double& out) {
+    if (!e) return false;
+    if (auto* f = dynamic_cast<FloatLiteral*>(e)) { out = f->value; return true; }
+    if (auto* i = dynamic_cast<IntegerLiteral*>(e)) { out = (double)i->value; return true; }
+    if (auto* c = dynamic_cast<CastExpression*>(e)) {
+        double v;
+        if (!evalConstFloat(c->expression.get(), v)) return false;
+        // A cast to an integer type truncates toward zero
+        if (c->pointerLevel == 0 && mapType(c->targetType, 0) != ir::Type::F32) v = std::trunc(v);
+        out = v;
+        return true;
+    }
+    if (auto* u = dynamic_cast<UnaryOperation*>(e)) {
+        double v;
+        if ((u->op != "-" && u->op != "+") || !evalConstFloat(u->operand.get(), v)) return false;
+        out = u->op == "-" ? -v : v;
+        return true;
+    }
+    if (auto* b = dynamic_cast<BinaryOperation*>(e)) {
+        double l, r;
+        if (!evalConstFloat(b->left.get(), l) || !evalConstFloat(b->right.get(), r)) return false;
+        if (b->op == "+") out = l + r;
+        else if (b->op == "-") out = l - r;
+        else if (b->op == "*") out = l * r;
+        else if (b->op == "/" && r != 0) out = l / r;
+        else return false;
+        return true;
+    }
+    return false;
 }
 
 ir::Operand IRBuilder::emitAddressOf(Expression* expr) {
@@ -1812,7 +1899,15 @@ void IRBuilder::visit(VariableDeclaration& node) {
                     if (auto* f = dynamic_cast<FloatLiteral*>(un->operand.get())) { negFloat = -f->value; isNegFloat = true; }
                 }
             }
-            if (auto* flit = dynamic_cast<FloatLiteral*>(node.initializer.get())) {
+            double constF = 0;
+            bool floatExpr = t == ir::Type::F32 && node.pointerLevel == 0 && node.arrayDims.empty() &&
+                             !dynamic_cast<InitializerList*>(node.initializer.get()) &&
+                             evalConstFloat(node.initializer.get(), constF);
+            if (floatExpr) {
+                // float d = 1024.0 - 1.0 / 32768.0; — evaluated at compile time
+                gv.hasInitValue = true;
+                std::memcpy(&gv.initValue, &constF, sizeof(double));
+            } else if (auto* flit = dynamic_cast<FloatLiteral*>(node.initializer.get())) {
                 gv.hasInitValue = true;
                 // Store double bits in initValue for CBM conversion in IRCodeGen
                 std::memcpy(&gv.initValue, &flit->value, sizeof(double));
@@ -1908,6 +2003,10 @@ void IRBuilder::visit(VariableDeclaration& node) {
              (dynamic_cast<StringLiteral*>(node.initializer.get()) && !node.arrayDims.empty()));
         if (aggregateInit && buildInitImage(gv, node.type, node.pointerLevel, node.arrayDims, node.initializer.get())) {
             // static struct S s = {...}; static char buf[8] = "text";
+        } else if (double cf; node.initializer && t == ir::Type::F32 && node.pointerLevel == 0 &&
+                   evalConstFloat(node.initializer.get(), cf)) {
+            gv.hasInitValue = true;
+            std::memcpy(&gv.initValue, &cf, sizeof(double));
         } else if (node.initializer) {
             if (auto* lit = dynamic_cast<IntegerLiteral*>(node.initializer.get())) {
                 gv.hasInitValue = true;
@@ -2300,7 +2399,9 @@ void IRBuilder::visit(VariableReference& node) {
     }
     // Check if this is a function name used as a value (function pointer);
     // a local or parameter of the same name shadows the function
-    auto fit = locals_.count(node.name) ? allFunctions_.end() : allFunctions_.find(node.name);
+    auto fit = (locals_.count(node.name) ||
+                (builtinProtoNames_.count(node.name) && globalTypes_.count(node.name)))
+                   ? allFunctions_.end() : allFunctions_.find(node.name);
     if (fit != allFunctions_.end()) {
         auto* fn = fit->second;
         if (fn->isNested) {
@@ -3587,8 +3688,13 @@ void IRBuilder::visit(CastExpression& node) {
     auto src = lastValue_;
     ir::Type destType = mapType(node.targetType, node.pointerLevel);
 
-    // Use emitCast which handles float↔int conversions (FTOI/ITOF)
-    lastValue_ = emitCast(src, destType, node.isSigned);
+    // Use emitCast which handles float↔int conversions (FTOI/ITOF). An
+    // int -> float conversion depends on the source's signedness, not the
+    // target's: (float)(signed long)x
+    bool sig = node.isSigned;
+    if (destType == ir::Type::F32 && src.type != ir::Type::F32)
+        sig = getExprTypeInfo(node.expression.get()).isSigned;
+    lastValue_ = emitCast(src, destType, sig);
 }
 
 void IRBuilder::visit(FunctionCall& node) {
@@ -4807,6 +4913,8 @@ void IRBuilder::visit(ConditionalExpression& node) {
         thenVal = cond;
     }
     
+    if (dest.type == ir::Type::F32 || thenVal.type == ir::Type::F32)
+        thenVal = emitCast(thenVal, dest.type, lastValueSigned_);
     ir::Inst copyThen;
     copyThen.op = ir::Op::COPY;
     copyThen.dest = dest;
@@ -4822,6 +4930,8 @@ void IRBuilder::visit(ConditionalExpression& node) {
     startBlock(elseLabel);
     node.elseExpr->accept(*this);
     auto elseVal = lastValue_;
+    if (dest.type == ir::Type::F32 || elseVal.type == ir::Type::F32)
+        elseVal = emitCast(elseVal, dest.type, lastValueSigned_);
     
     ir::Inst copyElse;
     copyElse.op = ir::Op::COPY;
@@ -5838,6 +5948,13 @@ void IRBuilder::visit(BuiltinVaStart& node) {
     // Compute ap = address on stack past the last named parameter.
     // Variadic args follow the named params on the stack. Use inline asm
     // to compute the stack address via leax.fp @_p_<lastParam>, then add sizeof.
+    // va_start addresses the last named parameter's stack slot: keep the
+    // parameter there (not in a zero-page register copy)
+    {
+        auto lp = locals_.find(node.lastParamName);
+        if (lp != locals_.end() && lp->second.isVreg() && currentFunc_)
+            currentFunc_->memoryVregs.insert(lp->second.vregId);
+    }
     auto dest = allocVreg(ir::Type::PTR);
     {
         ir::Inst inst;

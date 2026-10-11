@@ -169,6 +169,14 @@ private:
     std::string staticFunctionName(const std::string& name);
     std::string resolvedFunctionName(const std::string& name) const;
     std::string staticAddressLabel(Expression* e);
+    // Compile-time value of a constant arithmetic expression (float or int
+    // literals, unary +/-, + - * /, casts) for static initializers
+    bool evalConstFloat(Expression* e, double& out);
+    // C library math functions known without a prototype (as GCC knows its
+    // builtins): float signatures registered before the translation unit
+    void declareBuiltinPrototypes();
+    std::vector<std::unique_ptr<FunctionDeclaration>> builtinProtos_;
+    std::set<std::string> builtinProtoNames_;  // not yet declared by the program
     // Constant initializer of an aggregate/array global laid out as bytes
     // (struct layout, nested braces, brace elision, designators); false if
     // some element isn't a link-time constant

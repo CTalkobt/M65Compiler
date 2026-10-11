@@ -2828,6 +2828,31 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
                 {"__builtin_labs", "labs"},
                 {"__builtin_exit", "exit"},
                 {"__builtin_alloca", "alloca"},
+                {"__builtin_fabs", "fabs"}, {"__builtin_fabsf", "fabsf"},
+                {"__builtin_floor", "floor"}, {"__builtin_floorf", "floorf"},
+                {"__builtin_ceil", "ceil"}, {"__builtin_ceilf", "ceilf"},
+                {"__builtin_sqrt", "sqrt"}, {"__builtin_sqrtf", "sqrtf"},
+                {"__builtin_trunc", "trunc"}, {"__builtin_truncf", "truncf"},
+                {"__builtin_round", "round"}, {"__builtin_roundf", "roundf"},
+                {"__builtin_fmod", "fmod"}, {"__builtin_fmodf", "fmodf"},
+                {"__builtin_pow", "pow"}, {"__builtin_powf", "powf"},
+                {"__builtin_sin", "sin"}, {"__builtin_sinf", "sinf"},
+                {"__builtin_cos", "cos"}, {"__builtin_cosf", "cosf"},
+                {"__builtin_tan", "tan"}, {"__builtin_tanf", "tanf"},
+                {"__builtin_atan", "atan"}, {"__builtin_atanf", "atanf"},
+                {"__builtin_atan2", "atan2"}, {"__builtin_atan2f", "atan2f"},
+                {"__builtin_log", "log"}, {"__builtin_logf", "logf"},
+                {"__builtin_log10", "log10"}, {"__builtin_log10f", "log10f"},
+                {"__builtin_log2", "log2"}, {"__builtin_log2f", "log2f"},
+                {"__builtin_exp", "exp"}, {"__builtin_expf", "expf"},
+                {"__builtin_ldexp", "ldexp"}, {"__builtin_ldexpf", "ldexpf"},
+                {"__builtin_frexp", "frexp"}, {"__builtin_frexpf", "frexpf"},
+                {"__builtin_modf", "modf"}, {"__builtin_modff", "modff"},
+                {"__builtin_copysign", "copysign"}, {"__builtin_copysignf", "copysignf"},
+                {"__builtin_fmax", "fmax"}, {"__builtin_fmaxf", "fmaxf"},
+                {"__builtin_fmin", "fmin"}, {"__builtin_fminf", "fminf"},
+                {"__builtin_fdim", "fdim"}, {"__builtin_fdimf", "fdimf"},
+                {"__builtin_signbit", "signbit"}, {"__builtin_signbitf", "signbitf"},
                 {"__builtin_setjmp", "setjmp"},
                 {"__builtin_longjmp", "longjmp"},
                 {"__builtin_vprintf", "vprintf"},
@@ -2873,16 +2898,15 @@ std::unique_ptr<Expression> Parser::parsePrimary() {
         std::string valStr = litToken.value;
         bool isLong = false;
         bool isUnsigned = false;
-        if (!valStr.empty() && (valStr.back() == 'L' || valStr.back() == 'l')) {
-            isLong = true;
+        // Suffixes in any order: L, LL, U, UL, LU, ULL, LLU (long long is long here)
+        while (!valStr.empty() && std::strchr("LlUu", valStr.back())) {
+            if (valStr.back() == 'U' || valStr.back() == 'u') isUnsigned = true;
+            else isLong = true;
             valStr.pop_back();
         }
-        if (!valStr.empty() && (valStr.back() == 'U' || valStr.back() == 'u')) {
-            isUnsigned = true;
-            valStr.pop_back();
-        }
-        int64_t val = (int64_t)std::stoll(valStr, nullptr, 0);
+        int64_t val = (int64_t)std::stoull(valStr, nullptr, 0);
         auto lit = std::make_unique<IntegerLiteral>(val);
+        if (isUnsigned && !isLong && (uint64_t)val > 0xFFFF) isLong = true; // 0x80000001U
         if (isLong) {
             lit->castType = "long";
             lit->castIsSigned = !isUnsigned;

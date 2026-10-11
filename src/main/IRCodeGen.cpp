@@ -1123,7 +1123,11 @@ void IRCodeGen::generate(const ir::Module& mod, uint32_t zpStart, bool relocMode
             emit(".extern __float_neg");
             emit(".extern __float_cmp");
             emit(".extern __float_itof");
+            emit(".extern __float_utof");
+            emit(".extern __float_ltof");
+            emit(".extern __float_ultof");
             emit(".extern __float_ftoi");
+            emit(".extern __float_ftol");
         }
         if (hasFloatArg) {
             emit(".extern _printf_float");
@@ -4333,6 +4337,14 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                         emit("sta (" + destPtr + "),y");
                     }
                 }
+            } else if (inst.dest.isVreg() && inst.src1.isVreg() &&
+                       (inst.resultType == ir::Type::F32 || inst.dest.type == ir::Type::F32)) {
+                // Float copy: all 5 bytes (AX would carry only two)
+                ms_.invalidateAll();
+                for (int b = 0; b < 5; b++) {
+                    emitF32Byte("lda", inst.src1.vregId, b);
+                    emitF32Byte("sta", inst.dest.vregId, b);
+                }
             } else {
                 // Regular copy
                 loadOperand(inst.src1);
@@ -5008,8 +5020,23 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
             // the caller pushes everything for variadic calls). So named params are on the
             // stack at their proc-declared offsets, and variadic args follow.
             std::string pName = inst.asmText;
+            // Step over the last named parameter's stack slot: 2 bytes for
+            // char/int/pointers (char is promoted), 4 for long, 5 for float
+            int slot = 2;
+            if (currentFn_) {
+                for (size_t i = 0; i < currentFn_->paramNames.size() && i < currentFn_->paramTypes.size(); i++) {
+                    if (currentFn_->paramNames[i] == pName) {
+                        int sz = ir::typeSize(currentFn_->paramTypes[i]);
+                        slot = sz < 2 ? 2 : sz;
+                        break;
+                    }
+                }
+            }
             emit("leax.param @_p_" + pName);
-            emit("add.16 .AX, #2");
+            emit("add.16 .AX, #" + std::to_string(slot));
+            // A/X now hold the address, not whatever vreg they held before
+            resultInAX_ = -1;
+            ms_.invalidateAll();
             if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             break;
         }
@@ -5187,29 +5214,34 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     emit("sta ($fd),y");
                 }
             } else if (inst.op == ir::Op::ITOF) {
+                // Integer -> float: 8/16/32-bit, signed or unsigned (src2)
+                bool sgn = inst.src2.isImm() ? inst.src2.immVal != 0 : true;
+                ir::Type st = inst.src1.type;
                 loadOperand(inst.src1);
-                emit("jsr __float_itof");
+                if (st == ir::Type::I32) {
+                    emit(sgn ? "jsr __float_ltof" : "jsr __float_ultof");
+                } else if (st == ir::Type::I8) {
+                    emit("ldx #0");
+                    if (sgn) {
+                        std::string l = "@__itof_" + std::to_string(labelCounter_++);
+                        emit("cmp #$80");
+                        emit("bcc " + l);
+                        emit("ldx #$FF");
+                        emitLabel(l);
+                        emit("jsr __float_itof");
+                    } else {
+                        emit("jsr __float_utof");
+                    }
+                } else {
+                    emit((sgn && st != ir::Type::PTR) ? "jsr __float_itof" : "jsr __float_utof");
+                }
                 auto da = alloc_.getAlloc(inst.dest.vregId);
                 emitAbsToFloat("__float_a", da, inst.dest.vregId);
             } else { // FTOI
-                auto s1 = alloc_.getAlloc(inst.src1.vregId);
-                emitFloatToAbs(s1, inst.src1.vregId, "__float_a");
-                emit("jsr __float_ftoi");
-                auto da = alloc_.getAlloc(inst.dest.vregId);
-                if (da.loc == VRegAllocator::IN_ZP) {
-                    emit("sta $" + hex8((uint8_t)da.offset));
-                    emit("stx $" + hex8((uint8_t)(da.offset + 1)));
-                } else if (currentFunctionUseSAC_) {
-                    std::string dsym = currentFunctionName_ + "__local_" + std::to_string(inst.dest.vregId);
-                    emit("sta " + dsym);
-                    emit("stx " + dsym + "+1");
-                } else {
-                    emit("ldy #" + std::to_string(da.offset));
-                    emit("sta ($fd),y");
-                    emit("iny");
-                    emit("txa");
-                    emit("sta ($fd),y");
-                }
+                // Float -> integer, truncated toward zero: 32 bits in A/X/Y/Z
+                emitFloatToAbs(alloc_.getAlloc(inst.src1.vregId), inst.src1.vregId, "__float_a");
+                emit("jsr __float_ftol");
+                if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
             }
             break;
         }

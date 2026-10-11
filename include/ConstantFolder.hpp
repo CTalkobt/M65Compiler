@@ -7,6 +7,7 @@
 #include <set>
 #include <iostream>
 #include <cstdint>
+#include <algorithm>
 
 class ConstantFolder : public ASTVisitor {
 public:
@@ -107,6 +108,31 @@ public:
         lastExpr = copyPos(std::make_unique<Assignment>(std::move(node.target), std::move(expression), node.op), node);
     }
 
+    // Width in bytes / signedness of a (folded) integer literal, matching
+    // IRBuilder::getExprTypeInfo: a plain literal is int (long when out of
+    // 16-bit range), signed while it fits a signed int
+    static int litWidth(const IntegerLiteral& l) {
+        if (l.castPointerLevel > 0) return 2;
+        const std::string& t = l.castType;
+        if (t.empty()) return (l.value > 65535 || l.value < -32768) ? 4 : 2;
+        if (t.find("long") != std::string::npos) return 4;
+        if (t.find("char") != std::string::npos || t == "_Bool") return 1;
+        return 2;
+    }
+    static bool litSigned(const IntegerLiteral& l) {
+        if (l.castPointerLevel > 0) return false;
+        if (l.castType.empty()) return l.value <= 32767;
+        return l.castIsSigned;
+    }
+    static int64_t normalize(int64_t v, int width, bool isSigned) {
+        if (width >= 8) return v;
+        int bits = width * 8;
+        uint64_t m = (uint64_t(1) << bits) - 1;
+        uint64_t u = (uint64_t)v & m;
+        if (isSigned && (u >> (bits - 1))) u |= ~m;
+        return (int64_t)u;
+    }
+
     void visit(BinaryOperation& node) override {
         // Phase 89: Check for address template patterns BEFORE constant folding
         // This preserves patterns that would otherwise be optimized away
@@ -126,54 +152,71 @@ public:
         auto* rightLit = dynamic_cast<IntegerLiteral*>(right.get());
 
         if (leftLit && rightLit) {
-            int result = 0;
-            if (node.op == "+") result = leftLit->value + rightLit->value;
-            else if (node.op == "-") result = leftLit->value - rightLit->value;
-            else if (node.op == "*") result = leftLit->value * rightLit->value;
-            else if (node.op == "/") {
-                if (rightLit->value != 0) {
-                    bool isSignedResult = leftLit->castIsSigned && rightLit->castIsSigned;
-                    if (isSignedResult) result = leftLit->value / rightLit->value;
-                    else result = (int)((uint32_t)leftLit->value / (uint32_t)rightLit->value);
-                } else {
+            // C's usual arithmetic conversions on the two literals: each is
+            // taken at its own width/signedness, then both are converted to
+            // the common type. Comparisons are then signed or unsigned as
+            // that type says ((short)-0x8000 ^ 0U is 0x8000, not -32768).
+            // Two plain literals keep plain 32-bit arithmetic (256 * 256
+            // folds to 65536, as before).
+            bool plain = leftLit->castType.empty() && rightLit->castType.empty() &&
+                         !leftLit->castPointerLevel && !rightLit->castPointerLevel;
+            int wl = litWidth(*leftLit), wr = litWidth(*rightLit);
+            bool sl = litSigned(*leftLit), sr = litSigned(*rightLit);
+            int64_t lv = normalize(leftLit->value, wl, sl), rv = normalize(rightLit->value, wr, sr);
+            if (wl < 2) wl = 2;
+            if (wr < 2) wr = 2;
+            bool isShift = node.op == "<<" || node.op == ">>";
+            int w = isShift ? wl : std::max(wl, wr);
+            bool sg = isShift ? sl : (wl == wr ? (sl && sr) : (wl > wr ? sl : sr));
+            if (plain) { w = 8; sg = true; }
+            lv = normalize(lv, w, sg);
+            if (!isShift) rv = normalize(rv, w, sg);
+            uint64_t ul = (uint64_t)lv, ur = (uint64_t)rv;
+            int64_t result = 0;
+            bool isCompare = false;
+            if (node.op == "+") result = lv + rv;
+            else if (node.op == "-") result = lv - rv;
+            else if (node.op == "*") result = lv * rv;
+            else if (node.op == "/" || node.op == "%") {
+                if (rv == 0) {
                     lastExpr = copyPos(std::make_unique<BinaryOperation>(node.op, std::move(left), std::move(right)), node);
                     return;
                 }
+                if (node.op == "/") result = sg ? lv / rv : (int64_t)(ul / ur);
+                else result = sg ? lv % rv : (int64_t)(ul % ur);
             }
-            else if (node.op == "%") {
-                if (rightLit->value != 0) {
-                    bool isSignedResult = leftLit->castIsSigned && rightLit->castIsSigned;
-                    if (isSignedResult) result = leftLit->value % rightLit->value;
-                    else result = (int)((uint32_t)leftLit->value % (uint32_t)rightLit->value);
-                } else {
-                    lastExpr = copyPos(std::make_unique<BinaryOperation>(node.op, std::move(left), std::move(right)), node);
-                    return;
-                }
-            }
-            else if (node.op == "&") result = leftLit->value & rightLit->value;
-            else if (node.op == "|") result = leftLit->value | rightLit->value;
-            else if (node.op == "^") result = leftLit->value ^ rightLit->value;
-            else if (node.op == "<<") result = leftLit->value << rightLit->value;
-            else if (node.op == ">>") result = leftLit->value >> rightLit->value;
-            else if (node.op == "==") result = leftLit->value == rightLit->value;
-            else if (node.op == "!=") result = leftLit->value != rightLit->value;
-            else if (node.op == "<") result = leftLit->value < rightLit->value;
-            else if (node.op == ">") result = leftLit->value > rightLit->value;
-            else if (node.op == "<=") result = leftLit->value <= rightLit->value;
-            else if (node.op == ">=") result = leftLit->value >= rightLit->value;
-            else if (node.op == "&&") result = leftLit->value && rightLit->value;
-            else if (node.op == "||") result = leftLit->value || rightLit->value;
+            else if (node.op == "&") result = lv & rv;
+            else if (node.op == "|") result = lv | rv;
+            else if (node.op == "^") result = lv ^ rv;
+            else if (node.op == "<<") result = (int64_t)(ul << (rv & 63));
+            else if (node.op == ">>") result = sg ? (lv >> (rv & 63)) : (int64_t)(ul >> (rv & 63));
+            else if (node.op == "&&") { result = lv && rv; isCompare = true; }
+            else if (node.op == "||") { result = lv || rv; isCompare = true; }
             else {
-                lastExpr = copyPos(std::make_unique<BinaryOperation>(node.op, std::move(left), std::move(right)), node);
+                isCompare = true;
+                if (node.op == "==") result = lv == rv;
+                else if (node.op == "!=") result = lv != rv;
+                else if (node.op == "<") result = sg ? lv < rv : ul < ur;
+                else if (node.op == ">") result = sg ? lv > rv : ul > ur;
+                else if (node.op == "<=") result = sg ? lv <= rv : ul <= ur;
+                else if (node.op == ">=") result = sg ? lv >= rv : ul >= ur;
+                else {
+                    lastExpr = copyPos(std::make_unique<BinaryOperation>(node.op, std::move(left), std::move(right)), node);
+                    return;
+                }
+            }
+            if (isCompare) {
+                lastExpr = copyPos(std::make_unique<IntegerLiteral>(result), node);
                 return;
             }
+            result = plain ? (int64_t)(int32_t)result : normalize(result, w, sg);
 
             auto lit = std::make_unique<IntegerLiteral>(result);
             // Type promotion: if either operand is long, the result is long.
             // If either operand is a pointer, the result is the same pointer type (for +/-).
-            if (leftLit->castType == "long" || rightLit->castType == "long") {
+            if (!plain && w == 4 && !leftLit->castPointerLevel && !rightLit->castPointerLevel) {
                 lit->castType = "long";
-                lit->castIsSigned = leftLit->castIsSigned || rightLit->castIsSigned;
+                lit->castIsSigned = sg;
             } else if (leftLit->castPointerLevel > 0) {
                 lit->castType = leftLit->castType;
                 lit->castPointerLevel = leftLit->castPointerLevel;

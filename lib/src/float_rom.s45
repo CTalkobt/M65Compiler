@@ -258,17 +258,12 @@ __float_div:
 ; ===========================================================================
 .global __float_neg
 __float_neg:
-    jsr __bp_rom
-    lda #<__float_a
-    ldx #>__float_a
-    jsr __float_load_fac
-    lda #<BJT_NEGOP
-    ldx #>BJT_NEGOP
-    jsr __jsrfar_basic
-    lda #<__float_a
-    ldx #>__float_a
-    jsr __float_store_fac
-    jmp __bp_prog
+    ; Flip the sign bit (bit 7 of the first mantissa byte) of the packed
+    ; value: exact, and -0.0 keeps its sign (BASIC's NEGOP leaves 0 alone)
+    lda __float_a+1
+    eor #$80
+    sta __float_a+1
+    rts
 
 ; ===========================================================================
 ; Compare: __float_cmp  (a vs b → A = $FF/-1, $00, $01)
@@ -301,49 +296,175 @@ __float_cmp:
     jmp __bp_prog
 
 ; ===========================================================================
-; Conversion: __float_itof (int AX → float at __float_a)
+; Conversions between integers and floats, done on the packed CBM format
+; (exponent byte, 32-bit mantissa with the sign in bit 7 of its top byte and
+; an implicit leading 1). No ROM calls: BASIC's AYINT floors and only takes
+; -32768..32767, GIVAYF only takes a signed 16-bit value.
+;   __float_ftol: float at __float_a -> 32-bit integer in A/X/Y/Z (low..high),
+;                 truncated toward zero (C conversion semantics)
+;   __float_ftoi: the same, low 16 bits in A/X
+;   __float_ltof: 32-bit signed integer in A/X/Y/Z -> float at __float_a
+;   __float_ultof: 32-bit unsigned integer in A/X/Y/Z -> float at __float_a
+;   __float_itof / __float_utof: signed / unsigned 16-bit A/X -> float
+; Temporaries: $F0-$F4 of the program's zero page (library temps).
 ; ===========================================================================
+FT_M0 = $F0
+FT_M1 = $F1
+FT_M2 = $F2
+FT_M3 = $F3
+FT_SG = $F4
+
+.global __float_ftoi
+.global __float_ftol
+__float_ftoi:
+__float_ftol:
+    lda #0
+    sta FT_M0
+    sta FT_M1
+    sta FT_M2
+    sta FT_M3
+    lda __float_a           ; exponent: value = 0.M * 2^(exp-128)
+    cmp #$81
+    bcc @done               ; |value| < 1 (or 0): 0
+    ; mantissa with the implicit leading 1
+    lda __float_a+1
+    ora #$80
+    sta FT_M3
+    lda __float_a+2
+    sta FT_M2
+    lda __float_a+3
+    sta FT_M1
+    lda __float_a+4
+    sta FT_M0
+    ; shift right by 160 - exp (32 - integer bits); exp >= 160 overflows
+    lda #$A0
+    sec
+    sbc __float_a
+    bcc @sign               ; too large: keep the low 32 bits of 0.M * 2^32
+    tax
+    beq @sign
+@shift:
+    lsr FT_M3
+    ror FT_M2
+    ror FT_M1
+    ror FT_M0
+    dex
+    bne @shift
+@sign:
+    lda __float_a+1
+    bpl @done
+    ; negative: two's complement
+    sec
+    lda #0
+    sbc FT_M0
+    sta FT_M0
+    lda #0
+    sbc FT_M1
+    sta FT_M1
+    lda #0
+    sbc FT_M2
+    sta FT_M2
+    lda #0
+    sbc FT_M3
+    sta FT_M3
+@done:
+    lda FT_M3
+    taz
+    lda FT_M0
+    ldx FT_M1
+    ldy FT_M2
+    rts
+
 .global __float_itof
 __float_itof:
-    jsr __bp_rom
-    ; Input: A=low byte, X=high byte of 16-bit integer
-    ; GIVAYF expects: A=high byte, Y=low byte
-    ; JSRFAR loads: A from $06, Y from $08
-    tay             ; Y = low byte (save temporarily)
-    txa             ; A = high byte
-    sta $06         ; JSRFAR A register = high byte
-    sty $08         ; JSRFAR Y register = low byte
-    lda #BASIC_BANK
-    sta $02
-    lda #>BJT_GIVAYF
-    sta $03
-    lda #<BJT_GIVAYF
-    sta $04
-    lda #0
-    sta $09             ; Z = 0
-    jsr JSRFAR
-    ; FAC now has the float value — store to __float_a
-    lda #<__float_a
-    ldx #>__float_a
-    jsr __float_store_fac
-    jmp __bp_prog
+    ; signed 16-bit A/X: sign-extend into Y/Z
+    ldy #0
+    ldz #0
+    cpx #$80
+    bcc __float_ltof
+    ldy #$FF
+    ldz #$FF
+    bra __float_ltof
 
-; ===========================================================================
-; Conversion: __float_ftoi (float at __float_a → int AX)
-; ===========================================================================
-.global __float_ftoi
-__float_ftoi:
-    jsr __bp_rom
-    lda #<__float_a
-    ldx #>__float_a
-    jsr __float_load_fac
-    lda #<BJT_AYINT
-    ldx #>BJT_AYINT
-    jsr __jsrfar_basic
-    ; MEGA65 BASIC 65 AYINT: stores 16-bit integer in FAC_M1 (low) and FAC_M2 (high)
-    lda FAC_M1      ; low byte
-    ldx FAC_M2      ; high byte
-    jmp __bp_prog
+.global __float_utof
+__float_utof:
+    ldy #0
+    ldz #0
+    bra __float_ultof
+
+.global __float_ltof
+.global __float_ultof
+__float_ltof:
+    sta FT_M0
+    stx FT_M1
+    sty FT_M2
+    tza
+    sta FT_M3
+    lda #0
+    sta FT_SG
+    bbr7 FT_M3, __float_ltof_mag
+    ; negative: magnitude = -value
+    lda #$80
+    sta FT_SG
+    sec
+    lda #0
+    sbc FT_M0
+    sta FT_M0
+    lda #0
+    sbc FT_M1
+    sta FT_M1
+    lda #0
+    sbc FT_M2
+    sta FT_M2
+    lda #0
+    sbc FT_M3
+    sta FT_M3
+    bra __float_ltof_mag
+__float_ultof:
+    sta FT_M0
+    stx FT_M1
+    sty FT_M2
+    tza
+    sta FT_M3
+    lda #0
+    sta FT_SG
+__float_ltof_mag:
+    ; zero?
+    lda FT_M0
+    ora FT_M1
+    ora FT_M2
+    ora FT_M3
+    bne @norm
+    ldx #4
+@z:
+    sta __float_a,x         ; A = 0
+    dex
+    bpl @z
+    rts
+@norm:
+    ; normalize: shift left until bit 31 is set; exponent = 160 - shifts
+    ldx #$A0
+@nl:
+    bbs7 FT_M3, @pack
+    asl FT_M0
+    rol FT_M1
+    rol FT_M2
+    rol FT_M3
+    dex
+    bra @nl
+@pack:
+    stx __float_a
+    lda FT_M3
+    and #$7F                ; the implicit 1 makes way for the sign
+    ora FT_SG
+    sta __float_a+1
+    lda FT_M2
+    sta __float_a+2
+    lda FT_M1
+    sta __float_a+3
+    lda FT_M0
+    sta __float_a+4
+    rts
 
 ; ===========================================================================
 ; Math: unary float functions

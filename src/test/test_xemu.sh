@@ -401,6 +401,20 @@ for simode in "zp|" "stack|-fno-zpcall"; do
     fi
 done
 
+# Test: float <-> integer conversions, -0.0, floor/ceil/trunc, float ternary,
+# float global initializers, va_arg after a double parameter
+for fcmode in "zp|" "stack|-fno-zpcall"; do
+    IFS='|' read -r fcname fcflags <<< "$fcmode"
+    echo "Testing test_float_conv_xemu.c ($fcname)..."
+    compile_link_test "src/test-resources/test_float_conv_xemu.c" "build/test/test_float_conv_${fcname}_xemu.prg" "$fcflags"
+    if [ $? -eq 0 ]; then
+        run_xemu_test "test_float_conv_$fcname" "build/test/test_float_conv_${fcname}_xemu.prg" "C0C0" 9 "01 01 01 01 01 01 01 01 AA"
+    else
+        echo "FAIL: test_float_conv_xemu.c $fcname (compilation/linking failed)"
+        failed=$((failed + 1))
+    fi
+done
+
 # Test: pointer/float compound assignment, float initializers, nested
 # function static chain, variably modified parameters
 for ammode in "zp|" "stack|-fno-zpcall"; do

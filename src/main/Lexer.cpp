@@ -334,9 +334,10 @@ Token Lexer::lexNumber() {
             } catch (...) {
                 std::cerr << startLine << ":" << startCol << ": warning: hex literal " << value << " overflows integer" << std::endl;
             }
-            // Consume optional L/l/U/u suffixes
-            while (peek() == 'L' || peek() == 'l' || peek() == 'U' || peek() == 'u') get();
-            return {TokenType::INTEGER_LITERAL, std::to_string(val), startLine, startCol, sourceFile};
+            // Optional L/l/U/u suffixes, kept in the token for the parser
+            std::string suffix;
+            while (peek() == 'L' || peek() == 'l' || peek() == 'U' || peek() == 'u') suffix += get();
+            return {TokenType::INTEGER_LITERAL, std::to_string(val) + suffix, startLine, startCol, sourceFile};
         }
     }
     while (std::isdigit(peek())) {
@@ -411,15 +412,16 @@ Token Lexer::lexNumber() {
     } catch (...) {
         std::cerr << startLine << ":" << startCol << ": warning: decimal literal " << value << " overflows integer" << std::endl;
     }
-    // Consume optional L/l/U/u suffixes
-    while (peek() == 'L' || peek() == 'l' || peek() == 'U' || peek() == 'u') get();
+    // Optional L/l/U/u suffixes, kept in the token for the parser
+    std::string suffix;
+    while (peek() == 'L' || peek() == 'l' || peek() == 'U' || peek() == 'u') suffix += get();
     // Integer imaginary literal: 200i, 1i
     if (peek() == 'i' || peek() == 'I') {
         get();
         if (peek() == 'f' || peek() == 'F') get(); // consume trailing f
         return {TokenType::IMAGINARY_LITERAL, value, startLine, startCol, sourceFile};
     }
-    return {TokenType::INTEGER_LITERAL, value, startLine, startCol, sourceFile};
+    return {TokenType::INTEGER_LITERAL, value + suffix, startLine, startCol, sourceFile};
 }
 
 Token Lexer::lexString(bool ascii) {

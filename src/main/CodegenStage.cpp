@@ -1,3 +1,5 @@
+#include <cstdlib>
+#include "IR.hpp"
 #include "CodegenStage.hpp"
 #include "AST.hpp"
 #include "IRBuilder.hpp"
@@ -235,6 +237,9 @@ void CodegenStage::generateAssembly() {
     }
 
     if (!irModule_) return;
+
+    // CC45_DUMP_IR=1: print the optimized IR to stderr (debugging aid)
+    if (const char* d = getenv("CC45_DUMP_IR"); d && *d && *d != '0') ir::Printer::print(std::cerr, *irModule_);
 
     // Generate assembly from IR using IRCodeGen
     std::ostringstream ss;
