@@ -25,6 +25,15 @@ public:
     void outputLabelTable(const std::string& filename) const;
 
     void setLineIncrement(uint16_t increment) { lineIncrement = increment; }
+    // Rename variables longer than two characters (BasicVarRenamer; default on)
+    void setRenameVariables(bool on) { renameVariables = on; }
+    const std::map<std::string, std::string>& getVariableMap() const { return variableMap; }
+
+    // The emitted lines: BASIC line number and the parser's source line
+    // index (1-based line of the text given to the parser; 0 for the
+    // extra line of trailing labels), in program order
+    struct EmittedLine { uint16_t lineNumber; int sourceLine; uint16_t address; };
+    const std::vector<EmittedLine>& getEmittedLines() const { return emittedLines; }
     void setPreserveSpaces(bool preserve) { preserveSpaces = preserve; }
 
 private:
@@ -33,6 +42,9 @@ private:
     bool preserveSpaces = false;
     std::map<std::string, uint16_t> labelMap;      // label (as written) -> line number
     std::map<uint16_t, uint16_t> lineAddress;       // line number -> address of the line
+    bool renameVariables = true;
+    std::map<std::string, std::string> variableMap;
+    std::vector<EmittedLine> emittedLines;
 
     std::vector<uint8_t> emitLoadAddress();
     std::vector<uint8_t> emitLine(const BasicLine& line, uint16_t nextLineAddr);

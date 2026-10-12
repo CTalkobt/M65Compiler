@@ -120,7 +120,8 @@ $(LIB_DIR)/lib45-basic.a: $(addprefix $(OBJ_DIR)/, \
     BasicDocGenerator.o BasicValidator.o LabelBasedSourceParser.o \
     SymbolExpressionEvaluator.o BasicMinifier.o BasicTooling.o \
     BasicCharacterMap.o BasicDocumentationGenerator.o BasicStructures.o \
-    BasicArchiveSupport.o BasicStandardLibrary.o)
+    BasicArchiveSupport.o BasicStandardLibrary.o BasicVarRenamer.o BasicStructured.o \
+    BasicDecompiler.o)
 	@mkdir -p $(LIB_DIR)
 	$(AR) rcs $@ $^
 

@@ -9,8 +9,12 @@ std::string BasicMinifier::minify(const std::string& source) {
     std::string line;
     std::ostringstream result;
     std::vector<std::string> minifiedLines;
+    std::vector<int> lineFrom;
+    int inLine = 0;
+    origins_.clear();
 
     while (std::getline(iss, line)) {
+        inLine++;
         // Remove REM comments if enabled
         if (removeComments) {
             line = removeRemComments(line);
@@ -27,6 +31,7 @@ std::string BasicMinifier::minify(const std::string& source) {
         }
 
         minifiedLines.push_back(line);
+        lineFrom.push_back(inLine);
     }
 
     // Merge statements if enabled
@@ -37,7 +42,9 @@ std::string BasicMinifier::minify(const std::string& source) {
         // A joined line stays at most maxMergedLength characters.
         const size_t maxMergedLength = 160;
         std::vector<std::string> merged;
+        std::vector<int> mergedFrom;
         std::string currentGroup;
+        int groupFrom = 0;
         std::regex labelLine(R"(^[A-Za-z_]\w*\s*:)");
 
         for (size_t i = 0; i < minifiedLines.size(); i++) {
@@ -49,17 +56,21 @@ std::string BasicMinifier::minify(const std::string& source) {
                 // a label alone ("done:") already ends with its colon
                 currentGroup += (currentGroup.back() == ':') ? stmt : ":" + stmt;
             } else {
-                if (!currentGroup.empty()) merged.push_back(currentGroup);
+                if (!currentGroup.empty()) { merged.push_back(currentGroup); mergedFrom.push_back(groupFrom); }
                 currentGroup = stmt;
+                groupFrom = lineFrom[i];
             }
         }
 
         if (!currentGroup.empty()) {
             merged.push_back(currentGroup);
+            mergedFrom.push_back(groupFrom);
         }
 
         minifiedLines = merged;
+        lineFrom = mergedFrom;
     }
+    origins_ = lineFrom;
 
     for (const auto& line : minifiedLines) {
         result << line << "\n";

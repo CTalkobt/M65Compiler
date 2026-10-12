@@ -21,6 +21,10 @@ These examples demonstrate different features of the m65compiler.
 - **vic4_colors/** - Set screen/border colors via VIC-IV register struct overlay.
 - **stdlib/math_h/** - Math library examples (min/max, gcd/lcm)
 
+### BASIC Examples
+
+- **basic/c_routines/** - A BASIC 65 program (basic45 source with labels) calling C functions: `basic45 --link routines.c menu.bas`, `SYS {name}, a, x, y` and `RREG`.
+
 ### Assembly Examples
 
 - **asm/zpcall_prototype.s45** - Prototype for zero-page calling convention

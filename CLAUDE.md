@@ -23,7 +23,8 @@ dependencies (SQLite and FUSE only for disk45):
 - **ar45** — archiver for `.lib` static libraries
 - **nm45** — symbol/attribute/relocation inspector for `.o45` and `.lib`
 - **objdump45** — object/PRG/binary inspector and disassembler (also BASIC listing with `-bas`)
-- **basic45** — BASIC 65 program generator (label-based source, PETSCII tokenizer, preprocessor)
+- **basic45** — BASIC 65 program generator (label-based source, PETSCII tokenizer, preprocessor,
+  long variable names, block IF / proc, `--link` C functions, `--decompile`, `--disk`, `--emulator`)
 - **disk45** — CBM disk/tape/archive image utility (25 formats, FUSE mount, SQLite catalog)
 - **cvt_asm** — assembler source converter between 7 dialects
 
@@ -57,8 +58,8 @@ writes a standalone assembly form with its own startup stub.
 ### Calling Conventions (details: `doc/architecture/calling-conventions.md`)
 
 - **ZP convention** (default, `-fzpcall`, library `c45.lib`): arguments packed
-  left to right into the ZP parameter block `$10`–`$2F` (`char` 1 byte,
-  `int`/pointer 2, `long` 4, `float` 5). Variadic functions and functions with
+  left to right into the ZP parameter block `$10`–`$2F` (`char`/`_Bool` a
+  2-byte slot, `int`/pointer 2, `long` 4, `float` 5). Variadic functions and functions with
   more than 32 bytes of parameters use the stack convention instead.
   `__fastcall__` makes a single function ZP in a stack-mode file.
 - **Stack convention** (`-fno-zpcall`, library `c45_stack.lib`): arguments
@@ -252,6 +253,11 @@ ln45, ar45, nm45, objdump45 and disk45 have no config files. Environment:
 5. `__exit` (from `main`'s return or `exit()`): B = 0, status → `$FD/$FE`
    (`$FFFE` after `abort()`), restore the caller's stack and flags, `rts`.
    A BASIC caller reads `PEEK(253)+256*PEEK(254)`.
+
+`__basic_call` (crt0) runs one C function from a BASIC `SYS` (basic45
+`--link` thunks set `___bc_target`): same base page / stack setup, SYS A/X/Y
+as the first three parameters (`$10`, `$12`, `$14`), result A/X back to
+BASIC (`RREG`); BSS is filled on the first call only.
 
 crt0 fills BSS (with the private base page) with `__bss_fill` by a DMA fill
 job after the stack setup: 0, or cc45 `-fbss-fill=V` / ln45 `--bss-fill=V`

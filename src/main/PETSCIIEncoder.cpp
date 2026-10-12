@@ -1,9 +1,12 @@
 #include "PETSCIIEncoder.hpp"
 #include <cctype>
 
+static const std::unordered_map<std::string, char>& escTable();
+
 PETSCIIEncoder::PETSCIIEncoder() {
     initializeColorCodes();
     initializeControlCodes();
+    escSequences = escTable();
 }
 
 void PETSCIIEncoder::initializeColorCodes() {
@@ -32,6 +35,19 @@ void PETSCIIEncoder::initializeControlCodes() {
     controlCodes = {
         {"home", 0x13},
         {"clear", 0x93},
+        // MEGA65 control codes (The MEGA65 Book, appendix C)
+        {"return", 0x0D},
+        {"linefeed", 0x0A}, {"lf", 0x0A},
+        {"lower", 0x0E}, {"lowercase", 0x0E},
+        {"upper", 0x8E}, {"uppercase", 0x8E},
+        {"case-lock", 0x0B}, {"lock", 0x0B},          // disable SHIFT+C= case switching
+        {"case-unlock", 0x0C}, {"unlock", 0x0C},      // enable it
+        {"flash", 0x0F}, {"blink", 0x0F},
+        {"flash-off", 0x8F}, {"blink-off", 0x8F},
+        {"tab-left", 0x1A},                           // CTRL+Z
+        {"word-left", 0x15},                          // CTRL+U
+        {"word-right", 0x17},                         // CTRL+W
+        {"tab-set", 0x18},                            // CTRL+X: set/clear a tab stop
         {"esc", 0x1B},
         {"back", 0x14},
         {"delete", 0x14},
@@ -71,6 +87,63 @@ void PETSCIIEncoder::initializeControlCodes() {
     };
 }
 
+// MEGA65 ESC sequences (The MEGA65 Book, appendix C): ESC, then a key
+static const std::unordered_map<std::string, char>& escTable() {
+    static const std::unordered_map<std::string, char> t = {
+        {"clear-eos", '@'},                  // clear from the cursor to the end of the screen
+        {"insert-on", 'A'},                  // auto-insert mode
+        {"window-bottom", 'B'},              // bottom-right of the window at the cursor
+        {"insert-off", 'C'},                 // overwrite mode
+        {"delete-line", 'D'},
+        {"cursor-solid", 'E'},               // non-flashing cursor
+        {"cursor-flash", 'F'},
+        {"bell-on", 'G'},
+        {"bell-off", 'H'},
+        {"insert-line", 'I'},
+        {"line-start", 'J'},
+        {"line-end", 'K'},
+        {"scroll-on", 'L'},
+        {"scroll-off", 'M'},
+        {"normal", 'O'},                     // cancel quote, reverse, underline and flash modes
+        {"erase-sol", 'P'},                  // erase to the start of the line
+        {"erase-eol", 'Q'},                  // erase to the end of the line
+        {"colors-high", 'S'}, {"colours-high", 'S'},   // colour range 16-31
+        {"window-top", 'T'},                 // top-left of the window at the cursor
+        {"colors-low", 'U'}, {"colours-low", 'U'},     // colour range 0-15
+        {"scroll-up", 'V'},
+        {"scroll-down", 'W'},
+        {"40-80", 'X'}, {"80col", 'X'}, {"40col", 'X'},   // toggle 40/80 columns (clears)
+        {"tabs-default", 'Y'},               // a tab stop every 8 columns
+        {"tabs-clear", 'Z'},
+    };
+    return t;
+}
+
+bool PETSCIIEncoder::escapeBytes(const std::string& name, std::vector<uint8_t>& out) const {
+    // {$xx}: the byte xx (hex)
+    if (name.size() == 3 && name[0] == '$' && std::isxdigit((unsigned char)name[1]) &&
+        std::isxdigit((unsigned char)name[2])) {
+        out.push_back((uint8_t)std::stoi(name.substr(1), nullptr, 16));
+        return true;
+    }
+    if (uint8_t c = getColorCode(name)) { out.push_back(c); return true; }
+    if (uint8_t c = getControlCode(name)) { out.push_back(c); return true; }
+    auto it = escSequences.find(name);
+    if (it != escSequences.end()) {
+        out.push_back(0x1B);
+        out.push_back((uint8_t)it->second);
+        return true;
+    }
+    // {esc-k}: ESC then the key k (a letter, digit or @)
+    if (name.size() == 5 && name.compare(0, 4, "esc-") == 0 &&
+        (std::isalnum((unsigned char)name[4]) || name[4] == '@')) {
+        out.push_back(0x1B);
+        out.push_back((uint8_t)std::toupper((unsigned char)name[4]));
+        return true;
+    }
+    return false;
+}
+
 std::vector<uint8_t> PETSCIIEncoder::encode(const std::string& text) {
     std::vector<uint8_t> result;
     size_t i = 0;
@@ -81,10 +154,8 @@ std::vector<uint8_t> PETSCIIEncoder::encode(const std::string& text) {
             if (end != std::string::npos) {
                 std::string escape = text.substr(i + 1, end - i - 1);
 
-                if (getColorCode(escape) != 0) {
-                    result.push_back(getColorCode(escape));
-                } else if (getControlCode(escape) != 0) {
-                    result.push_back(getControlCode(escape));
+                if (escapeBytes(escape, result)) {
+                    // done
                 } else {
                     result.push_back(charToPetscii('{'));
                     for (char c : escape) {

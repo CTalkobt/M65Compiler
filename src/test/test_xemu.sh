@@ -429,6 +429,57 @@ for bsmode in "plain|" "minify|--minify"; do
         failed=$((failed + 1))
     fi
 done
+# basic45 extensions: long names, block if, proc/call, FN (run by BASIC);
+# the same program decompiled and rebuilt; --list, --source-map, --disk
+echo "Testing test_basic45_features_xemu.bas..."
+if ./bin/basic45 --strict src/test-resources/test_basic45_features_xemu.bas \
+       -o build/test/test_basic45_features_xemu.prg --source-map build/test/basic45_features.map \
+       --disk build/test/basic45_features.d81 --disk-name features --list > build/test/basic45_features.lst 2>&1; then
+    run_xemu_test "test_basic45_features" "build/test/test_basic45_features_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+    if ./bin/basic45 --decompile build/test/test_basic45_features_xemu.prg -o build/test/basic45_features_rt.bas &&
+       ./bin/basic45 --strict build/test/basic45_features_rt.bas -o build/test/basic45_features_rt.prg &&
+       cmp -s build/test/test_basic45_features_xemu.prg build/test/basic45_features_rt.prg; then
+        echo "PASS: basic45 --decompile round trip gives the same program"
+        passed=$((passed + 1))
+    else
+        echo "FAIL: basic45 --decompile round trip"
+        failed=$((failed + 1))
+    fi
+    if grep -q "test_basic45_features_xemu.bas:12 " build/test/basic45_features.lst &&
+       grep -q '"FEATURES"' <(./bin/disk45 list build/test/basic45_features.d81 2>&1) &&
+       grep -q "test_basic45_features_xemu.bas" build/test/basic45_features.map; then
+        echo "PASS: basic45 --list, --source-map and --disk"
+        passed=$((passed + 1))
+    else
+        echo "FAIL: basic45 --list, --source-map or --disk"
+        failed=$((failed + 1))
+    fi
+else
+    echo "FAIL: test_basic45_features_xemu.bas (basic45 failed)"
+    failed=$((failed + 1))
+fi
+rm -f build/test/basic45_features.d81
+
+# basic45 string escapes, MEGA65 control codes and ESC sequences included
+printf 'print "{flash}{esc-x}{clear-eos}{$c1}{down}{esc}{lower}{orange}"\n' > build/test/basic45_escapes.bas
+if ./bin/basic45 --strict build/test/basic45_escapes.bas -o build/test/basic45_escapes.prg 2>/dev/null &&
+   xxd -p build/test/basic45_escapes.prg | tr -d '\n' | grep -q "220f1b581b40c1111b0e8122"; then
+    echo "PASS: basic45 string escapes"
+    passed=$((passed + 1))
+else
+    echo "FAIL: basic45 string escapes"
+    failed=$((failed + 1))
+fi
+
+# basic45 --link: BASIC calling C functions (SYS {name}, a, x, y; RREG)
+echo "Testing test_basic45_link_xemu.bas..."
+if ./bin/basic45 --strict --link src/test-resources/test_basic45_link_xemu.c \
+       src/test-resources/test_basic45_link_xemu.bas -o build/test/test_basic45_link_xemu.prg >/dev/null 2>&1; then
+    run_xemu_test "test_basic45_link" "build/test/test_basic45_link_xemu.prg" "C0C0" 6 "01 01 01 01 01 AA"
+else
+    echo "FAIL: test_basic45_link_xemu.bas (basic45 --link failed)"
+    failed=$((failed + 1))
+fi
 printf 'top: print\n  goto nowhere\n' > build/test/basic45_undef.bas
 if ./bin/basic45 build/test/basic45_undef.bas -o build/test/basic45_undef.prg 2>&1 | \
        grep -q "basic45_undef.bas:2:1: error: Undefined label: NOWHERE"; then

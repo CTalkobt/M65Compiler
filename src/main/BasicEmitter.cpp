@@ -1,4 +1,5 @@
 #include "BasicEmitter.hpp"
+#include "BasicVarRenamer.hpp"
 #include "PETSCIIEncoder.hpp"
 #include <cstring>
 #include <sstream>
@@ -344,11 +345,15 @@ std::vector<uint8_t> BasicEmitter::emitFromLabels(const LabelBasedSourceParser& 
     // (assignLineNumbers); label references become line numbers
     BasicTokenizer tokenizer;
     std::vector<BasicLine> lines;
+    std::vector<int> sourceOf;   // per line: the parser's source line
 
     const auto& labels = parser.getLabelMap();   // upper-case label -> line number
     auto isLabel = [&](const std::string& n) { return labels.count(n) > 0; };
     labelMap.clear();
+    variableMap.clear();
+    emittedLines.clear();
 
+    std::vector<std::vector<BasicToken>> tokenLines;
     for (const auto& srcLine : parser.getSourceLines()) {
         if (!srcLine.label.empty()) {
             auto it = labels.find(LabelBasedSourceParser::upper(srcLine.label));
@@ -364,16 +369,26 @@ std::vector<uint8_t> BasicEmitter::emitFromLabels(const LabelBasedSourceParser& 
                 tokens[idx].type = BasicToken::NUMBER;
                 tokens[idx].value = std::to_string(it->second);
             });
-
-        BasicLine line;
-        line.lineNumber = srcLine.basicLineNum;
+        std::vector<BasicToken> kept;
         for (const auto& token : tokens) {
             if (token.type != BasicToken::EOL && token.type != BasicToken::END_OF_FILE &&
                 token.type != BasicToken::LABEL)
-                line.tokens.push_back(token);
+                kept.push_back(token);
         }
-        if (!line.tokens.empty()) lines.push_back(line);
+        if (kept.empty()) continue;
+        tokenLines.push_back(kept);
+        BasicLine line;
+        line.lineNumber = srcLine.basicLineNum;
+        lines.push_back(line);
+        sourceOf.push_back(srcLine.sourceLineNum);
     }
+
+    if (renameVariables) {
+        BasicVarRenamer renamer;
+        renamer.rename(tokenLines);
+        variableMap = renamer.mapping();
+    }
+    for (size_t i = 0; i < lines.size(); i++) lines[i].tokens = tokenLines[i];
 
     // Labels after the last line of code name a line of their own (":")
     if (parser.getTrailingLineNum() != 0) {
@@ -384,8 +399,12 @@ std::vector<uint8_t> BasicEmitter::emitFromLabels(const LabelBasedSourceParser& 
         colon.value = ":";
         line.tokens.push_back(colon);
         lines.push_back(line);
+        sourceOf.push_back(0);
     }
 
     // Emit the lines
-    return emit(lines);
+    auto bytes = emit(lines);
+    for (size_t i = 0; i < lines.size(); i++)
+        emittedLines.push_back({lines[i].lineNumber, sourceOf[i], lineAddress[lines[i].lineNumber]});
+    return bytes;
 }

@@ -381,6 +381,17 @@ BasicToken BasicTokenizer::parseNumber(const std::string& source, size_t& pos) {
         token.value += source[pos];
         pos++;
     }
+    // an exponent: 1E5, 2.5E-3
+    if (pos + 1 < source.length() && (source[pos] == 'E' || source[pos] == 'e')) {
+        size_t p = pos + 1;
+        if (p < source.length() && (source[p] == '+' || source[p] == '-')) p++;
+        if (p < source.length() && std::isdigit((unsigned char)source[p])) {
+            token.value += 'E';
+            token.value.append(source, pos + 1, p - pos - 1);
+            pos = p;
+            while (pos < source.length() && std::isdigit((unsigned char)source[pos])) token.value += source[pos++];
+        }
+    }
 
     return token;
 }
@@ -388,13 +399,26 @@ BasicToken BasicTokenizer::parseNumber(const std::string& source, size_t& pos) {
 BasicToken BasicTokenizer::parseIdentifier(const std::string& source, size_t& pos) {
     std::string word;
 
-    while (pos < source.length() && (std::isalnum(source[pos]) || source[pos] == '_' || source[pos] == '$' || source[pos] == '#')) {
+    // A word: letters, digits, _, a $ type suffix. '#' belongs only to
+    // PRINT# and INPUT# (PRINT#1 is PRINT# 1; GET#1 is GET #1)
+    while (pos < source.length() && (std::isalnum(source[pos]) || source[pos] == '_' || source[pos] == '$')) {
         word += source[pos];
         pos++;
+        if (word.back() == '$') break;   // the suffix ends the name (A$B is A$ B)
+    }
+    if (pos < source.length() && source[pos] == '#') {
+        std::string u = word;
+        std::transform(u.begin(), u.end(), u.begin(), ::toupper);
+        if (u == "PRINT" || u == "INPUT") { word += '#'; pos++; }
     }
 
     std::string upper = word;
     std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
+    // GETKEY is two tokens, GET KEY (as BASIC's own cruncher stores it)
+    if (upper == "GETKEY") {
+        pos -= 3;
+        upper = "GET";
+    }
     // TAB( and SPC( are tokens that include the parenthesis
     if ((upper == "TAB" || upper == "SPC") && pos < source.length() && source[pos] == '(') {
         upper += '(';

@@ -76,35 +76,18 @@ private:
     std::vector<SourceMapping> mappings;
 };
 
-// Emulator launcher - execute compiled program in emulator
+// Emulator launcher: run a program in xemu (xemu-xmega65), the MEGA65
+// emulator, optionally with a disk image as drive 8
 class EmulatorLauncher {
 public:
     EmulatorLauncher() = default;
 
-    // Supported emulators
-    enum class Emulator {
-        MMEMU,      // mmemu-cli (M65 emulator)
-        VICE,       // VICE C64 emulator
-        DFPLAYER,   // dfplayer (hypothetical)
-        AUTO        // Auto-detect available emulator
-    };
+    // emulatorPath: the xemu-xmega65 binary ("" searches PATH)
+    bool launch(const std::string& programFile, const std::string& emulatorPath = "",
+                const std::string& diskImage = "");
 
-    // Launch emulator with compiled program
-    bool launch(
-        const std::string& programFile,
-        Emulator emulator = Emulator::AUTO,
-        const std::string& emulatorPath = ""
-    );
-
-    // Check if emulator is available
-    static bool isAvailable(Emulator emulator);
-
-    // Get path to emulator executable
-    static std::string getEmulatorPath(Emulator emulator);
-
-private:
-    bool launchMMemu(const std::string& programFile, const std::string& emulatorPath);
-    bool launchVice(const std::string& programFile, const std::string& emulatorPath);
+    // xemu-xmega65 on PATH, or "" if there is none
+    static std::string findXemu();
 };
 
 #endif  // BASICTOOLING_HPP
