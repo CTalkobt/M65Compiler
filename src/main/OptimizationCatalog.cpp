@@ -1,6 +1,7 @@
 #include "OptimizationCatalog.hpp"
 #include <sstream>
 #include <algorithm>
+#include <cctype>
 
 std::vector<OptimizationInfo> OptimizationCatalog::catalog_;
 bool OptimizationCatalog::initialized_ = false;
@@ -43,6 +44,19 @@ std::vector<OptimizationInfo> OptimizationCatalog::getOptimizationsByCategory(Op
     return result;
 }
 
+const OptimizationInfo* OptimizationCatalog::find(const std::string& userName) {
+    auto norm = [](std::string n) {
+        if (n.rfind("-f", 0) == 0) n = n.substr(2);
+        for (auto& c : n) c = (c == '_') ? '-' : (char)std::tolower((unsigned char)c);
+        return n;
+    };
+    std::string n = norm(userName);
+    for (const auto& o : getAllOptimizations()) {
+        if (norm(o.kebabName()) == n || norm(o.name) == n) return &o;
+    }
+    return nullptr;
+}
+
 bool OptimizationCatalog::isEnabledAtLevel(const std::string& name, int level) {
     auto opt = getOptimization(name);
     if (!opt) return false;
@@ -82,13 +96,13 @@ void OptimizationCatalog::initializeCatalog() {
     catalog_.push_back({
         "StrengthReduction", "Strength Reduction",
         "Replace multiply/divide by powers of 2 with bit shifts",
-        OptimizationCategory::BOTH, 3, -1, "-fstrength-reduction", false, 3
+        OptimizationCategory::BOTH, 1, -1, "-fstrength-reduction", false, 3
     });
 
     catalog_.push_back({
         "AlgebraicSimplify", "Algebraic Simplification",
         "Eliminate identity/annihilator patterns (a*1=a, a*0=0)",
-        OptimizationCategory::BOTH, 3, -1, "-falgebraic-simplify", false, 2
+        OptimizationCategory::BOTH, 1, -1, "-falgebraic-simplify", false, 2
     });
 
     // Level 4: Loop optimizations
@@ -107,7 +121,7 @@ void OptimizationCatalog::initializeCatalog() {
     catalog_.push_back({
         "LICM", "Loop-Invariant Code Motion",
         "Hoist loop-invariant computations outside loops",
-        OptimizationCategory::SPEED, 4, -1, "-floop-invariant-code-motion", true, 3
+        OptimizationCategory::SPEED, 1, -1, "-floop-invariant-code-motion", true, 3
     });
 
     // Level 5: Advanced inlining and devirtualization
@@ -127,13 +141,13 @@ void OptimizationCatalog::initializeCatalog() {
     catalog_.push_back({
         "CommonSubexprElim", "Common Subexpression Elimination",
         "Eliminate redundant subexpression computations",
-        OptimizationCategory::SPEED, 6, -1, "-fcse", true, 4
+        OptimizationCategory::SPEED, 1, -1, "-fcse", true, 4
     });
 
     catalog_.push_back({
         "CopyPropagation", "Copy Propagation",
         "Replace copies with original values to reduce moves",
-        OptimizationCategory::BOTH, 6, -1, "-fcopy-propagation", true, 2
+        OptimizationCategory::BOTH, 1, -1, "-fcopy-propagation", true, 2
     });
 
     // Level 7: Branch and jump optimizations
@@ -146,7 +160,7 @@ void OptimizationCatalog::initializeCatalog() {
     catalog_.push_back({
         "BranchFolding", "Branch Folding",
         "Eliminate unreachable code via conditional branches",
-        OptimizationCategory::SPACE, 7, -1, "-fbranch-folding", true, 3
+        OptimizationCategory::SPACE, 1, -1, "-fbranch-folding", true, 3
     });
 
     catalog_.push_back({
@@ -192,6 +206,51 @@ void OptimizationCatalog::initializeCatalog() {
         "Cross-module optimization hints and analysis",
         OptimizationCategory::BOTH, 9, -1, "-finterprocedural-optimization", true, 4
     });
+
+    catalog_.push_back({
+        "TypeNarrowing", "Type Narrowing",
+        "Compute in 8 bits when only the low byte of a wider operation is used",
+        OptimizationCategory::BOTH, 1, -1, "-ftype-narrowing", false, 2
+    });
+
+    catalog_.push_back({
+        "AddrElemFusion", "Address Fusion",
+        "Fuse a single-use array element address into its load or store",
+        OptimizationCategory::BOTH, 1, -1, "-faddr-elem-fusion", false, 2
+    });
+
+    // What is implemented, and where
+    struct Impl { const char* name; OptimizationImpl impl; const char* asmFlag; int level; };
+    static const Impl impls[] = {
+        {"ConstantFolding",      OptimizationImpl::ALWAYS_ON, "", 0},
+        {"DeadCodeElimination",  OptimizationImpl::ALWAYS_ON, "", 0},
+        {"FramePointerOpt",      OptimizationImpl::ALWAYS_ON, "", 0},
+        {"InlineSmallFunctions", OptimizationImpl::BUILDER,   "", 2},
+        {"Devirtualization",     OptimizationImpl::BUILDER,   "", 0},
+        {"StrengthReduction",    OptimizationImpl::IR_PASS,   "", 1},
+        {"AlgebraicSimplify",    OptimizationImpl::IR_PASS,   "", 1},
+        {"TypeNarrowing",        OptimizationImpl::IR_PASS,   "", 1},
+        {"BranchFolding",        OptimizationImpl::IR_PASS,   "", 1},
+        {"CommonSubexprElim",    OptimizationImpl::IR_PASS,   "", 1},
+        {"LICM",                 OptimizationImpl::IR_PASS,   "", 1},
+        {"CopyPropagation",      OptimizationImpl::IR_PASS,   "", 1},
+        {"AddrElemFusion",       OptimizationImpl::IR_PASS,   "", 1},
+        // ca45 runs these at its default level whatever cc45's -O level
+        {"TailCallOptimization", OptimizationImpl::ASM_PASS, "TailCall", 0},
+        {"BranchInversion",      OptimizationImpl::ASM_PASS, "BranchInvert", 0},
+        {"JumpOptimization",     OptimizationImpl::ASM_PASS, "JmpBra", 0},
+        {"RedundantLoadElim",    OptimizationImpl::ASM_PASS, "RedundantLoad", 0},
+        {"DeadStoreElim",        OptimizationImpl::ASM_PASS, "DeadStore", 0},
+    };
+    for (const auto& im : impls) {
+        for (auto& o : catalog_) {
+            if (o.name == im.name) {
+                o.impl = im.impl;
+                o.asmFlag = im.asmFlag;
+                o.enabledAtLevel = im.level;
+            }
+        }
+    }
 }
 
 std::string OptimizationCatalog::getDocumentation() {

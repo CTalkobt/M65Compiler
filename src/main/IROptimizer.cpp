@@ -2,11 +2,17 @@
 #include <algorithm>
 #include <iostream>
 #include <map>
+#include <set>
 #include <vector>
 
 namespace ir {
 
 std::ostream* optTrace = nullptr;
+std::function<bool(const Function&, const char*)> passEnabled;
+
+static bool runOn(const Function& fn, const char* pass) {
+    return !passEnabled || passEnabled(fn, pass);
+}
 
 static void trace(const char* pass, const std::string& func, const std::string& action,
                   const SourceLoc& loc = {}) {
@@ -67,7 +73,11 @@ void propagateOperand(Operand& op, const std::map<uint32_t, Operand>& copies) {
     if (op.isVreg()) {
         auto it = copies.find(op.vregId);
         if (it != copies.end()) {
+            // The use keeps its own type: a copy may change the width
+            // (copy i8 of an i16 value is its low byte)
+            Type useType = op.type;
             op = it->second;
+            if (op.isVreg()) op.type = useType;
             // Recursively resolve
             propagateOperand(op, copies);
         }
@@ -78,27 +88,46 @@ void propagateOperand(Operand& op, const std::map<uint32_t, Operand>& copies) {
 
 void optimizeCSE(Module& mod) {
     for (auto& fn : mod.functions) {
-        // std::printf("--- Optimizing function: '%s' ---\n", fn.name.c_str());
+        if (!runOn(fn, "CommonSubexprElim")) continue;
+        const auto& slots = fn.localSlotVregs;
         for (auto& block : fn.blocks) {
             std::map<uint32_t, Operand> copies;
             std::vector<std::pair<ExprKey, Operand>> activeExprs;
 
+            // Vregs are not SSA (a variable's slot vreg is assigned by STORE, a
+            // temp can be defined on several paths): forget every recorded
+            // expression and copy that reads or names vreg v once v changes
+            auto uses = [](const Operand& o, uint32_t v) { return o.isVreg() && o.vregId == v; };
+            auto invalidate = [&](uint32_t v) {
+                activeExprs.erase(std::remove_if(activeExprs.begin(), activeExprs.end(),
+                    [&](const auto& e) { return uses(e.first.src1, v) || uses(e.first.src2, v) || uses(e.second, v); }),
+                    activeExprs.end());
+                for (auto it = copies.begin(); it != copies.end();) {
+                    if (it->first == v || uses(it->second, v)) it = copies.erase(it);
+                    else ++it;
+                }
+            };
+            // A store through a pointer, a call or inline asm may change any
+            // variable (its address may have been taken)
+            auto invalidateVariables = [&]() {
+                for (uint32_t v : slots) invalidate(v);
+            };
+
             for (auto& inst : block.insts) {
-                // std::printf("  Before: op=%d, dest=%u, src1=%u, src2=%u\n",
-                //             (int)inst.op, inst.dest.vregId, inst.src1.vregId, inst.src2.vregId);
-
-                // 1. Apply copy propagation to operands
-                propagateOperand(inst.src1, copies);
-                propagateOperand(inst.src2, copies);
-                for (auto& arg : inst.args) {
-                    propagateOperand(arg, copies);
-                }
-                for (auto& pair : inst.phiIncoming) {
-                    propagateOperand(pair.first, copies);
-                }
-
-                // std::printf("  After Prop: op=%d, dest=%u, src1=%u, src2=%u\n",
-                //             (int)inst.op, inst.dest.vregId, inst.src1.vregId, inst.src2.vregId);
+                // 1. Apply copy propagation to operands. A variable's slot vreg
+                // as the address of a LOAD/STORE (or ADDR_LOCAL's operand) names
+                // the variable itself, so a copy of it is not propagated there
+                bool src1IsAddr = inst.op == Op::LOAD || inst.op == Op::LOAD_ZP || inst.op == Op::ADDR_LOCAL;
+                bool src2IsAddr = inst.op == Op::STORE || inst.op == Op::STORE_ZP;
+                auto prop = [&](Operand& op, bool addrRole) {
+                    Operand before = op;
+                    propagateOperand(op, copies);
+                    if (addrRole && op.isVreg() && slots.count(op.vregId)) op = before;
+                };
+                prop(inst.src1, src1IsAddr);
+                prop(inst.src2, src2IsAddr);
+                for (auto& arg : inst.args) prop(arg, false);
+                for (auto& pair : inst.phiIncoming) prop(pair.first, false);
 
                 // 2. Handle memory stores invalidating load expressions
                 if (inst.op == Op::STORE || inst.op == Op::STORE_ZP ||
@@ -112,14 +141,22 @@ void optimizeCSE(Module& mod) {
                                        }),
                         activeExprs.end()
                     );
+                    // A STORE to a slot vreg assigns that variable
+                    if ((inst.op == Op::STORE || inst.op == Op::STORE_ZP) && inst.src2.isVreg() &&
+                        slots.count(inst.src2.vregId))
+                        invalidate(inst.src2.vregId);
+                    else
+                        invalidateVariables();
                 }
+
+                // The instruction (re)defines its destination
+                if (inst.dest.isVreg()) invalidate(inst.dest.vregId);
 
                 // 3. Record new copies directly
                 if (inst.op == Op::COPY) {
-                    if (inst.dest.isVreg()) {
+                    if (inst.dest.isVreg() && !slots.count(inst.dest.vregId) &&
+                        !(inst.src1.isVreg() && inst.src1.vregId == inst.dest.vregId))
                         copies[inst.dest.vregId] = inst.src1;
-                        // std::printf("    Recorded copy: %u -> %u\n", inst.dest.vregId, inst.src1.vregId);
-                    }
                     continue;
                 }
 
@@ -146,14 +183,17 @@ void optimizeCSE(Module& mod) {
                             inst.op = Op::COPY;
                             inst.src1 = pair.second;
                             inst.src2 = Operand::none();
-                            copies[inst.dest.vregId] = pair.second;
+                            if (!slots.count(inst.dest.vregId)) copies[inst.dest.vregId] = pair.second;
                             // std::printf("    Matched CSE! Replace with copy of %d\n", pair.second.vregId);
                             found = true;
                             break;
                         }
                     }
 
-                    if (!found) {
+                    // A slot vreg's value changes with each assignment: only a
+                    // temp can stand for the expression
+                    if (!found && !slots.count(inst.dest.vregId) &&
+                        !uses(inst.src1, inst.dest.vregId) && !uses(inst.src2, inst.dest.vregId)) {
                         activeExprs.push_back({key, inst.dest});
                     }
                 }
@@ -168,6 +208,7 @@ void optimizeCSE(Module& mod) {
 
 void optimizeStrengthReduction(Module& mod) {
     for (auto& fn : mod.functions) {
+        if (!runOn(fn, "StrengthReduction")) continue;
         // Build constant value map: vreg → immediate value
         // (for looking up CONST operands of MUL/DIV/MOD)
         std::map<uint32_t, int64_t> constVals;
@@ -274,6 +315,7 @@ void optimizeStrengthReduction(Module& mod) {
 
 void optimizeAlgebraic(Module& mod) {
     for (auto& fn : mod.functions) {
+        if (!runOn(fn, "AlgebraicSimplify")) continue;
         // Build constant value map
         std::map<uint32_t, int64_t> constVals;
         for (auto& block : fn.blocks) {
@@ -453,6 +495,7 @@ void optimizeAddrElemFusion(Module& mod) {
     //   The codegen detects args.size() >= 3 on LOAD/STORE as "fused addr_elem".
 
     for (auto& fn : mod.functions) {
+        if (!runOn(fn, "AddrElemFusion")) continue;
         // Build use counts for each vreg
         std::map<uint32_t, int> useCount;
         for (auto& block : fn.blocks) {
@@ -477,6 +520,11 @@ void optimizeAddrElemFusion(Module& mod) {
                 if (useCount[addrVreg] != 1) continue;
                 // Don't fuse local slot vregs
                 if (fn.localSlotVregs.count(addrVreg)) continue;
+                // A base that is a local's slot vreg is the variable's address in
+                // ADDR_ELEM (an array or vector local); the fused access would
+                // read the variable's contents as a pointer instead
+                if (addrInst.src1.isVreg() && (fn.localSlotVregs.count(addrInst.src1.vregId) ||
+                                               fn.memoryVregs.count(addrInst.src1.vregId))) continue;
 
                 // Next instruction must be LOAD or STORE using this vreg as address
                 bool isLoad = (nextInst.op == Op::LOAD && nextInst.src1.isVreg() &&
@@ -484,6 +532,13 @@ void optimizeAddrElemFusion(Module& mod) {
                 bool isStore = (nextInst.op == Op::STORE && nextInst.src2.isVreg() &&
                                 nextInst.src2.vregId == addrVreg);
                 if (!isLoad && !isStore) continue;
+                // The codegen computes a fused address only for 1/2/4-byte
+                // integer and pointer accesses (a float or I_N access keeps
+                // its address vreg)
+                // (and for loads only: the fused 4-byte store is not implemented)
+                Type t = nextInst.resultType;
+                if (t != Type::I8 && t != Type::I16 && t != Type::PTR && !(isLoad && t == Type::I32)) continue;
+                if (!nextInst.args.empty()) continue;   // already carries other operands
 
                 // Fuse: copy ADDR_ELEM params into the LOAD/STORE args
                 trace("fusion", fn.name, "v" + std::to_string(addrVreg) + " ADDR_ELEM fused into " + (isLoad ? "LOAD" : "STORE"), addrInst.loc);
@@ -510,12 +565,28 @@ void optimizeAddrElemFusion(Module& mod) {
 
 void optimizeCopyChains(Module& mod) {
     for (auto& fn : mod.functions) {
+        if (!runOn(fn, "CopyPropagation")) continue;
         // Build forwarding map: follow COPY chains to the root operand.
         // %a = COPY %b; %c = COPY %a → %c should reference %b directly.
+        // The map is used across the whole function, so (vregs not being SSA)
+        // only a copy defined once whose root is a temp defined at most once
+        // — never a variable's slot vreg, which assignments change — is
+        // forwarded.
+        std::map<uint32_t, int> defCount;
+        for (auto& block : fn.blocks)
+            for (auto& inst : block.insts) {
+                if (inst.dest.isVreg()) defCount[inst.dest.vregId]++;
+                if ((inst.op == Op::STORE || inst.op == Op::STORE_ZP) && inst.src2.isVreg())
+                    defCount[inst.src2.vregId] += 2;   // assigned: never a fixed value
+            }
+        auto fixedTemp = [&](uint32_t v) {
+            return !fn.localSlotVregs.count(v) && defCount[v] <= 1;
+        };
         std::map<uint32_t, Operand> copyRoot;
         for (auto& block : fn.blocks) {
             for (auto& inst : block.insts) {
-                if (inst.op == Op::COPY && inst.dest.isVreg() && inst.src1.isVreg()) {
+                if (inst.op == Op::COPY && inst.dest.isVreg() && inst.src1.isVreg() &&
+                    fixedTemp(inst.dest.vregId) && fixedTemp(inst.src1.vregId)) {
                     // Follow chain to root
                     Operand root = inst.src1;
                     int depth = 16;
@@ -531,7 +602,7 @@ void optimizeCopyChains(Module& mod) {
             }
         }
 
-        if (copyRoot.empty()) return;
+        if (copyRoot.empty()) continue;
 
         for (auto& [dest, root] : copyRoot) {
             trace("copy", fn.name, "v" + std::to_string(dest) + " chain → v" + std::to_string(root.vregId));
@@ -590,6 +661,7 @@ void optimizeCopyChains(Module& mod) {
 
 void optimizeTypeNarrowing(Module& mod) {
     for (auto& fn : mod.functions) {
+        if (!runOn(fn, "TypeNarrowing")) continue;
         // Build use map: for each vreg, collect all instructions that use it
         // and what role (src1, src2, arg, store-value)
         struct UseInfo {
@@ -620,7 +692,7 @@ void optimizeTypeNarrowing(Module& mod) {
                 case Op::ADD:
                 case Op::MUL: case Op::MUL_U:
                 case Op::AND: case Op::OR: case Op::XOR:
-                case Op::SHL: case Op::SHR:
+                case Op::SHL:   // not SHR: the low byte of x >> n comes from x's high bits
                 case Op::NOT:
                     return true;
                 default:
@@ -664,6 +736,9 @@ void optimizeTypeNarrowing(Module& mod) {
                     if (u.inst->op == Op::TRUNC && u.inst->resultType == Type::I8) {
                         u.inst->op = Op::COPY;
                         u.inst->resultType = Type::I8;
+                        // the operand is an I8 value now (copy propagation
+                        // passes this operand on to the copy's users)
+                        u.inst->src1.type = Type::I8;
                     }
                 }
             }
@@ -691,6 +766,9 @@ void optimizeTypeNarrowing(Module& mod) {
                     if (u.inst->op == Op::TRUNC && u.inst->resultType == Type::I8) {
                         u.inst->op = Op::COPY;
                         u.inst->resultType = Type::I8;
+                        // the operand is an I8 value now (copy propagation
+                        // passes this operand on to the copy's users)
+                        u.inst->src1.type = Type::I8;
                     }
                 }
             }
@@ -704,17 +782,48 @@ void optimizeTypeNarrowing(Module& mod) {
 
 void optimizeBranchFold(Module& mod) {
     for (auto& fn : mod.functions) {
+        if (!runOn(fn, "BranchFolding")) continue;
         bool changed = true;
         int maxIter = 16;
         while (changed && --maxIter > 0) {
             changed = false;
 
-            // Build constant value map
+            // Build constant value map. Vregs are not SSA: a vreg is a constant
+            // only when its one definition is a CONST and nothing stores to it
+            // (a && b's result gets CONST 0 on one path and a value on the other;
+            // a STORE to a local's slot vreg assigns the variable)
             std::map<uint32_t, int64_t> constVals;
+            std::map<uint32_t, int> defCount;
+            std::set<uint32_t> storedTo;
             for (auto& block : fn.blocks) {
                 for (auto& inst : block.insts) {
+                    if (inst.dest.isVreg()) defCount[inst.dest.vregId]++;
+                    if ((inst.op == Op::STORE || inst.op == Op::STORE_ZP) && inst.src2.isVreg())
+                        storedTo.insert(inst.src2.vregId);
                     if (inst.op == Op::CONST && inst.dest.isVreg() && inst.src1.isImm())
                         constVals[inst.dest.vregId] = inst.src1.immVal;
+                }
+            }
+            for (auto it = constVals.begin(); it != constVals.end();) {
+                if (defCount[it->first] != 1 || storedTo.count(it->first) || fn.localSlotVregs.count(it->first))
+                    it = constVals.erase(it);
+                else
+                    ++it;
+            }
+
+            // Pass 0: instructions after a block's first terminator never run
+            // (break inside if: "br @while_end; br @if_end"); later passes and
+            // the codegen treat the last instruction as the terminator
+            for (auto& blk : fn.blocks) {
+                for (size_t k = 0; k + 1 < blk.insts.size(); k++) {
+                    Op op = blk.insts[k].op;
+                    if (op == Op::BR || op == Op::BR_COND || op == Op::BR_INDIRECT || op == Op::SWITCH ||
+                        op == Op::RET || op == Op::RET_VOID) {
+                        trace("branch", fn.name, "unreachable instructions after the terminator of " + blk.label + " removed");
+                        blk.insts.erase(blk.insts.begin() + k + 1, blk.insts.end());
+                        changed = true;
+                        break;
+                    }
                 }
             }
 
@@ -941,6 +1050,7 @@ bool isHoistCandidate(Op op) {
 
 void optimizeLICM(Module& mod) {
     for (auto& fn : mod.functions) {
+        if (!runOn(fn, "LICM")) continue;
         // Restart loop: after inserting a pre-header block, indices shift,
         // so we rebuild the CFG and scan for the next back-edge.
         bool restart = true;
@@ -1042,6 +1152,7 @@ void optimizeLICM(Module& mod) {
             // slots are NOT loop-invariant.
             std::set<uint32_t> loopDefinedVregs;
             std::set<uint32_t> loopMutatedSlots;
+            bool loopWritesMemory = false;   // a call, asm or store through a pointer
             for (size_t bi : loopBlocks) {
                 for (const auto& inst : fn.blocks[bi].insts) {
                     if (inst.dest.isVreg()) {
@@ -1051,9 +1162,28 @@ void optimizeLICM(Module& mod) {
                     if ((inst.op == Op::STORE || inst.op == Op::STORE_ZP) &&
                         inst.src2.isVreg() && fn.localSlotVregs.count(inst.src2.vregId)) {
                         loopMutatedSlots.insert(inst.src2.vregId);
+                    } else if (inst.op == Op::STORE || inst.op == Op::STORE_ZP ||
+                               inst.op == Op::CALL || inst.op == Op::CALL_VOID ||
+                               inst.op == Op::CALL_INDIRECT || inst.op == Op::ASM_INLINE ||
+                               inst.op == Op::CPU_REG_WRITE) {
+                        loopWritesMemory = true;
                     }
                 }
             }
+            // A variable whose address is taken changes through such a write
+            if (loopWritesMemory) {
+                for (const auto& blk : fn.blocks)
+                    for (const auto& inst : blk.insts)
+                        if (inst.op == Op::ADDR_LOCAL && inst.src1.isVreg())
+                            loopMutatedSlots.insert(inst.src1.vregId);
+                for (uint32_t v : fn.memoryVregs) loopMutatedSlots.insert(v);
+            }
+            // Vregs are not SSA: only an instruction that is its destination's
+            // one definition can move
+            std::map<uint32_t, int> defCount;
+            for (const auto& blk : fn.blocks)
+                for (const auto& inst : blk.insts)
+                    if (inst.dest.isVreg()) defCount[inst.dest.vregId]++;
 
             // Iteratively find loop-invariant instructions.
             // An instruction is invariant if:
@@ -1078,6 +1208,7 @@ void optimizeLICM(Module& mod) {
                         if (fn.localSlotVregs.count(inst.dest.vregId)) continue;
                         // Don't hoist memory-pinned vregs (volatile, address-taken)
                         if (fn.memoryVregs.count(inst.dest.vregId)) continue;
+                        if (defCount[inst.dest.vregId] != 1) continue;
 
                         auto isInvariantOrExternal = [&](const Operand& op) -> bool {
                             if (op.isNone() || op.isImm()) return true;

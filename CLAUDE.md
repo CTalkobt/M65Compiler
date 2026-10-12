@@ -198,16 +198,24 @@ ln45, ar45, nm45, objdump45 and disk45 have no config files. Environment:
   statement expressions, computed goto, case ranges, `repeat(N)`, `__cpu`/`__flags`,
   `__dma_copy`/`__dma_fill`, `__interrupt`, `__naked`, `__regparm`, string encodings
   (`@"…"`, `#pragma encoding`), GCC vector extension (`-fmax-unroll-bytes`, default 128).
-- **Optimization**: `-O` only switches automatic inlining (`-O0` = `-O1`; `-O2`+
-  inline small functions, `-fmax-inline-ir-size`, default 11). The real
-  optimizations are SAC, ZP register allocation, inlining, constant folding,
-  constant-address stores, hardware multiply/divide, lazy frames and ca45's
-  peephole optimizer. The named `-f<pass>` flags, `optimize(...)` pragmas and
-  the `CC45_IPO`/`CC45_LTCO`/`CC45_BANK_ANALYSIS` variables do not exist or
-  do nothing (`doc/architecture/optimizations.md`).
+- **Optimization** (`doc/architecture/optimizations.md`): `-O1`+ runs the eight
+  IR passes of `IROptimizer.cpp` (strength reduction, algebraic simplification,
+  type narrowing, branch folding, CSE, LICM, copy propagation, address fusion;
+  `CodegenStage::optimizeIR`); `-O2`+ adds automatic inlining
+  (`-fmax-inline-ir-size`, default 11). Every entry of `OptimizationCatalog`
+  has `-f<name>`/`-fno-<name>`: IR passes (also per function with
+  `#pragma cc45 optimize(...)`), IRBuilder switches (inline-small-functions,
+  devirtualization), ca45 passes forwarded as `-P` (tail calls, branch
+  inversion, jump optimization, redundant loads, dead stores), always-on ones
+  (`-fno-` warns); unimplemented names are ignored, `--future` warns.
+  `-Roptir` traces the IR passes. The IR is not SSA (slot vregs are assigned
+  by `store`, temps can have several definitions): passes must treat a vreg
+  as constant/fixed only with exactly one definition. Validation:
+  `test_iropt_xemu.c` (xemu) and `src/test/test_optimizations.sh` (`make test`).
+  The `CC45_IPO`/`CC45_LTCO`/`CC45_BANK_ANALYSIS` variables do not exist.
 - **Working pragmas**: `once`, `push_macro`/`pop_macro`, `weak`, `cc45 recurse`,
   `signed_default`/`unsigned_default`, `no_stack16`, `stack_top`,
-  `max_inline_ir_size`, `max_unroll_bytes`, `encoding`; `no_zp_save`/`set_bp`
+  `max_inline_ir_size`, `max_unroll_bytes`, `optimize(...)`, `encoding`; `no_zp_save`/`set_bp`
   (only `-S`). Accepted without effect: `exit_rts`/`exit_halt`/`exit_brk`,
   `no_bssinit`, `heap`, `stdio`, `no_0100_stack`, `unroll`, `no_static_alloc`
   (use `recurse`), `no_striped`.
@@ -244,7 +252,7 @@ overlays, `dma.h`. Many other headers (graphics, sprites, hw_*, uart, conio
   the wrong argument when a config file or `CA45_*` adds arguments (can
   overwrite the input); `#include` fails; `mod.16`, `abs.16`, `neg.16` (memory),
   `fill`/`move`, `stw #imm`, `ldw.f`/`stw.f` simulated ops are wrong.
-- **cc45**: unknown options become the input file name; `-fno-zpcall`
+- **cc45**: `-fno-zpcall`
   constant-parameter specialization ignores calls from other modules
   (miscompile); virtual dispatch uses the wrong vtable symbol; `__dma_fill`
   fills 0; `continue <value>` does nothing; `__regparm` with `char` or

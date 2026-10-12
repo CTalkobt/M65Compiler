@@ -14,7 +14,6 @@
 # Too large for the memory below the $BFFF stack top:
 #   20020108-1 (ends at $D000 since mode(SI) makes its 32-bit shift tests really 32-bit),
 #   20030209-1, 20040629-1, pr58574 (code runs into I/O at $D000), strlen-5
-# pr53645: passes with the ZP convention; with -fno-zpcall it ends at $C000, just over the $BFFF stack top.
 #
 # Won't do — 20040709-2 (and 20040709-3, which includes it): bitfields of unsigned long long
 #   and of more than 16 bits in unsigned int (int32plus, native 64-bit integers)

@@ -26,6 +26,11 @@ struct CompilationConfig {
     int maxUnrollBytes = 128;   // -fmax-unroll-bytes: largest code an unrolled loop may take
     bool signedDefault = false; // -fsigned-default: plain char/short/int/long are signed (standard C)
     bool unsignedChar = false;  // -funsigned-char: plain char stays unsigned even with -fsigned-default
+    // -f<name> / -fno-<name> for the optimizations of OptimizationCatalog:
+    // catalog name -> on/off (overrides the -O level's default)
+    std::map<std::string, bool> optOverrides;
+    bool futureWarnings = false; // --future: warn when an unimplemented optimization is requested
+    bool traceIROpt = false;     // -Roptir: report IR optimizer actions to stderr
 
     // Calling conventions
     bool zpCallMode = true;     // ZP parameter convention (default); -fno-zpcall selects stack parameters

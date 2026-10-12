@@ -19,13 +19,15 @@ driven by `src/main/CompilationPipeline.cpp`. IRCodeGen writes ca45 source text
 (simulated ops such as `mul.16`, `ldax`); M65Emitter/O45Emitter belong to the
 assembler, not to this path.
 
-**IR-level optimization.** The passes in `src/main/IROptimizer.cpp`
-(`optimizeCSE`, `optimizeLICM`, `optimizeAlgebraic`, `optimizeStrengthReduction`,
-`optimizeBranchFold`, `optimizeCopyChains`, `optimizeTypeNarrowing`,
-`optimizeAddrElemFusion`) are compiled in but **not called** anywhere in the
-current pipeline; `CodegenStage::optimizeIR()`, `applyIPOSpecialization()` and
-`applyInlining()` only count candidates. The transformations that do happen at
-IR time are done inside `IRBuilder` itself:
+**IR-level optimization.** `CodegenStage::optimizeIR()` runs the passes of
+`src/main/IROptimizer.cpp` after IR generation (`-O1` and up): `optimizeStrengthReduction`,
+`optimizeAlgebraic`, `optimizeTypeNarrowing`, `optimizeBranchFold`, `optimizeCSE`,
+`optimizeLICM`, `optimizeCopyChains`, `optimizeAddrElemFusion`, each switchable
+with `-f[no-]<name>` and per function with `#pragma cc45 optimize(...)`
+(`ir::passEnabled`, `Function::optOverrides`); see
+[optimizations.md](optimizations.md#ir-passes). `-Roptir` traces them.
+`applyIPOSpecialization()` and `applyInlining()` only count candidates. Other
+transformations happen inside `IRBuilder` itself:
 
 - function inlining (`-O2`+ or `-finline-functions`, limited by
   `-fmax-inline-ir-size`), producing `copy` + `br @inline_endN` sequences;
@@ -90,7 +92,7 @@ Printed names are those of `ir::opName()`.
 
 Defined but never produced by IRBuilder: `switch` (switch statements are lowered
 to `cmp_eq` + `br_cond` chains), `phi`, `lsl`, `lsr`. IRCodeGen has a `PHI` case;
-`SWITCH`, `LSL` and `LSR` exist only for the unused IROptimizer.
+`SWITCH`, `LSL` and `LSR` are handled by IROptimizer passes but never produced.
 
 ## Operands and instructions
 
@@ -255,4 +257,6 @@ stack pushes, SAC thunks), and float calls into the ROM.
 1. `--emit-ir` is a no-op; use `CC45_DUMP_IR=1`.
 2. The printer has no names for `F32`/`I_N` (`?`) or the float ops (`unknown`),
    and does not print bitfield offset/width or inline-asm text.
-3. `IROptimizer.cpp` passes are not wired into the pipeline.
+3. Vregs are not SSA: a local's slot vreg is assigned by `store`, and a temp
+   can be defined on several paths (`a && b`). Passes treat a vreg as a
+   constant or fixed value only when it has exactly one definition.

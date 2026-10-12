@@ -32,6 +32,7 @@
 #include "IRBuilder.hpp"
 #include "IRCodeGen.hpp"
 #include "IROptimizer.hpp"
+#include "OptimizationCatalog.hpp"
 #include "IPOAnalyzer.hpp"
 #include "SpecializationCodeGenerator.hpp"
 #include "SpecializationOptimizer.hpp"
@@ -458,6 +459,7 @@ int main(int argc, char** argv) {
         config.toolDir = baseDir;
     }
 
+    std::vector<std::string> requestedOpts;  // catalog optimizations named by -f flags
     // Parse all arguments
     for (size_t i = 0; i < allArgs.size(); ++i) {
         std::string arg = allArgs[i];
@@ -493,6 +495,10 @@ int main(int argc, char** argv) {
                 std::cout << "  -fmax-unroll-bytes=N    Max estimated code bytes of an unrolled loop (default 128)" << std::endl;
                 std::cout << "  -fsigned-default  Plain char/short/int/long are signed (standard C); default is unsigned" << std::endl;
                 std::cout << "  -funsigned-char   With -fsigned-default, keep plain char unsigned" << std::endl;
+                std::cout << "  -f<opt> / -fno-<opt>  Enable / disable an optimization (e.g. -fno-cse,"
+                          << " -floop-invariant-code-motion; see doc/architecture/optimizations.md)" << std::endl;
+                std::cout << "  --future       Warn when an optimization that is not implemented yet is requested" << std::endl;
+                std::cout << "  -Roptir        Report IR optimizer actions to stderr" << std::endl;
                 std::cout << "  --pragma <p>   Inject pragma" << std::endl;
                 std::cout << "  --prg-base <a> PRG load address (hex)" << std::endl;
                 std::cout << "  --save-temps   Keep intermediate files" << std::endl;
@@ -566,6 +572,10 @@ int main(int argc, char** argv) {
             config.emitIR = true;
         } else if (arg == "-Rcodegen") {
             config.emitReasons = true;
+        } else if (arg == "-Roptir") {
+            config.traceIROpt = true;
+        } else if (arg == "--future") {
+            config.futureWarnings = true;
         } else if (arg.substr(0, 2) == "-O") {
             std::string levelStr = arg.substr(2);
             if (!levelStr.empty() && levelStr[0] >= '0' && levelStr[0] <= '9') {
@@ -594,8 +604,36 @@ int main(int argc, char** argv) {
             } else {
                 symbols[arg.substr(2)] = "1";
             }
+        } else if (arg.size() > 2 && arg.compare(0, 2, "-f") == 0) {
+            // -f<optimization> / -fno-<optimization> (OptimizationCatalog)
+            bool enable = arg.compare(0, 5, "-fno-") != 0;
+            std::string name = enable ? arg.substr(2) : arg.substr(5);
+            if (const OptimizationInfo* o = OptimizationCatalog::find(name)) {
+                config.optOverrides[o->name] = enable;
+                requestedOpts.push_back(o->name);
+            } else {
+                std::cerr << programName << ": warning: unknown option '" << arg << "' ignored" << std::endl;
+            }
+        } else if (arg.size() > 1 && arg[0] == '-') {
+            std::cerr << programName << ": warning: unknown option '" << arg << "' ignored" << std::endl;
         } else {
             config.inputFile = arg;
+        }
+    }
+
+    // --future: a requested optimization that is not implemented (any order of
+    // --future and the -f flags); -fno-<always on> cannot take effect
+    for (const auto& n : requestedOpts) {
+        const OptimizationInfo* o = OptimizationCatalog::getOptimization(n);
+        if (!o) continue;
+        if (!o->implemented()) {
+            if (config.futureWarnings)
+                std::cerr << programName << ": warning: optimization '" << o->kebabName()
+                          << "' is not implemented yet; -f" << (config.optOverrides[n] ? "" : "no-")
+                          << o->kebabName() << " has no effect" << std::endl;
+        } else if (o->impl == OptimizationImpl::ALWAYS_ON && !config.optOverrides[n]) {
+            std::cerr << programName << ": warning: '" << o->kebabName()
+                      << "' is part of code generation and cannot be disabled" << std::endl;
         }
     }
 

@@ -219,6 +219,8 @@ struct Function {
     bool isRegparm = false;
     bool isNested = false;
     bool isRecurse = false;      // opt-out of static allocation (SAC)
+    // #pragma cc45 optimize(...) in effect at the definition: catalog name -> on/off
+    std::map<std::string, bool> optOverrides;
     // Labels whose address (&&label) is used from data, e.g. a static
     // table for goto *: their blocks are kept and get a global alias
     // (labelAlias()) the data can refer to

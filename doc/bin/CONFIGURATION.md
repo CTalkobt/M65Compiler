@@ -20,7 +20,7 @@ Configuration arguments are placed in front of the command-line arguments and pa
 - Lines whose first character is `#` are comments; blank lines are ignored.
 - Every other line is split at spaces/tabs into arguments; `"..."` and `'...'` group text containing spaces.
 - `#` later in a line is **not** a comment: `-O0  # debug` adds the arguments `#` and `debug`.
-- cc45 takes any argument it does not recognise as the input file name; the file named on the command line comes later and replaces it, so unknown configuration words are silently ignored (a typo is not reported).
+- An unknown option starting with `-` warns (*"cc45: warning: unknown option '-x' ignored"*). Any other word is taken as the input file name; the file named on the command line comes later and replaces it, so such words are silently ignored.
 
 Example (`$HOME` is read from the environment):
 
@@ -37,7 +37,7 @@ cc45 -c main.c            # uses -O2 -fno-zpcall ...
 cc45 -fzpcall -c main.c   # ZP convention: the later -fzpcall wins
 ```
 
-For the options cc45 accepts see [cc45](cc45.md) (`cc45 -?`). cc45 has no per-pass `-P` or `-f<pass>` switches; only the `-O` level selects its optimisations.
+For the options cc45 accepts see [cc45](cc45.md) (`cc45 -?`). Besides the `-O` level, single optimisations are switched with `-f<name>` / `-fno-<name>` (see [optimizations.md](../architecture/optimizations.md#optimization-switches)), e.g. a `-fno-inline-small-functions` line.
 
 ## ca45: `~/.config/m65/ca45.conf` and `.ca45rc`
 

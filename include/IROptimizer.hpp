@@ -1,11 +1,16 @@
 #pragma once
 #include "IR.hpp"
+#include <functional>
 #include <ostream>
 
 namespace ir {
     // Trace stream for IR optimizer logging (-Roptir)
     // When non-null, optimization passes report actions to this stream
     extern std::ostream* optTrace;
+
+    // Per-function switch consulted by every pass: (function, catalog name of
+    // the pass) -> run it on this function? Unset: run on every function.
+    extern std::function<bool(const Function&, const char*)> passEnabled;
 
     // Run Common Subexpression Elimination and Copy Propagation on the IR Module
     void optimizeCSE(Module& mod);

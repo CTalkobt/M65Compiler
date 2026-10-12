@@ -38,7 +38,7 @@ Repeated division with the MEGA65 hardware divider (`$D770`…), digits pushed o
 - `swap`, `do_cmp`, `cmp_positive` are `always_inline` helpers; `swap` is a byte loop for every element size.
 - Comparator and element size are kept in globals (`qs_cmp`, `qs_size`), so `qsort` is not reentrant.
 - `qs_impl` is recursive, so it uses a stack frame rather than static allocation.
-- The `#pragma cc45 optimize(...)` lines inside the functions name passes (`constant-folding`, `dead-code-elimination`, `branch-inversion`, `cross-function-inlining`, `tail-call-optimization`, `cse`); they enable those passes for the function but do not change the algorithm. In `-O2` output cc45 does not turn tail calls into jumps (see [../ref/V1_1_OPTIMIZATION_ROADMAP.md](../ref/V1_1_OPTIMIZATION_ROADMAP.md)), so both recursive calls are real calls.
+- The `#pragma cc45 optimize(...)` lines inside the functions name optimizations (`constant-folding`, `dead-code-elimination`, `branch-inversion`, `cross-function-inlining`, `tail-call-optimization`, `cse`); they apply to the function they are in. `cse` is an IR pass that is on anyway at the library's level, the always-on and file-wide (ca45) ones are on anyway, and `cross-function-inlining` is not implemented, so they do not change the code. Both recursive calls are real `JSR`s: `qs_impl` has a stack frame to remove after them, so they are not tail calls.
 
 ### bsearch — `bsearch.c`
 

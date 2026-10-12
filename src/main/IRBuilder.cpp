@@ -1,4 +1,5 @@
 #include "IRBuilder.hpp"
+#include "OptimizationCatalog.hpp"
 #include "CBMFloat.hpp"
 #include "Diagnostic.hpp"
 #include <algorithm>
@@ -118,7 +119,7 @@ void IRBuilder::generate(TranslationUnit& unit) {
     // Phase 4: Compiler-level devirtualization
     // For each vtable slot, if only one implementation exists across all vtables,
     // replace virtual CALL_INDIRECT with direct CALL.
-    {
+    if (devirtualize) {
         // Build slot → set of implementations
         std::map<int, std::set<std::string>> slotImpls;
         for (const auto& g : module_.globals) {
@@ -1199,6 +1200,7 @@ void IRBuilder::visit(FunctionDeclaration& node) {
     // C++ inline member function): weak, so the units link together
     fn.isWeak = weakNextFunction_ || node.isMethod;
     weakNextFunction_ = false;
+    fn.optOverrides = optOverrides_;
     fn.isRecurse = recurseNextFunction_;
     recurseNextFunction_ = false;
     fn.isInterrupt = node.isInterrupt;
@@ -8145,6 +8147,38 @@ void IRBuilder::visit(AsmStatement& node) {
     }
     if (node.code == ".recurse_next") {
         recurseNextFunction_ = true;
+        return;
+    }
+    if (node.code.rfind(".optimize ", 0) == 0) {
+        // #pragma cc45 optimize(a, no-b): IR passes for the function it is in,
+        // or (at file scope) for the functions that follow
+        std::map<std::string, bool>& target = currentFunc_ ? currentFunc_->optOverrides : optOverrides_;
+        std::stringstream list(node.code.substr(10));
+        std::string item;
+        while (std::getline(list, item, ',')) {
+            item.erase(0, item.find_first_not_of(" \t"));
+            item.erase(item.find_last_not_of(" \t") + 1);
+            if (item.empty()) continue;
+            bool on = item.compare(0, 3, "no-") != 0 && item.compare(0, 3, "no_") != 0;
+            std::string name = on ? item : item.substr(3);
+            const OptimizationInfo* o = OptimizationCatalog::find(name);
+            std::string where = loc(node).valid() ? loc(node).file + ":" + std::to_string(loc(node).line) + ": " : "";
+            if (!o) {
+                emitWarning(where + "warning: unknown optimization '" + name + "' in #pragma cc45 optimize");
+            } else if (o->impl == OptimizationImpl::IR_PASS) {
+                target[o->name] = on;
+            } else if (o->impl == OptimizationImpl::NONE) {
+                if (futureWarnings)
+                    emitWarning(where + "warning: optimization '" + o->kebabName() + "' is not implemented yet; #pragma cc45 optimize(" + item + ") has no effect");
+            } else if (on) {
+                // a file-wide or always-on optimization: asking for it is fine,
+                // only turning it off for one function cannot be done
+            } else if (o->impl == OptimizationImpl::ALWAYS_ON) {
+                emitWarning(where + "warning: '" + o->kebabName() + "' is part of code generation and cannot be disabled");
+            } else {
+                emitWarning(where + "warning: '" + o->kebabName() + "' applies to the whole file: use -fno-" + o->kebabName() + " on the command line");
+            }
+        }
         return;
     }
     if (node.code.rfind(".max_unroll_bytes ", 0) == 0) {

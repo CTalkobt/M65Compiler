@@ -55,6 +55,10 @@ public:
 
     void setSourceFile(const std::string& f) { sourceFile_ = f; }
     void setStackTop(int top) { stackTop_ = top; }
+    // -f<opt>/-fno-<opt> (catalog name -> on/off), --future, -Roptir
+    void setOptOverrides(const std::map<std::string, bool>& o) { optOverrides_ = o; }
+    void setFutureWarnings(bool f) { futureWarnings_ = f; }
+    void setTraceIROpt(bool t) { traceIROpt_ = t; }
     void setTypedefMappings(const std::map<std::string, std::string>& typedefMappings) {
         typedefMappings_ = typedefMappings;
     }
@@ -80,6 +84,12 @@ private:
     // Phase 102: Typedef mappings from parser (typedef_name → baseType)
     std::map<std::string, std::string> typedefMappings_;
     std::string sourceFile_;  // input file (module name for static symbols)
+    std::map<std::string, bool> optOverrides_;
+    bool futureWarnings_ = false;
+    bool traceIROpt_ = false;
+
+    // Is the catalog optimization `name` on: its -f/-fno- override, else the -O level's default
+    bool optOn(const std::string& name) const;
 
     // Helper methods for codegen phases
     void configureIRBuilder();

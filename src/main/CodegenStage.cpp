@@ -5,6 +5,8 @@
 #include "IRBuilder.hpp"
 #include "IRCodeGen.hpp"
 #include "FunctionAnalyzer.hpp"
+#include "IROptimizer.hpp"
+#include "OptimizationCatalog.hpp"
 #include <iostream>
 #include <sstream>
 #include <memory>
@@ -73,7 +75,13 @@ void CodegenStage::generateIR() {
     // Configure builder for this compilation
     builder.zpCallMode = zpCallMode_;
     builder.staticAllocMode = staticAlloc_;
-    builder.inlineFunctions = inlineFunctions_ || optimizationLevel_ >= 2;
+    // -finline-functions forces inlining; -f[no-]inline-small-functions or the
+    // -O level (2 and up) decide otherwise
+    builder.inlineFunctions = optOverrides_.count("InlineSmallFunctions")
+        ? optOverrides_.at("InlineSmallFunctions")
+        : (inlineFunctions_ || optOn("InlineSmallFunctions"));
+    builder.devirtualize = optOn("Devirtualization");
+    builder.futureWarnings = futureWarnings_;
     builder.maxInlineIRSize = maxInlineIRSize_;
     builder.maxUnrollBytes = maxUnrollBytes_;
     builder.allowImplicitFunctionDecl = allowImplicitFuncDecl_;
@@ -157,34 +165,51 @@ void CodegenStage::applyIPOSpecialization() {
     // This will be expanded in Phase 91.3+ for full specialization support
 }
 
+bool CodegenStage::optOn(const std::string& name) const {
+    auto it = optOverrides_.find(name);
+    if (it != optOverrides_.end()) return it->second;
+    return OptimizationCatalog::isEnabledAtLevel(name, optimizationLevel_);
+}
+
+// The IR passes of IROptimizer.cpp, in order. Each runs on a function when its
+// #pragma cc45 optimize(...) override says so, else when -f/-fno-/the -O level
+// enables it (all are on from -O1).
 void CodegenStage::optimizeIR() {
     if (verboseLevel_ >= 2) {
         std::cout << "  Optimizing IR..." << std::endl;
     }
-
     if (!irModule_) return;
 
-    // IR optimization passes are applied based on optimization level:
-    // Level 0: None
-    // Level 1: Basic (constant folding, dead code elimination)
-    // Level 2: Standard (+ strength reduction, copy propagation, CSE)
-    // Level 3+: Aggressive (+ loop optimizations, function inlining)
-    //
-    // Note: Actual IR optimization is performed by specialized passes
-    // (ConstantFolder, LoopOptimizer, etc.) invoked at appropriate stages
-    // during IR generation and code generation.
+    struct Pass { const char* name; void (*run)(ir::Module&); };
+    static const Pass passes[] = {
+        {"StrengthReduction", ir::optimizeStrengthReduction},
+        {"AlgebraicSimplify", ir::optimizeAlgebraic},
+        {"TypeNarrowing",     ir::optimizeTypeNarrowing},
+        {"BranchFolding",     ir::optimizeBranchFold},
+        {"CommonSubexprElim", ir::optimizeCSE},
+        {"LICM",              ir::optimizeLICM},
+        {"CopyPropagation",   ir::optimizeCopyChains},
+        {"AddrElemFusion",    ir::optimizeAddrElemFusion},
+    };
 
-    if (verboseLevel_ >= 3) {
-        if (optimizationLevel_ >= 1) {
-            std::cout << "    Level 1: Basic optimization passes" << std::endl;
+    ir::optTrace = traceIROpt_ ? &std::cerr : nullptr;
+    ir::passEnabled = [this](const ir::Function& fn, const char* name) {
+        auto it = fn.optOverrides.find(name);
+        if (it != fn.optOverrides.end()) return it->second;
+        return optOn(name);
+    };
+    for (const auto& p : passes) {
+        bool any = optOn(p.name);
+        for (const auto& fn : irModule_->functions) {
+            auto it = fn.optOverrides.find(p.name);
+            if (it != fn.optOverrides.end() && it->second) any = true;
         }
-        if (optimizationLevel_ >= 2) {
-            std::cout << "    Level 2: Standard optimization passes" << std::endl;
-        }
-        if (optimizationLevel_ >= 3) {
-            std::cout << "    Level 3+: Aggressive optimization passes" << std::endl;
-        }
+        if (!any) continue;
+        if (verboseLevel_ >= 2) std::cout << "    " << p.name << std::endl;
+        p.run(*irModule_);
     }
+    ir::passEnabled = nullptr;
+    ir::optTrace = nullptr;
 }
 
 void CodegenStage::applyInlining() {

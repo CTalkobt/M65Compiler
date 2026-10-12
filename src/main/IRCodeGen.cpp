@@ -1822,14 +1822,21 @@ void IRCodeGen::emitFunction(const ir::Function& fn, bool relocMode, bool isMain
     // because the codegen uses the constant value directly for sta $ADDR.
     suppressedVregs_.clear();
     {
-        // Pass 1: collect all CONST vreg values
+        // Pass 1: collect all CONST vreg values. Vregs are not SSA: one defined
+        // more than once (a && b's result: CONST 0 on one path, a value on the
+        // other) is not a constant
         std::map<uint32_t, int64_t> constDefs;
+        std::map<uint32_t, int> defCount;
         for (const auto& blk : fn.blocks) {
             for (const auto& inst : blk.insts) {
+                if (inst.dest.isVreg()) defCount[inst.dest.vregId]++;
                 if (inst.op == ir::Op::CONST && inst.dest.isVreg())
                     constDefs[inst.dest.vregId] = inst.src1.immVal;
             }
         }
+        multiDefVregs_.clear();
+        for (const auto& [v, n] : defCount)
+            if (n > 1) { multiDefVregs_.insert(v); constDefs.erase(v); }
         // Pass 2: identify CALL instructions where all args are simple
         // (const vregs or immediates). Mark those args' local slot vregs as dead.
         auto isSimpleArg = [&](const ir::Operand& arg) -> bool {
@@ -2895,7 +2902,10 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
 
         case ir::Op::CONST: {
             int val = (int)inst.src1.immVal;
-            if (inst.dest.isVreg()) vregConstVal_[inst.dest.vregId] = val;
+            if (inst.dest.isVreg()) {
+                if (multiDefVregs_.count(inst.dest.vregId)) vregConstVal_.erase(inst.dest.vregId);
+                else vregConstVal_[inst.dest.vregId] = val;
+            }
             // Skip emission for suppressed CONST vregs (address-only, used by direct store)
             if (inst.dest.isVreg() && suppressedVregs_.count(inst.dest.vregId)) break;
 
@@ -3089,13 +3099,15 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                 // Check for inc a / dec a optimization
                 bool isInc = (inst.op == ir::Op::ADD && inst.src2.isImm() && inst.src2.immVal == 1);
                 bool isDec = (inst.op == ir::Op::SUB && inst.src2.isImm() && inst.src2.immVal == 1);
+                // src2's operand first: a value not in ZP is loaded (through A)
+                // into scratch, which would clobber src1 already loaded in A
+                std::string src2 = (isInc || isDec) ? std::string() : src2MemOperand(inst.src2);
                 loadOperandA(inst.src1);
                 if (isInc) {
                     emit("inc a");
                 } else if (isDec) {
                     emit("dec a");
                 } else {
-                    std::string src2 = src2MemOperand(inst.src2);
                     if (inst.op == ir::Op::ADD) {
                         emit("clc");
                         emit("adc " + src2);
@@ -3750,14 +3762,21 @@ void IRCodeGen::emitInst(const ir::Inst& inst) {
                     "#" + base.name : src2MemOperand(base);
                 emitArrayElemAddr(baseStr, index, stride, "__zp_scratch");
                 // Now load from (__zp_scratch),Y
+                if (inst.resultType == ir::Type::I32) {
+                    // Top byte first, so Y stays the index until the end:
+                    // Z = b3, X = b1, A = b0, Y = b2
+                    emit("ldy #3"); emit("lda (__zp_scratch),y"); emit("taz");
+                    emit("dey");    emit("lda (__zp_scratch),y"); emit("pha");
+                    emit("dey");    emit("lda (__zp_scratch),y"); emit("tax");
+                    emit("dey");    emit("lda (__zp_scratch),y");
+                    emit("ply");
+                    if (inst.dest.isVreg()) storeVreg(inst.dest.vregId);
+                    ms_.invalidateAll();
+                    break;
+                }
                 emit("ldy #0");
                 emit("lda (__zp_scratch),y");
-                if (inst.resultType == ir::Type::I32) {
-                    emit("pha"); emit("iny"); emit("lda (__zp_scratch),y");
-                    emit("tax"); emit("iny"); emit("lda (__zp_scratch),y");
-                    emit("tay"); emit("iny"); emit("lda (__zp_scratch),y");
-                    emit("taz"); emit("tya"); emit("tay"); emit("pla");
-                } else if (inst.resultType != ir::Type::I8) {
+                if (inst.resultType != ir::Type::I8) {
                     emit("pha"); emit("iny"); emit("lda (__zp_scratch),y");
                     emit("tax"); emit("pla");
                 } else {

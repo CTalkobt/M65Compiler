@@ -699,6 +699,21 @@ static std::string stripCommentsAndStrings(const std::string& s) {
     return r;
 }
 
+// #pragma cc45 optimize(a, no-b) / optimize a,no-b: the directive for
+// IRBuilder (".optimize a,no-b"), or "" when the list is empty. `first` is the
+// word that starts with "optimize"; the rest of the line comes from `in`.
+static std::string optimizeDirective(const std::string& first, std::istream& in) {
+    std::string rest = first.substr(8), tail;
+    while (in >> tail) rest += " " + tail;
+    std::string list;
+    for (char ch : rest) {
+        if (std::isalnum((unsigned char)ch) || ch == '-' || ch == '_') list += ch;
+        else if ((ch == ',' || ch == ' ') && !list.empty() && list.back() != ',') list += ',';
+    }
+    while (!list.empty() && list.back() == ',') list.pop_back();
+    return list.empty() ? std::string() : "__asm__(\".optimize " + list + "\");\n";
+}
+
 // Does the source spell "long long" (struct __int64)?
 static bool hasLongLong(const std::string& s) {
     for (size_t p = s.find("long"); p != std::string::npos; p = s.find("long", p + 4)) {
@@ -1220,6 +1235,9 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                             output << "__asm__(\".max_unroll_bytes " + digits + "\");\n";
                         else
                             output << "\n";
+                    } else if (cc45Arg.rfind("optimize", 0) == 0) {
+                        std::string d = optimizeDirective(cc45Arg, ss);
+                        output << (d.empty() ? std::string("\n") : d);
                     } else if (cc45Arg.rfind("max_inline_ir_size", 0) == 0) {
                         // Accepts "max_inline_ir_size N" and "max_inline_ir_size(N)"
                         std::string rest = cc45Arg.substr(18), tail;
@@ -1318,6 +1336,7 @@ std::string Preprocessor::processInternal(const std::string& source, const std::
                         else if (cc45Arg == "set_bp") { std::string bv; ps >> bv; output << "__asm__(\".set_bp " + bv + "\");\n"; }
                         else if (cc45Arg == "weak") output << "__asm__(\".weak_next\");\n";
                         else if (cc45Arg == "recurse") output << "__asm__(\".recurse_next\");\n";
+                        else if (cc45Arg.rfind("optimize", 0) == 0) output << optimizeDirective(cc45Arg, ps);
                         else if (cc45Arg == "unroll") {
                             std::string countStr;
                             if (ps >> countStr) {

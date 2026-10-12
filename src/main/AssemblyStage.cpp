@@ -79,6 +79,7 @@ int AssemblyStage::invokeAssembler() {
 
     // Add output file
     cmd += " -o " + objectFile_;
+    if (!extraArgs_.empty()) cmd += " " + extraArgs_;
 
     // Add verbosity flags
     if (verboseLevel_ >= 2) {

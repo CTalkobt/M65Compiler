@@ -7,6 +7,7 @@
 #include "CodegenStage.hpp"
 #include "AssemblyStage.hpp"
 #include "LinkingStage.hpp"
+#include "OptimizationCatalog.hpp"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -152,6 +153,9 @@ CompilationResult CompilationPipeline::compile() {
         codegenStage.setMaxUnrollBytes(config_.maxUnrollBytes);
         codegenStage.setSourceFile(config_.inputFile);
         codegenStage.setStackTop(config_.stackTop);
+        codegenStage.setOptOverrides(config_.optOverrides);
+        codegenStage.setFutureWarnings(config_.futureWarnings);
+        codegenStage.setTraceIROpt(config_.traceIROpt);
 
         auto codegenResult = runStage(codegenStage);
         if (!codegenResult.success) {
@@ -169,7 +173,17 @@ CompilationResult CompilationPipeline::compile() {
         asmFile.close();
 
         if (config_.assemblyOnly) {
-            std::rename(tempAsmFile.c_str(), config_.outputFile.c_str());
+            // -S: the assembly is the output. Write it directly (a rename of the
+            // temp file fails across filesystems and for /dev/null)
+            remove(tempAsmFile.c_str());
+            std::ofstream out(config_.outputFile);
+            out << irOutput;
+            if (!out) {
+                result.success = false;
+                result.exitCode = 253;
+                result.error = "Cannot write " + config_.outputFile;
+                return result;
+            }
             result.success = true;
             return result;
         }
@@ -181,6 +195,14 @@ CompilationResult CompilationPipeline::compile() {
         bool needRelocatable = config_.objectOnly || !config_.assemblyOnly;
         AssemblyStage asmStage(irOutput, objectFile, config_.verboseLevel,
                               needRelocatable, config_.toolDir);
+        // -f/-fno- of the optimizations ca45 implements: forwarded as -P<name>/-PNo<name>
+        std::string asmArgs;
+        for (const auto& [name, on] : config_.optOverrides) {
+            const OptimizationInfo* o = OptimizationCatalog::getOptimization(name);
+            if (o && o->impl == OptimizationImpl::ASM_PASS)
+                asmArgs += std::string(asmArgs.empty() ? "" : " ") + (on ? "-P" : "-PNo") + o->asmFlag;
+        }
+        asmStage.setExtraArgs(asmArgs);
         auto asmResult = runStage(asmStage);
         remove(tempAsmFile.c_str());
 

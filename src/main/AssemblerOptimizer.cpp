@@ -118,18 +118,32 @@ bool AssemblerOptimizer::optimizeInternal(
             while (j < parser->statements.size() && parser->statements[j]->deleted) ++j;
             if (j >= parser->statements.size()) continue;
 
+            // Step over label-only statements (cc45's "@__return:"): the RTS
+            // after them is a branch target and stays, only the call becomes a jump
+            bool labelled = false;
+            while (j < parser->statements.size() &&
+                   (parser->statements[j]->deleted ||
+                    (parser->statements[j]->type == AssemblerParser::Statement::NONE &&
+                     !parser->statements[j]->label.empty()))) {
+                if (!parser->statements[j]->deleted) labelled = true;
+                ++j;
+            }
+            if (j >= parser->statements.size()) continue;
             auto* next = parser->statements[j].get();
-            if (!next->label.empty()) continue;
             if (next->type != AssemblerParser::Statement::INSTRUCTION) continue;
 
             std::string nm = next->instr.mnemonic;
             std::transform(nm.begin(), nm.end(), nm.begin(), ::toupper);
 
-            if (parser->optFlags.tailCall && (nm == "RTS" || nm == "RTN") && next->instr.mode == AddressingMode::IMPLIED) {
-                report("tail-call", s, "JSR " + s->instr.operand + " + RTS → JMP (saved 1 byte)");
+            if (parser->optFlags.tailCall && nm == "RTS" && next->instr.mode == AddressingMode::IMPLIED) {
+                bool keepRts = labelled || !next->label.empty();
+                report("tail-call", s, "JSR " + s->instr.operand + " + RTS → JMP" +
+                       (keepRts ? " (RTS kept: labelled)" : " (saved 1 byte)"));
                 s->instr.mnemonic = "jmp";
-                next->deleted = true;
-                next->size = 0;
+                if (!keepRts) {
+                    next->deleted = true;
+                    next->size = 0;
+                }
                 changed = true;
             }
         }

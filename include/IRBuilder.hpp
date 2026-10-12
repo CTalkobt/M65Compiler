@@ -38,6 +38,8 @@ public:
     bool inlineFunctions = false;
     int maxInlineIRSize = 11;  // -fmax-inline-ir-size / #pragma cc45 max_inline_ir_size
     int maxUnrollBytes = 128;  // -fmax-unroll-bytes / #pragma cc45 max_unroll_bytes: largest unrolled code
+    bool devirtualize = true;    // -f[no-]devirtualization: single-implementation virtual calls -> direct calls
+    bool futureWarnings = false; // --future: warn when #pragma cc45 optimize(...) names an unimplemented optimization
     bool allowImplicitFunctionDecl = false;  // -fimplicit-function-declaration
 
     // ASTVisitor interface
@@ -126,6 +128,7 @@ private:
     ir::Operand lastValue_;
     bool computeAddressOnly_ = false;
     bool weakNextFunction_ = false;
+    std::map<std::string, bool> optOverrides_;  // #pragma cc45 optimize(...): for the functions that follow
     bool recurseNextFunction_ = false;  // #pragma cc45 recurse
 
     // Variable tracking: name → allocated vReg (address operand for locals)
